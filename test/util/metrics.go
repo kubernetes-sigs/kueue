@@ -17,6 +17,8 @@ limitations under the License.
 package util
 
 import (
+	"time"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	gomegatypes "github.com/onsi/gomega/types"
@@ -107,10 +109,14 @@ func ExpectReservingActiveWorkloadsMetric(cq *kueue.ClusterQueue, value int) {
 	expectGaugeMetric(metrics.ReservingActiveWorkloads, lvs, gomega.Equal(float64(value)))
 }
 
-func ExpectAdmittedWorkloadsTotalMetric(cq *kueue.ClusterQueue, priorityClass string, v int, customLabels ...string) {
+func ExpectAdmittedWorkloadsTotalMetricWithTimeout(cq *kueue.ClusterQueue, priorityClass string, v int, timeout time.Duration, customLabels ...string) {
 	ginkgo.GinkgoHelper()
-	expectCounterMetric(metrics.AdmittedWorkloadsTotal, v,
-		append([]string{cq.Name, priorityClass, roletracker.RoleStandalone}, customLabels...)...)
+	expectCounterMetricWithTimeout(metrics.AdmittedWorkloadsTotal, v,
+		timeout, append([]string{cq.Name, priorityClass, roletracker.RoleStandalone}, customLabels...)...)
+}
+
+func ExpectAdmittedWorkloadsTotalMetric(cq *kueue.ClusterQueue, priorityClass string, v int, customLabels ...string) {
+	ExpectAdmittedWorkloadsTotalMetricWithTimeout(cq, priorityClass, v, Timeout, customLabels...)
 }
 
 func ExpectAdmissionWaitTimeMetric(cq *kueue.ClusterQueue, priorityClass string, count int) {
@@ -223,13 +229,17 @@ func ExpectLQFinishedWorkloadsGaugeMetric(lq *kueue.LocalQueue, count int) {
 	expectGaugeMetric(metrics.LocalQueueFinishedWorkloads, lvs, gomega.Equal(float64(count)))
 }
 
-func expectCounterMetric(metric *prometheus.CounterVec, count int, lvs ...string) {
+func expectCounterMetricWithTimeout(metric *prometheus.CounterVec, count int, timeout time.Duration, lvs ...string) {
 	ginkgo.GinkgoHelper()
 	gomega.Eventually(func(g gomega.Gomega) {
 		v, err := testutil.GetCounterMetricValue(metric.WithLabelValues(lvs...))
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		g.Expect(int(v)).Should(gomega.Equal(count))
-	}, Timeout, Interval).Should(gomega.Succeed())
+	}, timeout, Interval).Should(gomega.Succeed())
+}
+
+func expectCounterMetric(metric *prometheus.CounterVec, count int, lvs ...string) {
+	expectCounterMetricWithTimeout(metric, count, Timeout, lvs...)
 }
 
 func ExpectLQAdmissionWaitTimeMetric(lq *kueue.LocalQueue, priorityClass string, count int) {
