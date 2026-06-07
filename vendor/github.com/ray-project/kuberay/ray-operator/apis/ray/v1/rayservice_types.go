@@ -67,7 +67,6 @@ type ClusterUpgradeOptions struct {
 	// +kubebuilder:default:=100
 	MaxSurgePercent *int32 `json:"maxSurgePercent,omitempty"`
 	// The percentage of traffic to switch to the upgraded RayCluster at a set interval after scaling by MaxSurgePercent.
-	// StepSizePercent must be less than or equal to MaxSurgePercent.
 	StepSizePercent *int32 `json:"stepSizePercent"`
 	// The interval in seconds between transferring StepSize traffic from the old to new RayCluster.
 	IntervalSeconds *int32 `json:"intervalSeconds"`
@@ -123,9 +122,8 @@ type RayServiceSpec struct {
 	// +optional
 	ExcludeHeadPodFromServeSvc bool `json:"excludeHeadPodFromServeSvc,omitempty"`
 	// Suspend indicates whether the RayService should suspend its execution. When set to true,
-	// all Kubernetes resources owned by the RayService controller (RayClusters, Kubernetes
-	// Services, Gateway, HTTPRoute) will be deleted. Setting it back to false will allow the
-	// RayService controller to recreate the resources.
+	// all Kubernetes resources owned by the RayService controller will be deleted. Setting it
+	// back to false will allow the RayService controller to recreate the resources.
 	// +optional
 	Suspend bool `json:"suspend,omitempty"`
 }
@@ -235,6 +233,7 @@ const (
 	SuspendRequested               RayServiceConditionReason = "SuspendRequested"
 	SuspendInProgress              RayServiceConditionReason = "SuspendInProgress"
 	SuspendComplete                RayServiceConditionReason = "SuspendComplete"
+	RayServiceResumed              RayServiceConditionReason = "RayServiceResumed"
 )
 
 // +kubebuilder:object:root=true
