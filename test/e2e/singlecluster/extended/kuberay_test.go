@@ -1106,6 +1106,7 @@ app = HelloWorld.bind()`,
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
+		var initialClusterName string
 		ginkgo.By("Waiting for the active RayCluster to run and the RayService to be ready", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				createdRayService := &rayv1.RayService{}
@@ -1115,6 +1116,7 @@ app = HelloWorld.bind()`,
 				rcs := childRayClusters(g)
 				g.Expect(rcs).To(gomega.HaveLen(1))
 				g.Expect(countSuspended(rcs)).To(gomega.Equal(0))
+				initialClusterName = rcs[0].Name
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -1187,6 +1189,29 @@ app = HelloWorld.bind()`,
 				// child; KubeRay then promotes it and tears the old cluster down.
 				g.Expect(countSuspended(rcs)).To(gomega.Equal(0))
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Verifying the old RayCluster is deleted after promotion", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				rcs := childRayClusters(g)
+				g.Expect(rcs).To(gomega.HaveLen(1))
+				g.Expect(rcs[0].Name).NotTo(gomega.Equal(initialClusterName))
+				g.Expect(countSuspended(rcs)).To(gomega.Equal(0))
+			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Verifying quota settles back to a single RayCluster's reservation", func() {
+			// After the old cluster is gone, PodSets shrink to the single-cluster
+			// shape and EnsureWorkloadSlices handles it as a scale-down: the upgrade
+			// slice's counts drop to head=1/worker=1, so the ClusterQueue reserves
+			// quota for one RayCluster (2 pods), not two.
+			gomega.Eventually(func(g gomega.Gomega) {
+				wls := notFinishedWorkloads(g)
+				g.Expect(wls).To(gomega.HaveLen(1))
+				g.Expect(workload.IsAdmitted(&wls[0])).To(gomega.BeTrue())
+				g.Expect(totalPods(&wls[0])).To(gomega.Equal(int32(2)))
+				g.Expect(headPodSetCount(&wls[0])).To(gomega.Equal(int32(1)))
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })
