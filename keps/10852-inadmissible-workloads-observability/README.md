@@ -253,18 +253,18 @@ over higher tiers:
 | **Tier 1** | Workload Deactivation | `Deactivated` | Workload is explicitly deactivated (`spec.active: false`). | None |
 | **Tier 2** | Structural Blockers | `Misconfigured` | Permanent structural error preventing admission (e.g., non-existent/inactive LocalQueue or ClusterQueue, resource flavor mismatch, DRA misconfiguration). | Missing local/cluster queue - None<br>ResourceFlavor mismatch - `ClusterQueue.inadmissibleWorkloads`<br>DRA issues - None |
 | **Tier 3** | Structural Quota Blockers | `ExceedsMaxQuota` | Workload requests resource quantities exceeding ClusterQueue or Cohort maximum limits. | `ClusterQueue.inadmissibleWorkloads` |
-| **Tier 4** | Orchestration & Administrative Holds | `Suspended`, `AdmissionGated`, `WaitingForPodsReady` | Workload is structurally valid, but admission is halted due to:<br>- Administrative hold (workload.spec.active is true or the queue's StopPolicy is active).<br>- Gated state (AdmissionGatedBy annotation).<br>- Scheduling hold (waiting for previously admitted workloads to reach PodsReady under waitForPodsReady configuration). | AdmissionGated - None<br>StopPolicy - None<br>WaitingForPodsReady - blocks and waits |
+| **Tier 4** | Orchestration & Administrative Holds | `Suspended`, `AdmissionGated`, `WaitingForPodsReady` | Workload is structurally valid, but admission is halted due to:<br>- Administrative hold (the queue's StopPolicy is active).<br>- Gated state (AdmissionGatedBy annotation).<br>- Scheduling hold (waiting for previously admitted workloads to reach PodsReady under waitForPodsReady configuration). | AdmissionGated - None<br>StopPolicy - None<br>WaitingForPodsReady - blocks and waits |
 | **Tier 5** | Resource Deficits | `WaitingForQuota` | Workload fits within the maximum limits of the ClusterQueue or Cohort, but the cluster currently lacks sufficient unreserved capacity (including when preemption is required but is blocked by preemption gates). | `ClusterQueue.inadmissibleWorkloads` |
 | **Tier 6** | Active Queueing | `PendingEvaluation` | Workload is submitted, structurally valid, resides actively in the queue, and is awaiting its capacity evaluation. Set also after eviction. | `ClusterQueue.heap` |
 
->*Note: Precedence Resolution examples:*
->- *If a workload requests resource quantities exceeding the ClusterQueue
->  maximum limits (Tier 3) but is also blocked by an unsatisfied
->  admission gate (Tier 4), the resolved reason is written as
->  `ExceedsMaxQuota` due to Tier 3 priority.*
->- *If a workload is waiting for capacity (Tier 5) but also has unsatisfied
->  admission gates (Tier 4), the resolved reason is written as
->  `AdmissionGated` due to Tier 4 priority.*
+*Note: Precedence Resolution examples:*
+- *If a workload requests resource quantities exceeding the ClusterQueue
+  maximum limits (Tier 3) but is also blocked by an unsatisfied
+  admission gate (Tier 4), the resolved reason is written as
+  `ExceedsMaxQuota` due to Tier 3 priority.*
+- *If a workload is waiting for capacity (Tier 5) but also has unsatisfied
+  admission gates (Tier 4), the resolved reason is written as
+  `AdmissionGated` due to Tier 4 priority.*
 
 #### Multi-Flavor Precedence Resolution
 
@@ -366,7 +366,10 @@ tracking:
 This ensures that pending workloads are fully tracked from the moment of their
 creation, regardless of whether explicit status initialization is active.
 
-The exact label mapping matrix is detailed below:
+When the `reason` label is `NoReservation` (the workload lacks a quota
+reservation), the `underlying_cause` label maps 1:1 to the `QuotaReserved`
+condition's reason (covering all 6 precedence tiers). Representative examples
+of these mapping combinations are detailed below:
 
 | Admitted Reason | QuotaReserved Reason | `reason` Label | `underlying_cause` Label | Description / Scenario |
 | :--- | :--- | :--- | :--- | :--- |
@@ -500,7 +503,7 @@ status:
 ### Test Plan
 
 [x] I/we understand the owners of the involved components may require updates to
-existing tests to make this code solid enough prior to committing the changes
+existing tests to make this code solid enough before committing the changes
 necessary to implement this enhancement.
 
 #### Unit Tests
