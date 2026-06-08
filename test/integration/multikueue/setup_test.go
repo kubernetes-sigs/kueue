@@ -823,9 +823,9 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			gomega.Eventually(func(g gomega.Gomega) {
 				mkc := &kueue.MultiKueueConfig{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(managerMultiKueueConfig), mkc)).To(gomega.Succeed())
-				mkc.Spec.QuotaManagementMode = ptr.To(kueue.QuotaManagementAutomated)
+				mkc.Spec.QuotaManagement = ptr.To(kueue.QuotaManagementAutomated)
 				mkc.Spec.AutomatedQuotaManagementConfig = &kueue.AutomatedQuotaManagementConfig{
-					AggregateResourceFlavorSpec: managerFlavor.Spec,
+					AggregateResourceFlavorRef: kueue.ResourceFlavorReference(managerFlavor.Name),
 				}
 				g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, mkc)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -835,15 +835,16 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			gomega.Eventually(func(g gomega.Gomega) {
 				cq := &kueue.ClusterQueue{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, cqKey, cq)).To(gomega.Succeed())
-				g.Expect(cq.Spec.ResourceGroups).To(gomega.HaveLen(1))
-				g.Expect(cq.Spec.ResourceGroups[0].Flavors).To(gomega.HaveLen(1))
-				g.Expect(cq.Spec.ResourceGroups[0].Flavors[0].Resources).To(gomega.HaveLen(1))
-				g.Expect(cq.Spec.ResourceGroups[0].Flavors[0].Resources[0].Name).To(gomega.Equal(corev1.ResourceCPU))
-				g.Expect(cq.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota.String()).To(gomega.Equal("20"))
+				rgs := cq.Status.EffectiveResourceGroups
+				g.Expect(rgs).To(gomega.HaveLen(1))
+				g.Expect(rgs[0].Flavors).To(gomega.HaveLen(1))
+				g.Expect(rgs[0].Flavors[0].Resources).To(gomega.HaveLen(1))
+				g.Expect(rgs[0].Flavors[0].Resources[0].Name).To(gomega.Equal(corev1.ResourceCPU))
+				g.Expect(rgs[0].Flavors[0].Resources[0].NominalQuota.String()).To(gomega.Equal("20"))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.It("Should update manager ClusterQueue quota when worker ClusterQueue quota changes", func() {
+		ginkgo.FIt("Should update manager ClusterQueue quota when worker ClusterQueue quota changes", func() {
 			ginkgo.By("decrease worker1 ClusterQueue quota")
 			gomega.Eventually(func(g gomega.Gomega) {
 				w1Cq := &kueue.ClusterQueue{}

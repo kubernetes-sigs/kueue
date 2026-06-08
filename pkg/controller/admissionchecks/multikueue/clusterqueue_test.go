@@ -49,6 +49,8 @@ func TestCQReconcile(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.MultiKueueManagerQuotaAutomation, true)
 	features.SetFeatureGateDuringTest(t, features.EffectiveResourceQuotas, true)
 
+	mkFlavor := utiltestingapi.MakeResourceFlavor("mk-flavor").Obj()
+
 	cases := map[string]struct {
 		cq      *kueue.ClusterQueue
 		lqs     []*kueue.LocalQueue
@@ -74,7 +76,7 @@ func TestCQReconcile(t *testing.T) {
 					Obj(),
 			},
 			configs: []*kueue.MultiKueueConfig{
-				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1", "worker2").QuotaManagement(kueue.QuotaManagementAutomated).Obj(),
+				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1", "worker2").QuotaManagement(kueue.QuotaManagementAutomated, mkFlavor.Name).Obj(),
 			},
 			workers: map[string]workerState{
 				"worker1": {
@@ -98,7 +100,7 @@ func TestCQReconcile(t *testing.T) {
 			},
 			wantQuotaAutomated: true,
 			wantRGs: []kueue.ResourceGroup{utiltestingapi.ResourceGroup(
-				*utiltestingapi.MakeFlavorQuotas(kueue.MultiKueueAutoQuotaDefaultFlavorName).
+				*utiltestingapi.MakeFlavorQuotas(mkFlavor.Name).
 					Resource("cpu", "15").
 					Resource("memory", "30Gi").
 					Obj(),
@@ -124,7 +126,7 @@ func TestCQReconcile(t *testing.T) {
 					Obj(),
 			},
 			configs: []*kueue.MultiKueueConfig{
-				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1", "worker2").QuotaManagement(kueue.QuotaManagementAutomated).Obj(),
+				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1", "worker2").QuotaManagement(kueue.QuotaManagementAutomated, mkFlavor.Name).Obj(),
 			},
 			workers: map[string]workerState{
 				"worker1": {
@@ -153,7 +155,7 @@ func TestCQReconcile(t *testing.T) {
 			},
 			wantQuotaAutomated: true,
 			wantRGs: []kueue.ResourceGroup{utiltestingapi.ResourceGroup(
-				*utiltestingapi.MakeFlavorQuotas(kueue.MultiKueueAutoQuotaDefaultFlavorName).
+				*utiltestingapi.MakeFlavorQuotas(mkFlavor.Name).
 					Resource("cpu", "10").
 					Obj(),
 			)},
@@ -179,7 +181,7 @@ func TestCQReconcile(t *testing.T) {
 					Obj(),
 			},
 			configs: []*kueue.MultiKueueConfig{
-				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1", "worker2").QuotaManagement(kueue.QuotaManagementAutomated).Obj(),
+				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1", "worker2").QuotaManagement(kueue.QuotaManagementAutomated, mkFlavor.Name).Obj(),
 			},
 			workers: map[string]workerState{
 				"worker1": {
@@ -213,7 +215,7 @@ func TestCQReconcile(t *testing.T) {
 			},
 			wantQuotaAutomated: true,
 			wantRGs: []kueue.ResourceGroup{utiltestingapi.ResourceGroup(
-				*utiltestingapi.MakeFlavorQuotas(kueue.MultiKueueAutoQuotaDefaultFlavorName).
+				*utiltestingapi.MakeFlavorQuotas(mkFlavor.Name).
 					Resource("cpu", "23"). // 10 + 5 + 8; 10 should be counted only once
 					Obj(),
 			)},
@@ -239,7 +241,7 @@ func TestCQReconcile(t *testing.T) {
 					Obj(),
 			},
 			configs: []*kueue.MultiKueueConfig{
-				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1").QuotaManagement(kueue.QuotaManagementManual).Obj(),
+				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1").QuotaManagement(kueue.QuotaManagementManual, "").Obj(),
 			},
 			workers: map[string]workerState{
 				"worker1": {
@@ -275,7 +277,7 @@ func TestCQReconcile(t *testing.T) {
 					Obj(),
 			},
 			configs: []*kueue.MultiKueueConfig{
-				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1").QuotaManagement(kueue.QuotaManagementAutomated).Obj(),
+				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1").QuotaManagement(kueue.QuotaManagementAutomated, mkFlavor.Name).Obj(),
 			},
 			wantQuotaAutomated: false,
 			wantCondition: &metav1.Condition{
@@ -300,7 +302,7 @@ func TestCQReconcile(t *testing.T) {
 					Obj(),
 			},
 			configs: []*kueue.MultiKueueConfig{
-				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1").QuotaManagement(kueue.QuotaManagementAutomated).Obj(),
+				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1").QuotaManagement(kueue.QuotaManagementAutomated, mkFlavor.Name).Obj(),
 			},
 			wantQuotaAutomated: false,
 			wantCondition: &metav1.Condition{
@@ -327,7 +329,7 @@ func TestCQReconcile(t *testing.T) {
 					Obj(),
 			},
 			configs: []*kueue.MultiKueueConfig{
-				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1").QuotaManagement(kueue.QuotaManagementAutomated).Obj(),
+				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1").QuotaManagement(kueue.QuotaManagementAutomated, mkFlavor.Name).Obj(),
 			},
 			wantQuotaAutomated: false,
 			wantCondition: &metav1.Condition{

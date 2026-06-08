@@ -725,11 +725,11 @@ in the AdmissionScope. Possible values are:</p>
 <tbody>
     
   
-<tr><td><code>aggregateResourceFlavorSpec</code> <B>[Required]</B><br/>
-<a href="#kueue-x-k8s-io-v1beta2-ResourceFlavorSpec"><code>ResourceFlavorSpec</code></a>
+<tr><td><code>aggregateResourceFlavorRef</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta2-ResourceFlavorReference"><code>ResourceFlavorReference</code></a>
 </td>
 <td>
-   <p>aggregateResourceFlavorSpec is the specification of the resource flavor MultiKueue creates and maintains for the auto-aggregated resource flavors</p>
+   <p>aggregateResourceFlavorRef is the reference to the resource flavor MultiKueue creates and maintains for the auto-aggregated resource flavors</p>
 </td>
 </tr>
 </tbody>
@@ -3107,6 +3107,8 @@ this time would be reset to null.</p>
 
 - [AdmissionCheckStrategyRule](#kueue-x-k8s-io-v1beta2-AdmissionCheckStrategyRule)
 
+- [AutomatedQuotaManagementConfig](#kueue-x-k8s-io-v1beta2-AutomatedQuotaManagementConfig)
+
 - [ConcurrentAdmissionConstraints](#kueue-x-k8s-io-v1beta2-ConcurrentAdmissionConstraints)
 
 - [FlavorQuotas](#kueue-x-k8s-io-v1beta2-FlavorQuotas)
@@ -3129,8 +3131,6 @@ this time would be reset to null.</p>
 **Appears in:**
 
 - [ResourceFlavor](#kueue-x-k8s-io-v1beta2-ResourceFlavor)
-
-- [AutomatedQuotaManagementConfig](#kueue-x-k8s-io-v1beta2-AutomatedQuotaManagementConfig)
 
 
 <p>ResourceFlavorSpec defines the desired state of the ResourceFlavor</p>

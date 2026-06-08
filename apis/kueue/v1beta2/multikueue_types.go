@@ -23,7 +23,6 @@ import (
 const (
 	MultiKueueConfigSecretKey = "kubeconfig"
 	MultiKueueClusterActive   = "Active"
-	MultiKueueAutoQuotaDefaultFlavorName = "multikueue-aggregated-flavor"
 
 	// MultiKueueOriginLabel is a label used to track the creator
 	// of multikueue remote objects.
@@ -165,7 +164,7 @@ type MultiKueueConfigSpec struct {
 	// - `Automated`: Quota automation is enabled (provided that the MultiKueueManagerQuotaAutomation feature gate is enabled).
 	// If unspecified, defaults to `Manual`.
 	// +optional
-	QuotaManagementMode *MultiKueueConfigQuotaManagementMode `json:"quotaManagementMode,omitempty"`
+	QuotaManagement *MultiKueueConfigQuotaManagementMode `json:"quotaManagementMode,omitempty"`
 
 	// automatedQuotaManagementConfig is the configuration for the automated quota management.
 	// It is only relevant when quotaManagementMode is set to `Automated`.
@@ -187,8 +186,8 @@ const (
 
 // AutomatedQuotaManagementConfig is the configuration for the automated quota management in MultiKueue ClusterQueues.
 type AutomatedQuotaManagementConfig struct {
-	// aggregateResourceFlavorSpec is the specification of the resource flavor MultiKueue creates and maintains for the auto-aggregated resource flavors 
-	AggregateResourceFlavorSpec ResourceFlavorSpec `json:"aggregateResourceFlavorSpec,omitempty"`
+	// aggregateResourceFlavorRef is the reference to the resource flavor MultiKueue creates and maintains for the auto-aggregated resource flavors 
+	AggregateResourceFlavorRef ResourceFlavorReference `json:"aggregateResourceFlavorRef,omitempty"`
 }
 
 // +genclient

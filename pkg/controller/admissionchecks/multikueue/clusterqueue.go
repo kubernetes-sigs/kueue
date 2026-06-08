@@ -23,7 +23,6 @@ import (
 	"slices"
 	"time"
 
-	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -100,7 +99,7 @@ func (r *cqReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		return reconcile.Result{}, err
 	}
 
-	if ptr.Deref(cfg.Spec.QuotaManagementMode, kueue.QuotaManagementManual) == kueue.QuotaManagementManual {
+	if ptr.Deref(cfg.Spec.QuotaManagement, kueue.QuotaManagementManual) == kueue.QuotaManagementManual {
 		err = r.syncEffectiveQuotaToSpec(ctx, cq, kueue.QuotaAutoimationNotRequested, "MultiKueue manager quota automation has not been requested.")
 		return reconcile.Result{}, err
 	}
@@ -112,11 +111,6 @@ func (r *cqReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 			kueue.UnsupportedQuotaAutomationConfiguration,
 			"ResourceGroups set manually in ClusterQueue spec.",
 		)
-	}
-
-	if err = r.syncAggregateFlavors(ctx, log, cfg); err != nil {
-		log.Error(err, "Failed to validate the aggregate resource flavor")
-		return reconcile.Result{}, err
 	}
 
 	aggregatedRGs, err := r.aggregateWorkerQuotas(ctx, cq, cfg)
@@ -134,29 +128,6 @@ func (r *cqReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	}
 
 	return reconcile.Result{}, r.updateQuotaAutomationCondition(ctx, cq, metav1.ConditionTrue, kueue.QuotaAutomated, "ClusterQueue quota is automatically managed based on MultiKueue workers.")
-}
-
-func (r *cqReconciler) syncAggregateFlavors(ctx context.Context, log logr.Logger, cfg *kueue.MultiKueueConfig) error {
-	log = log.WithValues("aggregate ResourceFlavor name", kueue.MultiKueueAutoQuotaDefaultFlavorName)
-	rf := &kueue.ResourceFlavor{}
-	if err := r.client.Get(ctx, client.ObjectKey{Name: kueue.MultiKueueAutoQuotaDefaultFlavorName}, rf); client.IgnoreNotFound(err) != nil {
-		log.Error(err, "Failed to get the aggregate ResourceFlavor")
-		return err
-	} else if err != nil {
-		log.V(3).Info("Aggregate ResourceFlavor not found. Creating.")
-		rf = &kueue.ResourceFlavor{
-			TypeMeta: metav1.TypeMeta{
-				Kind: "ResourceFlavor",
-				APIVersion: "kueue.x-k8s.io/v1beta2",
-			},
-			ObjectMeta: metav1.ObjectMeta{
-				Name: kueue.MultiKueueAutoQuotaDefaultFlavorName,
-			},
-			Spec: cfg.Spec.AutomatedQuotaManagementConfig.AggregateResourceFlavorSpec,
-		}
-		return r.client.Create(ctx, rf)
-	}
-	return nil
 }
 
 // Aggregates all worker resources into a one, global MultiKueue flavor.
@@ -232,7 +203,7 @@ func (r *cqReconciler) aggregateWorkerQuotas(ctx context.Context, cq *kueue.Clus
 	return &[]kueue.ResourceGroup{{
 		CoveredResources: coveredResources,
 		Flavors: []kueue.FlavorQuotas{{
-			Name:      kueue.MultiKueueAutoQuotaDefaultFlavorName,
+			Name:      cfg.Spec.AutomatedQuotaManagementConfig.AggregateResourceFlavorRef,
 			Resources: aggregatedResources,
 		}},
 	}}, nil

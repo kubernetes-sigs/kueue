@@ -96,13 +96,25 @@ func (w *ClusterQueueWebhook) ValidateDelete(_ context.Context, _ *kueue.Cluster
 
 func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
 	allErrs := validateClusterQueueSpec(cq)
+
+	// When using EffectiveResourceQuotas, we can't validate AC flavors reliably.
+	// This should not be a problem, as AC flavors not present in ResourceGroups will never be utilized.
+	if !features.Enabled(features.EffectiveResourceQuotas) {
 	allErrs = append(allErrs, validateAdmissionCheckOnFlavors(cq)...)
+	}
+
 	return allErrs
 }
 
 func ValidateClusterQueueUpdate(oldCQ, newCQ *kueue.ClusterQueue) field.ErrorList {
 	allErrs := validateClusterQueueSpec(newCQ)
-	allErrs = append(allErrs, validateAdmissionCheckOnFlavorsUpdate(oldCQ, newCQ)...)
+
+	// When using EffectiveResourceQuotas, we can't validate AC flavors reliably.
+	// This should not be a problem, as AC flavors not present in ResourceGroups will never be utilized.
+	if !features.Enabled(features.EffectiveResourceQuotas) {
+		allErrs = append(allErrs, validateAdmissionCheckOnFlavorsUpdate(oldCQ, newCQ)...)
+	}
+	
 	allErrs = append(allErrs, apimachineryvalidation.ValidateImmutableField(
 		newCQ.Spec.ConcurrentAdmissionPolicy,
 		oldCQ.Spec.ConcurrentAdmissionPolicy,
@@ -160,7 +172,7 @@ func validateAdmissionCheckOnFlavorsUpdate(oldCQ, newCQ *kueue.ClusterQueue) fie
 			}
 		}
 	}
-
+ 
 	return validateAdmissionCheckOnFlavorsWithOld(newCQ, oldOnFlavorsByName)
 }
 

@@ -1594,13 +1594,11 @@ func (mkc *MultiKueueConfigWrapper) Clusters(clusters ...string) *MultiKueueConf
 	return mkc
 }
 
-func (mkc *MultiKueueConfigWrapper) QuotaManagement(mode kueue.MultiKueueConfigQuotaManagementMode) *MultiKueueConfigWrapper {
-	mkc.Spec.QuotaManagementMode = &mode
+func (mkc *MultiKueueConfigWrapper) QuotaManagement(mode kueue.MultiKueueConfigQuotaManagementMode, flavorRef string) *MultiKueueConfigWrapper {
+	mkc.Spec.QuotaManagement = &mode
 	if mode == kueue.QuotaManagementAutomated {
 		mkc.Spec.AutomatedQuotaManagementConfig = &kueue.AutomatedQuotaManagementConfig{
-			AggregateResourceFlavorSpec: kueue.ResourceFlavorSpec{
-				NodeLabels: make(map[string]string),
-			},
+			AggregateResourceFlavorRef: kueue.ResourceFlavorReference(flavorRef),
 		}
 	}
 	return mkc

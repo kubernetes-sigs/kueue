@@ -18,13 +18,17 @@ limitations under the License.
 
 package v1beta2
 
+import (
+	kueuev1beta2 "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+)
+
 // AutomatedQuotaManagementConfigApplyConfiguration represents a declarative configuration of the AutomatedQuotaManagementConfig type for use
 // with apply.
 //
 // AutomatedQuotaManagementConfig is the configuration for the automated quota management in MultiKueue ClusterQueues.
 type AutomatedQuotaManagementConfigApplyConfiguration struct {
-	// aggregateResourceFlavorSpec is the specification of the resource flavor MultiKueue creates and maintains for the auto-aggregated resource flavors
-	AggregateResourceFlavorSpec *ResourceFlavorSpecApplyConfiguration `json:"aggregateResourceFlavorSpec,omitempty"`
+	// aggregateResourceFlavorRef is the reference to the resource flavor MultiKueue creates and maintains for the auto-aggregated resource flavors
+	AggregateResourceFlavorRef *kueuev1beta2.ResourceFlavorReference `json:"aggregateResourceFlavorRef,omitempty"`
 }
 
 // AutomatedQuotaManagementConfigApplyConfiguration constructs a declarative configuration of the AutomatedQuotaManagementConfig type for use with
@@ -33,10 +37,10 @@ func AutomatedQuotaManagementConfig() *AutomatedQuotaManagementConfigApplyConfig
 	return &AutomatedQuotaManagementConfigApplyConfiguration{}
 }
 
-// WithAggregateResourceFlavorSpec sets the AggregateResourceFlavorSpec field in the declarative configuration to the given value
+// WithAggregateResourceFlavorRef sets the AggregateResourceFlavorRef field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the AggregateResourceFlavorSpec field is set to the value of the last call.
-func (b *AutomatedQuotaManagementConfigApplyConfiguration) WithAggregateResourceFlavorSpec(value *ResourceFlavorSpecApplyConfiguration) *AutomatedQuotaManagementConfigApplyConfiguration {
-	b.AggregateResourceFlavorSpec = value
+// If called multiple times, the AggregateResourceFlavorRef field is set to the value of the last call.
+func (b *AutomatedQuotaManagementConfigApplyConfiguration) WithAggregateResourceFlavorRef(value kueuev1beta2.ResourceFlavorReference) *AutomatedQuotaManagementConfigApplyConfiguration {
+	b.AggregateResourceFlavorRef = &value
 	return b
 }
