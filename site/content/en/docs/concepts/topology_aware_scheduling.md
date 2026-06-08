@@ -217,10 +217,11 @@ accounts for the workload on that node. As a result the freed capacity is not re
 the workload is eventually evicted (for example by `waitForPodsReady.recoveryTimeout`), which
 can take several minutes.
 
-With the `TASReplaceNodeOnNodeTaints` feature gate enabled, Kueue treats a node as failed when
-it carries a scheduling taint (`NoExecute` or `NoSchedule`) that the workload does not tolerate,
-and handles it through the same hot swap flow described above. This lets Kueue release the stale
-capacity quickly instead of waiting for the workload to time out.
+With the `TASReplaceNodeOnNodeTaints` feature gate enabled, a scheduling taint (`NoExecute` or
+`NoSchedule`) that the workload does not tolerate can cause Kueue to treat the node as failed and
+handle it through the same hot swap flow described above, releasing the stale capacity quickly
+instead of waiting for the workload to time out. When the node is treated as failed depends on the
+taint effect and whether the workload's Pods are still running on it, as described below.
 
 Only the `NoExecute` and `NoSchedule` taint effects are considered; nodes with other taint
 effects (such as `PreferNoSchedule`) are not treated as failed. Whether a taint is tolerated is
@@ -238,9 +239,10 @@ taint effects differ in how the Pods stop running:
   the taint, so they stop running on their own. If a Pod tolerates the taint with a
   `tolerationSeconds` value, the taint eviction controller keeps that Pod for the given duration
   before evicting it, so the node is treated as failed only after that Pod stops running.
-- **`NoSchedule`**: A `NoSchedule` taint does not evict already-running Pods, so a workload whose
-  Pods keep running on the tainted node is left undisturbed. Kueue triggers recovery only after
-  those Pods stop running there, for example after they are drained manually.
+- **`NoSchedule`**: A `NoSchedule` taint does not evict already-running Pods, so under the default
+  `TASReplaceNodeOnPodTermination` behavior a workload whose Pods keep running on the tainted node
+  is left undisturbed, and Kueue triggers recovery only after those Pods stop running there, for
+  example after they are drained manually.
 
 In all cases, Kueue replaces the failed node when `TASFailedNodeReplacement` is enabled, or
 evicts the workload if no replacement is possible.
