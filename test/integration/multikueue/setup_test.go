@@ -844,7 +844,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.FIt("Should update manager ClusterQueue quota when worker ClusterQueue quota changes", func() {
+		ginkgo.It("Should update manager ClusterQueue quota when worker ClusterQueue quota changes", func() {
 			ginkgo.By("decrease worker1 ClusterQueue quota")
 			gomega.Eventually(func(g gomega.Gomega) {
 				w1Cq := &kueue.ClusterQueue{}
