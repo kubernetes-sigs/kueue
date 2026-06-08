@@ -50,7 +50,7 @@ import (
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
-	"sigs.k8s.io/cluster-inventory-api/pkg/credentials"
+	"sigs.k8s.io/cluster-inventory-api/pkg/access"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -622,7 +622,7 @@ func (NoOpClusterProfileCreds) BuildConfigFromCP(clusterprofile *inventoryv1alph
 	return nil, errors.New("no credentials provider configured")
 }
 
-var _ clusterProfileCreds = (*credentials.CredentialsProvider)(nil)
+var _ clusterProfileCreds = (*access.Config)(nil)
 var _ clusterProfileCreds = (*NoOpClusterProfileCreds)(nil)
 
 var _ manager.Runnable = (*clustersReconciler)(nil)
