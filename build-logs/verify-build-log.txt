@@ -1,0 +1,933 @@
+Docker in Docker enabled, initializing...
+================================================================================
+net.ipv6.conf.all.disable_ipv6 = 0
+net.ipv6.conf.all.forwarding = 1
+insmod /lib/modules/6.12.88/kernel/net/ipv6/netfilter/ip6table_nat.ko 
+Starting Docker: docker.
+Waiting for docker to be ready, sleeping for 1 seconds.
+================================================================================
+Done setting up docker in docker.
++ WRAPPED_COMMAND_PID=257
++ wait 257
++ make verify
+make -j 8 --output-sync=target verify-checks
+make[1]: Entering directory '/home/prow/go/src/sigs.k8s.io/kueue'
+/usr/bin/sed -r 's/(.*(HUGO_VERSION).*)/  HUGO_VERSION = "0.162.1"/g' -i netlify.toml
+make[1]: Leaving directory '/home/prow/go/src/sigs.k8s.io/kueue'
+make[1]: Entering directory '/home/prow/go/src/sigs.k8s.io/kueue'
+cd /home/prow/go/src/sigs.k8s.io/kueue/hack/tools/metricsdoc && \
+ go build -ldflags="-X 'sigs.k8s.io/kueue/pkg/version.GitVersion=v0.19.0-devel-67-g9cefc3814' -X 'sigs.k8s.io/kueue/pkg/version.GitCommit=9cefc3814f951236e725cfbf8797012a913af831' -X 'sigs.k8s.io/kueue/pkg/version.BuildDate=2026-06-10T09:49:52Z'" -o /home/prow/go/src/sigs.k8s.io/kueue/bin/metricsdoc
+make[1]: Leaving directory '/home/prow/go/src/sigs.k8s.io/kueue'
+make[1]: Entering directory '/home/prow/go/src/sigs.k8s.io/kueue'
+go: downloading sigs.k8s.io/mdtoc v1.4.0
+go: downloading github.com/gomarkdown/markdown v0.0.0-20240328165702-4d01890c35c0
+go: downloading sigs.k8s.io/release-utils v0.8.3
+go: downloading github.com/mmarkdown/mmark v2.0.40+incompatible
+go: downloading github.com/spf13/cobra v1.8.1
+go: downloading github.com/spf13/pflag v1.0.5
+go: downloading github.com/common-nighthawk/go-figure v0.0.0-20210622060536-734e95fb86be
+go: downloading github.com/BurntSushi/toml v0.3.1
+make[1]: Leaving directory '/home/prow/go/src/sigs.k8s.io/kueue'
+make[1]: Entering directory '/home/prow/go/src/sigs.k8s.io/kueue'
+go: downloading go.uber.org/mock v0.6.0
+go: downloading golang.org/x/mod v0.27.0
+go: downloading golang.org/x/tools v0.36.0
+go: downloading golang.org/x/sync v0.16.0
+make[1]: Leaving directory '/home/prow/go/src/sigs.k8s.io/kueue'
+make[1]: Entering directory '/home/prow/go/src/sigs.k8s.io/kueue'
+go: downloading github.com/sirupsen/logrus v1.9.3
+go: downloading github.com/spf13/viper v1.16.0
+go: downloading github.com/gobwas/glob v0.2.3
+go: downloading github.com/Masterminds/sprig/v3 v3.2.3
+go: downloading helm.sh/helm/v3 v3.15.2
+go: downloading golang.org/x/sys v0.18.0
+go: downloading github.com/spf13/cast v1.5.1
+go: downloading github.com/fsnotify/fsnotify v1.6.0
+go: downloading github.com/mitchellh/mapstructure v1.5.0
+go: downloading github.com/spf13/afero v1.9.5
+go: downloading github.com/spf13/jwalterweatherman v1.1.0
+go: downloading github.com/Masterminds/semver/v3 v3.2.1
+go: downloading github.com/huandu/xstrings v1.4.0
+go: downloading github.com/imdario/mergo v0.3.13
+go: downloading github.com/mitchellh/copystructure v1.2.0
+go: downloading github.com/shopspring/decimal v1.3.1
+go: downloading golang.org/x/crypto v0.21.0
+go: downloading github.com/subosito/gotenv v1.4.2
+go: downloading github.com/hashicorp/hcl v1.0.0
+go: downloading gopkg.in/ini.v1 v1.67.0
+go: downloading github.com/magiconair/properties v1.8.7
+go: downloading github.com/pelletier/go-toml/v2 v2.0.8
+go: downloading github.com/mitchellh/reflectwalk v1.0.2
+go: downloading golang.org/x/text v0.14.0
+make[1]: Leaving directory '/home/prow/go/src/sigs.k8s.io/kueue'
+make[1]: Entering directory '/home/prow/go/src/sigs.k8s.io/kueue'
+go: downloading sigs.k8s.io/kustomize/kustomize/v5 v5.8.1
+go: downloading sigs.k8s.io/kustomize/cmd/config v0.21.1
+go: downloading sigs.k8s.io/kustomize/api v0.21.1
+go: downloading sigs.k8s.io/kustomize/kyaml v0.21.1
+go: downloading github.com/spf13/cobra v1.9.1
+go: downloading github.com/spf13/pflag v1.0.6
+go: downloading sigs.k8s.io/yaml v1.5.0
+go: downloading go.yaml.in/yaml/v2 v2.4.2
+go: downloading golang.org/x/text v0.28.0
+go: downloading github.com/blang/semver/v4 v4.0.0
+go: downloading github.com/go-errors/errors v1.4.2
+go: downloading gopkg.in/evanphx/json-patch.v4 v4.13.0
+go: downloading github.com/google/gnostic-models v0.6.9
+go: downloading google.golang.org/protobuf v1.36.5
+go: downloading k8s.io/kube-openapi v0.0.0-20241212222426-2c72e554b1e7
+go: downloading github.com/sergi/go-diff v1.4.0
+go: downloading github.com/davecgh/go-spew v1.1.1
+go: downloading go.yaml.in/yaml/v3 v3.0.3
+go: downloading github.com/monochromegane/go-gitignore v0.0.0-20200626010858-205db1a8cc00
+go: downloading github.com/xlab/treeprint v1.2.0
+go: downloading gopkg.in/inf.v0 v0.9.1
+go: downloading gopkg.in/yaml.v3 v3.0.1
+go: downloading github.com/go-openapi/swag v0.23.0
+go: downloading github.com/go-openapi/jsonreference v0.20.2
+go: downloading github.com/go-openapi/jsonpointer v0.21.0
+go: downloading github.com/mailru/easyjson v0.7.7
+go: downloading github.com/josharian/intern v1.0.0
+make[1]: Leaving directory '/home/prow/go/src/sigs.k8s.io/kueue'
+make[1]: Entering directory '/home/prow/go/src/sigs.k8s.io/kueue'
+→ Downloading tools dependencies...
+cd /home/prow/go/src/sigs.k8s.io/kueue/hack/tools && go mod download
+make[1]: Leaving directory '/home/prow/go/src/sigs.k8s.io/kueue'
+make[1]: Entering directory '/home/prow/go/src/sigs.k8s.io/kueue'
+go: downloading github.com/mikefarah/yq/v4 v4.53.2
+go: downloading github.com/spf13/cobra v1.10.2
+go: downloading github.com/a8m/envsubst v1.4.3
+go: downloading github.com/spf13/pflag v1.0.10
+go: downloading github.com/alecthomas/participle/v2 v2.1.4
+go: downloading github.com/dimchansky/utfbom v1.1.1
+go: downloading github.com/elliotchance/orderedmap v1.8.0
+go: downloading github.com/fatih/color v1.19.0
+go: downloading github.com/go-ini/ini v1.67.0
+go: downloading github.com/goccy/go-json v0.10.6
+go: downloading github.com/goccy/go-yaml v1.19.2
+go: downloading github.com/hashicorp/hcl/v2 v2.24.0
+go: downloading github.com/jinzhu/copier v0.4.0
+go: downloading github.com/magiconair/properties v1.8.10
+go: downloading github.com/pelletier/go-toml/v2 v2.3.0
+go: downloading github.com/yuin/gopher-lua v1.1.2
+go: downloading github.com/zclconf/go-cty v1.18.0
+go: downloading go.yaml.in/yaml/v4 v4.0.0-rc.4
+go: downloading golang.org/x/net v0.52.0
+go: downloading golang.org/x/text v0.35.0
+go: downloading github.com/mattn/go-colorable v0.1.14
+go: downloading github.com/mattn/go-isatty v0.0.20
+go: downloading github.com/agext/levenshtein v1.2.1
+go: downloading github.com/apparentlymart/go-textseg/v15 v15.0.0
+go: downloading github.com/mitchellh/go-wordwrap v1.0.1
+go: downloading github.com/google/go-cmp v0.6.0
+go: downloading golang.org/x/sys v0.42.0
+make[1]: Leaving directory '/home/prow/go/src/sigs.k8s.io/kueue'
+make[1]: Entering directory '/home/prow/go/src/sigs.k8s.io/kueue'
+cd /home/prow/go/src/sigs.k8s.io/kueue/hack/tools/yaml-processor && \
+ go build -ldflags="-X 'sigs.k8s.io/kueue/pkg/version.GitVersion=v0.19.0-devel-67-g9cefc3814' -X 'sigs.k8s.io/kueue/pkg/version.GitCommit=9cefc3814f951236e725cfbf8797012a913af831' -X 'sigs.k8s.io/kueue/pkg/version.BuildDate=2026-06-10T09:49:53Z'" -o /home/prow/go/src/sigs.k8s.io/kueue/bin/yaml-processor
+go: downloading github.com/pelletier/go-toml/v2 v2.3.1
+go: downloading golang.org/x/net v0.55.0
+go: downloading golang.org/x/text v0.37.0
+go: downloading go.yaml.in/yaml/v2 v2.4.4
+go: downloading github.com/mattn/go-isatty v0.0.22
+go: downloading go.uber.org/multierr v1.11.0
+go: downloading golang.org/x/sys v0.45.0
+go: downloading github.com/pelletier/go-toml v1.9.5
+make[1]: Leaving directory '/home/prow/go/src/sigs.k8s.io/kueue'
+make[1]: Entering directory '/home/prow/go/src/sigs.k8s.io/kueue'
+/home/prow/go/src/sigs.k8s.io/kueue/bin/metricsdoc --metrics-package=pkg/metrics --out=site/content/en/docs/reference/metrics.md
+make[1]: Leaving directory '/home/prow/go/src/sigs.k8s.io/kueue'
+make[1]: Entering directory '/home/prow/go/src/sigs.k8s.io/kueue'
+/home/prow/go/src/sigs.k8s.io/kueue/hack/tools/mdtoc/generate.sh
+Updating tables of contents if necessary...
+make[1]: Leaving directory '/home/prow/go/src/sigs.k8s.io/kueue'
+make[1]: Entering directory '/home/prow/go/src/sigs.k8s.io/kueue'
+/home/prow/go/src/sigs.k8s.io/kueue/bin/helm-docs -c /home/prow/go/src/sigs.k8s.io/kueue/charts/kueue
+time="2026-06-10T09:52:39Z" level=info msg="Found Chart directories [.]"
+time="2026-06-10T09:52:39Z" level=info msg="Generating README Documentation for chart /home/prow/go/src/sigs.k8s.io/kueue/charts/kueue"
+make[1]: Leaving directory '/home/prow/go/src/sigs.k8s.io/kueue'
+make[1]: Entering directory '/home/prow/go/src/sigs.k8s.io/kueue'
+/usr/bin/sed -r 's/v[0-9]+\.[0-9]+\.[0-9]+/v0.18.0/g' -i README.md -i site/hugo.toml -i cmd/kueueviz/INSTALL.md
+/usr/bin/sed -r 's/chart_version = "[0-9]+\.[0-9]+\.[0-9]+/chart_version = "0.18.0/g' -i README.md -i site/hugo.toml
+/usr/bin/sed -r 's/--version="[0-9]+\.[0-9]+\.[0-9]+/--version="0.18.0/g' -i charts/kueue/README.md.gotmpl -i cmd/kueueviz/INSTALL.md
+/usr/bin/sed -r 's/[0-9]+\.[0-9]+\.[0-9]+/0.18.0/g' -i charts/kueue/README.md
+/home/prow/go/src/sigs.k8s.io/kueue/bin/yq e '.appVersion = "v0.18.0" | .version = "0.18.0"' -i charts/kueue/Chart.yaml
+/home/prow/go/src/sigs.k8s.io/kueue/bin/yq e '.controllerManager.manager.image.tag = "main" | .kueueViz.backend.image.tag = "main" | .kueueViz.frontend.image.tag = "main"' -i charts/kueue/values.yaml
+/home/prow/go/src/sigs.k8s.io/kueue/bin/yq e '.version = "0.18.0"' -i cmd/kueueviz/frontend/package.json
+/home/prow/go/src/sigs.k8s.io/kueue/bin/yq e '.version = "0.18.0" | .packages[""].version = "0.18.0"' -i cmd/kueueviz/frontend/package-lock.json
+/home/prow/go/src/sigs.k8s.io/kueue/bin/yq e '.version = "0.18.0"' -i test/e2e/kueueviz/package.json
+/home/prow/go/src/sigs.k8s.io/kueue/bin/yq e '.version = "0.18.0" | .packages[""].version = "0.18.0"' -i test/e2e/kueueviz/package-lock.json
+# Update kueue-populator chart version and image tag
+/home/prow/go/src/sigs.k8s.io/kueue/bin/yq e '.appVersion = "v0.18.0" | .version = "0.18.0" | .dependencies[0].version = "~0.18.0"' -i cmd/experimental/kueue-populator/charts/kueue-populator/Chart.yaml
+/home/prow/go/src/sigs.k8s.io/kueue/bin/yq e '.kueuePopulator.image.tag = "main"' -i cmd/experimental/kueue-populator/charts/kueue-populator/values.yaml
+/usr/bin/sed -r 's/[0-9]+\.[0-9]+\.[0-9]+/0.18.0/g' -i cmd/experimental/kueue-populator/README.md -i cmd/experimental/kueue-populator/charts/kueue-populator/README.md
+# Update kueue-priority-booster chart version and image tag
+/home/prow/go/src/sigs.k8s.io/kueue/bin/yq e '.appVersion = "v0.18.0" | .version = "0.18.0" | .dependencies[0].version = "~0.18.0"' -i cmd/experimental/kueue-priority-booster/charts/kueue-priority-booster/Chart.yaml
+/home/prow/go/src/sigs.k8s.io/kueue/bin/yq e '.kueuePriorityBooster.image.tag = "main"' -i cmd/experimental/kueue-priority-booster/charts/kueue-priority-booster/values.yaml
+/usr/bin/sed -r 's/[0-9]+\.[0-9]+\.[0-9]+/0.18.0/g' -i cmd/experimental/kueue-priority-booster/README.md
+make[1]: Leaving directory '/home/prow/go/src/sigs.k8s.io/kueue'
+make generate-helm-docs
+make[1]: Entering directory '/home/prow/go/src/sigs.k8s.io/kueue'
+mkdir -p /logs/artifacts
+/usr/bin/docker run --rm -v /home/prow/go/src/sigs.k8s.io/kueue:/workspace:Z -v /logs/artifacts:/out:Z ghcr.io/stbenjam/skillsaw:0.9.2 --output /out/skillsaw-summary.html
+Unable to find image 'ghcr.io/stbenjam/skillsaw:0.9.2' locally
+0.9.2: Pulling from stbenjam/skillsaw
+bce2073474a5: Pulling fs layer
+01f59aef9b5c: Pulling fs layer
+fb4c70443787: Pulling fs layer
+6f92665ed17a: Pulling fs layer
+fc02a233aaa1: Pulling fs layer
+b6f93d244ccf: Pulling fs layer
+2a3b67323d2b: Pulling fs layer
+718c8a2952dd: Pulling fs layer
+8bbce51ad92d: Pulling fs layer
+2faf6a8a6469: Pulling fs layer
+6f92665ed17a: Waiting
+fc02a233aaa1: Waiting
+b6f93d244ccf: Waiting
+2a3b67323d2b: Waiting
+718c8a2952dd: Waiting
+8bbce51ad92d: Waiting
+2faf6a8a6469: Waiting
+01f59aef9b5c: Verifying Checksum
+01f59aef9b5c: Download complete
+6f92665ed17a: Verifying Checksum
+6f92665ed17a: Download complete
+fc02a233aaa1: Verifying Checksum
+fc02a233aaa1: Download complete
+fb4c70443787: Download complete
+2a3b67323d2b: Download complete
+b6f93d244ccf: Verifying Checksum
+b6f93d244ccf: Download complete
+bce2073474a5: Verifying Checksum
+bce2073474a5: Download complete
+718c8a2952dd: Verifying Checksum
+718c8a2952dd: Download complete
+2faf6a8a6469: Verifying Checksum
+2faf6a8a6469: Download complete
+8bbce51ad92d: Verifying Checksum
+8bbce51ad92d: Download complete
+bce2073474a5: Pull complete
+01f59aef9b5c: Pull complete
+fb4c70443787: Pull complete
+6f92665ed17a: Pull complete
+fc02a233aaa1: Pull complete
+b6f93d244ccf: Pull complete
+2a3b67323d2b: Pull complete
+718c8a2952dd: Pull complete
+8bbce51ad92d: Pull complete
+2faf6a8a6469: Pull complete
+Digest: sha256:98693be7dbc56dc6dabde162ba5b2d0e47c912725c211c0ec5df80807bb852a6
+Status: Downloaded newer image for ghcr.io/stbenjam/skillsaw:0.9.2
+Linting: /workspace
+
+
+[1mScanned:[0m
+  Repo type: agentskills
+  Plugins:   0
+  Skills:    24
+  Rules run: 33
+
+[1mSummary:[0m
+  [91mErrors:   0[0m
+  [93mWarnings: 0[0m
+
+[92m[1m✓ All checks passed![0m
+make[1]: Leaving directory '/home/prow/go/src/sigs.k8s.io/kueue'
+make[1]: Entering directory '/home/prow/go/src/sigs.k8s.io/kueue'
+/home/prow/go/src/sigs.k8s.io/kueue/hack/tools/compatibility-lifecycle/generate.sh
+Cloning into '/home/prow/go/src/sigs.k8s.io/kueue/bin/.cache/compatibility_lifecycle/kubernetes-v1.36.0'...
+Note: switching to 'ecf6decece6a6de25a57aad9ba90b6ce580f6f78'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+Updating files:   0% (103/29230)Updating files:   1% (293/29230)Updating files:   1% (319/29230)Updating files:   1% (484/29230)Updating files:   1% (534/29230)Updating files:   2% (585/29230)Updating files:   2% (673/29230)Updating files:   2% (851/29230)Updating files:   3% (877/29230)Updating files:   3% (1061/29230)Updating files:   4% (1170/29230)Updating files:   4% (1204/29230)Updating files:   4% (1314/29230)Updating files:   4% (1408/29230)Updating files:   4% (1447/29230)Updating files:   5% (1462/29230)Updating files:   5% (1463/29230)Updating files:   5% (1524/29230)Updating files:   5% (1621/29230)Updating files:   5% (1641/29230)Updating files:   5% (1709/29230)Updating files:   6% (1754/29230)Updating files:   6% (1814/29230)Updating files:   6% (1888/29230)Updating files:   6% (1933/29230)Updating files:   6% (1969/29230)Updating files:   6% (1995/29230)Updating files:   6% (2042/29230)Updating files:   7% (2047/29230)Updating files:   7% (2111/29230)Updating files:   7% (2194/29230)Updating files:   7% (2280/29230)Updating files:   8% (2339/29230)Updating files:   8% (2354/29230)Updating files:   8% (2500/29230)Updating files:   8% (2537/29230)Updating files:   9% (2631/29230)Updating files:   9% (2660/29230)Updating files:   9% (2814/29230)Updating files:   9% (2901/29230)Updating files:  10% (2923/29230)Updating files:  10% (2961/29230)Updating files:  10% (2999/29230)Updating files:  10% (3120/29230)Updating files:  10% (3180/29230)Updating files:  11% (3216/29230)Updating files:  11% (3314/29230)Updating files:  12% (3508/29230)Updating files:  12% (3720/29230)Updating files:  13% (3800/29230)Updating files:  14% (4093/29230)Updating files:  14% (4105/29230)Updating files:  14% (4181/29230)Updating files:  14% (4229/29230)Updating files:  14% (4365/29230)Updating files:  15% (4385/29230)Updating files:  15% (4500/29230)Updating files:  15% (4551/29230)Updating files:  15% (4609/29230)Updating files:  16% (4677/29230)Updating files:  16% (4811/29230)Updating files:  16% (4943/29230)Updating files:  17% (4970/29230)Updating files:  17% (4975/29230)Updating files:  17% (5038/29230)Updating files:  17% (5134/29230)Updating files:  17% (5180/29230)Updating files:  17% (5248/29230)Updating files:  18% (5262/29230)Updating files:  18% (5323/29230)Updating files:  18% (5391/29230)Updating files:  18% (5490/29230)Updating files:  18% (5535/29230)Updating files:  19% (5554/29230)Updating files:  19% (5559/29230)Updating files:  19% (5693/29230)Updating files:  19% (5752/29230)Updating files:  19% (5815/29230)Updating files:  20% (5846/29230)Updating files:  21% (6139/29230)Updating files:  21% (6218/29230)Updating files:  22% (6431/29230)Updating files:  23% (6723/29230)Updating files:  23% (6810/29230)Updating files:  24% (7016/29230)Updating files:  25% (7308/29230)Updating files:  25% (7311/29230)Updating files:  26% (7600/29230)Updating files:  26% (7866/29230)Updating files:  27% (7893/29230)Updating files:  27% (7900/29230)Updating files:  27% (7999/29230)Updating files:  27% (8029/29230)Updating files:  27% (8072/29230)Updating files:  27% (8155/29230)Updating files:  28% (8185/29230)Updating files:  28% (8410/29230)Updating files:  29% (8477/29230)Updating files:  30% (8769/29230)Updating files:  30% (9053/29230)Updating files:  31% (9062/29230)Updating files:  32% (9354/29230)Updating files:  32% (9380/29230)Updating files:  33% (9646/29230)Updating files:  33% (9719/29230)Updating files:  34% (9939/29230)Updating files:  34% (10173/29230)Updating files:  35% (10231/29230)Updating files:  35% (10370/29230)Updating files:  35% (10391/29230)Updating files:  35% (10461/29230)Updating files:  35% (10495/29230)Updating files:  36% (10523/29230)Updating files:  36% (10592/29230)Updating files:  36% (10625/29230)Updating files:  37% (10816/29230)Updating files:  37% (10943/29230)Updating files:  38% (11108/29230)Updating files:  38% (11142/29230)Updating files:  38% (11359/29230)Updating files:  39% (11400/29230)Updating files:  39% (11518/29230)Updating files:  40% (11692/29230)Updating files:  40% (11740/29230)Updating files:  41% (11985/29230)Updating files:  41% (12079/29230)Updating files:  42% (12277/29230)Updating files:  42% (12415/29230)Updating files:  43% (12569/29230)Updating files:  44% (12862/29230)Updating files:  44% (12987/29230)Updating files:  45% (13154/29230)Updating files:  45% (13170/29230)Updating files:  45% (13411/29230)Updating files:  46% (13446/29230)Updating files:  46% (13705/29230)Updating files:  47% (13739/29230)Updating files:  48% (14031/29230)Updating files:  48% (14278/29230)Updating files:  49% (14323/29230)Updating files:  50% (14615/29230)Updating files:  50% (14747/29230)Updating files:  51% (14908/29230)Updating files:  52% (15200/29230)Updating files:  52% (15351/29230)Updating files:  53% (15492/29230)Updating files:  54% (15785/29230)Updating files:  54% (15899/29230)Updating files:  55% (16077/29230)Updating files:  55% (16343/29230)Updating files:  56% (16369/29230)Updating files:  56% (16651/29230)Updating files:  57% (16662/29230)Updating files:  58% (16954/29230)Updating files:  58% (17114/29230)Updating files:  59% (17246/29230)Updating files:  60% (17538/29230)Updating files:  60% (17563/29230)Updating files:  61% (17831/29230)Updating files:  61% (18008/29230)Updating files:  62% (18123/29230)Updating files:  63% (18415/29230)Updating files:  63% (18553/29230)Updating files:  64% (18708/29230)Updating files:  65% (19000/29230)Updating files:  65% (19167/29230)Updating files:  66% (19292/29230)Updating files:  67% (19585/29230)Updating files:  67% (19621/29230)Updating files:  68% (19877/29230)Updating files:  68% (19974/29230)Updating files:  69% (20169/29230)Updating files:  70% (20461/29230)Updating files:  70% (20483/29230)Updating files:  71% (20754/29230)Updating files:  71% (20880/29230)Updating files:  72% (21046/29230)Updating files:  73% (21338/29230)Updating files:  73% (21424/29230)Updating files:  74% (21631/29230)Updating files:  74% (21891/29230)Updating files:  75% (21923/29230)Updating files:  75% (21986/29230)Updating files:  75% (22164/29230)Updating files:  76% (22215/29230)Updating files:  76% (22350/29230)Updating files:  77% (22508/29230)Updating files:  77% (22533/29230)Updating files:  78% (22800/29230)Updating files:  78% (22966/29230)Updating files:  79% (23092/29230)Updating files:  80% (23384/29230)Updating files:  80% (23417/29230)Updating files:  80% (23563/29230)Updating files:  81% (23677/29230)Updating files:  81% (23731/29230)Updating files:  81% (23919/29230)Updating files:  82% (23969/29230)Updating files:  82% (24087/29230)Updating files:  83% (24261/29230)Updating files:  83% (24328/29230)Updating files:  83% (24483/29230)Updating files:  84% (24554/29230)Updating files:  84% (24625/29230)Updating files:  85% (24846/29230)Updating files:  85% (24848/29230)Updating files:  85% (25026/29230)Updating files:  86% (25138/29230)Updating files:  86% (25293/29230)Updating files:  87% (25431/29230)Updating files:  87% (25709/29230)Updating files:  88% (25723/29230)Updating files:  89% (26015/29230)Updating files:  89% (26018/29230)Updating files:  90% (26307/29230)Updating files:  91% (26600/29230)Updating files:  91% (26689/29230)Updating files:  92% (26892/29230)Updating files:  92% (27078/29230)Updating files:  93% (27184/29230)Updating files:  93% (27430/29230)Updating files:  94% (27477/29230)Updating files:  95% (27769/29230)Updating files:  95% (27958/29230)Updating files:  96% (28061/29230)Updating files:  96% (28312/29230)Updating files:  97% (28354/29230)Updating files:  98% (28646/29230)Updating files:  98% (28816/29230)Updating files:  99% (28938/29230)Updating files: 100% (29230/29230)Updating files: 100% (29230/29230), done.
+found 66 features in FeatureSpecMap var defaultVersionedFeatureGates in file: /home/prow/go/src/sigs.k8s.io/kueue/pkg/features/kube_features.go
+make[1]: Leaving directory '/home/prow/go/src/sigs.k8s.io/kueue'
+make[2]: Entering directory '/home/prow/go/src/sigs.k8s.io/kueue'
+/home/prow/go/src/sigs.k8s.io/kueue/bin/helm-docs -c /home/prow/go/src/sigs.k8s.io/kueue/charts/kueue
+time="2026-06-10T09:52:54Z" level=info msg="Found Chart directories [.]"
+time="2026-06-10T09:52:54Z" level=info msg="Generating README Documentation for chart /home/prow/go/src/sigs.k8s.io/kueue/charts/kueue"
+make[2]: Leaving directory '/home/prow/go/src/sigs.k8s.io/kueue'
+make[1]: Entering directory '/home/prow/go/src/sigs.k8s.io/kueue'
+→ Downloading controller-gen locally if necessary...
+GOBIN=/home/prow/go/src/sigs.k8s.io/kueue/bin GO111MODULE=on go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.20.1
+go: downloading k8s.io/apimachinery v0.35.0
+go: downloading k8s.io/code-generator v0.35.0
+go: downloading golang.org/x/tools v0.40.0
+go: downloading k8s.io/apiextensions-apiserver v0.35.0
+go: downloading k8s.io/utils v0.0.0-20251002143259-bc988d571ff4
+go: downloading github.com/fatih/color v1.18.0
+go: downloading k8s.io/api v0.35.0
+go: downloading k8s.io/klog/v2 v2.130.1
+go: downloading k8s.io/kube-openapi v0.0.0-20250910181357-589584f1c912
+go: downloading sigs.k8s.io/structured-merge-diff/v6 v6.3.0
+go: downloading github.com/mattn/go-colorable v0.1.13
+go: downloading golang.org/x/text v0.32.0
+go: downloading golang.org/x/sys v0.39.0
+go: downloading golang.org/x/net v0.48.0
+go: downloading google.golang.org/protobuf v1.36.8
+go: downloading golang.org/x/sync v0.19.0
+go: downloading golang.org/x/mod v0.31.0
+make[1]: Leaving directory '/home/prow/go/src/sigs.k8s.io/kueue'
+make[1]: Entering directory '/home/prow/go/src/sigs.k8s.io/kueue'
+go: downloading github.com/kubernetes-sigs/reference-docs/genref v0.28.0
+go: downloading github.com/kubernetes-sigs/reference-docs v0.28.0
+go: downloading k8s.io/api v0.28.0
+go: downloading k8s.io/apiserver v0.28.0
+go: downloading k8s.io/apimachinery v0.28.0
+go: downloading k8s.io/client-go v0.28.0
+go: downloading github.com/yuin/goldmark v1.4.13
+go: downloading github.com/yuin/goldmark-highlighting v0.0.0-20210516132338-9216f9c5aa01
+go: downloading k8s.io/cloud-provider v0.28.0
+go: downloading k8s.io/cluster-bootstrap v0.28.0
+go: downloading k8s.io/component-base v0.28.0
+go: downloading k8s.io/controller-manager v0.28.0
+go: downloading k8s.io/gengo v0.0.0-20220902162205-c0856e24416d
+go: downloading k8s.io/klog/v2 v2.100.1
+go: downloading k8s.io/kube-controller-manager v0.28.0
+go: downloading k8s.io/kube-proxy v0.28.0
+go: downloading k8s.io/kube-scheduler v0.28.0
+go: downloading k8s.io/kubelet v0.28.0
+go: downloading k8s.io/metrics v0.28.0
+go: downloading sigs.k8s.io/yaml v1.3.0
+go: downloading github.com/alecthomas/chroma v0.7.2-0.20200305040604-4f3623dce67a
+go: downloading github.com/go-logr/logr v1.2.4
+go: downloading gopkg.in/yaml.v2 v2.4.0
+go: downloading github.com/dlclark/regexp2 v1.2.0
+go: downloading github.com/danwakefield/fnmatch v0.0.0-20160403171240-cbb64ac3d964
+go: downloading github.com/gogo/protobuf v1.3.2
+go: downloading github.com/google/gofuzz v1.2.0
+go: downloading sigs.k8s.io/structured-merge-diff/v4 v4.2.3
+go: downloading k8s.io/utils v0.0.0-20230406110748-d93618cff8a2
+go: downloading sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd
+go: downloading github.com/json-iterator/go v1.1.12
+go: downloading golang.org/x/net v0.13.0
+go: downloading github.com/google/gnostic-models v0.6.8
+go: downloading github.com/golang/protobuf v1.5.3
+go: downloading golang.org/x/time v0.3.0
+go: downloading golang.org/x/term v0.10.0
+go: downloading golang.org/x/oauth2 v0.8.0
+go: downloading github.com/google/go-cmp v0.5.9
+go: downloading k8s.io/kube-openapi v0.0.0-20230717233707-2695361300d9
+go: downloading google.golang.org/protobuf v1.30.0
+go: downloading github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd
+go: downloading github.com/modern-go/reflect2 v1.0.2
+go: downloading golang.org/x/sys v0.10.0
+go: downloading github.com/google/uuid v1.3.0
+go: downloading github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822
+go: downloading github.com/go-openapi/swag v0.22.3
+go: downloading golang.org/x/text v0.11.0
+go: downloading github.com/emicklei/go-restful/v3 v3.9.0
+go: downloading github.com/go-openapi/jsonpointer v0.19.6
+make[1]: Leaving directory '/home/prow/go/src/sigs.k8s.io/kueue'
+make[1]: Entering directory '/home/prow/go/src/sigs.k8s.io/kueue'
+# Clean up previously generated mocks to keep generated mocks up-to-date.
+rm -rf internal/mocks
+/home/prow/go/src/sigs.k8s.io/kueue/bin/mockgen \
+	-destination=internal/mocks/controller/jobframework/interface.go \
+	-copyright_file hack/boilerplate.txt \
+	-package mocks \
+	sigs.k8s.io/kueue/pkg/controller/jobframework GenericJob,JobWithCustomValidation,JobWithManagedBy,JobWithCustomWorkloadActivation,JobWithCustomAnnotations
+/home/prow/go/src/sigs.k8s.io/kueue/bin/mockgen \
+	-destination=internal/mocks/controller/core/resourceflavor_controller.go \
+	-copyright_file hack/boilerplate.txt \
+	-package mocks \
+	sigs.k8s.io/kueue/pkg/controller/core ResourceFlavorUpdateWatcher
+make[1]: Leaving directory '/home/prow/go/src/sigs.k8s.io/kueue'
+make[1]: Entering directory '/home/prow/go/src/sigs.k8s.io/kueue'
+go: downloading github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
+go: downloading github.com/spf13/viper v1.12.0
+go: downloading go.yaml.in/yaml/v3 v3.0.4
+go: downloading golang.org/x/mod v0.35.0
+go: downloading golang.org/x/tools v0.44.0
+go: downloading github.com/mitchellh/go-homedir v1.1.0
+go: downloading github.com/rogpeppe/go-internal v1.14.1
+go: downloading github.com/sirupsen/logrus v1.9.4
+go: downloading github.com/stretchr/testify v1.11.1
+go: downloading golang.org/x/sys v0.43.0
+go: downloading github.com/rivo/uniseg v0.4.7
+go: downloading github.com/golangci/gofmt v0.0.0-20250106114630-d62b90e6713d
+go: downloading mvdan.cc/gofumpt v0.9.2
+go: downloading github.com/sourcegraph/go-diff v0.8.0
+go: downloading golang.org/x/sync v0.20.0
+go: downloading go.augendre.info/arangolint v0.4.0
+go: downloading github.com/timakin/bodyclose v0.0.0-20260129054331-73d1f95b84b4
+go: downloading github.com/sivchari/containedctx v1.0.3
+go: downloading gitlab.com/bosi/decorder v0.4.2
+go: downloading honnef.co/go/tools v0.7.0
+go: downloading mvdan.cc/unparam v0.0.0-20251027182757-5beb8c8f8f15
+go: downloading github.com/fsnotify/fsnotify v1.5.4
+go: downloading github.com/spf13/cast v1.5.0
+go: downloading golang.org/x/text v0.36.0
+go: downloading github.com/pmezard/go-difflib v1.0.0
+go: downloading github.com/stretchr/objx v0.5.2
+go: downloading go.uber.org/zap v1.27.0
+go: downloading github.com/prometheus/client_golang v1.12.1
+go: downloading github.com/prometheus/client_model v0.2.0
+go: downloading github.com/subosito/gotenv v1.4.1
+go: downloading github.com/magiconair/properties v1.8.6
+go: downloading golang.org/x/exp v0.0.0-20250620022241-b7579e27df2b
+go: downloading go.uber.org/multierr v1.10.0
+go: downloading github.com/prometheus/common v0.32.1
+go: downloading github.com/prometheus/procfs v0.7.3
+go: downloading google.golang.org/protobuf v1.36.10
+go: downloading github.com/matttproud/golang_protobuf_extensions v1.0.1
+make[1]: Leaving directory '/home/prow/go/src/sigs.k8s.io/kueue'
+make[1]: Entering directory '/home/prow/go/src/sigs.k8s.io/kueue'
+go: downloading k8s.io/client-go v0.36.0
+go: downloading k8s.io/api v0.36.0
+go: downloading golang.org/x/term v0.42.0
+go: downloading k8s.io/kube-openapi v0.0.0-20260317180543-43fb72c5454a
+go: downloading github.com/google/gnostic-models v0.7.0
+go: downloading go.yaml.in/yaml/v2 v2.4.3
+go: downloading github.com/cpuguy83/go-md2man/v2 v2.0.6
+go: downloading github.com/tetratelabs/wazero v1.11.0
+go: downloading golang.org/x/crypto v0.50.0
+go: downloading dario.cat/mergo v1.0.1
+go: downloading github.com/spf13/cast v1.7.0
+go: downloading github.com/mattn/go-runewidth v0.0.9
+go: downloading github.com/ianlancetaylor/demangle v0.0.0-20240805132620-81f5be970eca
+go: downloading github.com/go-openapi/jsonreference v0.21.0
+go: downloading github.com/go-openapi/swag v0.23.1
+go: downloading github.com/go-openapi/jsonpointer v0.21.1
+go: downloading github.com/mailru/easyjson v0.9.0
+make[1]: Leaving directory '/home/prow/go/src/sigs.k8s.io/kueue'
+make[1]: Entering directory '/home/prow/go/src/sigs.k8s.io/kueue'
+WARNING: Skipping plugin signature verification
+Support linux-amd64
+No version found
+Downloading https://github.com/helm-unittest/helm-unittest/releases/download/v1.1.0/helm-unittest-linux-amd64-1.1.0.tgz to location /tmp/_dist/
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+ 48 23.1M   48 11.2M    0     0  15.2M      0  0:00:01 --:--:--  0:00:01 15.2M100 23.1M  100 23.1M    0     0  25.1M      0 --:--:-- --:--:-- --:--:-- 65.0M
+found: ./_dist/helm-unittest-linux-amd64-1.1.0.tgz
+Validating Checksum.
+Preparing to install into /home/prow/go/src/sigs.k8s.io/kueue/bin/helm-plugins/helm-unittest.git
+helm-unittest installed into /home/prow/go/src/sigs.k8s.io/kueue/bin/helm-plugins/helm-unittest.git
+Running chart unittest written in YAML.
+
+This renders your charts locally (without tiller) and
+validates the rendered output with the tests defined in
+test suite files. Simplest test suite file looks like
+below:
+
+---
+# CHART_PATH/tests/deployment_test.yaml
+suite: test my deployment
+templates:
+  - deployment.yaml
+tests:
+  - it: should be a Deployment
+    asserts:
+      - isKind:
+          of: Deployment
+---
+
+Put the test files in "tests" directory under your chart
+with suffix "_test.yaml", and run:
+
+$ helm unittest my-chart
+
+Or specify the suite files glob path pattern:
+
+$ helm unittest -f 'my-tests/*.yaml' my-chart
+
+Check https://github.com/helm-unittest/helm-unittest for more
+details about how to write tests.
+
+Usage:
+  unittest [flags] CHART [...]
+
+Flags:
+      --chart-tests-path string   chart-tests-path the folder location relative to the chart where a helm chart to render test suites is located
+      --color                     enforce printing colored output even stdout is not a tty. Set to false to disable color
+  -d, --debugPlugin               enable verbose output
+  -q, --failfast                  actually directly quit testing, when a test is failed
+  -f, --file stringArray          glob paths of test files location, default to tests/*_test.yaml
+  -h, --help                      help for unittest
+  -o, --output-file string        output-file the file where testresults are written in JUnit format, defaults no output is written to file
+  -t, --output-type string        output-type the file-format where testresults are written in, accepted types are (JUnit, NUnit, XUnit, Sonar) (default "XUnit")
+      --skip-schema-validation    skip values schema validation when rendering the chart
+      --strict                    strict parse the testsuites
+  -u, --update-snapshot           update the snapshot cached if needed, make sure you review the change before update
+  -v, --values stringArray        absolute or glob paths of values files location to override helmchart values
+  -s, --with-subchart charts      include tests of the subcharts within charts folder (default true)
+Installed plugin: unittest
+make[1]: Leaving directory '/home/prow/go/src/sigs.k8s.io/kueue'
+make[1]: Entering directory '/home/prow/go/src/sigs.k8s.io/kueue'
+cd hack/testing/kal-linter; /home/prow/go/src/sigs.k8s.io/kueue/bin/golangci-lint custom; mv bin/golangci-lint-kube-api-linter /home/prow/go/src/sigs.k8s.io/kueue/bin
+make[1]: Leaving directory '/home/prow/go/src/sigs.k8s.io/kueue'
+make[1]: Entering directory '/home/prow/go/src/sigs.k8s.io/kueue'
+/home/prow/go/src/sigs.k8s.io/kueue/bin/controller-gen object:headerFile="hack/boilerplate.go.txt" paths="./apis/..."
+/home/prow/go/src/sigs.k8s.io/kueue/hack/tools/code-generator/generate.sh go
+go: downloading k8s.io/apimachinery v0.35.5
+go: downloading github.com/spf13/pflag v1.0.9
+go: downloading golang.org/x/tools v0.38.0
+go: downloading golang.org/x/net v0.47.0
+go: downloading golang.org/x/text v0.31.0
+go: downloading golang.org/x/mod v0.29.0
+go: downloading golang.org/x/sync v0.18.0
+Generating defaulter code for 4 targets
+Generating conversion code for 4 targets
+go: downloading github.com/emicklei/go-restful/v3 v3.12.2
+Generating openapi code for 2 targets
+Generating applyconfig code for 5 targets
+Generating client code for 5 targets
+Generating lister code for 5 targets
+Generating informer code for 5 targets
+make[1]: Leaving directory '/home/prow/go/src/sigs.k8s.io/kueue'
+make[1]: Entering directory '/home/prow/go/src/sigs.k8s.io/kueue'
+/home/prow/go/src/sigs.k8s.io/kueue/bin/controller-gen \
+	crd:generateEmbeddedObjectMeta=true output:crd:artifacts:config=config/components/crd/bases\
+	paths="./apis/..."
+/home/prow/go/src/sigs.k8s.io/kueue/bin/controller-gen \
+	rbac:roleName=manager-role output:rbac:artifacts:config=config/components/rbac\
+	webhook output:webhook:artifacts:config=config/components/webhook\
+	paths="./pkg/controller/...;./pkg/webhooks/...;./pkg/util/cert/...;./pkg/visibility/..."
+make[1]: Leaving directory '/home/prow/go/src/sigs.k8s.io/kueue'
+make[1]: Entering directory '/home/prow/go/src/sigs.k8s.io/kueue'
+go mod tidy
+go: downloading k8s.io/apimachinery v0.36.1
+go: downloading k8s.io/api v0.36.1
+go: downloading sigs.k8s.io/structured-merge-diff/v6 v6.4.0
+go: downloading k8s.io/client-go v0.36.1
+go: downloading k8s.io/utils v0.0.0-20260507154919-ff6756f316d2
+go: downloading github.com/onsi/gomega v1.41.0
+go: downloading k8s.io/component-base v0.36.1
+go: downloading k8s.io/cli-runtime v0.36.1
+go: downloading k8s.io/autoscaler/cluster-autoscaler/apis v0.0.0-20240830133931-adfbe7e45277
+go: downloading sigs.k8s.io/cluster-inventory-api v0.0.0-20251028164203-2e3fabb46733
+go: downloading k8s.io/kubectl v0.36.1
+go: downloading k8s.io/apiextensions-apiserver v0.36.1
+go: downloading github.com/kubeflow/training-operator v1.9.3
+go: downloading k8s.io/component-helpers v0.36.1
+go: downloading github.com/ray-project/kuberay/ray-operator v1.6.1
+go: downloading k8s.io/apiserver v0.36.1
+go: downloading github.com/fsnotify/fsnotify v1.10.1
+go: downloading sigs.k8s.io/jobset v0.12.0
+go: downloading k8s.io/dynamic-resource-allocation v0.36.1
+go: downloading github.com/project-codeflare/appwrapper v1.2.2
+go: downloading github.com/kubeflow/mpi-operator v0.8.0
+go: downloading sigs.k8s.io/lws v0.8.0
+go: downloading github.com/kubeflow/spark-operator/v2 v2.5.0
+go: downloading github.com/kubeflow/trainer/v2 v2.2.1-0.20260515134202-448c432a7073
+go: downloading github.com/open-policy-agent/cert-controller v0.16.0
+go: downloading sigs.k8s.io/dra-example-driver v0.2.1
+go: downloading github.com/prometheus/common v0.68.1
+go: downloading k8s.io/metrics v0.36.1
+go: downloading github.com/cert-manager/cert-manager v1.20.2
+go: downloading github.com/go-openapi/jsonreference v0.21.4
+go: downloading github.com/go-openapi/swag v0.25.4
+go: downloading golang.org/x/time v0.14.0
+go: downloading k8s.io/code-generator v0.36.1
+go: downloading github.com/prometheus/procfs v0.19.2
+go: downloading github.com/google/cel-go v0.26.0
+go: downloading gomodules.xyz/jsonpatch/v2 v2.5.0
+go: downloading github.com/onsi/ginkgo v1.16.5
+go: downloading github.com/robfig/cron/v3 v3.0.1
+go: downloading sigs.k8s.io/gateway-api v1.5.0
+go: downloading github.com/distribution/reference v0.6.0
+go: downloading go.uber.org/atomic v1.11.0
+go: downloading github.com/open-policy-agent/frameworks/constraint v0.0.0-20241101234656-e78c8abd754a
+go: downloading k8s.io/kube-aggregator v0.35.2
+go: downloading github.com/coreos/go-systemd/v22 v22.7.0
+go: downloading go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.40.0
+go: downloading google.golang.org/grpc v1.79.3
+go: downloading go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.40.0
+go: downloading gopkg.in/natefinch/lumberjack.v2 v2.2.1
+go: downloading github.com/gkampitakis/go-snaps v0.5.15
+go: downloading github.com/joshdk/go-junit v1.0.0
+go: downloading github.com/mfridman/tparse v0.18.0
+go: downloading k8s.io/streaming v0.36.1
+go: downloading github.com/go-openapi/jsonpointer v0.22.4
+go: downloading github.com/go-openapi/testify/v2 v2.0.2
+go: downloading github.com/go-openapi/swag/cmdutils v0.25.4
+go: downloading github.com/go-openapi/swag/conv v0.25.4
+go: downloading github.com/go-openapi/swag/fileutils v0.25.4
+go: downloading github.com/go-openapi/swag/jsonname v0.25.4
+go: downloading github.com/go-openapi/swag/jsonutils v0.25.4
+go: downloading github.com/go-openapi/swag/loading v0.25.4
+go: downloading github.com/go-openapi/swag/mangling v0.25.4
+go: downloading github.com/go-openapi/swag/netutils v0.25.4
+go: downloading github.com/go-openapi/swag/typeutils v0.25.4
+go: downloading github.com/go-openapi/swag/yamlutils v0.25.4
+go: downloading github.com/go-openapi/swag/stringutils v0.25.4
+go: downloading github.com/klauspost/compress v1.18.0
+go: downloading github.com/creack/pty v1.1.18
+go: downloading github.com/Masterminds/semver/v3 v3.4.0
+go: downloading volcano.sh/apis v1.14.0
+go: downloading sigs.k8s.io/scheduler-plugins v0.34.4-devel-sg
+go: downloading google.golang.org/genproto/googleapis/api v0.0.0-20260128011058-8636f8732409
+go: downloading github.com/stoewer/go-strcase v1.3.1
+go: downloading github.com/smallnest/chanx v1.2.0
+go: downloading github.com/jarcoal/httpmock v1.4.1
+go: downloading github.com/chai2010/gettext-go v1.0.3
+go: downloading github.com/evanphx/json-patch v5.9.11+incompatible
+go: downloading github.com/golang-jwt/jwt/v5 v5.3.1
+go: downloading github.com/mwitkow/go-conntrack v0.0.0-20190716064945-2f068394615f
+go: downloading go.etcd.io/etcd/client/v3 v3.6.8
+go: downloading github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus v1.1.0
+go: downloading go.etcd.io/etcd/client/pkg/v3 v3.6.8
+go: downloading go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.65.0
+go: downloading go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.65.0
+go: downloading sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.34.0
+go: downloading github.com/NYTimes/gziphandler v1.1.1
+go: downloading go.opentelemetry.io/proto/otlp v1.9.0
+go: downloading google.golang.org/genproto/googleapis/rpc v0.0.0-20260319201613-d00831a3d3e7
+go: downloading k8s.io/kms v0.36.1
+go: downloading github.com/gkampitakis/ciinfo v0.3.2
+go: downloading github.com/gkampitakis/go-diff v1.3.2
+go: downloading github.com/maruel/natural v1.1.1
+go: downloading github.com/tidwall/gjson v1.18.0
+go: downloading github.com/goccy/go-yaml v1.18.0
+go: downloading github.com/tidwall/pretty v1.2.1
+go: downloading github.com/moby/spdystream v0.5.1
+go: downloading github.com/armon/go-socks5 v0.0.0-20160902184237-e75332964ef5
+go: downloading github.com/go-openapi/swag/jsonutils/fixtures_test v0.25.4
+go: downloading github.com/go-openapi/testify/enable/yaml/v2 v2.0.2
+go: downloading github.com/antlr4-go/antlr/v4 v4.13.1
+go: downloading github.com/jpillora/backoff v1.0.0
+go: downloading go.etcd.io/etcd/api/v3 v3.6.8
+go: downloading go.etcd.io/etcd/server/v3 v3.6.8
+go: downloading github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.3
+go: downloading github.com/coreos/go-semver v0.3.1
+go: downloading github.com/cenkalti/backoff/v5 v5.0.3
+go: downloading github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.7
+go: downloading github.com/tidwall/sjson v1.2.5
+go: downloading github.com/tidwall/match v1.1.1
+go: downloading github.com/nxadm/tail v1.4.8
+go: downloading golang.org/x/exp v0.0.0-20251219203646-944ab1f22d93
+go: downloading gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7
+go: downloading github.com/soheilhy/cmux v0.1.5
+go: downloading github.com/tmc/grpc-websocket-proxy v0.0.0-20220101234140-673ab2c3ae75
+go: downloading go.etcd.io/bbolt v1.4.3
+go: downloading go.etcd.io/etcd/pkg/v3 v3.6.8
+go: downloading github.com/coreos/go-oidc/v3 v3.18.0
+go: downloading go.etcd.io/raft/v3 v3.6.0
+go: downloading github.com/xiang90/probing v0.0.0-20221125231312-a49e3df8f510
+go: downloading github.com/jonboulle/clockwork v0.5.0
+go: downloading gonum.org/v1/gonum v0.16.0
+git --no-pager diff --exit-code go.mod go.sum
+make[1]: Leaving directory '/home/prow/go/src/sigs.k8s.io/kueue'
+make[1]: Entering directory '/home/prow/go/src/sigs.k8s.io/kueue'
+/home/prow/go/src/sigs.k8s.io/kueue/bin/kustomize build config/components/crd > config/components/crd/_output/crds-with-webhooks.yaml
+make[1]: Leaving directory '/home/prow/go/src/sigs.k8s.io/kueue'
+make[1]: Entering directory '/home/prow/go/src/sigs.k8s.io/kueue'
+/home/prow/go/src/sigs.k8s.io/kueue/bin/yaml-processor -zap-log-level=info hack/processing-plan.yaml
+make[1]: Leaving directory '/home/prow/go/src/sigs.k8s.io/kueue'
+make[1]: Entering directory '/home/prow/go/src/sigs.k8s.io/kueue'
+go build -ldflags="-X 'sigs.k8s.io/kueue/pkg/version.GitVersion=v0.19.0-devel-67-g9cefc3814' -X 'sigs.k8s.io/kueue/pkg/version.GitCommit=9cefc3814f951236e725cfbf8797012a913af831' -X 'sigs.k8s.io/kueue/pkg/version.BuildDate=2026-06-10T09:55:10Z'" -o /home/prow/go/src/sigs.k8s.io/kueue/bin/kueuectl-docs ./cmd/kueuectl-docs/main.go
+make[1]: Leaving directory '/home/prow/go/src/sigs.k8s.io/kueue'
+make[1]: Entering directory '/home/prow/go/src/sigs.k8s.io/kueue'
+rm -Rf /home/prow/go/src/sigs.k8s.io/kueue/site/content/en/docs/reference/kubectl-kueue/commands/kueuectl*
+/home/prow/go/src/sigs.k8s.io/kueue/bin/kueuectl-docs \
+	/home/prow/go/src/sigs.k8s.io/kueue/cmd/kueuectl-docs/templates \
+	/home/prow/go/src/sigs.k8s.io/kueue/site/content/en/docs/reference/kubectl-kueue/commands
+make[1]: Leaving directory '/home/prow/go/src/sigs.k8s.io/kueue'
+make[1]: Entering directory '/home/prow/go/src/sigs.k8s.io/kueue'
+cd /home/prow/go/src/sigs.k8s.io/kueue/hack/genref/ && /home/prow/go/src/sigs.k8s.io/kueue/bin/genref -o /home/prow/go/src/sigs.k8s.io/kueue/site/content/en/docs/reference
+I0610 09:55:10.184387   38681 main.go:142] Parsing go packages in sigs.k8s.io/kueue/apis/kueue/v1beta1
+I0610 09:55:40.370799   38681 main.go:325] [32mOutput written to /home/prow/go/src/sigs.k8s.io/kueue/site/content/en/docs/reference/kueue.v1beta1.md[0m
+I0610 09:55:40.370835   38681 main.go:142] Parsing go packages in sigs.k8s.io/kueue/apis/kueue/v1beta2
+I0610 09:56:06.075313   38681 main.go:325] [32mOutput written to /home/prow/go/src/sigs.k8s.io/kueue/site/content/en/docs/reference/kueue.v1beta2.md[0m
+I0610 09:56:06.075352   38681 main.go:142] Parsing go packages in sigs.k8s.io/kueue/apis/config/v1beta1
+I0610 09:57:34.420154   38681 main.go:325] [32mOutput written to /home/prow/go/src/sigs.k8s.io/kueue/site/content/en/docs/reference/kueue-config.v1beta1.md[0m
+I0610 09:57:34.420191   38681 main.go:142] Parsing go packages in sigs.k8s.io/kueue/apis/config/v1beta2
+I0610 09:58:18.428691   38681 main.go:325] [32mOutput written to /home/prow/go/src/sigs.k8s.io/kueue/site/content/en/docs/reference/kueue-config.v1beta2.md[0m
+make[1]: Leaving directory '/home/prow/go/src/sigs.k8s.io/kueue'
+make[1]: Entering directory '/home/prow/go/src/sigs.k8s.io/kueue'
+HELM_PLUGINS=/home/prow/go/src/sigs.k8s.io/kueue/bin/helm-plugins /home/prow/go/src/sigs.k8s.io/kueue/bin/helm unittest charts/kueue --strict --debug
+level=DEBUG msg="executing plugin command" pluginName=unittest command="/home/prow/go/src/sigs.k8s.io/kueue/bin/helm-plugins/helm-unittest.git/untt-linux-amd64 charts/kueue --strict"
+
+### Chart [ kueue ] charts/kueue
+
+ PASS  test cert-manager certificates	charts/kueue/tests/certmanager_test.yaml
+2026/06/10 09:58:19 warning: cannot overwrite table with non table for kueue.kueueViz.backend.ingress.annotations (map[nginx.ingress.kubernetes.io/rewrite-target:/ nginx.ingress.kubernetes.io/ssl-redirect:true])
+2026/06/10 09:58:19 warning: cannot overwrite table with non table for kueue.kueueViz.frontend.ingress.annotations (map[nginx.ingress.kubernetes.io/rewrite-target:/ nginx.ingress.kubernetes.io/ssl-redirect:true])
+ PASS  test kueueviz deployment	charts/kueue/tests/kueue_test.yaml
+ PASS  test manager-config configmap	charts/kueue/tests/manager_config_test.yaml
+ PASS  test manager deployment	charts/kueue/tests/manager_test.yaml
+
+Charts:      1 passed, 1 total
+Test Suites: 4 passed, 4 total
+Tests:       50 passed, 50 total
+Snapshot:    0 passed, 0 total
+Time:        1.502071242s
+
+make[1]: Leaving directory '/home/prow/go/src/sigs.k8s.io/kueue'
+make[1]: Entering directory '/home/prow/go/src/sigs.k8s.io/kueue'
+/home/prow/go/src/sigs.k8s.io/kueue/bin/kustomize build config/alpha-enabled > /dev/null
+make[1]: Leaving directory '/home/prow/go/src/sigs.k8s.io/kueue'
+make[1]: Entering directory '/home/prow/go/src/sigs.k8s.io/kueue'
+/home/prow/go/src/sigs.k8s.io/kueue/bin/helm lint charts/kueue
+==> Linting charts/kueue
+[INFO] Chart.yaml: icon is recommended
+
+1 chart(s) linted, 0 chart(s) failed
+/home/prow/go/src/sigs.k8s.io/kueue/bin/helm template charts/kueue > /dev/null
+/home/prow/go/src/sigs.k8s.io/kueue/bin/helm template charts/kueue --set enableKueueViz=true --set enableCertManager=true --set enablePrometheus=true > /dev/null
+/home/prow/go/src/sigs.k8s.io/kueue/bin/helm template charts/kueue --set managerConfig.controllerManagerConfigYaml="managedJobsNamespaceSelector:\n  matchExpressions:\n    - key: kubernetes.io/metadata.name\n      operator: In\n      values: [ kube-system ]" > /dev/null
+/home/prow/go/src/sigs.k8s.io/kueue/bin/helm template charts/kueue --set controllerManager.manager.priorityClassName="system-cluster-critical" > /dev/null
+/home/prow/go/src/sigs.k8s.io/kueue/bin/helm template charts/kueue --set controllerManager.nodeSelector.nodetype=infra --set 'controllerManager.tolerations[0].key=node-role.kubernetes.io/master' --set 'controllerManager.tolerations[0].operator=Exists' --set 'controllerManager.tolerations[0].effect=NoSchedule' > /dev/null
+/home/prow/go/src/sigs.k8s.io/kueue/bin/helm template charts/kueue --set enableKueueViz=true --set kueueViz.backend.nodeSelector.nodetype=infra --set 'kueueViz.backend.tolerations[0].key=node-role.kubernetes.io/master' --set 'kueueViz.backend.tolerations[0].operator=Exists' --set 'kueueViz.backend.tolerations[0].effect=NoSchedule' > /dev/null
+/home/prow/go/src/sigs.k8s.io/kueue/bin/helm template charts/kueue --set enableKueueViz=true --set kueueViz.frontend.nodeSelector.nodetype=infra --set 'kueueViz.frontend.tolerations[0].key=node-role.kubernetes.io/master' --set 'kueueViz.frontend.tolerations[0].operator=Exists' --set 'kueueViz.frontend.tolerations[0].effect=NoSchedule' > /dev/null
+/home/prow/go/src/sigs.k8s.io/kueue/bin/helm template charts/kueue --set enableKueueViz=true --set kueueViz.backend.priorityClassName="system-cluster-critical" > /dev/null
+/home/prow/go/src/sigs.k8s.io/kueue/bin/helm template charts/kueue --set enableKueueViz=true --set kueueViz.backend.priorityClassName="system-cluster-critical" > /dev/null
+make[1]: Leaving directory '/home/prow/go/src/sigs.k8s.io/kueue'
+make[1]: Entering directory '/home/prow/go/src/sigs.k8s.io/kueue'
+/home/prow/go/src/sigs.k8s.io/kueue/hack/testing/shellcheck/verify.sh
+Downloading ShellCheck Docker image...
+v0.11.0: Pulling from koalaman/shellcheck-alpine
+9824c27679d3: Pulling fs layer
+906a250995ef: Pulling fs layer
+906a250995ef: Verifying Checksum
+906a250995ef: Download complete
+9824c27679d3: Verifying Checksum
+9824c27679d3: Download complete
+9824c27679d3: Pull complete
+906a250995ef: Pull complete
+Digest: sha256:9955be09ea7f0dbf7ae942ac1f2094355bb30d96fffba0ec09f5432207544002
+Status: Downloaded newer image for koalaman/shellcheck-alpine:v0.11.0
+docker.io/koalaman/shellcheck-alpine:v0.11.0
+Running ShellCheck...
+
+In ./hack/testing/e2e-common.sh line 729:
+    kubectl ${kubeconfig_flag} -n "${KUEUE_NAMESPACE}" wait deploy/"${KUEUE_DEPLOYMENT_NAME}" \
+            ^----------------^ SC2086 (info): Double quote to prevent globbing and word splitting.
+
+Did you mean:
+    kubectl "${kubeconfig_flag}" -n "${KUEUE_NAMESPACE}" wait deploy/"${KUEUE_DEPLOYMENT_NAME}" \
+
+
+In ./hack/testing/e2e-common.sh line 737:
+    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 10 --delay 5 --stream -- bash -c '
+                                                                                    ^-- SC2016 (info): Expressions don't expand in single quotes, use double quotes for that.
+
+For more information:
+  https://www.shellcheck.net/wiki/SC2016 -- Expressions don't expand in singl...
+  https://www.shellcheck.net/wiki/SC2086 -- Double quote to prevent globbing ...
+make[1]: *** [Makefile-verify.mk:182: verify-shell-lint] Error 1
+make[1]: Leaving directory '/home/prow/go/src/sigs.k8s.io/kueue'
+make[1]: *** Waiting for unfinished jobs....
+make[1]: Entering directory '/home/prow/go/src/sigs.k8s.io/kueue'
+/home/prow/go/src/sigs.k8s.io/kueue/hack/testing/depcheck/verify.sh /home/prow/go/src/sigs.k8s.io/kueue/cmd/kueueviz/frontend
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 457B 0.0s done
+#1 DONE 0.1s
+
+#2 [internal] load metadata for docker.io/library/node:26-alpine
+#2 DONE 2.6s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 157B done
+#3 DONE 0.0s
+
+#4 [1/5] FROM docker.io/library/node:26-alpine@sha256:144769ec3f32e8ee36b3cfde91e82bee25d9367b20f31a151f3f7eea3a2a8541
+#4 resolve docker.io/library/node:26-alpine@sha256:144769ec3f32e8ee36b3cfde91e82bee25d9367b20f31a151f3f7eea3a2a8541 0.0s done
+#4 ...
+
+#5 [internal] load build context
+#5 transferring context: 425.11kB 0.1s done
+#5 DONE 0.1s
+
+#4 [1/5] FROM docker.io/library/node:26-alpine@sha256:144769ec3f32e8ee36b3cfde91e82bee25d9367b20f31a151f3f7eea3a2a8541
+#4 sha256:5a6fc0b1ba74aa1383992762af9bbbf67e9deb8530dd4ff76ecc11aa18a787f1 0B / 453B 0.2s
+#4 sha256:144769ec3f32e8ee36b3cfde91e82bee25d9367b20f31a151f3f7eea3a2a8541 2.61kB / 2.61kB done
+#4 sha256:6f3a342603870772338e02ac93a9248520884db7abe194917f1219628c632b68 1.53kB / 1.53kB done
+#4 sha256:5165330357caa120c9264311a496304948cc1d89d5189d9ac2648426ec4ddcbe 4.92kB / 4.92kB done
+#4 sha256:6a0ac1617861a677b045b7ff88545213ec31c0ff08763195a70a4a5adda577bb 0B / 3.86MB 0.2s
+#4 sha256:155e0e3178a764eb9b2f96c5af499da7118aa5699139637c233dd0d8f18469ba 0B / 58.70MB 0.2s
+#4 sha256:5a6fc0b1ba74aa1383992762af9bbbf67e9deb8530dd4ff76ecc11aa18a787f1 453B / 453B 0.6s done
+#4 sha256:155e0e3178a764eb9b2f96c5af499da7118aa5699139637c233dd0d8f18469ba 8.39MB / 58.70MB 0.9s
+#4 sha256:155e0e3178a764eb9b2f96c5af499da7118aa5699139637c233dd0d8f18469ba 16.78MB / 58.70MB 1.1s
+#4 sha256:6a0ac1617861a677b045b7ff88545213ec31c0ff08763195a70a4a5adda577bb 3.15MB / 3.86MB 1.2s
+#4 sha256:155e0e3178a764eb9b2f96c5af499da7118aa5699139637c233dd0d8f18469ba 27.26MB / 58.70MB 1.2s
+#4 sha256:6a0ac1617861a677b045b7ff88545213ec31c0ff08763195a70a4a5adda577bb 3.86MB / 3.86MB 1.2s done
+#4 sha256:155e0e3178a764eb9b2f96c5af499da7118aa5699139637c233dd0d8f18469ba 33.55MB / 58.70MB 1.3s
+#4 extracting sha256:6a0ac1617861a677b045b7ff88545213ec31c0ff08763195a70a4a5adda577bb 0.1s
+#4 sha256:155e0e3178a764eb9b2f96c5af499da7118aa5699139637c233dd0d8f18469ba 47.19MB / 58.70MB 1.5s
+#4 sha256:155e0e3178a764eb9b2f96c5af499da7118aa5699139637c233dd0d8f18469ba 54.53MB / 58.70MB 1.6s
+#4 sha256:155e0e3178a764eb9b2f96c5af499da7118aa5699139637c233dd0d8f18469ba 58.70MB / 58.70MB 1.7s
+#4 sha256:155e0e3178a764eb9b2f96c5af499da7118aa5699139637c233dd0d8f18469ba 58.70MB / 58.70MB 1.7s done
+#4 extracting sha256:6a0ac1617861a677b045b7ff88545213ec31c0ff08763195a70a4a5adda577bb 0.8s done
+#4 extracting sha256:155e0e3178a764eb9b2f96c5af499da7118aa5699139637c233dd0d8f18469ba
+#4 extracting sha256:155e0e3178a764eb9b2f96c5af499da7118aa5699139637c233dd0d8f18469ba 5.2s
+#4 extracting sha256:155e0e3178a764eb9b2f96c5af499da7118aa5699139637c233dd0d8f18469ba 11.1s
+#4 extracting sha256:155e0e3178a764eb9b2f96c5af499da7118aa5699139637c233dd0d8f18469ba 18.3s
+#4 extracting sha256:155e0e3178a764eb9b2f96c5af499da7118aa5699139637c233dd0d8f18469ba 19.0s done
+#4 extracting sha256:5a6fc0b1ba74aa1383992762af9bbbf67e9deb8530dd4ff76ecc11aa18a787f1
+#4 extracting sha256:5a6fc0b1ba74aa1383992762af9bbbf67e9deb8530dd4ff76ecc11aa18a787f1 0.0s done
+#4 DONE 22.0s
+
+#6 [2/5] WORKDIR /app
+#6 DONE 0.1s
+
+#7 [3/5] COPY package*.json ./
+#7 DONE 0.2s
+
+#8 [4/5] RUN npm install
+#8 6.543 npm warn deprecated lodash.isequal@4.5.0: This package is deprecated. Use require('node:util').isDeepStrictEqual instead.
+#8 6.575 npm warn deprecated lodash.get@4.4.2: This package is deprecated. Use the optional chaining (?.) operator instead.
+#8 32.98 
+#8 32.98 added 295 packages, and audited 296 packages in 32s
+#8 32.98 
+#8 32.98 66 packages are looking for funding
+#8 32.98   run `npm fund` for details
+#8 33.01 
+#8 33.01 found 0 vulnerabilities
+#8 DONE 36.4s
+
+#9 [5/5] COPY . .
+#9 DONE 0.4s
+
+#10 exporting to image
+#10 exporting layers
+#10 exporting layers 57.1s done
+#10 writing image sha256:bf0bf4ffc889081cea75a20a42ae46b5feb62a179b5c893473608a2d477c4a81
+#10 writing image sha256:bf0bf4ffc889081cea75a20a42ae46b5feb62a179b5c893473608a2d477c4a81 done
+#10 naming to docker.io/library/depcheck 0.1s done
+#10 DONE 57.2s
+
+> kueueviz-frontend@0.18.0 check-unused
+> depcheck
+
+No depcheck issue
+/home/prow/go/src/sigs.k8s.io/kueue/hack/testing/depcheck/verify.sh /home/prow/go/src/sigs.k8s.io/kueue/test/e2e/kueueviz
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 457B done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/node:26-alpine
+#2 DONE 0.9s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 148B done
+#3 DONE 0.0s
+
+#4 [1/5] FROM docker.io/library/node:26-alpine@sha256:144769ec3f32e8ee36b3cfde91e82bee25d9367b20f31a151f3f7eea3a2a8541
+#4 DONE 0.0s
+
+#5 [internal] load build context
+#5 transferring context: 141.60kB 0.1s done
+#5 DONE 0.1s
+
+#6 [2/5] WORKDIR /app
+#6 CACHED
+
+#7 [3/5] COPY package*.json ./
+#7 DONE 0.1s
+
+#8 [4/5] RUN npm install
+#8 9.592 
+#8 9.592 added 287 packages, and audited 288 packages in 8s
+#8 9.592 
+#8 9.592 67 packages are looking for funding
+#8 9.592   run `npm fund` for details
+#8 9.595 
+#8 9.595 2 moderate severity vulnerabilities
+#8 9.595 
+#8 9.595 To address all issues, run:
+#8 9.595   npm audit fix
+#8 9.595 
+#8 9.595 Run `npm audit` for details.
+#8 9.601 npm warn allow-scripts 1 package has install scripts not yet covered by allowScripts:
+#8 9.601 npm warn allow-scripts   cypress@15.16.0 (postinstall: node dist/index.js --exec install)
+#8 9.601 npm warn allow-scripts
+#8 9.601 npm warn allow-scripts Run `npm approve-scripts --allow-scripts-pending` to review, or `npm approve-scripts <pkg>` to allow.
+#8 DONE 10.5s
+
+#9 [5/5] COPY . .
+#9 DONE 0.1s
+
+#10 exporting to image
+#10 exporting layers
+#10 exporting layers 7.2s done
+#10 writing image sha256:85d83e0d0dad81cd2d43c5280874bef7a504fb5fb59f9f5492128a1bcdbf4ebd done
+#10 naming to docker.io/library/depcheck done
+#10 DONE 7.3s
+
+> kueueviz-frontend-tests@0.18.0 check-unused
+> depcheck
+
+No depcheck issue
+make[1]: Leaving directory '/home/prow/go/src/sigs.k8s.io/kueue'
+make[1]: Entering directory '/home/prow/go/src/sigs.k8s.io/kueue'
+/home/prow/go/src/sigs.k8s.io/kueue/bin/golangci-lint-kube-api-linter run -v --config /home/prow/go/src/sigs.k8s.io/kueue/.golangci-kal.yaml 
+level=info msg="golangci-lint has version v2.4.0-custom-gcl-47DEQpj8HBSaTImW5JCeuQeRkm5NMpJWZG3hSuFU built with go1.26.3 from ? on 2026-06-10 09:54:15.845987873 +0000 UTC"
+level=info msg="[config_reader] Used config file .golangci-kal.yaml"
+level=info msg="[config_reader] Module name \"sigs.k8s.io/kueue\""
+level=info msg="maxprocs: Honoring GOMAXPROCS=\"8\" as set in environment"
+level=info msg="Loaded : kubeapilinter"
+level=info msg="[goenv] Read go env for 39.625548ms: map[string]string{\"GOCACHE\":\"/root/.cache/go-build\", \"GOROOT\":\"/usr/local/go\"}"
+level=info msg="[lintersdb] Active 1 linters: [kubeapilinter]"
+level=info msg="[loader] Go packages loading at mode 8767 (types_sizes|files|imports|name|compiled_files|deps|exports_file) took 3m13.740414583s"
+level=info msg="[runner/filename_unadjuster] Pre-built 0 adjustments in 374.753183ms"
+level=info msg="[linters_context/goanalysis] analyzers took 2.852326596s with top 10 stages: inspect: 678.72417ms, inspector: 645.389012ms, maxlength: 188.867312ms, nobools: 134.007665ms, extractjsontags: 115.161284ms, integers: 112.026291ms, nodurations: 106.029913ms, duplicatemarkers: 104.313354ms, markers: 93.923263ms, nofloats: 92.873604ms"
+level=info msg="[runner/exclusion_rules] Skipped 5260 issues by rules: [Path Except: \"apis/kueue/v1beta2\", Linters: \"kubeapilinter\"]"
+level=info msg="[runner/exclusion_rules] Skipped 29 issues by rules: [Text: \"optionalfields: field (QueueName|PriorityClassName|PriorityClassSource|ClusterQueue|ParentName|CohortName|QueueingStrategy|LocationType|Description|Policy|WhenCanBorrow|WhenCanPreempt|ReclaimWithinCohort|WithinClusterQueue|Borrowed|Total|PendingWorkloads|ReservingWorkloads|AdmittedWorkloads) should (be a pointer|have the omitempty tag).\", Path: \"apis/kueue/v1beta2\"]"
+level=info msg="[runner/exclusion_rules] Skipped 16 issues by rules: [Text: \"(optionalfields|requiredfields): field (Name|Count) should (be a pointer|have the omitempty tag).\", Path: \"apis/kueue/v1beta2\"]"
+level=info msg="[runner/exclusion_rules] Skipped 5 issues by rules: [Text: \"(nomaps|optionalfields): (field )?(ResourceUsage|Resources|ConsumedResources) should (not use a map type|be a pointer)\", Path: \"apis/kueue/v1beta2\"]"
+level=info msg="[runner/exclusion_rules] Skipped 3 issues by rules: [Text: \"(nobools|optionalorrequired): field (Active|Unconstrained) .*(should not use a bool|must be marked as optional or required)\", Path: \"apis/kueue/v1beta2\"]"
+level=info msg="[runner/exclusion_rules] Skipped 1 issues by rules: [Text: \"optionalfields: field PodSets should have the omitempty tag.\", Path: \"apis/kueue/v1beta2\"]"
+level=info msg="[runner/exclusion_rules] Skipped 22 issues by rules: [Text: \"optionalfields: field (Spec|Status) should (be a pointer|have the omitempty tag).\", Path: \"apis/kueue/v1beta2\"]"
+level=info msg="[runner/exclusion_rules] Skipped 1 issues by rules: [Text: \"optionalfields: field PodSetAssignments should have the omitempty tag.\", Path: \"apis/kueue/v1beta2\"]"
+level=info msg="[runner/exclusion_rules] Skipped 18 issues by rules: [Text: \"requiredfields: field .* has a valid zero value.*should be a pointer\", Path: \"apis/kueue/v1beta2\"]"
+level=info msg="[runner/exclusion_rules] Skipped 10 issues by rules: [Text: \"requiredfields: field (ControllerName|LastUpdate|Reason|UnderlyingCause|Message|WeightedShare|Value|ConsumedResources|Location) should have the omitempty tag.\", Path: \"apis/kueue/v1beta2\"]"
+level=info msg="[runner] Issues before processing: 6595, after processing: 0"
+level=info msg="[runner] Processors filtering stat (in/out): filename_unadjuster: 6595/6595, exclusion_paths: 6595/6595, path_absoluter: 6595/6595, invalid_issue: 6595/6595, path_relativity: 6595/6595, generated_file_filter: 6595/5365, cgo: 6595/6595, exclusion_rules: 5365/0"
+level=info msg="[runner] processing took 108.679211ms with stages: generated_file_filter: 79.054456ms, exclusion_rules: 15.514826ms, path_relativity: 12.897542ms, invalid_issue: 498.577µs, cgo: 389.085µs, path_absoluter: 215.403µs, filename_unadjuster: 96.021µs, nolint_filter: 2.48µs, sort_results: 2.39µs, max_same_issues: 1.88µs, exclusion_paths: 1.401µs, fixer: 1.11µs, diff: 760ns, source_code: 690ns, uniq_by_line: 620ns, max_from_linter: 510ns, max_per_file_from_linter: 440ns, path_prettifier: 440ns, path_shortener: 370ns, severity-rules: 210ns"
+level=info msg="[runner] linters took 5.716137293s with stages: goanalysis_metalinter: 5.607258421s"
+0 issues.
+level=info msg="File cache stats: 0 entries of total size 0B"
+level=info msg="Memory: 2000 samples, avg is 55.9MB, max is 1370.5MB"
+level=info msg="Execution took 3m19.87583653s"
+make[1]: Leaving directory '/home/prow/go/src/sigs.k8s.io/kueue'
+make[1]: Entering directory '/home/prow/go/src/sigs.k8s.io/kueue'
+find . \( -path ./site -o -path ./bin -o -path ./vendor \) -prune -false -o -name go.mod -exec dirname {} \; | xargs -I {} sh -c 'cd "{}" && /home/prow/go/src/sigs.k8s.io/kueue/bin/golangci-lint run  --timeout 15m0s --config "/home/prow/go/src/sigs.k8s.io/kueue/.golangci.yaml"'
+level=warning msg="[runner/exclusion_rules] Skipped 0 issues by rules: [Text: \"SA1019: scheme.Builder is deprecated: This helper is only useful in api packages\", Linters: \"staticcheck\"]"
+level=warning msg="[runner/exclusion_rules] Skipped 0 issues by rules: [Path: \"^test/*\", Linters: \"fatcontext\"]"
+level=warning msg="[runner/exclusion_rules] Skipped 0 issues by rules: [Text: \"SA1019: j.Status.State is deprecated: the State field is replaced by the Conditions field.\", Linters: \"staticcheck\"]"
+level=warning msg="[runner/exclusion_rules] Skipped 0 issues by rules: [Text: \"SA1019: j.Status.RayClusterStatus.State is deprecated: the State field is replaced by the Conditions field.\", Linters: \"staticcheck\"]"
+level=warning msg="[runner/exclusion_rules] Skipped 0 issues by rules: [Text: \"SA1019: features.* is deprecated: planned to be removed in .*\", Linters: \"staticcheck\"]"
+level=warning msg="[runner/exclusion_rules] Skipped 0 issues by rules: [Text: \"SA1019: mgr.GetEventRecorderFor is deprecated: this uses the old events API and will be removed in a future release. Please use GetEventRecorder instead.\", Linters: \"staticcheck\"]"
+0 issues.
+level=warning msg="[runner/exclusion_rules] Skipped 0 issues by rules: [Text: \"SA1019: mgr.GetEventRecorderFor is deprecated: this uses the old events API and will be removed in a future release. Please use GetEventRecorder instead.\", Linters: \"staticcheck\"]"
+0 issues.
+level=warning msg="[runner/exclusion_rules] Skipped 0 issues by rules: [Path: \"^test/*\", Linters: \"fatcontext\"]"
+level=warning msg="[runner/exclusion_rules] Skipped 0 issues by rules: [Text: \"SA1019: j.Status.State is deprecated: the State field is replaced by the Conditions field.\", Linters: \"staticcheck\"]"
+level=warning msg="[runner/exclusion_rules] Skipped 0 issues by rules: [Text: \"SA1019: j.Status.RayClusterStatus.State is deprecated: the State field is replaced by the Conditions field.\", Linters: \"staticcheck\"]"
+level=warning msg="[runner/exclusion_rules] Skipped 0 issues by rules: [Text: \"SA1019: features.* is deprecated: planned to be removed in .*\", Linters: \"staticcheck\"]"
+level=warning msg="[runner/exclusion_rules] Skipped 0 issues by rules: [Text: \"SA1019: mgr.GetEventRecorderFor is deprecated: this uses the old events API and will be removed in a future release. Please use GetEventRecorder instead.\", Linters: \"staticcheck\"]"
+level=warning msg="[runner/exclusion_rules] Skipped 0 issues by rules: [Text: \"SA1019: scheme.Builder is deprecated: This helper is only useful in api packages\", Linters: \"staticcheck\"]"
+0 issues.
+make[1]: Leaving directory '/home/prow/go/src/sigs.k8s.io/kueue'
+make: *** [Makefile-verify.mk:66: verify] Error 2
++ EXIT_VALUE=2
++ set +o xtrace
+Cleaning up after docker in docker.
+================================================================================
+Waiting 30 seconds for pods stopped with terminationGracePeriod:30
+Cleaning up after docker
+Waiting for docker to stop for 30 seconds
+Stopping Docker: dockerProgram process in pidfile '/var/run/docker-ssd.pid', 1 process(es), refused to die.
+================================================================================
+Done cleaning up after docker in docker.

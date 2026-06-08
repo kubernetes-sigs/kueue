@@ -1,0 +1,372 @@
+make -j 8 --output-sync=target verify-checks
+make[1]: Entering directory '/home/user1/Projects/kueue'
+/usr/bin/sed -r 's/(.*(HUGO_VERSION).*)/  HUGO_VERSION = "0.162.1"/g' -i netlify.toml
+make[1]: Leaving directory '/home/user1/Projects/kueue'
+make[1]: Entering directory '/home/user1/Projects/kueue'
+/home/user1/Projects/kueue/hack/tools/compatibility-lifecycle/generate.sh
+found 66 features in FeatureSpecMap var defaultVersionedFeatureGates in file: /home/user1/Projects/kueue/pkg/features/kube_features.go
+make[1]: Leaving directory '/home/user1/Projects/kueue'
+make[1]: Entering directory '/home/user1/Projects/kueue'
+→ Downloading tools dependencies...
+cd /home/user1/Projects/kueue/hack/tools && go mod download
+make[1]: Leaving directory '/home/user1/Projects/kueue'
+make[1]: Entering directory '/home/user1/Projects/kueue'
+cd /home/user1/Projects/kueue/hack/tools/metricsdoc && \
+ go build -ldflags="-X 'sigs.k8s.io/kueue/pkg/version.GitVersion=v0.19.0-devel-58-g459a37607-dirty' -X 'sigs.k8s.io/kueue/pkg/version.GitCommit=459a37607175bf1b309c544b17faa33020245952' -X 'sigs.k8s.io/kueue/pkg/version.BuildDate=2026-06-10T11:04:59Z'" -o /home/user1/Projects/kueue/bin/metricsdoc
+make[1]: Leaving directory '/home/user1/Projects/kueue'
+make[1]: Entering directory '/home/user1/Projects/kueue'
+/home/user1/Projects/kueue/bin/metricsdoc --metrics-package=pkg/metrics --out=site/content/en/docs/reference/metrics.md
+make[1]: Leaving directory '/home/user1/Projects/kueue'
+make[1]: Entering directory '/home/user1/Projects/kueue'
+/home/user1/Projects/kueue/hack/tools/mdtoc/generate.sh
+Updating tables of contents if necessary...
+make[1]: Leaving directory '/home/user1/Projects/kueue'
+make[1]: Entering directory '/home/user1/Projects/kueue'
+/home/user1/Projects/kueue/bin/helm-docs -c /home/user1/Projects/kueue/charts/kueue
+time="2026-06-10T13:05:00+02:00" level=info msg="Found Chart directories [.]"
+time="2026-06-10T13:05:00+02:00" level=info msg="Generating README Documentation for chart /home/user1/Projects/kueue/charts/kueue"
+make[1]: Leaving directory '/home/user1/Projects/kueue'
+make[1]: Entering directory '/home/user1/Projects/kueue'
+/usr/bin/sed -r 's/v[0-9]+\.[0-9]+\.[0-9]+/v0.18.0/g' -i README.md -i site/hugo.toml -i cmd/kueueviz/INSTALL.md
+/usr/bin/sed -r 's/chart_version = "[0-9]+\.[0-9]+\.[0-9]+/chart_version = "0.18.0/g' -i README.md -i site/hugo.toml
+/usr/bin/sed -r 's/--version="[0-9]+\.[0-9]+\.[0-9]+/--version="0.18.0/g' -i charts/kueue/README.md.gotmpl -i cmd/kueueviz/INSTALL.md
+/usr/bin/sed -r 's/[0-9]+\.[0-9]+\.[0-9]+/0.18.0/g' -i charts/kueue/README.md
+/home/user1/Projects/kueue/bin/yq e '.appVersion = "v0.18.0" | .version = "0.18.0"' -i charts/kueue/Chart.yaml
+/home/user1/Projects/kueue/bin/yq e '.controllerManager.manager.image.tag = "main" | .kueueViz.backend.image.tag = "main" | .kueueViz.frontend.image.tag = "main"' -i charts/kueue/values.yaml
+/home/user1/Projects/kueue/bin/yq e '.version = "0.18.0"' -i cmd/kueueviz/frontend/package.json
+/home/user1/Projects/kueue/bin/yq e '.version = "0.18.0" | .packages[""].version = "0.18.0"' -i cmd/kueueviz/frontend/package-lock.json
+/home/user1/Projects/kueue/bin/yq e '.version = "0.18.0"' -i test/e2e/kueueviz/package.json
+/home/user1/Projects/kueue/bin/yq e '.version = "0.18.0" | .packages[""].version = "0.18.0"' -i test/e2e/kueueviz/package-lock.json
+# Update kueue-populator chart version and image tag
+/home/user1/Projects/kueue/bin/yq e '.appVersion = "v0.18.0" | .version = "0.18.0" | .dependencies[0].version = "~0.18.0"' -i cmd/experimental/kueue-populator/charts/kueue-populator/Chart.yaml
+/home/user1/Projects/kueue/bin/yq e '.kueuePopulator.image.tag = "main"' -i cmd/experimental/kueue-populator/charts/kueue-populator/values.yaml
+/usr/bin/sed -r 's/[0-9]+\.[0-9]+\.[0-9]+/0.18.0/g' -i cmd/experimental/kueue-populator/README.md -i cmd/experimental/kueue-populator/charts/kueue-populator/README.md
+# Update kueue-priority-booster chart version and image tag
+/home/user1/Projects/kueue/bin/yq e '.appVersion = "v0.18.0" | .version = "0.18.0" | .dependencies[0].version = "~0.18.0"' -i cmd/experimental/kueue-priority-booster/charts/kueue-priority-booster/Chart.yaml
+/home/user1/Projects/kueue/bin/yq e '.kueuePriorityBooster.image.tag = "main"' -i cmd/experimental/kueue-priority-booster/charts/kueue-priority-booster/values.yaml
+/usr/bin/sed -r 's/[0-9]+\.[0-9]+\.[0-9]+/0.18.0/g' -i cmd/experimental/kueue-priority-booster/README.md
+make[1]: Leaving directory '/home/user1/Projects/kueue'
+make generate-helm-docs
+make[1]: Entering directory '/home/user1/Projects/kueue'
+→ Downloading controller-gen locally if necessary...
+GOBIN=/home/user1/Projects/kueue/bin GO111MODULE=on go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.20.1
+make[1]: Leaving directory '/home/user1/Projects/kueue'
+make[1]: Entering directory '/home/user1/Projects/kueue'
+cd /home/user1/Projects/kueue/hack/tools/yaml-processor && \
+ go build -ldflags="-X 'sigs.k8s.io/kueue/pkg/version.GitVersion=v0.19.0-devel-58-g459a37607-dirty' -X 'sigs.k8s.io/kueue/pkg/version.GitCommit=459a37607175bf1b309c544b17faa33020245952' -X 'sigs.k8s.io/kueue/pkg/version.BuildDate=2026-06-10T11:04:59Z'" -o /home/user1/Projects/kueue/bin/yaml-processor
+make[1]: Leaving directory '/home/user1/Projects/kueue'
+make[2]: Entering directory '/home/user1/Projects/kueue'
+/home/user1/Projects/kueue/bin/helm-docs -c /home/user1/Projects/kueue/charts/kueue
+time="2026-06-10T13:05:02+02:00" level=info msg="Found Chart directories [.]"
+time="2026-06-10T13:05:02+02:00" level=info msg="Generating README Documentation for chart /home/user1/Projects/kueue/charts/kueue"
+make[2]: Leaving directory '/home/user1/Projects/kueue'
+make[1]: Entering directory '/home/user1/Projects/kueue'
+# Clean up previously generated mocks to keep generated mocks up-to-date.
+rm -rf internal/mocks
+/home/user1/Projects/kueue/bin/mockgen \
+	-destination=internal/mocks/controller/jobframework/interface.go \
+	-copyright_file hack/boilerplate.txt \
+	-package mocks \
+	sigs.k8s.io/kueue/pkg/controller/jobframework GenericJob,JobWithCustomValidation,JobWithManagedBy,JobWithCustomWorkloadActivation,JobWithCustomAnnotations
+/home/user1/Projects/kueue/bin/mockgen \
+	-destination=internal/mocks/controller/core/resourceflavor_controller.go \
+	-copyright_file hack/boilerplate.txt \
+	-package mocks \
+	sigs.k8s.io/kueue/pkg/controller/core ResourceFlavorUpdateWatcher
+make[1]: Leaving directory '/home/user1/Projects/kueue'
+make[1]: Entering directory '/home/user1/Projects/kueue'
+mkdir -p /home/user1/Projects/kueue/artifacts
+/usr/bin/podman run --rm -v /home/user1/Projects/kueue:/workspace:Z -v /home/user1/Projects/kueue/artifacts:/out:Z ghcr.io/stbenjam/skillsaw:0.9.2 --output /out/skillsaw-summary.html
+Linting: /workspace
+
+
+[1mScanned:[0m
+  Repo type: agentskills
+  Plugins:   0
+  Skills:    24
+  Rules run: 33
+
+[1mSummary:[0m
+  [91mErrors:   0[0m
+  [93mWarnings: 0[0m
+
+[92m[1m✓ All checks passed![0m
+make[1]: Leaving directory '/home/user1/Projects/kueue'
+make[1]: Entering directory '/home/user1/Projects/kueue'
+/home/user1/Projects/kueue/bin/controller-gen object:headerFile="hack/boilerplate.go.txt" paths="./apis/..."
+/home/user1/Projects/kueue/hack/tools/code-generator/generate.sh go
+Generating defaulter code for 4 targets
+Generating conversion code for 4 targets
+Generating openapi code for 2 targets
+Generating applyconfig code for 5 targets
+Generating client code for 5 targets
+Generating lister code for 5 targets
+Generating informer code for 5 targets
+make[1]: Leaving directory '/home/user1/Projects/kueue'
+make[1]: Entering directory '/home/user1/Projects/kueue'
+cd hack/testing/kal-linter; /home/user1/Projects/kueue/bin/golangci-lint custom; mv bin/golangci-lint-kube-api-linter /home/user1/Projects/kueue/bin
+make[1]: Leaving directory '/home/user1/Projects/kueue'
+make[1]: Entering directory '/home/user1/Projects/kueue'
+/home/user1/Projects/kueue/bin/controller-gen \
+	crd:generateEmbeddedObjectMeta=true output:crd:artifacts:config=config/components/crd/bases\
+	paths="./apis/..."
+/home/user1/Projects/kueue/bin/controller-gen \
+	rbac:roleName=manager-role output:rbac:artifacts:config=config/components/rbac\
+	webhook output:webhook:artifacts:config=config/components/webhook\
+	paths="./pkg/controller/...;./pkg/webhooks/...;./pkg/util/cert/...;./pkg/visibility/..."
+make[1]: Leaving directory '/home/user1/Projects/kueue'
+make[1]: Entering directory '/home/user1/Projects/kueue'
+/home/user1/Projects/kueue/bin/kustomize build config/components/crd > config/components/crd/_output/crds-with-webhooks.yaml
+make[1]: Leaving directory '/home/user1/Projects/kueue'
+make[1]: Entering directory '/home/user1/Projects/kueue'
+go mod tidy
+go: downloading github.com/golang-jwt/jwt/v5 v5.3.1
+go: downloading go.etcd.io/etcd/server/v3 v3.6.8
+go: downloading go.etcd.io/etcd/pkg/v3 v3.6.8
+git --no-pager diff --exit-code go.mod go.sum
+make[1]: Leaving directory '/home/user1/Projects/kueue'
+make[1]: Entering directory '/home/user1/Projects/kueue'
+/home/user1/Projects/kueue/bin/yaml-processor -zap-log-level=info hack/processing-plan.yaml
+make[1]: Leaving directory '/home/user1/Projects/kueue'
+make[1]: Entering directory '/home/user1/Projects/kueue'
+go build -ldflags="-X 'sigs.k8s.io/kueue/pkg/version.GitVersion=v0.19.0-devel-58-g459a37607-dirty' -X 'sigs.k8s.io/kueue/pkg/version.GitCommit=459a37607175bf1b309c544b17faa33020245952' -X 'sigs.k8s.io/kueue/pkg/version.BuildDate=2026-06-10T11:05:16Z'" -o /home/user1/Projects/kueue/bin/kueuectl-docs ./cmd/kueuectl-docs/main.go
+make[1]: Leaving directory '/home/user1/Projects/kueue'
+make[1]: Entering directory '/home/user1/Projects/kueue'
+rm -Rf /home/user1/Projects/kueue/site/content/en/docs/reference/kubectl-kueue/commands/kueuectl*
+/home/user1/Projects/kueue/bin/kueuectl-docs \
+	/home/user1/Projects/kueue/cmd/kueuectl-docs/templates \
+	/home/user1/Projects/kueue/site/content/en/docs/reference/kubectl-kueue/commands
+make[1]: Leaving directory '/home/user1/Projects/kueue'
+make[1]: Entering directory '/home/user1/Projects/kueue'
+cd /home/user1/Projects/kueue/hack/genref/ && /home/user1/Projects/kueue/bin/genref -o /home/user1/Projects/kueue/site/content/en/docs/reference
+I0610 13:05:15.657870 2963078 main.go:142] Parsing go packages in sigs.k8s.io/kueue/apis/kueue/v1beta1
+I0610 13:05:19.414054 2963078 main.go:325] [32mOutput written to /home/user1/Projects/kueue/site/content/en/docs/reference/kueue.v1beta1.md[0m
+I0610 13:05:19.414089 2963078 main.go:142] Parsing go packages in sigs.k8s.io/kueue/apis/kueue/v1beta2
+I0610 13:08:16.765862 2963078 main.go:325] [32mOutput written to /home/user1/Projects/kueue/site/content/en/docs/reference/kueue.v1beta2.md[0m
+I0610 13:08:16.765884 2963078 main.go:142] Parsing go packages in sigs.k8s.io/kueue/apis/config/v1beta1
+I0610 13:08:30.249960 2963078 main.go:325] [32mOutput written to /home/user1/Projects/kueue/site/content/en/docs/reference/kueue-config.v1beta1.md[0m
+I0610 13:08:30.249971 2963078 main.go:142] Parsing go packages in sigs.k8s.io/kueue/apis/config/v1beta2
+I0610 13:08:42.086628 2963078 main.go:325] [32mOutput written to /home/user1/Projects/kueue/site/content/en/docs/reference/kueue-config.v1beta2.md[0m
+make[1]: Leaving directory '/home/user1/Projects/kueue'
+make[1]: Entering directory '/home/user1/Projects/kueue'
+HELM_PLUGINS=/home/user1/Projects/kueue/bin/helm-plugins /home/user1/Projects/kueue/bin/helm unittest charts/kueue --strict --debug
+level=DEBUG msg="executing plugin command" pluginName=unittest command="/home/user1/Projects/kueue/bin/helm-plugins/helm-unittest.git/untt charts/kueue --strict"
+
+### Chart [ kueue ] charts/kueue
+
+ PASS  test cert-manager certificates	charts/kueue/tests/certmanager_test.yaml
+2026/06/10 13:08:42 warning: cannot overwrite table with non table for kueue.kueueViz.backend.ingress.annotations (map[nginx.ingress.kubernetes.io/rewrite-target:/ nginx.ingress.kubernetes.io/ssl-redirect:true])
+2026/06/10 13:08:42 warning: cannot overwrite table with non table for kueue.kueueViz.frontend.ingress.annotations (map[nginx.ingress.kubernetes.io/rewrite-target:/ nginx.ingress.kubernetes.io/ssl-redirect:true])
+ PASS  test kueueviz deployment	charts/kueue/tests/kueue_test.yaml
+ PASS  test manager-config configmap	charts/kueue/tests/manager_config_test.yaml
+ PASS  test manager deployment	charts/kueue/tests/manager_test.yaml
+
+Charts:      1 passed, 1 total
+Test Suites: 4 passed, 4 total
+Tests:       50 passed, 50 total
+Snapshot:    0 passed, 0 total
+Time:        218.804851ms
+
+make[1]: Leaving directory '/home/user1/Projects/kueue'
+make[1]: Entering directory '/home/user1/Projects/kueue'
+/home/user1/Projects/kueue/bin/kustomize build config/alpha-enabled > /dev/null
+make[1]: Leaving directory '/home/user1/Projects/kueue'
+make[1]: Entering directory '/home/user1/Projects/kueue'
+/home/user1/Projects/kueue/bin/helm lint charts/kueue
+==> Linting charts/kueue
+[INFO] Chart.yaml: icon is recommended
+
+1 chart(s) linted, 0 chart(s) failed
+/home/user1/Projects/kueue/bin/helm template charts/kueue > /dev/null
+/home/user1/Projects/kueue/bin/helm template charts/kueue --set enableKueueViz=true --set enableCertManager=true --set enablePrometheus=true > /dev/null
+/home/user1/Projects/kueue/bin/helm template charts/kueue --set managerConfig.controllerManagerConfigYaml="managedJobsNamespaceSelector:\n  matchExpressions:\n    - key: kubernetes.io/metadata.name\n      operator: In\n      values: [ kube-system ]" > /dev/null
+/home/user1/Projects/kueue/bin/helm template charts/kueue --set controllerManager.manager.priorityClassName="system-cluster-critical" > /dev/null
+/home/user1/Projects/kueue/bin/helm template charts/kueue --set controllerManager.nodeSelector.nodetype=infra --set 'controllerManager.tolerations[0].key=node-role.kubernetes.io/master' --set 'controllerManager.tolerations[0].operator=Exists' --set 'controllerManager.tolerations[0].effect=NoSchedule' > /dev/null
+/home/user1/Projects/kueue/bin/helm template charts/kueue --set enableKueueViz=true --set kueueViz.backend.nodeSelector.nodetype=infra --set 'kueueViz.backend.tolerations[0].key=node-role.kubernetes.io/master' --set 'kueueViz.backend.tolerations[0].operator=Exists' --set 'kueueViz.backend.tolerations[0].effect=NoSchedule' > /dev/null
+/home/user1/Projects/kueue/bin/helm template charts/kueue --set enableKueueViz=true --set kueueViz.frontend.nodeSelector.nodetype=infra --set 'kueueViz.frontend.tolerations[0].key=node-role.kubernetes.io/master' --set 'kueueViz.frontend.tolerations[0].operator=Exists' --set 'kueueViz.frontend.tolerations[0].effect=NoSchedule' > /dev/null
+/home/user1/Projects/kueue/bin/helm template charts/kueue --set enableKueueViz=true --set kueueViz.backend.priorityClassName="system-cluster-critical" > /dev/null
+/home/user1/Projects/kueue/bin/helm template charts/kueue --set enableKueueViz=true --set kueueViz.backend.priorityClassName="system-cluster-critical" > /dev/null
+make[1]: Leaving directory '/home/user1/Projects/kueue'
+make[1]: Entering directory '/home/user1/Projects/kueue'
+/home/user1/Projects/kueue/bin/golangci-lint-kube-api-linter run -v --config /home/user1/Projects/kueue/.golangci-kal.yaml 
+level=info msg="golangci-lint has version v2.4.0-custom-gcl-47DEQpj8HBSaTImW5JCeuQeRkm5NMpJWZG3hSuFU built with go1.26.0 from ? on 2026-06-10 11:05:08.347156893 +0000 UTC"
+level=info msg="[config_reader] Used config file .golangci-kal.yaml"
+level=info msg="[config_reader] Module name \"sigs.k8s.io/kueue\""
+level=info msg="maxprocs: Leaving GOMAXPROCS=24: CPU quota undefined"
+level=info msg="Loaded : kubeapilinter"
+level=info msg="[goenv] Read go env for 3.195703ms: map[string]string{\"GOCACHE\":\"/home/user1/.cache/go-build\", \"GOROOT\":\"/usr/local/go\"}"
+level=info msg="[lintersdb] Active 1 linters: [kubeapilinter]"
+level=info msg="[loader] Go packages loading at mode 8767 (exports_file|name|compiled_files|deps|files|imports|types_sizes) took 26.201835426s"
+level=info msg="[runner/filename_unadjuster] Pre-built 0 adjustments in 142.316443ms"
+level=info msg="[linters_context/goanalysis] analyzers took 1.231348493s with top 10 stages: inspect: 322.063084ms, inspector: 285.085538ms, nodurations: 47.505715ms, maxlength: 40.213541ms, jsontags: 39.453907ms, optionalfields: 37.718994ms, ssatags: 37.382899ms, optionalorrequired: 36.559717ms, nonullable: 35.786983ms, duplicatemarkers: 33.669612ms"
+level=info msg="[runner/exclusion_rules] Skipped 5260 issues by rules: [Path Except: \"apis/kueue/v1beta2\", Linters: \"kubeapilinter\"]"
+level=info msg="[runner/exclusion_rules] Skipped 1 issues by rules: [Text: \"optionalfields: field PodSets should have the omitempty tag.\", Path: \"apis/kueue/v1beta2\"]"
+level=info msg="[runner/exclusion_rules] Skipped 22 issues by rules: [Text: \"optionalfields: field (Spec|Status) should (be a pointer|have the omitempty tag).\", Path: \"apis/kueue/v1beta2\"]"
+level=info msg="[runner/exclusion_rules] Skipped 29 issues by rules: [Text: \"optionalfields: field (QueueName|PriorityClassName|PriorityClassSource|ClusterQueue|ParentName|CohortName|QueueingStrategy|LocationType|Description|Policy|WhenCanBorrow|WhenCanPreempt|ReclaimWithinCohort|WithinClusterQueue|Borrowed|Total|PendingWorkloads|ReservingWorkloads|AdmittedWorkloads) should (be a pointer|have the omitempty tag).\", Path: \"apis/kueue/v1beta2\"]"
+level=info msg="[runner/exclusion_rules] Skipped 16 issues by rules: [Text: \"(optionalfields|requiredfields): field (Name|Count) should (be a pointer|have the omitempty tag).\", Path: \"apis/kueue/v1beta2\"]"
+level=info msg="[runner/exclusion_rules] Skipped 18 issues by rules: [Text: \"requiredfields: field .* has a valid zero value.*should be a pointer\", Path: \"apis/kueue/v1beta2\"]"
+level=info msg="[runner/exclusion_rules] Skipped 10 issues by rules: [Text: \"requiredfields: field (ControllerName|LastUpdate|Reason|UnderlyingCause|Message|WeightedShare|Value|ConsumedResources|Location) should have the omitempty tag.\", Path: \"apis/kueue/v1beta2\"]"
+level=info msg="[runner/exclusion_rules] Skipped 1 issues by rules: [Text: \"optionalfields: field PodSetAssignments should have the omitempty tag.\", Path: \"apis/kueue/v1beta2\"]"
+level=info msg="[runner/exclusion_rules] Skipped 5 issues by rules: [Text: \"(nomaps|optionalfields): (field )?(ResourceUsage|Resources|ConsumedResources) should (not use a map type|be a pointer)\", Path: \"apis/kueue/v1beta2\"]"
+level=info msg="[runner/exclusion_rules] Skipped 3 issues by rules: [Text: \"(nobools|optionalorrequired): field (Active|Unconstrained) .*(should not use a bool|must be marked as optional or required)\", Path: \"apis/kueue/v1beta2\"]"
+level=info msg="[runner] Issues before processing: 6595, after processing: 0"
+level=info msg="[runner] Processors filtering stat (in/out): filename_unadjuster: 6595/6595, path_relativity: 6595/6595, exclusion_paths: 6595/6595, generated_file_filter: 6595/5365, exclusion_rules: 5365/0, path_absoluter: 6595/6595, invalid_issue: 6595/6595, cgo: 6595/6595"
+level=info msg="[runner] processing took 26.003175ms with stages: generated_file_filter: 15.508798ms, path_relativity: 5.282177ms, exclusion_rules: 4.561586ms, invalid_issue: 283.547µs, cgo: 229.83µs, path_absoluter: 75.305µs, filename_unadjuster: 53.943µs, sort_results: 1.695µs, nolint_filter: 1.674µs, max_same_issues: 1.425µs, exclusion_paths: 828ns, fixer: 552ns, uniq_by_line: 365ns, diff: 295ns, path_prettifier: 226ns, source_code: 214ns, severity-rules: 214ns, path_shortener: 194ns, max_from_linter: 181ns, max_per_file_from_linter: 126ns"
+level=info msg="[runner] linters took 1.44716493s with stages: goanalysis_metalinter: 1.420946686s"
+0 issues.
+level=info msg="File cache stats: 0 entries of total size 0B"
+level=info msg="Memory: 278 samples, avg is 76.2MB, max is 1450.1MB"
+level=info msg="Execution took 27.804404011s"
+make[1]: Leaving directory '/home/user1/Projects/kueue'
+make[1]: Entering directory '/home/user1/Projects/kueue'
+/home/user1/Projects/kueue/hack/testing/shellcheck/verify.sh
+Downloading ShellCheck Docker image...
+v0.11.0: Pulling from koalaman/shellcheck-alpine
+Digest: sha256:9955be09ea7f0dbf7ae942ac1f2094355bb30d96fffba0ec09f5432207544002
+Status: Image is up to date for koalaman/shellcheck-alpine:v0.11.0
+docker.io/koalaman/shellcheck-alpine:v0.11.0
+Running ShellCheck...
+Shellcheck ran successfully
+make[1]: Leaving directory '/home/user1/Projects/kueue'
+make[1]: Entering directory '/home/user1/Projects/kueue'
+/home/user1/Projects/kueue/hack/testing/depcheck/verify.sh /home/user1/Projects/kueue/cmd/kueueviz/frontend
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 466B done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/node:26-alpine
+#2 DONE 2.1s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 166B done
+#3 DONE 0.0s
+
+#4 [internal] load build context
+#4 transferring context: 302.38kB 0.1s done
+#4 DONE 0.1s
+
+#5 [1/5] FROM docker.io/library/node:26-alpine@sha256:144769ec3f32e8ee36b3cfde91e82bee25d9367b20f31a151f3f7eea3a2a8541
+#5 resolve docker.io/library/node:26-alpine@sha256:144769ec3f32e8ee36b3cfde91e82bee25d9367b20f31a151f3f7eea3a2a8541 0.0s done
+#5 sha256:6f3a342603870772338e02ac93a9248520884db7abe194917f1219628c632b68 1.53kB / 1.53kB done
+#5 sha256:5165330357caa120c9264311a496304948cc1d89d5189d9ac2648426ec4ddcbe 4.92kB / 4.92kB done
+#5 sha256:155e0e3178a764eb9b2f96c5af499da7118aa5699139637c233dd0d8f18469ba 0B / 58.70MB 0.2s
+#5 sha256:5a6fc0b1ba74aa1383992762af9bbbf67e9deb8530dd4ff76ecc11aa18a787f1 0B / 453B 0.2s
+#5 sha256:144769ec3f32e8ee36b3cfde91e82bee25d9367b20f31a151f3f7eea3a2a8541 2.61kB / 2.61kB done
+#5 sha256:155e0e3178a764eb9b2f96c5af499da7118aa5699139637c233dd0d8f18469ba 4.19MB / 58.70MB 0.5s
+#5 sha256:155e0e3178a764eb9b2f96c5af499da7118aa5699139637c233dd0d8f18469ba 11.53MB / 58.70MB 0.7s
+#5 sha256:155e0e3178a764eb9b2f96c5af499da7118aa5699139637c233dd0d8f18469ba 15.73MB / 58.70MB 0.8s
+#5 sha256:155e0e3178a764eb9b2f96c5af499da7118aa5699139637c233dd0d8f18469ba 18.87MB / 58.70MB 0.9s
+#5 sha256:155e0e3178a764eb9b2f96c5af499da7118aa5699139637c233dd0d8f18469ba 27.26MB / 58.70MB 1.1s
+#5 sha256:5a6fc0b1ba74aa1383992762af9bbbf67e9deb8530dd4ff76ecc11aa18a787f1 453B / 453B 0.9s done
+#5 sha256:155e0e3178a764eb9b2f96c5af499da7118aa5699139637c233dd0d8f18469ba 31.46MB / 58.70MB 1.2s
+#5 sha256:155e0e3178a764eb9b2f96c5af499da7118aa5699139637c233dd0d8f18469ba 34.60MB / 58.70MB 1.3s
+#5 sha256:155e0e3178a764eb9b2f96c5af499da7118aa5699139637c233dd0d8f18469ba 38.80MB / 58.70MB 1.4s
+#5 sha256:155e0e3178a764eb9b2f96c5af499da7118aa5699139637c233dd0d8f18469ba 42.99MB / 58.70MB 1.5s
+#5 sha256:155e0e3178a764eb9b2f96c5af499da7118aa5699139637c233dd0d8f18469ba 51.38MB / 58.70MB 1.7s
+#5 sha256:155e0e3178a764eb9b2f96c5af499da7118aa5699139637c233dd0d8f18469ba 58.70MB / 58.70MB 1.9s
+#5 sha256:155e0e3178a764eb9b2f96c5af499da7118aa5699139637c233dd0d8f18469ba 58.70MB / 58.70MB 2.0s done
+#5 extracting sha256:155e0e3178a764eb9b2f96c5af499da7118aa5699139637c233dd0d8f18469ba
+#5 extracting sha256:155e0e3178a764eb9b2f96c5af499da7118aa5699139637c233dd0d8f18469ba 3.7s done
+#5 extracting sha256:5a6fc0b1ba74aa1383992762af9bbbf67e9deb8530dd4ff76ecc11aa18a787f1 done
+#5 DONE 6.0s
+
+#6 [2/5] WORKDIR /app
+#6 DONE 2.5s
+
+#7 [3/5] COPY package*.json ./
+#7 DONE 0.2s
+
+#8 [4/5] RUN npm install
+#8 4.232 npm warn deprecated lodash.get@4.4.2: This package is deprecated. Use the optional chaining (?.) operator instead.
+#8 4.339 npm warn deprecated lodash.isequal@4.5.0: This package is deprecated. Use require('node:util').isDeepStrictEqual instead.
+#8 17.44 
+#8 17.44 added 295 packages, and audited 296 packages in 16s
+#8 17.44 
+#8 17.44 66 packages are looking for funding
+#8 17.44   run `npm fund` for details
+#8 17.44 
+#8 17.44 found 0 vulnerabilities
+#8 DONE 17.7s
+
+#9 [5/5] COPY . .
+#9 DONE 0.2s
+
+#10 exporting to image
+#10 exporting layers
+#10 exporting layers 5.3s done
+#10 writing image sha256:503028f5fa8e37021060077fea6d9bdcd17051a3ef9ca002257fea58a6a426fc
+#10 writing image sha256:503028f5fa8e37021060077fea6d9bdcd17051a3ef9ca002257fea58a6a426fc done
+#10 naming to docker.io/library/depcheck 0.0s done
+#10 DONE 5.4s
+
+> kueueviz-frontend@0.18.0 check-unused
+> depcheck
+
+No depcheck issue
+/home/user1/Projects/kueue/hack/testing/depcheck/verify.sh /home/user1/Projects/kueue/test/e2e/kueueviz
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 466B 0.0s done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/node:26-alpine
+#2 DONE 0.8s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 157B 0.0s done
+#3 DONE 0.1s
+
+#4 [internal] load build context
+#4 ...
+
+#5 [1/5] FROM docker.io/library/node:26-alpine@sha256:144769ec3f32e8ee36b3cfde91e82bee25d9367b20f31a151f3f7eea3a2a8541
+#5 DONE 0.2s
+
+#4 [internal] load build context
+#4 transferring context:
+#4 transferring context: 139.43kB 0.3s done
+#4 DONE 0.7s
+
+#6 [2/5] WORKDIR /app
+#6 CACHED
+
+#7 [3/5] COPY package*.json ./
+#7 DONE 1.1s
+
+#8 [4/5] RUN npm install
+#8 2.855 
+#8 2.855 added 287 packages, and audited 288 packages in 2s
+#8 2.855 
+#8 2.855 67 packages are looking for funding
+#8 2.855   run `npm fund` for details
+#8 2.858 
+#8 2.858 2 moderate severity vulnerabilities
+#8 2.858 
+#8 2.858 To address all issues, run:
+#8 2.858   npm audit fix
+#8 2.858 
+#8 2.858 Run `npm audit` for details.
+#8 2.859 npm warn allow-scripts 1 package has install scripts not yet covered by allowScripts:
+#8 2.859 npm warn allow-scripts   cypress@15.16.0 (postinstall: node dist/index.js --exec install)
+#8 2.859 npm warn allow-scripts
+#8 2.859 npm warn allow-scripts Run `npm approve-scripts --allow-scripts-pending` to review, or `npm approve-scripts <pkg>` to allow.
+#8 DONE 3.4s
+
+#9 [5/5] COPY . .
+#9 DONE 0.4s
+
+#10 exporting to image
+#10 exporting layers
+#10 exporting layers 0.4s done
+#10 writing image sha256:1c4c98327b28498a7a8741c69e93df284ced5b153d4721c9464406d23a6f0c5e done
+#10 naming to docker.io/library/depcheck done
+#10 DONE 0.4s
+
+> kueueviz-frontend-tests@0.18.0 check-unused
+> depcheck
+
+No depcheck issue
+make[1]: Leaving directory '/home/user1/Projects/kueue'

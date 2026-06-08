@@ -1,0 +1,84 @@
+make -j 8 --output-sync=target verify-checks
+make[1]: Entering directory '/home/user1/Projects/kueue'
+/usr/bin/sed -r 's/(.*(HUGO_VERSION).*)/  HUGO_VERSION = "0.162.1"/g' -i netlify.toml
+make[1]: Leaving directory '/home/user1/Projects/kueue'
+make[1]: Entering directory '/home/user1/Projects/kueue'
+→ Downloading tools dependencies...
+cd /home/user1/Projects/kueue/hack/tools && go mod download
+make[1]: Leaving directory '/home/user1/Projects/kueue'
+make[1]: Entering directory '/home/user1/Projects/kueue'
+/home/user1/Projects/kueue/hack/tools/compatibility-lifecycle/generate.sh
+found 66 features in FeatureSpecMap var defaultVersionedFeatureGates in file: /home/user1/Projects/kueue/pkg/features/kube_features.go
+make[1]: Leaving directory '/home/user1/Projects/kueue'
+make[1]: Entering directory '/home/user1/Projects/kueue'
+cd /home/user1/Projects/kueue/hack/tools/metricsdoc && \
+ go build -ldflags="-X 'sigs.k8s.io/kueue/pkg/version.GitVersion=v0.19.0-devel-58-g459a37607-dirty' -X 'sigs.k8s.io/kueue/pkg/version.GitCommit=459a37607175bf1b309c544b17faa33020245952' -X 'sigs.k8s.io/kueue/pkg/version.BuildDate=2026-06-10T11:00:49Z'" -o /home/user1/Projects/kueue/bin/metricsdoc
+make[1]: Leaving directory '/home/user1/Projects/kueue'
+make[1]: Entering directory '/home/user1/Projects/kueue'
+/home/user1/Projects/kueue/bin/metricsdoc --metrics-package=pkg/metrics --out=site/content/en/docs/reference/metrics.md
+make[1]: Leaving directory '/home/user1/Projects/kueue'
+make[1]: Entering directory '/home/user1/Projects/kueue'
+/home/user1/Projects/kueue/bin/helm-docs -c /home/user1/Projects/kueue/charts/kueue
+time="2026-06-10T13:00:50+02:00" level=info msg="Found Chart directories [.]"
+time="2026-06-10T13:00:50+02:00" level=info msg="Generating README Documentation for chart /home/user1/Projects/kueue/charts/kueue"
+make[1]: Leaving directory '/home/user1/Projects/kueue'
+make[1]: Entering directory '/home/user1/Projects/kueue'
+mkdir -p /home/user1/Projects/kueue/artifacts
+/usr/bin/podman run --rm -v /home/user1/Projects/kueue:/workspace:Z -v /home/user1/Projects/kueue/artifacts:/out:Z ghcr.io/stbenjam/skillsaw:0.9.2 --output /out/skillsaw-summary.html
+Error: lsetxattr(label=system_u:object_r:container_file_t:s0:c565,c683) /home/user1/Projects/kueue/artifacts/cypress/screenshots: operation not permitted
+make[1]: *** [Makefile-verify.mk:202: verify-skills-lint] Error 126
+make[1]: Leaving directory '/home/user1/Projects/kueue'
+make[1]: *** Waiting for unfinished jobs....
+make[1]: Entering directory '/home/user1/Projects/kueue'
+/home/user1/Projects/kueue/hack/tools/mdtoc/generate.sh
+Updating tables of contents if necessary...
+make[1]: Leaving directory '/home/user1/Projects/kueue'
+make[1]: Entering directory '/home/user1/Projects/kueue'
+/usr/bin/sed -r 's/v[0-9]+\.[0-9]+\.[0-9]+/v0.18.0/g' -i README.md -i site/hugo.toml -i cmd/kueueviz/INSTALL.md
+/usr/bin/sed -r 's/chart_version = "[0-9]+\.[0-9]+\.[0-9]+/chart_version = "0.18.0/g' -i README.md -i site/hugo.toml
+/usr/bin/sed -r 's/--version="[0-9]+\.[0-9]+\.[0-9]+/--version="0.18.0/g' -i charts/kueue/README.md.gotmpl -i cmd/kueueviz/INSTALL.md
+/usr/bin/sed -r 's/[0-9]+\.[0-9]+\.[0-9]+/0.18.0/g' -i charts/kueue/README.md
+/home/user1/Projects/kueue/bin/yq e '.appVersion = "v0.18.0" | .version = "0.18.0"' -i charts/kueue/Chart.yaml
+/home/user1/Projects/kueue/bin/yq e '.controllerManager.manager.image.tag = "main" | .kueueViz.backend.image.tag = "main" | .kueueViz.frontend.image.tag = "main"' -i charts/kueue/values.yaml
+/home/user1/Projects/kueue/bin/yq e '.version = "0.18.0"' -i cmd/kueueviz/frontend/package.json
+/home/user1/Projects/kueue/bin/yq e '.version = "0.18.0" | .packages[""].version = "0.18.0"' -i cmd/kueueviz/frontend/package-lock.json
+/home/user1/Projects/kueue/bin/yq e '.version = "0.18.0"' -i test/e2e/kueueviz/package.json
+/home/user1/Projects/kueue/bin/yq e '.version = "0.18.0" | .packages[""].version = "0.18.0"' -i test/e2e/kueueviz/package-lock.json
+# Update kueue-populator chart version and image tag
+/home/user1/Projects/kueue/bin/yq e '.appVersion = "v0.18.0" | .version = "0.18.0" | .dependencies[0].version = "~0.18.0"' -i cmd/experimental/kueue-populator/charts/kueue-populator/Chart.yaml
+/home/user1/Projects/kueue/bin/yq e '.kueuePopulator.image.tag = "main"' -i cmd/experimental/kueue-populator/charts/kueue-populator/values.yaml
+/usr/bin/sed -r 's/[0-9]+\.[0-9]+\.[0-9]+/0.18.0/g' -i cmd/experimental/kueue-populator/README.md -i cmd/experimental/kueue-populator/charts/kueue-populator/README.md
+# Update kueue-priority-booster chart version and image tag
+/home/user1/Projects/kueue/bin/yq e '.appVersion = "v0.18.0" | .version = "0.18.0" | .dependencies[0].version = "~0.18.0"' -i cmd/experimental/kueue-priority-booster/charts/kueue-priority-booster/Chart.yaml
+/home/user1/Projects/kueue/bin/yq e '.kueuePriorityBooster.image.tag = "main"' -i cmd/experimental/kueue-priority-booster/charts/kueue-priority-booster/values.yaml
+/usr/bin/sed -r 's/[0-9]+\.[0-9]+\.[0-9]+/0.18.0/g' -i cmd/experimental/kueue-priority-booster/README.md
+make[1]: Leaving directory '/home/user1/Projects/kueue'
+make generate-helm-docs
+make[1]: Entering directory '/home/user1/Projects/kueue'
+→ Downloading controller-gen locally if necessary...
+GOBIN=/home/user1/Projects/kueue/bin GO111MODULE=on go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.20.1
+make[1]: Leaving directory '/home/user1/Projects/kueue'
+make[1]: Entering directory '/home/user1/Projects/kueue'
+cd /home/user1/Projects/kueue/hack/tools/yaml-processor && \
+ go build -ldflags="-X 'sigs.k8s.io/kueue/pkg/version.GitVersion=v0.19.0-devel-58-g459a37607-dirty' -X 'sigs.k8s.io/kueue/pkg/version.GitCommit=459a37607175bf1b309c544b17faa33020245952' -X 'sigs.k8s.io/kueue/pkg/version.BuildDate=2026-06-10T11:00:49Z'" -o /home/user1/Projects/kueue/bin/yaml-processor
+make[1]: Leaving directory '/home/user1/Projects/kueue'
+make[2]: Entering directory '/home/user1/Projects/kueue'
+/home/user1/Projects/kueue/bin/helm-docs -c /home/user1/Projects/kueue/charts/kueue
+time="2026-06-10T13:00:51+02:00" level=info msg="Found Chart directories [.]"
+time="2026-06-10T13:00:51+02:00" level=info msg="Generating README Documentation for chart /home/user1/Projects/kueue/charts/kueue"
+make[2]: Leaving directory '/home/user1/Projects/kueue'
+make[1]: Entering directory '/home/user1/Projects/kueue'
+# Clean up previously generated mocks to keep generated mocks up-to-date.
+rm -rf internal/mocks
+/home/user1/Projects/kueue/bin/mockgen \
+	-destination=internal/mocks/controller/jobframework/interface.go \
+	-copyright_file hack/boilerplate.txt \
+	-package mocks \
+	sigs.k8s.io/kueue/pkg/controller/jobframework GenericJob,JobWithCustomValidation,JobWithManagedBy,JobWithCustomWorkloadActivation,JobWithCustomAnnotations
+/home/user1/Projects/kueue/bin/mockgen \
+	-destination=internal/mocks/controller/core/resourceflavor_controller.go \
+	-copyright_file hack/boilerplate.txt \
+	-package mocks \
+	sigs.k8s.io/kueue/pkg/controller/core ResourceFlavorUpdateWatcher
+make[1]: Leaving directory '/home/user1/Projects/kueue'
+make: *** [Makefile-verify.mk:66: verify] Error 2

@@ -1,0 +1,4 @@
+mkdir -p /home/user1/Projects/kueue/artifacts
+/usr/bin/podman run --rm -v /home/user1/Projects/kueue:/workspace:Z -v /home/user1/Projects/kueue/artifacts:/out:Z ghcr.io/stbenjam/skillsaw:0.9.2 --output /out/skillsaw-summary.html
+Error: lsetxattr(label=system_u:object_r:container_file_t:s0:c120,c741) /home/user1/Projects/kueue/cmd/kueueviz/frontend/node_modules/.vite/deps: operation not permitted
+make: *** [Makefile-verify.mk:202: verify-skills-lint] Error 126

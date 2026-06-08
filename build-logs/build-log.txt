@@ -1,0 +1,1033 @@
+Docker in Docker enabled, initializing...
+================================================================================
+net.ipv6.conf.all.disable_ipv6 = 0
+net.ipv6.conf.all.forwarding = 1
+insmod /lib/modules/6.12.88/kernel/net/ipv6/netfilter/ip6table_nat.ko 
+Starting Docker: docker.
+Waiting for docker to be ready, sleeping for 1 seconds.
+================================================================================
+Done setting up docker in docker.
++ WRAPPED_COMMAND_PID=254
++ wait 254
++ make kind-image-build test-e2e-sequential-baseline-shard-0
+go: downloading sigs.k8s.io/kind v0.32.0
+go: downloading al.essio.dev/pkg/shellescape v1.5.1
+go: downloading github.com/spf13/pflag v1.0.5
+go: downloading github.com/spf13/cobra v1.8.0
+go: downloading github.com/pkg/errors v0.9.1
+go: downloading github.com/mattn/go-isatty v0.0.20
+go: downloading github.com/pelletier/go-toml v1.9.5
+go: downloading github.com/BurntSushi/toml v1.4.0
+go: downloading github.com/evanphx/json-patch/v5 v5.6.0
+go: downloading go.yaml.in/yaml/v3 v3.0.4
+go: downloading sigs.k8s.io/yaml v1.4.0
+go: downloading golang.org/x/sys v0.6.0
+docker buildx build \
+	-t us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:v0.19.0-devel-79-ge69a32afc \
+	-t us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:main \
+	--platform=linux/amd64 \
+	--build-arg BASE_IMAGE=gcr.io/distroless/static:nonroot \
+	--build-arg BUILDER_IMAGE=public.ecr.aws/docker/library/golang:1.26 \
+	--build-arg CGO_ENABLED=0 \
+	--build-arg GIT_TAG=v0.19.0-devel-79-ge69a32afc \
+	--build-arg GIT_COMMIT=e69a32afcb25442437202c4dcb8e55069abe7d65 \
+	--load \
+	 \
+	./
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 841B done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for public.ecr.aws/docker/library/golang:1.26
+#2 DONE 0.4s
+
+#3 [internal] load metadata for gcr.io/distroless/static:nonroot
+#3 DONE 1.5s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 781B done
+#4 DONE 0.0s
+
+#5 [builder 1/6] FROM public.ecr.aws/docker/library/golang:1.26@sha256:11fd8f7f63db3b6fb198797042ba4c40a4a34dc83325d3328ca3bc4bb7726786
+#5 resolve public.ecr.aws/docker/library/golang:1.26@sha256:11fd8f7f63db3b6fb198797042ba4c40a4a34dc83325d3328ca3bc4bb7726786 done
+#5 sha256:11fd8f7f63db3b6fb198797042ba4c40a4a34dc83325d3328ca3bc4bb7726786 9.70kB / 9.70kB done
+#5 sha256:82c8738642b733f7d2f44b057375ec90d17c294ff6689aedc628afa9c2b2ceff 2.32kB / 2.32kB done
+#5 sha256:0f93c8cff8231409ef2b28bdb0ca1687ea82b65bda7a6f7663fa9e481c7f394c 3.04kB / 3.04kB done
+#5 sha256:f32f49ce655a9cf7c1fd4ca1417ddb39a54cedf4b7ff35de20f8009c18dd7a96 3.15MB / 49.31MB 1.7s
+#5 sha256:8a7504cd2818ce40ac76c17886a03dff25ef0aa06ff6125bf0f0c7302cdc6471 0B / 25.63MB 1.7s
+#5 sha256:f32f49ce655a9cf7c1fd4ca1417ddb39a54cedf4b7ff35de20f8009c18dd7a96 28.31MB / 49.31MB 1.8s
+#5 sha256:8a7504cd2818ce40ac76c17886a03dff25ef0aa06ff6125bf0f0c7302cdc6471 16.78MB / 25.63MB 1.8s
+#5 sha256:f32f49ce655a9cf7c1fd4ca1417ddb39a54cedf4b7ff35de20f8009c18dd7a96 49.31MB / 49.31MB 1.9s
+#5 sha256:8a7504cd2818ce40ac76c17886a03dff25ef0aa06ff6125bf0f0c7302cdc6471 25.63MB / 25.63MB 1.9s done
+#5 sha256:f32f49ce655a9cf7c1fd4ca1417ddb39a54cedf4b7ff35de20f8009c18dd7a96 49.31MB / 49.31MB 2.0s done
+#5 sha256:b53089dca50590292ecc77bf803152a5799650e734717e4b706cb812a02073ba 5.24MB / 67.78MB 2.0s
+#5 sha256:b53089dca50590292ecc77bf803152a5799650e734717e4b706cb812a02073ba 34.60MB / 67.78MB 2.1s
+#5 sha256:6c5873cb3688b972890eb7034cb0bc36fc7db0826a4348e596c3a56949e27d53 2.10MB / 102.24MB 2.1s
+#5 sha256:67aaa626ba3010d60ab55d9cdc69c0b12ebff5d1b5ece83ff220fb46a7709b3b 0B / 67.28MB 2.1s
+#5 sha256:b53089dca50590292ecc77bf803152a5799650e734717e4b706cb812a02073ba 67.78MB / 67.78MB 2.3s done
+#5 sha256:6c5873cb3688b972890eb7034cb0bc36fc7db0826a4348e596c3a56949e27d53 36.70MB / 102.24MB 2.3s
+#5 sha256:67aaa626ba3010d60ab55d9cdc69c0b12ebff5d1b5ece83ff220fb46a7709b3b 45.09MB / 67.28MB 2.3s
+#5 extracting sha256:f32f49ce655a9cf7c1fd4ca1417ddb39a54cedf4b7ff35de20f8009c18dd7a96
+#5 sha256:856fef5914da4fbead25cf7d522b9155f8fb74e3eff265289511d3b14f2c1e23 0B / 126B 2.3s
+#5 ...
+
+#6 [stage-1 1/3] FROM gcr.io/distroless/static:nonroot@sha256:963fa6c544fe5ce420f1f54fb88b6fb01479f054c8056d0f74cc2c6000df5240
+#6 resolve gcr.io/distroless/static:nonroot@sha256:963fa6c544fe5ce420f1f54fb88b6fb01479f054c8056d0f74cc2c6000df5240 done
+#6 sha256:963fa6c544fe5ce420f1f54fb88b6fb01479f054c8056d0f74cc2c6000df5240 1.79kB / 1.79kB done
+#6 sha256:dfadf31470f770fcabd48903762dce126958e98d1ce320acf1216bbfaa42d79c 2.75kB / 2.75kB done
+#6 sha256:99515e7b4d35e0652d3b0fde571b6ec269222ecacc506f026e1758d6261e9109 288.54kB / 288.54kB 0.8s done
+#6 sha256:c9c1077449dead9e30ac230b376e761345deceab3fba17e74eeb71fcdb385845 2.93kB / 2.93kB done
+#6 sha256:47de5dd0b812c573630914955e26abda537e09b5286a824c96e22e3854d4dd53 85.84kB / 85.84kB 0.4s done
+#6 sha256:c172f21841dff4c8cf45cde46589c1c2616cefe7e819965e92e6d3475c428aa0 12.68kB / 12.68kB 0.8s done
+#6 extracting sha256:47de5dd0b812c573630914955e26abda537e09b5286a824c96e22e3854d4dd53 0.1s done
+#6 sha256:99ba982a9142213c751a1709dcf088e63d8601f03b3f211bae037be698fef270 254.45kB / 254.45kB 1.0s done
+#6 extracting sha256:c172f21841dff4c8cf45cde46589c1c2616cefe7e819965e92e6d3475c428aa0 0.0s done
+#6 extracting sha256:99515e7b4d35e0652d3b0fde571b6ec269222ecacc506f026e1758d6261e9109 0.4s done
+#6 sha256:d6b1b89eccacc15c2420b2776d72c1dae334a00805ed9af54bf2f71e4d536f28 32.09kB / 32.09kB 1.4s done
+#6 sha256:2780920e5dbfbe103d03a583ed75345306e572ec5a48cb10361f046767d9f29a 67B / 67B 1.0s done
+#6 sha256:7c12895b777bcaa8ccae0605b4de635b68fc32d60fa08f421dc3818bf55ee212 188B / 188B 1.2s done
+#6 sha256:3214acf345c0cc6bbdb56b698a41ccdefc624a09d6beb0d38b5de0b2303ecaf4 123B / 123B 1.3s done
+#6 sha256:52630fc75a18675c530ed9eba5f55eca09b03e91bd5bc15307918bbc1a7e7296 162B / 162B 1.4s done
+#6 extracting sha256:99ba982a9142213c751a1709dcf088e63d8601f03b3f211bae037be698fef270 0.6s done
+#6 sha256:dd64bf2dd177757451a98fcdc999a339c35dee5d9872d8f4dc69c8f3c4dd0112 80B / 80B 1.5s done
+#6 sha256:b839dfae01f66e15c6a8b63520557ed315bdfe036342fa7a0c537259f10d7a9a 351B / 351B 1.6s done
+#6 sha256:ebddc55facdc6b1f7e0f30816a5fc7cc62f38abdf76c0a8b0a0ce52085754795 311B / 311B 1.7s done
+#6 sha256:bdfd7f7e5bf6fc27e70b59101db21c3d8284d283884419dd5fe7020583bb79ca 136.99kB / 136.99kB 1.9s done
+#6 extracting sha256:d6b1b89eccacc15c2420b2776d72c1dae334a00805ed9af54bf2f71e4d536f28 0.1s done
+#6 extracting sha256:2780920e5dbfbe103d03a583ed75345306e572ec5a48cb10361f046767d9f29a 0.0s done
+#6 extracting sha256:7c12895b777bcaa8ccae0605b4de635b68fc32d60fa08f421dc3818bf55ee212 done
+#6 extracting sha256:3214acf345c0cc6bbdb56b698a41ccdefc624a09d6beb0d38b5de0b2303ecaf4 0.0s done
+#6 extracting sha256:52630fc75a18675c530ed9eba5f55eca09b03e91bd5bc15307918bbc1a7e7296 0.0s done
+#6 extracting sha256:dd64bf2dd177757451a98fcdc999a339c35dee5d9872d8f4dc69c8f3c4dd0112 done
+#6 extracting sha256:b839dfae01f66e15c6a8b63520557ed315bdfe036342fa7a0c537259f10d7a9a 0.0s done
+#6 extracting sha256:ebddc55facdc6b1f7e0f30816a5fc7cc62f38abdf76c0a8b0a0ce52085754795 0.0s done
+#6 extracting sha256:bdfd7f7e5bf6fc27e70b59101db21c3d8284d283884419dd5fe7020583bb79ca 0.0s done
+#6 DONE 2.3s
+
+#5 [builder 1/6] FROM public.ecr.aws/docker/library/golang:1.26@sha256:11fd8f7f63db3b6fb198797042ba4c40a4a34dc83325d3328ca3bc4bb7726786
+#5 sha256:6c5873cb3688b972890eb7034cb0bc36fc7db0826a4348e596c3a56949e27d53 68.16MB / 102.24MB 2.4s
+#5 sha256:67aaa626ba3010d60ab55d9cdc69c0b12ebff5d1b5ece83ff220fb46a7709b3b 67.28MB / 67.28MB 2.4s
+#5 sha256:856fef5914da4fbead25cf7d522b9155f8fb74e3eff265289511d3b14f2c1e23 126B / 126B 2.3s done
+#5 sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1 32B / 32B 2.4s done
+#5 sha256:6c5873cb3688b972890eb7034cb0bc36fc7db0826a4348e596c3a56949e27d53 101.71MB / 102.24MB 2.5s
+#5 sha256:67aaa626ba3010d60ab55d9cdc69c0b12ebff5d1b5ece83ff220fb46a7709b3b 67.28MB / 67.28MB 2.4s done
+#5 sha256:6c5873cb3688b972890eb7034cb0bc36fc7db0826a4348e596c3a56949e27d53 102.24MB / 102.24MB 2.7s done
+#5 ...
+
+#7 [internal] load build context
+#7 transferring context: 108.56MB 4.5s done
+#7 DONE 4.5s
+
+#5 [builder 1/6] FROM public.ecr.aws/docker/library/golang:1.26@sha256:11fd8f7f63db3b6fb198797042ba4c40a4a34dc83325d3328ca3bc4bb7726786
+#5 extracting sha256:f32f49ce655a9cf7c1fd4ca1417ddb39a54cedf4b7ff35de20f8009c18dd7a96 4.8s done
+#5 extracting sha256:8a7504cd2818ce40ac76c17886a03dff25ef0aa06ff6125bf0f0c7302cdc6471
+#5 extracting sha256:8a7504cd2818ce40ac76c17886a03dff25ef0aa06ff6125bf0f0c7302cdc6471 1.7s done
+#5 extracting sha256:b53089dca50590292ecc77bf803152a5799650e734717e4b706cb812a02073ba 0.1s
+#5 extracting sha256:b53089dca50590292ecc77bf803152a5799650e734717e4b706cb812a02073ba 5.1s
+#5 extracting sha256:b53089dca50590292ecc77bf803152a5799650e734717e4b706cb812a02073ba 6.0s done
+#5 extracting sha256:6c5873cb3688b972890eb7034cb0bc36fc7db0826a4348e596c3a56949e27d53
+#5 extracting sha256:6c5873cb3688b972890eb7034cb0bc36fc7db0826a4348e596c3a56949e27d53 5.0s
+#5 extracting sha256:6c5873cb3688b972890eb7034cb0bc36fc7db0826a4348e596c3a56949e27d53 6.4s done
+#5 extracting sha256:67aaa626ba3010d60ab55d9cdc69c0b12ebff5d1b5ece83ff220fb46a7709b3b
+#5 extracting sha256:67aaa626ba3010d60ab55d9cdc69c0b12ebff5d1b5ece83ff220fb46a7709b3b 5.1s
+#5 extracting sha256:67aaa626ba3010d60ab55d9cdc69c0b12ebff5d1b5ece83ff220fb46a7709b3b 10.2s
+#5 extracting sha256:67aaa626ba3010d60ab55d9cdc69c0b12ebff5d1b5ece83ff220fb46a7709b3b 11.6s done
+#5 extracting sha256:856fef5914da4fbead25cf7d522b9155f8fb74e3eff265289511d3b14f2c1e23
+#5 extracting sha256:856fef5914da4fbead25cf7d522b9155f8fb74e3eff265289511d3b14f2c1e23 0.0s done
+#5 extracting sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1
+#5 extracting sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1 0.0s done
+#5 DONE 34.4s
+
+#8 [builder 2/6] WORKDIR /workspace
+#8 DONE 5.9s
+
+#9 [builder 3/6] COPY go.mod go.sum ./
+#9 DONE 0.0s
+
+#10 [builder 4/6] RUN go mod download
+#10 DONE 10.9s
+
+#11 [builder 5/6] COPY . .
+#11 DONE 5.6s
+
+#12 [builder 6/6] RUN make build GIT_TAG="v0.19.0-devel-79-ge69a32afc" GIT_COMMIT="e69a32afcb25442437202c4dcb8e55069abe7d65" GO_BUILD_ENV="GOARCH=amd64 CGO_ENABLED=0"
+#12 1.121 GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-X 'sigs.k8s.io/kueue/pkg/version.GitVersion=v0.19.0-devel-79-ge69a32afc' -X 'sigs.k8s.io/kueue/pkg/version.GitCommit=e69a32afcb25442437202c4dcb8e55069abe7d65' -X 'sigs.k8s.io/kueue/pkg/version.BuildDate=2026-06-11T01:40:23Z'" -o bin/manager cmd/kueue/main.go
+#12 DONE 139.6s
+
+#13 [stage-1 2/3] COPY --from=builder /workspace/bin/manager /manager
+#13 DONE 0.0s
+
+#14 exporting to image
+#14 exporting layers
+#14 exporting layers 0.3s done
+#14 writing image sha256:96b59267c8e1272c0104907646284c44178182ea8ca30f339104eb34bea86cf9 done
+#14 naming to us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:v0.19.0-devel-79-ge69a32afc done
+#14 naming to us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:main done
+#14 DONE 0.3s
+go: downloading sigs.k8s.io/kustomize/kustomize/v5 v5.8.1
+go: downloading sigs.k8s.io/kustomize/cmd/config v0.21.1
+go: downloading sigs.k8s.io/kustomize/api v0.21.1
+go: downloading github.com/spf13/cobra v1.9.1
+go: downloading sigs.k8s.io/kustomize/kyaml v0.21.1
+go: downloading github.com/spf13/pflag v1.0.6
+go: downloading sigs.k8s.io/yaml v1.5.0
+go: downloading golang.org/x/text v0.28.0
+go: downloading github.com/blang/semver/v4 v4.0.0
+go: downloading github.com/go-errors/errors v1.4.2
+go: downloading github.com/sergi/go-diff v1.4.0
+go: downloading github.com/monochromegane/go-gitignore v0.0.0-20200626010858-205db1a8cc00
+go: downloading github.com/xlab/treeprint v1.2.0
+go: downloading gopkg.in/evanphx/json-patch.v4 v4.13.0
+go: downloading github.com/davecgh/go-spew v1.1.1
+go: downloading go.yaml.in/yaml/v2 v2.4.2
+go: downloading go.yaml.in/yaml/v3 v3.0.3
+go: downloading k8s.io/kube-openapi v0.0.0-20241212222426-2c72e554b1e7
+go: downloading github.com/google/gnostic-models v0.6.9
+go: downloading google.golang.org/protobuf v1.36.5
+go: downloading gopkg.in/inf.v0 v0.9.1
+go: downloading gopkg.in/yaml.v3 v3.0.1
+go: downloading github.com/go-openapi/jsonreference v0.20.2
+go: downloading github.com/go-openapi/swag v0.23.0
+go: downloading github.com/go-openapi/jsonpointer v0.21.0
+go: downloading github.com/mailru/easyjson v0.7.7
+go: downloading github.com/josharian/intern v1.0.0
+go: downloading github.com/mikefarah/yq/v4 v4.53.2
+go: downloading github.com/spf13/cobra v1.10.2
+go: downloading github.com/spf13/pflag v1.0.10
+go: downloading github.com/a8m/envsubst v1.4.3
+go: downloading github.com/alecthomas/participle/v2 v2.1.4
+go: downloading github.com/dimchansky/utfbom v1.1.1
+go: downloading github.com/elliotchance/orderedmap v1.8.0
+go: downloading github.com/fatih/color v1.19.0
+go: downloading github.com/go-ini/ini v1.67.0
+go: downloading github.com/goccy/go-json v0.10.6
+go: downloading github.com/goccy/go-yaml v1.19.2
+go: downloading github.com/hashicorp/hcl/v2 v2.24.0
+go: downloading github.com/jinzhu/copier v0.4.0
+go: downloading github.com/magiconair/properties v1.8.10
+go: downloading github.com/pelletier/go-toml/v2 v2.3.0
+go: downloading github.com/yuin/gopher-lua v1.1.2
+go: downloading github.com/zclconf/go-cty v1.18.0
+go: downloading go.yaml.in/yaml/v4 v4.0.0-rc.4
+go: downloading golang.org/x/net v0.52.0
+go: downloading golang.org/x/text v0.35.0
+go: downloading github.com/mattn/go-colorable v0.1.14
+go: downloading github.com/agext/levenshtein v1.2.1
+go: downloading github.com/apparentlymart/go-textseg/v15 v15.0.0
+go: downloading github.com/mitchellh/go-wordwrap v1.0.1
+go: downloading github.com/google/go-cmp v0.6.0
+go: downloading golang.org/x/sys v0.42.0
+→ Downloading main dependencies...
+go mod download
+→ Copying the CRDs from the mpi-operator to the dep-crds directory...
+mkdir -p /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/mpi-operator/
+cp -f /home/prow/go/pkg/mod/github.com/kubeflow/mpi-operator@v0.8.0/manifests/base/* /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/mpi-operator/
+→ Copying the CRDs from the training-operator to the dep-crds directory...
+mkdir -p /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/training-operator-crds/
+find /home/prow/go/pkg/mod/github.com/kubeflow/training-operator@v1.9.3/manifests/base/crds/* -type f -not -name "kubeflow.org_mpijobs.yaml" -exec cp -pf {} /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/training-operator-crds/ \;
+→ Copying the CRDs of the kubeflow trainer to the dep-crds directory...
+mkdir -p /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/kf-trainer-crds/
+cp -rf /home/prow/go/pkg/mod/github.com/kubeflow/trainer/v2@v2.2.1-0.20260515134202-448c432a7073/manifests/base/crds/* /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/kf-trainer-crds/
+→ Copying the kubeflow trainer runtimes manifests to the dep-crds directory...
+mkdir -p /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/kf-trainer-runtimes/
+cp -rf /home/prow/go/pkg/mod/github.com/kubeflow/trainer/v2@v2.2.1-0.20260515134202-448c432a7073/manifests/base/runtimes/*_distributed.yaml /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/kf-trainer-runtimes/
+→ Copying the CRDs from the ray-operator to the dep-crds directory...
+mkdir -p /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/ray-operator-crds/
+cp -f /home/prow/go/pkg/mod/github.com/ray-project/kuberay/ray-operator@v1.6.1/config/crd/bases/* /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/ray-operator-crds/
+→ Copying the CRDs from the jobset-operator to the dep-crds directory...
+mkdir -p /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/jobset-operator/
+cp -f /home/prow/go/pkg/mod/sigs.k8s.io/jobset@v0.12.0/config/components/crd/bases/* /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/jobset-operator/
+→ Copying the CRDs from the leaderworkerset-operator to the dep-crds directory...
+mkdir -p /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/leaderworkerset-operator/
+cp -f /home/prow/go/pkg/mod/sigs.k8s.io/lws@v0.8.0/config/crd/bases/* /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/leaderworkerset-operator/
+→ Copying the CRDs from the cluster-autoscaler to the dep-crds directory...
+mkdir -p /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/cluster-autoscaler/
+cp -f /home/prow/go/pkg/mod/k8s.io/autoscaler/cluster-autoscaler/apis@v0.0.0-20240830133931-adfbe7e45277/config/crd/* /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/cluster-autoscaler/
+→ Copying the CRDs from the appwrapper to the dep-crds directory...
+mkdir -p /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/appwrapper-crds/
+cp -f /home/prow/go/pkg/mod/github.com/project-codeflare/appwrapper@v1.2.2/config/crd/bases/* /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/appwrapper-crds/
+→ Copy the CRDs from the appwrapper to the dep-crds directory....
+if [ -d "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/appwrapper" ]; then \
+	chmod -R u+w "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/appwrapper" && \
+	rm -rf "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/appwrapper"; \
+fi
+mkdir -p "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/appwrapper"
+cp -rf "/home/prow/go/pkg/mod/github.com/project-codeflare/appwrapper@v1.2.2/config" "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/appwrapper"
+cd "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/appwrapper/config/manager" && chmod u+w kustomization.yaml && /home/prow/go/src/sigs.k8s.io/kueue/bin/kustomize edit set image controller=quay.io/ibm/appwrapper:v1.2.2 && chmod u-w kustomization.yaml
+→ Copying whole manifests folder from the training-operator to the dep-crds directory...
+if [ -d "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/training-operator" ]; then \
+	chmod -R u+w "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/training-operator" && \
+	rm -rf "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/training-operator"; \
+fi
+mkdir -p "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/training-operator"
+cp -rf "/home/prow/go/pkg/mod/github.com/kubeflow/training-operator@v1.9.3/manifests" "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/training-operator"
+→ Copying the whole manifests content from the ray-operator to the dep-crds directory...
+if [ -d "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/ray-operator" ]; then \
+	chmod -R u+w "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/ray-operator" && \
+	rm -rf "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/ray-operator"; \
+fi
+mkdir -p "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/ray-operator"; \
+cp -rf "/home/prow/go/pkg/mod/github.com/ray-project/kuberay/ray-operator@v1.6.1/config/crd" "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/ray-operator"
+cp -rf "/home/prow/go/pkg/mod/github.com/ray-project/kuberay/ray-operator@v1.6.1/config/default" "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/ray-operator"
+cp -rf "/home/prow/go/pkg/mod/github.com/ray-project/kuberay/ray-operator@v1.6.1/config/rbac" "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/ray-operator"
+cp -rf "/home/prow/go/pkg/mod/github.com/ray-project/kuberay/ray-operator@v1.6.1/config/manager" "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/ray-operator"
+→ Copying whole manifests folder of the kubeflow trainer to the dep-crds directory...
+if [ -d "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/kf-trainer" ]; then \
+	chmod -R u+w "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/kf-trainer" && \
+	rm -rf "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/kf-trainer"; \
+fi
+mkdir -p "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/kf-trainer"
+cp -rf "/home/prow/go/pkg/mod/github.com/kubeflow/trainer/v2@v2.2.1-0.20260515134202-448c432a7073/manifests" "/home/prow/go/src/sigs.k8s.io/kueue/dep-crds/kf-trainer"
+→ Copy the CRDs from the clusterprofile to the dep-crds directory.
+mkdir -p /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/clusterprofile/
+cp -f /home/prow/go/pkg/mod/sigs.k8s.io/cluster-inventory-api@v0.1.3/config/crd/bases/* /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/clusterprofile/
+mkdir -p /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/spark-operator-crds/
+cp -rf /home/prow/go/pkg/mod/github.com/kubeflow/spark-operator/v2@v2.5.0/config/crd/bases/* /home/prow/go/src/sigs.k8s.io/kueue/dep-crds/spark-operator-crds/
+Copying CRDs from external operators to dep-crds directory
+go: downloading helm.sh/helm/v4 v4.2.0
+go: downloading k8s.io/client-go v0.36.0
+go: downloading github.com/fluxcd/cli-utils v1.2.0
+go: downloading k8s.io/api v0.36.0
+go: downloading k8s.io/apiextensions-apiserver v0.36.0
+go: downloading k8s.io/apimachinery v0.36.0
+go: downloading k8s.io/cli-runtime v0.36.0
+go: downloading k8s.io/kubectl v0.36.0
+go: downloading github.com/Masterminds/semver/v3 v3.5.0
+go: downloading github.com/gofrs/flock v0.13.0
+go: downloading github.com/gosuri/uitable v0.0.4
+go: downloading golang.org/x/term v0.42.0
+go: downloading golang.org/x/text v0.36.0
+go: downloading k8s.io/utils v0.0.0-20260210185600-b8788abfbbc2
+go: downloading k8s.io/kube-openapi v0.0.0-20260317180543-43fb72c5454a
+go: downloading sigs.k8s.io/structured-merge-diff/v6 v6.3.2
+go: downloading golang.org/x/sys v0.43.0
+go: downloading github.com/cpuguy83/go-md2man/v2 v2.0.6
+go: downloading github.com/cyphar/filepath-securejoin v0.6.1
+go: downloading github.com/ProtonMail/go-crypto v1.4.1
+go: downloading github.com/extism/go-sdk v1.7.1
+go: downloading github.com/tetratelabs/wazero v1.11.0
+go: downloading github.com/Masterminds/vcs v1.13.3
+go: downloading github.com/Masterminds/sprig/v3 v3.3.0
+go: downloading github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
+go: downloading github.com/opencontainers/image-spec v1.1.1
+go: downloading oras.land/oras-go/v2 v2.6.0
+go: downloading github.com/Masterminds/squirrel v1.5.4
+go: downloading github.com/lib/pq v1.12.3
+go: downloading github.com/jmoiron/sqlx v1.4.0
+go: downloading github.com/rubenv/sql-migrate v1.8.1
+go: downloading github.com/google/gnostic-models v0.7.0
+go: downloading go.yaml.in/yaml/v2 v2.4.3
+go: downloading k8s.io/component-base v0.36.0
+go: downloading github.com/mattn/go-runewidth v0.0.9
+go: downloading github.com/go-openapi/jsonreference v0.21.0
+go: downloading github.com/go-openapi/swag v0.23.1
+go: downloading github.com/BurntSushi/toml v1.6.0
+go: downloading github.com/gobwas/glob v0.2.3
+go: downloading golang.org/x/crypto v0.50.0
+go: downloading dario.cat/mergo v1.0.1
+go: downloading github.com/Masterminds/goutils v1.1.1
+go: downloading github.com/huandu/xstrings v1.5.0
+go: downloading github.com/mitchellh/copystructure v1.2.0
+go: downloading github.com/shopspring/decimal v1.4.0
+go: downloading github.com/spf13/cast v1.7.0
+go: downloading github.com/lann/builder v0.0.0-20180802200727-47ae307949d0
+go: downloading github.com/go-gorp/gorp/v3 v3.1.0
+go: downloading github.com/chai2010/gettext-go v1.0.2
+go: downloading github.com/dylibso/observe-sdk/go v0.0.0-20240819160327-2d926c5d788a
+go: downloading github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2
+go: downloading k8s.io/apiserver v0.36.0
+go: downloading github.com/go-openapi/jsonpointer v0.21.1
+go: downloading github.com/cloudflare/circl v1.6.3
+go: downloading github.com/mailru/easyjson v0.9.0
+go: downloading github.com/mitchellh/reflectwalk v1.0.2
+go: downloading github.com/lann/ps v0.0.0-20150810152359-62de8c46ede0
+go: downloading github.com/ianlancetaylor/demangle v0.0.0-20240805132620-81f5be970eca
+go: downloading github.com/tetratelabs/wabin v0.0.0-20230304001439-f6f874872834
+go: downloading go.opentelemetry.io/proto/otlp v1.10.0
+cd /home/prow/go/src/sigs.k8s.io/kueue/hack/tools && go mod download && \
+ go build -ldflags="-X 'sigs.k8s.io/kueue/pkg/version.GitVersion=v0.19.0-devel-79-ge69a32afc' -X 'sigs.k8s.io/kueue/pkg/version.GitCommit=e69a32afcb25442437202c4dcb8e55069abe7d65' -X 'sigs.k8s.io/kueue/pkg/version.BuildDate=2026-06-11T01:44:44Z'" -o /home/prow/go/src/sigs.k8s.io/kueue/bin/ginkgo-top ./ginkgo-top
+Setting up environment for e2e tests
+Running sequential baseline e2e for k8s 1.35.5
+E2E_KIND_VERSION="kindest/node:v1.35.5" KIND_CLUSTER_NAME=kind \
+ARTIFACTS="/logs/artifacts/run-test-e2e-sequential-baseline-1.35.5" IMAGE_TAG=us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:v0.19.0-devel-79-ge69a32afc GINKGO_ARGS="--label-filter=shard-0 " \
+E2E_MODE=ci \
+E2E_SKIP_REINSTALL=false \
+E2E_ENFORCE_OPERATOR_UPDATE=false \
+KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="sequential/baseline" \
+TEST_LOG_LEVEL=-3 \
+E2E_RUN_ONLY_ENV=false \
+E2E_USE_HELM=false \
+./hack/testing/e2e-test.sh
+Building kind node image: kueue/kind-node:v1.35.5 (K8s v1.35.5)
+retry [1/3]: /home/prow/go/src/sigs.k8s.io/kueue/hack/testing/../../bin/kind build node-image v1.35.5 --image kueue/kind-node:v1.35.5
+Detected build type: "release"
+Building using release "v1.35.5" artifacts
+Starting to build Kubernetes
+Downloading "https://dl.k8s.io/v1.35.5/kubernetes-server-linux-amd64.tar.gz"
+Finished building Kubernetes
+Building node image ...
+Building in container: kind-build-1781142325-191086172
+Image "kueue/kind-node:v1.35.5" build completed.
+import 2026 06 11@sha256:c883ece124557dd	saved	
+application/vnd.oci.image.index.v1+json sha256:c883ece124557dd93528f357f295d765e7b25e2fff18c5b2bf06c4c169372462
+Importing	elapsed: 3.2 s	total:   0.0 B	(0.0 B/s)	
+import 2026 06 11@sha256:c883ece124557dd	saved	
+registry.k8s.io/kube scheduler amd64:v1.	saved	
+application/vnd.oci.image.index.v1+json sha256:c883ece124557dd93528f357f295d765e7b25e2fff18c5b2bf06c4c169372462
+application/vnd.docker.distribution.manifest.v2+json sha256:dfcf521b63af535132108edfc08644f78b0dcaa82e6b04c17b395da7f1912547
+Importing	elapsed: 3.2 s	total:   0.0 B	(0.0 B/s)	
+import 2026 06 11@sha256:791b991dcbfbc57	saved	
+application/vnd.oci.image.index.v1+json sha256:791b991dcbfbc579f7543fe4e6bd3bb29f1e6ed210c3d971c316511582bc11e6
+Importing	elapsed: 3.5 s	total:   0.0 B	(0.0 B/s)	
+import 2026 06 11@sha256:791b991dcbfbc57	saved	
+registry.k8s.io/kube proxy amd64:v1.35.5	saved	
+application/vnd.oci.image.index.v1+json sha256:791b991dcbfbc579f7543fe4e6bd3bb29f1e6ed210c3d971c316511582bc11e6
+application/vnd.docker.distribution.manifest.v2+json sha256:44f7677a7ea64ea9b274d58fdc83c683aea1fb79e5b81342cb2df22c32028a02
+Importing	elapsed: 3.5 s	total:   0.0 B	(0.0 B/s)	
+import 2026 06 11@sha256:54023c4f6c4faa1	saved	
+application/vnd.oci.image.index.v1+json sha256:54023c4f6c4faa1fd787fd8c05c22f911d43cb76e6981086c03e0f856564cd02
+Importing	elapsed: 4.1 s	total:   0.0 B	(0.0 B/s)	
+import 2026 06 11@sha256:54023c4f6c4faa1	saved	
+registry.k8s.io/kube controller manager 	saved	
+application/vnd.oci.image.index.v1+json sha256:54023c4f6c4faa1fd787fd8c05c22f911d43cb76e6981086c03e0f856564cd02
+application/vnd.docker.distribution.manifest.v2+json sha256:778e3fabab133bfea60aad6e624acd17cf847c2c2d2418298c3aedc78ebfef72
+Importing	elapsed: 4.1 s	total:   0.0 B	(0.0 B/s)	
+import 2026 06 11@sha256:038e312b110459e	saved	
+application/vnd.oci.image.index.v1+json sha256:038e312b110459e41468e12f89210cd944aa27e4a9d174c88939c08d7d39e8a4
+Importing	elapsed: 4.2 s	total:   0.0 B	(0.0 B/s)	
+import 2026 06 11@sha256:038e312b110459e	saved	
+registry.k8s.io/kube apiserver amd64:v1.	saved	
+application/vnd.oci.image.index.v1+json sha256:038e312b110459e41468e12f89210cd944aa27e4a9d174c88939c08d7d39e8a4
+application/vnd.docker.distribution.manifest.v2+json sha256:9bd0d9d47f480defd9049223278baba8b7044b9471736fd544eba60f7a0eafc2
+Importing	elapsed: 4.2 s	total:   0.0 B	(0.0 B/s)	retry [1/7]: docker pull registry.k8s.io/e2e-test-images/agnhost:2.52@sha256:b173c7d0ffe3d805d49f4dfe48375169b7b8d2e1feb81783efd61eb9d08042e6
+Creating kind cluster 'kind'...
+retry [1/3]: bash -c /home/prow/go/src/sigs.k8s.io/kueue/hack/testing/../../bin/kind create cluster --name "kind" --image "kueue/kind-node:v1.35.5" --config "/home/prow/go/src/sigs.k8s.io/kueue/hack/testing/kind-cluster.yaml" --kubeconfig="" --wait 5m -v 5 > "/logs/artifacts/run-test-e2e-sequential-baseline-1.35.5/kind-create.log" 2>&1
+registry.k8s.io/e2e-test-images/agnhost@sha256:b173c7d0ffe3d805d49f4dfe48375169b7b8d2e1feb81783efd61eb9d08042e6: Pulling from e2e-test-images/agnhost
+a88dc8b54e91: Pulling fs layer
+54537fb9301e: Pulling fs layer
+661d3888a6b1: Pulling fs layer
+ac9af3d034fd: Pulling fs layer
+685947dca1b5: Pulling fs layer
+6065fea490c2: Pulling fs layer
+17386c615005: Pulling fs layer
+32ea4a9835fc: Pulling fs layer
+166de47c948c: Pulling fs layer
+f8ccc17a75aa: Pulling fs layer
+32ea4a9835fc: Waiting
+166de47c948c: Waiting
+f8ccc17a75aa: Waiting
+685947dca1b5: Waiting
+6065fea490c2: Waiting
+17386c615005: Waiting
+ac9af3d034fd: Waiting
+a88dc8b54e91: Verifying Checksum
+a88dc8b54e91: Download complete
+54537fb9301e: Verifying Checksum
+54537fb9301e: Download complete
+661d3888a6b1: Verifying Checksum
+661d3888a6b1: Download complete
+685947dca1b5: Verifying Checksum
+685947dca1b5: Download complete
+6065fea490c2: Download complete
+ac9af3d034fd: Verifying Checksum
+ac9af3d034fd: Download complete
+17386c615005: Verifying Checksum
+17386c615005: Download complete
+166de47c948c: Verifying Checksum
+166de47c948c: Download complete
+a88dc8b54e91: Pull complete
+f8ccc17a75aa: Verifying Checksum
+f8ccc17a75aa: Download complete
+32ea4a9835fc: Verifying Checksum
+32ea4a9835fc: Download complete
+54537fb9301e: Pull complete
+661d3888a6b1: Pull complete
+ac9af3d034fd: Pull complete
+685947dca1b5: Pull complete
+6065fea490c2: Pull complete
+17386c615005: Pull complete
+32ea4a9835fc: Pull complete
+166de47c948c: Pull complete
+f8ccc17a75aa: Pull complete
+Digest: sha256:b173c7d0ffe3d805d49f4dfe48375169b7b8d2e1feb81783efd61eb9d08042e6
+Status: Downloaded newer image for registry.k8s.io/e2e-test-images/agnhost@sha256:b173c7d0ffe3d805d49f4dfe48375169b7b8d2e1feb81783efd61eb9d08042e6
+registry.k8s.io/e2e-test-images/agnhost:2.52@sha256:b173c7d0ffe3d805d49f4dfe48375169b7b8d2e1feb81783efd61eb9d08042e6
+retry [1/7]: docker pull registry.k8s.io/e2e-test-images/agnhost:2.63.0@sha256:a62f40481e05709988fe44e5035b2e0f553cd52bf0ae4e83614928255b00e8c1
+registry.k8s.io/e2e-test-images/agnhost@sha256:a62f40481e05709988fe44e5035b2e0f553cd52bf0ae4e83614928255b00e8c1: Pulling from e2e-test-images/agnhost
+bc1da058f299: Pulling fs layer
+f7f1e42e843b: Pulling fs layer
+661d3888a6b1: Pulling fs layer
+ac9af3d034fd: Pulling fs layer
+e9ebc3a99c7c: Pulling fs layer
+9f76dc1dabcb: Pulling fs layer
+4821f9ee66af: Pulling fs layer
+a95a871f6dba: Pulling fs layer
+7f22fba3e5e2: Pulling fs layer
+0fff058e98ff: Pulling fs layer
+47c8ef1e7771: Pulling fs layer
+7f22fba3e5e2: Waiting
+0fff058e98ff: Waiting
+e9ebc3a99c7c: Waiting
+47c8ef1e7771: Waiting
+9f76dc1dabcb: Waiting
+4821f9ee66af: Waiting
+a95a871f6dba: Waiting
+ac9af3d034fd: Waiting
+bc1da058f299: Download complete
+f7f1e42e843b: Verifying Checksum
+f7f1e42e843b: Download complete
+661d3888a6b1: Verifying Checksum
+661d3888a6b1: Download complete
+e9ebc3a99c7c: Download complete
+9f76dc1dabcb: Verifying Checksum
+9f76dc1dabcb: Download complete
+ac9af3d034fd: Verifying Checksum
+ac9af3d034fd: Download complete
+4821f9ee66af: Verifying Checksum
+4821f9ee66af: Download complete
+7f22fba3e5e2: Verifying Checksum
+7f22fba3e5e2: Download complete
+0fff058e98ff: Verifying Checksum
+0fff058e98ff: Download complete
+bc1da058f299: Pull complete
+47c8ef1e7771: Download complete
+a95a871f6dba: Verifying Checksum
+a95a871f6dba: Download complete
+f7f1e42e843b: Pull complete
+661d3888a6b1: Pull complete
+ac9af3d034fd: Pull complete
+e9ebc3a99c7c: Pull complete
+9f76dc1dabcb: Pull complete
+4821f9ee66af: Pull complete
+a95a871f6dba: Pull complete
+7f22fba3e5e2: Pull complete
+0fff058e98ff: Pull complete
+47c8ef1e7771: Pull complete
+Digest: sha256:a62f40481e05709988fe44e5035b2e0f553cd52bf0ae4e83614928255b00e8c1
+Status: Downloaded newer image for registry.k8s.io/e2e-test-images/agnhost@sha256:a62f40481e05709988fe44e5035b2e0f553cd52bf0ae4e83614928255b00e8c1
+registry.k8s.io/e2e-test-images/agnhost:2.63.0@sha256:a62f40481e05709988fe44e5035b2e0f553cd52bf0ae4e83614928255b00e8c1
+Switched to context "kind-kind".
+node/kind-control-plane condition met
+node/kind-worker condition met
+node/kind-worker2 condition met
+Saving image 'registry.k8s.io/e2e-test-images/agnhost:2.52'...
+Loading image 'registry.k8s.io/e2e-test-images/agnhost:2.52' to cluster 'kind' (parallel)
+  Loading image to node: kind-worker2
+  Loading image to node: kind-worker
+import 2026 06 11@sha256:4ee807b2285ddb1	saved	
+application/vnd.oci.image.index.v1+json sha256:4ee807b2285ddb1f1c014e5efa3be3442a44dbcba189ba25a48062aa17558016
+Importing	elapsed: 4.4 s	total:   0.0 B	(0.0 B/s)	
+import 2026 06 11@sha256:4ee807b2285ddb1	saved	
+registry.k8s.io/e2e test images/agnhost:	saved	
+application/vnd.oci.image.index.v1+json sha256:4ee807b2285ddb1f1c014e5efa3be3442a44dbcba189ba25a48062aa17558016
+application/vnd.oci.image.manifest.v1+json sha256:cdaa572accba0ae682270e00526707913f65c428b22d2cc39f2cacf393155991
+Importing	elapsed: 4.4 s	total:   0.0 B	(0.0 B/s)	
+import 2026 06 11@sha256:4ee807b2285ddb1	saved	
+application/vnd.oci.image.index.v1+json sha256:4ee807b2285ddb1f1c014e5efa3be3442a44dbcba189ba25a48062aa17558016
+Importing	elapsed: 4.5 s	total:   0.0 B	(0.0 B/s)	
+import 2026 06 11@sha256:4ee807b2285ddb1	saved	
+registry.k8s.io/e2e test images/agnhost:	saved	
+application/vnd.oci.image.index.v1+json sha256:4ee807b2285ddb1f1c014e5efa3be3442a44dbcba189ba25a48062aa17558016
+application/vnd.oci.image.manifest.v1+json sha256:cdaa572accba0ae682270e00526707913f65c428b22d2cc39f2cacf393155991
+Importing	elapsed: 4.5 s	total:   0.0 B	(0.0 B/s)	
+Saving image 'registry.k8s.io/e2e-test-images/agnhost:2.63.0'...
+Loading image 'registry.k8s.io/e2e-test-images/agnhost:2.63.0' to cluster 'kind' (parallel)
+  Loading image to node: kind-worker2
+  Loading image to node: kind-worker
+import 2026 06 11@sha256:cfe3fd91618f3b8	saved	
+application/vnd.oci.image.index.v1+json sha256:cfe3fd91618f3b8f7f075e1a15a192f7c57da9b05bdca3529b3bfca742226959
+Importing	elapsed: 5.2 s	total:   0.0 B	(0.0 B/s)	
+import 2026 06 11@sha256:cfe3fd91618f3b8	saved	
+registry.k8s.io/e2e test images/agnhost:	saved	
+application/vnd.oci.image.index.v1+json sha256:cfe3fd91618f3b8f7f075e1a15a192f7c57da9b05bdca3529b3bfca742226959
+application/vnd.oci.image.manifest.v1+json sha256:9ee1a681fca51e88fe334f5772f2ecafc2e25fc1b8b720ba325b5537335d2828
+Importing	elapsed: 5.2 s	total:   0.0 B	(0.0 B/s)	
+import 2026 06 11@sha256:cfe3fd91618f3b8	saved	
+application/vnd.oci.image.index.v1+json sha256:cfe3fd91618f3b8f7f075e1a15a192f7c57da9b05bdca3529b3bfca742226959
+Importing	elapsed: 5.5 s	total:   0.0 B	(0.0 B/s)	
+import 2026 06 11@sha256:cfe3fd91618f3b8	saved	
+registry.k8s.io/e2e test images/agnhost:	saved	
+application/vnd.oci.image.index.v1+json sha256:cfe3fd91618f3b8f7f075e1a15a192f7c57da9b05bdca3529b3bfca742226959
+application/vnd.oci.image.manifest.v1+json sha256:9ee1a681fca51e88fe334f5772f2ecafc2e25fc1b8b720ba325b5537335d2828
+Importing	elapsed: 5.5 s	total:   0.0 B	(0.0 B/s)	
+Saving image 'us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:v0.19.0-devel-79-ge69a32afc'...
+Loading image 'us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:v0.19.0-devel-79-ge69a32afc' to cluster 'kind' (parallel)
+  Loading image to node: kind-worker2
+  Loading image to node: kind-worker
+import 2026 06 11@sha256:44389ae4d00d84c	saved	
+application/vnd.oci.image.index.v1+json sha256:44389ae4d00d84ccfff1f46fadd5a4917c56dba5456fc89ed4a010747f963f5b
+Importing	elapsed: 5.2 s	total:   0.0 B	(0.0 B/s)	
+import 2026 06 11@sha256:44389ae4d00d84c	saved	
+us central1 docker.pkg.dev/k8s staging i	saved	
+application/vnd.oci.image.index.v1+json sha256:44389ae4d00d84ccfff1f46fadd5a4917c56dba5456fc89ed4a010747f963f5b
+application/vnd.oci.image.manifest.v1+json sha256:bf11bbd4c1e706da6cde05202ee23393be05584e8e356245bcec1fec7123f7aa
+Importing	elapsed: 5.2 s	total:   0.0 B	(0.0 B/s)	
+import 2026 06 11@sha256:44389ae4d00d84c	saved	
+application/vnd.oci.image.index.v1+json sha256:44389ae4d00d84ccfff1f46fadd5a4917c56dba5456fc89ed4a010747f963f5b
+Importing	elapsed: 5.2 s	total:   0.0 B	(0.0 B/s)	
+import 2026 06 11@sha256:44389ae4d00d84c	saved	
+us central1 docker.pkg.dev/k8s staging i	saved	
+application/vnd.oci.image.index.v1+json sha256:44389ae4d00d84ccfff1f46fadd5a4917c56dba5456fc89ed4a010747f963f5b
+application/vnd.oci.image.manifest.v1+json sha256:bf11bbd4c1e706da6cde05202ee23393be05584e8e356245bcec1fec7123f7aa
+Importing	elapsed: 5.2 s	total:   0.0 B	(0.0 B/s)	
+namespace/kueue-system serverside-applied
+customresourcedefinition.apiextensions.k8s.io/admissionchecks.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/clusterqueues.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/cohorts.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/localqueues.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/multikueueclusters.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/multikueueconfigs.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/provisioningrequestconfigs.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/resourceflavors.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/topologies.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloadpriorityclasses.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloads.kueue.x-k8s.io serverside-applied
+serviceaccount/kueue-controller-manager serverside-applied
+role.rbac.authorization.k8s.io/kueue-leader-election-role serverside-applied
+role.rbac.authorization.k8s.io/kueue-manager-clusterprofiles-role serverside-applied
+role.rbac.authorization.k8s.io/kueue-manager-secrets-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-batch-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-batch-user-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-clusterqueue-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-clusterqueue-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-cohort-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-cohort-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jaxjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jaxjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-job-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-job-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jobset-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jobset-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-leaderworkerset-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-leaderworkerset-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-localqueue-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-localqueue-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-manager-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-metrics-auth-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-metrics-reader serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-mpijob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-mpijob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-paddlejob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-paddlejob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pending-workloads-cq-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pending-workloads-lq-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pytorchjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pytorchjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-raycluster-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-raycluster-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayservice-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayservice-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-resourceflavor-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-resourceflavor-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-sparkapplication-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-sparkapplication-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-tfjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-tfjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-topology-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-topology-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-trainjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-trainjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-workload-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-workload-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-xgboostjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-xgboostjob-viewer-role serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-visibility-server-auth-reader serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-leader-election-rolebinding serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-manager-clusterprofiles-rolebinding serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-manager-secrets-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/kueue-manager-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/kueue-metrics-auth-rolebinding serverside-applied
+configmap/kueue-manager-config serverside-applied
+secret/kueue-webhook-server-cert serverside-applied
+service/kueue-controller-manager-metrics-service serverside-applied
+service/kueue-visibility-server serverside-applied
+service/kueue-webhook-service serverside-applied
+deployment.apps/kueue-controller-manager serverside-applied
+apiservice.apiregistration.k8s.io/v1beta1.visibility.kueue.x-k8s.io serverside-applied
+apiservice.apiregistration.k8s.io/v1beta2.visibility.kueue.x-k8s.io serverside-applied
+flowschema.flowcontrol.apiserver.k8s.io/kueue-visibility serverside-applied
+prioritylevelconfiguration.flowcontrol.apiserver.k8s.io/kueue-visibility serverside-applied
+mutatingwebhookconfiguration.admissionregistration.k8s.io/kueue-mutating-webhook-configuration serverside-applied
+validatingwebhookconfiguration.admissionregistration.k8s.io/kueue-validating-webhook-configuration serverside-applied
+deployment.apps/kueue-controller-manager condition met
+retry [1/10]: kubectl create --dry-run=server -f /tmp/tmp.bBtWJaHHRT
+Warning: This version is deprecated. Use v1beta2 instead.
+resourceflavor.kueue.x-k8s.io/webhook-probe created (server dry run)
+running: /home/prow/go/src/sigs.k8s.io/kueue/hack/testing/../../bin/ginkgo run --label-filter=shard-0 --json-report=e2e.json --output-dir=/logs/artifacts/run-test-e2e-sequential-baseline-1.35.5 -v ./test/e2e/sequential/baseline/...
+Running Suite: End To End Sequential Baseline Suite: kueue/kind-node:v1.35.5 - /home/prow/go/src/sigs.k8s.io/kueue/test/e2e/sequential/baseline
+===============================================================================================================================================
+Random Seed: [1m1781142441[0m
+
+Will run [1m16[0m of [1m27[0m specs
+[38;5;243m------------------------------[0m
+[0m[1m[BeforeSuite] [0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/sequential/baseline/suite_test.go:48[0m
+  [1mSTEP:[0m Waiting for availability of deployment: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/11/26 01:49:09.361[0m
+  [1mSTEP:[0m Checking no restarts for the controller: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/11/26 01:49:09.382[0m
+  "level"=0 "msg"="Deployment is available" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "noRestarts"=true "waitingTime"="24.84546ms"
+  [1mSTEP:[0m Waiting for ready pods and webhook endpoints: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/11/26 01:49:09.386[0m
+  "level"=0 "msg"="Ready pods and webhook endpoints verified" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "waitingTime"="9.363863ms"
+  [1mSTEP:[0m Waiting for leader election lease "kueue-system/c1f6bfd2.kueue.x-k8s.io" [38;5;243m@ 06/11/26 01:49:09.395[0m
+  "level"=0 "msg"="Kueue is available in the cluster" "waitingTime"="290.367141ms"
+[38;5;10m[BeforeSuite] PASSED [0.297 seconds][0m
+[38;5;243m------------------------------[0m
+[38;5;14mS[0m[38;5;14mS[0m
+[38;5;243m------------------------------[0m
+[0mWorkloadPriorityClassDefaulting [0m[1mshould default the WorkloadPriorityClass and admit a job with the defaulted priority[0m [38;5;204m[feature:workloadpriorityclassdefaulting, shard-0][0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/sequential/baseline/workloadpriorityclassdefaulting_test.go:79[0m
+  "level"=0 "msg"="Kueue configuration updated" "took"="39.259538ms"
+  Exporting logs for cluster "kind" to:
+  /logs/artifacts/run-test-e2e-sequential-baseline-1.35.5
+  "level"=0 "msg"="Deployment status condition before the restart" "type"="Progressing" "status"="True" "reason"="NewReplicaSetAvailable"
+  [1mSTEP:[0m Waiting for availability of deployment: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/11/26 01:49:10.509[0m
+  "level"=0 "msg"="Deployment is available" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "noRestarts"=false "waitingTime"="24.384969087s"
+  [1mSTEP:[0m Waiting for ready pods and webhook endpoints: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/11/26 01:49:34.894[0m
+  "level"=0 "msg"="Ready pods and webhook endpoints verified" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "waitingTime"="9.642775ms"
+  [1mSTEP:[0m Waiting for leader election lease "kueue-system/c1f6bfd2.kueue.x-k8s.io" [38;5;243m@ 06/11/26 01:49:34.904[0m
+  "level"=0 "msg"="Kueue restarted" "took"="27.998670879s"
+  "level"=0 "msg"="Created namespace" "namespace"="wpc-defaulting-hv5rw"
+  [1mSTEP:[0m creating a job without a WorkloadPriorityClass label [38;5;243m@ 06/11/26 01:49:38.263[0m
+  [1mSTEP:[0m verifying the default WorkloadPriorityClass label was set on the job [38;5;243m@ 06/11/26 01:49:38.284[0m
+  [1mSTEP:[0m verifying the workload has the default WorkloadPriorityClass priority [38;5;243m@ 06/11/26 01:49:38.287[0m
+  [1mSTEP:[0m verifying the workload is admitted and the job completes [38;5;243m@ 06/11/26 01:49:38.546[0m
+[38;5;10m• [34.233 seconds][0m
+[38;5;243m------------------------------[0m
+[0mWorkloadPriorityClassDefaulting [0m[1mshould not override an existing WorkloadPriorityClass label[0m [38;5;204m[feature:workloadpriorityclassdefaulting, shard-0][0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/sequential/baseline/workloadpriorityclassdefaulting_test.go:118[0m
+  "level"=0 "msg"="Created namespace" "namespace"="wpc-defaulting-pq7gz"
+  [1mSTEP:[0m creating a job with an explicit WorkloadPriorityClass label [38;5;243m@ 06/11/26 01:49:44.161[0m
+  [1mSTEP:[0m verifying the existing WorkloadPriorityClass label is preserved [38;5;243m@ 06/11/26 01:49:44.168[0m
+  [1mSTEP:[0m verifying the workload has the explicit WorkloadPriorityClass priority [38;5;243m@ 06/11/26 01:49:45.169[0m
+[38;5;10m• [4.105 seconds][0m
+[38;5;243m------------------------------[0m
+[38;5;14mS[0m[38;5;14mS[0m[38;5;14mS[0m
+[38;5;243m------------------------------[0m
+[0mWaitForPodsReady with default Timeout and a long RecoveryTimeout [0m[1mshould continue running workload if pod recovers before recoveryTimeout[0m [38;5;204m[shard-0][0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/sequential/baseline/waitforpodsready_test.go:439[0m
+  "level"=0 "msg"="Kueue configuration updated" "took"="7.155773ms"
+  Exporting logs for cluster "kind" to:
+  /logs/artifacts/run-test-e2e-sequential-baseline-1.35.5
+  "level"=0 "msg"="Deployment status condition before the restart" "type"="Progressing" "status"="True" "reason"="NewReplicaSetAvailable"
+  [1mSTEP:[0m Waiting for availability of deployment: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/11/26 01:49:48.807[0m
+  "level"=0 "msg"="Deployment is available" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "noRestarts"=false "waitingTime"="25.128028901s"
+  [1mSTEP:[0m Waiting for ready pods and webhook endpoints: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/11/26 01:50:13.936[0m
+  "level"=0 "msg"="Ready pods and webhook endpoints verified" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "waitingTime"="10.085134ms"
+  [1mSTEP:[0m Waiting for leader election lease "kueue-system/c1f6bfd2.kueue.x-k8s.io" [38;5;243m@ 06/11/26 01:50:13.946[0m
+  "level"=0 "msg"="Kueue restarted" "took"="26.450374675s"
+  [1mSTEP:[0m Waiting for the curl-metrics pod to run. [38;5;243m@ 06/11/26 01:50:14.459[0m
+  "level"=0 "msg"="Created namespace" "namespace"="wfpr-vhgjw"
+  [1mSTEP:[0m creating a job [38;5;243m@ 06/11/26 01:50:16.032[0m
+  [1mSTEP:[0m checking workload availability [38;5;243m@ 06/11/26 01:50:16.049[0m
+  [1mSTEP:[0m verifying that the metric is updated [38;5;243m@ 06/11/26 01:50:18.6[0m
+  [1mSTEP:[0m simulating pod failure [38;5;243m@ 06/11/26 01:50:19.06[0m
+  "level"=0 "msg"="Terminating pod" "pod"={"name"="job-recovery-timeout-0-dgkh6" "namespace"="wfpr-vhgjw"}
+  [1mSTEP:[0m verifying the pod is recovered before recoveryTimeout [38;5;243m@ 06/11/26 01:50:21.199[0m
+  [1mSTEP:[0m verifying that the metric is not updated [38;5;243m@ 06/11/26 01:50:33.181[0m
+[38;5;10m• [47.754 seconds][0m
+[38;5;243m------------------------------[0m
+[0mDefault configuration tests [38;5;243mCerts [0m[1mshould rotate the certificates for the CRD resources[0m [38;5;204m[shard-0][0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/sequential/baseline/default_config_test.go:86[0m
+  "level"=0 "msg"="Created namespace" "namespace"="e2e-certs-n68pr"
+  [1mSTEP:[0m verify the caBundle is set after startup for CRD [38;5;243m@ 06/11/26 01:50:36.286[0m
+  [1mSTEP:[0m verify the caBundle is set after startup for webhooks [38;5;243m@ 06/11/26 01:50:36.298[0m
+  [1mSTEP:[0m clear the caBundle field [38;5;243m@ 06/11/26 01:50:36.302[0m
+  [1mSTEP:[0m clear the caBundle fields for webhooks [38;5;243m@ 06/11/26 01:50:36.335[0m
+  [1mSTEP:[0m verify the caBundle is set again for CRD [38;5;243m@ 06/11/26 01:50:36.349[0m
+  [1mSTEP:[0m verify the caBundle is set again for mutating webhooks [38;5;243m@ 06/11/26 01:50:36.612[0m
+  [1mSTEP:[0m verify the localQueue can be fetched and mutated [38;5;243m@ 06/11/26 01:50:36.616[0m
+  [1mSTEP:[0m verify the LocalQueue status is updated [38;5;243m@ 06/11/26 01:50:36.654[0m
+[38;5;10m• [1.742 seconds][0m
+[38;5;243m------------------------------[0m
+[0mDefault configuration tests [38;5;243mCerts [0m[1mShould allow to bootstrap certificates[0m [38;5;204m[shard-0][0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/sequential/baseline/default_config_test.go:159[0m
+  "level"=0 "msg"="Created namespace" "namespace"="e2e-certs-bmmw6"
+  [1mSTEP:[0m scale down replicas to 0 [38;5;243m@ 06/11/26 01:50:38.031[0m
+  [1mSTEP:[0m await for no replicas [38;5;243m@ 06/11/26 01:50:38.042[0m
+  [1mSTEP:[0m clear the caBundle field [38;5;243m@ 06/11/26 01:50:38.806[0m
+  [1mSTEP:[0m clear the caBundle fields for webhooks [38;5;243m@ 06/11/26 01:50:38.842[0m
+  [1mSTEP:[0m scale back replicas [38;5;243m@ 06/11/26 01:50:38.856[0m
+  [1mSTEP:[0m await for ready replicas [38;5;243m@ 06/11/26 01:50:38.865[0m
+  [1mSTEP:[0m await for Kueue to be available [38;5;243m@ 06/11/26 01:50:51.798[0m
+  [1mSTEP:[0m Waiting for availability of deployment: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/11/26 01:50:51.798[0m
+  [1mSTEP:[0m Checking no restarts for the controller: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/11/26 01:50:51.801[0m
+  "level"=0 "msg"="Deployment is available" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "noRestarts"=true "waitingTime"="7.256757ms"
+  [1mSTEP:[0m Waiting for ready pods and webhook endpoints: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/11/26 01:50:51.806[0m
+  "level"=0 "msg"="Ready pods and webhook endpoints verified" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "waitingTime"="8.986572ms"
+  [1mSTEP:[0m Waiting for leader election lease "kueue-system/c1f6bfd2.kueue.x-k8s.io" [38;5;243m@ 06/11/26 01:50:51.815[0m
+  [1mSTEP:[0m verify the caBundle is set again for CRD [38;5;243m@ 06/11/26 01:50:52.577[0m
+  [1mSTEP:[0m verify the caBundle is set again for mutating webhooks [38;5;243m@ 06/11/26 01:50:52.583[0m
+  [1mSTEP:[0m verify the localQueue can be fetched and mutated [38;5;243m@ 06/11/26 01:50:52.587[0m
+  [1mSTEP:[0m verify the LocalQueue status is updated [38;5;243m@ 06/11/26 01:50:52.596[0m
+[38;5;10m• [16.036 seconds][0m
+[38;5;243m------------------------------[0m
+[0mDefault configuration tests [38;5;243mHA Failover [0m[1mshould admit a workload after leader failover when a previously admitted workload was deleted[0m [38;5;204m[shard-0][0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/sequential/baseline/default_config_test.go:296[0m
+  "level"=0 "msg"="Kueue configuration updated" "took"="7.190895ms"
+  Exporting logs for cluster "kind" to:
+  /logs/artifacts/run-test-e2e-sequential-baseline-1.35.5
+  "level"=0 "msg"="Deployment status condition before the restart" "type"="Progressing" "status"="True" "reason"="NewReplicaSetAvailable"
+  [1mSTEP:[0m Waiting for availability of deployment: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/11/26 01:50:54.352[0m
+  "level"=0 "msg"="Deployment is available" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "noRestarts"=false "waitingTime"="24.863913605s"
+  [1mSTEP:[0m Waiting for ready pods and webhook endpoints: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/11/26 01:51:19.216[0m
+  "level"=0 "msg"="Ready pods and webhook endpoints verified" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "waitingTime"="9.022864ms"
+  [1mSTEP:[0m Waiting for leader election lease "kueue-system/c1f6bfd2.kueue.x-k8s.io" [38;5;243m@ 06/11/26 01:51:19.225[0m
+  "level"=0 "msg"="Kueue restarted" "took"="28.226438725s"
+  "level"=0 "msg"="Created namespace" "namespace"="ha-failover-m5glz"
+  [1mSTEP:[0m admitting workload-a so it enters both leader and follower caches [38;5;243m@ 06/11/26 01:51:22.323[0m
+  [1mSTEP:[0m deleting workload-1 [38;5;243m@ 06/11/26 01:51:22.599[0m
+  [1mSTEP:[0m forcing a leader failover so the former follower becomes the new leader [38;5;243m@ 06/11/26 01:51:22.607[0m
+  [1mSTEP:[0m Deleting leader pod "kueue-controller-manager-5688874cb5-blzlp" to force failover [38;5;243m@ 06/11/26 01:51:22.61[0m
+  [1mSTEP:[0m Waiting for a new leader to be elected [38;5;243m@ 06/11/26 01:51:22.617[0m
+  [1mSTEP:[0m Waiting for ready pods and webhook endpoints: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/11/26 01:51:22.874[0m
+  "level"=0 "msg"="Ready pods and webhook endpoints verified" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "waitingTime"="11.94422473s"
+  [1mSTEP:[0m creating workload-2 and expecting the new leader to admit it [38;5;243m@ 06/11/26 01:51:34.818[0m
+  [1mSTEP:[0m Waiting for availability of deployment: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/11/26 01:51:35.767[0m
+  "level"=0 "msg"="Deployment is available" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "noRestarts"=false "waitingTime"="3.099299ms"
+  [1mSTEP:[0m Waiting for ready pods and webhook endpoints: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/11/26 01:51:35.771[0m
+  "level"=0 "msg"="Ready pods and webhook endpoints verified" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "waitingTime"="17.851336ms"
+  [1mSTEP:[0m Waiting for leader election lease "kueue-system/c1f6bfd2.kueue.x-k8s.io" [38;5;243m@ 06/11/26 01:51:35.789[0m
+[38;5;10m• [43.285 seconds][0m
+[38;5;243m------------------------------[0m
+[0mDefault configuration tests [38;5;243mHA Failover [0m[1mshould admit a high-priority workload after lower-priority workload-1 removal and leader failover with preemption of existing lower-priority workload-2[0m [38;5;204m[shard-0][0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/sequential/baseline/default_config_test.go:320[0m
+  "level"=0 "msg"="Kueue configuration updated" "took"="7.50323ms"
+  Exporting logs for cluster "kind" to:
+  /logs/artifacts/run-test-e2e-sequential-baseline-1.35.5
+  "level"=0 "msg"="Deployment status condition before the restart" "type"="Progressing" "status"="True" "reason"="NewReplicaSetAvailable"
+  [1mSTEP:[0m Waiting for availability of deployment: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/11/26 01:51:37.647[0m
+  "level"=0 "msg"="Deployment is available" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "noRestarts"=false "waitingTime"="24.383351914s"
+  [1mSTEP:[0m Waiting for ready pods and webhook endpoints: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/11/26 01:52:02.031[0m
+  "level"=0 "msg"="Ready pods and webhook endpoints verified" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "waitingTime"="9.330537ms"
+  [1mSTEP:[0m Waiting for leader election lease "kueue-system/c1f6bfd2.kueue.x-k8s.io" [38;5;243m@ 06/11/26 01:52:02.04[0m
+  "level"=0 "msg"="Kueue restarted" "took"="25.730171934s"
+  "level"=0 "msg"="Created namespace" "namespace"="ha-failover-xjtz6"
+  [38;5;9m[FAILED][0m in [BeforeEach] - /home/prow/go/src/sigs.k8s.io/kueue/test/e2e/sequential/baseline/default_config_test.go:270 [38;5;243m@ 06/11/26 01:52:12.556[0m
+  [1mSTEP:[0m Waiting for availability of deployment: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/11/26 01:52:12.709[0m
+  "level"=0 "msg"="Deployment is available" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "noRestarts"=false "waitingTime"="2.794795ms"
+  [1mSTEP:[0m Waiting for ready pods and webhook endpoints: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/11/26 01:52:12.712[0m
+  "level"=0 "msg"="Ready pods and webhook endpoints verified" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "waitingTime"="73.571679ms"
+  [1mSTEP:[0m Waiting for leader election lease "kueue-system/c1f6bfd2.kueue.x-k8s.io" [38;5;243m@ 06/11/26 01:52:12.786[0m
+[38;5;9m• [FAILED] [37.749 seconds][0m
+[0mDefault configuration tests [38;5;9m[1mHA Failover [BeforeEach] [0mshould admit a high-priority workload after lower-priority workload-1 removal and leader failover with preemption of existing lower-priority workload-2[0m [38;5;204m[shard-0][0m
+  [38;5;9m[BeforeEach][0m [38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/sequential/baseline/default_config_test.go:266[0m
+  [38;5;243m[It] /home/prow/go/src/sigs.k8s.io/kueue/test/e2e/sequential/baseline/default_config_test.go:320[0m
+
+  [38;5;9m[FAILED] Expected success, but got an error:
+      <*errors.StatusError | 0x5327dec1d60>: 
+      Internal error occurred: failed calling webhook "mresourceflavor.kb.io": failed to call webhook: Post "https://kueue-webhook-service.kueue-system.svc:443/mutate-kueue-x-k8s-io-v1beta2-resourceflavor?timeout=10s": context deadline exceeded
+      {
+          ErrStatus: {
+              TypeMeta: {Kind: "", APIVersion: ""},
+              ListMeta: {
+                  SelfLink: "",
+                  ResourceVersion: "",
+                  Continue: "",
+                  RemainingItemCount: nil,
+                  ShardInfo: nil,
+              },
+              Status: "Failure",
+              Message: "Internal error occurred: failed calling webhook \"mresourceflavor.kb.io\": failed to call webhook: Post \"https://kueue-webhook-service.kueue-system.svc:443/mutate-kueue-x-k8s-io-v1beta2-resourceflavor?timeout=10s\": context deadline exceeded",
+              Reason: "InternalError",
+              Details: {
+                  Name: "",
+                  Group: "",
+                  Kind: "",
+                  UID: "",
+                  Causes: [
+                      {
+                          Type: "",
+                          Message: "failed calling webhook \"mresourceflavor.kb.io\": failed to call webhook: Post \"https://kueue-webhook-service.kueue-system.svc:443/mutate-kueue-x-k8s-io-v1beta2-resourceflavor?timeout=10s\": context deadline exceeded",
+                          Field: "",
+                      },
+                  ],
+                  RetryAfterSeconds: 0,
+              },
+              Code: 500,
+          },
+      }[0m
+  [38;5;9mIn [1m[BeforeEach][0m[38;5;9m at: [1m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/sequential/baseline/default_config_test.go:270[0m [38;5;243m@ 06/11/26 01:52:12.556[0m
+[38;5;243m------------------------------[0m
+[38;5;14mS [SKIPPED] [0.000 seconds][0m
+[0mDefault configuration tests [38;5;243mVisibility Server [38;5;14m[1m[It] Should use the RBAC identity from the provided kubeconfig[0m [38;5;204m[shard-0][0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/sequential/baseline/default_config_test.go:418[0m
+
+  [38;5;14m[SKIPPED] Spec skipped because an earlier spec in an ordered container failed[0m
+  [38;5;14mIn [1m[It][0m[38;5;14m at: [1m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/sequential/baseline/default_config_test.go:418[0m [38;5;243m@ 06/11/26 01:52:14.561[0m
+[38;5;243m------------------------------[0m
+[0mAdmission Fair Sharing [38;5;243mwhen using UsageBasedAdmissionFairSharing within a ClusterQueue [0m[1mshould prioritize LocalQueues with lower usage[0m [38;5;204m[feature:admissionfairsharing, shard-0][0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/sequential/baseline/admission_fair_sharing_test.go:103[0m
+  "level"=0 "msg"="Kueue configuration updated" "took"="7.298895ms"
+  Exporting logs for cluster "kind" to:
+  /logs/artifacts/run-test-e2e-sequential-baseline-1.35.5
+  "level"=0 "msg"="Deployment status condition before the restart" "type"="Progressing" "status"="True" "reason"="NewReplicaSetAvailable"
+  [1mSTEP:[0m Waiting for availability of deployment: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/11/26 01:52:15.391[0m
+  "level"=0 "msg"="Deployment is available" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "noRestarts"=false "waitingTime"="24.865645668s"
+  [1mSTEP:[0m Waiting for ready pods and webhook endpoints: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/11/26 01:52:40.256[0m
+  "level"=0 "msg"="Ready pods and webhook endpoints verified" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "waitingTime"="9.759058ms"
+  [1mSTEP:[0m Waiting for leader election lease "kueue-system/c1f6bfd2.kueue.x-k8s.io" [38;5;243m@ 06/11/26 01:52:40.266[0m
+  "level"=0 "msg"="Kueue restarted" "took"="26.966000362s"
+  "level"=0 "msg"="Created namespace" "namespace"="afs-mrlc9"
+  [1mSTEP:[0m Creating jobs in lq-a to saturate the ClusterQueue [38;5;243m@ 06/11/26 01:52:42.106[0m
+  [1mSTEP:[0m Waiting for lq-a workloads to be admitted [38;5;243m@ 06/11/26 01:52:42.133[0m
+  [1mSTEP:[0m Verifying lq-a has accumulated usage [38;5;243m@ 06/11/26 01:52:42.393[0m
+  [1mSTEP:[0m Creating pending jobs in both LocalQueues [38;5;243m@ 06/11/26 01:52:43.422[0m
+  [1mSTEP:[0m Deleting one job from lq-a to free quota [38;5;243m@ 06/11/26 01:52:43.445[0m
+  [1mSTEP:[0m Verifying lq-b job is admitted due to lower usage [38;5;243m@ 06/11/26 01:52:43.451[0m
+  [1mSTEP:[0m Verifying lq-a job3 remains pending [38;5;243m@ 06/11/26 01:52:44.723[0m
+[38;5;10m• [32.438 seconds][0m
+[38;5;243m------------------------------[0m
+[0mAdmission Fair Sharing [38;5;243mwhen preemption is enabled across ClusterQueues in a cohort [0m[1mshould preempt workloads when reclaiming quota from cohort[0m [38;5;204m[feature:admissionfairsharing, shard-0][0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/sequential/baseline/admission_fair_sharing_test.go:227[0m
+  "level"=0 "msg"="Created namespace" "namespace"="afs-rpjkg"
+  [1mSTEP:[0m Creating jobs in lq1-a that borrow from cohort [38;5;243m@ 06/11/26 01:52:47.583[0m
+  [1mSTEP:[0m Waiting for lq1-a workloads to be admitted [38;5;243m@ 06/11/26 01:52:47.603[0m
+  [1mSTEP:[0m Verifying lq1-a has accumulated usage [38;5;243m@ 06/11/26 01:52:47.863[0m
+  [1mSTEP:[0m Creating a job in lq2-a to reclaim quota from cohort [38;5;243m@ 06/11/26 01:52:48.884[0m
+  [1mSTEP:[0m Verifying job from lq2-a is admitted [38;5;243m@ 06/11/26 01:52:48.891[0m
+  [1mSTEP:[0m Verifying cq1 has one workload admitted [38;5;243m@ 06/11/26 01:52:49.147[0m
+[38;5;10m• [5.111 seconds][0m
+[38;5;243m------------------------------[0m
+[0mQuotaCheckStrategy [38;5;243mwhen Metrics is available [0m[1mshould not report metrics for resource usage for undeclared resources[0m [38;5;204m[feature:quotacheckstrategy, shard-0][0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/sequential/baseline/quota_check_strategy_test.go:136[0m
+  "level"=0 "msg"="Kueue configuration updated" "took"="7.089133ms"
+  Exporting logs for cluster "kind" to:
+  /logs/artifacts/run-test-e2e-sequential-baseline-1.35.5
+  "level"=0 "msg"="Deployment status condition before the restart" "type"="Progressing" "status"="True" "reason"="NewReplicaSetAvailable"
+  [1mSTEP:[0m Waiting for availability of deployment: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/11/26 01:52:52.91[0m
+  "level"=0 "msg"="Deployment is available" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "noRestarts"=false "waitingTime"="24.38073962s"
+  [1mSTEP:[0m Waiting for ready pods and webhook endpoints: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/11/26 01:53:17.291[0m
+  "level"=0 "msg"="Ready pods and webhook endpoints verified" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "waitingTime"="10.139912ms"
+  [1mSTEP:[0m Waiting for leader election lease "kueue-system/c1f6bfd2.kueue.x-k8s.io" [38;5;243m@ 06/11/26 01:53:17.301[0m
+  "level"=0 "msg"="Kueue restarted" "took"="25.693069203s"
+  "level"=0 "msg"="Created namespace" "namespace"="e2e-quota-check-strategy-fqlt2"
+  [1mSTEP:[0m Waiting for the curl-metrics pod to run. [38;5;243m@ 06/11/26 01:53:18.117[0m
+  [1mSTEP:[0m Create a job with undeclared resource [38;5;243m@ 06/11/26 01:53:19.396[0m
+  [1mSTEP:[0m checking that resource usage metrics for declared resources are available [38;5;243m@ 06/11/26 01:53:19.671[0m
+  [1mSTEP:[0m checking that resource usage metrics for undeclared resources are not available [38;5;243m@ 06/11/26 01:53:19.771[0m
+[38;5;10m• [29.971 seconds][0m
+[38;5;243m------------------------------[0m
+[0mQuotaCheckStrategy [38;5;243mwhen Preemption is enabled [0m[1mshould preempt workloads with undeclared resource that have lower priority[0m [38;5;204m[feature:quotacheckstrategy, shard-0][0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/sequential/baseline/quota_check_strategy_test.go:195[0m
+  "level"=0 "msg"="Created namespace" "namespace"="e2e-preemption-bxwtx"
+  [1mSTEP:[0m Create a low priority workload with undeclared resource [38;5;243m@ 06/11/26 01:53:22.356[0m
+  [1mSTEP:[0m Create a high priority workload with undeclared resource [38;5;243m@ 06/11/26 01:53:22.622[0m
+  [1mSTEP:[0m Check the low priority workload is preempted [38;5;243m@ 06/11/26 01:53:22.889[0m
+[38;5;10m• [1.512 seconds][0m
+[38;5;243m------------------------------[0m
+[0mVisibility Server [0m[1mShould use the custom port from the visibilityServer configuration API[0m [38;5;204m[feature:visibility, shard-0][0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/sequential/baseline/visibility_server_test.go:93[0m
+  [1mSTEP:[0m Updating the visibilityServer configuration and restarting Kueue [38;5;243m@ 06/11/26 01:53:23.593[0m
+  "level"=0 "msg"="Kueue configuration updated" "took"="7.415996ms"
+  Exporting logs for cluster "kind" to:
+  /logs/artifacts/run-test-e2e-sequential-baseline-1.35.5
+  "level"=0 "msg"="Deployment status condition before the restart" "type"="Progressing" "status"="True" "reason"="NewReplicaSetAvailable"
+  [1mSTEP:[0m Waiting for availability of deployment: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/11/26 01:53:24.443[0m
+  "level"=0 "msg"="Deployment is available" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "noRestarts"=false "waitingTime"="25.140979529s"
+  [1mSTEP:[0m Waiting for ready pods and webhook endpoints: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/11/26 01:53:49.584[0m
+  "level"=0 "msg"="Ready pods and webhook endpoints verified" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "waitingTime"="22.590813ms"
+  [1mSTEP:[0m Waiting for leader election lease "kueue-system/c1f6bfd2.kueue.x-k8s.io" [38;5;243m@ 06/11/26 01:53:49.607[0m
+  "level"=0 "msg"="Kueue restarted" "took"="27.27678157s"
+  [1mSTEP:[0m Creating a ClusterQueue [38;5;243m@ 06/11/26 01:53:50.884[0m
+  [1mSTEP:[0m Updating the visibilityServer configuration and restarting Kueue [38;5;243m@ 06/11/26 01:53:51.159[0m
+  [1mSTEP:[0m Updating the visibility-server service's targetPort [38;5;243m@ 06/11/26 01:53:51.159[0m
+  [1mSTEP:[0m Verifying requests succeed on the custom port [38;5;243m@ 06/11/26 01:53:51.167[0m
+  [1mSTEP:[0m Restoring the original deployment [38;5;243m@ 06/11/26 01:53:51.435[0m
+  [1mSTEP:[0m Restoring the original service [38;5;243m@ 06/11/26 01:53:51.445[0m
+  [1mSTEP:[0m Waiting for availability of deployment: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/11/26 01:53:51.453[0m
+  "level"=0 "msg"="Deployment is available" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "noRestarts"=false "waitingTime"="3.574822ms"
+  [1mSTEP:[0m Waiting for ready pods and webhook endpoints: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/11/26 01:53:51.457[0m
+  "level"=0 "msg"="Ready pods and webhook endpoints verified" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "waitingTime"="9.488385ms"
+  [1mSTEP:[0m Waiting for leader election lease "kueue-system/c1f6bfd2.kueue.x-k8s.io" [38;5;243m@ 06/11/26 01:53:51.466[0m
+  [1mSTEP:[0m Cleaning up cluster queue [38;5;243m@ 06/11/26 01:53:52.736[0m
+[38;5;10m• [29.406 seconds][0m
+[38;5;243m------------------------------[0m
+[38;5;14mS[0m[38;5;14mS[0m[38;5;14mS[0m
+[38;5;243m------------------------------[0m
+[0mJob reconciliation with ManagedJobsNamespaceSelectorAlwaysRespected [38;5;243mwhen Testing namespace selector behavior [0m[1mshould not reconcile a job in the default (unmanaged) namespace[0m [38;5;204m[feature:managedjobsnamespaceselectoralwaysrespected, shard-0][0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/sequential/baseline/reconcile_test.go:107[0m
+  "level"=0 "msg"="Kueue configuration updated" "took"="7.432827ms"
+  Exporting logs for cluster "kind" to:
+  /logs/artifacts/run-test-e2e-sequential-baseline-1.35.5
+  "level"=0 "msg"="Deployment status condition before the restart" "type"="Progressing" "status"="True" "reason"="NewReplicaSetAvailable"
+  [1mSTEP:[0m Waiting for availability of deployment: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/11/26 01:53:53.826[0m
+  "level"=0 "msg"="Deployment is available" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "noRestarts"=false "waitingTime"="24.617788576s"
+  [1mSTEP:[0m Waiting for ready pods and webhook endpoints: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/11/26 01:54:18.443[0m
+  "level"=0 "msg"="Ready pods and webhook endpoints verified" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "waitingTime"="9.033612ms"
+  [1mSTEP:[0m Waiting for leader election lease "kueue-system/c1f6bfd2.kueue.x-k8s.io" [38;5;243m@ 06/11/26 01:54:18.453[0m
+  "level"=0 "msg"="Kueue restarted" "took"="26.714441728s"
+  2026-06-11T01:54:20.301570937Z	INFO	log/warning_handler.go:64	child pods are preserved by default when jobs are deleted; set propagationPolicy=Background to remove them or set propagationPolicy=Orphan to suppress this warning
+[38;5;10m• [27.558 seconds][0m
+[38;5;243m------------------------------[0m
+[0mJob reconciliation with ManagedJobsNamespaceSelectorAlwaysRespected [38;5;243mwhen Testing namespace selector behavior [0m[1mshould reconcile a job in managed namespace and create a workload[0m [38;5;204m[feature:managedjobsnamespaceselectoralwaysrespected, shard-0][0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/sequential/baseline/reconcile_test.go:121[0m
+  [1mSTEP:[0m check that only one workload is created [38;5;243m@ 06/11/26 01:54:20.564[0m
+  2026-06-11T01:54:20.826401263Z	INFO	log/warning_handler.go:64	child pods are preserved by default when jobs are deleted; set propagationPolicy=Background to remove them or set propagationPolicy=Orphan to suppress this warning
+[38;5;10m• [0.525 seconds][0m
+[38;5;243m------------------------------[0m
+[0mJob reconciliation with ManagedJobsNamespaceSelectorAlwaysRespected [38;5;243mwhen Testing namespace selector behavior [0m[1mshould not reconcile a pod in the default (unmanaged) namespace[0m [38;5;204m[feature:managedjobsnamespaceselectoralwaysrespected, shard-0][0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/sequential/baseline/reconcile_test.go:139[0m
+  2026-06-11T01:54:21.100824524Z	INFO	log/warning_handler.go:64	child pods are preserved by default when jobs are deleted; set propagationPolicy=Background to remove them or set propagationPolicy=Orphan to suppress this warning
+[38;5;10m• [2.643 seconds][0m
+[38;5;243m------------------------------[0m
+[38;5;14mS[0m[38;5;14mS[0m[38;5;14mS[0m
+[38;5;243m------------------------------[0m
+[0m[1m[AfterSuite] [0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/sequential/baseline/suite_test.go:66[0m
+  "level"=0 "msg"="Kueue configuration updated" "took"="7.308846ms"
+  Exporting logs for cluster "kind" to:
+  /logs/artifacts/run-test-e2e-sequential-baseline-1.35.5
+  "level"=0 "msg"="Deployment status condition before the restart" "type"="Progressing" "status"="True" "reason"="NewReplicaSetAvailable"
+  [1mSTEP:[0m Waiting for availability of deployment: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/11/26 01:54:24.607[0m
+  "level"=0 "msg"="Deployment is available" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "noRestarts"=false "waitingTime"="24.875604037s"
+  [1mSTEP:[0m Waiting for ready pods and webhook endpoints: "kueue-system/kueue-controller-manager" [38;5;243m@ 06/11/26 01:54:49.483[0m
+  "level"=0 "msg"="Ready pods and webhook endpoints verified" "deployment"={"name"="kueue-controller-manager" "namespace"="kueue-system"} "waitingTime"="10.421454ms"
+  [1mSTEP:[0m Waiting for leader election lease "kueue-system/c1f6bfd2.kueue.x-k8s.io" [38;5;243m@ 06/11/26 01:54:49.493[0m
+  "level"=0 "msg"="Kueue restarted" "took"="27.788417278s"
+[38;5;10m[AfterSuite] PASSED [27.796 seconds][0m
+[38;5;243m------------------------------[0m
+[0m[1m[DeferCleanup (Suite)] [0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/sequential/baseline/suite_test.go:55[0m
+[38;5;10m[DeferCleanup (Suite)] PASSED [0.000 seconds][0m
+[38;5;243m------------------------------[0m
+[0m[1m[ReportAfterSuite] Generate JUnit Report[0m
+[38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/util/util.go:96[0m
+  "level"=0 "msg"="Generating JUnit report" "path"="/logs/artifacts/run-test-e2e-sequential-baseline-1.35.5/junit-test-e2e-sequential-baseline.xml"
+[38;5;10m[ReportAfterSuite] PASSED [0.005 seconds][0m
+[38;5;243m------------------------------[0m
+[0m[1m[ReportAfterSuite] Autogenerated ReportAfterSuite for --json-report[0m
+[38;5;243mautogenerated by Ginkgo[0m
+[38;5;10m[ReportAfterSuite] PASSED [0.007 seconds][0m
+[38;5;243m------------------------------[0m
+
+[38;5;9m[1mSummarizing 1 Failure:[0m
+  [38;5;9m[FAIL][0m [0mDefault configuration tests [38;5;9m[1mHA Failover [BeforeEach] [0mshould admit a high-priority workload after lower-priority workload-1 removal and leader failover with preemption of existing lower-priority workload-2[0m [38;5;204m[shard-0][0m
+  [38;5;243m/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/sequential/baseline/default_config_test.go:270[0m
+
+[38;5;9m[1mRan 15 of 27 Specs in 342.164 seconds[0m
+[38;5;9m[1mFAIL![0m -- [38;5;10m[1m14 Passed[0m | [38;5;9m[1m1 Failed[0m | [38;5;11m[1m0 Pending[0m | [38;5;14m[1m12 Skipped[0m
+--- FAIL: TestAPIs (342.18s)
+FAIL
+
+Ginkgo ran 1 suite in 7m30.545029241s
+
+Test Suite Failed
+Exporting logs for cluster "kind" to:
+/logs/artifacts/run-test-e2e-sequential-baseline-1.35.5
+No resources found in default namespace.
+Deleting cluster "kind" ...
+Deleted nodes: ["kind-worker2" "kind-control-plane" "kind-worker"]
+make: *** [Makefile-test.mk:416: run-test-e2e-sequential-baseline-1.35.5] Error 1
++ EXIT_VALUE=2
++ set +o xtrace
+Cleaning up after docker in docker.
+================================================================================
+Waiting 30 seconds for pods stopped with terminationGracePeriod:30
+Cleaning up after docker
+Waiting for docker to stop for 30 seconds
+Stopping Docker: dockerProgram process in pidfile '/var/run/docker-ssd.pid', 1 process(es), refused to die.
+================================================================================
+Done cleaning up after docker in docker.
