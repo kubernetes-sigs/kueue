@@ -33,6 +33,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
@@ -51,7 +52,7 @@ import (
 const (
 	// EnabledAnnotationKey refers to the annotation key present on Job's that support
 	// workload slicing.
-	EnabledAnnotationKey = "kueue.x-k8s.io/elastic-job"
+	EnabledAnnotationKey = constants.ElasticJobAnnotation
 	// EnabledAnnotationValue refers to the annotation value. To enable
 	// workload slicing for a given job, we match both annotation key and value.
 	EnabledAnnotationValue = "true"
