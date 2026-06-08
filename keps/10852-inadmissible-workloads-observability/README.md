@@ -59,9 +59,15 @@ separate feature gates:
   the `QuotaReserved` and `Admitted` conditions during reconciliations and
   scheduler cycles to use the new tiered reasons instead of the generic
   "Pending".
-- `UnadmittedWorkloadsExplicitStatus`: Controls whether both status conditions
-  (`QuotaReserved` and `Admitted`) are explicitly initialized to `False` during
-  the very first reconciliation cycle of a newly created workload.
+- `UnadmittedWorkloadsExplicitStatus`: Gates the immediate, proactive
+  initialization of both `QuotaReserved` and `Admitted` status conditions
+  to `False` (with `PendingEvaluation` and `NoReservation` reasons) during
+  a workload's first reconciliation. 
+  * **When enabled:** Both conditions are explicitly written immediately
+    upon creation, ensuring continuous status-based lifecycle tracking.
+  * **When disabled (default):** Workloads are created with empty status
+    conditions (saving API server write volume under heavy load), and
+    conditions are only updated on subsequent scheduler cycles.
 
 ## Motivation
 
@@ -159,7 +165,8 @@ their configurations immediately.
 As a platform team, we want to construct a unified Grafana dashboard to track
 queue queueing characteristics in real-time. We need to distinguish between
 workloads waiting for normal quota capacity (a standard queueing event) versus
-workloads blocked because they exceed maximum bounds or fail administrative holds.
+workloads blocked because they request resources exceeding maximum limits or
+because their LocalQueue or ClusterQueue has an active `StopPolicy`.
 The two-level label scheme (`reason` and `underlying_cause`) allows our team to
 plot a stacked area chart showing queue metrics broken down by blocking category,
 improving platform diagnostics.
