@@ -27,6 +27,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 
@@ -4108,6 +4109,11 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 				}),
 			},
 			workload: *workload.NewInfo(&kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						"kueue.x-k8s.io/elastic-job": "true",
+					},
+				},
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
@@ -4144,6 +4150,42 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 				}),
 			},
 			workload: *workload.NewInfo(&kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						"kueue.x-k8s.io/elastic-job": "true",
+					},
+				},
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+							Request(corev1.ResourceCPU, "1").
+							PreferredTopologyRequest(corev1.LabelHostname).
+							Obj(),
+					},
+				},
+			}),
+			wantErr: "preferred topology is not supported with ElasticJobsViaWorkloadSlices",
+		},
+		"preferred topology is rejected for new elastic workload": {
+			cq: schdcache.ClusterQueueSnapshot{
+				TASFlavors: map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot{"tas": tasFlavor},
+			},
+			assignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: {Name: "tas", Mode: Fit, TriedFlavorIdx: -1},
+					},
+					Count:  2,
+					Status: *NewStatus(),
+				}},
+			},
+			workload: *workload.NewInfo(&kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						"kueue.x-k8s.io/elastic-job": "true",
+					},
+				},
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
@@ -4180,11 +4222,66 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 				}),
 			},
 			workload: *workload.NewInfo(&kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						"kueue.x-k8s.io/elastic-job": "true",
+					},
+				},
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
 							Request(corev1.ResourceCPU, "1").
 							UnconstrainedTopologyRequest().
+							Obj(),
+					},
+				},
+			}),
+		},
+		"required topology is accepted for regular jobs with ElasticJobsViaWorkloadSlicesWithTAS": {
+			cq: schdcache.ClusterQueueSnapshot{
+				TASFlavors: map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot{"tas": tasFlavor},
+			},
+			assignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: {Name: "tas", Mode: Fit, TriedFlavorIdx: -1},
+					},
+					Count:  2,
+					Status: *NewStatus(),
+				}},
+			},
+			workload: *workload.NewInfo(&kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+							Request(corev1.ResourceCPU, "1").
+							RequiredTopologyRequest(corev1.LabelHostname).
+							Obj(),
+					},
+				},
+			}),
+		},
+		"preferred topology is accepted for regular jobs with ElasticJobsViaWorkloadSlicesWithTAS": {
+			cq: schdcache.ClusterQueueSnapshot{
+				TASFlavors: map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot{"tas": tasFlavor},
+			},
+			assignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: {Name: "tas", Mode: Fit, TriedFlavorIdx: -1},
+					},
+					Count:  2,
+					Status: *NewStatus(),
+				}},
+			},
+			workload: *workload.NewInfo(&kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+							Request(corev1.ResourceCPU, "1").
+							PreferredTopologyRequest(corev1.LabelHostname).
 							Obj(),
 					},
 				},
