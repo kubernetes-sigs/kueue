@@ -150,10 +150,10 @@ func processCounterCharge(
 	log.V(4).Info("Matched devices for counter charge", "deviceClass", deviceClassName, "matched", len(matched), "requested", count)
 
 	if int64(len(matched)) < count {
-		return nil, field.ErrorList{field.Invalid(
+		// Cluster-state shortage: retryable until matching ResourceSlices appear.
+		return nil, field.ErrorList{field.InternalError(
 			reqPath,
-			nil,
-			fmt.Sprintf("insufficient matching devices for counter driver: %d device(s) match but %d requested",
+			fmt.Errorf("insufficient matching devices for counter driver: %d device(s) match but %d requested",
 				len(matched), count),
 		)}
 	}
@@ -163,10 +163,11 @@ func processCounterCharge(
 		return charges, nil
 	}
 
-	return nil, field.ErrorList{field.Invalid(
+	// No consumesCounters yet on the matched devices: another cluster-state
+	// condition that can clear as ResourceSlices are updated, so retry with backoff.
+	return nil, field.ErrorList{field.InternalError(
 		reqPath,
-		nil,
-		fmt.Sprintf("matched devices have no consumesCounters entry for counter %q", counterConfig.counterName),
+		fmt.Errorf("matched devices have no consumesCounters entry for counter %q", counterConfig.counterName),
 	)}
 }
 
