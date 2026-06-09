@@ -182,19 +182,19 @@ $(TEST_E2E_SHARD_0_TARGETS): export RAY_VERSION := $(RAY_VERSION)
 $(TEST_E2E_SHARD_0_TARGETS): export RAYMINI_VERSION := $(RAYMINI_VERSION)
 
 # Assign Shard 1 variables to all parent suites AND all shard-1 targets
-TEST_E2E_SHARD_1_TARGETS := test-e2e-extended test-e2e-extended-shard-1
-$(TEST_E2E_SHARD_1_TARGETS): export KUBERAY_VERSION := $(KUBERAY_VERSION)
-$(TEST_E2E_SHARD_1_TARGETS): export RAY_VERSION := $(RAY_VERSION)
-$(TEST_E2E_SHARD_1_TARGETS): export RAYMINI_VERSION := $(RAYMINI_VERSION)
+TEST_E2E_SHARD_1_TARGETS := test-e2e-extended test-e2e-extended-shard-1 test-tas-e2e-extended test-tas-e2e-extended-shard-1
+$(TEST_E2E_SHARD_1_TARGETS): export JOBSET_VERSION := $(JOBSET_VERSION)
+$(TEST_E2E_SHARD_1_TARGETS): export LEADERWORKERSET_VERSION := $(LEADERWORKERSET_VERSION)
+$(TEST_E2E_SHARD_1_TARGETS): export APPWRAPPER_VERSION := $(APPWRAPPER_VERSION)
+$(TEST_E2E_SHARD_1_TARGETS): export KUBEFLOW_VERSION := $(KUBEFLOW_VERSION)
+$(TEST_E2E_SHARD_1_TARGETS): export KUBEFLOW_MPI_VERSION := $(KUBEFLOW_MPI_VERSION)
+$(TEST_E2E_SHARD_1_TARGETS): export KUBEFLOW_TRAINER_VERSION := $(KUBEFLOW_TRAINER_VERSION)
 
 # Assign Shard 2 variables to all parent suites AND all shard-2 targets
 TEST_E2E_SHARD_2_TARGETS := test-e2e-extended test-e2e-extended-shard-2
-$(TEST_E2E_SHARD_2_TARGETS): export JOBSET_VERSION := $(JOBSET_VERSION)
-$(TEST_E2E_SHARD_2_TARGETS): export LEADERWORKERSET_VERSION := $(LEADERWORKERSET_VERSION)
-$(TEST_E2E_SHARD_2_TARGETS): export APPWRAPPER_VERSION := $(APPWRAPPER_VERSION)
-$(TEST_E2E_SHARD_2_TARGETS): export KUBEFLOW_VERSION := $(KUBEFLOW_VERSION)
-$(TEST_E2E_SHARD_2_TARGETS): export KUBEFLOW_MPI_VERSION := $(KUBEFLOW_MPI_VERSION)
-$(TEST_E2E_SHARD_2_TARGETS): export KUBEFLOW_TRAINER_VERSION := $(KUBEFLOW_TRAINER_VERSION)
+$(TEST_E2E_SHARD_2_TARGETS): export KUBERAY_VERSION := $(KUBERAY_VERSION)
+$(TEST_E2E_SHARD_2_TARGETS): export RAY_VERSION := $(RAY_VERSION)
+$(TEST_E2E_SHARD_2_TARGETS): export RAYMINI_VERSION := $(RAYMINI_VERSION)
 
 ## Label Taxonomy:
 ##   Features: appwrapper,jaxjob,jobset,kuberay,leaderworkerset,pytorchjob,trainjob
@@ -211,14 +211,14 @@ test-e2e-extended-shard-0: GINKGO_ARGS=--label-filter=feature:kuberay,shard:kube
 test-e2e-extended-shard-0: setup-e2e-env kind-ray-project-mini-image-build run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-e2e-extended-shard-1
-test-e2e-extended-shard-1: E2E_NPROCS := 4
-test-e2e-extended-shard-1: GINKGO_ARGS=--label-filter=feature:kuberay,shard:kuberay-b
-test-e2e-extended-shard-1: setup-e2e-env kind-ray-project-mini-image-build run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-e2e-extended-shard-0: E2E_NPROCS := 4
+test-e2e-extended-shard-1: GINKGO_ARGS=--label-filter=feature:appwrapper,feature:jaxjob,feature:jobset,feature:leaderworkerset,feature:pytorchjob,feature:trainjob
+test-e2e-extended-shard-1: setup-e2e-env run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-e2e-extended-shard-2
-test-e2e-extended-shard-2: E2E_NPROCS := 4
-test-e2e-extended-shard-2: GINKGO_ARGS=--label-filter=feature:appwrapper,feature:jaxjob,feature:jobset,feature:leaderworkerset,feature:pytorchjob,feature:trainjob
-test-e2e-extended-shard-2: setup-e2e-env run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-e2e-extended-shard-0: E2E_NPROCS := 4
+test-e2e-extended-shard-2: GINKGO_ARGS=--label-filter=feature:kuberay,shard:kuberay-b
+test-e2e-extended-shard-2: setup-e2e-env kind-ray-project-mini-image-build run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 ## Label Taxonomy:
 ##   Features: certs,deployment,job,fairsharing,kueuectl,metrics,pod,statefulset,visibility,e2e_v1beta1,ha
