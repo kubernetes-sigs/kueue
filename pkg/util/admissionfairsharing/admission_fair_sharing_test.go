@@ -58,3 +58,89 @@ func TestCalculateEntryPenaltyWithDRAResources(t *testing.T) {
 		t.Errorf("gpu-logical penalty should be positive, got %v", gpuPenalty)
 	}
 }
+
+func TestCalculateUsageWithDRA(t *testing.T) {
+	tests := map[string]struct {
+		consumed   corev1.ResourceList
+		penalty    corev1.ResourceList
+		lqWeight   float64
+		resWeights map[corev1.ResourceName]float64
+		wantUsage  float64
+	}{
+		"DRA resource with default weight": {
+			consumed: corev1.ResourceList{
+				"gpu-logical": resource.MustParse("2"),
+			},
+			penalty:    corev1.ResourceList{},
+			lqWeight:   1,
+			resWeights: map[corev1.ResourceName]float64{},
+			wantUsage:  2, // default weight is 1, so 1 * 2 / 1 = 2
+		},
+		"DRA resource with explicit weight": {
+			consumed: corev1.ResourceList{
+				"gpu-logical": resource.MustParse("2"),
+			},
+			penalty:  corev1.ResourceList{},
+			lqWeight: 1,
+			resWeights: map[corev1.ResourceName]float64{
+				"gpu-logical": 3.0,
+			},
+			wantUsage: 6, // 3 * 2 / 1 = 6
+		},
+		"mixed CPU and DRA resources": {
+			consumed: corev1.ResourceList{
+				corev1.ResourceCPU: resource.MustParse("4"),
+				"gpu-logical":      resource.MustParse("2"),
+			},
+			penalty:  corev1.ResourceList{},
+			lqWeight: 1,
+			resWeights: map[corev1.ResourceName]float64{
+				corev1.ResourceCPU: 1.0,
+				"gpu-logical":      5.0,
+			},
+			wantUsage: 14, // (1*4 + 5*2) / 1 = 14
+		},
+		"DRA resource with weight zero contributes nothing": {
+			consumed: corev1.ResourceList{
+				"gpu-logical": resource.MustParse("10"),
+			},
+			penalty:  corev1.ResourceList{},
+			lqWeight: 1,
+			resWeights: map[corev1.ResourceName]float64{
+				"gpu-logical": 0,
+			},
+			wantUsage: 0,
+		},
+		"DRA resource in penalty only": {
+			consumed: corev1.ResourceList{},
+			penalty: corev1.ResourceList{
+				"gpu-logical": resource.MustParse("3"),
+			},
+			lqWeight:   1,
+			resWeights: map[corev1.ResourceName]float64{},
+			wantUsage:  3, // default weight 1, 1 * 3 / 1 = 3
+		},
+		"DRA resource in both consumed and penalty": {
+			consumed: corev1.ResourceList{
+				"gpu-logical": resource.MustParse("2"),
+			},
+			penalty: corev1.ResourceList{
+				"gpu-logical": resource.MustParse("1"),
+			},
+			lqWeight: 2,
+			resWeights: map[corev1.ResourceName]float64{
+				"gpu-logical": 4.0,
+			},
+			wantUsage: 6, // 4 * (2+1) / 2 = 6
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := CalculateUsage(tc.consumed, tc.penalty, tc.lqWeight, tc.resWeights)
+			if got != tc.wantUsage {
+				t.Errorf("CalculateUsage() = %v, want %v", got, tc.wantUsage)
+			}
+		})
+	}
+}
