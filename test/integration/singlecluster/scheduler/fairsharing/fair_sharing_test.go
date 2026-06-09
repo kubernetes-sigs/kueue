@@ -858,7 +858,6 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			util.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cq2, 2)
 
 			ginkgo.By("Expected Total Admitted Workloads and Weighted Share")
-
 			util.ExpectAdmittedWorkloadsTotalMetricWithTimeout(cq1, "", 1, util.MediumTimeout)
 			util.ExpectAdmittedWorkloadsTotalMetricWithTimeout(cq2, "", 2, util.MediumTimeout)
 
