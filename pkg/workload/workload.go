@@ -1981,3 +1981,12 @@ func TASAssignedNodeNames(wl *kueue.Workload) []string {
 	}
 	return nodesSet.UnsortedList()
 }
+
+// IsElasticWorkload returns true if ElasticJobsViaWorkloadSlices feature gate is enabled
+// and the given Workload is marked as elastic.
+func IsElasticWorkload(wl *kueue.Workload) bool {
+	if wl == nil {
+		return false
+	}
+	return features.Enabled(features.ElasticJobsViaWorkloadSlices) && wl.GetAnnotations()[constants.ElasticJobAnnotation] == "true"
+}
