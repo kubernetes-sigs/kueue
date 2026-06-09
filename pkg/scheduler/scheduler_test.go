@@ -25,6 +25,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
@@ -7747,7 +7748,7 @@ func TestResourcesToReserve(t *testing.T) {
 			}
 			cqSnapshot := snapshot.ClusterQueue("cq")
 
-			got := resourcesToReserve(e, cqSnapshot)
+			got := resourcesToReserve(logr.Discard(), e, cqSnapshot)
 			if !reflect.DeepEqual(tc.wantReserved, got.Quota) {
 				t.Errorf("%s failed\n: Want reservedMem: %v, got: %v", tc.name, tc.wantReserved, got)
 			}

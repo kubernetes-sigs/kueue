@@ -4540,7 +4540,7 @@ func TestAssignment_ComputeTASNetUsage(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got := tt.assignment.ComputeTASNetUsage(tt.cq, tt.wl, tt.prevAdmission)
+			got := tt.assignment.ComputeTASNetUsage(testr.New(t), tt.cq, tt.wl, tt.prevAdmission)
 
 			if diff := cmp.Diff(tt.want, got, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Unexpected TAS usage (-want,+got):\n%s", diff)
