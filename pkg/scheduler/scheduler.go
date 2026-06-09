@@ -546,7 +546,7 @@ func resourcesToReserve(e *entry, cq *schdcache.ClusterQueueSnapshot) workload.U
 func netUsage(e *entry, netQuota resources.FlavorResourceQuantities) workload.Usage {
 	result := workload.Usage{}
 	if features.Enabled(features.TopologyAwareScheduling) {
-		result.TAS = e.assignment.ComputeTASNetUsage(e.clusterQueueSnapshot, e.Obj.Status.Admission)
+		result.TAS = e.assignment.ComputeTASNetUsage(e.clusterQueueSnapshot, &e.Info, e.Obj.Status.Admission)
 	}
 	if !workload.HasQuotaReservation(e.Obj) {
 		result.Quota = netQuota
@@ -688,7 +688,7 @@ func updateAssignmentForTAS(log logr.Logger, snapshot *schdcache.Snapshot, cq *s
 			// assuming the cluster is empty.
 			tasResult = cq.FindTopologyAssignmentsForWorkload(tasRequests, schdcache.WithSimulateEmpty(true))
 		}
-		assignment.UpdateForTASResult(cq, tasResult)
+		assignment.UpdateForTASResult(cq, wl, tasResult)
 	}
 }
 
