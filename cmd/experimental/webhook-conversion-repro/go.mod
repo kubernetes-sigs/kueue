@@ -3,7 +3,7 @@ module populator
 go 1.26.0
 
 require (
-	golang.org/x/sync v0.20.0
+	github.com/google/go-cmp v0.7.0
 	k8s.io/apimachinery v0.36.1
 	k8s.io/client-go v0.36.1
 )

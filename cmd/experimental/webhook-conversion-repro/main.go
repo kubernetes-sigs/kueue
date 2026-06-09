@@ -103,6 +103,9 @@ func getKubeClient(kubeconfig string, qps float64) (dynamic.Interface, error) {
 }
 
 func generatePadString(length int) string {
+	if length <= 0 {
+		return ""
+	}
 	b := make([]byte, (length+1)/2)
 	if _, err := crypto_rand.Read(b); err != nil {
 		panic(err)
@@ -123,7 +126,7 @@ func createWorkloadObj(idx, containers, envs int) *unstructured.Unstructured {
 		cList = append(cList, map[string]any{
 			"name":    fmt.Sprintf("c%d", c),
 			"image":   "x",
-			"command": []string{"s"},
+			"command": []any{"s"},
 			"env":     env,
 			"resources": map[string]any{
 				"requests": map[string]any{"cpu": "1m", "memory": "1Mi"},
@@ -138,7 +141,7 @@ func createWorkloadObj(idx, containers, envs int) *unstructured.Unstructured {
 		"spec": map[string]any{
 			"queueName": "local-queue",
 			"podSets": []any{map[string]any{
-				"count": 1, "name": "main",
+				"count": int64(1), "name": "main",
 				"template": map[string]any{
 					"spec": map[string]any{"containers": cList},
 				},
