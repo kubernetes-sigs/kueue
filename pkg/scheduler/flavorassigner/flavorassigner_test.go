@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
+	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -4421,6 +4422,128 @@ func TestAssignment_TotalRequestsFor(t *testing.T) {
 			got := a.TotalRequestsFor(logr.Discard(), tt.args.wl)
 			if diff := cmp.Diff(got, tt.want); diff != "" {
 				t.Errorf("TotalRequestsFor() (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestAssignment_ComputeTASNetUsage(t *testing.T) {
+	tests := map[string]struct {
+		assignment    Assignment
+		wl            *workload.Info
+		cq            *schdcache.ClusterQueueSnapshot
+		prevAdmission *kueue.Admission
+		want          workload.TASUsage
+	}{
+		"records actual pod requests when assignment requests differ": {
+			assignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU:        {Name: "tas"},
+						corev1.ResourceMemory:     {Name: "tas"},
+						"example.com/logical-gpu": {Name: "quota"},
+					},
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:        resource.MustParse("2"),
+						corev1.ResourceMemory:     resource.MustParse("2Gi"),
+						"example.com/logical-gpu": resource.MustParse("2"),
+					},
+					Count: 2,
+					TopologyAssignment: &tas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{{
+							Values: []string{"node-a"},
+							Count:  2,
+						}},
+					},
+				}},
+			},
+			wl: workload.NewInfo(&kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+							// In assignment requests, example.com/gpu is transformed to
+							// example.com/logical-gpu and networking.example.com/vpc is excluded.
+							Request(corev1.ResourceCPU, "1").
+							Request(corev1.ResourceMemory, "1Gi").
+							Request("example.com/gpu", "1").
+							Request("networking.example.com/vpc", "1").
+							RequiredTopologyRequest(corev1.LabelHostname).
+							Obj(),
+					},
+				},
+			}),
+			cq: &schdcache.ClusterQueueSnapshot{
+				TASFlavors: map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot{
+					"tas": {},
+				},
+			},
+			want: workload.TASUsage{
+				"tas": []workload.TopologyDomainRequests{{
+					Values: []string{"node-a"},
+					SinglePodRequests: resources.NewRequests(corev1.ResourceList{
+						corev1.ResourceCPU:           resource.MustParse("1"),
+						corev1.ResourceMemory:        resource.MustParse("1Gi"),
+						"example.com/gpu":            resource.MustParse("1"),
+						"networking.example.com/vpc": resource.MustParse("1"),
+					}),
+					Count: 2,
+				}},
+			},
+		},
+		"skips usage already present in previous admission": {
+			assignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU:    {Name: "tas"},
+						corev1.ResourceMemory: {Name: "tas"},
+						"example.com/gpu":     {Name: "quota"},
+					},
+					Count: 2,
+					TopologyAssignment: &tas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{{
+							Values: []string{"node-a"},
+							Count:  2,
+						}},
+					},
+				}},
+			},
+			wl: workload.NewInfo(&kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+							Request(corev1.ResourceCPU, "1").
+							Request(corev1.ResourceMemory, "1Gi").
+							Request("example.com/gpu", "1").
+							RequiredTopologyRequest(corev1.LabelHostname).
+							Obj(),
+					},
+				},
+			}),
+			cq: &schdcache.ClusterQueueSnapshot{
+				TASFlavors: map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot{
+					"tas": {},
+				},
+			},
+			prevAdmission: &kueue.Admission{
+				PodSetAssignments: []kueue.PodSetAssignment{{
+					Name:               kueue.DefaultPodSetName,
+					TopologyAssignment: &kueue.TopologyAssignment{},
+				}},
+			},
+			want: workload.TASUsage{},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := tt.assignment.ComputeTASNetUsage(tt.cq, tt.wl, tt.prevAdmission)
+
+			if diff := cmp.Diff(tt.want, got, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Unexpected TAS usage (-want,+got):\n%s", diff)
 			}
 		})
 	}
