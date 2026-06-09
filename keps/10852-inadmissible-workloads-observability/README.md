@@ -255,17 +255,19 @@ assignments) or at the **per-flavor** assignment level:
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Tier 1** | Workload-wide | Workload Deactivation | `Deactivated` | Workload is explicitly deactivated (`spec.active: false`). | None |
 | **Tier 2** | Mixed | Structural Blockers | `Misconfigured` | Permanent structural error preventing admission:<br>- Missing local/cluster queue (Workload-wide)<br>- Resource flavor mismatch (Per-flavor)<br>- DRA misconfiguration (Workload-wide) | Missing local/cluster queue - None<br>ResourceFlavor mismatch - `ClusterQueue.inadmissibleWorkloads`<br>DRA issues - None |
-| **Tier 3** | Per-flavor | Structural Quota Blockers | `ExceedsMaxQuota` | Workload requests resource quantities exceeding ClusterQueue or Cohort maximum limits. | `ClusterQueue.inadmissibleWorkloads` |
+| **Tier 3** | Per-flavor | Structural Quota Blockers | `ExceedsMaxQuota` | Workload requests resource quantities exceeding ClusterQueue nominal limits (when no cohort) or the Cohort's total maximum capacity limits (`val > CohortTotalQuota`). | `ClusterQueue.inadmissibleWorkloads` |
 | **Tier 4** | Workload-wide | Orchestration & Administrative Holds | `Suspended`, `AdmissionGated`, `WaitingForPodsReady` | Workload is structurally valid, but admission is halted due to:<br>- Administrative hold (the queue's StopPolicy is active).<br>- Gated state (AdmissionGatedBy annotation).<br>- Scheduling hold (waiting for previously admitted workloads to reach PodsReady under waitForPodsReady configuration). | AdmissionGated - None<br>StopPolicy - None<br>WaitingForPodsReady - blocks and waits |
-| **Tier 5** | Per-flavor | Resource Deficits | `WaitingForQuota` | Workload fits within the maximum limits of the ClusterQueue or Cohort, but the cluster currently lacks sufficient unreserved capacity (including when preemption is required but is blocked by preemption gates). | `ClusterQueue.inadmissibleWorkloads` |
-| **Tier 6** | Workload-wide | Active Queueing | `PendingEvaluation` | Workload is submitted, structurally valid, resides actively in the queue, and is awaiting its capacity evaluation. Set also after eviction. | `ClusterQueue.heap` |
+| **Tier 5** | Per-flavor | Policy Quota Limits | `BorrowingLimitReached` | Total unused capacity in the Cohort is sufficient, but allocating resources would cause the ClusterQueue to exceed its borrowing limit policy constraint (`val > NominalQuota + BorrowingLimit`). | `ClusterQueue.inadmissibleWorkloads` |
+| **Tier 6** | Per-flavor | Resource Deficits | `WaitingForQuota`, `TopologyPlacementFailed` | Parallel capacity-wait reasons:<br>- `WaitingForQuota`: General capacity wait (total unused nominal capacity in the ClusterQueue/Cohort is less than the workload request: `val > available`).<br>- `TopologyPlacementFailed`: TAS workload only. Nominal capacity exists (`val <= available`), but capacity is fragmented across domains preventing contiguous placement. | `ClusterQueue.inadmissibleWorkloads` |
+| **Tier 7** | Workload-wide | Admission Progressing | `PreemptionPending` | Evictions have been issued; waiting for victims to terminate and release their capacity. | None |
+| **Tier 8** | Workload-wide | Active Queueing | `PendingEvaluation` | Workload is submitted, structurally valid, resides actively in the queue, and is awaiting its capacity evaluation. Set also after eviction. | `ClusterQueue.heap` |
 
 *Note: Precedence Resolution examples:*
 - *If a workload requests resource quantities exceeding the ClusterQueue
   maximum limits (Tier 3) but is also blocked by an unsatisfied
   admission gate (Tier 4), the resolved reason is written as
   `ExceedsMaxQuota` due to Tier 3 priority.*
-- *If a workload is waiting for capacity (Tier 5) but also has unsatisfied
+- *If a workload is waiting for capacity (Tier 6) but also has unsatisfied
   admission gates (Tier 4), the resolved reason is written as
   `AdmissionGated` due to Tier 4 priority.*
 
@@ -400,7 +402,7 @@ status:
   # UnadmittedWorkloadsExplicitStatus gate is ENABLED. If disabled, it is absent.
   - type: QuotaReserved
     status: "False"
-    reason: PendingEvaluation # Tier 6 Reason: Awaiting initial scheduler evaluation
+    reason: PendingEvaluation # Tier 8 Reason: Awaiting initial scheduler evaluation
     message: "Workload is pending evaluation in the scheduling queue"
     observedGeneration: 1
   # Admitted condition is ONLY initialized/present on creation if the
@@ -433,7 +435,7 @@ status:
   conditions:
   - type: QuotaReserved
     status: "False"
-    reason: WaitingForQuota # Tier 5 Reason
+    reason: WaitingForQuota # Tier 6 Reason
     message: "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor default-flavor, 2 more needed"
     observedGeneration: 1
   # Admitted condition is ONLY initialized/present if the
@@ -498,7 +500,7 @@ necessary to implement this enhancement.
 
 #### Unit Tests
 
-- **Precedence Tier Resolver Tests**: Verify correct classification across all 6 precedence tiers,
+- **Precedence Tier Resolver Tests**: Verify correct classification across all 8 precedence tiers,
   confirming proper ranking decisions (e.g., structural flavor issues take absolute priority over
   requeue suspensions).
 - **Metrics Lifecycle Unit Tests**: Verify dynamic metric updates, correct
