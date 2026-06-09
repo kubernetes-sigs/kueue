@@ -20,8 +20,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -168,14 +171,88 @@ func (r *elasticJobUngater) listGatedPods(ctx context.Context, wl *kueue.Workloa
 		return nil, fmt.Errorf("listing pods for workload slice: %w", err)
 	}
 
-	var gated []*corev1.Pod
+	// Cap ungating, per PodSet, to the replicas actually granted quota across the
+	// slice chain. Without this cap, scale-up surplus pods (which carry the
+	// chain-root workload name, like the admitted slice's pods) would be ungated
+	// even though their replacement slice has not been admitted, bypassing the
+	// ClusterQueue quota.
+	granted, err := r.grantedPodSetCounts(ctx, wl)
+	if err != nil {
+		return nil, err
+	}
+
+	gatedPerPodSet := make(map[kueue.PodSetReference][]*corev1.Pod)
+	ungatedPerPodSet := make(map[kueue.PodSetReference]int32)
 	for i := range podList.Items {
-		if utilpod.HasGate(&podList.Items[i], kueue.ElasticJobSchedulingGate) &&
-			podList.Items[i].Annotations[kueue.WorkloadAnnotation] == wl.Name {
-			gated = append(gated, &podList.Items[i])
+		p := &podList.Items[i]
+		if p.Annotations[kueue.WorkloadAnnotation] != wl.Name {
+			continue
+		}
+		ps := kueue.PodSetReference(p.Labels[constants.PodSetLabel])
+		if utilpod.HasGate(p, kueue.ElasticJobSchedulingGate) {
+			gatedPerPodSet[ps] = append(gatedPerPodSet[ps], p)
+		} else {
+			// Already-ungated pods consume quota too.
+			ungatedPerPodSet[ps]++
 		}
 	}
+
+	var gated []*corev1.Pod
+	for ps, pods := range gatedPerPodSet {
+		room := granted[ps] - ungatedPerPodSet[ps]
+		if room <= 0 {
+			continue
+		}
+		// Ungate the lowest-named pods first for deterministic behavior.
+		slices.SortFunc(pods, func(a, b *corev1.Pod) int { return strings.Compare(a.Name, b.Name) })
+		if int32(len(pods)) > room {
+			pods = pods[:room]
+		}
+		gated = append(gated, pods...)
+	}
 	return gated, nil
+}
+
+// grantedPodSetCounts returns, per PodSet, the maximum replica Count among the
+// workload slices in wl's chain that hold a quota reservation. The chain is
+// identified by slices owned by the same parent job (matched via the
+// OwnerReferenceUID index) that share the same slice name.
+func (r *elasticJobUngater) grantedPodSetCounts(ctx context.Context, wl *kueue.Workload) (workload.PodSetsCounts, error) {
+	granted := workload.PodSetsCounts{}
+	mergeMax := func(w *kueue.Workload) {
+		if !workload.HasQuotaReservation(w) {
+			return
+		}
+		for ps, count := range workload.ExtractPodSetCountsFromWorkload(w) {
+			if existing, ok := granted[ps]; !ok || count > existing {
+				granted[ps] = count
+			}
+		}
+	}
+
+	mergeMax(wl)
+
+	owner := metav1.GetControllerOf(wl)
+	if owner == nil {
+		return granted, nil
+	}
+
+	sliceName := workloadslicing.SliceName(wl)
+	var wlList kueue.WorkloadList
+	if err := r.client.List(ctx, &wlList,
+		client.InNamespace(wl.Namespace),
+		client.MatchingFields{indexer.OwnerReferenceUID: string(owner.UID)},
+	); err != nil {
+		return nil, fmt.Errorf("listing slice chain workloads: %w", err)
+	}
+	for i := range wlList.Items {
+		sibling := &wlList.Items[i]
+		if sibling.Name == wl.Name || workloadslicing.SliceName(sibling) != sliceName {
+			continue
+		}
+		mergeMax(sibling)
+	}
+	return granted, nil
 }
 
 // Workload predicates
