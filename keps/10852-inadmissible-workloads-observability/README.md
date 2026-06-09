@@ -65,7 +65,7 @@ separate feature gates:
   a workload's first reconciliation. 
   * **When enabled:** Both conditions are explicitly written immediately
     upon creation, ensuring continuous status-based lifecycle tracking.
-  * **When disabled (default):** Workloads are created with empty status
+  * **When disabled:** Workloads are created with empty status
     conditions (saving API server write volume under heavy load), and
     conditions are only updated on subsequent scheduler cycles.
 
