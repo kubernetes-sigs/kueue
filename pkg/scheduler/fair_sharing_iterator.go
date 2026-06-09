@@ -225,7 +225,11 @@ func (e *entryComparer) computeDRS(rootCohort *schdcache.CohortSnapshot, cqToEnt
 		if !ok {
 			continue
 		}
-		usage := entry.assignmentUsage()
+		log := e.log.WithValues(
+			"workload", klog.KObj(entry.Obj),
+			"clusterQueue", klog.KRef("", string(cq.Name)),
+		)
+		usage := entry.assignmentUsage(log)
 		// We add workload's usage to CQ, so that all
 		// subsequent DRS include the admission of workload.
 		revert := cq.SimulateUsageAddition(usage)
