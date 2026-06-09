@@ -584,6 +584,9 @@ func ForceLeaderFailover(ctx context.Context, k8sClient client.Client) {
 		g.Expect(newHolder).NotTo(gomega.BeEmpty())
 		g.Expect(newHolder).NotTo(gomega.Equal(holderIdentity))
 	}, LongTimeout, Interval).Should(gomega.Succeed())
+
+	kcmKey := types.NamespacedName{Namespace: kueueNS, Name: "kueue-controller-manager"}
+	waitForKueueControllerReadyWithWebhookEndpoints(ctx, k8sClient, kcmKey)
 }
 
 // waitForLeaderElection waits for the kueue controller to acquire the leader lease
