@@ -46,6 +46,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -849,11 +850,11 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 
 					g.Expect(k8sManagerClient.Get(ctx, unaffectedWlKey, unaffectedWl)).To(gomega.Succeed())
 					g.Expect(unaffectedWl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
-					g.Expect(workload.IsEvicted(unaffectedWl)).To(gomega.BeFalse())
+					g.Expect(workloadevict.IsEvicted(unaffectedWl)).To(gomega.BeFalse())
 
 					g.Expect(unaffectedWorkerClient.Get(ctx, unaffectedWlKey, unaffectedWl)).To(gomega.Succeed())
 					g.Expect(unaffectedWl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
-					g.Expect(workload.IsEvicted(unaffectedWl)).To(gomega.BeFalse())
+					g.Expect(workloadevict.IsEvicted(unaffectedWl)).To(gomega.BeFalse())
 				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 			})
 

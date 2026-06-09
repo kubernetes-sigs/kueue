@@ -45,6 +45,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 )
 
 var (
@@ -240,7 +241,7 @@ func (m *Manager) AddFinishedWorkload(wl *kueue.Workload) {
 func (m *Manager) addFinishedWorkloadWithoutLock(wl *kueue.Workload) {
 	wlKey := workload.Key(wl)
 
-	if !workload.IsFinished(wl) {
+	if !workloadfinish.IsFinished(wl) {
 		return
 	}
 
@@ -483,7 +484,7 @@ func (m *Manager) addLocalQueueLocked(ctx context.Context, q *kueue.LocalQueue) 
 	for _, w := range workloads.Items {
 		m.assignWorkload(workload.Key(&w), qImpl.Key)
 
-		if workload.IsFinished(&w) {
+		if workloadfinish.IsFinished(&w) {
 			m.addFinishedWorkloadWithoutLock(&w)
 		}
 

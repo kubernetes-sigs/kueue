@@ -49,6 +49,7 @@ import (
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	testingstatefulset "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -688,7 +689,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			ginkgo.By("Checking that the low-priority workload is preempted in the manager cluster", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, lowWlKey, managerLowWl)).To(gomega.Succeed())
-					g.Expect(workload.IsEvicted(managerLowWl)).To(gomega.BeTrue())
+					g.Expect(workloadevict.IsEvicted(managerLowWl)).To(gomega.BeTrue())
 					g.Expect(managerLowWl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadPreempted))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -858,7 +859,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			ginkgo.By("Checking that the low-priority workload is preempted in the manager cluster", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, lowWlKey, managerLowWl)).To(gomega.Succeed())
-					g.Expect(workload.IsEvicted(managerLowWl)).To(gomega.BeTrue())
+					g.Expect(workloadevict.IsEvicted(managerLowWl)).To(gomega.BeTrue())
 					g.Expect(managerLowWl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadPreempted))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -1079,7 +1080,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			ginkgo.By("Checking that the first workload is preempted in the manager cluster", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, wl1Key, managerWl1)).To(gomega.Succeed())
-					g.Expect(workload.IsEvicted(managerWl1)).To(gomega.BeTrue())
+					g.Expect(workloadevict.IsEvicted(managerWl1)).To(gomega.BeTrue())
 					g.Expect(managerWl1.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadPreempted))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
