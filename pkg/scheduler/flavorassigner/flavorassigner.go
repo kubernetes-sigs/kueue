@@ -41,6 +41,7 @@ import (
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	utilmath "sigs.k8s.io/kueue/pkg/util/math"
 	"sigs.k8s.io/kueue/pkg/util/orderedgroups"
+	"sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -74,7 +75,7 @@ type Assignment struct {
 }
 
 // UpdateForTASResult updates the Assignment with the TAS result
-func (a *Assignment) UpdateForTASResult(cq *schdcache.ClusterQueueSnapshot, result schdcache.TASAssignmentsResult) {
+func (a *Assignment) UpdateForTASResult(log logr.Logger, cq *schdcache.ClusterQueueSnapshot, wl *workload.Info, result schdcache.TASAssignmentsResult) {
 	for psName, psResult := range result {
 		psAssignment := a.podSetAssignmentByName(psName)
 		psAssignment.TopologyAssignment = psResult.TopologyAssignment
@@ -82,42 +83,37 @@ func (a *Assignment) UpdateForTASResult(cq *schdcache.ClusterQueueSnapshot, resu
 			psAssignment.DelayedTopologyRequest = ptr.To(kueue.DelayedTopologyRequestStateReady)
 		}
 	}
-	a.Usage.TAS = a.ComputeTASNetUsage(cq, nil)
+	a.Usage.TAS = a.ComputeTASNetUsage(log, cq, wl, nil)
 }
 
 // ComputeTASNetUsage computes the net TAS usage for the assignment
-func (a *Assignment) ComputeTASNetUsage(cq *schdcache.ClusterQueueSnapshot, prevAdmission *kueue.Admission) workload.TASUsage {
+func (a *Assignment) ComputeTASNetUsage(log logr.Logger, cq *schdcache.ClusterQueueSnapshot, wl *workload.Info, prevAdmission *kueue.Admission) workload.TASUsage {
 	result := make(workload.TASUsage)
 	for i, psa := range a.PodSets {
 		if psa.TopologyAssignment != nil {
 			if prevAdmission != nil && prevAdmission.PodSetAssignments[i].TopologyAssignment != nil {
 				continue
 			}
-			tasRequests := make(corev1.ResourceList, len(psa.Requests))
-			for resourceName, quantity := range psa.Requests {
-				flv := psa.Flavors[resourceName]
-				if flv == nil || cq.TASFlavors[flv.Name] == nil {
-					// This is the quota-only resources, skip when computing TAS usage.
-					continue
-				}
-				tasRequests[resourceName] = quantity
+			podSet := podset.FindPodSetByName(wl.Obj.Spec.PodSets, psa.Name)
+			if podSet == nil {
+				log.Error(nil, "PodSet not found while computing TAS net usage", "podSet", psa.Name)
+				continue
 			}
-			singlePodRequests := resources.NewRequests(tasRequests).ScaledDown(int64(psa.Count))
-			for _, flv := range psa.Flavors {
-				if cq.TASFlavors[flv.Name] == nil {
-					// This is a quota-only flavor, skip when computing TAS usage.
-					continue
-				}
-				if _, ok := result[flv.Name]; !ok {
-					result[flv.Name] = make(workload.TASFlavorUsage, 0)
-				}
-				for _, domain := range psa.TopologyAssignment.Domains {
-					result[flv.Name] = append(result[flv.Name], workload.TopologyDomainRequests{
-						Values:            domain.Values,
-						SinglePodRequests: singlePodRequests.Clone(),
-						Count:             domain.Count,
-					})
-				}
+			tasFlavor, err := onlyTASFlavor(psa.Flavors, cq.TASFlavors)
+			if err != nil {
+				log.Error(err, "Failed to find TAS flavor while computing TAS net usage", "podSet", psa.Name)
+				continue
+			}
+			singlePodRequests := resources.NewRequestsFromPodSpec(&podSet.Template.Spec)
+			if _, ok := result[*tasFlavor]; !ok {
+				result[*tasFlavor] = make(workload.TASFlavorUsage, 0)
+			}
+			for _, domain := range psa.TopologyAssignment.Domains {
+				result[*tasFlavor] = append(result[*tasFlavor], workload.TopologyDomainRequests{
+					Values:            domain.Values,
+					SinglePodRequests: singlePodRequests.Clone(),
+					Count:             domain.Count,
+				})
 			}
 		}
 	}
@@ -701,7 +697,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 				assignment.representativeMode = ptr.To(Preempt)
 			} else {
 				// All PodSets fit, we just update the TopologyAssignments
-				assignment.UpdateForTASResult(a.cq, result)
+				assignment.UpdateForTASResult(log, a.cq, a.wl, result)
 			}
 		}
 		if assignment.RepresentativeMode() == Preempt && !workload.HasUnhealthyNodes(a.wl.Obj) {
