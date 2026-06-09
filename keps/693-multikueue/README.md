@@ -258,7 +258,7 @@ The controller obtains cluster credentials based on the `MultiKueueCluster` spec
 
   The authentication flow is as follows:
   1. The controller reads the `ClusterProfile` object referenced by the `MultiKueueCluster`. The `ClusterProfile` contains a list of access providers.
-  2. The controller uses this configuration to match the access provider with the credentials provider and invoke the credential plugin binary. The list of credentials providers is configured in the `CredentialsProviders` section under `ClusterProfile` in the `MultiKueue` in the Configuration API.
+  2. The controller uses this configuration to match the cluster access provider with a configured access provider and invoke the credential plugin binary. The list of access providers is configured in the `accessProviders` section under `clusterProfile` in the `MultiKueue` Configuration API.
 
 ```go
 type MultiKueue struct {
@@ -270,19 +270,32 @@ type MultiKueue struct {
 
 // ClusterProfile defines configuration for using the ClusterProfile API in MultiKueue.
 type ClusterProfile struct {
+	// AccessProviders defines a list of providers to obtain access to worker clusters
+	// using the ClusterProfile API.
+	AccessProviders []ClusterProfileAccessProvider `json:"accessProviders,omitempty"`
+
 	// CredentialsProviders defines a list of providers to obtain credentials of worker clusters
 	// using the ClusterProfile API.
-	CredentialsProviders []ClusterProfileCredentialsProvider `json:"credentialsProviders,omitempty"`
+	// Deprecated: Use AccessProviders instead.
+	CredentialsProviders []ClusterProfileAccessProvider `json:"credentialsProviders,omitempty"`
+}
+
+// ClusterProfileAccessProvider defines an access provider in the ClusterProfile API.
+type ClusterProfileAccessProvider struct {
+	// Name is the name of the provider.
+	Name string `json:"name"`
+	// ExecConfig is the exec configuration to obtain credentials.
+	ExecConfig clientcmdapi.ExecConfig `json:"execConfig"`
 }
 
 // ClusterProfileCredentialsProvider defines a credentials provider in the ClusterProfile API.
-type ClusterProfileCredentialsProvider struct {
-	// Name is the name of the provider.
-	Name string `json:"name"`
-	//  ExecConfig is the exec configuration to obtain credentials.
-	ExecConfig clientcmdapi.ExecConfig `json:"execConfig"`
-}
+// Deprecated: Use ClusterProfileAccessProvider instead.
+type ClusterProfileCredentialsProvider = ClusterProfileAccessProvider
 ```
+
+  The `credentialsProviders` field remains accepted for backwards compatibility. If both `accessProviders` and `credentialsProviders` are specified, the controller uses providers from both fields. When both fields specify a provider with the same name, the provider in `accessProviders` takes precedence.
+
+  On the ClusterProfile API side, Kueue uses `status.accessProviders` as the preferred source of cluster access information. The deprecated `status.credentialProviders` field remains supported by the ClusterProfile API compatibility layer.
 
   3. The plugin is responsible for the actual authentication process. This might involve calling an external HTTP endpoint (e.g., a cloud provider's metadata service or an OIDC provider) to generate a short-lived authentication token. The details of this process are specific to the plugin and are opaque to Kueue. It returns the credentials, including the token, to the controller.
   4. The controller uses these credentials to configure a Kubernetes client for the worker cluster.
@@ -525,6 +538,7 @@ Graduation to beta criteria:
 * Roadmap for missing features is defined.
 
 ## Implementation History
+* 2026-06-09 Add ClusterProfile accessProviders configuration and deprecate credentialsProviders.
 * 2023-11-28 Initial KEP.
 
 ## Drawbacks
@@ -538,4 +552,3 @@ MultiKueue has some drawbacks.
 ## Alternatives
 * Use Armada or Multi Cluster App Dispatcher.
 * Use multicluster-specific Job APIs.
-
