@@ -19,6 +19,7 @@ package multikueue
 import (
 	"time"
 
+	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/cluster-inventory-api/pkg/access"
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -133,22 +134,23 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		return err
 	}
 
-	var cpCreds clusterProfileCreds
+	var cpAccessProvider clusterProfileAccessProvider
 	if features.Enabled(features.MultiKueueClusterProfile) && options.clusterProfileConfig != nil {
-		p := make([]access.Provider, 0, len(options.clusterProfileConfig.CredentialsProviders))
-		for _, provider := range options.clusterProfileConfig.CredentialsProviders {
+		providers := clusterProfileAccessProviders(options.clusterProfileConfig)
+		p := make([]access.Provider, 0, len(providers))
+		for i := range providers {
 			p = append(p, access.Provider{
-				Name:       provider.Name,
-				ExecConfig: &provider.ExecConfig,
+				Name:       providers[i].Name,
+				ExecConfig: &providers[i].ExecConfig,
 			})
 		}
-		cpCreds = access.New(p)
+		cpAccessProvider = access.New(p)
 	}
-	if cpCreds == nil {
-		cpCreds = &NoOpClusterProfileCreds{}
+	if cpAccessProvider == nil {
+		cpAccessProvider = &NoOpClusterProfileAccessProvider{}
 	}
 
-	cRec := newClustersReconciler(mgr.GetClient(), namespace, options.gcInterval, options.origin, fsWatcher, options.adapters, cpCreds, options.roleTracker)
+	cRec := newClustersReconciler(mgr.GetClient(), namespace, options.gcInterval, options.origin, fsWatcher, options.adapters, cpAccessProvider, options.roleTracker)
 	err = cRec.setupWithManager(mgr)
 	if err != nil {
 		return err
@@ -171,4 +173,24 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 	wlRec := newWlReconciler(mgr.GetClient(), helper, cRec, options.origin, mgr.GetEventRecorder(constants.WorkloadControllerName),
 		options.workerLostTimeout, options.eventsBatchPeriod, options.adapters, options.dispatcherName, options.roleTracker)
 	return wlRec.setupWithManager(mgr)
+}
+
+func clusterProfileAccessProviders(clusterProfileConfig *configapi.ClusterProfile) []configapi.ClusterProfileAccessProvider {
+	if clusterProfileConfig == nil {
+		return nil
+	}
+	legacyProviders := clusterProfileConfig.CredentialsProviders //nolint:staticcheck //SA1019: CredentialsProviders is merged for backward compatibility.
+	providers := make([]configapi.ClusterProfileAccessProvider, 0,
+		len(clusterProfileConfig.AccessProviders)+len(legacyProviders))
+	seenNames := sets.New[string]()
+	for _, provider := range clusterProfileConfig.AccessProviders {
+		providers = append(providers, provider)
+		seenNames.Insert(provider.Name)
+	}
+	for _, provider := range legacyProviders {
+		if !seenNames.Has(provider.Name) {
+			providers = append(providers, configapi.ClusterProfileAccessProvider(provider))
+		}
+	}
+	return providers
 }

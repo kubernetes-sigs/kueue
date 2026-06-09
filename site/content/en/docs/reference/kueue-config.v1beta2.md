@@ -256,12 +256,55 @@ connection.</p>
 <tbody>
     
   
-<tr><td><code>credentialsProviders</code> <B>[Required]</B><br/>
+<tr><td><code>accessProviders</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-ClusterProfileAccessProvider"><code>[]ClusterProfileAccessProvider</code></a>
+</td>
+<td>
+   <p>AccessProviders defines a list of providers to obtain access to worker clusters
+using the ClusterProfile API.</p>
+</td>
+</tr>
+<tr><td><code>credentialsProviders</code><br/>
 <a href="#config-kueue-x-k8s-io-v1beta2-ClusterProfileCredentialsProvider"><code>[]ClusterProfileCredentialsProvider</code></a>
 </td>
 <td>
    <p>CredentialsProviders defines a list of providers to obtain credentials of worker clusters
 using the ClusterProfile API.</p>
+<p>Deprecated: Use AccessProviders instead. If both AccessProviders and CredentialsProviders are provided,
+both are used. In case they specify a provider with the same name, the one in AccessProviders is preferred.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `ClusterProfileAccessProvider`     {#config-kueue-x-k8s-io-v1beta2-ClusterProfileAccessProvider}
+    
+
+**Appears in:**
+
+- [ClusterProfile](#config-kueue-x-k8s-io-v1beta2-ClusterProfile)
+
+
+<p>ClusterProfileAccessProvider defines an access provider in the ClusterProfile API.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>name</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>Name is the name of the provider.</p>
+</td>
+</tr>
+<tr><td><code>execConfig</code> <B>[Required]</B><br/>
+<a href="https://pkg.go.dev/k8s.io/client-go/tools/clientcmd/api#ExecConfig"><code>k8s.io/client-go/tools/clientcmd/api.ExecConfig</code></a>
+</td>
+<td>
+   <p>ExecConfig is the exec configuration to obtain credentials.</p>
 </td>
 </tr>
 </tbody>
@@ -275,7 +318,8 @@ using the ClusterProfile API.</p>
 - [ClusterProfile](#config-kueue-x-k8s-io-v1beta2-ClusterProfile)
 
 
-<p>ClusterProfileCredentialsProvider defines a credentials provider in the ClusterProfile API.</p>
+<p>ClusterProfileCredentialsProvider defines a deprecated credentials provider in the ClusterProfile API.</p>
+<p>Deprecated: Use ClusterProfileAccessProvider instead.</p>
 
 
 <table class="table">
