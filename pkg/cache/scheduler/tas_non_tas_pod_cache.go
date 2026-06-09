@@ -41,9 +41,9 @@ type podUsageValue struct {
 	usage resources.Requests
 }
 
-// update may add a pod to the cache, or
-// delete a terminated pod.
-func (n *nonTasUsageCache) update(pod *corev1.Pod, log logr.Logger) {
+// update may add a pod to the cache, or delete a terminated pod.
+// Returns the node name when a terminated pod is removed from the cache.
+func (n *nonTasUsageCache) update(pod *corev1.Pod, log logr.Logger) string {
 	n.lock.Lock()
 	defer n.lock.Unlock()
 
@@ -54,9 +54,11 @@ func (n *nonTasUsageCache) update(pod *corev1.Pod, log logr.Logger) {
 		log.V(5).Info("Deleting terminated pod from the cache")
 		if old, found := n.podUsage[key]; found {
 			n.removeNodeUsage(old.node, old.usage, log)
+			delete(n.podUsage, key)
+			return old.node
 		}
 		delete(n.podUsage, key)
-		return
+		return ""
 	}
 
 	// Remove old entry if pod already exists (handles node migration, resource resize).
@@ -71,15 +73,21 @@ func (n *nonTasUsageCache) update(pod *corev1.Pod, log logr.Logger) {
 		usage: requests,
 	}
 	n.addNodeUsage(pod.Spec.NodeName, requests)
+	return ""
 }
 
-func (n *nonTasUsageCache) delete(key client.ObjectKey, log logr.Logger) {
+// delete removes a pod from the cache.
+// Returns the node name when an entry is removed.
+func (n *nonTasUsageCache) delete(key client.ObjectKey, log logr.Logger) string {
 	n.lock.Lock()
 	defer n.lock.Unlock()
 	if old, found := n.podUsage[key]; found {
 		n.removeNodeUsage(old.node, old.usage, log)
+		delete(n.podUsage, key)
+		return old.node
 	}
 	delete(n.podUsage, key)
+	return ""
 }
 
 func (n *nonTasUsageCache) usagePerNode() map[string]resources.Requests {
