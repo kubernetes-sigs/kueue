@@ -77,5 +77,6 @@ const (
 	// This annotation is alpha-level and requires the AdmissionGatedBy feature gate, disabled by default.
 	AdmissionGatedByAnnotation = "kueue.x-k8s.io/admission-gated-by"
 
+	// ElasticJobAnnotation is an annotation set on the Job to indicate that it is an elastic job.
 	ElasticJobAnnotation = "kueue.x-k8s.io/elastic-job"
 )

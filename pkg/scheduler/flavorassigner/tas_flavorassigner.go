@@ -61,11 +61,7 @@ func (a *Assignment) WorkloadsTopologyRequests(log logr.Logger, wl *workload.Inf
 			var previousAssignment *kueue.TopologyAssignment
 
 			// Only unconstrained topology is supported with elastic workload slices.
-			if workload.IsElasticWorkload(wl.Obj) {
-				if !features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) {
-					psAssignment.error(errors.New("ElasticJobsViaWorkloadSlicesWithTAS feature gate is not enabled"))
-					continue
-				}
+			if workload.IsElasticWorkload(wl.Obj) && features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) {
 				if podSet.TopologyRequest != nil && podSet.TopologyRequest.Required != nil {
 					psAssignment.error(errors.New("required topology is not supported with ElasticJobsViaWorkloadSlices"))
 					continue
