@@ -1858,7 +1858,7 @@ func reportEvictedWorkload(recorder events.EventRecorder, wl *kueue.Workload, cq
 	if reason == kueue.WorkloadDeactivated && underlyingCause != "" {
 		eventReason = ReasonWithCause(eventReason, string(underlyingCause))
 	}
-	recorder.Eventf(wl, nil, corev1.EventTypeNormal, eventReason, eventReason, message)
+	recorder.Eventf(wl, nil, corev1.EventTypeNormal, eventReason, eventReason, api.TruncateEventMessage(message))
 }
 
 func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingReason string, targetCqName kueue.ClusterQueueReference, tracker *roletracker.RoleTracker, cl *metrics.CustomLabels) {

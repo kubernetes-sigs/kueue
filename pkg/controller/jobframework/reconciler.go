@@ -58,6 +58,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
@@ -787,10 +788,10 @@ func (r *JobReconciler) recordAdmissionCheckUpdate(wl *kueue.Workload, job Gener
 	if message != "" {
 		if cJob, isComposable := job.(ComposableJob); isComposable {
 			cJob.ForEach(func(obj runtime.Object) {
-				r.record.Eventf(obj, nil, corev1.EventTypeNormal, ReasonUpdatedAdmissionCheck, "UpdatedAdmissionCheck", message)
+				r.record.Eventf(obj, nil, corev1.EventTypeNormal, ReasonUpdatedAdmissionCheck, "UpdatedAdmissionCheck", api.TruncateEventMessage(message))
 			})
 		} else {
-			r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonUpdatedAdmissionCheck, "UpdatedAdmissionCheck", message)
+			r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonUpdatedAdmissionCheck, "UpdatedAdmissionCheck", api.TruncateEventMessage(message))
 		}
 	}
 }
@@ -1347,7 +1348,7 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.W
 	if jws, implements := job.(JobWithCustomStop); implements {
 		stoppedNow, err := jws.Stop(ctx, r.client, info, stopReason, eventMsg)
 		if stoppedNow {
-			r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonStopped, "Stopped", eventMsg)
+			r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonStopped, "Stopped", api.TruncateEventMessage(eventMsg))
 		}
 		return err
 	}
@@ -1361,7 +1362,7 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.W
 		}
 		stoppedNow, err := jws.Stop(ctx, r.client, info, reason, eventMsg)
 		for _, objStoppedNow := range stoppedNow {
-			r.record.Eventf(objStoppedNow, nil, corev1.EventTypeNormal, ReasonStopped, "Stopped", eventMsg)
+			r.record.Eventf(objStoppedNow, nil, corev1.EventTypeNormal, ReasonStopped, "Stopped", api.TruncateEventMessage(eventMsg))
 		}
 		return err
 	}
@@ -1380,7 +1381,7 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.W
 		return err
 	}
 
-	r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonStopped, "Stopped", eventMsg)
+	r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonStopped, "Stopped", api.TruncateEventMessage(eventMsg))
 	return nil
 }
 

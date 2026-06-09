@@ -51,6 +51,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	"sigs.k8s.io/kueue/pkg/util/api"
 	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
@@ -1134,7 +1135,7 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 	podSets, err := jobframework.JobPodSets(ctx, p, nil)
 	if err != nil {
 		if jobframework.IsUnretryableError(err) {
-			r.Eventf(p.Object(), nil, corev1.EventTypeWarning, jobframework.ReasonErrWorkloadCompose, "ErrWorkloadCompose", err.Error())
+			r.Eventf(p.Object(), nil, corev1.EventTypeWarning, jobframework.ReasonErrWorkloadCompose, "ErrWorkloadCompose", api.TruncateEventMessage(err.Error()))
 		}
 		return nil, err
 	}
