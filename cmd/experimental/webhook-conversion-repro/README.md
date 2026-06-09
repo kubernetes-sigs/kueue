@@ -81,7 +81,10 @@ With a baseline configuration such as:
 ```
 The initial cluster creation takes ~2 minutes, and the failure detection stage takes another 1-2 minutes. 
 
-The main variable in testing time and stability is the workload populator. Because it generates heavily nested payloads, the populator's concurrent creation process is **highly RAM-dependent**, controlled largely by `--workers` and `--qps`.
+The main variable in testing time and stability is the workload populator. Because it generates heavily nested payloads, 
+the populator's concurrent creation process is **highly RAM-dependent**, controlled largely by `--workers` and `--qps`. 
+The spike in RAM happens when using the `ConcurrentWatchObjectDecode` feature gate, and there is no option to limit that 
+concurrent decoding. Therefore, runs without `ConcurrentWatchObjectDecode` can use way higher workers and QPS.
 
 - **High RAM Available (e.g., 40 GB):** Running `--qps 100 --workers 10` will successfully populate the cluster in about 1 minute.
 - **Lower RAM Available (e.g., 24 GB):** Running `--qps 60 --workers 5` safely prevents OOM crashes while populating the cluster in about **~3 minutes**. (While higher worker limits can survive sequential decoding, they will instantly trigger an OOM crash when the `ConcurrentWatchObjectDecode` feature gate natively parallelizes decoding).
