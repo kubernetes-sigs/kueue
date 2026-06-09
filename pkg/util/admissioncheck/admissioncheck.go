@@ -30,6 +30,8 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/queue"
 )
 
 var (
@@ -39,6 +41,9 @@ var (
 	ErrNoRemoteClientForNominatedCluster = errors.New("no remote client for nominated cluster")
 )
 
+const (
+	AdmissionCheckControllerNameKey = "spec.controllerName"
+)
 type objAsPtr[T any] interface {
 	client.Object
 	*T
@@ -53,6 +58,42 @@ type MultiKueueStoreHelper = ConfigHelper[*kueue.MultiKueueConfig, kueue.MultiKu
 
 func NewMultiKueueStoreHelper(c client.Client) (*MultiKueueStoreHelper, error) {
 	return NewConfigHelper[*kueue.MultiKueueConfig](c)
+}
+
+func QuotaManagedByMultiKueue(ctx context.Context, c client.Client, cq *kueue.ClusterQueue) (isMK bool, err error) {
+	isMK = false
+	err = nil
+	if features.Enabled(features.MultiKueue) && features.Enabled(features.MultiKueueManagerQuotaAutomation) && features.Enabled(features.EffectiveResourceQuotas) {
+		_, isMK, err = GetMultiKueueAdmissionCheck(ctx, c, cq)
+	}
+	return
+}
+
+func GetMultiKueueAdmissionCheck(ctx context.Context, c client.Client, cq *kueue.ClusterQueue) (ac *kueue.AdmissionCheck, found bool, err error) {
+	if !features.Enabled(features.MultiKueue) {
+		return nil, false, nil
+	}
+
+	if cq.Spec.AdmissionChecksStrategy == nil || len(cq.Spec.AdmissionChecksStrategy.AdmissionChecks) == 0 {
+		return nil, false, nil
+	}
+
+	mkACs := &kueue.AdmissionCheckList{}
+	if err := c.List(ctx, mkACs, client.MatchingFields{AdmissionCheckControllerNameKey: kueue.MultiKueueControllerName}); err != nil || len(mkACs.Items) == 0 {
+		return nil, false, err
+	}
+
+	cqACs := sets.New[string]()
+	for _, rule := range cq.Spec.AdmissionChecksStrategy.AdmissionChecks {
+		cqACs.Insert(string(rule.Name))
+	}
+
+	for _, ac := range mkACs.Items {
+		if cqACs.Has(ac.Name) {
+			return &ac, true, nil
+		}
+	}
+	return nil, false, nil
 }
 
 func NewConfigHelper[PtrT objAsPtr[T], T any](c client.Client) (*ConfigHelper[PtrT, T], error) {
@@ -184,7 +225,7 @@ func NewAdmissionChecks(cq *kueue.ClusterQueue) map[kueue.AdmissionCheckReferenc
 
 func allFlavors(cq *kueue.ClusterQueue) sets.Set[kueue.ResourceFlavorReference] {
 	flavors := sets.New[kueue.ResourceFlavorReference]()
-	for _, rg := range cq.Spec.ResourceGroups {
+	for _, rg := range queue.GetEffectiveResourceGroups(cq) {
 		for _, fv := range rg.Flavors {
 			flavors.Insert(fv.Name)
 		}
@@ -203,7 +244,7 @@ func FindAdmissionCheck(checks []kueue.AdmissionCheckState, checkName kueue.Admi
 	return nil
 }
 
-func GetMultiKueueAdmissionCheck(ctx context.Context, c client.Client, wl *kueue.Workload) (*kueue.AdmissionCheckState, error) {
+func GetMultiKueueAdmissionCheckState(ctx context.Context, c client.Client, wl *kueue.Workload) (*kueue.AdmissionCheckState, error) {
 	relevantChecks, err := FilterForController(ctx, c, wl.Status.AdmissionChecks, kueue.MultiKueueControllerName)
 	if err != nil {
 		return nil, err
@@ -227,7 +268,7 @@ func ShouldSkipLocalExecution(ctx context.Context, c client.Client, wl *kueue.Wo
 	if wl == nil {
 		return false, nil
 	}
-	ac, err := GetMultiKueueAdmissionCheck(ctx, c, wl)
+	ac, err := GetMultiKueueAdmissionCheckState(ctx, c, wl)
 	if err != nil {
 		return false, err
 	}

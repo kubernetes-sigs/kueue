@@ -811,11 +811,22 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				g.Expect(worker2TestCluster.client.Update(worker2TestCluster.ctx, w2Cq)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
+			ginkgo.By("Setting manager ClusterQueue ResourceGroups to empty list")
+			gomega.Eventually(func(g gomega.Gomega) {
+				cq := &kueue.ClusterQueue{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(managerCq), cq)).To(gomega.Succeed())
+				cq.Spec.ResourceGroups = []kueue.ResourceGroup{}
+				g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, cq)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
 			ginkgo.By("enable quota automation on the MultiKueueConfig")
 			gomega.Eventually(func(g gomega.Gomega) {
 				mkc := &kueue.MultiKueueConfig{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(managerMultiKueueConfig), mkc)).To(gomega.Succeed())
 				mkc.Spec.QuotaManagement = ptr.To(kueue.QuotaManagementAutomated)
+				mkc.Spec.AutomatedQuotaManagementConfig = &kueue.AutomatedQuotaManagementConfig{
+					AggregateResourceFlavorRef: kueue.ResourceFlavorReference(managerFlavor.Name),
+				}
 				g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, mkc)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -824,11 +835,12 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			gomega.Eventually(func(g gomega.Gomega) {
 				cq := &kueue.ClusterQueue{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, cqKey, cq)).To(gomega.Succeed())
-				g.Expect(cq.Spec.ResourceGroups).To(gomega.HaveLen(1))
-				g.Expect(cq.Spec.ResourceGroups[0].Flavors).To(gomega.HaveLen(1))
-				g.Expect(cq.Spec.ResourceGroups[0].Flavors[0].Resources).To(gomega.HaveLen(1))
-				g.Expect(cq.Spec.ResourceGroups[0].Flavors[0].Resources[0].Name).To(gomega.Equal(corev1.ResourceCPU))
-				g.Expect(cq.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota.String()).To(gomega.Equal("20"))
+				rgs := cq.Status.EffectiveResourceGroups
+				g.Expect(rgs).To(gomega.HaveLen(1))
+				g.Expect(rgs[0].Flavors).To(gomega.HaveLen(1))
+				g.Expect(rgs[0].Flavors[0].Resources).To(gomega.HaveLen(1))
+				g.Expect(rgs[0].Flavors[0].Resources[0].Name).To(gomega.Equal(corev1.ResourceCPU))
+				g.Expect(rgs[0].Flavors[0].Resources[0].NominalQuota.String()).To(gomega.Equal("20"))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -1342,6 +1354,7 @@ var _ = ginkgo.Describe("Manager quota automation feature gate", ginkgo.Label("a
 	ginkgo.When("Feature gate enabled", func() {
 		ginkgo.It("Should watch manager-side ClusterQueues", func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueManagerQuotaAutomation, true)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.EffectiveResourceQuotas, true)
 
 			ic, newCacheFunc := newInterceptedCache()
 			managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {

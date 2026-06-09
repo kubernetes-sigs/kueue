@@ -66,6 +66,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilwait "sigs.k8s.io/kueue/pkg/util/wait"
 )
@@ -406,7 +407,7 @@ func (rc *remoteClient) startQueueWatchers(ctx context.Context) error {
 		UpdateFunc: func(oldObj, newObj any) {
 			oldCQ, ok1 := oldObj.(*kueue.ClusterQueue)
 			newCQ, ok2 := newObj.(*kueue.ClusterQueue)
-			if ok1 && ok2 && !equality.Semantic.DeepEqual(oldCQ.Spec.ResourceGroups, newCQ.Spec.ResourceGroups) {
+			if ok1 && ok2 && !equality.Semantic.DeepEqual(queue.GetEffectiveResourceGroups(oldCQ), queue.GetEffectiveResourceGroups(newCQ)) {
 				rc.queueEventsForCQ(ctx, newCQ)
 			}
 		},
@@ -414,7 +415,7 @@ func (rc *remoteClient) startQueueWatchers(ctx context.Context) error {
 			if cq, err := deletedObjectState[*kueue.ClusterQueue](obj); err == nil {
 				rc.queueEventsForCQ(ctx, cq)
 			}
-		},
+		},	
 	})
 	if err != nil {
 		return fmt.Errorf("adding ClusterQueue event handler: %w", err)

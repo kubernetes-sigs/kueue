@@ -15,9 +15,11 @@
 package queue
 
 import (
+	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
 
@@ -32,4 +34,35 @@ func AllFlavors(rgs []kueue.ResourceGroup) sets.Set[kueue.ResourceFlavorReferenc
 		},
 		sets.New[kueue.ResourceFlavorReference](),
 	)
+}
+
+func GetEffectiveResourceGroups(cq *kueue.ClusterQueue) []kueue.ResourceGroup {
+	if features.Enabled(features.EffectiveResourceQuotas) {
+		return cq.Status.EffectiveResourceGroups
+	}
+	return cq.Spec.ResourceGroups
+}
+
+func GetResourceGroupsSpec(cq *kueue.ClusterQueue) []kueue.ResourceGroup {
+	return cq.Spec.ResourceGroups
+}
+
+// Should be accessed only in MK Cluster Reconciler.
+func SetEffectiveResourceGroups(cq *kueue.ClusterQueue, rgs *[]kueue.ResourceGroup) {
+	cq.Status.EffectiveResourceGroups = *rgs
+}
+
+// Should be accessed only in:
+//   * MK ClusterQueue controller,
+//   * Core ClusterQueue controller.
+func SyncEffectiveResourceGroupsToSpec(cq *kueue.ClusterQueue) (needsUpdate bool) {
+	if needsUpdate = !equality.Semantic.DeepEqual(cq.Status.EffectiveResourceGroups, cq.Spec.ResourceGroups); needsUpdate {
+		cq.Status.EffectiveResourceGroups = cq.Spec.ResourceGroups
+	}
+	return
+}
+
+// Should be accessed only in MK ClusterQueue controller.
+func HasResourceGroupSpec(cq *kueue.ClusterQueue) bool {
+	return len(cq.Spec.ResourceGroups) > 0
 }

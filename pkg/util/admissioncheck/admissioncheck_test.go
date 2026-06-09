@@ -268,7 +268,7 @@ func TestGetMultiKueueAdmissionCheck(t *testing.T) {
 				},
 			}
 
-			gotResult, err := GetMultiKueueAdmissionCheck(ctx, client, workload)
+			gotResult, err := GetMultiKueueAdmissionCheckState(ctx, client, workload)
 
 			if diff := cmp.Diff(tc.wantErr, err); diff != "" {
 				t.Errorf("unexpected error (-want/+got):\n%s", diff)

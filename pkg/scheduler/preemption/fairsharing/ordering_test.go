@@ -28,6 +28,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -210,6 +211,7 @@ func TestMakeClusterQueueOrdering(t *testing.T) {
 			cqCache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
 
 			for _, cq := range tc.clusterQueues {
+				_ = utilqueue.SyncEffectiveResourceGroupsToSpec(cq)
 				if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
 					t.Fatalf("AddClusterQueue(%q): %v", cq.Name, err)
 				}

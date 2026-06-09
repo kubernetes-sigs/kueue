@@ -47,6 +47,13 @@ const (
 	ClusterQueueActiveReasonReady                                    = "Ready"
 )
 
+// MultiKueueManagerQuotaAutomation condition reasons.
+const (
+	QuotaAutomated = "QuotaAutomated"
+	QuotaAutoimationNotRequested = "NotRequested"
+	UnsupportedQuotaAutomationConfiguration = "UnsupportedConfiguration"
+)
+
 // ClusterQueueReference is the name of the ClusterQueue.
 // It must be a DNS (RFC 1123) and has the maximum length of 253 characters.
 //
@@ -359,6 +366,18 @@ type ClusterQueueStatus struct {
 	// +patchMergeKey=type
 	// +kubebuilder:validation:MaxItems=16
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
+
+	// effectiveResourceGroups describes the groups of resources as seen by Kueue controllers.
+	// Each resource group defines the list of resources and a list of flavors
+	// that provide quotas for these resources.
+	// Each resource and each flavor can only form part of one resource group.
+	// By default, it's equal to spec.resourceGroups. However, in some scenarios (e.g. MultiKueue)
+	// it may differ from spec.resourceGroups.
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=16
+	// +optional
+	EffectiveResourceGroups []ResourceGroup `json:"effectiveResourceGroups,omitempty"`
+
 	// flavorsReservation are the reserved quotas, by flavor, currently in use by the
 	// workloads assigned to this ClusterQueue.
 	// flavorsReservation are limited to 64 elements.

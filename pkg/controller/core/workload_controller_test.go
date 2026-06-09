@@ -2471,7 +2471,8 @@ func TestReconcile(t *testing.T) {
 		"should set the Inadmissible reason on QuotaReservation condition when the LocalQueue was deleted": {
 			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj()).
-				AdmissionChecks("check").Obj(),
+				AdmissionChecks("check").
+				Obj(),
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
@@ -2522,7 +2523,8 @@ func TestReconcile(t *testing.T) {
 		"should set the Inadmissible reason on QuotaReservation condition when the LocalQueue was Hold": {
 			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj()).
-				AdmissionChecks("check").Obj(),
+				AdmissionChecks("check").
+				Obj(),
 			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").StopPolicy(kueue.Hold).Obj(),
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
@@ -2623,7 +2625,8 @@ func TestReconcile(t *testing.T) {
 		"should set the Inadmissible reason on QuotaReservation condition when the ClusterQueue was Hold": {
 			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj()).
-				AdmissionChecks("check").StopPolicy(kueue.Hold).Obj(),
+				AdmissionChecks("check").StopPolicy(kueue.Hold).
+				Obj(),
 			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).

@@ -971,7 +971,7 @@ func (c *Cache) ancestors(cohortName kueue.CohortReference) ([]kueue.CohortRefer
 
 func getUsage(frq resources.FlavorResourceQuantities, cq *clusterQueue) []kueue.FlavorUsage {
 	usage := make([]kueue.FlavorUsage, 0, len(frq))
-	for _, rg := range cq.ResourceGroups {
+	for _, rg := range cq.EffectiveResourceGroups {
 		for _, fName := range rg.Flavors {
 			outFlvUsage := kueue.FlavorUsage{
 				Name:      fName,
@@ -1025,9 +1025,9 @@ func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, 
 	}
 
 	return &LocalQueueUsageStats{
-		ReservedResources:  filterLocalQueueUsage(qImpl.totalReserved, cqImpl.ResourceGroups),
+		ReservedResources:  filterLocalQueueUsage(qImpl.totalReserved, cqImpl.EffectiveResourceGroups),
 		ReservingWorkloads: qImpl.reservingWorkloads,
-		AdmittedResources:  filterLocalQueueUsage(qImpl.admittedUsage, cqImpl.ResourceGroups),
+		AdmittedResources:  filterLocalQueueUsage(qImpl.admittedUsage, cqImpl.EffectiveResourceGroups),
 		AdmittedWorkloads:  qImpl.admittedWorkloads,
 	}, nil
 }

@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
+	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -3326,10 +3327,12 @@ func TestAssignFlavors(t *testing.T) {
 			})
 
 			cache := schdcache.New(utiltesting.NewFakeClient())
+			_ = utilqueue.SyncEffectiveResourceGroupsToSpec(&tc.clusterQueue)
 			if err := cache.AddClusterQueue(ctx, &tc.clusterQueue); err != nil {
 				t.Fatalf("Failed to add CQ to cache")
 			}
 			if tc.secondaryClusterQueue != nil {
+				_ = utilqueue.SyncEffectiveResourceGroupsToSpec(tc.secondaryClusterQueue)
 				if err := cache.AddClusterQueue(ctx, tc.secondaryClusterQueue); err != nil {
 					t.Fatalf("Failed to add secondary CQ to cache")
 				}
@@ -3535,9 +3538,11 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 			}
 
 			cache := schdcache.New(utiltesting.NewFakeClient())
+			_ = utilqueue.SyncEffectiveResourceGroupsToSpec(&testCq)
 			if err := cache.AddClusterQueue(ctx, &testCq); err != nil {
 				t.Fatalf("Failed to add CQ to cache")
 			}
+			_ = utilqueue.SyncEffectiveResourceGroupsToSpec(&otherCq)
 			if err := cache.AddClusterQueue(ctx, &otherCq); err != nil {
 				t.Fatalf("Failed to add CQ to cache")
 			}
@@ -3672,6 +3677,7 @@ func TestDeletedFlavors(t *testing.T) {
 			})
 
 			cache := schdcache.New(utiltesting.NewFakeClient())
+			_ = utilqueue.SyncEffectiveResourceGroupsToSpec(&tc.clusterQueue)
 			if err := cache.AddClusterQueue(ctx, &tc.clusterQueue); err != nil {
 				t.Fatalf("Failed to add CQ to cache")
 			}
@@ -3858,9 +3864,11 @@ func TestHierarchical(t *testing.T) {
 					t.Fatalf("Couldn't add Cohort to cache: %v", err)
 				}
 			}
+			_ = utilqueue.SyncEffectiveResourceGroupsToSpec(&testCq)
 			if err := cache.AddClusterQueue(ctx, &testCq); err != nil {
 				t.Fatalf("Failed to add CQ to cache")
 			}
+			_ = utilqueue.SyncEffectiveResourceGroupsToSpec(&otherCq)
 			if err := cache.AddClusterQueue(ctx, &otherCq); err != nil {
 				t.Fatalf("Failed to add CQ to cache")
 			}

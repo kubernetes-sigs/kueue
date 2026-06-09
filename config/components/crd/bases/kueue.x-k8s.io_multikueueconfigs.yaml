@@ -81,6 +81,19 @@ spec:
           spec:
             description: spec is the specification of the MultiKueueConfig.
             properties:
+              automatedQuotaManagementConfig:
+                description: |-
+                  automatedQuotaManagementConfig is the configuration for the automated quota management.
+                  It is only relevant when quotaManagementMode is set to `Automated`.
+                properties:
+                  aggregateResourceFlavorRef:
+                    description: aggregateResourceFlavorRef is the reference to the
+                      resource flavor MultiKueue creates and maintains for the auto-aggregated
+                      resource flavors
+                    maxLength: 253
+                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                    type: string
+                type: object
               clusters:
                 description: clusters is a list of MultiKueueClusters names where
                   the workloads from the ClusterQueue should be distributed.
@@ -91,9 +104,9 @@ spec:
                 minItems: 1
                 type: array
                 x-kubernetes-list-type: set
-              quotaManagement:
+              quotaManagementMode:
                 description: |-
-                  quotaManagement specifies the management of ClusterQueue quotas
+                  quotaManagementMode specifies the management of ClusterQueue quotas
                   in the manager cluster.
                   Supported modes:
                   - `Manual`: Quota automation is manual.
@@ -106,6 +119,11 @@ spec:
             required:
             - clusters
             type: object
+            x-kubernetes-validations:
+            - message: automatedQuotaManagementConfig is only relevant when quotaManagementMode
+                is set to 'Automated'
+              rule: 'has(self.quotaManagementMode) && self.quotaManagementMode ==
+                ''Automated'' ? has(self.automatedQuotaManagementConfig) : true'
         type: object
     served: true
     storage: true

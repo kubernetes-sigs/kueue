@@ -178,7 +178,7 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		isDeleted = !wl.DeletionTimestamp.IsZero()
 	}
 
-	mkAc, err := admissioncheck.GetMultiKueueAdmissionCheck(ctx, w.client, wl)
+	mkAc, err := admissioncheck.GetMultiKueueAdmissionCheckState(ctx, w.client, wl)
 	if err != nil {
 		return reconcile.Result{}, err
 	}

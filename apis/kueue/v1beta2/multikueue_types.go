@@ -146,6 +146,7 @@ type MultiKueueClusterList struct {
 }
 
 // MultiKueueConfigSpec defines the desired state of MultiKueueConfig
+// +kubebuilder:validation:XValidation:rule="has(self.quotaManagementMode) && self.quotaManagementMode == 'Automated' ? has(self.automatedQuotaManagementConfig) : true",message="automatedQuotaManagementConfig is only relevant when quotaManagementMode is set to 'Automated'"
 type MultiKueueConfigSpec struct {
 	// clusters is a list of MultiKueueClusters names where the workloads from the ClusterQueue should be distributed.
 	//
@@ -156,14 +157,19 @@ type MultiKueueConfigSpec struct {
 	// +required
 	Clusters []string `json:"clusters,omitempty,omitzero"`
 
-	// quotaManagement specifies the management of ClusterQueue quotas
+	// quotaManagementMode specifies the management of ClusterQueue quotas
 	// in the manager cluster.
 	// Supported modes:
 	// - `Manual`: Quota automation is manual.
 	// - `Automated`: Quota automation is enabled (provided that the MultiKueueManagerQuotaAutomation feature gate is enabled).
 	// If unspecified, defaults to `Manual`.
 	// +optional
-	QuotaManagement *MultiKueueConfigQuotaManagementMode `json:"quotaManagement,omitempty"`
+	QuotaManagement *MultiKueueConfigQuotaManagementMode `json:"quotaManagementMode,omitempty"`
+
+	// automatedQuotaManagementConfig is the configuration for the automated quota management.
+	// It is only relevant when quotaManagementMode is set to `Automated`.
+	// +optional
+	AutomatedQuotaManagementConfig *AutomatedQuotaManagementConfig `json:"automatedQuotaManagementConfig,omitempty"`
 }
 
 // MultiKueueConfigQuotaManagementMode specifies the automation mode.
@@ -177,6 +183,12 @@ const (
 	QuotaManagementManual    MultiKueueConfigQuotaManagementMode = "Manual"
 	QuotaManagementAutomated MultiKueueConfigQuotaManagementMode = "Automated"
 )
+
+// AutomatedQuotaManagementConfig is the configuration for the automated quota management in MultiKueue ClusterQueues.
+type AutomatedQuotaManagementConfig struct {
+	// aggregateResourceFlavorRef is the reference to the resource flavor MultiKueue creates and maintains for the auto-aggregated resource flavors 
+	AggregateResourceFlavorRef ResourceFlavorReference `json:"aggregateResourceFlavorRef,omitempty"`
+}
 
 // +genclient
 // +genclient:nonNamespaced

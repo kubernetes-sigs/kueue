@@ -1047,9 +1047,14 @@ func ResourceGroup(flavors ...kueue.FlavorQuotas) kueue.ResourceGroup {
 	return rg
 }
 
-// ResourceGroup adds a ResourceGroup with flavors.
+// ResourceGroup adds a ResourceGroup with flavors to ClusterQueue spec.
 func (c *ClusterQueueWrapper) ResourceGroup(flavors ...kueue.FlavorQuotas) *ClusterQueueWrapper {
 	c.Spec.ResourceGroups = append(c.Spec.ResourceGroups, ResourceGroup(flavors...))
+	return c
+}
+
+func (c *ClusterQueueWrapper) SyncEffectiveResourceGroups() *ClusterQueueWrapper {
+	c.Status.EffectiveResourceGroups = c.Spec.ResourceGroups
 	return c
 }
 
@@ -1589,8 +1594,13 @@ func (mkc *MultiKueueConfigWrapper) Clusters(clusters ...string) *MultiKueueConf
 	return mkc
 }
 
-func (mkc *MultiKueueConfigWrapper) QuotaManagement(mode kueue.MultiKueueConfigQuotaManagementMode) *MultiKueueConfigWrapper {
+func (mkc *MultiKueueConfigWrapper) QuotaManagement(mode kueue.MultiKueueConfigQuotaManagementMode, flavorRef string) *MultiKueueConfigWrapper {
 	mkc.Spec.QuotaManagement = &mode
+	if mode == kueue.QuotaManagementAutomated {
+		mkc.Spec.AutomatedQuotaManagementConfig = &kueue.AutomatedQuotaManagementConfig{
+			AggregateResourceFlavorRef: kueue.ResourceFlavorReference(flavorRef),
+		}
+	}
 	return mkc
 }
 
