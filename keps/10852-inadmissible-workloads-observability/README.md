@@ -246,16 +246,19 @@ To separate different blocks and keep the status field highly structured, when
 the `QuotaReserved` status is `False`, the controller will resolve the reason
 field according to a strict priority hierarchy. Lower tier numbers represent
 structural failures and block scheduling early, thus taking absolute precedence
-over higher tiers:
+over higher tiers.
 
-| Tier | Classification | Reason Token | Description / Scenario | Location in Memory |
-| :--- | :--- | :--- | :--- | :--- |
-| **Tier 1** | Workload Deactivation | `Deactivated` | Workload is explicitly deactivated (`spec.active: false`). | None |
-| **Tier 2** | Structural Blockers | `Misconfigured` | Permanent structural error preventing admission (e.g., non-existent/inactive LocalQueue or ClusterQueue, resource flavor mismatch, DRA misconfiguration). | Missing local/cluster queue - None<br>ResourceFlavor mismatch - `ClusterQueue.inadmissibleWorkloads`<br>DRA issues - None |
-| **Tier 3** | Structural Quota Blockers | `ExceedsMaxQuota` | Workload requests resource quantities exceeding ClusterQueue or Cohort maximum limits. | `ClusterQueue.inadmissibleWorkloads` |
-| **Tier 4** | Orchestration & Administrative Holds | `Suspended`, `AdmissionGated`, `WaitingForPodsReady` | Workload is structurally valid, but admission is halted due to:<br>- Administrative hold (the queue's StopPolicy is active).<br>- Gated state (AdmissionGatedBy annotation).<br>- Scheduling hold (waiting for previously admitted workloads to reach PodsReady under waitForPodsReady configuration). | AdmissionGated - None<br>StopPolicy - None<br>WaitingForPodsReady - blocks and waits |
-| **Tier 5** | Resource Deficits | `WaitingForQuota` | Workload fits within the maximum limits of the ClusterQueue or Cohort, but the cluster currently lacks sufficient unreserved capacity (including when preemption is required but is blocked by preemption gates). | `ClusterQueue.inadmissibleWorkloads` |
-| **Tier 6** | Active Queueing | `PendingEvaluation` | Workload is submitted, structurally valid, resides actively in the queue, and is awaiting its capacity evaluation. Set also after eviction. | `ClusterQueue.heap` |
+Tiers are evaluated either at the **workload-wide** level (independent of flavor
+assignments) or at the **per-flavor** assignment level:
+
+| Tier | Scope | Classification | Reason Token | Description / Scenario | Location in Memory |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Tier 1** | Workload-wide | Workload Deactivation | `Deactivated` | Workload is explicitly deactivated (`spec.active: false`). | None |
+| **Tier 2** | Mixed | Structural Blockers | `Misconfigured` | Permanent structural error preventing admission:<br>- Missing local/cluster queue (Workload-wide)<br>- Resource flavor mismatch (Per-flavor)<br>- DRA misconfiguration (Workload-wide) | Missing local/cluster queue - None<br>ResourceFlavor mismatch - `ClusterQueue.inadmissibleWorkloads`<br>DRA issues - None |
+| **Tier 3** | Per-flavor | Structural Quota Blockers | `ExceedsMaxQuota` | Workload requests resource quantities exceeding ClusterQueue or Cohort maximum limits. | `ClusterQueue.inadmissibleWorkloads` |
+| **Tier 4** | Workload-wide | Orchestration & Administrative Holds | `Suspended`, `AdmissionGated`, `WaitingForPodsReady` | Workload is structurally valid, but admission is halted due to:<br>- Administrative hold (the queue's StopPolicy is active).<br>- Gated state (AdmissionGatedBy annotation).<br>- Scheduling hold (waiting for previously admitted workloads to reach PodsReady under waitForPodsReady configuration). | AdmissionGated - None<br>StopPolicy - None<br>WaitingForPodsReady - blocks and waits |
+| **Tier 5** | Per-flavor | Resource Deficits | `WaitingForQuota` | Workload fits within the maximum limits of the ClusterQueue or Cohort, but the cluster currently lacks sufficient unreserved capacity (including when preemption is required but is blocked by preemption gates). | `ClusterQueue.inadmissibleWorkloads` |
+| **Tier 6** | Workload-wide | Active Queueing | `PendingEvaluation` | Workload is submitted, structurally valid, resides actively in the queue, and is awaiting its capacity evaluation. Set also after eviction. | `ClusterQueue.heap` |
 
 *Note: Precedence Resolution examples:*
 - *If a workload requests resource quantities exceeding the ClusterQueue
@@ -268,29 +271,16 @@ over higher tiers:
 
 #### Multi-Flavor Precedence Resolution
 
-When a workload is evaluated against multiple `ResourceFlavor` paths
-within a ClusterQueue, different flavors may yield different admission blocks.
-For example:
-- **Flavor A**: The workload has a structural affinity or taint mismatch
-  (resolves to Tier 2 `Misconfigured`).
-- **Flavor B**: The workload is structurally compatible but requests resource
-  quantities that exceed the ClusterQueue or Cohort maximum limits (resolves
-  to Tier 3 `ExceedsMaxQuota`).
-
-In scenarios where multiple flavors are checked:
-1. A structurally compatible flavor path (even if it currently has quota or
-   limits deficits like Tier 3 `ExceedsMaxQuota` or Tier 5 `WaitingForQuota`)
-   is a closer candidate for scheduling than a structurally incompatible
-   flavor path (Tier 2 `Misconfigured`).
-2. Therefore, when combining diagnostics across multiple flavors, the reasons
-   from compatible flavor paths (e.g., `ExceedsMaxQuota` or `WaitingForQuota`)
-   take precedence and are reported in the status, instead of reporting the
-   structural incompatibility (`Misconfigured`) of the other flavors.
+When a workload is evaluated against multiple `ResourceFlavor` paths within a
+ClusterQueue, Kueue attempts to find the most schedulable assignment. If
+scheduling fails, the blocker tier and reason reported in the workload status
+are emitted from the most schedulable flavor assignment candidate (i.e., the
+candidate that blocks at the highest tier number).
 
 This ensures that operators receive actionable alerts regarding the closest
 viable scheduling path (e.g., a limits or capacity block on a compatible
-flavor) rather than getting generic configuration mismatch reports from
-incompatible flavors.
+flavor) rather than generic configuration mismatch reports from incompatible
+flavors.
 
 ### Admitted Condition Initialization and Lifecycle
 
