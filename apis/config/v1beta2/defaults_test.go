@@ -23,6 +23,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	componentconfigv1alpha1 "k8s.io/component-base/config/v1alpha1"
 	"k8s.io/utils/ptr"
 )
@@ -612,6 +613,55 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Origin:            new("multikueue-manager1"),
 					WorkerLostTimeout: &metav1.Duration{Duration: 15 * time.Minute},
 					DispatcherName:    defaultMultiKueue.DispatcherName,
+				},
+				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				VisibilityServer:             defaultVisibilityServer,
+			},
+		},
+		"multiKueue clusterProfile folds deprecated credentialsProviders into accessProviders": {
+			original: &Configuration{
+				InternalCertManagement: &InternalCertManagement{
+					Enable: new(false),
+				},
+				MultiKueue: &MultiKueue{
+					GCInterval:        &metav1.Duration{Duration: time.Second},
+					Origin:            new("multikueue-manager1"),
+					WorkerLostTimeout: &metav1.Duration{Duration: time.Minute},
+					DispatcherName:    new(MultiKueueDispatcherModeIncremental),
+					ClusterProfile: &ClusterProfile{
+						AccessProviders: []ClusterProfileAccessProvider{
+							{Name: "shared", ExecConfig: clientcmdapi.ExecConfig{Command: "access-command"}},
+						},
+						CredentialsProviders: []ClusterProfileCredentialsProvider{
+							{Name: "shared", ExecConfig: clientcmdapi.ExecConfig{Command: "deprecated-command"}},
+							{Name: "legacy", ExecConfig: clientcmdapi.ExecConfig{Command: "legacy-command"}},
+						},
+					},
+				},
+			},
+			want: &Configuration{
+				Namespace:         new(DefaultNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
+				InternalCertManagement: &InternalCertManagement{
+					Enable: new(false),
+				},
+				ClientConnection: defaultClientConnection,
+				Integrations:     defaultIntegrations,
+				MultiKueue: &MultiKueue{
+					GCInterval:        &metav1.Duration{Duration: time.Second},
+					Origin:            new("multikueue-manager1"),
+					WorkerLostTimeout: &metav1.Duration{Duration: time.Minute},
+					DispatcherName:    new(MultiKueueDispatcherModeIncremental),
+					ClusterProfile: &ClusterProfile{
+						AccessProviders: []ClusterProfileAccessProvider{
+							{Name: "shared", ExecConfig: clientcmdapi.ExecConfig{Command: "access-command"}},
+							{Name: "legacy", ExecConfig: clientcmdapi.ExecConfig{Command: "legacy-command"}},
+						},
+						CredentialsProviders: []ClusterProfileCredentialsProvider{
+							{Name: "shared", ExecConfig: clientcmdapi.ExecConfig{Command: "deprecated-command"}},
+							{Name: "legacy", ExecConfig: clientcmdapi.ExecConfig{Command: "legacy-command"}},
+						},
+					},
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,

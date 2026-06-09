@@ -296,7 +296,7 @@ multiKueue:
   workerLostTimeout: 10m
   dispatcherName: kueue.x-k8s.io/multikueue-dispatcher-incremental
   clusterProfile:
-    credentialsProviders:
+    accessProviders:
       - name: test-provider
         execConfig:
           command: /usr/bin/test-command
@@ -750,7 +750,7 @@ objectRetentionPolicies:
 					WorkerLostTimeout: &metav1.Duration{Duration: 10 * time.Minute},
 					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeIncremental),
 					ClusterProfile: &configapi.ClusterProfile{
-						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+						AccessProviders: []configapi.ClusterProfileAccessProvider{
 							{
 								Name: "test-provider",
 								ExecConfig: clientcmdapi.ExecConfig{

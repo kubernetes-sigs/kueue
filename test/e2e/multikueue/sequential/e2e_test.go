@@ -474,7 +474,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 							Type:    kueue.MultiKueueClusterActive,
 							Status:  metav1.ConditionFalse,
 							Reason:  "BadClusterProfile",
-							Message: "load client config failed: no credentials provider configured",
+							Message: "load client config failed: no access provider configured",
 						},
 						util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
@@ -500,12 +500,19 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 			secretReaderRole        *rbacv1.Role
 
 			defaultManagerDeployment = &appsv1.Deployment{}
-			clusterProfileSecrets    = make([]*corev1.Secret, 0)
-			clusterProfiles          = make([]*inventoryv1alpha1.ClusterProfile, 0)
+			clusterProfileSecrets    []*corev1.Secret
+			clusterProfiles          []*inventoryv1alpha1.ClusterProfile
 			deploymentKey            = types.NamespacedName{Namespace: kueueNS, Name: "kueue-controller-manager"}
 		)
 
+		type clusterProfileProviderSetup struct {
+			name      string
+			configure func(*kueueconfig.ClusterProfile, []kueueconfig.ClusterProfileAccessProvider)
+		}
+
 		ginkgo.BeforeAll(func() {
+			defaultManagerKueueCfg = util.GetKueueConfiguration(ctx, k8sManagerClient)
+
 			// Image volumes are Beta and enabled by default from k8s 1.35, so the official secretreader
 			// image can be mounted directly. On older versions we keep the init container that copies the
 			// binary from the self-built image, because the official image does not ship a "cp" command.
@@ -579,32 +586,20 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 					}
 					g.Expect(k8sManagerClient.Update(ctx, updatedDeployment)).Should(gomega.Succeed())
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
-				// We will wait for Kueue after setting the configuration
-			})
-
-			ginkgo.By("Updating MultiKueue configuration with CredentialsProviders", func() {
-				defaultManagerKueueCfg = util.GetKueueConfiguration(ctx, k8sManagerClient)
-				util.UpdateKueueConfigurationAndRestart(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName, func(cfg *kueueconfig.Configuration) {
-					cfg.FeatureGates[string(features.MultiKueueClusterProfile)] = true
-					if cfg.MultiKueue == nil {
-						cfg.MultiKueue = &kueueconfig.MultiKueue{}
-					}
-					cfg.MultiKueue.ClusterProfile = &kueueconfig.ClusterProfile{
-						CredentialsProviders: []kueueconfig.ClusterProfileCredentialsProvider{
-							{
-								Name: "secretreader",
-								ExecConfig: api.ExecConfig{
-									APIVersion:         "client.authentication.k8s.io/v1",
-									Command:            secretReaderPath,
-									ProvideClusterInfo: true,
-									InteractiveMode:    api.NeverExecInteractiveMode,
-								},
-							},
-						},
-					}
-				})
 			})
 		})
+		ginkgo.AfterEach(func() {
+			for _, s := range clusterProfileSecrets {
+				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, s, true, util.Timeout)
+			}
+			clusterProfileSecrets = nil
+
+			for _, c := range clusterProfiles {
+				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, c, true, util.Timeout)
+			}
+			clusterProfiles = nil
+		})
+
 		ginkgo.AfterAll(func() {
 			ginkgo.By("setting back the configuration", func() {
 				// Just update Kueue configuration. We will restart Kueue later.
@@ -623,104 +618,131 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 				util.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sManagerClient)
 			})
 
-			for _, s := range clusterProfileSecrets {
-				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, s, true, util.Timeout)
-			}
-
-			for _, c := range clusterProfiles {
-				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, c, true, util.Timeout)
-			}
-
 			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, secretReaderRoleBinding, true, util.MediumTimeout)
 			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, secretReaderRole, true, util.MediumTimeout)
 		})
 
-		ginkgo.It("Should be able to use ClusterProfile as way to connect worker cluster", func() {
-			ginkgo.By("creating secrets with tokens to read from", func() {
-				worker1AuthInfo := util.GetAuthInfoFromKubeConfig(worker1KConfig)
-				worker2AuthInfo := util.GetAuthInfoFromKubeConfig(worker2KConfig)
+		ginkgo.DescribeTable("Should be able to use ClusterProfile as way to connect worker cluster",
+			func(providerSetup clusterProfileProviderSetup) {
+				ginkgo.By("Updating MultiKueue configuration with "+providerSetup.name, func() {
+					clusterProfileAccessProvider := kueueconfig.ClusterProfileAccessProvider{
+						Name: "secretreader",
+						ExecConfig: api.ExecConfig{
+							APIVersion:         "client.authentication.k8s.io/v1",
+							Command:            secretReaderPath,
+							ProvideClusterInfo: true,
+							InteractiveMode:    api.NeverExecInteractiveMode,
+						},
+					}
 
-				secretsData := map[string]string{
-					"multikueue1-cp": worker1AuthInfo.Token,
-					"multikueue2-cp": worker2AuthInfo.Token,
-				}
-				for name, token := range secretsData {
-					secret := utiltesting.MakeSecret(name, kueueNS).Data("token", []byte(token)).Obj()
-					util.MustCreate(ctx, k8sManagerClient, secret)
-					clusterProfileSecrets = append(clusterProfileSecrets, secret)
-				}
-			})
+					util.UpdateKueueConfigurationAndRestart(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName, func(cfg *kueueconfig.Configuration) {
+						cfg.FeatureGates[string(features.MultiKueueClusterProfile)] = true
+						if cfg.MultiKueue == nil {
+							cfg.MultiKueue = &kueueconfig.MultiKueue{}
+						}
+						cfg.MultiKueue.ClusterProfile = &kueueconfig.ClusterProfile{}
+						providerSetup.configure(cfg.MultiKueue.ClusterProfile, []kueueconfig.ClusterProfileAccessProvider{clusterProfileAccessProvider})
+					})
+				})
 
-			mkc := []*kueue.MultiKueueCluster{workerCluster1, workerCluster2}
-			ginkgo.By("Update existing worker clusters to use ClusterProfiles", func() {
-				for _, wc := range mkc {
-					gomega.Eventually(func(g gomega.Gomega) {
-						createdCluster := &kueue.MultiKueueCluster{}
-						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(wc), createdCluster)).To(gomega.Succeed())
-						createdCluster.Spec.ClusterSource.KubeConfig = nil
-						createdCluster.Spec.ClusterSource.ClusterProfileRef = &kueue.ClusterProfileReference{Name: wc.Name}
-						g.Expect(k8sManagerClient.Update(ctx, createdCluster)).To(gomega.Succeed())
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				}
-			})
-			ginkgo.By("Create ClusterProfiles for existing worker clusters", func() {
-				for _, wc := range mkc {
-					c := utiltestingapi.MakeClusterProfile(wc.Name, kueueNS).ClusterManager("secretreader").Obj()
-					util.MustCreate(ctx, k8sManagerClient, c)
-					clusterProfiles = append(clusterProfiles, c)
-				}
-			})
-			ginkgo.By("Update ClusterProfiles with AccessProviders", func() {
-				secrets := []string{"multikueue1-cp", "multikueue2-cp"}
-				workerClusterNames := []string{worker1ClusterName, worker2ClusterName}
-				workerCAData := [][]byte{worker1Cfg.CAData, worker2Cfg.CAData}
-				for i, wc := range mkc {
-					gomega.Eventually(func(g gomega.Gomega) {
-						createdCp := &inventoryv1alpha1.ClusterProfile{}
-						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKey{Namespace: kueueNS, Name: wc.Name}, createdCp)).To(gomega.Succeed())
-						createdCp.Status.AccessProviders = []inventoryv1alpha1.AccessProvider{
-							{
-								Name: "secretreader",
-								Cluster: apiv1.Cluster{
-									Server:                   util.GetClusterServerAddress(workerClusterNames[i]),
-									CertificateAuthorityData: workerCAData[i],
-									Extensions: []apiv1.NamedExtension{
-										{
-											Name: "client.authentication.k8s.io/exec",
-											Extension: runtime.RawExtension{
-												Raw: fmt.Appendf(nil, `{"clusterName":"%s"}`, secrets[i]),
+				ginkgo.By("creating secrets with tokens to read from", func() {
+					worker1AuthInfo := util.GetAuthInfoFromKubeConfig(worker1KConfig)
+					worker2AuthInfo := util.GetAuthInfoFromKubeConfig(worker2KConfig)
+
+					secretsData := map[string]string{
+						"multikueue1-cp": worker1AuthInfo.Token,
+						"multikueue2-cp": worker2AuthInfo.Token,
+					}
+					for name, token := range secretsData {
+						secret := utiltesting.MakeSecret(name, kueueNS).Data("token", []byte(token)).Obj()
+						util.MustCreate(ctx, k8sManagerClient, secret)
+						clusterProfileSecrets = append(clusterProfileSecrets, secret)
+					}
+				})
+
+				mkc := []*kueue.MultiKueueCluster{workerCluster1, workerCluster2}
+				ginkgo.By("Update existing worker clusters to use ClusterProfiles", func() {
+					for _, wc := range mkc {
+						gomega.Eventually(func(g gomega.Gomega) {
+							createdCluster := &kueue.MultiKueueCluster{}
+							g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(wc), createdCluster)).To(gomega.Succeed())
+							createdCluster.Spec.ClusterSource.KubeConfig = nil
+							createdCluster.Spec.ClusterSource.ClusterProfileRef = &kueue.ClusterProfileReference{Name: wc.Name}
+							g.Expect(k8sManagerClient.Update(ctx, createdCluster)).To(gomega.Succeed())
+						}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					}
+				})
+				ginkgo.By("Create ClusterProfiles for existing worker clusters", func() {
+					for _, wc := range mkc {
+						c := utiltestingapi.MakeClusterProfile(wc.Name, kueueNS).ClusterManager("secretreader").Obj()
+						util.MustCreate(ctx, k8sManagerClient, c)
+						clusterProfiles = append(clusterProfiles, c)
+					}
+				})
+				ginkgo.By("Update ClusterProfiles with AccessProviders", func() {
+					secrets := []string{"multikueue1-cp", "multikueue2-cp"}
+					workerClusterNames := []string{worker1ClusterName, worker2ClusterName}
+					workerCAData := [][]byte{worker1Cfg.CAData, worker2Cfg.CAData}
+					for i, wc := range mkc {
+						gomega.Eventually(func(g gomega.Gomega) {
+							createdCp := &inventoryv1alpha1.ClusterProfile{}
+							g.Expect(k8sManagerClient.Get(ctx, client.ObjectKey{Namespace: kueueNS, Name: wc.Name}, createdCp)).To(gomega.Succeed())
+							createdCp.Status.AccessProviders = []inventoryv1alpha1.AccessProvider{
+								{
+									Name: "secretreader",
+									Cluster: apiv1.Cluster{
+										Server:                   util.GetClusterServerAddress(workerClusterNames[i]),
+										CertificateAuthorityData: workerCAData[i],
+										Extensions: []apiv1.NamedExtension{
+											{
+												Name: "client.authentication.k8s.io/exec",
+												Extension: runtime.RawExtension{
+													Raw: fmt.Appendf(nil, `{"clusterName":"%s"}`, secrets[i]),
+												},
 											},
 										},
 									},
 								},
-							},
-						}
-						g.Expect(k8sManagerClient.Status().Update(ctx, createdCp)).To(gomega.Succeed())
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				}
-			})
+							}
+							g.Expect(k8sManagerClient.Status().Update(ctx, createdCp)).To(gomega.Succeed())
+						}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					}
+				})
 
-			ginkgo.By("Check MultiKueueCluster status", func() {
-				for _, wc := range mkc {
-					gomega.Eventually(func(g gomega.Gomega) {
-						createdCluster := &kueue.MultiKueueCluster{}
-						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(wc), createdCluster)).To(gomega.Succeed())
-						g.Expect(createdCluster.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(
-							metav1.Condition{
-								Type:    kueue.MultiKueueClusterActive,
-								Status:  metav1.ConditionTrue,
-								Reason:  "Active",
-								Message: "Connected",
-							},
-							util.IgnoreConditionTimestampsAndObservedGeneration)))
-					}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
-				}
-			})
+				ginkgo.By("Check MultiKueueCluster status", func() {
+					for _, wc := range mkc {
+						gomega.Eventually(func(g gomega.Gomega) {
+							createdCluster := &kueue.MultiKueueCluster{}
+							g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(wc), createdCluster)).To(gomega.Succeed())
+							g.Expect(createdCluster.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(
+								metav1.Condition{
+									Type:    kueue.MultiKueueClusterActive,
+									Status:  metav1.ConditionTrue,
+									Reason:  "Active",
+									Message: "Connected",
+								},
+								util.IgnoreConditionTimestampsAndObservedGeneration)))
+						}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+					}
+				})
 
-			ginkgo.By("Check AdmissionChecks are active after switching to ClusterProfiles", func() {
-				util.ExpectAdmissionChecksToBeActive(ctx, k8sManagerClient, multiKueueAc)
-			})
-		})
+				ginkgo.By("Check AdmissionChecks are active after switching to ClusterProfiles", func() {
+					util.ExpectAdmissionChecksToBeActive(ctx, k8sManagerClient, multiKueueAc)
+				})
+			},
+			ginkgo.Entry("with accessProviders", clusterProfileProviderSetup{
+				name: "AccessProviders",
+				configure: func(clusterProfile *kueueconfig.ClusterProfile, providers []kueueconfig.ClusterProfileAccessProvider) {
+					clusterProfile.AccessProviders = providers
+				},
+			}),
+			ginkgo.Entry("with deprecated credentialsProviders", clusterProfileProviderSetup{
+				name: "CredentialsProviders",
+				configure: func(clusterProfile *kueueconfig.ClusterProfile, providers []kueueconfig.ClusterProfileAccessProvider) {
+					clusterProfile.CredentialsProviders = providers //nolint:staticcheck //SA1019: CredentialsProviders is tested for backward compatibility.
+				},
+			}),
+		)
 	})
 
 	ginkgo.Describe("MultiKueueOrchestratedPreemption is enabled", ginkgo.Label(util.Shard1), ginkgo.Ordered, func() {
