@@ -166,10 +166,32 @@ type MultiKueueConfig struct {
 }
 
 type MultiKueueConfigSpec struct {
-     // List of MultiKueueWorkerClusters names where the 
-     // workloads from the ClusterQueue should be distributed.
-     Clusters []string `json:"clusters,omitempty"`
+    // List of MultiKueueWorkerClusters names where the
+    // workloads from the ClusterQueue should be distributed.
+    Clusters []string `json:"clusters,omitempty"`
+
+    // Configure how the admitting worker cluster is selected
+    // +kubebuilder:validation:Enum=FirstQuotaReserved;FirstWithAdmissionsChecksReady
+    // +kubebuilder:default=FirstQuotaReserved
+    WorkerSelectionStrategy WorkerSelectionStrategy `json:"workerSelectionStrategy,omitempty"`
+
+    // List of required admission checks when selecting the strategy FirstWithAdmissionsChecksReady
+    RequiredAdmissionChecks []AdmissionCheckReference `json:"requiredAdmissionChecks,omitempty"`
+
 }
+
+// WorkerSelectionStrategy defines how the admitting worker cluster is selected
+// +kubebuilder:validation:Enum=FirstQuotaReserved;FirstWithAdmissionsChecksReady
+type WorkerSelectionStrategy string
+
+const (
+    // FirstQuotaReserved selects the first worker cluster with quota reserved
+    FirstQuotaReserved WorkerSelectionStrategy = "FirstQuotaReserved"
+
+    // FirstWithAdmissionsChecksReady selects the first worker cluster with quota reserved and admission checks ready
+    // Names of required admission checks are specified in RequiredAdmissionChecks
+    FirstWithAdmissionsChecksReady WorkerSelectionStrategy = "FirstWithAdmissionsChecksReady"
+)
 
 type MultiKueueCluster struct {
     metav1.TypeMeta   `json:",inline"`
@@ -307,6 +329,9 @@ AdmissionCheckStates.
 When distributing a workload across clusters, the MultiKueue Workload Controller will first create
 a Kueue-internal workload object in each of the currently "nominated" worker clusters
 (see [MultiKueue Dispatcher API](#multikueue-dispatcher-api) for details).
+
+By default, the worker cluster that reserves a quota first is considered the one admitting the workload. Other strategies (such as additionally requiring ready admission checks) can be configured via the MultiKueueConfigSpec's `WorkerSelectionStrategy` field.
+
 Only after the workload is admitted on one cluster and cleaned
 up on the other clusters, the real job will be created, to match the workload. That gives the guarantee
 that the workload will not start in more than one cluster. The workload will
