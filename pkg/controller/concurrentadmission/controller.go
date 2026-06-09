@@ -140,6 +140,11 @@ func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 	variants = sortVariantsByFlavorOrder(variants, flavorOrder)
 
+	if err := r.backfillPreemptionGates(ctx, variants); err != nil {
+		log.Error(err, "Failed to backfill preemption gates on variants")
+		return ctrl.Result{}, err
+	}
+
 	log = log.WithValues("clusterQueue", cq.Name)
 	log.V(2).Info("Found Workload family and ClusterQueue", "variants", klog.KObjSlice(variants))
 
@@ -278,7 +283,8 @@ func generateVariant(parent *kueue.Workload, flavor kueue.ResourceFlavorReferenc
 		Spec:   parent.Spec,
 		Status: parent.Status,
 	}
-	variant.Spec.PreemptionGates = append(slices.Clone(variant.Spec.PreemptionGates), kueue.PreemptionGate{Name: constants.ConcurrentAdmissionPreemptionGate})
+
+	variant.Spec.PreemptionGates, _ = ensureCAPreemptionGate(slices.Clone(variant.Spec.PreemptionGates))
 	delete(variant.Labels, constants.ConcurrentAdmissionParentLabelKey)
 	metav1.SetMetaDataAnnotation(&variant.ObjectMeta, constants.WorkloadAllowedResourceFlavorAnnotation, string(flavor))
 	return variant
@@ -699,6 +705,15 @@ func (r *variantReconciler) variantToOpenPreemptionGate(ctx context.Context, var
 	return candidate, preemptionTimeout
 }
 
+func ensureCAPreemptionGate(gates []kueue.PreemptionGate) ([]kueue.PreemptionGate, bool) {
+	if slices.ContainsFunc(gates, func(g kueue.PreemptionGate) bool {
+		return g.Name == constants.ConcurrentAdmissionPreemptionGate
+	}) {
+		return gates, false
+	}
+	return append(gates, kueue.PreemptionGate{Name: constants.ConcurrentAdmissionPreemptionGate}), true
+}
+
 func (r *variantReconciler) openPreemptionGate(ctx context.Context, variant *kueue.Workload) error {
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Opening preemption gate for variant", "variant", klog.KObj(variant), "flavor", concurrentadmission.GetVariantFlavor(variant))
@@ -716,6 +731,30 @@ func (r *variantReconciler) openPreemptionGate(ctx context.Context, variant *kue
 	}
 	if opened {
 		r.recorder.Eventf(variant, nil, corev1.EventTypeNormal, ReasonOpenPreemptionGateVariant, ReasonOpenPreemptionGateVariant, "Opened preemption gate for variant workload %q", klog.KObj(variant))
+	}
+	return nil
+}
+
+// backfillPreemptionGates adds the ConcurrentAdmission preemption gate to Variants
+// that were created by a controller version predating gate-based preemption
+// serialization. Without it, such Variants are never gated and can issue
+// preemptions in parallel, violating the single-preemptor-per-Parent guarantee.
+//
+// TODO: remove once ConcurrentAdmission graduates beyond alpha and no
+// pre-gate Variants can remain across a supported upgrade skew.
+func (r *variantReconciler) backfillPreemptionGates(ctx context.Context, variants []kueue.Workload) error {
+	log := ctrl.LoggerFrom(ctx)
+	for i := range variants {
+		v := &variants[i]
+		added := false
+		v.Spec.PreemptionGates, added = ensureCAPreemptionGate(v.Spec.PreemptionGates)
+		if !added {
+			continue
+		}
+		log.V(2).Info("Backfilling ConcurrentAdmission preemption gate on variant", "variant", klog.KObj(v))
+		if err := r.client.Update(ctx, v); err != nil {
+			return fmt.Errorf("backfilling preemption gate on variant %s: %w", klog.KObj(v), err)
+		}
 	}
 	return nil
 }
