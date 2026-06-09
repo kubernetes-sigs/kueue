@@ -1027,7 +1027,7 @@ func (w *wlReconciler) syncReservingRemoteState(ctx context.Context, group *wlGr
 	}
 
 	if needsACUpdate {
-		w.recorder.Eventf(group.local, nil, corev1.EventTypeNormal, "MultiKueue", "MultiKueue", acs.Message)
+		w.recorder.Eventf(group.local, nil, corev1.EventTypeNormal, "MultiKueue", "MultiKueue", api.TruncateEventMessage(acs.Message))
 		w.enqueueComponentWorkloads(ctx, group.local)
 	}
 
