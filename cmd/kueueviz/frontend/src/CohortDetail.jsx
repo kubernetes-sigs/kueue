@@ -27,16 +27,13 @@ const CohortDetail = () => {
   const url = `/ws/cohort/${cohortName}`;
   const { data: cohortData, error } = useWebSocket(url);
 
-  const [cohortDetails, setCohortDetails] = useState(null);
-
-  useEffect(() => {
-    if (cohortData) {
-      const sorted = { ...cohortData };
-      if (sorted.clusterQueues) {
-        sorted.clusterQueues = [...sorted.clusterQueues].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-      }
-      setCohortDetails(sorted);
+  const cohortDetails = React.useMemo(() => {
+    if (!cohortData) return null;
+    const sorted = { ...cohortData };
+    if (sorted.clusterQueues) {
+      sorted.clusterQueues = [...sorted.clusterQueues].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     }
+    return sorted;
   }, [cohortData]);
 
   if (error) return <ErrorMessage error={error} />;

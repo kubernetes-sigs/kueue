@@ -28,17 +28,15 @@ const ClusterQueueDetail = () => {
   const url = `/ws/cluster-queue/${clusterQueueName}`;
   const { data: clusterQueueData, error } = useWebSocket(url);
 
-  const [clusterQueue, setClusterQueue] = useState(null);
   const [showReservation, setShowReservation] = useState(false);
 
-  useEffect(() => {
-    if (clusterQueueData) {
-      const sorted = { ...clusterQueueData };
-      if (sorted.queues) {
-        sorted.queues = [...sorted.queues].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-      }
-      setClusterQueue(sorted);
+  const clusterQueue = React.useMemo(() => {
+    if (!clusterQueueData) return null;
+    const sorted = { ...clusterQueueData };
+    if (sorted.queues) {
+      sorted.queues = [...sorted.queues].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     }
+    return sorted;
   }, [clusterQueueData]);
 
   if (error) return <ErrorMessage error={error} />;
