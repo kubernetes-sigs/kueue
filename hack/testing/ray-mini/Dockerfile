@@ -1,9 +1,9 @@
-FROM python:3.13-slim
+FROM python:3.14-slim
 
 # Set environment variable to avoid interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
 
-ARG RAY_VERSION=2.41.0
+ARG RAY_VERSION=2.55.1
 ARG RAY_UID=1000
 ARG RAY_GID=100
 

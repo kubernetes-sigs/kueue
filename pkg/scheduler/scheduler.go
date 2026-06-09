@@ -425,7 +425,7 @@ func (s *Scheduler) processEntry(
 		return
 	}
 
-	usage := e.assignmentUsage()
+	usage := e.assignmentUsage(log)
 	if !fits(snapshot, cq, &usage, preemptedWorkloads, e.preemptionTargets) {
 		e.markSkipped("Workload no longer fits after processing another workload")
 		if mode == flavorassigner.Preempt {
@@ -485,7 +485,7 @@ func (s *Scheduler) handleFailedTASReplacement(ctx context.Context, log logr.Log
 func (s *Scheduler) reserveCapacityForUnreclaimablePreempt(log logr.Logger, e *entry, cq *schdcache.ClusterQueueSnapshot) {
 	log.V(2).Info("Workload requires preemption, but there are no candidate workloads allowed for preemption", "preemption", cq.Preemption)
 	if !preemption.CanAlwaysReclaim(cq) {
-		cq.AddUsage(resourcesToReserve(e, cq))
+		cq.AddUsage(resourcesToReserve(log, e, cq))
 	}
 }
 
@@ -573,8 +573,8 @@ type entry struct {
 	clusterQueueSnapshot *schdcache.ClusterQueueSnapshot
 }
 
-func (e *entry) assignmentUsage() workload.Usage {
-	return netUsage(e, e.assignment.Usage.Quota)
+func (e *entry) assignmentUsage(log logr.Logger) workload.Usage {
+	return netUsage(log, e, e.assignment.Usage.Quota)
 }
 
 // nominate returns the workloads with their requirements (resource flavors, borrowing) if
@@ -629,15 +629,15 @@ func fits(snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, usag
 }
 
 // resourcesToReserve calculates how much of the available resources in cq/cohort assignment should be reserved.
-func resourcesToReserve(e *entry, cq *schdcache.ClusterQueueSnapshot) workload.Usage {
-	return netUsage(e, quotaResourcesToReserve(e, cq))
+func resourcesToReserve(log logr.Logger, e *entry, cq *schdcache.ClusterQueueSnapshot) workload.Usage {
+	return netUsage(log, e, quotaResourcesToReserve(e, cq))
 }
 
 // netUsage calculates the net usage for quota and TAS to reserve
-func netUsage(e *entry, netQuota resources.FlavorResourceQuantities) workload.Usage {
+func netUsage(log logr.Logger, e *entry, netQuota resources.FlavorResourceQuantities) workload.Usage {
 	result := workload.Usage{}
 	if features.Enabled(features.TopologyAwareScheduling) {
-		result.TAS = e.assignment.ComputeTASNetUsage(e.clusterQueueSnapshot, e.Obj.Status.Admission)
+		result.TAS = e.assignment.ComputeTASNetUsage(log, e.clusterQueueSnapshot, &e.Info, e.Obj.Status.Admission)
 	}
 	if !workload.HasQuotaReservation(e.Obj) {
 		result.Quota = netQuota
@@ -778,7 +778,7 @@ func updateAssignmentForTAS(log logr.Logger, snapshot *schdcache.Snapshot, cq *s
 			// assuming the cluster is empty.
 			tasResult = cq.FindTopologyAssignmentsForWorkload(tasRequests, schdcache.WithSimulateEmpty(true))
 		}
-		assignment.UpdateForTASResult(cq, tasResult)
+		assignment.UpdateForTASResult(log, cq, wl, tasResult)
 	}
 }
 

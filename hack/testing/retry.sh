@@ -17,13 +17,21 @@
 # echoes it; stderr passes through. Designed to be invoked from Make $(shell ...)
 # where the captured stdout becomes the variable value.
 #
+# By default stdout is captured and echoed only on success, so failed-attempt
+# output never pollutes a $(shell ...) caller that captures the result. Use
+# --stream when you instead want the command's stdout/stderr forwarded live
+# (e.g. for installs whose progress should be visible); --stream forwards output
+# from every attempt and returns nothing to capture, so do not combine it with a
+# $(shell ...) consumer.
+#
 # Advanced features:
 #   --exponential:       Double the delay after each failed attempt.
+#   --stream:            Forward stdout/stderr live instead of capturing stdout.
 #   --continue-if "CMD": Evaluates CMD upon failure. If it fails, retries are aborted immediately (fail-fast).
 #   --cleanup "CMD": Evaluates CMD before starting the next retry attempt.
 #
 # Usage:
-#   retry.sh [--attempts N] [--delay SECONDS] [--exponential] [--continue-if "CMD"] [--cleanup "CMD"] -- <command> [args...]
+#   retry.sh [--attempts N] [--delay SECONDS] [--exponential] [--stream] [--continue-if "CMD"] [--cleanup "CMD"] -- <command> [args...]
 #
 # Defaults: --attempts 4, --delay 5 (no exponential backoff)
 # Exit:     0 on first success, 1 if all attempts fail, 2 on usage error.
@@ -33,6 +41,7 @@ set -u
 attempts=4
 delay=5
 exponential=false
+stream=false
 continue_if=""
 cleanup=""
 
@@ -41,6 +50,7 @@ while [ $# -gt 0 ]; do
         --attempts)        attempts=$2; shift 2 ;;
         --delay)           delay=$2;    shift 2 ;;
         --exponential)     exponential=true; shift ;;
+        --stream)          stream=true; shift ;;
         --continue-if)     continue_if=$2; shift 2 ;;
         --cleanup)         cleanup=$2; shift 2 ;;
         --)                shift; break ;;
@@ -56,7 +66,14 @@ fi
 
 for i in $(seq 1 "$attempts"); do
     echo "retry [$i/$attempts]: $*" 1>&2
-    if out=$("$@"); then
+    if [ "$stream" = "true" ]; then
+        # Forward stdout/stderr live; nothing is captured or echoed.
+        if "$@"; then
+            exit 0
+        fi
+    elif out=$("$@"); then
+        # Capture stdout and echo it only on success, so failed-attempt output
+        # never pollutes a $(shell ...) caller that captures the result.
         printf '%s' "$out"
         exit 0
     fi

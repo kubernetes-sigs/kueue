@@ -259,6 +259,66 @@ func TestNewInfo(t *testing.T) {
 				},
 			},
 		},
+		"admitted with TAS and transformed resources": {
+			workload: *utiltestingapi.MakeWorkload("tas", "").
+				PodSets(
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+						// The admitted usage below transforms example.com/gpu to
+						// example.com/logical-gpu and excludes networking.example.com/vpc.
+						Request(corev1.ResourceCPU, "1").
+						Request(corev1.ResourceMemory, "1Gi").
+						Request("example.com/gpu", "1").
+						Request("networking.example.com/vpc", "1").
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Obj(),
+				).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("tas-cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "tas", "2").
+							Assignment(corev1.ResourceMemory, "tas", "2Gi").
+							Assignment("example.com/logical-gpu", "quota", "2").
+							Count(2).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(utiltestingapi.MakeDefaultOneLevelTopology("default"))).
+								Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 2).Obj()).
+								Obj()).
+							Obj()).
+						Obj(), now,
+				).
+				Obj(),
+			wantInfo: Info{
+				ClusterQueue: "tas-cq",
+				TotalRequests: []PodSetResources{
+					{
+						Name: kueue.DefaultPodSetName,
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU:        "tas",
+							corev1.ResourceMemory:     "tas",
+							"example.com/logical-gpu": "quota",
+						},
+						Requests: resources.Requests{
+							corev1.ResourceCPU:        2000,
+							corev1.ResourceMemory:     2 * 1024 * 1024 * 1024,
+							"example.com/logical-gpu": 2,
+						},
+						Count: 2,
+						TopologyRequest: &TopologyRequest{
+							Levels: []string{corev1.LabelHostname},
+							DomainRequests: []TopologyDomainRequests{{
+								Values: []string{"node-a"},
+								SinglePodRequests: resources.Requests{
+									corev1.ResourceCPU:           1000,
+									corev1.ResourceMemory:        1024 * 1024 * 1024,
+									"example.com/gpu":            1,
+									"networking.example.com/vpc": 1,
+								},
+								Count: 2,
+							}},
+						},
+					},
+				},
+			},
+		},
 		"admitted with reclaim; reclaimablePods on": {
 			workload: *utiltestingapi.MakeWorkload("", "").
 				PodSets(
