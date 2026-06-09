@@ -119,6 +119,7 @@ func ExpectAdmittedWorkloadsTotalMetricWithTimeout(cq *kueue.ClusterQueue, prior
 }
 
 func ExpectAdmittedWorkloadsTotalMetric(cq *kueue.ClusterQueue, priorityClass string, v int, customLabels ...string) {
+	ginkgo.GinkgoHelper()
 	ExpectAdmittedWorkloadsTotalMetricWithTimeout(cq, priorityClass, v, Timeout, customLabels...)
 }
 
@@ -245,6 +246,7 @@ func expectCounterMetricWithTimeout(metric *prometheus.CounterVec, count int, ti
 }
 
 func expectCounterMetric(metric *prometheus.CounterVec, count int, lvs ...string) {
+	ginkgo.GinkgoHelper()
 	expectCounterMetricWithTimeout(metric, count, Timeout, lvs...)
 }
 
