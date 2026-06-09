@@ -79,7 +79,7 @@ type Assignment struct {
 }
 
 // UpdateForTASResult updates the Assignment with the TAS result
-func (a *Assignment) UpdateForTASResult(cq *schdcache.ClusterQueueSnapshot, wl *workload.Info, result schdcache.TASAssignmentsResult) {
+func (a *Assignment) UpdateForTASResult(log logr.Logger, cq *schdcache.ClusterQueueSnapshot, wl *workload.Info, result schdcache.TASAssignmentsResult) {
 	for psName, psResult := range result {
 		psAssignment := a.podSetAssignmentByName(psName)
 		psAssignment.TopologyAssignment = psResult.TopologyAssignment
@@ -87,11 +87,11 @@ func (a *Assignment) UpdateForTASResult(cq *schdcache.ClusterQueueSnapshot, wl *
 			psAssignment.DelayedTopologyRequest = ptr.To(kueue.DelayedTopologyRequestStateReady)
 		}
 	}
-	a.Usage.TAS = a.ComputeTASNetUsage(cq, wl, nil)
+	a.Usage.TAS = a.ComputeTASNetUsage(log, cq, wl, nil)
 }
 
 // ComputeTASNetUsage computes the net TAS usage for the assignment
-func (a *Assignment) ComputeTASNetUsage(cq *schdcache.ClusterQueueSnapshot, wl *workload.Info, prevAdmission *kueue.Admission) workload.TASUsage {
+func (a *Assignment) ComputeTASNetUsage(log logr.Logger, cq *schdcache.ClusterQueueSnapshot, wl *workload.Info, prevAdmission *kueue.Admission) workload.TASUsage {
 	result := make(workload.TASUsage)
 	for i, psa := range a.PodSets {
 		if psa.TopologyAssignment != nil {
@@ -100,10 +100,12 @@ func (a *Assignment) ComputeTASNetUsage(cq *schdcache.ClusterQueueSnapshot, wl *
 			}
 			podSet := podset.FindPodSetByName(wl.Obj.Spec.PodSets, psa.Name)
 			if podSet == nil {
+				log.Error(nil, "PodSet not found while computing TAS net usage", "podSet", psa.Name)
 				continue
 			}
 			tasFlavor, err := onlyTASFlavor(psa.Flavors, cq.TASFlavors)
 			if err != nil {
+				log.Error(err, "Failed to find TAS flavor while computing TAS net usage", "podSet", psa.Name)
 				continue
 			}
 			singlePodRequests := resources.NewRequestsFromPodSpec(&podSet.Template.Spec)
@@ -735,7 +737,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 				assignment.updateMode(failure.PodSetName, Preempt)
 			} else {
 				// All PodSets fit, we just update the TopologyAssignments
-				assignment.UpdateForTASResult(a.cq, a.wl, result)
+				assignment.UpdateForTASResult(log, a.cq, a.wl, result)
 			}
 		}
 		if assignment.RepresentativeMode() == Preempt && !workload.HasUnhealthyNodes(a.wl.Obj) {
