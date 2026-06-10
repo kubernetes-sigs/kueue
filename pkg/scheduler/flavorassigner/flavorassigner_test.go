@@ -44,7 +44,10 @@ import (
 var (
 	statusComparer = cmp.Comparer(func(a, b Status) bool {
 		if a.err != nil || b.err != nil {
-			return errors.Is(a.err, b.err)
+			if a.err == nil || b.err == nil {
+				return false
+			}
+			return a.err.Error() == b.err.Error()
 		}
 		return cmp.Equal(a.reasons, b.reasons, cmpopts.SortSlices(func(x, y string) bool {
 			return x < y
@@ -195,6 +198,8 @@ func TestAssignFlavors(t *testing.T) {
 				Effect:   corev1.TaintEffectNoSchedule,
 			}).
 			Obj(),
+		"tas-a": utiltestingapi.MakeResourceFlavor("tas-a").TopologyName("tas-topo-a").Obj(),
+		"tas-b": utiltestingapi.MakeResourceFlavor("tas-b").TopologyName("tas-topo-b").Obj(),
 	}
 
 	cases := map[string]struct {
@@ -210,6 +215,7 @@ func TestAssignFlavors(t *testing.T) {
 		simulationResult           map[resources.FlavorResource]simulationResultForFlavor
 		preemptWorkloadSlice       *workload.Info
 		featureGates               map[featuregate.Feature]bool
+		topologies                 []*kueue.Topology
 	}{
 		"single flavor, fits": {
 			wlPods: []kueue.PodSet{
@@ -4051,7 +4057,7 @@ func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			tc.assignment.representativeMode = ptr.To(Fit)
+			tc.assignment.representativeMode = new(Fit)
 			tasReqs := tc.assignment.WorkloadsTopologyRequests(testr.New(t), &tc.workload, &tc.cq)
 			if len(tasReqs) != 0 {
 				t.Errorf("expected no TAS requests, got: %+v", tasReqs)
@@ -4195,7 +4201,7 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			tc.assignment.representativeMode = ptr.To(Fit)
+			tc.assignment.representativeMode = new(Fit)
 			tasReqs := tc.assignment.WorkloadsTopologyRequests(testr.New(t), &tc.workload, &tc.cq)
 			if tc.wantErr != "" {
 				if len(tasReqs) != 0 {
