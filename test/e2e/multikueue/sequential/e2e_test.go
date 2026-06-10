@@ -31,7 +31,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	versionutil "k8s.io/apimachinery/pkg/util/version"
-	"k8s.io/apimachinery/pkg/version"
 	"k8s.io/client-go/tools/clientcmd/api"
 	apiv1 "k8s.io/client-go/tools/clientcmd/api/v1"
 	"k8s.io/utils/ptr"
@@ -468,10 +467,15 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 
 	ginkgo.Describe("Connection via ClusterProfile with plugins", ginkgo.Label(util.Shard0), ginkgo.Ordered, func() {
 		const (
-			secretReaderPath    = "/plugins/secretreader-plugin"
 			volumeName          = "plugins"
 			volumeMountPath     = "/plugins"
 			pluginContainerName = "secretreader-plugin-init"
+			// secretReaderPath is the plugin executable path inside the shared volume. Both the
+			// official and self-built images ship the binary at /bin/secretreader-plugin, so when
+			// the image is mounted as an image volume at /plugins (k8s >= 1.35) the binary is at
+			// /plugins/bin/secretreader-plugin; the init-container fallback copies it to the same
+			// path, keeping the exec command independent of the k8s version.
+			secretReaderPath = "/plugins/bin/secretreader-plugin"
 		)
 		var (
 			defaultManagerKueueCfg  *kueueconfig.Configuration
@@ -485,6 +489,13 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 		)
 
 		ginkgo.BeforeAll(func() {
+			// Image volumes are Beta and enabled by default from k8s 1.35, so the official secretreader
+			// image can be mounted directly. On older versions we keep the init container that copies the
+			// binary from the self-built image, because the official image does not ship a "cp" command.
+			serverVersion, err := versionutil.ParseGeneric(util.GetKubernetesVersion(managerCfg))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			useImageVolume := serverVersion.AtLeast(versionutil.MustParseGeneric("v1.35.0"))
+
 			ginkgo.By("Creating Role and RoleBinding for secretreader-plugin", func() {
 				secretReaderRole = utiltesting.MakeRole("secretreader", kueueNS).
 					Rule([]string{""}, []string{"secrets"}, []string{"get", "list", "watch"}).
@@ -516,14 +527,12 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 						}
 					}
 
-					kubeVer := util.GetKubernetesVersion(managerCfg)
-					if version.CompareKubeAwareVersionStrings(kubeVer, versionutil.MustParseGeneric("v1.35.0").String()) >= 0 {
+					if useImageVolume {
 						updatedDeployment.Spec.Template.Spec.Volumes = append(
 							updatedDeployment.Spec.Template.Spec.Volumes,
 							corev1.Volume{
 								Name: volumeName,
 								VolumeSource: corev1.VolumeSource{
-									EmptyDir: &corev1.EmptyDirVolumeSource{},
 									Image: &corev1.ImageVolumeSource{
 										Reference:  util.GetClusterProfilePluginImage(),
 										PullPolicy: corev1.PullIfNotPresent,
@@ -537,7 +546,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 								Name(pluginContainerName).
 								Image(util.GetClusterProfilePluginImage()).
 								ImagePullPolicy(corev1.PullIfNotPresent).
-								Command("cp", "/secretreader-plugin", secretReaderPath).
+								Command("sh", "-c", fmt.Sprintf("mkdir -p %s/bin && cp /bin/secretreader-plugin %s", volumeMountPath, secretReaderPath)).
 								VolumeMount(volumeName, volumeMountPath).
 								Obj(),
 						}
