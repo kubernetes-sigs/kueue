@@ -593,8 +593,9 @@ func TestReconcile(t *testing.T) {
 				}
 				return wl
 			}(),
-			wantErrorMsg: "not mapped in DRA configuration",
-			wantEvents:   nil,
+			// An unmapped DeviceClass is a deterministic configuration error, so the
+			// workload is left inadmissible without requeue (no reconcile error).
+			wantEvents: nil,
 		},
 		"reconcile DRA ResourceClaimTemplate not found should return error": {
 			featureGates: map[featuregate.Feature]bool{
