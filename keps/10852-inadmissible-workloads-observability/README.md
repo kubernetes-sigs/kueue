@@ -472,14 +472,12 @@ status:
     status: "False"
     reason: PendingEvaluation # Tier 8 Reason: Awaiting initial scheduler evaluation
     message: "Workload is pending evaluation in the scheduling queue"
-    observedGeneration: 1
   # Admitted condition is ONLY initialized/present on creation if the
   # UnadmittedWorkloadsExplicitStatus gate is ENABLED. If disabled, it is absent.
   - type: Admitted
     status: "False"
     reason: NoReservation
     message: "The workload has no reservation"
-    observedGeneration: 1
 ```
 
 ##### Scenario 2: Waiting for Cluster Capacity (Waiting for Quota)
@@ -494,7 +492,6 @@ status:
     status: "False"
     reason: Pending
     message: "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor default-flavor, 2 more needed"
-    observedGeneration: 1
 ```
 
 * **After KEP-10852:** Updated status:
@@ -505,14 +502,12 @@ status:
     status: "False"
     reason: WaitingForQuota # Tier 6 Reason
     message: "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor default-flavor, 2 more needed"
-    observedGeneration: 1
   # Admitted condition is ONLY initialized/present if the
   # UnadmittedWorkloadsExplicitStatus gate is ENABLED. If disabled, it remains absent.
   - type: Admitted
     status: "False"
     reason: NoReservation
     message: "The workload has no reservation"
-    observedGeneration: 1
 ```
 
 ##### Scenario 3: Configuration Error (Missing Queue)
@@ -527,7 +522,6 @@ status:
     status: "False"
     reason: Inadmissible
     message: "LocalQueue local-queue doesn't exist"
-    observedGeneration: 1
 ```
 
 * **After KEP-10852:** Updated status:
@@ -538,14 +532,12 @@ status:
     status: "False"
     reason: Misconfigured
     message: "LocalQueue local-queue doesn't exist"
-    observedGeneration: 1
   # Admitted condition is ONLY initialized/present if the
   # UnadmittedWorkloadsExplicitStatus gate is ENABLED. If disabled, it remains absent.
   - type: Admitted
     status: "False"
     reason: NoReservation
     message: "The workload has no reservation"
-    observedGeneration: 1
 ```
 
 ##### Scenario 4: Configuration Error (No Matching Flavor)
