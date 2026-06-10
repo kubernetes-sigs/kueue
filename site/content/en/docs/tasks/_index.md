@@ -48,6 +48,7 @@ As a batch user, you can learn how to:
 - [Run a Kueue managed plain Pod](run/plain_pods).
 - [Run a Kueue managed JobSet](run/jobsets).
 - [Run workloads with DRA devices](run/dra).
+- [Run workloads with Topology-Aware Scheduling](run/topology_aware_scheduling).
 - [Submit jobs to MultiKueue](run/multikueue).
 - [Run external workloads](run/external_workloads).
   Kueue allows one to use built-in integrations (such as Pods or Jobs) to run external workloads.
