@@ -28,6 +28,9 @@
 #   --exponential:       Double the delay after each failed attempt.
 #   --stream:            Forward stdout/stderr live instead of capturing stdout.
 #   --continue-if "CMD": Evaluates CMD upon failure. If it fails, retries are aborted immediately (fail-fast).
+#                        When set, each attempt's combined output is captured to a temp file, and any '{output}'
+#                        token in CMD is replaced with that file's path (e.g. --continue-if '! grep -q FATAL {output}').
+#                        Captured output is not displayed; add --stream to forward it live.
 #   --cleanup "CMD": Evaluates CMD before starting the next retry attempt.
 #
 # Usage:
@@ -64,33 +67,56 @@ if [ $# -eq 0 ]; then
     exit 2
 fi
 
+# When a continue-if check is provided, capture each attempt's combined output to
+# a temp file so the check can inspect why the attempt failed (via the '{output}' token),
+# while still streaming the output live to stderr.
+out=""
+output_file=""
+if [ -n "$continue_if" ]; then
+    output_file=$(mktemp) || exit 2
+    trap 'rm -f "$output_file"' EXIT
+fi
+
 for i in $(seq 1 "$attempts"); do
     echo "retry [$i/$attempts]: $*" 1>&2
-    if [ "$stream" = "true" ]; then
-        # Forward stdout/stderr live; nothing is captured or echoed.
-        if "$@"; then
-            exit 0
+    if [ -n "$output_file" ]; then
+        # continue-if needs the output captured to the temp file so the check can
+        # inspect it via the '{output}' token. Stream it live too when --stream is set.
+        if [ "$stream" = "true" ]; then
+            "$@" 2>&1 | tee "$output_file" >&2
+            status=${PIPESTATUS[0]}
+        else
+            "$@" >"$output_file" 2>&1
+            status=$?
         fi
-    elif out=$("$@"); then
+    elif [ "$stream" = "true" ]; then
+        # Forward stdout/stderr live; nothing is captured or echoed.
+        "$@"
+        status=$?
+    else
         # Capture stdout and echo it only on success, so failed-attempt output
         # never pollutes a $(shell ...) caller that captures the result.
-        printf '%s' "$out"
+        out=$("$@")
+        status=$?
+    fi
+    if [ "$status" -eq 0 ]; then
+        # $out is only populated without --continue-if/--stream; echo it on success as the $(shell ...) value.
+        if [ -z "$output_file" ] && [ "$stream" != "true" ]; then
+            printf '%s' "$out"
+        fi
         exit 0
     fi
     if [ "$i" -lt "$attempts" ]; then
-        echo "retry [$i/$attempts] failed, retrying in ${delay}s..." 1>&2
-    else
-        echo "retry [$i/$attempts] failed" 1>&2
-    fi
-
-    if [ "$i" -lt "$attempts" ]; then
         if [ -n "$continue_if" ]; then
-            # Evaluate the fail-fast condition
-            if ! eval "$continue_if"; then
+            # Evaluate the fail-fast condition, replacing '{output}' with the output file path.
+            if ! eval "${continue_if//\{output\}/$output_file}"; then
+                echo "retry [$i/$attempts] failed" 1>&2
                 echo "retry: aborting early as continue-if condition failed (fail-fast)" 1>&2
                 exit 1
             fi
         fi
+
+        echo "retry [$i/$attempts] failed, retrying in ${delay}s..." 1>&2
 
         if [ -n "$cleanup" ]; then
             # Run the cleanup command before the next attempt
@@ -105,6 +131,8 @@ for i in $(seq 1 "$attempts"); do
         if [ "$exponential" = "true" ]; then
             delay=$((delay * 2))
         fi
+    else
+        echo "retry [$i/$attempts] failed" 1>&2
     fi
 done
 exit 1
