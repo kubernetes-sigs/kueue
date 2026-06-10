@@ -199,6 +199,54 @@ for instructions on configuring feature gates.
 
 By default, Kueue tries to find a replacement for a failed node until it succeeds or until the workload is evicted (for example, by `waitForPodsReady.recoveryTimeout`). To prevent Kueue from retrying indefinitely, you can enable the `TASFailedNodeReplacementFailFast` feature gate. When enabled, Kueue will only attempt to find a replacement node once. If it fails, it will not try again, and the workload will get evicted and requeued.
 
+#### Replace Node on Node Taints
+{{< feature-state state="beta" for_version="v0.17" >}}
+{{% alert title="Note" color="primary" %}}
+`TASReplaceNodeOnNodeTaints` is currently a beta feature and is enabled by default.
+
+You can disable it by editing the `TASReplaceNodeOnNodeTaints` feature gate. Refer to the
+[Installation guide](/docs/installation/#change-the-feature-gates-configuration)
+for instructions on configuring feature gates.
+{{% /alert %}}
+
+Nodes are sometimes tainted to take them out of service, for example to drain them for
+maintenance or to reserve them for a higher-priority workload. When this happens, the
+Kubernetes core [taint eviction](https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/)
+controller may delete the Pods of a running TAS workload, but Kueue's TAS cache still
+accounts for the workload on that node. As a result the freed capacity is not reusable until
+the workload is eventually evicted (for example by `waitForPodsReady.recoveryTimeout`), which
+can take several minutes.
+
+With the `TASReplaceNodeOnNodeTaints` feature gate enabled, a scheduling taint (`NoExecute` or
+`NoSchedule`) that the workload does not tolerate can cause Kueue to treat the node as failed and
+handle it through the same hot swap flow described above, releasing the stale capacity quickly
+instead of waiting for the workload to time out. When the node is treated as failed depends on the
+taint effect and whether the workload's Pods are still running on it, as described below.
+
+Only the `NoExecute` and `NoSchedule` taint effects are considered; nodes with other taint
+effects (such as `PreferNoSchedule`) are not treated as failed. Whether a taint is tolerated is
+evaluated against the effective tolerations of the workload's Pods for that node, including any
+tolerations added by admission checks.
+
+When the workload does not tolerate the taint, the node becomes a candidate for replacement.
+With `TASReplaceNodeOnPodTermination` enabled (the default), Kueue waits until the workload's
+Pods are no longer running on the node (they are terminating, terminated, or were never
+scheduled there) before treating it as failed; with `TASReplaceNodeOnPodTermination` disabled,
+the node is treated as failed as soon as the untolerated taint is observed. The two scheduling
+taint effects differ in how the Pods stop running:
+
+- **`NoExecute`**: The Kubernetes taint eviction controller terminates Pods that do not tolerate
+  the taint, so they stop running on their own. If a Pod tolerates the taint with a
+  `tolerationSeconds` value, the taint eviction controller keeps that Pod for the given duration
+  before evicting it, so the node is treated as failed only after that Pod stops running.
+- **`NoSchedule`**: A `NoSchedule` taint does not evict already-running Pods, so under the default
+  `TASReplaceNodeOnPodTermination` behavior a workload whose Pods keep running on the tainted node
+  is left undisturbed, and Kueue triggers recovery only after those Pods stop running there, for
+  example after they are drained manually.
+
+In all cases, Kueue replaces the failed node when `TASFailedNodeReplacement` is enabled, or
+evicts the workload if no replacement is possible.
+
 #### Usage Scenarios
 
 Here are a few scenarios that can happen when both `TASReplaceNodeOnPodTermination` and `TASFailedNodeReplacementFailFast` are enabled:
@@ -229,7 +277,7 @@ Here are a few scenarios that can happen when both `TASReplaceNodeOnPodTerminati
 
 ##### Feature Gate Interaction Matrix
 
-The following table summarizes the behavior based on the combination of the feature gates. If `TASFailedNodeReplacement` is `false`, the other two gates have no effect.
+The following table summarizes the behavior based on the combination of the feature gates. If `TASFailedNodeReplacement` is `false`, the other gates have no effect.
 
 **Feature Gate Legend:**
 - **FNR**: `TASFailedNodeReplacement`
@@ -244,9 +292,21 @@ The following table summarizes the behavior based on the combination of the feat
 | `true` | `false` | `true` | **Fast Hot Swap**<ul><li>**Trigger**: Node is `NotReady` for > 30 seconds.</li><li>**Behavior**: Attempts replacement **only once**. Evicts the workload if it fails.</li></ul> |
 | `true` | `true` | `true` | **Fast Hot Swap with Pod Termination Trigger**<ul><li>**Trigger**: Node is `NotReady`, AND a workload pod is terminating.</li><li>**Behavior**: Attempts replacement **only once**. Evicts the workload if it fails.</li></ul> |
 
+{{% alert title="Note" color="primary" %}}
+`TASReplaceNodeOnNodeTaints` adds taints as an additional failure signal on top of the
+combinations above. When it is enabled (and `TASFailedNodeReplacement` is `true`), an
+untolerated `NoExecute` or `NoSchedule` taint also marks a node as failed, in addition to the
+not-ready and pod-termination triggers in the table. As with the not-ready trigger, when the
+node is treated as failed depends on `TASReplaceNodeOnPodTermination`: with it enabled (the
+default) Kueue waits until the workload's Pods stop running on the node, and with it disabled the
+node is treated as failed as soon as the untolerated taint is observed. The workload then follows
+the same retry behavior shown for the active combination (controlled by `TASFailedNodeReplacementFailFast`).
+See [Replace Node on Node Taints](#replace-node-on-node-taints) for the per-taint details.
+{{% /alert %}}
+
 **Recommended configuration**
 
-We recommend keeping all three feature gates enabled to ensure the fastest feedback loop for workloads affected by node failures.
+We recommend keeping all four feature gates enabled to ensure the fastest feedback loop for workloads affected by node failures or tainted nodes.
 
 #### Balanced Placement
 {{< feature-state state="alpha" for_version="v0.15" >}}
