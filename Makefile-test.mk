@@ -155,8 +155,35 @@ test-e2e-extended-helm: test-e2e-extended
 test-multikueue-e2e-baseline: E2E_NPROCS := 5
 test-multikueue-e2e-baseline: setup-e2e-env run-test-multikueue-e2e-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
-test-multikueue-e2e-extended: E2E_NPROCS := 5
-test-multikueue-e2e-extended: setup-e2e-env run-test-multikueue-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
+# Assign shard-0 operator versions (all operators except KubeRay) to the shard-0 target
+TEST_MULTIKUEUE_E2E_EXTENDED_SHARD_0_TARGETS := test-multikueue-e2e-extended-shard-0
+$(TEST_MULTIKUEUE_E2E_EXTENDED_SHARD_0_TARGETS): export JOBSET_VERSION := $(JOBSET_VERSION)
+$(TEST_MULTIKUEUE_E2E_EXTENDED_SHARD_0_TARGETS): export LEADERWORKERSET_VERSION := $(LEADERWORKERSET_VERSION)
+$(TEST_MULTIKUEUE_E2E_EXTENDED_SHARD_0_TARGETS): export APPWRAPPER_VERSION := $(APPWRAPPER_VERSION)
+$(TEST_MULTIKUEUE_E2E_EXTENDED_SHARD_0_TARGETS): export KUBEFLOW_VERSION := $(KUBEFLOW_VERSION)
+$(TEST_MULTIKUEUE_E2E_EXTENDED_SHARD_0_TARGETS): export KUBEFLOW_MPI_VERSION := $(KUBEFLOW_MPI_VERSION)
+$(TEST_MULTIKUEUE_E2E_EXTENDED_SHARD_0_TARGETS): export KUBEFLOW_TRAINER_VERSION := $(KUBEFLOW_TRAINER_VERSION)
+
+# Assign shard-1 operator versions (KubeRay + Ray) to the shard-1 target
+TEST_MULTIKUEUE_E2E_EXTENDED_SHARD_1_TARGETS := test-multikueue-e2e-extended-shard-1
+$(TEST_MULTIKUEUE_E2E_EXTENDED_SHARD_1_TARGETS): export KUBERAY_VERSION := $(KUBERAY_VERSION)
+$(TEST_MULTIKUEUE_E2E_EXTENDED_SHARD_1_TARGETS): export RAY_VERSION := $(RAY_VERSION)
+$(TEST_MULTIKUEUE_E2E_EXTENDED_SHARD_1_TARGETS): export RAYMINI_VERSION := $(RAYMINI_VERSION)
+
+.PHONY: test-multikueue-e2e-extended
+test-multikueue-e2e-extended:
+	$(MAKE) test-multikueue-e2e-extended-shard-0
+	$(MAKE) test-multikueue-e2e-extended-shard-1
+
+.PHONY: test-multikueue-e2e-extended-shard-0
+test-multikueue-e2e-extended-shard-0: E2E_NPROCS := 5
+test-multikueue-e2e-extended-shard-0: GINKGO_ARGS=--label-filter=feature:leaderworkerset,feature:jobset,feature:appwrapper,feature:pytorchjob,feature:mpijob,feature:trainjob
+test-multikueue-e2e-extended-shard-0: setup-e2e-env run-test-multikueue-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
+.PHONY: test-multikueue-e2e-extended-shard-1
+test-multikueue-e2e-extended-shard-1: E2E_NPROCS := 5
+test-multikueue-e2e-extended-shard-1: GINKGO_ARGS=--label-filter=feature:kuberay
+test-multikueue-e2e-extended-shard-1: setup-e2e-env run-test-multikueue-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-multikueue-e2e-sequential
 test-multikueue-e2e-sequential: setup-e2e-env kind-secretreader-plugin-image-build run-test-e2e-multikueue-sequential-$(E2E_KIND_VERSION:kindest/node:v%=%)
@@ -367,12 +394,7 @@ run-test-multikueue-e2e-extended-%:
 		E2E_MODE=$(E2E_MODE) \
 		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
 		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
-		APPWRAPPER_VERSION=$(APPWRAPPER_VERSION) \
-		JOBSET_VERSION=$(JOBSET_VERSION) KUBEFLOW_VERSION=$(KUBEFLOW_VERSION) \
-		KUBEFLOW_MPI_VERSION=$(KUBEFLOW_MPI_VERSION) \
-		KUBERAY_VERSION=$(KUBERAY_VERSION) RAY_VERSION=$(RAY_VERSION) RAYMINI_VERSION=$(RAYMINI_VERSION) USE_RAY_FOR_TESTS=$(USE_RAY_FOR_TESTS) \
-		KUBEFLOW_TRAINER_VERSION=$(KUBEFLOW_TRAINER_VERSION) \
-		LEADERWORKERSET_VERSION=$(LEADERWORKERSET_VERSION) \
+		USE_RAY_FOR_TESTS=$(USE_RAY_FOR_TESTS) \
 		E2E_TARGET_FOLDER="multikueue/extended" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
