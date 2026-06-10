@@ -205,13 +205,16 @@ func (r *elasticJobUngater) listGatedPods(ctx context.Context, wl *kueue.Workloa
 }
 
 // grantedPodSetCounts returns, per PodSet, the maximum replica Count among the
-// workload slices in wl's chain that hold a quota reservation. The chain is
-// identified by slices owned by the same parent job (matched via the
+// workload slices in wl's chain that hold an active quota reservation. The
+// chain is identified by slices owned by the same parent job (matched via the
 // OwnerReferenceUID index) that share the same slice name.
 func (r *elasticJobUngater) grantedPodSetCounts(ctx context.Context, wl *kueue.Workload) (workload.PodSetsCounts, error) {
 	granted := workload.PodSetsCounts{}
 	mergeMax := func(w *kueue.Workload) {
-		if !workload.HasQuotaReservation(w) {
+		// Finished (e.g. replaced) slices retain QuotaReserved=True, so require an
+		// active reservation to avoid inflating the cap from stale slices after a
+		// scale-up-then-scale-down cycle.
+		if !workload.HasActiveQuotaReservation(w) {
 			return
 		}
 		for ps, count := range workload.ExtractPodSetCountsFromWorkload(w) {
