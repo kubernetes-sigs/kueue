@@ -105,4 +105,7 @@ const (
 var (
 	sparkTestImageOnce sync.Once
 	sparkTestImage     string
+
+	agnHostImageOnce sync.Once
+	agnHostImage     string
 )
