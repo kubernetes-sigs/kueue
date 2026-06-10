@@ -59,7 +59,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	// LWS doesn't support managedBy, so the local LWS controller would
 	// immediately overwrite any status we sync from the worker cluster.
 	if err == nil {
-		if err := jobframework.ValidateRemoteObjectOwnership(&remoteLWS, origin); err != nil {
+		if err := jobframework.ValidateRemoteObjectOwnership(ctx, &remoteLWS, origin); err != nil {
 			return err
 		}
 		return nil
@@ -84,8 +84,11 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	return client.IgnoreAlreadyExists(remoteClient.Create(ctx, &remoteLWS))
 }
 
-func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName, origin string) error {
-	return jobframework.DeleteRemoteObjectIfOwnedByMultiKueue(ctx, remoteClient, key, origin, &leaderworkersetv1.LeaderWorkerSet{})
+func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {
+	lws := leaderworkersetv1.LeaderWorkerSet{}
+	lws.SetName(key.Name)
+	lws.SetNamespace(key.Namespace)
+	return client.IgnoreNotFound(remoteClient.Delete(ctx, &lws))
 }
 
 func (b *multiKueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {

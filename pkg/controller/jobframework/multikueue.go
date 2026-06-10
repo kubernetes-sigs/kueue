@@ -21,22 +21,27 @@ import (
 	"errors"
 	"fmt"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
 var ErrRemoteObjectNotOwnedByMultiKueue = errors.New("remote object is not owned by MultiKueue")
+var ErrMultiKueueOriginEmpty = errors.New("multikueue origin is empty")
 
 // ValidateRemoteObjectOwnership validates that the object is managed by this MultiKueue controller.
 // A MultiKueue-managed object must have the MultiKueueOriginLabel set to the controller origin.
-func ValidateRemoteObjectOwnership(obj client.Object, origin string) error {
+func ValidateRemoteObjectOwnership(ctx context.Context, obj client.Object, origin string) error {
+	log := ctrl.LoggerFrom(ctx).WithValues("remoteObject", client.ObjectKeyFromObject(obj), "objectType", fmt.Sprintf("%T", obj), "origin", origin)
+
 	if origin == "" {
-		return nil
+		log.Error(ErrMultiKueueOriginEmpty, "Remote object ownership validation failed because origin is empty")
+		return ErrMultiKueueOriginEmpty
 	}
 
 	if objOrigin, owned := obj.GetLabels()[kueue.MultiKueueOriginLabel]; owned && objOrigin == origin {
@@ -46,22 +51,35 @@ func ValidateRemoteObjectOwnership(obj client.Object, origin string) error {
 	return fmt.Errorf("%w: expected %q=%q on %T %q", ErrRemoteObjectNotOwnedByMultiKueue, kueue.MultiKueueOriginLabel, origin, obj, client.ObjectKeyFromObject(obj))
 }
 
-// DeleteRemoteObjectIfOwnedByMultiKueue fetches obj from remoteClient, skips deletion if it
-// is not found, lacks the MultiKueueOriginLabel, or has a different origin value, and
-// otherwise deletes it. The Delete is guarded by a UID precondition pinned to the object
-// observed by Get, so a concurrent delete-and-recreate between Get and Delete cannot
-// cause us to remove an unrelated replacement. deleteOpts are forwarded to the Delete call.
-func DeleteRemoteObjectIfOwnedByMultiKueue(ctx context.Context, remoteClient client.Client, key types.NamespacedName, origin string, obj client.Object, deleteOpts ...client.DeleteOption) error {
-	if err := remoteClient.Get(ctx, key, obj); err != nil {
-		return client.IgnoreNotFound(err)
+// DeleteRemoteObjectIfOwned fetches the remote object for the given adapter's GVK and key,
+// skips deletion if the object does not exist or is not owned by this MultiKueue origin,
+// and otherwise delegates to adapter.DeleteRemoteObject.
+func DeleteRemoteObjectIfOwned(ctx context.Context, localClient client.Client, remoteClient client.Client, adapter MultiKueueAdapter, key types.NamespacedName, origin string) error {
+	log := ctrl.LoggerFrom(ctx).WithValues("remoteObject", key, "adapterGVK", adapter.GVK().String(), "origin", origin)
+
+	if origin == "" {
+		log.Error(ErrMultiKueueOriginEmpty, "Skipping remote object deletion because origin is empty")
+		return ErrMultiKueueOriginEmpty
 	}
+
+	obj := &unstructured.Unstructured{}
+	obj.SetGroupVersionKind(adapter.GVK())
+
+	if err := remoteClient.Get(ctx, key, obj); err != nil {
+		if client.IgnoreNotFound(err) == nil {
+			log.V(2).Info("Skipping remote object action because object was not found")
+			return nil
+		}
+		return err
+	}
+
 	objOrigin, owned := obj.GetLabels()[kueue.MultiKueueOriginLabel]
 	if !owned || objOrigin != origin {
+		log.V(2).Info("Skipping remote object action because object is not owned by this MultiKueue origin", "hasOriginLabel", owned, "objectOrigin", objOrigin)
 		return nil
 	}
-	uid := obj.GetUID()
-	opts := append(deleteOpts, client.Preconditions(metav1.Preconditions{UID: &uid}))
-	return client.IgnoreNotFound(remoteClient.Delete(ctx, obj, opts...))
+
+	return adapter.DeleteRemoteObject(ctx, localClient, remoteClient, key)
 }
 
 // MultiKueueAdapter interface needed for MultiKueue job delegation.
@@ -70,7 +88,7 @@ type MultiKueueAdapter interface {
 	// Copy the status from the remote job if already exists.
 	SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error
 	// DeleteRemoteObject deletes the Job in the worker cluster.
-	DeleteRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, origin string) error
+	DeleteRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName) error
 	// IsJobManagedByKueue returns:
 	// - a bool indicating if the job object identified by key is managed by kueue and can be delegated.
 	// - a reason indicating why the job is not managed by Kueue

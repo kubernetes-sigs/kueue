@@ -64,7 +64,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 
 	// the remote job exists
 	if err == nil {
-		if err := jobframework.ValidateRemoteObjectOwnership(&remoteJob, origin); err != nil {
+		if err := jobframework.ValidateRemoteObjectOwnership(ctx, &remoteJob, origin); err != nil {
 			return err
 		}
 		statusUpdate := determineStatusUpdate(ctx, log, &localJob, &remoteJob)
@@ -180,8 +180,11 @@ func isJobStatusConditionTrue(conditions []batchv1.JobCondition, condType batchv
 	return false
 }
 
-func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName, origin string) error {
-	return jobframework.DeleteRemoteObjectIfOwnedByMultiKueue(ctx, remoteClient, key, origin, &batchv1.Job{}, client.PropagationPolicy(metav1.DeletePropagationBackground))
+func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {
+	job := batchv1.Job{}
+	job.SetName(key.Name)
+	job.SetNamespace(key.Namespace)
+	return client.IgnoreNotFound(remoteClient.Delete(ctx, &job, client.PropagationPolicy(metav1.DeletePropagationBackground)))
 }
 
 func (b *multiKueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {

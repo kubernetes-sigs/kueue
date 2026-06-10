@@ -55,7 +55,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 
 	// if the remote exists, just copy the status
 	if err == nil {
-		if err := jobframework.ValidateRemoteObjectOwnership(&remoteJob, origin); err != nil {
+		if err := jobframework.ValidateRemoteObjectOwnership(ctx, &remoteJob, origin); err != nil {
 			return err
 		}
 		return clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
@@ -83,8 +83,11 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	return remoteClient.Create(ctx, &remoteJob)
 }
 
-func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName, origin string) error {
-	return jobframework.DeleteRemoteObjectIfOwnedByMultiKueue(ctx, remoteClient, key, origin, &kftrainerapi.TrainJob{})
+func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {
+	job := kftrainerapi.TrainJob{}
+	job.SetName(key.Name)
+	job.SetNamespace(key.Namespace)
+	return client.IgnoreNotFound(remoteClient.Delete(ctx, &job))
 }
 
 func (b *multiKueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {

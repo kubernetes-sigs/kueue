@@ -80,7 +80,7 @@ func (a *Adapter) SyncJob(ctx context.Context, localClient client.Client, remote
 	}
 
 	// Update existing remote object status
-	if err := jobframework.ValidateRemoteObjectOwnership(remoteObj, origin); err != nil {
+	if err := jobframework.ValidateRemoteObjectOwnership(ctx, remoteObj, origin); err != nil {
 		return err
 	}
 	return a.syncStatus(ctx, localClient, localObj, remoteObj)
@@ -148,10 +148,12 @@ func (a *Adapter) copyStatusFromRemote(localObj, remoteObj *unstructured.Unstruc
 
 // DeleteRemoteObject deletes the remote object identified by the given key from the remote cluster.
 // It first attempts to retrieve the object, and if found, deletes it with background propagation policy.
-func (a *Adapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName, origin string) error {
+func (a *Adapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {
 	obj := &unstructured.Unstructured{}
 	obj.SetGroupVersionKind(a.gvk)
-	return jobframework.DeleteRemoteObjectIfOwnedByMultiKueue(ctx, remoteClient, key, origin, obj, client.PropagationPolicy(metav1.DeletePropagationBackground))
+	obj.SetName(key.Name)
+	obj.SetNamespace(key.Namespace)
+	return client.IgnoreNotFound(remoteClient.Delete(ctx, obj, client.PropagationPolicy(metav1.DeletePropagationBackground)))
 }
 
 // IsJobManagedByKueue checks if the job object identified by the given key is managed by Kueue.
