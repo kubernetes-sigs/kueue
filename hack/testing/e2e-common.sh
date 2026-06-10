@@ -76,32 +76,12 @@ function e2e_docker_pull_if_needed {
         return 0
     fi
 
-    local max_retries=7
-    local retry_delay=2
-    local attempt output
-    for attempt in $(seq 1 "$max_retries"); do
-        if output=$(docker pull "$image" 2>&1); then
-            echo "$output"
-            return 0
-        fi
-        echo "$output"
+    local non_retriable_errors="manifest (unknown|for .* not found)|repository does not exist|not found|pull access denied|unauthorized|denied: requested access|no space left on device"
 
-        if echo "$output" | grep -qiE 'manifest (unknown|for .* not found)|repository does not exist|not found|pull access denied|unauthorized|denied: requested access|no space left on device'; then
-            echo "ERROR: docker pull '$image' failed with a non-retriable error."
-            return 1
-        fi
-
-        if [ "$attempt" -eq "$max_retries" ]; then
-            break
-        fi
-
-        echo "WARNING: docker pull '$image' failed (attempt $attempt/$max_retries). Retrying in ${retry_delay}s..."
-        sleep "$retry_delay"
-        retry_delay=$((retry_delay * 2))
-    done
-
-    echo "ERROR: Failed to pull '$image' after $max_retries attempts."
-    return 1
+    "${ROOT_DIR}/hack/testing/retry.sh" \
+        --attempts 7 --delay 2 --exponential --stream \
+        --continue-if "! grep -qiE '${non_retriable_errors}' {output}" \
+        -- docker pull "$image"
 }
 
 function e2e_kubectl_apply_url {
