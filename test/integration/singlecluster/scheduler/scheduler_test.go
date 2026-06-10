@@ -2137,7 +2137,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		ginkgo.It("Should not admit new created workloads", func() {
 			ginkgo.By("Create clusterQueue")
 			cq = utiltestingapi.MakeClusterQueue("cluster-queue").
-			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj()).Obj()
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj()).Obj()
 			util.MustCreate(ctx, k8sClient, cq)
 			queue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
 			util.MustCreate(ctx, k8sClient, queue)
