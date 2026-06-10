@@ -52,12 +52,15 @@ Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) and watch the Kueu
       - ✔️ 1.33:
         - ✔️ [shard-0](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-shard-0-main-1-33)
         - ✔️ [shard-1](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-shard-1-main-1-33)
+        - ✔️ [shard-2](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-shard-2-main-1-33)
       - ✔️ 1.34:
         - ✔️ [shard-0](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-shard-0-main-1-34)
         - ✔️ [shard-1](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-shard-1-main-1-34)
+        - ✔️ [shard-2](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-shard-2-main-1-34)
       - ✔️ 1.35:
         - ✔️ [shard-0](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-shard-0-main-1-35)
         - ✔️ [shard-1](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-shard-1-main-1-35)
+        - ✔️ [shard-2](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-shard-2-main-1-35)
     - ✔️ TAS: 
       - ✔️ Baseline suite [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-tas-baseline-main).
       - ✔️ Extended suite: 
