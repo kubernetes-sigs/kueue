@@ -20,8 +20,6 @@ limitations under the License.
 package v1alpha1
 
 import (
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
 )
@@ -31,9 +29,19 @@ const (
 	Group = "multicluster.x-k8s.io"
 	// Version is the API version.
 	Version = "v1alpha1"
-	// Kind is the resource kind.
-	Kind     = "ClusterProfile"
-	resource = "clusterprofiles"
+
+	// ClusterProfile resource constants.
+	// Kind is the resource kind for ClusterProfile.
+	// Deprecated: Use ClusterProfileKind instead.
+	Kind = ClusterProfileKind
+	// ClusterProfileKind is the resource kind for ClusterProfile.
+	ClusterProfileKind     = "ClusterProfile"
+	clusterProfileResource = "clusterprofiles"
+
+	// PlacementDecision resource constants.
+	// PlacementDecisionKind is the resource kind for PlacementDecision.
+	PlacementDecisionKind     = "PlacementDecision"
+	placementDecisionResource = "placementdecisions"
 )
 
 var (
@@ -47,18 +55,40 @@ var (
 	// Deprecated
 	SchemeGroupVersion = GroupVersion
 
-	// SchemeGroupVersionKind is the group, version and kind for the ClusterProfile CR.
-	SchemeGroupVersionKind = schema.GroupVersionKind{
+	// ClusterProfileSchemeGroupVersionKind is the group, version and kind for the ClusterProfile CR.
+	ClusterProfileSchemeGroupVersionKind = schema.GroupVersionKind{
 		Group:   Group,
 		Version: Version,
-		Kind:    Kind,
+		Kind:    ClusterProfileKind,
+	}
+
+	// SchemeGroupVersionKind is the group, version and kind for the ClusterProfile CR.
+	// Deprecated: Use ClusterProfileSchemeGroupVersionKind instead.
+	SchemeGroupVersionKind = ClusterProfileSchemeGroupVersionKind
+
+	// ClusterProfileSchemeGroupVersionResource is the group, version and resource for the ClusterProfile CR.
+	ClusterProfileSchemeGroupVersionResource = schema.GroupVersionResource{
+		Group:    Group,
+		Version:  Version,
+		Resource: clusterProfileResource,
 	}
 
 	// SchemeGroupVersionResource is the group, version and resource for the ClusterProfile CR.
-	SchemeGroupVersionResource = schema.GroupVersionResource{
+	// Deprecated: Use ClusterProfileSchemeGroupVersionResource instead.
+	SchemeGroupVersionResource = ClusterProfileSchemeGroupVersionResource
+
+	// PlacementDecisionSchemeGroupVersionKind is the group, version and kind for the PlacementDecision CR.
+	PlacementDecisionSchemeGroupVersionKind = schema.GroupVersionKind{
+		Group:   Group,
+		Version: Version,
+		Kind:    PlacementDecisionKind,
+	}
+
+	// PlacementDecisionSchemeGroupVersionResource is the group, version and resource for the PlacementDecision CR.
+	PlacementDecisionSchemeGroupVersionResource = schema.GroupVersionResource{
 		Group:    Group,
 		Version:  Version,
-		Resource: resource,
+		Resource: placementDecisionResource,
 	}
 
 	// AddToScheme adds the types in this group-version to the given scheme.
@@ -69,14 +99,4 @@ var (
 // DEPRECATED
 func Resource(resource string) schema.GroupResource {
 	return schema.GroupResource{Group: GroupVersion.Group, Resource: resource}
-}
-
-// Adds the list of known types to api.Scheme.
-func addKnownTypes(scheme *runtime.Scheme) error {
-	scheme.AddKnownTypes(GroupVersion,
-		&ClusterProfile{},
-		&ClusterProfileList{},
-	)
-	metav1.AddToGroupVersion(scheme, GroupVersion)
-	return nil
 }
