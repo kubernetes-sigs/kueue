@@ -5,4 +5,6 @@ RUN go install sigs.k8s.io/cluster-inventory-api/plugins/secretreader/cmd/plugin
 # Final image
 FROM alpine:3.23.4
 USER 65534:65534
-COPY --from=builder /go/bin/plugin /secretreader-plugin
+# Place the binary at /bin to mirror the official secretreader image layout, so the
+# init-container fallback and the image-volume mount expose it at the same path.
+COPY --from=builder /go/bin/plugin /bin/secretreader-plugin
