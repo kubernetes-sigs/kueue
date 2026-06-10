@@ -104,7 +104,7 @@ type LocalQueueStatus struct {
 	// workloads assigned to this LocalQueue.
 	// +listType=map
 	// +listMapKey=name
-	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:MaxItems=64
 	// +optional
 	FlavorsReservation []LocalQueueFlavorUsage `json:"flavorsReservation,omitempty"`
 
@@ -112,7 +112,7 @@ type LocalQueueStatus struct {
 	// workloads assigned to this LocalQueue.
 	// +listType=map
 	// +listMapKey=name
-	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:MaxItems=64
 	// +optional
 	FlavorsUsage []LocalQueueFlavorUsage `json:"flavorsUsage,omitempty"`
 
@@ -164,7 +164,7 @@ type LocalQueueFlavorUsage struct {
 	// resources lists the quota usage for the resources in this flavor.
 	// +listType=map
 	// +listMapKey=name
-	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:MaxItems=64
 	// +required
 	Resources []LocalQueueResourceUsage `json:"resources,omitempty"`
 }
