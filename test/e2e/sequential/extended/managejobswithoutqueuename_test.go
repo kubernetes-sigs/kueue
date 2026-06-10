@@ -946,7 +946,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 	})
 })
 
-var _ = ginkgo.Describe("ManageJobsWithoutQueueName with ManagedJobsNamespaceSelectorAlwaysRespected=false", func() {
+var _ = ginkgo.Describe("ManageJobsWithoutQueueName with ManagedJobsNamespaceSelectorAlwaysRespected=false", ginkgo.Label("feature:managejobswithoutqueuename"), func() {
 	var (
 		ns           *corev1.Namespace
 		defaultRf    *kueue.ResourceFlavor
@@ -1050,7 +1050,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName with ManagedJobsNamespaceSel
 	})
 })
 
-var _ = ginkgo.Describe("ManageJobsWithoutQueueName without JobSet integration", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("ManageJobsWithoutQueueName without JobSet integration", ginkgo.Label("feature:managejobswithoutqueuename"), ginkgo.Ordered, func() {
 	var (
 		ns           *corev1.Namespace
 		defaultRf    *kueue.ResourceFlavor
