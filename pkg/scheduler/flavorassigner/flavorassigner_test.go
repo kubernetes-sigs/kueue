@@ -4053,6 +4053,7 @@ func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			tc.assignment.representativeMode = ptr.To(Fit)
 			tasReqs := tc.assignment.WorkloadsTopologyRequests(testr.New(t), &tc.workload, &tc.cq)
 			if len(tasReqs) != 0 {
 				t.Errorf("expected no TAS requests, got: %+v", tasReqs)
@@ -4292,6 +4293,7 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			tc.assignment.representativeMode = ptr.To(Fit)
 			tasReqs := tc.assignment.WorkloadsTopologyRequests(testr.New(t), &tc.workload, &tc.cq)
 			if tc.wantErr != "" {
 				if len(tasReqs) != 0 {
@@ -4302,8 +4304,16 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 				} else if diff := cmp.Diff(tc.wantErr, tc.assignment.PodSets[0].Status.err.Error()); diff != "" {
 					t.Errorf("Error mismatch (-want +got):\n%s", diff)
 				}
-			} else if tc.assignment.PodSets[0].Status.err != nil {
-				t.Errorf("expected no error, got: %v", tc.assignment.PodSets[0].Status.err)
+				if got := tc.assignment.RepresentativeMode(); got != NoFit {
+					t.Errorf("RepresentativeMode() = %v, want NoFit (workload must not be admitted when elastic job validation fails)", got)
+				}
+			} else {
+				if tc.assignment.PodSets[0].Status.err != nil {
+					t.Errorf("expected no error, got: %v", tc.assignment.PodSets[0].Status.err)
+				}
+				if got := tc.assignment.RepresentativeMode(); got != Fit {
+					t.Errorf("RepresentativeMode() = %v, want Fit", got)
+				}
 			}
 		})
 	}

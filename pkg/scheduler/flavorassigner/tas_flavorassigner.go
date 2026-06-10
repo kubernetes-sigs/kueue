@@ -64,10 +64,12 @@ func (a *Assignment) WorkloadsTopologyRequests(log logr.Logger, wl *workload.Inf
 			if workload.IsElasticWorkload(wl.Obj) && features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) {
 				if podSet.TopologyRequest != nil && podSet.TopologyRequest.Required != nil {
 					psAssignment.error(errors.New("required topology is not supported with ElasticJobsViaWorkloadSlices"))
+					a.representativeMode = nil
 					continue
 				}
 				if podSet.TopologyRequest != nil && podSet.TopologyRequest.Preferred != nil {
 					psAssignment.error(errors.New("preferred topology is not supported with ElasticJobsViaWorkloadSlices"))
+					a.representativeMode = nil
 					continue
 				}
 				previousAssignment = getPreviousTopologyAssignment(a.replaceWorkloadSlice, podSet.Name)
@@ -76,6 +78,7 @@ func (a *Assignment) WorkloadsTopologyRequests(log logr.Logger, wl *workload.Inf
 			psTASRequest, err := podSetTopologyRequest(psAssignment, wl, cq, isTASImplied, i, previousAssignment)
 			if err != nil {
 				psAssignment.error(err)
+				a.representativeMode = nil
 			} else if psTASRequest != nil {
 				tasRequests[psTASRequest.Flavor] = append(tasRequests[psTASRequest.Flavor], *psTASRequest)
 			}
