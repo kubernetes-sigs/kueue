@@ -359,10 +359,9 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 			lookup: defaultLookup,
 			wantErr: field.ErrorList{
-				field.Invalid(
+				field.InternalError(
 					field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(0).Child("exactly", "selectors"),
-					"",
-					"",
+					errors.New(""),
 				),
 			},
 		},
@@ -395,10 +394,9 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 			lookup: defaultLookup,
 			wantErr: field.ErrorList{
-				field.Invalid(
+				field.InternalError(
 					field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(0).Child("exactly", "selectors"),
-					"",
-					"",
+					errors.New(""),
 				),
 			},
 		},
@@ -460,10 +458,9 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 			lookup: defaultLookup,
 			wantErr: field.ErrorList{
-				field.Invalid(
+				field.InternalError(
 					field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(1).Child("exactly", "selectors"),
-					"",
-					"",
+					errors.New(""),
 				),
 			},
 		},

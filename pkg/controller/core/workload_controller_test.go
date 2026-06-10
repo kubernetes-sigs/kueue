@@ -416,6 +416,7 @@ func TestReconcile(t *testing.T) {
 		resourceClaims            []*resourcev1.ResourceClaim
 		resourceClaimTemplates    []*resourcev1.ResourceClaimTemplate
 		patchErr                  error
+		listErr                   error
 		wantDRAResourceTotal      *int64
 		wantWorkloadsInQueue      *int
 		wantWorkload              *kueue.Workload
@@ -669,8 +670,7 @@ func TestReconcile(t *testing.T) {
 				}
 				return wl
 			}(),
-			wantErrorMsg: "not mapped in DRA configuration",
-			wantEvents:   nil,
+			wantEvents: nil,
 		},
 		"reconcile DRA ResourceClaimTemplate not found should return error": {
 			featureGates: map[featuregate.Feature]bool{
@@ -708,6 +708,33 @@ func TestReconcile(t *testing.T) {
 				}).
 				Obj(),
 			wantErrorMsg: "failed to get claim spec",
+			wantEvents:   nil,
+		},
+		"reconcile DRA transient ResourceSlice list failure should back off": {
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration:              true,
+				features.MultiKueueOrchestratedPreemption: false,
+			},
+			listErr: errTest,
+			workload: utiltestingapi.MakeWorkload("wlListErrDRA", "ns").
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("gpu", "gpu-template").
+					Obj()).
+				Obj(),
+			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
+				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
+					DeviceRequest("gpu-request", "gpu.example.com", 1).
+					WithCELSelectors("device.driver == \"test-driver\"").
+					Obj(),
+			},
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").
+						Resource("gpu", "2").Obj(),
+				).Obj(),
+			lq:           utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantErrorMsg: "failed to list ResourceSlices",
 			wantEvents:   nil,
 		},
 		"assign Admission Checks from ClusterQueue.spec.AdmissionCheckStrategy": {
@@ -3430,6 +3457,14 @@ func TestReconcile(t *testing.T) {
 								return tc.patchErr
 							}
 							return utiltesting.TreatSSAAsStrategicMerge(ctx, client, subResourceName, obj, patch, opts...)
+						},
+						List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+							if tc.listErr != nil {
+								if _, ok := list.(*resourcev1.ResourceSliceList); ok {
+									return tc.listErr
+								}
+							}
+							return c.List(ctx, list, opts...)
 						},
 					})
 				cl := clientBuilder.Build()
