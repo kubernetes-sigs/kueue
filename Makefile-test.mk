@@ -279,12 +279,32 @@ test-e2e-sequential-baseline-shard-1: test-e2e-sequential-baseline
 test-e2e-sequential-baseline-helm: E2E_USE_HELM=true
 test-e2e-sequential-baseline-helm: test-e2e-sequential-baseline
 
+# Assign Shard 0 variables to the shard-0 target
+TEST_E2E_SEQUENTIAL_EXTENDED_SHARD_0_TARGETS := test-e2e-sequential-extended-shard-0
+$(TEST_E2E_SEQUENTIAL_EXTENDED_SHARD_0_TARGETS): export JOBSET_VERSION := $(JOBSET_VERSION)
+$(TEST_E2E_SEQUENTIAL_EXTENDED_SHARD_0_TARGETS): export APPWRAPPER_VERSION := $(APPWRAPPER_VERSION)
+$(TEST_E2E_SEQUENTIAL_EXTENDED_SHARD_0_TARGETS): export LEADERWORKERSET_VERSION := $(LEADERWORKERSET_VERSION)
+
+# Assign Shard 1 variables to the shard-1 target
+TEST_E2E_SEQUENTIAL_EXTENDED_SHARD_1_TARGETS := test-e2e-sequential-extended-shard-1
+$(TEST_E2E_SEQUENTIAL_EXTENDED_SHARD_1_TARGETS): export SPARKOPERATOR_VERSION := $(SPARKOPERATOR_VERSION)
+
 ## Label Taxonomy:
-##   Features: managejobswithoutqueuename, spark
+##   Features: managejobswithoutqueuename, workloadidentifierannotations, spark
 ## Examples:
 ##   Run only Spark Integration tests: GINKGO_ARGS="--label-filter=feature:spark" make test-e2e-sequential-extended
 .PHONY: test-e2e-sequential-extended
-test-e2e-sequential-extended: setup-e2e-env run-test-e2e-sequential-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-e2e-sequential-extended:
+	$(MAKE) test-e2e-sequential-extended-shard-0 E2E_USE_HELM=$(E2E_USE_HELM)
+	$(MAKE) test-e2e-sequential-extended-shard-1 E2E_USE_HELM=$(E2E_USE_HELM)
+
+.PHONY: test-e2e-sequential-extended-shard-0
+test-e2e-sequential-extended-shard-0: GINKGO_ARGS=--label-filter=feature:managejobswithoutqueuename,feature:workloadidentifierannotations
+test-e2e-sequential-extended-shard-0: setup-e2e-env run-test-e2e-sequential-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
+.PHONY: test-e2e-sequential-extended-shard-1
+test-e2e-sequential-extended-shard-1: GINKGO_ARGS=--label-filter=feature:spark
+test-e2e-sequential-extended-shard-1: setup-e2e-env run-test-e2e-sequential-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-e2e-sequential-extended-helm
 test-e2e-sequential-extended-helm: E2E_USE_HELM=true
@@ -417,9 +437,6 @@ run-test-e2e-sequential-extended-%:
 	E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
 	E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
 	KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="sequential/extended" \
-	JOBSET_VERSION=$(JOBSET_VERSION) APPWRAPPER_VERSION=$(APPWRAPPER_VERSION) \
-	LEADERWORKERSET_VERSION=$(LEADERWORKERSET_VERSION) \
-	SPARKOPERATOR_VERSION=$(SPARKOPERATOR_VERSION) \
 	TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 	E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 	E2E_USE_HELM=$(E2E_USE_HELM) \
