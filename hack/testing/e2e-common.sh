@@ -715,6 +715,38 @@ function deploy_with_certmanager() {
     printf "%s\n" "$default_backup" > "$default_kust"
 }
 
+# Wait for the Kueue deployment and webhook endpoint to be ready.
+# $1 kubeconfig path (pass "" to use the default kubeconfig)
+function wait_for_kueue_controller_operator {
+    local kubeconfig="${1:-}"
+
+    local -a kubectl_args=()
+    if [[ -n "${kubeconfig}" ]]; then
+        kubectl_args+=(--kubeconfig="${kubeconfig}")
+    fi
+
+    kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} -n "${KUEUE_NAMESPACE}" wait deploy/"${KUEUE_DEPLOYMENT_NAME}" \
+        --for=condition=available --timeout=5m
+
+    # TODO(#11996): once the shared e2e_wait_for_deployment_webhook_endpoints helper
+    # lands, call it here for kueue-webhook-service to wait for ready webhook endpoints
+    # (generic deployment + webhook-endpoint readiness, reusable across operators).
+
+    # Dry run to make sure that at least one webhook correctly handles the new flavors.
+    local probe_manifest
+    probe_manifest=$(mktemp)
+    # shellcheck disable=SC2064 # Intentionally expand now to capture the temp file path
+    trap "rm -f '$probe_manifest'" RETURN
+    cat >"${probe_manifest}" <<'EOF'
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ResourceFlavor
+metadata:
+  name: webhook-probe
+EOF
+    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 10 --delay 5 --stream -- \
+        kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} create --dry-run=server -f "${probe_manifest}"
+}
+
 # $1 kubeconfig
 function cluster_kueue_deploy {
     # Handle upgrade test mode
@@ -748,6 +780,8 @@ function cluster_kueue_deploy {
     else
         build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/${E2E_CONFIG_FOLDER:-default}"
     fi
+
+    wait_for_kueue_controller_operator "$1"
 }
 
 # $1 kubeconfig
@@ -1364,9 +1398,9 @@ function upgrade_test_flow {
       sed 's|imagePullPolicy: Always|imagePullPolicy: IfNotPresent|g' | \
       kubectl apply --server-side -f -
 
-    kubectl wait --for=condition=available --timeout=180s deployment/"${KUEUE_DEPLOYMENT_NAME}" -n kueue-system
+    wait_for_kueue_controller_operator "$1"
     echo "✓ $old_version ready"
-    
+
     # Step 2: Create test resources
     echo "Creating test resources..."
     
@@ -1428,7 +1462,7 @@ EOF
     
     # Wait for the rolling update to complete.
     echo "Waiting for rolling update to complete..."
-    kubectl wait --for=condition=available --timeout=300s deployment/"${KUEUE_DEPLOYMENT_NAME}" -n "${KUEUE_NAMESPACE}"
+    wait_for_kueue_controller_operator "$1"
     echo "Upgrade complete (rolling update finished)"
     echo "========================================="
 }
