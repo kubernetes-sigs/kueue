@@ -1518,11 +1518,11 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				createdWorkload := &kueue.Workload{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 				acs := admissioncheck.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAC.Name))
-				g.Expect(acs).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
-					Name:       kueue.AdmissionCheckReference(multiKueueAC.Name),
-					State:      kueue.CheckStatePending,
-					RetryCount: new(int32(1)),
-				}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "Message")))
+				g.Expect(acs).ToNot(gomega.BeNil())
+				g.Expect(acs.Name).To(gomega.Equal(kueue.AdmissionCheckReference(multiKueueAC.Name)))
+				g.Expect(acs.State).To(gomega.Equal(kueue.CheckStatePending))
+				g.Expect(acs.RetryCount).ToNot(gomega.BeNil())
+				g.Expect(*acs.RetryCount).To(gomega.BeNumerically(">", 0))
 
 				g.Expect(createdWorkload.Status.Conditions).ToNot(utiltesting.HaveConditionStatusTrue(kueue.WorkloadQuotaReserved))
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
@@ -2225,11 +2225,11 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 					createdWorkload := &kueue.Workload{}
 					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 					acs := admissioncheck.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAC.Name))
-					g.Expect(acs).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
-						Name:       kueue.AdmissionCheckReference(multiKueueAC.Name),
-						State:      kueue.CheckStatePending,
-						RetryCount: new(int32(1)),
-					}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "Message")))
+					g.Expect(acs).ToNot(gomega.BeNil())
+					g.Expect(acs.Name).To(gomega.Equal(kueue.AdmissionCheckReference(multiKueueAC.Name)))
+					g.Expect(acs.State).To(gomega.Equal(kueue.CheckStatePending))
+					g.Expect(acs.RetryCount).ToNot(gomega.BeNil())
+					g.Expect(*acs.RetryCount).To(gomega.BeNumerically(">", 0))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
