@@ -1060,13 +1060,12 @@ function install_sparkoperator {
     local kubeconfig=${2:-}
     local ns="${SPARKOPERATOR_NAMESPACE:-spark-operator}"
     local helm_release_name="${SPARKOPERATOR_HELM_RELEASE_NAME:-spark-operator}"
+    local helm_chart="${SPARKOPERATOR_HELM_CHART:-oci://ghcr.io/kubeflow/helm-charts/spark-operator}"
     local expected_version="${SPARKOPERATOR_VERSION:-}"
     expected_version="${expected_version#v}"
     local install_cmd="install"
     cluster_kind_load_image "${cluster_name}" "${SPARKOPERATOR_IMAGE}"
     cluster_kind_load_image "${cluster_name}" "${E2E_TEST_SPARK_IMAGE}"
-
-    ${HELM} repo add --force-update spark-operator https://kubeflow.github.io/spark-operator
 
     if [[ "${E2E_MODE}" == "dev" ]] && ! e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
         if helm list --namespace "${ns}" | grep -q "${helm_release_name}"; then
@@ -1087,14 +1086,18 @@ function install_sparkoperator {
         fi
     fi
 
-    ${HELM} --kubeconfig="${kubeconfig}" \
-    ${install_cmd} "${helm_release_name}" spark-operator/spark-operator \
-    --version "${expected_version}" \
-    --namespace "${ns}" \
-    --create-namespace \
-    --wait \
-    --set image.tag="${expected_version}" \
-    --set 'spark.jobNamespaces[0]='
+    local install_args=(
+        --kubeconfig="${kubeconfig}"
+        "${install_cmd}" "${helm_release_name}" "${helm_chart}"
+        --version "${expected_version}"
+        --namespace "${ns}"
+        --create-namespace
+        --wait
+        --set image.tag="${expected_version}"
+        --set 'spark.jobNamespaces[0]='
+    )
+    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 7 --delay 2 --exponential --stream -- \
+        "${HELM}" "${install_args[@]}"
 }
 
 # $1 kubeconfig option
