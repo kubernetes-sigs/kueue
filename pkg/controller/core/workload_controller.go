@@ -61,6 +61,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
+	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	qutil "sigs.k8s.io/kueue/pkg/util/queue"
@@ -866,7 +867,7 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 			return false, err
 		}
 		log.V(3).Info("Workload is deactivated due to rejected admission checks", "workload", klog.KObj(wl), "rejectedChecks", rejectedChecks)
-		r.recorder.Eventf(wl, nil, corev1.EventTypeWarning, "AdmissionCheckRejected", "AdmissionCheckRejected", "Deactivated due to %s", message)
+		r.recorder.Eventf(wl, nil, corev1.EventTypeWarning, "AdmissionCheckRejected", "AdmissionCheckRejected", api.TruncateEventMessage(fmt.Sprintf("Deactivated due to %s", message)))
 		return true, nil
 	}
 	// at this point we know a Workload has at least one Retry AdmissionCheck
