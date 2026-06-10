@@ -20,7 +20,12 @@
   - [Downgrade Path](#downgrade-path)
 - [Design Details](#design-details)
   - [Tiered Reason Precedence &amp; Resolution](#tiered-reason-precedence--resolution)
-    - [Multi-Flavor Precedence Resolution](#multi-flavor-precedence-resolution)
+    - [1. Flavor-Independent (Workload-wide) Reasons](#1-flavor-independent-workload-wide-reasons)
+    - [2. Nominated Flavor Reasons](#2-nominated-flavor-reasons)
+    - [3. Pending Evaluation](#3-pending-evaluation)
+    - [Multi-PodSet Reason Resolution](#multi-podset-reason-resolution)
+    - [Resolution Algorithm](#resolution-algorithm)
+    - [Resolution Examples](#resolution-examples)
   - [Admitted Condition Initialization and Lifecycle](#admitted-condition-initialization-and-lifecycle)
     - [Simplification: Removal of NoReservationUnsatisfiedChecks Reason](#simplification-removal-of-noreservationunsatisfiedchecks-reason)
   - [Prometheus Metrics Schema](#prometheus-metrics-schema)
@@ -28,7 +33,8 @@
     - [Concrete Status Scenarios (Before &amp; After)](#concrete-status-scenarios-before--after)
       - [Scenario 1: Newly Created Workload (Initial Reconcile)](#scenario-1-newly-created-workload-initial-reconcile)
       - [Scenario 2: Waiting for Cluster Capacity (Waiting for Quota)](#scenario-2-waiting-for-cluster-capacity-waiting-for-quota)
-      - [Scenario 3: Configuration Error (e.g. Missing Queue or Flavor Mismatch)](#scenario-3-configuration-error-eg-missing-queue-or-flavor-mismatch)
+      - [Scenario 3: Configuration Error (Missing Queue)](#scenario-3-configuration-error-missing-queue)
+      - [Scenario 4: Configuration Error (No Matching Flavor)](#scenario-4-configuration-error-no-matching-flavor)
   - [Future Work](#future-work)
   - [Test Plan](#test-plan)
     - [Unit Tests](#unit-tests)
@@ -248,41 +254,103 @@ field according to a strict priority hierarchy. Lower tier numbers represent
 structural failures and block scheduling early, thus taking absolute precedence
 over higher tiers.
 
-Tiers are evaluated either at the **workload-wide** level (independent of flavor
-assignments) or at the **per-flavor** assignment level:
+Tiers are evaluated at three levels of precedence:
 
-| Tier | Scope | Classification | Reason Token | Description / Scenario | Location in Memory |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **Tier 1** | Workload-wide | Workload Deactivation | `Deactivated` | Workload is explicitly deactivated (`spec.active: false`). | None |
-| **Tier 2** | Mixed | Structural Blockers | `Misconfigured` | Permanent structural error preventing admission:<br>- Missing local/cluster queue (Workload-wide)<br>- Resource flavor mismatch (Per-flavor)<br>- DRA misconfiguration (Workload-wide) | Missing local/cluster queue - None<br>ResourceFlavor mismatch - `ClusterQueue.inadmissibleWorkloads`<br>DRA issues - None |
-| **Tier 3** | Per-flavor | Structural Quota Blockers | `ExceedsMaxQuota` | Workload requests resource quantities exceeding ClusterQueue nominal limits (when no cohort) or the Cohort's total maximum capacity limits (`val > CohortTotalQuota`). | `ClusterQueue.inadmissibleWorkloads` |
-| **Tier 4** | Workload-wide | Orchestration & Administrative Holds | `Suspended`, `AdmissionGated`, `WaitingForPodsReady` | Workload is structurally valid, but admission is halted due to:<br>- Administrative hold (the queue's StopPolicy is active).<br>- Gated state (AdmissionGatedBy annotation).<br>- Scheduling hold (waiting for previously admitted workloads to reach PodsReady under waitForPodsReady configuration). | AdmissionGated - None<br>StopPolicy - None<br>WaitingForPodsReady - blocks and waits |
-| **Tier 5** | Per-flavor | Policy Quota Limits | `BorrowingLimitReached` | Total unused capacity in the Cohort is sufficient, but allocating resources would cause the ClusterQueue to exceed its borrowing limit policy constraint (`val > NominalQuota + BorrowingLimit`). | `ClusterQueue.inadmissibleWorkloads` |
-| **Tier 6** | Per-flavor | Resource Deficits | `WaitingForQuota`, `TopologyPlacementFailed` | Parallel capacity-wait reasons:<br>- `WaitingForQuota`: General capacity wait (total unused nominal capacity in the ClusterQueue/Cohort is less than the workload request: `val > available`).<br>- `TopologyPlacementFailed`: TAS workload only. Nominal capacity exists (`val <= available`), but capacity is fragmented across domains preventing contiguous placement. | `ClusterQueue.inadmissibleWorkloads` |
-| **Tier 7** | Workload-wide | Admission Progressing | `PreemptionPending` | Evictions have been issued; waiting for victims to terminate and release their capacity. | None |
-| **Tier 8** | Workload-wide | Active Queueing | `PendingEvaluation` | Workload is submitted, structurally valid, resides actively in the queue, and is awaiting its capacity evaluation. Set also after eviction. | `ClusterQueue.heap` |
+#### 1. Flavor-Independent (Workload-wide) Reasons
+These blockers are independent of flavor assignment and take absolute precedence
+over any nominated flavor checks. If any of these are active, flavor assignment
+is not evaluated or reported.
 
-*Note: Precedence Resolution examples:*
-- *If a workload requests resource quantities exceeding the ClusterQueue
-  maximum limits (Tier 3) but is also blocked by an unsatisfied
-  admission gate (Tier 4), the resolved reason is written as
-  `ExceedsMaxQuota` due to Tier 3 priority.*
-- *If a workload is waiting for capacity (Tier 6) but also has unsatisfied
-  admission gates (Tier 4), the resolved reason is written as
-  `AdmissionGated` due to Tier 4 priority.*
+| Precedence | Reason Token | Description / Scenario | Location in Memory |
+| :--- | :--- | :--- | :--- |
+| **1** | `Deactivated` | Workload is explicitly deactivated (`spec.active: false`). | None |
+| **2** | `Misconfigured` | Workload points to a non-existent queue or has invalid DRA configs. | None |
+| **3** | `NoMatchingFlavor` | Workload requests a flavor that does not exist or whose taints it does not tolerate. | `ClusterQueue.inadmissibleWorkloads` |
+| **4** | `Suspended` | Administrative hold (the queue's StopPolicy is active). | None |
+| **5** | `AdmissionGated` | Gated state (AdmissionGatedBy annotation). | None |
+| **6** | `WaitingForPodsReady` | Scheduling hold (waiting for previously admitted workloads to reach PodsReady under `waitForPodsReady` configuration). | blocks and waits |
 
-#### Multi-Flavor Precedence Resolution
+#### 2. Nominated Flavor Reasons
+These blockers apply to the nominated flavor assignment selected by the
+scheduler. Lower numbers represent more severe blocks.
 
-When a workload is evaluated against multiple `ResourceFlavor` paths within a
-ClusterQueue, Kueue attempts to find the most schedulable assignment. If
-scheduling fails, the blocker tier and reason reported in the workload status
-are emitted from the most schedulable flavor assignment candidate (i.e., the
-candidate that blocks at the highest tier number).
+| Precedence | Reason Token | Description / Scenario | Location in Memory |
+| :--- | :--- | :--- | :--- |
+| **1** | `ExceedsMaxQuota` | Workload requests resource quantities exceeding ClusterQueue nominal limits (when no cohort) or the Cohort's total maximum capacity limits. | `ClusterQueue.inadmissibleWorkloads` |
+| **2** | `BorrowingLimitReached` | Total unused capacity in the Cohort is sufficient, but allocating resources would cause the ClusterQueue to exceed its borrowing limit policy constraint. | `ClusterQueue.inadmissibleWorkloads` |
+| **3** | `WaitingForQuota` | General capacity wait (total unused nominal capacity in the ClusterQueue/Cohort is less than the workload request). | `ClusterQueue.inadmissibleWorkloads` |
+| **4** | `TopologyPlacementFailed` | TAS workload only. Nominal capacity exists, but capacity is fragmented across domains preventing contiguous placement. | `ClusterQueue.inadmissibleWorkloads` |
+| **5** | `PendingPreemption` | Evictions have been issued; waiting for victims to terminate and release their capacity. | `ClusterQueue.heap` |
 
-This ensures that operators receive actionable alerts regarding the closest
-viable scheduling path (e.g., a limits or capacity block on a compatible
-flavor) rather than generic configuration mismatch reports from incompatible
-flavors.
+#### 3. Pending Evaluation
+This is the lowest precedence state, applicable to workloads that are active
+in the queue but have not yet been evaluated by the scheduler.
+
+| Precedence | Reason Token | Description / Scenario | Location in Memory |
+| :--- | :--- | :--- | :--- |
+| **1** | `PendingEvaluation` | Workload is active in the queue, awaiting initial scheduler evaluation. | `ClusterQueue.heap` |
+
+#### Multi-PodSet Reason Resolution
+
+If a workload defines multiple podsets, flavor assignment is evaluated
+sequentially by podset groups.
+
+If a podset group fails to be assigned a flavor, the scheduler exits early,
+skipping subsequent groups. Consequently, the representative reason for the
+workload is resolved as the most severe reason among the first failing podset
+group's reason and any preceding groups' reasons (as shown in Example 2
+below).
+
+#### Resolution Algorithm
+
+The final reason reported in the workload's `QuotaReserved` condition is
+resolved as follows:
+
+1. **Step 1: Check Flavor-Independent Blockers**
+   If any Flavor-Independent blocker is active (e.g., the workload is
+   deactivated, misconfigured, has no matching flavors, is suspended, gated,
+   or waiting for pods ready), the blocker with the **highest precedence**
+   (lowest number in the Flavor-Independent table) is selected.
+   * *Note on `NoMatchingFlavor`*: This is determined if flavor matching fails
+     for all attempted flavor combinations during the scheduling cycle.
+
+2. **Step 2: Evaluate Nominated Flavor (if no Flavor-Independent blockers match)**
+   If no Flavor-Independent blockers apply, Kueue reports the reason for the
+   nominated flavor assignment (the candidate assignment closest to being
+   runnable, which Kueue selected during the flavor assignment phase).
+   * If the workload defines multiple podsets, this representative reason is
+     resolved to the **most severe reason** among all evaluated podsets (as
+     detailed in Multi-PodSet Reason Resolution).
+
+3. **Step 3: Default to Pending Evaluation**
+   If the workload has not yet been evaluated by the scheduler (e.g., newly
+   created), the reason defaults to `PendingEvaluation`.
+
+#### Resolution Examples
+
+* **Example 1 (Flavor-Independent precedence resolution)**:
+  A workload is deactivated (`spec.active: false`, Precedence 1) and points to
+  a suspended ClusterQueue (`Suspended`, Precedence 4).
+  - **Result**: `Deactivated` is reported. Although the workload is bypassed by
+    the scheduler queue and not read from the ClusterQueue, the workload
+    controller still reconciles it to update status conditions. Since
+    `Deactivated` (Precedence 1) has higher precedence than `Suspended`
+    (Precedence 4), the controller reports `Deactivated`.
+
+* **Example 2 (Multi-PodSet Precedence Resolution)**:
+  A workload defines two podsets (`podset-a` and `podset-b`) in different podset
+  groups (evaluated sequentially).
+  - **First Step**: `podset-a` is evaluated first. It is assigned a flavor that
+    requires preemption, so its status is set to `Preempt` (with reason
+    `PendingPreemption`, Precedence 5). Since it successfully received a
+    flavor assignment, the scheduler continues to the next group.
+  - **Second Step**: `podset-b` is evaluated next. All of its candidate flavors
+    are blocked because they request resources exceeding limits, so its status
+    is set to `NoFit` (with reason `ExceedsMaxQuota`, Precedence 1). Because
+    this podset failed flavor assignment, the scheduler exits early.
+  - **Result**: `ExceedsMaxQuota` is reported as the representative reason
+    for the workload because it is the most severe blocker (Precedence 1 vs
+    Precedence 5) among all evaluated podsets.
 
 ### Admitted Condition Initialization and Lifecycle
 
@@ -447,7 +515,7 @@ status:
     observedGeneration: 1
 ```
 
-##### Scenario 3: Configuration Error (e.g. Missing Queue or Flavor Mismatch)
+##### Scenario 3: Configuration Error (Missing Queue)
 
 The workload points to a non-existent queue, blocking scheduling evaluation early.
 
@@ -468,7 +536,7 @@ status:
   conditions:
   - type: QuotaReserved
     status: "False"
-    reason: Misconfigured # Tier 2 Reason
+    reason: Misconfigured
     message: "LocalQueue local-queue doesn't exist"
     observedGeneration: 1
   # Admitted condition is ONLY initialized/present if the
@@ -480,17 +548,48 @@ status:
     observedGeneration: 1
 ```
 
+##### Scenario 4: Configuration Error (No Matching Flavor)
+
+The workload fails to match any resource flavor (e.g., due to unsatisfied
+node labels/taints or conflicting node selectors/affinity).
+
+* **Before KEP-10852:**
+```yaml
+status:
+  conditions:
+  - type: QuotaReserved
+    status: "False"
+    reason: Inadmissible
+    message: "couldn't find matching flavor for pod set main"
+```
+
+* **After KEP-10852:** Updated status:
+```yaml
+status:
+  conditions:
+  - type: QuotaReserved
+    status: "False"
+    reason: NoMatchingFlavor
+    message: "couldn't find matching flavor for pod set main"
+  # Admitted condition is ONLY initialized/present if the
+  # UnadmittedWorkloadsExplicitStatus gate is ENABLED. If disabled, it remains absent.
+  - type: Admitted
+    status: "False"
+    reason: NoReservation
+    message: "The workload has no reservation"
+```
+
 
 
 ### Future Work
 
 - **Skip Scheduling Queue for Specific Inadmissible Workloads**: Avoid adding
-  workloads that fail due to a `ResourceFlavor` mismatch (Tier 2
-  `Misconfigured`) or exceed limits (Tier 3 `ExceedsMaxQuota`) to the
-  `inadmissibleWorkloads` list. Since these workloads cannot become
-  schedulable until a cluster configuration changes (such as creating a
-  missing resource flavor or increasing maximum limits), keeping them out of
-  the active scheduling loop reduces scheduler evaluation overhead.
+  workloads that fail due to a flavor mismatch (`NoMatchingFlavor`) or exceed
+  limits (`ExceedsMaxQuota`) to the `inadmissibleWorkloads` list. Since these
+  workloads cannot become schedulable until a cluster configuration changes
+  (such as creating a missing resource flavor or increasing maximum limits),
+  keeping them out of the active scheduling loop reduces scheduler evaluation
+  overhead.
 
 ### Test Plan
 
