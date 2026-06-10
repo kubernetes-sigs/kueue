@@ -50,13 +50,6 @@ echo Waiting for kind cluster "${KIND_CLUSTER_NAME}" to start...
 prepare_docker_images
 cluster_kind_load "${KIND_CLUSTER_NAME}"
 kueue_deploy
-kubectl wait deploy/kueue-controller-manager -n"$KUEUE_NAMESPACE" --for=condition=available --timeout=5m
-
-# Wait for the Kueue webhook to be up before creating resources, otherwise the
-# creates can fail with "connection refused". A server-side dry-run probes the
-# webhook without persisting anything, so it is safe to retry.
-"${ROOT_DIR}/hack/testing/retry.sh" --attempts 10 --delay 3 --stream -- \
-  kubectl create --dry-run=server -f "${ROOT_DIR}/cmd/kueueviz/examples/00-resource-flavor.yaml"
 kubectl create -f "${ROOT_DIR}/cmd/kueueviz/examples/"
 
 # Start KueueViz backend
