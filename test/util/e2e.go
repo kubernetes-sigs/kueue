@@ -27,6 +27,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
@@ -98,35 +99,32 @@ func GetAgnHostImageOld() string {
 }
 
 func GetAgnHostImage() string {
-	if image := os.Getenv("E2E_TEST_AGNHOST_IMAGE"); image != "" {
-		return image
-	}
-
-	agnhostDockerfilePath := filepath.Join(ProjectBaseDir, "hack", "testing", "agnhost", "Dockerfile")
-	agnhostImage, err := getDockerImageFromDockerfile(agnhostDockerfilePath)
-	if err != nil {
-		panic(fmt.Errorf("failed to get agnhost image: %v", err))
-	}
-
-	return agnhostImage
+	return getCachedDockerImage(&agnHostImageOnce, &agnHostImage, "E2E_TEST_AGNHOST_IMAGE", "agnhost")
 }
 
 func GetSparkTestImage() string {
-	sparkTestImageOnce.Do(func() {
-		if image := os.Getenv("E2E_TEST_SPARK_IMAGE"); image != "" {
-			sparkTestImage = image
+	return getCachedDockerImage(&sparkTestImageOnce, &sparkTestImage, "E2E_TEST_SPARK_IMAGE", "spark")
+}
+
+// getCachedDockerImage resolves a test image exactly once via the supplied sync.Once,
+// caching the result in *cache. It returns the value of envVar if set, otherwise the
+// image parsed from hack/testing/<dir>/Dockerfile.
+func getCachedDockerImage(once *sync.Once, cache *string, envVar, dir string) string {
+	once.Do(func() {
+		if image := os.Getenv(envVar); image != "" {
+			*cache = image
 			return
 		}
 
-		sparkDockerfilePath := filepath.Join(ProjectBaseDir, "hack", "testing", "spark", "Dockerfile")
-		sparkImage, err := getDockerImageFromDockerfile(sparkDockerfilePath)
+		dockerfilePath := filepath.Join(ProjectBaseDir, "hack", "testing", dir, "Dockerfile")
+		image, err := getDockerImageFromDockerfile(dockerfilePath)
 		if err != nil {
-			panic(fmt.Errorf("failed to get spark image: %v", err))
+			panic(fmt.Errorf("failed to get %s image: %w", dir, err))
 		}
 
-		sparkTestImage = sparkImage
+		*cache = image
 	})
-	return sparkTestImage
+	return *cache
 }
 
 // VersionFromImage extracts the version tag from an image reference,
