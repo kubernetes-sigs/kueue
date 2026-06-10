@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"sync"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -166,10 +167,28 @@ func ConvertApplyConfigToObject(applyConf runtime.ApplyConfiguration) (client.Ob
 		return nil, nil, err
 	}
 
+	// First inspect the apply config as unstructured to discover its Kind. Then
+	// re-unmarshal into a typed object so the fake client's strategic merge
+	// honors the patch-strategy struct tags (merge by listMapKey instead of
+	// blindly replacing arrays). Falling back to unstructured for unknown kinds
+	// preserves the original behavior.
 	u := &unstructured.Unstructured{}
 	if err := json.Unmarshal(data, u); err != nil {
 		return nil, nil, err
 	}
 
-	return u, data, nil
+	var typed client.Object
+	switch u.GetKind() {
+	case "Workload":
+		typed = &kueue.Workload{}
+	case "Pod":
+		typed = &corev1.Pod{}
+	default:
+		return u, data, nil
+	}
+
+	if err := json.Unmarshal(data, typed); err != nil {
+		return nil, nil, err
+	}
+	return typed, data, nil
 }
