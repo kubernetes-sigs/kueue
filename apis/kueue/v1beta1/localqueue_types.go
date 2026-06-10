@@ -65,7 +65,7 @@ type LocalQueueFlavorStatus struct {
 
 	// resources used in the flavor.
 	// +listType=set
-	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:MaxItems=64
 	// +optional
 	Resources []corev1.ResourceName `json:"resources,omitempty"`
 
@@ -138,7 +138,7 @@ type LocalQueueStatus struct {
 	// workloads assigned to this LocalQueue.
 	// +listType=map
 	// +listMapKey=name
-	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:MaxItems=64
 	// +optional
 	FlavorsReservation []LocalQueueFlavorUsage `json:"flavorsReservation"`
 
@@ -146,14 +146,14 @@ type LocalQueueStatus struct {
 	// workloads assigned to this LocalQueue.
 	// +listType=map
 	// +listMapKey=name
-	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:MaxItems=64
 	// +optional
 	FlavorUsage []LocalQueueFlavorUsage `json:"flavorUsage"`
 
 	// flavors lists all currently available ResourceFlavors in specified ClusterQueue.
 	// +listType=map
 	// +listMapKey=name
-	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:MaxItems=64
 	// +optional
 	//
 	// Deprecated: Flavors is deprecated and marked for removal in v1beta2.
@@ -177,7 +177,7 @@ type LocalQueueFlavorUsage struct {
 	// resources lists the quota usage for the resources in this flavor.
 	// +listType=map
 	// +listMapKey=name
-	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:MaxItems=64
 	Resources []LocalQueueResourceUsage `json:"resources"`
 }
 
