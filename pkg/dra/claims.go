@@ -461,10 +461,10 @@ func validateCELSelectorsAgainstDevices(ctx context.Context, cl client.Client, c
 		}
 
 		if matchCount < cr.count {
-			allErrs = append(allErrs, field.Invalid(
+			// Cluster-state shortage: retryable until matching ResourceSlices are published.
+			allErrs = append(allErrs, field.InternalError(
 				basePath.Child("devices", "requests").Index(cr.index).Child("exactly", "selectors"),
-				nil,
-				fmt.Sprintf("insufficient matching devices for CEL selector in DeviceClass %s: %d device(s) match in the cluster but %d requested",
+				fmt.Errorf("insufficient matching devices for CEL selector in DeviceClass %s: %d device(s) match in the cluster but %d requested",
 					cr.deviceClassName, matchCount, cr.count),
 			))
 		}
