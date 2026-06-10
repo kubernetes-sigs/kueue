@@ -118,7 +118,7 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 		return reconcile.Result{}, nil
 	}
 
-	pods, err := r.listGatedPods(ctx, wl)
+	pods, err := r.podsToUngate(ctx, wl)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
@@ -152,7 +152,7 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 	return reconcile.Result{}, err
 }
 
-func (r *elasticJobUngater) listGatedPods(ctx context.Context, wl *kueue.Workload) ([]*corev1.Pod, error) {
+func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload) ([]*corev1.Pod, error) {
 	sliceName := workloadslicing.SliceName(wl)
 	var podList corev1.PodList
 	if err := r.client.List(ctx, &podList,
