@@ -858,7 +858,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			gomega.Eventually(func(g gomega.Gomega) {
 				cq := &kueue.ClusterQueue{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, cqKey, cq)).To(gomega.Succeed())
-				g.Expect(cq.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota.String()).To(gomega.Equal("15"))
+				g.Expect(cq.Status.EffectiveResourceGroups[0].Flavors[0].Resources[0].NominalQuota.String()).To(gomega.Equal("15"))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -871,7 +871,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			gomega.Eventually(func(g gomega.Gomega) {
 				cq := &kueue.ClusterQueue{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, cqKey, cq)).To(gomega.Succeed())
-				g.Expect(cq.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota.String()).To(gomega.Equal("10"))
+				g.Expect(cq.Status.EffectiveResourceGroups[0].Flavors[0].Resources[0].NominalQuota.String()).To(gomega.Equal("10"))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})

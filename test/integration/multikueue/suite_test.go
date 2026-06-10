@@ -414,9 +414,17 @@ func managerAndMultiKueueSetup(
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
+func workerSetup(ctx context.Context, mgr manager.Manager) {
+	managerSetup(ctx, mgr)
+	err := multikueue.SetupIndexer(ctx, mgr.GetFieldIndexer(), managersConfigNamespace.Name)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+}
+
 var _ = ginkgo.BeforeSuite(func() {
 	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueManagerQuotaAutomation, true)
 	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.EffectiveResourceQuotas, true)
+
+	managersConfigNamespace = utiltesting.MakeNamespace("kueue-system")
 
 	ginkgo.By("creating the clusters", func() {
 		wg := sync.WaitGroup{}
@@ -427,11 +435,11 @@ var _ = ginkgo.BeforeSuite(func() {
 		})
 		wg.Go(func() {
 			defer ginkgo.GinkgoRecover()
-			worker1TestCluster = createCluster(managerSetup)
+			worker1TestCluster = createCluster(workerSetup)
 		})
 		wg.Go(func() {
 			defer ginkgo.GinkgoRecover()
-			worker2TestCluster = createCluster(managerSetup)
+			worker2TestCluster = createCluster(workerSetup)
 		})
 		wg.Wait()
 	})
@@ -441,7 +449,6 @@ var _ = ginkgo.BeforeSuite(func() {
 	managerK8sVersion, err = kubeversion.FetchServerVersion(discoveryClient)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	managersConfigNamespace = utiltesting.MakeNamespace("kueue-system")
 	util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managersConfigNamespace)
 })
 
