@@ -45,6 +45,10 @@ const (
 )
 
 var _ = ginkgo.Describe("Default configuration tests", ginkgo.Label(util.Shard0), ginkgo.Ordered, func() {
+	ginkgo.BeforeAll(func() {
+		util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName)
+	})
+
 	ginkgo.Context("Certs", func() {
 		var (
 			ns             *corev1.Namespace
@@ -258,10 +262,6 @@ var _ = ginkgo.Describe("Default configuration tests", ginkgo.Label(util.Shard0)
 			cq *kueue.ClusterQueue
 			lq *kueue.LocalQueue
 		)
-
-		ginkgo.BeforeEach(func() {
-			util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName)
-		})
 
 		ginkgo.BeforeEach(func() {
 			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ha-failover-")
