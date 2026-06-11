@@ -212,6 +212,10 @@ var (
 	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",replica_role="one of `leader`, `follower`, or `standalone`"
 	AdmittedActiveWorkloads *prometheus.GaugeVec
 
+	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",flavor="the resource flavor name",replica_role="one of `leader`, `follower`, or `standalone`"
+	AdmittedActiveWorkloadsByFlavor *prometheus.GaugeVec
+
 	// +metricsdoc:group=localqueue
 	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",replica_role="one of `leader`, `follower`, or `standalone`"
 	LocalQueueAdmittedActiveWorkloads *prometheus.GaugeVec
@@ -705,6 +709,17 @@ The label 'reason' can have the following values:
 		}, append([]string{"cluster_queue", "replica_role"}, extraLabels...),
 	)
 	trackGaugeVec(AdmittedActiveWorkloads, gaugeCleanupScopeClusterQueueCache)
+
+	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",flavor="the resource flavor name",replica_role="one of `leader`, `follower`, or `standalone`"
+	AdmittedActiveWorkloadsByFlavor = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "admitted_active_workloads_by_flavor",
+			Help:      "The number of admitted Workloads that are active, per 'cluster_queue' and 'flavor' (a single Workload is accounted for every flavor it uses)",
+		}, append([]string{"cluster_queue", "flavor", "replica_role"}, extraLabels...),
+	)
+	trackGaugeVec(AdmittedActiveWorkloadsByFlavor, gaugeCleanupScopeClusterQueueCache)
 
 	LocalQueueAdmittedActiveWorkloads = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -1262,6 +1277,11 @@ func ReportReservingActiveWorkloads(cqName kueue.ClusterQueueReference, count in
 	ReservingActiveWorkloads.WithLabelValues(labels...).Set(float64(count))
 }
 
+func ReportAdmittedActiveWorkloadsByFlavor(cqName kueue.ClusterQueueReference, flavor kueue.ResourceFlavorReference, count int, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cqName), string(flavor), roletracker.GetRole(tracker)}, customLabelValues...)
+	AdmittedActiveWorkloadsByFlavor.WithLabelValues(labels...).Set(float64(count))
+}
+
 func ReportLocalQueueAdmittedActiveWorkloads(lq LocalQueueReference, count int, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	labels := append([]string{string(lq.Name), lq.Namespace, roletracker.GetRole(tracker)}, customLabelValues...)
 	LocalQueueAdmittedActiveWorkloads.WithLabelValues(labels...).Set(float64(count))
@@ -1391,6 +1411,9 @@ func Register() {
 	}
 	if features.Enabled(features.LocalQueueMetrics) {
 		RegisterLQMetrics()
+	}
+	if features.Enabled(features.AdmittedWorkloadsCountByFlavor) {
+		metrics.Registry.MustRegister(AdmittedActiveWorkloadsByFlavor)
 	}
 }
 
