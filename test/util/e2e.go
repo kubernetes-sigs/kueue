@@ -83,6 +83,14 @@ const (
 	DefaultMetricsServiceName = "kueue-controller-manager-metrics-service"
 )
 
+// IsE2EModeDev returns true when E2E_MODE is set to "dev".
+// Use this to skip teardown steps that only make sense when the cluster
+// is kept around after the test run (local development), but are
+// unnecessary in CI where the cluster is ephemeral.
+func IsE2EModeDev() bool {
+	return os.Getenv("E2E_MODE") == "dev"
+}
+
 func GetKueueNamespace() string {
 	if ns := os.Getenv("KUEUE_NAMESPACE"); ns != "" {
 		return ns
