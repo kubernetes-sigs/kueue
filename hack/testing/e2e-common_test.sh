@@ -61,10 +61,11 @@ case "$*" in
     attempts=$((attempts + 1))
     printf '%s' "${attempts}" >"${state_file}"
     if [[ "${attempts}" -lt 2 ]]; then
-      printf '10.0.0.1\n'
+      printf 'pod-1\n'
+      printf 'pod-1\n'
     else
-      printf '10.0.0.1\n'
-      printf '10.0.0.2\n'
+      printf 'pod-1\n'
+      printf 'pod-2\n'
     fi
     exit 0
     ;;
