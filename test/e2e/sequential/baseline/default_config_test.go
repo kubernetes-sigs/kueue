@@ -45,11 +45,10 @@ const (
 )
 
 var _ = ginkgo.Describe("Default configuration tests", ginkgo.Label(util.Shard0), ginkgo.Ordered, func() {
-
 	ginkgo.BeforeAll(func() {
 		util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName)
 	})
-	
+
 	ginkgo.Context("Certs", func() {
 		var (
 			ns             *corev1.Namespace
