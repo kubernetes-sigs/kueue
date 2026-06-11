@@ -55,6 +55,7 @@ import (
 const ControllerName = "ElasticJobUngater"
 
 var errPendingUngateOps = errors.New("pending elastic ungate operations")
+var errMissingControllerOwner = errors.New("elastic workload slice has no controller owner reference")
 
 type elasticJobUngater struct {
 	client            client.Client
@@ -226,11 +227,19 @@ func (r *elasticJobUngater) grantedPodSetCounts(ctx context.Context, wl *kueue.W
 
 	mergeMax(wl)
 
+	// Elastic workload slices are always created with a controller owner
+	// reference to their job; without it the slice chain cannot be resolved.
 	owner := metav1.GetControllerOf(wl)
 	if owner == nil {
-		return granted, nil
+		return nil, fmt.Errorf("%w: %s", errMissingControllerOwner, klog.KObj(wl))
 	}
 
+	// Surplus scale-up pods keep the chain-root workload name in their
+	// kueue.WorkloadAnnotation, while the quota granted for them lives on the
+	// replacement slice. Since podsToUngate only matches pods annotated with
+	// wl.Name, the reconcile of the root slice must consult its sibling slices'
+	// reservations; otherwise, once the replacement is admitted (finishing the
+	// root slice), the surplus pods would stay gated forever.
 	sliceName := workloadslicing.SliceName(wl)
 	var wlList kueue.WorkloadList
 	if err := r.client.List(ctx, &wlList,

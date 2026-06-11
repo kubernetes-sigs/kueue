@@ -66,6 +66,7 @@ func TestReconcile(t *testing.T) {
 				*utiltestingapi.MakeWorkload("wl", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					ControllerReference(rayClusterGVK, "ray", "ray-uid").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
@@ -96,6 +97,7 @@ func TestReconcile(t *testing.T) {
 				*utiltestingapi.MakeWorkload("wl", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					ControllerReference(rayClusterGVK, "ray", "ray-uid").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
@@ -144,6 +146,7 @@ func TestReconcile(t *testing.T) {
 				*utiltestingapi.MakeWorkload("wl", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					ControllerReference(rayClusterGVK, "ray", "ray-uid").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
@@ -271,6 +274,7 @@ func TestReconcile(t *testing.T) {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					ControllerReference(rayClusterGVK, "ray", "ray-uid").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
@@ -311,6 +315,7 @@ func TestReconcile(t *testing.T) {
 				*utiltestingapi.MakeWorkload("wl", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					ControllerReference(rayClusterGVK, "ray", "ray-uid").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
@@ -325,6 +330,7 @@ func TestReconcile(t *testing.T) {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					ControllerReference(rayClusterGVK, "ray", "ray-uid").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
 					Obj(),
 			},
@@ -357,6 +363,7 @@ func TestReconcile(t *testing.T) {
 				*utiltestingapi.MakeWorkload("wl", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					ControllerReference(rayClusterGVK, "ray", "ray-uid").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
@@ -383,6 +390,38 @@ func TestReconcile(t *testing.T) {
 					TopologySchedulingGate().
 					Obj(),
 			},
+		},
+		"error when elastic workload has no controller owner": {
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "flavor", "1").
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+			wantErr: errMissingControllerOwner,
 		},
 		"skip surplus pods over quota during scale-up": {
 			workloads: []kueue.Workload{
