@@ -49,6 +49,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
@@ -115,12 +116,13 @@ func init() {
 type Reconciler struct {
 	*jobframework.JobReconciler
 	expectationsStore *expectations.Store
+	clock             clock.Clock
 }
 
 const controllerName = "v1_pod"
 
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	return r.ReconcileGenericJob(ctx, req, NewPod(WithExcessPodExpectations(r.expectationsStore), WithClock(realClock)))
+	return r.ReconcileGenericJob(ctx, req, NewPod(WithExcessPodExpectations(r.expectationsStore), WithClock(r.clock)))
 }
 
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -142,9 +144,11 @@ func NewJob() jobframework.GenericJob {
 }
 
 func NewReconciler(_ context.Context, c client.Client, _ client.FieldIndexer, record events.EventRecorder, opts ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
+	options := jobframework.ProcessOptions(opts...)
 	return &Reconciler{
 		JobReconciler:     jobframework.NewReconciler(c, record, opts...),
 		expectationsStore: expectations.NewStore("finalizedPods"),
+		clock:             options.Clock,
 	}, nil
 }
 
@@ -260,7 +264,7 @@ func (p *Pod) Suspend() {
 }
 
 // Run will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
-func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, recorder events.EventRecorder, msg string) error {
+func (p *Pod) Run(ctx context.Context, c client.Client, wl *kueue.Workload, podSetsInfo []podset.PodSetInfo, recorder events.EventRecorder, msg string) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	if !p.isGroup {
@@ -282,7 +286,7 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 			recorder.Eventf(&p.pod, nil, corev1.EventTypeNormal, jobframework.ReasonStarted, "Started", msg)
 		}
 
-		return nil
+		p.recordPodSchedulingGateRemovalSeconds(wl)
 	}
 
 	return parallelize.Until(ctx, len(p.list.Items), func(i int) error {
@@ -320,8 +324,20 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 		if recorder != nil {
 			recorder.Eventf(pod, nil, corev1.EventTypeNormal, jobframework.ReasonStarted, "Started", msg)
 		}
+
+		p.recordPodSchedulingGateRemovalSeconds(wl)
+
 		return nil
 	})
+}
+
+func (p *Pod) recordPodSchedulingGateRemovalSeconds(wl *kueue.Workload) {
+	cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
+	if cond == nil || cond.Status != metav1.ConditionTrue {
+		return
+	}
+	latency := p.clock.Now().Sub(cond.LastTransitionTime.Time)
+	metrics.RecordPodSchedulingGateRemovalSeconds(podconstants.SchedulingGateName, wl.Status.Admission.ClusterQueue, p.isGroup, latency)
 }
 
 func (p *Pod) IsTopLevel() bool {
