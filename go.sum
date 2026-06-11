@@ -454,8 +454,6 @@ sigs.k8s.io/cluster-inventory-api v0.0.0-20251028164203-2e3fabb46733 h1:l90ANqbl
 sigs.k8s.io/cluster-inventory-api v0.0.0-20251028164203-2e3fabb46733/go.mod h1:guwenlZ9iIfYlNxn7ExCfugOLTh6wjjRX3adC36YCmQ=
 sigs.k8s.io/controller-runtime v0.24.0 h1:Ck6N2LdS8Lovy1o25BB4r1xjvLEKUl1s2o9kU+KWDE4=
 sigs.k8s.io/controller-runtime v0.24.0/go.mod h1:vFkfY5fGt5xAC/sKb8IBFKgWPNKG9OUG29dR8Y2wImw=
-sigs.k8s.io/dra-example-driver v0.2.1 h1:AlIuA8eBHdTQvtpvQs54YqVVhMv1McjXFyYwHzA939I=
-sigs.k8s.io/dra-example-driver v0.2.1/go.mod h1:npmkwsxuKS/B/BBZqvL7PjfJE/Gw04dee7g/1xvJ67k=
 sigs.k8s.io/gateway-api v1.5.0 h1:duoo14Ky/fJXpjpmyMISE2RTBGnfCg8zICfTYLTnBJA=
 sigs.k8s.io/gateway-api v1.5.0/go.mod h1:GvCETiaMAlLym5CovLxGjS0NysqFk3+Yuq3/rh6QL2o=
 sigs.k8s.io/jobset v0.12.0 h1:YYPuV0px8Ongq/RXmJg6V0w2UC67aiR+rCMD06vhQQQ=
