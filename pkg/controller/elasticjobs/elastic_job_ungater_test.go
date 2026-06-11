@@ -245,6 +245,7 @@ func TestReconcile(t *testing.T) {
 				*utiltestingapi.MakeWorkload("wl", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					ControllerReference(rayClusterGVK, "ray", "ray-uid").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
