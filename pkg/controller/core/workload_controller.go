@@ -75,6 +75,20 @@ var (
 	realClock = clock.RealClock{}
 )
 
+// hasInternalError reports whether the field error list contains an internal
+// error. DRA resolution reports retryable failures, such as API errors, as
+// internal errors, so the reconciler retries them with controller-runtime
+// backoff; deterministic spec or configuration errors use other field error
+// types and are left inadmissible without requeue.
+func hasInternalError(errs field.ErrorList) bool {
+	for _, e := range errs {
+		if e.Type == field.ErrorTypeInternal {
+			return true
+		}
+	}
+	return false
+}
+
 type waitForPodsReadyConfig struct {
 	timeout                     time.Duration
 	recoveryTimeout             *time.Duration
@@ -304,7 +318,10 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			if updateErr != nil {
 				return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA error: %w", updateErr)
 			}
-			return ctrl.Result{}, err
+			if hasInternalError(fieldErrs) {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{}, nil
 		}
 
 		// Process Extended Resources backed by DRA (new path)
@@ -326,7 +343,10 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				if updateErr != nil {
 					return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA extended resources error: %w", updateErr)
 				}
-				return ctrl.Result{}, err
+				if hasInternalError(extFieldErrs) {
+					return ctrl.Result{}, err
+				}
+				return ctrl.Result{}, nil
 			}
 		}
 
