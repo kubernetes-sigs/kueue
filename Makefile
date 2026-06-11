@@ -544,6 +544,10 @@ ray-project-mini-image-build:
 		$(IMAGE_BUILD_EXTRA_OPTS) \
 		-f ./hack/testing/ray-mini/Dockerfile ./ \
 
+.PHONY: ray-project-mini-image-build-push
+ray-project-mini-image-build-push: PUSH=--push
+ray-project-mini-image-build-push: ray-project-mini-image-build
+
 # The step is required for local e2e test run
 .PHONY: kind-ray-project-mini-image-build
 kind-ray-project-mini-image-build: PLATFORMS=$(HOST_IMAGE_PLATFORM)
