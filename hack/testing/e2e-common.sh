@@ -21,6 +21,7 @@ export YQ="$ROOT_DIR"/bin/yq
 export HELM="$ROOT_DIR"/bin/helm
 export KUEUE_NAMESPACE="${KUEUE_NAMESPACE:-kueue-system}"
 export KUEUE_DEPLOYMENT_NAME="kueue-controller-manager"
+export KUEUE_WEBHOOK_SERVICE_NAME="${KUEUE_WEBHOOK_SERVICE_NAME:-kueue-webhook-service}"
 
 # E2E_MODE controls e2e cluster lifecycle behavior:
 # - ci  (default): create cluster(s), run tests, delete cluster(s)
@@ -109,6 +110,42 @@ function e2e_wait_for_operator_in_install {
     -n "${ns}" --for=condition=available --timeout=5m
 }
 
+function e2e_check_deployment_webhook_endpoints_once {
+    local kubeconfig=$1
+    local ns=$2
+    local deployment_name=$3
+    local service_name=$4
+    local -a kubectl_args=()
+    if [[ -n "${kubeconfig}" ]]; then
+        kubectl_args+=(--kubeconfig="${kubeconfig}")
+    fi
+
+    local desired_replicas
+    desired_replicas=$(kubectl "${kubectl_args[@]}" -n "${ns}" get deployment "${deployment_name}" -o jsonpath="{.spec.replicas}" 2>/dev/null)
+    desired_replicas=${desired_replicas:-1}
+    if [[ "${desired_replicas}" -lt 1 ]]; then
+        echo "Deployment ${ns}/${deployment_name} has ${desired_replicas} desired replicas; cannot serve webhook traffic." >&2
+        return 1
+    fi
+
+    local ready_endpoint_ips
+    ready_endpoint_ips=$(kubectl "${kubectl_args[@]}" -n "${ns}" get endpointslices \
+        -l "kubernetes.io/service-name=${service_name}" \
+        -o go-template="{{range .items}}{{range .endpoints}}{{if ne .conditions.ready false}}{{range .addresses}}{{println .}}{{end}}{{end}}{{end}}{{end}}" 2>/dev/null || true)
+    local ready_endpoint_count
+    ready_endpoint_count=$(printf "%s\n" "${ready_endpoint_ips}" | grep -c . || true)
+    echo "Ready webhook endpoints for service/${service_name}: ${ready_endpoint_count}/${desired_replicas}" >&2
+    if [[ "${ready_endpoint_count}" -ge "${desired_replicas}" && "${ready_endpoint_count}" -gt 0 ]]; then
+        echo "Webhook endpoints for service/${service_name} are ready:" >&2
+        printf "%s\n" "${ready_endpoint_ips}" >&2
+        return 0
+    fi
+
+    kubectl "${kubectl_args[@]}" -n "${ns}" get endpointslices \
+        -l "kubernetes.io/service-name=${service_name}" -o wide >&2 || true
+    return 1
+}
+
 function e2e_wait_for_deployment_webhook_endpoints {
     local kubeconfig=$1
     local ns=$2
@@ -122,24 +159,11 @@ function e2e_wait_for_deployment_webhook_endpoints {
     kubectl "${kubectl_args[@]}" wait deploy/"${deployment_name}" \
         -n "${ns}" --for=condition=available --timeout=5m
 
-    local deadline=$((SECONDS + 300))
-    local ready_endpoint_ips=""
-    while [[ "${SECONDS}" -lt "${deadline}" ]]; do
-        ready_endpoint_ips=$(kubectl "${kubectl_args[@]}" -n "${ns}" get endpointslices \
-            -l "kubernetes.io/service-name=${service_name}" \
-            -o go-template='{{range .items}}{{range .endpoints}}{{if ne .conditions.ready false}}{{range .addresses}}{{println .}}{{end}}{{end}}{{end}}{{end}}' 2>/dev/null || true)
-        if [[ -n "${ready_endpoint_ips}" ]]; then
-            echo "Webhook endpoints for service/${service_name} are ready:"
-            echo "${ready_endpoint_ips}"
-            return 0
-        fi
-        sleep 2
-    done
-
-    echo "ERROR: Timed out waiting for ready webhook endpoints for service/${service_name} in namespace ${ns}." >&2
-    kubectl "${kubectl_args[@]}" -n "${ns}" get endpointslices \
-        -l "kubernetes.io/service-name=${service_name}" -o wide >&2 || true
-    return 1
+    export -f e2e_check_deployment_webhook_endpoints_once
+    # shellcheck disable=SC2016 # the $@ expansion is evaluated by the inner bash -c
+    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 150 --delay 2 --stream -- \
+        bash -c 'e2e_check_deployment_webhook_endpoints_once "$@"' _ \
+        "${kubeconfig}" "${ns}" "${deployment_name}" "${service_name}"
 }
 
 function e2e_deployment_exists {
@@ -738,12 +762,11 @@ function wait_for_kueue_controller_operator {
         kubectl_args+=(--kubeconfig="${kubeconfig}")
     fi
 
-    kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} -n "${KUEUE_NAMESPACE}" wait deploy/"${KUEUE_DEPLOYMENT_NAME}" \
-        --for=condition=available --timeout=5m
-
-    # TODO(#11996): once the shared e2e_wait_for_deployment_webhook_endpoints helper
-    # lands, call it here for kueue-webhook-service to wait for ready webhook endpoints
-    # (generic deployment + webhook-endpoint readiness, reusable across operators).
+    e2e_wait_for_deployment_webhook_endpoints \
+        "${kubeconfig}" \
+        "${KUEUE_NAMESPACE}" \
+        "${KUEUE_DEPLOYMENT_NAME}" \
+        "${KUEUE_WEBHOOK_SERVICE_NAME}"
 
     # Dry run to make sure that at least one webhook correctly handles the new flavors.
     local probe_manifest

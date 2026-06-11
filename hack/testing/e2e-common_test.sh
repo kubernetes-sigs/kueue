@@ -41,8 +41,19 @@ case "$*" in
   *" wait deploy/kubeflow-trainer-controller-manager "*)
     exit 0
     ;;
+  *" wait deploy/kueue-controller-manager "*)
+    exit 0
+    ;;
   *" get deployment kubeflow-trainer-controller-manager "*)
-    printf '10.0.0.1\n'
+    printf '2\n'
+    exit 0
+    ;;
+  *" get deployment kueue-controller-manager "*)
+    printf '1\n'
+    exit 0
+    ;;
+  *" get endpointslices "*" -o wide"*)
+    printf 'endpoint-slice status\n'
     exit 0
     ;;
   *" get endpointslices "*)
@@ -50,10 +61,14 @@ case "$*" in
     attempts=$((attempts + 1))
     printf '%s' "${attempts}" >"${state_file}"
     if [[ "${attempts}" -lt 2 ]]; then
-      printf '\n'
+      printf '10.0.0.1\n'
     else
       printf '10.0.0.1\n'
+      printf '10.0.0.2\n'
     fi
+    exit 0
+    ;;
+  *" create --dry-run=server -f "*)
     exit 0
     ;;
 esac
@@ -77,7 +92,29 @@ e2e_wait_for_deployment_webhook_endpoints "test.kubeconfig" "kubeflow-system" \
 
 endpoint_attempts=$(cat "${KUBECTL_FAKE_STATE}")
 if [[ "${endpoint_attempts}" != "2" ]]; then
-  echo "expected EndpointSlice polling to continue until ready endpoint appears; got ${endpoint_attempts} attempt(s)" >&2
+  echo "expected EndpointSlice polling to continue until ready endpoints match deployment replicas; got ${endpoint_attempts} attempt(s)" >&2
+  exit 1
+fi
+
+status_dump_count=$(grep -c -- "-o wide" "${KUBECTL_FAKE_LOG}" || true)
+if [[ "${status_dump_count}" != "1" ]]; then
+  echo "expected EndpointSlice status to be dumped after an unsatisfied readiness check; got ${status_dump_count} dump(s)" >&2
+  exit 1
+fi
+
+printf '0' >"${KUBECTL_FAKE_STATE}"
+: >"${KUBECTL_FAKE_LOG}"
+
+wait_for_kueue_controller_operator "test.kubeconfig"
+
+endpoint_line=$(grep -n "get endpointslices" "${KUBECTL_FAKE_LOG}" | head -n1 | cut -d: -f1 || true)
+probe_line=$(grep -n "create --dry-run=server" "${KUBECTL_FAKE_LOG}" | head -n1 | cut -d: -f1 || true)
+if [[ -z "${endpoint_line}" || -z "${probe_line}" ]]; then
+  echo "expected Kueue readiness to check EndpointSlices before the dry-run webhook probe" >&2
+  exit 1
+fi
+if [[ "${endpoint_line}" -ge "${probe_line}" ]]; then
+  echo "expected Kueue EndpointSlice check to run before the dry-run webhook probe" >&2
   exit 1
 fi
 
