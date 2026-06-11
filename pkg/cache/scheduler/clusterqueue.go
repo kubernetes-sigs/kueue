@@ -517,7 +517,9 @@ func (c *clusterQueue) reportResourceMetrics(fairSharingEnabled bool) {
 		fName, rName := string(fr.Flavor), string(fr.Resource)
 		nominal := resourceFloat(fr.Resource, quota.Nominal)
 		var borrowing, lending float64
-		if quota.BorrowingLimit != nil {
+		if quota.BorrowingLimit == nil {
+			borrowing = math.Inf(1)
+		} else {
 			borrowing = resourceFloat(fr.Resource, *quota.BorrowingLimit)
 		}
 		if quota.LendingLimit != nil {
