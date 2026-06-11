@@ -498,6 +498,14 @@ func waitForKueueControllerReadyWithWebhookEndpoints(ctx context.Context, k8sCli
 		g.Expect(endpointIPs).To(gomega.Equal(readyPodIPs))
 	}, LongTimeout, Interval).Should(gomega.Succeed())
 
+	ginkgo.By("Waiting for apiserver to reach the webhook")
+	gomega.Eventually(func(g gomega.Gomega) {
+		rf := &kueue.ResourceFlavor{
+			ObjectMeta: metav1.ObjectMeta{GenerateName: "webhook-probe-rf-"},
+		}
+		g.Expect(k8sClient.Create(ctx, rf, client.DryRunAll)).To(gomega.Succeed())
+	}, LongTimeout, Interval).Should(gomega.Succeed())
+
 	ginkgo.GinkgoLogr.Info("Ready pods and webhook endpoints verified", "deployment", key, "waitingTime", time.Since(waitStart))
 }
 
