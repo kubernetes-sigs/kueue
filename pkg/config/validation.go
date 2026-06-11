@@ -506,39 +506,45 @@ func validateDeviceClassMappings(c *configapi.Configuration) field.ErrorList {
 			}
 		}
 
-		if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) && len(mapping.Sources) > 0 {
-			if len(mapping.Sources) > 1 {
-				allErrs = append(allErrs, field.TooMany(mappingPath.Child("sources"), len(mapping.Sources), 1))
-			}
-			celCache := dracel.NewCache(len(mapping.Sources), dracel.Features{})
-			for sIdx, source := range mapping.Sources {
-				sourcePath := mappingPath.Child("sources").Index(sIdx)
-				if source.Counter == nil {
-					allErrs = append(allErrs, field.Required(sourcePath.Child("counter"), "exactly one source type must be set"))
-					continue
+		if len(mapping.Sources) > 0 {
+			sourcesPath := mappingPath.Child("sources")
+			if !features.Enabled(features.KueueDRAIntegrationPartitionableDevices) {
+				allErrs = append(allErrs, field.Invalid(sourcesPath, len(mapping.Sources),
+					"sources require KueueDRAIntegrationPartitionableDevices to be enabled"))
+			} else {
+				if len(mapping.Sources) > 1 {
+					allErrs = append(allErrs, field.TooMany(sourcesPath, len(mapping.Sources), 1))
 				}
-				counterPath := sourcePath.Child("counter")
-				if source.Counter.Name == "" {
-					allErrs = append(allErrs, field.Required(counterPath.Child("name"), ""))
-				} else if len(source.Counter.Name) > 63 {
-					allErrs = append(allErrs, field.Invalid(counterPath.Child("name"), source.Counter.Name, "must not exceed 63 characters"))
-				}
-				if source.Counter.Driver == "" {
-					allErrs = append(allErrs, field.Required(counterPath.Child("driver"), ""))
-				} else if len(source.Counter.Driver) > 253 {
-					allErrs = append(allErrs, field.Invalid(counterPath.Child("driver"), source.Counter.Driver, "must not exceed 253 characters"))
-				}
-				selectorPath := counterPath.Child("deviceSelector", "cel", "expression")
-				if source.Counter.DeviceSelector.CEL == nil || source.Counter.DeviceSelector.CEL.Expression == "" {
-					allErrs = append(allErrs, field.Required(selectorPath, ""))
-				} else {
-					result := celCache.GetOrCompile(source.Counter.DeviceSelector.CEL.Expression)
-					if result.Error != nil {
-						allErrs = append(allErrs, field.Invalid(
-							selectorPath,
-							source.Counter.DeviceSelector.CEL.Expression,
-							fmt.Sprintf("CEL compilation failed: %v", result.Error),
-						))
+				celCache := dracel.NewCache(len(mapping.Sources), dracel.Features{})
+				for sIdx, source := range mapping.Sources {
+					sourcePath := sourcesPath.Index(sIdx)
+					if source.Counter == nil {
+						allErrs = append(allErrs, field.Required(sourcePath.Child("counter"), "exactly one source type must be set"))
+						continue
+					}
+					counterPath := sourcePath.Child("counter")
+					if source.Counter.Name == "" {
+						allErrs = append(allErrs, field.Required(counterPath.Child("name"), ""))
+					} else if len(source.Counter.Name) > 63 {
+						allErrs = append(allErrs, field.Invalid(counterPath.Child("name"), source.Counter.Name, "must not exceed 63 characters"))
+					}
+					if source.Counter.Driver == "" {
+						allErrs = append(allErrs, field.Required(counterPath.Child("driver"), ""))
+					} else if len(source.Counter.Driver) > 253 {
+						allErrs = append(allErrs, field.Invalid(counterPath.Child("driver"), source.Counter.Driver, "must not exceed 253 characters"))
+					}
+					selectorPath := counterPath.Child("deviceSelector", "cel", "expression")
+					if source.Counter.DeviceSelector.CEL == nil || source.Counter.DeviceSelector.CEL.Expression == "" {
+						allErrs = append(allErrs, field.Required(selectorPath, ""))
+					} else {
+						result := celCache.GetOrCompile(source.Counter.DeviceSelector.CEL.Expression)
+						if result.Error != nil {
+							allErrs = append(allErrs, field.Invalid(
+								selectorPath,
+								source.Counter.DeviceSelector.CEL.Expression,
+								fmt.Sprintf("CEL compilation failed: %v", result.Error),
+							))
+						}
 					}
 				}
 			}
