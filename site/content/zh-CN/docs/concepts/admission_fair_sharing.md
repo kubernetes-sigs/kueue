@@ -36,7 +36,7 @@ description: >
 
 可以在 Kueue 的配置文件中通过 `.admissionFairSharing` 配置以下参数：
 
-- `usageHalfLifeDecayTime`：控制历史使用量衰减的速度
+- `usageHalfLifeTime`：控制历史使用量衰减的速度
 - `usageSamplingInterval`：资源使用量采样的频率
 - `resourceWeights`：不同资源类型的重要性权重
 
