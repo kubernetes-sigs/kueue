@@ -8,7 +8,7 @@ reviewers:
   - @olekzabl 
   - @tenzen-y
 approvers:
-  - TBD
+  - @tenzen-y
 
 see-also:
   - "keps/9988-multikueue-manager-quota-automation"
