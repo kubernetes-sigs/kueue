@@ -14,6 +14,7 @@ steps:
       - kueueviz-image-push
       - kueue-populator-image-push
       - kueue-priority-booster-image-push
+      - ray-project-mini-image-build-push
     env:
       - DOCKER_BUILDX_CMD=/buildx-entrypoint
       - GOTOOLCHAIN=auto
