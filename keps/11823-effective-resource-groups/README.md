@@ -123,20 +123,6 @@ The reconciliation logic will check if the ClusterQueue is subject to the defaul
 As of right now the only reason for special handling is the MultiKueue Manager ClusterQueue quota automation scheme, but more can be added in the future.
 When the controller detects a reason for special handling of quota sync, it will log it and skip the default behavior.
 
-```go
-  // pkg/controller/core/clusterqueue_controller.go
-
-  if isMK, err := admissioncheck.QuotaManagedByMultiKueue(ctx, r.client, &cqObj); err != nil {
-		return ctrl.Result{}, err
-	} else if isMK {
-		log.V(2).Info("Skipping EffectiveResourceGroups sync: MultiKueue Manager ClusterQueue quota is managed by a dedicated MultiKueue controller.")
-	} else if queue.SyncEffectiveResourceGroupsToSpec(&cqObj) {
-		log.V(2).Info("Syncing EffectiveResourceGroups to spec.")
-		if err := r.client.Status().Update(ctx, &cqObj); err != nil {
-			return ctrl.Result{}, err
-		}
-	}
-```
 
 ### MultiKueue quota automation
 
