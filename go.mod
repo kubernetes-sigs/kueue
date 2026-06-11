@@ -42,7 +42,6 @@ require (
 	k8s.io/utils v0.0.0-20260507154919-ff6756f316d2
 	sigs.k8s.io/cluster-inventory-api v0.1.3
 	sigs.k8s.io/controller-runtime v0.24.0
-	sigs.k8s.io/dra-example-driver v0.2.1
 	sigs.k8s.io/jobset v0.12.0
 	sigs.k8s.io/lws v0.8.0
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.0
