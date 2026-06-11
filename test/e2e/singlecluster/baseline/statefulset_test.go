@@ -24,7 +24,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -140,7 +139,7 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 
 			ginkgo.By("Delete the potentially conflicting stateful-set and await for is Pod and workload deletion", func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, conflictingStatefulSet, true)
-				conflictingPod := &corev1.Pod{ObjectMeta: v1.ObjectMeta{
+				conflictingPod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
 					Name:      conflictingStatefulSet.Name + "-0",
 					Namespace: ns.Name,
 				}}
