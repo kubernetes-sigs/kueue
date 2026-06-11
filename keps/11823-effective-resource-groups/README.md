@@ -66,8 +66,8 @@ When the automation is **enabled** and **configured correctly** for a given MK C
 
 The MultiKueue ClusterQueue Controller will be created only when the following feature gates are enabled:
 1. MultiKueue
-1. MultiKueueManagerQuotaAutomation
-1. **EffectiveResourceQuotas**
+2. MultiKueueManagerQuotaAutomation
+3. **EffectiveResourceQuotas**
 
 We consider MultiKueue Automated Quota Management **enabled** and **configured correctly** when:
 1. The Quota Management Strategy value is **"Automated"**.
