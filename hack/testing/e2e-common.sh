@@ -1316,7 +1316,7 @@ function install_dra_example_driver {
     sed 's/CGO_LDFLAGS_ALLOW/CGO_ENABLED=0 CGO_LDFLAGS_ALLOW/' "$dra_driver_temp_dir/Makefile" > "$dra_driver_temp_dir/Makefile.tmp" \
         && mv "$dra_driver_temp_dir/Makefile.tmp" "$dra_driver_temp_dir/Makefile"
     docker build -t "${dra_image_repo}:${dra_image_tag}" \
-        --build-arg GOLANG_VERSION="${go_version}" \
+        --build-arg GO_VERSION="${go_version}" \
         --build-arg BASE_IMAGE=gcr.io/distroless/static:latest \
         -f "$dra_driver_temp_dir/deployments/container/Dockerfile" \
         "$dra_driver_temp_dir"
