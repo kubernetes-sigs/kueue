@@ -27,8 +27,12 @@ This proposal introduces a new configuration structure for the MultiKueue Increm
 
 ## Motivation
 
-Currently, the MultiKueue Incremental Dispatcher has a hardcoded batch size `batchSize := 3` when attempting to schedule a workload across multiple worker clusters. The primary limitation is that this value is not configurable. For administrators managing a massive fleet of worker clusters, a fixed batch size of 3 is too slow and delays job execution. Conversely, if administrators were to theoretically increase this to query all clusters simultaneously to speed things up, it would generate heavy API traffic and increase the risk of race conditions. By making this step size configurable, administrators can find the optimal balance between dispatch speed and Manager Cluster resource usage for their specific environment.
-Introducing a `stepSize` allows cluster administrators to configure a "batch size" for this process, finding the perfect balance between speed and system stability.
+Currently, the MultiKueue Incremental Dispatcher has a hardcoded batch size `batchSize := 3` when attempting to schedule a workload across multiple worker clusters. 
+
+Sometimes administrators need to configure the parameter in order to:
+1. avoid unnecessary job execution delays when there are many clusters (by increasing the stepSize)
+2. use more granular prioritization of the clusters (by setting stepSize=1)
+3. tune the api-server traffic and load on the manager cluster
 
 ### Goals
 
@@ -69,7 +73,7 @@ type MultiKueue struct {
 
       // IncrementalDispatcherConfig contains the configuration for the incremental dispatcher.
       // This field is only valid when DispatcherName is set to the incremental dispatcher.
-      // Note: This field is going to be ignored when the MultiKueueIncrementalDispatcher feature gate is disabled.
+      // Note: This field is ignored when the MultiKueueIncrementalDispatcher feature gate is disabled.
       // +optional
       IncrementalDispatcherConfig *IncrementalDispatcherConfig `json:"incrementalDispatcherConfig,omitempty"`
 }
@@ -85,14 +89,10 @@ type IncrementalDispatcherConfig struct {
 }
 ```
 
-### Execution Loop
-The core logic change is minimal because the batching mechanism is already implemented in the Incremental Dispatcher (`pkg/controller/workloaddispatcher/incrementaldispatcher.go`).
+### Implementation overview
 
-The update will simply modify the existing logic to:
-1. Read the `stepSize` value from the `MultiKueueConfig`.
-2. Replace the hardcoded `batchSize := 3` variable with this dynamically configured `stepSize` parameter.
-
-The existing loop and conflict resolution mechanisms will naturally handle the rest of the execution based on this new size, meaning no major architectural changes are required to the dispatching loop itself.
+The core logic change is minimal because the batching mechanism is already implemented in the Incremental Dispatcher, assuming the hard-coded value of stepSize=3.  
+No architectural changes are required to the dispatching loop itself.
 
 ### Test Plan
 
