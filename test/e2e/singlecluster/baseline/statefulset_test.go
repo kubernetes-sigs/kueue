@@ -23,6 +23,7 @@ import (
 	"github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -105,8 +106,9 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 				gomega.Expect(createdWorkload.Labels[controllerconstants.JobUIDLabel]).To(gomega.Equal(string(statefulSet.UID)))
 			})
 
+			var conflictingStatefulSet *appsv1.StatefulSet
 			ginkgo.By("Creating potentially conflicting stateful-set", func() {
-				conflictingStatefulSet := statefulsettesting.MakeStatefulSet("sts-conflict", ns.Name).
+				conflictingStatefulSet = statefulsettesting.MakeStatefulSet("sts-conflict", ns.Name).
 					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 					RequestAndLimit(corev1.ResourceCPU, "200m").
 					TerminationGracePeriod(1).
@@ -114,32 +116,45 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 					Queue(lq.Name).
 					Obj()
 				util.MustCreate(ctx, k8sClient, conflictingStatefulSet)
-				conflictingWlLookupKey := types.NamespacedName{
-					Name:      statefulset.GetWorkloadName(conflictingStatefulSet.UID, conflictingStatefulSet.Name),
-					Namespace: ns.Name,
-				}
+
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdStatefulSet := &appsv1.StatefulSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(conflictingStatefulSet), createdStatefulSet)).
 						To(gomega.Succeed())
 					g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(int32(1)))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
-				conflictingWorkload := &kueue.Workload{}
-				gomega.Expect(k8sClient.Get(ctx, conflictingWlLookupKey, conflictingWorkload)).To(gomega.Succeed())
-				gomega.Expect(createdWorkload.Name).ToNot(gomega.Equal(conflictingWorkload.Name))
+			})
+
+			conflictingWorkload := &kueue.Workload{}
+			ginkgo.By("Verify there is no workload name conflict", func() {
+				conflictingWlLookupKey := types.NamespacedName{
+					Name:      statefulset.GetWorkloadName(conflictingStatefulSet.UID, conflictingStatefulSet.Name),
+					Namespace: ns.Name,
+				}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, conflictingWlLookupKey, conflictingWorkload)).To(gomega.Succeed())
+					g.Expect(createdWorkload.Name).ToNot(gomega.Equal(conflictingWorkload.Name))
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Delete the potentially conflicting stateful-set and await for is Pod and workload deletion", func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, conflictingStatefulSet, true)
+				conflictingPod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+					Name:      conflictingStatefulSet.Name + "-0",
+					Namespace: ns.Name,
+				}}
+				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, conflictingPod, false, util.LongTimeout)
 				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, conflictingWorkload, false, util.MediumTimeout)
 			})
 
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, statefulSet, true)
-			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload, false, util.MediumTimeout)
-
-			ginkgo.By("Check all pods are deleted", func() {
-				pods := &corev1.PodList{}
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
-					g.Expect(pods.Items).Should(gomega.BeEmpty())
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			ginkgo.By("Delete the first stateful-set and await for is Pod and workload deletion", func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, statefulSet, true)
+				stsPod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+					Name:      statefulSet.Name + "-0",
+					Namespace: ns.Name,
+				}}
+				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, stsPod, false, util.LongTimeout)
+				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload, false, util.MediumTimeout)
 			})
 		})
 
