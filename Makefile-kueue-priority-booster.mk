@@ -21,3 +21,7 @@ kueue-priority-booster-test: ## Run unit tests for kueue-priority-booster.
 .PHONY: kueue-priority-booster-test-integration
 kueue-priority-booster-test-integration: ## Run integration tests for kueue-priority-booster.
 	$(MAKE) -C cmd/experimental/kueue-priority-booster test-integration
+
+.PHONY: kueue-priority-booster-verify
+kueue-priority-booster-verify: ## Run all verification tests for kueue-priority-booster.
+	$(MAKE) -C cmd/experimental/kueue-priority-booster verify
