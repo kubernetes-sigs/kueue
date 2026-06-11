@@ -280,7 +280,7 @@ scheduler. Lower numbers represent more severe blocks.
 | **2** | `BorrowingLimitReached` | Total unused capacity in the Cohort is sufficient, but allocating resources would cause the ClusterQueue to exceed its borrowing limit policy constraint. | `ClusterQueue.inadmissibleWorkloads` |
 | **3** | `WaitingForQuota` | General capacity wait (total unused nominal capacity in the ClusterQueue/Cohort is less than the workload request). | `ClusterQueue.inadmissibleWorkloads` |
 | **4** | `TopologyPlacementFailed` | TAS workload only. Nominal capacity exists, but capacity is fragmented across domains preventing contiguous placement. | `ClusterQueue.inadmissibleWorkloads` |
-| **5** | `PendingPreemption` | Evictions have been issued; waiting for victims to terminate and release their capacity. | `ClusterQueue.heap` |
+| **5** | `WaitingForPreemptedWorkloads` | Evictions have been issued; waiting for victims to terminate and release their capacity. | `ClusterQueue.heap` |
 
 #### 3. Pending Evaluation
 This is the lowest precedence state, applicable to workloads that are active
@@ -342,7 +342,7 @@ resolved as follows:
   groups (evaluated sequentially).
   - **First Step**: `podset-a` is evaluated first. It is assigned a flavor that
     requires preemption, so its status is set to `Preempt` (with reason
-    `PendingPreemption`, Precedence 5). Since it successfully received a
+    `WaitingForPreemptedWorkloads`, Precedence 5). Since it successfully received a
     flavor assignment, the scheduler continues to the next group.
   - **Second Step**: `podset-b` is evaluated next. All of its candidate flavors
     are blocked because they request resources exceeding limits, so its status
