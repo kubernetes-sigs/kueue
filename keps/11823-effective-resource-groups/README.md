@@ -57,7 +57,7 @@ The `status.EffectiveResourceGroups` will add a layer between the `spec.Resource
 
 ```go
 type ClusterQueueStatus struct {
-	
+
 	// [...]
 
 	// effectiveResourceGroups describes the groups of resources as seen by Kueue controllers.
@@ -92,9 +92,7 @@ The MultiKueue ClusterQueue Controller will be created only when the following f
 
 We consider MultiKueue Automated Quota Management **enabled** and **configured correctly** when:
 1. The Quota Management Strategy value is **"Automated"**.
-1. **spec.ResourceGroups is empty.**
-
-We treat spec.ResourceGroup with priority since the parameter is an established, user defined value. If set, it takes precedence over the MultiKueue Manager Queue quota automation. As such, to allow for MultiKueue automated quota management we expect it to be empty.
+2. **spec.ResourceGroups has a valid format.** For the details what is considered a valid format see [KEP 8826](../keps/9988-multikueue-manager-quota-automation#planned-changes-in-alpha2-version).
 
 ### Risks and Mitigations
 
@@ -131,11 +129,10 @@ When the controller detects a reason for special handling of quota sync, it will
 
 When feature.MultiKueue and feature.MultiKueueManagerQuotaAutomation are enabled, the MultiKueue Controller will be created. We will delegate the handling of MultiKueue ClusterQueues when it is set up. The Controller itself will:
 1. Check if the ClusterQueue has the MultiKueue admission check assigned. If not: it will skip the CQ as it is not considered an MK CQ.
-1. Check if:
-    1. the ClusterQueue's MultiKueue Config has the **Quota Management Strategy** set to "Automated"; if not - set the `MultiKueueManagerQuotaAutomation` condition to **false**, reason: "Not Requested",
-    1. `spec.ResourceGroups` is empt; if not - set the `MultiKueueManagerQuotaAutomation` condition to **false**,dreason: "Unsupported Configuration".
-1. If any of the above conditions are false: it will perform the **Default Behavior**.
-1. If both conditions are true: the controller will calculate the aggregated quota across the Manager Queue's Workers and set it as the value of `status.EffectiveResourceGroups`.
+2. Check if:
+    1. the ClusterQueue's MultiKueue Config has the **Quota Management Strategy** set to "Automated"; if not - set the `MultiKueueManagerQuotaAutomation` condition to **false**, reason: "Not Requested" and perform **Default Behavior**,
+    2. `spec.ResourceGroups` has a valid format; if not - set the `MultiKueueManagerQuotaAutomation` condition to **false**, reason: "Unsupported Configuration" and return error,
+4. If both conditions are true: the controller will calculate the aggregated quota across the Manager Queue's Workers and set it as the value of `status.EffectiveResourceGroups`.
 
 ### Test Plan
 

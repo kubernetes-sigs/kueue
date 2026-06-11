@@ -792,4 +792,4 @@ type AutomatedQuotaManagementConfig struct {
 
 **Pros:**
 * Users provide the minimum data they need for the aggregated flavor to exist, without the need to set it up themselves.
-* When considering [per-flavor aggregation of remote resources](https://github.com/kubernetes-sigs/kueue/issues/11862) - this approach would allow users to define a universal blueprint for aggregated resources to be created by MK as needed. This however is a minor benefit, as it does not allow to support creating flavors with differnt taints, tolerations, node labels etc..
+* When considering [per-flavor aggregation of remote resources](https://github.com/kubernetes-sigs/kueue/issues/11862) - this approach would allow users to define a universal blueprint for aggregated resources to be created by MK as needed. This however is a minor benefit, as it does not allow to support creating flavors with different taints, tolerations, node labels etc..
