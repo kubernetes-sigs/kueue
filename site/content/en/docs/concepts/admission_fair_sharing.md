@@ -43,7 +43,7 @@ For example, if Tenant A has low historical usage and Tenant B has high usage, b
 
 The following parameters can be configured in Kueue's configuration `.admissionFairSharing`:
 
-- `usageHalfLifeDecayTime`: Controls how quickly historical usage decays
+- `usageHalfLifeTime`: Controls how quickly historical usage decays
 - `usageSamplingInterval`: How frequently usage is sampled
 - `resourceWeights`: Relative importance of different resource types
 
