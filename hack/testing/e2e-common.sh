@@ -109,6 +109,39 @@ function e2e_wait_for_operator_in_install {
     -n "${ns}" --for=condition=available --timeout=5m
 }
 
+function e2e_wait_for_deployment_webhook_endpoints {
+    local kubeconfig=$1
+    local ns=$2
+    local deployment_name=$3
+    local service_name=$4
+    local -a kubectl_args=()
+    if [[ -n "${kubeconfig}" ]]; then
+        kubectl_args+=(--kubeconfig="${kubeconfig}")
+    fi
+
+    kubectl "${kubectl_args[@]}" wait deploy/"${deployment_name}" \
+        -n "${ns}" --for=condition=available --timeout=5m
+
+    local deadline=$((SECONDS + 300))
+    local ready_endpoint_ips=""
+    while [[ "${SECONDS}" -lt "${deadline}" ]]; do
+        ready_endpoint_ips=$(kubectl "${kubectl_args[@]}" -n "${ns}" get endpointslices \
+            -l "kubernetes.io/service-name=${service_name}" \
+            -o go-template='{{range .items}}{{range .endpoints}}{{if ne .conditions.ready false}}{{range .addresses}}{{println .}}{{end}}{{end}}{{end}}{{end}}' 2>/dev/null || true)
+        if [[ -n "${ready_endpoint_ips}" ]]; then
+            echo "Webhook endpoints for service/${service_name} are ready:"
+            echo "${ready_endpoint_ips}"
+            return 0
+        fi
+        sleep 2
+    done
+
+    echo "ERROR: Timed out waiting for ready webhook endpoints for service/${service_name} in namespace ${ns}." >&2
+    kubectl "${kubectl_args[@]}" -n "${ns}" get endpointslices \
+        -l "kubernetes.io/service-name=${service_name}" -o wide >&2 || true
+    return 1
+}
+
 function e2e_deployment_exists {
     local kubeconfig=${1:-}
     local ns=$2
@@ -948,8 +981,9 @@ function install_kubeflow_trainer {
         fi
         kubectl apply --kubeconfig="${kubeconfig}" --server-side -k "$manifests_temp_dir/overlays/manager"
     )
-    # In order to install the training runtimes we need to wait for the ClusterTrainingRuntime webhook to be ready
-    kubectl wait --kubeconfig="${kubeconfig}" deploy/"${deployment_name}" -n "${ns}" --for=condition=available --timeout=5m
+    # Installing runtimes creates ClusterTrainingRuntime objects, so wait until
+    # the webhook service has ready endpoints, not just an Available deployment.
+    e2e_wait_for_deployment_webhook_endpoints "${kubeconfig}" "${ns}" "${deployment_name}" "${deployment_name}"
     kubectl apply --kubeconfig="${kubeconfig}" --server-side -k "${KUBEFLOW_TRAINER_MANIFEST}/overlays/runtimes"
 }
 
