@@ -155,10 +155,8 @@ test-e2e-extended-helm: test-e2e-extended
 test-multikueue-e2e-baseline: E2E_NPROCS := 5
 test-multikueue-e2e-baseline: setup-e2e-env run-test-multikueue-e2e-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
-.PHONY: test-multikueue-e2e-extended
-test-multikueue-e2e-extended: export USE_RAY_FOR_TESTS="ray"
 test-multikueue-e2e-extended: E2E_NPROCS := 5
-test-multikueue-e2e-extended: setup-e2e-env run-test-multikueue-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-multikueue-e2e-extended: setup-e2e-env kind-ray-project-mini-image-build run-test-multikueue-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-multikueue-e2e-sequential
 test-multikueue-e2e-sequential: setup-e2e-env kind-secretreader-plugin-image-build run-test-e2e-multikueue-sequential-$(E2E_KIND_VERSION:kindest/node:v%=%)
