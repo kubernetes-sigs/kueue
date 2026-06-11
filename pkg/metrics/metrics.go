@@ -793,7 +793,7 @@ For a LocalQueue, the metric only reports a value of 1 for one of the statuses.`
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "cluster_queue_borrowing_limit",
-			Help:      `Reports the cluster_queue's resource borrowing limit within all the flavors`,
+			Help:      `Reports the cluster_queue's resource borrowing limit within all the flavors. If borrowingLimit is unset, this metric reports +Inf.`,
 		}, append([]string{"cohort", "cluster_queue", "flavor", "resource", "replica_role"}, extraLabels...),
 	)
 	trackGaugeVec(ClusterQueueResourceBorrowingLimit, gaugeCleanupScopeClusterQueueResource)
