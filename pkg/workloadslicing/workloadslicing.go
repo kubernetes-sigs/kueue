@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"slices"
 
-	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -37,9 +36,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
-	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
-	"sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -317,39 +314,6 @@ func normalizeActiveSlices(
 	}
 
 	return selectedWorkload, nil
-}
-
-// StartWorkloadSlicePods identifies pods associated with the provided workload
-// that are gated by the ElasticJobSchedulingGate scheduling gate and removes this gate,
-// allowing them to be considered for scheduling.
-//
-// This function performs the following steps:
-//  1. Lists all pods in the same namespace with the WorkloadSliceNameAnnotation matching
-//     the workload slice name.
-//  2. For each pod, removes the ElasticJobSchedulingGate scheduling gate if present.
-//
-// Returns:
-// - An error if any of the operations fail; otherwise, nil.
-func StartWorkloadSlicePods(ctx context.Context, clnt client.Client, wl *kueue.Workload) error {
-	log := ctrl.LoggerFrom(ctx)
-	list := &corev1.PodList{}
-	sliceName := SliceName(wl)
-
-	// First try annotation-based lookup (supports JobSet and other workloads where pods
-	// are not immediate children of the job).
-	if err := clnt.List(ctx, list, client.InNamespace(wl.Namespace), client.MatchingFields{indexer.WorkloadSliceNameKey: sliceName}); err != nil {
-		return fmt.Errorf("failed to list workload slice pods: %w", err)
-	}
-
-	for i := range list.Items {
-		log.V(4).Info("Patching pod to remove elastic job scheduling gate", "podName", list.Items[i].Name, "workloadSliceName", sliceName)
-		if err := clientutil.Patch(ctx, clnt, &list.Items[i], func() (bool, error) {
-			return pod.Ungate(&list.Items[i], kueue.ElasticJobSchedulingGate), nil
-		}); err != nil {
-			return fmt.Errorf("failed to patch pod: %w", err)
-		}
-	}
-	return nil
 }
 
 // ReplacedWorkloadSlice returns the replacement workload slice for the given workload `wl`
