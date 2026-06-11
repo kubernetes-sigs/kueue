@@ -128,16 +128,17 @@ function e2e_check_deployment_webhook_endpoints_once {
         return 1
     fi
 
-    local ready_endpoint_ips
-    ready_endpoint_ips=$(kubectl "${kubectl_args[@]}" -n "${ns}" get endpointslices \
+    local ready_endpoint_keys
+    ready_endpoint_keys=$(kubectl "${kubectl_args[@]}" -n "${ns}" get endpointslices \
         -l "kubernetes.io/service-name=${service_name}" \
-        -o go-template="{{range .items}}{{range .endpoints}}{{if ne .conditions.ready false}}{{range .addresses}}{{println .}}{{end}}{{end}}{{end}}{{end}}" 2>/dev/null || true)
+        -o go-template="{{range .items}}{{range .endpoints}}{{if ne .conditions.ready false}}{{if .targetRef}}{{if .targetRef.uid}}{{println .targetRef.uid}}{{else}}{{range .addresses}}{{println .}}{{end}}{{end}}{{else}}{{range .addresses}}{{println .}}{{end}}{{end}}{{end}}{{end}}{{end}}" 2>/dev/null || true)
+    ready_endpoint_keys=$(printf "%s\n" "${ready_endpoint_keys}" | sort -u)
     local ready_endpoint_count
-    ready_endpoint_count=$(printf "%s\n" "${ready_endpoint_ips}" | grep -c . || true)
+    ready_endpoint_count=$(printf "%s\n" "${ready_endpoint_keys}" | grep -c . || true)
     echo "Ready webhook endpoints for service/${service_name}: ${ready_endpoint_count}/${desired_replicas}" >&2
     if [[ "${ready_endpoint_count}" -ge "${desired_replicas}" && "${ready_endpoint_count}" -gt 0 ]]; then
         echo "Webhook endpoints for service/${service_name} are ready:" >&2
-        printf "%s\n" "${ready_endpoint_ips}" >&2
+        printf "%s\n" "${ready_endpoint_keys}" >&2
         return 0
     fi
 
