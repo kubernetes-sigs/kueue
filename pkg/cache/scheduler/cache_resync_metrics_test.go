@@ -17,6 +17,7 @@ limitations under the License.
 package scheduler
 
 import (
+	"math"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -47,12 +48,24 @@ func TestResyncClusterQueueGaugeMetricsUsesUpdatedCustomLabels(t *testing.T) {
 				Resource(corev1.ResourceCPU, "5").
 				Obj(),
 		).Obj()
+	cqWithLending := utiltestingapi.MakeClusterQueue("cq2").
+		Label("team", "alpha").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceCPU, "5", "", "3").
+				Obj(),
+		).Obj()
 
 	customLabels.CQStore("cq1", cq.GetLabels(), cq.GetAnnotations())
+	customLabels.CQStore("cq2", cqWithLending.GetLabels(), cqWithLending.GetAnnotations())
 	if err := cache.AddClusterQueue(ctx, cq); err != nil {
 		t.Fatalf("Failed to add cluster queue: %v", err)
 	}
+	if err := cache.AddClusterQueue(ctx, cqWithLending); err != nil {
+		t.Fatalf("Failed to add cluster queue: %v", err)
+	}
 	cache.ResyncClusterQueueGaugeMetrics("cq1")
+	cache.ResyncClusterQueueGaugeMetrics("cq2")
 
 	expectStatus := func(team string, count int) {
 		t.Helper()
@@ -74,9 +87,24 @@ func TestResyncClusterQueueGaugeMetricsUsesUpdatedCustomLabels(t *testing.T) {
 			t.Fatalf("Unexpected cluster queue quota metric count for team %q: got %d, want %d", team, got, count)
 		}
 	}
+	expectLendingLimit := func(cqName, team string, count int, wantValue float64) {
+		t.Helper()
+		got := testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourceLendingLimit, map[string]string{
+			"cluster_queue": cqName,
+			"custom_team":   team,
+		})
+		if len(got) != count {
+			t.Fatalf("Unexpected cluster queue lending-limit metric count for cluster queue %q and team %q: got %d, want %d", cqName, team, len(got), count)
+		}
+		if count > 0 && got[0].Value != wantValue {
+			t.Fatalf("Unexpected cluster queue lending-limit metric value for cluster queue %q and team %q: got %v, want %v", cqName, team, got[0].Value, wantValue)
+		}
+	}
 
 	expectStatus("alpha", len(metrics.CQStatuses))
 	expectQuota("alpha", 1)
+	expectLendingLimit("cq1", "alpha", 1, math.Inf(1))
+	expectLendingLimit("cq2", "alpha", 1, 3)
 
 	customLabels.CQStore("cq1", map[string]string{"team": "beta"}, nil)
 	updatedCQ := cq.DeepCopy()
@@ -93,8 +121,11 @@ func TestResyncClusterQueueGaugeMetricsUsesUpdatedCustomLabels(t *testing.T) {
 
 	expectStatus("alpha", 0)
 	expectQuota("alpha", 0)
+	expectLendingLimit("cq1", "alpha", 0, 0)
 	expectStatus("beta", len(metrics.CQStatuses))
 	expectQuota("beta", 1)
+	expectLendingLimit("cq1", "beta", 1, math.Inf(1))
+	expectLendingLimit("cq2", "alpha", 1, 3)
 }
 
 func TestResyncCohortGaugeMetricsUsesUpdatedCustomLabels(t *testing.T) {
