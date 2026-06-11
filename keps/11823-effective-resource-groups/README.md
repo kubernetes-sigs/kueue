@@ -55,6 +55,27 @@ To resolve this issue and allow the aforementioned initiatives to be implemented
 We introduce the new `status.EffectiveResourceGroups` field alongside the `spec.ResourceGroups` field.
 The `status.EffectiveResourceGroups` will add a layer between the `spec.ResourceGroups` (set directly by users) and Kueue logic. The field will always be populated. By default it will reflect the value set in spec.
 
+```go
+type ClusterQueueStatus struct {
+	
+	// [...]
+
+	// effectiveResourceGroups describes the groups of resources as seen by Kueue controllers.
+	// Each resource group defines the list of resources and a list of flavors
+	// that provide quotas for these resources.
+	// Each resource and each flavor can only form part of one resource group.
+	// By default, it's equal to spec.resourceGroups. However, in some scenarios (e.g. MultiKueue)
+	// it may differ from spec.resourceGroups.
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=16
+	// +optional
+	EffectiveResourceGroups []ResourceGroup `json:"effectiveResourceGroups,omitempty"`
+
+	// [...]
+
+}
+```
+
 All internal Kueue logic will use either the `spec.ResourceGroups` or the `status.EffectiveResourceGroups` as a source of truth for the ClusterQueue's quota, based on whether the `EffectiveResourceQuotas` featureGate is enabled.
 
 Setting the value of the effective quota will be handled by the Core-ClusterQueue-Controller and MultiKueue-ClusterQueue-Controller depending on the configuration:
