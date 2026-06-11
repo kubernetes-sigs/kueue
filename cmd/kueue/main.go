@@ -473,7 +473,9 @@ func setupControllers(
 	serverVersionFetcher *kubeversion.ServerVersionFetcher,
 	opts core.SetupControllersOpts,
 ) error {
-	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache, cfg, opts); err != nil {
+	quotaManager := core.NewQuotaManager()
+
+	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache, quotaManager, cfg, opts); err != nil {
 		return fmt.Errorf("unable to create controller %s: %w", failedCtrl, err)
 	}
 	if features.Enabled(features.FailureRecoveryPolicy) {
