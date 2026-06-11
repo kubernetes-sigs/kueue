@@ -104,16 +104,6 @@ MultiKueue quota automation will, since its [Alpha2](https://github.com/kubernet
 
 By default `status.EffectiveResourceGroups` will be synced to the current value `spec.ResourceGroups`.
 
-```go
-// pkg/util/queue/cluster_queue.go
-
-func SyncEffectiveResourceGroupsToSpec(cq *kueue.ClusterQueue) (needsUpdate bool) {
-	if needsUpdate = !equality.Semantic.DeepEqual(cq.Status.EffectiveResourceGroups, cq.Spec.ResourceGroups); needsUpdate {
-		cq.Status.EffectiveResourceGroups = cq.Spec.ResourceGroups
-	}
-	return
-}
-```
 
 ### Core Controller
 
