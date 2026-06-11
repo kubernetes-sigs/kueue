@@ -49,6 +49,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
@@ -260,8 +261,10 @@ func (p *Pod) Suspend() {
 }
 
 // Run will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
-func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, recorder events.EventRecorder, msg string) error {
+func (p *Pod) Run(ctx context.Context, c client.Client, wl *kueue.Workload, podSetsInfo []podset.PodSetInfo, recorder events.EventRecorder, msg string) error {
 	log := ctrl.LoggerFrom(ctx)
+
+	var updated bool
 
 	if !p.isGroup {
 		if len(podSetsInfo) != 1 {
@@ -282,46 +285,67 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 			recorder.Eventf(&p.pod, nil, corev1.EventTypeNormal, jobframework.ReasonStarted, "Started", msg)
 		}
 
-		return nil
-	}
+		updated = true
+	} else {
+		err := parallelize.Until(ctx, len(p.list.Items), func(i int) error {
+			pod := &p.list.Items[i]
 
-	return parallelize.Until(ctx, len(p.list.Items), func(i int) error {
-		pod := &p.list.Items[i]
+			if !isGated(pod) {
+				return nil
+			}
 
-		if !isGated(pod) {
+			if err := clientutil.Patch(ctx, c, pod, func() (bool, error) {
+				roleHash, err := getRoleHash(*pod)
+				if err != nil {
+					return false, err
+				}
+
+				podSetIndex := slices.IndexFunc(podSetsInfo, func(info podset.PodSetInfo) bool {
+					return string(info.Name) == roleHash
+				})
+				if podSetIndex == -1 {
+					return false, fmt.Errorf("%w: podSetInfo with the name '%s' is not found", podset.ErrInvalidPodsetInfo, roleHash)
+				}
+
+				err = prepare(pod, podSetsInfo[podSetIndex])
+				if err != nil {
+					return false, err
+				}
+
+				log.V(3).Info("Starting pod in group", "podInGroup", klog.KObj(pod))
+
+				return true, nil
+			}); err != nil {
+				return err
+			}
+
+			if recorder != nil {
+				recorder.Eventf(pod, nil, corev1.EventTypeNormal, jobframework.ReasonStarted, "Started", msg)
+			}
+
+			updated = true
+
+			return nil
+		})
+		if err != nil {
 			return nil
 		}
+	}
 
-		if err := clientutil.Patch(ctx, c, pod, func() (bool, error) {
-			roleHash, err := getRoleHash(*pod)
-			if err != nil {
-				return false, err
-			}
+	if updated {
+		p.recordSchedulingGateRemovalSeconds(wl)
+	}
 
-			podSetIndex := slices.IndexFunc(podSetsInfo, func(info podset.PodSetInfo) bool {
-				return string(info.Name) == roleHash
-			})
-			if podSetIndex == -1 {
-				return false, fmt.Errorf("%w: podSetInfo with the name '%s' is not found", podset.ErrInvalidPodsetInfo, roleHash)
-			}
+	return nil
+}
 
-			err = prepare(pod, podSetsInfo[podSetIndex])
-			if err != nil {
-				return false, err
-			}
-
-			log.V(3).Info("Starting pod in group", "podInGroup", klog.KObj(pod))
-
-			return true, nil
-		}); err != nil {
-			return err
-		}
-
-		if recorder != nil {
-			recorder.Eventf(pod, nil, corev1.EventTypeNormal, jobframework.ReasonStarted, "Started", msg)
-		}
-		return nil
-	})
+func (p *Pod) recordSchedulingGateRemovalSeconds(wl *kueue.Workload) {
+	cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
+	if cond == nil || cond.Status != metav1.ConditionTrue {
+		return
+	}
+	latency := p.clock.Now().Sub(cond.LastTransitionTime.Time)
+	metrics.RecordPodSchedulingGateRemovalSeconds(wl.Status.Admission.ClusterQueue, p.isGroup, latency)
 }
 
 func (p *Pod) IsTopLevel() bool {
