@@ -89,14 +89,6 @@ Mitigating this requires an expansive sweep of existing logic, ensuring the code
 
 The `status.EffectiveResourceGroups` will be used to provide resource quota only when the **EffectiveResourceQuotas** feature is enabled. Otherwise we will default to using the spec. To make this feasible, all effective calls to retrieve the ResourceGroups will be handled by a dedicated method:
 
-```go
-func GetEffectiveResourceGroups(cq *kueue.ClusterQueue) []kueue.ResourceGroup {
-	if features.Enabled(features.EffectiveResourceQuotas) {
-		return cq.Status.EffectiveResourceGroups
-	}
-	return cq.spec.ResourceGroups
-}
-```
 
 MultiKueue quota automation will, since its [Alpha2](https://github.com/kubernetes-sigs/kueue/tree/main/keps/9988-multikueue-manager-quota-automation#graduation-criteria) stage, require the **EffectiveResourceQuotas** feature to be enabled alongside its dedicated feature gate.
 
