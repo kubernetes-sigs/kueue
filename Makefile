@@ -30,6 +30,8 @@ HOST_IMAGE_PLATFORM ?= linux/$(shell go env GOARCH)
 PLATFORMS ?= linux/amd64,linux/arm64,linux/s390x,linux/ppc64le
 CLI_PLATFORMS ?= linux/amd64,linux/arm64,darwin/amd64,darwin/arm64
 VIZ_PLATFORMS ?= linux/amd64,linux/arm64,linux/s390x,linux/ppc64le
+# Ray only provides PyPI wheels for amd64 and arm64
+RAY_PLATFORMS ?= linux/amd64,linux/arm64
 DOCKER_BUILDX_CMD ?= docker buildx
 IMAGE_BUILD_CMD ?= $(DOCKER_BUILDX_CMD) build
 
@@ -498,7 +500,7 @@ ray-project-mini-image-build:
 	$(IMAGE_BUILD_CMD) \
 		-t $(IMAGE_REGISTRY)/ray-project-mini:$(RAYMINI_VERSION) \
 		-t $(IMAGE_REGISTRY)/ray-project-mini:$(RELEASE_BRANCH) \
-		--platform=$(PLATFORMS) \
+		--platform=$(RAY_PLATFORMS) \
 		--build-arg RAY_VERSION=$(RAY_VERSION) \
 		$(PUSH) \
 		$(IMAGE_BUILD_EXTRA_OPTS) \
@@ -510,7 +512,7 @@ ray-project-mini-image-build-push: ray-project-mini-image-build
 
 # The step is required for local e2e test run
 .PHONY: kind-ray-project-mini-image-build
-kind-ray-project-mini-image-build: PLATFORMS=$(HOST_IMAGE_PLATFORM)
+kind-ray-project-mini-image-build: RAY_PLATFORMS=$(HOST_IMAGE_PLATFORM)
 kind-ray-project-mini-image-build: PUSH=--load
 kind-ray-project-mini-image-build: ray-project-mini-image-build
 
