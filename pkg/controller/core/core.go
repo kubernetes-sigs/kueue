@@ -45,6 +45,7 @@ type SetupControllersOpts struct {
 	CustomLabels           *metrics.CustomLabels
 	DRAMapper              *dra.ResourceMapper
 	DRABackedResources     *dra.ExtendedResourceCache
+	QMOpts                 *QuotaManagerOpts
 }
 
 // SetupControllers sets up the core controllers. It returns the name of the
@@ -93,6 +94,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		WithClusterQueueRoleTracker(opts.RoleTracker),
 		WithClusterQueueCustomLabels(opts.CustomLabels),
 	)
+	opts.QMOpts.CoreCQRec = cqRec
 	rfRec.AddUpdateWatcher(cqRec)
 	acRec.AddUpdateWatchers(cqRec)
 	if err := cqRec.SetupWithManager(mgr, cfg); err != nil {
