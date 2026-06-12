@@ -178,11 +178,13 @@ test-multikueue-e2e-extended:
 .PHONY: test-multikueue-e2e-extended-shard-0
 test-multikueue-e2e-extended-shard-0: E2E_NPROCS := 5
 test-multikueue-e2e-extended-shard-0: GINKGO_ARGS=--label-filter=feature:leaderworkerset,feature:jobset,feature:appwrapper,feature:pytorchjob,feature:mpijob,feature:trainjob
+test-multikueue-e2e-extended-shard-0: E2E_CONFIG_FOLDER=multikueue/extended-shard-0
 test-multikueue-e2e-extended-shard-0: setup-e2e-env run-test-multikueue-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-multikueue-e2e-extended-shard-1
 test-multikueue-e2e-extended-shard-1: E2E_NPROCS := 5
 test-multikueue-e2e-extended-shard-1: GINKGO_ARGS=--label-filter=feature:kuberay
+test-multikueue-e2e-extended-shard-1: E2E_CONFIG_FOLDER=multikueue/extended-shard-1
 test-multikueue-e2e-extended-shard-1: setup-e2e-env run-test-multikueue-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-multikueue-e2e-sequential
@@ -396,6 +398,7 @@ run-test-multikueue-e2e-extended-%:
 		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
 		USE_RAY_FOR_TESTS=$(USE_RAY_FOR_TESTS) \
 		E2E_TARGET_FOLDER="multikueue/extended" \
+		E2E_CONFIG_FOLDER=$(E2E_CONFIG_FOLDER) \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
