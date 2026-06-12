@@ -747,6 +747,11 @@ Major milestones might include:
 - when the KEP was retired or superseded
 -->
 
+- 2026-04-20: Initial KEP merged.
+- 2026-05-19: API field `minPreferredFlavorName` renamed to `lastAcceptableFlavorName`.
+- 2026-05-22: `RetainFirstAdmission` migration mode added to pin a Workload to its first admitted flavor.
+- 2026-06-01: Serialized preemptions across sibling Variants implemented by reusing the `preemptionGates` mechanism from [KEP 8303](/keps/8303-multikueue-orchestrated-preemption/README.md). Each Variant is created with a closed `kueue.x-k8s.io/concurrent-admission` gate, which the Variant Controller opens for at most one Variant at a time.
+
 ## Drawbacks
 
 ### Increased API Object Count
