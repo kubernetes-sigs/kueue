@@ -9,7 +9,7 @@
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
   - [API Changes](#api-changes)
-  - [Execution Loop](#execution-loop)
+  - [Implementation overview](#implementation-overview)
   - [Test Plan](#test-plan)
     - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit tests](#unit-tests)
