@@ -488,7 +488,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"statefulset with AdmissionGatedBy annotation but feature gate disabled should not propagate": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false, features.AdmissionGatedBy: false},
 			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
