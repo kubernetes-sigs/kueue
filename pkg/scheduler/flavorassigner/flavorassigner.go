@@ -218,6 +218,11 @@ func (a *Assignment) TotalRequestsFor(wl *workload.Info) resources.FlavorResourc
 	return usage
 }
 
+func (a *Assignment) psError(psAssignment *PodSetAssignment, err error) {
+	psAssignment.error(err)
+	a.representativeMode = nil
+}
+
 type Status struct {
 	reasons []string
 	err     error

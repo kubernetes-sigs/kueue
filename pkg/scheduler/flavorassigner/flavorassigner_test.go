@@ -3361,8 +3361,8 @@ func TestAssignFlavors(t *testing.T) {
 					},
 				},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
-					{Flavor: "tas-a", Resource: corev1.ResourceCPU}:    resources.NewAmount(1_000),
-					{Flavor: "tas-b", Resource: corev1.ResourceMemory}: resources.NewAmount(utiltesting.Mi),
+					{Flavor: "tas-a", Resource: corev1.ResourceCPU}:    1_000,
+					{Flavor: "tas-b", Resource: corev1.ResourceMemory}: 1048576,
 				}},
 			},
 		},
@@ -4150,6 +4150,7 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 					Count:  2,
 					Status: *NewStatus(),
 				}},
+				representativeMode: ptr.To(Fit),
 				replaceWorkloadSlice: workload.NewInfo(&kueue.Workload{
 					Status: kueue.WorkloadStatus{
 						Admission: &kueue.Admission{
@@ -4186,6 +4187,7 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 					Count:  2,
 					Status: *NewStatus(),
 				}},
+				representativeMode: ptr.To(Fit),
 				replaceWorkloadSlice: workload.NewInfo(&kueue.Workload{
 					Status: kueue.WorkloadStatus{
 						Admission: &kueue.Admission{
