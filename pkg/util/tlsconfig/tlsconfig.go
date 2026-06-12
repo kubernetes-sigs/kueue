@@ -29,8 +29,9 @@ import (
 const TLS12 = tls.VersionTLS12
 
 type TLS struct {
-	MinVersion   uint16
-	CipherSuites []uint16
+	MinVersion       uint16
+	CipherSuites     []uint16
+	CurvePreferences []tls.CurveID
 }
 
 // ParseTLSOptions
@@ -50,12 +51,23 @@ func ParseTLSOptions(cfg *config.TLSOptions) (*TLS, error) {
 	if len(cfg.CipherSuites) > 0 {
 		cipherSuites, err := convertCipherSuites(cfg.CipherSuites)
 		if err != nil {
-			errRet = errors.Join(err)
+			errRet = errors.Join(errRet, err)
 		}
 		if err == nil && len(cipherSuites) > 0 {
 			ret.CipherSuites = cipherSuites
 		}
 	}
+
+	if len(cfg.CurvePreferences) > 0 {
+		curves, err := convertCurvePreferences(cfg.CurvePreferences)
+		if err != nil {
+			errRet = errors.Join(errRet, err)
+		}
+		if err == nil && len(curves) > 0 {
+			ret.CurvePreferences = curves
+		}
+	}
+
 	return ret, errRet
 }
 
@@ -71,6 +83,7 @@ func BuildTLSOptions(tlsOptions *TLS) []func(*tls.Config) {
 	tlsOpts = append(tlsOpts, func(c *tls.Config) {
 		c.MinVersion = tlsOptions.MinVersion
 		c.CipherSuites = tlsOptions.CipherSuites
+		c.CurvePreferences = tlsOptions.CurvePreferences
 	})
 
 	return tlsOpts
@@ -103,4 +116,15 @@ func convertCipherSuites(cipherSuites []string) ([]uint16, error) {
 		return nil, fmt.Errorf("invalid cipher suites: %w. Please use the secure cipher names: %v", err, cliflag.PreferredTLSCipherNames())
 	}
 	return suites, nil
+}
+
+func convertCurvePreferences(curveIDs []int32) ([]tls.CurveID, error) {
+	if len(curveIDs) == 0 {
+		return nil, nil
+	}
+	curves, err := cliflag.TLSCurvePreferences(curveIDs)
+	if err != nil {
+		return nil, fmt.Errorf("invalid curve preferences: %w", err)
+	}
+	return curves, nil
 }
