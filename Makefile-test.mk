@@ -156,7 +156,7 @@ test-multikueue-e2e-baseline: E2E_NPROCS := 5
 test-multikueue-e2e-baseline: setup-e2e-env run-test-multikueue-e2e-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 test-multikueue-e2e-extended: E2E_NPROCS := 5
-test-multikueue-e2e-extended: setup-e2e-env kind-ray-project-mini-image-build run-test-multikueue-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-multikueue-e2e-extended: setup-e2e-env run-test-multikueue-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-multikueue-e2e-sequential
 test-multikueue-e2e-sequential: setup-e2e-env kind-secretreader-plugin-image-build run-test-e2e-multikueue-sequential-$(E2E_KIND_VERSION:kindest/node:v%=%)
@@ -206,7 +206,7 @@ test-e2e-extended: run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 .PHONY: test-e2e-extended-shard-0
 test-e2e-extended-shard-0: E2E_NPROCS := 4
 test-e2e-extended-shard-0: GINKGO_ARGS=--label-filter='feature:kuberay && shard:kuberay-a'
-test-e2e-extended-shard-0: setup-e2e-env kind-ray-project-mini-image-build run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-e2e-extended-shard-0: setup-e2e-env run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-e2e-extended-shard-1
 test-e2e-extended-shard-1: E2E_NPROCS := 4
@@ -216,7 +216,7 @@ test-e2e-extended-shard-1: setup-e2e-env run-test-e2e-extended-$(E2E_KIND_VERSIO
 .PHONY: test-e2e-extended-shard-2
 test-e2e-extended-shard-2: E2E_NPROCS := 4
 test-e2e-extended-shard-2: GINKGO_ARGS=--label-filter='feature:kuberay && shard:kuberay-b'
-test-e2e-extended-shard-2: setup-e2e-env kind-ray-project-mini-image-build run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-e2e-extended-shard-2: setup-e2e-env run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 ## Label Taxonomy:
 ##   Features: certs,deployment,job,fairsharing,kueuectl,metrics,pod,statefulset,visibility,e2e_v1beta1,ha
@@ -235,7 +235,7 @@ test-tas-e2e-extended: run-test-tas-e2e-extended-$(E2E_KIND_VERSION:kindest/node
 
 .PHONY: test-tas-e2e-extended-shard-0
 test-tas-e2e-extended-shard-0: GINKGO_ARGS=--label-filter=feature:kuberay
-test-tas-e2e-extended-shard-0: setup-e2e-env kind-ray-project-mini-image-build run-test-tas-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-tas-e2e-extended-shard-0: setup-e2e-env run-test-tas-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-tas-e2e-extended-shard-1
 test-tas-e2e-extended-shard-1: GINKGO_ARGS=--label-filter=feature:appwrapper,feature:jobset,feature:leaderworkerset,feature:pytorchjob,feature:trainjob,feature:mpijob
@@ -529,7 +529,7 @@ run-test-e2e-multikueue-sequential-%:
 # Run e2e tests against k/k main (latest CI build) with WAS enabled
 K8S_MAIN_NODE_IMAGE ?= k8s-main:latest
 .PHONY: test-e2e-k8s-main-was
-test-e2e-k8s-main-was: setup-e2e-env kueuectl kind-k8s-main-image-build kind-ray-project-mini-image-build run-test-e2e-k8s-main-was
+test-e2e-k8s-main-was: setup-e2e-env kueuectl kind-k8s-main-image-build run-test-e2e-k8s-main-was
 
 .PHONY: kind-k8s-main-image-build
 kind-k8s-main-image-build: kind
