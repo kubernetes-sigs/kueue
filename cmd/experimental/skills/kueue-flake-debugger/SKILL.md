@@ -109,6 +109,13 @@ If the failure has flake signatures — `Timed out after Xs`, intermittent failu
 
 Skip this step for deterministic failures, panics, or tests newly introduced in the failing PR — comparison adds nothing when there is no historical baseline or when the failure mode is itself the bug.
 
+**Reorganize the layout first.** The reference docs below expect the failed run under `build-logs/failed/`, while steps 1–6 wrote to `build-logs/build-log.txt`. Move it once:
+
+```sh
+mkdir -p build-logs/failed
+mv build-logs/build-log.txt build-logs/failed/build-log.txt
+```
+
 **Find and download a successful run.** See [references/gathering-artifacts.md](references/gathering-artifacts.md) for the `prow.k8s.io/job-history` query and the download layout under `build-logs/success/`.
 
 **Compare the two runs along STEP timings, controller events, and resource lifecycle.** See [references/comparing-runs.md](references/comparing-runs.md) for the procedure and the side-by-side findings table format.
