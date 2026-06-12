@@ -248,7 +248,7 @@ The access provider defined in `ClusterProfile` depends upon an executable plugi
 Kueue controller manager pods running within the MultiKueue manager cluster.
 It's the responsibility of the Kueue administrator to make sure that the required command is available.
 
-An example plugin can be found [here](https://github.com/kubernetes-sigs/cluster-inventory-api/tree/445319b6307a88778b930e154ed3e2f38d85a689/cmd/secretreader-plugin) (secret reader) or [here](https://cloud.google.com/blog/products/containers-kubernetes/kubectl-auth-changes-in-gke) (Google Cloud Platform).
+An example plugin can be found [here](https://github.com/kubernetes-sigs/cluster-inventory-api/tree/v0.1.3/plugins/secretreader) (secret reader) or [here](https://cloud.google.com/blog/products/containers-kubernetes/kubectl-auth-changes-in-gke) (Google Cloud Platform).
 
 #### Mount the executable with `initContainers`
 
@@ -326,7 +326,7 @@ and can be called analogously to the `initContainers` approach (`/plugins/<plugi
 Alternatively, a custom Kueue manager image can be built to include the plugin executable.
 The image reference in the Kueue manager deployment should then point to the user-managed custom image.
 
-### Define the credentials provider in the Kueue manager config
+### Define the access provider in the Kueue manager config
 
 To connect the access providers specified in the `ClusterProfile`s with the mounted plugin,
 an entry within the Kueue configuration has to be created:
@@ -338,7 +338,7 @@ data:
     ...
     multiKueue:
       clusterProfile:
-        credentialsProviders:
+        accessProviders:
         - name: <access-provider-name>
           execConfig:
             apiVersion: client.authentication.k8s.io/v1beta1
@@ -360,6 +360,12 @@ It has to match the `accessProviders` name in the relevant `ClusterProfile`s.
 
 This definition will configure the `ClusterProfile`s using the `access-provider-name` to retrieve
 cluster credentials via the `plugin-command` executable.
+
+{{% alert title="Note" color="primary" %}}
+
+The previous Kueue configuration field name, `credentialsProviders`, is deprecated. Use `accessProviders` for new configurations.
+
+{{% /alert %}}
 
 ### Link `MultiKueueCluster` objects to their corresponding `ClusterProfile`
 

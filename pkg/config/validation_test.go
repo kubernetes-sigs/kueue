@@ -434,7 +434,7 @@ func TestValidate(t *testing.T) {
 				Integrations: defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
 					ClusterProfile: &configapi.ClusterProfile{
-						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{ //nolint:staticcheck //SA1019: CredentialsProviders is validated for backward compatibility.
 							{
 								Name: "",
 								ExecConfig: clientcmdapi.ExecConfig{
@@ -459,7 +459,7 @@ func TestValidate(t *testing.T) {
 				Integrations: defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
 					ClusterProfile: &configapi.ClusterProfile{
-						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{ //nolint:staticcheck //SA1019: CredentialsProviders is validated for backward compatibility.
 							{
 								Name: "test-provider",
 								ExecConfig: clientcmdapi.ExecConfig{
@@ -484,7 +484,7 @@ func TestValidate(t *testing.T) {
 				Integrations: defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
 					ClusterProfile: &configapi.ClusterProfile{
-						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{ //nolint:staticcheck //SA1019: CredentialsProviders is validated for backward compatibility.
 							{
 								Name: "test-provider",
 								ExecConfig: clientcmdapi.ExecConfig{
@@ -509,7 +509,7 @@ func TestValidate(t *testing.T) {
 				Integrations: defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
 					ClusterProfile: &configapi.ClusterProfile{
-						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{ //nolint:staticcheck //SA1019: CredentialsProviders is validated for backward compatibility.
 							{
 								Name: "test-provider",
 								ExecConfig: clientcmdapi.ExecConfig{
@@ -537,7 +537,7 @@ func TestValidate(t *testing.T) {
 				Integrations: defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
 					ClusterProfile: &configapi.ClusterProfile{
-						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{ //nolint:staticcheck //SA1019: CredentialsProviders is validated for backward compatibility.
 							{
 								Name: "test-provider",
 								ExecConfig: clientcmdapi.ExecConfig{
@@ -562,7 +562,7 @@ func TestValidate(t *testing.T) {
 				Integrations: defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
 					ClusterProfile: &configapi.ClusterProfile{
-						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{ //nolint:staticcheck //SA1019: CredentialsProviders is validated for backward compatibility.
 							{
 								Name: "test-provider",
 								ExecConfig: clientcmdapi.ExecConfig{
@@ -587,7 +587,85 @@ func TestValidate(t *testing.T) {
 				Integrations: defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
 					ClusterProfile: &configapi.ClusterProfile{
-						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{ //nolint:staticcheck //SA1019: CredentialsProviders is validated for backward compatibility.
+							{
+								Name: "test-provider",
+								ExecConfig: clientcmdapi.ExecConfig{
+									Command:         "test-command",
+									APIVersion:      "client.authentication.k8s.io/v1",
+									InteractiveMode: clientcmdapi.NeverExecInteractiveMode,
+									Env: []clientcmdapi.ExecEnvVar{
+										{Name: "TEST_VAR", Value: "test-value"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		"invalid multiKueue.clusterProfile.accessProviders": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					ClusterProfile: &configapi.ClusterProfile{
+						AccessProviders: []configapi.ClusterProfileAccessProvider{
+							{
+								Name: "",
+								ExecConfig: clientcmdapi.ExecConfig{
+									Command:         "",
+									APIVersion:      "",
+									InteractiveMode: "",
+									Env: []clientcmdapi.ExecEnvVar{
+										{Name: "", Value: "test-value"},
+									},
+								},
+							},
+							{
+								Name: "test-provider",
+								ExecConfig: clientcmdapi.ExecConfig{
+									Command:         "test-command",
+									APIVersion:      "client.authentication.k8s.io/v1",
+									InteractiveMode: "Invalid",
+								},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "multiKueue.clusterProfile.accessProviders.name",
+				},
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "multiKueue.clusterProfile.accessProviders.execConfig.command",
+				},
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "multiKueue.clusterProfile.accessProviders.execConfig.apiVersion",
+				},
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "multiKueue.clusterProfile.accessProviders.execConfig.env.name",
+				},
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "multiKueue.clusterProfile.accessProviders.execConfig.interactiveMode",
+				},
+				&field.Error{
+					Type:  field.ErrorTypeNotSupported,
+					Field: "multiKueue.clusterProfile.accessProviders.execConfig.interactiveMode",
+				},
+			},
+		},
+		"valid multiKueue.clusterProfile accessProviders configuration": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					ClusterProfile: &configapi.ClusterProfile{
+						AccessProviders: []configapi.ClusterProfileAccessProvider{
 							{
 								Name: "test-provider",
 								ExecConfig: clientcmdapi.ExecConfig{
