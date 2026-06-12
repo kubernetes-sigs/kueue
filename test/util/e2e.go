@@ -498,6 +498,16 @@ func waitForKueueControllerReadyWithWebhookEndpoints(ctx context.Context, k8sCli
 		g.Expect(endpointIPs).To(gomega.Equal(readyPodIPs))
 	}, LongTimeout, Interval).Should(gomega.Succeed())
 
+	// EndpointSlice readiness does not guarantee that the apiserver has dropped
+	// stale webhook connections, so verify the webhook path itself.
+	ginkgo.By(fmt.Sprintf("Probing the webhook data path: %q", key))
+	gomega.Eventually(func(g gomega.Gomega) {
+		probeRF := &kueue.ResourceFlavor{
+			ObjectMeta: metav1.ObjectMeta{GenerateName: "webhook-probe-"},
+		}
+		g.Expect(k8sClient.Create(ctx, probeRF, client.DryRunAll)).To(gomega.Succeed())
+	}, LongTimeout, Interval).Should(gomega.Succeed())
+
 	ginkgo.GinkgoLogr.Info("Ready pods and webhook endpoints verified", "deployment", key, "waitingTime", time.Since(waitStart))
 }
 
