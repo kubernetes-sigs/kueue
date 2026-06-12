@@ -285,6 +285,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 
 		log.V(2).Info("Deleting workload because it has finished and the retention period has elapsed", "retention", *r.workloadRetention.afterFinished)
+		metrics.ClearWorkloadPreemptionMetrics(wl.Namespace, wl.Name)
 
 		// Finished Workloads should no longer need Kueue's resource-in-use finalizer.
 		// However, WorkloadSlices and other paths can mark a Workload as Finished without
@@ -1249,6 +1250,7 @@ func (r *WorkloadReconciler) Delete(e event.TypedDeleteEvent[*kueue.Workload]) b
 	// Even if the state is unknown, the last cached state tells us whether the
 	// workload was in the queues and should be cleared from them.
 	r.queues.DeleteAndForgetWorkload(log, wlKey)
+	metrics.ClearWorkloadPreemptionMetrics(e.Object.Namespace, e.Object.Name)
 	return true
 }
 
