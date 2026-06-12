@@ -17,9 +17,11 @@ aliases:
   dependency-approvers:
     - mbobrovskyi
     - pbundyra
+    - sohankunkerkar
   test-approvers:
     - mbobrovskyi
     - pbundyra
+    - sohankunkerkar
   hugo-approvers:
     - mbobrovskyi
   infra-approvers:
