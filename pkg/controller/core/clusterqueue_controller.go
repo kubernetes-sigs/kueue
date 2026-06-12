@@ -71,7 +71,7 @@ type ClusterQueueReconciler struct {
 	clock                 clock.Clock
 	roleTracker           *roletracker.RoleTracker
 	customLabels          *metrics.CustomLabels
-	triggerSpecUpdate     TriggerQuotaUpdate
+	triggerSpecUpdate     QuotaUpdateTrigger
 }
 
 var _ reconcile.Reconciler = (*ClusterQueueReconciler)(nil)

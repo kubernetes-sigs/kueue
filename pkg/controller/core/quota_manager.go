@@ -23,24 +23,34 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
-// Manager trigger specific updates in order.
+// QuotaUpdateStep can perform updates on ClusterQueues and the internal QuotaCache.
+// It returns information on whether the update chain should continue, and an error if something goes wrong.
+// An error always ends the chain and is returned immediately to the calling QuotaUpdateTrigger.
 type QuotaUpdateStep = func(ctx context.Context, cq *kueue.ClusterQueue, cache *QuotaCache) (cont bool, err error)
 
-// Controller can trigger an update at a specific stage of the manager's workflow.
-type TriggerQuotaUpdate = func(ctx context.Context, cq *kueue.ClusterQueue) error
+// QuotaUpdateTrigger allows to start an update chain from a specific QuotaUpdateStep.
+// The execution will proceed until:
+//   - we execute all remaining steps, OR
+//   - a step returns cont=false or err != nil.
+type QuotaUpdateTrigger = func(ctx context.Context, cq *kueue.ClusterQueue) error
 
+// QuotaManager is a central place for managing updates of quota related information.
+// It executes the chain of registered QuotaUpdateSteps and allows to start the chain from any step via a dedicated QuotaUpdateTrigger.
 type QuotaManager struct {
 	sync.RWMutex
 	cache       *QuotaCache
 	updateChain []QuotaUpdateStep
 }
 
+// QuotaCache is the internal cache of the QuotaManager.
+// It is used by QuotaUpdateSteps to pass partial quota calculation results to following steps.
 type QuotaCache struct {
 	spec              map[kueue.ClusterQueueReference][]kueue.ResourceGroup
 	mkAggregatedQuota map[kueue.ClusterQueueReference]kueue.ResourceGroup
 	effectiveQuota    map[kueue.ClusterQueueReference][]kueue.ResourceGroup
 }
 
+// QuotaManagerOpts houses references to reconcilers that provide the QuotaUpdateStep functions and invoke their QuotaUpdateTriggers.
 type QuotaManagerOpts struct {
 	CoreCQRec *ClusterQueueReconciler
 }
@@ -76,7 +86,7 @@ func (qm *QuotaManager) triggerChain(startIdx int, ctx context.Context, cq *kueu
 
 // addUpdateStep adds the provided QuotaUpdateStep function to the end of the update chain.
 // If callbackDest is not nil, a callback to start the update chain from the added step is injected there.
-func (qm *QuotaManager) addUpdateStep(update QuotaUpdateStep, callbackDest *TriggerQuotaUpdate) {
+func (qm *QuotaManager) addUpdateStep(update QuotaUpdateStep, callbackDest *QuotaUpdateTrigger) {
 	qm.Lock()
 	defer qm.Unlock()
 	// Add the update step to the end of the chain.
