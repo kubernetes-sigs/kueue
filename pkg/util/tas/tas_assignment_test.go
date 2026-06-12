@@ -17,6 +17,7 @@ limitations under the License.
 package tas
 
 import (
+	"fmt"
 	"slices"
 	"testing"
 
@@ -615,6 +616,143 @@ func TestV1Beta2FromInternal_forNil(t *testing.T) {
 	got := V1Beta2From(nil)
 	if got != nil {
 		t.Errorf("unexpected result for nil: %+v", got)
+	}
+}
+
+func TestCompactTopologyAssignmentEncodingWithHostnamePrefixRuns(t *testing.T) {
+	internal := &TopologyAssignment{
+		Levels: []string{corev1.LabelHostname},
+		Domains: []TopologyDomainAssignment{
+			{Values: []string{"gke-c-pool-a-hash1-aa"}, Count: 3},
+			{Values: []string{"gke-c-pool-a-hash1-bb"}, Count: 3},
+			{Values: []string{"gke-c-pool-b-hash2-cc"}, Count: 4},
+			{Values: []string{"gke-c-pool-b-hash2-dd"}, Count: 5},
+		},
+	}
+	want := &kueue.TopologyAssignment{
+		Levels: []string{corev1.LabelHostname},
+		Slices: []kueue.TopologyAssignmentSlice{
+			{
+				DomainCount: 2,
+				PodCounts: kueue.TopologyAssignmentSlicePodCounts{
+					Universal: ptr.To[int32](3),
+				},
+				ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
+					{
+						Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
+							Prefix: new("gke-c-pool-a-hash1-"),
+							Roots:  []string{"aa", "bb"},
+						},
+					},
+				},
+			},
+			{
+				DomainCount: 2,
+				PodCounts: kueue.TopologyAssignmentSlicePodCounts{
+					Individual: []int32{4, 5},
+				},
+				ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
+					{
+						Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
+							Prefix: new("gke-c-pool-b-hash2-"),
+							Roots:  []string{"cc", "dd"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	got := compactTopologyAssignmentEncodingWithHostnamePrefixRuns(internal)
+	if diff := cmp.Diff(want, got, cmpopts.EquateEmpty()); diff != "" {
+		t.Errorf("unexpected result (-want,+got):\n%s", diff)
+	}
+}
+
+func TestV1Beta2FromInternal_usesSingleSliceWhenItFits(t *testing.T) {
+	internal := &TopologyAssignment{
+		Levels: []string{corev1.LabelHostname},
+		Domains: []TopologyDomainAssignment{
+			{Values: []string{"gke-c-pool-a-hash1-aa"}, Count: 3},
+			{Values: []string{"gke-c-pool-a-hash1-bb"}, Count: 3},
+			{Values: []string{"gke-c-pool-b-hash2-cc"}, Count: 4},
+			{Values: []string{"gke-c-pool-b-hash2-dd"}, Count: 5},
+		},
+	}
+
+	got := V1Beta2From(internal)
+	if len(got.Slices) != 1 {
+		t.Fatalf("unexpected number of slices: got %d, want 1", len(got.Slices))
+	}
+	if diff := cmp.Diff(internal, InternalFrom(got), cmpopts.EquateEmpty()); diff != "" {
+		t.Errorf("unexpected round trip (-want,+got):\n%s", diff)
+	}
+}
+
+func TestV1Beta2FromInternal_preservesHostnameDomainOrder(t *testing.T) {
+	internal := &TopologyAssignment{
+		Levels: []string{corev1.LabelHostname},
+		Domains: []TopologyDomainAssignment{
+			{Values: []string{"gke-c-pool-a-hash1-aa"}, Count: 1},
+			{Values: []string{"gke-c-pool-b-hash2-cc"}, Count: 2},
+			{Values: []string{"gke-c-pool-a-hash1-bb"}, Count: 3},
+			{Values: []string{"gke-c-pool-b-hash2-dd"}, Count: 4},
+		},
+	}
+
+	got := InternalFrom(V1Beta2From(internal))
+	if diff := cmp.Diff(internal.Domains, got.Domains); diff != "" {
+		t.Fatalf("V1Beta2From must preserve domain order (-want,+got):\n%s", diff)
+	}
+}
+
+func TestV1Beta2FromInternal_largeHostnameAssignment(t *testing.T) {
+	const domainCount = maxDomainsPerTopologyAssignmentSlice + 1
+
+	internal := &TopologyAssignment{
+		Levels:  []string{corev1.LabelHostname},
+		Domains: make([]TopologyDomainAssignment, domainCount),
+	}
+	for i := range domainCount {
+		internal.Domains[i] = TopologyDomainAssignment{
+			Values: []string{fmt.Sprintf("gke-c-pool-a-hash1-%06d", i)},
+			Count:  1,
+		}
+	}
+
+	got := V1Beta2From(internal)
+	if len(got.Slices) != 2 {
+		t.Fatalf("unexpected number of slices: got %d, want 2", len(got.Slices))
+	}
+	for i, slice := range got.Slices {
+		if slice.DomainCount > maxDomainsPerTopologyAssignmentSlice {
+			t.Errorf("slice %d has too many domains: got %d, want <= %d", i, slice.DomainCount, maxDomainsPerTopologyAssignmentSlice)
+		}
+	}
+	if got := TotalDomainCount(got); got != domainCount {
+		t.Errorf("unexpected total domain count: got %d, want %d", got, domainCount)
+	}
+}
+
+func TestCompactDomainRuns_groupsConsecutiveDomains(t *testing.T) {
+	domains := make([]TopologyDomainAssignment, 4)
+	prefixKeys := []string{"prefix-a-", "prefix-a-", "prefix-b-", "prefix-a-"}
+	for i := range domains {
+		domains[i] = TopologyDomainAssignment{
+			Values: []string{fmt.Sprintf("node-%04d", i)},
+			Count:  1,
+		}
+	}
+
+	runs := compactDomainRuns(domains, prefixKeys)
+	if got, want := len(runs), 3; got != want {
+		t.Fatalf("unexpected number of runs: got %d, want %d", got, want)
+	}
+	wantLengths := []int{2, 1, 1}
+	for i, want := range wantLengths {
+		if got := len(runs[i]); got != want {
+			t.Errorf("unexpected length for run %d: got %d, want %d", i, got, want)
+		}
 	}
 }
 
