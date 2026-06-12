@@ -238,6 +238,15 @@ const (
 	// Deprecated: planned to be removed in 0.17
 	MultiKueueAllowInsecureKubeconfigs featuregate.Feature = "MultiKueueAllowInsecureKubeconfigs"
 
+	// owner: @kannon92
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/12144
+	//
+	// Enforce safe path validation for locationType=Path MultiKueueCluster
+	// kubeconfig references. When enabled (the default), only paths under
+	// /etc/multikueue/kubeconfigs/ are accepted. When disabled, the
+	// controller falls back to the legacy behavior of allowing any path.
+	SafeMultiKueueConfigPath featuregate.Feature = "SafeMultiKueueConfigPath"
+
 	// owner: @pbundyra
 	//
 	// Enables reclaimable pods counting towards quota.
@@ -580,6 +589,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	MultiKueueAllowInsecureKubeconfigs: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Deprecated}, // remove in 0.19
+	},
+
+	SafeMultiKueueConfigPath: {
+		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
 	},
 	ReclaimablePods: {
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},

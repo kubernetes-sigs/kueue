@@ -151,6 +151,30 @@ Kueue handles delegation to the appropriate worker cluster without requiring any
 - [Set up a MultiKueue environment](/docs/tasks/manage/setup_multikueue/)
 - [Run Jobs in a MultiKueue environment](/docs/tasks/run/multikueue)
 
+## Security Considerations
+
+### KubeConfig Location Types
+
+MultiKueueCluster supports three sources for cluster credentials:
+
+| Source | Recommended | Notes |
+|---|---|---|
+| `ClusterProfile` | ✅ Production | Federated credential discovery via the ClusterProfile API. |
+| `Secret` | ✅ Production | Kubeconfig stored in a Kubernetes Secret. |
+| `Path` | ⚠️ Development only | File path on the controller pod's filesystem. |
+
+**`locationType=Path` is secured by default.** The `SafeMultiKueueConfigPath`
+feature gate (enabled by default) restricts kubeconfig file paths to the
+hardcoded prefix `/etc/multikueue/kubeconfigs/`. The controller rejects paths
+containing `..`, relative paths, and symlinks that resolve outside the prefix.
+To revert to the legacy behavior that allows any path, disable the feature
+gate with `--feature-gates=SafeMultiKueueConfigPath=false`.
+
+For production deployments, use `ClusterProfile` or `Secret` instead of `Path`.
+
+See [Setup a MultiKueue environment](/docs/tasks/manage/setup_multikueue/) for
+configuration details.
+
 ## Limitations
 
 - We do not currently support running the manager cluster as one of the workers for itself.

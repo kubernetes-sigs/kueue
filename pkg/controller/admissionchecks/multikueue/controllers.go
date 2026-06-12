@@ -45,6 +45,7 @@ type SetupOptions struct {
 	dispatcherName       string
 	clusterProfileConfig *configapi.ClusterProfile
 	roleTracker          *roletracker.RoleTracker
+	kubeConfigPathPrefix string // test-only override; empty means use DefaultKubeConfigPathPrefix
 }
 
 type SetupOption func(o *SetupOptions)
@@ -101,6 +102,15 @@ func WithClusterProfiles(clusterProfiles *configapi.ClusterProfile) SetupOption 
 	}
 }
 
+// WithKubeConfigPathPrefixForTest overrides the hardcoded kubeconfig path
+// prefix for integration tests. This should not be used in production; in
+// production the prefix is always DefaultKubeConfigPathPrefix.
+func WithKubeConfigPathPrefixForTest(prefix string) SetupOption {
+	return func(o *SetupOptions) {
+		o.kubeConfigPathPrefix = prefix
+	}
+}
+
 // WithRoleTracker sets the role tracker for HA logging.
 func WithRoleTracker(tracker *roletracker.RoleTracker) SetupOption {
 	return func(o *SetupOptions) {
@@ -149,6 +159,9 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 	}
 
 	cRec := newClustersReconciler(mgr.GetClient(), namespace, options.gcInterval, options.origin, fsWatcher, options.adapters, cpCreds, options.roleTracker)
+	if options.kubeConfigPathPrefix != "" {
+		cRec.kubeConfigPathPrefix = options.kubeConfigPathPrefix
+	}
 	err = cRec.setupWithManager(mgr)
 	if err != nil {
 		return err
