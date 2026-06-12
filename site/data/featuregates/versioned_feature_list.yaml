@@ -121,6 +121,12 @@
     lockToDefault: true
     preRelease: GA
     version: "0.17"
+- name: KubeRayAccountForRedisCleanup
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
 - name: KueueDRAIntegration
   versionedSpecs:
   - default: true

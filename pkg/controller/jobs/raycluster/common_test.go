@@ -25,17 +25,21 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -46,10 +50,47 @@ import (
 func TestBuildPodSets(t *testing.T) {
 	testCases := map[string]struct {
 		rayClusterSpec *rayv1.RayClusterSpec
+		annotations    map[string]string
+		featureGates   map[featuregate.Feature]bool
 		wantPodSets    []kueue.PodSet
 		wantErr        bool
 	}{
 		"basic spec with head and single worker group": {
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{Name: "head"}},
+						},
+					},
+				},
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName: "workers",
+						Replicas:  ptr.To[int32](3),
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker"}},
+							},
+						},
+					},
+				},
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "head"}},
+					}).
+					Obj(),
+				*utiltestingapi.MakePodSet("workers", 3).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "worker"}},
+					}).
+					Obj(),
+			},
+		},
+		"basic spec with redis cleanup accounting disabled": {
+			featureGates: map[featuregate.Feature]bool{features.KubeRayAccountForRedisCleanup: false},
 			rayClusterSpec: &rayv1.RayClusterSpec{
 				HeadGroupSpec: rayv1.HeadGroupSpec{
 					Template: corev1.PodTemplateSpec{
@@ -199,11 +240,154 @@ func TestBuildPodSets(t *testing.T) {
 					Obj(),
 			},
 		},
+		"spec with gcs fault tolerance": {
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				GcsFaultToleranceOptions: &rayv1.GcsFaultToleranceOptions{
+					RedisAddress: "redis:6379",
+				},
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Labels: map[string]string{"ray.io/cluster": "raycluster"},
+						},
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{
+								Name:  "head",
+								Image: "rayproject/ray:2.0.0",
+								Resources: corev1.ResourceRequirements{
+									Requests: corev1.ResourceList{
+										corev1.ResourceCPU: resource.MustParse("1"),
+									},
+								},
+							}},
+						},
+					},
+				},
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName: "workers",
+						Replicas:  ptr.To[int32](1),
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker"}},
+							},
+						},
+					},
+				},
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+					Labels(map[string]string{"ray.io/cluster": "raycluster"}).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{{
+							Name:  "head",
+							Image: "rayproject/ray:2.0.0",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("1"),
+									corev1.ResourceMemory: resource.MustParse("256Mi"),
+								},
+							},
+						}},
+					}).
+					Obj(),
+				*utiltestingapi.MakePodSet("workers", 1).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "worker"}},
+					}).
+					Obj(),
+			},
+		},
+		"spec with gcs fault tolerance and redis cleanup accounting disabled": {
+			featureGates: map[featuregate.Feature]bool{features.KubeRayAccountForRedisCleanup: false},
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				GcsFaultToleranceOptions: &rayv1.GcsFaultToleranceOptions{
+					RedisAddress: "redis:6379",
+				},
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{Name: "head"}},
+						},
+					},
+				},
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName: "workers",
+						Replicas:  ptr.To[int32](1),
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker"}},
+							},
+						},
+					},
+				},
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "head"}},
+					}).
+					Obj(),
+				*utiltestingapi.MakePodSet("workers", 1).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "worker"}},
+					}).
+					Obj(),
+			},
+		},
+		"spec with gcs fault tolerance annotation": {
+			annotations: map[string]string{rayutils.RayFTEnabledAnnotationKey: "true"},
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Labels: map[string]string{"ray.io/cluster": "raycluster"},
+						},
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{
+								Name:  "head",
+								Image: "rayproject/ray:2.0.0",
+							}},
+						},
+					},
+				},
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+					Labels(map[string]string{"ray.io/cluster": "raycluster"}).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{{
+							Name:  "head",
+							Image: "rayproject/ray:2.0.0",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("200m"),
+									corev1.ResourceMemory: resource.MustParse("256Mi"),
+								},
+							},
+						}},
+					}).
+					Obj(),
+			},
+		},
+		"spec with gcs fault tolerance and missing head container": {
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				GcsFaultToleranceOptions: &rayv1.GcsFaultToleranceOptions{
+					RedisAddress: "redis:6379",
+				},
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{},
+				},
+			},
+			wantErr: true,
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			gotPodSets, err := BuildPodSets(tc.rayClusterSpec)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			gotPodSets, err := BuildPodSets(tc.rayClusterSpec, tc.annotations)
 
 			if tc.wantErr {
 				if err == nil {
@@ -757,6 +941,7 @@ func TestValidateCreateRayClusterSpec(t *testing.T) {
 	testCases := map[string]struct {
 		object         client.Object
 		rayClusterSpec *rayv1.RayClusterSpec
+		featureGates   map[featuregate.Feature]bool
 		wantErrors     field.ErrorList
 	}{
 		"valid spec": {
@@ -824,7 +1009,7 @@ func TestValidateCreateRayClusterSpec(t *testing.T) {
 				},
 			},
 			wantErrors: field.ErrorList{
-				field.TooMany(field.NewPath("spec", "workerGroupSpecs"), 10, 9),
+				field.TooMany(field.NewPath("spec", "workerGroupSpecs"), 11, jobframework.MaxPodSets),
 			},
 		},
 		"worker group named 'head'": {
@@ -865,7 +1050,7 @@ func TestValidateCreateRayClusterSpec(t *testing.T) {
 			},
 			wantErrors: field.ErrorList{
 				field.Invalid(field.NewPath("spec", "enableInTreeAutoscaling"), new(true), "a kueue managed job should only use autoscaling when workload slicing is enabled"),
-				field.TooMany(field.NewPath("spec", "workerGroupSpecs"), 10, 9),
+				field.TooMany(field.NewPath("spec", "workerGroupSpecs"), 11, jobframework.MaxPodSets),
 				field.Forbidden(field.NewPath("spec", "workerGroupSpecs").Index(0).Child("groupName"), fmt.Sprintf("%q is reserved for the head group", headGroupPodSetName)),
 			},
 		},
@@ -874,6 +1059,7 @@ func TestValidateCreateRayClusterSpec(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			gotErrors := ValidateCreate(tc.object, tc.rayClusterSpec, field.NewPath("spec"))
 
 			if diff := cmp.Diff(tc.wantErrors, gotErrors, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {

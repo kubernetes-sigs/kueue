@@ -85,6 +85,50 @@ func TestPodSets(t *testing.T) {
 			},
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
+		"with gcs fault tolerance": {
+			rayJob: func() *RayJob {
+				job := testingrayutil.MakeJob("rayjob", "ns").
+					WithHeadGroupSpec(
+						rayv1.HeadGroupSpec{
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
+							},
+						},
+					).
+					WithWorkerGroups(
+						rayv1.WorkerGroupSpec{
+							GroupName: "group1",
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
+							},
+						},
+					).
+					Obj()
+				job.Spec.RayClusterSpec.GcsFaultToleranceOptions = &rayv1.GcsFaultToleranceOptions{RedisAddress: "redis:6379"}
+				return (*RayJob)(job)
+			}(),
+			wantPodSets: func(rayJob *RayJob) []kueue.PodSet {
+				return []kueue.PodSet{
+					*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+						PodSpec(corev1.PodSpec{
+							Containers: []corev1.Container{{
+								Name: "head_c",
+								Resources: corev1.ResourceRequirements{
+									Requests: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("200m"),
+										corev1.ResourceMemory: resource.MustParse("256Mi"),
+									},
+								},
+							}},
+						}).
+						Obj(),
+					*utiltestingapi.MakePodSet("group1", 1).
+						PodSpec(*rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
+						Obj(),
+				}
+			},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+		},
 		"with required topology annotation": {
 			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
 				WithHeadGroupSpec(
@@ -681,6 +725,30 @@ func TestNodeSelectors(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestRunWithPodSetsInfoDoesNotAddRedisCleanupPodSet(t *testing.T) {
+	rayJob := testingrayutil.MakeJob("job", "ns").
+		WithHeadGroupSpec(rayv1.HeadGroupSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head"}}},
+			},
+		}).
+		WithWorkerGroups(rayv1.WorkerGroupSpec{
+			GroupName: "workers",
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "worker"}}},
+			},
+		}).
+		Obj()
+	rayJob.Spec.RayClusterSpec.GcsFaultToleranceOptions = &rayv1.GcsFaultToleranceOptions{RedisAddress: "redis:6379"}
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+	job := (*RayJob)(rayJob)
+	podSetsInfo := []podset.PodSetInfo{{}, {}}
+	if err := job.RunWithPodSetsInfo(ctx, nil, podSetsInfo); err != nil {
+		t.Fatalf("RunWithPodSetsInfo() unexpected error: %v", err)
 	}
 }
 
