@@ -668,11 +668,7 @@ func Test_multiKueueAdapter_SyncJob_DeferredWhenLocalSuspended(t *testing.T) {
 		return utiltestingjob.MakeJob("test", TestNamespace).ResourceVersion("1")
 	}
 
-	// Local Job: suspended (manager admission check still being processed).
 	localJob := newJob().Obj() // Suspend defaults to true on JobWrapper
-	// Remote Job: unsuspended, NOT finished, with Status.Active=1 (the value
-	// that the failing test in issue #11115 wanted propagated to the manager
-	// Job's status.Active and never got).
 	remoteJob := newJob().
 		Suspend(false).
 		Active(1).
