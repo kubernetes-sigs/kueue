@@ -11,8 +11,8 @@ happened. Compare both runs along three dimensions.
 In Ginkgo build-log output, every `ginkgo.By(...)` produces a `STEP: <description> @ <timestamp>` line. List the STEPs of the failing test from both runs side by side. The step *just before* the failure, and its time delta to the previous step, is usually where the divergence lives.
 
 ```sh
-sed 's/\x1b\[[0-9;]*[a-zA-Z]//g' build-logs/failed/build-log.txt   | grep -E "STEP:" | grep "<test or namespace>" > /tmp/steps-failed.txt
-sed 's/\x1b\[[0-9;]*[a-zA-Z]//g' build-logs/success/build-log.txt  | grep -E "STEP:" | grep "<test or namespace>" > /tmp/steps-success.txt
+perl -pe 's/\e\[[0-9;]*[a-zA-Z]//g' build-logs/failed/build-log.txt   | grep -E "STEP:" | grep "<test or namespace>" > /tmp/steps-failed.txt
+perl -pe 's/\e\[[0-9;]*[a-zA-Z]//g' build-logs/success/build-log.txt  | grep -E "STEP:" | grep "<test or namespace>" > /tmp/steps-success.txt
 diff /tmp/steps-failed.txt /tmp/steps-success.txt
 ```
 

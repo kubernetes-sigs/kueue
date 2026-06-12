@@ -7,7 +7,7 @@ failing test. Driven by [SKILL.md](../SKILL.md); start there for strategy select
 color codes first** or grep will silently miss matches:
 
 ```sh
-sed 's/\x1b\[[0-9;]*[a-zA-Z]//g' build-logs/failed/build-log.txt | grep "your-term"
+perl -pe 's/\e\[[0-9;]*[a-zA-Z]//g' build-logs/failed/build-log.txt | grep "your-term"
 ```
 
 ## Step 1 — Initial build-log analysis
@@ -44,7 +44,7 @@ curl -sL ${BASE_PROW_LOG}/build-log.txt -o build-logs/failed/build-log.txt
 Grep around the failing lines (remembering to strip ANSI codes):
 
 ```sh
-sed 's/\x1b\[[0-9;]*[a-zA-Z]//g' build-logs/failed/build-log.txt | grep -nE "FAILED|Timed out after" | head -20
+perl -pe 's/\e\[[0-9;]*[a-zA-Z]//g' build-logs/failed/build-log.txt | grep -nE "FAILED|Timed out after" | head -20
 ```
 
 Output the lines and report: the failure message, the failing test name, the file:line in the test code, the namespace name used by that test, and the timestamp of failure.
@@ -102,7 +102,7 @@ curl -sL ${BASE_PROW_LOG_SUCCESS}/build-log.txt -o build-logs/success/build-log.
 Confirm the same failing test ran in the success build:
 
 ```sh
-sed 's/\x1b\[[0-9;]*[a-zA-Z]//g' build-logs/success/build-log.txt | grep "<exact failing test name>" | head -5
+perl -pe 's/\e\[[0-9;]*[a-zA-Z]//g' build-logs/success/build-log.txt | grep "<exact failing test name>" | head -5
 ```
 
 If the test isn't present in the most recent SUCCESS, try the next one. If after 3 attempts the test isn't present in any successful run, say so explicitly — the test may have been introduced in the failing PR, in which case strategy 2 is not available and you must rely on strategy 1 alone.
