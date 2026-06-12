@@ -431,7 +431,12 @@ func recordResourceMetrics(cq *kueue.ClusterQueue, tracker *roletracker.RoleTrac
 				r := &fq.Resources[ri]
 				nominal := resource.QuantityToFloat(&r.NominalQuota)
 				borrow := resource.QuantityToFloat(r.BorrowingLimit)
-				lend := resource.QuantityToFloat(r.LendingLimit)
+				var lend float64
+				if r.LendingLimit == nil {
+					lend = math.Inf(1)
+				} else {
+					lend = resource.QuantityToFloat(r.LendingLimit)
+				}
 				metrics.ReportClusterQueueQuotas(cq.Spec.CohortName, cq.Name, string(fq.Name), string(r.Name), nominal, borrow, lend, cqCustomLabels, tracker)
 			}
 		}
