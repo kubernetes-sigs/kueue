@@ -17,6 +17,7 @@ limitations under the License.
 package metrics
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -197,6 +198,10 @@ var (
 	// +metricsdoc:group=health
 	// +metricsdoc:labels=job_kind="the kind of the job",replica_role="one of `leader`, `follower`, or `standalone`"
 	WorkloadCreationLatency *prometheus.HistogramVec
+
+	// +metricsdoc:group=health
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",is_group="whether the gate removal applies to a pod group or a single pod",name="one of `kueue.x-k8s.io/topology`, `kueue.x-k8s.io/admission`, or `kueue.x-k8s.io/elastic-job`"
+	PodSchedulingGateRemovalSeconds *prometheus.HistogramVec
 
 	// Metrics tied to the cache.
 
@@ -573,6 +578,14 @@ The label 'underlying_cause' can have the following values:
 		}, append([]string{"job_kind", "replica_role"}, extraLabels...),
 	)
 
+	PodSchedulingGateRemovalSeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: constants.KueueName,
+			Name:      "pod_scheduling_gate_removal_seconds",
+			Help:      "The time between workload admission and scheduling gate removal.",
+		}, append([]string{"cluster_queue", "is_group"}, extraLabels...),
+	)
+
 	EvictedWorkloadsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: constants.KueueName,
@@ -902,6 +915,10 @@ func AdmissionAttempt(result AdmissionResult, duration time.Duration, tracker *r
 func RecordWorkloadCreationLatency(jobKind string, latency time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	labels := append([]string{jobKind, roletracker.GetRole(tracker)}, customLabelValues...)
 	WorkloadCreationLatency.WithLabelValues(labels...).Observe(latency.Seconds())
+}
+
+func RecordPodSchedulingGateRemovalSeconds(clusterQueue kueue.ClusterQueueReference, isGroup bool, latency time.Duration) {
+	PodSchedulingGateRemovalSeconds.WithLabelValues(string(clusterQueue), fmt.Sprintf("%t", isGroup)).Observe(latency.Seconds())
 }
 
 func QuotaReservedWorkload(cqName kueue.ClusterQueueReference, priorityClass string, waitTime time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
@@ -1385,6 +1402,7 @@ func Register() {
 		CohortSubtreeAdmittedWorkloadsTotal,
 		CohortSubtreeResourceReservations,
 		CohortSubtreeAdmittedActiveWorkloads,
+		PodSchedulingGateRemovalSeconds,
 	)
 	if features.Enabled(features.MetricForWorkloadCreationLatency) {
 		metrics.Registry.MustRegister(WorkloadCreationLatency)

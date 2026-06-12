@@ -1323,7 +1323,7 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 	}
 
 	if cj, implements := job.(ComposableJob); implements {
-		if err := cj.Run(ctx, r.client, info, r.record, msg); err != nil {
+		if err := cj.Run(ctx, r.client, wl, info, r.record, msg); err != nil {
 			return err
 		}
 	} else {

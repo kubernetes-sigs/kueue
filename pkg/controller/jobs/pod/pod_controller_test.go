@@ -133,12 +133,14 @@ func TestPodsReady(t *testing.T) {
 
 func TestRun(t *testing.T) {
 	testCases := map[string]struct {
+		wl                   *kueue.Workload
 		pods                 []corev1.Pod
 		runInfo, restoreInfo []podset.PodSetInfo
 		wantErr              error
 	}{
 		"pod set info > 1 for the single pod": {
-			pods:    []corev1.Pod{*testingpod.MakePod("test-pod", "test-namespace").Obj()},
+			wl:      utiltestingapi.MakeWorkload("wl", metav1.NamespaceDefault).Obj(),
+			pods:    []corev1.Pod{*testingpod.MakePod("test-pod", metav1.NamespaceDefault).Obj()},
 			runInfo: make([]podset.PodSetInfo, 2),
 			wantErr: podset.ErrInvalidPodsetInfo,
 		},
@@ -156,7 +158,7 @@ func TestRun(t *testing.T) {
 
 			kClient := clientBuilder.WithLists(&corev1.PodList{Items: tc.pods}).Build()
 
-			gotErr := pod.Run(ctx, kClient, tc.runInfo, nil, "")
+			gotErr := pod.Run(ctx, kClient, tc.wl, tc.runInfo, nil, "")
 
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("error mismatch (-want +got):\n%s", diff)
