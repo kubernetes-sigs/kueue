@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -473,7 +474,7 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 			ginkgo.By("Simulating Admission Check success on variant", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(variantProvReq), variantProvReq)).To(gomega.Succeed())
-					workload.SetAdmissionCheckState(&variantProvReq.Status.AdmissionChecks, kueue.AdmissionCheckState{
+					workloadpatching.SetAdmissionCheckState(&variantProvReq.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:               kueue.AdmissionCheckReference(ac.Name),
 						State:              kueue.CheckStateReady,
 						LastTransitionTime: metav1.Now(),

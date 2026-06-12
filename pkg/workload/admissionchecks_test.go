@@ -22,15 +22,12 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/featuregate"
-	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
@@ -373,182 +370,6 @@ func TestSyncAdmittedCondition(t *testing.T) {
 				if diff := cmp.Diff(tc.wantAdmittedTime, *wl.Status.AccumulatedPastExecutionTimeSeconds); diff != "" {
 					t.Errorf("Unexpected AccumulatedPastExecutionTimeSeconds (- want/+ got):\n%s", diff)
 				}
-			}
-		})
-	}
-}
-
-func TestSetCheckState(t *testing.T) {
-	now := time.Now()
-	fakeClock := testingclock.NewFakeClock(now)
-	t0 := metav1.NewTime(now.Add(-5 * time.Second))
-	t1 := metav1.NewTime(now)
-	ps1Updates := kueue.PodSetUpdate{
-		Name: "ps1",
-		Labels: map[string]string{
-			"l1": "l1v",
-		},
-		Annotations: map[string]string{
-			"a1": "a1v",
-		},
-		NodeSelector: map[string]string{
-			"ns1": "ms1v",
-		},
-		Tolerations: []corev1.Toleration{
-			{
-				Key:               "t1",
-				Operator:          corev1.TolerationOpEqual,
-				Value:             "t1v",
-				Effect:            corev1.TaintEffectNoSchedule,
-				TolerationSeconds: ptr.To[int64](5),
-			},
-		},
-	}
-
-	cases := map[string]struct {
-		origStates []kueue.AdmissionCheckState
-		state      kueue.AdmissionCheckState
-		wantStates []kueue.AdmissionCheckState
-	}{
-		"add new check": {
-			origStates: []kueue.AdmissionCheckState{},
-			state: kueue.AdmissionCheckState{
-				Name:               "check1",
-				State:              kueue.CheckStatePending,
-				LastTransitionTime: *t0.DeepCopy(),
-				Message:            "msg1",
-				PodSetUpdates:      []kueue.PodSetUpdate{*ps1Updates.DeepCopy()},
-			},
-			wantStates: []kueue.AdmissionCheckState{
-				{
-					Name:               "check1",
-					State:              kueue.CheckStatePending,
-					LastTransitionTime: *t0.DeepCopy(),
-					Message:            "msg1",
-					PodSetUpdates:      []kueue.PodSetUpdate{*ps1Updates.DeepCopy()},
-				},
-			},
-		},
-		"update check": {
-			origStates: []kueue.AdmissionCheckState{
-				{
-					Name:               "check1",
-					State:              kueue.CheckStatePending,
-					LastTransitionTime: *t0.DeepCopy(),
-					Message:            "msg1",
-					PodSetUpdates:      nil,
-				},
-				{
-					Name:               "check2",
-					State:              kueue.CheckStatePending,
-					LastTransitionTime: *t0.DeepCopy(),
-					Message:            "msg1",
-					PodSetUpdates:      nil,
-				},
-			},
-			state: kueue.AdmissionCheckState{
-				Name:               "check1",
-				State:              kueue.CheckStateReady,
-				LastTransitionTime: *t1.DeepCopy(),
-				Message:            "msg2",
-				PodSetUpdates:      []kueue.PodSetUpdate{*ps1Updates.DeepCopy()},
-			},
-			wantStates: []kueue.AdmissionCheckState{
-				{
-					Name:               "check1",
-					State:              kueue.CheckStateReady,
-					LastTransitionTime: *t1.DeepCopy(),
-					Message:            "msg2",
-					PodSetUpdates:      []kueue.PodSetUpdate{*ps1Updates.DeepCopy()},
-				},
-				{
-					Name:               "check2",
-					State:              kueue.CheckStatePending,
-					LastTransitionTime: *t0.DeepCopy(),
-					Message:            "msg1",
-					PodSetUpdates:      nil,
-				},
-			},
-		},
-		"add new check, no transition tim": {
-			origStates: []kueue.AdmissionCheckState{},
-			state: kueue.AdmissionCheckState{
-				Name:          "check1",
-				State:         kueue.CheckStatePending,
-				Message:       "msg1",
-				PodSetUpdates: []kueue.PodSetUpdate{*ps1Updates.DeepCopy()},
-			},
-			wantStates: []kueue.AdmissionCheckState{
-				{
-					Name:          "check1",
-					State:         kueue.CheckStatePending,
-					Message:       "msg1",
-					PodSetUpdates: []kueue.PodSetUpdate{*ps1Updates.DeepCopy()},
-				},
-			},
-		},
-		"update check, no transition time": {
-			origStates: []kueue.AdmissionCheckState{
-				{
-					Name:               "check1",
-					State:              kueue.CheckStatePending,
-					LastTransitionTime: *t0.DeepCopy(),
-					Message:            "msg1",
-					PodSetUpdates:      nil,
-				},
-				{
-					Name:               "check2",
-					State:              kueue.CheckStatePending,
-					LastTransitionTime: *t0.DeepCopy(),
-					Message:            "msg1",
-					PodSetUpdates:      nil,
-				},
-			},
-			state: kueue.AdmissionCheckState{
-				Name:          "check1",
-				State:         kueue.CheckStateReady,
-				Message:       "msg2",
-				PodSetUpdates: []kueue.PodSetUpdate{*ps1Updates.DeepCopy()},
-			},
-			wantStates: []kueue.AdmissionCheckState{
-				{
-					Name:          "check1",
-					State:         kueue.CheckStateReady,
-					Message:       "msg2",
-					PodSetUpdates: []kueue.PodSetUpdate{*ps1Updates.DeepCopy()},
-				},
-				{
-					Name:               "check2",
-					State:              kueue.CheckStatePending,
-					LastTransitionTime: *t0.DeepCopy(),
-					Message:            "msg1",
-					PodSetUpdates:      nil,
-				},
-			},
-		},
-	}
-
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			gotStates := tc.origStates
-
-			SetAdmissionCheckState(&gotStates, tc.state, fakeClock)
-
-			opts := cmp.Options{}
-			if tc.state.LastTransitionTime.IsZero() {
-				opts = append(opts, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime"), cmpopts.EquateApproxTime(time.Second))
-
-				if updatedCheck := admissioncheck.FindAdmissionCheck(gotStates, tc.state.Name); updatedCheck == nil {
-					t.Error("Cannot find the updated check state")
-				} else {
-					if diff := cmp.Diff(metav1.NewTime(now), updatedCheck.LastTransitionTime, opts...); diff != "" {
-						t.Errorf("Unexpected LastTransitionTime (- want/+ got):\n%s", diff)
-					}
-				}
-			}
-
-			if diff := cmp.Diff(tc.wantStates, gotStates, opts...); diff != "" {
-				t.Errorf("Unexpected conditions after sync (- want/+ got):\n%s", diff)
 			}
 		})
 	}

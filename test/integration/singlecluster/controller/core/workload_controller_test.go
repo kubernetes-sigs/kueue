@@ -38,6 +38,9 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
+	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -301,12 +304,12 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 			ginkgo.By("setting the check conditions", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
-					workload.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+					workloadpatching.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:    "check1",
 						State:   kueue.CheckStateReady,
 						Message: "check successfully passed",
 					}, util.RealClock)
-					workload.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+					workloadpatching.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:    "check2",
 						State:   kueue.CheckStateRetry,
 						Message: "check rejected",
@@ -379,7 +382,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 			ginkgo.By("setting the check conditions", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
-					workload.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+					workloadpatching.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:    "check1",
 						State:   kueue.CheckStateRejected,
 						Message: "check rejected",
@@ -402,7 +405,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
-					g.Expect(workload.IsEvictedByDeactivation(updatedWl)).To(gomega.BeTrue())
+					g.Expect(workloadevict.IsEvictedByDeactivation(updatedWl)).To(gomega.BeTrue())
 					util.ExpectEvictedWorkloadsTotalMetric(clusterQueue.Name, "Deactivated", "AdmissionCheck", "", 1)
 					util.ExpectEvictedWorkloadsOnceTotalMetric(clusterQueue.Name, "Deactivated", "AdmissionCheck", "", 1)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -442,12 +445,12 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
-					workload.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+					workloadpatching.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:    "check1",
 						State:   kueue.CheckStateReady,
 						Message: "check ready",
 					}, util.RealClock)
-					workload.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+					workloadpatching.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:    "check2",
 						State:   kueue.CheckStateReady,
 						Message: "check ready",
@@ -471,7 +474,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 			ginkgo.By("setting a rejected check condition", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
-					workload.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+					workloadpatching.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:    "check1",
 						State:   kueue.CheckStateRejected,
 						Message: "check rejected",
@@ -495,7 +498,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
 
-					g.Expect(workload.IsEvictedByDeactivation(updatedWl)).To(gomega.BeTrue())
+					g.Expect(workloadevict.IsEvictedByDeactivation(updatedWl)).To(gomega.BeTrue())
 					util.ExpectEvictedWorkloadsTotalMetric(clusterQueue.Name, "Deactivated", "AdmissionCheck", "", 1)
 					util.ExpectEvictedWorkloadsOnceTotalMetric(clusterQueue.Name, "Deactivated", "AdmissionCheck", "", 1)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -609,8 +612,8 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 			ginkgo.By("evicting the workload, the accumulated admission time is updated", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
-					g.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, wl, util.RealClock, func(wl *kueue.Workload) (bool, error) {
-						return workload.SetEvictedCondition(wl, util.RealClock.Now(), "ByTest", "by test"), nil
+					g.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, wl, util.RealClock, func(wl *kueue.Workload) (bool, error) {
+						return workloadevict.SetEvictedCondition(wl, util.RealClock.Now(), "ByTest", "by test"), nil
 					})).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				util.FinishEvictionForWorkloads(ctx, k8sClient, wl)
@@ -763,7 +766,7 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", func()
 			ginkgo.By("finishing the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
-					g.Expect(workload.Finish(ctx, k8sClient, wl, "ByTest", "By test", util.RealClock)).To(gomega.Succeed())
+					g.Expect(workloadfinish.Finish(ctx, k8sClient, wl, "ByTest", "By test", util.RealClock)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -821,7 +824,7 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", func()
 			ginkgo.By("finishing the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
-					g.Expect(workload.Finish(ctx, k8sClient, wl, "ByTest", "By test", util.RealClock)).To(gomega.Succeed(), nil)
+					g.Expect(workloadfinish.Finish(ctx, k8sClient, wl, "ByTest", "By test", util.RealClock)).To(gomega.Succeed(), nil)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 

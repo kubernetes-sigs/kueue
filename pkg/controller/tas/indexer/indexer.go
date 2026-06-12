@@ -27,6 +27,8 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 )
 
 const (
@@ -89,7 +91,7 @@ func indexResourceFlavorTopologyName(o client.Object) []string {
 
 func indexAdmittedWorkloadNodes(o client.Object) []string {
 	wl, ok := o.(*kueue.Workload)
-	if !ok || workload.IsFinished(wl) || workload.IsEvicted(wl) {
+	if !ok || workloadfinish.IsFinished(wl) || workloadevict.IsEvicted(wl) {
 		return nil
 	}
 
