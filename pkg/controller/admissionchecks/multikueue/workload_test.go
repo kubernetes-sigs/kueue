@@ -2008,9 +2008,6 @@ func TestConfigHandlerDelete(t *testing.T) {
 	}
 }
 
-// deferredSyncStubAdapter is a minimal MultiKueueAdapter used by
-// TestReconcileGroup_SyncDeferred_ShortRequeue. SyncJob returns whatever the
-// configured syncErr is; the other methods are no-ops or trivial.
 type deferredSyncStubAdapter struct {
 	syncErr error
 }
