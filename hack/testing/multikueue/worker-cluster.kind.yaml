@@ -5,6 +5,25 @@ nodes:
   kubeadmConfigPatches:
   - |
     kind: ClusterConfiguration
+    apiVersion: kubeadm.k8s.io/v1beta4
+    scheduler:
+      extraArgs:
+      - name: v
+        value: "3"
+    controllerManager:
+      extraArgs:
+      - name: v
+        value: "3"
+    apiServer:
+      extraArgs:
+      - name: enable-aggregator-routing
+        value: "true"
+      - name: v
+        value: "3"
+      - name: service-account-max-token-expiration
+        value: "168h"
+  - |
+    kind: ClusterConfiguration
     apiVersion: kubeadm.k8s.io/v1beta3
     scheduler:
       extraArgs:
@@ -19,6 +38,14 @@ nodes:
         service-account-max-token-expiration: "168h"
   - |
     kind: InitConfiguration
+    apiVersion: kubeadm.k8s.io/v1beta4
+    nodeRegistration:
+      kubeletExtraArgs:
+      - name: v
+        value: "3"
+  - |
+    kind: InitConfiguration
+    apiVersion: kubeadm.k8s.io/v1beta3
     nodeRegistration:
       kubeletExtraArgs:
         v: "3"
@@ -30,6 +57,14 @@ nodes:
 kubeadmConfigPatches:
   - |
     kind: JoinConfiguration
+    apiVersion: kubeadm.k8s.io/v1beta4
+    nodeRegistration:
+      kubeletExtraArgs:
+      - name: v
+        value: "3"
+  - |
+    kind: JoinConfiguration
+    apiVersion: kubeadm.k8s.io/v1beta3
     nodeRegistration:
       kubeletExtraArgs:
         v: "3"
