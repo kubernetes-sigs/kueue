@@ -159,7 +159,7 @@ test-multikueue-e2e-baseline: E2E_NPROCS := 5
 test-multikueue-e2e-baseline: setup-e2e-env run-test-multikueue-e2e-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 # Assign shard-0 operator versions (all operators except KubeRay) to the shard-0 target
-TEST_MULTIKUEUE_E2E_EXTENDED_SHARD_0_TARGETS := test-multikueue-e2e-extended-shard-0
+TEST_MULTIKUEUE_E2E_EXTENDED_SHARD_0_TARGETS := test-multikueue-e2e-extended test-multikueue-e2e-extended-shard-0
 $(TEST_MULTIKUEUE_E2E_EXTENDED_SHARD_0_TARGETS): export JOBSET_VERSION := $(JOBSET_VERSION)
 $(TEST_MULTIKUEUE_E2E_EXTENDED_SHARD_0_TARGETS): export LEADERWORKERSET_VERSION := $(LEADERWORKERSET_VERSION)
 $(TEST_MULTIKUEUE_E2E_EXTENDED_SHARD_0_TARGETS): export APPWRAPPER_VERSION := $(APPWRAPPER_VERSION)
@@ -168,15 +168,14 @@ $(TEST_MULTIKUEUE_E2E_EXTENDED_SHARD_0_TARGETS): export KUBEFLOW_MPI_VERSION := 
 $(TEST_MULTIKUEUE_E2E_EXTENDED_SHARD_0_TARGETS): export KUBEFLOW_TRAINER_VERSION := $(KUBEFLOW_TRAINER_VERSION)
 
 # Assign shard-1 operator versions (KubeRay + Ray) to the shard-1 target
-TEST_MULTIKUEUE_E2E_EXTENDED_SHARD_1_TARGETS := test-multikueue-e2e-extended-shard-1
+TEST_MULTIKUEUE_E2E_EXTENDED_SHARD_1_TARGETS := test-multikueue-e2e-extended test-multikueue-e2e-extended-shard-1
 $(TEST_MULTIKUEUE_E2E_EXTENDED_SHARD_1_TARGETS): export KUBERAY_VERSION := $(KUBERAY_VERSION)
 $(TEST_MULTIKUEUE_E2E_EXTENDED_SHARD_1_TARGETS): export RAY_VERSION := $(RAY_VERSION)
 $(TEST_MULTIKUEUE_E2E_EXTENDED_SHARD_1_TARGETS): export RAYMINI_VERSION := $(RAYMINI_VERSION)
 
 .PHONY: test-multikueue-e2e-extended
-test-multikueue-e2e-extended:
-	$(MAKE) test-multikueue-e2e-extended-shard-0
-	$(MAKE) test-multikueue-e2e-extended-shard-1
+test-multikueue-e2e-extended: E2E_NPROCS := 5
+test-multikueue-e2e-extended: setup-e2e-env run-test-multikueue-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-multikueue-e2e-extended-shard-0
 test-multikueue-e2e-extended-shard-0: E2E_NPROCS := 5
