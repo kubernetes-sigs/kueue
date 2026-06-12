@@ -64,6 +64,9 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 
 	// the remote job exists
 	if err == nil {
+		if err := jobframework.ValidateRemoteObjectOwnership(ctx, &remoteJob, origin); err != nil {
+			return err
+		}
 		statusUpdate := determineStatusUpdate(ctx, log, &localJob, &remoteJob)
 		if !equality.Semantic.DeepEqual(localJob.Status, *statusUpdate) {
 			if err := clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {

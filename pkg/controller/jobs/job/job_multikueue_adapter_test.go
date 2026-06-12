@@ -616,8 +616,40 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 			adapter := &multiKueueAdapter{}
 			ctx, _ := utiltesting.ContextWithLog(t)
 
+			origin := tt.args.origin
+			if origin == "" {
+				origin = "origin1"
+			}
+
+			if tt.args.remoteClient != nil {
+				remoteJobs := &batchv1.JobList{}
+				if err := tt.args.remoteClient.List(ctx, remoteJobs); err == nil {
+					for i := range remoteJobs.Items {
+						j := &remoteJobs.Items[i]
+						if j.Labels == nil {
+							j.Labels = make(map[string]string)
+						}
+						if j.Labels[kueue.MultiKueueOriginLabel] == "" {
+							j.Labels[kueue.MultiKueueOriginLabel] = origin
+							if err := tt.args.remoteClient.Update(ctx, j); err != nil {
+								t.Fatalf("failed to prepare remote job origin label: %v", err)
+							}
+						}
+					}
+				}
+			}
+
+			if tt.want.remoteJob != nil {
+				if tt.want.remoteJob.Labels == nil {
+					tt.want.remoteJob.Labels = make(map[string]string)
+				}
+				if tt.want.remoteJob.Labels[kueue.MultiKueueOriginLabel] == "" {
+					tt.want.remoteJob.Labels[kueue.MultiKueueOriginLabel] = origin
+				}
+			}
+
 			// Function call under test with result (error) assertion.
-			if err := adapter.SyncJob(ctx, tt.args.localClient, tt.args.remoteClient, tt.args.key, tt.args.workloadName, tt.args.origin); (err != nil) != tt.want.err {
+			if err := adapter.SyncJob(ctx, tt.args.localClient, tt.args.remoteClient, tt.args.key, tt.args.workloadName, origin); (err != nil) != tt.want.err {
 				t.Errorf("SyncJob() error = %v, wantErr %v", err, tt.want.err)
 			}
 
@@ -627,7 +659,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 				if err := tt.args.localClient.Get(ctx, client.ObjectKeyFromObject(tt.want.localJob), got); err != nil {
 					t.Errorf("SyncJob() unexpected assertion error retrieving local job: %v", err)
 				}
-				if diff := cmp.Diff(tt.want.localJob, got, cmpopts.EquateEmpty()); diff != "" {
+				if diff := cmp.Diff(tt.want.localJob, got, cmpopts.EquateEmpty(), cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion")); diff != "" {
 					t.Errorf("SyncJob() localJob (-want,+got):\n%s", diff)
 				}
 			}
@@ -637,7 +669,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 				if err := tt.args.remoteClient.Get(ctx, client.ObjectKeyFromObject(tt.want.remoteJob), got); err != nil {
 					t.Errorf("SyncJob() unexpected assertion error retrieving remote job: %v", err)
 				}
-				if diff := cmp.Diff(tt.want.remoteJob, got, cmpopts.EquateEmpty()); diff != "" {
+				if diff := cmp.Diff(tt.want.remoteJob, got, cmpopts.EquateEmpty(), cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion")); diff != "" {
 					t.Errorf("SyncJob() remoteJob (-want,+got):\n%s", diff)
 				}
 			}

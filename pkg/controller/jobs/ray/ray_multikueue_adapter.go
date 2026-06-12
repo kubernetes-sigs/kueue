@@ -114,6 +114,9 @@ func (a *adapter[PtrT, T]) SyncJob(
 
 	// if the remote exists, just copy the status
 	if err == nil {
+		if err := jobframework.ValidateRemoteObjectOwnership(ctx, remoteJob, origin); err != nil {
+			return err
+		}
 		return clientutil.PatchStatus(ctx, localClient, localJob, func() (bool, error) {
 			a.copyStatus(localJob, remoteJob)
 			return true, nil

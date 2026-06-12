@@ -80,6 +80,9 @@ func (a *Adapter) SyncJob(ctx context.Context, localClient client.Client, remote
 	}
 
 	// Update existing remote object status
+	if err := jobframework.ValidateRemoteObjectOwnership(ctx, remoteObj, origin); err != nil {
+		return err
+	}
 	return a.syncStatus(ctx, localClient, localObj, remoteObj)
 }
 

@@ -59,6 +59,9 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	// LWS doesn't support managedBy, so the local LWS controller would
 	// immediately overwrite any status we sync from the worker cluster.
 	if err == nil {
+		if err := jobframework.ValidateRemoteObjectOwnership(ctx, &remoteLWS, origin); err != nil {
+			return err
+		}
 		return nil
 	}
 

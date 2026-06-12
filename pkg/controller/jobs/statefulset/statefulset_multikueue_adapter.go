@@ -54,6 +54,9 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	// StatefulSet doesn't support managedBy, so the local StatefulSet controller
 	// would immediately overwrite any status we sync from the worker cluster.
 	if err == nil {
+		if err := jobframework.ValidateRemoteObjectOwnership(ctx, &remoteStatefulSet, origin); err != nil {
+			return err
+		}
 		return nil
 	}
 

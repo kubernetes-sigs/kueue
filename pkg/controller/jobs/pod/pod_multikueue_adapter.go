@@ -154,6 +154,10 @@ func syncLocalPodWithRemote(
 
 	// If the remote pod exists
 	if err == nil {
+		if err := jobframework.ValidateRemoteObjectOwnership(ctx, &remotePod, origin); err != nil {
+			return err
+		}
+
 		// Skip syncing if the local pod is terminating
 		if !localPod.DeletionTimestamp.IsZero() {
 			log.V(2).Info("Skipping sync since the local pod is terminating", "podName", localPod.Name)
