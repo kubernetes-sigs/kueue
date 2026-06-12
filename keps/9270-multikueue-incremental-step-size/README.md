@@ -62,8 +62,6 @@ We will update the global `Configuration` API (specifically the `MultiKueue` str
 
 The field will be named `IncrementalDispatcherConfig` and will contain a `StepSize` field. To ensure backwards compatibility and preserve existing system behavior, the default value for `StepSize` will be `3`.
 
-We will also use Kubebuilder validation markers (e.g., CEL rules) to enforce that this struct can only be populated if `DispatcherName` is set to the incremental dispatcher.
-
 ```go
 type MultiKueue struct {
        // Other existing fields...
@@ -83,8 +81,6 @@ type IncrementalDispatcherConfig struct {
       // Dispatcher will query simultaneously. 
       // Minimum value is 1. If not set, it defaults to 3.
       // +optional
-      // +kubebuilder:default=3
-      // +kubebuilder:validation:Minimum=1
       StepSize *int32 `json:"stepSize,omitempty"`
 }
 ```
@@ -104,12 +100,11 @@ No major prerequisite testing updates are required. Current mock worker cluster 
 
 #### Unit tests
 
-- `pkg/controller/core/workload_controller_test.go`: Verify that the worker cluster list is correctly divided into chunks matching the `stepSize`.
-- `pkg/controller/core/workload_controller_test.go`: Verify that the default value remains `3` if the user does not specify a `stepSize`.
+- `pkg/controller/workloaddispatcher/incrementaldispatcher_test.go`: `TestIncrementalDispatcherNominateWorkers` verifies that the worker cluster list is correctly divided into chunks matching the `stepSize` and that the default value remains `3` if the user does not specify a `stepSize`.
 
 #### Integration tests
 
-- `TestIncrementalDispatcherStepSize`: Simulate a Manager Cluster with 5 Worker Clusters. Set `stepSize` to `2`. Submit a workload and verify via the API server that exactly 2 proxy workloads are created in the first step. Simulate a rejection on the first 2 clusters, and verify that the controller correctly creates the next 2 proxy workloads in the second step.
+- `TestIncrementalDispatcherReconciler_Reconcile`: Simulate a Manager Cluster with 5 Worker Clusters. Set `stepSize` to `2`. Submit a workload and verify via the API server that exactly 2 proxy workloads are created in the first step. Simulate a rejection on the first 2 clusters, and verify that the controller correctly creates the next 2 proxy workloads in the second step.
 
 #### e2e tests
 
@@ -118,13 +113,16 @@ Standard E2E multi-cluster tests will be updated to include an iteration where `
 ### Graduation Criteria
 
 * **Alpha:**
+    * `MultiKueueIncrementalDispatcherConfig` is alpha (disabled by default)
     * API fields added.
     * Workload Controller updated to support batching.
     * Unit tests and EnvTest integration tests passing.
 * **Beta:** 
+    * `MultiKueueIncrementalDispatcherConfig` is beta (enabled by default)
     * Gather feedback from the community.
     * E2E tests added and passing consistently.
 * **Stable:**
+    * `MultiKueueIncrementalDispatcherConfig` is locked (will be removed in N+2)
     * Feature has been in Beta for at least one release cycle with no major bugs reported.
 
 ## Implementation History
