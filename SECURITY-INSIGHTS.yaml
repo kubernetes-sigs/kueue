@@ -64,3 +64,13 @@ dependencies:
   sbom:
     - sbom-file: https://github.com/kubernetes-sigs/kueue/releases/download/v0.18.1/kueue-v0.18.1.spdx.json
       sbom-format: SPDX
+  dependencies-lifecycle:
+    policy-url: 'https://github.com/kubernetes-sigs/kueue/blob/main/DEPENDENCY_LIFECYCLE.md'
+    comment: |
+      New dependencies are introduced via standard pull requests reviewed by
+      maintainers listed in OWNERS. Existing dependencies are kept current by
+      Dependabot — weekly for Go modules, Docker images, and npm packages, and
+      daily for GitHub Actions. k8s.io/* modules accept only patch and security
+      updates automatically; major and minor bumps are coordinated with a Kueue
+      release that targets a new Kubernetes minor. See DEPENDENCY_LIFECYCLE.md
+      for the full policy.
