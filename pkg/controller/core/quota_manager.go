@@ -18,7 +18,6 @@ package core
 
 import (
 	"context"
-	"reflect"
 	"sync"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -90,10 +89,4 @@ func (qm *QuotaManager) addUpdateStep(update QuotaUpdateStep, callbackDest *Trig
 			return qm.triggerChain(idx, ctx, cq)
 		}
 	}
-}
-
-func (qm *QuotaManager) IsSpecEqual(template []kueue.ResourceGroup) bool {
-	qm.RLock()
-	defer qm.RUnlock()
-	return reflect.DeepEqual(qm.cache.spec, template)
 }
