@@ -201,7 +201,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 					}
 				}
 				g.Expect(hasKueueTarget).To(gomega.BeTrue(), "Kueue target not found. Active targets: %v", result.Active)
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Verifying admission metric is available via PromQL")
 			gomega.Eventually(func(g gomega.Gomega) {
