@@ -1067,6 +1067,18 @@ current state.
 conditions are limited to 16 elements.</p>
 </td>
 </tr>
+<tr><td><code>effectiveResourceGroups</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-ResourceGroup"><code>[]ResourceGroup</code></a>
+</td>
+<td>
+   <p>effectiveResourceGroups describes the groups of resources as seen by Kueue controllers.
+Each resource group defines the list of resources and a list of flavors
+that provide quotas for these resources.
+Each resource and each flavor can only form part of one resource group.
+By default, it's equal to spec.resourceGroups. However, in some scenarios (e.g. MultiKueue)
+it may differ from spec.resourceGroups.</p>
+</td>
+</tr>
 <tr><td><code>flavorsReservation</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-FlavorUsage"><code>[]FlavorUsage</code></a>
 </td>
@@ -3154,6 +3166,8 @@ nodes matching to the Resource Flavor node labels.</p>
 **Appears in:**
 
 - [ClusterQueueSpec](#kueue-x-k8s-io-v1beta2-ClusterQueueSpec)
+
+- [ClusterQueueStatus](#kueue-x-k8s-io-v1beta2-ClusterQueueStatus)
 
 - [CohortSpec](#kueue-x-k8s-io-v1beta2-CohortSpec)
 

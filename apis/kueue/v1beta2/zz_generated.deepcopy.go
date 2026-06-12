@@ -440,6 +440,13 @@ func (in *ClusterQueueStatus) DeepCopyInto(out *ClusterQueueStatus) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
+	if in.EffectiveResourceGroups != nil {
+		in, out := &in.EffectiveResourceGroups, &out.EffectiveResourceGroups
+		*out = make([]ResourceGroup, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
+	}
 	if in.FlavorsReservation != nil {
 		in, out := &in.FlavorsReservation, &out.FlavorsReservation
 		*out = make([]FlavorUsage, len(*in))
