@@ -283,6 +283,8 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 	})
 
 	ginkgo.It("Should properly manage the active condition of AdmissionChecks and MultiKueueClusters, kubeconfig provided by file", func() {
+		// Disable path validation since this test uses temp dirs outside the hardcoded prefix.
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueKubeConfigPathValidation, false)
 		ac := utiltestingapi.MakeAdmissionCheck("testing-ac").
 			ControllerName(kueue.MultiKueueControllerName).
 			Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "testing-config").
@@ -512,6 +514,8 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 	})
 
 	ginkgo.It("Should properly detect insecure kubeconfig of MultiKueueClusters, kubeconfig provided by file", func() {
+		// Disable path validation since this test uses temp dirs outside the hardcoded prefix.
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueKubeConfigPathValidation, false)
 		var w1KubeconfigInvalidBytes []byte
 		ginkgo.By("Create a kubeconfig with disallowed tokenFile", func() {
 			cfg, err := worker1TestCluster.kubeConfigBytes()
@@ -612,6 +616,79 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
+		})
+	})
+
+	ginkgo.It("Should reject kubeconfig path outside allowed prefix when MultiKueueKubeConfigPathValidation is enabled", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueKubeConfigPathValidation, true)
+		ac := utiltestingapi.MakeAdmissionCheck("testing-ac").
+			ControllerName(kueue.MultiKueueControllerName).
+			Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "testing-config").
+			Obj()
+		ginkgo.By("creating the admission check", func() {
+			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, ac)).Should(gomega.Succeed())
+			ginkgo.DeferCleanup(func() error { return managerTestCluster.client.Delete(managerTestCluster.ctx, ac) })
+		})
+
+		mkConfig := utiltestingapi.MakeMultiKueueConfig("testing-config").Clusters("testing-cluster", "testing-cluster-relative", "testing-cluster-traversal").Obj()
+		ginkgo.By("creating the config", func() {
+			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, mkConfig)).Should(gomega.Succeed())
+			ginkgo.DeferCleanup(func() error { return managerTestCluster.client.Delete(managerTestCluster.ctx, mkConfig) })
+		})
+
+		ginkgo.By("creating a cluster with path outside allowed prefix, the cluster is rejected", func() {
+			tempDir := ginkgo.GinkgoT().TempDir()
+			fsKubeConfig := filepath.Join(tempDir, "testing.kubeconfig")
+			gomega.Expect(os.WriteFile(fsKubeConfig, []byte("test"), 0666)).Should(gomega.Succeed())
+
+			cluster := utiltestingapi.MakeMultiKueueCluster("testing-cluster").KubeConfig(kueue.PathLocationType, fsKubeConfig).Obj()
+			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, cluster)).Should(gomega.Succeed())
+			ginkgo.DeferCleanup(func() error { return managerTestCluster.client.Delete(managerTestCluster.ctx, cluster) })
+
+			updatedCluster := kueue.MultiKueueCluster{}
+			clusterKey := client.ObjectKeyFromObject(cluster)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, clusterKey, &updatedCluster)).To(gomega.Succeed())
+				cond := apimeta.FindStatusCondition(updatedCluster.Status.Conditions, kueue.MultiKueueClusterActive)
+				g.Expect(cond).NotTo(gomega.BeNil())
+				g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+				g.Expect(cond.Reason).To(gomega.Equal("BadKubeConfig"))
+				g.Expect(cond.Message).To(gomega.ContainSubstring("kubeconfig path is not under the allowed prefix"))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("creating a cluster with relative path, the cluster is rejected", func() {
+			cluster := utiltestingapi.MakeMultiKueueCluster("testing-cluster-relative").KubeConfig(kueue.PathLocationType, "relative/path/file").Obj()
+			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, cluster)).Should(gomega.Succeed())
+			ginkgo.DeferCleanup(func() error { return managerTestCluster.client.Delete(managerTestCluster.ctx, cluster) })
+
+			updatedCluster := kueue.MultiKueueCluster{}
+			clusterKey := client.ObjectKeyFromObject(cluster)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, clusterKey, &updatedCluster)).To(gomega.Succeed())
+				cond := apimeta.FindStatusCondition(updatedCluster.Status.Conditions, kueue.MultiKueueClusterActive)
+				g.Expect(cond).NotTo(gomega.BeNil())
+				g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+				g.Expect(cond.Reason).To(gomega.Equal("BadKubeConfig"))
+				g.Expect(cond.Message).To(gomega.ContainSubstring("path must be absolute"))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("creating a cluster with dot-dot traversal path, the cluster is rejected", func() {
+			cluster := utiltestingapi.MakeMultiKueueCluster("testing-cluster-traversal").KubeConfig(kueue.PathLocationType, "/etc/multikueue/kubeconfigs/../../etc/passwd").Obj()
+			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, cluster)).Should(gomega.Succeed())
+			ginkgo.DeferCleanup(func() error { return managerTestCluster.client.Delete(managerTestCluster.ctx, cluster) })
+
+			updatedCluster := kueue.MultiKueueCluster{}
+			clusterKey := client.ObjectKeyFromObject(cluster)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, clusterKey, &updatedCluster)).To(gomega.Succeed())
+				cond := apimeta.FindStatusCondition(updatedCluster.Status.Conditions, kueue.MultiKueueClusterActive)
+				g.Expect(cond).NotTo(gomega.BeNil())
+				g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+				g.Expect(cond.Reason).To(gomega.Equal("BadKubeConfig"))
+				g.Expect(cond.Message).To(gomega.ContainSubstring("kubeconfig path is not under the allowed prefix"))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 

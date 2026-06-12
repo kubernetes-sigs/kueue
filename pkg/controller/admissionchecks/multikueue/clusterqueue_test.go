@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -454,7 +455,7 @@ func TestCQReconcile(t *testing.T) {
 				Build()
 
 			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
-			cRec := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, nil, nil)
+			cRec := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, nil, nil, record.NewFakeRecorder(10))
 			cRec.rootContext = ctx
 			for worker, wState := range tc.workers {
 				workerClient := NewNeverCachingClient(utiltesting.NewClientBuilder().
