@@ -322,6 +322,10 @@ func DeleteAllRayJobsInNamespace(ctx context.Context, c client.Client, ns *corev
 	return deleteAllObjectsInNamespace(ctx, c, ns, &rayv1.RayJob{})
 }
 
+func DeleteAllRayServicesInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+	return deleteAllObjectsInNamespace(ctx, c, ns, &rayv1.RayService{})
+}
+
 func DeleteAllSparkApplicationsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
 	return deleteAllObjectsInNamespace(ctx, c, ns, &sparkv1beta2.SparkApplication{})
 }
