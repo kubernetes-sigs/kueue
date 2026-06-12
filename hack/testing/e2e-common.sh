@@ -1105,8 +1105,8 @@ function install_mpi {
     cluster_kind_load_image "${name}" "${KUBEFLOW_MPI_IMAGE/#v}"
     curl -sSL "${KUBEFLOW_MPI_MANIFEST}" \
         | kubectl apply --kubeconfig="${kubeconfig}" --server-side -f -
-    e2e_wait_for_operator_in_install "${kubeconfig}" "${ns}" "${deployment_name}"
 
+    e2e_wait_for_operator_in_install "${kubeconfig}" "${ns}" "${deployment_name}"
 }
 
 # $1 cluster name
