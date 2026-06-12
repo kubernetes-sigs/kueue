@@ -418,6 +418,21 @@ apiServer:
   - name: v
     value: \"3\"
 "' "$patched_config"
+    # v1beta3 variant for k8s <=1.35, where kind ignores the v1beta4 patch above.
+    $YQ -i '(.nodes[] | select(.role == "control-plane")).kubeadmConfigPatches += ["kind: ClusterConfiguration
+apiVersion: kubeadm.k8s.io/v1beta3
+scheduler:
+  extraArgs:
+    v: \"3\"
+controllerManager:
+  extraArgs:
+    v: \"3\"
+apiServer:
+  extraArgs:
+    enable-aggregator-routing: \"true\"
+    runtime-config: \"resource.k8s.io/v1=true\"
+    v: \"3\"
+"]' "$patched_config"
 
     echo "$patched_config"
 }
@@ -449,6 +464,21 @@ apiServer:
   - name: v
     value: \"3\"
 "' "$patched_config"
+    # v1beta3 variant for k8s <=1.35, where kind ignores the v1beta4 patch above (#12022).
+    $YQ -i '(.nodes[] | select(.role == "control-plane")).kubeadmConfigPatches += ["kind: ClusterConfiguration
+apiVersion: kubeadm.k8s.io/v1beta3
+scheduler:
+  extraArgs:
+    v: \"3\"
+controllerManager:
+  extraArgs:
+    v: \"3\"
+apiServer:
+  extraArgs:
+    enable-aggregator-routing: \"true\"
+    runtime-config: \"scheduling.k8s.io/v1alpha3=true\"
+    v: \"3\"
+"]' "$patched_config"
 
     echo "$patched_config"
 }
