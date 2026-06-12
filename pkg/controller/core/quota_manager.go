@@ -42,20 +42,29 @@ type QuotaCache struct {
 	effectiveQuota    map[kueue.ClusterQueueReference][]kueue.ResourceGroup
 }
 
-func NewQuotaManager() *QuotaManager {
-	return &QuotaManager{
+type QuotaManagerOpts struct {
+	CoreCQRec *ClusterQueueReconciler
+}
+
+func NewQuotaManager(opts *QuotaManagerOpts) *QuotaManager {
+	qm := &QuotaManager{
 		cache: &QuotaCache{
 			spec:              nil,
 			mkAggregatedQuota: nil,
 		},
 		updateChain: make([]QuotaUpdateStep, 0),
 	}
+
+	qm.AddUpdateStep(opts.CoreCQRec.updateSpec, &opts.CoreCQRec.triggerSpecUpdate)
+	qm.AddUpdateStep(opts.CoreCQRec.updateEffectiveResourceGroups, nil)
+
+	return qm
 }
 
-func (qm *QuotaManager) triggerChain(id int, ctx context.Context, cq *kueue.ClusterQueue) error {
+func (qm *QuotaManager) triggerChain(startIdx int, ctx context.Context, cq *kueue.ClusterQueue) error {
 	qm.Lock()
 	defer qm.Unlock()
-	for _, update := range qm.updateChain[id:] {
+	for _, update := range qm.updateChain[startIdx:] {
 		if cont, err := update(ctx, cq, qm.cache); err != nil {
 			return err
 		} else if !cont {
@@ -65,13 +74,18 @@ func (qm *QuotaManager) triggerChain(id int, ctx context.Context, cq *kueue.Clus
 	return nil
 }
 
-func (qm *QuotaManager) WithUpdateStep(update QuotaUpdateStep) TriggerQuotaUpdate {
+func (qm *QuotaManager) AddUpdateStep(update QuotaUpdateStep, callbackDest *TriggerQuotaUpdate) {
 	qm.Lock()
 	defer qm.Unlock()
+	// Add the update step to the end of the chain.
 	qm.updateChain = append(qm.updateChain, update)
-	idx := len(qm.updateChain) - 1
-	return func(ctx context.Context, cq *kueue.ClusterQueue) error {
-		return qm.triggerChain(idx, ctx, cq)
+
+	// Save the callback function to the destination provided via pointer.
+	if callbackDest != nil {
+		idx := len(qm.updateChain) - 1
+		*callbackDest = func(ctx context.Context, cq *kueue.ClusterQueue) error {
+			return qm.triggerChain(idx, ctx, cq)
+		}
 	}
 }
 

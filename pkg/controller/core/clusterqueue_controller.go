@@ -148,28 +148,26 @@ func NewClusterQueueReconciler(
 	}
 }
 
-func (r *ClusterQueueReconciler) WithQuotaManager(qm *QuotaManager) *ClusterQueueReconciler {
-	r.triggerSpecUpdate = qm.WithUpdateStep(func(ctx context.Context, cq *kueue.ClusterQueue, cache *QuotaCache) (bool, error) {
-		cqRef := kueue.ClusterQueueReference(cq.Name)
-		if equality.Semantic.DeepEqual(cache.spec[cqRef], cq.Spec.ResourceGroups) {
-			return false, nil
-		}
-		cache.spec[cqRef] = cq.Spec.ResourceGroups
-		return true, nil
-	})
-	qm.WithUpdateStep(func(ctx context.Context, cq *kueue.ClusterQueue, cache *QuotaCache) (bool, error) {
-		cqRef := kueue.ClusterQueueReference(cq.Name)
-		effectiveQuota := cache.spec[cqRef]
-		if mkQuota, found := cache.mkAggregatedQuota[cqRef]; found {
-			effectiveQuota = []kueue.ResourceGroup{mkQuota}
-		}
-		if equality.Semantic.DeepEqual(cq.Status.EffectiveResourceGroups, effectiveQuota) {
-			return false, nil
-		}
-		cq.Status.EffectiveResourceGroups = effectiveQuota
-		return true, r.client.Status().Update(ctx, cq)
-	})
-	return r
+func (r *ClusterQueueReconciler) updateSpec(ctx context.Context, cq *kueue.ClusterQueue, cache *QuotaCache) (bool, error) {
+	cqRef := kueue.ClusterQueueReference(cq.Name)
+	if equality.Semantic.DeepEqual(cache.spec[cqRef], cq.Spec.ResourceGroups) {
+		return false, nil
+	}
+	cache.spec[cqRef] = cq.Spec.ResourceGroups
+	return true, nil
+}
+
+func (r *ClusterQueueReconciler) updateEffectiveResourceGroups(ctx context.Context, cq *kueue.ClusterQueue, cache *QuotaCache) (bool, error) {
+	cqRef := kueue.ClusterQueueReference(cq.Name)
+	effectiveQuota := cache.spec[cqRef]
+	if mkQuota, found := cache.mkAggregatedQuota[cqRef]; found {
+		effectiveQuota = []kueue.ResourceGroup{mkQuota}
+	}
+	if equality.Semantic.DeepEqual(cq.Status.EffectiveResourceGroups, effectiveQuota) {
+		return false, nil
+	}
+	cq.Status.EffectiveResourceGroups = effectiveQuota
+	return true, r.client.Status().Update(ctx, cq)
 }
 
 func (r *ClusterQueueReconciler) logger() logr.Logger {

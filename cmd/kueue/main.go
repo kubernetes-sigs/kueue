@@ -96,8 +96,9 @@ import (
 )
 
 var (
-	scheme   = runtime.NewScheme()
-	setupLog = ctrl.Log.WithName("setup")
+	scheme       = runtime.NewScheme()
+	setupLog     = ctrl.Log.WithName("setup")
+	quotaManager *core.QuotaManager
 )
 
 func init() {
@@ -473,9 +474,11 @@ func setupControllers(
 	serverVersionFetcher *kubeversion.ServerVersionFetcher,
 	opts core.SetupControllersOpts,
 ) error {
-	quotaManager := core.NewQuotaManager()
+	if features.Enabled(features.EffectiveResourceQuotas) {
+		opts.QMOpts = &core.QuotaManagerOpts{}
+	}
 
-	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache, quotaManager, cfg, opts); err != nil {
+	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache, cfg, opts); err != nil {
 		return fmt.Errorf("unable to create controller %s: %w", failedCtrl, err)
 	}
 	if features.Enabled(features.FailureRecoveryPolicy) {
@@ -582,6 +585,10 @@ func setupControllers(
 			serverVersionFetcher.GetServerVersion(),
 			err,
 		)
+	}
+
+	if features.Enabled(features.EffectiveResourceQuotas) {
+		quotaManager = core.NewQuotaManager(opts.QMOpts)
 	}
 
 	return nil

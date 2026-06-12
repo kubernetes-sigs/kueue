@@ -45,11 +45,12 @@ type SetupControllersOpts struct {
 	CustomLabels           *metrics.CustomLabels
 	DRAMapper              *dra.ResourceMapper
 	DRABackedResources     *dra.ExtendedResourceCache
+	QMOpts                 *QuotaManagerOpts
 }
 
 // SetupControllers sets up the core controllers. It returns the name of the
 // controller that failed to create and an error, if any.
-func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.Cache, qm *QuotaManager, cfg *configapi.Configuration, opts SetupControllersOpts) (string, error) {
+func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.Cache, cfg *configapi.Configuration, opts SetupControllersOpts) (string, error) {
 	lqMetrics := metrics.NewLocalQueueMetricsConfig(cfg.Metrics.LocalQueueMetrics)
 	rfRec := NewResourceFlavorReconciler(mgr.GetClient(), qManager, cc, opts.RoleTracker)
 	if err := rfRec.SetupWithManager(mgr, cfg); err != nil {
@@ -92,7 +93,8 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		WithWatchers(watchers...),
 		WithClusterQueueRoleTracker(opts.RoleTracker),
 		WithClusterQueueCustomLabels(opts.CustomLabels),
-	).WithQuotaManager(qm)
+	)
+	opts.QMOpts.CoreCQRec = cqRec
 	rfRec.AddUpdateWatcher(cqRec)
 	acRec.AddUpdateWatchers(cqRec)
 	if err := cqRec.SetupWithManager(mgr, cfg); err != nil {
