@@ -1,7 +1,7 @@
-# Comparing failed vs successful runs (Step 6, Strategy 2 only)
+# Comparing failed vs successful runs
 
-**Use this only if you chose strategy 1 + strategy 2 in step 1.3.** Skip it for a
-strategy-1-only investigation. Driven by [SKILL.md](../SKILL.md).
+Reference for step 7 of [SKILL.md](../SKILL.md). Use this only when escalating from
+the main debugging flow — skip it for deterministic failures.
 
 The same test in the success run is your reference: it tells you what *should* have
 happened. Compare both runs along three dimensions.
