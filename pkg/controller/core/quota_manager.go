@@ -46,6 +46,7 @@ type QuotaManagerOpts struct {
 	CoreCQRec *ClusterQueueReconciler
 }
 
+// NewQuotaManager creates a QuotaManager with update setps configured based on active features using reconcilers provided in opts.
 func NewQuotaManager(opts *QuotaManagerOpts) *QuotaManager {
 	qm := &QuotaManager{
 		cache: &QuotaCache{
@@ -55,8 +56,8 @@ func NewQuotaManager(opts *QuotaManagerOpts) *QuotaManager {
 		updateChain: make([]QuotaUpdateStep, 0),
 	}
 
-	qm.AddUpdateStep(opts.CoreCQRec.updateSpec, &opts.CoreCQRec.triggerSpecUpdate)
-	qm.AddUpdateStep(opts.CoreCQRec.updateEffectiveResourceGroups, nil)
+	qm.addUpdateStep(opts.CoreCQRec.updateSpec, &opts.CoreCQRec.triggerSpecUpdate)
+	qm.addUpdateStep(opts.CoreCQRec.updateEffectiveResourceGroups, nil)
 
 	return qm
 }
@@ -74,7 +75,9 @@ func (qm *QuotaManager) triggerChain(startIdx int, ctx context.Context, cq *kueu
 	return nil
 }
 
-func (qm *QuotaManager) AddUpdateStep(update QuotaUpdateStep, callbackDest *TriggerQuotaUpdate) {
+// addUpdateStep adds the provided QuotaUpdateStep function to the end of the update chain.
+// If callbackDest is not nil, a callback to start the update chain from the added step is injected there.
+func (qm *QuotaManager) addUpdateStep(update QuotaUpdateStep, callbackDest *TriggerQuotaUpdate) {
 	qm.Lock()
 	defer qm.Unlock()
 	// Add the update step to the end of the chain.
