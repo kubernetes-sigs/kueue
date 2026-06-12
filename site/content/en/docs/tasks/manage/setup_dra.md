@@ -234,7 +234,9 @@ gpu.example.com  gpu-0: [{"counterSet":"shared","counters":{"memory":{"value":"1
 
 ### 2. Add the counter resource to your ClusterQueue
 
-Set the quota in counter units instead of device count:
+Set the quota in counter units (e.g., `256Mi`) instead of device count (e.g., `1`). When ClusterQueues
+share a cohort, ensure all queues use the same unit scale for counter
+resources. Kueue does not validate unit consistency across ClusterQueues.
 
 {{< include "examples/dra/sample-dra-counter-queues.yaml" "yaml" >}}
 
