@@ -621,6 +621,107 @@ func TestNewInfo(t *testing.T) {
 	}
 }
 
+func TestUpdateWithRebuild(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	cases := map[string]struct {
+		initial        *kueue.Workload
+		initialOptions []InfoOption
+		updated        *kueue.Workload
+		updateOptions  []InfoOption
+		wantRequests   []PodSetResources
+	}{
+		"pending workload with changed requests": {
+			initial: utiltestingapi.MakeWorkload("wl", "ns").
+				Request(corev1.ResourceCPU, "100m").Obj(),
+			updated: utiltestingapi.MakeWorkload("wl", "ns").
+				Request(corev1.ResourceCPU, "200m").Obj(),
+			wantRequests: []PodSetResources{{
+				Name:     kueue.DefaultPodSetName,
+				Requests: resources.Requests{corev1.ResourceCPU: 200},
+				Count:    1,
+			}},
+		},
+		"stale DRA TotalRequests cleared on rebuild": {
+			initial: utiltestingapi.MakeWorkload("wl", "ns").
+				Request("example.com/gpu", "1").Obj(),
+			initialOptions: []InfoOption{
+				WithPreprocessedDRAResources(
+					map[kueue.PodSetReference]corev1.ResourceList{
+						kueue.DefaultPodSetName: {
+							"gpu": resource.MustParse("1"),
+						},
+					},
+					map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{
+						kueue.DefaultPodSetName: sets.New[corev1.ResourceName]("example.com/gpu"),
+					},
+				),
+			},
+			updated: utiltestingapi.MakeWorkload("wl", "ns").
+				Request("example.com/gpu", "1").Obj(),
+			wantRequests: []PodSetResources{{
+				Name:     kueue.DefaultPodSetName,
+				Requests: resources.Requests{"example.com/gpu": 1},
+				Count:    1,
+			}},
+		},
+		"admitted workload recomputes from admission": {
+			initial: utiltestingapi.MakeWorkload("wl", "ns").
+				Request(corev1.ResourceCPU, "100m").Obj(),
+			updated: utiltestingapi.MakeWorkload("wl", "ns").
+				Request(corev1.ResourceCPU, "100m").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(kueue.PodSetAssignment{
+						Name:          kueue.DefaultPodSetName,
+						ResourceUsage: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("200m")},
+						Count:         ptr.To[int32](1),
+					}).Obj(), now).
+				Obj(),
+			wantRequests: []PodSetResources{{
+				Name:     kueue.DefaultPodSetName,
+				Requests: resources.Requests{corev1.ResourceCPU: 200},
+				Count:    1,
+			}},
+		},
+		"WithPreserveTotalRequests keeps DRA-translated requests": {
+			initial: utiltestingapi.MakeWorkload("wl", "ns").
+				Request("example.com/gpu", "1").Obj(),
+			initialOptions: []InfoOption{
+				WithPreprocessedDRAResources(
+					map[kueue.PodSetReference]corev1.ResourceList{
+						kueue.DefaultPodSetName: {"gpu": resource.MustParse("1")},
+					},
+					map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{
+						kueue.DefaultPodSetName: sets.New[corev1.ResourceName]("example.com/gpu"),
+					},
+				),
+			},
+			updated: utiltestingapi.MakeWorkload("wl", "ns").
+				Request("example.com/gpu", "1").Obj(),
+			updateOptions: []InfoOption{WithPreserveTotalRequests()},
+			wantRequests: []PodSetResources{{
+				Name:     kueue.DefaultPodSetName,
+				Requests: resources.Requests{"gpu": 1},
+				Count:    1,
+			}},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			info := NewInfo(tc.initial, tc.initialOptions...)
+			if len(tc.updateOptions) == 0 {
+				if diff := cmp.Diff(tc.wantRequests, info.TotalRequests, cmpopts.IgnoreFields(PodSetResources{}, "Flavors")); diff == "" {
+					t.Fatal("precondition failed: initial TotalRequests should differ from expected post-rebuild state")
+				}
+			}
+			info.Update(logr.Discard(), tc.updated, tc.updateOptions...)
+			if diff := cmp.Diff(tc.wantRequests, info.TotalRequests,
+				cmpopts.IgnoreFields(PodSetResources{}, "Flavors")); diff != "" {
+				t.Errorf("TotalRequests after Update (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestSetConditionAndUpdate(t *testing.T) {
 	now := time.Now()
 	fakeClock := testingclock.NewFakeClock(now)

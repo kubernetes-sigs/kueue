@@ -127,6 +127,7 @@ type dra struct {
 type InfoOptions struct {
 	excludedResourcePrefixes []string
 	resourceTransformations  map[corev1.ResourceName]*config.ResourceTransformation
+	preserveTotalRequests    bool
 	dra
 }
 
@@ -145,6 +146,15 @@ func WithExcludedResourcePrefixes(n []string) InfoOption {
 func WithResourceTransformations(transforms []config.ResourceTransformation) InfoOption {
 	return func(o *InfoOptions) {
 		o.resourceTransformations = utilslices.ToRefMap(transforms, func(e *config.ResourceTransformation) corev1.ResourceName { return e.Input })
+	}
+}
+
+// WithPreserveTotalRequests prevents Update from rebuilding TotalRequests.
+// Used when requeuing DRA-backed workloads whose TotalRequests were
+// preprocessed by the workload controller and must survive the requeue.
+func WithPreserveTotalRequests() InfoOption {
+	return func(o *InfoOptions) {
+		o.preserveTotalRequests = true
 	}
 }
 
@@ -289,34 +299,47 @@ func (p *PodSetResources) ScaledTo(newCount int32) *PodSetResources {
 }
 
 func NewInfo(w *kueue.Workload, opts ...InfoOption) *Info {
-	options := defaultOptions
-	for _, opt := range opts {
-		opt(&options)
-	}
-	info := &Info{
-		Obj: w,
-	}
-	if w.Status.Admission != nil {
-		info.ClusterQueue = w.Status.Admission.ClusterQueue
-		info.TotalRequests = totalRequestsFromAdmission(w)
-	} else {
-		info.TotalRequests = totalRequestsFromPodSets(w, &options)
-	}
+	info := &Info{}
+	info.Update(klog.Background(), w, opts...)
 	return info
 }
 
 // UpdateSchedulingHash computes and sets the scheduling hash using the
-// provided contextual logger. Call this after NewInfo in production code.
+// provided contextual logger. Called internally by Update.
 func (i *Info) UpdateSchedulingHash(log logr.Logger) {
 	i.SchedulingHash = computeSchedulingHash(log, i.Obj, i.TotalRequests)
 }
 
-// Update refreshes the object reference and recomputes the scheduling hash
-// to reflect any changes (e.g., priority updates).
-func (i *Info) Update(log logr.Logger, wl *kueue.Workload) {
-	log.V(5).Info("Workload info updated", "workload", klog.KObj(wl))
+// Update refreshes the object reference, rebuilds TotalRequests, and
+// recomputes the scheduling hash. Pass WithPreserveTotalRequests to skip
+// the TotalRequests rebuild (e.g., to retain DRA preprocessing on requeue).
+func (i *Info) Update(log logr.Logger, wl *kueue.Workload, opts ...InfoOption) {
 	i.Obj = wl
+	i.rebuildTotalRequests(opts...)
 	i.UpdateSchedulingHash(log)
+}
+
+// rebuildTotalRequests refreshes ClusterQueue and recomputes TotalRequests
+// from the current workload state. When WithPreserveTotalRequests is set,
+// only TotalRequests recomputation is skipped.
+func (i *Info) rebuildTotalRequests(opts ...InfoOption) {
+	options := defaultOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
+	admitted := i.Obj.Status.Admission != nil
+	if admitted {
+		i.ClusterQueue = i.Obj.Status.Admission.ClusterQueue
+	} else {
+		i.ClusterQueue = ""
+	}
+	if !options.preserveTotalRequests {
+		if admitted {
+			i.TotalRequests = totalRequestsFromAdmission(i.Obj)
+		} else {
+			i.TotalRequests = totalRequestsFromPodSets(i.Obj, &options)
+		}
+	}
 }
 
 // computeSchedulingHash returns a deterministic hash of the workload's
