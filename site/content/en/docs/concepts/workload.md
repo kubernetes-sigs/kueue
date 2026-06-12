@@ -158,6 +158,54 @@ status:
 When a Workload deactivated by All-or-nothing with ready Pods is re-activated,
 the requeueState (`.status.requeueState`) will be reset to null.
 
+## Scheduling stats
+
+While the Workload API is not a primary user-facing API, cluster administrators
+operating Kueue may need to inspect a Workload's eviction history. To support this,
+Kueue records per-Workload scheduling statistics in the `.status.schedulingStats`
+field. Currently it tracks how many times a Workload has been evicted, broken down
+by the cause of the eviction. The field exists primarily to back Kueue's eviction
+metrics; inspecting it directly is a secondary, admin-oriented use case.
+
+The `.status.schedulingStats.evictions` list contains one entry per unique
+combination of `reason` and `underlyingCause`:
+
+- `reason` indicates why the Workload was evicted (for example, `Preempted`,
+  `PodsReadyTimeout`, or `Deactivated`). A `Deactivated` reason means `.spec.active`
+  was set to `false`, either by a user or automatically by Kueue (for example, after
+  exceeding the [requeuing limit](#exponential-backoff-requeueing)).
+- `underlyingCause` provides a finer-grained explanation that complements `reason`
+  (for example, `WaitForStart` under `PodsReadyTimeout`, or `RequeuingLimitExceeded`
+  under `Deactivated`). It is an empty string when `reason` is itself the root cause.
+- `count` is the number of times the Workload has been evicted for that `reason` and
+  `underlyingCause`.
+
+The authoritative list of all `reason` and `underlyingCause` values is documented in
+the [metrics reference](/docs/reference/metrics/#clusterqueue-status) under
+`kueue_evicted_workloads_once_total`.
+
+```yaml
+status:
+  schedulingStats:
+    evictions:
+    - reason: Preempted
+      underlyingCause: ""
+      count: 2
+    - reason: PodsReadyTimeout
+      underlyingCause: WaitForStart
+      count: 1
+    - reason: Deactivated
+      underlyingCause: RequeuingLimitExceeded
+      count: 1
+```
+
+These statistics are persisted in the Workload status, so they survive restarts of the
+Kueue controller. The persistence lets Kueue report the
+[`kueue_evicted_workloads_once_total`](/docs/reference/metrics/#clusterqueue-status)
+metric exactly once per unique `reason` and `underlyingCause` combination, even across
+restarts: the metric is incremented only the first time a combination is recorded,
+whereas `count` increases on every eviction.
+
 ## Replicate labels from Jobs into Workloads
 You can configure Kueue to copy labels, at Workload creation, into the new Workload from the underlying Job or Pod objects. This can be useful for Workload identification and debugging.
 You can specify which labels should be copied by setting the `labelKeysToCopy` field in the configuration API (under `integrations`). By default, Kueue does not copy any Job or Pod label into the Workload. 
