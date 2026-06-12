@@ -1,0 +1,36 @@
+title: Configurable Node Label Prefix Filtering for TAS Cache
+kep-number: 10587
+authors:
+  - "@shshr"
+  - "@rduser"
+status: provisional
+creation-date: 2026-04-17
+reviewers:
+  - TBD
+approvers:
+  - TBD
+
+see-also:
+  - "/keps/2724-topology-aware-scheduling"
+  - "/keps/2937-resource-transformer"
+
+# The target maturity stage in the current dev cycle for this KEP.
+stage: alpha
+
+# The most recent milestone for which work toward delivery of this KEP has been
+# done.
+latest-milestone: "v0.18"
+
+# The milestone at which this feature was, or is targeted to be, at each stage.
+milestone:
+  alpha: "v0.18"
+  beta: "v0.19"
+  stable: "v0.20"
+
+# The following PRR answers are required at alpha release
+feature-gates:
+  - name: ExcludeNodeLabelPrefixes
+disable-supported: true
+
+metrics:
+  - kueue_tas_cached_node_labels_total

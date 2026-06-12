@@ -27,6 +27,10 @@ import (
 type nodesCache struct {
 	lock  sync.RWMutex
 	nodes map[string]*nodeInfo
+
+	// excludeLabelPrefixes lists key prefixes that are stripped from
+	// node labels when stored in the cache, to save memory.
+	excludeLabelPrefixes []string
 }
 
 func newNodesCache() *nodesCache {
@@ -43,7 +47,7 @@ func (t *nodesCache) sync(node *corev1.Node) {
 	defer t.lock.Unlock()
 
 	if schedulableAndReady {
-		t.nodes[node.Name] = newNodeInfo(node)
+		t.nodes[node.Name] = newNodeInfo(node, t.excludeLabelPrefixes)
 	} else {
 		t.deleteWithoutLock(node.Name)
 	}

@@ -677,6 +677,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 						{Input: corev1.ResourceMemory, Strategy: new(Replace)},
 						{Input: corev1.ResourceEphemeralStorage, Strategy: new(DefaultResourceTransformationStrategy)},
 					},
+					ExcludeNodeLabelPrefixes: DefaultExcludeNodeLabelPrefixes,
 				},
 				VisibilityServer: defaultVisibilityServer,
 			},
