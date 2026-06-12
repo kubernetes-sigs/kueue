@@ -21,7 +21,7 @@ import (
 	"errors"
 	"fmt"
 
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -62,7 +62,7 @@ func DeleteRemoteObjectIfOwned(ctx context.Context, localClient client.Client, r
 		return ErrMultiKueueOriginEmpty
 	}
 
-	obj := &unstructured.Unstructured{}
+	obj := &metav1.PartialObjectMetadata{}
 	obj.SetGroupVersionKind(adapter.GVK())
 
 	if err := remoteClient.Get(ctx, key, obj); err != nil {

@@ -63,12 +63,17 @@ var (
 	singleClusterPreemptionTimeout = 5 * time.Minute
 )
 
+const (
+	defaultSyncTimeoutDuration = 5 * time.Minute
+)
+
 type wlReconciler struct {
 	client            client.Client
 	helper            *admissioncheck.MultiKueueStoreHelper
 	clusters          *clustersReconciler
 	origin            string
 	workerLostTimeout time.Duration
+	syncTimeout       time.Duration
 	deletedWlCache    *utilmaps.SyncMap[string, *kueue.Workload]
 	eventsBatchPeriod time.Duration
 	adapters          map[string]jobframework.MultiKueueAdapter
@@ -497,6 +502,14 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 		if err := group.jobAdapter.SyncJob(ctx, w.client, remoteCl, group.controllerKey, group.local.Name, w.origin); err != nil {
 			log.Error(err, "Syncing remote controller object")
+			if acs.State == kueue.CheckStateReady {
+				remainingWaitTime := w.syncTimeout - w.clock.Now().Sub(acs.LastTransitionTime.Time)
+				if remainingWaitTime > 0 {
+					log.V(3).Info("Syncing remote controller object failed, retry", "retryAfter", remainingWaitTime)
+					return reconcile.Result{RequeueAfter: remainingWaitTime}, nil
+				}
+				return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, "Syncing remote controller object timed out")
+			}
 			// We'll retry this in the next reconciling.
 			return reconcile.Result{}, err
 		}
@@ -857,6 +870,7 @@ func newWlReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelp
 		clusters:          cRec,
 		origin:            origin,
 		workerLostTimeout: workerLostTimeout,
+		syncTimeout:       defaultSyncTimeoutDuration,
 		deletedWlCache:    utilmaps.NewSyncMap[string, *kueue.Workload](0),
 		eventsBatchPeriod: eventsBatchPeriod,
 		adapters:          adapters,
