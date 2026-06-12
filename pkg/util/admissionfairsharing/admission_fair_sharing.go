@@ -37,10 +37,6 @@ func ResourceWeights(cqAdmissionScope *kueue.AdmissionScope, afsConfig *config.A
 }
 
 func calculateAlphaRate(sampling, halfLifeTime float64) float64 {
-	if halfLifeTime == 0 {
-		return 0.0
-	}
-
 	return 1.0 - math.Pow(0.5, sampling/halfLifeTime)
 }
 

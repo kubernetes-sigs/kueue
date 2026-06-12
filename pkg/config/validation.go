@@ -397,9 +397,9 @@ func validateAdmissionFairSharing(c *configapi.Configuration) field.ErrorList {
 	}
 	var allErrs field.ErrorList
 
-	if afs.UsageHalfLifeTime.Duration < 0 {
+	if afs.UsageHalfLifeTime.Duration <= 0 {
 		allErrs = append(allErrs, field.Invalid(afsPath.Child("usageHalfLifeTime"),
-			afs.UsageHalfLifeTime, apimachineryvalidation.IsNegativeErrorMsg))
+			afs.UsageHalfLifeTime, "must be greater than 0"))
 	}
 	if afs.UsageSamplingInterval.Duration <= 0 {
 		allErrs = append(allErrs, field.Invalid(afsPath.Child("usageSamplingInterval"),

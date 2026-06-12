@@ -670,6 +670,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				AdmissionFairSharing: &configapi.AdmissionFairSharing{
+					UsageHalfLifeTime:     metav1.Duration{Duration: time.Second},
 					UsageSamplingInterval: metav1.Duration{Duration: -time.Second},
 				},
 			},
@@ -684,6 +685,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				AdmissionFairSharing: &configapi.AdmissionFairSharing{
+					UsageHalfLifeTime:     metav1.Duration{Duration: time.Second},
 					UsageSamplingInterval: metav1.Duration{Duration: time.Second},
 					ResourceWeights: map[corev1.ResourceName]float64{
 						corev1.ResourceCPU: -0.5,
