@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/tlsconfig"
 )
@@ -45,6 +46,7 @@ import (
 var (
 	objectKeySecret         = new(corev1.Secret)
 	objectKeyClusterProfile = new(inventoryv1alpha1.ClusterProfile)
+	objectKeyWorkload       = new(kueue.Workload)
 )
 
 // fromFile provides an alternative to the deprecated ctrl.ConfigFile().AtPath(path).OfKind(&cfg)
@@ -118,6 +120,76 @@ func addCacheByObjectTo(o *ctrl.Options, cfg *configapi.Configuration) {
 		Namespaces: map[string]ctrlcache.Config{
 			*cfg.Namespace: {},
 		},
+	}
+
+	// Strip non-scheduling PodTemplateSpec fields from cached Workloads.
+	// Per-object Transform overrides DefaultTransform, so we compose with
+	// managed-field stripping.
+	o.Cache.ByObject[objectKeyWorkload] = ctrlcache.ByObject{
+		Transform: transformWorkload,
+	}
+}
+
+// transformWorkload strips PodTemplateSpec fields that Kueue never reads at
+// runtime, significantly reducing the per-workload memory footprint in the
+// informer cache. It also strips managedFields (replacing the default
+// transform which a per-object Transform overrides).
+//
+// Preserved fields on each PodSet.Template:
+//
+//	ObjectMeta: Labels, Annotations
+//	PodSpec:    Containers (Resources, Ports only), InitContainers (Resources, Ports only),
+//	            NodeSelector, Affinity, Tolerations, SchedulingGates,
+//	            RuntimeClassName, Overhead, ResourceClaims,
+//	            TopologySpreadConstraints, Priority
+func transformWorkload(in any) (any, error) {
+	wl, ok := in.(*kueue.Workload)
+	if !ok {
+		return in, nil
+	}
+
+	// Strip managedFields (same as DefaultTransform, which we override).
+	wl.ManagedFields = nil
+
+	for i := range wl.Spec.PodSets {
+		ps := &wl.Spec.PodSets[i]
+
+		// Preserve only Labels and Annotations from the template ObjectMeta.
+		ps.Template.ObjectMeta = metav1.ObjectMeta{
+			Labels:      ps.Template.Labels,
+			Annotations: ps.Template.Annotations,
+		}
+
+		// Strip container fields down to Resources and Ports.
+		stripContainers(ps.Template.Spec.InitContainers)
+		stripContainers(ps.Template.Spec.Containers)
+
+		// Rebuild PodSpec keeping only scheduling-relevant fields.
+		ps.Template.Spec = corev1.PodSpec{
+			InitContainers:            ps.Template.Spec.InitContainers,
+			Containers:                ps.Template.Spec.Containers,
+			NodeSelector:              ps.Template.Spec.NodeSelector,
+			Affinity:                  ps.Template.Spec.Affinity,
+			Tolerations:               ps.Template.Spec.Tolerations,
+			SchedulingGates:           ps.Template.Spec.SchedulingGates,
+			RuntimeClassName:          ps.Template.Spec.RuntimeClassName,
+			Overhead:                  ps.Template.Spec.Overhead,
+			ResourceClaims:            ps.Template.Spec.ResourceClaims,
+			TopologySpreadConstraints: ps.Template.Spec.TopologySpreadConstraints,
+			Priority:                  ps.Template.Spec.Priority,
+		}
+	}
+	return wl, nil
+}
+
+// stripContainers removes all fields from each container except Resources and Ports.
+func stripContainers(containers []corev1.Container) {
+	for i := range containers {
+		containers[i] = corev1.Container{
+			Name:      containers[i].Name,
+			Resources: containers[i].Resources,
+			Ports:     containers[i].Ports,
+		}
 	}
 }
 
