@@ -19,6 +19,7 @@
   - [Upgrade Path](#upgrade-path)
   - [Downgrade Path](#downgrade-path)
 - [Design Details](#design-details)
+  - [API Changes](#api-changes)
   - [Tiered Reason Precedence &amp; Resolution](#tiered-reason-precedence--resolution)
     - [1. Flavor-Independent (Workload-wide) Reasons](#1-flavor-independent-workload-wide-reasons)
     - [2. Nominated Flavor Reasons](#2-nominated-flavor-reasons)
@@ -246,6 +247,58 @@ being updated.
 
 ## Design Details
 
+### API Changes
+
+The following new condition reason constants are introduced in the API package:
+
+```go
+const (
+	// WorkloadNoMatchingFlavor indicates that the workload cannot be scheduled
+	// because no resource flavor matches its nodeSelector or taints.
+	WorkloadNoMatchingFlavor = "NoMatchingFlavor"
+
+	// WorkloadExceedsMaxQuota indicates that the workload requests resources
+	// exceeding the maximum capacity limits of the ClusterQueue or Cohort.
+	WorkloadExceedsMaxQuota = "ExceedsMaxQuota"
+
+	// WorkloadBorrowingLimitReached indicates that allocating resources would
+	// cause the ClusterQueue to exceed its borrowing limit constraint.
+	WorkloadBorrowingLimitReached = "BorrowingLimitReached"
+
+	// WorkloadWaitingForQuota indicates that the workload is waiting for
+	// sufficient unused quota to become available in the ClusterQueue/Cohort.
+	WorkloadWaitingForQuota = "WaitingForQuota"
+
+	// WorkloadTopologyPlacementFailed indicates that the workload has topology
+	// requirements that cannot be satisfied with the current cluster topology usage.
+	WorkloadTopologyPlacementFailed = "TopologyPlacementFailed"
+
+	// WorkloadWaitingForPreemptedWorkloads indicates that the workload is waiting
+	// for preempted workloads to release their quota.
+	WorkloadWaitingForPreemptedWorkloads = "WaitingForPreemptedWorkloads"
+
+	// WorkloadMisconfigured indicates that the workload is inadmissible due to
+	// misconfiguration, such as missing LocalQueue or ClusterQueue.
+	WorkloadMisconfigured = "Misconfigured"
+
+	// WorkloadSuspended indicates that the workload is inadmissible because
+	// the LocalQueue or ClusterQueue StopPolicy is active.
+	WorkloadSuspended = "Suspended"
+
+	// WorkloadPendingEvaluation indicates that the workload is pending evaluation in the scheduling queue.
+	WorkloadPendingEvaluation = "PendingEvaluation"
+
+	// WorkloadAdmittedReasonNoReservation indicates that the workload has no reservation.
+	WorkloadAdmittedReasonNoReservation = "NoReservation"
+
+	// WorkloadAdmittedUnsatisfiedChecks indicates that the workload has not all checks ready.
+	WorkloadAdmittedUnsatisfiedChecks = "UnsatisfiedChecks"
+
+	// WorkloadAdmittedPendingDelayedTopologyRequests indicates that there are pending delayed topology requests.
+	WorkloadAdmittedPendingDelayedTopologyRequests = "PendingDelayedTopologyRequests"
+)
+```
+
 ### Tiered Reason Precedence & Resolution
 
 To separate different blocks and keep the status field highly structured, when
@@ -281,6 +334,12 @@ scheduler. Lower numbers represent more severe blocks.
 | **3** | `WaitingForQuota` | General capacity wait (total unused nominal capacity in the ClusterQueue/Cohort is less than the workload request). | `ClusterQueue.inadmissibleWorkloads` |
 | **4** | `TopologyPlacementFailed` | TAS workload only. Nominal capacity exists, but capacity is fragmented across domains preventing contiguous placement. | `ClusterQueue.inadmissibleWorkloads` |
 | **5** | `WaitingForPreemptedWorkloads` | Evictions have been issued; waiting for victims to terminate and release their capacity. | `ClusterQueue.heap` |
+
+*Note on preemption transition dynamics*: Between the moment evictions are
+issued and the victims actually terminate, subsequent scheduler evaluation
+cycles may see the same workload as `WaitingForQuota` (quota not yet freed)
+rather than `WaitingForPreemptedWorkloads`. The reason can oscillate until
+victims release quota.
 
 #### 3. Pending Evaluation
 This is the lowest precedence state, applicable to workloads that are active
@@ -326,6 +385,17 @@ resolved as follows:
    If the workload has not yet been evaluated by the scheduler (e.g., newly
    created), the reason defaults to `PendingEvaluation`.
 
+*Note on Scheduling Equivalence Hashing (Reason Staleness)*:
+If `SchedulingEquivalenceHashing` is enabled (the default setting) and a
+workload's scheduling hash is recorded in `noFitSchedulingHashes` (indicating
+that an equivalent workload recently failed to schedule), any newly queued or
+updated equivalent workload bypasses the scheduler and is placed directly
+into the inadmissible workloads list. Because these workloads bypass scheduler
+evaluation entirely, their status conditions are not updated and they retain
+their existing reason (e.g. `PendingEvaluation` for new workloads, or their
+previous failure reason), creating a temporary staleness window until a cluster
+event clears the equivalence hashes.
+
 #### Resolution Examples
 
 * **Example 1 (Flavor-Independent precedence resolution)**:
@@ -355,10 +425,11 @@ resolved as follows:
 ### Admitted Condition Initialization and Lifecycle
 
 When the `UnadmittedWorkloadsExplicitStatus` feature gate is enabled, both
-status conditions are explicitly initialized to `False` during the first
-reconciliation cycle to enable continuous tracking from workload creation,
-with their reasons dynamically resolved based on the workload state and queue
-parameters:
+status conditions are explicitly initialized to `False` during reconciliation
+only if the respective condition is absent from the workload status. This
+prevents overwriting existing conditions or resetting their timestamps on
+controller restarts. Their reasons are dynamically resolved based on the
+workload state and queue parameters:
 - `QuotaReserved`: `False` (with the reason dynamically resolved according to
   the Tiered Precedence model, e.g., `PendingEvaluation` for normal active
   queueing, `Deactivated` if inactive, or `Misconfigured` if queue validation
