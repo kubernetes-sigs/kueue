@@ -19,6 +19,7 @@ package sequential
 import (
 	"fmt"
 	"os/exec"
+	"sync"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
@@ -48,6 +49,22 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
 )
+
+// updateAndRestartConcurrently runs the given functions in parallel goroutines,
+// each guarded with GinkgoRecover so that gomega assertions propagate failures
+// back to the calling Ginkgo node.
+func updateAndRestartConcurrently(fns ...func()) {
+	var wg sync.WaitGroup
+	wg.Add(len(fns))
+	for _, fn := range fns {
+		go func() {
+			defer ginkgo.GinkgoRecover()
+			defer wg.Done()
+			fn()
+		}()
+	}
+	wg.Wait()
+}
 
 var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 	var (
@@ -710,16 +727,34 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 					cfg.FeatureGates[string(features.MultiKueueOrchestratedPreemption)] = true
 				}
 
+				// Restart the manager first: its new leader needs time to
+				// re-establish the MultiKueue remote clients, and a workload
+				// reconciled before any cluster is connected is not requeued
+				// when the clusters connect. The worker restarts below provide
+				// that warm-up window.
 				util.UpdateKueueConfigurationAndRestart(ctx, k8sManagerClient, defaultManagerKueueCfg.DeepCopy(), managerClusterName, updateCfg)
-				util.UpdateKueueConfigurationAndRestart(ctx, k8sWorker1Client, defaultWorker1KueueCfg.DeepCopy(), worker1ClusterName, updateCfg)
-				util.UpdateKueueConfigurationAndRestart(ctx, k8sWorker2Client, defaultWorker2KueueCfg.DeepCopy(), worker2ClusterName, updateCfg)
+				updateAndRestartConcurrently(
+					func() {
+						util.UpdateKueueConfigurationAndRestart(ctx, k8sWorker1Client, defaultWorker1KueueCfg.DeepCopy(), worker1ClusterName, updateCfg)
+					},
+					func() {
+						util.UpdateKueueConfigurationAndRestart(ctx, k8sWorker2Client, defaultWorker2KueueCfg.DeepCopy(), worker2ClusterName, updateCfg)
+					},
+				)
 			})
 		})
 		ginkgo.AfterAll(func() {
 			ginkgo.By("reverting the configuration", func() {
+				// Manager first, for the same reason as in BeforeAll.
 				util.UpdateKueueConfigurationAndRestart(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName)
-				util.UpdateKueueConfigurationAndRestart(ctx, k8sWorker1Client, defaultWorker1KueueCfg, worker1ClusterName)
-				util.UpdateKueueConfigurationAndRestart(ctx, k8sWorker2Client, defaultWorker2KueueCfg, worker2ClusterName)
+				updateAndRestartConcurrently(
+					func() {
+						util.UpdateKueueConfigurationAndRestart(ctx, k8sWorker1Client, defaultWorker1KueueCfg, worker1ClusterName)
+					},
+					func() {
+						util.UpdateKueueConfigurationAndRestart(ctx, k8sWorker2Client, defaultWorker2KueueCfg, worker2ClusterName)
+					},
+				)
 			})
 		})
 
