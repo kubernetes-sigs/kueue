@@ -25,7 +25,7 @@ require (
 	github.com/gohugoio/hugo v0.162.1
 	github.com/golangci/golangci-lint/v2 v2.12.2
 	github.com/google/go-cmp v0.7.0
-	github.com/helm-unittest/helm-unittest v1.1.0
+	github.com/helm-unittest/helm-unittest v1.1.1
 	github.com/kubernetes-sigs/reference-docs/genref v0.28.0
 	github.com/mikefarah/yq/v4 v4.53.2
 	github.com/norwoodj/helm-docs v1.14.2
@@ -464,7 +464,7 @@ require (
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/detectors/gcp v1.42.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.67.0 // indirect
-	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.67.0 // indirect
+	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.68.0 // indirect
 	go.opentelemetry.io/otel v1.43.0 // indirect
 	go.opentelemetry.io/otel/metric v1.43.0 // indirect
 	go.opentelemetry.io/otel/sdk v1.43.0 // indirect
@@ -493,13 +493,13 @@ require (
 	google.golang.org/api v0.276.0 // indirect
 	google.golang.org/genproto v0.0.0-20260319201613-d00831a3d3e7 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260401024825-9d38bb4040a9 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260401024825-9d38bb4040a9 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260406210006-6f92a3bedf2d // indirect
 	google.golang.org/grpc v1.81.1 // indirect
 	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
-	helm.sh/helm/v3 v3.20.2 // indirect
+	helm.sh/helm/v3 v3.21.0 // indirect
 	honnef.co/go/tools v0.7.0 // indirect
 	howett.net/plist v1.0.1 // indirect
 	k8s.io/api v0.36.1 // indirect
