@@ -365,7 +365,7 @@ func WaitForSparkOperatorAvailability(ctx context.Context, k8sClient client.Clie
 
 func WaitForKubeFlowMPIOperatorAvailability(ctx context.Context, k8sClient client.Client) {
 	kftoKey := types.NamespacedName{Namespace: "mpi-operator", Name: "mpi-operator"}
-	waitForDeploymentAvailability(ctx, k8sClient, kftoKey, false)
+	waitForDeploymentAvailability(ctx, k8sClient, kftoKey, true)
 }
 
 func WaitForKubeRayOperatorAvailability(ctx context.Context, k8sClient client.Client) {
