@@ -19,7 +19,13 @@ nodes:
       - name: enable-aggregator-routing
         value: "true"
       - name: v
-        value: "3"
+        value: "6"
+      # DEBUG (#12024): http2debug=1 logs the webhook client's connection
+      # lifecycle (new conn / reuse / GOAWAY / close) so we can prove whether the
+      # failing call rode a stale pooled connection. Revert before merge.
+      extraEnvs:
+      - name: GODEBUG
+        value: "http2debug=1"
   - |
     kind: InitConfiguration
     apiVersion: kubeadm.k8s.io/v1beta4

@@ -11,4 +11,4 @@ spec:
         args:
         - "--config=/controller_manager_config.yaml"
         - "--zap-devel"
-        - "--zap-log-level=3"
+        - "--zap-log-level=6"
