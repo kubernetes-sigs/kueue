@@ -522,7 +522,9 @@ func (c *clusterQueue) reportResourceMetrics(fairSharingEnabled bool) {
 		} else {
 			borrowing = resourceFloat(fr.Resource, *quota.BorrowingLimit)
 		}
-		if quota.LendingLimit != nil {
+		if quota.LendingLimit == nil {
+			lending = math.Inf(1)
+		} else {
 			lending = resourceFloat(fr.Resource, *quota.LendingLimit)
 		}
 		metrics.ReportClusterQueueQuotas(cohort, cqName, fName, rName, nominal, borrowing, lending, c.customMetricLabelValues, c.roleTracker)
