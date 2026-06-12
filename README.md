@@ -77,7 +77,9 @@ Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) and watch the Kueu
     - ✔️ DRA test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-dra-main).
     - ✔️ MultiKueue:
       - ✔️ Baseline suite [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-multikueue-baseline-main).
-      - ✔️ Extended suite [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-multikueue-extended-main).
+      - ✔️ Extended suites:
+        - ✔️ [shard-0](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-multikueue-extended-shard-0-main)
+        - ✔️ [shard-1](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-multikueue-extended-shard-1-main)
     - ✔️ MultiKueue DRA test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-multikueue-dra-main).
   - ✔️ Scheduling performance tests:
     - ✔️ Baseline suite [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-scheduling-perf-main).
