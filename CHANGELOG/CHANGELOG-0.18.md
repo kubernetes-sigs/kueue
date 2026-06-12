@@ -1,3 +1,39 @@
+## v0.18.1
+
+Changes since `v0.18.0`:
+
+## Actions Required Before Upgrading
+
+### (No, really, you MUST read this before you upgrade)
+
+- **Minor releases:** Review the `.0` release notes for each new minor version you cross; see: [`v0.17.0`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.17.0), [`v0.18.0`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.18.0).
+
+## Changes by Kind
+
+### Bug or Regression
+
+- DRA: Fixed a bug where pending Workloads using DRA extended resources were not requeued when their `DeviceClass` was deleted or its `extendedResourceName` changed. Kueue now re-evaluates affected Workloads so they do not remain in stale admission state. (#12093, @sohankunkerkar)
+- DRA: Fixed configuration validation to reject `deviceClassMappings[].sources` when the `KueueDRAIntegrationPartitionableDevices` feature gate is disabled, preventing unsupported partitionable-device configuration from being accepted. (#12152, @sohankunkerkar)
+- DRA: Fixed hot reconcile loops for inadmissible Workloads with deterministic DRA resolution
+  failures. Kueue now avoids requeueing permanent DRA spec or configuration errors while still
+  retrying transient failures with backoff. (#12057, @thc1006)
+- ElasticJobsViaWorkloadSlices: Fix the bug that regular (non-elastic) workloads with the required/preferred topology
+  were rejected when the feature ElasticJobsViaWorkloadSlicesWithTAS is enabled. (#12044, @yaroslava-serdiuk)
+- Fixed LocalQueue status updates being rejected ("status.flavorsReservation: Too many: ... must have at most 16 items") when the referenced ClusterQueue has more than 16 flavors, by raising the LocalQueue status flavor limits to 64 to match the ClusterQueue limits. (#12087, @AsherWright)
+- Kueue-populator: Fixed `events.k8s.io` RBAC permissions for event recording. (#12031, @weizhoublue)
+- KueueViz: Fixed a bug where the dashboard briefly displayed zero counts for all metrics on page load before the WebSocket connection finished loading. (#12039, @YadavAkhileshh)
+- KueueViz: Fixed a layout-bleed bug where switching directly between detail pages briefly rendered stale queue data from the previously visited resource. (#12019, @YadavAkhileshh)
+- Observability: Fix ClusterQueue Borrowing Limit metric to display infinity if the limit is unset. (#12105, @mszadkow)
+- Observability: Fixed a misleading `kueue_cluster_queue_lending_limit` metric value for ClusterQueues with unset `lendingLimit`. Kueue now reports `+Inf`, matching the actual unconstrained lending behavior instead of reporting 0. (#12168, @weizhoublue)
+- Observability: add a safeguard check truncating the event messages to make sure the events can be successfully recorded in the API server. (#12048, @olekzabl)
+- PriorityBooster: Fix a bug that events.k8s.io Events operation permission errors. (#11969, @dddwsd)
+- TAS: Fix a bug where TAS ignores excluded or transformed resources in node capacity tracking. (#12034, @wafrelka)
+- TAS: Fixed error handling for TAS topology assignments so Workloads are not considered
+  `Fit` when topology assignment fails. Kueue now treats such assignment errors as `NoFit`
+  instead of allowing the Workload to reserve quota. (#12172, @yaroslava-serdiuk)
+- VisibilityOnDemand: Fixed forbidden list/watch errors caused by unused
+  MutatingAdmissionPolicy informers in the visibility server. (#11874, @kimminw00)
+
 ## v0.18.0
 
 Changes since `v0.17.0`:
