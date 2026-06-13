@@ -1195,13 +1195,16 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 	status := workload.Status(e.Object)
 	log := r.logger().WithValues("workload", klog.KObj(e.Object), "queue", e.Object.Spec.QueueName, "status", status)
 	log.V(2).Info("Workload create event")
+	ctx := ctrl.LoggerInto(context.Background(), log)
+	if r.waitForPodsReady != nil {
+		r.reportPodsReadyWorkloadsMetrics(ctx, nil, e.Object)
+	}
 
 	if status == workload.StatusFinished {
 		r.queues.AddFinishedWorkload(e.Object)
 		return true
 	}
 
-	ctx := ctrl.LoggerInto(context.Background(), log)
 	wlCopy := e.Object.DeepCopy()
 	workload.AdjustResources(ctx, r.client, wlCopy)
 
@@ -1231,10 +1234,13 @@ func (r *WorkloadReconciler) Delete(e event.TypedDeleteEvent[*kueue.Workload]) b
 	}
 	log := r.logger().WithValues("workload", klog.KObj(e.Object), "queue", e.Object.Spec.QueueName, "status", status)
 	log.V(2).Info("Workload delete event")
+	ctx := ctrl.LoggerInto(context.Background(), log)
+	if r.waitForPodsReady != nil {
+		r.reportPodsReadyWorkloadsMetrics(ctx, e.Object, nil)
+	}
 	r.preemptionExpectations.ObservedUID(log,
 		client.ObjectKeyFromObject(e.Object), e.Object.UID)
 
-	ctx := ctrl.LoggerInto(context.Background(), log)
 	wlKey := workload.Key(e.Object)
 
 	// Delete from cache unconditionally. Pending workloads may have been "assumed"
@@ -1275,6 +1281,9 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		log = log.WithValues("prevClusterQueue", e.ObjectOld.Status.Admission.ClusterQueue)
 	}
 	log.V(2).Info("Workload update event")
+	if r.waitForPodsReady != nil {
+		r.reportPodsReadyWorkloadsMetrics(ctx, e.ObjectOld, e.ObjectNew)
+	}
 
 	wlCopy := e.ObjectNew.DeepCopy()
 	wlKey := workload.Key(e.ObjectNew)
@@ -1424,6 +1433,96 @@ func (r *WorkloadReconciler) reportFinishedWorkload(log logr.Logger, wl *kueue.W
 	if r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl) {
 		metrics.IncrementLocalQueueFinishedWorkloadTotal(lqRef, priorityClassName, r.customLabels.LQGet(qutil.KeyFromWorkload(wl)), r.roleTracker)
 	}
+}
+
+type podsReadyWorkloadsMetricState struct {
+	clusterQueue kueue.ClusterQueueReference
+	localQueue   metrics.LocalQueueReference
+}
+
+func podsReadyWorkloadsMetricStateForWorkload(wl *kueue.Workload) (podsReadyWorkloadsMetricState, bool) {
+	if !workload.CountsTowardsPodsReadyWorkloadsMetric(wl) {
+		return podsReadyWorkloadsMetricState{}, false
+	}
+	return podsReadyWorkloadsMetricState{
+		clusterQueue: wl.Status.Admission.ClusterQueue,
+		localQueue:   metrics.LQRefFromWorkload(wl),
+	}, true
+}
+
+func affectedPodsReadyWorkloadsMetricQueues(oldWl, newWl *kueue.Workload) (sets.Set[kueue.ClusterQueueReference], sets.Set[metrics.LocalQueueReference]) {
+	oldState, oldCounts := podsReadyWorkloadsMetricStateForWorkload(oldWl)
+	newState, newCounts := podsReadyWorkloadsMetricStateForWorkload(newWl)
+	if oldCounts == newCounts && (!oldCounts || oldState == newState) {
+		return nil, nil
+	}
+
+	clusterQueues := sets.New[kueue.ClusterQueueReference]()
+	localQueues := sets.New[metrics.LocalQueueReference]()
+	if oldCounts {
+		clusterQueues.Insert(oldState.clusterQueue)
+		localQueues.Insert(oldState.localQueue)
+	}
+	if newCounts {
+		clusterQueues.Insert(newState.clusterQueue)
+		localQueues.Insert(newState.localQueue)
+	}
+	return clusterQueues, localQueues
+}
+
+// reportPodsReadyWorkloadsMetrics keeps the gauges level-triggered by
+// recounting from the indexed Workload cache for the queues affected by an event.
+func (r *WorkloadReconciler) reportPodsReadyWorkloadsMetrics(ctx context.Context, oldWl, newWl *kueue.Workload) {
+	clusterQueues, localQueues := affectedPodsReadyWorkloadsMetricQueues(oldWl, newWl)
+	if len(clusterQueues) == 0 && len(localQueues) == 0 {
+		return
+	}
+
+	log := ctrl.LoggerFrom(ctx)
+	for cq := range clusterQueues {
+		count, err := r.countPodsReadyWorkloadsForClusterQueue(ctx, cq)
+		if err != nil {
+			log.Error(err, "Failed to count pods-ready workloads for ClusterQueue", "clusterQueue", cq)
+			continue
+		}
+		metrics.ReportPodsReadyWorkloads(cq, count, r.roleTracker)
+	}
+	if features.Enabled(features.LocalQueueMetrics) {
+		for lq := range localQueues {
+			count, err := r.countPodsReadyWorkloadsForLocalQueue(ctx, lq)
+			if err != nil {
+				log.Error(err, "Failed to count pods-ready workloads for LocalQueue", "localQueue", klog.KRef(lq.Namespace, string(lq.Name)))
+				continue
+			}
+			metrics.ReportLocalQueuePodsReadyWorkloads(lq, count, r.roleTracker)
+		}
+	}
+}
+
+func (r *WorkloadReconciler) countPodsReadyWorkloadsForClusterQueue(ctx context.Context, cq kueue.ClusterQueueReference) (int, error) {
+	var wlList kueue.WorkloadList
+	if err := r.client.List(ctx, &wlList, client.MatchingFields{indexer.WorkloadClusterQueueKey: string(cq)}); err != nil {
+		return 0, err
+	}
+	return countPodsReadyWorkloads(wlList.Items), nil
+}
+
+func (r *WorkloadReconciler) countPodsReadyWorkloadsForLocalQueue(ctx context.Context, lq metrics.LocalQueueReference) (int, error) {
+	var wlList kueue.WorkloadList
+	if err := r.client.List(ctx, &wlList, client.InNamespace(lq.Namespace), client.MatchingFields{indexer.WorkloadQueueKey: string(lq.Name)}); err != nil {
+		return 0, err
+	}
+	return countPodsReadyWorkloads(wlList.Items), nil
+}
+
+func countPodsReadyWorkloads(wls []kueue.Workload) int {
+	count := 0
+	for i := range wls {
+		if workload.CountsTowardsPodsReadyWorkloadsMetric(&wls[i]) {
+			count++
+		}
+	}
+	return count
 }
 
 // SetupWithManager sets up the controller with the Manager.

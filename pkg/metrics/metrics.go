@@ -148,6 +148,10 @@ var (
 	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",priority_class="the priority class name",replica_role="one of `leader`, `follower`, or `standalone`"
 	AdmittedUntilReadyWaitTime *prometheus.HistogramVec
 
+	// +metricsdoc:group=optional_wait_for_pods_ready
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",replica_role="one of `leader`, `follower`, or `standalone`"
+	PodsReadyWorkloads *prometheus.GaugeVec
+
 	// +metricsdoc:group=localqueue
 	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",priority_class="the priority class name",replica_role="one of `leader`, `follower`, or `standalone`"
 	LocalQueueAdmissionWaitTime *prometheus.HistogramVec
@@ -167,6 +171,10 @@ var (
 	// +metricsdoc:group=optional_wait_for_pods_ready
 	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",priority_class="the priority class name",replica_role="one of `leader`, `follower`, or `standalone`"
 	LocalQueueAdmittedUntilReadyWaitTime *prometheus.HistogramVec
+
+	// +metricsdoc:group=optional_wait_for_pods_ready
+	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",replica_role="one of `leader`, `follower`, or `standalone`"
+	LocalQueuePodsReadyWorkloads *prometheus.GaugeVec
 
 	// +metricsdoc:group=clusterqueue
 	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",reason="eviction or preemption reason",underlying_cause="root cause for eviction",priority_class="the priority class name",replica_role="one of `leader`, `follower`, or `standalone`"
@@ -519,6 +527,16 @@ The label 'underlying_cause' can have the following values:
 		}, append([]string{"cluster_queue", "priority_class", "replica_role"}, extraLabels...),
 	)
 
+	PodsReadyWorkloads = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "pods_ready_workloads",
+			Help: `The number of admitted Workloads with PodsReady=True condition, per 'cluster_queue'.
+Only updated when the WaitForPodsReady feature is enabled.`,
+		}, []string{"cluster_queue", "replica_role"},
+	)
+	trackGaugeVec(PodsReadyWorkloads, gaugeCleanupScopeClusterQueue)
+
 	LocalQueueAdmissionWaitTime = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: constants.KueueName,
@@ -563,6 +581,16 @@ The label 'underlying_cause' can have the following values:
 			Buckets:   generateExponentialBuckets(14),
 		}, append([]string{"name", "namespace", "priority_class", "replica_role"}, extraLabels...),
 	)
+
+	LocalQueuePodsReadyWorkloads = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "local_queue_pods_ready_workloads",
+			Help: `The number of admitted Workloads with PodsReady=True condition, per 'local_queue'.
+Only updated when the WaitForPodsReady feature is enabled.`,
+		}, []string{"name", "namespace", "replica_role"},
+	)
+	trackGaugeVec(LocalQueuePodsReadyWorkloads, gaugeCleanupScopeLocalQueue)
 
 	WorkloadCreationLatency = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
@@ -986,6 +1014,22 @@ func ReportLocalQueueAdmittedUntilReadyWaitTime(lq LocalQueueReference, priority
 	LocalQueueAdmittedUntilReadyWaitTime.WithLabelValues(labels...).Observe(waitTime.Seconds())
 }
 
+// ReportPodsReadyWorkloads sets the PodsReady workloads gauge for the given ClusterQueue.
+func ReportPodsReadyWorkloads(cqName kueue.ClusterQueueReference, count int, tracker *roletracker.RoleTracker) {
+	if count < 0 {
+		count = 0
+	}
+	PodsReadyWorkloads.WithLabelValues(string(cqName), roletracker.GetRole(tracker)).Set(float64(count))
+}
+
+// ReportLocalQueuePodsReadyWorkloads sets the PodsReady workloads gauge for the given LocalQueue.
+func ReportLocalQueuePodsReadyWorkloads(lq LocalQueueReference, count int, tracker *roletracker.RoleTracker) {
+	if count < 0 {
+		count = 0
+	}
+	LocalQueuePodsReadyWorkloads.WithLabelValues(string(lq.Name), lq.Namespace, roletracker.GetRole(tracker)).Set(float64(count))
+}
+
 func ReportPendingWorkloads(cqName kueue.ClusterQueueReference, active, inadmissible int, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	role := roletracker.GetRole(tracker)
 	activeLabels := append([]string{string(cqName), PendingStatusActive, role}, customLabelValues...)
@@ -1364,6 +1408,7 @@ func Register() {
 		AdmissionChecksWaitTime,
 		QueuedUntilReadyWaitTime,
 		AdmittedUntilReadyWaitTime,
+		PodsReadyWorkloads,
 		EvictedWorkloadsTotal,
 		EvictedWorkloadsOnceTotal,
 		PreemptedWorkloadsTotal,
@@ -1406,6 +1451,7 @@ func RegisterLQMetrics() {
 		LocalQueueAdmissionChecksWaitTime,
 		LocalQueueQueuedUntilReadyWaitTime,
 		LocalQueueAdmittedUntilReadyWaitTime,
+		LocalQueuePodsReadyWorkloads,
 		LocalQueueEvictedWorkloadsTotal,
 		LocalQueueReservingActiveWorkloads,
 		LocalQueueAdmittedActiveWorkloads,
