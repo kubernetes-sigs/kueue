@@ -1,5 +1,5 @@
 ---
-title: "Setup All-or-nothing with ready Pods"
+title: "Configure All-or-nothing Scheduling with ready Pods"
 date: 2022-03-14
 weight: 5
 description: >
@@ -13,45 +13,46 @@ if the physical availability of resources do not match the configured quotas in
 Kueue. The same pair of jobs could run to completion if their pods were scheduled
 sequentially.
 
-To address this requirement, in version 0.3.0 we introduced an opt-in mechanism
-configured via the flag `waitForPodsReady` that provides a simple implementation
-of the all-or-nothing scheduling. When enabled, the workload is monitored by
-Kueue until all of its Pods are ready (meaning scheduled, running, and passing
-the optional readiness probe). If not all pods of the workload are ready within
-the configured timeout, then the workload is evicted and requeued.
+To address this requirement, Kueue provides the `waitForPodsReady`
+configuration, which implements a simple all-or-nothing scheduling mechanism.
 
-This page shows you how to configure Kueue to use `waitForPodsReady`, which
-is a simple implementation of the all-or-nothing scheduling.
+By default, Kueue monitors admitted workloads until all of their Pods are ready
+(meaning scheduled, running, and passing the optional readiness probe). If not
+all Pods of the workload become ready within the configured timeout, the
+workload is evicted and requeued.
+
+This page shows you how to configure and customize `waitForPodsReady`, which
+provides a simple implementation of all-or-nothing scheduling.
+
 The intended audience for this page are [batch administrators](/docs/tasks#batch-administrator).
 
 ## Before you begin
 
 Make sure the following conditions are met:
 
-- A Kubernetes cluster is running.
-- The kubectl command-line tool has communication with your cluster.
-- [Kueue is installed](/docs/installation) in version 0.3.0 or later.
+* A Kubernetes cluster is running.
+* The kubectl command-line tool has communication with your cluster.
+* [Kueue is installed](/docs/installation) in version 0.3.0 or later.
 
-## Enabling waitForPodsReady
+## Configuring waitForPodsReady
 
-Follow the instructions described
-[here](/docs/installation#install-a-custom-configured-released-version) to
-install a release version by extending the configuration with the following
-fields:
+`waitForPodsReady` is enabled by default. You can customize its behavior by
+extending the Kueue configuration with the following fields:
 
 ```yaml
-    waitForPodsReady:
-      timeout: 10m
-      recoveryTimeout: 3m
-      blockAdmission: false
-      requeuingStrategy:
-        timestamp: Eviction | Creation
-        backoffLimitCount: 5
-        backoffBaseSeconds: 60
-        backoffMaxSeconds: 3600
+waitForPodsReady:
+  timeout: 1h
+  recoveryTimeout: 1h
+  blockAdmission: false
+  requeuingStrategy:
+    timestamp: Eviction | Creation
+    backoffLimitCount: 5
+    backoffBaseSeconds: 60
+    backoffMaxSeconds: 3600
 ```
 
 {{% alert title="Note" color="primary" %}}
+
 If you update an existing Kueue installation you may need to restart the
 `kueue-controller-manager` pod in order for Kueue to pick up the updated
 configuration. In that case run:
@@ -59,67 +60,72 @@ configuration. In that case run:
 ```shell
 kubectl delete pods --all -n kueue-system
 ```
+
 {{% /alert %}}
 
-The `timeout` (`waitForPodsReady.timeout`) is an optional parameter, defaulting to
-5 minutes.
+The `timeout` (`waitForPodsReady.timeout`) is an optional parameter,
+defaulting to 1 hour.
 
 When the `timeout` expires for an admitted Workload, and the workload's
 pods are not all scheduled yet (i.e., the Workload condition remains
-`PodsReady=False`), then the Workload's admission is
-cancelled, the corresponding job is suspended and the Workload is re-queued.
+`PodsReady=False`), then the Workload's admission is cancelled, the
+corresponding job is suspended and the Workload is re-queued.
 
-`recoveryTimeout` is an optional parameter used for
-workloads that are already running but have one or more Pods in a not-ready state
-(e.g., due to Pod failure). If a Pod is not ready, the workload often cannot
-progress, leading to wasted resources. To prevent this, users can configure
-a timeout period they are willing to wait for a recovery Pod. If the
-`recoveryTimeout` expires, similar to the regular timeout, the workload is evicted and requeued.
-If not specified, it defaults to the value of `timeout`. Setting `recoveryTimeout: 0s` disables
-recovery timeout checking.
+`recoveryTimeout` is an optional parameter used for workloads that are already
+running but have one or more Pods in a not-ready state (for example, due to Pod
+failure). If a Pod is not ready, the workload often cannot progress, leading to
+wasted resources. To prevent this, users can configure a timeout period they
+are willing to wait for a recovery Pod. If the `recoveryTimeout` expires,
+similar to the regular timeout, the workload is evicted and requeued.
 
-The `blockAdmission` (`waitForPodsReady.blockAdmission`) is an optional parameter.
-When enabled, then the workloads are admitted sequentially to prevent deadlock
-situations as demonstrated in the example below.
+If not specified, `recoveryTimeout` defaults to the value of `timeout`.
+Setting `recoveryTimeout: 0s` disables recovery timeout checking.
+
+The `blockAdmission` (`waitForPodsReady.blockAdmission`) is an optional
+parameter. When enabled, workloads are admitted sequentially to prevent
+deadlock situations as demonstrated in the example below.
 
 ### Requeuing Strategy
 
 {{< feature-state state="stable" for_version="v0.6" >}}
 
 {{% alert title="Note" color="primary" %}}
-The `backoffBaseSeconds` and `backoffMaxSeconds` are available in Kueue v0.7.0 and later
+The `backoffBaseSeconds` and `backoffMaxSeconds` are available in Kueue v0.7.0 and later.
 {{% /alert %}}
 
 The `requeuingStrategy` (`waitForPodsReady.requeuingStrategy`) contains optional parameters:
-- `timestamp`
-- `backoffLimitCount`
-- `backoffBaseSeconds`
-- `backoffMaxSeconds`
+
+* `timestamp`
+* `backoffLimitCount`
+* `backoffBaseSeconds`
+* `backoffMaxSeconds`
 
 The `timestamp` field defines which timestamp Kueue uses to order the Workloads in the queue:
 
-- `Eviction` (default): The `lastTransitionTime` of the `Evicted=true` condition with `PodsReadyTimeout` reason in a Workload.
-- `Creation`: The creationTimestamp in a Workload.
+* `Eviction` (default): The `lastTransitionTime` of the `Evicted=true` condition with `PodsReadyTimeout` reason in a Workload.
+* `Creation`: The creationTimestamp in a Workload.
 
-If you want to re-queue a Workload evicted by the `PodsReadyTimeout` back to its original place in the queue,
-you should set the timestamp to the `Creation`.
+If you want to re-queue a Workload evicted by `PodsReadyTimeout` back to its original place in the queue, set the timestamp to `Creation`.
 
 Kueue will re-queue a Workload evicted by the `PodsReadyTimeout` reason until the number of re-queues reaches `backoffLimitCount`.
-If you don't specify any value for `backoffLimitCount`,
-a Workload is repeatedly and endlessly re-queued to the queue based on the `timestamp`.
+
+If you don't specify any value for `backoffLimitCount`, a Workload is repeatedly and endlessly re-queued based on the configured `timestamp`.
+
 Once the number of re-queues reaches the limit, Kueue [deactivates the Workload](/docs/concepts/workload/#active).
 
-The time to re-queue a workload after each consecutive timeout is increased
-exponentially, with the exponent of 2. The first delay is determined by the
-`backoffBaseSeconds` parameter (defaulting to 60). You can configure the maximum
-backoff time by setting the `backoffMaxSeconds` (defaulting to 3600). Using the defaults, the
-evicted workload is re-queued after approximately `60, 120, 240, ..., 3600, ..., 3600` seconds.
-Even if the backoff time reaches the `backoffMaxSeconds`, Kueue will continue to re-queue an evicted Workload with the `backoffMaxSeconds`
-until the number of re-queue reaches the `backoffLimitCount`.
+The time to re-queue a workload after each consecutive timeout is increased exponentially with a base of 2. The first delay is determined by the `backoffBaseSeconds` parameter (defaulting to 60). You can configure the maximum backoff time using `backoffMaxSeconds` (defaulting to 3600).
+
+Using the defaults, the evicted workload is re-queued after approximately:
+
+`60, 120, 240, ..., 3600, ..., 3600` seconds.
+
+Even if the backoff time reaches `backoffMaxSeconds`, Kueue will continue to re-queue an evicted Workload using `backoffMaxSeconds` until the number of re-queues reaches `backoffLimitCount`.
+
+
 
 ## Example
 
-In this example we demonstrate the impact of enabling `waitForPodsReady` in Kueue.
+In this example we demonstrate the impact of `waitForPodsReady` in Kueue.
 We create two jobs which both require all their pods to be running at the same
 time to complete. The cluster has enough resources to support running one of the
 jobs at the same time, but not both.
@@ -413,11 +419,22 @@ kubectl delete -f /tmp/job1.yaml
 kubectl delete -f /tmp/job2.yaml
 ```
 
-### 3. Run with waitForPodsReady enabled
+### 3. Run with WaitForPodsReady
 
-#### Enable waitForPodsReady
-
-Update the Kueue configuration following the instructions [here](#enabling-waitforpodsready).
+{{% alert title="Note" color="primary" %}}
+Starting with Kueue v0.19, `waitForPodsReady` is enabled by default with the
+following default settings:
+{{% /alert %}}
+```yaml
+waitForPodsReady:
+  timeout: 1h
+  recoveryTimeout: 1h
+  blockAdmission: false
+  requeuingStrategy:
+    timestamp: Eviction
+    backoffBaseSeconds: 60
+    backoffMaxSeconds: 3600
+```
 
 #### Run the jobs
 
@@ -433,7 +450,7 @@ kubectl create -f /tmp/job2.yaml
 
 #### Monitor the progress
 
-Execute the following command in a couple of seconds internals to monitor
+Execute the following command in a couple of second internals to monitor
 the progress:
 
 ```shell
@@ -442,7 +459,8 @@ kubectl get pods
 
 We omit the pods of the completed `quick` job for brevity.
 
-Output when `job1` is starting up, note that `job2` remains suspended:
+Output when `job1` is starting up. Because `blockAdmission: true` is configured, `job2` remains suspended until `job1` reaches the PodsReady condition:
+
 
 ```shell
 NAME            READY   STATUS              RESTARTS   AGE
@@ -530,6 +548,7 @@ kubectl delete -f /tmp/job2.yaml
 
 ## Drawbacks
 
-When enabling `waitForPodsReady`, the admission of Workloads may
+When `waitForPodsReady` is enabled, the admission of Workloads may
 be unnecessarily slowed down by sequencing in case the cluster has enough
 resources to support concurrent Workload startup.
+
