@@ -1859,10 +1859,10 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 	baseWorkloadNotNeedingSecondPass := baseWorkloadBuilder.Clone()
 
 	cases := map[string]struct {
-		workloads []*kueue.Workload
-		update    func(*kueue.Workload)
-		passTime  time.Duration
-		wantReady sets.Set[workload.Reference]
+		workloads      []*kueue.Workload
+		updateWorkload *kueue.Workload
+		passTime       time.Duration
+		wantReady      sets.Set[workload.Reference]
 	}{
 		"single queued workload checked immediately": {
 			workloads: []*kueue.Workload{
@@ -1877,24 +1877,25 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 			passTime:  time.Second,
 			wantReady: sets.New(workload.Key(baseWorkloadNeedingSecondPass.Obj())),
 		},
-		"workload stops needing second pass after being queued": {
+		"workload is evicted after being queued": {
 			workloads: []*kueue.Workload{
 				baseWorkloadNeedingSecondPass.DeepCopy(),
 			},
-			update: func(wl *kueue.Workload) {
-				wl.Status.Admission = nil
-			},
+			updateWorkload: baseWorkloadNeedingSecondPass.Clone().
+				EvictedAt(now).
+				Obj(),
 			passTime:  time.Second,
 			wantReady: nil,
 		},
-		"two queued workloads, one updated to no longer need second pass": {
+		"two queued workloads, one evicted before second pass": {
 			workloads: []*kueue.Workload{
 				baseWorkloadNeedingSecondPass.Clone().Name("first").Obj(),
 				baseWorkloadNeedingSecondPass.Clone().Name("second").Obj(),
 			},
-			update: func(wl *kueue.Workload) {
-				wl.Status.Admission = nil
-			},
+			updateWorkload: baseWorkloadNeedingSecondPass.Clone().
+				Name("first").
+				EvictedAt(now).
+				Obj(),
 			passTime:  time.Second,
 			wantReady: sets.New(workload.NewReference("default", "second")),
 		},
@@ -1915,10 +1916,8 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 				manager.QueueSecondPassIfNeeded(ctx, wl, 0)
 			}
 
-			if tc.update != nil {
-				wl := tc.workloads[0]
-				tc.update(wl)
-				manager.QueueSecondPassIfNeeded(ctx, wl, 1)
+			if tc.updateWorkload != nil {
+				manager.QueueSecondPassIfNeeded(ctx, tc.updateWorkload, 1)
 			}
 
 			fakeClock.Step(tc.passTime)
