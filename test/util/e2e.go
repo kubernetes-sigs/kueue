@@ -664,6 +664,7 @@ func GetKuberayTestImage() string {
 }
 
 func GetClusterProfilePluginImage() string {
+	ginkgo.GinkgoHelper()
 	clusterProfilePluginImage, found := os.LookupEnv("CLUSTERPROFILE_PLUGIN_IMAGE")
 	gomega.Expect(found).To(gomega.BeTrue())
 	return clusterProfilePluginImage
