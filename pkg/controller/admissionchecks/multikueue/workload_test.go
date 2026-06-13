@@ -29,6 +29,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
@@ -2004,5 +2005,110 @@ func TestConfigHandlerDelete(t *testing.T) {
 	}
 	if mockQ.Items[0].Name != "wl1" {
 		t.Errorf("expected workload wl1 to be queued, got %s", mockQ.Items[0].Name)
+	}
+}
+
+type deferredSyncStubAdapter struct {
+	syncErr error
+}
+
+var _ jobframework.MultiKueueAdapter = (*deferredSyncStubAdapter)(nil)
+
+func (s *deferredSyncStubAdapter) SyncJob(_ context.Context, _, _ client.Client, _ types.NamespacedName, _, _ string) error {
+	return s.syncErr
+}
+func (s *deferredSyncStubAdapter) DeleteRemoteObject(_ context.Context, _, _ client.Client, _ types.NamespacedName) error {
+	return nil
+}
+func (s *deferredSyncStubAdapter) IsJobManagedByKueue(_ context.Context, _ client.Client, _ types.NamespacedName) (bool, string, error) {
+	return true, "", nil
+}
+func (s *deferredSyncStubAdapter) GVK() schema.GroupVersionKind {
+	return batchv1.SchemeGroupVersion.WithKind("Job")
+}
+
+// TestReconcileGroup_SyncDeferred_ShortRequeue is a regression test for
+// https://github.com/kubernetes-sigs/kueue/issues/11115.
+//
+// When the manager has just admitted a workload and the worker has just
+// admitted its remote copy, the MultiKueue Job adapter's SyncJob may run
+// while the local manager Job is still suspended. In that case SyncJob
+// declines to propagate the remote Job's Status.Active and returns
+// jobframework.ErrSyncDeferred. The caller (reconcileGroup step 6) must
+// honor that signal and schedule a short re-reconcile — otherwise the
+// next reconcile is workerLostTimeout (15 min) away and the manager Job's
+// Status.Active never catches up within any reasonable test or operator
+// observation window.
+func TestReconcileGroup_SyncDeferred_ShortRequeue(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	now := time.Now()
+	fakeClock := testingclock.NewFakeClock(now)
+
+	const (
+		acName     = kueue.AdmissionCheckReference("ac1")
+		workerName = "worker1"
+	)
+
+	// Local manager workload: admitted on worker1, AC=Ready, no Evicted condition.
+	local := utiltestingapi.MakeWorkload("wl1", TestNamespace).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq1").Obj(), now).
+		AdmittedAt(true, now).
+		AdmissionCheck(kueue.AdmissionCheckState{
+			Name:               acName,
+			State:              kueue.CheckStateReady,
+			LastTransitionTime: metav1.NewTime(now),
+		}).
+		ClusterName(workerName).
+		Obj()
+
+	// Remote workload on worker1: WorkloadAdmitted=True.
+	remote := utiltestingapi.MakeWorkload("wl1", TestNamespace).
+		Condition(metav1.Condition{
+			Type:               kueue.WorkloadAdmitted,
+			Status:             metav1.ConditionTrue,
+			Reason:             "Admitted",
+			LastTransitionTime: metav1.NewTime(now),
+		}).
+		Obj()
+
+	managerBuilder := getClientBuilder(ctx)
+	managerBuilder = managerBuilder.WithObjects(local).WithStatusSubresource(local)
+	managerClient := managerBuilder.Build()
+
+	workerBuilder := getClientBuilder(ctx)
+	workerBuilder = workerBuilder.WithObjects(remote).WithStatusSubresource(remote)
+	workerClient := NewNeverCachingClient(workerBuilder.Build())
+
+	group := &wlGroup{
+		local:       local,
+		localClient: managerClient,
+		remotes:     map[string]*kueue.Workload{workerName: remote},
+		remoteClients: map[string]*remoteClient{
+			workerName: {client: workerClient, origin: defaultOrigin},
+		},
+		acName:        acName,
+		jobAdapter:    &deferredSyncStubAdapter{syncErr: jobframework.ErrSyncDeferred},
+		controllerKey: types.NamespacedName{Name: "job1", Namespace: TestNamespace},
+	}
+
+	reconciler := &wlReconciler{
+		client:            managerClient,
+		clock:             fakeClock,
+		workerLostTimeout: defaultWorkerLostTimeout,
+		recorder:          &utiltesting.EventRecorder{},
+		dispatcherName:    config.MultiKueueDispatcherModeAllAtOnce,
+	}
+
+	gotResult, gotErr := reconciler.reconcileGroup(ctx, group)
+	if gotErr != nil {
+		t.Fatalf("reconcileGroup returned unexpected error: %v", gotErr)
+	}
+
+	// The bug under test is that the requeue would otherwise be workerLostTimeout
+	// (15 minutes). A short requeue (≤ 30 s) is the contract we want.
+	const maxAcceptableRequeue = 30 * time.Second
+	if gotResult.RequeueAfter <= 0 || gotResult.RequeueAfter > maxAcceptableRequeue {
+		t.Fatalf("reconcileGroup result has RequeueAfter=%v; want > 0 and ≤ %v (sync was deferred)",
+			gotResult.RequeueAfter, maxAcceptableRequeue)
 	}
 }

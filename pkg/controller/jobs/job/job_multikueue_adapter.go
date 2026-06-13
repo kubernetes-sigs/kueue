@@ -64,7 +64,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 
 	// the remote job exists
 	if err == nil {
-		statusUpdate := determineStatusUpdate(ctx, log, &localJob, &remoteJob)
+		statusUpdate, deferred := determineStatusUpdate(ctx, log, &localJob, &remoteJob)
 		if !equality.Semantic.DeepEqual(localJob.Status, *statusUpdate) {
 			if err := clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
 				localJob.Status = *statusUpdate
@@ -79,6 +79,16 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 			return syncElasticJob(ctx, remoteClient, log, workloadName, &localJob, &remoteJob)
 		}
 
+		// determineStatusUpdate took the "local suspended, remote unsuspended,
+		// not finished" branch — the real remote status.Active was *not*
+		// propagated (the K8s 1.36 / #3685 workaround patches only the
+		// JobSuspended condition). Signal the caller so it can requeue on a
+		// short timer; otherwise the next reconcile may be up to
+		// workerLostTimeout away and the local Job's Active count will not
+		// catch up. See #11115.
+		if deferred {
+			return jobframework.ErrSyncDeferred
+		}
 		return nil
 	}
 
@@ -102,7 +112,15 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	return remoteClient.Create(ctx, &remoteJob)
 }
 
-func determineStatusUpdate(ctx context.Context, log logr.Logger, localJob, remoteJob *batchv1.Job) *batchv1.JobStatus {
+// determineStatusUpdate returns the JobStatus that should be written to the
+// local Job, plus a "deferred" flag. deferred is true only for the "local
+// suspended, remote unsuspended, not finished" branch — the one case where
+// the real remote status.Active is intentionally NOT propagated to the local
+// Job. Callers use the flag to schedule a short re-reconcile so the sync can
+// be retried once the local Job is unsuspended (see #11115). Keeping both
+// values in this function ensures the deferred condition can't drift out of
+// sync with the branches it describes.
+func determineStatusUpdate(ctx context.Context, log logr.Logger, localJob, remoteJob *batchv1.Job) (*batchv1.JobStatus, bool) {
 	localJobInfo := fromObject(localJob)
 
 	log.V(3).Info("Determining status update for a MultiKueue Job", "localJob", localJob, "remoteJob", remoteJob)
@@ -111,7 +129,7 @@ func determineStatusUpdate(ctx context.Context, log logr.Logger, localJob, remot
 		// This is safe as the local Job has already reached its final spec.
 		// We expect no validation errors from further spec changes.
 		log.V(3).Info("Performing the sync as the local Job is unsuspended")
-		return &remoteJob.Status
+		return &remoteJob.Status, false
 	}
 	remoteJobInfo := fromObject(remoteJob)
 	if remoteJobInfo.IsSuspended() {
@@ -119,13 +137,13 @@ func determineStatusUpdate(ctx context.Context, log logr.Logger, localJob, remot
 		// This is needed to await for updating the status.active field
 		// when the remote Job is evicted; see: https://github.com/kubernetes-sigs/kueue/pull/8151
 		log.V(3).Info("Peforming the sync as the local and the remote Job are both suspended")
-		return &remoteJob.Status
+		return &remoteJob.Status, false
 	}
 	if _, _, finished := remoteJobInfo.Finished(ctx); finished {
 		// Sync status if the remote Job is finished.
 		// Without this, the local Job could get stuck in the suspended state.
 		log.V(2).Info("Performing the sync as the remote Job is finished")
-		return &remoteJob.Status
+		return &remoteJob.Status, false
 	}
 
 	// Remaining case: local Job is suspended, remote Job is unsuspended but not finished.
@@ -151,10 +169,10 @@ func determineStatusUpdate(ctx context.Context, log logr.Logger, localJob, remot
 				LastProbeTime:      metav1.Now(),
 			})
 		log.V(2).Info("Updating the suspended local Job to comply with Kubernetes validation rules", "oldStatus", localJob.Status, "newStatus", newLocalStatus)
-		return newLocalStatus
+		return newLocalStatus, true
 	}
 
-	return &localJob.Status
+	return &localJob.Status, true
 }
 
 func setJobStatusCondition(list []batchv1.JobCondition, condition batchv1.JobCondition) []batchv1.JobCondition {

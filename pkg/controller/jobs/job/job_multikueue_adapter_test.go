@@ -617,8 +617,14 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			// Function call under test with result (error) assertion.
-			if err := adapter.SyncJob(ctx, tt.args.localClient, tt.args.remoteClient, tt.args.key, tt.args.workloadName, tt.args.origin); (err != nil) != tt.want.err {
-				t.Errorf("SyncJob() error = %v, wantErr %v", err, tt.want.err)
+			gotErr := adapter.SyncJob(ctx, tt.args.localClient, tt.args.remoteClient, tt.args.key, tt.args.workloadName, tt.args.origin)
+			if (gotErr != nil) != tt.want.err {
+				t.Errorf("SyncJob() error = %v, wantErr %v", gotErr, tt.want.err)
+			}
+			// SyncJob must never return ErrSyncDeferred for cases in this table — the
+			// deferred-sync path has its own dedicated test below.
+			if errors.Is(gotErr, jobframework.ErrSyncDeferred) {
+				t.Errorf("SyncJob() unexpected ErrSyncDeferred for case %q", name)
 			}
 
 			// Side effect assertion: changes to the local job. Must have (not nil) both the client and the job.
@@ -642,5 +648,42 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// Test_multiKueueAdapter_SyncJob_DeferredWhenLocalSuspended covers the race
+// observed in https://github.com/kubernetes-sigs/kueue/issues/11115. When the
+// remote Job is already unsuspended (and not finished) but the local Job is
+// still suspended, SyncJob cannot propagate status.Active to the local Job
+// without violating K8s 1.36 suspend-validation rules. In that case SyncJob
+// must return ErrSyncDeferred so the multikueue reconciler can requeue on a
+// short timer; without that signal the workload reconciler waits its default
+// 15-minute requeue and the manager Job's status.Active never catches up.
+func Test_multiKueueAdapter_SyncJob_DeferredWhenLocalSuspended(t *testing.T) {
+	schema := runtime.NewScheme()
+	_ = scheme.AddToScheme(schema)
+	_ = kueue.AddToScheme(schema)
+
+	newJob := func() *utiltestingjob.JobWrapper {
+		return utiltestingjob.MakeJob("test", TestNamespace).ResourceVersion("1")
+	}
+
+	localJob := newJob().Obj() // Suspend defaults to true on JobWrapper
+	remoteJob := newJob().
+		Suspend(false).
+		Active(1).
+		Obj()
+
+	localClient := fake.NewClientBuilder().WithScheme(schema).WithObjects(localJob).Build()
+	remoteClient := fake.NewClientBuilder().WithScheme(schema).WithObjects(remoteJob).Build()
+
+	adapter := &multiKueueAdapter{}
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	err := adapter.SyncJob(ctx, localClient, remoteClient,
+		client.ObjectKeyFromObject(localJob), "" /*workloadName*/, "" /*origin*/)
+
+	if !errors.Is(err, jobframework.ErrSyncDeferred) {
+		t.Fatalf("SyncJob() = %v; want errors.Is(err, ErrSyncDeferred) to be true", err)
 	}
 }
