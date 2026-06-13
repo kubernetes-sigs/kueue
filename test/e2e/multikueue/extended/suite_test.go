@@ -75,6 +75,10 @@ var _ = ginkgo.SynchronizedBeforeSuite(
 		initClusterClients()
 		ctx = ginkgo.GinkgoT().Context()
 
+		// Give the parallel test runner processes a brief moment
+		// to clear out their initial setup thundering herd before querying availability.
+		time.Sleep(5 * time.Second)
+
 		waitForAvailableStart := time.Now()
 		util.WaitForKueueAvailability(ctx, k8sManagerClient)
 		util.WaitForKueueAvailability(ctx, k8sWorker1Client)
