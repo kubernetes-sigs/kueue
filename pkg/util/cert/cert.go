@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	cert "github.com/open-policy-agent/cert-controller/pkg/rotator"
 	"k8s.io/apimachinery/pkg/types"
@@ -46,57 +47,85 @@ const (
 func BootstrapCerts(ctx context.Context, kubeConfig *rest.Config, cfg config.Configuration) error {
 	log := ctrl.Log.WithName("cert-bootstrap")
 
-	// Create a minimal bootstrap manager with leader election.
-	log.Info("Creating bootstrap manager for certificate generation")
-	bootstrapMgr, err := ctrl.NewManager(kubeConfig, ctrl.Options{
-		Metrics: metricsserver.Options{
-			BindAddress: "0",
-		},
-		HealthProbeBindAddress: cfg.Health.HealthProbeBindAddress,
-		LivenessEndpointName:   cfg.Health.LivenessEndpointName,
-	})
-	if err != nil {
-		return fmt.Errorf("unable to create bootstrap manager: %w", err)
-	}
+	maxAttempts := 5
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		log.Info("Attempting certificate bootstrap", "attempt", attempt, "maxAttempts", maxAttempts)
 
-	if err := bootstrapMgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
-		return fmt.Errorf("unable to set up health check for bootstrap manager: %w", err)
-	}
-
-	certsReady := make(chan struct{})
-
-	// Add cert rotator to bootstrap manager using shared config.
-	rotatorConfig := buildCertRotatorConfig(cfg, "cert-rotator-bootstrap", certsReady)
-	err = cert.AddRotator(bootstrapMgr, rotatorConfig)
-	if err != nil {
-		return fmt.Errorf("unable to add cert rotator to bootstrap manager: %w", err)
-	}
-
-	bootstrapCtx, bootstrapCancel := context.WithCancel(ctx)
-	defer bootstrapCancel()
-
-	managerStopped := make(chan struct{})
-	go func() {
-		log.Info("Starting bootstrap manager")
-		if err := bootstrapMgr.Start(bootstrapCtx); err != nil {
-			log.Error(err, "Bootstrap manager failed")
+		// Create a minimal bootstrap manager with leader election.
+		bootstrapMgr, err := ctrl.NewManager(kubeConfig, ctrl.Options{
+			Metrics: metricsserver.Options{
+				BindAddress: "0",
+			},
+			HealthProbeBindAddress: cfg.Health.HealthProbeBindAddress,
+			LivenessEndpointName:   cfg.Health.LivenessEndpointName,
+		})
+		if err != nil {
+			log.Error(err, "Unable to create bootstrap manager, retrying...")
+			time.Sleep(2 * time.Second)
+			continue
 		}
-		close(managerStopped)
-	}()
 
-	// Wait for cert-rotator to complete cert generation and CA injection
-	log.Info("Waiting for certificate generation and CA injection to complete")
-	<-certsReady
-	log.Info("Certificates ready and CA bundles injected")
+		if err := bootstrapMgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
+			log.Error(err, "Unable to set up health check for bootstrap manager, retrying...")
+			time.Sleep(2 * time.Second)
+			continue
+		}
 
-	log.Info("Stopping bootstrap manager")
-	bootstrapCancel()
+		certsReady := make(chan struct{})
 
-	log.Info("Waiting for the bootstrap manager to stop")
-	<-managerStopped
+		// Add cert rotator to bootstrap manager using shared config.
+		rotatorConfig := buildCertRotatorConfig(cfg, "cert-rotator-bootstrap", certsReady)
+		err = cert.AddRotator(bootstrapMgr, rotatorConfig)
+		if err != nil {
+			log.Error(err, "Unable to add cert rotator to bootstrap manager, retrying...")
+			time.Sleep(2 * time.Second)
+			continue
+		}
 
-	log.Info("Certificate bootstrap complete")
-	return nil
+		bootstrapCtx, bootstrapCancel := context.WithCancel(ctx)
+
+		managerStopped := make(chan struct{})
+		go func() {
+			log.Info("Starting bootstrap manager")
+			if err := bootstrapMgr.Start(bootstrapCtx); err != nil {
+				log.Error(err, "Bootstrap manager failed during runtime execution")
+			}
+			close(managerStopped)
+		}()
+
+		// SMART SELECT: Listen for success or premature network failure
+		log.Info("Waiting for certificate generation and CA injection to complete")
+
+		var success bool
+		select {
+		case <-certsReady:
+			log.Info("Certificates ready and CA bundles injected successfully!")
+			success = true
+		case <-managerStopped:
+			log.Error(nil, "Bootstrap manager exited prematurely due to network/API timeout. Retrying loop...")
+			success = false
+		case <-ctx.Done():
+			bootstrapCancel()
+			return ctx.Err()
+		}
+
+		// Clean up the current attempt's context
+		bootstrapCancel()
+		<-managerStopped
+
+		// If we succeeded, we can exit the entire function cleanly!
+		if success {
+			log.Info("Certificate bootstrap complete")
+			return nil
+		}
+
+		// Backoff delay: sleep longer on subsequent failures to let the network settle
+		backoffDelay := time.Duration(attempt*3) * time.Second
+		log.Info("Waiting before next bootstrap attempt", "sleepDuration", backoffDelay)
+		time.Sleep(backoffDelay)
+	}
+
+	return fmt.Errorf("failed to complete certificate bootstrap after %d attempts due to persistent API server timeouts", maxAttempts)
 }
 
 // ManageCerts adds the cert rotator to the main manager for ongoing certificate rotation.
