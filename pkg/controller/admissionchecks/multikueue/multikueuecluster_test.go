@@ -191,12 +191,13 @@ func TestUpdateConfig(t *testing.T) {
 		clusterprofiles []inventoryv1alpha1.ClusterProfile
 		cpCreds         clusterProfileCreds
 
-		wantRemoteClients      map[string]*remoteClient
-		wantClusters           []kueue.MultiKueueCluster
-		wantRequeueAfter       time.Duration
-		wantCancelCalled       int
-		wantErr                error
-		skipInsecureKubeconfig bool
+		wantRemoteClients        map[string]*remoteClient
+		wantClusters             []kueue.MultiKueueCluster
+		wantRequeueAfter         time.Duration
+		wantCancelCalled         int
+		wantErr                  error
+		skipInsecureKubeconfig   bool
+		overrideKubeConfigPrefix bool
 	}{
 		"new valid client is added": {
 			reconcileFor: "worker1",
@@ -271,7 +272,8 @@ func TestUpdateConfig(t *testing.T) {
 			wantRemoteClients: map[string]*remoteClient{
 				"worker1": newTestClient(ctx, []byte(testKubeconfig("worker1")), nil, nil),
 			},
-			wantCancelCalled: 1,
+			wantCancelCalled:         1,
+			overrideKubeConfigPrefix: true,
 		},
 		"update client with invalid secret config": {
 			reconcileFor: "worker1",
@@ -314,7 +316,7 @@ func TestUpdateConfig(t *testing.T) {
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					KubeConfig(kueue.PathLocationType, "").
-					Active(metav1.ConditionFalse, "BadKubeConfig", "load client config failed: open : no such file or directory", 1).
+					Active(metav1.ConditionFalse, "BadKubeConfig", "load client config failed: kubeconfig path must not be empty", 1).
 					Generation(1).
 					Obj(),
 			},
@@ -322,7 +324,7 @@ func TestUpdateConfig(t *testing.T) {
 				"worker1": newTestClient(ctx, []byte("worker1 old kubeconfig"), nil, nil),
 			},
 			wantCancelCalled: 1,
-			wantErr:          fmt.Errorf("failed to load client config, reason: BadKubeConfig, error: %w", errors.New("open : no such file or directory")),
+			wantErr:          fmt.Errorf("failed to load client config, reason: BadKubeConfig, error: %w", errors.New("kubeconfig path must not be empty")),
 		},
 		"missing cluster is removed": {
 			reconcileFor: "worker2",
@@ -686,6 +688,11 @@ func TestUpdateConfig(t *testing.T) {
 
 			if tc.skipInsecureKubeconfig {
 				features.SetFeatureGateDuringTest(t, features.MultiKueueAllowInsecureKubeconfigs, true)
+			}
+
+			if tc.overrideKubeConfigPrefix {
+				// Override the hardcoded prefix for testing with temp dirs.
+				reconciler.kubeConfigPathPrefix = filepath.Dir(validKubeconfigLocation)
 			}
 
 			if len(tc.clusterprofiles) > 0 {
@@ -1409,5 +1416,104 @@ func TestSetRemoteClientConfigDoesNotBlockOtherClusters(t *testing.T) {
 	case <-slowDone:
 	case <-time.After(stuckWatchTimeout):
 		t.Fatal("slow goroutine did not exit after release")
+	}
+}
+
+func TestValidateKubeConfigPath(t *testing.T) {
+	allowedDir := t.TempDir()
+	// Create a real file under the allowed dir to test symlink resolution.
+	validFile := filepath.Join(allowedDir, "worker.kubeconfig")
+	if err := os.WriteFile(validFile, []byte("test"), 0644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	// Create a symlink inside allowedDir that points outside.
+	externalFile := filepath.Join(t.TempDir(), "external-secret")
+	if err := os.WriteFile(externalFile, []byte("token"), 0644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	symlink := filepath.Join(allowedDir, "escape-symlink")
+	if err := os.Symlink(externalFile, symlink); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	cases := map[string]struct {
+		path          string
+		allowedPrefix string
+		disableSafeFG bool
+		wantErr       bool
+		errContains   string
+	}{
+		"safe FG disabled allows any path (legacy)": {
+			path:          "/any/arbitrary/path",
+			allowedPrefix: allowedDir,
+			disableSafeFG: true,
+		},
+		"valid path under prefix": {
+			path:          validFile,
+			allowedPrefix: allowedDir,
+		},
+		"empty path": {
+			path:          "",
+			allowedPrefix: allowedDir,
+			wantErr:       true,
+			errContains:   "must not be empty",
+		},
+		"path with dot-dot traversal": {
+			path:          filepath.Join(allowedDir, "..", "etc", "passwd"),
+			allowedPrefix: allowedDir,
+			wantErr:       true,
+			errContains:   "not under",
+		},
+		"path outside prefix": {
+			path:          "/var/run/secrets/kubernetes.io/serviceaccount/token",
+			allowedPrefix: allowedDir,
+			wantErr:       true,
+			errContains:   "not under",
+		},
+		"relative path rejected": {
+			path:          "relative/path/file",
+			allowedPrefix: allowedDir,
+			wantErr:       true,
+			errContains:   "must be absolute",
+		},
+		"symlink escape rejected": {
+			path:          symlink,
+			allowedPrefix: allowedDir,
+			wantErr:       true,
+			errContains:   "not under",
+		},
+		"SA token path rejected": {
+			path:          "/var/run/secrets/kubernetes.io/serviceaccount/token",
+			allowedPrefix: "/etc/multikueue/kubeconfigs",
+			wantErr:       true,
+			errContains:   "not under",
+		},
+		"prefix name collision": {
+			// /etc/kueue-other should not match prefix /etc/kueue
+			path:          "/etc/kueue-other/file",
+			allowedPrefix: "/etc/kueue",
+			wantErr:       true,
+			errContains:   "not under",
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if tc.disableSafeFG {
+				features.SetFeatureGateDuringTest(t, features.SafeMultiKueueConfigPath, false)
+			}
+			_, err := validateKubeConfigPath(tc.path, tc.allowedPrefix)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error containing %q, got nil", tc.errContains)
+				}
+				if !strings.Contains(err.Error(), tc.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tc.errContains)
+				}
+			} else if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
 	}
 }
