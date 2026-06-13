@@ -26,11 +26,19 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
+func domainIDs(domains []*domain) []string {
+	ids := make([]string, len(domains))
+	for i, d := range domains {
+		ids[i] = string(d.id)
+	}
+	return ids
+}
+
 func TestSelectOptimalDomainSetToFit(t *testing.T) {
-	d1 := &domain{id: "d1", state: 9, sliceState: 9, leaderState: 1, stateWithLeader: 8, sliceStateWithLeader: 8}
-	d2 := &domain{id: "d2", state: 6, sliceState: 6, leaderState: 0, stateWithLeader: 6, sliceStateWithLeader: 6}
-	d3 := &domain{id: "d3", state: 4, sliceState: 4, leaderState: 1, stateWithLeader: 3, sliceStateWithLeader: 3}
-	d4 := &domain{id: "d4", state: 2, sliceState: 2, leaderState: 0, stateWithLeader: 2, sliceStateWithLeader: 2}
+	d1 := &domain{id: "d1", levelValues: []string{"d1"}, state: 9, sliceState: 9, leaderState: 1, stateWithLeader: 8, sliceStateWithLeader: 8}
+	d2 := &domain{id: "d2", levelValues: []string{"d2"}, state: 6, sliceState: 6, leaderState: 0, stateWithLeader: 6, sliceStateWithLeader: 6}
+	d3 := &domain{id: "d3", levelValues: []string{"d3"}, state: 4, sliceState: 4, leaderState: 1, stateWithLeader: 3, sliceStateWithLeader: 3}
+	d4 := &domain{id: "d4", levelValues: []string{"d4"}, state: 2, sliceState: 2, leaderState: 0, stateWithLeader: 2, sliceStateWithLeader: 2}
 
 	testCases := map[string]struct {
 		domains     []*domain
@@ -86,12 +94,78 @@ func TestSelectOptimalDomainSetToFit(t *testing.T) {
 	}
 }
 
+func TestSelectOptimalDomainSetToFitStableTieBreak(t *testing.T) {
+	testCases := map[string]struct {
+		priorizeByEntropy bool
+	}{
+		"balanced selection": {
+			priorizeByEntropy: false,
+		},
+		"entropy-prioritized selection": {
+			priorizeByEntropy: true,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
+			s := newTASFlavorSnapshot(log, "dummy", []string{}, nil)
+			domains := []*domain{
+				{id: "leaf-a", levelValues: []string{"block-b", "host-a"}, state: 3, sliceState: 3, stateWithLeader: 3, sliceStateWithLeader: 3},
+				{id: "leaf-m", levelValues: []string{"block-b", "host-m"}, state: 3, sliceState: 3, stateWithLeader: 3, sliceStateWithLeader: 3},
+				{id: "leaf-z", levelValues: []string{"block-a", "host-z"}, state: 3, sliceState: 3, stateWithLeader: 3, sliceStateWithLeader: 3},
+			}
+
+			got := selectOptimalDomainSetToFit(s, domains, 1, 0, 1, tc.priorizeByEntropy)
+
+			if diff := cmp.Diff([]string{"leaf-z"}, domainIDs(got)); diff != "" {
+				t.Errorf("unexpected optimal domain set (-want,+got): %s", diff)
+			}
+		})
+	}
+}
+
+func TestSortDomainsByCapacityAndEntropy(t *testing.T) {
+	testCases := map[string]struct {
+		domains []*domain
+		want    []string
+	}{
+		"levelValues ascending as final tiebreaker": {
+			domains: []*domain{
+				{id: "leaf-a", levelValues: []string{"block-b", "host-a"}, leaderState: 1, sliceStateWithLeader: 5, children: []*domain{{state: 2}, {state: 2}}},
+				{id: "leaf-m", levelValues: []string{"block-b", "host-m"}, leaderState: 1, sliceStateWithLeader: 5, children: []*domain{{state: 2}, {state: 2}}},
+				{id: "leaf-z", levelValues: []string{"block-a", "host-z"}, leaderState: 1, sliceStateWithLeader: 5, children: []*domain{{state: 2}, {state: 2}}},
+			},
+			want: []string{"leaf-z", "leaf-a", "leaf-m"},
+		},
+		"capacity and entropy ranking before tiebreaker": {
+			domains: []*domain{
+				{id: "lower-leader", levelValues: []string{"a"}, leaderState: 0, sliceStateWithLeader: 100, children: []*domain{{state: 50}, {state: 50}}},
+				{id: "lower-capacity", levelValues: []string{"b"}, leaderState: 1, sliceStateWithLeader: 4, children: []*domain{{state: 2}, {state: 2}}},
+				{id: "low-entropy", levelValues: []string{"c"}, leaderState: 1, sliceStateWithLeader: 5, children: []*domain{{state: 4}, {state: 0}}},
+				{id: "high-entropy", levelValues: []string{"d"}, leaderState: 1, sliceStateWithLeader: 5, children: []*domain{{state: 2}, {state: 2}}},
+			},
+			want: []string{"high-entropy", "low-entropy", "lower-capacity", "lower-leader"},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			sortDomainsByCapacityAndEntropy(tc.domains)
+
+			if diff := cmp.Diff(tc.want, domainIDs(tc.domains)); diff != "" {
+				t.Errorf("unexpected domain order (-want,+got): %s", diff)
+			}
+		})
+	}
+}
+
 func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
-	d1 := &domain{id: "d1", state: 18, sliceState: 18, stateWithLeader: 18, leaderState: 0, sliceStateWithLeader: 18}
-	d2 := &domain{id: "d2", state: 18, sliceState: 18, stateWithLeader: 18, leaderState: 0, sliceStateWithLeader: 18}
-	d3 := &domain{id: "d3", state: 18, sliceState: 18, stateWithLeader: 18, leaderState: 0, sliceStateWithLeader: 18}
-	d4 := &domain{id: "d4", state: 10, sliceState: 10, stateWithLeader: 10, leaderState: 0, sliceStateWithLeader: 10}
-	d5 := &domain{id: "d5", state: 2, sliceState: 2, stateWithLeader: 2, leaderState: 0, sliceStateWithLeader: 2}
+	d1 := &domain{id: "d1", levelValues: []string{"d1"}, state: 18, sliceState: 18, stateWithLeader: 18, leaderState: 0, sliceStateWithLeader: 18}
+	d2 := &domain{id: "d2", levelValues: []string{"d2"}, state: 18, sliceState: 18, stateWithLeader: 18, leaderState: 0, sliceStateWithLeader: 18}
+	d3 := &domain{id: "d3", levelValues: []string{"d3"}, state: 18, sliceState: 18, stateWithLeader: 18, leaderState: 0, sliceStateWithLeader: 18}
+	d4 := &domain{id: "d4", levelValues: []string{"d4"}, state: 10, sliceState: 10, stateWithLeader: 10, leaderState: 0, sliceStateWithLeader: 10}
+	d5 := &domain{id: "d5", levelValues: []string{"d5"}, state: 2, sliceState: 2, stateWithLeader: 2, leaderState: 0, sliceStateWithLeader: 2}
 
 	testCases := map[string]struct {
 		domains     []*domain
@@ -169,6 +243,24 @@ func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
 				t.Errorf("Unexpected domains (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestPlaceSlicesOnDomainsBalancedStableTieBreak(t *testing.T) {
+	_, log := utiltesting.ContextWithLog(t)
+	s := newTASFlavorSnapshot(log, "dummy", []string{}, nil)
+	domains := []*domain{
+		{id: "leaf-a", levelValues: []string{"block-b", "host-a"}, state: 3, sliceState: 3, stateWithLeader: 3, sliceStateWithLeader: 3},
+		{id: "leaf-z", levelValues: []string{"block-a", "host-z"}, state: 3, sliceState: 3, stateWithLeader: 3, sliceStateWithLeader: 3},
+	}
+
+	got, reason := placeSlicesOnDomainsBalanced(s, domains, 1, 0, 1, 1)
+
+	if reason != "" {
+		t.Fatalf("unexpected placement failure: %s", reason)
+	}
+	if diff := cmp.Diff([]string{"leaf-z"}, domainIDs(got)); diff != "" {
+		t.Errorf("unexpected domain order (-want,+got): %s", diff)
 	}
 }
 
