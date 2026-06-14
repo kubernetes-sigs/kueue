@@ -121,10 +121,7 @@ func (r *rayServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 // unsuspendAdmittedChildren patches Spec.Suspend=false on any child RayCluster
 // that KubeRay created with Suspend=true (via the persistent
 // RayService.Spec.RayClusterSpec.Suspend=true template gate) once the latest
-// workload slice has been admitted by Kueue. This is the "Kueue owns the suspend
-// state after creation" half of KubeRay PR #4841: KubeRay creates child
-// RayClusters suspended, and Kueue is responsible for releasing them after
-// quota is reserved.
+// workload slice has been admitted by Kueue.
 func (r *rayServiceReconciler) unsuspendAdmittedChildren(ctx context.Context, req ctrl.Request) error {
 	var rs rayv1.RayService
 	if err := r.client.Get(ctx, req.NamespacedName, &rs); err != nil {
