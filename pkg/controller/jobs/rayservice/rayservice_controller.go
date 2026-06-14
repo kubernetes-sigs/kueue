@@ -118,6 +118,21 @@ func (r *rayServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	return result, nil
 }
 
+// childRayClusterLabels returns the label selector that matches the RayCluster
+// CRs KubeRay creates for the named RayService.
+//
+// These label keys and the CRD-label value MUST stay consistent with KubeRay's
+// association helper, which is the source of truth for how RayService-owned
+// RayClusters are labelled:
+// https://github.com/ray-project/kuberay/blob/master/ray-operator/controllers/ray/common/association.go
+// (common.RayServiceRayClustersAssociationOptions).
+func childRayClusterLabels(rayServiceName string) client.MatchingLabels {
+	return client.MatchingLabels{
+		rayutils.RayOriginatedFromCRNameLabelKey: rayServiceName,
+		rayutils.RayOriginatedFromCRDLabelKey:    rayutils.RayOriginatedFromCRDLabelValue(rayutils.RayServiceCRD),
+	}
+}
+
 // unsuspendAdmittedChildren patches Spec.Suspend=false on any child RayCluster
 // that KubeRay created with Suspend=true (via the persistent
 // RayService.Spec.RayClusterSpec.Suspend=true template gate) once the latest
@@ -152,10 +167,7 @@ func (r *rayServiceReconciler) unsuspendAdmittedChildren(ctx context.Context, re
 	var children rayv1.RayClusterList
 	if err := r.client.List(ctx, &children,
 		client.InNamespace(rs.Namespace),
-		client.MatchingLabels{
-			rayutils.RayOriginatedFromCRNameLabelKey: rs.Name,
-			rayutils.RayOriginatedFromCRDLabelKey:    rayutils.RayOriginatedFromCRDLabelValue(rayutils.RayServiceCRD),
-		},
+		childRayClusterLabels(rs.Name),
 	); err != nil {
 		return err
 	}
@@ -264,15 +276,11 @@ func (j *RayService) PodLabelSelector() string {
 }
 
 func (j *RayService) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, error) {
-	// List the actual child RayClusters owned by this RayService. Labels mirror
-	// KubeRay's common.RayServiceRayClustersAssociationOptions.
+	// List the actual child RayClusters owned by this RayService.
 	var children rayv1.RayClusterList
 	err := reconciler.client.List(ctx, &children,
 		client.InNamespace(j.GetNamespace()),
-		client.MatchingLabels{
-			rayutils.RayOriginatedFromCRNameLabelKey: j.GetName(),
-			rayutils.RayOriginatedFromCRDLabelKey:    rayutils.RayOriginatedFromCRDLabelValue(rayutils.RayServiceCRD),
-		},
+		childRayClusterLabels(j.GetName()),
 	)
 	if err != nil {
 		return nil, err
