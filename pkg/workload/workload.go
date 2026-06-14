@@ -1352,6 +1352,15 @@ func HasActiveQuotaReservation(w *kueue.Workload) bool {
 	return HasQuotaReservation(w) && !IsFinished(w) && IsActive(w)
 }
 
+// IsStatefulSetScaledDownRelease returns true when the workload has already
+// released quota because its StatefulSet scaled down to zero.
+func IsStatefulSetScaledDownRelease(w *kueue.Workload) bool {
+	cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadQuotaReserved)
+	return cond != nil &&
+		cond.Status == metav1.ConditionFalse &&
+		cond.Reason == "StatefulSetScaledDown"
+}
+
 // HasDRA returns true if the workload has DRA resources (ResourceClaims or ResourceClaimTemplates).
 func HasDRA(w *kueue.Workload) bool {
 	return HasResourceClaim(w) || HasResourceClaimTemplates(w)

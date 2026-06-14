@@ -1210,6 +1210,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			backoff = time.Until(e.ObjectNew.Status.RequeueState.RequeueAt.Time)
 		}
 		immediate := backoff <= 0
+		scaledDown := workload.IsStatefulSetScaledDownRelease(wlCopy)
 		log.V(3).Info("Workload transitioned back to pending", "backoff", backoff, "immediate", immediate)
 		// trigger the move of associated inadmissibleWorkloads, if there are any.
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlKey, func() {
@@ -1218,6 +1219,13 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			// the next scheduling cycle.
 			if err := r.cache.DeleteWorkload(log, wlKey); err != nil {
 				log.Error(err, "Failed to delete workload from cache")
+			}
+			// StatefulSet scale-to-zero release has already unreserved quota and
+			// should not be put back into the scheduling queue during the
+			// terminating-pod window. Keep the cache cleanup, but stop here.
+			if scaledDown {
+				r.queues.DeleteSecondPassWithoutLock(wlKey)
+				return
 			}
 			// Here we don't take the lock as it is already taken by the wrapping function.
 			// The delayed requeue is done in the Reconcile function, but we need to
