@@ -339,8 +339,7 @@ func (j *RayService) RunWithPodSetsInfo(ctx context.Context, _ client.Client, po
 
 	// Unsuspend the RayService so KubeRay can manage child RayClusters again.
 	// Intentionally do NOT touch j.Spec.RayClusterSpec.Suspend: it stays true so
-	// any new child RayCluster (initial creation, or pending cluster during a
-	// zero-downtime upgrade) is born suspended. The controller unsuspends each
+	// any new child RayCluster is born suspended. The controller unsuspends each
 	// child individually after the matching workload slice is admitted.
 	j.Spec.Suspend = false
 
