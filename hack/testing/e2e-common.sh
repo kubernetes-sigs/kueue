@@ -69,6 +69,12 @@ function e2e_is_truthy {
     esac
 }
 
+# Returns success when the kind node Kubernetes version supports image volumes,
+# which are Beta and enabled by default from v1.35.
+function e2e_supports_image_volume {
+    [[ "$(printf '%s\n' "1.35.0" "${KIND_VERSION#v}" | sort -V | head -n1)" == "1.35.0" ]]
+}
+
 # $1 image reference
 function e2e_docker_pull_if_needed {
     local image="$1"
@@ -243,7 +249,7 @@ if [[ -n ${KUBEFLOW_TRAINER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(tas|trainj
     export KF_TRAINER_IMAGE=ghcr.io/kubeflow/trainer/trainer-controller-manager:${KF_TRAINER_IMAGE_VERSION}
 fi
 
-if [[ -n ${KUBEFLOW_MPI_VERSION:-} ]]; then
+if [[ -n ${KUBEFLOW_MPI_VERSION:-} && ("$GINKGO_ARGS" =~ feature:mpijob || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     export KUBEFLOW_MPI_MANIFEST="https://raw.githubusercontent.com/kubeflow/mpi-operator/${KUBEFLOW_MPI_VERSION}/deploy/v2beta1/mpi-operator.yaml"
     export KUBEFLOW_MPI_IMAGE=mpioperator/mpi-operator:${KUBEFLOW_MPI_VERSION/#v}
 fi
@@ -268,7 +274,15 @@ fi
 
 if [[ -n "${CLUSTERPROFILE_VERSION:-}" ]]; then
     export CLUSTERPROFILE_CRD=${ROOT_DIR}/dep-crds/clusterprofile/multicluster.x-k8s.io_clusterprofiles.yaml
-    export CLUSTERPROFILE_PLUGIN_IMAGE=us-central1-docker.pkg.dev/k8s-staging-images/kueue/secretreader-plugin:${CLUSTERPROFILE_PLUGIN_IMAGE_VERSION}
+    # Only one secretreader image is ever needed per suite. From k8s 1.35 image volumes are
+    # enabled by default, so the official image can be mounted directly; on older versions we
+    # use the self-built image whose binary an init container copies into a shared volume,
+    # because the official image does not ship a "cp" command.
+    if e2e_supports_image_volume; then
+        export CLUSTERPROFILE_PLUGIN_IMAGE=registry.k8s.io/cluster-inventory-api/secretreader:${CLUSTERPROFILE_VERSION}
+    else
+        export CLUSTERPROFILE_PLUGIN_IMAGE=us-central1-docker.pkg.dev/k8s-staging-images/kueue/secretreader-plugin:${CLUSTERPROFILE_PLUGIN_IMAGE_VERSION}
+    fi
 fi
 
 if [[ -n "${PROMETHEUS_OPERATOR_VERSION:-}" ]]; then
@@ -425,6 +439,26 @@ function patch_kind_config_for_dra {
     $YQ -i '.featureGates.DRAExtendedResource = true' "$patched_config"
     $YQ -i '.containerdConfigPatches += ["[plugins.\"io.containerd.grpc.v1.cri\"]\n  enable_cdi = true"]' "$patched_config"
     $YQ -i '(.nodes[] | select(.role == "control-plane")).kubeadmConfigPatches[0] = "kind: ClusterConfiguration
+apiVersion: kubeadm.k8s.io/v1beta4
+scheduler:
+  extraArgs:
+  - name: v
+    value: \"3\"
+controllerManager:
+  extraArgs:
+  - name: v
+    value: \"3\"
+apiServer:
+  extraArgs:
+  - name: enable-aggregator-routing
+    value: \"true\"
+  - name: runtime-config
+    value: \"resource.k8s.io/v1=true\"
+  - name: v
+    value: \"3\"
+"' "$patched_config"
+    # v1beta3 variant for k8s <=1.35, where kind ignores the v1beta4 patch above.
+    $YQ -i '(.nodes[] | select(.role == "control-plane")).kubeadmConfigPatches += ["kind: ClusterConfiguration
 apiVersion: kubeadm.k8s.io/v1beta3
 scheduler:
   extraArgs:
@@ -437,7 +471,7 @@ apiServer:
     enable-aggregator-routing: \"true\"
     runtime-config: \"resource.k8s.io/v1=true\"
     v: \"3\"
-"' "$patched_config"
+"]' "$patched_config"
 
     echo "$patched_config"
 }
@@ -451,6 +485,26 @@ function patch_kind_config_for_was {
     $YQ -i '.featureGates.GenericWorkload = true' "$patched_config"
     $YQ -i '.featureGates.GangScheduling = true' "$patched_config"
     $YQ -i '(.nodes[] | select(.role == "control-plane")).kubeadmConfigPatches[0] = "kind: ClusterConfiguration
+apiVersion: kubeadm.k8s.io/v1beta4
+scheduler:
+  extraArgs:
+  - name: v
+    value: \"3\"
+controllerManager:
+  extraArgs:
+  - name: v
+    value: \"3\"
+apiServer:
+  extraArgs:
+  - name: enable-aggregator-routing
+    value: \"true\"
+  - name: runtime-config
+    value: \"scheduling.k8s.io/v1alpha3=true\"
+  - name: v
+    value: \"3\"
+"' "$patched_config"
+    # v1beta3 variant for k8s <=1.35, where kind ignores the v1beta4 patch above (#12022).
+    $YQ -i '(.nodes[] | select(.role == "control-plane")).kubeadmConfigPatches += ["kind: ClusterConfiguration
 apiVersion: kubeadm.k8s.io/v1beta3
 scheduler:
   extraArgs:
@@ -463,7 +517,7 @@ apiServer:
     enable-aggregator-routing: \"true\"
     runtime-config: \"scheduling.k8s.io/v1alpha3=true\"
     v: \"3\"
-"' "$patched_config"
+"]' "$patched_config"
 
     echo "$patched_config"
 }
@@ -551,7 +605,7 @@ function prepare_docker_images {
         e2e_docker_pull_if_needed "${KF_TRAINER_IMAGE}"
     fi
 
-    if [[ -n ${KUBEFLOW_MPI_VERSION:-} ]]; then
+    if [[ -n ${KUBEFLOW_MPI_VERSION:-} && ("$GINKGO_ARGS" =~ feature:mpijob || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_docker_pull_if_needed "${KUBEFLOW_MPI_IMAGE}"
     fi
     if [[ -n ${KUBERAY_VERSION:-} && ("$GINKGO_ARGS" =~ feature:kuberay || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
@@ -572,6 +626,9 @@ function prepare_docker_images {
     if [[ -n ${PROMETHEUS_OPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:prometheus || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_docker_pull_if_needed "${PROMETHEUS_OPERATOR_IMAGE}"
         e2e_docker_pull_if_needed "${PROMETHEUS_CONFIG_RELOADER_IMAGE}"
+    fi
+    if [[ -n ${CLUSTERPROFILE_VERSION:-} ]]; then
+        e2e_docker_pull_if_needed "${CLUSTERPROFILE_PLUGIN_IMAGE}"
     fi
 }
 
@@ -621,7 +678,7 @@ function kind_load {
         install_kubeflow_trainer "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
 
-    if [[ -n ${KUBEFLOW_MPI_VERSION:-} ]]; then
+    if [[ -n ${KUBEFLOW_MPI_VERSION:-} && ("$GINKGO_ARGS" =~ feature:mpijob || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         install_mpi "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
     if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename|workloadidentifierannotations) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
@@ -1048,8 +1105,8 @@ function install_mpi {
     cluster_kind_load_image "${name}" "${KUBEFLOW_MPI_IMAGE/#v}"
     curl -sSL "${KUBEFLOW_MPI_MANIFEST}" \
         | kubectl apply --kubeconfig="${kubeconfig}" --server-side -f -
-    e2e_wait_for_operator_in_install "${kubeconfig}" "${ns}" "${deployment_name}"
 
+    e2e_wait_for_operator_in_install "${kubeconfig}" "${ns}" "${deployment_name}"
 }
 
 # $1 cluster name

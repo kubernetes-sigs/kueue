@@ -237,6 +237,11 @@ func (a *Assignment) TotalRequestsFor(log logr.Logger, wl *workload.Info) resour
 	return usage
 }
 
+func (a *Assignment) psError(psAssignment *PodSetAssignment, err error) {
+	psAssignment.error(err)
+	a.representativeMode = nil
+}
+
 func IgnoreUndeclaredResources(quotaCheckStrategy configapi.QuotaCheckStrategy) bool {
 	return features.Enabled(features.QuotaCheckStrategy) && quotaCheckStrategy == configapi.QuotaCheckIgnoreUndeclared
 }

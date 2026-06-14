@@ -340,19 +340,27 @@ func waitForDeploymentAvailability(ctx context.Context, k8sClient client.Client,
 			cmpopts.IgnoreFields(appsv1.DeploymentCondition{}, "Reason", "Message", "LastUpdateTime", "LastTransitionTime")),
 		))
 
+		selector, err := metav1.LabelSelectorAsSelector(deployment.Spec.Selector)
+		g.Expect(err).NotTo(gomega.HaveOccurred())
+		pods := &corev1.PodList{}
+		g.Expect(k8sClient.List(ctx, pods,
+			client.InNamespace(key.Namespace),
+			client.MatchingLabelsSelector{Selector: selector},
+		)).To(gomega.Succeed())
 		if checkNoRestarts {
 			ginkgo.By(fmt.Sprintf("Checking no restarts for the controller: %q", key))
-			selector, err := metav1.LabelSelectorAsSelector(deployment.Spec.Selector)
-			g.Expect(err).NotTo(gomega.HaveOccurred())
-			pods := &corev1.PodList{}
-			g.Expect(k8sClient.List(ctx, pods,
-				client.InNamespace(key.Namespace),
-				client.MatchingLabelsSelector{Selector: selector},
-			)).To(gomega.Succeed())
 			for _, pod := range pods.Items {
 				for _, cs := range pod.Status.ContainerStatuses {
 					if cs.RestartCount > 0 {
 						gomega.StopTrying(fmt.Sprintf("%q in %q has restarted %d times", cs.Name, pod.Name, cs.RestartCount)).Now()
+					}
+				}
+			}
+		} else {
+			for _, pod := range pods.Items {
+				for _, cs := range pod.Status.ContainerStatuses {
+					if cs.RestartCount > 0 {
+						ginkgo.GinkgoLogr.Info("Container restarted (tolerated)", "deployment", key, "pod", pod.Name, "container", cs.Name, "restartCount", cs.RestartCount)
 					}
 				}
 			}
@@ -664,6 +672,7 @@ func GetKuberayTestImage() string {
 }
 
 func GetClusterProfilePluginImage() string {
+	ginkgo.GinkgoHelper()
 	clusterProfilePluginImage, found := os.LookupEnv("CLUSTERPROFILE_PLUGIN_IMAGE")
 	gomega.Expect(found).To(gomega.BeTrue())
 	return clusterProfilePluginImage
