@@ -244,9 +244,9 @@ func (j *RayService) IsActive() bool {
 }
 
 func (j *RayService) Suspend() {
-	// Top-level Spec.Suspend=true tells KubeRay to delete all owned resources
-	// (RayClusters, Services, Gateway, HTTPRoute). This is the "stop everything" switch
-	// used both at admission default-suspend and at preemption.
+	// Top-level Spec.Suspend=true tells KubeRay to delete all owned resources.
+	// This is the "stop everything" switch used both at admission default-suspend
+	// and at preemption.
 	j.Spec.Suspend = true
 	// Nested template Suspend=true is the persistent gate: any RayCluster KubeRay
 	// creates from this template (initial admission and zero-downtime upgrade pending
