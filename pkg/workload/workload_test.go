@@ -92,6 +92,58 @@ func TestFromQuotaReservedOrAdmittedToPending(t *testing.T) {
 	}
 }
 
+func TestIsStatefulSetScaledDownRelease(t *testing.T) {
+	cases := map[string]struct {
+		wl   kueue.Workload
+		want bool
+	}{
+		"false without quota reserved condition": {
+			wl:   *utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+			want: false,
+		},
+		"true with StatefulSetScaledDown reason": {
+			wl: *utiltestingapi.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  "StatefulSetScaledDown",
+					Message: "StatefulSet scaled to zero; releasing previous quota reservation",
+				}).
+				Obj(),
+			want: true,
+		},
+		"false for other false quota reserved reason": {
+			wl: *utiltestingapi.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "ClusterQueue cq is inactive",
+				}).
+				Obj(),
+			want: false,
+		},
+		"false when quota reserved is true": {
+			wl: *utiltestingapi.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionTrue,
+					Reason:  "QuotaReserved",
+				}).
+				Obj(),
+			want: false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := IsStatefulSetScaledDownRelease(&tc.wl); got != tc.want {
+				t.Fatalf("IsStatefulSetScaledDownRelease() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestNewInfo(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	cases := map[string]struct {
