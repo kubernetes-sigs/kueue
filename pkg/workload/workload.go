@@ -1456,6 +1456,33 @@ func IsStatefulSetScaledDownRelease(w *kueue.Workload) bool {
 		cond.Reason == "StatefulSetScaledDown"
 }
 
+// IsRequeueHeld returns true when the workload should not be requeued after
+// its quota reservation is released. This is indicated by the WorkloadRequeueHeld
+// condition being set to True. Any job integration can set this condition to
+// prevent the workload from being requeued (e.g., StatefulSet on scale-to-zero).
+func IsRequeueHeld(w *kueue.Workload) bool {
+	cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadRequeueHeld)
+	return cond != nil && cond.Status == metav1.ConditionTrue
+}
+
+// SetRequeueHeldCondition sets the WorkloadRequeueHeld condition on the workload.
+// Returns true if the condition was changed.
+func SetRequeueHeldCondition(w *kueue.Workload, reason, message string) bool {
+	condition := metav1.Condition{
+		Type:    kueue.WorkloadRequeueHeld,
+		Status:  metav1.ConditionTrue,
+		Reason:  reason,
+		Message: api.TruncateConditionMessage(message),
+	}
+	return apimeta.SetStatusCondition(&w.Status.Conditions, condition)
+}
+
+// UnsetRequeueHeldCondition removes the WorkloadRequeueHeld condition from the workload.
+// Returns true if the condition was changed.
+func UnsetRequeueHeldCondition(w *kueue.Workload) bool {
+	return apimeta.RemoveStatusCondition(&w.Status.Conditions, kueue.WorkloadRequeueHeld)
+}
+
 // HasDRA returns true if the workload has DRA resources (ResourceClaims or ResourceClaimTemplates).
 func HasDRA(w *kueue.Workload) bool {
 	return HasResourceClaim(w) || HasResourceClaimTemplates(w)

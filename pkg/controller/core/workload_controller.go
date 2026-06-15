@@ -1281,6 +1281,8 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 	// We do not handle old workload here as it will be deleted or replaced by new one anyway.
 	workload.AdjustResources(ctrl.LoggerInto(ctx, log), r.client, wlCopy)
 
+	requeueHeld := workload.IsRequeueHeld(wlCopy)
+
 	switch {
 	case status == workload.StatusFinished || !active:
 		if !active {
@@ -1330,7 +1332,6 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			backoff = time.Until(e.ObjectNew.Status.RequeueState.RequeueAt.Time)
 		}
 		immediate := backoff <= 0
-		scaledDown := workload.IsStatefulSetScaledDownRelease(wlCopy)
 		log.V(3).Info("Workload transitioned back to pending", "backoff", backoff, "immediate", immediate)
 		// trigger the move of associated inadmissibleWorkloads, if there are any.
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlKey, func() {
@@ -1340,10 +1341,10 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			if err := r.cache.DeleteWorkload(log, wlKey); err != nil {
 				log.Error(err, "Failed to delete workload from cache")
 			}
-			// StatefulSet scale-to-zero release has already unreserved quota and
-			// should not be put back into the scheduling queue during the
-			// terminating-pod window. Keep the cache cleanup, but stop here.
-			if scaledDown {
+			// Requeue-held workloads (e.g. StatefulSet scale-to-zero) have already
+			// unreserved quota and should not be put back into the scheduling queue
+			// during the terminating-pod window. Keep the cache cleanup, but stop here.
+			if requeueHeld {
 				r.queues.DeleteSecondPassWithoutLock(wlKey)
 				return
 			}
@@ -1380,7 +1381,9 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		// and are not supposed to actually change anything.
 		r.cache.AddOrUpdateWorkload(log, wlCopy)
 	}
-	r.queues.QueueSecondPassIfNeeded(ctx, wlCopy, 0)
+	if !requeueHeld {
+		r.queues.QueueSecondPassIfNeeded(ctx, wlCopy, 0)
+	}
 	return true
 }
 
