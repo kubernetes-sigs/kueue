@@ -69,6 +69,12 @@ function e2e_is_truthy {
     esac
 }
 
+# Returns success when the kind node Kubernetes version supports image volumes,
+# which are Beta and enabled by default from v1.35.
+function e2e_supports_image_volume {
+    [[ "$(printf '%s\n' "1.35.0" "${KIND_VERSION#v}" | sort -V | head -n1)" == "1.35.0" ]]
+}
+
 # $1 image reference
 function e2e_docker_pull_if_needed {
     local image="$1"
@@ -268,7 +274,15 @@ fi
 
 if [[ -n "${CLUSTERPROFILE_VERSION:-}" ]]; then
     export CLUSTERPROFILE_CRD=${ROOT_DIR}/dep-crds/clusterprofile/multicluster.x-k8s.io_clusterprofiles.yaml
-    export CLUSTERPROFILE_PLUGIN_IMAGE=us-central1-docker.pkg.dev/k8s-staging-images/kueue/secretreader-plugin:${CLUSTERPROFILE_PLUGIN_IMAGE_VERSION}
+    # Only one secretreader image is ever needed per suite. From k8s 1.35 image volumes are
+    # enabled by default, so the official image can be mounted directly; on older versions we
+    # use the self-built image whose binary an init container copies into a shared volume,
+    # because the official image does not ship a "cp" command.
+    if e2e_supports_image_volume; then
+        export CLUSTERPROFILE_PLUGIN_IMAGE=registry.k8s.io/cluster-inventory-api/secretreader:${CLUSTERPROFILE_VERSION}
+    else
+        export CLUSTERPROFILE_PLUGIN_IMAGE=us-central1-docker.pkg.dev/k8s-staging-images/kueue/secretreader-plugin:${CLUSTERPROFILE_PLUGIN_IMAGE_VERSION}
+    fi
 fi
 
 if [[ -n "${PROMETHEUS_OPERATOR_VERSION:-}" ]]; then
@@ -612,6 +626,9 @@ function prepare_docker_images {
     if [[ -n ${PROMETHEUS_OPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:prometheus || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_docker_pull_if_needed "${PROMETHEUS_OPERATOR_IMAGE}"
         e2e_docker_pull_if_needed "${PROMETHEUS_CONFIG_RELOADER_IMAGE}"
+    fi
+    if [[ -n ${CLUSTERPROFILE_VERSION:-} ]]; then
+        e2e_docker_pull_if_needed "${CLUSTERPROFILE_PLUGIN_IMAGE}"
     fi
 }
 
