@@ -336,10 +336,6 @@ This section captures all known limitations and incompatibilities introduced by,
 
 #### PartialAdmission
 
-A given Job instance cannot have both `PartialAdmission` and `ElasticJob` enabled. This is a **per-Job limitation**, not a global feature-level conflict. It is entirely valid to have both features enabled in the system, just not simultaneously on the same Job.
-
-**Rationale**
-
 * `PartialAdmission` depends on the static nature of a workload. Specifically, it assumes, reasonably, given the current model, that workloads are immutable in terms of `podSets[].count`. Based on this assumption, it adjusts the Job’s spec to reflect the minimum allowed parallelism at scheduling time. This value is fixed and will not change, even if the ClusterQueue’s capacity increases later.
 
 * In practice, `PartialAdmission` takes ownership of `job.spec.parallelism`, and Kueue enforces this immutability through the admission webhook. For example:

@@ -13,6 +13,7 @@
   - [Jobframework](#jobframework)
   - [batch/Job controller](#batchjob-controller)
   - [kubeflow/MPIJob controller](#kubeflowmpijob-controller)
+  - [RayJob/RayService/RayCluster controller](#rayjobrayserviceraycluster-controller)
   - [Test Plan](#test-plan)
     - [Unit Tests](#unit-tests)
     - [Integration tests](#integration-tests)
@@ -88,7 +89,9 @@ In order to evaluate the potential success of the preemption, the preemption pro
 
 **Partial admission with multiple variable PodSets count**
 
-If multiple PodSets within a workload have variable counts the way the counts should be decrease is highly dependent on the job framework needs, currently the following is proposed:
+If multiple PodSets within a workload have variable counts, Kueue will iterate over the PodSets in the order they are defined in the Workload spec, starting from the end, and will try to decrease their counts until a fit is found. If shrinking the last PodSet still results in a NoFit, Kueue will try to decrease the next PodSet while keeping the last one at its minimum count, and so on.
+
+When a workload finds a combination that fits the available quota, it tries to find the combination that can be reached with minimum pod loss by checking if any of the PodSets with count == min count can be increased up to the original count.
 
 Starting with the PodSets:
 
@@ -98,14 +101,11 @@ Starting with the PodSets:
 
 And only being able to admit 19 pods, it should end up with
 
-
 ```go
-[]podSet { {Count: 1} , {Count: 3}, {Count: 15}}
+[]podSet { {Count: 1} , {Count: 4}, {Count: 14}}
 ```
 
-With both pods that accept partial admission losing 50% of their range.
-
-The presented solution is not taking into account which of the variable count PodSets is causing the "NoFit" status and can potentially decrease the count of PodSets that will otherwise fit. If this behaviour is not suitable for a specific job framework, the integration layer of the framework can take into account limiting the variable count PodSets to 1.
+If the priority based partial admission is not sufficient, the "proportional" partial admission will be introduced.
 
 ### Jobframework
 
@@ -144,6 +144,12 @@ In case of MPIJob `j.Spec.RunPolicy.SchedulingPolicy.MinAvailable` can be used t
 Whether an MPIJob supports partial admission or not can be deduced based on `MinAvailable` without the need of a dedicated annotation.
 Additional research is needed into the potential usage of multiple variable count PodSets.
 
+### RayJob/RayService/RayCluster controller
+
+The RayCluster with 'kueue.x-k8s.io/partial-preemption=true' annotation are eligible for partial preemption. The
+RayCluster.workerGroupSpec[i].minReplicas will be translated to the PodSet.MinCount for the Worker PodSet.
+There will be no update on RayCluster object. If the number of admitted pods less than requested count, the leftover pods should remain scheduling gated. In order to achive that the same mechanism as for elastic workloads will be applied – the podTemplate will be initially gated and then the correct amount of pods will be ungated.
+
 ### Test Plan
 
 No regressions in the current test should be observed.
@@ -164,6 +170,7 @@ The `scheduler` and `controllers/job` should be extended to cover the new capabi
 
 
 ## Implementation History
+- 07/07/2023 - Partial admission for batch.job was added that support only 1 podSet with minCount value.
 
 
 ## Drawbacks
