@@ -799,16 +799,21 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 				setFinalizer(worker2Key, false)
 			})
 
-			// Core assertion. Without the fix the worker StatefulSet sits on its capped backoff with
-			// nothing to re-enqueue it, so the new lws-1-2 is never created and this times out. With
-			// the fix Kueue nudges the short StatefulSet and lws-1-2 returns within seconds.
-			ginkgo.By("Expect lws-1-2 to be recreated with the new template", func() {
+			// Core assertion (same as the original PodTemplate-update test). Without the fix the worker
+			// StatefulSet sits on its capped backoff with nothing to re-enqueue it, so the new lws-1-2
+			// is never created and the pod count stays at 5 until this times out. With the fix Kueue
+			// nudges the short StatefulSet and all 6 pods are replaced within seconds.
+			ginkgo.By("Await for the Pods to be replaced with the new template", func() {
+				pods := &corev1.PodList{}
 				gomega.Eventually(func(g gomega.Gomega) {
-					p := &corev1.Pod{}
-					g.Expect(k8sClient.Get(ctx, worker2Key, p)).To(gomega.Succeed())
-					g.Expect(p.DeletionTimestamp).Should(gomega.BeNil())
-					g.Expect(p.Spec.Containers[0].Image).To(gomega.Equal(util.GetAgnHostImage()))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), client.MatchingLabels(map[string]string{
+						leaderworkersetv1.SetNameLabelKey: lws.Name,
+					}))).To(gomega.Succeed())
+					g.Expect(pods.Items).To(gomega.HaveLen(6))
+					for _, p := range pods.Items {
+						g.Expect(p.Spec.Containers[0].Image).To(gomega.Equal(util.GetAgnHostImage()))
+					}
+				}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 
