@@ -18,7 +18,9 @@ package extended
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -620,6 +622,18 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
+			oldPodUIDs := sets.New[types.UID]()
+			ginkgo.By("Record the current Pods", func() {
+				pods := &corev1.PodList{}
+				gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), client.MatchingLabels(map[string]string{
+					leaderworkersetv1.SetNameLabelKey: lws.Name,
+				}))).To(gomega.Succeed())
+				gomega.Expect(pods.Items).To(gomega.HaveLen(6))
+				for _, p := range pods.Items {
+					oldPodUIDs.Insert(p.UID)
+				}
+			})
+
 			ginkgo.By("Update the PodTemplate in LeaderWorkerSet", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
@@ -629,6 +643,23 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 					createdLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0].Image = util.GetAgnHostImage()
 					g.Expect(k8sClient.Update(ctx, createdLeaderWorkerSet)).To(gomega.Succeed())
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Wait for the old Pods to be deleted", func() {
+				pods := &corev1.PodList{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), client.MatchingLabels(map[string]string{
+						leaderworkersetv1.SetNameLabelKey: lws.Name,
+					}))).To(gomega.Succeed())
+
+					remainingOldPods := make([]string, 0)
+					for _, p := range pods.Items {
+						if oldPodUIDs.Has(p.UID) {
+							remainingOldPods = append(remainingOldPods, p.Name)
+						}
+					}
+					g.Expect(remainingOldPods).To(gomega.BeEmpty())
+				}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Await for the Pods to be replaced with the new template", func() {
@@ -680,6 +711,133 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 			ginkgo.By("Check workload is deleted", func() {
 				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload1, false, util.MediumTimeout)
 				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload2, false, util.MediumTimeout)
+			})
+		})
+
+		// Reproducer for https://github.com/kubernetes-sigs/kueue/issues/11374, mirroring the real
+		// failure's timing without an environmental cgroup stall and without poking the controller.
+		//
+		// During a PodTemplate rollout the leader StatefulSet deletes the old group-1 pods and the
+		// worker StatefulSet "lws-1" recreates them under the same names. In the original flake the
+		// first worker (lws-1-1) drained in ~5s while the second (lws-1-2) lingered ~30s due to a
+		// kubelet/systemd cgroup stall. While lws-1-2 was pinned, the upstream StatefulSet controller
+		// kept failing to create the new lws-1-2 ("object is being deleted ... already exists") and
+		// its per-StatefulSet workqueue backoff was driven to the 1000s cap purely by the controller's
+		// own churn (lws-1-1's create/schedule/Running events plus StatefulSet status updates). Once
+		// lws-1-2 finally disappeared the controller was not re-enqueued (its deletePod handler cannot
+		// resolve the GC'd old StatefulSet UID and, unlike updatePod, has no label fallback), so the
+		// new lws-1-2 was never recreated within the test window.
+		//
+		// We substitute the two natural drain lags with finalizers and otherwise let the controller
+		// behave normally: lws-1-1 is pinned ~5s (its rate-limited create retries are phase A), then
+		// released so the new lws-1-1 starts and its lifecycle churn drives phase B; lws-1-2 is pinned
+		// ~30s so the backoff caps and the churn goes quiet before it drains. Nothing pokes the
+		// StatefulSet. Without the Kueue-side fix the new lws-1-2 never returns; with it lws-1-2 comes
+		// back within seconds of release.
+		ginkgo.It("should recreate a worker pod whose predecessor's deletion lagged [repro:11374]", func() {
+			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
+				Image(util.GetAgnHostImageOld(), util.BehaviorWaitForDeletion).
+				Size(3).
+				Replicas(2).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				Queue(lq.Name).
+				TerminationGracePeriod(1).
+				Obj()
+
+			ginkgo.By("Create a LeaderWorkerSet", func() {
+				util.MustCreate(ctx, k8sClient, lws)
+			})
+
+			ginkgo.By("Waiting for replicas to be ready", func() {
+				createdLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
+					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(2)))
+				}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			// Group 1 (highest ordinal) rolls first; its two workers are lws-1-1 and lws-1-2.
+			worker1Key := types.NamespacedName{Namespace: ns.Name, Name: "lws-1-1"}
+			worker2Key := types.NamespacedName{Namespace: ns.Name, Name: "lws-1-2"}
+			const reproFinalizer = "kueue.x-k8s.io/repro-11374"
+
+			setFinalizer := func(key types.NamespacedName, present bool) {
+				gomega.Eventually(func(g gomega.Gomega) {
+					p := &corev1.Pod{}
+					g.Expect(k8sClient.Get(ctx, key, p)).To(gomega.Succeed())
+					has := slices.Contains(p.Finalizers, reproFinalizer)
+					switch {
+					case present && !has:
+						p.Finalizers = append(p.Finalizers, reproFinalizer)
+					case !present && has:
+						p.Finalizers = slices.DeleteFunc(p.Finalizers, func(f string) bool { return f == reproFinalizer })
+					default:
+						return
+					}
+					g.Expect(k8sClient.Update(ctx, p)).To(gomega.Succeed())
+				}, util.ShortTimeout, util.Interval).Should(gomega.Succeed())
+			}
+
+			ginkgo.By("Pin both old group-1 workers (lws-1-1, lws-1-2) with finalizers", func() {
+				setFinalizer(worker1Key, true)
+				setFinalizer(worker2Key, true)
+			})
+
+			ginkgo.By("Update the PodTemplate in LeaderWorkerSet", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
+					createdLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0].Image = util.GetAgnHostImage()
+					if createdLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
+						createdLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec.Containers[0].Image = util.GetAgnHostImage()
+					}
+					g.Expect(k8sClient.Update(ctx, createdLeaderWorkerSet)).To(gomega.Succeed())
+				}, util.ShortTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Wait until the rollout deletes both old group-1 workers (held terminating by the finalizers)", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					for _, key := range []types.NamespacedName{worker1Key, worker2Key} {
+						p := &corev1.Pod{}
+						g.Expect(k8sClient.Get(ctx, key, p)).To(gomega.Succeed())
+						g.Expect(p.DeletionTimestamp).ShouldNot(gomega.BeNil())
+					}
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			// Phase A (~5s): the worker StatefulSet keeps failing to create the new lws-1-1 (old one
+			// pinned), accumulating rate-limited retries - exactly like retries #1-10 in the real run.
+			ginkgo.By("Hold lws-1-1 ~5s, then release it so the new lws-1-1 starts (begins phase-B churn)", func() {
+				time.Sleep(5 * time.Second)
+				setFinalizer(worker1Key, false)
+				gomega.Eventually(func(g gomega.Gomega) {
+					p := &corev1.Pod{}
+					g.Expect(k8sClient.Get(ctx, worker1Key, p)).To(gomega.Succeed())
+					g.Expect(p.DeletionTimestamp).Should(gomega.BeNil())
+					g.Expect(p.Spec.Containers[0].Image).To(gomega.Equal(util.GetAgnHostImage()))
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			// Phase B: the new lws-1-1's create/schedule/Pending/Running events (plus StatefulSet
+			// status updates) re-enqueue the StatefulSet, each sync re-failing on the still-pinned
+			// lws-1-2, driving the per-key backoff to its cap - all from the controller's own churn.
+			// Keep lws-1-2 pinned ~30s total (as in the real flake) so the churn ends while the backoff
+			// is capped, then release it.
+			ginkgo.By("Keep lws-1-2 pinned ~25s more, then release it", func() {
+				time.Sleep(25 * time.Second)
+				setFinalizer(worker2Key, false)
+			})
+
+			// Core assertion. Without the fix the worker StatefulSet sits on its capped backoff with
+			// nothing to re-enqueue it, so the new lws-1-2 is never created and this times out. With
+			// the fix Kueue nudges the short StatefulSet and lws-1-2 returns within seconds.
+			ginkgo.By("Expect lws-1-2 to be recreated with the new template", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					p := &corev1.Pod{}
+					g.Expect(k8sClient.Get(ctx, worker2Key, p)).To(gomega.Succeed())
+					g.Expect(p.DeletionTimestamp).Should(gomega.BeNil())
+					g.Expect(p.Spec.Containers[0].Image).To(gomega.Equal(util.GetAgnHostImage()))
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 
