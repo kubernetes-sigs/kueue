@@ -259,11 +259,8 @@ const (
 
 	// WorkloadExceedsMaxQuota indicates that the workload requests resources
 	// exceeding the maximum capacity limits of the ClusterQueue or Cohort.
+	// This also includes exceeding ClusterQueue nominal + borrowingLimit constraints.
 	WorkloadExceedsMaxQuota = "ExceedsMaxQuota"
-
-	// WorkloadBorrowingLimitReached indicates that allocating resources would
-	// cause the ClusterQueue to exceed its borrowing limit constraint.
-	WorkloadBorrowingLimitReached = "BorrowingLimitReached"
 
 	// WorkloadWaitingForQuota indicates that the workload is waiting for
 	// sufficient unused quota to become available in the ClusterQueue/Cohort.
@@ -291,8 +288,8 @@ const (
 	// WorkloadAdmittedReasonNoReservation indicates that the workload has no reservation.
 	WorkloadAdmittedReasonNoReservation = "NoReservation"
 
-	// WorkloadAdmittedUnsatisfiedChecks indicates that the workload has not all checks ready.
-	WorkloadAdmittedUnsatisfiedChecks = "UnsatisfiedChecks"
+	// WorkloadAdmittedUnsatisfiedAdmissionChecks indicates that the workload has not all checks ready.
+	WorkloadAdmittedUnsatisfiedAdmissionChecks = "UnsatisfiedAdmissionChecks"
 
 	// WorkloadAdmittedPendingDelayedTopologyRequests indicates that there are pending delayed topology requests.
 	WorkloadAdmittedPendingDelayedTopologyRequests = "PendingDelayedTopologyRequests"
@@ -329,11 +326,10 @@ scheduler. Lower numbers represent more severe blocks.
 
 | Precedence | Reason Token | Description / Scenario | Location in Memory |
 | :--- | :--- | :--- | :--- |
-| **1** | `ExceedsMaxQuota` | Workload requests resource quantities exceeding ClusterQueue nominal limits (when no cohort) or the Cohort's total maximum capacity limits. | `ClusterQueue.inadmissibleWorkloads` |
-| **2** | `BorrowingLimitReached` | Total unused capacity in the Cohort is sufficient, but allocating resources would cause the ClusterQueue to exceed its borrowing limit policy constraint. | `ClusterQueue.inadmissibleWorkloads` |
-| **3** | `WaitingForQuota` | General capacity wait (total unused nominal capacity in the ClusterQueue/Cohort is less than the workload request). | `ClusterQueue.inadmissibleWorkloads` |
-| **4** | `TopologyPlacementFailed` | TAS workload only. Nominal capacity exists, but capacity is fragmented across domains preventing contiguous placement. | `ClusterQueue.inadmissibleWorkloads` |
-| **5** | `WaitingForPreemptedWorkloads` | Evictions have been issued; waiting for victims to terminate and release their capacity. | `ClusterQueue.heap` |
+| **1** | `ExceedsMaxQuota` | Workload requests resource quantities exceeding the absolute maximum allowed capacity (ClusterQueue nominal limits when no cohort, Cohort's total maximum capacity limits, or the ClusterQueue nominal + borrowingLimit constraint). | `ClusterQueue.inadmissibleWorkloads` |
+| **2** | `WaitingForQuota` | General capacity wait (total unused nominal capacity in the ClusterQueue/Cohort is less than the workload request). | `ClusterQueue.inadmissibleWorkloads` |
+| **3** | `TopologyPlacementFailed` | TAS workload only. Nominal capacity exists, but capacity is fragmented across domains preventing contiguous placement. | `ClusterQueue.inadmissibleWorkloads` |
+| **4** | `WaitingForPreemptedWorkloads` | Evictions have been issued; waiting for victims to terminate and release their capacity. | `ClusterQueue.heap` |
 
 *Note on preemption transition dynamics*: Between the moment evictions are
 issued and the victims actually terminate, subsequent scheduler evaluation
@@ -412,7 +408,7 @@ event clears the equivalence hashes.
   groups (evaluated sequentially).
   - **First Step**: `podset-a` is evaluated first. It is assigned a flavor that
     requires preemption, so its status is set to `Preempt` (with reason
-    `WaitingForPreemptedWorkloads`, Precedence 5). Since it successfully received a
+    `WaitingForPreemptedWorkloads`, Precedence 4). Since it successfully received a
     flavor assignment, the scheduler continues to the next group.
   - **Second Step**: `podset-b` is evaluated next. All of its candidate flavors
     are blocked because they request resources exceeding limits, so its status
@@ -420,7 +416,7 @@ event clears the equivalence hashes.
     this podset failed flavor assignment, the scheduler exits early.
   - **Result**: `ExceedsMaxQuota` is reported as the representative reason
     for the workload because it is the most severe blocker (Precedence 1 vs
-    Precedence 5) among all evaluated podsets.
+    Precedence 4) among all evaluated podsets.
 
 ### Admitted Condition Initialization and Lifecycle
 
@@ -450,7 +446,7 @@ Instead:
   admission checks.
 - Once quota reservation is successfully obtained (`QuotaReserved` status is
   `True`), if admission checks are still pending, the `Admitted` condition
-  will transition its reason to `UnsatisfiedChecks`.
+  will transition its reason to `UnsatisfiedAdmissionChecks`.
 
 ### Prometheus Metrics Schema
 
@@ -460,7 +456,7 @@ A set of metrics is introduced to track unadmitted workloads when the
   ClusterQueue level. It includes the following labels:
   - `cluster_queue`: The name of the ClusterQueue.
   - `reason`: Mapped 1:1 to the reason for the `Admitted` condition
-    being `False` (e.g., `NoReservation`, `UnsatisfiedChecks`,
+    being `False` (e.g., `NoReservation`, `UnsatisfiedAdmissionChecks`,
     `PendingDelayedTopologyRequests`).
   - `underlying_cause`: Mapped 1:1 to the proposed priority reasons for the
     `QuotaReserved` condition status being `False` (e.g., `PendingEvaluation`,
@@ -472,7 +468,7 @@ A set of metrics is introduced to track unadmitted workloads when the
   - `namespace`: The namespace of the LocalQueue.
   - `cluster_queue`: The name of the ClusterQueue.
   - `reason`: Mapped 1:1 to the reason for the `Admitted` condition
-    being `False` (e.g., `NoReservation`, `UnsatisfiedChecks`,
+    being `False` (e.g., `NoReservation`, `UnsatisfiedAdmissionChecks`,
     `PendingDelayedTopologyRequests`).
   - `underlying_cause`: Mapped 1:1 to the proposed priority reasons for the
     `QuotaReserved` condition status being `False` (e.g., `PendingEvaluation`,
@@ -481,7 +477,7 @@ A set of metrics is introduced to track unadmitted workloads when the
 
 If a workload has successfully obtained a quota reservation (`QuotaReserved` is `True`),
 the `underlying_cause` label is populated as follows:
-- For `UnsatisfiedChecks`: Set to `ChecksNotReady`.
+- For `UnsatisfiedAdmissionChecks`: Set to `ChecksNotReady`.
 - For `PendingDelayedTopologyRequests`: Set to `PendingTopology`.
 
 **Handling of Missing or Unset Status Conditions**
@@ -506,7 +502,7 @@ of these mapping combinations are detailed below:
 | :--- | :--- | :--- | :--- | :--- |
 | `NoReservation` | `False (WaitingForQuota)` | `NoReservation` | `WaitingForQuota` | Workload is waiting for queue capacity. |
 | `NoReservation` | `False (Misconfigured)` | `NoReservation` | `Misconfigured` | Workload has structural/configuration errors. |
-| `UnsatisfiedChecks` | `True (N/A)` | `UnsatisfiedChecks` | `ChecksNotReady` | Quota is reserved, but blocked by pending admission checks. |
+| `UnsatisfiedAdmissionChecks` | `True (N/A)` | `UnsatisfiedAdmissionChecks` | `ChecksNotReady` | Quota is reserved, but blocked by pending admission checks. |
 | `PendingDelayedTopologyRequests` | `True (N/A)` | `PendingDelayedTopologyRequests` | `PendingTopology` | Quota is reserved, but blocked by delayed topology paths. |
 
 
