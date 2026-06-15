@@ -19,12 +19,14 @@ set -o nounset
 set -o pipefail
 
 DOCKER="${DOCKER:-docker}"
-CURRENT_DIR=$(dirname "${BASH_SOURCE[0]}")
+SOURCE_DIR="$(cd "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+ROOT_DIR="${SOURCE_DIR}/../../.."
 
 echo "Building linkchecker Docker image..."
-"${DOCKER}" build --load -f "${CURRENT_DIR}/Dockerfile" -t linkchecker "${CURRENT_DIR}"
+"${DOCKER}" build --load -f "${SOURCE_DIR}/Dockerfile" -t linkchecker "${SOURCE_DIR}"
 
 echo "Running linkchecker..."
-"${DOCKER}" run --rm linkchecker --no-warnings --ignore-url='^mailto:' --ignore-url='^tel:' https://kueue.sigs.k8s.io/
+"${ROOT_DIR}/hack/testing/retry.sh" --attempts 5 --delay 5 --stream -- \
+    "${DOCKER}" run --rm linkchecker --no-warnings --ignore-url='^mailto:' --ignore-url='^tel:' https://kueue.sigs.k8s.io/
 
 echo "Link check completed successfully"
