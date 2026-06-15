@@ -24,6 +24,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	clusterSnapshot "sigs.k8s.io/scheduler-library/pkg/snapshot"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -132,7 +133,15 @@ func (c *TASFlavorCache) snapshot(
 	}
 	log.V(3).Info("Constructing TAS snapshot", infoKV...)
 
-	snapshot := newTASFlavorSnapshot(log, c.flavor.TopologyName, c.topology.Levels, c.flavor.Tolerations)
+	var cSnapshot *clusterSnapshot.ClusterSnapshot
+	if features.Enabled(features.SchedulerLibraryIntegration) {
+		var err error
+		cSnapshot, err = NewClusterSnapshot(nodes)
+		if err != nil {
+			log.V(3).Error(err, "Failed to initialize cluster snapshot for TAS scheduler-library integration")
+		}
+	}
+	snapshot := newTASFlavorSnapshot(log, c.flavor.TopologyName, c.topology.Levels, c.flavor.Tolerations, cSnapshot)
 	nodeToDomain := make(map[string]utiltas.TopologyDomainID)
 	for _, node := range nodes {
 		nodeToDomain[node.Name] = snapshot.addNode(node)
