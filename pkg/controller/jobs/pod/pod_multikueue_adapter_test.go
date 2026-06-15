@@ -133,6 +133,120 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 		},
+		"keeps SchedulingGated condition on gated manager pod (avoids spurious autoscaler scale-up)": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			managersPods: []corev1.Pod{
+				*basePodBuilder.Clone().
+					KueueSchedulingGate().
+					StatusConditions(corev1.PodCondition{
+						Type:   corev1.PodScheduled,
+						Status: corev1.ConditionFalse,
+						Reason: corev1.PodReasonSchedulingGated,
+					}).
+					Obj(),
+			},
+			workerPods: []corev1.Pod{
+				*basePodBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					StatusPhase(corev1.PodPending).
+					StatusConditions(corev1.PodCondition{
+						Type:   corev1.PodScheduled,
+						Status: corev1.ConditionFalse,
+						Reason: corev1.PodReasonUnschedulable,
+					}).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: basePodName, Namespace: TestNamespace}, "wl1", "origin1")
+			},
+
+			// The remote PodScheduled=False/Unschedulable condition must not overwrite
+			// the local SchedulingGated one, otherwise the management cluster's
+			// cluster-autoscaler treats the gated Pod as unschedulable and scales up.
+			// Other status (the phase here) is still synced from the worker.
+			wantManagersPods: []corev1.Pod{
+				*basePodBuilder.Clone().
+					KueueSchedulingGate().
+					StatusPhase(corev1.PodPending).
+					StatusConditions(corev1.PodCondition{
+						Type:   corev1.PodScheduled,
+						Status: corev1.ConditionFalse,
+						Reason: corev1.PodReasonSchedulingGated,
+					}).
+					Obj(),
+			},
+			wantWorkerPods: []corev1.Pod{
+				*basePodBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					StatusPhase(corev1.PodPending).
+					StatusConditions(corev1.PodCondition{
+						Type:   corev1.PodScheduled,
+						Status: corev1.ConditionFalse,
+						Reason: corev1.PodReasonUnschedulable,
+					}).
+					Obj(),
+			},
+		},
+		"keeps SchedulingGated condition even when remote pod is scheduled": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			// The management-cluster Pod stays gated for its whole lifetime, so its
+			// PodScheduled condition is locally owned (SchedulingGated) and is never
+			// overwritten - not even by the worker's PodScheduled=True, which would be
+			// untrue locally (the manager Pod has no NodeName) and would fight the
+			// local scheduler. Other status (phase, Ready) is still synced.
+			managersPods: []corev1.Pod{
+				*basePodBuilder.Clone().
+					KueueSchedulingGate().
+					StatusConditions(corev1.PodCondition{
+						Type:   corev1.PodScheduled,
+						Status: corev1.ConditionFalse,
+						Reason: corev1.PodReasonSchedulingGated,
+					}).
+					Obj(),
+			},
+			workerPods: []corev1.Pod{
+				*basePodBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					StatusPhase(corev1.PodRunning).
+					StatusConditions(
+						corev1.PodCondition{Type: corev1.PodScheduled, Status: corev1.ConditionTrue},
+						corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+					).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: basePodName, Namespace: TestNamespace}, "wl1", "origin1")
+			},
+
+			wantManagersPods: []corev1.Pod{
+				*basePodBuilder.Clone().
+					KueueSchedulingGate().
+					StatusPhase(corev1.PodRunning).
+					StatusConditions(
+						corev1.PodCondition{
+							Type:   corev1.PodScheduled,
+							Status: corev1.ConditionFalse,
+							Reason: corev1.PodReasonSchedulingGated,
+						},
+						corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+					).
+					Obj(),
+			},
+			wantWorkerPods: []corev1.Pod{
+				*basePodBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					StatusPhase(corev1.PodRunning).
+					StatusConditions(
+						corev1.PodCondition{Type: corev1.PodScheduled, Status: corev1.ConditionTrue},
+						corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+					).
+					Obj(),
+			},
+		},
 		"remote pod is deleted": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			workerPods: []corev1.Pod{
