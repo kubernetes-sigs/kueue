@@ -171,6 +171,7 @@ var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:k
 					RestartPolicy: corev1.RestartPolicyOnFailure,
 				},
 			}).
+			TerminationGracePeriod(1).
 			Image(rayv1.HeadNode, kuberayTestImage).
 			Image(rayv1.WorkerNode, kuberayTestImage).Obj()
 
@@ -303,7 +304,7 @@ print(ray.get([my_task.remote(i, 60) for i in range(3)]))`,
 			Image(rayv1.WorkerNode, kuberayTestImage).
 			Volumes(rayv1.HeadNode, volumes).
 			VolumeMounts(rayv1.HeadNode, volumeMounts).
-			TerminationGracePeriodSeconds(int64(1)).
+			TerminationGracePeriod(1).
 			Obj()
 
 		ginkgo.By("Creating the ConfigMap", func() {
@@ -501,7 +502,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(64)])`,
 			Image(rayv1.WorkerNode, kuberayTestImage).
 			Volumes(rayv1.HeadNode, volumes).
 			VolumeMounts(rayv1.HeadNode, volumeMounts).
-			TerminationGracePeriodSeconds(int64(1)).
+			TerminationGracePeriod(1).
 			Obj()
 
 		ginkgo.By("Creating the ConfigMap", func() {
@@ -739,6 +740,7 @@ app = HelloWorld.bind()`,
 			Volumes(rayv1.WorkerNode, volumes).
 			VolumeMounts(rayv1.HeadNode, volumeMounts).
 			VolumeMounts(rayv1.WorkerNode, volumeMounts).
+			TerminationGracePeriod(1).
 			Obj()
 
 		ginkgo.By("Creating the ConfigMap", func() {
@@ -885,6 +887,7 @@ app = HelloWorld.bind()`,
 			Volumes(rayv1.WorkerNode, volumes).
 			VolumeMounts(rayv1.HeadNode, volumeMounts).
 			VolumeMounts(rayv1.WorkerNode, volumeMounts).
+			TerminationGracePeriod(1).
 			Obj()
 
 		ginkgo.By("Creating the ConfigMap", func() {
