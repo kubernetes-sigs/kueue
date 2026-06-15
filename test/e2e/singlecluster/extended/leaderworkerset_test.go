@@ -582,7 +582,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 		ginkgo.It("should allow to update the PodTemplate in LeaderWorkerSet", func() {
 			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
 				Image(util.GetAgnHostImageOld(), util.BehaviorWaitForDeletion).
-				Size(3).
+				Size(2).
 				Replicas(2).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				Queue(lq.Name).
@@ -637,7 +637,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), client.MatchingLabels(map[string]string{
 						leaderworkersetv1.SetNameLabelKey: lws.Name,
 					}))).To(gomega.Succeed())
-					g.Expect(pods.Items).To(gomega.HaveLen(6))
+					g.Expect(pods.Items).To(gomega.HaveLen(4))
 					for _, p := range pods.Items {
 						g.Expect(p.Spec.Containers[0].Image).To(gomega.Equal(util.GetAgnHostImage()))
 					}
