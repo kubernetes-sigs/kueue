@@ -63,6 +63,7 @@ type ClusterQueueReconciler struct {
 	client                client.Client
 	logName               string
 	qManager              *qcache.Manager
+	quotaManager          *QuotaManager
 	cache                 *schdcache.Cache
 	nonCQObjectUpdateCh   chan event.TypedGenericEvent[iter.Seq[kueue.ClusterQueueReference]]
 	watchers              []ClusterQueueUpdateWatcher
@@ -71,7 +72,6 @@ type ClusterQueueReconciler struct {
 	clock                 clock.Clock
 	roleTracker           *roletracker.RoleTracker
 	customLabels          *metrics.CustomLabels
-	triggerSpecUpdate     QuotaUpdateTrigger
 }
 
 var _ reconcile.Reconciler = (*ClusterQueueReconciler)(nil)
@@ -84,6 +84,7 @@ type ClusterQueueReconcilerOptions struct {
 	clock                 clock.Clock
 	roleTracker           *roletracker.RoleTracker
 	customLabels          *metrics.CustomLabels
+	qm                    *QuotaManager
 }
 
 // ClusterQueueReconcilerOption configures the reconciler.
@@ -119,6 +120,12 @@ func WithClusterQueueCustomLabels(customLabels *metrics.CustomLabels) ClusterQue
 	}
 }
 
+func WithQuotaManager(qm *QuotaManager) ClusterQueueReconcilerOption {
+	return func(o *ClusterQueueReconcilerOptions) {
+		o.qm = qm
+	}
+}
+
 var defaultCQOptions = ClusterQueueReconcilerOptions{
 	clock: realClock,
 }
@@ -145,6 +152,7 @@ func NewClusterQueueReconciler(
 		clock:                 options.clock,
 		roleTracker:           options.roleTracker,
 		customLabels:          options.customLabels,
+		quotaManager:          options.qm,
 	}
 }
 
@@ -197,8 +205,10 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		)
 	}
 
-	if err := r.triggerSpecUpdate(ctx, &cqObj); err != nil {
-		return ctrl.Result{}, err
+	if r.quotaManager != nil {
+		if err := r.quotaManager.UpdateQuota(UpdateStepSpec, ctx, &cqObj); err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 
 	if cqObj.DeletionTimestamp.IsZero() {

@@ -18,9 +18,15 @@ package core
 
 import (
 	"context"
+	"errors"
 	"sync"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+)
+
+const (
+	UpdateStepSpec                    string = "spec"
+	UpdateStepEffectiveResourceGroups string = "effective"
 )
 
 // QuotaUpdateStep can perform updates on ClusterQueues and the internal QuotaCache.
@@ -38,8 +44,9 @@ type QuotaUpdateTrigger = func(ctx context.Context, cq *kueue.ClusterQueue) erro
 // It executes the chain of registered QuotaUpdateSteps and allows to start the chain from any step via a dedicated QuotaUpdateTrigger.
 type QuotaManager struct {
 	sync.RWMutex
-	cache       *QuotaCache
-	updateChain []QuotaUpdateStep
+	cache          *QuotaCache
+	updateRegistry map[string]int
+	updateChain    []QuotaUpdateStep
 }
 
 // QuotaCache is the internal cache of the QuotaManager.
@@ -52,11 +59,12 @@ type QuotaCache struct {
 
 // QuotaManagerOpts houses references to reconcilers that provide the QuotaUpdateStep functions and invoke their QuotaUpdateTriggers.
 type QuotaManagerOpts struct {
+	Manager   *QuotaManager
 	CoreCQRec *ClusterQueueReconciler
 }
 
 // NewQuotaManager creates a QuotaManager with update setps configured based on active features using reconcilers provided in opts.
-func NewQuotaManager(opts *QuotaManagerOpts) *QuotaManager {
+func NewQuotaManager() *QuotaManager {
 	qm := &QuotaManager{
 		cache: &QuotaCache{
 			spec:              nil,
@@ -64,11 +72,20 @@ func NewQuotaManager(opts *QuotaManagerOpts) *QuotaManager {
 		},
 		updateChain: make([]QuotaUpdateStep, 0),
 	}
-
-	qm.addUpdateStep(opts.CoreCQRec.updateSpec, &opts.CoreCQRec.triggerSpecUpdate)
-	qm.addUpdateStep(opts.CoreCQRec.updateEffectiveResourceGroups, nil)
-
 	return qm
+}
+
+func (opts *QuotaManagerOpts) Apply() {
+	opts.Manager.addUpdateStep(UpdateStepSpec, opts.CoreCQRec.updateSpec)
+	opts.Manager.addUpdateStep(UpdateStepEffectiveResourceGroups, opts.CoreCQRec.updateEffectiveResourceGroups)
+}
+
+func (qm *QuotaManager) UpdateQuota(startStepAlias string, ctx context.Context, cq *kueue.ClusterQueue) error {
+	stepIdx, ok := qm.updateRegistry[startStepAlias]
+	if !ok {
+		return errors.New("no update registered with alias: " + startStepAlias)
+	}
+	return qm.triggerChain(stepIdx, ctx, cq)
 }
 
 func (qm *QuotaManager) triggerChain(startIdx int, ctx context.Context, cq *kueue.ClusterQueue) error {
@@ -86,17 +103,9 @@ func (qm *QuotaManager) triggerChain(startIdx int, ctx context.Context, cq *kueu
 
 // addUpdateStep adds the provided QuotaUpdateStep function to the end of the update chain.
 // If callbackDest is not nil, a callback to start the update chain from the added step is injected there.
-func (qm *QuotaManager) addUpdateStep(update QuotaUpdateStep, callbackDest *QuotaUpdateTrigger) {
+func (qm *QuotaManager) addUpdateStep(alias string, update QuotaUpdateStep) {
 	qm.Lock()
 	defer qm.Unlock()
-	// Add the update step to the end of the chain.
 	qm.updateChain = append(qm.updateChain, update)
-
-	// Save the callback function to the destination provided via pointer.
-	if callbackDest != nil {
-		idx := len(qm.updateChain) - 1
-		*callbackDest = func(ctx context.Context, cq *kueue.ClusterQueue) error {
-			return qm.triggerChain(idx, ctx, cq)
-		}
-	}
+	qm.updateRegistry[alias] = len(qm.updateChain) - 1
 }

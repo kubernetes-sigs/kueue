@@ -96,9 +96,8 @@ import (
 )
 
 var (
-	scheme       = runtime.NewScheme()
-	setupLog     = ctrl.Log.WithName("setup")
-	quotaManager *core.QuotaManager
+	scheme   = runtime.NewScheme()
+	setupLog = ctrl.Log.WithName("setup")
 )
 
 func init() {
@@ -475,7 +474,9 @@ func setupControllers(
 	opts core.SetupControllersOpts,
 ) error {
 	if features.Enabled(features.EffectiveResourceQuotas) {
-		opts.QMOpts = &core.QuotaManagerOpts{}
+		opts.QuotaManagerOpts = &core.QuotaManagerOpts{
+			Manager: core.NewQuotaManager(),
+		}
 	}
 
 	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache, cfg, opts); err != nil {
@@ -587,8 +588,8 @@ func setupControllers(
 		)
 	}
 
-	if features.Enabled(features.EffectiveResourceQuotas) {
-		quotaManager = core.NewQuotaManager(opts.QMOpts)
+	if opts.QuotaManagerOpts != nil {
+		opts.QuotaManagerOpts.Apply()
 	}
 
 	return nil
