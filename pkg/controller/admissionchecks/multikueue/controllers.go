@@ -19,7 +19,7 @@ package multikueue
 import (
 	"time"
 
-	"sigs.k8s.io/cluster-inventory-api/pkg/credentials"
+	"sigs.k8s.io/cluster-inventory-api/pkg/access"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -135,14 +135,14 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 
 	var cpCreds clusterProfileCreds
 	if features.Enabled(features.MultiKueueClusterProfile) && options.clusterProfileConfig != nil {
-		p := make([]credentials.Provider, 0, len(options.clusterProfileConfig.CredentialsProviders))
+		p := make([]access.Provider, 0, len(options.clusterProfileConfig.CredentialsProviders))
 		for _, provider := range options.clusterProfileConfig.CredentialsProviders {
-			p = append(p, credentials.Provider{
+			p = append(p, access.Provider{
 				Name:       provider.Name,
 				ExecConfig: &provider.ExecConfig,
 			})
 		}
-		cpCreds = credentials.New(p)
+		cpCreds = access.New(p)
 	}
 	if cpCreds == nil {
 		cpCreds = &NoOpClusterProfileCreds{}

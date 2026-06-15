@@ -37,7 +37,7 @@ require (
 	gotest.tools/gotestsum v1.13.0
 	helm.sh/helm/v4 v4.2.0
 	k8s.io/code-generator v0.36.0 // Used not only as code-generator but also for compatibility_lifecycle (feature-gates docs) tool versioning.
-	sigs.k8s.io/cluster-inventory-api v0.1.0 // indirect
+	sigs.k8s.io/cluster-inventory-api v0.1.3 // indirect
 	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.24.1
 	sigs.k8s.io/controller-tools v0.20.1
 	sigs.k8s.io/dra-example-driver v0.3.0
