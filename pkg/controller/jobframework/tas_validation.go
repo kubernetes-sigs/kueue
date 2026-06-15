@@ -224,6 +224,17 @@ func ValidatePodSetGroupingTopology(podSets []kueue.PodSet, podSetAnnotationsByN
 	var allErrs field.ErrorList
 
 	for groupName, podSets := range podSetGroups.InOrder {
+		// When the generalization gate is enabled and the group requests
+		// required topology, apply the relaxed validation (more than two
+		// PodSets, no single-replica leader needed). Everything else (gate
+		// disabled, or preferred topology) keeps going through the original
+		// validation below, so existing LWS/MPI behavior is unchanged and
+		// preferred groups remain restricted to the legacy leader-worker shape.
+		if features.Enabled(features.TASPodSetGroupGeneralization) && isRequiredPodSetGroup(podSets) {
+			allErrs = append(allErrs, validateGeneralizedPodSetGroup(groupName, podSets, podSetAnnotationsByName)...)
+			continue
+		}
+
 		if groupSize := len(podSets); groupSize != 2 {
 			for _, podSet := range podSets {
 				allErrs = append(
@@ -283,6 +294,68 @@ func ValidatePodSetGroupingTopology(podSets []kueue.PodSet, podSetAnnotationsByN
 					fmt.Sprintf(errorMessageTemplate, annotationsPath1),
 				),
 			)
+		}
+	}
+
+	return allErrs
+}
+
+// isRequiredPodSetGroup reports whether a PodSet group should use the
+// generalized validation path: it requests required topology (checked on the
+// first PodSet; topology consistency is validated separately) and is NOT the
+// legacy leader-worker shape (exactly two PodSets, one with a single replica),
+// which stays on the legacy two-PodSet/single-leader validation. The
+// generalized path is used only when the TASPodSetGroupGeneralization gate is
+// enabled.
+func isRequiredPodSetGroup(podSets []kueue.PodSet) bool {
+	if len(podSets) < 2 {
+		return false
+	}
+	tr := podSets[0].TopologyRequest
+	if tr == nil || tr.Required == nil {
+		return false
+	}
+	// Legacy leader-worker shape stays on the legacy path.
+	if len(podSets) == 2 && (podSets[0].Count == 1 || podSets[1].Count == 1) {
+		return false
+	}
+	return true
+}
+
+// validateGeneralizedPodSetGroup validates a required-topology PodSet group when
+// the TASPodSetGroupGeneralization feature gate is enabled. Compared to the
+// legacy two-PodSet/leader-worker validation, it:
+//   - allows groups with more than two PodSets, and
+//   - drops the "at least one PodSet has count == 1" requirement.
+//
+// It keeps the invariant that every PodSet in the group requests the same
+// required topology at the same level.
+func validateGeneralizedPodSetGroup(
+	groupName string,
+	podSets []kueue.PodSet,
+	podSetAnnotationsByName map[kueue.PodSetReference]*field.Path,
+) field.ErrorList {
+	var allErrs field.ErrorList
+
+	if len(podSets) < 2 {
+		// A group of a single PodSet is a no-op grouping; nothing to co-locate.
+		return allErrs
+	}
+
+	// All PodSets in the group must request the same topology, consistent with
+	// the first PodSet in the group.
+	reference := podSets[0].TopologyRequest
+	for _, podSet := range podSets {
+		annotationsPath := podSetAnnotationsByName[podSet.Name]
+		if !topologyRequestsValid(reference, podSet.TopologyRequest) {
+			allErrs = append(allErrs, field.Invalid(
+				annotationsPath,
+				field.OmitValueType{},
+				fmt.Sprintf("must specify '%s' topology consistent across all pod sets in group '%s'",
+					kueue.PodSetRequiredTopologyAnnotation,
+					groupName,
+				),
+			))
 		}
 	}
 

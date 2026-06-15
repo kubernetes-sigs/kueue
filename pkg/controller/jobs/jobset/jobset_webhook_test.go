@@ -312,6 +312,161 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
+		{
+			name: "valid generalized PodSet grouping - three required PodSets, all count>1, gate enabled",
+			job: testingutil.MakeJobSet("jobset", "default").
+				ReplicatedJobs(
+					testingutil.ReplicatedJobRequirements{
+						Name: "job1", Replicas: 2, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetGroupName:                  "groupname",
+						},
+					},
+					testingutil.ReplicatedJobRequirements{
+						Name: "job2", Replicas: 3, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetGroupName:                  "groupname",
+						},
+					},
+					testingutil.ReplicatedJobRequirements{
+						Name: "job3", Replicas: 4, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetGroupName:                  "groupname",
+						},
+					},
+				).
+				Obj(),
+			wantErr: nil,
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:      true,
+				features.TASPodSetGroupGeneralization: true,
+			},
+		},
+		{
+			name: "valid generalized PodSet grouping - two required PodSets, no single-replica leader, gate enabled",
+			job: testingutil.MakeJobSet("jobset", "default").
+				ReplicatedJobs(
+					testingutil.ReplicatedJobRequirements{
+						Name: "job1", Replicas: 2, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetGroupName:                  "groupname",
+						},
+					},
+					testingutil.ReplicatedJobRequirements{
+						Name: "job2", Replicas: 3, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetGroupName:                  "groupname",
+						},
+					},
+				).
+				Obj(),
+			wantErr: nil,
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:      true,
+				features.TASPodSetGroupGeneralization: true,
+			},
+		},
+		{
+			name: "invalid generalized PodSet grouping - preferred group of three rejected via legacy path even with gate enabled",
+			job: testingutil.MakeJobSet("jobset", "default").
+				ReplicatedJobs(
+					testingutil.ReplicatedJobRequirements{
+						Name: "job1", Replicas: 1, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetGroupName:                   "3podsets",
+						},
+					},
+					testingutil.ReplicatedJobRequirements{
+						Name: "job2", Replicas: 2, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetGroupName:                   "3podsets",
+						},
+					},
+					testingutil.ReplicatedJobRequirements{
+						Name: "job3", Replicas: 2, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetGroupName:                   "3podsets",
+						},
+					},
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec.replicatedJobs[0].template.spec.template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-group-name"), "3podsets", "can only define groups of exactly 2 pod sets, got: 3 pod set(s)"),
+				field.Invalid(field.NewPath("spec.replicatedJobs[1].template.spec.template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-group-name"), "3podsets", "can only define groups of exactly 2 pod sets, got: 3 pod set(s)"),
+				field.Invalid(field.NewPath("spec.replicatedJobs[2].template.spec.template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-group-name"), "3podsets", "can only define groups of exactly 2 pod sets, got: 3 pod set(s)"),
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:      true,
+				features.TASPodSetGroupGeneralization: true,
+			},
+		},
+		{
+			name: "invalid generalized PodSet grouping - required group of three rejected when gate disabled",
+			job: testingutil.MakeJobSet("jobset", "default").
+				ReplicatedJobs(
+					testingutil.ReplicatedJobRequirements{
+						Name: "job1", Replicas: 2, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetGroupName:                  "3podsets",
+						},
+					},
+					testingutil.ReplicatedJobRequirements{
+						Name: "job2", Replicas: 2, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetGroupName:                  "3podsets",
+						},
+					},
+					testingutil.ReplicatedJobRequirements{
+						Name: "job3", Replicas: 2, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetGroupName:                  "3podsets",
+						},
+					},
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec.replicatedJobs[0].template.spec.template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-group-name"), "3podsets", "can only define groups of exactly 2 pod sets, got: 3 pod set(s)"),
+				field.Invalid(field.NewPath("spec.replicatedJobs[1].template.spec.template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-group-name"), "3podsets", "can only define groups of exactly 2 pod sets, got: 3 pod set(s)"),
+				field.Invalid(field.NewPath("spec.replicatedJobs[2].template.spec.template.metadata.annotations").
+					Key("kueue.x-k8s.io/podset-group-name"), "3podsets", "can only define groups of exactly 2 pod sets, got: 3 pod set(s)"),
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		{
+			name: "invalid generalized PodSet grouping - mismatched required levels within group, gate enabled",
+			job: testingutil.MakeJobSet("jobset", "default").
+				ReplicatedJobs(
+					testingutil.ReplicatedJobRequirements{
+						Name: "job1", Replicas: 2, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
+							kueue.PodSetGroupName:                  "groupname",
+						},
+					},
+					testingutil.ReplicatedJobRequirements{
+						Name: "job2", Replicas: 3, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodSetGroupName:                  "groupname",
+						},
+					},
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(
+					field.NewPath("spec.replicatedJobs[1].template.spec.template.metadata.annotations"),
+					field.OmitValueType{},
+					"must specify 'kueue.x-k8s.io/podset-required-topology' topology consistent across all pod sets in group 'groupname'",
+				),
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:      true,
+				features.TASPodSetGroupGeneralization: true,
+			},
+		},
 	}
 
 	for _, tc := range testcases {

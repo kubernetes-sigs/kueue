@@ -157,6 +157,26 @@ func (h *podHandler) queueReconcileForPod(ctx context.Context, object client.Obj
 	}
 }
 
+// isRequiredGroup reports whether a PodSet group should use the generalized
+// N-PodSet rank assignment. It mirrors the scheduler routing: a required-topology
+// group of two or more PodSets, EXCEPT the legacy leader-worker shape (exactly
+// two PodSets, one with a single replica), which keeps the legacy merged
+// leader/worker rank layout. Preferred groups also keep the legacy layout.
+func isRequiredGroup(psas []*kueue.PodSetAssignment, psNameToTopologyRequest map[kueue.PodSetReference]*kueue.PodSetTopologyRequest) bool {
+	if len(psas) < 2 {
+		return false
+	}
+	tr := psNameToTopologyRequest[psas[0].Name]
+	if tr == nil || tr.Required == nil {
+		return false
+	}
+	// Legacy leader-worker shape stays on the legacy rank layout.
+	if len(psas) == 2 && (*psas[0].Count == 1 || *psas[1].Count == 1) {
+		return false
+	}
+	return true
+}
+
 func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile Topology Ungater")
@@ -199,6 +219,18 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 	maxRank := make(map[kueue.PodSetReference]int32)
 
 	for _, psas := range groupedPodSetAssignments {
+		if features.Enabled(features.TASPodSetGroupGeneralization) && isRequiredGroup(psas, psNameToTopologyRequest) {
+			// Generalized PodSet group (gate on + required topology): each
+			// PodSet's pods are interchangeable within the co-location domain
+			// and carry PodSet-local indices (0..count-1), so give every PodSet
+			// its own rank space. (The legacy leader-worker rank-merging below
+			// only handles exactly two PodSets and must not be applied here.)
+			for _, psa := range psas {
+				rankOffsets[psa.Name] = 0
+				maxRank[psa.Name] = *psa.Count
+			}
+			continue
+		}
 		if len(psas) > 1 {
 			// In case of LeaderWorkerSet, in each Workload there will be
 			// 1 leader and N workers. Leader will get rank 0 and workers

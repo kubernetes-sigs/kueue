@@ -3076,6 +3076,537 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 			})
 		})
+		ginkgo.When("TASPodSetGroupGeneralization is enabled", func() {
+			var (
+				nodes []corev1.Node
+			)
+			// gpuNode builds a TAS node in block b1 / rack r1 with the given
+			// hostname and GPU capacity (CPU/mem/pods are generous so GPU is the
+			// only constraint).
+			gpuNode := func(host string, gpus int64) corev1.Node {
+				return *testingnode.MakeNode(host).
+					Label("node-group", "tas").
+					Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+					Label(utiltesting.DefaultRackTopologyLevel, "r1").
+					Label(corev1.LabelHostname, host).
+					StatusAllocatable(corev1.ResourceList{
+						"nvidia.com/gpu":      *resource.NewQuantity(gpus, resource.DecimalSI),
+						corev1.ResourceCPU:    resource.MustParse("100"),
+						corev1.ResourceMemory: resource.MustParse("100Gi"),
+						corev1.ResourcePods:   resource.MustParse("100"),
+					}).
+					Ready().
+					Obj()
+			}
+
+			ginkgo.BeforeEach(func() {
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASPodSetGroupGeneralization, true)
+			})
+
+			ginkgo.JustBeforeEach(func() {
+				util.CreateNodesWithStatus(ctx, k8sClient, nodes)
+
+				topology = utiltestingapi.MakeDefaultThreeLevelTopology("default")
+				util.MustCreate(ctx, k8sClient, topology)
+
+				tasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
+					NodeLabel("node-group", "tas").
+					TopologyName("default").Obj()
+				util.MustCreate(ctx, k8sClient, tasFlavor)
+
+				clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas(tasFlavor.Name).Resource("nvidia.com/gpu", "1000").Obj()).
+					Obj()
+				util.MustCreate(ctx, k8sClient, clusterQueue)
+				util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+
+				localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+				util.MustCreate(ctx, k8sClient, localQueue)
+			})
+
+			ginkgo.AfterEach(func() {
+				gomega.Expect(util.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+				gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+				gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+				for i := range nodes {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, &nodes[i], true)
+				}
+			})
+
+			// gpusInAssignment returns, per block value, the total GPU pods
+			// assigned across all PodSets, and the set of block values used.
+			countPerHost := func(wl *kueue.Workload) map[string]int32 {
+				perHost := map[string]int32{}
+				for _, psa := range wl.Status.Admission.PodSetAssignments {
+					if psa.TopologyAssignment == nil {
+						continue
+					}
+					ta := utiltas.InternalFrom(psa.TopologyAssignment)
+					for _, d := range ta.Domains {
+						perHost[d.Values[len(d.Values)-1]] += d.Count
+					}
+				}
+				return perHost
+			}
+
+			ginkgo.When("there are two GPU nodes in the same block", func() {
+				ginkgo.BeforeEach(func() {
+					// b1 / r1 / {x1:8, x2:8}
+					nodes = []corev1.Node{gpuNode("x1", 8), gpuNode("x2", 8)}
+				})
+
+				ginkgo.It("co-locates a group of three PodSets (all count>1) within the block", func() {
+					var wl *kueue.Workload
+					ginkgo.By("creating a workload with three grouped PodSets", func() {
+						wl = utiltestingapi.MakeWorkload("wl", ns.Name).
+							PodSets(
+								*utiltestingapi.MakePodSet("a", 4).
+									PodSetGroup("group").
+									RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+									Request("nvidia.com/gpu", "1").Obj(),
+								*utiltestingapi.MakePodSet("b", 4).
+									PodSetGroup("group").
+									RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+									Request("nvidia.com/gpu", "1").Obj(),
+								*utiltestingapi.MakePodSet("c", 4).
+									PodSetGroup("group").
+									RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+									Request("nvidia.com/gpu", "1").Obj(),
+							).
+							Queue(kueue.LocalQueueName(localQueue.Name)).Obj()
+						util.MustCreate(ctx, k8sClient, wl)
+					})
+
+					ginkgo.By("verifying the workload is admitted and all 12 GPU pods are placed on the two block nodes", func() {
+						util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+						gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+						perHost := countPerHost(wl)
+						var total int32
+						for host, c := range perHost {
+							gomega.Expect(host).To(gomega.BeElementOf("x1", "x2"))
+							total += c
+						}
+						gomega.Expect(total).To(gomega.Equal(int32(12)))
+						gomega.Expect(wl.Status.Admission.PodSetAssignments).To(gomega.HaveLen(3))
+					})
+				})
+
+				ginkgo.It("co-locates a group with heterogeneous footprints", func() {
+					var wl *kueue.Workload
+					ginkgo.By("creating a group of a large-footprint and a small-footprint PodSet", func() {
+						// training: 2 pods x 4 GPU = 8; inference: 4 pods x 1 GPU = 4; total 12 over 16 capacity.
+						wl = utiltestingapi.MakeWorkload("wl", ns.Name).
+							PodSets(
+								*utiltestingapi.MakePodSet("training", 2).
+									PodSetGroup("group").
+									RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+									Request("nvidia.com/gpu", "4").Obj(),
+								*utiltestingapi.MakePodSet("inference", 4).
+									PodSetGroup("group").
+									RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+									Request("nvidia.com/gpu", "1").Obj(),
+							).
+							Queue(kueue.LocalQueueName(localQueue.Name)).Obj()
+						util.MustCreate(ctx, k8sClient, wl)
+					})
+
+					ginkgo.By("verifying admission with correct per-PodSet counts", func() {
+						util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+						gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+						psaCount := func(name string) int32 {
+							var n int32
+							for _, psa := range wl.Status.Admission.PodSetAssignments {
+								if string(psa.Name) == name && psa.TopologyAssignment != nil {
+									for _, d := range utiltas.InternalFrom(psa.TopologyAssignment).Domains {
+										n += d.Count
+									}
+								}
+							}
+							return n
+						}
+						gomega.Expect(psaCount("training")).To(gomega.Equal(int32(2)))
+						gomega.Expect(psaCount("inference")).To(gomega.Equal(int32(4)))
+					})
+				})
+
+				ginkgo.It("does not admit a group that exceeds the block capacity", func() {
+					var wl *kueue.Workload
+					ginkgo.By("creating a group demanding 18 GPU into a 16-GPU block", func() {
+						wl = utiltestingapi.MakeWorkload("wl", ns.Name).
+							PodSets(
+								*utiltestingapi.MakePodSet("a", 9).
+									PodSetGroup("group").
+									RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+									Request("nvidia.com/gpu", "1").Obj(),
+								*utiltestingapi.MakePodSet("b", 9).
+									PodSetGroup("group").
+									RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+									Request("nvidia.com/gpu", "1").Obj(),
+							).
+							Queue(kueue.LocalQueueName(localQueue.Name)).Obj()
+						util.MustCreate(ctx, k8sClient, wl)
+					})
+
+					ginkgo.By("verifying the workload stays pending", func() {
+						util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
+					})
+				})
+
+				ginkgo.It("admits a pending group once a blocking workload frees capacity", func() {
+					var blocker, grp *kueue.Workload
+					ginkgo.By("admitting a blocker that consumes most of the block", func() {
+						blocker = utiltestingapi.MakeWorkload("blocker", ns.Name).
+							PodSets(*utiltestingapi.MakePodSet("w", 14).
+								RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+								Request("nvidia.com/gpu", "1").Obj()).
+							Queue(kueue.LocalQueueName(localQueue.Name)).Obj()
+						util.MustCreate(ctx, k8sClient, blocker)
+						util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, blocker)
+					})
+
+					ginkgo.By("creating a group that needs 4 GPU but only 2 are free", func() {
+						grp = utiltestingapi.MakeWorkload("grp", ns.Name).
+							PodSets(
+								*utiltestingapi.MakePodSet("a", 2).
+									PodSetGroup("group").
+									RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+									Request("nvidia.com/gpu", "1").Obj(),
+								*utiltestingapi.MakePodSet("b", 2).
+									PodSetGroup("group").
+									RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+									Request("nvidia.com/gpu", "1").Obj(),
+							).
+							Queue(kueue.LocalQueueName(localQueue.Name)).Obj()
+						util.MustCreate(ctx, k8sClient, grp)
+						util.ExpectWorkloadsToBePending(ctx, k8sClient, grp)
+					})
+
+					ginkgo.By("deleting the blocker and verifying the group is then admitted", func() {
+						gomega.Expect(util.DeleteObject(ctx, k8sClient, blocker)).To(gomega.Succeed())
+						util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, grp)
+					})
+				})
+
+				ginkgo.It("places a group that only fits via non-greedy packing", func() {
+					var wl *kueue.Workload
+					ginkgo.By("creating a group whose only feasible packing splits big and small pods across nodes", func() {
+						// Two nodes of 8 GPU each. big: 2 x 5 GPU, small: 2 x 3 GPU.
+						// The only valid packing is one big + one small per node (5+3=8).
+						wl = utiltestingapi.MakeWorkload("wl", ns.Name).
+							PodSets(
+								*utiltestingapi.MakePodSet("big", 2).
+									PodSetGroup("group").
+									RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+									Request("nvidia.com/gpu", "5").Obj(),
+								*utiltestingapi.MakePodSet("small", 2).
+									PodSetGroup("group").
+									RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+									Request("nvidia.com/gpu", "3").Obj(),
+							).
+							Queue(kueue.LocalQueueName(localQueue.Name)).Obj()
+						util.MustCreate(ctx, k8sClient, wl)
+					})
+
+					ginkgo.By("verifying admission", func() {
+						util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+						gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+						perHost := countPerHost(wl)
+						gomega.Expect(perHost).To(gomega.HaveLen(2), "pods should span both nodes")
+					})
+				})
+
+				ginkgo.It("still co-locates a legacy leader-worker required group via the legacy path with the gate on", func() {
+					var wl *kueue.Workload
+					ginkgo.By("creating a 1-leader + multi-worker group", func() {
+						wl = utiltestingapi.MakeWorkload("wl", ns.Name).
+							PodSets(
+								*utiltestingapi.MakePodSet("leader", 1).
+									PodSetGroup("group").
+									RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+									Request("nvidia.com/gpu", "1").Obj(),
+								*utiltestingapi.MakePodSet("worker", 6).
+									PodSetGroup("group").
+									RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+									Request("nvidia.com/gpu", "1").Obj(),
+							).
+							Queue(kueue.LocalQueueName(localQueue.Name)).Obj()
+						util.MustCreate(ctx, k8sClient, wl)
+					})
+
+					ginkgo.By("verifying admission and co-location", func() {
+						util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+						gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+						perHost := countPerHost(wl)
+						var total int32
+						for host, c := range perHost {
+							gomega.Expect(host).To(gomega.BeElementOf("x1", "x2"))
+							total += c
+						}
+						gomega.Expect(total).To(gomega.Equal(int32(7)))
+					})
+				})
+			})
+
+			ginkgo.When("there are two blocks of different free capacity", func() {
+				ginkgo.BeforeEach(func() {
+					// Tight block b-tight (8 GPU) and roomy block b-roomy (64 GPU).
+					tight := *testingnode.MakeNode("n-tight").
+						Label("node-group", "tas").
+						Label(utiltesting.DefaultBlockTopologyLevel, "b-tight").
+						Label(utiltesting.DefaultRackTopologyLevel, "r-tight").
+						Label(corev1.LabelHostname, "n-tight").
+						StatusAllocatable(corev1.ResourceList{
+							"nvidia.com/gpu":      *resource.NewQuantity(8, resource.DecimalSI),
+							corev1.ResourceCPU:    resource.MustParse("100"),
+							corev1.ResourceMemory: resource.MustParse("100Gi"),
+							corev1.ResourcePods:   resource.MustParse("100"),
+						}).
+						Ready().
+						Obj()
+					roomy := *testingnode.MakeNode("n-roomy").
+						Label("node-group", "tas").
+						Label(utiltesting.DefaultBlockTopologyLevel, "b-roomy").
+						Label(utiltesting.DefaultRackTopologyLevel, "r-roomy").
+						Label(corev1.LabelHostname, "n-roomy").
+						StatusAllocatable(corev1.ResourceList{
+							"nvidia.com/gpu":      *resource.NewQuantity(64, resource.DecimalSI),
+							corev1.ResourceCPU:    resource.MustParse("100"),
+							corev1.ResourceMemory: resource.MustParse("100Gi"),
+							corev1.ResourcePods:   resource.MustParse("100"),
+						}).
+						Ready().
+						Obj()
+					nodes = []corev1.Node{tight, roomy}
+				})
+
+				ginkgo.It("selects the best-fit (tightest) block, keeping the roomy block free", func() {
+					var wl *kueue.Workload
+					ginkgo.By("creating a group needing exactly 8 GPU", func() {
+						wl = utiltestingapi.MakeWorkload("wl", ns.Name).
+							PodSets(
+								*utiltestingapi.MakePodSet("a", 4).
+									PodSetGroup("group").
+									RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+									Request("nvidia.com/gpu", "1").Obj(),
+								*utiltestingapi.MakePodSet("b", 4).
+									PodSetGroup("group").
+									RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+									Request("nvidia.com/gpu", "1").Obj(),
+							).
+							Queue(kueue.LocalQueueName(localQueue.Name)).Obj()
+						util.MustCreate(ctx, k8sClient, wl)
+					})
+
+					ginkgo.By("verifying the group lands on the tight block node", func() {
+						util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+						gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+						perHost := countPerHost(wl)
+						gomega.Expect(perHost).To(gomega.HaveKey("n-tight"))
+						gomega.Expect(perHost).ToNot(gomega.HaveKey("n-roomy"))
+					})
+				})
+			})
+
+			ginkgo.When("a required block spans multiple racks", func() {
+				// rackNode builds a TAS node in block b1 on the given rack/host.
+				rackNode := func(rack, host string, gpus int64) corev1.Node {
+					return *testingnode.MakeNode(host).
+						Label("node-group", "tas").
+						Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+						Label(utiltesting.DefaultRackTopologyLevel, rack).
+						Label(corev1.LabelHostname, host).
+						StatusAllocatable(corev1.ResourceList{
+							"nvidia.com/gpu":      *resource.NewQuantity(gpus, resource.DecimalSI),
+							corev1.ResourceCPU:    resource.MustParse("100"),
+							corev1.ResourceMemory: resource.MustParse("100Gi"),
+							corev1.ResourcePods:   resource.MustParse("100"),
+						}).
+						Ready().
+						Obj()
+				}
+				ginkgo.BeforeEach(func() {
+					// b1 / {r1: x1=4, x2=4 ; r2: x3=4} -- single block, three
+					// hosts across two racks.
+					nodes = []corev1.Node{
+						rackNode("r1", "x1", 4),
+						rackNode("r1", "x2", 4),
+						rackNode("r2", "x3", 4),
+					}
+				})
+
+				ginkgo.It("co-locates the group within the block while spreading across racks/hosts", func() {
+					var wl *kueue.Workload
+					ginkgo.By("creating a group of 10 GPU pods requiring the block", func() {
+						wl = utiltestingapi.MakeWorkload("wl", ns.Name).
+							PodSets(
+								*utiltestingapi.MakePodSet("a", 6).
+									PodSetGroup("group").
+									RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+									Request("nvidia.com/gpu", "1").Obj(),
+								*utiltestingapi.MakePodSet("b", 4).
+									PodSetGroup("group").
+									RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+									Request("nvidia.com/gpu", "1").Obj(),
+							).
+							Queue(kueue.LocalQueueName(localQueue.Name)).Obj()
+						util.MustCreate(ctx, k8sClient, wl)
+					})
+
+					ginkgo.By("verifying admission with all 10 pods placed within block b1 across multiple hosts", func() {
+						util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+						gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+						perHost := countPerHost(wl)
+						var total int32
+						for host, c := range perHost {
+							gomega.Expect(host).To(gomega.BeElementOf("x1", "x2", "x3"))
+							total += c
+						}
+						gomega.Expect(total).To(gomega.Equal(int32(10)))
+						// 10 pods cannot fit on fewer than 3 hosts of 4 GPU each,
+						// so the group must span multiple hosts within the block.
+						gomega.Expect(len(perHost)).To(gomega.BeNumerically(">=", 3))
+					})
+				})
+			})
+
+			ginkgo.When("a capacity-sufficient node is excluded by a taint", func() {
+				ginkgo.BeforeEach(func() {
+					// b1: x-tainted (large, but NoSchedule taint) and x-clean
+					// (exact fit). The group must avoid the tainted node.
+					nodes = []corev1.Node{
+						*testingnode.MakeNode("x-tainted").
+							Label("node-group", "tas").
+							Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+							Label(utiltesting.DefaultRackTopologyLevel, "r1").
+							Label(corev1.LabelHostname, "x-tainted").
+							Taints(corev1.Taint{Key: "dedicated", Value: "other", Effect: corev1.TaintEffectNoSchedule}).
+							StatusAllocatable(corev1.ResourceList{
+								"nvidia.com/gpu":      *resource.NewQuantity(100, resource.DecimalSI),
+								corev1.ResourceCPU:    resource.MustParse("100"),
+								corev1.ResourceMemory: resource.MustParse("100Gi"),
+								corev1.ResourcePods:   resource.MustParse("100"),
+							}).
+							Ready().
+							Obj(),
+						gpuNode("x-clean", 8),
+					}
+				})
+
+				ginkgo.It("places the group on the untainted node despite the tainted node having more capacity", func() {
+					var wl *kueue.Workload
+					ginkgo.By("creating a group of 8 GPU pods that fits only the untainted node", func() {
+						wl = utiltestingapi.MakeWorkload("wl", ns.Name).
+							PodSets(
+								*utiltestingapi.MakePodSet("a", 4).
+									PodSetGroup("group").
+									RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+									Request("nvidia.com/gpu", "1").Obj(),
+								*utiltestingapi.MakePodSet("b", 4).
+									PodSetGroup("group").
+									RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+									Request("nvidia.com/gpu", "1").Obj(),
+							).
+							Queue(kueue.LocalQueueName(localQueue.Name)).Obj()
+						util.MustCreate(ctx, k8sClient, wl)
+					})
+
+					ginkgo.By("verifying admission with all pods on the untainted node", func() {
+						util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+						gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+						perHost := countPerHost(wl)
+						gomega.Expect(perHost).To(gomega.HaveKey("x-clean"))
+						gomega.Expect(perHost).ToNot(gomega.HaveKey("x-tainted"))
+					})
+				})
+			})
+
+			ginkgo.When("there are two GPU nodes in the same block for ungating", func() {
+				ginkgo.BeforeEach(func() {
+					nodes = []corev1.Node{gpuNode("x1", 8), gpuNode("x2", 8)}
+				})
+
+				ginkgo.It("ungates each PodSet of a generalized group within its co-located domain", func() {
+					var wl *kueue.Workload
+					ginkgo.By("creating and admitting a two-PodSet group (both count>1)", func() {
+						wl = utiltestingapi.MakeWorkload("wl-ungate", ns.Name).
+							PodSets(
+								*utiltestingapi.MakePodSet("trainer", 2).
+									PodSetGroup("group").
+									PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+									RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+									Request("nvidia.com/gpu", "1").Obj(),
+								*utiltestingapi.MakePodSet("inference", 2).
+									PodSetGroup("group").
+									PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+									RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+									Request("nvidia.com/gpu", "1").Obj(),
+							).
+							Queue(kueue.LocalQueueName(localQueue.Name)).Obj()
+						util.MustCreate(ctx, k8sClient, wl)
+						util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+					})
+
+					ginkgo.By("verifying each PodSet received a topology assignment", func() {
+						gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+						gomega.Expect(wl.Status.Admission.PodSetAssignments).To(gomega.HaveLen(2))
+						for _, psa := range wl.Status.Admission.PodSetAssignments {
+							gomega.Expect(psa.TopologyAssignment).ToNot(gomega.BeNil(),
+								"PodSet %s should have a topology assignment", psa.Name)
+						}
+					})
+
+					// Build the set of hosts the group was assigned to (all must be
+					// in the single required block).
+					assignedHosts := func() map[string]bool {
+						hosts := map[string]bool{}
+						for _, psa := range wl.Status.Admission.PodSetAssignments {
+							for _, d := range utiltas.InternalFrom(psa.TopologyAssignment).Domains {
+								hosts[d.Values[len(d.Values)-1]] = true
+							}
+						}
+						return hosts
+					}
+
+					ginkgo.By("creating gated pods for each PodSet and verifying the ungater places them in the co-located domain", func() {
+						mkPod := func(name, podSet, idx string) *corev1.Pod {
+							return testingpod.MakePod(name, ns.Name).
+								Annotation(kueue.WorkloadAnnotation, wl.Name).
+								Annotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
+								Label(batchv1.JobCompletionIndexAnnotation, idx).
+								Label(constants.PodSetLabel, podSet).
+								TopologySchedulingGate().
+								Obj()
+						}
+						pods := []*corev1.Pod{
+							mkPod("trainer-0", "trainer", "0"),
+							mkPod("trainer-1", "trainer", "1"),
+							mkPod("inference-0", "inference", "0"),
+							mkPod("inference-1", "inference", "1"),
+						}
+						for _, p := range pods {
+							util.MustCreate(ctx, k8sClient, p)
+						}
+
+						hosts := assignedHosts()
+						gomega.Eventually(func(g gomega.Gomega) {
+							for _, p := range pods {
+								pod := &corev1.Pod{}
+								g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), pod)).To(gomega.Succeed())
+								g.Expect(pod.Spec.SchedulingGates).To(gomega.BeEmpty(),
+									"pod %s should be ungated", p.Name)
+								host := pod.Spec.NodeSelector[corev1.LabelHostname]
+								g.Expect(host).ToNot(gomega.BeEmpty(), "pod %s should have a hostname nodeSelector", p.Name)
+								g.Expect(hosts).To(gomega.HaveKey(host),
+									"pod %s ungated to host %s outside the group's assigned domain", p.Name, host)
+							}
+						}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					})
+				})
+			})
+		})
 		ginkgo.When("Preemption is enabled within ClusterQueue", func() {
 			var (
 				nodes []corev1.Node

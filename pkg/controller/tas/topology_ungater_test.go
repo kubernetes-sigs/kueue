@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	coreindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
+	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -120,6 +121,7 @@ func TestReconcile(t *testing.T) {
 		wantPods               []corev1.Pod
 		wantCounts             []counts
 		wantErr                error
+		enableGeneralization   bool
 	}{
 		"ungate single pod": {
 			workloads: []kueue.Workload{
@@ -1129,6 +1131,167 @@ func TestReconcile(t *testing.T) {
 						tasRackLabel:  "r2",
 					},
 					Count: 1,
+				},
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel: "b2",
+						tasRackLabel:  "r1",
+					},
+					Count: 2,
+				},
+			},
+		},
+		"ranks: ungate pods for a generalized required group of three PodSets - gate enabled": {
+			enableGeneralization: true,
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet("a", 2).
+							Request(corev1.ResourceCPU, "1").
+							PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+							RequiredTopologyRequest(tasRackLabel).
+							PodSetGroup("group").
+							Obj(),
+						*utiltestingapi.MakePodSet("b", 2).
+							Request(corev1.ResourceCPU, "1").
+							PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+							RequiredTopologyRequest(tasRackLabel).
+							PodSetGroup("group").
+							Obj(),
+						*utiltestingapi.MakePodSet("c", 2).
+							Request(corev1.ResourceCPU, "1").
+							PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+							RequiredTopologyRequest(tasRackLabel).
+							PodSetGroup("group").
+							Obj(),
+					).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(
+								utiltestingapi.MakePodSetAssignment("a").
+									Assignment(corev1.ResourceCPU, "unit-test-flavor", "2").
+									Count(2).
+									TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultTestLevels).
+										Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 2).Obj()).
+										Obj()).
+									Obj(),
+								utiltestingapi.MakePodSetAssignment("b").
+									Assignment(corev1.ResourceCPU, "unit-test-flavor", "2").
+									Count(2).
+									TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultTestLevels).
+										Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r2"}, 2).Obj()).
+										Obj()).
+									Obj(),
+								utiltestingapi.MakePodSetAssignment("c").
+									Assignment(corev1.ResourceCPU, "unit-test-flavor", "2").
+									Count(2).
+									TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultTestLevels).
+										Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"b2", "r1"}, 2).Obj()).
+										Obj()).
+									Obj(),
+							).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("a0", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(batchv1.JobCompletionIndexAnnotation, "0").
+					Label(constants.PodSetLabel, "a").
+					TopologySchedulingGate().
+					Obj(),
+				*testingpod.MakePod("a1", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(batchv1.JobCompletionIndexAnnotation, "1").
+					Label(constants.PodSetLabel, "a").
+					TopologySchedulingGate().
+					Obj(),
+				*testingpod.MakePod("b0", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(batchv1.JobCompletionIndexAnnotation, "0").
+					Label(constants.PodSetLabel, "b").
+					TopologySchedulingGate().
+					Obj(),
+				*testingpod.MakePod("b1", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(batchv1.JobCompletionIndexAnnotation, "1").
+					Label(constants.PodSetLabel, "b").
+					TopologySchedulingGate().
+					Obj(),
+				*testingpod.MakePod("c0", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(batchv1.JobCompletionIndexAnnotation, "0").
+					Label(constants.PodSetLabel, "c").
+					TopologySchedulingGate().
+					Obj(),
+				*testingpod.MakePod("c1", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(batchv1.JobCompletionIndexAnnotation, "1").
+					Label(constants.PodSetLabel, "c").
+					TopologySchedulingGate().
+					Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("a0", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(batchv1.JobCompletionIndexAnnotation, "0").
+					Label(constants.PodSetLabel, "a").
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+				*testingpod.MakePod("a1", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(batchv1.JobCompletionIndexAnnotation, "1").
+					Label(constants.PodSetLabel, "a").
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+				*testingpod.MakePod("b0", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(batchv1.JobCompletionIndexAnnotation, "0").
+					Label(constants.PodSetLabel, "b").
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r2").
+					Obj(),
+				*testingpod.MakePod("b1", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(batchv1.JobCompletionIndexAnnotation, "1").
+					Label(constants.PodSetLabel, "b").
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r2").
+					Obj(),
+				*testingpod.MakePod("c0", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(batchv1.JobCompletionIndexAnnotation, "0").
+					Label(constants.PodSetLabel, "c").
+					NodeSelector(tasBlockLabel, "b2").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+				*testingpod.MakePod("c1", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(batchv1.JobCompletionIndexAnnotation, "1").
+					Label(constants.PodSetLabel, "c").
+					NodeSelector(tasBlockLabel, "b2").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+			},
+			wantCounts: []counts{
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel: "b1",
+						tasRackLabel:  "r1",
+					},
+					Count: 2,
+				},
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel: "b1",
+						tasRackLabel:  "r2",
+					},
+					Count: 2,
 				},
 				{
 					NodeSelector: map[string]string{
@@ -2602,6 +2765,9 @@ func TestReconcile(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			if tc.enableGeneralization {
+				features.SetFeatureGateDuringTest(t, features.TASPodSetGroupGeneralization, true)
+			}
 			ctx, log := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 			if err := indexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
