@@ -13,7 +13,7 @@ nodes:
     controllerManager:
       extraArgs:
       - name: v
-        value: "3"
+        value: "4"
     apiServer:
       extraArgs:
       - name: enable-aggregator-routing
@@ -28,7 +28,7 @@ nodes:
         v: "3"
     controllerManager:
       extraArgs:
-        v: "3"
+        v: "4"
     apiServer:
       extraArgs:
         enable-aggregator-routing: "true"
@@ -39,13 +39,13 @@ nodes:
     nodeRegistration:
       kubeletExtraArgs:
       - name: v
-        value: "3"
+        value: "4"
   - |
     kind: InitConfiguration
     apiVersion: kubeadm.k8s.io/v1beta3
     nodeRegistration:
       kubeletExtraArgs:
-        v: "3"
+        v: "4"
 - role: worker
   labels:
     instance-type: on-demand
@@ -60,10 +60,10 @@ kubeadmConfigPatches:
     nodeRegistration:
       kubeletExtraArgs:
       - name: v
-        value: "3"
+        value: "4"
   - |
     kind: JoinConfiguration
     apiVersion: kubeadm.k8s.io/v1beta3
     nodeRegistration:
       kubeletExtraArgs:
-        v: "3"
+        v: "4"
