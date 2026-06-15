@@ -213,15 +213,21 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 
 	var shouldUpdate bool
 	shouldReleaseReservation := false
+	shouldClearRequeueHeld := false
 
 	switch {
 	case hasOwnerReference && replicas == 0:
 		shouldUpdate = true
 		err = controllerutil.RemoveOwnerReference(sts, wl, r.client.Scheme())
 		shouldReleaseReservation = workload.HasActiveQuotaReservation(wl) && !workload.IsFinished(wl)
+	case !hasOwnerReference && replicas == 0:
+		// Owner reference was already removed in a previous reconcile, but quota
+		// reservation release may have failed. Retry the release if still active.
+		shouldReleaseReservation = workload.HasActiveQuotaReservation(wl) && !workload.IsFinished(wl)
 	case !hasOwnerReference && replicas > 0:
 		shouldUpdate = true
 		err = controllerutil.SetOwnerReference(sts, wl, r.client.Scheme())
+		shouldClearRequeueHeld = workload.IsRequeueHeld(wl)
 		if wl.Annotations == nil {
 			wl.Annotations = make(map[string]string, 2)
 		}
@@ -257,7 +263,21 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 		return r.releaseScaleDownReservation(ctx, wl)
 	}
 
+	if shouldClearRequeueHeld {
+		return r.clearRequeueHeld(ctx, wl)
+	}
+
 	return nil
+}
+
+func (r *Reconciler) clearRequeueHeld(ctx context.Context, wl *kueue.Workload) error {
+	if !workload.IsRequeueHeld(wl) {
+		return nil
+	}
+	return clientutil.PatchStatus(ctx, r.client, wl, func() (bool, error) {
+		changed := workload.UnsetRequeueHeldCondition(wl)
+		return changed, nil
+	}, clientutil.WithRetryOnConflict())
 }
 
 func (r *Reconciler) releaseScaleDownReservation(ctx context.Context, wl *kueue.Workload) error {
@@ -266,12 +286,16 @@ func (r *Reconciler) releaseScaleDownReservation(ctx context.Context, wl *kueue.
 	}
 
 	return clientutil.PatchStatus(ctx, r.client, wl, func() (bool, error) {
-		return workload.UnsetQuotaReservationWithCondition(
+		changed := workload.UnsetQuotaReservationWithCondition(
 			wl,
 			"StatefulSetScaledDown",
 			"StatefulSet scaled to zero; releasing previous quota reservation",
 			metav1.Now().Time,
-		), nil
+		)
+		if workload.SetRequeueHeldCondition(wl, "StatefulSetScaledDown", "StatefulSet scaled to zero; workload should not be requeued") {
+			changed = true
+		}
+		return changed, nil
 	}, clientutil.WithRetryOnConflict())
 }
 

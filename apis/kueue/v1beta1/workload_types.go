@@ -665,6 +665,13 @@ const (
 	// WorkloadDeactivationTarget means that the Workload should be deactivated.
 	// This condition is temporary, so it should be removed after deactivation.
 	WorkloadDeactivationTarget = "DeactivationTarget"
+
+	// WorkloadRequeueHeld means that the Workload should not be requeued
+	// after its quota reservation is released. The possible reasons for this
+	// condition are:
+	// - "StatefulSetScaledDown": the owning StatefulSet scaled to zero
+	// Other integrations may use additional reasons in the future.
+	WorkloadRequeueHeld = "RequeueHeld"
 )
 
 // Reasons for the WorkloadPreempted condition.
