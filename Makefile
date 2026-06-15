@@ -184,12 +184,12 @@ fmt: ## Run go fmt against code.
 .PHONY: gomod-download
 gomod-download: ## Download Go module dependencies (main)
 	@echo "→ Downloading main dependencies..."
-	$(GO_CMD) mod download
+	$(NETWORK_INSTALL_RETRY) $(GO_CMD) mod download
 
 .PHONY: gomod-download-tools
 gomod-download-tools: ## Download Go module dependencies (tools)
 	@echo "→ Downloading tools dependencies..."
-	cd $(TOOLS_DIR) && $(GO_CMD) mod download
+	cd $(TOOLS_DIR) && $(NETWORK_INSTALL_RETRY) $(GO_CMD) mod download
 
 .PHONY: toc-update
 toc-update: mdtoc
@@ -440,7 +440,7 @@ kueueviz-image-build:
 		--build-arg CGO_ENABLED=$(CGO_ENABLED) \
 		$(PUSH) \
 		$(IMAGE_BUILD_EXTRA_OPTS) \
-		-f ./cmd/kueueviz/backend/Dockerfile ./cmd/kueueviz/backend
+		-f ./cmd/kueueviz/backend/Dockerfile .
 	$(IMAGE_BUILD_CMD) \
 		-t $(IMAGE_TAG_KUEUEVIZ_FRONTEND) \
 		-t $(IMAGE_REPO_KUEUEVIZ_FRONTEND):$(RELEASE_BRANCH) \
