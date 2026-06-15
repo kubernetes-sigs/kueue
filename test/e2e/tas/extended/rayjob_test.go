@@ -178,6 +178,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, gi
 				}).
 				Image(rayv1.HeadNode, kuberayTestImage).
 				Image(rayv1.WorkerNode, kuberayTestImage).
+				TerminationGracePeriod(1).
 				Obj()
 
 			util.MustCreate(ctx, k8sClient, rayjob)
