@@ -327,7 +327,7 @@ func (j *JobWrapper) VolumeMounts(rayType rayv1.RayNodeType, volumeMounts []core
 	return j
 }
 
-func (j *JobWrapper) TerminationGracePeriodSeconds(seconds int64) *JobWrapper {
+func (j *JobWrapper) TerminationGracePeriod(seconds int64) *JobWrapper {
 	j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.TerminationGracePeriodSeconds = new(seconds)
 	for i := range len(j.Spec.RayClusterSpec.WorkerGroupSpecs) {
 		j.Spec.RayClusterSpec.WorkerGroupSpecs[i].Template.Spec.TerminationGracePeriodSeconds = new(seconds)
