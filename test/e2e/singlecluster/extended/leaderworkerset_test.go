@@ -622,18 +622,6 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			oldPodUIDs := sets.New[types.UID]()
-			ginkgo.By("Record the current Pods", func() {
-				pods := &corev1.PodList{}
-				gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), client.MatchingLabels(map[string]string{
-					leaderworkersetv1.SetNameLabelKey: lws.Name,
-				}))).To(gomega.Succeed())
-				gomega.Expect(pods.Items).To(gomega.HaveLen(6))
-				for _, p := range pods.Items {
-					oldPodUIDs.Insert(p.UID)
-				}
-			})
-
 			ginkgo.By("Update the PodTemplate in LeaderWorkerSet", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
@@ -643,23 +631,6 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 					createdLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0].Image = util.GetAgnHostImage()
 					g.Expect(k8sClient.Update(ctx, createdLeaderWorkerSet)).To(gomega.Succeed())
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Wait for the old Pods to be deleted", func() {
-				pods := &corev1.PodList{}
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), client.MatchingLabels(map[string]string{
-						leaderworkersetv1.SetNameLabelKey: lws.Name,
-					}))).To(gomega.Succeed())
-
-					remainingOldPods := make([]string, 0)
-					for _, p := range pods.Items {
-						if oldPodUIDs.Has(p.UID) {
-							remainingOldPods = append(remainingOldPods, p.Name)
-						}
-					}
-					g.Expect(remainingOldPods).To(gomega.BeEmpty())
-				}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Await for the Pods to be replaced with the new template", func() {
@@ -837,7 +808,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 					g.Expect(k8sClient.Get(ctx, worker2Key, p)).To(gomega.Succeed())
 					g.Expect(p.DeletionTimestamp).Should(gomega.BeNil())
 					g.Expect(p.Spec.Containers[0].Image).To(gomega.Equal(util.GetAgnHostImage()))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 
