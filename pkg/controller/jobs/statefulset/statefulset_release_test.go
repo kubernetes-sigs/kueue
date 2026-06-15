@@ -106,8 +106,12 @@ func TestReleaseScaleDownReservation(t *testing.T) {
 					t.Fatalf("expected no QuotaReserved condition, got %+v", cond)
 				}
 			}
-			if tc.wantAdmissionNil && got.Status.Admission != nil {
-				t.Fatalf("expected admission to be nil, got %+v", got.Status.Admission)
+			if tc.wantAdmissionNil {
+				if got.Status.Admission != nil {
+					t.Fatalf("expected admission to be nil, got %+v", got.Status.Admission)
+				}
+			} else if got.Status.Admission == nil {
+				t.Fatalf("expected admission to not be nil, but it was nil")
 			}
 			requeueHeldCond := apimeta.FindStatusCondition(got.Status.Conditions, kueue.WorkloadRequeueHeld)
 			if tc.wantRequeueHeld {

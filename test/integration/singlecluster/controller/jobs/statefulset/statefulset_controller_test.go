@@ -21,13 +21,16 @@ import (
 	"github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
+	"sigs.k8s.io/kueue/pkg/util/testing/matchers"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingstatefulset "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 	"sigs.k8s.io/kueue/test/util"
@@ -150,4 +153,84 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 			util.MustHaveOwnerReference(g, workloads.Items[0].OwnerReferences, createdSTS, k8sClient.Scheme())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
+
+	ginkgo.It("Should set RequeueHeld condition when StatefulSet scales to zero and clear it on scale-up", func() {
+		ginkgo.By("Creating a StatefulSet with replicas=1")
+		sts := testingstatefulset.MakeStatefulSet("test-sts", ns.Name).
+			Queue("lq").
+			Replicas(1).
+			Request(corev1.ResourceCPU, "100m").
+			Obj()
+		util.MustCreate(ctx, k8sClient, sts)
+
+		ginkgo.By("Waiting for the workload to be admitted")
+		createdSTS := &appsv1.StatefulSet{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSTS)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		wlName := statefulset.GetWorkloadName(createdSTS.UID, createdSTS.Name)
+		wl := &kueue.Workload{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: wlName, Namespace: ns.Name}, wl)).Should(gomega.Succeed())
+			g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Scaling the StatefulSet to zero")
+		createdSTS.Spec.Replicas = ptr.To[int32](0)
+		gomega.Expect(k8sClient.Update(ctx, createdSTS)).Should(gomega.Succeed())
+
+		ginkgo.By("Verifying the workload has QuotaReserved=False with StatefulSetScaledDown reason and RequeueHeld=True")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: wlName, Namespace: ns.Name}, wl)).Should(gomega.Succeed())
+			cond := findWorkloadCondition(wl, kueue.WorkloadQuotaReserved)
+			g.Expect(cond).ShouldNot(gomega.BeNil())
+			g.Expect(cond.Status).Should(gomega.Equal(metav1.ConditionFalse))
+			g.Expect(cond.Reason).Should(gomega.Equal("StatefulSetScaledDown"))
+
+			heldCond := findWorkloadCondition(wl, kueue.WorkloadRequeueHeld)
+			g.Expect(heldCond).ShouldNot(gomega.BeNil())
+			g.Expect(heldCond.Status).Should(gomega.Equal(metav1.ConditionTrue))
+			g.Expect(heldCond.Reason).Should(gomega.Equal("StatefulSetScaledDown"))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Verifying the workload is not requeued for scheduling")
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: wlName, Namespace: ns.Name}, wl)).Should(gomega.Succeed())
+			// The workload should remain in pending state with RequeueHeld=True
+			heldCond := findWorkloadCondition(wl, kueue.WorkloadRequeueHeld)
+			g.Expect(heldCond).ShouldNot(gomega.BeNil())
+			g.Expect(heldCond.Status).Should(gomega.Equal(metav1.ConditionTrue))
+		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Scaling the StatefulSet back up to 1")
+		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSTS)).Should(gomega.Succeed())
+		createdSTS.Spec.Replicas = ptr.To[int32](1)
+		gomega.Expect(k8sClient.Update(ctx, createdSTS)).Should(gomega.Succeed())
+
+		ginkgo.By("Verifying the RequeueHeld condition is cleared")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: wlName, Namespace: ns.Name}, wl)).Should(gomega.Succeed())
+			heldCond := findWorkloadCondition(wl, kueue.WorkloadRequeueHeld)
+			g.Expect(heldCond).Should(gomega.BeNil())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Verifying the workload is re-admitted")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: wlName, Namespace: ns.Name}, wl)).Should(gomega.Succeed())
+			g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
+			matchers.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, []matchers.AdmittedWorkload{
+				{Key: client.ObjectKeyFromObject(wl)},
+			})
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	})
 })
+
+func findWorkloadCondition(wl *kueue.Workload, condType kueue.WorkloadConditionType) *metav1.Condition {
+	for i := range wl.Status.Conditions {
+		if wl.Status.Conditions[i].Type == string(condType) {
+			return &wl.Status.Conditions[i]
+		}
+	}
+	return nil
+}

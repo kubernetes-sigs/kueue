@@ -254,6 +254,12 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 		if shouldReleaseReservation {
 			return r.releaseScaleDownReservation(ctx, wl)
 		}
+		// If scale-up completed but a previous clearRequeueHeld call failed,
+		// retry it here. This ensures the RequeueHeld condition doesn't get
+		// stuck when the owner reference was already set by an earlier Update.
+		if replicas > 0 && workload.IsRequeueHeld(wl) {
+			return r.clearRequeueHeld(ctx, wl)
+		}
 		return nil
 	}
 

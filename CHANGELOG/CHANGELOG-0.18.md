@@ -48,6 +48,7 @@ Changes since `v0.18.0`:
 
 ### Bug or Regression
 
+- StatefulSet: Fixed a bug where scaling a StatefulSet to zero caused its Workload to be incorrectly requeued for scheduling during the terminating-pod window, competing for quota it should no longer hold. The core workload controller now uses a generic `WorkloadRequeueHeld` condition instead of StatefulSet-specific logic, making the mechanism extensible for future integrations. (#12233, @gola)
 - DRA: Fixed a bug where pending Workloads using DRA extended resources were not requeued when their `DeviceClass` was deleted or its `extendedResourceName` changed. Kueue now re-evaluates affected Workloads so they do not remain in stale admission state. (#12093, @sohankunkerkar)
 - DRA: Fixed configuration validation to reject `deviceClassMappings[].sources` when the `KueueDRAIntegrationPartitionableDevices` feature gate is disabled, preventing unsupported partitionable-device configuration from being accepted. (#12152, @sohankunkerkar)
 - DRA: Fixed hot reconcile loops for inadmissible Workloads with deterministic DRA resolution
