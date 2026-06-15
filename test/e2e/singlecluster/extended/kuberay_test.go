@@ -242,10 +242,14 @@ def my_task(x, s):
     time.sleep(s)
     return x * x
 
-# 3 parallel tasks with 60s sleep: triggers scale-up to 2 workers
-# (1 task on head + 2 on workers) and keeps them alive through
-# pod replacement verification.
-print(ray.get([my_task.remote(i, 60) for i in range(3)]))`,
+# A queue of 20 short tasks (~200 task-seconds over at most 3 slots:
+# 1 on head + 1 per worker) triggers scale-up to 2 workers and keeps
+# both busy through pod replacement verification: pending tasks hold
+# the demand no matter how long scale-up or replacement takes, and the
+# job drains quickly once the queue is empty. With a few long tasks
+# instead, their expiry races the autoscaler's idle scale-down
+# (idleTimeoutSeconds=10) during verification.
+print(ray.get([my_task.remote(i, 10) for i in range(20)]))`,
 			},
 		}
 
@@ -443,8 +447,10 @@ print(ray.get([my_task.remote(i, 8) for i in range(4)]))
 # create workload slices, and schedule new workers.
 print(ray.get([my_task.remote(i, 8) for i in range(16)]))
 
-# run tasks in sequence to trigger scaling down
-print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
+# run tasks in sequence to trigger scaling down; 20 tasks (~25s with
+# scheduling overhead) keep the job alive through idle detection
+# (idleTimeoutSeconds=10) and the scale-down annotation update
+print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 			},
 		}
 
