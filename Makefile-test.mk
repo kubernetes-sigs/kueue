@@ -748,3 +748,7 @@ test-e2e-kueueviz: setup-e2e-env ## Run end-to-end tests for kueueviz without ru
 	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR)/ \
 	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) \
 	${PROJECT_DIR}/hack/testing/e2e-kueueviz-backend.sh
+
+.PHONY: verify-ci-build-times
+verify-ci-build-times: ## Verify that CI build times are below threshold.
+	python3 ./hack/tools/prow-runtimes/prow_runtimes.py --kueue-presubmits --limit 5 --only-success --only-merge-pool --threshold-stat=second_longest --threshold 18m
