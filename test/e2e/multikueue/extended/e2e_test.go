@@ -735,6 +735,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "0.5").
 					Image(rayv1.HeadNode, kuberayTestImage).
 					Image(rayv1.WorkerNode, kuberayTestImage).
+					TerminationGracePeriod(1).
 					Obj()
 
 				ginkgo.By("Creating the RayJob", func() {
@@ -876,6 +877,7 @@ app = HelloWorld.bind()`,
 					Volumes(rayv1.WorkerNode, volumes).
 					VolumeMounts(rayv1.HeadNode, volumeMounts).
 					VolumeMounts(rayv1.WorkerNode, volumeMounts).
+					TerminationGracePeriod(1).
 					Obj()
 
 				rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].GroupName = "small-group"
