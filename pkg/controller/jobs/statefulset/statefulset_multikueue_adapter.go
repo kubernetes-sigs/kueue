@@ -37,24 +37,24 @@ type multiKueueAdapter struct{}
 
 var _ jobframework.MultiKueueAdapter = (*multiKueueAdapter)(nil)
 
-func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error {
+func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) (bool, error) {
 	localStatefulSet := appsv1.StatefulSet{}
 	err := localClient.Get(ctx, key, &localStatefulSet)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	remoteStatefulSet := appsv1.StatefulSet{}
 	err = remoteClient.Get(ctx, key, &remoteStatefulSet)
 	if client.IgnoreNotFound(err) != nil {
-		return err
+		return false, err
 	}
 
 	// If the remote exists, skip status sync.
 	// StatefulSet doesn't support managedBy, so the local StatefulSet controller
 	// would immediately overwrite any status we sync from the worker cluster.
 	if err == nil {
-		return nil
+		return false, nil
 	}
 
 	remoteStatefulSet = appsv1.StatefulSet{
@@ -70,7 +70,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	}
 	remoteStatefulSet.Annotations[kueue.MultiKueueOriginUIDAnnotation] = string(localStatefulSet.UID)
 
-	return remoteClient.Create(ctx, &remoteStatefulSet)
+	return false, remoteClient.Create(ctx, &remoteStatefulSet)
 }
 
 func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {

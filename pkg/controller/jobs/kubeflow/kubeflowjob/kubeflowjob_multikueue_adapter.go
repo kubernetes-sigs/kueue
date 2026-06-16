@@ -93,21 +93,21 @@ func (a adapter[PtrT, T]) SyncJob(
 	localClient client.Client,
 	remoteClient client.Client,
 	key types.NamespacedName,
-	workloadName, origin string) error {
+	workloadName, origin string) (bool, error) {
 	localJob := PtrT(new(T))
 	err := localClient.Get(ctx, key, localJob)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	remoteJob := PtrT(new(T))
 	err = remoteClient.Get(ctx, key, remoteJob)
 	if client.IgnoreNotFound(err) != nil {
-		return err
+		return false, err
 	}
 
 	if err == nil {
-		return clientutil.PatchStatus(ctx, localClient, localJob, func() (bool, error) {
+		return false, clientutil.PatchStatus(ctx, localClient, localJob, func() (bool, error) {
 			// if the remote exists, just copy the status
 			a.copyStatus(localJob, remoteJob)
 			return true, nil
@@ -123,7 +123,7 @@ func (a adapter[PtrT, T]) SyncJob(
 	// clearing the managedBy enables the controller to take over
 	a.fromObject(remoteJob).SetManagedBy(nil)
 
-	return remoteClient.Create(ctx, remoteJob)
+	return false, remoteClient.Create(ctx, remoteJob)
 }
 
 func (a adapter[PtrT, T]) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {

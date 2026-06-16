@@ -63,6 +63,25 @@ var (
 	singleClusterPreemptionTimeout = 5 * time.Minute
 )
 
+// syncDeferredRequeueAfter is the delay used to re-reconcile a workload after
+// the Job adapter reports a deferred sync: the local Job was still suspended
+// when SyncJob ran, so the remote status.Active was not propagated. The local
+// Job is unsuspended shortly afterwards by the jobframework reconciler, but
+// that transition does not wake this reconciler (we don't watch local Jobs),
+// so without a short requeue the next reconcile could be up to workerLostTimeout
+// away and status.Active would never catch up.
+//
+// Both directions are soft: the requeue loop self-terminates as soon as the
+// local Job is unsuspended, and any value here is bounded above by
+// workerLostTimeout, so neither too-short nor too-long is a correctness
+// problem. 2 s is just a comfortable middle ground: above the sub-second
+// unsuspend latency (so we don't spin), and well below anything a user would
+// notice. See https://github.com/kubernetes-sigs/kueue/issues/11115.
+//
+// This is the canonical explanation of the deferred-sync handling; other sites
+// in this package point here rather than repeating it.
+const syncDeferredRequeueAfter = 2 * time.Second
+
 type wlReconciler struct {
 	client            client.Client
 	helper            *admissioncheck.MultiKueueStoreHelper
@@ -360,7 +379,9 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		// it should not be problematic, but the "From remote xxxx:" could be lost ....
 
 		if group.jobAdapter != nil {
-			if err := group.jobAdapter.SyncJob(ctx, w.client, group.remoteClients[remote].client, group.controllerKey, group.local.Name, w.origin); err != nil {
+			// The deferred flag is irrelevant here: the remote workload is
+			// Finished, so determineStatusUpdate always syncs (never defers).
+			if _, err := group.jobAdapter.SyncJob(ctx, w.client, group.remoteClients[remote].client, group.controllerKey, group.local.Name, w.origin); err != nil {
 				log.V(2).Error(err, "copying remote controller status", "workerCluster", remote)
 				// we should retry this
 				return reconcile.Result{}, err
@@ -384,10 +405,17 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 		// workload evicted on manager cluster
 		if workload.IsEvicted(group.local) {
-			if err := group.jobAdapter.SyncJob(ctx, w.client, remoteCl, group.controllerKey, group.local.Name, w.origin); err != nil {
+			deferred, err := group.jobAdapter.SyncJob(ctx, w.client, remoteCl, group.controllerKey, group.local.Name, w.origin)
+			if err != nil {
 				log.Error(err, "Syncing remote controller object")
 				// We'll retry this in the next reconciling.
 				return reconcile.Result{}, err
+			}
+			if deferred {
+				// Eviction re-suspended the local Job; requeue short to retry the
+				// status sync instead of dropping it. See syncDeferredRequeueAfter.
+				log.V(3).Info("Sync deferred until local job is unsuspended; requeuing on short timer")
+				return reconcile.Result{RequeueAfter: syncDeferredRequeueAfter}, nil
 			}
 			return reconcile.Result{}, nil
 		}
@@ -493,7 +521,8 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			return reconcile.Result{}, err
 		}
 
-		if err := group.jobAdapter.SyncJob(ctx, w.client, remoteCl, group.controllerKey, group.local.Name, w.origin); err != nil {
+		syncDeferred, err := group.jobAdapter.SyncJob(ctx, w.client, remoteCl, group.controllerKey, group.local.Name, w.origin)
+		if err != nil {
 			log.Error(err, "Syncing remote controller object")
 			// We'll retry this in the next reconciling.
 			return reconcile.Result{}, err
@@ -502,7 +531,14 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		if err := w.syncReservingRemoteState(ctx, group, reservingRemote, acs); err != nil {
 			return reconcile.Result{}, err
 		}
-		return reconcile.Result{RequeueAfter: w.workerLostTimeout}, nil
+		requeueAfter := w.workerLostTimeout
+		if syncDeferred {
+			// The local Job is still suspended; requeue short so the next SyncJob
+			// can propagate the remote status. See syncDeferredRequeueAfter.
+			log.V(3).Info("Sync deferred until local job is unsuspended; requeuing on short timer")
+			requeueAfter = syncDeferredRequeueAfter
+		}
+		return reconcile.Result{RequeueAfter: requeueAfter}, nil
 	} else if acs.State == kueue.CheckStateReady {
 		// If there is no reserving and the AC is ready, the connection with the reserving remote might
 		// be lost, keep the workload admitted for keepReadyTimeout and put it back in the queue after that.
