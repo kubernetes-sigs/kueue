@@ -647,12 +647,8 @@ func TestLocalQueueReconcile(t *testing.T) {
 	}
 }
 
-// TestLocalQueueUpdateClearsMetricsOnLabelChange covers the behavior fixed for #12164:
-// when a LocalQueue's labels change so it no longer matches the metrics selector, the
-// Update handler must clear its per-queue metrics; when it still matches (or the feature
-// gate is off) the metrics must be left in place. This is single-threaded behavioral
-// coverage of the clear-on-label-change path — the concurrency race itself is exercised by
-// the integration spec (validated in CI).
+// TestLocalQueueUpdateClearsMetricsOnLabelChange verifies the #12164 fix: an Update that
+// makes a LocalQueue stop matching the metrics selector clears its per-queue metrics.
 func TestLocalQueueUpdateClearsMetricsOnLabelChange(t *testing.T) {
 	matching := map[string]string{"metrics-test": "true"}
 	nonMatching := map[string]string{"metrics-test": "false"}
