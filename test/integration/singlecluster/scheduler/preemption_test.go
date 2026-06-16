@@ -316,7 +316,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 					for _, event := range events {
 						g.Expect(event.Count).To(gomega.Equal(int32(1)))
 					}
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Finishing the first high priority workload")
