@@ -165,7 +165,7 @@ EOF
     # Extract the Certificate Authority
     CA_DATA=$(kubectl --context "kind-${cluster}" config view --minify --raw -o jsonpath='{.clusters[0].cluster.certificate-authority-data}')
 
-    # Create kubeconfig with insecure-skip-tls-verify for Kind clusters
+    # Create kubeconfig with the cluster's certificate authority for Kind clusters
     cat > "${SCRIPT_DIR}/${cluster}.kubeconfig" <<EOF
 apiVersion: v1
 kind: Config
