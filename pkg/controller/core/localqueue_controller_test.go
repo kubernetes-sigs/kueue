@@ -18,6 +18,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -31,6 +32,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -38,8 +40,11 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -637,6 +642,101 @@ func TestLocalQueueReconcile(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantLocalQueue, gotLocalQueue, cmpOpts...); diff != "" {
 				t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestLocalQueueUpdateClearsMetricsOnLabelChange covers the behavior fixed for #12164:
+// when a LocalQueue's labels change so it no longer matches the metrics selector, the
+// Update handler must clear its per-queue metrics; when it still matches (or the feature
+// gate is off) the metrics must be left in place. This is single-threaded behavioral
+// coverage of the clear-on-label-change path — the concurrency race itself is exercised by
+// the integration spec (validated in CI).
+func TestLocalQueueUpdateClearsMetricsOnLabelChange(t *testing.T) {
+	matching := map[string]string{"metrics-test": "true"}
+	nonMatching := map[string]string{"metrics-test": "false"}
+	lqMetrics := metrics.NewLocalQueueMetricsConfig(&config.LocalQueueMetrics{
+		Enable:             true,
+		LocalQueueSelector: &metav1.LabelSelector{MatchLabels: matching},
+	})
+
+	cases := map[string]struct {
+		gateEnabled bool
+		oldLabels   map[string]string
+		newLabels   map[string]string
+		wantCleared bool
+	}{
+		"matching to non-matching clears metrics": {
+			gateEnabled: true,
+			oldLabels:   matching,
+			newLabels:   nonMatching,
+			wantCleared: true,
+		},
+		"matching to matching keeps metrics": {
+			gateEnabled: true,
+			oldLabels:   matching,
+			newLabels:   matching,
+			wantCleared: false,
+		},
+		"feature gate off is a no-op": {
+			gateEnabled: false,
+			oldLabels:   matching,
+			newLabels:   nonMatching,
+			wantCleared: false,
+		},
+	}
+
+	idx := 0
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, tc.gateEnabled)
+
+			// Unique names so Prometheus series do not leak across subtests.
+			idx++
+			nsName := fmt.Sprintf("ns-%d", idx)
+			lqName := fmt.Sprintf("lq-%d", idx)
+
+			cq := utiltestingapi.MakeClusterQueue("cq-" + lqName).Obj()
+			oldLQ := utiltestingapi.MakeLocalQueue(lqName, nsName).ClusterQueue(cq.Name).Obj()
+			oldLQ.Labels = tc.oldLabels
+			newLQ := oldLQ.DeepCopy()
+			newLQ.Labels = tc.newLabels
+
+			cl := utiltesting.NewClientBuilder().
+				WithObjects(cq, oldLQ).
+				WithStatusSubresource(cq, oldLQ).
+				Build()
+
+			ctx, _ := utiltesting.ContextWithLog(t)
+			cqCache := schdcache.New(cl)
+			if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("AddClusterQueue (scheduler cache): %v", err)
+			}
+			_ = cqCache.AddLocalQueue(oldLQ)
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+			if err := qManager.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("AddClusterQueue (queue manager): %v", err)
+			}
+			_ = qManager.AddLocalQueue(ctx, oldLQ)
+
+			reconciler := NewLocalQueueReconciler(cl, qManager, cqCache, WithLocalQueueMetrics(lqMetrics))
+
+			// Simulate a previously reported pending-workloads series for this LocalQueue.
+			lqRef := metrics.LocalQueueReference{Name: kueue.LocalQueueName(lqName), Namespace: nsName}
+			metrics.ReportLocalQueuePendingWorkloads(lqRef, 1, 0, nil, nil)
+			defer metrics.ClearLocalQueueMetrics(lqRef)
+
+			filter := map[string]string{"name": lqName, "namespace": nsName}
+			if got := testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueuePendingWorkloads, filter); len(got) == 0 {
+				t.Fatalf("precondition failed: pending_workloads series should exist before the update")
+			}
+
+			reconciler.Update(event.TypedUpdateEvent[*kueue.LocalQueue]{ObjectOld: oldLQ, ObjectNew: newLQ})
+
+			got := testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueuePendingWorkloads, filter)
+			if cleared := len(got) == 0; cleared != tc.wantCleared {
+				t.Errorf("after update: cleared=%v, want %v (remaining series=%+v)", cleared, tc.wantCleared, got)
 			}
 		})
 	}
