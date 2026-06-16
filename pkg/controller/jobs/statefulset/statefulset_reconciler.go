@@ -214,22 +214,24 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 	}
 
 	var shouldUpdate bool
-	shouldReleaseReservation := false
-	shouldClearRequeueHeld := false
+	// Initialize retry-idempotent flags early so that a partial failure in a
+	// previous reconcile (e.g. owner-ref update succeeded but status patch
+	// failed) does not leave the workload stuck.
+	shouldReleaseReservation := replicas == 0 && workload.HasActiveQuotaReservation(wl) && !workload.IsFinished(wl)
+	shouldClearRequeueHeld := replicas > 0 && workload.IsRequeueHeld(wl)
 
 	switch {
 	case hasOwnerReference && replicas == 0:
-		shouldUpdate = true
-		err = controllerutil.RemoveOwnerReference(sts, wl, r.client.Scheme())
-		shouldReleaseReservation = workload.HasActiveQuotaReservation(wl) && !workload.IsFinished(wl)
+		// Keep the owner reference when scaling to zero so that the workload
+		// is not considered orphaned by the workload controller. The workload
+		// will be released with a RequeueHeld condition instead.
 	case !hasOwnerReference && replicas == 0:
-		// Owner reference was already removed in a previous reconcile, but quota
-		// reservation release may have failed. Retry the release if still active.
-		shouldReleaseReservation = workload.HasActiveQuotaReservation(wl) && !workload.IsFinished(wl)
+		// Owner reference was already removed in a previous reconcile (before
+		// RequeueHeld was introduced), but quota reservation release may have
+		// failed. Retry the release if still active.
 	case !hasOwnerReference && replicas > 0:
 		shouldUpdate = true
 		err = controllerutil.SetOwnerReference(sts, wl, r.client.Scheme())
-		shouldClearRequeueHeld = workload.IsRequeueHeld(wl)
 		if wl.Annotations == nil {
 			wl.Annotations = make(map[string]string, 2)
 		}
@@ -254,10 +256,7 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 		if shouldReleaseReservation {
 			return r.releaseScaleDownReservation(ctx, wl)
 		}
-		// If scale-up completed but a previous clearRequeueHeld call failed,
-		// retry it here. This ensures the RequeueHeld condition doesn't get
-		// stuck when the owner reference was already set by an earlier Update.
-		if replicas > 0 && workload.IsRequeueHeld(wl) {
+		if shouldClearRequeueHeld {
 			return r.clearRequeueHeld(ctx, wl)
 		}
 		return nil

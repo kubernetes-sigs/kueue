@@ -17,7 +17,6 @@ limitations under the License.
 package statefulset
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -34,12 +33,12 @@ func TestReleaseScaleDownReservation(t *testing.T) {
 	now := time.Now()
 
 	cases := map[string]struct {
-		workload                 *kueue.Workload
-		wantQuotaReservedStatus  metav1.ConditionStatus
-		wantQuotaReservedReason  string
-		wantAdmissionNil         bool
-		wantRequeueHeld          bool
-		wantRequeueHeldReason    string
+		workload                *kueue.Workload
+		wantQuotaReservedStatus metav1.ConditionStatus
+		wantQuotaReservedReason string
+		wantAdmissionNil        bool
+		wantRequeueHeld         bool
+		wantRequeueHeldReason   string
 	}{
 		"releases admitted workload": {
 			workload: utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
@@ -82,7 +81,7 @@ func TestReleaseScaleDownReservation(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := t.Context()
 			c := utiltesting.NewFakeClient(tc.workload.DeepCopy())
 			r := &Reconciler{client: c}
 

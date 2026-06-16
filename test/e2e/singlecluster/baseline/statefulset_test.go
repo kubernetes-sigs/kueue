@@ -254,8 +254,12 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Check workload is deleted", func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, createdWorkload, false)
+			ginkgo.By("Check workload has RequeueHeld condition and quota is released", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadRequeueHeld)).To(gomega.BeTrue())
+					g.Expect(apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadQuotaReserved)).To(gomega.BeFalse())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 
