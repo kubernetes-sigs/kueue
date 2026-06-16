@@ -197,7 +197,7 @@ const (
 	// owner: @kannon92
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2941-DRA
 	//
-	// Reject workloads that use DRA resources when the DynamicResourceAllocation feature gate is disabled.
+	// Reject workloads that use DRA resources when the KueueDRAIntegration feature gate is disabled.
 	KueueDRARejectWorkloadsWhenDRADisabled featuregate.Feature = "KueueDRARejectWorkloadsWhenDRADisabled"
 
 	// owner: @PannagaRao
