@@ -322,9 +322,7 @@ func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue
 		r.queues.DeleteLocalQueue(log, e.ObjectOld)
 	}
 
-	// Reconcile LocalQueue metrics only after the queueing system and cache have been
-	// updated above, so the Manager already sees the new labels. Clearing before that
-	// update races with concurrent metric reports
+	// Clear after manager update to avoid race with concurrent metric reports.
 	if r.lqMetrics.ShouldExposeLocalQueueMetrics(e.ObjectNew.GetLabels()) && !customLabelsChanged {
 		r.updateLocalQueueResourceMetrics(log, e.ObjectNew)
 	} else if r.lqMetrics.ShouldExposeLocalQueueMetrics(e.ObjectOld.GetLabels()) {
