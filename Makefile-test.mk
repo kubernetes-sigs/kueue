@@ -153,7 +153,7 @@ test-e2e-extended-helm: test-e2e-extended
 
 .PHONY: test-multikueue-e2e-baseline
 test-multikueue-e2e-baseline: E2E_NPROCS := 5
-test-multikueue-e2e-baseline: setup-e2e-env run-test-multikueue-e2e-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-multikueue-e2e-baseline: setup-e2e-env run-test-multikueue-e2e-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the baseline MultiKueue e2e test suite.
 
 # Assign shard-0 operator versions (all operators except KubeRay) to the shard-0 target
 TEST_MULTIKUEUE_E2E_EXTENDED_SHARD_0_TARGETS := test-multikueue-e2e-extended test-multikueue-e2e-extended-shard-0
@@ -172,7 +172,7 @@ $(TEST_MULTIKUEUE_E2E_EXTENDED_SHARD_1_TARGETS): export RAYMINI_VERSION := $(RAY
 
 .PHONY: test-multikueue-e2e-extended
 test-multikueue-e2e-extended: E2E_NPROCS := 5
-test-multikueue-e2e-extended: setup-e2e-env run-test-multikueue-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-multikueue-e2e-extended: setup-e2e-env run-test-multikueue-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the extended MultiKueue e2e test suite.
 
 .PHONY: test-multikueue-e2e-extended-shard-0
 test-multikueue-e2e-extended-shard-0: E2E_NPROCS := 5
@@ -187,7 +187,7 @@ test-multikueue-e2e-extended-shard-1: E2E_CONFIG_FOLDER=multikueue/extended-shar
 test-multikueue-e2e-extended-shard-1: setup-e2e-env run-test-multikueue-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-multikueue-e2e-sequential
-test-multikueue-e2e-sequential: setup-e2e-env kind-secretreader-plugin-image-build run-test-e2e-multikueue-sequential-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-multikueue-e2e-sequential: setup-e2e-env kind-secretreader-plugin-image-build run-test-e2e-multikueue-sequential-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the sequential MultiKueue e2e test suite.
 
 .PHONY: test-multikueue-e2e-sequential-shard-0
 test-multikueue-e2e-sequential-shard-0: GINKGO_ARGS=--label-filter=shard-0
@@ -229,7 +229,7 @@ $(TEST_E2E_SHARD_2_TARGETS): export RAYMINI_VERSION := $(RAYMINI_VERSION)
 ##   Run only AppWrapper tests: GINKGO_ARGS="--label-filter=feature:appwrapper" make test-e2e-extended
 .PHONY: test-e2e-extended
 test-e2e-extended: E2E_NPROCS := 4
-test-e2e-extended: run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-e2e-extended: run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the extended e2e test suite (job-framework integrations) on a kind cluster.
 
 .PHONY: test-e2e-extended-shard-0
 test-e2e-extended-shard-0: E2E_NPROCS := 4
@@ -253,13 +253,13 @@ test-e2e-extended-shard-2: setup-e2e-env run-test-e2e-extended-$(E2E_KIND_VERSIO
 ##   Run only job tests: GINKGO_ARGS="--label-filter=feature:job" make test-e2e-baseline
 .PHONY: test-e2e-baseline
 test-e2e-baseline: E2E_NPROCS := 4
-test-e2e-baseline: setup-e2e-env kueuectl run-test-e2e-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-e2e-baseline: setup-e2e-env kueuectl run-test-e2e-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the baseline e2e test suite on a kind cluster.
 
 .PHONY: test-tas-e2e-baseline
-test-tas-e2e-baseline: setup-e2e-env run-test-tas-e2e-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-tas-e2e-baseline: setup-e2e-env run-test-tas-e2e-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the baseline Topology-Aware Scheduling (TAS) e2e test suite.
 
 .PHONY: test-tas-e2e-extended
-test-tas-e2e-extended: run-test-tas-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-tas-e2e-extended: run-test-tas-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the extended Topology-Aware Scheduling (TAS) e2e test suite.
 
 .PHONY: test-tas-e2e-extended-shard-0
 test-tas-e2e-extended-shard-0: GINKGO_ARGS=--label-filter=feature:kuberay
@@ -278,7 +278,7 @@ test-tas-e2e-extended-helm: E2E_USE_HELM=true
 test-tas-e2e-extended-helm: test-tas-e2e-extended
 
 .PHONY: test-e2e-certmanager
-test-e2e-certmanager: setup-e2e-env run-test-e2e-certmanager-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-e2e-certmanager: setup-e2e-env run-test-e2e-certmanager-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the cert-manager e2e test suite.
 
 ## Label Taxonomy:
 ##   Features: admissionfairsharing, certs, failurerecoverypolicy, localqueuemetrics, managejobswithoutqueuename, objectretentionpolicies, podintegrationautoenablement, reconcile, visibility, waitforpodsready
@@ -289,7 +289,7 @@ test-e2e-certmanager: setup-e2e-env run-test-e2e-certmanager-$(E2E_KIND_VERSION:
 ##   Run only shard 0 tests: make test-e2e-sequential-baseline-shard-0
 ##   Run only shard 1 tests: make test-e2e-sequential-baseline-shard-1
 .PHONY: test-e2e-sequential-baseline
-test-e2e-sequential-baseline: setup-e2e-env run-test-e2e-sequential-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-e2e-sequential-baseline: setup-e2e-env run-test-e2e-sequential-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the baseline sequential e2e test suite.
 
 .PHONY: test-e2e-sequential-baseline-shard-0
 test-e2e-sequential-baseline-shard-0: GINKGO_ARGS=--label-filter=shard-0
@@ -318,7 +318,7 @@ $(TEST_E2E_SEQUENTIAL_EXTENDED_SHARD_1_TARGETS): export SPARKOPERATOR_VERSION :=
 ## Examples:
 ##   Run only Spark Integration tests: GINKGO_ARGS="--label-filter=feature:spark" make test-e2e-sequential-extended
 .PHONY: test-e2e-sequential-extended
-test-e2e-sequential-extended: setup-e2e-env run-test-e2e-sequential-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-e2e-sequential-extended: setup-e2e-env run-test-e2e-sequential-extended-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the extended sequential e2e test suite.
 
 .PHONY: test-e2e-sequential-extended-shard-0
 test-e2e-sequential-extended-shard-0: GINKGO_ARGS=--label-filter=feature:managejobswithoutqueuename,feature:workloadidentifierannotations
@@ -332,16 +332,16 @@ test-e2e-sequential-extended-shard-1: setup-e2e-env run-test-e2e-sequential-exte
 test-e2e-sequential-extended-helm: E2E_USE_HELM=true
 test-e2e-sequential-extended-helm: test-e2e-sequential-extended
 .PHONY: test-e2e-upgrade
-test-e2e-upgrade: setup-e2e-env run-test-e2e-upgrade-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-e2e-upgrade: setup-e2e-env run-test-e2e-upgrade-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the upgrade e2e test suite.
 
 .PHONY: test-e2e-certmanager-upgrade
-test-e2e-certmanager-upgrade: setup-e2e-env run-test-e2e-certmanager-upgrade-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-e2e-certmanager-upgrade: setup-e2e-env run-test-e2e-certmanager-upgrade-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the cert-manager upgrade e2e test suite.
 
 .PHONY: test-e2e-dra
-test-e2e-dra: setup-e2e-env run-test-e2e-dra-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-e2e-dra: setup-e2e-env run-test-e2e-dra-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the Dynamic Resource Allocation (DRA) e2e test suite.
 
 .PHONY: test-e2e-multikueue-dra
-test-e2e-multikueue-dra: setup-e2e-env run-test-e2e-multikueue-dra-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-e2e-multikueue-dra: setup-e2e-env run-test-e2e-multikueue-dra-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the MultiKueue Dynamic Resource Allocation (DRA) e2e test suite.
 
 run-test-e2e-baseline-%: K8S_VERSION = $(@:run-test-e2e-baseline-%=%)
 run-test-e2e-baseline-%:
