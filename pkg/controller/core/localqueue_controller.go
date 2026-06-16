@@ -293,12 +293,6 @@ func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue
 		)
 	}
 
-	if r.lqMetrics.ShouldExposeLocalQueueMetrics(e.ObjectNew.GetLabels()) && !customLabelsChanged {
-		r.updateLocalQueueResourceMetrics(log, e.ObjectNew)
-	} else if r.lqMetrics.ShouldExposeLocalQueueMetrics(e.ObjectOld.GetLabels()) {
-		clearLocalQueueMetrics(e.ObjectOld)
-	}
-
 	oldStopPolicy := ptr.Deref(e.ObjectOld.Spec.StopPolicy, kueue.None)
 	newStopPolicy := ptr.Deref(e.ObjectNew.Spec.StopPolicy, kueue.None)
 	clusterQueueChanged := e.ObjectOld.Spec.ClusterQueue != e.ObjectNew.Spec.ClusterQueue
@@ -326,6 +320,13 @@ func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue
 		}
 	default:
 		r.queues.DeleteLocalQueue(log, e.ObjectOld)
+	}
+
+	// Clear after manager update to avoid race with concurrent metric reports.
+	if r.lqMetrics.ShouldExposeLocalQueueMetrics(e.ObjectNew.GetLabels()) && !customLabelsChanged {
+		r.updateLocalQueueResourceMetrics(log, e.ObjectNew)
+	} else if r.lqMetrics.ShouldExposeLocalQueueMetrics(e.ObjectOld.GetLabels()) {
+		clearLocalQueueMetrics(e.ObjectOld)
 	}
 
 	if customLabelsChanged && !stoppingQueue {
