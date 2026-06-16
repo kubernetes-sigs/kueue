@@ -57,13 +57,13 @@ func NewAdapter(gvk schema.GroupVersionKind) jobframework.MultiKueueAdapter {
 // SyncJob synchronizes a job resource between the local and remote clusters.
 // It ensures that the remote cluster has a corresponding object for the local job,
 // creating it if necessary, and updates the status of the local object based on the remote object.
-func (a *Adapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error {
+func (a *Adapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) (deferred bool, err error) {
 	// Get the local object
 	localObj := &unstructured.Unstructured{}
 	localObj.SetGroupVersionKind(a.gvk)
-	err := localClient.Get(ctx, key, localObj)
+	err = localClient.Get(ctx, key, localObj)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	// Check if remote object already exists
@@ -71,16 +71,16 @@ func (a *Adapter) SyncJob(ctx context.Context, localClient client.Client, remote
 	remoteObj.SetGroupVersionKind(a.gvk)
 	err = remoteClient.Get(ctx, key, remoteObj)
 	if err != nil && !apierrors.IsNotFound(err) {
-		return err
+		return false, err
 	}
 
 	if apierrors.IsNotFound(err) {
 		// Create new remote object
-		return a.createRemoteObject(ctx, remoteClient, localObj, workloadName, origin)
+		return false, a.createRemoteObject(ctx, remoteClient, localObj, workloadName, origin)
 	}
 
 	// Update existing remote object status
-	return a.syncStatus(ctx, localClient, localObj, remoteObj)
+	return false, a.syncStatus(ctx, localClient, localObj, remoteObj)
 }
 
 func (a *Adapter) createRemoteObject(ctx context.Context, remoteClient client.Client, localObj *unstructured.Unstructured, workloadName, origin string) error {

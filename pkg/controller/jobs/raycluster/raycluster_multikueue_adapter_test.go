@@ -69,7 +69,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*rayClusterBuilder.DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "raycluster1", Namespace: TestNamespace}, "wl1", "origin1")
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "raycluster1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
 			},
 
 			wantManagersRayClusters: []rayv1.RayCluster{
@@ -95,7 +96,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "raycluster1", Namespace: TestNamespace}, "wl1", "origin1")
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "raycluster1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
 			},
 
 			wantManagersRayClusters: []rayv1.RayCluster{
@@ -127,7 +129,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "raycluster1", Namespace: TestNamespace}, "wl1", "origin1")
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "raycluster1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
 			},
 			wantManagersRayClusters: []rayv1.RayCluster{
 				*rayClusterBuilder.Clone().
@@ -210,7 +213,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*rayClusterBuilder.DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "raycluster1", Namespace: TestNamespace}, "wl1", "origin1")
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "raycluster1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
 			},
 			wantManagersRayClusters: []rayv1.RayCluster{
 				*rayClusterBuilder.DeepCopy(),

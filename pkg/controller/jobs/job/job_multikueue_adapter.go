@@ -46,40 +46,44 @@ type multiKueueAdapter struct{}
 
 var _ jobframework.MultiKueueAdapter = (*multiKueueAdapter)(nil)
 
-func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error {
+func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) (bool, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	localJob := batchv1.Job{}
 	err := localClient.Get(ctx, key, &localJob)
 	if err != nil {
 		log.Error(err, "Failed to get local job", "job", key)
-		return err
+		return false, err
 	}
 
 	remoteJob := batchv1.Job{}
 	err = remoteClient.Get(ctx, key, &remoteJob)
 	if client.IgnoreNotFound(err) != nil {
-		return err
+		return false, err
 	}
 
 	// the remote job exists
 	if err == nil {
-		statusUpdate := determineStatusUpdate(ctx, log, &localJob, &remoteJob)
+		statusUpdate, deferred := determineStatusUpdate(ctx, log, &localJob, &remoteJob)
 		if !equality.Semantic.DeepEqual(localJob.Status, *statusUpdate) {
 			if err := clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
 				localJob.Status = *statusUpdate
 				return true, nil
 			}); err != nil {
-				return err
+				return false, err
 			}
 		}
 
-		// Sync elastic workload if needed.
+		// Sync elastic workload if needed. Propagate deferred: an elastic sync
+		// does not unsuspend the local Job, so if determineStatusUpdate deferred
+		// the status sync it is still deferred and the caller must requeue.
 		if needElasticJobSync(log, workloadName, &localJob, &remoteJob) {
-			return syncElasticJob(ctx, remoteClient, log, workloadName, &localJob, &remoteJob)
+			return deferred, syncElasticJob(ctx, remoteClient, log, workloadName, &localJob, &remoteJob)
 		}
 
-		return nil
+		// Surface determineStatusUpdate's deferred flag to the caller; see
+		// MultiKueueAdapter.SyncJob for the contract.
+		return deferred, nil
 	}
 
 	remoteJob = batchv1.Job{
@@ -99,10 +103,16 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	// clear the managedBy enables the batch/Job controller to take over
 	remoteJob.Spec.ManagedBy = nil
 
-	return remoteClient.Create(ctx, &remoteJob)
+	return false, remoteClient.Create(ctx, &remoteJob)
 }
 
-func determineStatusUpdate(ctx context.Context, log logr.Logger, localJob, remoteJob *batchv1.Job) *batchv1.JobStatus {
+// determineStatusUpdate returns the JobStatus to write to the local Job, plus
+// a deferred flag. deferred is true only for the "local suspended, remote
+// unsuspended, not finished" branch — the one case where the real remote
+// status.Active is intentionally NOT propagated. See MultiKueueAdapter.SyncJob
+// for what the caller does with it. Returning both from one function keeps the
+// deferred condition from drifting out of sync with the branches it describes.
+func determineStatusUpdate(ctx context.Context, log logr.Logger, localJob, remoteJob *batchv1.Job) (status *batchv1.JobStatus, deferred bool) {
 	localJobInfo := fromObject(localJob)
 
 	log.V(3).Info("Determining status update for a MultiKueue Job", "localJob", localJob, "remoteJob", remoteJob)
@@ -111,7 +121,7 @@ func determineStatusUpdate(ctx context.Context, log logr.Logger, localJob, remot
 		// This is safe as the local Job has already reached its final spec.
 		// We expect no validation errors from further spec changes.
 		log.V(3).Info("Performing the sync as the local Job is unsuspended")
-		return &remoteJob.Status
+		return &remoteJob.Status, false
 	}
 	remoteJobInfo := fromObject(remoteJob)
 	if remoteJobInfo.IsSuspended() {
@@ -119,13 +129,13 @@ func determineStatusUpdate(ctx context.Context, log logr.Logger, localJob, remot
 		// This is needed to await for updating the status.active field
 		// when the remote Job is evicted; see: https://github.com/kubernetes-sigs/kueue/pull/8151
 		log.V(3).Info("Peforming the sync as the local and the remote Job are both suspended")
-		return &remoteJob.Status
+		return &remoteJob.Status, false
 	}
 	if _, _, finished := remoteJobInfo.Finished(ctx); finished {
 		// Sync status if the remote Job is finished.
 		// Without this, the local Job could get stuck in the suspended state.
 		log.V(2).Info("Performing the sync as the remote Job is finished")
-		return &remoteJob.Status
+		return &remoteJob.Status, false
 	}
 
 	// Remaining case: local Job is suspended, remote Job is unsuspended but not finished.
@@ -151,10 +161,10 @@ func determineStatusUpdate(ctx context.Context, log logr.Logger, localJob, remot
 				LastProbeTime:      metav1.Now(),
 			})
 		log.V(2).Info("Updating the suspended local Job to comply with Kubernetes validation rules", "oldStatus", localJob.Status, "newStatus", newLocalStatus)
-		return newLocalStatus
+		return newLocalStatus, true
 	}
 
-	return &localJob.Status
+	return &localJob.Status, true
 }
 
 func setJobStatusCondition(list []batchv1.JobCondition, condition batchv1.JobCondition) []batchv1.JobCondition {

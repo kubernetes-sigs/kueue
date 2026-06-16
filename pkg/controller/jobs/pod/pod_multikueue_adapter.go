@@ -39,21 +39,21 @@ type multiKueueAdapter struct{}
 
 var _ jobframework.MultiKueueAdapter = (*multiKueueAdapter)(nil)
 
-func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error {
+func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) (bool, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	localPod := corev1.Pod{}
 	err := localClient.Get(ctx, key, &localPod)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	groupName := GetPodGroupName(&localPod)
 	if groupName == "" {
-		return syncLocalPodWithRemote(ctx, localClient, remoteClient, &localPod, workloadName, origin, &log)
+		return false, syncLocalPodWithRemote(ctx, localClient, remoteClient, &localPod, workloadName, origin, &log)
 	}
 
-	return syncPodGroup(ctx, localClient, remoteClient, key, workloadName, origin, groupName)
+	return false, syncPodGroup(ctx, localClient, remoteClient, key, workloadName, origin, groupName)
 }
 
 func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName) error {
