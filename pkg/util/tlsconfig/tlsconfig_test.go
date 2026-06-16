@@ -27,16 +27,20 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 )
 
-// compareErrors compares errors by their string representation
-func compareErrors(want, got error) bool {
-	if want == nil && got == nil {
+// compareAllErrors checks that every error in wantErrs is present in got.
+func compareAllErrors(wantErrs []error, got error) bool {
+	if len(wantErrs) == 0 && got == nil {
 		return true
 	}
-	if want == nil || got == nil {
+	if len(wantErrs) == 0 || got == nil {
 		return false
 	}
-	// Compare error strings, handling wrapped errors
-	return strings.Contains(got.Error(), want.Error())
+	for _, want := range wantErrs {
+		if !strings.Contains(got.Error(), want.Error()) {
+			return false
+		}
+	}
+	return true
 }
 
 var (
@@ -50,7 +54,7 @@ func TestParseTLSOptions(t *testing.T) {
 		name       string
 		cfg        *config.TLSOptions
 		expectNil  bool
-		wantErr    error
+		wantErrs   []error
 		validateFn func(*testing.T, *TLS)
 	}{
 		{
@@ -172,7 +176,7 @@ func TestParseTLSOptions(t *testing.T) {
 					"TLS_AES_256_GCM_SHA384",
 				},
 			},
-			wantErr: errInvalidMinVersionTLS10or11,
+			wantErrs: []error{errInvalidMinVersionTLS10or11},
 		},
 		{
 			name: "tls 1.2 with invalid cipher suites",
@@ -182,25 +186,25 @@ func TestParseTLSOptions(t *testing.T) {
 					"DUMMY",
 				},
 			},
-			wantErr: errInvalidCipherSuite,
+			wantErrs: []error{errInvalidCipherSuite},
 		},
 		{
-			name: "tls 1.0 with invalid cipher suites",
+			name: "tls 1.0 with invalid cipher suites returns both errors",
 			cfg: &config.TLSOptions{
 				MinVersion: "VersionTLS10",
 				CipherSuites: []string{
 					"DUMMY",
 				},
 			},
-			wantErr: errInvalidCipherSuite, // Both TLS version and cipher suite are invalid, but cipher suite error is returned last
+			wantErrs: []error{errInvalidMinVersionTLS10or11, errInvalidCipherSuite},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tlsOpts, err := ParseTLSOptions(tt.cfg)
-			if !compareErrors(tt.wantErr, err) {
-				t.Errorf("ParseTLSOptions() error = %v, wantErr %v", err, tt.wantErr)
+			if !compareAllErrors(tt.wantErrs, err) {
+				t.Errorf("ParseTLSOptions() error = %v, wantErrs %v", err, tt.wantErrs)
 				return
 			}
 
@@ -227,7 +231,7 @@ func TestConvertCipherSuites(t *testing.T) {
 		name     string
 		input    []string
 		expected []uint16
-		wantErr  error
+		wantErrs []error
 	}{
 		{
 			name:     "empty input",
@@ -255,15 +259,15 @@ func TestConvertCipherSuites(t *testing.T) {
 			input: []string{
 				"INVALID_CIPHER_SUITE",
 			},
-			wantErr: errInvalidCipherSuite,
+			wantErrs: []error{errInvalidCipherSuite},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := convertCipherSuites(tt.input)
-			if !compareErrors(tt.wantErr, err) {
-				t.Errorf("convertCipherSuites() error = %v, wantErr %v", err, tt.wantErr)
+			if !compareAllErrors(tt.wantErrs, err) {
+				t.Errorf("convertCipherSuites() error = %v, wantErrs %v", err, tt.wantErrs)
 				return
 			}
 
@@ -283,7 +287,7 @@ func TestConvertTLSMinVersion(t *testing.T) {
 		name     string
 		input    string
 		expected uint16
-		wantErr  error
+		wantErrs []error
 	}{
 		{
 			name:     "TLS 1.2",
@@ -304,27 +308,27 @@ func TestConvertTLSMinVersion(t *testing.T) {
 			name:     "invalid version returns error",
 			input:    "InvalidVersion",
 			expected: 0,
-			wantErr:  errInvalidVersion,
+			wantErrs: []error{errInvalidVersion},
 		},
 		{
 			name:     "tls version 1.1 returns error",
 			input:    "VersionTLS11",
 			expected: 0,
-			wantErr:  errInvalidMinVersionTLS10or11,
+			wantErrs: []error{errInvalidMinVersionTLS10or11},
 		},
 		{
 			name:     "tls version 1.0 returns error",
 			input:    "VersionTLS10",
 			expected: 0,
-			wantErr:  errInvalidMinVersionTLS10or11,
+			wantErrs: []error{errInvalidMinVersionTLS10or11},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := convertTLSMinVersion(tt.input)
-			if !compareErrors(tt.wantErr, err) {
-				t.Errorf("convertTLSMinVersion() error = %v, wantErr %v", err, tt.wantErr)
+			if !compareAllErrors(tt.wantErrs, err) {
+				t.Errorf("convertTLSMinVersion() error = %v, wantErrs %v", err, tt.wantErrs)
 				return
 			}
 
