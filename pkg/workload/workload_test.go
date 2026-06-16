@@ -126,9 +126,9 @@ func TestIsStatefulSetScaledDownRelease(t *testing.T) {
 		"false when quota reserved is true": {
 			wl: *utiltestingapi.MakeWorkload("wl", "ns").
 				Condition(metav1.Condition{
-					Type:    kueue.WorkloadQuotaReserved,
-					Status:  metav1.ConditionTrue,
-					Reason:  "QuotaReserved",
+					Type:   kueue.WorkloadQuotaReserved,
+					Status: metav1.ConditionTrue,
+					Reason: "QuotaReserved",
 				}).
 				Obj(),
 			want: false,
