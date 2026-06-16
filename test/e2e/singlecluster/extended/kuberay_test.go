@@ -222,8 +222,7 @@ var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:k
 		})
 	})
 
-	// ginkgo.Serial prevents concurrent ray-head containers from competing for CPU, causing liveness probe failures and crash-loops
-	ginkgo.It("Should run a rayjob with InTreeAutoscaling", ginkgo.Serial, ginkgo.Label("shard:kuberay-b"), func() {
+	ginkgo.It("Should run a rayjob with InTreeAutoscaling", ginkgo.Label("shard:kuberay-b"), func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
 		// Create ConfigMap with Python script
@@ -800,8 +799,7 @@ app = HelloWorld.bind()`,
 		})
 	})
 
-	// ginkgo.Serial prevents concurrent ray-head containers from competing for CPU, causing liveness probe failures and crash-loops
-	ginkgo.It("Should run a rayservice with InTreeAutoscaling", ginkgo.Serial, ginkgo.Label("shard:kuberay-b"), func() {
+	ginkgo.It("Should run a rayservice with InTreeAutoscaling", ginkgo.Label("shard:kuberay-b"), func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
 		// Create ConfigMap with a Ray Serve application that supports a delay parameter
