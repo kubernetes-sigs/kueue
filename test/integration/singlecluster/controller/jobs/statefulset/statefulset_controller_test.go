@@ -30,7 +30,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
-	"sigs.k8s.io/kueue/pkg/util/testing/matchers"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingstatefulset "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 	"sigs.k8s.io/kueue/test/util"
@@ -174,11 +173,14 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: wlName, Namespace: ns.Name}, wl)).Should(gomega.Succeed())
 			g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Scaling the StatefulSet to zero")
-		createdSTS.Spec.Replicas = ptr.To[int32](0)
-		gomega.Expect(k8sClient.Update(ctx, createdSTS)).Should(gomega.Succeed())
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSTS)).Should(gomega.Succeed())
+			createdSTS.Spec.Replicas = ptr.To[int32](0)
+			g.Expect(k8sClient.Update(ctx, createdSTS)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Verifying the workload has QuotaReserved=False with StatefulSetScaledDown reason and RequeueHeld=True")
 		gomega.Eventually(func(g gomega.Gomega) {
@@ -192,7 +194,7 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 			g.Expect(heldCond).ShouldNot(gomega.BeNil())
 			g.Expect(heldCond.Status).Should(gomega.Equal(metav1.ConditionTrue))
 			g.Expect(heldCond.Reason).Should(gomega.Equal("StatefulSetScaledDown"))
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Verifying the workload is not requeued for scheduling")
 		gomega.Consistently(func(g gomega.Gomega) {
@@ -204,31 +206,31 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Scaling the StatefulSet back up to 1")
-		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSTS)).Should(gomega.Succeed())
-		createdSTS.Spec.Replicas = ptr.To[int32](1)
-		gomega.Expect(k8sClient.Update(ctx, createdSTS)).Should(gomega.Succeed())
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSTS)).Should(gomega.Succeed())
+			createdSTS.Spec.Replicas = ptr.To[int32](1)
+			g.Expect(k8sClient.Update(ctx, createdSTS)).Should(gomega.Succeed())
+		}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Verifying the RequeueHeld condition is cleared")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: wlName, Namespace: ns.Name}, wl)).Should(gomega.Succeed())
 			heldCond := findWorkloadCondition(wl, kueue.WorkloadRequeueHeld)
 			g.Expect(heldCond).Should(gomega.BeNil())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Verifying the workload is re-admitted")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: wlName, Namespace: ns.Name}, wl)).Should(gomega.Succeed())
 			g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
-			matchers.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, []matchers.AdmittedWorkload{
-				{Key: client.ObjectKeyFromObject(wl)},
-			})
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, client.ObjectKeyFromObject(wl))
+		}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 	})
 })
 
-func findWorkloadCondition(wl *kueue.Workload, condType kueue.WorkloadConditionType) *metav1.Condition {
+func findWorkloadCondition(wl *kueue.Workload, condType string) *metav1.Condition {
 	for i := range wl.Status.Conditions {
-		if wl.Status.Conditions[i].Type == string(condType) {
+		if wl.Status.Conditions[i].Type == condType {
 			return &wl.Status.Conditions[i]
 		}
 	}

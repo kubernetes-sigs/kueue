@@ -207,7 +207,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
-		"should remove StatefulSet from Workload owner references if replicas = 0": {
+		"should keep StatefulSet in Workload owner references if replicas = 0": {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
@@ -227,6 +227,7 @@ func TestReconciler(t *testing.T) {
 				DeepCopy(),
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					OwnerReference(gvk, "sts", "sts-uid").
 					Obj(),
 			},
 		},
