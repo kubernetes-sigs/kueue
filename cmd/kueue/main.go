@@ -204,7 +204,10 @@ func main() {
 		metricsServerOptions.TLSOpts = append(metricsServerOptions.TLSOpts, tlsOpts...)
 	}
 
-	config.AddWebhookSettingsTo(&options, &cfg)
+	if err := config.AddWebhookSettingsTo(&options, &cfg); err != nil {
+		setupLog.Error(err, "Unable to configure webhook server")
+		os.Exit(1)
+	}
 
 	var metricsCertWatcher *certwatcher.CertWatcher
 	if cfg.InternalCertManagement == nil || !*cfg.InternalCertManagement.Enable {
