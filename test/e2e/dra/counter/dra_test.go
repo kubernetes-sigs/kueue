@@ -61,7 +61,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices", func() {
 		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
-	ginkgo.When("Creating Jobs with partitionable device resources", func() {
+	ginkgo.When("Creating Jobs with Partitionable device resources", func() {
 		var (
 			resourceFlavor *kueue.ResourceFlavor
 			clusterQueue   *kueue.ClusterQueue
