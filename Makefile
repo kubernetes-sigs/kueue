@@ -236,19 +236,19 @@ image-build:
 		$(IMAGE_BUILD_EXTRA_OPTS) \
 		./
 
-.PHONY: image-pushing-presubmit
-image-pushing-presubmit:
-	$(MAKE) -j5 run-image-pushing-presubmit
+.PHONY: image-pushing
+image-pushing:
+ifeq ($(JOB_TYPE),periodic)
+	$(MAKE) -j3 image-pushing-helper-artifacts
+else
+	$(MAKE) -j5 image-pushing-release-artifacts
+endif
 
-.PHONY: run-image-pushing-presubmit
-run-image-pushing-presubmit: image-push helm-chart-push kueueviz-image-push kueue-populator-image-push
+.PHONY: image-pushing-helper-artifacts
+image-pushing-helper-artifacts: debug-image-push importer-image-push ray-project-mini-image-build-push
 
-.PHONY: image-pushing-periodic
-image-pushing-periodic:
-	$(MAKE) -j3 run-image-pushing-periodic
-
-.PHONY: run-image-pushing-periodic
-run-image-pushing-periodic: debug-image-push importer-image-push ray-project-mini-image-build-push
+.PHONY: image-pushing-release-artifacts
+image-pushing-release-artifacts: image-push helm-chart-push kueueviz-image-push kueue-populator-image-push
 
 .PHONY: image-push
 image-push: PUSH=--push
