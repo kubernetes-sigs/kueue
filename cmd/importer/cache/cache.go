@@ -64,7 +64,7 @@ func Load(ctx context.Context, c client.Client, namespaces []string, mappingRule
 
 	for _, ns := range namespaces {
 		lqList := &kueue.LocalQueueList{}
-		if err := c.List(ctx, lqList); err != nil {
+		if err := c.List(ctx, lqList, client.InNamespace(ns)); err != nil {
 			return nil, fmt.Errorf("loading local queues in namespace %s: %w", ns, err)
 		}
 		ret.LocalQueues[ns] = utilslices.ToRefMap(lqList.Items, func(lq *kueue.LocalQueue) string { return lq.Name })
