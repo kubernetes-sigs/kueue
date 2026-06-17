@@ -7,14 +7,8 @@ steps:
   - name: 'gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:v20260127-c1affcc8de'
     entrypoint: make
     args:
-      - image-push
-      - debug-image-push
-      - importer-image-push
-      - helm-chart-push
-      - kueueviz-image-push
-      - kueue-populator-image-push
-      - kueue-priority-booster-image-push
-      - ray-project-mini-image-build-push
+      - image-pushing-presubmit
+      - image-pushing-periodic
     env:
       - DOCKER_BUILDX_CMD=/buildx-entrypoint
       - GOTOOLCHAIN=auto
