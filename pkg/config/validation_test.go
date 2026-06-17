@@ -1720,6 +1720,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASFailedNodeReplacementFailFast): true,
 				string(features.TASReplaceNodeOnPodTermination):   false,
 				string(features.TASReplaceNodeOnNodeTaints):       false,
+				string(features.TASMultiLayerTopology):            false,
 			},
 			gatesToRestore: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling:          true,
@@ -1729,6 +1730,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				features.TASFailedNodeReplacementFailFast: true,
 				features.TASReplaceNodeOnPodTermination:   true,
 				features.TASReplaceNodeOnNodeTaints:       true,
+				features.TASMultiLayerTopology:            true,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -1752,7 +1754,6 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASFailedNodeReplacementFailFast): false,
 				string(features.TASReplaceNodeOnPodTermination):   true,
 				string(features.TASReplaceNodeOnNodeTaints):       false,
-				string(features.TASMultiLayerTopology):            false,
 			},
 			gatesToRestore: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling:          true,
@@ -1762,7 +1763,6 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				features.TASFailedNodeReplacementFailFast: true,
 				features.TASReplaceNodeOnPodTermination:   true,
 				features.TASReplaceNodeOnNodeTaints:       true,
-				features.TASMultiLayerTopology:            true,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{

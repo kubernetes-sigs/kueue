@@ -337,7 +337,7 @@ minimized. However, if the Job would not fit within a single domain **one level 
 Kueue will not perform the balanced placement and will fallback to the standard TAS algorithm.
 
 #### Multi-Layer Topology
-{{< feature-state state="beta" for_version="v0.18" >}}
+{{< feature-state state="beta" for_version="v0.19" >}}
 {{% alert title="Note" color="primary" %}}
 `TASMultiLayerTopology` is currently an beta feature and is disabled by default.
 
