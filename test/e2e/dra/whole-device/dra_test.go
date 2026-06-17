@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package baseline
+package wholedevice
 
 import (
 	"github.com/onsi/ginkgo/v2"
@@ -36,8 +36,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
 )
-
-const driverName = "gpu.example.com"
 
 var _ = ginkgo.Describe("DRA", func() {
 	var ns *corev1.Namespace
@@ -82,7 +80,7 @@ var _ = ginkgo.Describe("DRA", func() {
 		ginkgo.It("Should admit and run a job with DRA resource claim template", func() {
 			ginkgo.By("Creating ResourceClaimTemplate referencing gpu.example.com DeviceClass")
 			rct := utiltesting.MakeResourceClaimTemplate("gpu-template", ns.Name).
-				DeviceRequest("gpu-request", driverName, 1).
+				DeviceRequest("gpu-request", util.DRAExampleDriverName, 1).
 				Obj()
 			util.MustCreate(ctx, k8sClient, rct)
 
@@ -127,7 +125,7 @@ var _ = ginkgo.Describe("DRA", func() {
 		ginkgo.It("Should keep job suspended when DRA quota is exceeded", func() {
 			ginkgo.By("Creating ResourceClaimTemplate requesting more than available quota")
 			rct := utiltesting.MakeResourceClaimTemplate("large-gpu-template", ns.Name).
-				DeviceRequest("gpu-request", driverName, 10). // Exceeds quota of 4
+				DeviceRequest("gpu-request", util.DRAExampleDriverName, 10). // Exceeds quota of 4
 				Obj()
 			util.MustCreate(ctx, k8sClient, rct)
 
@@ -170,12 +168,12 @@ var _ = ginkgo.Describe("DRA", func() {
 		ginkgo.It("Should admit multiple jobs that together fit within DRA quota", func() {
 			ginkgo.By("Creating ResourceClaimTemplates for two jobs (2 GPUs each, total 4 = quota)")
 			rct1 := utiltesting.MakeResourceClaimTemplate("gpu-template-1", ns.Name).
-				DeviceRequest("gpu-request", driverName, 2).
+				DeviceRequest("gpu-request", util.DRAExampleDriverName, 2).
 				Obj()
 			util.MustCreate(ctx, k8sClient, rct1)
 
 			rct2 := utiltesting.MakeResourceClaimTemplate("gpu-template-2", ns.Name).
-				DeviceRequest("gpu-request", driverName, 2).
+				DeviceRequest("gpu-request", util.DRAExampleDriverName, 2).
 				Obj()
 			util.MustCreate(ctx, k8sClient, rct2)
 
@@ -232,17 +230,17 @@ var _ = ginkgo.Describe("DRA", func() {
 		ginkgo.It("Should queue third job when DRA quota is full and admit it after quota is freed", func() {
 			ginkgo.By("Creating ResourceClaimTemplates for three jobs")
 			rct1 := utiltesting.MakeResourceClaimTemplate("gpu-template-a", ns.Name).
-				DeviceRequest("gpu-request", driverName, 2).
+				DeviceRequest("gpu-request", util.DRAExampleDriverName, 2).
 				Obj()
 			util.MustCreate(ctx, k8sClient, rct1)
 
 			rct2 := utiltesting.MakeResourceClaimTemplate("gpu-template-b", ns.Name).
-				DeviceRequest("gpu-request", driverName, 2).
+				DeviceRequest("gpu-request", util.DRAExampleDriverName, 2).
 				Obj()
 			util.MustCreate(ctx, k8sClient, rct2)
 
 			rct3 := utiltesting.MakeResourceClaimTemplate("gpu-template-c", ns.Name).
-				DeviceRequest("gpu-request", driverName, 2).
+				DeviceRequest("gpu-request", util.DRAExampleDriverName, 2).
 				Obj()
 			util.MustCreate(ctx, k8sClient, rct3)
 
@@ -287,7 +285,7 @@ var _ = ginkgo.Describe("DRA", func() {
 		ginkgo.It("Should admit and run a job with CEL selectors in resource claim template", func() {
 			ginkgo.By("Creating ResourceClaimTemplate with CEL selector filtering by driver name")
 			rct := utiltesting.MakeResourceClaimTemplate("cel-gpu-template", ns.Name).
-				DeviceRequest("gpu-request", driverName, 1).
+				DeviceRequest("gpu-request", util.DRAExampleDriverName, 1).
 				WithCELSelectors("device.driver == \"gpu.example.com\"").
 				Obj()
 			util.MustCreate(ctx, k8sClient, rct)
@@ -332,7 +330,7 @@ var _ = ginkgo.Describe("DRA", func() {
 		ginkgo.It("Should not admit a job with unsatisfiable CEL selectors to prevent quota leak", func() {
 			ginkgo.By("Creating ResourceClaimTemplate with CEL selector that matches no devices")
 			rctUnmatchable := utiltesting.MakeResourceClaimTemplate("unmatchable-cel-template", ns.Name).
-				DeviceRequest("gpu-request", driverName, 2).
+				DeviceRequest("gpu-request", util.DRAExampleDriverName, 2).
 				WithCELSelectors("device.driver == \"nonexistent-driver.example.com\"").
 				Obj()
 			util.MustCreate(ctx, k8sClient, rctUnmatchable)
@@ -367,7 +365,7 @@ var _ = ginkgo.Describe("DRA", func() {
 
 			ginkgo.By("Creating a legitimate job that should still be admittable")
 			rctLegitimate := utiltesting.MakeResourceClaimTemplate("legitimate-gpu-template", ns.Name).
-				DeviceRequest("gpu-request", driverName, 1).
+				DeviceRequest("gpu-request", util.DRAExampleDriverName, 1).
 				Obj()
 			util.MustCreate(ctx, k8sClient, rctLegitimate)
 
@@ -395,7 +393,7 @@ var _ = ginkgo.Describe("DRA", func() {
 		ginkgo.It("Should correctly calculate DRA resources for multi-pod jobs", func() {
 			ginkgo.By("Creating ResourceClaimTemplate requesting 1 GPU per pod")
 			rct := utiltesting.MakeResourceClaimTemplate("multi-pod-gpu-template", ns.Name).
-				DeviceRequest("gpu-request", driverName, 1).
+				DeviceRequest("gpu-request", util.DRAExampleDriverName, 1).
 				Obj()
 			util.MustCreate(ctx, k8sClient, rct)
 
@@ -463,7 +461,7 @@ var _ = ginkgo.Describe("DRA", func() {
 					Selectors: []resourceapi.DeviceSelector{
 						{
 							CEL: &resourceapi.CELDeviceSelector{
-								Expression: "device.driver == '" + driverName + "'",
+								Expression: "device.driver == '" + util.DRAExampleDriverName + "'",
 							},
 						},
 					},
@@ -581,7 +579,7 @@ var _ = ginkgo.Describe("DRA", func() {
 		ginkgo.It("Should correctly mix ResourceClaimTemplate and Extended Resource jobs", func() {
 			ginkgo.By("Creating ResourceClaimTemplate for first job")
 			rct := utiltesting.MakeResourceClaimTemplate("mixed-gpu-template", ns.Name).
-				DeviceRequest("gpu-request", driverName, 2).
+				DeviceRequest("gpu-request", util.DRAExampleDriverName, 2).
 				Obj()
 			util.MustCreate(ctx, k8sClient, rct)
 
@@ -639,7 +637,7 @@ var _ = ginkgo.Describe("DRA", func() {
 		ginkgo.It("Should track ResourceClaimTemplate and Extended Resource requests separately", func() {
 			ginkgo.By("Creating ResourceClaimTemplate requesting 2 GPUs")
 			rct := utiltesting.MakeResourceClaimTemplate("both-gpu-template", ns.Name).
-				DeviceRequest("gpu-request", driverName, 2).
+				DeviceRequest("gpu-request", util.DRAExampleDriverName, 2).
 				Obj()
 			util.MustCreate(ctx, k8sClient, rct)
 
@@ -778,7 +776,7 @@ var _ = ginkgo.Describe("DRA", func() {
 					Selectors: []resourceapi.DeviceSelector{
 						{
 							CEL: &resourceapi.CELDeviceSelector{
-								Expression: "device.driver == '" + driverName + "'",
+								Expression: "device.driver == '" + util.DRAExampleDriverName + "'",
 							},
 						},
 					},

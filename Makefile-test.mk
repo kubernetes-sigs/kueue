@@ -519,7 +519,7 @@ run-test-e2e-dra-%:
 		E2E_MODE=$(E2E_MODE) \
 		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
 		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
-		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="dra/baseline" \
+		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="dra/whole-device" \
 		DRA_EXAMPLE_DRIVER_VERSION=$(DRA_EXAMPLE_DRIVER_VERSION) \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
@@ -538,6 +538,24 @@ run-test-e2e-multikueue-dra-%:
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		./hack/testing/e2e-multikueue-test.sh
+
+.PHONY: test-e2e-dra-counter
+test-e2e-dra-counter: setup-e2e-env run-test-e2e-dra-counter-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
+run-test-e2e-dra-counter-%: K8S_VERSION = $(@:run-test-e2e-dra-counter-%=%)
+run-test-e2e-dra-counter-%:
+	@echo Running DRA Partitionable Devices e2e for k8s ${K8S_VERSION}
+	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(E2E_GINKGO_ARGS)" \
+		E2E_MODE=$(E2E_MODE) \
+		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
+		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
+		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="dra/counter" \
+		DRA_EXAMPLE_DRIVER_VERSION=$(DRA_EXAMPLE_DRIVER_VERSION) \
+		DRA_GPU_PARTITIONS=4 \
+		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
+		./hack/testing/e2e-test.sh
 
 run-test-e2e-multikueue-sequential-%: K8S_VERSION = $(@:run-test-e2e-multikueue-sequential-%=%)
 run-test-e2e-multikueue-sequential-%:
