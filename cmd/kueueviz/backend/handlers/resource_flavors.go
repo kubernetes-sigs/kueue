@@ -126,7 +126,10 @@ func (h *Handlers) fetchResourceFlavorDetails(ctx context.Context, flavorName st
 	}
 
 	// Retrieve matching nodes for the flavor
-	matchingNodes, _ := h.getNodesForFlavor(ctx, flavorName)
+	matchingNodes, err := h.getNodesForFlavor(ctx, flavorName)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching nodes for resource flavor %s: %w", flavorName, err)
+	}
 
 	details := map[string]any{
 		"tolerations": flavor.Spec.Tolerations,
