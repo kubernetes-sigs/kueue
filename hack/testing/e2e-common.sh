@@ -551,7 +551,9 @@ function cluster_create {
 
     local log_file="$ARTIFACTS/$cluster-create.log"
     local create_cmd="$KIND create cluster --name \"$cluster\" --image \"$E2E_KIND_VERSION\" --config \"$kind_config\" --kubeconfig=\"$kubeconfig\" --wait 5m -v 5 > \"$log_file\" 2>&1"
-    local continue_if="grep -q 'port is already allocated' \"$log_file\""
+    # Retry only known-transient failures so real bugs still fail fast (#11586, #12307).
+    local retriable_errors="port is already allocated|error execution phase wait-control-plane"
+    local continue_if="grep -qE '${retriable_errors}' \"$log_file\""
     local cleanup_cmd="if [ -f \"$log_file\" ]; then mv \"$log_file\" \"${log_file}.failed-\$(date +%s)\"; fi; $KIND delete cluster --name \"$cluster\" 2>/dev/null || true"
 
     echo "Creating kind cluster '$cluster'..."
