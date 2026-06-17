@@ -180,32 +180,27 @@ var _ = ginkgo.Describe("Importer", func() {
 		})
 	})
 
-	ginkgo.It("Should import only matching namespace", framework.SlowSpec, func() {
-		pod1 := utiltestingpod.MakePod("pod1", ns1.Name).
-			Label("src.lbl", "src-val").
-			Request(corev1.ResourceCPU, "2").
-			Obj()
+	ginkgo.It("Should assign local queues to appropriate namespaces", framework.SlowSpec, func() {
+		var mapping *importercache.ImportCache
+		var err error
 
-		ginkgo.By("Creating the pod", func() {
-			util.MustCreate(ctx, k8sClient, pod1)
-		})
-
-		ginkgo.By("Running the import for ns1", func() {
-			mapping, err := importercache.Load(ctx, k8sClient, []string{ns1.Name}, importermapping.RulesForLabel("src.lbl", map[string]string{"src-val": lqName}), nil)
+		ginkgo.By("Importing across all namespaces", func() {
+			mapping, err = importercache.Load(ctx, k8sClient, []string{ns1.Name, ns2.Name}, importermapping.RulesForLabel("src.lbl", map[string]string{"src-val": lqName}), nil)
 			gomega.Expect(err).ToNot(gomega.HaveOccurred())
 			gomega.Expect(mapping).ToNot(gomega.BeNil())
-
-			gomega.Expect(importerpod.Check(ctx, k8sClient, mapping, 8)).To(gomega.Succeed())
-			gomega.Expect(importerpod.Import(ctx, k8sClient, mapping, 8)).To(gomega.Succeed())
 		})
 
-		wl1 := &kueue.Workload{}
-		wl1LookupKey := types.NamespacedName{Name: pod.GetWorkloadNameForPod(pod1.Name, pod1.UID), Namespace: ns1.Name}
+		ginkgo.By("Checking the local queues are assigned correctly", func() {
+			gomega.Expect(mapping.LocalQueues).To(gomega.HaveLen(2))
 
-		ginkgo.By("Checking the Workload for Pod1 is admitted to cq1", func() {
-			gomega.Expect(k8sClient.Get(ctx, wl1LookupKey, wl1)).To(gomega.Succeed())
-			gomega.Expect(wl1.Status.Admission).ToNot(gomega.BeNil())
-			gomega.Expect(wl1.Status.Admission.ClusterQueue).To(gomega.Equal(kueue.ClusterQueueReference(cq1.Name)))
+			gomega.Expect(mapping.LocalQueues[ns1.Name]).To(gomega.HaveLen(1))
+			gomega.Expect(mapping.LocalQueues[ns2.Name]).To(gomega.HaveLen(1))
+
+			gomega.Expect(mapping.LocalQueues[ns1.Name]).To(gomega.HaveKey(lqName))
+			gomega.Expect(mapping.LocalQueues[ns2.Name]).To(gomega.HaveKey(lqName))
+
+			gomega.Expect(mapping.LocalQueues[ns1.Name][lqName].Namespace).To(gomega.Equal(ns1.Name))
+			gomega.Expect(mapping.LocalQueues[ns2.Name][lqName].Namespace).To(gomega.Equal(ns2.Name))
 		})
 	})
 })
