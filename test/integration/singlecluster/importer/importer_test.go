@@ -180,7 +180,7 @@ var _ = ginkgo.Describe("Importer", func() {
 		})
 	})
 
-	ginkgo.It("Should import only mathching namespace", framework.SlowSpec, func() {
+	ginkgo.It("Should import only matching namespace", framework.SlowSpec, func() {
 		pod1 := utiltestingpod.MakePod("pod1", ns1.Name).
 			Label("src.lbl", "src-val").
 			Request(corev1.ResourceCPU, "2").
