@@ -244,6 +244,20 @@ image-build:
 		$(IMAGE_BUILD_EXTRA_OPTS) \
 		./
 
+.PHONY: image-pushing
+image-pushing:
+ifeq ($(JOB_TYPE),periodic)
+	$(MAKE) -j3 image-pushing-helper-artifacts
+else
+	$(MAKE) -j5 image-pushing-release-artifacts
+endif
+
+.PHONY: image-pushing-helper-artifacts
+image-pushing-helper-artifacts: debug-image-push importer-image-push ray-project-mini-image-build-push
+
+.PHONY: image-pushing-release-artifacts
+image-pushing-release-artifacts: image-push helm-chart-push kueueviz-image-push kueue-populator-image-push kueue-priority-booster-image-push
+
 .PHONY: image-push
 image-push: PUSH=--push
 image-push: image-build
