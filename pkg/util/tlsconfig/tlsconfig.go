@@ -42,7 +42,7 @@ func ParseTLSOptions(cfg *config.TLSOptions) (*TLS, error) {
 	}
 	version, err := convertTLSMinVersion(cfg.MinVersion)
 	if err != nil {
-		errRet = errors.Join(err)
+		errRet = err
 	}
 	ret.MinVersion = version
 
@@ -50,7 +50,7 @@ func ParseTLSOptions(cfg *config.TLSOptions) (*TLS, error) {
 	if len(cfg.CipherSuites) > 0 {
 		cipherSuites, err := convertCipherSuites(cfg.CipherSuites)
 		if err != nil {
-			errRet = errors.Join(err)
+			errRet = errors.Join(errRet, err)
 		}
 		if err == nil && len(cipherSuites) > 0 {
 			ret.CipherSuites = cipherSuites
