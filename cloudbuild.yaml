@@ -11,6 +11,56 @@ steps:
     env:
       - DOCKER_BUILDX_CMD=/buildx-entrypoint
       - GOTOOLCHAIN=auto
+
+  - name: 'gcr.io/projectsigstore/cosign:v2.4.1'
+    id: 'attest-staging-images'
+    entrypoint: 'sh'
+    env:
+      - 'REGISTRY=us-central1-docker.pkg.dev/k8s-staging-images/kueue'
+    args:
+      - '-c'
+      - |
+        echo "Generating SLSA build provenance predicate..."
+        cat <<EOF > slsa-predicate.json
+        {
+          "builder": {
+            "id": "https://cloudbuild.googleapis.com/GoogleCloudBuild"
+          },
+          "buildType": "https://cloud.google.com/build/v1",
+          "invocation": {
+            "configSource": {
+              "uri": "git+https://github.com/kubernetes-sigs/kueue.git",
+              "entryPoint": "cloudbuild.yaml"
+            },
+            "parameters": {
+              "commit_sha": "$COMMIT_SHA",
+              "build_id": "$BUILD_ID"
+            }
+          },
+          "metadata": {
+            "buildInvocationId": "$BUILD_ID"
+          },
+          "materials": [
+            {
+              "uri": "git+https://github.com/kubernetes-sigs/kueue.git",
+              "digest": {
+                "sha1": "$COMMIT_SHA"
+              }
+            }
+          ]
+        }
+        EOF
+
+        # List of images built and pushed by the Makefile target to attest
+        IMAGES="kueue kueueviz kueue-populator kueue-priority-booster importer"
+
+        for img in \$IMAGES; do
+          echo "Attesting \${REGISTRY}/\${img}:\${_GIT_TAG} with SLSA provenance..."
+          cosign attest --yes \
+            --type slsaprovenance \
+            --predicate slsa-predicate.json \
+            \${REGISTRY}/\${img}:\${_GIT_TAG}
+        done
 substitutions:
   # _GIT_TAG will be filled with a git-based tag for the image, of the form vYYYYMMDD-hash, and
   # can be used as a substitution
