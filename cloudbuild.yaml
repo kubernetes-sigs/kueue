@@ -12,14 +12,17 @@ steps:
       - DOCKER_BUILDX_CMD=/buildx-entrypoint
       - GOTOOLCHAIN=auto
 
-  - name: 'gcr.io/projectsigstore/cosign:v2.4.1'
+  - name: 'gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:v20260127-c1affcc8de'
     id: 'attest-staging-images'
-    entrypoint: make
+    entrypoint: sh
     args:
-      - attest-images
+      - '-c'
+      - 'go install github.com/sigstore/cosign/v2/cmd/cosign@v2.4.1 && make attest-images'
     env:
       - 'IMAGE_REGISTRY=us-central1-docker.pkg.dev/k8s-staging-images/kueue'
       - 'GIT_TAG=$_GIT_TAG'
+      - 'COMMIT_SHA=$COMMIT_SHA'
+      - 'BUILD_ID=$BUILD_ID'
 substitutions:
   # _GIT_TAG will be filled with a git-based tag for the image, of the form vYYYYMMDD-hash, and
   # can be used as a substitution
