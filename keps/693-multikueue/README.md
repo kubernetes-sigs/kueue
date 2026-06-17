@@ -276,8 +276,8 @@ type ClusterProfile struct {
 
 	// CredentialsProviders defines a list of providers to obtain credentials of worker clusters
 	// using the ClusterProfile API.
-	// Deprecated: Use AccessProviders instead. If both AccessProviders and CredentialsProviders are provided,
-	// both are used. In case they specify a provider with the same name, the one in AccessProviders is preferred.
+	// Deprecated: Use AccessProviders instead. AccessProviders and CredentialsProviders
+	// are mutually exclusive.
 	CredentialsProviders []ClusterProfileCredentialsProvider `json:"credentialsProviders,omitempty"`
 }
 
@@ -294,7 +294,7 @@ type ClusterProfileAccessProvider struct {
 type ClusterProfileCredentialsProvider = ClusterProfileAccessProvider
 ```
 
-  The `credentialsProviders` field remains accepted for backwards compatibility. If both `accessProviders` and `credentialsProviders` are specified, the controller uses providers from both fields. When both fields specify a provider with the same name, the provider in `accessProviders` takes precedence.
+  The `credentialsProviders` field remains accepted for backwards compatibility when `accessProviders` is not configured. The `accessProviders` and `credentialsProviders` fields are mutually exclusive, so users should migrate existing `credentialsProviders` entries to `accessProviders`. The deprecated `credentialsProviders` field and `ClusterProfileCredentialsProvider` alias will be removed in the `v1beta3` Configuration API.
 
   On the ClusterProfile API side, Kueue uses `status.accessProviders` as the preferred source of cluster access information. The deprecated `status.credentialProviders` field remains supported by the ClusterProfile API compatibility layer.
 
