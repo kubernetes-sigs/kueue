@@ -270,8 +270,8 @@ using the ClusterProfile API.</p>
 <td>
    <p>CredentialsProviders defines a list of providers to obtain credentials of worker clusters
 using the ClusterProfile API.</p>
-<p>Deprecated: Use AccessProviders instead. If both AccessProviders and CredentialsProviders are provided,
-both are used. In case they specify a provider with the same name, the one in AccessProviders is preferred.</p>
+<p>Deprecated: Use AccessProviders instead. AccessProviders and CredentialsProviders
+are mutually exclusive.</p>
 </td>
 </tr>
 </tbody>

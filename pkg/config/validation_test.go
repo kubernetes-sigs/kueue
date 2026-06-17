@@ -626,7 +626,7 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
-		"shadowed invalid multiKueue.clusterProfile.credentialsProviders configuration": {
+		"multiKueue.clusterProfile accessProviders and credentialsProviders are mutually exclusive": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
@@ -645,31 +645,27 @@ func TestValidate(t *testing.T) {
 							{
 								Name: "test-provider",
 								ExecConfig: clientcmdapi.ExecConfig{
-									Command:         "",
-									APIVersion:      "",
-									InteractiveMode: "",
+									Command:         "deprecated-command",
+									APIVersion:      "client.authentication.k8s.io/v1",
+									InteractiveMode: clientcmdapi.NeverExecInteractiveMode,
 								},
 							},
 						},
 					},
 				},
 			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: "multiKueue.clusterProfile.credentialsProviders",
+				},
+			},
 		},
-		"invalid non-shadowed multiKueue.clusterProfile.credentialsProviders configuration": {
+		"invalid multiKueue.clusterProfile.credentialsProviders configuration": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
 					ClusterProfile: &configapi.ClusterProfile{
-						AccessProviders: []configapi.ClusterProfileAccessProvider{
-							{
-								Name: "test-provider",
-								ExecConfig: clientcmdapi.ExecConfig{
-									Command:         "test-command",
-									APIVersion:      "client.authentication.k8s.io/v1",
-									InteractiveMode: clientcmdapi.NeverExecInteractiveMode,
-								},
-							},
-						},
 						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
 							{
 								Name: "legacy-provider",
@@ -686,7 +682,7 @@ func TestValidate(t *testing.T) {
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeRequired,
-					Field: "multiKueue.clusterProfile.accessProviders.execConfig.command",
+					Field: "multiKueue.clusterProfile.credentialsProviders.execConfig.command",
 				},
 			},
 		},

@@ -51,28 +51,29 @@ import (
 )
 
 var (
-	integrationsPath                     = field.NewPath("integrations")
-	integrationsFrameworksPath           = integrationsPath.Child("frameworks")
-	integrationsExternalFrameworkPath    = integrationsPath.Child("externalFrameworks")
-	managedJobsNamespaceSelectorPath     = field.NewPath("managedJobsNamespaceSelector")
-	waitForPodsReadyPath                 = field.NewPath("waitForPodsReady")
-	requeuingStrategyPath                = waitForPodsReadyPath.Child("requeuingStrategy")
-	multiKueuePath                       = field.NewPath("multiKueue")
-	clusterProfileAccessProvidersPath    = multiKueuePath.Child("clusterProfile").Child("accessProviders")
-	fsPreemptionStrategiesPath           = field.NewPath("fairSharing", "preemptionStrategies")
-	afsResourceWeightsPath               = field.NewPath("admissionFairSharing", "resourceWeights")
-	afsPath                              = field.NewPath("admissionFairSharing")
-	internalCertManagementPath           = field.NewPath("internalCertManagement")
-	resourceTransformationPath           = field.NewPath("resources", "transformations")
-	dynamicResourceAllocationPath        = field.NewPath("resources", "deviceClassMappings")
-	objectRetentionPoliciesPath          = field.NewPath("objectRetentionPolicies")
-	objectRetentionPoliciesWorkloadsPath = objectRetentionPoliciesPath.Child("workloads")
-	tlsPath                              = field.NewPath("tls")
-	featureGatesPath                     = field.NewPath("featureGates")
-	visibilityServerBindAddressPath      = field.NewPath("visibilityServer", "bindAddress")
-	visibilityServerBindPortPath         = field.NewPath("visibilityServer", "bindPort")
-	customLabelsPath                     = field.NewPath("metrics", "customLabels")
-	resourceQuotaCheckStrategyPath       = field.NewPath("resources", "quotaCheckStrategy")
+	integrationsPath                      = field.NewPath("integrations")
+	integrationsFrameworksPath            = integrationsPath.Child("frameworks")
+	integrationsExternalFrameworkPath     = integrationsPath.Child("externalFrameworks")
+	managedJobsNamespaceSelectorPath      = field.NewPath("managedJobsNamespaceSelector")
+	waitForPodsReadyPath                  = field.NewPath("waitForPodsReady")
+	requeuingStrategyPath                 = waitForPodsReadyPath.Child("requeuingStrategy")
+	multiKueuePath                        = field.NewPath("multiKueue")
+	clusterProfileAccessProvidersPath     = multiKueuePath.Child("clusterProfile").Child("accessProviders")
+	clusterProfileCredentialProvidersPath = multiKueuePath.Child("clusterProfile").Child("credentialsProviders")
+	fsPreemptionStrategiesPath            = field.NewPath("fairSharing", "preemptionStrategies")
+	afsResourceWeightsPath                = field.NewPath("admissionFairSharing", "resourceWeights")
+	afsPath                               = field.NewPath("admissionFairSharing")
+	internalCertManagementPath            = field.NewPath("internalCertManagement")
+	resourceTransformationPath            = field.NewPath("resources", "transformations")
+	dynamicResourceAllocationPath         = field.NewPath("resources", "deviceClassMappings")
+	objectRetentionPoliciesPath           = field.NewPath("objectRetentionPolicies")
+	objectRetentionPoliciesWorkloadsPath  = objectRetentionPoliciesPath.Child("workloads")
+	tlsPath                               = field.NewPath("tls")
+	featureGatesPath                      = field.NewPath("featureGates")
+	visibilityServerBindAddressPath       = field.NewPath("visibilityServer", "bindAddress")
+	visibilityServerBindPortPath          = field.NewPath("visibilityServer", "bindPort")
+	customLabelsPath                      = field.NewPath("metrics", "customLabels")
+	resourceQuotaCheckStrategyPath        = field.NewPath("resources", "quotaCheckStrategy")
 )
 
 // Validate checks the configuration for invalid values.
@@ -196,8 +197,15 @@ func validateMultiKueue(c *configapi.Configuration) field.ErrorList {
 		}
 
 		if cp := c.MultiKueue.ClusterProfile; cp != nil {
-			providers := configapi.ClusterProfileAccessProviders(cp)
-			allErrs = append(allErrs, validateClusterProfileAccessProviders(providers, clusterProfileAccessProvidersPath)...)
+			credentialsProviders := cp.CredentialsProviders //nolint:staticcheck // SA1019: CredentialsProviders is validated for backward compatibility.
+			if len(cp.AccessProviders) > 0 && len(credentialsProviders) > 0 {
+				allErrs = append(allErrs, field.Forbidden(clusterProfileCredentialProvidersPath, "must not be specified when accessProviders is specified"))
+			}
+			if len(cp.AccessProviders) > 0 {
+				allErrs = append(allErrs, validateClusterProfileAccessProviders(cp.AccessProviders, clusterProfileAccessProvidersPath)...)
+			} else {
+				allErrs = append(allErrs, validateClusterProfileAccessProviders(credentialsProviders, clusterProfileCredentialProvidersPath)...)
+			}
 		}
 	}
 	return allErrs

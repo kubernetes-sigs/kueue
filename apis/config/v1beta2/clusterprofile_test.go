@@ -23,62 +23,6 @@ import (
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 )
 
-func TestClusterProfileAccessProviders(t *testing.T) {
-	accessProvider := func(name, command string) ClusterProfileAccessProvider {
-		return ClusterProfileAccessProvider{
-			Name: name,
-			ExecConfig: clientcmdapi.ExecConfig{
-				Command: command,
-			},
-		}
-	}
-	credentialsProvider := func(name, command string) ClusterProfileCredentialsProvider {
-		return accessProvider(name, command)
-	}
-
-	testCases := map[string]struct {
-		clusterProfileConfig *ClusterProfile
-		want                 []ClusterProfileAccessProvider
-	}{
-		"nil": {},
-		"only deprecated credentialsProviders": {
-			clusterProfileConfig: &ClusterProfile{
-				CredentialsProviders: []ClusterProfileCredentialsProvider{
-					credentialsProvider("secretreader", "deprecated-command"),
-				},
-			},
-			want: []ClusterProfileAccessProvider{
-				accessProvider("secretreader", "deprecated-command"),
-			},
-		},
-		"accessProviders take precedence": {
-			clusterProfileConfig: &ClusterProfile{
-				AccessProviders: []ClusterProfileAccessProvider{
-					accessProvider("secretreader", "access-command"),
-					accessProvider("kubelogin", "kubelogin-command"),
-				},
-				CredentialsProviders: []ClusterProfileCredentialsProvider{
-					credentialsProvider("secretreader", "deprecated-command"),
-					credentialsProvider("legacy", "legacy-command"),
-				},
-			},
-			want: []ClusterProfileAccessProvider{
-				accessProvider("secretreader", "access-command"),
-				accessProvider("kubelogin", "kubelogin-command"),
-				accessProvider("legacy", "legacy-command"),
-			},
-		},
-	}
-
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			if diff := cmp.Diff(tc.want, ClusterProfileAccessProviders(tc.clusterProfileConfig)); diff != "" {
-				t.Errorf("Unexpected providers (-want,+got):\n%s", diff)
-			}
-		})
-	}
-}
-
 func TestClusterProfileCredentialsProviderAlias(t *testing.T) {
 	acceptAccessProviders := func(providers []ClusterProfileAccessProvider) []ClusterProfileAccessProvider {
 		return providers
@@ -106,43 +50,6 @@ func TestClusterProfileCredentialsProviderAlias(t *testing.T) {
 			},
 		},
 	}, credentialsProviders); diff != "" {
-		t.Errorf("Unexpected providers (-want,+got):\n%s", diff)
-	}
-}
-
-func TestSetDefaultsConfigurationClusterProfileAccessProvidersIdempotent(t *testing.T) {
-	cfg := &Configuration{
-		MultiKueue: &MultiKueue{
-			ClusterProfile: &ClusterProfile{
-				AccessProviders: []ClusterProfileAccessProvider{
-					{
-						Name: "shared",
-					},
-				},
-				CredentialsProviders: []ClusterProfileCredentialsProvider{
-					{
-						Name: "shared",
-					},
-					{
-						Name: "legacy",
-					},
-				},
-			},
-		},
-	}
-
-	SetDefaults_Configuration(cfg)
-	SetDefaults_Configuration(cfg)
-
-	want := []ClusterProfileAccessProvider{
-		{
-			Name: "shared",
-		},
-		{
-			Name: "legacy",
-		},
-	}
-	if diff := cmp.Diff(want, cfg.MultiKueue.ClusterProfile.AccessProviders); diff != "" {
 		t.Errorf("Unexpected providers (-want,+got):\n%s", diff)
 	}
 }

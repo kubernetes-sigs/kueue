@@ -135,12 +135,15 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 
 	var cpAccessProvider clusterProfileAccessProvider
 	if features.Enabled(features.MultiKueueClusterProfile) && options.clusterProfileConfig != nil {
-		providers := configapi.ClusterProfileAccessProviders(options.clusterProfileConfig)
+		providers := options.clusterProfileConfig.AccessProviders
+		if len(providers) == 0 {
+			providers = options.clusterProfileConfig.CredentialsProviders //nolint:staticcheck // SA1019: CredentialsProviders is accepted for backward compatibility.
+		}
 		p := make([]access.Provider, 0, len(providers))
-		for _, provider := range providers {
+		for i := range providers {
 			p = append(p, access.Provider{
-				Name:       provider.Name,
-				ExecConfig: &provider.ExecConfig,
+				Name:       providers[i].Name,
+				ExecConfig: &providers[i].ExecConfig,
 			})
 		}
 		cpAccessProvider = access.New(p)

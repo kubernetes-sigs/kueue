@@ -455,8 +455,8 @@ type ClusterProfile struct {
 	// CredentialsProviders defines a list of providers to obtain credentials of worker clusters
 	// using the ClusterProfile API.
 	//
-	// Deprecated: Use AccessProviders instead. If both AccessProviders and CredentialsProviders are provided,
-	// both are used. In case they specify a provider with the same name, the one in AccessProviders is preferred.
+	// Deprecated: Use AccessProviders instead. AccessProviders and CredentialsProviders
+	// are mutually exclusive.
 	//
 	// +optional
 	// +deprecated

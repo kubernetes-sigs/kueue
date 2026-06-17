@@ -312,6 +312,27 @@ multiKueue:
 		t.Fatal(err)
 	}
 
+	multiKueueCredentialsProvidersConfig := filepath.Join(tmpDir, "multiKueueCredentialsProviders.yaml")
+	if err := os.WriteFile(multiKueueCredentialsProvidersConfig, []byte(`
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+namespace: kueue-system
+multiKueue:
+  gcInterval: 1m30s
+  origin: multikueue-manager1
+  workerLostTimeout: 10m
+  dispatcherName: kueue.x-k8s.io/multikueue-dispatcher-incremental
+  clusterProfile:
+    credentialsProviders:
+      - name: test-provider
+        execConfig:
+          command: /usr/bin/test-command
+          apiVersion: client.authentication.k8s.io/v1
+          interactiveMode: Never
+`), os.FileMode(0600)); err != nil {
+		t.Fatal(err)
+	}
+
 	resourceTransformConfig := filepath.Join(tmpDir, "resourceXForm.yaml")
 	if err := os.WriteFile(resourceTransformConfig, []byte(`
 apiVersion: config.kueue.x-k8s.io/v1beta2
@@ -761,6 +782,42 @@ objectRetentionPolicies:
 									Env: []clientcmdapi.ExecEnvVar{
 										{Name: "TEST_ENV", Value: "test-value"},
 									},
+								},
+							},
+						},
+					},
+				},
+				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				VisibilityServer:             defaultVisibility,
+			},
+			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
+		},
+		{
+			name:       "multiKueue config with deprecated credentialsProviders",
+			configFile: multiKueueCredentialsProvidersConfig,
+			wantConfiguration: configapi.Configuration{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: configapi.GroupVersion.String(),
+					Kind:       "Configuration",
+				},
+				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				ManageJobsWithoutQueueName: false,
+				InternalCertManagement:     enableDefaultInternalCertManagement,
+				ClientConnection:           defaultClientConnection,
+				Integrations:               defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					GCInterval:        &metav1.Duration{Duration: 90 * time.Second},
+					Origin:            new("multikueue-manager1"),
+					WorkerLostTimeout: &metav1.Duration{Duration: 10 * time.Minute},
+					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeIncremental),
+					ClusterProfile: &configapi.ClusterProfile{
+						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+							{
+								Name: "test-provider",
+								ExecConfig: clientcmdapi.ExecConfig{
+									Command:         "/usr/bin/test-command",
+									APIVersion:      "client.authentication.k8s.io/v1",
+									InteractiveMode: clientcmdapi.NeverExecInteractiveMode,
 								},
 							},
 						},

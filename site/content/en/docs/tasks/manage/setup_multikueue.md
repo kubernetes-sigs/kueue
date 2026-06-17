@@ -363,7 +363,7 @@ cluster credentials via the `plugin-command` executable.
 
 {{% alert title="Note" color="primary" %}}
 
-The previous Kueue configuration field name, `credentialsProviders`, is deprecated. Use `accessProviders` for new configurations.
+The previous Kueue configuration field name, `credentialsProviders`, is deprecated. Use `accessProviders` for new configurations. Do not configure both fields at the same time.
 
 {{% /alert %}}
 
