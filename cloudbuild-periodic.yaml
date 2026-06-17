@@ -1,5 +1,5 @@
 # See https://cloud.google.com/cloud-build/docs/build-config
-timeout: 3000s
+timeout: 3600s
 # A build step specifies an action that you want cloudbuild to perform.
 # For each build step, cloudbuild executes a docker container.
 steps:
