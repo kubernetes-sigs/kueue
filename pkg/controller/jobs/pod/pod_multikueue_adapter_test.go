@@ -88,7 +88,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*basePodBuilder.DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: basePodName, Namespace: TestNamespace}, "wl1", "origin1")
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: basePodName, Namespace: TestNamespace}, "wl1", "origin1")
+				return err
 			},
 
 			wantManagersPods: []corev1.Pod{
@@ -115,7 +116,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: basePodName, Namespace: TestNamespace}, "wl1", "origin1")
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: basePodName, Namespace: TestNamespace}, "wl1", "origin1")
+				return err
 			},
 
 			wantManagersPods: []corev1.Pod{
@@ -158,7 +160,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: basePodName, Namespace: TestNamespace}, "wl1", "origin1")
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: basePodName, Namespace: TestNamespace}, "wl1", "origin1")
+				return err
 			},
 
 			// The remote PodScheduled=False/Unschedulable condition must not overwrite
@@ -218,7 +221,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: basePodName, Namespace: TestNamespace}, "wl1", "origin1")
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: basePodName, Namespace: TestNamespace}, "wl1", "origin1")
+				return err
 			},
 
 			wantManagersPods: []corev1.Pod{
@@ -282,7 +286,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*podGroup[2].DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: podGroup[0].Obj().Name, Namespace: TestNamespace}, "wl1", "origin1")
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: podGroup[0].Obj().Name, Namespace: TestNamespace}, "wl1", "origin1")
+				return err
 			},
 			wantManagersPods: []corev1.Pod{
 				*podGroup[0].DeepCopy(),
@@ -311,7 +316,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: podGroup[0].Obj().Name, Namespace: TestNamespace}, "wl1", "origin1")
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: podGroup[0].Obj().Name, Namespace: TestNamespace}, "wl1", "origin1")
+				return err
 			},
 			wantManagersPods: []corev1.Pod{
 				*podGroup[0].DeepCopy(),
@@ -357,7 +363,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*basePodBuilder.DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: basePodName, Namespace: TestNamespace}, "wl1", "origin1")
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: basePodName, Namespace: TestNamespace}, "wl1", "origin1")
+				return err
 			},
 			wantManagersPods: []corev1.Pod{
 				*basePodBuilder.DeepCopy(),
@@ -377,7 +384,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*podGroupWithWlAnnotations[2].DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: podGroup[0].Obj().Name, Namespace: TestNamespace}, "wl1", "origin1")
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: podGroup[0].Obj().Name, Namespace: TestNamespace}, "wl1", "origin1")
+				return err
 			},
 			wantManagersPods: []corev1.Pod{
 				*podGroupWithWlAnnotations[0].DeepCopy(),

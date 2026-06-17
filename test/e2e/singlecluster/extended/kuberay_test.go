@@ -624,8 +624,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 		})
 	})
 
-	// ginkgo.Serial prevents concurrent ray-head containers from competing for CPU, causing liveness probe failures and crash-loops
-	ginkgo.It("Should run a RayCluster on worker if admitted", ginkgo.Serial, ginkgo.Label("shard:kuberay-b"), func() {
+	ginkgo.It("Should run a RayCluster on worker if admitted", ginkgo.Label("shard:kuberay-a"), func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
 		raycluster := testingraycluster.MakeCluster("raycluster1", ns.Name).

@@ -70,7 +70,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*jaxJobBuilder.DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "jaxjob1", Namespace: TestNamespace}, "wl1", "origin1")
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "jaxjob1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
 			},
 
 			wantManagersJAXJobs: []kftraining.JAXJob{
@@ -96,7 +97,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "jaxjob1", Namespace: TestNamespace}, "wl1", "origin1")
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "jaxjob1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
 			},
 
 			wantManagersJAXJobs: []kftraining.JAXJob{
@@ -128,7 +130,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "jaxjob1", Namespace: TestNamespace}, "wl1", "origin1")
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "jaxjob1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
 			},
 			wantManagersJAXJobs: []kftraining.JAXJob{
 				*jaxJobBuilder.Clone().
@@ -202,7 +205,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*jaxJobBuilder.DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "jaxjob1", Namespace: TestNamespace}, "wl1", "origin1")
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "jaxjob1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
 			},
 			wantManagersJAXJobs: []kftraining.JAXJob{
 				*jaxJobBuilder.DeepCopy(),

@@ -178,9 +178,6 @@ const (
 	// Enable quota accounting for Dynamic Resource Allocation (DRA) devices in workloads.
 	KueueDRAIntegration featuregate.Feature = "KueueDRAIntegration"
 
-	// Deprecated: planned to be removed in 0.19. Use KueueDRAIntegration instead.
-	DynamicResourceAllocation featuregate.Feature = "DynamicResourceAllocation"
-
 	// owner: @sohankunkerkar
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2941-DRA
 	//
@@ -200,7 +197,7 @@ const (
 	// owner: @kannon92
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2941-DRA
 	//
-	// Reject workloads that use DRA resources when the DynamicResourceAllocation feature gate is disabled.
+	// Reject workloads that use DRA resources when the KueueDRAIntegration feature gate is disabled.
 	KueueDRARejectWorkloadsWhenDRADisabled featuregate.Feature = "KueueDRARejectWorkloadsWhenDRADisabled"
 
 	// owner: @PannagaRao
@@ -545,10 +542,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	KueueDRAIntegration: {
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
-	},
-	DynamicResourceAllocation: {
-		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},
-		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Deprecated, LockToDefault: true}, // remove in 0.19
 	},
 	KueueDRAIntegrationExtendedResource: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
