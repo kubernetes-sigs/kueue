@@ -239,16 +239,16 @@ image-build:
 .PHONY: image-pushing
 image-pushing:
 ifeq ($(JOB_TYPE),periodic)
-	$(MAKE) -j3 image-pushing-helper-artifacts
+	$(MAKE) -j3 image-pushing-periodic
 else
-	$(MAKE) -j5 image-pushing-release-artifacts
+	$(MAKE) -j5 image-pushing-postsubmit
 endif
 
-.PHONY: image-pushing-helper-artifacts
-image-pushing-helper-artifacts: debug-image-push importer-image-push ray-project-mini-image-build-push
+.PHONY: image-pushing-periodic
+image-pushing-periodic: debug-image-push importer-image-push ray-project-mini-image-build-push
 
-.PHONY: image-pushing-release-artifacts
-image-pushing-release-artifacts: image-push helm-chart-push kueueviz-image-push kueue-populator-image-push
+.PHONY: image-pushing-postsubmit
+image-pushing-postsubmit: image-push helm-chart-push kueueviz-image-push kueue-populator-image-push kueue-priority-booster-image-push
 
 .PHONY: image-push
 image-push: PUSH=--push
