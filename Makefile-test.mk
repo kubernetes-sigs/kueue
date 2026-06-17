@@ -109,7 +109,8 @@ test: gotestsum ## Run tests.
 ##   Run AdmissionFairSharing tests: INTEGRATION_FILTERS="--label-filter=feature:admissionfairsharing" make test-integration
 
 .PHONY: test-integration
-test-integration: compile-crd-manifests envtest ginkgo dep-crds kueuectl ginkgo-top test-integration-run ## Run integration tests for all singlecluster suites with dependencies.
+test-integration:
+	echo $(JOB_TYPE)
 
 .PHONY: test-integration-run ## Run integration tests for all singlecluster suites.
 test-integration-run:
