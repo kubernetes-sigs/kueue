@@ -236,14 +236,6 @@ image-build:
 		$(IMAGE_BUILD_EXTRA_OPTS) \
 		./
 
-.PHONY: image-pushing
-image-pushing:
-ifeq ($(JOB_TYPE),periodic)
-	$(MAKE) -j3 image-pushing-periodic
-else
-	$(MAKE) -j5 image-pushing-postsubmit
-endif
-
 .PHONY: image-pushing-periodic
 image-pushing-periodic: debug-image-push importer-image-push ray-project-mini-image-build-push
 
