@@ -37,13 +37,16 @@ require (
 	k8s.io/dynamic-resource-allocation v0.36.1
 	k8s.io/klog/v2 v2.140.0
 	k8s.io/kube-openapi v0.0.0-20260319004828-5883c5ee87b9
+	k8s.io/kube-scheduler v0.36.0
 	k8s.io/kubectl v0.36.1
+	k8s.io/kubernetes v1.36.0
 	k8s.io/metrics v0.36.1
 	k8s.io/utils v0.0.0-20260507154919-ff6756f316d2
 	sigs.k8s.io/cluster-inventory-api v0.1.3
 	sigs.k8s.io/controller-runtime v0.24.0
 	sigs.k8s.io/jobset v0.12.0
 	sigs.k8s.io/lws v0.8.0
+	sigs.k8s.io/scheduler-library v0.0.0-00010101000000-000000000000
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.0
 	sigs.k8s.io/yaml v1.6.0
 )
@@ -160,6 +163,7 @@ require (
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	k8s.io/code-generator v0.36.1 // indirect
+	k8s.io/controller-manager v0.36.0 // indirect
 	k8s.io/gengo/v2 v2.0.0-20250922181213-ec3ebc5fd46b // indirect
 	k8s.io/kms v0.36.1 // indirect
 	k8s.io/streaming v0.36.1 // indirect
@@ -172,3 +176,5 @@ require (
 	sigs.k8s.io/scheduler-plugins v0.34.4-devel-sg // indirect
 	volcano.sh/apis v1.14.0 // indirect
 )
+
+replace sigs.k8s.io/scheduler-library => github.com/vshkrabkov/scheduler-library v0.0.0-20260511220521-d663684c55d1
