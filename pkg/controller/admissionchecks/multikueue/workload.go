@@ -558,7 +558,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		if remWlName != nil {
 			remWl := group.remotes[*remWlName]
 			remClient := group.remoteClients[*remWlName]
-			workload.SetPreemptionGatePosition(remWl, constants.MultiKueuePreemptionGate, kueue.PreemptionGatePositionOpen, metav1.NewTime(w.clock.Now()))
+			workload.OpenPreemptionGate(remWl, constants.MultiKueuePreemptionGate, metav1.NewTime(w.clock.Now()))
 			if err := remClient.client.Status().Update(ctx, remWl); err != nil {
 				return reconcile.Result{}, fmt.Errorf("failed to update remote workload: %w", err)
 			}
@@ -1104,14 +1104,11 @@ func (w *wlReconciler) workloadToOpenPreemptionGate(ctx context.Context, group *
 		if wl == nil {
 			continue
 		}
-		openMkGateStateIdx := slices.IndexFunc(wl.Status.PreemptionGates, func(gate kueue.PreemptionGateState) bool {
-			return gate.Name == constants.MultiKueuePreemptionGate && gate.Position == kueue.PreemptionGatePositionOpen
-		})
-		if openMkGateStateIdx == -1 {
+		mkGate := workload.FindPreemptionGate(wl, constants.MultiKueuePreemptionGate)
+		if mkGate == nil || mkGate.Position != kueue.PreemptionGatePositionOpen {
 			remoteWlLog.V(4).Info("Remote workload does not have an open preemption gate")
-			preemptionSignalCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadBlockedOnPreemptionGates)
-			wlRequiresPreemption := preemptionSignalCond != nil && preemptionSignalCond.Status == metav1.ConditionTrue
-			if !wlRequiresPreemption {
+			preemptionSignalCond := workload.BlockedOnPreemptionGatesCondition(wl)
+			if preemptionSignalCond == nil {
 				remoteWlLog.V(4).Info("Remote workload does not require preemption")
 				continue
 			}
@@ -1126,8 +1123,7 @@ func (w *wlReconciler) workloadToOpenPreemptionGate(ctx context.Context, group *
 			oldestPreemptionSignalTime = &preemptionSignalCond.LastTransitionTime
 		} else {
 			remoteWlLog.V(4).Info("Remote workload has an open preemption gate")
-			openMkGateState := wl.Status.PreemptionGates[openMkGateStateIdx]
-			gateOpenedTime := openMkGateState.LastTransitionTime
+			gateOpenedTime := mkGate.LastTransitionTime
 			if previousUngateTime == nil || gateOpenedTime.After(previousUngateTime.Time) {
 				remoteWlLog.V(4).Info("Remote workload has the new latest preemption ungating time")
 				previousUngateTime = &gateOpenedTime
@@ -1166,8 +1162,7 @@ func cloneForCreate(orig *kueue.Workload, origin string, preemptionGated bool) *
 	orig.Spec.DeepCopyInto(&remoteWl.Spec)
 
 	if features.Enabled(features.MultiKueueOrchestratedPreemption) && preemptionGated {
-		mkPreemptionGate := kueue.PreemptionGate{Name: constants.MultiKueuePreemptionGate}
-		remoteWl.Spec.PreemptionGates = append(remoteWl.Spec.PreemptionGates, mkPreemptionGate)
+		workload.EnsurePreemptionGateOnSpec(remoteWl, constants.MultiKueuePreemptionGate)
 	}
 
 	return remoteWl
