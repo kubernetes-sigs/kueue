@@ -10,7 +10,7 @@ require (
 	github.com/json-iterator/go v1.1.12
 	github.com/kubeflow/mpi-operator v0.8.0
 	github.com/kubeflow/spark-operator/v2 v2.5.0
-	github.com/kubeflow/trainer/v2 v2.2.1-0.20260515134202-448c432a7073
+	github.com/kubeflow/trainer/v2 v2.2.1
 	github.com/kubeflow/training-operator v1.9.3
 	github.com/onsi/ginkgo/v2 v2.29.0
 	github.com/onsi/gomega v1.41.0

@@ -165,8 +165,8 @@ github.com/kubeflow/mpi-operator v0.8.0 h1:22EccUiO4VDooG4TooesdE8o8euGVj89PIRhi
 github.com/kubeflow/mpi-operator v0.8.0/go.mod h1:1/YGVaFrbQd1a1tFsfE3qBcd4qU30numDnZmRnCy/jI=
 github.com/kubeflow/spark-operator/v2 v2.5.0 h1:NNgTHgQMbrGZSFJtprjssdtCaL/qlYYQY1EyXuRaP78=
 github.com/kubeflow/spark-operator/v2 v2.5.0/go.mod h1:D2F01DYPWqQRIzHzbD5X8Cpg/DrcScD6ENKZfTlJ6w4=
-github.com/kubeflow/trainer/v2 v2.2.1-0.20260515134202-448c432a7073 h1:06XH3+Mj5LbyhvmgNHjDXfQa9c1xSUnvTM1ok7vKhek=
-github.com/kubeflow/trainer/v2 v2.2.1-0.20260515134202-448c432a7073/go.mod h1:vdt+Q4altnU16a5pPV5X+3Ym34gWKfxu8EaRu8T8FqM=
+github.com/kubeflow/trainer/v2 v2.2.1 h1:GsM80cgxnLnd8j8+lrX/Dpcvw7DYqpxkL0ni4XA/U7Y=
+github.com/kubeflow/trainer/v2 v2.2.1/go.mod h1:vdt+Q4altnU16a5pPV5X+3Ym34gWKfxu8EaRu8T8FqM=
 github.com/kubeflow/training-operator v1.9.3 h1:aaSHqskOtCY8Dn8sVd+l9p5XAczW6O0nYMPjVLAw/lc=
 github.com/kubeflow/training-operator v1.9.3/go.mod h1:6zI0hgeCOheiW5Z12IcVkKBuSWm714fz8mUvYu4Fid4=
 github.com/kylelemons/godebug v1.1.0 h1:RPNrshWIDI6G2gRW9EHilWtl7Z6Sb1BR0xunSBf0SNc=
