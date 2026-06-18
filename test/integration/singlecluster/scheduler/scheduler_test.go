@@ -2261,6 +2261,185 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		)
 	})
 
+	ginkgo.When("The workload's podSet pod-level resource requests are not valid", func() {
+		var (
+			cq    *kueue.ClusterQueue
+			queue *kueue.LocalQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			cq = utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
+				).
+				Obj()
+			util.MustCreate(ctx, k8sClient, cq)
+			queue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+			util.MustCreate(ctx, k8sClient, queue)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		})
+
+		expectQuotaReservedConditionMessage := func(wl *kueue.Workload, wantedStatus string) {
+			ginkgo.GinkgoHelper()
+			gomega.Eventually(func(g gomega.Gomega) {
+				rwl := kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &rwl)).Should(gomega.Succeed())
+				cond := meta.FindStatusCondition(rwl.Status.Conditions, kueue.WorkloadQuotaReserved)
+				g.Expect(cond).ShouldNot(gomega.BeNil())
+				g.Expect(cond.Message).Should(gomega.ContainSubstring(wantedStatus))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}
+
+		ginkgo.It("blocks workloads when pod-level requests exceed pod-level limits", func() {
+			wl := utiltestingapi.MakeWorkload("pod-request-over-limit", ns.Name).
+				Queue(kueue.LocalQueueName(queue.Name)).
+				PodSets(
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "1").
+						Limit(corev1.ResourceCPU, "2").
+						PodLevelRequest(corev1.ResourceCPU, "3").
+						PodLevelLimit(corev1.ResourceCPU, "2").
+						Obj(),
+				).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+			expectQuotaReservedConditionMessage(wl, "resources validation failed:")
+		})
+
+		ginkgo.It("blocks workloads when pod-level requests exceed the pod LimitRange max", func() {
+			lr := utiltesting.MakeLimitRange("pod-max-limit", ns.Name).
+				WithType(corev1.LimitTypePod).
+				WithValue("Max", corev1.ResourceCPU, "1").
+				Obj()
+			util.MustCreate(ctx, k8sClient, lr)
+
+			wl := utiltestingapi.MakeWorkload("pod-request-over-max", ns.Name).
+				Queue(kueue.LocalQueueName(queue.Name)).
+				PodSets(
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "500m").
+						Limit(corev1.ResourceCPU, "500m").
+						PodLevelRequest(corev1.ResourceCPU, "2").
+						PodLevelLimit(corev1.ResourceCPU, "3").
+						Obj(),
+				).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+			expectQuotaReservedConditionMessage(wl, "resources didn't satisfy LimitRange constraints:")
+		})
+
+		ginkgo.It("blocks workloads when pod-level requests are below the pod LimitRange min", func() {
+			lr := utiltesting.MakeLimitRange("pod-min-limit", ns.Name).
+				WithType(corev1.LimitTypePod).
+				WithValue("Min", corev1.ResourceCPU, "3").
+				Obj()
+			util.MustCreate(ctx, k8sClient, lr)
+
+			wl := utiltestingapi.MakeWorkload("pod-request-under-min", ns.Name).
+				Queue(kueue.LocalQueueName(queue.Name)).
+				PodSets(
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "500m").
+						Limit(corev1.ResourceCPU, "500m").
+						PodLevelRequest(corev1.ResourceCPU, "2").
+						PodLevelLimit(corev1.ResourceCPU, "3").
+						Obj(),
+				).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+			expectQuotaReservedConditionMessage(wl, "resources didn't satisfy LimitRange constraints:")
+		})
+
+		ginkgo.It("admits workloads when pod-level resources satisfy the pod LimitRange", func() {
+			lr := utiltesting.MakeLimitRange("pod-resource-range", ns.Name).
+				WithType(corev1.LimitTypePod).
+				WithValue("Min", corev1.ResourceCPU, "1").
+				WithValue("Max", corev1.ResourceCPU, "4").
+				Obj()
+			util.MustCreate(ctx, k8sClient, lr)
+			wl := utiltestingapi.MakeWorkload("valid-pod-resources", ns.Name).
+				Queue(kueue.LocalQueueName(queue.Name)).
+				PodSets(
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "500m").
+						Limit(corev1.ResourceCPU, "500m").
+						PodLevelRequest(corev1.ResourceCPU, "2").
+						PodLevelLimit(corev1.ResourceCPU, "3").
+						Obj(),
+				).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, wl)
+		})
+	})
+
+	ginkgo.When("Pod-level resources are counted against ClusterQueue quota", func() {
+		var (
+			cq    *kueue.ClusterQueue
+			queue *kueue.LocalQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			cq = utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "3").Obj(),
+				).
+				Obj()
+			util.MustCreate(ctx, k8sClient, cq)
+			queue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+			util.MustCreate(ctx, k8sClient, queue)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		})
+		// Each workload has container-level req=500m (both would fit in 3 CPU if the
+		// scheduler used container values) and pod-level req=2 CPU (only one fits in 3
+		// CPU). The test verifies the scheduler accounts for the pod-level value.
+		ginkgo.It("Should block a second workload when pod-level requests exhaust quota", func() {
+			ginkgo.By("creating the first workload with pod-level CPU request of 2")
+			wl1 := utiltestingapi.MakeWorkload("wl1", ns.Name).
+				Queue(kueue.LocalQueueName(queue.Name)).
+				PodSets(
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "500m").
+						Limit(corev1.ResourceCPU, "500m").
+						PodLevelRequest(corev1.ResourceCPU, "2").
+						PodLevelLimit(corev1.ResourceCPU, "2").
+						Obj(),
+				).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl1)
+
+			ginkgo.By("verifying the first workload is admitted")
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, wl1)
+
+			ginkgo.By("creating the second workload with the same pod-level CPU request")
+			wl2 := utiltestingapi.MakeWorkload("wl2", ns.Name).
+				Queue(kueue.LocalQueueName(queue.Name)).
+				PodSets(
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "500m").
+						Limit(corev1.ResourceCPU, "500m").
+						PodLevelRequest(corev1.ResourceCPU, "2").
+						PodLevelLimit(corev1.ResourceCPU, "2").
+						Obj(),
+				).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl2)
+
+			ginkgo.By("verifying the second workload is pending due to insufficient quota")
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
+			util.ExpectPendingWorkloadsMetric(cq, 0, 1)
+			util.ExpectAdmittedWorkloadsTotalMetric(cq, "", 1)
+		})
+	})
+
 	ginkgo.When("Using clusterQueue stop policy", func() {
 		var (
 			cq    *kueue.ClusterQueue
