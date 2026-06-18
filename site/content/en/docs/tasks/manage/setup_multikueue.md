@@ -326,7 +326,7 @@ and can be called analogously to the `initContainers` approach (`/plugins/<plugi
 Alternatively, a custom Kueue manager image can be built to include the plugin executable.
 The image reference in the Kueue manager deployment should then point to the user-managed custom image.
 
-### Define the credentials provider in the Kueue manager config
+### Define the access provider in the Kueue manager config
 
 To connect the access providers specified in the `ClusterProfile`s with the mounted plugin,
 an entry within the Kueue configuration has to be created:
@@ -338,7 +338,7 @@ data:
     ...
     multiKueue:
       clusterProfile:
-        credentialsProviders:
+        accessProviders:
         - name: <access-provider-name>
           execConfig:
             apiVersion: client.authentication.k8s.io/v1beta1
@@ -360,6 +360,12 @@ It has to match the `accessProviders` name in the relevant `ClusterProfile`s.
 
 This definition will configure the `ClusterProfile`s using the `access-provider-name` to retrieve
 cluster credentials via the `plugin-command` executable.
+
+{{% alert title="Note" color="primary" %}}
+
+The previous Kueue configuration field name, `credentialsProviders`, is deprecated. Use `accessProviders` for new configurations. Do not configure both fields at the same time.
+
+{{% /alert %}}
 
 ### Link `MultiKueueCluster` objects to their corresponding `ClusterProfile`
 

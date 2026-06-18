@@ -51,29 +51,29 @@ import (
 )
 
 var (
-	integrationsPath                             = field.NewPath("integrations")
-	integrationsFrameworksPath                   = integrationsPath.Child("frameworks")
-	integrationsExternalFrameworkPath            = integrationsPath.Child("externalFrameworks")
-	managedJobsNamespaceSelectorPath             = field.NewPath("managedJobsNamespaceSelector")
-	waitForPodsReadyPath                         = field.NewPath("waitForPodsReady")
-	requeuingStrategyPath                        = waitForPodsReadyPath.Child("requeuingStrategy")
-	multiKueuePath                               = field.NewPath("multiKueue")
-	clusterProfileCredentialProvidersPath        = multiKueuePath.Child("clusterProfile").Child("credentialsProviders")
-	clusterProfileCredentialProvidersExecCfgPath = clusterProfileCredentialProvidersPath.Child("execConfig")
-	fsPreemptionStrategiesPath                   = field.NewPath("fairSharing", "preemptionStrategies")
-	afsResourceWeightsPath                       = field.NewPath("admissionFairSharing", "resourceWeights")
-	afsPath                                      = field.NewPath("admissionFairSharing")
-	internalCertManagementPath                   = field.NewPath("internalCertManagement")
-	resourceTransformationPath                   = field.NewPath("resources", "transformations")
-	dynamicResourceAllocationPath                = field.NewPath("resources", "deviceClassMappings")
-	objectRetentionPoliciesPath                  = field.NewPath("objectRetentionPolicies")
-	objectRetentionPoliciesWorkloadsPath         = objectRetentionPoliciesPath.Child("workloads")
-	tlsPath                                      = field.NewPath("tls")
-	featureGatesPath                             = field.NewPath("featureGates")
-	visibilityServerBindAddressPath              = field.NewPath("visibilityServer", "bindAddress")
-	visibilityServerBindPortPath                 = field.NewPath("visibilityServer", "bindPort")
-	customLabelsPath                             = field.NewPath("metrics", "customLabels")
-	resourceQuotaCheckStrategyPath               = field.NewPath("resources", "quotaCheckStrategy")
+	integrationsPath                      = field.NewPath("integrations")
+	integrationsFrameworksPath            = integrationsPath.Child("frameworks")
+	integrationsExternalFrameworkPath     = integrationsPath.Child("externalFrameworks")
+	managedJobsNamespaceSelectorPath      = field.NewPath("managedJobsNamespaceSelector")
+	waitForPodsReadyPath                  = field.NewPath("waitForPodsReady")
+	requeuingStrategyPath                 = waitForPodsReadyPath.Child("requeuingStrategy")
+	multiKueuePath                        = field.NewPath("multiKueue")
+	clusterProfileAccessProvidersPath     = multiKueuePath.Child("clusterProfile").Child("accessProviders")
+	clusterProfileCredentialProvidersPath = multiKueuePath.Child("clusterProfile").Child("credentialsProviders")
+	fsPreemptionStrategiesPath            = field.NewPath("fairSharing", "preemptionStrategies")
+	afsResourceWeightsPath                = field.NewPath("admissionFairSharing", "resourceWeights")
+	afsPath                               = field.NewPath("admissionFairSharing")
+	internalCertManagementPath            = field.NewPath("internalCertManagement")
+	resourceTransformationPath            = field.NewPath("resources", "transformations")
+	dynamicResourceAllocationPath         = field.NewPath("resources", "deviceClassMappings")
+	objectRetentionPoliciesPath           = field.NewPath("objectRetentionPolicies")
+	objectRetentionPoliciesWorkloadsPath  = objectRetentionPoliciesPath.Child("workloads")
+	tlsPath                               = field.NewPath("tls")
+	featureGatesPath                      = field.NewPath("featureGates")
+	visibilityServerBindAddressPath       = field.NewPath("visibilityServer", "bindAddress")
+	visibilityServerBindPortPath          = field.NewPath("visibilityServer", "bindPort")
+	customLabelsPath                      = field.NewPath("metrics", "customLabels")
+	resourceQuotaCheckStrategyPath        = field.NewPath("resources", "quotaCheckStrategy")
 )
 
 // Validate checks the configuration for invalid values.
@@ -197,37 +197,52 @@ func validateMultiKueue(c *configapi.Configuration) field.ErrorList {
 		}
 
 		if cp := c.MultiKueue.ClusterProfile; cp != nil {
-			for _, provider := range cp.CredentialsProviders {
-				if len(provider.Name) == 0 {
-					allErrs = append(allErrs, field.Required(clusterProfileCredentialProvidersPath.Child("name"), "must be specified"))
-				}
-
-				// The following execConfig validations almost stolen from
-				// https://github.com/kubernetes/client-go/blob/45e0decafa9b847c983f55c84b4f6ce5617f8f69/tools/clientcmd/validation.go#L308-L335
-				if len(provider.ExecConfig.Command) == 0 {
-					allErrs = append(allErrs, field.Required(clusterProfileCredentialProvidersExecCfgPath.Child("command"), "must be specified"))
-				}
-				if len(provider.ExecConfig.APIVersion) == 0 {
-					allErrs = append(allErrs, field.Required(clusterProfileCredentialProvidersExecCfgPath.Child("apiVersion"), "must be specified"))
-				}
-				for _, v := range provider.ExecConfig.Env {
-					if len(v.Name) == 0 {
-						allErrs = append(allErrs, field.Required(clusterProfileCredentialProvidersExecCfgPath.Child("env").Child("name"), "must be specified"))
-					}
-				}
-				switch provider.ExecConfig.InteractiveMode {
-				case "":
-					allErrs = append(allErrs, field.Required(clusterProfileCredentialProvidersExecCfgPath.Child("interactiveMode"), "must be specified"))
-				case clientcmdapi.NeverExecInteractiveMode, clientcmdapi.IfAvailableExecInteractiveMode, clientcmdapi.AlwaysExecInteractiveMode:
-					// These are valid
-				default:
-					allErrs = append(allErrs, field.NotSupported(
-						clusterProfileCredentialProvidersExecCfgPath.Child("interactiveMode"),
-						provider.ExecConfig.InteractiveMode,
-						[]clientcmdapi.ExecInteractiveMode{clientcmdapi.NeverExecInteractiveMode, clientcmdapi.IfAvailableExecInteractiveMode, clientcmdapi.AlwaysExecInteractiveMode},
-					))
-				}
+			credentialsProviders := cp.CredentialsProviders //nolint:staticcheck // SA1019: CredentialsProviders is validated for backward compatibility.
+			if len(cp.AccessProviders) > 0 && len(credentialsProviders) > 0 {
+				allErrs = append(allErrs, field.Forbidden(clusterProfileCredentialProvidersPath, "must not be specified when accessProviders is specified"))
 			}
+			if len(cp.AccessProviders) > 0 {
+				allErrs = append(allErrs, validateClusterProfileAccessProviders(cp.AccessProviders, clusterProfileAccessProvidersPath)...)
+			} else {
+				allErrs = append(allErrs, validateClusterProfileAccessProviders(credentialsProviders, clusterProfileCredentialProvidersPath)...)
+			}
+		}
+	}
+	return allErrs
+}
+
+func validateClusterProfileAccessProviders(providers []configapi.ClusterProfileAccessProvider, providersPath *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	execConfigPath := providersPath.Child("execConfig")
+	for _, provider := range providers {
+		if len(provider.Name) == 0 {
+			allErrs = append(allErrs, field.Required(providersPath.Child("name"), "must be specified"))
+		}
+
+		// The following execConfig validations almost stolen from
+		// https://github.com/kubernetes/client-go/blob/45e0decafa9b847c983f55c84b4f6ce5617f8f69/tools/clientcmd/validation.go#L308-L335
+		if len(provider.ExecConfig.Command) == 0 {
+			allErrs = append(allErrs, field.Required(execConfigPath.Child("command"), "must be specified"))
+		}
+		if len(provider.ExecConfig.APIVersion) == 0 {
+			allErrs = append(allErrs, field.Required(execConfigPath.Child("apiVersion"), "must be specified"))
+		}
+		for _, v := range provider.ExecConfig.Env {
+			if len(v.Name) == 0 {
+				allErrs = append(allErrs, field.Required(execConfigPath.Child("env").Child("name"), "must be specified"))
+			}
+		}
+		switch provider.ExecConfig.InteractiveMode {
+		case "":
+			allErrs = append(allErrs, field.Required(execConfigPath.Child("interactiveMode"), "must be specified"))
+		case clientcmdapi.NeverExecInteractiveMode, clientcmdapi.IfAvailableExecInteractiveMode, clientcmdapi.AlwaysExecInteractiveMode:
+			// These are valid
+		default:
+			allErrs = append(allErrs, field.NotSupported(
+				execConfigPath.Child("interactiveMode"),
+				provider.ExecConfig.InteractiveMode,
+				[]clientcmdapi.ExecInteractiveMode{clientcmdapi.NeverExecInteractiveMode, clientcmdapi.IfAvailableExecInteractiveMode, clientcmdapi.AlwaysExecInteractiveMode},
+			))
 		}
 	}
 	return allErrs

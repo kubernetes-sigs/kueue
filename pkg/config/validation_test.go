@@ -429,12 +429,12 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
-		"empty multiKueue.clusterProfile.credentialsProviders.name": {
+		"empty multiKueue.clusterProfile.accessProviders.name": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
 					ClusterProfile: &configapi.ClusterProfile{
-						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+						AccessProviders: []configapi.ClusterProfileAccessProvider{
 							{
 								Name: "",
 								ExecConfig: clientcmdapi.ExecConfig{
@@ -450,16 +450,16 @@ func TestValidate(t *testing.T) {
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeRequired,
-					Field: "multiKueue.clusterProfile.credentialsProviders.name",
+					Field: "multiKueue.clusterProfile.accessProviders.name",
 				},
 			},
 		},
-		"empty multiKueue.clusterProfile.credentialsProviders.execConfig.command": {
+		"empty multiKueue.clusterProfile.accessProviders.execConfig.command": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
 					ClusterProfile: &configapi.ClusterProfile{
-						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+						AccessProviders: []configapi.ClusterProfileAccessProvider{
 							{
 								Name: "test-provider",
 								ExecConfig: clientcmdapi.ExecConfig{
@@ -475,16 +475,16 @@ func TestValidate(t *testing.T) {
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeRequired,
-					Field: "multiKueue.clusterProfile.credentialsProviders.execConfig.command",
+					Field: "multiKueue.clusterProfile.accessProviders.execConfig.command",
 				},
 			},
 		},
-		"empty multiKueue.clusterProfile.credentialsProviders.execConfig.apiVersion": {
+		"empty multiKueue.clusterProfile.accessProviders.execConfig.apiVersion": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
 					ClusterProfile: &configapi.ClusterProfile{
-						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+						AccessProviders: []configapi.ClusterProfileAccessProvider{
 							{
 								Name: "test-provider",
 								ExecConfig: clientcmdapi.ExecConfig{
@@ -500,16 +500,16 @@ func TestValidate(t *testing.T) {
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeRequired,
-					Field: "multiKueue.clusterProfile.credentialsProviders.execConfig.apiVersion",
+					Field: "multiKueue.clusterProfile.accessProviders.execConfig.apiVersion",
 				},
 			},
 		},
-		"empty multiKueue.clusterProfile.credentialsProviders.execConfig.env.name": {
+		"empty multiKueue.clusterProfile.accessProviders.execConfig.env.name": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
 					ClusterProfile: &configapi.ClusterProfile{
-						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+						AccessProviders: []configapi.ClusterProfileAccessProvider{
 							{
 								Name: "test-provider",
 								ExecConfig: clientcmdapi.ExecConfig{
@@ -528,16 +528,16 @@ func TestValidate(t *testing.T) {
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeRequired,
-					Field: "multiKueue.clusterProfile.credentialsProviders.execConfig.env.name",
+					Field: "multiKueue.clusterProfile.accessProviders.execConfig.env.name",
 				},
 			},
 		},
-		"empty multiKueue.clusterProfile.credentialsProviders.execConfig.interactiveMode": {
+		"empty multiKueue.clusterProfile.accessProviders.execConfig.interactiveMode": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
 					ClusterProfile: &configapi.ClusterProfile{
-						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+						AccessProviders: []configapi.ClusterProfileAccessProvider{
 							{
 								Name: "test-provider",
 								ExecConfig: clientcmdapi.ExecConfig{
@@ -553,16 +553,16 @@ func TestValidate(t *testing.T) {
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeRequired,
-					Field: "multiKueue.clusterProfile.credentialsProviders.execConfig.interactiveMode",
+					Field: "multiKueue.clusterProfile.accessProviders.execConfig.interactiveMode",
 				},
 			},
 		},
-		"invalid multiKueue.clusterProfile.credentialsProviders.execConfig.interactiveMode": {
+		"invalid multiKueue.clusterProfile.accessProviders.execConfig.interactiveMode": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
 					ClusterProfile: &configapi.ClusterProfile{
-						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+						AccessProviders: []configapi.ClusterProfileAccessProvider{
 							{
 								Name: "test-provider",
 								ExecConfig: clientcmdapi.ExecConfig{
@@ -578,7 +578,7 @@ func TestValidate(t *testing.T) {
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeNotSupported,
-					Field: "multiKueue.clusterProfile.credentialsProviders.execConfig.interactiveMode",
+					Field: "multiKueue.clusterProfile.accessProviders.execConfig.interactiveMode",
 				},
 			},
 		},
@@ -587,7 +587,7 @@ func TestValidate(t *testing.T) {
 				Integrations: defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
 					ClusterProfile: &configapi.ClusterProfile{
-						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+						AccessProviders: []configapi.ClusterProfileAccessProvider{
 							{
 								Name: "test-provider",
 								ExecConfig: clientcmdapi.ExecConfig{
@@ -601,6 +601,88 @@ func TestValidate(t *testing.T) {
 							},
 						},
 					},
+				},
+			},
+		},
+		"valid multiKueue.clusterProfile credentialsProviders configuration": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					ClusterProfile: &configapi.ClusterProfile{
+						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+							{
+								Name: "legacy-provider",
+								ExecConfig: clientcmdapi.ExecConfig{
+									Command:         "test-command",
+									APIVersion:      "client.authentication.k8s.io/v1",
+									InteractiveMode: clientcmdapi.NeverExecInteractiveMode,
+									Env: []clientcmdapi.ExecEnvVar{
+										{Name: "TEST_VAR", Value: "test-value"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		"multiKueue.clusterProfile accessProviders and credentialsProviders are mutually exclusive": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					ClusterProfile: &configapi.ClusterProfile{
+						AccessProviders: []configapi.ClusterProfileAccessProvider{
+							{
+								Name: "test-provider",
+								ExecConfig: clientcmdapi.ExecConfig{
+									Command:         "test-command",
+									APIVersion:      "client.authentication.k8s.io/v1",
+									InteractiveMode: clientcmdapi.NeverExecInteractiveMode,
+								},
+							},
+						},
+						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+							{
+								Name: "test-provider",
+								ExecConfig: clientcmdapi.ExecConfig{
+									Command:         "deprecated-command",
+									APIVersion:      "client.authentication.k8s.io/v1",
+									InteractiveMode: clientcmdapi.NeverExecInteractiveMode,
+								},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: "multiKueue.clusterProfile.credentialsProviders",
+				},
+			},
+		},
+		"invalid multiKueue.clusterProfile.credentialsProviders configuration": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					ClusterProfile: &configapi.ClusterProfile{
+						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+							{
+								Name: "legacy-provider",
+								ExecConfig: clientcmdapi.ExecConfig{
+									Command:         "",
+									APIVersion:      "client.authentication.k8s.io/v1",
+									InteractiveMode: clientcmdapi.NeverExecInteractiveMode,
+								},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "multiKueue.clusterProfile.credentialsProviders.execConfig.command",
 				},
 			},
 		},

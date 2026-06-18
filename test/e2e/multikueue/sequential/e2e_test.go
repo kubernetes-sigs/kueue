@@ -474,7 +474,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 							Type:    kueue.MultiKueueClusterActive,
 							Status:  metav1.ConditionFalse,
 							Reason:  "BadClusterProfile",
-							Message: "load client config failed: no credentials provider configured",
+							Message: "load client config failed: no access provider configured",
 						},
 						util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
@@ -500,12 +500,14 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 			secretReaderRole        *rbacv1.Role
 
 			defaultManagerDeployment = &appsv1.Deployment{}
-			clusterProfileSecrets    = make([]*corev1.Secret, 0)
-			clusterProfiles          = make([]*inventoryv1alpha1.ClusterProfile, 0)
+			clusterProfileSecrets    []*corev1.Secret
+			clusterProfiles          []*inventoryv1alpha1.ClusterProfile
 			deploymentKey            = types.NamespacedName{Namespace: kueueNS, Name: "kueue-controller-manager"}
 		)
 
 		ginkgo.BeforeAll(func() {
+			defaultManagerKueueCfg = util.GetKueueConfiguration(ctx, k8sManagerClient)
+
 			// Image volumes are Beta and enabled by default from k8s 1.35, so the official secretreader
 			// image can be mounted directly. On older versions we keep the init container that copies the
 			// binary from the self-built image, because the official image does not ship a "cp" command.
@@ -579,32 +581,20 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 					}
 					g.Expect(k8sManagerClient.Update(ctx, updatedDeployment)).Should(gomega.Succeed())
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
-				// We will wait for Kueue after setting the configuration
-			})
-
-			ginkgo.By("Updating MultiKueue configuration with CredentialsProviders", func() {
-				defaultManagerKueueCfg = util.GetKueueConfiguration(ctx, k8sManagerClient)
-				util.UpdateKueueConfigurationAndRestart(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName, func(cfg *kueueconfig.Configuration) {
-					cfg.FeatureGates[string(features.MultiKueueClusterProfile)] = true
-					if cfg.MultiKueue == nil {
-						cfg.MultiKueue = &kueueconfig.MultiKueue{}
-					}
-					cfg.MultiKueue.ClusterProfile = &kueueconfig.ClusterProfile{
-						CredentialsProviders: []kueueconfig.ClusterProfileCredentialsProvider{
-							{
-								Name: "secretreader",
-								ExecConfig: api.ExecConfig{
-									APIVersion:         "client.authentication.k8s.io/v1",
-									Command:            secretReaderPath,
-									ProvideClusterInfo: true,
-									InteractiveMode:    api.NeverExecInteractiveMode,
-								},
-							},
-						},
-					}
-				})
 			})
 		})
+		ginkgo.AfterEach(func() {
+			for _, s := range clusterProfileSecrets {
+				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, s, true, util.Timeout)
+			}
+			clusterProfileSecrets = nil
+
+			for _, c := range clusterProfiles {
+				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, c, true, util.Timeout)
+			}
+			clusterProfiles = nil
+		})
+
 		ginkgo.AfterAll(func() {
 			ginkgo.By("setting back the configuration", func() {
 				// Just update Kueue configuration. We will restart Kueue later.
@@ -623,19 +613,33 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 				util.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sManagerClient)
 			})
 
-			for _, s := range clusterProfileSecrets {
-				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, s, true, util.Timeout)
-			}
-
-			for _, c := range clusterProfiles {
-				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, c, true, util.Timeout)
-			}
-
 			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, secretReaderRoleBinding, true, util.MediumTimeout)
 			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, secretReaderRole, true, util.MediumTimeout)
 		})
 
 		ginkgo.It("Should be able to use ClusterProfile as way to connect worker cluster", func() {
+			ginkgo.By("Updating MultiKueue configuration with AccessProviders", func() {
+				clusterProfileAccessProvider := kueueconfig.ClusterProfileAccessProvider{
+					Name: "secretreader",
+					ExecConfig: api.ExecConfig{
+						APIVersion:         "client.authentication.k8s.io/v1",
+						Command:            secretReaderPath,
+						ProvideClusterInfo: true,
+						InteractiveMode:    api.NeverExecInteractiveMode,
+					},
+				}
+
+				util.UpdateKueueConfigurationAndRestart(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName, func(cfg *kueueconfig.Configuration) {
+					cfg.FeatureGates[string(features.MultiKueueClusterProfile)] = true
+					if cfg.MultiKueue == nil {
+						cfg.MultiKueue = &kueueconfig.MultiKueue{}
+					}
+					cfg.MultiKueue.ClusterProfile = &kueueconfig.ClusterProfile{
+						AccessProviders: []kueueconfig.ClusterProfileAccessProvider{clusterProfileAccessProvider},
+					}
+				})
+			})
+
 			ginkgo.By("creating secrets with tokens to read from", func() {
 				worker1AuthInfo := util.GetAuthInfoFromKubeConfig(worker1KConfig)
 				worker2AuthInfo := util.GetAuthInfoFromKubeConfig(worker2KConfig)

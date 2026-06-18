@@ -606,24 +606,24 @@ type clustersReconciler struct {
 
 	adapters map[string]jobframework.MultiKueueAdapter
 
-	clusterProfileCreds clusterProfileCreds
+	clusterProfileAccessProvider clusterProfileAccessProvider
 
 	logName     string
 	roleTracker *roletracker.RoleTracker
 }
 
-type clusterProfileCreds interface {
+type clusterProfileAccessProvider interface {
 	BuildConfigFromCP(clusterprofile *inventoryv1alpha1.ClusterProfile) (*rest.Config, error)
 }
 
-type NoOpClusterProfileCreds struct{}
+type NoOpClusterProfileAccessProvider struct{}
 
-func (NoOpClusterProfileCreds) BuildConfigFromCP(clusterprofile *inventoryv1alpha1.ClusterProfile) (*rest.Config, error) {
-	return nil, errors.New("no credentials provider configured")
+func (NoOpClusterProfileAccessProvider) BuildConfigFromCP(clusterprofile *inventoryv1alpha1.ClusterProfile) (*rest.Config, error) {
+	return nil, errors.New("no access provider configured")
 }
 
-var _ clusterProfileCreds = (*access.Config)(nil)
-var _ clusterProfileCreds = (*NoOpClusterProfileCreds)(nil)
+var _ clusterProfileAccessProvider = (*access.Config)(nil)
+var _ clusterProfileAccessProvider = (*NoOpClusterProfileAccessProvider)(nil)
 
 var _ manager.Runnable = (*clustersReconciler)(nil)
 var _ reconcile.Reconciler = (*clustersReconciler)(nil)
@@ -755,7 +755,7 @@ func (c *clustersReconciler) loadClientConfig(ctx context.Context, cluster *kueu
 			return nil, "BadClusterProfile", err
 		}
 		opts := validateRestConfigOptions{
-			// ExecProvider is allowed for ClusterProfile credentials plugins.
+			// ExecProvider is allowed for ClusterProfile access plugins.
 			allowExecProvider: true,
 		}
 		if err := validateRestConfig(restConfig, opts); err != nil {
@@ -883,7 +883,7 @@ func (c *clustersReconciler) getRestConfigFromClusterProfile(ctx context.Context
 		return nil, err
 	}
 
-	return c.clusterProfileCreds.BuildConfigFromCP(cp)
+	return c.clusterProfileAccessProvider.BuildConfigFromCP(cp)
 }
 
 func (c *clustersReconciler) getKubeConfigFromSecret(ctx context.Context, secretName string) ([]byte, error) {
@@ -969,23 +969,23 @@ func newClustersReconciler(
 	origin string,
 	fsWatcher *KubeConfigFSWatcher,
 	adapters map[string]jobframework.MultiKueueAdapter,
-	cpCreds clusterProfileCreds,
+	cpAccessProvider clusterProfileAccessProvider,
 	roleTracker *roletracker.RoleTracker,
 ) *clustersReconciler {
 	return &clustersReconciler{
-		localClient:         c,
-		configNamespace:     namespace,
-		remoteClients:       make(map[string]*remoteClient),
-		wlUpdateCh:          make(chan event.GenericEvent, eventChBufferSize),
-		watchEndedCh:        make(chan event.GenericEvent, eventChBufferSize),
-		cqUpdateCh:          make(chan event.TypedGenericEvent[kueue.ClusterQueueReference], eventChBufferSize),
-		gcInterval:          gcInterval,
-		origin:              origin,
-		fsWatcher:           fsWatcher,
-		adapters:            adapters,
-		clusterProfileCreds: cpCreds,
-		logName:             "multikueuecluster-reconciler",
-		roleTracker:         roleTracker,
+		localClient:                  c,
+		configNamespace:              namespace,
+		remoteClients:                make(map[string]*remoteClient),
+		wlUpdateCh:                   make(chan event.GenericEvent, eventChBufferSize),
+		watchEndedCh:                 make(chan event.GenericEvent, eventChBufferSize),
+		cqUpdateCh:                   make(chan event.TypedGenericEvent[kueue.ClusterQueueReference], eventChBufferSize),
+		gcInterval:                   gcInterval,
+		origin:                       origin,
+		fsWatcher:                    fsWatcher,
+		adapters:                     adapters,
+		clusterProfileAccessProvider: cpAccessProvider,
+		logName:                      "multikueuecluster-reconciler",
+		roleTracker:                  roleTracker,
 	}
 }
 

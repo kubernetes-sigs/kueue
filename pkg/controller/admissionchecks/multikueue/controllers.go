@@ -133,22 +133,26 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		return err
 	}
 
-	var cpCreds clusterProfileCreds
+	var cpAccessProvider clusterProfileAccessProvider
 	if features.Enabled(features.MultiKueueClusterProfile) && options.clusterProfileConfig != nil {
-		p := make([]access.Provider, 0, len(options.clusterProfileConfig.CredentialsProviders))
-		for _, provider := range options.clusterProfileConfig.CredentialsProviders {
+		providers := options.clusterProfileConfig.AccessProviders
+		if len(providers) == 0 {
+			providers = options.clusterProfileConfig.CredentialsProviders //nolint:staticcheck // SA1019: CredentialsProviders is accepted for backward compatibility.
+		}
+		p := make([]access.Provider, 0, len(providers))
+		for i := range providers {
 			p = append(p, access.Provider{
-				Name:       provider.Name,
-				ExecConfig: &provider.ExecConfig,
+				Name:       providers[i].Name,
+				ExecConfig: &providers[i].ExecConfig,
 			})
 		}
-		cpCreds = access.New(p)
+		cpAccessProvider = access.New(p)
 	}
-	if cpCreds == nil {
-		cpCreds = &NoOpClusterProfileCreds{}
+	if cpAccessProvider == nil {
+		cpAccessProvider = &NoOpClusterProfileAccessProvider{}
 	}
 
-	cRec := newClustersReconciler(mgr.GetClient(), namespace, options.gcInterval, options.origin, fsWatcher, options.adapters, cpCreds, options.roleTracker)
+	cRec := newClustersReconciler(mgr.GetClient(), namespace, options.gcInterval, options.origin, fsWatcher, options.adapters, cpAccessProvider, options.roleTracker)
 	err = cRec.setupWithManager(mgr)
 	if err != nil {
 		return err
