@@ -3257,6 +3257,145 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 	})
+
+	ginkgo.When("The admission goroutine races with preemptions in the next scheduling cycle", func() {
+		// This deterministically reproduces a race condition in the scheduler, where the asynchronous
+		// admission goroutine does not finish before the next scheduling cycle starts.
+		// Reverting https://github.com/kubernetes-sigs/kueue/pull/11502 makes this test fail.
+		// See: https://github.com/kubernetes-sigs/kueue/issues/11480
+		var (
+			cq      *kueue.ClusterQueue
+			q       *kueue.LocalQueue
+			lowWPC  *kueue.WorkloadPriorityClass
+			highWPC *kueue.WorkloadPriorityClass
+		)
+
+		ginkgo.BeforeEach(func() {
+			lowWPC = utiltestingapi.MakeWorkloadPriorityClass("low-wpc").PriorityValue(-10).Obj()
+			gomega.Expect(k8sClient.Create(ctx, lowWPC)).To(gomega.Succeed())
+
+			highWPC = utiltestingapi.MakeWorkloadPriorityClass("high-wpc").PriorityValue(10).Obj()
+			gomega.Expect(k8sClient.Create(ctx, highWPC)).To(gomega.Succeed())
+
+			cq = utiltestingapi.MakeClusterQueue("cq-race").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "1").Obj()).
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+				}).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
+
+			q = utiltestingapi.MakeLocalQueue("q-race", ns.Name).ClusterQueue(cq.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, q)).To(gomega.Succeed())
+
+			ginkgo.By("Waiting for cluster queue to become active")
+			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
+		})
+
+		ginkgo.AfterEach(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, lowWPC, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, highWPC, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, q, true)
+		})
+
+		ginkgo.It("Should not deadlock the preempting workloads", func() {
+			admissionPatchStarted := make(chan struct{}, 1)
+			allowAdmissionPatch := make(chan struct{})
+			evictionPatchAttempted := make(chan struct{}, 1)
+			admissionPatchReleased := false
+
+			var admissionPatchCount atomic.Int32
+			var evictionPatchCount atomic.Int32
+
+			wl1 := utiltestingapi.MakeWorkload("wl1", ns.Name).
+				Queue(kueue.LocalQueueName(q.Name)).
+				WorkloadPriorityClassRef(lowWPC.Name).
+				Priority(-10).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+			wl2 := utiltestingapi.MakeWorkload("wl2", ns.Name).
+				Queue(kueue.LocalQueueName(q.Name)).
+				WorkloadPriorityClassRef(highWPC.Name).
+				Priority(10).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+
+			fakeSubResourcePatchSpec = func(obj client.Object) (fakeClientUsage, error) {
+				wl, ok := obj.(*kueue.Workload)
+				if !ok {
+					return fallThrough, nil
+				}
+
+				// Intercept wl1 admission patch
+				if wl.Name == wl1.Name && meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadQuotaReserved) && !meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
+					if admissionPatchCount.Add(1) == 1 {
+						admissionPatchStarted <- struct{}{}
+					}
+					<-allowAdmissionPatch
+					return fallThrough, nil
+				}
+
+				// Intercept wl1 eviction patch (triggered by wl2)
+				if wl.Name == wl1.Name && meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
+					count := evictionPatchCount.Add(1)
+					if count == 1 {
+						// Drop the first eviction patch to simulate it being immediately overwritten
+						// by the async admission patch before the cache can process it.
+						evictionPatchAttempted <- struct{}{}
+						return emitResponse, nil
+					}
+					// Allow subsequent eviction patches
+					return fallThrough, nil
+				}
+
+				return fallThrough, nil
+			}
+			defer func() {
+				if !admissionPatchReleased {
+					close(allowAdmissionPatch)
+				}
+			}()
+
+			ginkgo.By("Creating a low priority workload wl1")
+			gomega.Expect(k8sClient.Create(ctx, wl1)).To(gomega.Succeed())
+
+			ginkgo.By("Waiting for the async admission patch to start and get paused")
+			gomega.Eventually(admissionPatchStarted, util.Timeout, util.Interval).Should(gomega.Receive())
+
+			ginkgo.By("Creating a high priority workload wl2")
+			gomega.Expect(k8sClient.Create(ctx, wl2)).To(gomega.Succeed())
+
+			ginkgo.By("Waiting for wl2 to issue the eviction patch against wl1")
+			gomega.Eventually(evictionPatchAttempted, util.Timeout, util.Interval).Should(gomega.Receive())
+
+			ginkgo.By("Unblocking wl1 admission patch to overwrite the simulated eviction")
+			admissionPatchReleased = true
+			close(allowAdmissionPatch)
+
+			ginkgo.By("Waiting for wl1 to be evicted and simulating the job controller unsetting QuotaReserved after eviction")
+			gomega.Eventually(func(g gomega.Gomega) {
+				wl1Created := &kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1Created)).To(gomega.Succeed())
+				// Subsequent scheduling cycles for wl2 should re-trigger the eviction after the first one was lost due to the race condition.
+				if meta.IsStatusConditionTrue(wl1Created.Status.Conditions, kueue.WorkloadEvicted) {
+					g.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, wl1Created, nil, func(wl *kueue.Workload) (bool, error) {
+						return workload.UnsetQuotaReservationWithCondition(wl, "Pending", "Evicted", metav1.Now().Time), nil
+					})).To(gomega.Succeed())
+				}
+
+				g.Expect(workload.HasQuotaReservation(wl1Created)).To(gomega.BeFalse())
+				g.Expect(meta.IsStatusConditionTrue(wl1Created.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeTrue())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verifying wl2 eventually gets admitted")
+			gomega.Eventually(func(g gomega.Gomega) {
+				wl2Created := &kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), wl2Created)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(wl2Created)).To(gomega.BeTrue())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
 })
 
 var _ = ginkgo.Describe("Scheduler with AdmissionGatedBy", ginkgo.Label("admissiongatedby"), func() {
