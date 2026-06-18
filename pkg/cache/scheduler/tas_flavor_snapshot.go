@@ -140,8 +140,27 @@ type TASFlavorSnapshot struct {
 	isLowestLevelNode bool
 }
 
+type tasFlavorSnapshotOptions struct {
+	tolerations []corev1.Toleration
+}
+
+type tasFlavorSnapshotOption func(*tasFlavorSnapshotOptions)
+
+func withTolerations(tolerations []corev1.Toleration) tasFlavorSnapshotOption {
+	return func(o *tasFlavorSnapshotOptions) {
+		o.tolerations = tolerations
+	}
+}
+
 func newTASFlavorSnapshot(log logr.Logger, topologyName kueue.TopologyReference,
-	levels []string, tolerations []corev1.Toleration) *TASFlavorSnapshot {
+	levels []string, opts ...tasFlavorSnapshotOption) *TASFlavorSnapshot {
+	options := &tasFlavorSnapshotOptions{}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(options)
+		}
+	}
+
 	domainsPerLevel := make([]domainByID, len(levels))
 	for level := range levels {
 		domainsPerLevel[level] = make(domainByID)
@@ -152,7 +171,7 @@ func newTASFlavorSnapshot(log logr.Logger, topologyName kueue.TopologyReference,
 		topologyName:      topologyName,
 		levelKeys:         slices.Clone(levels),
 		leaves:            make(leafDomainByID),
-		tolerations:       slices.Clone(tolerations),
+		tolerations:       slices.Clone(options.tolerations),
 		domains:           make(domainByID),
 		roots:             make(domainByID),
 		domainsPerLevel:   domainsPerLevel,

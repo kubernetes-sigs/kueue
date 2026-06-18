@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package baseline
+package counter
 
 import (
 	"cmp"
@@ -36,7 +36,7 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	util.RunE2ESuite(t, "End To End DRA Integration Suite")
+	util.RunE2ESuite(t, "End To End DRA Partitionable Devices Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {

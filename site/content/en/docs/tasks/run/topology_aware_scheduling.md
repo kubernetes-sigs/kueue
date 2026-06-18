@@ -35,10 +35,14 @@ Make sure the following conditions are met:
   `spec.topologyName`, and a `ClusterQueue` that uses that flavor.
 
 If you do not already have a Kubernetes cluster, you can create a TAS-ready
-`kind` cluster. The config creates worker nodes labeled with
-`cloud.provider.com/node-group`, `cloud.provider.com/topology-block`, and
-`cloud.provider.com/topology-rack`, matching the sample topology used on this
-page:
+`kind` cluster with the same topology labels used by the TAS test setup:
+
+```shell
+kind create cluster --name kueue-tas --config hack/testing/kind-cluster-tas.yaml
+```
+
+When following the hosted documentation instead of a local checkout, download
+the published example config first:
 
 ```shell
 curl -L https://kueue.sigs.k8s.io/examples/tas/kind-cluster.yaml -o kind-cluster-tas.yaml
@@ -55,53 +59,7 @@ kubectl apply --server-side -k "github.com/kubernetes-sigs/kueue/config/default?
 
 The `TopologyAwareScheduling` feature gate is enabled by default since Kueue
 v0.14. If your Kueue installation manages feature gates explicitly, enable it
-using one of the following methods.
-
-For a manifests-based installation, edit the `kueue-manager-config` `ConfigMap`:
-
-```shell
-kubectl -n kueue-system edit configmap kueue-manager-config
-```
-
-Set `featureGates.TopologyAwareScheduling` to `true` in the
-`controller_manager_config.yaml` data entry. Keep the rest of the existing
-configuration unchanged:
-
-```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: kueue-manager-config
-  namespace: kueue-system
-data:
-  controller_manager_config.yaml: |
-    apiVersion: config.kueue.x-k8s.io/v1beta2
-    kind: Configuration
-    featureGates:
-      TopologyAwareScheduling: true
-```
-
-Restart the controller manager after updating the `ConfigMap`:
-
-```shell
-kubectl -n kueue-system rollout restart deployment/kueue-controller-manager
-```
-
-Alternatively, add the feature gate to the `manager` container arguments in the
-`kueue-controller-manager` `Deployment`:
-
-```yaml
-args:
-- --config=/controller_manager_config.yaml
-- --feature-gates=TopologyAwareScheduling=true
-```
-
-If the container already has a `--feature-gates` argument, append
-`,TopologyAwareScheduling=true` to the existing value instead of adding a
-second `--feature-gates` argument.
-
-Use either the `ConfigMap` field or the `--feature-gates` argument, not both.
-For more details, see
+using the standard feature gate configuration workflow. For more details, see
 [Change the feature gates configuration](/docs/installation/#change-the-feature-gates-configuration).
 
 ### Create the sample TAS setup
