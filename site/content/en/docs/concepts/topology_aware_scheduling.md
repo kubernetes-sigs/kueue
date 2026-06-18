@@ -339,9 +339,9 @@ Kueue will not perform the balanced placement and will fallback to the standard 
 #### Multi-Layer Topology
 {{< feature-state state="beta" for_version="v0.19" >}}
 {{% alert title="Note" color="primary" %}}
-`TASMultiLayerTopology` is currently an beta feature and is disabled by default.
+`TASMultiLayerTopology` is currently an beta feature and is enabled by default.
 
-You can enable it by editing the `TASMultiLayerTopology` feature gate. Refer to the
+You can disable it by editing the `TASMultiLayerTopology` feature gate. Refer to the
 [Installation guide](/docs/installation/#change-the-feature-gates-configuration)
 for instructions on configuring feature gates.
 {{% /alert %}}
