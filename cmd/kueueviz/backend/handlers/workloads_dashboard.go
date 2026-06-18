@@ -18,7 +18,7 @@ package handlers
 
 import (
 	"context"
-	"log/slog"
+	"fmt"
 
 	"github.com/gin-gonic/gin"
 	corev1 "k8s.io/api/core/v1"
@@ -53,10 +53,22 @@ func (h *Handlers) WorkloadsDashboardWebSocketHandler() gin.HandlerFunc {
 }
 
 func (h *Handlers) fetchDashboardData(ctx context.Context, namespace string) (map[string]any, error) {
-	resourceFlavors, _ := h.fetchResourceFlavors(ctx)
-	clusterQueues, _ := h.fetchClusterQueues(ctx)
-	localQueues, _ := h.fetchLocalQueues(ctx)
-	workloads := h.fetchWorkloadsDashboardData(ctx, namespace)
+	resourceFlavors, err := h.fetchResourceFlavors(ctx)
+	if err != nil {
+		return nil, err
+	}
+	clusterQueues, err := h.fetchClusterQueues(ctx)
+	if err != nil {
+		return nil, err
+	}
+	localQueues, err := h.fetchLocalQueues(ctx)
+	if err != nil {
+		return nil, err
+	}
+	workloads, err := h.fetchWorkloadsDashboardData(ctx, namespace)
+	if err != nil {
+		return nil, err
+	}
 	result := map[string]any{
 		"flavors":       resourceFlavors,
 		"clusterQueues": clusterQueues,
@@ -66,13 +78,12 @@ func (h *Handlers) fetchDashboardData(ctx context.Context, namespace string) (ma
 	return result, nil
 }
 
-func (h *Handlers) fetchWorkloadsDashboardData(ctx context.Context, namespace string) any {
+func (h *Handlers) fetchWorkloadsDashboardData(ctx context.Context, namespace string) (any, error) {
 	wql := &kueueapi.WorkloadList{}
 	err := h.client.List(ctx, wql, ctrlclient.InNamespace(namespace))
 
 	if err != nil {
-		slog.Error("Error fetching workloads", "namespace", namespace, "error", err)
-		return nil
+		return nil, fmt.Errorf("error fetching workloads in namespace %s: %w", namespace, err)
 	}
 
 	workloadsByUID := make(map[types.UID]string)
@@ -87,8 +98,7 @@ func (h *Handlers) fetchWorkloadsDashboardData(ctx context.Context, namespace st
 		pl := &corev1.PodList{}
 		err = h.client.List(ctx, pl, ctrlclient.InNamespace(namespace))
 		if err != nil {
-			slog.Error("Error fetching pods", "namespace", namespace, "error", err)
-			return nil
+			return nil, fmt.Errorf("error fetching pods in namespace %s: %w", namespace, err)
 		}
 
 		var workloadPods []map[string]any
@@ -124,5 +134,5 @@ func (h *Handlers) fetchWorkloadsDashboardData(ctx context.Context, namespace st
 		"workloads_by_uid": workloadsByUID,
 	}
 
-	return workloads
+	return workloads, nil
 }
