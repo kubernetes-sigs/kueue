@@ -400,6 +400,9 @@ type FailureInfo struct {
 
 	// Reason indicates the reason why computing the TAS assignment failed.
 	Reason string
+
+	// Flavor indicates the resource flavor associated with the failure.
+	Flavor kueue.ResourceFlavorReference
 }
 
 type TASAssignmentsResult map[kueue.PodSetReference]tasPodSetAssignmentResult
@@ -407,7 +410,11 @@ type TASAssignmentsResult map[kueue.PodSetReference]tasPodSetAssignmentResult
 func (r TASAssignmentsResult) Failure() *FailureInfo {
 	for psName, psAssignment := range r {
 		if psAssignment.FailureReason != "" {
-			return &FailureInfo{PodSetName: psName, Reason: psAssignment.FailureReason}
+			return &FailureInfo{
+				PodSetName: psName,
+				Reason:     psAssignment.FailureReason,
+				Flavor:     psAssignment.Flavor,
+			}
 		}
 	}
 	return nil
@@ -416,6 +423,7 @@ func (r TASAssignmentsResult) Failure() *FailureInfo {
 type tasPodSetAssignmentResult struct {
 	TopologyAssignment *utiltas.TopologyAssignment
 	FailureReason      string
+	Flavor             kueue.ResourceFlavorReference
 }
 
 type FlavorTASRequests []TASPodSetRequests

@@ -216,7 +216,10 @@ func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
 			flvOpts = append(slices.Clone(options), WithAggregatedDomainUsages(aggregatedDomainUsages))
 		}
 		flvResult := tasFlavorCache.FindTopologyAssignmentsForFlavor(flavorTASRequests, flvOpts...)
-		maps.Copy(result, flvResult)
+		for psName, res := range flvResult {
+			res.Flavor = tasFlavor
+			result[psName] = res
+		}
 	}
 	return result
 }

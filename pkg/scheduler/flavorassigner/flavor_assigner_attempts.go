@@ -37,6 +37,7 @@ type FlavorAssignmentAttempt struct {
 	Borrow                int
 	PreemptionPossibility *preemptioncommon.PreemptionPossibility
 	Reasons               []string
+	NoFitReason           string
 }
 
 type FlavorAssignmentAttempts []FlavorAssignmentAttempt
@@ -53,6 +54,7 @@ func (fa *FlavorAssignmentAttempts) AddNoFitFlavorAttempt(flavor kueue.ResourceF
 	}
 	if status != nil {
 		flavorAttempt.Reasons = append(flavorAttempt.Reasons, status.reasons...)
+		flavorAttempt.NoFitReason = status.NoFitReason
 	}
 	*fa = append(*fa, flavorAttempt)
 }
@@ -61,6 +63,7 @@ func (fa *FlavorAssignmentAttempts) AddRepresentativeModeFlavorAttempt(
 	flavor kueue.ResourceFlavorReference,
 	preemptionMode preemptionMode,
 	maxBorrow int, reasons []string,
+	noFitReason string,
 ) {
 	flavorAssignmentMode := preemptionMode.flavorAssignmentMode()
 	flavorAttempt := FlavorAssignmentAttempt{
@@ -68,6 +71,7 @@ func (fa *FlavorAssignmentAttempts) AddRepresentativeModeFlavorAttempt(
 		Mode:                  flavorAssignmentMode,
 		PreemptionPossibility: preemptionMode.preemptionPossibility(),
 		Borrow:                maxBorrow,
+		NoFitReason:           noFitReason,
 	}
 	if len(reasons) > 0 {
 		slices.Sort(reasons)
@@ -104,6 +108,7 @@ func mergeFlavorAttemptsForResource(
 				}
 				at.Reasons = mergeUnique(at.Reasons, []string{msg})
 				slices.Sort(at.Reasons)
+				at.NoFitReason = kueue.WorkloadQuotaReservedReasonNoMatchingFlavor
 				dst[flv] = at
 			}
 		}
@@ -132,6 +137,7 @@ func mergeFlavorAttempts(dst map[kueue.ResourceFlavorReference]FlavorAssignmentA
 				Borrow:                maxBorrow,
 				PreemptionPossibility: existingPreemption,
 				Reasons:               reasons,
+				NoFitReason:           worstReason(existing.NoFitReason, at.NoFitReason),
 			}
 			continue
 		}
@@ -142,6 +148,7 @@ func mergeFlavorAttempts(dst map[kueue.ResourceFlavorReference]FlavorAssignmentA
 			Borrow:                at.Borrow,
 			PreemptionPossibility: at.PreemptionPossibility,
 			Reasons:               mergeUnique(nil, at.Reasons),
+			NoFitReason:           at.NoFitReason,
 		}
 		slices.Sort(cp.Reasons)
 		dst[at.Flavor] = cp
