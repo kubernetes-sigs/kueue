@@ -410,7 +410,7 @@ func (s *Scheduler) processEntry(
 			s.reserveCapacityForUnreclaimablePreempt(log, e, cq)
 			return
 		}
-		if features.Enabled(features.MultiKueueOrchestratedPreemption) && workload.HasClosedPreemptionGate(e.Obj) {
+		if (features.Enabled(features.ConcurrentAdmission) || features.Enabled(features.MultiKueueOrchestratedPreemption)) && workload.HasClosedPreemptionGate(e.Obj) {
 			gatedMsg := "Workload requires preemption, but it's gated"
 			log.V(3).Info(gatedMsg)
 			e.markPreemptionGated(gatedMsg)

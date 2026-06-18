@@ -17,6 +17,8 @@ limitations under the License.
 package concurrentadmission
 
 import (
+	"fmt"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -497,6 +499,100 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 					g.Expect(parentWl.Status.AdmissionChecks).To(gomega.BeEmpty())
 					g.Expect(parentWl.Status.Admission.PodSetAssignments[0].Flavors[corev1.ResourceCPU]).To(gomega.Equal(kueue.ResourceFlavorReference("provreq-flavor")))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+	})
+
+	ginkgo.When("Variants require preemption to be admitted", func() {
+		const (
+			lowPriority  int32 = 0
+			highPriority int32 = 100
+		)
+
+		var cq *kueue.ClusterQueue
+		var lq *kueue.LocalQueue
+		var flavorReservation *kueue.ResourceFlavor
+		var flavorSpot *kueue.ResourceFlavor
+
+		ginkgo.BeforeEach(func() {
+			flavorReservation = utiltestingapi.MakeResourceFlavor("reservation").Obj()
+			util.MustCreate(ctx, k8sClient, flavorReservation)
+
+			flavorSpot = utiltestingapi.MakeResourceFlavor("spot").Obj()
+			util.MustCreate(ctx, k8sClient, flavorSpot)
+
+			// reservation is the most-preferred flavor (index 0). Each flavor holds
+			// exactly 1 CPU, so a single low-priority workload fully occupies it and
+			// any higher-priority variant must preempt to be admitted.
+			cq = utiltestingapi.MakeClusterQueue("cq-preemption-gate").
+				ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(flavorReservation.Name).Resource(corev1.ResourceCPU, "1").Obj(),
+					*utiltestingapi.MakeFlavorQuotas(flavorSpot.Name).Resource(corev1.ResourceCPU, "1").Obj(),
+				).
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+				}).Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+
+			lq = utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(cq.Name).Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavorSpot, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavorReservation, true)
+		})
+
+		ginkgo.It("should open the preemption gate for only the most-preferred variant at a time", func() {
+			ginkgo.By("Occupying both flavors with low-priority workloads", func() {
+				for i := range 2 {
+					lowWl := utiltestingapi.MakeWorkload(fmt.Sprintf("low-%d", i), ns.Name).
+						Queue(kueue.LocalQueueName(lq.Name)).
+						Priority(lowPriority).
+						Request(corev1.ResourceCPU, "1").
+						Obj()
+					util.MustCreate(ctx, k8sClient, lowWl)
+					util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, lowWl)
+				}
+			})
+
+			parentWl := utiltestingapi.MakeWorkload("parent-wl-preemption-gate", ns.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Priority(highPriority).
+				Request(corev1.ResourceCPU, "1").
+				ParentVariant().
+				Obj()
+
+			ginkgo.By("Creating the high-priority parent workload", func() {
+				util.MustCreate(ctx, k8sClient, parentWl)
+			})
+
+			ginkgo.By("Verifying the preemption gate is opened for the reservation variant", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					list := &kueue.WorkloadList{}
+					g.Expect(k8sClient.List(ctx, list, client.InNamespace(ns.Name))).To(gomega.Succeed())
+
+					variantReservation := getVariantByFlavor(list, parentWl.Name, flavorReservation.Name)
+					g.Expect(variantReservation).ToNot(gomega.BeNil(), "Variant for reservation not found")
+					g.Expect(workload.HasOpenPreemptionGate(variantReservation, controllerconstants.ConcurrentAdmissionPreemptionGate)).
+						To(gomega.BeTrue(), "reservation variant should have an open preemption gate")
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verifying the spot variant gate stays closed while reservation holds the open gate", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					list := &kueue.WorkloadList{}
+					g.Expect(k8sClient.List(ctx, list, client.InNamespace(ns.Name))).To(gomega.Succeed())
+
+					variantSpot := getVariantByFlavor(list, parentWl.Name, flavorSpot.Name)
+					g.Expect(variantSpot).ToNot(gomega.BeNil(), "Variant for spot not found")
+					g.Expect(workload.HasOpenPreemptionGate(variantSpot, controllerconstants.ConcurrentAdmissionPreemptionGate)).
+						To(gomega.BeFalse(), "spot variant gate must stay closed until the reservation variant's preemption timeout elapses")
+				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 			})
 		})
 	})
