@@ -437,6 +437,10 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/10659
 	// Enable accurately topology aware scheduling when multiple flavors cover the same Node.
 	TASHandleOverlappingFlavors featuregate.Feature = "TASHandleOverlappingFlavors"
+
+	// Enables the JobFramework CRD informer to stay active across CRD deletion/
+	// reinstallation events so integrations can recover from dependency upgrades.
+	JobFrameworkCRDReinstallation featuregate.Feature = "JobFrameworkCRDReinstallation"
 )
 
 func init() {
@@ -654,6 +658,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
 	},
 	ConcurrentAdmission: {
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	JobFrameworkCRDReinstallation: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	QuotaCheckStrategy: {
