@@ -393,7 +393,7 @@ func (s *Scheduler) processEntry(
 
 	mode := e.assignment.RepresentativeMode()
 
-	if features.Enabled(features.TASFailedNodeReplacementFailFast) && workload.HasTopologyAssignmentWithUnhealthyNode(e.Obj) && mode != flavorassigner.Fit {
+	if features.Enabled(features.TASFailedNodeReplacementFailFast) && !features.Enabled(features.TASReplaceMultipleFailedNodes) && workload.HasTopologyAssignmentWithUnhealthyNode(e.Obj) && mode != flavorassigner.Fit {
 		s.handleFailedTASReplacement(ctx, log, e)
 		return
 	}

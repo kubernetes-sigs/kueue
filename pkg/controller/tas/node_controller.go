@@ -483,8 +483,17 @@ func (r *nodeReconciler) checkPodsOnNode(
 
 // evictWorkloadIfNeeded idempotently evicts the workload when the node has failed.
 // It returns whether the node was evicted, and whether an error was encountered.
+//
+// When the TASReplaceMultipleFailedNodes feature gate is enabled, the second-distinct-node
+// eviction is suppressed. The new node is appended via addUnhealthyNode and the
+// workload remains admitted; the scheduler will keep attempting head replacement.
 func (r *nodeReconciler) evictWorkloadIfNeeded(ctx context.Context, wl *kueue.Workload, nodeName string) (bool, error) {
 	if workload.HasUnhealthyNodes(wl) && !workload.HasUnhealthyNode(wl, nodeName) && !workload.IsEvicted(wl) {
+		if features.Enabled(features.TASReplaceMultipleFailedNodes) {
+			ctrl.LoggerFrom(ctx).V(3).Info("Skipping eviction on multiple node failures (TASReplaceMultipleFailedNodes enabled)",
+				"unhealthyNodes", workload.UnhealthyNodeNames(wl), "newUnhealthyNode", nodeName)
+			return false, nil
+		}
 		unhealthyNodeNames := workload.UnhealthyNodeNames(wl)
 		log := ctrl.LoggerFrom(ctx).WithValues("unhealthyNodes", unhealthyNodeNames)
 		log.V(3).Info("Evicting workload due to multiple node failures")

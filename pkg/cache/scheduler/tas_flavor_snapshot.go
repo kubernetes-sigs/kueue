@@ -654,8 +654,22 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 	wl *kueue.Workload,
 	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
 ) (*utiltas.TopologyAssignment, *utiltas.TopologyAssignment, string) {
-	tr.Count = deleteDomain(existingAssignment, wl.Status.UnhealthyNodes[0].Name)
-	if isStale, staleDomain := s.IsTopologyAssignmentStale(existingAssignment); isStale {
+	headNodeName := wl.Status.UnhealthyNodes[0].Name
+	tr.Count = deleteDomain(existingAssignment, headNodeName)
+	// When TASReplaceMultipleFailedNodes is enabled, multiple unhealthy nodes may be
+	// queued in Status.UnhealthyNodes. We only replace the head; other queued
+	// nodes that may also be missing from the snapshot must not poison the
+	// stale-assignment check below, otherwise head replacement would never
+	// succeed and the workload would be stuck without an automatic eviction
+	// safety net.
+	var ignoreNodes map[string]struct{}
+	if features.Enabled(features.TASReplaceMultipleFailedNodes) && len(wl.Status.UnhealthyNodes) > 1 {
+		ignoreNodes = make(map[string]struct{}, len(wl.Status.UnhealthyNodes)-1)
+		for _, n := range wl.Status.UnhealthyNodes[1:] {
+			ignoreNodes[n.Name] = struct{}{}
+		}
+	}
+	if isStale, staleDomain := s.isTopologyAssignmentStaleIgnoring(existingAssignment, ignoreNodes); isStale {
 		return nil, nil, fmt.Sprintf("Cannot replace the node, because the existing topologyAssignment is invalid, as it contains the stale domain %v", staleDomain)
 	}
 	requiredReplacementDomain := s.requiredReplacementDomain(tr, existingAssignment)
@@ -686,7 +700,24 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 		return nil, nil, reason
 	}
 	if replacementAssignment == nil || len(replacementAssignment[tr.PodSet.Name].Domains) == 0 {
-		return nil, nil, fmt.Sprintf("cannot find replacement assignment for unhealthy node: %v", wl.Status.UnhealthyNodes[0].Name)
+		return nil, nil, fmt.Sprintf("cannot find replacement assignment for unhealthy node: %v", headNodeName)
+	}
+	// With TASReplaceMultipleFailedNodes, multiple replacement cycles can
+	// run on the same workload before each other's TA write propagates to the
+	// cache snapshot. If two concurrent cycles pick the same replacement
+	// domain, mergeTopologyAssignments collapses them via canMergeDomains into a
+	// single entry with Count+=Count, which silently loses a pod slot
+	// (corrupting podCounts so the kube-scheduler cannot place the pod). Detect
+	// this overlap and reject the cycle so a subsequent scheduling cycle
+	// retries with a fresh snapshot.
+	existingDomainIDs := make(map[utiltas.TopologyDomainID]struct{}, len(existingAssignment.Domains))
+	for _, d := range existingAssignment.Domains {
+		existingDomainIDs[utiltas.DomainID(d.Values)] = struct{}{}
+	}
+	for _, d := range replacementAssignment[tr.PodSet.Name].Domains {
+		if _, dup := existingDomainIDs[utiltas.DomainID(d.Values)]; dup {
+			return nil, nil, fmt.Sprintf("replacement candidate %v already present in existing TopologyAssignment; concurrent replacement race - retry on next cycle", d.Values)
+		}
 	}
 	newAssignment := s.mergeTopologyAssignments(replacementAssignment[tr.PodSet.Name], existingAssignment)
 	return newAssignment, replacementAssignment[tr.PodSet.Name], ""
@@ -774,7 +805,23 @@ func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta 
 // that don't exists in the snapshot. It may be cause e.g. by Node deletion, or change
 // in Node's NodeReady condition
 func (s *TASFlavorSnapshot) IsTopologyAssignmentStale(ta *utiltas.TopologyAssignment) (bool, string) {
+	return s.isTopologyAssignmentStaleIgnoring(ta, nil)
+}
+
+// isTopologyAssignmentStaleIgnoring returns whether the topologyAssignment contains
+// node-level domains missing from the snapshot, ignoring any node names in
+// ignoreNodes. Used by the head-of-queue replacement path so that other queued
+// unhealthy nodes (which may also be missing from the snapshot) do not poison
+// the stale-check for the head we are actively replacing.
+func (s *TASFlavorSnapshot) isTopologyAssignmentStaleIgnoring(ta *utiltas.TopologyAssignment, ignoreNodes map[string]struct{}) (bool, string) {
 	for _, domain := range ta.Domains {
+		if len(ignoreNodes) > 0 {
+			// Node name is the lowest-level value (last entry).
+			nodeName := domain.Values[len(domain.Values)-1]
+			if _, skip := ignoreNodes[nodeName]; skip {
+				continue
+			}
+		}
 		if _, found := s.domains[utiltas.DomainID(domain.Values)]; !found {
 			return true, domain.Values[0]
 		}
@@ -1898,8 +1945,15 @@ func (s *TASFlavorSnapshot) mergeTopologyAssignments(a, b *utiltas.TopologyAssig
 	sortedDomains = append(sortedDomains, a.Domains...)
 	sortedDomains = append(sortedDomains, b.Domains...)
 	slices.SortFunc(sortedDomains, func(a, b utiltas.TopologyDomainAssignment) int {
+		// Tail-of-queue UnhealthyNodes may reference domains that have already
+		// been removed from the snapshot. Fall back to sorting by the raw
+		// Values so the merge cannot nil-panic; these stale entries will be
+		// replaced on subsequent head-replacement cycles.
 		aDomain := s.domainsPerLevel[nodeLevel][utiltas.DomainID(a.Values)]
 		bDomain := s.domainsPerLevel[nodeLevel][utiltas.DomainID(b.Values)]
+		if aDomain == nil || bDomain == nil {
+			return cmp.Compare(utiltas.DomainID(a.Values), utiltas.DomainID(b.Values))
+		}
 		return cmp.Compare(utiltas.DomainID(aDomain.levelValues), utiltas.DomainID(bDomain.levelValues))
 	})
 	mergedDomains := make([]utiltas.TopologyDomainAssignment, 0, len(sortedDomains))
