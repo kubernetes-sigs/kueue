@@ -1086,6 +1086,51 @@ func SetPreemptionGatePosition(w *kueue.Workload, gateName string, gatePosition 
 	return true
 }
 
+// Finds preemption gate with gateName, and returns pointer to that preemption gate state object
+func FindPreemptionGate(w *kueue.Workload, gateName string) *kueue.PreemptionGateState {
+	idx := slices.IndexFunc(w.Status.PreemptionGates, func(gate kueue.PreemptionGateState) bool {
+		return gate.Name == gateName
+	})
+	if idx == -1 {
+		return nil
+	}
+	return &w.Status.PreemptionGates[idx]
+}
+
+// HasOpenPreemptionGate reports whether the named preemption gate is open.
+func HasOpenPreemptionGate(w *kueue.Workload, gateName string) bool {
+	gate := FindPreemptionGate(w, gateName)
+	return gate != nil && gate.Position == kueue.PreemptionGatePositionOpen
+}
+
+// OpenPreemptionGate opens the named preemption gate, recording transitionTime
+// as the moment it opened. Returns true if opened gate and false if no change
+func OpenPreemptionGate(w *kueue.Workload, gateName string, transitionTime metav1.Time) bool {
+	return SetPreemptionGatePosition(w, gateName, kueue.PreemptionGatePositionOpen, transitionTime)
+}
+
+// EnsurePreemptionGateOnSpec appends the named preemption gate to the workload's
+// spec if it is not already present, and returns whether it was added.
+func EnsurePreemptionGateOnSpec(w *kueue.Workload, gateName string) bool {
+	if slices.ContainsFunc(w.Spec.PreemptionGates, func(g kueue.PreemptionGate) bool {
+		return g.Name == gateName
+	}) {
+		return false
+	}
+	w.Spec.PreemptionGates = append(w.Spec.PreemptionGates, kueue.PreemptionGate{Name: gateName})
+	return true
+}
+
+// BlockedOnPreemptionGatesCondition returns kueue.WorkloadBlockedOnPreemptionGates condition type
+// if condition status equals metav1.ConditionTrue returns condition otherwise returns nil
+func BlockedOnPreemptionGatesCondition(w *kueue.Workload) *metav1.Condition {
+	cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadBlockedOnPreemptionGates)
+	if cond != nil && cond.Status == metav1.ConditionTrue {
+		return cond
+	}
+	return nil
+}
+
 // PropagateResourceRequests synchronizes w.Status.ResourceRequests to
 // with info.TotalRequests if the feature gate is enabled and returns true if w was updated
 func PropagateResourceRequests(w *kueue.Workload, info *Info) bool {
