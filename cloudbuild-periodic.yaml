@@ -7,6 +7,7 @@ steps:
   - name: 'gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:v20260127-c1affcc8de'
     entrypoint: make
     args:
+      - -j3
       - image-pushing-periodic
     env:
       - DOCKER_BUILDX_CMD=/buildx-entrypoint
