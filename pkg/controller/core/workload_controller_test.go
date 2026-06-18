@@ -30,6 +30,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -45,6 +46,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
+	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
@@ -671,6 +673,43 @@ func TestReconcile(t *testing.T) {
 				return wl
 			}(),
 			wantEvents: nil,
+		},
+		"reconcile DRA validation fails with KueueDRAIntegrationExtendedResource enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration:                 true,
+				features.KueueDRAIntegrationExtendedResource: true,
+			},
+			workload: utiltestingapi.MakeWorkload("wl-invalid-extended-resource", "ns").
+				Queue("lq").
+				Request("example.com/gpu", "1500m"). // 1.5 GPUs is invalid because extended resources must be integer quantities
+				Obj(),
+			additionalObjects: []client.Object{
+				utiltesting.MakeDeviceClass("gpu-class").
+					ExtendedResourceName("example.com/gpu").
+					Obj(),
+			},
+			cq: utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").
+						Resource("example.com/gpu", "2").Obj(),
+				).Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl-invalid-extended-resource", "ns").
+				Queue("lq").
+				Request("example.com/gpu", "1500m").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "spec.podSets[0].template.spec.containers[0].resources.requests.example.com/gpu: Invalid value: \"1500m\": extended resource quantity must be an integer",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "spec.podSets[0].template.spec.containers[0].resources.requests.example.com/gpu: Invalid value: \"1500m\": extended resource quantity must be an integer",
+				}).
+				Obj(),
 		},
 		"reconcile DRA ResourceClaimTemplate not found should return error": {
 			featureGates: map[featuregate.Feature]bool{
@@ -2546,6 +2585,58 @@ func TestReconcile(t *testing.T) {
 				}).
 				Obj(),
 		},
+		"should set the Inadmissible reason on QuotaReservation condition when the LocalQueue is terminating": {
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj()).
+				AdmissionChecks("check").Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").DeletionTimestamp(now).Obj(),
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Active(true).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "flavor1", "1").
+						Obj()).
+					Obj(), now).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStatePending,
+				}).
+				Queue("lq").
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Active(true).
+				Admission(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "flavor1", "1").
+						Obj()).
+					Obj()).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStatePending,
+				}).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "LocalQueue lq is terminating or missing",
+				}).
+				Obj(),
+			wantWorkloadUseMergePatch: utiltestingapi.MakeWorkload("wl", "ns").
+				Active(true).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStatePending,
+				}).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "LocalQueue lq is terminating or missing",
+				}).
+				Obj(),
+		},
 		"should set the Inadmissible reason on QuotaReservation condition when the LocalQueue was Hold": {
 			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj()).
@@ -2599,6 +2690,61 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 		},
 		"should set the Inadmissible reason on QuotaReservation condition when the ClusterQueue was deleted": {
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Active(true).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "flavor1", "1").
+						Obj()).
+					Obj(), now).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStatePending,
+				}).
+				Queue("lq").
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Active(true).
+				Admission(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "flavor1", "1").
+						Obj()).
+					Obj()).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStatePending,
+				}).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "ClusterQueue cq is terminating or missing",
+				}).
+				Obj(),
+			wantWorkloadUseMergePatch: utiltestingapi.MakeWorkload("wl", "ns").
+				Active(true).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStatePending,
+				}).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "ClusterQueue cq is terminating or missing",
+				}).
+				Obj(),
+		},
+		"should set the Inadmissible reason on QuotaReservation condition when the ClusterQueue is terminating": {
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				Cohort("cohort").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj()).
+				AdmissionChecks("check").
+				DeletionTimestamp(now).
+				Obj(),
 			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
@@ -3467,13 +3613,27 @@ func TestReconcile(t *testing.T) {
 							return c.List(ctx, list, opts...)
 						},
 					})
+				if features.Enabled(features.KueueDRAIntegrationExtendedResource) {
+					clientBuilder = clientBuilder.WithIndex(&resourcev1.DeviceClass{}, utilindexer.DeviceClassExtendedResourceNameIndex, utilindexer.IndexDeviceClassExtendedResourceName)
+				}
 				cl := clientBuilder.Build()
 				recorder := &utiltesting.EventRecorder{}
 
 				cqCache := schdcache.New(cl)
+				var draCache *dra.ExtendedResourceCache
+				if features.Enabled(features.KueueDRAIntegration) {
+					draCache = setupDRACache(objs)
+				}
 				queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptexpectations.New())}
+				if draCache != nil {
+					queueOptions = append(queueOptions, qcache.WithDRABackedResources(draCache))
+				}
 				qManager := qcache.NewManagerForUnitTests(cl, cqCache, queueOptions...)
-				reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder, tc.reconcilerOpts...)
+				reconcilerOpts := tc.reconcilerOpts
+				if draCache != nil {
+					reconcilerOpts = append(reconcilerOpts, WithDRABackedResources(draCache))
+				}
+				reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder, reconcilerOpts...)
 				if features.Enabled(features.KueueDRAIntegration) {
 					qManager.SetDRAReconcileChannel(reconciler.GetDRAReconcileChannel())
 				}
@@ -3485,23 +3645,11 @@ func TestReconcile(t *testing.T) {
 				defer ctxCancel()
 
 				if tc.cq != nil {
-					testCq := tc.cq.DeepCopy()
-					if err := cl.Create(ctx, testCq); err != nil {
-						t.Errorf("couldn't create the cluster queue: %v", err)
-					}
-					if err := qManager.AddClusterQueue(ctx, testCq); err != nil {
-						t.Errorf("couldn't add the cluster queue to the cache: %v", err)
-					}
+					setupClusterQueue(ctx, t, cl, qManager, cqCache, tc.cq)
 				}
 
 				if tc.lq != nil {
-					testLq := tc.lq.DeepCopy()
-					if err := cl.Create(ctx, testLq); err != nil {
-						t.Errorf("couldn't create the local queue: %v", err)
-					}
-					if err := qManager.AddLocalQueue(ctx, testLq); err != nil {
-						t.Errorf("couldn't add the local queue to the cache: %v", err)
-					}
+					setupLocalQueue(ctx, t, cl, qManager, tc.lq)
 				}
 
 				if testWl != nil && testWl.Namespace == "ns" &&
@@ -3762,4 +3910,66 @@ func TestReconcileSyncAdmissionChecks(t *testing.T) {
 			}
 		})
 	}
+}
+
+func setupClusterQueue(ctx context.Context, t *testing.T, cl client.Client, qManager *qcache.Manager, cqCache *schdcache.Cache, cq *kueue.ClusterQueue) {
+	t.Helper()
+	testCq := cq.DeepCopy()
+	// DeletionTimestamp cannot be directly set during creation. We simulate it by deleting the object with a finalizer.
+	wantDeleted := testCq.DeletionTimestamp != nil
+	testCq.DeletionTimestamp = nil
+	if wantDeleted && len(testCq.Finalizers) == 0 {
+		testCq.Finalizers = []string{"testing-finalizer"}
+	}
+	if err := cl.Create(ctx, testCq); err != nil {
+		t.Errorf("couldn't create the cluster queue: %v", err)
+	}
+	if err := qManager.AddClusterQueue(ctx, testCq); err != nil {
+		t.Errorf("couldn't add the cluster queue to the cache: %v", err)
+	}
+	isActive := apimeta.IsStatusConditionTrue(testCq.Status.Conditions, kueue.ClusterQueueActive)
+	if isActive || wantDeleted {
+		if err := cqCache.AddClusterQueue(ctx, testCq); err != nil {
+			t.Errorf("couldn't add the cluster queue to the scheduler cache: %v", err)
+		}
+	}
+	if wantDeleted {
+		if err := cl.Delete(ctx, testCq); err != nil {
+			t.Errorf("couldn't delete the cluster queue: %v", err)
+		}
+	}
+}
+
+func setupLocalQueue(ctx context.Context, t *testing.T, cl client.Client, qManager *qcache.Manager, lq *kueue.LocalQueue) {
+	t.Helper()
+	testLq := lq.DeepCopy()
+	// DeletionTimestamp cannot be directly set during creation. We simulate it by deleting the object with a finalizer.
+	wantDeleted := testLq.DeletionTimestamp != nil
+	testLq.DeletionTimestamp = nil
+	if wantDeleted && len(testLq.Finalizers) == 0 {
+		testLq.Finalizers = []string{"testing-finalizer"}
+	}
+	if err := cl.Create(ctx, testLq); err != nil {
+		t.Errorf("couldn't create the local queue: %v", err)
+	}
+	if err := qManager.AddLocalQueue(ctx, testLq); err != nil {
+		t.Errorf("couldn't add the local queue to the cache: %v", err)
+	}
+	if wantDeleted {
+		if err := cl.Delete(ctx, testLq); err != nil {
+			t.Errorf("couldn't delete the local queue: %v", err)
+		}
+	}
+}
+
+func setupDRACache(objs []client.Object) *dra.ExtendedResourceCache {
+	draCache := dra.NewExtendedResourceCache()
+	for _, obj := range objs {
+		if dc, ok := obj.(*resourcev1.DeviceClass); ok {
+			if dc.Spec.ExtendedResourceName != nil {
+				draCache.Add(corev1.ResourceName(*dc.Spec.ExtendedResourceName), dc.Name)
+			}
+		}
+	}
+	return draCache
 }
