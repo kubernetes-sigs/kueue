@@ -504,6 +504,19 @@ const (
 	//
 	// Rejects Workloads with negative container or pod-level resource requests/limits.
 	WorkloadValidateResourcesAreNonNegative featuregate.Feature = "WorkloadValidateResourcesAreNonNegative"
+	// owner: @j-skiba
+	// kep: https://github.com/kubernetes-sigs/kueue/issues/10852
+	//
+	// UnadmittedWorkloadsObservability enables granular Prometheus metrics and
+	// updates status reasons for QuotaReserved/Admitted conditions to use tiered reasons.
+	UnadmittedWorkloadsObservability featuregate.Feature = "UnadmittedWorkloadsObservability"
+
+	// owner: @j-skiba
+	// kep: https://github.com/kubernetes-sigs/kueue/issues/10852
+	//
+	// UnadmittedWorkloadsExplicitStatus gates the immediate, proactive initialization of
+	// QuotaReserved and Admitted status conditions to False on a workload's first reconcile.
+	UnadmittedWorkloadsExplicitStatus featuregate.Feature = "UnadmittedWorkloadsExplicitStatus"
 )
 
 func init() {
@@ -781,6 +794,12 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	WorkloadValidateResourcesAreNonNegative: {
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
+	},
+	UnadmittedWorkloadsObservability: {
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Beta},
+	},
+	UnadmittedWorkloadsExplicitStatus: {
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Beta},
 	},
 }
 
