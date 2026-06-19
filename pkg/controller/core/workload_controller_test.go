@@ -410,7 +410,14 @@ func TestReconcile(t *testing.T) {
 	fakeClock := testingclock.NewFakeClock(now)
 
 	cases := map[string]struct {
-		featureGates              map[featuregate.Feature]bool
+		featureGates map[featuregate.Feature]bool
+
+		// Set to true to simulate a terminating ClusterQueue or LocalQueue.
+		// The setup helper will attach a finalizer and delete the object,
+		// which automatically populates its DeletionTimestamp in the fake client.
+		shouldDeleteCQ bool
+		shouldDeleteLQ bool
+
 		workload                  *kueue.Workload
 		additionalObjects         []client.Object
 		cq                        *kueue.ClusterQueue
@@ -428,12 +435,6 @@ func TestReconcile(t *testing.T) {
 		wantEvents                []utiltesting.EventRecord
 		wantResult                reconcile.Result
 		reconcilerOpts            []Option
-
-		// Set to true to simulate a terminating ClusterQueue or LocalQueue.
-		// The setup helper will attach a finalizer and delete the object,
-		// which automatically populates its DeletionTimestamp in the fake client.
-		shouldDeleteCQ bool
-		shouldDeleteLQ bool
 	}{
 		"reconcile DRA ResourceClaim should be rejected as inadmissible": {
 			featureGates: map[featuregate.Feature]bool{
