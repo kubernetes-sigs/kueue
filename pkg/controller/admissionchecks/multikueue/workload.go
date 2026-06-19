@@ -152,7 +152,9 @@ func (g *wlGroup) bestMatchByCondition(conditionType string) (*metav1.Condition,
 // The controller object is deleted first to handle cases where GC has already removed
 // the remote workload.
 func (g *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error {
-	if err := g.jobAdapter.DeleteRemoteObject(ctx, g.localClient, g.remoteClients[cluster].client, g.controllerKey); err != nil {
+	remoteClient := g.remoteClients[cluster].client
+	origin := g.remoteClients[cluster].origin
+	if err := jobframework.DeleteRemoteObjectIfOwned(ctx, g.localClient, remoteClient, g.jobAdapter, g.controllerKey, origin); err != nil {
 		return fmt.Errorf("deleting remote controller object: %w", err)
 	}
 
@@ -162,12 +164,12 @@ func (g *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error
 	}
 
 	if controllerutil.RemoveFinalizer(remWl, kueue.ResourceInUseFinalizerName) {
-		if err := g.remoteClients[cluster].client.Update(ctx, remWl); err != nil {
+		if err := remoteClient.Update(ctx, remWl); err != nil {
 			return fmt.Errorf("removing remote workloads finalizer: %w", err)
 		}
 	}
 
-	err := g.remoteClients[cluster].client.Delete(ctx, remWl)
+	err := remoteClient.Delete(ctx, remWl)
 	if client.IgnoreNotFound(err) != nil {
 		return fmt.Errorf("deleting remote workload: %w", err)
 	}
@@ -379,6 +381,11 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		// it should not be problematic, but the "From remote xxxx:" could be lost ....
 
 		if group.jobAdapter != nil {
+			if _, err := jobframework.ValidateRemoteObjectOwnership(ctx, group.remoteClients[remote].client, group.controllerKey, group.jobAdapter.GVK(), w.origin); err != nil {
+				log.Error(err, "validating remote controller object", "workerCluster", remote)
+				return reconcile.Result{}, err
+			}
+
 			// The deferred flag is irrelevant here: the remote workload is
 			// Finished, so determineStatusUpdate always syncs (never defers).
 			if _, err := group.jobAdapter.SyncJob(ctx, w.client, group.remoteClients[remote].client, group.controllerKey, group.local.Name, w.origin); err != nil {
@@ -405,6 +412,11 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 		// workload evicted on manager cluster
 		if workload.IsEvicted(group.local) {
+			if _, err := jobframework.ValidateRemoteObjectOwnership(ctx, remoteCl, group.controllerKey, group.jobAdapter.GVK(), w.origin); err != nil {
+				log.Error(err, "validating remote controller object", "cluster", evictedRemote)
+				return reconcile.Result{}, err
+			}
+
 			deferred, err := group.jobAdapter.SyncJob(ctx, w.client, remoteCl, group.controllerKey, group.local.Name, w.origin)
 			if err != nil {
 				log.Error(err, "Syncing remote controller object")
@@ -518,6 +530,11 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			if err != nil {
 				log.Error(err, "Failed to patch workload status")
 			}
+			return reconcile.Result{}, err
+		}
+
+		if _, err := jobframework.ValidateRemoteObjectOwnership(ctx, remoteCl, group.controllerKey, group.jobAdapter.GVK(), w.origin); err != nil {
+			log.Error(err, "validating remote controller object", "cluster", reservingRemote)
 			return reconcile.Result{}, err
 		}
 
