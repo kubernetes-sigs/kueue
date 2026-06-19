@@ -18,6 +18,7 @@ package multikueue
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -32,6 +33,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	eventsv1 "k8s.io/api/events/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1531,10 +1533,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		restoreConnectionToWorker2()
 
 		ginkgo.By("the worker2 wl is removed since the local one no longer has a reservation", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				createdWorkload := &kueue.Workload{}
-				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			waitForRemoteWorkloadToBeDeleted(worker2TestCluster.ctx, worker2TestCluster.client, wlLookupKey, "worker2", util.LongTimeout)
 		})
 	})
 
@@ -2236,14 +2235,32 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			restoreConnectionToWorker2()
 
 			ginkgo.By("the worker2 wl is removed since the local one no longer has a reservation", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					createdWorkload := &kueue.Workload{}
-					g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				waitForRemoteWorkloadToBeDeleted(worker2TestCluster.ctx, worker2TestCluster.client, wlLookupKey, "worker2", util.LongTimeout)
 			})
 		})
 	})
 })
+
+func waitForRemoteWorkloadToBeDeleted(workerCtx context.Context, workerClient client.Client, wlLookupKey types.NamespacedName, workerName string, timeout time.Duration) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func() error {
+		createdWorkload := &kueue.Workload{}
+		err := workerClient.Get(workerCtx, wlLookupKey, createdWorkload)
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if createdWorkload.DeletionTimestamp != nil {
+			return fmt.Errorf("%s workload deletion is in progress: uid=%s finalizers=%v deletionTimestamp=%v",
+				workerName, createdWorkload.UID, createdWorkload.Finalizers, createdWorkload.DeletionTimestamp)
+		}
+
+		return fmt.Errorf("%s workload still exists and deletion has not started: uid=%s finalizers=%v deletionTimestamp=%v",
+			workerName, createdWorkload.UID, createdWorkload.Finalizers, createdWorkload.DeletionTimestamp)
+	}, timeout, util.Interval).Should(gomega.Succeed())
+}
 
 func admitWorkloadAndCheckWorkerCopies(acName string, wlLookupKey types.NamespacedName, admission *utiltestingapi.AdmissionWrapper) {
 	ginkgo.GinkgoHelper()

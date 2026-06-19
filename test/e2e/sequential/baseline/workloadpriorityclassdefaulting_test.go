@@ -33,7 +33,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("WorkloadPriorityClassDefaulting", ginkgo.Label("feature:workloadpriorityclassdefaulting", shard0), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("WorkloadPriorityClassDefaulting", ginkgo.Label("feature:workloadpriorityclassdefaulting", util.Shard0), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns         *corev1.Namespace
 		rf         *kueue.ResourceFlavor

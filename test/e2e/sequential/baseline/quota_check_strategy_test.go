@@ -37,7 +37,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("QuotaCheckStrategy", ginkgo.Label("feature:quotacheckstrategy", shard0), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("QuotaCheckStrategy", ginkgo.Label("feature:quotacheckstrategy", util.Shard0), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns             *corev1.Namespace
 		resourceFlavor *kueue.ResourceFlavor
@@ -129,7 +129,8 @@ var _ = ginkgo.Describe("QuotaCheckStrategy", ginkgo.Label("feature:quotacheckst
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, metricsReaderClusterRoleBinding, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, curlPod, true)
+			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, curlPod, true, util.LongTimeout)
+			util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 		})
 
 		ginkgo.It("should not report metrics for resource usage for undeclared resources", func() {

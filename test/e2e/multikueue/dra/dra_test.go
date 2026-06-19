@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	draconsts "sigs.k8s.io/dra-example-driver/pkg/consts"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
@@ -162,17 +161,17 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 			// Manager: 1, Worker1: 2, Worker2: 3
 			ginkgo.By("Creating ResourceClaimTemplate on manager and both workers with different device counts")
 			managerRct := utiltesting.MakeResourceClaimTemplate("gpu-template", managerNs.Name).
-				DeviceRequest("gpu-request", draconsts.DriverName, 1).
+				DeviceRequest("gpu-request", util.DRAExampleDriverName, 1).
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, managerRct)
 
 			worker1Rct := utiltesting.MakeResourceClaimTemplate("gpu-template", worker1Ns.Name).
-				DeviceRequest("gpu-request", draconsts.DriverName, 2).
+				DeviceRequest("gpu-request", util.DRAExampleDriverName, 2).
 				Obj()
 			util.MustCreate(ctx, k8sWorker1Client, worker1Rct)
 
 			worker2Rct := utiltesting.MakeResourceClaimTemplate("gpu-template", worker2Ns.Name).
-				DeviceRequest("gpu-request", draconsts.DriverName, 3).
+				DeviceRequest("gpu-request", util.DRAExampleDriverName, 3).
 				Obj()
 			util.MustCreate(ctx, k8sWorker2Client, worker2Rct)
 
@@ -275,7 +274,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 		ginkgo.It("Should handle workload when ResourceClaimTemplate is missing on worker", func() {
 			ginkgo.By("Creating ResourceClaimTemplate only on manager (NOT on workers)")
 			managerRct := utiltesting.MakeResourceClaimTemplate("missing-rct", managerNs.Name).
-				DeviceRequest("gpu-request", draconsts.DriverName, 1).
+				DeviceRequest("gpu-request", util.DRAExampleDriverName, 1).
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, managerRct)
 
@@ -312,12 +311,12 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 		ginkgo.It("Should route DRA job to worker that has ResourceClaimTemplate", func() {
 			ginkgo.By("Creating ResourceClaimTemplate only on manager and worker1 (NOT on worker2)")
 			managerRct := utiltesting.MakeResourceClaimTemplate("worker1-only-rct", managerNs.Name).
-				DeviceRequest("gpu-request", draconsts.DriverName, 1).
+				DeviceRequest("gpu-request", util.DRAExampleDriverName, 1).
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, managerRct)
 
 			worker1Rct := utiltesting.MakeResourceClaimTemplate("worker1-only-rct", worker1Ns.Name).
-				DeviceRequest("gpu-request", draconsts.DriverName, 1).
+				DeviceRequest("gpu-request", util.DRAExampleDriverName, 1).
 				Obj()
 			util.MustCreate(ctx, k8sWorker1Client, worker1Rct)
 
@@ -393,7 +392,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 			// All clusters use the same namespace name (manager namespace name is used on workers)
 			for _, c := range []client.Client{k8sManagerClient, k8sWorker1Client, k8sWorker2Client} {
 				rct := utiltesting.MakeResourceClaimTemplate("multi-pod-gpu-template", managerNs.Name).
-					DeviceRequest("gpu-request", draconsts.DriverName, 1).
+					DeviceRequest("gpu-request", util.DRAExampleDriverName, 1).
 					Obj()
 				util.MustCreate(ctx, c, rct)
 			}

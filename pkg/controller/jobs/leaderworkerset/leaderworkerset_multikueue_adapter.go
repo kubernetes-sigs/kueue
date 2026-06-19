@@ -42,24 +42,24 @@ var _ jobframework.MultiKueueAdapter = (*multiKueueAdapter)(nil)
 var _ jobframework.MultiKueueWatcher = (*multiKueueAdapter)(nil)
 var _ jobframework.MultiKueueMultiWorkloadAdapter = (*multiKueueAdapter)(nil)
 
-func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error {
+func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) (bool, error) {
 	localLWS := leaderworkersetv1.LeaderWorkerSet{}
 	err := localClient.Get(ctx, key, &localLWS)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	remoteLWS := leaderworkersetv1.LeaderWorkerSet{}
 	err = remoteClient.Get(ctx, key, &remoteLWS)
 	if client.IgnoreNotFound(err) != nil {
-		return err
+		return false, err
 	}
 
 	// If the remote exists, skip status sync.
 	// LWS doesn't support managedBy, so the local LWS controller would
 	// immediately overwrite any status we sync from the worker cluster.
 	if err == nil {
-		return nil
+		return false, nil
 	}
 
 	remoteLWS = leaderworkersetv1.LeaderWorkerSet{
@@ -78,7 +78,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 
 	// Use IgnoreAlreadyExists because LWS has multiple workloads (one per replica),
 	// and they may all try to create the same LWS concurrently.
-	return client.IgnoreAlreadyExists(remoteClient.Create(ctx, &remoteLWS))
+	return false, client.IgnoreAlreadyExists(remoteClient.Create(ctx, &remoteLWS))
 }
 
 func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {

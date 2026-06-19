@@ -447,16 +447,27 @@ type TLSOptions struct {
 
 // ClusterProfile defines configuration for using the ClusterProfile API in MultiKueue.
 type ClusterProfile struct {
+	// AccessProviders defines a list of providers to obtain access to worker clusters
+	// using the ClusterProfile API.
+	// +optional
+	AccessProviders []ClusterProfileAccessProvider `json:"accessProviders,omitempty"`
+
 	// CredentialsProviders defines a list of providers to obtain credentials of worker clusters
 	// using the ClusterProfile API.
+	//
+	// Deprecated: Use AccessProviders instead. AccessProviders and CredentialsProviders
+	// are mutually exclusive.
+	//
+	// +optional
+	// +deprecated
 	CredentialsProviders []ClusterProfileCredentialsProvider `json:"credentialsProviders,omitempty"`
 }
 
-// ClusterProfileCredentialsProvider defines a credentials provider in the ClusterProfile API.
-type ClusterProfileCredentialsProvider struct {
+// ClusterProfileAccessProvider defines an access provider in the ClusterProfile API.
+type ClusterProfileAccessProvider struct {
 	// Name is the name of the provider.
 	Name string `json:"name"`
-	//  ExecConfig is the exec configuration to obtain credentials.
+	// ExecConfig is the exec configuration to obtain credentials.
 	ExecConfig clientcmdapi.ExecConfig `json:"execConfig"`
 }
 

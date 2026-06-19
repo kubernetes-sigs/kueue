@@ -127,6 +127,7 @@ type dra struct {
 type InfoOptions struct {
 	excludedResourcePrefixes []string
 	resourceTransformations  map[corev1.ResourceName]*config.ResourceTransformation
+	preserveTotalRequests    bool
 	dra
 }
 
@@ -145,6 +146,15 @@ func WithExcludedResourcePrefixes(n []string) InfoOption {
 func WithResourceTransformations(transforms []config.ResourceTransformation) InfoOption {
 	return func(o *InfoOptions) {
 		o.resourceTransformations = utilslices.ToRefMap(transforms, func(e *config.ResourceTransformation) corev1.ResourceName { return e.Input })
+	}
+}
+
+// WithPreserveTotalRequests prevents Update from rebuilding TotalRequests.
+// Used when requeuing DRA-backed workloads whose TotalRequests were
+// preprocessed by the workload controller and must survive the requeue.
+func WithPreserveTotalRequests() InfoOption {
+	return func(o *InfoOptions) {
+		o.preserveTotalRequests = true
 	}
 }
 
@@ -289,34 +299,47 @@ func (p *PodSetResources) ScaledTo(newCount int32) *PodSetResources {
 }
 
 func NewInfo(w *kueue.Workload, opts ...InfoOption) *Info {
-	options := defaultOptions
-	for _, opt := range opts {
-		opt(&options)
-	}
-	info := &Info{
-		Obj: w,
-	}
-	if w.Status.Admission != nil {
-		info.ClusterQueue = w.Status.Admission.ClusterQueue
-		info.TotalRequests = totalRequestsFromAdmission(w)
-	} else {
-		info.TotalRequests = totalRequestsFromPodSets(w, &options)
-	}
+	info := &Info{}
+	info.Update(klog.Background(), w, opts...)
 	return info
 }
 
 // UpdateSchedulingHash computes and sets the scheduling hash using the
-// provided contextual logger. Call this after NewInfo in production code.
+// provided contextual logger. Called internally by Update.
 func (i *Info) UpdateSchedulingHash(log logr.Logger) {
 	i.SchedulingHash = computeSchedulingHash(log, i.Obj, i.TotalRequests)
 }
 
-// Update refreshes the object reference and recomputes the scheduling hash
-// to reflect any changes (e.g., priority updates).
-func (i *Info) Update(log logr.Logger, wl *kueue.Workload) {
-	log.V(5).Info("Workload info updated", "workload", klog.KObj(wl))
+// Update refreshes the object reference, rebuilds TotalRequests, and
+// recomputes the scheduling hash. Pass WithPreserveTotalRequests to skip
+// the TotalRequests rebuild (e.g., to retain DRA preprocessing on requeue).
+func (i *Info) Update(log logr.Logger, wl *kueue.Workload, opts ...InfoOption) {
 	i.Obj = wl
+	i.rebuildTotalRequests(opts...)
 	i.UpdateSchedulingHash(log)
+}
+
+// rebuildTotalRequests refreshes ClusterQueue and recomputes TotalRequests
+// from the current workload state. When WithPreserveTotalRequests is set,
+// only TotalRequests recomputation is skipped.
+func (i *Info) rebuildTotalRequests(opts ...InfoOption) {
+	options := defaultOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
+	admitted := i.Obj.Status.Admission != nil
+	if admitted {
+		i.ClusterQueue = i.Obj.Status.Admission.ClusterQueue
+	} else {
+		i.ClusterQueue = ""
+	}
+	if !options.preserveTotalRequests {
+		if admitted {
+			i.TotalRequests = totalRequestsFromAdmission(i.Obj)
+		} else {
+			i.TotalRequests = totalRequestsFromPodSets(i.Obj, &options)
+		}
+	}
 }
 
 // computeSchedulingHash returns a deterministic hash of the workload's
@@ -651,10 +674,14 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 			setRes.TopologyRequest = &TopologyRequest{
 				Levels: psa.TopologyAssignment.Levels,
 			}
+			singlePodRequests := setRes.SinglePodRequests()
+			if ps := podset.FindPodSetByName(wl.Spec.PodSets, psa.Name); ps != nil {
+				singlePodRequests = resources.NewRequestsFromPodSpec(&ps.Template.Spec)
+			}
 			for req := range tas.InternalSeqFrom(psa.TopologyAssignment) {
 				setRes.TopologyRequest.DomainRequests = append(setRes.TopologyRequest.DomainRequests, TopologyDomainRequests{
 					Values:            req.Values,
-					SinglePodRequests: setRes.SinglePodRequests(),
+					SinglePodRequests: singlePodRequests,
 					Count:             req.Count,
 				})
 			}
@@ -1057,6 +1084,51 @@ func SetPreemptionGatePosition(w *kueue.Workload, gateName string, gatePosition 
 	}
 
 	return true
+}
+
+// Finds preemption gate with gateName, and returns pointer to that preemption gate state object
+func FindPreemptionGate(w *kueue.Workload, gateName string) *kueue.PreemptionGateState {
+	idx := slices.IndexFunc(w.Status.PreemptionGates, func(gate kueue.PreemptionGateState) bool {
+		return gate.Name == gateName
+	})
+	if idx == -1 {
+		return nil
+	}
+	return &w.Status.PreemptionGates[idx]
+}
+
+// HasOpenPreemptionGate reports whether the named preemption gate is open.
+func HasOpenPreemptionGate(w *kueue.Workload, gateName string) bool {
+	gate := FindPreemptionGate(w, gateName)
+	return gate != nil && gate.Position == kueue.PreemptionGatePositionOpen
+}
+
+// OpenPreemptionGate opens the named preemption gate, recording transitionTime
+// as the moment it opened. Returns true if opened gate and false if no change
+func OpenPreemptionGate(w *kueue.Workload, gateName string, transitionTime metav1.Time) bool {
+	return SetPreemptionGatePosition(w, gateName, kueue.PreemptionGatePositionOpen, transitionTime)
+}
+
+// EnsurePreemptionGateOnSpec appends the named preemption gate to the workload's
+// spec if it is not already present, and returns whether it was added.
+func EnsurePreemptionGateOnSpec(w *kueue.Workload, gateName string) bool {
+	if slices.ContainsFunc(w.Spec.PreemptionGates, func(g kueue.PreemptionGate) bool {
+		return g.Name == gateName
+	}) {
+		return false
+	}
+	w.Spec.PreemptionGates = append(w.Spec.PreemptionGates, kueue.PreemptionGate{Name: gateName})
+	return true
+}
+
+// BlockedOnPreemptionGatesCondition returns kueue.WorkloadBlockedOnPreemptionGates condition type
+// if condition status equals metav1.ConditionTrue returns condition otherwise returns nil
+func BlockedOnPreemptionGatesCondition(w *kueue.Workload) *metav1.Condition {
+	cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadBlockedOnPreemptionGates)
+	if cond != nil && cond.Status == metav1.ConditionTrue {
+		return cond
+	}
+	return nil
 }
 
 // PropagateResourceRequests synchronizes w.Status.ResourceRequests to
@@ -1858,7 +1930,7 @@ func reportEvictedWorkload(recorder events.EventRecorder, wl *kueue.Workload, cq
 	if reason == kueue.WorkloadDeactivated && underlyingCause != "" {
 		eventReason = ReasonWithCause(eventReason, string(underlyingCause))
 	}
-	recorder.Eventf(wl, nil, corev1.EventTypeNormal, eventReason, eventReason, message)
+	recorder.Eventf(wl, nil, corev1.EventTypeNormal, eventReason, eventReason, api.TruncateEventMessage(message))
 }
 
 func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingReason string, targetCqName kueue.ClusterQueueReference, tracker *roletracker.RoleTracker, cl *metrics.CustomLabels) {
@@ -1976,4 +2048,13 @@ func TASAssignedNodeNames(wl *kueue.Workload) []string {
 		}
 	}
 	return nodesSet.UnsortedList()
+}
+
+// IsElasticWorkload returns true if ElasticJobsViaWorkloadSlices feature gate is enabled
+// and the given Workload is marked as elastic.
+func IsElasticWorkload(wl *kueue.Workload) bool {
+	if wl == nil {
+		return false
+	}
+	return features.Enabled(features.ElasticJobsViaWorkloadSlices) && wl.GetAnnotations()[constants.ElasticJobAnnotation] == "true"
 }

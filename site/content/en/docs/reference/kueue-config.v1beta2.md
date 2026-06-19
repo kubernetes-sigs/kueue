@@ -256,18 +256,28 @@ connection.</p>
 <tbody>
     
   
-<tr><td><code>credentialsProviders</code> <B>[Required]</B><br/>
-<a href="#config-kueue-x-k8s-io-v1beta2-ClusterProfileCredentialsProvider"><code>[]ClusterProfileCredentialsProvider</code></a>
+<tr><td><code>accessProviders</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-ClusterProfileAccessProvider"><code>[]ClusterProfileAccessProvider</code></a>
+</td>
+<td>
+   <p>AccessProviders defines a list of providers to obtain access to worker clusters
+using the ClusterProfile API.</p>
+</td>
+</tr>
+<tr><td><code>credentialsProviders</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-ClusterProfileAccessProvider"><code>[]ClusterProfileAccessProvider</code></a>
 </td>
 <td>
    <p>CredentialsProviders defines a list of providers to obtain credentials of worker clusters
 using the ClusterProfile API.</p>
+<p>Deprecated: Use AccessProviders instead. AccessProviders and CredentialsProviders
+are mutually exclusive.</p>
 </td>
 </tr>
 </tbody>
 </table>
 
-## `ClusterProfileCredentialsProvider`     {#config-kueue-x-k8s-io-v1beta2-ClusterProfileCredentialsProvider}
+## `ClusterProfileAccessProvider`     {#config-kueue-x-k8s-io-v1beta2-ClusterProfileAccessProvider}
     
 
 **Appears in:**
@@ -275,7 +285,7 @@ using the ClusterProfile API.</p>
 - [ClusterProfile](#config-kueue-x-k8s-io-v1beta2-ClusterProfile)
 
 
-<p>ClusterProfileCredentialsProvider defines a credentials provider in the ClusterProfile API.</p>
+<p>ClusterProfileAccessProvider defines an access provider in the ClusterProfile API.</p>
 
 
 <table class="table">

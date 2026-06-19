@@ -3,12 +3,12 @@ ARG BUILDER_IMAGE=golang:1.26
 ARG BASE_IMAGE=gcr.io/distroless/static:nonroot
 FROM --platform=${BUILDPLATFORM} ${BUILDER_IMAGE} AS builder
 
-# Copy Go modules manifests and download dependencies
-COPY go.mod go.sum ./
-RUN go mod download
+COPY cmd/kueueviz/backend/go.mod cmd/kueueviz/backend/go.sum ./
+COPY hack/testing/retry.sh /usr/local/bin/retry.sh
+RUN retry.sh --attempts 7 --delay 2 --exponential --stream -- go mod download
 
 # Copy the application source code
-COPY . .
+COPY cmd/kueueviz/backend/ .
 
 # Build the application
 ARG TARGETARCH
@@ -28,5 +28,3 @@ EXPOSE 8080
 
 # Command to run the application
 ENTRYPOINT ["/kueueviz"]
-
-

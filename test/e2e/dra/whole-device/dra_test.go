@@ -1,0 +1,809 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package wholedevice
+
+import (
+	"github.com/onsi/ginkgo/v2"
+	"github.com/onsi/gomega"
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
+	resourceapi "k8s.io/api/resource/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/test/util"
+)
+
+var _ = ginkgo.Describe("DRA", func() {
+	var ns *corev1.Namespace
+
+	ginkgo.BeforeEach(func() {
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-dra-")
+	})
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+	})
+
+	ginkgo.When("Creating Jobs with DRA resources", func() {
+		var (
+			resourceFlavor *kueue.ResourceFlavor
+			clusterQueue   *kueue.ClusterQueue
+			localQueue     *kueue.LocalQueue
+		)
+		ginkgo.BeforeEach(func() {
+			resourceFlavor = utiltestingapi.MakeResourceFlavor("dra-flavor-" + ns.Name).Obj()
+			util.MustCreate(ctx, k8sClient, resourceFlavor)
+
+			// ClusterQueue with DRA gpu resource quota (mapped from gpu.example.com DeviceClass)
+			clusterQueue = utiltestingapi.MakeClusterQueue("dra-cq-" + ns.Name).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).
+						Resource(corev1.ResourceCPU, "4").
+						Resource("gpu", "4").
+						Obj()).
+				Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+
+			localQueue = utiltestingapi.MakeLocalQueue("dra-lq", ns.Name).
+				ClusterQueue(clusterQueue.Name).Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+		})
+		ginkgo.AfterEach(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+		})
+
+		ginkgo.It("Should admit and run a job with DRA resource claim template", func() {
+			ginkgo.By("Creating ResourceClaimTemplate referencing gpu.example.com DeviceClass")
+			rct := utiltesting.MakeResourceClaimTemplate("gpu-template", ns.Name).
+				DeviceRequest("gpu-request", util.DRAExampleDriverName, 1).
+				Obj()
+			util.MustCreate(ctx, k8sClient, rct)
+
+			ginkgo.By("Creating Job with ResourceClaimTemplate reference")
+			job := testingjob.MakeJob("dra-job", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
+				ResourceClaimTemplate("gpu", "gpu-template").
+				Obj()
+			util.MustCreate(ctx, k8sClient, job)
+
+			wlLookupKey := types.NamespacedName{
+				Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
+				Namespace: ns.Name,
+			}
+
+			ginkgo.By("Verifying workload is created and has quota reservation with correct DRA resource usage")
+			createdWorkload := &kueue.Workload{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(createdWorkload)).To(gomega.BeTrue())
+				g.Expect(createdWorkload.Status.Admission).NotTo(gomega.BeNil())
+				g.Expect(createdWorkload.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
+
+				// Verify DRA resource usage is correctly recorded
+				assignment := createdWorkload.Status.Admission.PodSetAssignments[0]
+				g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(corev1.ResourceName("gpu")))
+				g.Expect(assignment.ResourceUsage["gpu"]).To(gomega.Equal(resource.MustParse("1")))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verifying job is unsuspended")
+			util.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKeyFromObject(job))
+
+			ginkgo.By("Verifying job completes successfully")
+			util.ExpectJobToBeCompleted(ctx, k8sClient, job)
+
+			ginkgo.By("Verifying workload finished successfully")
+			util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, util.LongTimeout)
+		})
+
+		ginkgo.It("Should keep job suspended when DRA quota is exceeded", func() {
+			ginkgo.By("Creating ResourceClaimTemplate requesting more than available quota")
+			rct := utiltesting.MakeResourceClaimTemplate("large-gpu-template", ns.Name).
+				DeviceRequest("gpu-request", util.DRAExampleDriverName, 10). // Exceeds quota of 4
+				Obj()
+			util.MustCreate(ctx, k8sClient, rct)
+
+			ginkgo.By("Creating Job with large DRA request")
+			job := testingjob.MakeJob("large-dra-job", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				ResourceClaimTemplate("gpu", "large-gpu-template").
+				TerminationGracePeriod(1).
+				Obj()
+			util.MustCreate(ctx, k8sClient, job)
+
+			wlLookupKey := types.NamespacedName{
+				Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
+				Namespace: ns.Name,
+			}
+
+			ginkgo.By("Waiting for workload to be created")
+			createdWorkload := &kueue.Workload{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verifying job remains suspended")
+			createdJob := &batchv1.Job{}
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
+				g.Expect(createdJob.Spec.Suspend).To(gomega.Equal(new(true)))
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+
+			ginkgo.By("Verifying workload does not get admitted")
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				g.Expect(workload.IsAdmitted(createdWorkload)).To(gomega.BeFalse())
+				g.Expect(workload.HasQuotaReservation(createdWorkload)).To(gomega.BeFalse())
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("Should admit multiple jobs that together fit within DRA quota", func() {
+			ginkgo.By("Creating ResourceClaimTemplates for two jobs (2 GPUs each, total 4 = quota)")
+			rct1 := utiltesting.MakeResourceClaimTemplate("gpu-template-1", ns.Name).
+				DeviceRequest("gpu-request", util.DRAExampleDriverName, 2).
+				Obj()
+			util.MustCreate(ctx, k8sClient, rct1)
+
+			rct2 := utiltesting.MakeResourceClaimTemplate("gpu-template-2", ns.Name).
+				DeviceRequest("gpu-request", util.DRAExampleDriverName, 2).
+				Obj()
+			util.MustCreate(ctx, k8sClient, rct2)
+
+			ginkgo.By("Creating first job requesting 2 GPUs")
+			job1 := testingjob.MakeJob("dra-job-1", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
+				ResourceClaimTemplate("gpu", "gpu-template-1").
+				Obj()
+			util.MustCreate(ctx, k8sClient, job1)
+
+			ginkgo.By("Creating second job requesting 2 GPUs")
+			job2 := testingjob.MakeJob("dra-job-2", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
+				ResourceClaimTemplate("gpu", "gpu-template-2").
+				Obj()
+			util.MustCreate(ctx, k8sClient, job2)
+
+			ginkgo.By("Verifying both workloads are admitted with correct DRA resource usage")
+			for _, job := range []*batchv1.Job{job1, job2} {
+				wlLookupKey := types.NamespacedName{
+					Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
+					Namespace: ns.Name,
+				}
+				createdWorkload := &kueue.Workload{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(workload.HasQuotaReservation(createdWorkload)).To(gomega.BeTrue())
+					g.Expect(createdWorkload.Status.Admission).NotTo(gomega.BeNil())
+
+					// Verify each workload has 2 GPUs reserved
+					assignment := createdWorkload.Status.Admission.PodSetAssignments[0]
+					g.Expect(assignment.ResourceUsage["gpu"]).To(gomega.Equal(resource.MustParse("2")))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}
+
+			ginkgo.By("Verifying both jobs complete successfully")
+			util.ExpectJobToBeCompleted(ctx, k8sClient, job1)
+			util.ExpectJobToBeCompleted(ctx, k8sClient, job2)
+
+			ginkgo.By("Verifying both workloads finished successfully")
+			for _, job := range []*batchv1.Job{job1, job2} {
+				wlLookupKey := types.NamespacedName{
+					Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
+					Namespace: ns.Name,
+				}
+				util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, util.LongTimeout)
+			}
+		})
+
+		ginkgo.It("Should queue third job when DRA quota is full and admit it after quota is freed", func() {
+			ginkgo.By("Creating ResourceClaimTemplates for three jobs")
+			rct1 := utiltesting.MakeResourceClaimTemplate("gpu-template-a", ns.Name).
+				DeviceRequest("gpu-request", util.DRAExampleDriverName, 2).
+				Obj()
+			util.MustCreate(ctx, k8sClient, rct1)
+
+			rct2 := utiltesting.MakeResourceClaimTemplate("gpu-template-b", ns.Name).
+				DeviceRequest("gpu-request", util.DRAExampleDriverName, 2).
+				Obj()
+			util.MustCreate(ctx, k8sClient, rct2)
+
+			rct3 := utiltesting.MakeResourceClaimTemplate("gpu-template-c", ns.Name).
+				DeviceRequest("gpu-request", util.DRAExampleDriverName, 2).
+				Obj()
+			util.MustCreate(ctx, k8sClient, rct3)
+
+			ginkgo.By("Creating first job that uses 2 GPUs and completes quickly")
+			job1 := testingjob.MakeJob("dra-job-a", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
+				ResourceClaimTemplate("gpu", "gpu-template-a").
+				Obj()
+			util.MustCreate(ctx, k8sClient, job1)
+
+			ginkgo.By("Creating second job that uses 2 GPUs and completes quickly")
+			job2 := testingjob.MakeJob("dra-job-b", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
+				ResourceClaimTemplate("gpu", "gpu-template-b").
+				Obj()
+			util.MustCreate(ctx, k8sClient, job2)
+
+			ginkgo.By("Creating third job that needs 2 GPUs (quota now full with 4)")
+			job3 := testingjob.MakeJob("dra-job-c", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
+				ResourceClaimTemplate("gpu", "gpu-template-c").
+				Obj()
+			util.MustCreate(ctx, k8sClient, job3)
+
+			ginkgo.By("Verifying first two jobs complete and third job eventually runs")
+			util.ExpectJobToBeCompleted(ctx, k8sClient, job3)
+
+			ginkgo.By("Verifying third workload finished successfully")
+			wlLookupKey3 := types.NamespacedName{
+				Name:      workloadjob.GetWorkloadNameForJob(job3.Name, job3.UID),
+				Namespace: ns.Name,
+			}
+			util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey3, util.LongTimeout)
+		})
+
+		ginkgo.It("Should admit and run a job with CEL selectors in resource claim template", func() {
+			ginkgo.By("Creating ResourceClaimTemplate with CEL selector filtering by driver name")
+			rct := utiltesting.MakeResourceClaimTemplate("cel-gpu-template", ns.Name).
+				DeviceRequest("gpu-request", util.DRAExampleDriverName, 1).
+				WithCELSelectors("device.driver == \"gpu.example.com\"").
+				Obj()
+			util.MustCreate(ctx, k8sClient, rct)
+
+			ginkgo.By("Creating Job with CEL-filtered ResourceClaimTemplate reference")
+			job := testingjob.MakeJob("cel-dra-job", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
+				ResourceClaimTemplate("gpu", "cel-gpu-template").
+				Obj()
+			util.MustCreate(ctx, k8sClient, job)
+
+			wlLookupKey := types.NamespacedName{
+				Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
+				Namespace: ns.Name,
+			}
+
+			ginkgo.By("Verifying workload is created and has quota reservation with correct DRA resource usage")
+			createdWorkload := &kueue.Workload{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(createdWorkload)).To(gomega.BeTrue())
+				g.Expect(createdWorkload.Status.Admission).NotTo(gomega.BeNil())
+				g.Expect(createdWorkload.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
+
+				assignment := createdWorkload.Status.Admission.PodSetAssignments[0]
+				g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(corev1.ResourceName("gpu")))
+				g.Expect(assignment.ResourceUsage["gpu"]).To(gomega.Equal(resource.MustParse("1")))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verifying job is unsuspended")
+			util.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKeyFromObject(job))
+
+			ginkgo.By("Verifying job completes successfully")
+			util.ExpectJobToBeCompleted(ctx, k8sClient, job)
+
+			ginkgo.By("Verifying workload finished successfully")
+			util.ExpectWorkloadToFinish(ctx, k8sClient, wlLookupKey)
+		})
+
+		ginkgo.It("Should not admit a job with unsatisfiable CEL selectors to prevent quota leak", func() {
+			ginkgo.By("Creating ResourceClaimTemplate with CEL selector that matches no devices")
+			rctUnmatchable := utiltesting.MakeResourceClaimTemplate("unmatchable-cel-template", ns.Name).
+				DeviceRequest("gpu-request", util.DRAExampleDriverName, 2).
+				WithCELSelectors("device.driver == \"nonexistent-driver.example.com\"").
+				Obj()
+			util.MustCreate(ctx, k8sClient, rctUnmatchable)
+
+			ginkgo.By("Creating job with unmatchable CEL selector")
+			unmatchableJob := testingjob.MakeJob("unmatchable-cel-job", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				ResourceClaimTemplate("gpu", "unmatchable-cel-template").
+				TerminationGracePeriod(1).
+				Obj()
+			util.MustCreate(ctx, k8sClient, unmatchableJob)
+
+			unmatchableWlKey := types.NamespacedName{
+				Name:      workloadjob.GetWorkloadNameForJob(unmatchableJob.Name, unmatchableJob.UID),
+				Namespace: ns.Name,
+			}
+
+			ginkgo.By("Verifying unmatchable workload is marked as inadmissible and does not consume quota")
+			unmatchableWl := &kueue.Workload{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, unmatchableWlKey, unmatchableWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(unmatchableWl)).To(gomega.BeFalse())
+				g.Expect(unmatchableWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
+					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
+					gomega.HaveField("Status", metav1.ConditionFalse),
+					gomega.HaveField("Reason", kueue.WorkloadInadmissible),
+					gomega.HaveField("Message", gomega.ContainSubstring("insufficient matching devices for CEL selector")),
+				)))
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Creating a legitimate job that should still be admittable")
+			rctLegitimate := utiltesting.MakeResourceClaimTemplate("legitimate-gpu-template", ns.Name).
+				DeviceRequest("gpu-request", util.DRAExampleDriverName, 1).
+				Obj()
+			util.MustCreate(ctx, k8sClient, rctLegitimate)
+
+			legitimateJob := testingjob.MakeJob("legitimate-dra-job", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
+				ResourceClaimTemplate("gpu", "legitimate-gpu-template").
+				Obj()
+			util.MustCreate(ctx, k8sClient, legitimateJob)
+
+			legitimateWlKey := types.NamespacedName{
+				Name:      workloadjob.GetWorkloadNameForJob(legitimateJob.Name, legitimateJob.UID),
+				Namespace: ns.Name,
+			}
+
+			ginkgo.By("Verifying legitimate workload is admitted - quota was not leaked by unmatchable job")
+			util.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, legitimateWlKey)
+
+			ginkgo.By("Verifying legitimate job completes successfully")
+			util.ExpectJobToBeCompleted(ctx, k8sClient, legitimateJob)
+			util.ExpectWorkloadToFinish(ctx, k8sClient, legitimateWlKey)
+		})
+
+		ginkgo.It("Should correctly calculate DRA resources for multi-pod jobs", func() {
+			ginkgo.By("Creating ResourceClaimTemplate requesting 1 GPU per pod")
+			rct := utiltesting.MakeResourceClaimTemplate("multi-pod-gpu-template", ns.Name).
+				DeviceRequest("gpu-request", util.DRAExampleDriverName, 1).
+				Obj()
+			util.MustCreate(ctx, k8sClient, rct)
+
+			ginkgo.By("Creating Job with parallelism=2")
+			job := testingjob.MakeJob("multi-pod-dra-job", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Parallelism(2).
+				Completions(2).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
+				ResourceClaimTemplate("gpu", "multi-pod-gpu-template").
+				Obj()
+			util.MustCreate(ctx, k8sClient, job)
+
+			wlLookupKey := types.NamespacedName{
+				Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
+				Namespace: ns.Name,
+			}
+
+			ginkgo.By("Verifying workload is admitted with correct total DRA resource usage")
+			createdWorkload := &kueue.Workload{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(createdWorkload)).To(gomega.BeTrue())
+				g.Expect(createdWorkload.Status.Admission).NotTo(gomega.BeNil())
+				g.Expect(createdWorkload.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
+
+				assignment := createdWorkload.Status.Admission.PodSetAssignments[0]
+				// Verify pod count is 2
+				g.Expect(assignment.Count).To(gomega.Equal(new(int32(2))))
+				// Verify total GPU usage is 2 (1 GPU per pod * 2 pods)
+				g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(corev1.ResourceName("gpu")))
+				g.Expect(assignment.ResourceUsage["gpu"]).To(gomega.Equal(resource.MustParse("2")))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verifying job completes successfully")
+			util.ExpectJobToBeCompleted(ctx, k8sClient, job)
+		})
+	})
+
+	ginkgo.When("Creating Jobs with Extended Resources backed by DRA", func() {
+		var (
+			resourceFlavor      *kueue.ResourceFlavor
+			clusterQueue        *kueue.ClusterQueue
+			localQueue          *kueue.LocalQueue
+			extendedResDevClass *resourceapi.DeviceClass
+		)
+
+		const (
+			// Extended resource name that maps to DRA DeviceClass
+			extendedResourceName = "example.com/gpu"
+			// DeviceClass name with extendedResourceName set
+			extendedResDevClassName = "gpu-extended.example.com"
+		)
+
+		ginkgo.BeforeEach(func() {
+			// Create a DeviceClass with extendedResourceName that uses the same driver
+			// as dra-example-driver but exposes GPUs as extended resources
+			extendedResDevClass = &resourceapi.DeviceClass{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: extendedResDevClassName,
+				},
+				Spec: resourceapi.DeviceClassSpec{
+					// Use the same selector as the default dra-example-driver DeviceClass
+					Selectors: []resourceapi.DeviceSelector{
+						{
+							CEL: &resourceapi.CELDeviceSelector{
+								Expression: "device.driver == '" + util.DRAExampleDriverName + "'",
+							},
+						},
+					},
+					// This is the key field for Extended Resources backed by DRA
+					ExtendedResourceName: ptr.To(extendedResourceName),
+				},
+			}
+			util.MustCreate(ctx, k8sClient, extendedResDevClass)
+
+			resourceFlavor = utiltestingapi.MakeResourceFlavor("ext-res-dra-flavor-" + ns.Name).Obj()
+			util.MustCreate(ctx, k8sClient, resourceFlavor)
+
+			// ClusterQueue with quota for both paths:
+			// - "example.com/gpu" for extended resources (auto-discovered, no deviceClassMappings)
+			// - "gpu" for ResourceClaimTemplates (via deviceClassMappings)
+			clusterQueue = utiltestingapi.MakeClusterQueue("ext-res-dra-cq-" + ns.Name).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).
+						Resource(corev1.ResourceCPU, "4").
+						Resource(corev1.ResourceName(extendedResourceName), "4").
+						Resource("gpu", "4").
+						Obj()).
+				Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+
+			localQueue = utiltestingapi.MakeLocalQueue("ext-res-dra-lq", ns.Name).
+				ClusterQueue(clusterQueue.Name).Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+		})
+
+		ginkgo.AfterEach(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, extendedResDevClass, true)
+		})
+
+		ginkgo.It("Should admit and run a job using extended resource backed by DRA", func() {
+			ginkgo.By("Creating Job with extended resource request (no ResourceClaimTemplate)")
+			job := testingjob.MakeJob("ext-res-dra-job", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Request(corev1.ResourceCPU, "100m").
+				// Extended resources require both requests AND limits
+				RequestAndLimit(corev1.ResourceName(extendedResourceName), "1").
+				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
+				Obj()
+			util.MustCreate(ctx, k8sClient, job)
+
+			wlLookupKey := types.NamespacedName{
+				Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
+				Namespace: ns.Name,
+			}
+
+			ginkgo.By("Verifying workload is created and has quota reservation with correct DRA resource usage")
+			createdWorkload := &kueue.Workload{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(createdWorkload)).To(gomega.BeTrue())
+				g.Expect(createdWorkload.Status.Admission).NotTo(gomega.BeNil())
+				g.Expect(createdWorkload.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
+
+				// Verify DRA resource usage uses extendedResourceName directly as quota key
+				assignment := createdWorkload.Status.Admission.PodSetAssignments[0]
+				g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(corev1.ResourceName(extendedResourceName)))
+				g.Expect(assignment.ResourceUsage[corev1.ResourceName(extendedResourceName)]).To(gomega.Equal(resource.MustParse("1")))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verifying job is unsuspended")
+			util.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKeyFromObject(job))
+
+			ginkgo.By("Verifying job completes successfully")
+			util.ExpectJobToBeCompleted(ctx, k8sClient, job)
+
+			ginkgo.By("Verifying workload finished successfully")
+			util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, util.LongTimeout)
+		})
+
+		ginkgo.It("Should keep job suspended when extended resource DRA quota is exceeded", func() {
+			ginkgo.By("Creating Job with extended resource request exceeding quota")
+			job := testingjob.MakeJob("large-ext-res-dra-job", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Request(corev1.ResourceCPU, "100m").
+				// Extended resources require both requests AND limits
+				RequestAndLimit(corev1.ResourceName(extendedResourceName), "10"). // Exceeds quota of 4
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				TerminationGracePeriod(1).
+				Obj()
+			util.MustCreate(ctx, k8sClient, job)
+
+			wlLookupKey := types.NamespacedName{
+				Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
+				Namespace: ns.Name,
+			}
+
+			ginkgo.By("Waiting for workload to be created")
+			createdWorkload := &kueue.Workload{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verifying job remains suspended")
+			createdJob := &batchv1.Job{}
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
+				g.Expect(createdJob.Spec.Suspend).To(gomega.Equal(new(true)))
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+
+			ginkgo.By("Verifying workload does not get admitted")
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				g.Expect(workload.IsAdmitted(createdWorkload)).To(gomega.BeFalse())
+				g.Expect(workload.HasQuotaReservation(createdWorkload)).To(gomega.BeFalse())
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("Should correctly mix ResourceClaimTemplate and Extended Resource jobs", func() {
+			ginkgo.By("Creating ResourceClaimTemplate for first job")
+			rct := utiltesting.MakeResourceClaimTemplate("mixed-gpu-template", ns.Name).
+				DeviceRequest("gpu-request", util.DRAExampleDriverName, 2).
+				Obj()
+			util.MustCreate(ctx, k8sClient, rct)
+
+			ginkgo.By("Creating first job using ResourceClaimTemplate (2 GPUs)")
+			job1 := testingjob.MakeJob("mixed-rct-job", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Request(corev1.ResourceCPU, "100m").
+				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
+				ResourceClaimTemplate("gpu", "mixed-gpu-template").
+				Obj()
+			util.MustCreate(ctx, k8sClient, job1)
+
+			ginkgo.By("Creating second job using extended resource (2 GPUs)")
+			job2 := testingjob.MakeJob("mixed-ext-res-job", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Request(corev1.ResourceCPU, "100m").
+				RequestAndLimit(corev1.ResourceName(extendedResourceName), "2").
+				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
+				Obj()
+			util.MustCreate(ctx, k8sClient, job2)
+
+			ginkgo.By("Verifying RCT job is admitted with gpu resource usage")
+			wlLookupKey1 := types.NamespacedName{
+				Name:      workloadjob.GetWorkloadNameForJob(job1.Name, job1.UID),
+				Namespace: ns.Name,
+			}
+			createdWorkload1 := &kueue.Workload{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey1, createdWorkload1)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(createdWorkload1)).To(gomega.BeTrue())
+				g.Expect(createdWorkload1.Status.Admission).NotTo(gomega.BeNil())
+				assignment := createdWorkload1.Status.Admission.PodSetAssignments[0]
+				g.Expect(assignment.ResourceUsage["gpu"]).To(gomega.Equal(resource.MustParse("2")))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verifying extended resource job is admitted with extendedResourceName usage")
+			wlLookupKey2 := types.NamespacedName{
+				Name:      workloadjob.GetWorkloadNameForJob(job2.Name, job2.UID),
+				Namespace: ns.Name,
+			}
+			createdWorkload2 := &kueue.Workload{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey2, createdWorkload2)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(createdWorkload2)).To(gomega.BeTrue())
+				g.Expect(createdWorkload2.Status.Admission).NotTo(gomega.BeNil())
+				assignment := createdWorkload2.Status.Admission.PodSetAssignments[0]
+				g.Expect(assignment.ResourceUsage[corev1.ResourceName(extendedResourceName)]).To(gomega.Equal(resource.MustParse("2")))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verifying both jobs complete successfully")
+			util.ExpectJobToBeCompleted(ctx, k8sClient, job1)
+			util.ExpectJobToBeCompleted(ctx, k8sClient, job2)
+		})
+
+		ginkgo.It("Should track ResourceClaimTemplate and Extended Resource requests separately", func() {
+			ginkgo.By("Creating ResourceClaimTemplate requesting 2 GPUs")
+			rct := utiltesting.MakeResourceClaimTemplate("both-gpu-template", ns.Name).
+				DeviceRequest("gpu-request", util.DRAExampleDriverName, 2).
+				Obj()
+			util.MustCreate(ctx, k8sClient, rct)
+
+			ginkgo.By("Creating job with ResourceClaimTemplate (2 GPUs) and extended resource (1 GPU)")
+			job := testingjob.MakeJob("both-dra-methods-job", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Request(corev1.ResourceCPU, "100m").
+				RequestAndLimit(corev1.ResourceName(extendedResourceName), "1").
+				ResourceClaimTemplate("gpu-claim", "both-gpu-template").
+				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
+				Obj()
+			util.MustCreate(ctx, k8sClient, job)
+
+			wlLookupKey := types.NamespacedName{
+				Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
+				Namespace: ns.Name,
+			}
+
+			ginkgo.By("Verifying workload is admitted with separate quota for each path")
+			createdWorkload := &kueue.Workload{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(createdWorkload)).To(gomega.BeTrue())
+				g.Expect(createdWorkload.Status.Admission).NotTo(gomega.BeNil())
+
+				assignment := createdWorkload.Status.Admission.PodSetAssignments[0]
+				// RCT path uses "gpu" (from deviceClassMappings)
+				g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(corev1.ResourceName("gpu")))
+				g.Expect(assignment.ResourceUsage["gpu"]).To(gomega.Equal(resource.MustParse("2")))
+				// Extended resources path uses extendedResourceName directly
+				g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(corev1.ResourceName(extendedResourceName)))
+				g.Expect(assignment.ResourceUsage[corev1.ResourceName(extendedResourceName)]).To(gomega.Equal(resource.MustParse("1")))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verifying job completes successfully")
+			util.ExpectJobToBeCompleted(ctx, k8sClient, job)
+		})
+
+		ginkgo.It("Should not double-count extended resource when translated to DRA logical resource", func() {
+			ginkgo.By("Creating Job with extended resource only (no ResourceClaimTemplate)")
+			job := testingjob.MakeJob("no-double-count-job", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Request(corev1.ResourceCPU, "100m").
+				RequestAndLimit(corev1.ResourceName(extendedResourceName), "1").
+				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
+				Obj()
+			util.MustCreate(ctx, k8sClient, job)
+
+			wlLookupKey := types.NamespacedName{
+				Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
+				Namespace: ns.Name,
+			}
+
+			ginkgo.By("Verifying workload is admitted with exactly 1 GPU (not double-counted)")
+			createdWorkload := &kueue.Workload{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(createdWorkload)).To(gomega.BeTrue())
+				g.Expect(createdWorkload.Status.Admission).NotTo(gomega.BeNil())
+
+				assignment := createdWorkload.Status.Admission.PodSetAssignments[0]
+				// Should have the extendedResourceName as quota key, counted exactly once
+				g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(corev1.ResourceName(extendedResourceName)))
+				g.Expect(assignment.ResourceUsage[corev1.ResourceName(extendedResourceName)]).To(gomega.Equal(resource.MustParse("1")))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verifying job completes successfully")
+			util.ExpectJobToBeCompleted(ctx, k8sClient, job)
+		})
+	})
+
+	ginkgo.When("Late DeviceClass creation with Extended Resources", func() {
+		var (
+			resourceFlavor *kueue.ResourceFlavor
+			clusterQueue   *kueue.ClusterQueue
+			localQueue     *kueue.LocalQueue
+		)
+
+		const (
+			extendedResourceName       = "example.com/gpu"
+			lateDeviceClassName        = "gpu-late-dc.example.com"
+			lateDeviceClassLogicalName = "gpu-late-dc"
+		)
+
+		ginkgo.BeforeEach(func() {
+			resourceFlavor = utiltestingapi.MakeResourceFlavor("late-dc-flavor-" + ns.Name).Obj()
+			util.MustCreate(ctx, k8sClient, resourceFlavor)
+
+			clusterQueue = utiltestingapi.MakeClusterQueue("late-dc-cq-" + ns.Name).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).
+						Resource(corev1.ResourceCPU, "4").
+						Resource(corev1.ResourceName(lateDeviceClassLogicalName), "4").
+						Obj()).
+				Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+
+			localQueue = utiltestingapi.MakeLocalQueue("late-dc-lq", ns.Name).
+				ClusterQueue(clusterQueue.Name).Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+		})
+
+		ginkgo.AfterEach(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+		})
+
+		ginkgo.It("Should admit job after DeviceClass is created", func() {
+			ginkgo.By("Creating Job with extended resource request before DeviceClass exists")
+			job := testingjob.MakeJob("late-dc-job", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Request(corev1.ResourceCPU, "100m").
+				RequestAndLimit(corev1.ResourceName(extendedResourceName), "1").
+				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
+				Obj()
+			util.MustCreate(ctx, k8sClient, job)
+
+			wlLookupKey := types.NamespacedName{
+				Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
+				Namespace: ns.Name,
+			}
+
+			ginkgo.By("Verifying job remains suspended (no DeviceClass, no translation)")
+			createdJob := &batchv1.Job{}
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
+				g.Expect(createdJob.Spec.Suspend).To(gomega.Equal(new(true)))
+			}, util.ShortConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+
+			ginkgo.By("Creating DeviceClass with extendedResourceName")
+			deviceClass := &resourceapi.DeviceClass{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: lateDeviceClassName,
+				},
+				Spec: resourceapi.DeviceClassSpec{
+					Selectors: []resourceapi.DeviceSelector{
+						{
+							CEL: &resourceapi.CELDeviceSelector{
+								Expression: "device.driver == '" + util.DRAExampleDriverName + "'",
+							},
+						},
+					},
+					ExtendedResourceName: ptr.To(extendedResourceName),
+				},
+			}
+			util.MustCreate(ctx, k8sClient, deviceClass)
+			defer func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
+			}()
+
+			ginkgo.By("Verifying workload is admitted with logical name as quota key")
+			createdWorkload := &kueue.Workload{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(createdWorkload)).To(gomega.BeTrue())
+				g.Expect(createdWorkload.Status.Admission).NotTo(gomega.BeNil())
+
+				assignment := createdWorkload.Status.Admission.PodSetAssignments[0]
+				g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(corev1.ResourceName(lateDeviceClassLogicalName)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verifying job is unsuspended")
+			util.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKeyFromObject(job))
+
+			ginkgo.By("Verifying job completes successfully")
+			util.ExpectJobToBeCompleted(ctx, k8sClient, job)
+		})
+	})
+})

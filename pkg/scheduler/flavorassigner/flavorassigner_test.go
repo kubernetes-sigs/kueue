@@ -27,6 +27,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 
@@ -36,6 +37,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
+	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -43,8 +45,11 @@ import (
 
 var (
 	statusComparer = cmp.Comparer(func(a, b Status) bool {
+		if a.err != nil && b.err != nil {
+			return errors.Is(a.err, b.err) || strings.HasPrefix(a.err.Error(), b.err.Error()) || strings.HasPrefix(b.err.Error(), a.err.Error())
+		}
 		if a.err != nil || b.err != nil {
-			return errors.Is(a.err, b.err)
+			return false
 		}
 		return cmp.Equal(a.reasons, b.reasons, cmpopts.SortSlices(func(x, y string) bool {
 			return x < y
@@ -195,6 +200,8 @@ func TestAssignFlavors(t *testing.T) {
 				Effect:   corev1.TaintEffectNoSchedule,
 			}).
 			Obj(),
+		"tas-a": utiltestingapi.MakeResourceFlavor("tas-a").TopologyName("tas-topo-a").Obj(),
+		"tas-b": utiltestingapi.MakeResourceFlavor("tas-b").TopologyName("tas-topo-b").Obj(),
 	}
 
 	cases := map[string]struct {
@@ -210,6 +217,7 @@ func TestAssignFlavors(t *testing.T) {
 		simulationResult           map[resources.FlavorResource]simulationResultForFlavor
 		preemptWorkloadSlice       *workload.Info
 		featureGates               map[featuregate.Feature]bool
+		topologies                 []*kueue.Topology
 	}{
 		"single flavor, fits": {
 			wlPods: []kueue.PodSet{
@@ -3309,6 +3317,58 @@ func TestAssignFlavors(t *testing.T) {
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{}},
 			},
 		},
+		"multiple TAS flavors assigned to different resources in the same PodSet leads to NoFit": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: true,
+			},
+			topologies: []*kueue.Topology{
+				utiltestingapi.MakeTopology("tas-topo-a").Levels(corev1.LabelHostname).Obj(),
+				utiltestingapi.MakeTopology("tas-topo-b").Levels(corev1.LabelHostname).Obj(),
+			},
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "1").
+					Request(corev1.ResourceMemory, "1Mi").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-a").
+						Resource(corev1.ResourceCPU, "10").
+						Obj(),
+				).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-b").
+						Resource(corev1.ResourceMemory, "10Mi").
+						Obj(),
+				).
+				Obj(),
+			wantRepMode: NoFit,
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{
+					{
+						Name: kueue.DefaultPodSetName,
+						Flavors: ResourceAssignment{
+							corev1.ResourceCPU:    {Name: "tas-a", Mode: Fit, TriedFlavorIdx: -1},
+							corev1.ResourceMemory: {Name: "tas-b", Mode: Fit, TriedFlavorIdx: -1},
+						},
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Mi"),
+						},
+						Count: 1,
+						Status: Status{
+							err: errors.New("more than one TAS flavor assigned"),
+						},
+					},
+				},
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+					{Flavor: "tas-a", Resource: corev1.ResourceCPU}:    resources.NewAmount(1_000),
+					{Flavor: "tas-b", Resource: corev1.ResourceMemory}: resources.NewAmount(utiltesting.Mi),
+				}},
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -3336,6 +3396,11 @@ func TestAssignFlavors(t *testing.T) {
 			}
 			for _, rf := range resourceFlavors {
 				cache.AddOrUpdateResourceFlavor(log, rf)
+			}
+			if tc.topologies != nil {
+				for _, topology := range tc.topologies {
+					cache.AddOrUpdateTopology(log, topology)
+				}
 			}
 
 			if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort(tc.clusterQueue.Spec.CohortName).Obj()); err != nil {
@@ -4096,6 +4161,7 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 					Count:  2,
 					Status: *NewStatus(),
 				}},
+				representativeMode: new(Fit),
 				replaceWorkloadSlice: workload.NewInfo(&kueue.Workload{
 					Status: kueue.WorkloadStatus{
 						Admission: &kueue.Admission{
@@ -4108,6 +4174,11 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 				}),
 			},
 			workload: *workload.NewInfo(&kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						"kueue.x-k8s.io/elastic-job": "true",
+					},
+				},
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
@@ -4132,6 +4203,7 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 					Count:  2,
 					Status: *NewStatus(),
 				}},
+				representativeMode: new(Fit),
 				replaceWorkloadSlice: workload.NewInfo(&kueue.Workload{
 					Status: kueue.WorkloadStatus{
 						Admission: &kueue.Admission{
@@ -4144,6 +4216,42 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 				}),
 			},
 			workload: *workload.NewInfo(&kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						"kueue.x-k8s.io/elastic-job": "true",
+					},
+				},
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+							Request(corev1.ResourceCPU, "1").
+							PreferredTopologyRequest(corev1.LabelHostname).
+							Obj(),
+					},
+				},
+			}),
+			wantErr: "preferred topology is not supported with ElasticJobsViaWorkloadSlices",
+		},
+		"preferred topology is rejected for new elastic workload": {
+			cq: schdcache.ClusterQueueSnapshot{
+				TASFlavors: map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot{"tas": tasFlavor},
+			},
+			assignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: {Name: "tas", Mode: Fit, TriedFlavorIdx: -1},
+					},
+					Count:  2,
+					Status: *NewStatus(),
+				}},
+			},
+			workload: *workload.NewInfo(&kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						"kueue.x-k8s.io/elastic-job": "true",
+					},
+				},
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
@@ -4180,11 +4288,66 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 				}),
 			},
 			workload: *workload.NewInfo(&kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						"kueue.x-k8s.io/elastic-job": "true",
+					},
+				},
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
 							Request(corev1.ResourceCPU, "1").
 							UnconstrainedTopologyRequest().
+							Obj(),
+					},
+				},
+			}),
+		},
+		"required topology is accepted for regular jobs with ElasticJobsViaWorkloadSlicesWithTAS": {
+			cq: schdcache.ClusterQueueSnapshot{
+				TASFlavors: map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot{"tas": tasFlavor},
+			},
+			assignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: {Name: "tas", Mode: Fit, TriedFlavorIdx: -1},
+					},
+					Count:  2,
+					Status: *NewStatus(),
+				}},
+			},
+			workload: *workload.NewInfo(&kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+							Request(corev1.ResourceCPU, "1").
+							RequiredTopologyRequest(corev1.LabelHostname).
+							Obj(),
+					},
+				},
+			}),
+		},
+		"preferred topology is accepted for regular jobs with ElasticJobsViaWorkloadSlicesWithTAS": {
+			cq: schdcache.ClusterQueueSnapshot{
+				TASFlavors: map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot{"tas": tasFlavor},
+			},
+			assignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: {Name: "tas", Mode: Fit, TriedFlavorIdx: -1},
+					},
+					Count:  2,
+					Status: *NewStatus(),
+				}},
+			},
+			workload: *workload.NewInfo(&kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+							Request(corev1.ResourceCPU, "1").
+							PreferredTopologyRequest(corev1.LabelHostname).
 							Obj(),
 					},
 				},
@@ -4204,8 +4367,16 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 				} else if diff := cmp.Diff(tc.wantErr, tc.assignment.PodSets[0].Status.err.Error()); diff != "" {
 					t.Errorf("Error mismatch (-want +got):\n%s", diff)
 				}
-			} else if tc.assignment.PodSets[0].Status.err != nil {
-				t.Errorf("expected no error, got: %v", tc.assignment.PodSets[0].Status.err)
+				if got := tc.assignment.RepresentativeMode(); got != NoFit {
+					t.Errorf("RepresentativeMode() = %v, want NoFit (workload must not be admitted when elastic job validation fails)", got)
+				}
+			} else {
+				if tc.assignment.PodSets[0].Status.err != nil {
+					t.Errorf("expected no error, got: %v", tc.assignment.PodSets[0].Status.err)
+				}
+				if got := tc.assignment.RepresentativeMode(); got != Fit {
+					t.Errorf("RepresentativeMode() = %v, want Fit", got)
+				}
 			}
 		})
 	}
@@ -4421,6 +4592,128 @@ func TestAssignment_TotalRequestsFor(t *testing.T) {
 			got := a.TotalRequestsFor(logr.Discard(), tt.args.wl)
 			if diff := cmp.Diff(got, tt.want); diff != "" {
 				t.Errorf("TotalRequestsFor() (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestAssignment_ComputeTASNetUsage(t *testing.T) {
+	tests := map[string]struct {
+		assignment    Assignment
+		wl            *workload.Info
+		cq            *schdcache.ClusterQueueSnapshot
+		prevAdmission *kueue.Admission
+		want          workload.TASUsage
+	}{
+		"records actual pod requests when assignment requests differ": {
+			assignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU:        {Name: "tas"},
+						corev1.ResourceMemory:     {Name: "tas"},
+						"example.com/logical-gpu": {Name: "quota"},
+					},
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:        resource.MustParse("2"),
+						corev1.ResourceMemory:     resource.MustParse("2Gi"),
+						"example.com/logical-gpu": resource.MustParse("2"),
+					},
+					Count: 2,
+					TopologyAssignment: &tas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{{
+							Values: []string{"node-a"},
+							Count:  2,
+						}},
+					},
+				}},
+			},
+			wl: workload.NewInfo(&kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+							// In assignment requests, example.com/gpu is transformed to
+							// example.com/logical-gpu and networking.example.com/vpc is excluded.
+							Request(corev1.ResourceCPU, "1").
+							Request(corev1.ResourceMemory, "1Gi").
+							Request("example.com/gpu", "1").
+							Request("networking.example.com/vpc", "1").
+							RequiredTopologyRequest(corev1.LabelHostname).
+							Obj(),
+					},
+				},
+			}),
+			cq: &schdcache.ClusterQueueSnapshot{
+				TASFlavors: map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot{
+					"tas": {},
+				},
+			},
+			want: workload.TASUsage{
+				"tas": []workload.TopologyDomainRequests{{
+					Values: []string{"node-a"},
+					SinglePodRequests: resources.NewRequests(corev1.ResourceList{
+						corev1.ResourceCPU:           resource.MustParse("1"),
+						corev1.ResourceMemory:        resource.MustParse("1Gi"),
+						"example.com/gpu":            resource.MustParse("1"),
+						"networking.example.com/vpc": resource.MustParse("1"),
+					}),
+					Count: 2,
+				}},
+			},
+		},
+		"skips usage already present in previous admission": {
+			assignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU:    {Name: "tas"},
+						corev1.ResourceMemory: {Name: "tas"},
+						"example.com/gpu":     {Name: "quota"},
+					},
+					Count: 2,
+					TopologyAssignment: &tas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{{
+							Values: []string{"node-a"},
+							Count:  2,
+						}},
+					},
+				}},
+			},
+			wl: workload.NewInfo(&kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+							Request(corev1.ResourceCPU, "1").
+							Request(corev1.ResourceMemory, "1Gi").
+							Request("example.com/gpu", "1").
+							RequiredTopologyRequest(corev1.LabelHostname).
+							Obj(),
+					},
+				},
+			}),
+			cq: &schdcache.ClusterQueueSnapshot{
+				TASFlavors: map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot{
+					"tas": {},
+				},
+			},
+			prevAdmission: &kueue.Admission{
+				PodSetAssignments: []kueue.PodSetAssignment{{
+					Name:               kueue.DefaultPodSetName,
+					TopologyAssignment: &kueue.TopologyAssignment{},
+				}},
+			},
+			want: workload.TASUsage{},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := tt.assignment.ComputeTASNetUsage(testr.New(t), tt.cq, tt.wl, tt.prevAdmission)
+
+			if diff := cmp.Diff(tt.want, got, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Unexpected TAS usage (-want,+got):\n%s", diff)
 			}
 		})
 	}

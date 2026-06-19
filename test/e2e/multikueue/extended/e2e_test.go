@@ -17,9 +17,7 @@ limitations under the License.
 package extended
 
 import (
-	"context"
 	"fmt"
-	"regexp"
 	"strconv"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -51,7 +49,6 @@ import (
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	workloadrayservice "sigs.k8s.io/kueue/pkg/controller/jobs/rayservice"
 	workloadtrainjob "sigs.k8s.io/kueue/pkg/controller/jobs/trainjob"
-	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -242,10 +239,10 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		gomega.Expect(client.IgnoreNotFound(k8sWorker1Client.Delete(ctx, rayServiceConfigMap.DeepCopy()))).To(gomega.Succeed())
 		gomega.Expect(client.IgnoreNotFound(k8sWorker2Client.Delete(ctx, rayServiceConfigMap.DeepCopy()))).To(gomega.Succeed())
 
-		rayService := &rayv1.RayService{ObjectMeta: metav1.ObjectMeta{Name: "rayservice1", Namespace: managerNs.Name}}
-		gomega.Expect(client.IgnoreNotFound(k8sManagerClient.Delete(ctx, rayService))).To(gomega.Succeed())
-		gomega.Expect(client.IgnoreNotFound(k8sWorker1Client.Delete(ctx, rayService.DeepCopy()))).To(gomega.Succeed())
-		gomega.Expect(client.IgnoreNotFound(k8sWorker2Client.Delete(ctx, rayService.DeepCopy()))).To(gomega.Succeed())
+		// Use the CRD-tolerant helper: shards without KubeRay have no RayService CRD installed.
+		gomega.Expect(util.DeleteAllRayServicesInNamespace(ctx, k8sManagerClient, managerNs)).To(gomega.Succeed())
+		gomega.Expect(util.DeleteAllRayServicesInNamespace(ctx, k8sWorker1Client, worker1Ns)).To(gomega.Succeed())
+		gomega.Expect(util.DeleteAllRayServicesInNamespace(ctx, k8sWorker2Client, worker2Ns)).To(gomega.Succeed())
 
 		gomega.Expect(util.DeleteNamespace(ctx, k8sManagerClient, managerNs)).To(gomega.Succeed())
 		gomega.Expect(util.DeleteNamespace(ctx, k8sWorker1Client, worker1Ns)).To(gomega.Succeed())
@@ -276,7 +273,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 	})
 
 	ginkgo.When("Creating a multikueue integration workload", func() {
-		ginkgo.It("Should sync a LeaderWorkerSet and run replicas on worker cluster", func() {
+		ginkgo.It("Should sync a LeaderWorkerSet and run replicas on worker cluster", ginkgo.Label("feature:leaderworkerset"), func() {
 			lws := testingleaderworkerset.MakeLeaderWorkerSet("leaderworkerset", managerNs.Name).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Replicas(2).
@@ -303,7 +300,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Namespace: managerNs.Name,
 			}
 
-			admittedWorkerName := ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey0, multiKueueAc.Name)
+			admittedWorkerName := util.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey0, multiKueueAc.Name)
 			workerClient := kubernetesClients[admittedWorkerName].client
 
 			ginkgo.By("Verifying both workloads are admitted on the same worker", func() {
@@ -360,7 +357,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 		})
 
-		ginkgo.It("Should dispatch all LeaderWorkerSet workloads to the same worker", func() {
+		ginkgo.It("Should dispatch all LeaderWorkerSet workloads to the same worker", ginkgo.Label("feature:leaderworkerset"), func() {
 			const lwsReplicas = 3
 			lws := testingleaderworkerset.MakeLeaderWorkerSet("leaderworkerset", managerNs.Name).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
@@ -396,7 +393,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			admittedWorkerName := ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlKeys[0], multiKueueAc.Name)
+			admittedWorkerName := util.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlKeys[0], multiKueueAc.Name)
 			workerClient := kubernetesClients[admittedWorkerName].client
 
 			ginkgo.By("Verifying primary workload is admitted on worker2", func() {
@@ -443,7 +440,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 		})
 
-		ginkgo.It("Should run a jobSet on worker if admitted", func() {
+		ginkgo.It("Should run a jobSet on worker if admitted", ginkgo.Label("feature:jobset"), func() {
 			jobSet := testingjobset.MakeJobSet("job-set", managerNs.Name).
 				Queue(managerLq.Name).
 				ReplicatedJobs(
@@ -469,7 +466,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			createdLeaderWorkload := &kueue.Workload{}
 			wlLookupKey := types.NamespacedName{Name: workloadjobset.GetWorkloadNameForJobSet(jobSet.Name, jobSet.UID), Namespace: managerNs.Name}
 
-			admittedWorkerName := ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
+			admittedWorkerName := util.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
 			admittedWorker := kubernetesClients[admittedWorkerName]
 
 			ginkgo.By("Waiting for the jobSet to get status updates", func() {
@@ -523,7 +520,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 		})
 
-		ginkgo.It("Should run an appwrapper containing a job on worker if admitted", func() {
+		ginkgo.It("Should run an appwrapper containing a job on worker if admitted", ginkgo.Label("feature:appwrapper"), func() {
 			jobName := "job-1"
 			aw := testingaw.MakeAppWrapper("aw", managerNs.Name).
 				Queue(managerLq.Name).
@@ -546,7 +543,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 			wlLookupKey := types.NamespacedName{Name: workloadaw.GetWorkloadNameForAppWrapper(aw.Name, aw.UID), Namespace: managerNs.Name}
 
-			admittedWorkerName := ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
+			admittedWorkerName := util.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
 			admittedWorker := kubernetesClients[admittedWorkerName]
 
 			ginkgo.By("Waiting for the appwrapper to get status updates", func() {
@@ -579,7 +576,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 		})
 
-		ginkgo.It("Should run a kubeflow PyTorchJob on worker if admitted", func() {
+		ginkgo.It("Should run a kubeflow PyTorchJob on worker if admitted", ginkgo.Label("feature:pytorchjob"), func() {
 			pyTorchJob := testingpytorchjob.MakePyTorchJob("pytorchjob1", managerNs.Name).
 				ManagedBy(kueue.MultiKueueControllerName).
 				Queue(managerLq.Name).
@@ -604,7 +601,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 			wlLookupKey := types.NamespacedName{Name: workloadpytorchjob.GetWorkloadNameForPyTorchJob(pyTorchJob.Name, pyTorchJob.UID), Namespace: managerNs.Name}
 
-			admittedWorker := ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
+			admittedWorker := util.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
 			ginkgo.GinkgoLogr.Info("PyTorchJob %s is admitted in worker cluster %s", pyTorchJob.Name, admittedWorker)
 
 			ginkgo.By("Waiting for the PyTorchJob to finish", func() {
@@ -637,7 +634,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 		})
 
-		ginkgo.It("Should run a MPIJob on worker if admitted", func() {
+		ginkgo.It("Should run a MPIJob on worker if admitted", ginkgo.Label("feature:mpijob"), func() {
 			mpijob := testingmpijob.MakeMPIJob("mpijob1", managerNs.Name).
 				Queue(managerLq.Name).
 				ManagedBy(kueue.MultiKueueControllerName).
@@ -669,7 +666,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 			wlLookupKey := types.NamespacedName{Name: workloadmpijob.GetWorkloadNameForMPIJob(mpijob.Name, mpijob.UID), Namespace: managerNs.Name}
 
-			admittedWorker := ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
+			admittedWorker := util.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
 			ginkgo.GinkgoLogr.Info("MPIJob %s is admitted in worker cluster %s", mpijob.Name, admittedWorker)
 
 			ginkgo.By("Waiting for the MPIJob to finish", func() {
@@ -698,7 +695,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 		})
 
-		ginkgo.It("Should run a TrainJob on worker if admitted", func() {
+		ginkgo.It("Should run a TrainJob on worker if admitted", ginkgo.Label("feature:trainjob"), func() {
 			trainjob := testingtrainjob.MakeTrainJob("trainjob-test", managerNs.Name).
 				RuntimeRefName("torch-distributed").
 				Queue(managerLq.Name).
@@ -714,7 +711,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 			wlLookupKey := types.NamespacedName{Name: workloadtrainjob.GetWorkloadNameForTrainJob(trainjob.Name, trainjob.UID), Namespace: managerNs.Name}
 
-			admittedWorker := ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
+			admittedWorker := util.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
 			ginkgo.GinkgoLogr.Info("TrainJob %s is admitted in worker cluster %s", trainjob.Name, admittedWorker)
 
 			ginkgo.By("Checking the TrainJob is ready", func() {
@@ -726,7 +723,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 		})
 
-		ginkgo.When("Ray integration tests", ginkgo.Ordered, func() {
+		ginkgo.When("Ray integration tests", ginkgo.Ordered, ginkgo.Label("feature:kuberay"), func() {
 			ginkgo.It("Should run a RayJob on worker if admitted", func() {
 				kuberayTestImage := util.GetKuberayTestImage()
 				rayjob := testingrayjob.MakeJob("rayjob1", managerNs.Name).
@@ -738,6 +735,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "0.5").
 					Image(rayv1.HeadNode, kuberayTestImage).
 					Image(rayv1.WorkerNode, kuberayTestImage).
+					TerminationGracePeriod(1).
 					Obj()
 
 				ginkgo.By("Creating the RayJob", func() {
@@ -746,7 +744,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 				wlLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(rayjob.Name, rayjob.UID), Namespace: managerNs.Name}
 
-				admittedWorker := ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
+				admittedWorker := util.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
 				ginkgo.GinkgoLogr.Info(fmt.Sprintf("RayJob %s/%s is admitted in worker cluster %s", rayjob.Name, rayjob.Namespace, admittedWorker))
 
 				ginkgo.By("Waiting for the RayJob to finish", func() {
@@ -787,7 +785,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 				wlLookupKey := types.NamespacedName{Name: workloadraycluster.GetWorkloadNameForRayCluster(raycluster.Name, raycluster.UID), Namespace: managerNs.Name}
 				// the execution should be given to the worker1
-				admittedWorker := ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
+				admittedWorker := util.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
 				ginkgo.GinkgoLogr.Info(fmt.Sprintf("RayCluster %s/%s is admitted in worker cluster %s", raycluster.Name, raycluster.Namespace, admittedWorker))
 
 				ginkgo.By("Checking the RayCluster is ready", func() {
@@ -879,6 +877,7 @@ app = HelloWorld.bind()`,
 					Volumes(rayv1.WorkerNode, volumes).
 					VolumeMounts(rayv1.HeadNode, volumeMounts).
 					VolumeMounts(rayv1.WorkerNode, volumeMounts).
+					TerminationGracePeriod(1).
 					Obj()
 
 				rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].GroupName = "small-group"
@@ -899,7 +898,7 @@ app = HelloWorld.bind()`,
 
 				wlLookupKey := types.NamespacedName{Name: workloadrayservice.GetWorkloadNameForRayService(rayService.Name, rayService.UID), Namespace: managerNs.Name}
 
-				admittedWorker := ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
+				admittedWorker := util.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
 				ginkgo.GinkgoLogr.Info(fmt.Sprintf("RayService %s/%s is admitted in worker cluster %s", rayService.Name, rayService.Namespace, admittedWorker))
 
 				ginkgo.By("Checking the RayService is running", func() {
@@ -914,28 +913,3 @@ app = HelloWorld.bind()`,
 		})
 	})
 })
-
-func ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx context.Context, client client.Client, wlLookupKey types.NamespacedName, acName string) string {
-	ginkgo.GinkgoHelper()
-	createdWorkload := &kueue.Workload{}
-	var workerName string
-	util.ExpectWorkloadsToBeAdmittedByKeys(ctx, client, wlLookupKey)
-	gomega.Eventually(func(g gomega.Gomega) {
-		g.Expect(client.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-		admissionCheckMessage := admissioncheck.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(acName)).Message
-		workerName = GetMultiKueueClusterNameFromAdmissionCheckMessage(admissionCheckMessage)
-		g.Expect(workerName).NotTo(gomega.BeEmpty())
-	}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
-	return workerName
-}
-
-func GetMultiKueueClusterNameFromAdmissionCheckMessage(message string) string {
-	regex := regexp.MustCompile(`"([^"]*)"`)
-	// Find the match
-	match := regex.FindStringSubmatch(message)
-	if len(match) > 1 {
-		workerName := match[1]
-		return workerName
-	}
-	return ""
-}

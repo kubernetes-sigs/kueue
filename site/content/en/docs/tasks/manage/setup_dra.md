@@ -159,6 +159,25 @@ The `coveredResources` must include the extended resource name that matches
 kubectl apply -f https://kueue.sigs.k8s.io/examples/dra/sample-dra-queues.yaml
 ```
 
+### Late DeviceClass creation
+
+Kueue watches `DeviceClass` objects for create, update, and delete events.
+When a `DeviceClass` is created or its `extendedResourceName` changes, Kueue
+requeues pending workloads that request the affected extended resource so they
+are re-evaluated through the DRA path.
+
+If the `DeviceClass` does not exist when a workload is submitted, Kueue
+processes the extended resource through the normal (non-DRA) quota path. The
+workload is admitted if the ClusterQueue covers the extended resource name,
+but the pod stays Pending because the Kubernetes scheduler cannot create a
+ResourceClaim without a DeviceClass. Once the DeviceClass is created, the
+Kubernetes scheduler creates a ResourceClaim and the pod runs.
+
+Alternatively, configure a `deviceClassMappings` entry and use the mapped
+logical name in the ClusterQueue. Without a DeviceClass, Kueue skips DRA
+resolution and the raw extended resource name does not match the logical
+name in the ClusterQueue, so the workload stays inadmissible.
+
 ### Why this path exists
 
 Without the `KueueDRAIntegrationExtendedResource` feature gate, Kueue charges quota for both
@@ -215,7 +234,9 @@ gpu.example.com  gpu-0: [{"counterSet":"shared","counters":{"memory":{"value":"1
 
 ### 2. Add the counter resource to your ClusterQueue
 
-Set the quota in counter units instead of device count:
+Set the quota in counter units (e.g., `256Mi`) instead of device count (e.g., `1`). When ClusterQueues
+share a cohort, ensure all queues use the same unit scale for counter
+resources. Kueue does not validate unit consistency across ClusterQueues.
 
 {{< include "examples/dra/sample-dra-counter-queues.yaml" "yaml" >}}
 

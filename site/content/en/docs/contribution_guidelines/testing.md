@@ -114,7 +114,8 @@ make test-e2e-certmanager
 make test-e2e-kueueviz
 make test-tas-e2e-baseline
 make test-tas-e2e-extended
-make test-multikueue-e2e-main
+make test-multikueue-e2e-baseline
+make test-multikueue-e2e-extended
 make test-multikueue-e2e-sequential
 ```
 
@@ -134,14 +135,14 @@ Use `E2E_MODE=dev` to create-or-reuse a kind cluster, rebuild/redeploy Kueue, ru
 E2E_MODE=dev make kind-image-build test-e2e-baseline
 
 # MultiKueue dev mode
-E2E_MODE=dev make kind-image-build test-multikueue-e2e-main
+E2E_MODE=dev make kind-image-build test-multikueue-e2e-baseline
 
 # Loop a suite (until it fails) while keeping the cluster
 E2E_MODE=dev GINKGO_ARGS="--until-it-fails" make kind-image-build test-e2e-baseline
 
 # Skip reinstallation of kueue (works only in dev mode)
 E2E_MODE=dev E2E_SKIP_REINSTALL=true make kind-image-build test-e2e-baseline
-E2E_MODE=dev E2E_SKIP_REINSTALL=true make kind-image-build test-multikueue-e2e-main
+E2E_MODE=dev E2E_SKIP_REINSTALL=true make kind-image-build test-multikueue-e2e-baseline
 
 # Skip re-pulling dependency images and re-importing them into kind when already present (dev mode only)
 E2E_MODE=dev E2E_SKIP_IMAGE_RELOAD=true make kind-image-build test-e2e-baseline
@@ -177,7 +178,7 @@ To use a **released** or **staging** Kueue image instead of building from source
 ```shell
 # Released version
 E2E_MODE=dev IMAGE_TAG=registry.k8s.io/kueue/kueue:v0.16.0 make test-e2e-baseline
-E2E_MODE=dev IMAGE_TAG=registry.k8s.io/kueue/kueue:v0.16.0 make test-multikueue-e2e-main
+E2E_MODE=dev IMAGE_TAG=registry.k8s.io/kueue/kueue:v0.16.0 make test-multikueue-e2e-baseline
 
 # Staging image (e.g. from a PR or nightly)
 E2E_MODE=dev IMAGE_TAG=us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:main make test-e2e-baseline
@@ -192,7 +193,7 @@ This is useful to reproduce issues on a specific released version (e.g. for on-c
 
 ### Legacy: interactive attach mode
 
-Run `E2E_RUN_ONLY_ENV=true make kind-image-build test-multikueue-e2e-main` and wait for the `Do you want to cleanup? [Y/n] ` to appear (CI-style behavior).
+Run `E2E_RUN_ONLY_ENV=true make kind-image-build test-multikueue-e2e-baseline` and wait for the `Do you want to cleanup? [Y/n] ` to appear (CI-style behavior).
 
 The cluster is ready, and now you can run tests from another terminal:
 ```shell

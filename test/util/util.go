@@ -322,6 +322,10 @@ func DeleteAllRayJobsInNamespace(ctx context.Context, c client.Client, ns *corev
 	return deleteAllObjectsInNamespace(ctx, c, ns, &rayv1.RayJob{})
 }
 
+func DeleteAllRayServicesInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+	return deleteAllObjectsInNamespace(ctx, c, ns, &rayv1.RayService{})
+}
+
 func DeleteAllSparkApplicationsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
 	return deleteAllObjectsInNamespace(ctx, c, ns, &sparkv1beta2.SparkApplication{})
 }
@@ -1452,7 +1456,7 @@ func ExpectJobToBeRunning(ctx context.Context, c client.Client, job *batchv1.Job
 	}, MediumTimeout, Interval).Should(gomega.Succeed(), AssertMsg("Job is not running", createdJob))
 }
 
-func ExpectJobToBeCompleted(ctx context.Context, c client.Client, job *batchv1.Job) {
+func ExpectJobToBeCompletedWithTimeout(ctx context.Context, c client.Client, job *batchv1.Job, timeout time.Duration) {
 	ginkgo.GinkgoHelper()
 	createdJob := &batchv1.Job{}
 	gomega.Eventually(func(g gomega.Gomega) {
@@ -1463,7 +1467,12 @@ func ExpectJobToBeCompleted(ctx context.Context, c client.Client, job *batchv1.J
 				Status: corev1.ConditionTrue,
 			},
 			cmpopts.IgnoreFields(batchv1.JobCondition{}, "LastTransitionTime", "LastProbeTime", "Reason", "Message"))))
-	}, MediumTimeout, Interval).Should(gomega.Succeed(), AssertMsg("Job did not complete", createdJob))
+	}, timeout, Interval).Should(gomega.Succeed(), AssertMsg("Job did not complete", createdJob))
+}
+
+func ExpectJobToBeCompleted(ctx context.Context, c client.Client, job *batchv1.Job) {
+	ginkgo.GinkgoHelper()
+	ExpectJobToBeCompletedWithTimeout(ctx, c, job, MediumTimeout)
 }
 
 func UpdateReclaimablePods(ctx context.Context, c client.Client, wl *kueue.Workload, reclaimablePods []kueue.ReclaimablePod) {
