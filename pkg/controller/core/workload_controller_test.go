@@ -415,6 +415,8 @@ func TestReconcile(t *testing.T) {
 		additionalObjects         []client.Object
 		cq                        *kueue.ClusterQueue
 		lq                        *kueue.LocalQueue
+		shouldDeleteCQ            bool
+		shouldDeleteLQ            bool
 		resourceClaims            []*resourcev1.ResourceClaim
 		resourceClaimTemplates    []*resourcev1.ResourceClaimTemplate
 		patchErr                  error
@@ -2589,7 +2591,8 @@ func TestReconcile(t *testing.T) {
 			cq: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj()).
 				AdmissionChecks("check").Obj(),
-			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").DeletionTimestamp(now).Obj(),
+			lq:             utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			shouldDeleteLQ: true,
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
@@ -2743,9 +2746,9 @@ func TestReconcile(t *testing.T) {
 				Cohort("cohort").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj()).
 				AdmissionChecks("check").
-				DeletionTimestamp(now).
 				Obj(),
-			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			lq:             utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			shouldDeleteCQ: true,
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
@@ -3645,11 +3648,11 @@ func TestReconcile(t *testing.T) {
 				defer ctxCancel()
 
 				if tc.cq != nil {
-					setupClusterQueue(ctx, t, cl, qManager, cqCache, tc.cq)
+					setupClusterQueue(ctx, t, cl, qManager, cqCache, tc.cq, tc.shouldDeleteCQ)
 				}
 
 				if tc.lq != nil {
-					setupLocalQueue(ctx, t, cl, qManager, tc.lq)
+					setupLocalQueue(ctx, t, cl, qManager, tc.lq, tc.shouldDeleteLQ)
 				}
 
 				if testWl != nil && testWl.Namespace == "ns" &&
@@ -3912,12 +3915,10 @@ func TestReconcileSyncAdmissionChecks(t *testing.T) {
 	}
 }
 
-func setupClusterQueue(ctx context.Context, t *testing.T, cl client.Client, qManager *qcache.Manager, cqCache *schdcache.Cache, cq *kueue.ClusterQueue) {
+func setupClusterQueue(ctx context.Context, t *testing.T, cl client.Client, qManager *qcache.Manager, cqCache *schdcache.Cache, cq *kueue.ClusterQueue, shouldDelete bool) {
 	t.Helper()
 	testCq := cq.DeepCopy()
 	// DeletionTimestamp cannot be directly set during creation. We simulate it by deleting the object with a finalizer.
-	shouldDelete := testCq.DeletionTimestamp != nil
-	testCq.DeletionTimestamp = nil
 	if shouldDelete && len(testCq.Finalizers) == 0 {
 		testCq.Finalizers = []string{"testing-finalizer"}
 	}
@@ -3940,12 +3941,10 @@ func setupClusterQueue(ctx context.Context, t *testing.T, cl client.Client, qMan
 	}
 }
 
-func setupLocalQueue(ctx context.Context, t *testing.T, cl client.Client, qManager *qcache.Manager, lq *kueue.LocalQueue) {
+func setupLocalQueue(ctx context.Context, t *testing.T, cl client.Client, qManager *qcache.Manager, lq *kueue.LocalQueue, shouldDelete bool) {
 	t.Helper()
 	testLq := lq.DeepCopy()
 	// DeletionTimestamp cannot be directly set during creation. We simulate it by deleting the object with a finalizer.
-	shouldDelete := testLq.DeletionTimestamp != nil
-	testLq.DeletionTimestamp = nil
 	if shouldDelete && len(testLq.Finalizers) == 0 {
 		testLq.Finalizers = []string{"testing-finalizer"}
 	}
