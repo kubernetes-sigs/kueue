@@ -60,11 +60,11 @@ import (
 
 var defaultWaitForPodsReady = &configapi.WaitForPodsReady{
 	Timeout: metav1.Duration{
-		Duration: time.Hour,
+		Duration: 30 * time.Minute,
 	},
 	BlockAdmission: new(false),
 	RecoveryTimeout: &metav1.Duration{
-		Duration: time.Hour,
+		Duration: 30 * time.Minute,
 	},
 	RequeuingStrategy: &configapi.RequeuingStrategy{
 		Timestamp:          ptr.To(configapi.EvictionTimestamp),
@@ -851,6 +851,7 @@ objectRetentionPolicies:
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
+				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -1343,13 +1344,13 @@ func TestEncode(t *testing.T) {
 				},
 				"waitForPodsReady": map[string]any{
 					"blockAdmission":  false,
-					"recoveryTimeout": "1h0m0s",
+					"recoveryTimeout": "30m0s",
 					"requeuingStrategy": map[string]any{
 						"backoffBaseSeconds": int64(60),
 						"backoffMaxSeconds":  int64(3600),
 						"timestamp":          "Eviction",
 					},
-					"timeout": "1h0m0s",
+					"timeout": "30m0s",
 				},
 			},
 		},

@@ -103,11 +103,11 @@ func TestSetDefaults_Configuration(t *testing.T) {
 	}
 	defaultWaitForPodsReady := &WaitForPodsReady{
 		Timeout: metav1.Duration{
-			Duration: time.Hour,
+			Duration: 30 * time.Minute,
 		},
 		BlockAdmission: new(false),
 		RecoveryTimeout: &metav1.Duration{
-			Duration: time.Hour,
+			Duration: 30 * time.Minute,
 		},
 		RequeuingStrategy: &RequeuingStrategy{
 			Timestamp:          new(EvictionTimestamp),
@@ -405,11 +405,11 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			want: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
 					Timeout: metav1.Duration{
-						Duration: time.Hour,
+						Duration: 30 * time.Minute,
 					},
 					BlockAdmission: new(false),
 					RecoveryTimeout: &metav1.Duration{
-						Duration: time.Hour,
+						Duration: 30 * time.Minute,
 					},
 					RequeuingStrategy: &RequeuingStrategy{
 						Timestamp:          new(EvictionTimestamp),

@@ -45,7 +45,7 @@ const (
 	DefaultClientConnectionBurst          int32   = 30
 	defaultJobFrameworkName                       = "batch/job"
 	DefaultMultiKueueGCInterval                   = time.Minute
-	DefaultWaitForPodsReadyTimeout                = time.Hour
+	DefaultWaitForPodsReadyTimeout                = 30 * time.Minute
 	DefaultMultiKueueOrigin                       = "multikueue"
 	DefaultMultiKueueWorkerLostTimeout            = 15 * time.Minute
 	DefaultRequeuingBackoffBaseSeconds            = 60
