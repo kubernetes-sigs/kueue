@@ -148,15 +148,10 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 							testingjobset.ReplicatedJobRequirements{
 								Name:        "replicated-job-1",
 								Replicas:    2,
-								Parallelism: 2,
-								Completions: 2,
+								Parallelism: 1,
+								Completions: 1,
 								Image:       util.GetAgnHostImage(),
 								Args:        util.BehaviorExitFast,
-								SuccessPolicy: &batchv1.SuccessPolicy{Rules: []batchv1.SuccessPolicyRule{
-									{
-										SucceededCount: ptr.To(int32(1)),
-									},
-								}},
 							},
 						).
 						SetTypeMeta().
@@ -217,18 +212,13 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 							testingjobset.ReplicatedJobRequirements{
 								Name:        "replicated-job-1",
 								Replicas:    2,
-								Parallelism: 2,
-								Completions: 2,
+								Parallelism: 1,
+								Completions: 1,
 								Image:       util.GetAgnHostImage(),
 								Args:        util.BehaviorExitFast,
 								Labels: map[string]string{
 									controllerconstants.QueueLabel: localQueue.Name,
 								},
-								SuccessPolicy: &batchv1.SuccessPolicy{Rules: []batchv1.SuccessPolicyRule{
-									{
-										SucceededCount: ptr.To(int32(1)),
-									},
-								}},
 							},
 						).
 						SetTypeMeta().
@@ -686,15 +676,10 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName without JobSet integration",
 							testingjobset.ReplicatedJobRequirements{
 								Name:        "replicated-job-1",
 								Replicas:    2,
-								Parallelism: 2,
-								Completions: 2,
+								Parallelism: 1,
+								Completions: 1,
 								Image:       util.GetAgnHostImage(),
 								Args:        util.BehaviorExitFast,
-								SuccessPolicy: &batchv1.SuccessPolicy{Rules: []batchv1.SuccessPolicyRule{
-									{
-										SucceededCount: ptr.To(int32(1)),
-									},
-								}},
 							},
 						).
 						SetTypeMeta().
