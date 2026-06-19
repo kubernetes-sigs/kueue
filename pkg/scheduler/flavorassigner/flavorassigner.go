@@ -359,9 +359,10 @@ func (psa *PodSetAssignment) reason(reason string) {
 	psa.Status.reasons = append(psa.Status.reasons, reason)
 }
 
-func (psa *PodSetAssignment) markFlavorAttemptReason(flavor kueue.ResourceFlavorReference, reason string) {
+func (psa *PodSetAssignment) markFlavorAttempt(flavor kueue.ResourceFlavorReference, mode FlavorAssignmentMode, reason string) {
 	for i := range psa.FlavorAssignmentAttempts {
 		if psa.FlavorAssignmentAttempts[i].Flavor == flavor {
+			psa.FlavorAssignmentAttempts[i].Mode = mode
 			psa.FlavorAssignmentAttempts[i].NoFitReason = reason
 			break
 		}
@@ -794,7 +795,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 				// all workloads are preempted.
 				psAssignment := assignment.podSetAssignmentByName(failure.PodSetName)
 				if features.Enabled(features.UnadmittedWorkloadsObservability) {
-					psAssignment.markFlavorAttemptReason(failure.Flavor, kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed)
+					psAssignment.markFlavorAttempt(failure.Flavor, NoFit, kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed)
 				}
 				// update the mode for all flavors and the representative mode
 				assignment.updateMode(failure.PodSetName, NoFit)
@@ -820,6 +821,9 @@ func (a *Assignment) resolveNoFitReason(cq *schdcache.ClusterQueueSnapshot) {
 	var overallReason string
 
 	for _, ps := range a.PodSets {
+		if ps.RepresentativeMode() != NoFit {
+			continue
+		}
 		if len(ps.FlavorAssignmentAttempts) == 0 {
 			overallReason = mostSevereReason(overallReason, kueue.WorkloadQuotaReservedReasonNoMatchingFlavor)
 			continue
@@ -829,6 +833,9 @@ func (a *Assignment) resolveNoFitReason(cq *schdcache.ClusterQueueSnapshot) {
 		rgMinReason := make(map[int]string)
 
 		for i, att := range ps.FlavorAssignmentAttempts {
+			if att.Mode != NoFit {
+				continue
+			}
 			r := att.NoFitReason
 			rgIndices := findRGIndicesByFlavor(cq, att.Flavor)
 			if len(rgIndices) == 0 {
@@ -1216,6 +1223,9 @@ func (a *FlavorAssigner) fitsResourceQuota(
 	if rQuota.Nominal.Cmp(val) >= 0 || mayReclaimInHierarchy || a.canPreemptWhileBorrowing() {
 		preemptionPossiblity, borrowAfterPreemptions := a.oracle.SimulatePreemption(log, a.cq, *a.wl, fr, val)
 		mode := fromPreemptionPossibility(preemptionPossiblity)
+		if mode != noFit {
+			status.NoFitReason = ""
+		}
 		return mode, borrowAfterPreemptions, &status
 	}
 	return noFit, borrow, &status
