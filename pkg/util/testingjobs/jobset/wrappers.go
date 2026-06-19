@@ -17,6 +17,7 @@ limitations under the License.
 package jobset
 
 import (
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -56,6 +57,7 @@ type ReplicatedJobRequirements struct {
 	PodAnnotations map[string]string
 	Image          string
 	Args           []string
+	SuccessPolicy  *batchv1.SuccessPolicy
 }
 
 // MakeJobSet creates a wrapper for a suspended JobSet
@@ -84,6 +86,10 @@ func (j *JobSetWrapper) ReplicatedJobs(replicatedJobs ...ReplicatedJobRequiremen
 		jt.Spec.Parallelism = new(req.Parallelism)
 		jt.Spec.Completions = new(req.Completions)
 		jt.Spec.Template.Annotations = req.PodAnnotations
+		jt.Spec.SuccessPolicy = req.SuccessPolicy
+		if jt.Spec.SuccessPolicy != nil {
+			jt.Spec.CompletionMode = new(batchv1.IndexedCompletion)
+		}
 		if req.BackoffLimit != nil {
 			jt.Spec.BackoffLimit = req.BackoffLimit
 		} else if len(req.Image) > 0 {
