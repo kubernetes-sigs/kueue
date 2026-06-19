@@ -245,10 +245,12 @@ image-build:
 		./
 
 .PHONY: image-pushing-periodic
-image-pushing-periodic: debug-image-push importer-image-push ray-project-mini-image-build-push
+image-pushing-periodic:
+	$(MAKE) -j3 debug-image-push importer-image-push ray-project-mini-image-build-push
 
 .PHONY: image-pushing-postsubmit
-image-pushing-postsubmit: image-push helm-chart-push kueueviz-image-push kueue-populator-image-push kueue-priority-booster-image-push
+image-pushing-postsubmit:
+	$(MAKE) -j5 image-push helm-chart-push kueueviz-image-push kueue-populator-image-push kueue-priority-booster-image-push
 
 .PHONY: image-push
 image-push: PUSH=--push
