@@ -3916,9 +3916,9 @@ func setupClusterQueue(ctx context.Context, t *testing.T, cl client.Client, qMan
 	t.Helper()
 	testCq := cq.DeepCopy()
 	// DeletionTimestamp cannot be directly set during creation. We simulate it by deleting the object with a finalizer.
-	wantDeleted := testCq.DeletionTimestamp != nil
+	shouldDelete := testCq.DeletionTimestamp != nil
 	testCq.DeletionTimestamp = nil
-	if wantDeleted && len(testCq.Finalizers) == 0 {
+	if shouldDelete && len(testCq.Finalizers) == 0 {
 		testCq.Finalizers = []string{"testing-finalizer"}
 	}
 	if err := cl.Create(ctx, testCq); err != nil {
@@ -3928,12 +3928,12 @@ func setupClusterQueue(ctx context.Context, t *testing.T, cl client.Client, qMan
 		t.Fatalf("couldn't add the cluster queue to the cache: %v", err)
 	}
 	isActive := apimeta.IsStatusConditionTrue(testCq.Status.Conditions, kueue.ClusterQueueActive)
-	if isActive || wantDeleted {
+	if isActive || shouldDelete {
 		if err := cqCache.AddClusterQueue(ctx, testCq); err != nil {
 			t.Fatalf("couldn't add the cluster queue to the scheduler cache: %v", err)
 		}
 	}
-	if wantDeleted {
+	if shouldDelete {
 		if err := cl.Delete(ctx, testCq); err != nil {
 			t.Fatalf("couldn't delete the cluster queue: %v", err)
 		}
@@ -3944,9 +3944,9 @@ func setupLocalQueue(ctx context.Context, t *testing.T, cl client.Client, qManag
 	t.Helper()
 	testLq := lq.DeepCopy()
 	// DeletionTimestamp cannot be directly set during creation. We simulate it by deleting the object with a finalizer.
-	wantDeleted := testLq.DeletionTimestamp != nil
+	shouldDelete := testLq.DeletionTimestamp != nil
 	testLq.DeletionTimestamp = nil
-	if wantDeleted && len(testLq.Finalizers) == 0 {
+	if shouldDelete && len(testLq.Finalizers) == 0 {
 		testLq.Finalizers = []string{"testing-finalizer"}
 	}
 	if err := cl.Create(ctx, testLq); err != nil {
@@ -3955,7 +3955,7 @@ func setupLocalQueue(ctx context.Context, t *testing.T, cl client.Client, qManag
 	if err := qManager.AddLocalQueue(ctx, testLq); err != nil {
 		t.Fatalf("couldn't add the local queue to the cache: %v", err)
 	}
-	if wantDeleted {
+	if shouldDelete {
 		if err := cl.Delete(ctx, testLq); err != nil {
 			t.Fatalf("couldn't delete the local queue: %v", err)
 		}
