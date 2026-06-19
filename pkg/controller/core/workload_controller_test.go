@@ -3922,20 +3922,20 @@ func setupClusterQueue(ctx context.Context, t *testing.T, cl client.Client, qMan
 		testCq.Finalizers = []string{"testing-finalizer"}
 	}
 	if err := cl.Create(ctx, testCq); err != nil {
-		t.Errorf("couldn't create the cluster queue: %v", err)
+		t.Fatalf("couldn't create the cluster queue: %v", err)
 	}
 	if err := qManager.AddClusterQueue(ctx, testCq); err != nil {
-		t.Errorf("couldn't add the cluster queue to the cache: %v", err)
+		t.Fatalf("couldn't add the cluster queue to the cache: %v", err)
 	}
 	isActive := apimeta.IsStatusConditionTrue(testCq.Status.Conditions, kueue.ClusterQueueActive)
 	if isActive || wantDeleted {
 		if err := cqCache.AddClusterQueue(ctx, testCq); err != nil {
-			t.Errorf("couldn't add the cluster queue to the scheduler cache: %v", err)
+			t.Fatalf("couldn't add the cluster queue to the scheduler cache: %v", err)
 		}
 	}
 	if wantDeleted {
 		if err := cl.Delete(ctx, testCq); err != nil {
-			t.Errorf("couldn't delete the cluster queue: %v", err)
+			t.Fatalf("couldn't delete the cluster queue: %v", err)
 		}
 	}
 }
@@ -3950,14 +3950,14 @@ func setupLocalQueue(ctx context.Context, t *testing.T, cl client.Client, qManag
 		testLq.Finalizers = []string{"testing-finalizer"}
 	}
 	if err := cl.Create(ctx, testLq); err != nil {
-		t.Errorf("couldn't create the local queue: %v", err)
+		t.Fatalf("couldn't create the local queue: %v", err)
 	}
 	if err := qManager.AddLocalQueue(ctx, testLq); err != nil {
-		t.Errorf("couldn't add the local queue to the cache: %v", err)
+		t.Fatalf("couldn't add the local queue to the cache: %v", err)
 	}
 	if wantDeleted {
 		if err := cl.Delete(ctx, testLq); err != nil {
-			t.Errorf("couldn't delete the local queue: %v", err)
+			t.Fatalf("couldn't delete the local queue: %v", err)
 		}
 	}
 }
