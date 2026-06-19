@@ -277,7 +277,7 @@ func reasonSeverity(reason string) int {
 type Status struct {
 	reasons     []string
 	err         error
-	NoFitReason string
+	noFitReason string
 }
 
 func NewStatus(reasons ...string) *Status {
@@ -987,7 +987,7 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 		}
 
 		if flavorStatus := a.checkFlavorForPodSets(log, fName, psIDs, podSets, selectors, resourceGroup); !flavorStatus.IsFit() {
-			flavorStatus.NoFitReason = kueue.WorkloadQuotaReservedReasonNoMatchingFlavor
+			flavorStatus.noFitReason = kueue.WorkloadQuotaReservedReasonNoMatchingFlavor
 			status.reasons = append(status.reasons, flavorStatus.reasons...)
 			consideredFlavors.AddNoFitFlavorAttempt(fName, flavorStatus)
 			if flavorStatus.err != nil {
@@ -1036,7 +1036,7 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 			if s != nil {
 				flavorQuotaReasons = append(flavorQuotaReasons, s.reasons...)
 				status.reasons = append(status.reasons, s.reasons...)
-				flavorNoFitReason = mostSevereReason(flavorNoFitReason, s.NoFitReason)
+				flavorNoFitReason = mostSevereReason(flavorNoFitReason, s.noFitReason)
 			}
 			maxBorrow = max(maxBorrow, borrow)
 			mode := granularMode{preemptionMode, borrowingLevel(borrow)}
@@ -1223,7 +1223,7 @@ func (a *FlavorAssigner) fitsResourceQuota(
 	rQuota schdcache.ResourceQuota,
 ) (preemptionMode, int, *Status) {
 	status := Status{
-		NoFitReason: kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+		noFitReason: kueue.WorkloadQuotaReservedReasonWaitingForQuota,
 	}
 
 	available := a.cq.Available(fr)
@@ -1241,7 +1241,7 @@ func (a *FlavorAssigner) fitsResourceQuota(
 			resources.ResourceQuantityString(fr.Resource, requestUsage),
 			resources.AmountQuantityString(fr.Resource, maxCapacity),
 		)
-		status.NoFitReason = kueue.WorkloadQuotaReservedReasonExceedsMaxQuota
+		status.noFitReason = kueue.WorkloadQuotaReservedReasonExceedsMaxQuota
 		return noFit, 0, &status
 	}
 
@@ -1259,7 +1259,7 @@ func (a *FlavorAssigner) fitsResourceQuota(
 		preemptionPossiblity, borrowAfterPreemptions := a.oracle.SimulatePreemption(log, a.cq, *a.wl, fr, val)
 		mode := fromPreemptionPossibility(preemptionPossiblity)
 		if mode != noFit {
-			status.NoFitReason = ""
+			status.noFitReason = ""
 		}
 		return mode, borrowAfterPreemptions, &status
 	}

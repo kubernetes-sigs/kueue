@@ -56,7 +56,7 @@ func (fa *FlavorAssignmentAttempts) AddNoFitFlavorAttempt(flavor kueue.ResourceF
 	if status != nil {
 		flavorAttempt.Reasons = append(flavorAttempt.Reasons, status.reasons...)
 		if features.Enabled(features.UnadmittedWorkloadsObservability) {
-			flavorAttempt.NoFitReason = status.NoFitReason
+			flavorAttempt.NoFitReason = status.noFitReason
 		}
 	}
 	*fa = append(*fa, flavorAttempt)
