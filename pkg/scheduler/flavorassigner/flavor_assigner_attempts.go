@@ -26,6 +26,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/features"
 	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 )
 
@@ -54,7 +55,9 @@ func (fa *FlavorAssignmentAttempts) AddNoFitFlavorAttempt(flavor kueue.ResourceF
 	}
 	if status != nil {
 		flavorAttempt.Reasons = append(flavorAttempt.Reasons, status.reasons...)
-		flavorAttempt.NoFitReason = status.NoFitReason
+		if features.Enabled(features.UnadmittedWorkloadsObservability) {
+			flavorAttempt.NoFitReason = status.NoFitReason
+		}
 	}
 	*fa = append(*fa, flavorAttempt)
 }
@@ -71,7 +74,9 @@ func (fa *FlavorAssignmentAttempts) AddRepresentativeModeFlavorAttempt(
 		Mode:                  flavorAssignmentMode,
 		PreemptionPossibility: preemptionMode.preemptionPossibility(),
 		Borrow:                maxBorrow,
-		NoFitReason:           noFitReason,
+	}
+	if features.Enabled(features.UnadmittedWorkloadsObservability) {
+		flavorAttempt.NoFitReason = noFitReason
 	}
 	if len(reasons) > 0 {
 		slices.Sort(reasons)
@@ -108,7 +113,9 @@ func mergeFlavorAttemptsForResource(
 				}
 				at.Reasons = mergeUnique(at.Reasons, []string{msg})
 				slices.Sort(at.Reasons)
-				at.NoFitReason = kueue.WorkloadQuotaReservedReasonNoMatchingFlavor
+				if features.Enabled(features.UnadmittedWorkloadsObservability) {
+					at.NoFitReason = kueue.WorkloadQuotaReservedReasonNoMatchingFlavor
+				}
 				dst[flv] = at
 			}
 		}
@@ -131,13 +138,17 @@ func mergeFlavorAttempts(dst map[kueue.ResourceFlavorReference]FlavorAssignmentA
 
 			reasons := mergeUnique(existing.Reasons, at.Reasons)
 			slices.Sort(reasons)
+			var noFitReason string
+			if features.Enabled(features.UnadmittedWorkloadsObservability) {
+				noFitReason = mostSevereReason(existing.NoFitReason, at.NoFitReason)
+			}
 			dst[at.Flavor] = FlavorAssignmentAttempt{
 				Flavor:                at.Flavor,
 				Mode:                  worst,
 				Borrow:                maxBorrow,
 				PreemptionPossibility: existingPreemption,
 				Reasons:               reasons,
-				NoFitReason:           worstReason(existing.NoFitReason, at.NoFitReason),
+				NoFitReason:           noFitReason,
 			}
 			continue
 		}

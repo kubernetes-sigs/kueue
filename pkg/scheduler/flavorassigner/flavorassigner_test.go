@@ -18,6 +18,7 @@ package flavorassigner
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -63,7 +64,7 @@ var (
 //   - if actual has ANY Fit for that podset -> we don't require that all wanted
 //     flavors appear; it's OK if actual only returned the "winning" flavor;
 //   - if actual has NO Fit -> we require that all wanted flavors appear.
-func flexAssertConsidered(t *testing.T, want, got Assignment) {
+func flexAssertConsidered(t *testing.T, want, got Assignment, opts ...cmp.Option) {
 	wantByName := make(map[string]PodSetAssignment, len(want.PodSets))
 	for _, ps := range want.PodSets {
 		wantByName[string(ps.Name)] = ps
@@ -84,11 +85,11 @@ func flexAssertConsidered(t *testing.T, want, got Assignment) {
 			continue
 		}
 
-		assertPodSetConsideredFlexible(t, name, wantPS.FlavorAssignmentAttempts, gotPS.FlavorAssignmentAttempts)
+		assertPodSetConsideredFlexible(t, name, wantPS.FlavorAssignmentAttempts, gotPS.FlavorAssignmentAttempts, opts...)
 	}
 }
 
-func assertPodSetConsideredFlexible(t *testing.T, podSetName string, want, got []FlavorAssignmentAttempt) {
+func assertPodSetConsideredFlexible(t *testing.T, podSetName string, want, got []FlavorAssignmentAttempt, opts ...cmp.Option) {
 	wantByFlavor := make(map[kueue.ResourceFlavorReference]FlavorAssignmentAttempt, len(want))
 	for _, wa := range want {
 		wantByFlavor[wa.Flavor] = wa
@@ -115,7 +116,7 @@ func assertPodSetConsideredFlexible(t *testing.T, podSetName string, want, got [
 				continue
 			}
 
-			if diff := cmp.Diff(wa, ga); diff != "" {
+			if diff := cmp.Diff(wa, ga, opts...); diff != "" {
 				t.Errorf("podset %q: flavor %q mismatch (fit case) (-want +got):\n%s", podSetName, flavor, diff)
 			}
 		}
@@ -129,7 +130,7 @@ func assertPodSetConsideredFlexible(t *testing.T, podSetName string, want, got [
 			t.Errorf("podset %q: expected flavor %q in FlavorAssignmentAttempts (no-fit case)", podSetName, flavor)
 			continue
 		}
-		if diff := cmp.Diff(wa, ga); diff != "" {
+		if diff := cmp.Diff(wa, ga, opts...); diff != "" {
 			t.Errorf("podset %q: flavor %q mismatch (no-fit case) (-want +got):\n%s", podSetName, flavor, diff)
 		}
 	}
@@ -3437,88 +3438,99 @@ func TestAssignFlavors(t *testing.T) {
 		},
 	}
 	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			ctx, log := utiltesting.ContextWithLog(t)
-			for fg, enabled := range tc.featureGates {
-				features.SetFeatureGateDuringTest(t, fg, enabled)
-			}
-			wlInfo := workload.NewInfo(&kueue.Workload{
-				Spec: kueue.WorkloadSpec{
-					PodSets: tc.wlPods,
-				},
-				Status: kueue.WorkloadStatus{
-					ReclaimablePods: tc.wlReclaimablePods,
-				},
+		for _, enabled := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/gate_%t", name, enabled), func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, enabled)
+				ctx, log := utiltesting.ContextWithLog(t)
+				for fg, val := range tc.featureGates {
+					features.SetFeatureGateDuringTest(t, fg, val)
+				}
+				wlInfo := workload.NewInfo(&kueue.Workload{
+					Spec: kueue.WorkloadSpec{
+						PodSets: tc.wlPods,
+					},
+					Status: kueue.WorkloadStatus{
+						ReclaimablePods: tc.wlReclaimablePods,
+					},
+				})
+
+				cache := schdcache.New(utiltesting.NewFakeClient())
+				if err := cache.AddClusterQueue(ctx, &tc.clusterQueue); err != nil {
+					t.Fatalf("Failed to add CQ to cache")
+				}
+				if tc.secondaryClusterQueue != nil {
+					if err := cache.AddClusterQueue(ctx, tc.secondaryClusterQueue); err != nil {
+						t.Fatalf("Failed to add secondary CQ to cache")
+					}
+				}
+				for _, rf := range resourceFlavors {
+					cache.AddOrUpdateResourceFlavor(log, rf)
+				}
+				if tc.topologies != nil {
+					for _, topology := range tc.topologies {
+						cache.AddOrUpdateTopology(log, topology)
+					}
+				}
+
+				if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort(tc.clusterQueue.Spec.CohortName).Obj()); err != nil {
+					t.Fatalf("Failed to create a cohort")
+				}
+
+				snapshot, err := cache.Snapshot(ctx)
+				if err != nil {
+					t.Fatalf("unexpected error while building snapshot: %v", err)
+				}
+				clusterQueue := snapshot.ClusterQueue(kueue.ClusterQueueReference(tc.clusterQueue.Name))
+
+				if clusterQueue == nil {
+					t.Fatalf("Failed to create CQ snapshot")
+				}
+				if tc.clusterQueueUsage != nil {
+					clusterQueue.AddUsage(workload.Usage{Quota: tc.clusterQueueUsage})
+				}
+
+				if tc.secondaryClusterQueue != nil {
+					secondaryClusterQueue := snapshot.ClusterQueue(kueue.ClusterQueueReference(tc.secondaryClusterQueue.Name))
+					if secondaryClusterQueue == nil {
+						t.Fatalf("Failed to create secondary CQ snapshot")
+					}
+					secondaryClusterQueue.AddUsage(workload.Usage{Quota: tc.secondaryClusterQueueUsage})
+				}
+
+				flvAssigner := New(
+					wlInfo,
+					clusterQueue,
+					resourceFlavors,
+					tc.enableFairSharing,
+					&testOracle{simulationResult: tc.simulationResult},
+					tc.preemptWorkloadSlice,
+					configapi.QuotaCheckBlockUndeclared,
+				)
+				assignment := flvAssigner.Assign(log, nil)
+				if repMode := assignment.RepresentativeMode(); repMode != tc.wantRepMode {
+					t.Errorf("e.assignFlavors(_).RepresentativeMode()=%s, want %s", repMode, tc.wantRepMode)
+				}
+
+				var cmpOpts []cmp.Option
+				if !enabled {
+					cmpOpts = append(cmpOpts, cmpopts.IgnoreFields(Assignment{}, "NoFitReason"))
+					cmpOpts = append(cmpOpts, cmpopts.IgnoreFields(FlavorAssignmentAttempt{}, "NoFitReason"))
+				}
+
+				if diff := cmp.Diff(tc.wantAssignment, assignment,
+					append(cmpOpts,
+						cmpopts.EquateEmpty(),
+						cmpopts.IgnoreUnexported(Assignment{}, FlavorAssignment{}),
+						statusComparer, cmpopts.IgnoreFields(Assignment{}, "LastState"),
+						cmpopts.IgnoreFields(PodSetAssignment{}, "FlavorAssignmentAttempts"),
+					)...,
+				); diff != "" {
+					t.Errorf("Unexpected assignment (-want,+got):\n%s", diff)
+				}
+
+				flexAssertConsidered(t, tc.wantAssignment, assignment, cmpOpts...)
 			})
-
-			cache := schdcache.New(utiltesting.NewFakeClient())
-			if err := cache.AddClusterQueue(ctx, &tc.clusterQueue); err != nil {
-				t.Fatalf("Failed to add CQ to cache")
-			}
-			if tc.secondaryClusterQueue != nil {
-				if err := cache.AddClusterQueue(ctx, tc.secondaryClusterQueue); err != nil {
-					t.Fatalf("Failed to add secondary CQ to cache")
-				}
-			}
-			for _, rf := range resourceFlavors {
-				cache.AddOrUpdateResourceFlavor(log, rf)
-			}
-			if tc.topologies != nil {
-				for _, topology := range tc.topologies {
-					cache.AddOrUpdateTopology(log, topology)
-				}
-			}
-
-			if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort(tc.clusterQueue.Spec.CohortName).Obj()); err != nil {
-				t.Fatalf("Failed to create a cohort")
-			}
-
-			snapshot, err := cache.Snapshot(ctx)
-			if err != nil {
-				t.Fatalf("unexpected error while building snapshot: %v", err)
-			}
-			clusterQueue := snapshot.ClusterQueue(kueue.ClusterQueueReference(tc.clusterQueue.Name))
-
-			if clusterQueue == nil {
-				t.Fatalf("Failed to create CQ snapshot")
-			}
-			if tc.clusterQueueUsage != nil {
-				clusterQueue.AddUsage(workload.Usage{Quota: tc.clusterQueueUsage})
-			}
-
-			if tc.secondaryClusterQueue != nil {
-				secondaryClusterQueue := snapshot.ClusterQueue(kueue.ClusterQueueReference(tc.secondaryClusterQueue.Name))
-				if secondaryClusterQueue == nil {
-					t.Fatalf("Failed to create secondary CQ snapshot")
-				}
-				secondaryClusterQueue.AddUsage(workload.Usage{Quota: tc.secondaryClusterQueueUsage})
-			}
-
-			flvAssigner := New(
-				wlInfo,
-				clusterQueue,
-				resourceFlavors,
-				tc.enableFairSharing,
-				&testOracle{simulationResult: tc.simulationResult},
-				tc.preemptWorkloadSlice,
-				configapi.QuotaCheckBlockUndeclared,
-			)
-			assignment := flvAssigner.Assign(log, nil)
-			if repMode := assignment.RepresentativeMode(); repMode != tc.wantRepMode {
-				t.Errorf("e.assignFlavors(_).RepresentativeMode()=%s, want %s", repMode, tc.wantRepMode)
-			}
-
-			if diff := cmp.Diff(tc.wantAssignment, assignment,
-				cmpopts.EquateEmpty(),
-				cmpopts.IgnoreUnexported(Assignment{}, FlavorAssignment{}),
-				statusComparer, cmpopts.IgnoreFields(Assignment{}, "LastState"),
-				cmpopts.IgnoreFields(PodSetAssignment{}, "FlavorAssignmentAttempts"),
-			); diff != "" {
-				t.Errorf("Unexpected assignment (-want,+got):\n%s", diff)
-			}
-
-			flexAssertConsidered(t, tc.wantAssignment, assignment)
-		})
+		}
 	}
 }
 
@@ -3791,62 +3803,73 @@ func TestDeletedFlavors(t *testing.T) {
 	}
 
 	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			ctx, _ := utiltesting.ContextWithLog(t)
-			log := testr.NewWithOptions(t, testr.Options{
-				Verbosity: 2,
+		for _, enabled := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/gate_%t", name, enabled), func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, enabled)
+				ctx, _ := utiltesting.ContextWithLog(t)
+				log := testr.NewWithOptions(t, testr.Options{
+					Verbosity: 2,
+				})
+				wlInfo := workload.NewInfo(&kueue.Workload{
+					Spec: kueue.WorkloadSpec{
+						PodSets: tc.wlPods,
+					},
+					Status: kueue.WorkloadStatus{
+						ReclaimablePods: tc.wlReclaimablePods,
+					},
+				})
+
+				cache := schdcache.New(utiltesting.NewFakeClient())
+				if err := cache.AddClusterQueue(ctx, &tc.clusterQueue); err != nil {
+					t.Fatalf("Failed to add CQ to cache")
+				}
+
+				flavorMap := map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
+					"flavor":         utiltestingapi.MakeResourceFlavor("flavor").Obj(),
+					"deleted-flavor": utiltestingapi.MakeResourceFlavor("deleted-flavor").Obj(),
+				}
+
+				// we have to add the deleted flavor to the cache before snapshot,
+				// or else snapshot will fail
+				for _, flavor := range flavorMap {
+					cache.AddOrUpdateResourceFlavor(log, flavor)
+				}
+				snapshot, err := cache.Snapshot(ctx)
+				if err != nil {
+					t.Fatalf("unexpected error while building snapshot: %v", err)
+				}
+				clusterQueue := snapshot.ClusterQueue(kueue.ClusterQueueReference(tc.clusterQueue.Name))
+				if clusterQueue == nil {
+					t.Fatalf("Failed to create CQ snapshot")
+				}
+
+				// and we delete it
+				cache.DeleteResourceFlavor(log, flavorMap["deleted-flavor"])
+				delete(flavorMap, "deleted-flavor")
+
+				flvAssigner := New(wlInfo, clusterQueue, flavorMap, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared)
+
+				assignment := flvAssigner.Assign(log, nil)
+				if repMode := assignment.RepresentativeMode(); repMode != tc.wantRepMode {
+					t.Errorf("e.assignFlavors(_).RepresentativeMode()=%s, want %s", repMode, tc.wantRepMode)
+				}
+
+				var cmpOpts []cmp.Option
+				if !enabled {
+					cmpOpts = append(cmpOpts, cmpopts.IgnoreFields(Assignment{}, "NoFitReason"))
+					cmpOpts = append(cmpOpts, cmpopts.IgnoreFields(FlavorAssignmentAttempt{}, "NoFitReason"))
+				}
+
+				if diff := cmp.Diff(tc.wantAssignment, assignment,
+					append(cmpOpts,
+						cmpopts.EquateEmpty(),
+						cmpopts.IgnoreUnexported(Assignment{}, FlavorAssignment{}), statusComparer, cmpopts.IgnoreFields(Assignment{}, "LastState"),
+					)...,
+				); diff != "" {
+					t.Errorf("Unexpected assignment (-want,+got):\n%s", diff)
+				}
 			})
-			wlInfo := workload.NewInfo(&kueue.Workload{
-				Spec: kueue.WorkloadSpec{
-					PodSets: tc.wlPods,
-				},
-				Status: kueue.WorkloadStatus{
-					ReclaimablePods: tc.wlReclaimablePods,
-				},
-			})
-
-			cache := schdcache.New(utiltesting.NewFakeClient())
-			if err := cache.AddClusterQueue(ctx, &tc.clusterQueue); err != nil {
-				t.Fatalf("Failed to add CQ to cache")
-			}
-
-			flavorMap := map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
-				"flavor":         utiltestingapi.MakeResourceFlavor("flavor").Obj(),
-				"deleted-flavor": utiltestingapi.MakeResourceFlavor("deleted-flavor").Obj(),
-			}
-
-			// we have to add the deleted flavor to the cache before snapshot,
-			// or else snapshot will fail
-			for _, flavor := range flavorMap {
-				cache.AddOrUpdateResourceFlavor(log, flavor)
-			}
-			snapshot, err := cache.Snapshot(ctx)
-			if err != nil {
-				t.Fatalf("unexpected error while building snapshot: %v", err)
-			}
-			clusterQueue := snapshot.ClusterQueue(kueue.ClusterQueueReference(tc.clusterQueue.Name))
-			if clusterQueue == nil {
-				t.Fatalf("Failed to create CQ snapshot")
-			}
-
-			// and we delete it
-			cache.DeleteResourceFlavor(log, flavorMap["deleted-flavor"])
-			delete(flavorMap, "deleted-flavor")
-
-			flvAssigner := New(wlInfo, clusterQueue, flavorMap, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared)
-
-			assignment := flvAssigner.Assign(log, nil)
-			if repMode := assignment.RepresentativeMode(); repMode != tc.wantRepMode {
-				t.Errorf("e.assignFlavors(_).RepresentativeMode()=%s, want %s", repMode, tc.wantRepMode)
-			}
-
-			if diff := cmp.Diff(tc.wantAssignment, assignment,
-				cmpopts.EquateEmpty(),
-				cmpopts.IgnoreUnexported(Assignment{}, FlavorAssignment{}), statusComparer, cmpopts.IgnoreFields(Assignment{}, "LastState"),
-			); diff != "" {
-				t.Errorf("Unexpected assignment (-want,+got):\n%s", diff)
-			}
-		})
+		}
 	}
 }
 
@@ -5034,6 +5057,31 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 		"flavor-tas": resourceFlavors["flavor-tas"],
 	}
 
+	sharedCQ := *utiltestingapi.MakeClusterQueue("shared-cq").
+		Cohort("cohort").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("flavor-shared").Resource(corev1.ResourceCPU, "2", "4").Obj(),
+			*utiltestingapi.MakeFlavorQuotas("flavor-a").Resource(corev1.ResourceCPU, "2", "4").Obj(),
+		).
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("flavor-shared").Resource(corev1.ResourceMemory, "2Gi", "4Gi").Obj(),
+		).Obj()
+
+	siblingCQ := utiltestingapi.MakeClusterQueue("sibling").
+		Cohort("cohort").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("flavor-shared").Resource(corev1.ResourceCPU, "2", "2").Obj(),
+			*utiltestingapi.MakeFlavorQuotas("flavor-a").Resource(corev1.ResourceCPU, "2", "2").Obj(),
+		).
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("flavor-shared").Resource(corev1.ResourceMemory, "2Gi", "2Gi").Obj(),
+		).Obj()
+
+	sharedFlavors := map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
+		"flavor-shared": utiltestingapi.MakeResourceFlavor("flavor-shared").NodeLabel("type", "shared").Obj(),
+		"flavor-a":      utiltestingapi.MakeResourceFlavor("flavor-a").NodeLabel("type", "a").Obj(),
+	}
+
 	tests := map[string]struct {
 		podSet             kueue.PodSet
 		cq                 *kueue.ClusterQueue
@@ -5336,10 +5384,44 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 				"flavor-b": "NoMatchingFlavor",
 			},
 		},
+		"flavor spanning multiple resource groups": {
+			podSet: *utiltestingapi.MakePodSet("main", 1).
+				Request(corev1.ResourceCPU, "3").
+				Request(corev1.ResourceMemory, "3Gi").
+				NodeSelector(map[string]string{"type": "a"}).
+				Obj(),
+			cq:         &sharedCQ,
+			siblingCQs: []*kueue.ClusterQueue{siblingCQ},
+			siblingCQUsage: map[kueue.ClusterQueueReference]resources.FlavorResourceQuantities{
+				"sibling": {
+					{Flavor: "flavor-shared", Resource: corev1.ResourceCPU}:    resources.NewAmount(2_000),
+					{Flavor: "flavor-shared", Resource: corev1.ResourceMemory}: resources.NewAmount(2 * utiltesting.Gi),
+					{Flavor: "flavor-a", Resource: corev1.ResourceCPU}:         resources.NewAmount(2_000),
+				},
+			},
+			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
+				{Flavor: "flavor-shared", Resource: corev1.ResourceCPU}: {
+					preemptionPossiblity: preemptioncommon.NoCandidates,
+				},
+				{Flavor: "flavor-shared", Resource: corev1.ResourceMemory}: {
+					preemptionPossiblity: preemptioncommon.NoCandidates,
+				},
+				{Flavor: "flavor-a", Resource: corev1.ResourceCPU}: {
+					preemptionPossiblity: preemptioncommon.NoCandidates,
+				},
+			},
+			resourceFlavors: sharedFlavors,
+			wantNoFitReason: "NoMatchingFlavor",
+			wantFlavorAttempts: map[kueue.ResourceFlavorReference]string{
+				"flavor-shared": "NoMatchingFlavor",
+				"flavor-a":      "WaitingForQuota",
+			},
+		},
 	}
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, true)
 			for fg, val := range tc.featureGates {
 				features.SetFeatureGateDuringTest(t, fg, val)
 			}
