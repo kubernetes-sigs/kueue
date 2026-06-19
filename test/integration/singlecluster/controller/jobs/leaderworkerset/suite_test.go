@@ -103,7 +103,7 @@ func managerAndSchedulerSetup(opts ...jobframework.Option) framework.ManagerSetu
 		configuration := &config.Configuration{}
 		mgr.GetScheme().Default(configuration)
 
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, nil, preemptionExpectations, nil)
+		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration, core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations})
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 		sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorder(constants.AdmissionName), scheduler.WithPreemptionExpectations(preemptionExpectations))
