@@ -3376,17 +3376,19 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			admissionPatchReleased = true
 			close(allowAdmissionPatch)
 
-			ginkgo.By("Waiting for wl1 to be evicted and simulating the job controller unsetting QuotaReserved after eviction")
+			wl1Created := &kueue.Workload{}
+			ginkgo.By("Waiting for wl1 to be evicted")
 			gomega.Eventually(func(g gomega.Gomega) {
-				wl1Created := &kueue.Workload{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1Created)).To(gomega.Succeed())
-				// Subsequent scheduling cycles for wl2 should re-trigger the eviction after the first one was lost due to the race condition.
-				if meta.IsStatusConditionTrue(wl1Created.Status.Conditions, kueue.WorkloadEvicted) {
-					g.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, wl1Created, nil, func(wl *kueue.Workload) (bool, error) {
-						return workload.UnsetQuotaReservationWithCondition(wl, "Pending", "Evicted", metav1.Now().Time), nil
-					})).To(gomega.Succeed())
-				}
+				g.Expect(meta.IsStatusConditionTrue(wl1Created.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeTrue())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
+			ginkgo.By("Simulating the job controller unsetting wl1's QuotaReserved after eviction")
+			gomega.Eventually(func(g gomega.Gomega) {
+				// Subsequent scheduling cycles for wl2 should re-trigger the eviction after the first one was lost due to the race condition.
+				g.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, wl1Created, nil, func(wl *kueue.Workload) (bool, error) {
+					return workload.UnsetQuotaReservationWithCondition(wl, "Pending", "Evicted", metav1.Now().Time), nil
+				})).To(gomega.Succeed())
 				g.Expect(workload.HasQuotaReservation(wl1Created)).To(gomega.BeFalse())
 				g.Expect(meta.IsStatusConditionTrue(wl1Created.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeTrue())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
