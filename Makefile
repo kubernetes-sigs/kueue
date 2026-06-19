@@ -512,7 +512,7 @@ ray-project-mini-image-build:
 		--build-arg RAY_VERSION=$(RAY_VERSION) \
 		$(PUSH) \
 		$(IMAGE_BUILD_EXTRA_OPTS) \
-		-f ./hack/testing/ray-mini/Dockerfile ./ \
+		-f ./hack/testing/ray-mini/Dockerfile ./
 
 .PHONY: ray-project-mini-image-build-push
 ray-project-mini-image-build-push: PUSH=--push
@@ -532,7 +532,7 @@ secretreader-plugin-image-build:
 		--platform=$(PLATFORMS) \
 		--build-arg PLUGIN_VERSION=$(CLUSTERPROFILE_VERSION) \
 		$(PUSH) \
-		-f hack/testing/secretreader/Dockerfile ./ \
+		-f hack/testing/secretreader/Dockerfile ./
 
 # The step is required for local e2e test run
 .PHONY: kind-secretreader-plugin-image-build
