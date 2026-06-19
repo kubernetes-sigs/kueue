@@ -113,13 +113,9 @@ done
 
 ### Step 3: Configure Manager for Kind
 
-Enable the feature gate for insecure kubeconfigs and configure integrations:
+Configure integrations:
 
 ```bash
-# Enable feature gate (required for Kind clusters with insecure-skip-tls-verify)
-kubectl --context kind-manager patch deployment kueue-controller-manager -n kueue-system --type='json' \
-  -p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--feature-gates=MultiKueueAllowInsecureKubeconfigs=true"}]'
-
 # Configure to use only batch/job integration
 cat > /tmp/kueue-integrations-patch.yaml <<'EOF'
 data:
@@ -211,13 +207,16 @@ EOF
   # be plaintext in kubeconfig
   TOKEN=$(kubectl --context "kind-${cluster}" get secret multikueue-sa-token -n kueue-system -o jsonpath='{.data.token}' | base64 --decode)
 
+  # Extract the Certificate Authority
+  CA_DATA=$(kubectl --context "kind-${cluster}" config view --minify --raw -o jsonpath='{.clusters[0].cluster.certificate-authority-data}')
+
   # Create kubeconfig
   cat > ${cluster}.kubeconfig <<EOF
 apiVersion: v1
 kind: Config
 clusters:
 - cluster:
-    insecure-skip-tls-verify: true
+    certificate-authority-data: ${CA_DATA}
     server: https://${cluster}-control-plane:6443
   name: ${cluster}
 contexts:
