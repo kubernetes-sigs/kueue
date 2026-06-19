@@ -246,11 +246,17 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 								Completions: 2,
 								Image:       util.GetAgnHostImage(),
 								Args:        util.BehaviorExitFast,
+								SuccessPolicy: &batchv1.SuccessPolicy{Rules: []batchv1.SuccessPolicyRule{
+									{
+										SucceededCount: ptr.To(int32(1)),
+									},
+								}},
 							},
 						).
 						SetTypeMeta().
 						Suspend(false).
-						RequestAndLimit("replicated-job-1", corev1.ResourceCPU, "200m").
+						RequestAndLimit("replicated-job-1", corev1.ResourceCPU, "300m").
+						RequestAndLimit("replicated-job-1", corev1.ResourceMemory, "300Mi").
 						Obj(),
 				}).
 				Suspend(false).
@@ -312,11 +318,17 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 								Labels: map[string]string{
 									controllerconstants.QueueLabel: localQueue.Name,
 								},
+								SuccessPolicy: &batchv1.SuccessPolicy{Rules: []batchv1.SuccessPolicyRule{
+									{
+										SucceededCount: ptr.To(int32(1)),
+									},
+								}},
 							},
 						).
 						SetTypeMeta().
 						Suspend(false).
-						RequestAndLimit("replicated-job-1", corev1.ResourceCPU, "200m").
+						RequestAndLimit("replicated-job-1", corev1.ResourceCPU, "300m").
+						RequestAndLimit("replicated-job-1", corev1.ResourceMemory, "300Mi").
 						Queue(localQueue.Name).
 						Obj(),
 				}).
@@ -378,7 +390,8 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 				).
 				SetTypeMeta().
 				Suspend(false).
-				RequestAndLimit("replicated-job-1", corev1.ResourceCPU, "200m").
+				RequestAndLimit("replicated-job-1", corev1.ResourceCPU, "300m").
+				RequestAndLimit("replicated-job-1", corev1.ResourceMemory, "300Mi").
 				Obj()
 
 			ginkgo.By("Creating an unsuspended JobSet without a queue-name", func() {
@@ -1008,11 +1021,17 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName without JobSet integration",
 								Completions: 2,
 								Image:       util.GetAgnHostImage(),
 								Args:        util.BehaviorExitFast,
+								SuccessPolicy: &batchv1.SuccessPolicy{Rules: []batchv1.SuccessPolicyRule{
+									{
+										SucceededCount: ptr.To(int32(1)),
+									},
+								}},
 							},
 						).
 						SetTypeMeta().
 						Suspend(false).
-						RequestAndLimit("replicated-job-1", corev1.ResourceCPU, "200m").
+						RequestAndLimit("replicated-job-1", corev1.ResourceCPU, "300m").
+						RequestAndLimit("replicated-job-1", corev1.ResourceMemory, "300Mi").
 						Obj(),
 				}).
 				Suspend(false).
