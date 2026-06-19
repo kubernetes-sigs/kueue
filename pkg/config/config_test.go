@@ -970,12 +970,25 @@ webhook:
 		t.Fatal(err)
 	}
 
+	tlsConfigInvalid := filepath.Join(tmpDir, "tls-invalid.yaml")
+	if err := os.WriteFile(tlsConfigInvalid, []byte(`apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+namespace: kueue-system
+tls:
+  minVersion: InvalidVersion
+webhook:
+  port: 9443
+`), os.FileMode(0600)); err != nil {
+		t.Fatal(err)
+	}
+
 	testcases := []struct {
 		name              string
 		configFile        string
 		featureGates      map[featuregate.Feature]bool
 		wantConfiguration configapi.Configuration
 		verifyTLSApplied  bool
+		wantError         error
 	}{
 		{
 			name:         "TLS config applied when feature gate enabled",
@@ -1124,6 +1137,58 @@ webhook:
 			verifyTLSApplied: true,
 		},
 		{
+			name:         "invalid TLS config returns error when feature gate enabled",
+			configFile:   tlsConfigInvalid,
+			featureGates: map[featuregate.Feature]bool{features.TLSOptions: true},
+			wantError:    ErrWebhookTLSParse,
+		},
+		{
+			name:         "invalid TLS config ignored when feature gate disabled",
+			configFile:   tlsConfigInvalid,
+			featureGates: map[featuregate.Feature]bool{features.TLSOptions: false},
+			wantConfiguration: configapi.Configuration{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: configapi.GroupVersion.String(),
+					Kind:       "Configuration",
+				},
+				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				ManageJobsWithoutQueueName: false,
+				InternalCertManagement: &configapi.InternalCertManagement{
+					Enable:             new(true),
+					WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
+					WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
+				},
+				ClientConnection: &configapi.ClientConnection{
+					QPS:   ptr.To(configapi.DefaultClientConnectionQPS),
+					Burst: ptr.To(configapi.DefaultClientConnectionBurst),
+				},
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{job.FrameworkName},
+				},
+				MultiKueue: &configapi.MultiKueue{
+					GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
+					Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
+					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
+					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
+				},
+				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
+					MatchExpressions: []metav1.LabelSelectorRequirement{
+						{
+							Key:      corev1.LabelMetadataName,
+							Operator: metav1.LabelSelectorOpNotIn,
+							Values:   []string{"kube-system", "kueue-system"},
+						},
+					},
+				},
+				ControllerManager: configapi.ControllerManager{
+					TLS: &configapi.TLSOptions{
+						MinVersion: "InvalidVersion",
+					},
+				},
+			},
+			verifyTLSApplied: false,
+		},
+		{
 			name:         "TLS 1.3 config NOT applied when feature gate disabled",
 			configFile:   tlsConfigTLS13,
 			featureGates: map[featuregate.Feature]bool{features.TLSOptions: false},
@@ -1182,7 +1247,16 @@ webhook:
 			}
 
 			// Call AddWebhookSettingsTo to configure webhook server with TLS options
-			AddWebhookSettingsTo(&options, &cfg)
+			err = AddWebhookSettingsTo(&options, &cfg)
+			if tc.wantError != nil {
+				if !errors.Is(err, tc.wantError) {
+					t.Errorf("AddWebhookSettingsTo() error = %v, wantErr %v", err, tc.wantError)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Unexpected error from AddWebhookSettingsTo: %v", err)
+			}
 
 			// Compare the loaded configuration
 			configCmpOpts := cmp.Options{

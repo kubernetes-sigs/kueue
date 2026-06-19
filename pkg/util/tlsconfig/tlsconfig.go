@@ -28,6 +28,13 @@ import (
 
 const TLS12 = tls.VersionTLS12
 
+var (
+	// ErrInvalidMinVersion is returned when the TLS minimum version is invalid.
+	ErrInvalidMinVersion = errors.New("invalid minVersion")
+	// ErrInvalidCipherSuites is returned when cipher suites are invalid.
+	ErrInvalidCipherSuites = errors.New("invalid cipher suites")
+)
+
 type TLS struct {
 	MinVersion   uint16
 	CipherSuites []uint16
@@ -83,11 +90,11 @@ func convertTLSMinVersion(tlsMinVersion string) (uint16, error) {
 		return TLS12, nil
 	}
 	if tlsMinVersion == "VersionTLS11" || tlsMinVersion == "VersionTLS10" {
-		return 0, errors.New("invalid minVersion. Please use VersionTLS12 or VersionTLS13")
+		return 0, fmt.Errorf("%w. Please use VersionTLS12 or VersionTLS13", ErrInvalidMinVersion)
 	}
 	version, err := cliflag.TLSVersion(tlsMinVersion)
 	if err != nil {
-		return 0, fmt.Errorf("invalid minVersion: %w. Please use VersionTLS12 or VersionTLS13", err)
+		return 0, fmt.Errorf("%w: %v. Please use VersionTLS12 or VersionTLS13", ErrInvalidMinVersion, err)
 	}
 	return version, nil
 }
@@ -100,7 +107,7 @@ func convertCipherSuites(cipherSuites []string) ([]uint16, error) {
 	}
 	suites, err := cliflag.TLSCipherSuites(cipherSuites)
 	if err != nil {
-		return nil, fmt.Errorf("invalid cipher suites: %w. Please use the secure cipher names: %v", err, cliflag.PreferredTLSCipherNames())
+		return nil, fmt.Errorf("%w: %v. Please use the secure cipher names: %v", ErrInvalidCipherSuites, err, cliflag.PreferredTLSCipherNames())
 	}
 	return suites, nil
 }
