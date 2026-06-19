@@ -746,7 +746,6 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 }
 
 func (c *clustersReconciler) loadClientConfig(ctx context.Context, cluster *kueue.MultiKueueCluster) (*clientConfig, string, error) {
-	log := ctrl.LoggerFrom(ctx)
 	if cluster.Spec.ClusterSource.ClusterProfileRef != nil {
 		if !features.Enabled(features.MultiKueueClusterProfile) {
 			return nil, "MultiKueueClusterProfileFeatureDisabled", errors.New("MultiKueueClusterProfile feature gate is disabled")
@@ -770,10 +769,6 @@ func (c *clustersReconciler) loadClientConfig(ctx context.Context, cluster *kueu
 		return nil, "BadKubeConfig", err
 	}
 
-	if features.Enabled(features.MultiKueueAllowInsecureKubeconfigs) {
-		log.V(3).Info("Feature MultiKueueAllowInsecureKubeconfigs is enabled, skipping kubeconfig validation")
-		return &clientConfig{Kubeconfig: kubeConfig}, "", nil
-	}
 	if err := validateKubeconfig(kubeConfig); err != nil {
 		return nil, "InsecureKubeConfig", err
 	}

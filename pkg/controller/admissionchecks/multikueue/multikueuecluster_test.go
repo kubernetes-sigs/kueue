@@ -191,12 +191,11 @@ func TestUpdateConfig(t *testing.T) {
 		clusterprofiles  []inventoryv1alpha1.ClusterProfile
 		cpAccessProvider clusterProfileAccessProvider
 
-		wantRemoteClients      map[string]*remoteClient
-		wantClusters           []kueue.MultiKueueCluster
-		wantRequeueAfter       time.Duration
-		wantCancelCalled       int
-		wantErr                error
-		skipInsecureKubeconfig bool
+		wantRemoteClients map[string]*remoteClient
+		wantClusters      []kueue.MultiKueueCluster
+		wantRequeueAfter  time.Duration
+		wantCancelCalled  int
+		wantErr           error
 	}{
 		"new valid client is added": {
 			reconcileFor: "worker1",
@@ -508,33 +507,6 @@ func TestUpdateConfig(t *testing.T) {
 			wantCancelCalled: 1,
 			wantErr:          fmt.Errorf("failed to load client config, reason: InsecureKubeConfig, error: %w", errors.New("tokenFile is not allowed")),
 		},
-		"skip insecure kubeconfig validation": {
-			reconcileFor: "worker1",
-			clusters: []kueue.MultiKueueCluster{
-				*utiltestingapi.MakeMultiKueueCluster("worker1").
-					KubeConfig(kueue.SecretLocationType, "worker1").
-					Generation(1).
-					Obj(),
-			},
-			secrets: []corev1.Secret{
-				makeTestSecret("worker1", testKubeconfigInsecure("worker1", new("/path/to/tokenfile"))),
-			},
-			wantClusters: []kueue.MultiKueueCluster{
-				*utiltestingapi.MakeMultiKueueCluster("worker1").
-					KubeConfig(kueue.SecretLocationType, "worker1").
-					Active(metav1.ConditionTrue, "Active", "Connected", 1).
-					Generation(1).
-					Obj(),
-			},
-			wantRemoteClients: map[string]*remoteClient{
-				"worker1": {
-					config: &clientConfig{
-						Kubeconfig: []byte(testKubeconfigInsecure("worker1", new("/path/to/tokenfile"))),
-					},
-				},
-			},
-			skipInsecureKubeconfig: true,
-		},
 		"use cluster profile": {
 			reconcileFor: "worker1",
 			clusters: []kueue.MultiKueueCluster{
@@ -683,10 +655,6 @@ func TestUpdateConfig(t *testing.T) {
 				reconciler.remoteClients = tc.remoteClients
 			}
 			reconciler.builderOverride = fakeClientBuilder(ctx)
-
-			if tc.skipInsecureKubeconfig {
-				features.SetFeatureGateDuringTest(t, features.MultiKueueAllowInsecureKubeconfigs, true)
-			}
 
 			if len(tc.clusterprofiles) > 0 {
 				features.SetFeatureGateDuringTest(t, features.MultiKueueClusterProfile, true)
