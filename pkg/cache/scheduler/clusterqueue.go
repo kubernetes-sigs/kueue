@@ -99,6 +99,8 @@ type clusterQueue struct {
 
 	ConcurrentAdmissionPolicy *kueue.ConcurrentAdmissionPolicy
 
+	WorkloadDefaults *kueue.ClusterQueueWorkloadDefaults
+
 	roleTracker *roletracker.RoleTracker
 
 	// values extracted from K8s labels/annotations, used as custom Prometheus metric labels
@@ -199,6 +201,9 @@ func (c *clusterQueue) updateClusterQueue(
 	c.AdmissionScope = in.Spec.AdmissionScope
 	if features.Enabled(features.ConcurrentAdmission) {
 		c.ConcurrentAdmissionPolicy = in.Spec.ConcurrentAdmissionPolicy
+	}
+	if features.Enabled(features.ClusterQueueMaxExecutionTime) {
+		c.WorkloadDefaults = in.Spec.WorkloadDefaults
 	}
 	return nil
 }

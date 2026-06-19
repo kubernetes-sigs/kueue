@@ -642,6 +642,8 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 					e.requeueReason = qcache.RequeueReasonNamespaceMismatch
 				}
 			}
+		} else if msg := s.checkMaximumExecutionTimeExceedsLimit(e.clusterQueueSnapshot, w.Obj); msg != "" {
+			e.inadmissibleMsg = msg
 		} else {
 			assignment, targets := s.getAssignments(log, &e.Info, snap)
 			e.recordAssignment(assignment, targets)
@@ -686,6 +688,27 @@ func fits(snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, usag
 	revertUsage := snapshot.SimulateWorkloadRemoval(workloads)
 	defer revertUsage()
 	return cq.Fits(*usage)
+}
+
+// checkMaximumExecutionTimeExceedsLimit checks if the workload's maximumExecutionTimeSeconds
+// exceeds the ClusterQueue's workloadDefaults.maximumExecutionTimeSeconds limit.
+// Returns an inadmissible message if the limit is exceeded, or empty string otherwise.
+func (s *Scheduler) checkMaximumExecutionTimeExceedsLimit(cq *schdcache.ClusterQueueSnapshot, wl *kueue.Workload) string {
+	if !features.Enabled(features.ClusterQueueMaxExecutionTime) {
+		return ""
+	}
+	if cq.WorkloadDefaults == nil || cq.WorkloadDefaults.MaximumExecutionTimeSeconds == nil {
+		return ""
+	}
+	if wl.Spec.MaximumExecutionTimeSeconds == nil {
+		return ""
+	}
+	cqLimit := *cq.WorkloadDefaults.MaximumExecutionTimeSeconds
+	wlValue := *wl.Spec.MaximumExecutionTimeSeconds
+	if wlValue > cqLimit {
+		return fmt.Sprintf("requested maximumExecutionTimeSeconds %d exceeds ClusterQueue limit of %d", wlValue, cqLimit)
+	}
+	return ""
 }
 
 // resourcesToReserve calculates how much of the available resources in cq/cohort assignment should be reserved.
