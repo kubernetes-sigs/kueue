@@ -121,6 +121,11 @@ type RayServiceSpec struct {
 	// Therefore, the head Pod's endpoint will not be added to the Kubernetes Serve service.
 	// +optional
 	ExcludeHeadPodFromServeSvc bool `json:"excludeHeadPodFromServeSvc,omitempty"`
+	// Suspend indicates whether the RayService should suspend its execution. When set to true,
+	// all Kubernetes resources owned by the RayService controller will be deleted. Setting it
+	// back to false will allow the RayService controller to recreate the resources.
+	// +optional
+	Suspend bool `json:"suspend,omitempty"`
 }
 
 // RayServiceStatuses defines the observed state of RayService
@@ -208,6 +213,11 @@ const (
 	UpgradeInProgress RayServiceConditionType = "UpgradeInProgress"
 	// RollbackInProgress means the RayService is currently rolling back an in-progress upgrade to the original cluster state.
 	RollbackInProgress RayServiceConditionType = "RollbackInProgress"
+	// RayServiceSuspending means the RayService is in the middle of deleting its owned resources in response to Spec.Suspend.
+	// Once entered, the suspend operation completes atomically regardless of later changes to Spec.Suspend.
+	RayServiceSuspending RayServiceConditionType = "Suspending"
+	// RayServiceSuspended means all resources owned by the RayService controller have been deleted and the RayService is suspended.
+	RayServiceSuspended RayServiceConditionType = "Suspended"
 )
 
 const (
@@ -220,6 +230,10 @@ const (
 	NoActiveCluster                RayServiceConditionReason = "NoActiveCluster"
 	RayServiceValidationFailed     RayServiceConditionReason = "ValidationFailed"
 	TargetClusterChanged           RayServiceConditionReason = "TargetClusterChanged"
+	SuspendRequested               RayServiceConditionReason = "SuspendRequested"
+	SuspendInProgress              RayServiceConditionReason = "SuspendInProgress"
+	SuspendComplete                RayServiceConditionReason = "SuspendComplete"
+	RayServiceResumed              RayServiceConditionReason = "RayServiceResumed"
 )
 
 // +kubebuilder:object:root=true
