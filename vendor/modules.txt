@@ -1143,7 +1143,7 @@ k8s.io/apiserver/plugin/pkg/authorizer/webhook/metrics
 # k8s.io/autoscaler/cluster-autoscaler/apis v0.0.0-20240830133931-adfbe7e45277
 ## explicit; go 1.22.0
 k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1
-# k8s.io/cli-runtime v0.36.1
+# k8s.io/cli-runtime v0.36.2
 ## explicit; go 1.26.0
 k8s.io/cli-runtime/pkg/genericclioptions
 k8s.io/cli-runtime/pkg/genericiooptions
@@ -1573,7 +1573,7 @@ k8s.io/component-base/zpages/features
 k8s.io/component-helpers/resource
 k8s.io/component-helpers/scheduling/corev1
 k8s.io/component-helpers/scheduling/corev1/nodeaffinity
-# k8s.io/dynamic-resource-allocation v0.36.1
+# k8s.io/dynamic-resource-allocation v0.36.2
 ## explicit; go 1.26.0
 k8s.io/dynamic-resource-allocation/cel
 # k8s.io/gengo/v2 v2.0.0-20250922181213-ec3ebc5fd46b
@@ -1630,7 +1630,7 @@ k8s.io/kube-openapi/pkg/validation/errors
 k8s.io/kube-openapi/pkg/validation/spec
 k8s.io/kube-openapi/pkg/validation/strfmt
 k8s.io/kube-openapi/pkg/validation/strfmt/bson
-# k8s.io/kubectl v0.36.1
+# k8s.io/kubectl v0.36.2
 ## explicit; go 1.26.0
 k8s.io/kubectl/pkg/cmd/get
 k8s.io/kubectl/pkg/cmd/util
@@ -1642,7 +1642,7 @@ k8s.io/kubectl/pkg/util/openapi
 k8s.io/kubectl/pkg/util/templates
 k8s.io/kubectl/pkg/util/term
 k8s.io/kubectl/pkg/validation
-# k8s.io/metrics v0.36.1
+# k8s.io/metrics v0.36.2
 ## explicit; go 1.26.0
 k8s.io/metrics/pkg/apis/metrics
 k8s.io/metrics/pkg/apis/metrics/install

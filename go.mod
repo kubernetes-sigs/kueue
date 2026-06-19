@@ -30,15 +30,15 @@ require (
 	k8s.io/apimachinery v0.36.2
 	k8s.io/apiserver v0.36.2
 	k8s.io/autoscaler/cluster-autoscaler/apis v0.0.0-20240830133931-adfbe7e45277
-	k8s.io/cli-runtime v0.36.1
+	k8s.io/cli-runtime v0.36.2
 	k8s.io/client-go v0.36.2
 	k8s.io/component-base v0.36.2
 	k8s.io/component-helpers v0.36.2
-	k8s.io/dynamic-resource-allocation v0.36.1
+	k8s.io/dynamic-resource-allocation v0.36.2
 	k8s.io/klog/v2 v2.140.0
 	k8s.io/kube-openapi v0.0.0-20260319004828-5883c5ee87b9
-	k8s.io/kubectl v0.36.1
-	k8s.io/metrics v0.36.1
+	k8s.io/kubectl v0.36.2
+	k8s.io/metrics v0.36.2
 	k8s.io/utils v0.0.0-20260507154919-ff6756f316d2
 	sigs.k8s.io/cluster-inventory-api v0.1.3
 	sigs.k8s.io/controller-runtime v0.24.1
