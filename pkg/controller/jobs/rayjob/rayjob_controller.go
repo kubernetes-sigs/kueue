@@ -131,7 +131,7 @@ func (j *RayJob) PodLabelSelector() string {
 
 func (j *RayJob) PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet, error) {
 	// Always build PodSets from RayJob spec first
-	podSets, err := raycluster.BuildPodSets(j.Spec.RayClusterSpec)
+	podSets, err := raycluster.BuildPodSets(j.Spec.RayClusterSpec, j.Annotations)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +151,7 @@ func (j *RayJob) PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet, 
 }
 
 func (j *RayJob) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSetsInfo []podset.PodSetInfo) error {
-	expectedLen := len(j.Spec.RayClusterSpec.WorkerGroupSpecs) + 1
+	expectedLen := raycluster.ExpectedPodSetsCount(j.Spec.RayClusterSpec)
 	if j.Spec.SubmissionMode == rayv1.K8sJobMode {
 		expectedLen++
 	}
@@ -180,7 +180,7 @@ func (j *RayJob) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSet
 }
 
 func (j *RayJob) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
-	expectedLen := len(j.Spec.RayClusterSpec.WorkerGroupSpecs) + 1
+	expectedLen := raycluster.ExpectedPodSetsCount(j.Spec.RayClusterSpec)
 	if j.Spec.SubmissionMode == rayv1.K8sJobMode {
 		expectedLen++
 	}
