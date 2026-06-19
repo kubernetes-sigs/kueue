@@ -150,9 +150,9 @@ func (w *RayClusterWebhook) validateCreate(ctx context.Context, job *rayv1.RayCl
 			)
 		}
 
-		// Should limit the worker count to max PodSets minus the cluster head.
-		if len(spec.WorkerGroupSpecs) > jobframework.MaxPodSets-1 {
-			allErrors = append(allErrors, field.TooMany(specPath.Child("workerGroupSpecs"), len(spec.WorkerGroupSpecs), jobframework.MaxPodSets-1))
+		// Should limit the generated PodSet count to the maximum supported by Workloads.
+		if expectedPodSetsCount := ExpectedPodSetsCount(spec); expectedPodSetsCount > jobframework.MaxPodSets {
+			allErrors = append(allErrors, field.TooMany(specPath.Child("workerGroupSpecs"), expectedPodSetsCount, jobframework.MaxPodSets))
 		}
 
 		// None of the workerGroups should be named "head"
@@ -221,9 +221,10 @@ func (w *RayClusterWebhook) validateTopologyRequest(ctx context.Context, rayJob 
 	if podSetsErr == nil {
 		allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSets, BuildPodSetAnnotationsPathByNameMap(&rayJob.Spec, headGroupMetaPath, workerGroupSpecsPath))...)
 		for i, p := range podSets {
-			if p.Name == headGroupPodSetName {
+			switch p.Name {
+			case headGroupPodSetName:
 				allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(headGroupMetaPath, &p.Template.ObjectMeta, &p)...)
-			} else {
+			default:
 				// the raycluster PodSets function places the worker podsets from index 1
 				workerGroupMetaPath := workerGroupSpecsPath.Index(i-1).Child("template", "metadata")
 				allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(workerGroupMetaPath, &p.Template.ObjectMeta)...)
