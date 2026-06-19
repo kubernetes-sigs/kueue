@@ -232,7 +232,7 @@ const (
 	// Allow insecure kubeconfigs in MultiKueue setup.
 	// Requires careful consideration as it may lead to security issues.
 	//
-	// Deprecated: planned to be removed in 0.17
+	// Deprecated: locked to its default value (false) in 0.19; planned to be removed in 0.20.
 	MultiKueueAllowInsecureKubeconfigs featuregate.Feature = "MultiKueueAllowInsecureKubeconfigs"
 
 	// owner: @pbundyra
@@ -572,7 +572,8 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	MultiKueueAllowInsecureKubeconfigs: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
-		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Deprecated}, // remove in 0.19
+		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Deprecated},
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Deprecated, LockToDefault: true}, // remove in 0.20
 	},
 	ReclaimablePods: {
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
