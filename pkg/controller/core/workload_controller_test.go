@@ -415,8 +415,6 @@ func TestReconcile(t *testing.T) {
 		additionalObjects         []client.Object
 		cq                        *kueue.ClusterQueue
 		lq                        *kueue.LocalQueue
-		shouldDeleteCQ            bool
-		shouldDeleteLQ            bool
 		resourceClaims            []*resourcev1.ResourceClaim
 		resourceClaimTemplates    []*resourcev1.ResourceClaimTemplate
 		patchErr                  error
@@ -430,6 +428,12 @@ func TestReconcile(t *testing.T) {
 		wantEvents                []utiltesting.EventRecord
 		wantResult                reconcile.Result
 		reconcilerOpts            []Option
+
+		// Set to true to simulate a terminating ClusterQueue or LocalQueue.
+		// The setup helper will attach a finalizer and delete the object,
+		// which automatically populates its DeletionTimestamp in the fake client.
+		shouldDeleteCQ bool
+		shouldDeleteLQ bool
 	}{
 		"reconcile DRA ResourceClaim should be rejected as inadmissible": {
 			featureGates: map[featuregate.Feature]bool{
@@ -2592,7 +2596,7 @@ func TestReconcile(t *testing.T) {
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj()).
 				AdmissionChecks("check").Obj(),
 			lq:             utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
-			shouldDeleteLQ: true,
+			shouldDeleteLQ: true, // The setup helper will attach a finalizer and delete the object, which automatically populates its DeletionTimestamp in the fake client.
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
@@ -2748,7 +2752,7 @@ func TestReconcile(t *testing.T) {
 				AdmissionChecks("check").
 				Obj(),
 			lq:             utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
-			shouldDeleteCQ: true,
+			shouldDeleteCQ: true, // The setup helper will attach a finalizer and delete the object, which automatically populates its DeletionTimestamp in the fake client.
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
