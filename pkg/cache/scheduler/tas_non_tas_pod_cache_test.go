@@ -19,6 +19,7 @@ package scheduler
 import (
 	"testing"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -29,6 +30,69 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
+
+func TestNonTasUsageCacheRemovedNode(t *testing.T) {
+	testCases := map[string]struct {
+		setup    func(cache *nonTasUsageCache, log logr.Logger)
+		action   func(cache *nonTasUsageCache, log logr.Logger) string
+		wantNode string
+	}{
+		"update with terminated pod returns node": {
+			setup: func(cache *nonTasUsageCache, log logr.Logger) {
+				cache.update(makePod("pod1", "ns", "node-a", "2"), log)
+			},
+			action: func(cache *nonTasUsageCache, log logr.Logger) string {
+				pod := makePod("pod1", "ns", "node-a", "2")
+				pod.Status.Phase = corev1.PodSucceeded
+				return cache.update(pod, log)
+			},
+			wantNode: "node-a",
+		},
+		"update with terminated pod not in cache returns empty": {
+			action: func(cache *nonTasUsageCache, log logr.Logger) string {
+				pod := makePod("pod1", "ns", "node-a", "2")
+				pod.Status.Phase = corev1.PodSucceeded
+				return cache.update(pod, log)
+			},
+		},
+		"update with running pod returns empty": {
+			action: func(cache *nonTasUsageCache, log logr.Logger) string {
+				return cache.update(makePod("pod1", "ns", "node-a", "2"), log)
+			},
+		},
+		"delete existing pod returns node": {
+			setup: func(cache *nonTasUsageCache, log logr.Logger) {
+				cache.update(makePod("pod1", "ns", "node-a", "2"), log)
+			},
+			action: func(cache *nonTasUsageCache, log logr.Logger) string {
+				return cache.delete(client.ObjectKey{Namespace: "ns", Name: "pod1"}, log)
+			},
+			wantNode: "node-a",
+		},
+		"delete non-existent pod returns empty": {
+			action: func(cache *nonTasUsageCache, log logr.Logger) string {
+				return cache.delete(client.ObjectKey{Namespace: "ns", Name: "ghost"}, log)
+			},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
+			cache := &nonTasUsageCache{
+				podUsage:  make(map[types.NamespacedName]podUsageValue),
+				nodeUsage: make(map[string]resources.Requests),
+			}
+			if tc.setup != nil {
+				tc.setup(cache, log)
+			}
+			got := tc.action(cache, log)
+			if got != tc.wantNode {
+				t.Errorf("got removedNode=%q, want %q", got, tc.wantNode)
+			}
+		})
+	}
+}
 
 // verifyNodeUsageConsistency recomputes usage from podUsage (old O(pods) algorithm)
 // and verifies it matches the incremental nodeUsage.

@@ -20,6 +20,8 @@ import (
 	"context"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -30,25 +32,29 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
-func newNonTasUsageReconciler(k8sClient client.Client, cache *schdcache.Cache, roleTracker *roletracker.RoleTracker) *NonTasUsageReconciler {
+func newNonTasUsageReconciler(k8sClient client.Client, cache *schdcache.Cache, queues *qcache.Manager, roleTracker *roletracker.RoleTracker) *NonTasUsageReconciler {
 	return &NonTasUsageReconciler{
 		k8sClient:   k8sClient,
 		cache:       cache,
+		queues:      queues,
 		roleTracker: roleTracker,
 	}
 }
 
-// NonTasUsageReconciler monitors pods to update
-// the TAS cache with non-TAS usage.
+// NonTasUsageReconciler monitors pods to update the TAS cache with non-TAS
+// usage and requeues inadmissible workloads when capacity is freed.
 type NonTasUsageReconciler struct {
 	k8sClient   client.Client
 	cache       *schdcache.Cache
+	queues      *qcache.Manager
 	roleTracker *roletracker.RoleTracker
 }
 
@@ -67,14 +73,20 @@ func (r *NonTasUsageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return ctrl.Result{}, err
 		}
 		log.V(5).Info("Idempotently deleting not found pod")
-		r.cache.TASCache().DeletePodByKey(req.NamespacedName, log)
+		if removedNode := r.cache.TASCache().DeletePodByKey(req.NamespacedName, log); removedNode != "" {
+			r.requeueForNode(ctx, removedNode)
+		}
 		return ctrl.Result{}, nil
 	}
 
 	if belongsToNonTASCache(&pod) {
-		r.cache.TASCache().Update(&pod, log)
+		if removedNode := r.cache.TASCache().Update(&pod, log); removedNode != "" {
+			r.requeueForNode(ctx, removedNode)
+		}
 	} else {
-		r.cache.TASCache().DeletePodByKey(req.NamespacedName, log)
+		if removedNode := r.cache.TASCache().DeletePodByKey(req.NamespacedName, log); removedNode != "" {
+			r.requeueForNode(ctx, removedNode)
+		}
 	}
 	return ctrl.Result{}, nil
 }
@@ -94,6 +106,27 @@ func belongsToNonTASCache(pod *corev1.Pod) bool {
 		return false
 	}
 	return true
+}
+
+func (r *NonTasUsageReconciler) requeueForNode(ctx context.Context, nodeName string) {
+	log := klog.FromContext(ctx)
+	var node corev1.Node
+	if err := r.k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, &node); err != nil {
+		log.V(3).Info("Could not get node for requeue, skipping", "node", nodeName, "err", err)
+		return
+	}
+	cqNames := sets.New[kueue.ClusterQueueReference]()
+	for name, fc := range r.cache.CloneTASCache() {
+		if utiltas.NodeMatchesFlavor(node.Labels, fc.NodeLabels(), fc.TopologyLevels()) {
+			for _, cq := range r.cache.ClusterQueuesUsingFlavor(name) {
+				cqNames.Insert(cq)
+			}
+		}
+	}
+	if cqNames.Len() > 0 {
+		log.V(3).Info("Requeueing inadmissible workloads after non-TAS pod freed capacity", "node", nodeName, "clusterQueues", cqNames.UnsortedList())
+		qcache.NotifyRetryInadmissible(r.queues, cqNames)
+	}
 }
 
 func (r *NonTasUsageReconciler) Create(e event.TypedCreateEvent[*corev1.Pod]) bool {

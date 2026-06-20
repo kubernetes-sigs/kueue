@@ -51,8 +51,6 @@ var (
 	k8sClient client.Client
 	ctx       context.Context
 	fwk       *framework.Framework
-	// Cleanup after https://github.com/kubernetes-sigs/kueue/issues/8653
-	qManager *qcache.Manager
 )
 
 func TestAPIs(t *testing.T) {
@@ -100,7 +98,6 @@ func managerSetupWithConfig(
 			qcache.WithPreemptionExpectations(preemptionExpectations),
 		}
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
-		qManager = queues
 
 		failedCtrl, err := core.SetupControllers(
 			mgr,
