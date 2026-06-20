@@ -45,6 +45,7 @@ type ClusterQueueSnapshot struct {
 	FlavorFungibility         kueue.FlavorFungibility
 	AdmissionScope            kueue.AdmissionScope
 	ConcurrentAdmissionPolicy *kueue.ConcurrentAdmissionPolicy
+	WorkloadDefaults          *kueue.ClusterQueueWorkloadDefaults
 	// Aggregates AdmissionChecks from both .spec.AdmissionChecks and .spec.AdmissionCheckStrategy
 	// Sets hold ResourceFlavors to which an AdmissionCheck should apply.
 	// In case its empty, it means an AdmissionCheck should apply to all ResourceFlavor
