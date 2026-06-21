@@ -403,386 +403,41 @@ var (
 	errTest = stderrors.New("test error")
 )
 
+type reconcileTestCase struct {
+	featureGates map[featuregate.Feature]bool
+
+	// Set to true to simulate a terminating ClusterQueue or LocalQueue.
+	// The setup helper will attach a finalizer and delete the object,
+	// which automatically populates its DeletionTimestamp in the fake client.
+	shouldDeleteCQ bool
+	shouldDeleteLQ bool
+
+	workload                  *kueue.Workload
+	additionalObjects         []client.Object
+	cq                        *kueue.ClusterQueue
+	lq                        *kueue.LocalQueue
+	resourceClaims            []*resourcev1.ResourceClaim
+	resourceClaimTemplates    []*resourcev1.ResourceClaimTemplate
+	patchErr                  error
+	listErr                   error
+	wantDRAResourceTotal      *int64
+	wantWorkloadsInQueue      *int
+	wantWorkload              *kueue.Workload
+	wantWorkloadUseMergePatch *kueue.Workload // workload version to compensate for the difference between use of Apply and Merge patch in FakeClient
+	wantError                 error
+	wantErrorMsg              string
+	wantEvents                []utiltesting.EventRecord
+	wantResult                reconcile.Result
+	reconcilerOpts            []Option
+}
+
 func TestReconcile(t *testing.T) {
 	// the clock is primarily used with second rounded times
 	// use the current time trimmed.
 	now := time.Now().Truncate(time.Second)
 	fakeClock := testingclock.NewFakeClock(now)
 
-	cases := map[string]struct {
-		featureGates map[featuregate.Feature]bool
-
-		// Set to true to simulate a terminating ClusterQueue or LocalQueue.
-		// The setup helper will attach a finalizer and delete the object,
-		// which automatically populates its DeletionTimestamp in the fake client.
-		shouldDeleteCQ bool
-		shouldDeleteLQ bool
-
-		workload                  *kueue.Workload
-		additionalObjects         []client.Object
-		cq                        *kueue.ClusterQueue
-		lq                        *kueue.LocalQueue
-		resourceClaims            []*resourcev1.ResourceClaim
-		resourceClaimTemplates    []*resourcev1.ResourceClaimTemplate
-		patchErr                  error
-		listErr                   error
-		wantDRAResourceTotal      *int64
-		wantWorkloadsInQueue      *int
-		wantWorkload              *kueue.Workload
-		wantWorkloadUseMergePatch *kueue.Workload // workload version to compensate for the difference between use of Apply and Merge patch in FakeClient
-		wantError                 error
-		wantErrorMsg              string
-		wantEvents                []utiltesting.EventRecord
-		wantResult                reconcile.Result
-		reconcilerOpts            []Option
-	}{
-		"reconcile DRA ResourceClaim should be rejected as inadmissible": {
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:              true,
-				features.MultiKueueOrchestratedPreemption: false,
-			},
-			workload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaim", "ns").
-				Queue("lq").
-				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
-					ResourceClaim("gpu", "rc1").
-					Obj()).
-				Obj(),
-			resourceClaims: []*resourcev1.ResourceClaim{
-				utiltesting.MakeResourceClaim("rc1", "ns").
-					DeviceRequest("", "gpu.example.com", 1).
-					Obj(),
-			},
-			cq: utiltestingapi.MakeClusterQueue("cq").
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("flavor1").
-						Resource("gpus", "2").Obj(),
-				).Obj(),
-			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
-			wantWorkload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaim", "ns").
-				Queue("lq").
-				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
-					ResourceClaim("gpu", "rc1").
-					Obj()).
-				Condition(metav1.Condition{
-					Type:    kueue.WorkloadQuotaReserved,
-					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadInadmissible,
-					Message: "KueueDRAIntegration feature does not support use of resource claims",
-				}).
-				Condition(metav1.Condition{
-					Type:    kueue.WorkloadRequeued,
-					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadInadmissible,
-					Message: "DRA resource claims not supported",
-				}).
-				Obj(),
-			wantEvents: nil,
-		},
-		"reconcile DRA ResourceClaimTemplate rejected when DRA disabled and KueueDRARejectWorkloadsWhenDRADisabled enabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:                    false,
-				features.KueueDRARejectWorkloadsWhenDRADisabled: true,
-				features.MultiKueueOrchestratedPreemption:       false,
-			},
-			workload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaimTemplate", "ns").
-				Queue("lq").
-				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
-					ResourceClaimTemplate("gpu", "gpu-template").
-					Obj()).
-				Obj(),
-			cq: utiltestingapi.MakeClusterQueue("cq").
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("flavor1").
-						Resource("gpus", "2").Obj(),
-				).Obj(),
-			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
-			wantWorkload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaimTemplate", "ns").
-				Queue("lq").
-				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
-					ResourceClaimTemplate("gpu", "gpu-template").
-					Obj()).
-				Condition(metav1.Condition{
-					Type:    kueue.WorkloadQuotaReserved,
-					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadInadmissible,
-					Message: "Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled",
-				}).
-				Condition(metav1.Condition{
-					Type:    kueue.WorkloadRequeued,
-					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadInadmissible,
-					Message: "Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled",
-				}).
-				Obj(),
-			wantEvents: nil,
-		},
-		"reconcile DRA ResourceClaim rejected when DRA disabled and KueueDRARejectWorkloadsWhenDRADisabled enabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:                    false,
-				features.KueueDRARejectWorkloadsWhenDRADisabled: true,
-				features.MultiKueueOrchestratedPreemption:       false,
-			},
-			workload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaim", "ns").
-				Queue("lq").
-				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
-					ResourceClaim("gpu", "rc1").
-					Obj()).
-				Obj(),
-			cq: utiltestingapi.MakeClusterQueue("cq").
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("flavor1").
-						Resource("gpus", "2").Obj(),
-				).Obj(),
-			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
-			wantWorkload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaim", "ns").
-				Queue("lq").
-				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
-					ResourceClaim("gpu", "rc1").
-					Obj()).
-				Condition(metav1.Condition{
-					Type:    kueue.WorkloadQuotaReserved,
-					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadInadmissible,
-					Message: "Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled",
-				}).
-				Condition(metav1.Condition{
-					Type:    kueue.WorkloadRequeued,
-					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadInadmissible,
-					Message: "Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled",
-				}).
-				Obj(),
-			wantEvents: nil,
-		},
-		"reconcile DRA ResourceClaimTemplate should be pre-processed and queued": {
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:              true,
-				features.MultiKueueOrchestratedPreemption: false,
-			},
-			wantDRAResourceTotal: new(int64(1)),
-			wantWorkloadsInQueue: new(1),
-			workload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaimTemplate", "ns").
-				Queue("lq").
-				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
-					ResourceClaimTemplate("gpu", "gpu-template").
-					Obj()).
-				Obj(),
-			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
-				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
-					DeviceRequest("gpu-request", "gpu.example.com", 1).
-					Obj(),
-			},
-			cq: utiltestingapi.MakeClusterQueue("cq").
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("flavor1").
-						Resource("gpu", "2").Obj(),
-				).Obj(),
-			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
-			wantWorkload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaimTemplate", "ns").
-				Queue("lq").
-				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
-					ResourceClaimTemplate("gpu", "gpu-template").
-					Obj()).
-				Condition(metav1.Condition{
-					Type:    kueue.WorkloadQuotaReserved,
-					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadInadmissible,
-					Message: "ClusterQueue cq is inactive",
-				}).
-				Obj(),
-			wantEvents: nil,
-		},
-		"reconcile DRA ResourceClaimTemplate multi-pod should be pre-processed and queued": {
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:              true,
-				features.MultiKueueOrchestratedPreemption: false,
-			},
-			wantDRAResourceTotal: new(int64(6)),
-			wantWorkloadsInQueue: new(1),
-			workload: utiltestingapi.MakeWorkload("wlMultiPodDRA", "ns").
-				Queue("lq").
-				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
-					ResourceClaimTemplate("gpu", "gpu-template").
-					Obj()).
-				Obj(),
-			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
-				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
-					DeviceRequest("gpu-request", "gpu.example.com", 2).
-					Obj(),
-			},
-			cq: utiltestingapi.MakeClusterQueue("cq").
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("flavor1").
-						Resource("gpu", "10").Obj(),
-				).Obj(),
-			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
-			wantWorkload: utiltestingapi.MakeWorkload("wlMultiPodDRA", "ns").
-				Queue("lq").
-				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
-					ResourceClaimTemplate("gpu", "gpu-template").
-					Obj()).
-				Condition(metav1.Condition{
-					Type:    kueue.WorkloadQuotaReserved,
-					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadInadmissible,
-					Message: "ClusterQueue cq is inactive",
-				}).
-				Obj(),
-			wantEvents: nil,
-		},
-		"reconcile DRA ResourceClaimTemplate with unmapped device class": {
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:              true,
-				features.MultiKueueOrchestratedPreemption: false,
-			},
-			workload: utiltestingapi.MakeWorkload("wlUnmappedDRA", "ns").
-				Queue("lq").
-				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
-					ResourceClaimTemplate("gpu", "gpu-template").
-					Obj()).
-				Obj(),
-			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
-				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
-					DeviceRequest("gpu-request", "unmapped.example.com", 1).
-					Obj(),
-			},
-			cq: utiltestingapi.MakeClusterQueue("cq").
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("flavor1").
-						Resource("gpu", "2").Obj(),
-				).Obj(),
-			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
-			wantWorkload: func() *kueue.Workload {
-				wl := utiltestingapi.MakeWorkload("wlUnmappedDRA", "ns").
-					Queue("lq").
-					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
-						ResourceClaimTemplate("gpu", "gpu-template").
-						Obj()).
-					Condition(metav1.Condition{
-						Type:    kueue.WorkloadQuotaReserved,
-						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadInadmissible,
-						Message: "spec.podSets[0].template.spec.resourceClaims[0].resourceClaimTemplateName: Not found: \"DeviceClass unmapped.example.com is not mapped in DRA configuration for podset main\"",
-					}).
-					Condition(metav1.Condition{
-						Type:    kueue.WorkloadRequeued,
-						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadInadmissible,
-						Message: "spec.podSets[0].template.spec.resourceClaims[0].resourceClaimTemplateName: Not found: \"DeviceClass unmapped.example.com is not mapped in DRA configuration for podset main\"",
-					}).
-					Obj()
-				wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{{
-					Name: "gpu", ResourceClaimTemplateName: new("gpu-template"),
-				}}
-				if len(wl.Spec.PodSets[0].Template.Spec.Containers) > 0 {
-					wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{{Name: "gpu"}}
-				}
-				return wl
-			}(),
-			wantEvents: nil,
-		},
-		"reconcile DRA validation fails with KueueDRAIntegrationExtendedResource enabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:                 true,
-				features.KueueDRAIntegrationExtendedResource: true,
-			},
-			workload: utiltestingapi.MakeWorkload("wl-invalid-extended-resource", "ns").
-				Queue("lq").
-				Request("example.com/gpu", "1500m"). // 1.5 GPUs is invalid because extended resources must be integer quantities
-				Obj(),
-			additionalObjects: []client.Object{
-				utiltesting.MakeDeviceClass("gpu-class").
-					ExtendedResourceName("example.com/gpu").
-					Obj(),
-			},
-			cq: utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("flavor1").
-						Resource("example.com/gpu", "2").Obj(),
-				).Obj(),
-			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
-			wantWorkload: utiltestingapi.MakeWorkload("wl-invalid-extended-resource", "ns").
-				Queue("lq").
-				Request("example.com/gpu", "1500m").
-				Condition(metav1.Condition{
-					Type:    kueue.WorkloadQuotaReserved,
-					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadInadmissible,
-					Message: "spec.podSets[0].template.spec.containers[0].resources.requests.example.com/gpu: Invalid value: \"1500m\": extended resource quantity must be an integer",
-				}).
-				Condition(metav1.Condition{
-					Type:    kueue.WorkloadRequeued,
-					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadInadmissible,
-					Message: "spec.podSets[0].template.spec.containers[0].resources.requests.example.com/gpu: Invalid value: \"1500m\": extended resource quantity must be an integer",
-				}).
-				Obj(),
-		},
-		"reconcile DRA ResourceClaimTemplate not found should return error": {
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:              true,
-				features.MultiKueueOrchestratedPreemption: false,
-			},
-			workload: utiltestingapi.MakeWorkload("wlMissingTemplate", "ns").
-				Queue("lq").
-				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
-					ResourceClaimTemplate("gpu", "missing-template").
-					Obj()).
-				Obj(),
-			cq: utiltestingapi.MakeClusterQueue("cq").
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("flavor1").
-						Resource("gpu", "2").Obj(),
-				).Obj(),
-			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
-			wantWorkload: utiltestingapi.MakeWorkload("wlMissingTemplate", "ns").
-				Queue("lq").
-				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
-					ResourceClaimTemplate("gpu", "missing-template").
-					Obj()).
-				Condition(metav1.Condition{
-					Type:    kueue.WorkloadQuotaReserved,
-					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadInadmissible,
-					Message: `spec.podSets[0].template.spec.resourceClaims[0]: Internal error: failed to get claim spec for ResourceClaimTemplate missing-template in podset main: resourceclaimtemplates.resource.k8s.io "missing-template" not found`,
-				}).
-				Condition(metav1.Condition{
-					Type:    kueue.WorkloadRequeued,
-					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadInadmissible,
-					Message: `spec.podSets[0].template.spec.resourceClaims[0]: Internal error: failed to get claim spec for ResourceClaimTemplate missing-template in podset main: resourceclaimtemplates.resource.k8s.io "missing-template" not found`,
-				}).
-				Obj(),
-			wantErrorMsg: "failed to get claim spec",
-			wantEvents:   nil,
-		},
-		"reconcile DRA transient ResourceSlice list failure should back off": {
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:              true,
-				features.MultiKueueOrchestratedPreemption: false,
-			},
-			listErr: errTest,
-			workload: utiltestingapi.MakeWorkload("wlListErrDRA", "ns").
-				Queue("lq").
-				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
-					ResourceClaimTemplate("gpu", "gpu-template").
-					Obj()).
-				Obj(),
-			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
-				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
-					DeviceRequest("gpu-request", "gpu.example.com", 1).
-					WithCELSelectors("device.driver == \"test-driver\"").
-					Obj(),
-			},
-			cq: utiltestingapi.MakeClusterQueue("cq").
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("flavor1").
-						Resource("gpu", "2").Obj(),
-				).Obj(),
-			lq:           utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
-			wantErrorMsg: "failed to list ResourceSlices",
-			wantEvents:   nil,
-		},
+	cases := map[string]reconcileTestCase{
 		"assign Admission Checks from ClusterQueue.spec.AdmissionCheckStrategy": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
@@ -3570,6 +3225,10 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 		},
 	}
+	runReconcileTestCases(t, cases, fakeClock)
+}
+
+func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fakeClock *testingclock.FakeClock) {
 	for name, tc := range cases {
 		for _, enabled := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
@@ -3779,6 +3438,7 @@ func TestReconcile(t *testing.T) {
 		}
 	}
 }
+
 func TestReconcileSyncAdmissionChecks(t *testing.T) {
 	cases := map[string]struct {
 		wl         kueue.Workload
