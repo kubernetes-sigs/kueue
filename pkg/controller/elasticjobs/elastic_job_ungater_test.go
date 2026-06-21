@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
 	coreindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
@@ -48,14 +49,19 @@ var podCmpOpts = []gocmp.Option{
 
 func TestReconcile(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+	// Queue-label assignment is exercised in jobframework tests; disable it
+	// here so the expected pods only reflect behavior under test
+	// (PodSetLabel, nodeSelectors, tolerations).
+	features.SetFeatureGateDuringTest(t, features.AssignQueueLabelsForPods, false)
 	now := time.Now().Truncate(time.Second)
 
 	testCases := map[string]struct {
-		expectUIDs []types.UID
-		workloads  []kueue.Workload
-		pods       []corev1.Pod
-		wantPods   []corev1.Pod
-		wantErr    error
+		expectUIDs      []types.UID
+		workloads       []kueue.Workload
+		pods            []corev1.Pod
+		resourceFlavors []kueue.ResourceFlavor
+		wantPods        []corev1.Pod
+		wantErr         error
 	}{
 		"ungate single pod": {
 			workloads: []kueue.Workload{
@@ -73,6 +79,9 @@ func TestReconcile(t *testing.T) {
 					AdmittedAt(true, now).
 					Obj(),
 			},
+			resourceFlavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("flavor").Obj(),
+			},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("pod", "ns").
 					Annotation(kueue.WorkloadAnnotation, "wl").
@@ -84,6 +93,7 @@ func TestReconcile(t *testing.T) {
 				*testingpod.MakePod("pod", "ns").
 					Annotation(kueue.WorkloadAnnotation, "wl").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 					Obj(),
 			},
 		},
@@ -103,6 +113,9 @@ func TestReconcile(t *testing.T) {
 					AdmittedAt(true, now).
 					Obj(),
 			},
+			resourceFlavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("flavor").Obj(),
+			},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("pod-0", "ns").
 					Annotation(kueue.WorkloadAnnotation, "wl").
@@ -124,14 +137,17 @@ func TestReconcile(t *testing.T) {
 				*testingpod.MakePod("pod-0", "ns").
 					Annotation(kueue.WorkloadAnnotation, "wl").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 					Obj(),
 				*testingpod.MakePod("pod-1", "ns").
 					Annotation(kueue.WorkloadAnnotation, "wl").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 					Obj(),
 				*testingpod.MakePod("pod-2", "ns").
 					Annotation(kueue.WorkloadAnnotation, "wl").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 					Obj(),
 			},
 		},
@@ -151,6 +167,9 @@ func TestReconcile(t *testing.T) {
 					AdmittedAt(true, now).
 					Obj(),
 			},
+			resourceFlavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("flavor").Obj(),
+			},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("pod-gated", "ns").
 					Annotation(kueue.WorkloadAnnotation, "wl").
@@ -166,6 +185,7 @@ func TestReconcile(t *testing.T) {
 				*testingpod.MakePod("pod-gated", "ns").
 					Annotation(kueue.WorkloadAnnotation, "wl").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 					Obj(),
 				*testingpod.MakePod("pod-ungated", "ns").
 					Annotation(kueue.WorkloadAnnotation, "wl").
@@ -278,6 +298,9 @@ func TestReconcile(t *testing.T) {
 					AdmittedAt(true, now).
 					Obj(),
 			},
+			resourceFlavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("flavor").Obj(),
+			},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("pod-from-parent", "ns").
 					Annotation(kueue.WorkloadAnnotation, "wl").
@@ -299,6 +322,7 @@ func TestReconcile(t *testing.T) {
 				*testingpod.MakePod("pod-from-scale-up", "ns").
 					Annotation(kueue.WorkloadAnnotation, "wl-slice-1").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 					Obj(),
 			},
 		},
@@ -324,6 +348,9 @@ func TestReconcile(t *testing.T) {
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
 					Obj(),
 			},
+			resourceFlavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("flavor").Obj(),
+			},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("pod-from-admitted-slice", "ns").
 					Annotation(kueue.WorkloadAnnotation, "wl").
@@ -340,6 +367,7 @@ func TestReconcile(t *testing.T) {
 				*testingpod.MakePod("pod-from-admitted-slice", "ns").
 					Annotation(kueue.WorkloadAnnotation, "wl").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 					Obj(),
 				*testingpod.MakePod("pod-from-pending-slice", "ns").
 					Annotation(kueue.WorkloadAnnotation, "wl-slice-1").
@@ -364,6 +392,9 @@ func TestReconcile(t *testing.T) {
 					AdmittedAt(true, now).
 					Obj(),
 			},
+			resourceFlavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("flavor").Obj(),
+			},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("pod", "ns").
 					Annotation(kueue.WorkloadAnnotation, "wl").
@@ -376,9 +407,192 @@ func TestReconcile(t *testing.T) {
 				*testingpod.MakePod("pod", "ns").
 					Annotation(kueue.WorkloadAnnotation, "wl").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 					TopologySchedulingGate().
 					Obj(),
 			},
+		},
+		"inject nodeLabels and tolerations from assigned flavor (single PodSet)": {
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "flv", "1").
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			resourceFlavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("flv").
+					NodeLabel("cloud.google.com/gke-nodepool", "reserved-pool").
+					Toleration(corev1.Toleration{
+						Key:      "reserved-pool",
+						Operator: corev1.TolerationOpEqual,
+						Value:    "true",
+						Effect:   corev1.TaintEffectNoSchedule,
+					}).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					NodeSelector("cloud.google.com/gke-nodepool", "reserved-pool").
+					Toleration(corev1.Toleration{
+						Key:      "reserved-pool",
+						Operator: corev1.TolerationOpEqual,
+						Value:    "true",
+						Effect:   corev1.TaintEffectNoSchedule,
+					}).
+					Obj(),
+			},
+		},
+		"inject flavor per PodSet using PodSetLabel (multi PodSet)": {
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					PodSets(
+						*utiltestingapi.MakePodSet("head", 1).Request(corev1.ResourceCPU, "1").Obj(),
+						*utiltestingapi.MakePodSet("workers", 2).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(
+								utiltestingapi.MakePodSetAssignment("head").
+									Assignment(corev1.ResourceCPU, "head-flv", "1").Obj(),
+								utiltestingapi.MakePodSetAssignment("workers").
+									Assignment(corev1.ResourceCPU, "worker-flv", "2").Obj(),
+							).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			resourceFlavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("head-flv").
+					NodeLabel("role", "head").Obj(),
+				*utiltestingapi.MakeResourceFlavor("worker-flv").
+					NodeLabel("role", "worker").Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("head-pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Label(constants.PodSetLabel, "head").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+				*testingpod.MakePod("worker-pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Label(constants.PodSetLabel, "workers").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("head-pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Label(constants.PodSetLabel, "head").
+					NodeSelector("role", "head").
+					Obj(),
+				*testingpod.MakePod("worker-pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Label(constants.PodSetLabel, "workers").
+					NodeSelector("role", "worker").
+					Obj(),
+			},
+		},
+		"multi-PodSet pod without PodSetLabel is ungated without flavor injection": {
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					PodSets(
+						*utiltestingapi.MakePodSet("head", 1).Request(corev1.ResourceCPU, "1").Obj(),
+						*utiltestingapi.MakePodSet("workers", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(
+								utiltestingapi.MakePodSetAssignment("head").
+									Assignment(corev1.ResourceCPU, "head-flv", "1").Obj(),
+								utiltestingapi.MakePodSetAssignment("workers").
+									Assignment(corev1.ResourceCPU, "worker-flv", "1").Obj(),
+							).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			resourceFlavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("head-flv").
+					NodeLabel("role", "head").Obj(),
+				*utiltestingapi.MakeResourceFlavor("worker-flv").
+					NodeLabel("role", "worker").Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Obj(),
+			},
+		},
+		"missing ResourceFlavor blocks ungating so reconcile retries": {
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "missing-flv", "1").
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+			// Any non-nil error from the wrapped NotFound is acceptable; the
+			// pod-still-gated check below is the real assertion.
+			wantErr: cmpopts.AnyError,
 		},
 	}
 
@@ -400,6 +614,9 @@ func TestReconcile(t *testing.T) {
 			}
 			for i := range tc.workloads {
 				clientBuilder = clientBuilder.WithStatusSubresource(&tc.workloads[i])
+			}
+			for i := range tc.resourceFlavors {
+				clientBuilder = clientBuilder.WithObjects(&tc.resourceFlavors[i])
 			}
 
 			kClient := clientBuilder.Build()
