@@ -202,28 +202,25 @@ test-multikueue-e2e-helm: E2E_USE_HELM=true
 test-multikueue-e2e-helm: test-multikueue-e2e
 
 # Assign Shard 0 variables to all parent suites AND all shard-0 targets
-TEST_E2E_SHARD_0_TARGETS := test-e2e-extended test-e2e-extended-shard-0 test-tas-e2e-extended test-tas-e2e-extended-shard-0
+TEST_E2E_SHARD_0_TARGETS := test-e2e-extended-shard-0 test-tas-e2e-extended-shard-0 test-e2e-sequential-extended-shard-0
 $(TEST_E2E_SHARD_0_TARGETS): export JOBSET_VERSION := $(JOBSET_VERSION)
 $(TEST_E2E_SHARD_0_TARGETS): export LEADERWORKERSET_VERSION := $(LEADERWORKERSET_VERSION)
 $(TEST_E2E_SHARD_0_TARGETS): export APPWRAPPER_VERSION := $(APPWRAPPER_VERSION)
 $(TEST_E2E_SHARD_0_TARGETS): export KUBEFLOW_VERSION := $(KUBEFLOW_VERSION)
 $(TEST_E2E_SHARD_0_TARGETS): export KUBEFLOW_MPI_VERSION := $(KUBEFLOW_MPI_VERSION)
 $(TEST_E2E_SHARD_0_TARGETS): export KUBEFLOW_TRAINER_VERSION := $(KUBEFLOW_TRAINER_VERSION)
-$(TEST_E2E_SHARD_0_TARGETS): export KUBERAY_VERSION := $(KUBERAY_VERSION)
-$(TEST_E2E_SHARD_0_TARGETS): export RAY_VERSION := $(RAY_VERSION)
-$(TEST_E2E_SHARD_0_TARGETS): export RAYMINI_VERSION := $(RAYMINI_VERSION)
 
-# Assign Shard 1 & shard 2 variables to all parent suites AND all shard-1 & shard-2 targets
-TEST_E2E_TAS_SHARD_1_TARGETS := test-tas-e2e-extended-shard-1
-$(TEST_E2E_TAS_SHARD_1_TARGETS): export KUBERAY_VERSION := $(KUBERAY_VERSION)
-$(TEST_E2E_TAS_SHARD_1_TARGETS): export RAY_VERSION := $(RAY_VERSION)
-$(TEST_E2E_TAS_SHARD_1_TARGETS): export RAYMINI_VERSION := $(RAYMINI_VERSION)
-$(TEST_E2E_TAS_SHARD_1_TARGETS): export JOBSET_VERSION := $(JOBSET_VERSION)
-$(TEST_E2E_TAS_SHARD_1_TARGETS): export LEADERWORKERSET_VERSION := $(LEADERWORKERSET_VERSION)
-$(TEST_E2E_TAS_SHARD_1_TARGETS): export APPWRAPPER_VERSION := $(APPWRAPPER_VERSION)
-$(TEST_E2E_TAS_SHARD_1_TARGETS): export KUBEFLOW_VERSION := $(KUBEFLOW_VERSION)
-$(TEST_E2E_TAS_SHARD_1_TARGETS): export KUBEFLOW_MPI_VERSION := $(KUBEFLOW_MPI_VERSION)
-$(TEST_E2E_TAS_SHARD_1_TARGETS): export KUBEFLOW_TRAINER_VERSION := $(KUBEFLOW_TRAINER_VERSION)
+# Assign Shard 1 variables to all parent suites AND all shard-1 targets
+TEST_E2E_SHARD_1_TARGETS := test-e2e-extended-shard-1 test-tas-e2e-extended-shard-1
+$(TEST_E2E_SHARD_1_TARGETS): export KUBERAY_VERSION := $(KUBERAY_VERSION)
+$(TEST_E2E_SHARD_1_TARGETS): export RAY_VERSION := $(RAY_VERSION)
+$(TEST_E2E_SHARD_1_TARGETS): export RAYMINI_VERSION := $(RAYMINI_VERSION)
+
+# Assign Shard 2 variables to all parent suites AND all shard-2 targets
+TEST_E2E_SHARD_2_TARGETS := test-e2e-extended-shard-2
+$(TEST_E2E_SHARD_2_TARGETS): export KUBERAY_VERSION := $(KUBERAY_VERSION)
+$(TEST_E2E_SHARD_2_TARGETS): export RAY_VERSION := $(RAY_VERSION)
+$(TEST_E2E_SHARD_2_TARGETS): export RAYMINI_VERSION := $(RAYMINI_VERSION)
 
 ## Label Taxonomy:
 ##   Features: appwrapper,jaxjob,jobset,kuberay,leaderworkerset,pytorchjob,trainjob
