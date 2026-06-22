@@ -130,7 +130,7 @@ type ComposableJob interface {
 
 	// Run unsuspends all members of the ComposableJob and injects node affinity
 	// with pod set counts extracted from the workload into all members of the job.
-	Run(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, r events.EventRecorder, msg string) error
+	Run(ctx context.Context, c client.Client, wl *kueue.Workload, podSetsInfo []podset.PodSetInfo, r events.EventRecorder, msg string) error
 
 	// ConstructComposableWorkload builds a new Workload from all members of the ComposableJob.
 	ConstructComposableWorkload(ctx context.Context, c client.Client, r events.EventRecorder, labelKeysToCopy []string) (*kueue.Workload, error)
