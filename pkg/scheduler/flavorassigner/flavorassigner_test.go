@@ -3502,9 +3502,9 @@ func TestAssignFlavors(t *testing.T) {
 		},
 	}
 	for name, tc := range cases {
-		for _, enabled := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s/gate_%t", name, enabled), func(t *testing.T) {
-				features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, enabled)
+		for _, unadmittedWorkloadsObservabilityEnabled := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/gate_%t", name, unadmittedWorkloadsObservabilityEnabled), func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, unadmittedWorkloadsObservabilityEnabled)
 				ctx, log := utiltesting.ContextWithLog(t)
 				for fg, val := range tc.featureGates {
 					features.SetFeatureGateDuringTest(t, fg, val)
@@ -3576,7 +3576,7 @@ func TestAssignFlavors(t *testing.T) {
 				}
 
 				var cmpOpts []cmp.Option
-				if !enabled {
+				if !unadmittedWorkloadsObservabilityEnabled {
 					cmpOpts = append(cmpOpts, cmpopts.IgnoreFields(Assignment{}, "NoFitReason"))
 					cmpOpts = append(cmpOpts, cmpopts.IgnoreFields(FlavorAssignmentAttempt{}, "NoFitReason"))
 				}
