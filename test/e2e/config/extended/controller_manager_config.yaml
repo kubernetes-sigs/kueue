@@ -4,6 +4,9 @@ metrics:
   enableClusterQueueResources: true
 leaderElection:
   leaderElect: true
+  leaseDuration: 60s
+  renewDeadline: 40s
+  retryPeriod: 5s
 controller:
   groupKindConcurrency:
     Job.batch: 5
