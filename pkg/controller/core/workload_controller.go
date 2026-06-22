@@ -388,7 +388,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			queueOptions = append(queueOptions, workload.WithPreprocessedDRAResources(draResources, replacedExtendedResources))
 		}
 
-		if workload.IsAdmissible(&wl) {
+		if workload.IsAdmissible(&wl) && !workload.IsRequeueHeld(&wl) {
 			if err := r.queues.AddOrUpdateWorkload(log, wl.DeepCopy(), queueOptions...); err != nil {
 				log.V(2).Info("Failed to add DRA workload to queue", "error", err)
 				return ctrl.Result{}, err
@@ -1094,7 +1094,7 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 		return true
 	}
 
-	if workload.IsAdmissible(e.Object) {
+	if workload.IsAdmissible(e.Object) && !workload.IsRequeueHeld(wlCopy) {
 		if err := r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
 			log.V(2).Info("ignored an error for now", "error", err)
 		}
@@ -1191,9 +1191,12 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			}
 		})
 	case prevStatus == workload.StatusPending && status == workload.StatusPending:
-		if dra.NeedsDRAReconcile(e.ObjectNew) {
+		switch {
+		case requeueHeld:
+			log.V(2).Info("Skipping queue update for requeue-held workload")
+		case dra.NeedsDRAReconcile(e.ObjectNew):
 			log.V(2).Info("Skipping queue update for DRA workload - handled in Reconcile")
-		} else {
+		default:
 			if err := r.queues.UpdateWorkload(log, wlCopy); err != nil {
 				log.V(2).Info("ignored an error for now", "error", err)
 			}
@@ -1444,7 +1447,7 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, q
 			continue
 		}
 
-		if workload.IsAdmissible(wlCopy) {
+		if workload.IsAdmissible(wlCopy) && !workload.IsRequeueHeld(wlCopy) {
 			if err = h.r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
 				log.V(2).Info("ignored an error for now", "error", err)
 			}
