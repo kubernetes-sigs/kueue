@@ -578,8 +578,8 @@ github.com/gohugoio/hashstructure v0.6.0 h1:7wMB/2CfXoThFYhdWRGv3u3rUM761Cq29CxU
 github.com/gohugoio/hashstructure v0.6.0/go.mod h1:lapVLk9XidheHG1IQ4ZSbyYrXcaILU1ZEP/+vno5rBQ=
 github.com/gohugoio/httpcache v0.8.0 h1:hNdsmGSELztetYCsPVgjA960zSa4dfEqqF/SficorCU=
 github.com/gohugoio/httpcache v0.8.0/go.mod h1:fMlPrdY/vVJhAriLZnrF5QpN3BNAcoBClgAyQd+lGFI=
-github.com/gohugoio/hugo v0.163.1 h1:ldTbwfoNWq89vQj9KMRBgvMOmD0aJZ3Qax7PLi69gH8=
-github.com/gohugoio/hugo v0.163.1/go.mod h1:3FPGFgeqGYDTPRe1NJ10L1giY5ViUGeNlkVBDmVk46w=
+github.com/gohugoio/hugo v0.163.3 h1:fkiOvLv8hYZt96OhJE9RDWw4IkQVASCIIndBmAiLHgM=
+github.com/gohugoio/hugo v0.163.3/go.mod h1:3FPGFgeqGYDTPRe1NJ10L1giY5ViUGeNlkVBDmVk46w=
 github.com/gohugoio/hugo-goldmark-extensions/extras v0.7.0 h1:I/n6v7VImJ3aISLnn73JAHXyjcQsMVvbguQPTk9Ehus=
 github.com/gohugoio/hugo-goldmark-extensions/extras v0.7.0/go.mod h1:9LJNfKWFmhEJ7HW0in5znezMwH+FYMBIhNZ3VWtRcRs=
 github.com/gohugoio/hugo-goldmark-extensions/passthrough v0.5.0 h1:p13Q0DBCrBRpJGtbtlgkYNCs4TnIlZJh8vHgnAiofrI=
