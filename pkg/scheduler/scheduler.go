@@ -391,6 +391,12 @@ func (s *Scheduler) processEntry(
 		}
 	}
 
+	// The assignment was computed during nomination, but it may need to be refreshed.
+	// For example, TAS nominations for workloads from different CQs are computed
+	// independently, making them likely to choose conflicting topology domains.
+	// Recompute when needed so CQs considered later in the cycle don't repeatedly
+	// lose to earlier CQs and starve for prolonged periods.
+	usage, fits := s.updateAssignmentIfNeeded(log, e, snapshot, cq, preemptedWorkloads)
 	mode := e.assignment.RepresentativeMode()
 
 	if features.Enabled(features.TASFailedNodeReplacementFailFast) && workload.HasTopologyAssignmentWithUnhealthyNode(e.Obj) && mode != flavorassigner.Fit {
@@ -425,8 +431,7 @@ func (s *Scheduler) processEntry(
 		return
 	}
 
-	usage := e.assignmentUsage(log)
-	if !fits(snapshot, cq, &usage, preemptedWorkloads, e.preemptionTargets) {
+	if !fits {
 		e.markSkipped("Workload no longer fits after processing another workload")
 		if mode == flavorassigner.Preempt {
 			skippedPreemptions[cq.Name]++
@@ -577,6 +582,17 @@ func (e *entry) assignmentUsage(log logr.Logger) workload.Usage {
 	return netUsage(log, e, e.assignment.Usage.Quota)
 }
 
+func (e *entry) readResourceToFlavorMapping() workload.PodSetResourcesToFlavors {
+	flavors := make(workload.PodSetResourcesToFlavors, len(e.assignment.PodSets))
+	for _, ps := range e.assignment.PodSets {
+		flavors[ps.Name] = make(workload.ResourceToFlavor)
+		for resName, flavor := range ps.Flavors {
+			flavors[ps.Name][resName] = flavor.Name
+		}
+	}
+	return flavors
+}
+
 // nominate returns the workloads with their requirements (resource flavors, borrowing) if
 // they were admitted by the clusterQueues in the snapshot. The second return value
 // is the list of inadmissibleEntries.
@@ -618,7 +634,32 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 	return entries, inadmissibleEntries
 }
 
-func fits(snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, usage *workload.Usage, preemptedWorkloads preemption.PreemptedWorkloads, newTargets []*preemption.Target) bool {
+func (s *Scheduler) updateAssignmentIfNeeded(log logr.Logger,
+	e *entry,
+	snapshot *schdcache.Snapshot,
+	cq *schdcache.ClusterQueueSnapshot,
+	preemptedWorkloads preemption.PreemptedWorkloads) (workload.Usage, bool) {
+	usage := e.assignmentUsage(log)
+	fitsCheck := fits(snapshot, cq, &usage, preemptedWorkloads, e.preemptionTargets)
+	if fitsCheck == schdcache.FitsCheckNoTAS && features.Enabled(features.TASRecomputeAssignmentWithinSchedulingCycle) {
+		log.Info("Re-computing the assignment as it doesn't fit for TAS")
+		lastAssignment := e.LastAssignment
+		e.LastAssignment = nil
+		e.NominationMapping = e.readResourceToFlavorMapping()
+		newAssignment, newTargets := s.getAssignments(log, &e.Info, snapshot)
+		e.recordAssignment(newAssignment, newTargets)
+		usage = e.assignmentUsage(log)
+		fitsCheck = fits(snapshot, cq, &usage, preemptedWorkloads, newTargets)
+		log.Info("Re-computed assignment", "newMode", newAssignment.RepresentativeMode())
+		// clear the assignment flavors as they are only used within a single scheduling cycle
+		e.NominationMapping = nil
+		e.LastAssignment = lastAssignment
+	}
+	return usage, schdcache.FitsCheckOk == fitsCheck
+}
+
+func fits(snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, usage *workload.Usage, preemptedWorkloads preemption.PreemptedWorkloads,
+	newTargets []*preemption.Target) schdcache.FitsCheck {
 	workloads := slices.Collect(maps.Values(preemptedWorkloads))
 	for _, target := range newTargets {
 		workloads = append(workloads, target.WorkloadInfo)

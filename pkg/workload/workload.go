@@ -203,6 +203,10 @@ func (s *AssignmentClusterQueueState) NextFlavorToTryForPodSetResource(ps int, r
 	return idx + 1
 }
 
+type ResourceToFlavor map[corev1.ResourceName]kueue.ResourceFlavorReference
+
+type PodSetResourcesToFlavors map[kueue.PodSetReference]ResourceToFlavor
+
 // Info holds a Workload object and some pre-processing.
 type Info struct {
 	Obj *kueue.Workload
@@ -229,6 +233,10 @@ type Info struct {
 	// Workloads with the same hash have identical scheduling-relevant shape
 	// and will receive the same FlavorAssigner result given the same cluster state.
 	SchedulingHash string
+
+	// NominationMapping is the mapping of PodSets resources and their flavors
+	// based on the nomination phase.
+	NominationMapping PodSetResourcesToFlavors
 }
 
 type PodSetResources struct {
