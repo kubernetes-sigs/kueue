@@ -60,6 +60,10 @@
     - [Example](#example-2)
   - [Cross-PodSet Topology Aware scheduling](#cross-podset-topology-aware-scheduling)
     - [Ensure leader and workers end up on the same flavor](#ensure-leader-and-workers-end-up-on-the-same-flavor)
+    - [Generalizing PodSet Groups beyond leader-worker (N PodSets, no single-replica leader)](#generalizing-podset-groups-beyond-leader-worker-n-podsets-no-single-replica-leader)
+      - [Out of scope (future work)](#out-of-scope-future-work)
+      - [Alternatives considered](#alternatives-considered)
+      - [Scalability and limitations](#scalability-and-limitations)
   - [Enforcing the assignment](#enforcing-the-assignment)
   - [Support for Elastic Workloads](#support-for-elastic-workloads)
   - [Balanced placement](#balanced-placement)
@@ -1667,6 +1671,228 @@ assignment unit to `PodSet Group`.
 User can influence the value of `PodSetGroup` by setting `kueue.x-k8s.io/podset-group-name`
 annotation.
 
+#### Generalizing PodSet Groups beyond leader-worker (N PodSets, no single-replica leader)
+
+**Use case.** The initial `PodSet Group` implementation (motivated by LeaderWorkerSet, see
+[Story 6](#story-6)) supports exactly **two** PodSets where at least one has `count == 1`
+(the "leader"). This cannot express reinforcement-learning workloads where the
+*inference/rollout* and *training* pods — distinct PodSets, each with multiple replicas and
+no singleton leader — must share a spine so weight-sync collectives do not cross the
+high-bandwidth fabric (see [#11953](https://github.com/kubernetes-sigs/kueue/issues/11953)).
+
+**What we expand.** For the **required** topology case, a group may now contain `N >= 2`
+PodSets, each with `count > 1` (no required single-replica leader). The semantics are
+unchanged: all PodSets sharing a `podset-group-name` are co-located within a single domain
+at the requested level.
+
+The routing is simple: the new generalized path (validation, scheduling, and ungating) is
+taken when the `TASPodSetGroupGeneralization` feature gate is enabled, the group requests
+required topology, **and** the group is not the legacy leader-worker shape (exactly two
+PodSets, one with a single replica). Everything else — the gate disabled, a group
+requesting preferred topology, or a legacy leader-worker group — uses the existing
+leader-worker path unchanged. Leader-worker groups are kept on the legacy path because
+their pods are not interchangeable and rely on the merged leader/worker rank layout. The
+gate is alpha and off by default.
+
+**Placement.** Each PodSet keeps its real per-pod footprint, and its pods are placed only on
+nodes that PodSet is allowed to run on — the packer applies the same per-PodSet node
+filtering as the single-PodSet path (taints vs. tolerations, node selector, required node
+affinity, with `PodSetUpdates` and flavor tolerations merged in), via the shared
+`leafNodeEligibility` / `podSetNodeRequirements` helpers. The group's pods are packed into
+the leaves of one required-level domain. Since the PodSets have different footprints,
+fitting a group into a domain is a **multi-dimensional (vector) bin-packing** problem rather
+than a single "how many pods fit" count. The exact problem is NP-hard (and has no APTAS for
+two or more resource dimensions, Woeginger 1997), so we use a near-optimal heuristic: a
+single **best-fit First-Fit-Decreasing** pass (per the vector-bin-packing literature,
+Panigrahy et al., "Heuristics for Vector Bin Packing", ESA 2011; Grandl et al., "Tetris",
+SIGCOMM 2014). Placing each pod (largest first) on the eligible leaf that leaves the least
+scarcity-weighted residual capacity keeps roomier leaves free for larger pods, consistent
+with the domain-level BestFit and the single-PodSet fit behavior. This is the same
+fragmentation concern tracked for the single-PodSet case in
+[#10574](https://github.com/kubernetes-sigs/kueue/issues/10574); the existing
+balanced-placement pseudo-polynomial DP solves *multi-domain selection over homogeneous
+slice counts* and does not apply to single-domain heterogeneous packing, hence the
+vector-bin-packing heuristic here.
+
+**Algorithm.**
+
+```
+1. Group all PodSets sharing a podset-group-name; sum their per-pod requests to
+   determine the flavor (unchanged from today).
+2. Compute the group's real aggregate demand D_total = sum_i(count_i * footprint_i),
+   plus the total pod count.
+3. Pre-filter required-level domains whose aggregate free capacity (over leaves, minus
+   TAS and assumed usage) is >= D_total. If none qualify, the group does not fit and the
+   workload is not admitted (no fallback to coarser levels -- that is preferred behavior,
+   out of scope here). Rank the survivors tightest-fit first.
+4. For each surviving domain in order, run one greedy best-fit pass: place pods
+   largest-first (FFD) on the eligible leaf (one the PodSet may run on) that leaves the
+   least scarcity-weighted residual capacity. Return the first domain whose pass places
+   all pods. The pass is O(pods * leaves * resources); it is near-optimal but NOT exact, so
+   a fragmented-but-packable group may be reported as not fitting (a conservative
+   false-negative; pods are never mis-placed).
+5. Emit one TopologyAssignment per PodSet from the placement.
+```
+
+**Pseudo-algorithm.**
+
+```
+FindGroupAssignment(group, assumedUsage):
+    # group is the list of PodSets sharing a podset-group-name, in PodSet order.
+
+    # 1. Real aggregate demand (per-resource sum + one Pod slot per pod).
+    Dtotal <- {}
+    totalCount <- 0
+    for ps in group:
+        Dtotal <- Dtotal + ps.count * ps.footprint
+        totalCount <- totalCount + ps.count
+    Dtotal[pods] <- Dtotal[pods] + totalCount
+
+    level <- requiredLevel(group)           # shared required level (validated)
+
+    # 2. Best-fit search over domains at the required level.
+    best <- none ; bestSlack <- +inf
+    for domain in sortedDomains(level):     # deterministic order
+        leaves <- leavesUnder(domain)
+        free   <- [ leaf.capacity - tasUsage(leaf) - assumedUsage(leaf)
+                    for leaf in leaves ]
+        agg    <- sum(free)
+
+        slack <- howManyTimesFits(Dtotal, agg)   # CountIn: necessary pre-filter
+        if slack < 1:        continue            # domain can never hold the group
+        if best != none and slack >= bestSlack:  continue   # cannot beat current best
+
+        placement <- PackGroupOntoLeaves(group, leaves, free)
+        if placement != none:
+            best <- placement ; bestSlack <- slack
+
+    if best == none:
+        return NotFit("no domain at <level> fits the group")
+    return PerPodSetAssignments(best)            # one TopologyAssignment per PodSet
+
+
+PackGroupOntoLeaves(group, leaves, free):
+    # Near-optimal vector bin packing: a single greedy best-fit FFD pass.
+    # Returns a leaf per pod, or none if some pod cannot be placed.
+    pods <- [ (psIndex, ps.footprint + {pods:1}) for ps in group, repeated ps.count times ]
+    sort pods by footprint descending          # FFD (dominant-resource order)
+    totalCap <- sum(free)                       # for scarcity weights
+
+    remaining <- copy(free)
+    for i in 0..len(pods):
+        bestLeaf <- none ; bestScore <- +inf
+        for leaf in leaves:
+            if not eligible(pods[i].podSet, leaf):        continue   # taints / selector / affinity
+            if not fits(pods[i].need, remaining[leaf]):   continue
+            # scarcity-weighted leftover capacity AFTER placing the pod (lower = tighter)
+            score <- sum over r (sorted) of max(0, remaining[leaf][r] - pods[i].need[r]) / totalCap[r]
+            if score < bestScore:   bestLeaf <- leaf ; bestScore <- score
+        if bestLeaf == none:   return none      # group does not fit this domain
+        remaining[bestLeaf] <- remaining[bestLeaf] - pods[i].need
+        assign pods[i] -> bestLeaf
+
+    return assignment            # pods grouped back per PodSet, counted per leaf
+```
+
+**Other changes.**
+
+- *Ungating.* The scheduler emits one `TopologyAssignment` per PodSet (today at most two).
+  The `TopologyUngater` is generalized so that, instead of the `smaller == leader` /
+  `larger == workers` rank-merging heuristic (which only handles exactly two PodSets), each
+  PodSet in a generalized required group gets its own rank space: its pods carry
+  PodSet-local indices (`0..count-1`) and are ungated within the group's co-located domain.
+  Because required-topology pods within a PodSet are interchangeable, no cross-PodSet global
+  rank ordering is imposed. The `kueue.x-k8s.io/podset-group-name` annotation remains the
+  only source of group membership; no new user-facing API is added.
+- *Validation.* For gate-enabled required groups that are not the legacy leader-worker
+  shape, `ValidatePodSetGroupingTopology` is relaxed to allow more than two PodSets and to
+  drop the "at least one PodSet has `count == 1`" requirement, keeping the invariant that
+  every PodSet in the group requests the same required topology at the same level. Preferred
+  groups, legacy leader-worker groups, and all groups when the gate is off keep the original
+  two-PodSet/single-leader validation.
+
+##### Out of scope (future work)
+
+- **Preferred topology for generalized groups.** When the group requests `preferred`
+  rather than `required`, the desired degradation behavior (climb to coarser levels, then
+  best-effort spread across multiple domains) and, crucially, *whether the PodSets of a
+  group degrade in lockstep or may be split across domains independently*, is undesigned
+  upstream. The current two-PodSet code treats the group as one summed unit when it falls
+  back, but this has never been specified for groups. Generalized `preferred` groups are
+  therefore left to a follow-up KEP update; since preferred groups stay on the legacy path,
+  a preferred group with more than two PodSets (or without a single-replica leader) is
+  rejected by the existing leader-worker validation.
+- **Per-PodSet topology levels within a group.** Today (since
+  [#6242](https://github.com/kubernetes-sigs/kueue/issues/6242) /
+  [#7061](https://github.com/kubernetes-sigs/kueue/pull/7061)) all PodSets in a group must
+  request the same level. Allowing, e.g., the trainer to require `rack` while the inference
+  fleet requires `block` is a larger design change (the placement algorithm assumes a
+  single shared required level for the whole group) and is explicitly out of scope.
+- **Balanced placement across the group's domains.** Spreading pods evenly across the
+  chosen domains for a generalized group (the `TASBalancedPlacement` interaction) is part
+  of the preferred work above and is out of scope for the required-only alpha.
+
+##### Alternatives considered
+
+- **Generalize `stateWithLeader` into a `state(d, k)` dynamic program** (the direction
+  suggested on [#11953](https://github.com/kubernetes-sigs/kueue/issues/11953), and related
+  to the optimal-bin-packing DP in
+  [#10574](https://github.com/kubernetes-sigs/kueue/issues/10574)). This is a clean
+  generalization when the group has a single distinguished "leader" footprint whose
+  per-domain count `k` ranges `0..K`: the existing balanced-placement DP already indexes its
+  table by a leader dimension. We did **not** adopt it as the core algorithm because the
+  motivating use case has `N` PodSets with *distinct* footprints across *multiple* resources.
+  Exactly fitting them requires a per-domain count vector `(k_1, ..., k_N)` per resource
+  dimension, so the DP state is pseudo-polynomial in each resource's capacity *and*
+  exponential in the number of distinct footprints — it loses the polynomial guarantee
+  precisely in the regime we care about (this is the NP-hardness / no-APTAS result for
+  vector bin packing in ≥2 dimensions, Woeginger 1997). The `state(d, k)` DP remains the
+  right tool for the homogeneous / single-leader case, which the legacy path already
+  handles; for the heterogeneous group we use the vector-bin-packing heuristic above. The
+  existing balanced-placement DP is also a *multi-domain* selector over homogeneous slice
+  counts, whereas the required group is a *single-domain* heterogeneous packing — a
+  different problem shape.
+- **Exact / backtracking packing.** Rejected for simplicity: exact bin packing is
+  worst-case exponential and does not scale to large groups (hundreds of pods). We use a
+  single greedy best-fit pass and accept conservative false-negatives (see below) rather
+  than carrying a bounded-backtracking fallback.
+
+##### Scalability and limitations
+
+**Cost.** Let `P` be the total pods in the group, `N` the number of PodSets, `L` the leaves
+under a candidate domain, `D` the candidate domains at the required level, and `R` the
+resource dimensions (small constant, e.g. CPU/memory/GPU). Per candidate domain the work is:
+
+- per-PodSet node eligibility precompute: `O(N × L × R)` (taints/selector/affinity per
+  leaf, reusing the same filter as the single-PodSet path);
+- one greedy best-fit pass: `O(P × L × R)` (each pod scans the eligible leaves, scoring `R`
+  resources).
+
+Domains are aggregate-pre-filtered (`O(D × L × R)`) and sorted tightest-fit first
+(`O(D log D)`); the packer then runs on candidate domains in order and stops at the first
+that places all pods. In the common case (the tightest domain packs) only one domain is
+packed, so the dominant term is `O((P + N) × L × R)` — polynomial and suitable for the
+scheduling hot path even for large groups (hundreds of pods). The worst case, where every
+candidate domain passes the aggregate pre-filter but fails to pack, runs the greedy pass on
+all of them: `O(D × (P + N) × L × R)`. There is no exponential path.
+
+**Not exact.** The single greedy pass is near-optimal but **not** exact: a
+fragmented-but-packable group can be reported as not fitting. Consequences, stated honestly:
+
+- A greedy strand makes the workload **pend** (a false-negative) even if a packing
+  technically exists. It is never mis-placed, and never placed on an ineligible node.
+- Best-fit FFD (largest pods first, onto the tightest eligible leaf) recovers most realistic
+  fragmentation cases, which is why a single greedy pass is acceptable for the alpha.
+- This is a deliberate simplicity vs. placement-completeness tradeoff. Possible future
+  improvements (still polynomial): additional greedy orderings, a local-search swap phase,
+  or an exact search bounded to small groups.
+
+**Determinism.** Placement is reproducible across scheduling cycles: leaves under a domain
+are iterated in a stable `levelValues` order, candidate domains are sorted by slack then
+domain ID, the best-fit score iterates resources in sorted order (float addition is not
+associative), and FFD uses a stable sort. Identical input therefore yields identical
+assignments.
+
 ### Enforcing the assignment
 
 When the workload has the PodSet assignments and is about to start we modify the
@@ -1896,6 +2122,19 @@ well covered. In particular, the following scenarios need coverage:
 - un-gate pods by with the "topology" scheduling gate
 - the Workload can be suspended and unsuspended
 
+For the generalized PodSet groups feature (`TASPodSetGroupGeneralization`), additional
+coverage:
+- validation routing: a required group of `N > 2` PodSets (and a two-PodSet group with no
+  single-replica leader) is accepted with the gate on and rejected with it off; a
+  `preferred` generalized group is rejected via the legacy path; mismatched levels within a
+  group are rejected
+- scheduler packing: heterogeneous-footprint groups that fit / do not fit a domain;
+  per-PodSet node eligibility (a capacity-sufficient leaf excluded by a taint or by a
+  node-selector/affinity mismatch); best-fit domain selection (tightest fitting domain
+  chosen, larger domains left free); deterministic placement across repeated calls
+  with tied leaves; a group spanning multiple leaves within a required domain
+- ungating: each PodSet in a generalized group is ungated within the co-located domain
+
 ### Graduation Criteria
 
 #### Alpha:
@@ -1904,6 +2143,12 @@ well covered. In particular, the following scenarios need coverage:
 - support multi-level hierarchy
 - support TAS with minimal cross to other features (no cohorts, no preemption,
   no reclaimable pods)
+- generalized PodSet groups (`TASPodSetGroupGeneralization`, alpha, off by default):
+  required-topology groups of `N >= 2` heterogeneous PodSets (excluding the legacy
+  leader-worker shape) co-located in a single domain, with the vector-bin-packing placement
+  described above. Graduation to beta requires revisiting the greedy-only false-negative
+  behavior on fragmented large groups and deciding whether `preferred` groups and per-PodSet
+  levels are in scope.
 
 The new validations which are for MVP, but likely will be relaxed in the future:
 - ClusterQueue is marked inactive if it contains a TAS ResourceFlavor and

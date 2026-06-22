@@ -597,6 +597,27 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests F
 				addAssumedUsage(assumedUsage, replacementAssignment, &tr)
 			}
 		} else {
+			// Generalized PodSet group path: when the feature gate is enabled
+			// and the group requests required topology, place the whole group
+			// within a single co-located domain using the generalized
+			// bin-packer. Everything else (gate disabled, or preferred
+			// topology) uses the legacy leader-worker path below. See the
+			// "Generalizing PodSet Groups beyond leader-worker" section in
+			// keps/2724-topology-aware-scheduling.
+			if features.Enabled(features.TASPodSetGroupGeneralization) && isRequiredPodSetGroup(trs) {
+				groupAssignments, reason := s.findGeneralizedGroupAssignment(trs, assumedUsage, opts.simulateEmpty)
+				for _, tr := range trs {
+					result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: groupAssignments[tr.PodSet.Name], FailureReason: reason}
+				}
+				if reason != "" {
+					return result
+				}
+				for _, tr := range trs {
+					addAssumedUsage(assumedUsage, groupAssignments[tr.PodSet.Name], &tr)
+				}
+				continue
+			}
+
 			leader, workers := findLeaderAndWorkers(trs)
 
 			// Handle elastic workloads with delta-only placement
@@ -643,6 +664,344 @@ func findLeaderAndWorkers(trs FlavorTASRequests) (*TASPodSetRequests, TASPodSetR
 		}
 	}
 	return leader, workers
+}
+
+// isRequiredPodSetGroup reports whether a PodSet group should be handled by the
+// generalized N-PodSet placement path. With the TASPodSetGroupGeneralization
+// feature gate enabled, the new path handles required-topology groups EXCEPT the
+// legacy leader-worker shape (exactly two PodSets, one with a single replica),
+// which stays on the legacy path to preserve its merged leader/worker rank
+// layout (its pods are not interchangeable). Preferred groups also use the
+// legacy path.
+func isRequiredPodSetGroup(trs FlavorTASRequests) bool {
+	if len(trs) < 2 || !isRequired(trs[0].PodSet.TopologyRequest) {
+		return false
+	}
+	return !isLegacyLeaderWorkerShape(len(trs), func(i int) int32 { return trs[i].Count })
+}
+
+// isLegacyLeaderWorkerShape reports whether a group is the legacy leader-worker
+// shape: exactly two PodSets where at least one has a single replica.
+func isLegacyLeaderWorkerShape(numPodSets int, count func(i int) int32) bool {
+	return numPodSets == 2 && (count(0) == 1 || count(1) == 1)
+}
+
+// findGeneralizedGroupAssignment co-locates all PodSets sharing a
+// podset-group-name within a single required-level topology domain and returns
+// a per-PodSet TopologyAssignment.
+//
+// Required topology only. Each PodSet keeps its real per-pod footprint. The
+// algorithm:
+//
+//  1. Compute the group's real aggregate demand and, as a fast pre-filter,
+//     restrict to required-level domains whose aggregate free capacity can hold
+//     it (a domain that fails this can never pack the group).
+//  2. Among the surviving domains (tightest fit first), run a single greedy
+//     best-fit pass that places all the group's pods (each with its own
+//     footprint, on nodes its PodSet is allowed to run on) onto the domain's
+//     leaves. This is near-optimal but NOT exact: a fragmented-but-packable
+//     group may be reported as not fitting (a conservative false-negative).
+//  3. Build one TopologyAssignment per PodSet from the placement.
+func (s *TASFlavorSnapshot) findGeneralizedGroupAssignment(
+	trs FlavorTASRequests,
+	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
+	simulateEmpty bool,
+) (map[kueue.PodSetReference]*utiltas.TopologyAssignment, string) {
+	// Compute the group's real aggregate demand: sum of count_i * footprint_i
+	// across all PodSets, plus one Pods resource per pod.
+	groupDemand := resources.Requests{}
+	var totalCount int32
+	for i := range trs {
+		groupDemand.Add(trs[i].SinglePodRequests.ScaledUp(int64(trs[i].Count)))
+		totalCount += trs[i].Count
+	}
+	groupDemand.Add(resources.Requests{corev1.ResourcePods: int64(totalCount)})
+
+	// Build each PodSet's node-scheduling constraints (tolerations, selector,
+	// required affinity, merged with PodSetUpdates and flavor tolerations) so
+	// the packer only places a PodSet's pods on nodes that PodSet can run on.
+	constraints := make([]podSetNodeConstraints, len(trs))
+	for i := range trs {
+		c, reason := s.podSetNodeRequirements(&trs[i])
+		if reason != "" {
+			return nil, reason
+		}
+		constraints[i] = c
+	}
+
+	// Resolve the required level shared by all PodSets in the group (validation
+	// guarantees they request the same required topology).
+	topologyKey := s.levelKeyWithImpliedFallback(&trs[0])
+	if topologyKey == nil {
+		return nil, "topology level not specified"
+	}
+	requiredLevelIdx, found := s.resolveLevelIdx(*topologyKey)
+	if !found {
+		return nil, fmt.Sprintf("no requested topology level: %s", *topologyKey)
+	}
+
+	// Try required-level domains, choosing the best-fit one (consistent with
+	// the single-PodSet BestFit algorithm: among domains that fit, prefer the
+	// one with the least remaining free capacity, keeping larger domains free).
+	// Required groups are never unconstrained, so BestFit always applies.
+	//
+	// We first cheaply pre-filter domains by aggregate free capacity (a
+	// necessary, not sufficient, condition) and rank the survivors tightest-fit
+	// first. Then we run the greedy packer in that order and return the first
+	// domain that admits a placement -- so we do the minimum work and naturally
+	// fall back to a looser domain if a tighter one cannot be packed.
+	type candidate struct {
+		domainID   utiltas.TopologyDomainID
+		leaves     []*leafDomain
+		capacities []resources.Requests
+		slack      int32
+	}
+	domainsByID := s.domainsPerLevel[requiredLevelIdx]
+	candidates := make([]candidate, 0, len(domainsByID))
+	for _, domainID := range slices.Sorted(maps.Keys(domainsByID)) {
+		leaves := s.leavesUnder(domainsByID[domainID])
+		capacities := make([]resources.Requests, len(leaves))
+		aggregate := resources.Requests{}
+		for i, leaf := range leaves {
+			capacity := leaf.freeCapacity.Clone()
+			if !simulateEmpty {
+				capacity.Sub(leaf.tasUsage)
+			}
+			if used, ok := assumedUsage[leaf.id]; ok {
+				capacity.Sub(used)
+			}
+			capacities[i] = capacity
+			aggregate.Add(capacity)
+		}
+		slack := groupDemand.CountIn(aggregate)
+		if slack < 1 {
+			// Domain cannot even aggregate-fit the group; skip it.
+			continue
+		}
+		candidates = append(candidates, candidate{
+			domainID:   domainID,
+			leaves:     leaves,
+			capacities: capacities,
+			slack:      slack,
+		})
+	}
+	// Tightest fit first; ties broken by domain ID for deterministic placement.
+	slices.SortFunc(candidates, func(a, b candidate) int {
+		if a.slack != b.slack {
+			return int(a.slack - b.slack)
+		}
+		return cmp.Compare(a.domainID, b.domainID)
+	})
+	for _, c := range candidates {
+		if result := s.packGroupOntoLeaves(trs, constraints, c.leaves, c.capacities); result != nil {
+			return result, ""
+		}
+	}
+	return nil, fmt.Sprintf("no topology domain at level %s can fit the pod set group", *topologyKey)
+}
+
+// packGroupOntoLeaves attempts to place every pod of every PodSet in trs onto
+// the given leaves (with the given remaining capacities) such that no leaf is
+// oversubscribed and every pod lands on a node its PodSet is allowed to run on
+// (per-PodSet node constraints). It returns one TopologyAssignment per PodSet,
+// or nil if the greedy pass could not place all pods.
+//
+// This is a single greedy best-fit First-Fit-Decreasing pass: pods are placed
+// largest-first, each on the eligible leaf that leaves the least
+// scarcity-weighted residual capacity. It is O(pods * leaves * resources) and
+// near-optimal, but not exact -- a fragmented-but-packable group may be reported
+// as not fitting (a conservative false-negative; pods are never mis-placed).
+func (s *TASFlavorSnapshot) packGroupOntoLeaves(
+	trs FlavorTASRequests,
+	constraints []podSetNodeConstraints,
+	leaves []*leafDomain,
+	capacities []resources.Requests,
+) map[kueue.PodSetReference]*utiltas.TopologyAssignment {
+	// Precompute, per PodSet, which leaves it may use (taints / selector /
+	// required affinity). Only meaningful when nodes are the lowest level.
+	eligible := make([][]bool, len(trs))
+	for i := range trs {
+		eligible[i] = make([]bool, len(leaves))
+		for j, leaf := range leaves {
+			if !s.isLowestLevelNode {
+				eligible[i][j] = true
+				continue
+			}
+			ok, _, _ := s.leafNodeEligibility(leaf, constraints[i].tolerations, constraints[i].selector, constraints[i].affinitySelector)
+			eligible[i][j] = ok
+		}
+	}
+
+	// Build the flat pod list: each entry records its PodSet and its footprint
+	// (real per-pod requests plus one Pod slot).
+	type pod struct {
+		psIdx int
+		need  resources.Requests
+	}
+	pods := make([]pod, 0)
+	for i := range trs {
+		need := trs[i].SinglePodRequests.Clone()
+		need.Add(resources.Requests{corev1.ResourcePods: 1})
+		for range int(trs[i].Count) {
+			pods = append(pods, pod{psIdx: i, need: need})
+		}
+	}
+	// First-Fit-Decreasing: place larger pods first (dominant-resource order).
+	slices.SortStableFunc(pods, func(a, b pod) int {
+		return compareFootprintDesc(a.need, b.need)
+	})
+
+	// Scarcity weights for the best-fit score: weigh each resource by the
+	// inverse of its total capacity across the domain, so leftover capacity is
+	// measured relative to how constrained that resource is (Panigrahy et al.,
+	// "Heuristics for Vector Bin Packing"; Tetris, SIGCOMM 2014).
+	totalCapacity := resources.Requests{}
+	for _, c := range capacities {
+		totalCapacity.Add(c)
+	}
+
+	remaining := make([]resources.Requests, len(capacities))
+	for i := range capacities {
+		remaining[i] = capacities[i].Clone()
+	}
+	placement := make([]int, len(pods))
+	for podIdx := range pods {
+		bestLeaf := -1
+		var bestScore float64
+		for leafIdx := range leaves {
+			if !eligible[pods[podIdx].psIdx][leafIdx] {
+				continue
+			}
+			if pods[podIdx].need.CountIn(remaining[leafIdx]) < 1 {
+				continue
+			}
+			score := bestFitScore(pods[podIdx].need, remaining[leafIdx], totalCapacity)
+			if bestLeaf == -1 || score < bestScore {
+				bestLeaf = leafIdx
+				bestScore = score
+			}
+		}
+		if bestLeaf == -1 {
+			return nil
+		}
+		remaining[bestLeaf].Sub(pods[podIdx].need)
+		placement[podIdx] = bestLeaf
+	}
+
+	// Build per-PodSet assignments: for each PodSet, count pods per leaf.
+	levelIdx := 0
+	if s.isLowestLevelNode {
+		levelIdx = len(s.levelKeys) - 1
+	}
+	// perPodSetLeafCounts[psIdx][leafIdx] = number of pods of that PodSet on the leaf.
+	perPodSetLeafCounts := make([]map[int]int32, len(trs))
+	for i := range perPodSetLeafCounts {
+		perPodSetLeafCounts[i] = make(map[int]int32)
+	}
+	for podIdx := range pods {
+		perPodSetLeafCounts[pods[podIdx].psIdx][placement[podIdx]]++
+	}
+
+	result := make(map[kueue.PodSetReference]*utiltas.TopologyAssignment, len(trs))
+	for i := range trs {
+		assignment := &utiltas.TopologyAssignment{
+			Levels:  s.levelKeys[levelIdx:],
+			Domains: make([]utiltas.TopologyDomainAssignment, 0, len(perPodSetLeafCounts[i])),
+		}
+		// Deterministic leaf ordering by levelValues.
+		leafIdxs := slices.Collect(maps.Keys(perPodSetLeafCounts[i]))
+		slices.SortFunc(leafIdxs, func(a, b int) int {
+			return slices.Compare(leaves[a].levelValues, leaves[b].levelValues)
+		})
+		for _, leafIdx := range leafIdxs {
+			assignment.Domains = append(assignment.Domains, utiltas.TopologyDomainAssignment{
+				Values: leaves[leafIdx].levelValues[levelIdx:],
+				Count:  perPodSetLeafCounts[i][leafIdx],
+			})
+		}
+		result[trs[i].PodSet.Name] = assignment
+	}
+	return result
+}
+
+// bestFitScore returns the scarcity-weighted leftover capacity a leaf would
+// have AFTER placing a pod of the given demand on it. A lower score is a tighter
+// fit, so picking the minimum-score feasible leaf keeps roomier leaves available
+// for larger pods and reduces fragmentation (best-fit). Each resource's leftover
+// is weighted by its scarcity (inverse of total capacity) so a scarce resource
+// such as GPUs dominates the decision over abundant ones such as CPU. Resources
+// are iterated in sorted order so the float sum is reproducible (float addition
+// is not associative; map iteration order is randomized).
+func bestFitScore(need, residual, totalCapacity resources.Requests) float64 {
+	var score float64
+	for _, name := range slices.Sorted(maps.Keys(residual)) {
+		total := totalCapacity[name]
+		if total <= 0 {
+			continue
+		}
+		leftover := max(residual[name]-need[name], 0)
+		score += float64(leftover) / float64(total)
+	}
+	return score
+}
+
+// compareFootprintDesc orders footprints from largest to smallest using a
+// dominant-resource style comparison (largest single resource value first, then
+// remaining resources for determinism).
+func compareFootprintDesc(a, b resources.Requests) int {
+	names := make(map[corev1.ResourceName]struct{}, len(a)+len(b))
+	for n := range a {
+		names[n] = struct{}{}
+	}
+	for n := range b {
+		names[n] = struct{}{}
+	}
+	sorted := slices.Sorted(maps.Keys(names))
+	// Compare by the largest resource value first.
+	var maxA, maxB int64
+	for _, n := range sorted {
+		maxA = max(maxA, a[n])
+		maxB = max(maxB, b[n])
+	}
+	if maxA != maxB {
+		return int(maxB - maxA)
+	}
+	// Tie-break deterministically by per-resource values.
+	for _, n := range sorted {
+		if a[n] != b[n] {
+			return int(b[n] - a[n])
+		}
+	}
+	return 0
+}
+
+// leavesUnder returns all leaf domains under the given domain (the domain
+// itself if it is already a leaf).
+func (s *TASFlavorSnapshot) leavesUnder(d *domain) []*leafDomain {
+	if leaf, ok := s.leaves[d.id]; ok && len(d.children) == 0 {
+		return []*leafDomain{leaf}
+	}
+	var result []*leafDomain
+	stack := []*domain{d}
+	for len(stack) > 0 {
+		cur := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if len(cur.children) == 0 {
+			if leaf, ok := s.leaves[cur.id]; ok {
+				result = append(result, leaf)
+			}
+			continue
+		}
+		stack = append(stack, cur.children...)
+	}
+	// Sort by levelValues for deterministic placement: the domain tree is built
+	// from map iteration, so child/leaf order is otherwise unstable across
+	// scheduling cycles. A stable order keeps best-fit tie-breaking (and thus
+	// the per-leaf pod distribution) reproducible.
+	slices.SortFunc(result, func(a, b *leafDomain) int {
+		return slices.Compare(a.levelValues, b.levelValues)
+	})
+	return result
 }
 
 // findReplacementAssignment finds the topology assignment for the replacement node
@@ -866,13 +1225,6 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		state.leaderCount = 1
 	}
 
-	info := podset.FromPodSet(workersTasPodSetRequests.PodSet)
-	for _, podSetUpdate := range workersTasPodSetRequests.PodSetUpdates {
-		if err := info.Merge(podset.FromUpdate(podSetUpdate)); err != nil {
-			return nil, fmt.Sprintf("invalid podSetUpdate for PodSet %s, error: %s", workersTasPodSetRequests.PodSet.Name, err.Error())
-		}
-	}
-
 	// If slice topology is not requested then we can assume that slice is a single pod
 	sliceSize, reason := getSliceSizeWithSinglePodAsDefault(workersTasPodSetRequests.PodSet.TopologyRequest)
 	if len(reason) > 0 {
@@ -914,37 +1266,17 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		state.multiLayerConstraints = workersTasPodSetRequests.PodSet.TopologyRequest.PodsetSliceRequiredTopologyConstraints
 	}
 
-	requirements.tolerations = append(info.Tolerations, s.tolerations...)
-
-	if s.isLowestLevelNode {
-		sel, err := labels.ValidatedSelectorFromSet(info.NodeSelector)
-		if err != nil {
-			return nil, fmt.Sprintf("invalid node selectors: %s, reason: %s", info.NodeSelector, err)
-		}
-		requirements.selector = sel
-	} else {
-		requirements.selector = labels.Everything()
+	// Build the per-PodSet node-scheduling constraints (tolerations, selector,
+	// required/preferred affinity, merged with PodSetUpdates and flavor
+	// tolerations). Shared with the generalized group packer.
+	nodeReqs, reason := s.podSetNodeRequirements(&workersTasPodSetRequests)
+	if reason != "" {
+		return nil, reason
 	}
-
-	if info.Affinity != nil && info.Affinity.NodeAffinity != nil {
-		if requiredAffinity := info.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution; requiredAffinity != nil {
-			affinitySelector, err := nodeaffinity.NewNodeSelector(requiredAffinity)
-			if err != nil {
-				return nil, fmt.Sprintf("invalid affinity node selectors: %s, reason: %s", requiredAffinity, err)
-			}
-			requirements.affinitySelector = affinitySelector
-		}
-		if features.Enabled(features.TASRespectNodeAffinityPreferred) {
-			preferredAffinity := info.Affinity.NodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution
-			if len(preferredAffinity) > 0 {
-				prefTerms, err := nodeaffinity.NewPreferredSchedulingTerms(preferredAffinity)
-				if err != nil {
-					return nil, fmt.Sprintf("invalid preferred node affinity terms: %v, reason: %s", preferredAffinity, err)
-				}
-				requirements.preferredSchedulingTerms = prefTerms
-			}
-		}
-	}
+	requirements.tolerations = nodeReqs.tolerations
+	requirements.selector = nodeReqs.selector
+	requirements.affinitySelector = nodeReqs.affinitySelector
+	requirements.preferredSchedulingTerms = nodeReqs.preferredSchedulingTerms
 
 	// phase 1 - determine the number of pods and slices which can fit in each topology domain
 	s.fillInCounts(requirements, state)
@@ -1652,6 +1984,110 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool)
 	return result
 }
 
+// podSetNodeConstraints holds a single PodSet's node-scheduling constraints,
+// derived from its PodSet (merged with PodSetUpdates) and the flavor tolerations.
+type podSetNodeConstraints struct {
+	tolerations              []corev1.Toleration
+	selector                 labels.Selector
+	affinitySelector         *nodeaffinity.NodeSelector
+	preferredSchedulingTerms *nodeaffinity.PreferredSchedulingTerms
+}
+
+// podSetNodeRequirements builds the node-scheduling constraints for a single
+// PodSet: tolerations (PodSet + flavor), the node-label selector, required node
+// affinity, and (when TASRespectNodeAffinityPreferred is enabled) the preferred
+// scheduling terms. It is the single source of truth for per-PodSet node
+// requirements, used by both findTopologyAssignment (legacy path) and the
+// generalized group packer.
+func (s *TASFlavorSnapshot) podSetNodeRequirements(tr *TASPodSetRequests) (podSetNodeConstraints, string) {
+	var c podSetNodeConstraints
+	info := podset.FromPodSet(tr.PodSet)
+	for _, podSetUpdate := range tr.PodSetUpdates {
+		if err := info.Merge(podset.FromUpdate(podSetUpdate)); err != nil {
+			return c, fmt.Sprintf("invalid podSetUpdate for PodSet %s, error: %s", tr.PodSet.Name, err.Error())
+		}
+	}
+
+	c.tolerations = append(info.Tolerations, s.tolerations...)
+
+	if s.isLowestLevelNode {
+		sel, err := labels.ValidatedSelectorFromSet(info.NodeSelector)
+		if err != nil {
+			return c, fmt.Sprintf("invalid node selectors: %s, reason: %s", info.NodeSelector, err)
+		}
+		c.selector = sel
+	} else {
+		c.selector = labels.Everything()
+	}
+
+	if info.Affinity != nil && info.Affinity.NodeAffinity != nil {
+		if requiredAffinity := info.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution; requiredAffinity != nil {
+			affinitySelector, err := nodeaffinity.NewNodeSelector(requiredAffinity)
+			if err != nil {
+				return c, fmt.Sprintf("invalid affinity node selectors: %s, reason: %s", requiredAffinity, err)
+			}
+			c.affinitySelector = affinitySelector
+		}
+		if features.Enabled(features.TASRespectNodeAffinityPreferred) {
+			preferredAffinity := info.Affinity.NodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution
+			if len(preferredAffinity) > 0 {
+				prefTerms, err := nodeaffinity.NewPreferredSchedulingTerms(preferredAffinity)
+				if err != nil {
+					return c, fmt.Sprintf("invalid preferred node affinity terms: %v, reason: %s", preferredAffinity, err)
+				}
+				c.preferredSchedulingTerms = prefTerms
+			}
+		}
+	}
+	return c, ""
+}
+
+// nodeIneligibleReason explains why a leaf node was excluded for a PodSet.
+type nodeIneligibleReason int
+
+const (
+	nodeEligible nodeIneligibleReason = iota
+	nodeIneligibleTaint
+	nodeIneligibleSelector
+	nodeIneligibleAffinity
+)
+
+// leafNodeEligibility reports whether a leaf node satisfies a PodSet's
+// scheduling constraints: tolerations vs. node taints, node labels vs. selector,
+// and required node affinity. On exclusion it returns the reason and (for the
+// taint case) the offending taint string. This is the shared predicate used by
+// both the single-PodSet path (fillInCounts) and the generalized group packer,
+// so that generalized groups respect the same node constraints.
+func (s *TASFlavorSnapshot) leafNodeEligibility(
+	leaf *leafDomain,
+	tolerations []corev1.Toleration,
+	selector labels.Selector,
+	affinitySelector *nodeaffinity.NodeSelector,
+) (bool, nodeIneligibleReason, string) {
+	// 1. Tolerations vs node taints.
+	taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(s.log, leaf.node.Taints, tolerations, func(t *corev1.Taint) bool {
+		return t.Effect == corev1.TaintEffectNoSchedule || t.Effect == corev1.TaintEffectNoExecute
+	}, true)
+	if untolerated {
+		return false, nodeIneligibleTaint, taint.ToString()
+	}
+
+	// 2. Node labels vs compiled selector.
+	var nodeLabelSet labels.Set
+	if nodeLabels := leaf.node.Labels; nodeLabels != nil {
+		nodeLabelSet = nodeLabels
+	}
+	if selector != nil && !selector.Matches(nodeLabelSet) {
+		return false, nodeIneligibleSelector, ""
+	}
+
+	// 3. Required node affinity.
+	if affinitySelector != nil && !affinitySelector.Match(leaf.node.toNode()) {
+		return false, nodeIneligibleAffinity, ""
+	}
+	return true, nodeEligible, ""
+}
+
 // fillInCounts computes per-domain pod, slice, and leader capacities from the
 // pod requirements, then rolls those capacities up the topology tree.
 func (s *TASFlavorSnapshot) fillInCounts(requirements *topologyAssignmentPodRequirements, state *findTopologyAssignmentState) {
@@ -1670,40 +2106,25 @@ func (s *TASFlavorSnapshot) fillInCounts(requirements *topologyAssignmentPodRequ
 		state.stats.TotalNodes++
 		// Gather node level information only when the node is the lowest level of the topology
 		if s.isLowestLevelNode {
-			// 1. Check Tolerations against Node Taints
-			nodeTaints := leaf.node.Taints
-			taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(s.log, nodeTaints, requirements.tolerations, func(t *corev1.Taint) bool {
-				return t.Effect == corev1.TaintEffectNoSchedule || t.Effect == corev1.TaintEffectNoExecute
-			}, true)
-			if untolerated {
-				s.log.V(5).Info("excluding node with untolerated taint", "domainID", leaf.id, "taint", taint)
-				state.stats.Taints[taint.ToString()]++
+			eligible, reason, taint := s.leafNodeEligibility(leaf, requirements.tolerations, requirements.selector, requirements.affinitySelector)
+			if !eligible {
+				switch reason {
+				case nodeIneligibleTaint:
+					s.log.V(5).Info("excluding node with untolerated taint", "domainID", leaf.id, "taint", taint)
+					state.stats.Taints[taint]++
+				case nodeIneligibleSelector:
+					s.log.V(5).Info("excluding node that doesn't match nodeSelectors", "domainID", leaf.id, "nodeLabels", leaf.node.Labels)
+					state.stats.NodeSelector++
+				case nodeIneligibleAffinity:
+					s.log.V(5).Info("excluding node that doesn't match requiredDuringSchedulingIgnoredDuringExecution affinity", "domainID", leaf.id)
+					state.stats.Affinity++
+				}
 				continue
 			}
 
-			// 2. Check Node Labels against Compiled Selector
-			var nodeLabelSet labels.Set
-			if nodeLabels := leaf.node.Labels; nodeLabels != nil {
-				nodeLabelSet = nodeLabels
-			}
-
-			if !requirements.selector.Matches(nodeLabelSet) {
-				s.log.V(5).Info("excluding node that doesn't match nodeSelectors", "domainID", leaf.id, "nodeLabels", nodeLabelSet)
-				state.stats.NodeSelector++
-				continue
-			}
-
-			// 3. Check Node against Affinity Node Selector
-			nodeObj := leaf.node.toNode()
-			if requirements.affinitySelector != nil && !requirements.affinitySelector.Match(nodeObj) {
-				s.log.V(5).Info("excluding node that doesn't match requiredDuringSchedulingIgnoredDuringExecution affinity", "domainID", leaf.id)
-				state.stats.Affinity++
-				continue
-			}
-
-			// 4. Calculate Affinity Score
+			// Calculate Affinity Score
 			if features.Enabled(features.TASRespectNodeAffinityPreferred) && requirements.preferredSchedulingTerms != nil {
-				leaf.affinityScore += requirements.preferredSchedulingTerms.Score(nodeObj)
+				leaf.affinityScore += requirements.preferredSchedulingTerms.Score(leaf.node.toNode())
 			}
 		}
 

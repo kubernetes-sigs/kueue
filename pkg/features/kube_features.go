@@ -307,6 +307,14 @@ const (
 	// placement across deep topology hierarchies.
 	TASMultiLayerTopology featuregate.Feature = "TASMultiLayerTopology"
 
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/11953
+	// Generalize TAS PodSet groups beyond the leader-worker pair: allow groups
+	// with more than two PodSets and without the single-replica leader
+	// constraint, for the required topology case.
+	TASPodSetGroupGeneralization featuregate.Feature = "TASPodSetGroupGeneralization"
+
 	// owner: @sohankunkerkar
 	//
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/9694
@@ -615,6 +623,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	TASMultiLayerTopology: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	TASPodSetGroupGeneralization: {
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	SchedulingEquivalenceHashing: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Beta},
