@@ -185,9 +185,6 @@ const (
 	// via standard resources.requests using DeviceClass extendedResourceName.
 	KueueDRAIntegrationExtendedResource featuregate.Feature = "KueueDRAIntegrationExtendedResource"
 
-	// Deprecated: planned to be removed in 0.19. Use KueueDRAIntegrationExtendedResource instead.
-	DRAExtendedResources featuregate.Feature = "DRAExtendedResources"
-
 	// owner: @MaysaMacedo
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/7513-quota-check-strategy
 	//
@@ -553,10 +550,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	KueueDRAIntegrationExtendedResource: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
-	},
-	DRAExtendedResources: {
-		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
-		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Deprecated, LockToDefault: true}, // remove in 0.19
 	},
 
 	KueueDRARejectWorkloadsWhenDRADisabled: {
