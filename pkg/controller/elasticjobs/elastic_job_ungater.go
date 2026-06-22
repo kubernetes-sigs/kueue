@@ -132,8 +132,10 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 		return reconcile.Result{}, fmt.Errorf("building PodSet info for elastic ungater: %w", err)
 	}
 	infoByPodSet := make(map[kueue.PodSetReference]podset.PodSetInfo, len(infos))
+	flavorsByPodSet := make(map[kueue.PodSetReference]map[corev1.ResourceName]kueue.ResourceFlavorReference, len(infos))
 	for i := range infos {
 		infoByPodSet[infos[i].Name] = infos[i]
+		flavorsByPodSet[infos[i].Name] = wl.Status.Admission.PodSetAssignments[i].Flavors
 	}
 	var singleInfo *podset.PodSetInfo
 	if len(infos) == 1 {
@@ -167,13 +169,14 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 			}
 			if info, ok := infoFor(pod); ok {
 				if mergeErr := podset.Merge(&pod.ObjectMeta, &pod.Spec, info); mergeErr != nil {
-					log.V(2).Info("failed merging PodSet info before ungating; ungating without flavor injection",
-						"pod", klog.KObj(pod), "error", mergeErr)
+					log.Error(mergeErr, "failed merging PodSet info before ungating; ungating without flavor injection",
+						"pod", klog.KObj(pod))
 				} else {
-					log.V(3).Info("ungating elastic pod with assigned flavor info", "pod", klog.KObj(pod))
+					log.V(3).Info("ungating elastic pod with assigned flavor info",
+						"pod", klog.KObj(pod), "flavors", flavorsByPodSet[info.Name])
 				}
 			} else {
-				log.V(2).Info("ungating elastic pod without flavor info; no matching PodSet",
+				log.V(0).Info("ungating elastic pod without flavor info; no matching PodSet",
 					"pod", klog.KObj(pod))
 			}
 			return true, nil
