@@ -662,12 +662,9 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 	// stale-assignment check below, otherwise head replacement would never
 	// succeed and the workload would be stuck without an automatic eviction
 	// safety net.
-	var ignoreNodes map[string]struct{}
+	var ignoreNodes sets.Set[string]
 	if features.Enabled(features.TASReplaceMultipleFailedNodes) && len(wl.Status.UnhealthyNodes) > 1 {
-		ignoreNodes = make(map[string]struct{}, len(wl.Status.UnhealthyNodes)-1)
-		for _, n := range wl.Status.UnhealthyNodes[1:] {
-			ignoreNodes[n.Name] = struct{}{}
-		}
+		ignoreNodes = sets.New(wl.Status.UnhealthyNodes[1:]...)
 	}
 	if isStale, staleDomain := s.isTopologyAssignmentStaleIgnoring(existingAssignment, ignoreNodes); isStale {
 		return nil, nil, fmt.Sprintf("Cannot replace the node, because the existing topologyAssignment is invalid, as it contains the stale domain %v", staleDomain)
