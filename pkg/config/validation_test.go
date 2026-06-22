@@ -1861,6 +1861,23 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				},
 			},
 		},
+		"GangSchedulingPlacement requires SchedulerLibraryIntegration": {
+			featureGateMap: map[string]bool{
+				string(features.GangSchedulingPlacement):     true,
+				string(features.SchedulerLibraryIntegration): false,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.GangSchedulingPlacement:     false,
+				features.SchedulerLibraryIntegration: false,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "GangSchedulingPlacement requires SchedulerLibraryIntegration to be enabled",
+				},
+			},
+		},
 		"all TAS sub-features valid when TopologyAwareScheduling and TASFailedNodeReplacement enabled": {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):          true,

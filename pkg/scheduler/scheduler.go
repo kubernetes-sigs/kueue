@@ -38,6 +38,7 @@ import (
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	schedulerlibsnapshot "sigs.k8s.io/scheduler-library/pkg/snapshot"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -53,10 +54,12 @@ import (
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
+	utilpodset "sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/routine"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/util/wait"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
@@ -91,6 +94,9 @@ type Scheduler struct {
 	// schedulingCycle identifies the number of scheduling
 	// attempts since the last restart.
 	schedulingCycle int64
+
+	placementSnapshot  *schedulerlibsnapshot.ClusterSnapshot
+	placementNodeNames []string
 }
 
 type options struct {
@@ -318,15 +324,31 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	logSnapshotIfVerbose(log, snapshot)
 	log.V(2).Info("Snapshot taken", "duration", s.clock.Since(phaseStartTime))
 
-	// 3. Calculate requirements (resource flavors, borrowing) for admitting workloads.
+	// 3. Build placement snapshot for gang scheduling placement verification.
+	if features.Enabled(features.GangSchedulingPlacement) && features.Enabled(features.SchedulerLibraryIntegration) {
+		phaseStartTime = s.clock.Now()
+		if pSnap, nodeNames, err := s.buildPlacementSnapshot(ctx); err != nil {
+			log.Error(err, "Failed to build placement snapshot, skipping placement verification")
+		} else if pSnap != nil {
+			s.placementSnapshot = pSnap
+			s.placementNodeNames = nodeNames
+			log.V(2).Info("Placement snapshot built", "nodes", len(nodeNames), "duration", s.clock.Since(phaseStartTime))
+		}
+		defer func() {
+			s.placementSnapshot = nil
+			s.placementNodeNames = nil
+		}()
+	}
+
+	// 4. Calculate requirements (resource flavors, borrowing) for admitting workloads.
 	phaseStartTime = s.clock.Now()
 	entries, inadmissibleEntries := s.nominate(ctx, headWorkloads, snapshot)
 	log.V(2).Info("Nomination done", "entries", len(entries), "inadmissibleEntries", len(inadmissibleEntries), "duration", s.clock.Since(phaseStartTime))
 
-	// 4. Create iterator which returns ordered entries.
+	// 5. Create iterator which returns ordered entries.
 	iterator := makeIterator(ctx, entries, s.workloadOrdering, fairsharing.Enabled(s.fairSharing))
 
-	// 5. Admit entries, ensuring that no more than one workload gets
+	// 6. Admit entries, ensuring that no more than one workload gets
 	// admitted by a cohort (if borrowing).
 	// This is because there can be other workloads deeper in a clusterQueue whose
 	// head got admitted that should be scheduled in the cohort before the heads
@@ -674,7 +696,65 @@ func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *sch
 	assignment, targets := s.getInitialAssignments(log, wl, snap)
 	cq := snap.ClusterQueue(wl.ClusterQueue)
 	updateAssignmentForTAS(log, snap, cq, wl, &assignment, targets)
+	s.updateAssignmentForPlacement(log, wl, &assignment, snap)
 	return assignment, targets
+}
+
+func (s *Scheduler) updateAssignmentForPlacement(log logr.Logger, wl *workload.Info, assignment *flavorassigner.Assignment, snap *schdcache.Snapshot) {
+	if s.placementSnapshot == nil || assignment.RepresentativeMode() != flavorassigner.Fit {
+		return
+	}
+	for i := range assignment.PodSets {
+		if assignment.PodSets[i].TopologyAssignment != nil {
+			return
+		}
+	}
+
+	for i := range assignment.PodSets {
+		psa := &assignment.PodSets[i]
+		ps := utilpodset.FindPodSetByName(wl.Obj.Spec.PodSets, psa.Name)
+		if ps == nil {
+			continue
+		}
+
+		tmpl := ps.Template.DeepCopy()
+		applyFlavorConstraints(tmpl, psa, snap.ResourceFlavors)
+
+		results, err := s.placementSnapshot.SchedulePodsByTemplate(
+			context.Background(), log, tmpl, s.placementNodeNames, int(psa.Count),
+			schedulerlibsnapshot.NewSchedulePodsByTemplateOptions(true),
+		)
+		if err != nil {
+			log.V(3).Info("Placement check error", "podset", psa.Name, "err", err)
+			psa.Status = *flavorassigner.NewStatus(fmt.Sprintf("placement check error for podset %s: %v", psa.Name, err))
+			assignment.UpdateMode(psa.Name, flavorassigner.NoFit)
+			return
+		}
+		if len(results) < int(psa.Count) {
+			log.V(3).Info("Placement infeasible", "podset", psa.Name, "placed", len(results), "needed", psa.Count)
+			psa.Status = *flavorassigner.NewStatus(fmt.Sprintf("placement infeasible for podset %s: can place %d of %d pods", psa.Name, len(results), psa.Count))
+			assignment.UpdateMode(psa.Name, flavorassigner.NoFit)
+			return
+		}
+	}
+}
+
+func applyFlavorConstraints(
+	tmpl *corev1.PodTemplateSpec,
+	psa *flavorassigner.PodSetAssignment,
+	resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor,
+) {
+	if tmpl.Spec.NodeSelector == nil {
+		tmpl.Spec.NodeSelector = make(map[string]string)
+	}
+	for _, flvAssignment := range psa.Flavors {
+		rf, ok := resourceFlavors[flvAssignment.Name]
+		if !ok {
+			continue
+		}
+		maps.Copy(tmpl.Spec.NodeSelector, rf.Spec.NodeLabels)
+		tmpl.Spec.Tolerations = append(tmpl.Spec.Tolerations, rf.Spec.Tolerations...)
+	}
 }
 
 // getInitialAssignments computes the initial resource flavor assignment and any required preemption targets
@@ -1215,4 +1295,28 @@ func resolveFlavorIndex(wl *workload.Info, flavors []kueue.ResourceFlavorReferen
 		return -1, fmt.Errorf("flavor %s not found in ClusterQueue flavors", flavor)
 	}
 	return idx, nil
+}
+
+func (s *Scheduler) buildPlacementSnapshot(ctx context.Context) (*schedulerlibsnapshot.ClusterSnapshot, []string, error) {
+	var nodeList corev1.NodeList
+	if err := s.client.List(ctx, &nodeList); err != nil {
+		return nil, nil, fmt.Errorf("listing nodes: %w", err)
+	}
+	nodes := make([]*corev1.Node, 0, len(nodeList.Items))
+	nodeNames := make([]string, 0, len(nodeList.Items))
+	for i := range nodeList.Items {
+		node := &nodeList.Items[i]
+		if utiltas.IsNodeStatusConditionTrue(node.Status.Conditions, corev1.NodeReady) {
+			nodes = append(nodes, node)
+			nodeNames = append(nodeNames, node.Name)
+		}
+	}
+	if len(nodes) == 0 {
+		return nil, nil, nil
+	}
+	snap, err := schdcache.NewClusterSnapshotFromNodes(nodes)
+	if err != nil {
+		return nil, nil, fmt.Errorf("creating cluster snapshot: %w", err)
+	}
+	return snap, nodeNames, nil
 }

@@ -153,6 +153,12 @@ func (a *Assignment) updateMode(psName kueue.PodSetReference, mode FlavorAssignm
 	}
 }
 
+// UpdateMode updates the mode for a specific PodSet and invalidates the
+// cached representative mode.
+func (a *Assignment) UpdateMode(psName kueue.PodSetReference, mode FlavorAssignmentMode) {
+	a.updateMode(psName, mode)
+}
+
 func (a *Assignment) updateModeForTASRequests(tasRequests schdcache.WorkloadTASRequests, mode FlavorAssignmentMode) {
 	for _, reqs := range tasRequests {
 		for _, req := range reqs {

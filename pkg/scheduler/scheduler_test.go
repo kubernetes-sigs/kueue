@@ -8030,3 +8030,90 @@ func (r *workloadUpdateWatcherRecorder) NotifyWorkloadUpdate(oldWl, newWl *kueue
 		r.newWl = newWl.DeepCopy()
 	}
 }
+
+func TestApplyFlavorConstraints(t *testing.T) {
+	cases := map[string]struct {
+		tmpl            corev1.PodTemplateSpec
+		psa             flavorassigner.PodSetAssignment
+		resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
+		wantSelector    map[string]string
+		wantTolerations []corev1.Toleration
+	}{
+		"merges nodeLabels into empty NodeSelector": {
+			tmpl: corev1.PodTemplateSpec{},
+			psa: flavorassigner.PodSetAssignment{
+				Flavors: flavorassigner.ResourceAssignment{
+					corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
+						Name: "gpu-flavor",
+					},
+				},
+			},
+			resourceFlavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
+				"gpu-flavor": {
+					Spec: kueue.ResourceFlavorSpec{
+						NodeLabels: map[string]string{"gpu-type": "a100"},
+					},
+				},
+			},
+			wantSelector: map[string]string{"gpu-type": "a100"},
+		},
+		"appends flavor tolerations": {
+			tmpl: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Tolerations: []corev1.Toleration{
+						{Key: "existing", Operator: corev1.TolerationOpExists},
+					},
+				},
+			},
+			psa: flavorassigner.PodSetAssignment{
+				Flavors: flavorassigner.ResourceAssignment{
+					corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
+						Name: "spot-flavor",
+					},
+				},
+			},
+			resourceFlavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
+				"spot-flavor": {
+					Spec: kueue.ResourceFlavorSpec{
+						Tolerations: []corev1.Toleration{
+							{Key: "spot", Value: "true", Effect: corev1.TaintEffectNoSchedule},
+						},
+					},
+				},
+			},
+			wantSelector: map[string]string{},
+			wantTolerations: []corev1.Toleration{
+				{Key: "existing", Operator: corev1.TolerationOpExists},
+				{Key: "spot", Value: "true", Effect: corev1.TaintEffectNoSchedule},
+			},
+		},
+		"skips unknown flavor": {
+			tmpl: corev1.PodTemplateSpec{},
+			psa: flavorassigner.PodSetAssignment{
+				Flavors: flavorassigner.ResourceAssignment{
+					corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
+						Name: "nonexistent",
+					},
+				},
+			},
+			resourceFlavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{},
+			wantSelector:    map[string]string{},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			tmpl := tc.tmpl.DeepCopy()
+			applyFlavorConstraints(tmpl, &tc.psa, tc.resourceFlavors)
+
+			if diff := cmp.Diff(tc.wantSelector, tmpl.Spec.NodeSelector); diff != "" {
+				t.Errorf("NodeSelector mismatch (-want +got):\n%s", diff)
+			}
+			if tc.wantTolerations != nil {
+				if diff := cmp.Diff(tc.wantTolerations, tmpl.Spec.Tolerations); diff != "" {
+					t.Errorf("Tolerations mismatch (-want +got):\n%s", diff)
+				}
+			}
+		})
+	}
+}

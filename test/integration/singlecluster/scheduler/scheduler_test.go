@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -3335,5 +3336,151 @@ var _ = ginkgo.Describe("Scheduler with AdmissionGatedBy", ginkgo.Label("admissi
 
 		ginkgo.By("Verifying the workload is admitted after ungating")
 		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+	})
+
+	ginkgo.It("should admit workload when GangSchedulingPlacement verifies pods can be placed", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.GangSchedulingPlacement, true)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.SchedulerLibraryIntegration, true)
+
+		nodes := []corev1.Node{
+			*testingnode.MakeNode("gang-fit-node").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:  resource.MustParse("4"),
+					corev1.ResourcePods: resource.MustParse("10"),
+				}).
+				Ready().
+				Obj(),
+		}
+		util.CreateNodesWithStatus(ctx, k8sClient, nodes)
+		defer func() {
+			for i := range nodes {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, &nodes[i], true)
+			}
+		}()
+
+		wl := utiltestingapi.MakeWorkload("gang-fit-wl", ns.Name).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Request(corev1.ResourceCPU, "1").
+			Obj()
+		util.MustCreate(ctx, k8sClient, wl)
+
+		util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, clusterQueue.Name, wl)
+	})
+
+	ginkgo.It("should reject multi-PodSet workload when one PodSet fails placement (gang)", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.GangSchedulingPlacement, true)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.SchedulerLibraryIntegration, true)
+
+		nodes := []corev1.Node{
+			*testingnode.MakeNode("gang-multi-node").
+				Label("node-group", "gang-multi").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:  resource.MustParse("8"),
+					corev1.ResourcePods: resource.MustParse("10"),
+				}).
+				Ready().
+				Obj(),
+		}
+		util.CreateNodesWithStatus(ctx, k8sClient, nodes)
+		defer func() {
+			for i := range nodes {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, &nodes[i], true)
+			}
+		}()
+
+		gangFlavor := utiltestingapi.MakeResourceFlavor("gang-multi-flavor").
+			NodeLabel("node-group", "gang-multi").Obj()
+		util.MustCreate(ctx, k8sClient, gangFlavor)
+		defer util.ExpectObjectToBeDeleted(ctx, k8sClient, gangFlavor, true)
+
+		gangCQ := utiltestingapi.MakeClusterQueue("gang-multi-cq").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("gang-multi-flavor").Resource(corev1.ResourceCPU, "16").Obj(),
+			).Obj()
+		util.MustCreate(ctx, k8sClient, gangCQ)
+		defer util.ExpectObjectToBeDeleted(ctx, k8sClient, gangCQ, true)
+		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, gangCQ)
+
+		gangLQ := utiltestingapi.MakeLocalQueue("gang-multi-lq", ns.Name).ClusterQueue(gangCQ.Name).Obj()
+		util.MustCreate(ctx, k8sClient, gangLQ)
+
+		wl := utiltestingapi.MakeWorkload("gang-multi-wl", ns.Name).
+			Queue(kueue.LocalQueueName(gangLQ.Name)).
+			PodSets(
+				*utiltestingapi.MakePodSet("workers", 2).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+				*utiltestingapi.MakePodSet("driver", 1).
+					Request(corev1.ResourceCPU, "1").
+					NodeSelector(map[string]string{"nonexistent": "label"}).
+					Obj(),
+			).
+			Obj()
+		util.MustCreate(ctx, k8sClient, wl)
+
+		gomega.Eventually(func(g gomega.Gomega) {
+			updatedWl := &kueue.Workload{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), updatedWl)).To(gomega.Succeed())
+			cond := meta.FindStatusCondition(updatedWl.Status.Conditions, kueue.WorkloadQuotaReserved)
+			g.Expect(cond).NotTo(gomega.BeNil())
+			g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+			g.Expect(cond.Message).To(gomega.ContainSubstring("placement infeasible for podset driver"))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("should reject workload when GangSchedulingPlacement finds node affinity matches no nodes", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.GangSchedulingPlacement, true)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.SchedulerLibraryIntegration, true)
+
+		nodes := []corev1.Node{
+			*testingnode.MakeNode("gang-nofit-node").
+				Label("node-group", "gang-nofit").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:  resource.MustParse("4"),
+					corev1.ResourcePods: resource.MustParse("10"),
+				}).
+				Ready().
+				Obj(),
+		}
+		util.CreateNodesWithStatus(ctx, k8sClient, nodes)
+		defer func() {
+			for i := range nodes {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, &nodes[i], true)
+			}
+		}()
+
+		gangFlavor := utiltestingapi.MakeResourceFlavor("gang-nofit-flavor").
+			NodeLabel("node-group", "gang-nofit").Obj()
+		util.MustCreate(ctx, k8sClient, gangFlavor)
+		defer util.ExpectObjectToBeDeleted(ctx, k8sClient, gangFlavor, true)
+
+		gangCQ := utiltestingapi.MakeClusterQueue("gang-nofit-cq").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("gang-nofit-flavor").Resource(corev1.ResourceCPU, "8").Obj(),
+			).Obj()
+		util.MustCreate(ctx, k8sClient, gangCQ)
+		defer util.ExpectObjectToBeDeleted(ctx, k8sClient, gangCQ, true)
+		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, gangCQ)
+
+		gangLQ := utiltestingapi.MakeLocalQueue("gang-nofit-lq", ns.Name).ClusterQueue(gangCQ.Name).Obj()
+		util.MustCreate(ctx, k8sClient, gangLQ)
+
+		wl := utiltestingapi.MakeWorkload("gang-nofit-wl", ns.Name).
+			Queue(kueue.LocalQueueName(gangLQ.Name)).
+			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+				Request(corev1.ResourceCPU, "1").
+				NodeSelector(map[string]string{"nonexistent-label": "value"}).
+				Obj()).
+			Obj()
+		util.MustCreate(ctx, k8sClient, wl)
+
+		gomega.Eventually(func(g gomega.Gomega) {
+			updatedWl := &kueue.Workload{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), updatedWl)).To(gomega.Succeed())
+			cond := meta.FindStatusCondition(updatedWl.Status.Conditions, kueue.WorkloadQuotaReserved)
+			g.Expect(cond).NotTo(gomega.BeNil())
+			g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+			g.Expect(cond.Message).To(gomega.ContainSubstring("placement infeasible"))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 })

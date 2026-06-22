@@ -877,6 +877,7 @@ k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextension
 k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1/fake
 k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1beta1
 k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1beta1/fake
+k8s.io/apiextensions-apiserver/pkg/features
 # k8s.io/apimachinery v0.36.2
 ## explicit; go 1.26.0
 k8s.io/apimachinery/pkg/api/equality
@@ -1546,6 +1547,7 @@ k8s.io/component-base/cli/flag
 k8s.io/component-base/compatibility
 k8s.io/component-base/config
 k8s.io/component-base/config/v1alpha1
+k8s.io/component-base/config/validation
 k8s.io/component-base/featuregate
 k8s.io/component-base/featuregate/testing
 k8s.io/component-base/logs
@@ -1570,12 +1572,31 @@ k8s.io/component-base/version
 k8s.io/component-base/zpages/features
 # k8s.io/component-helpers v0.36.2
 ## explicit; go 1.26.0
+k8s.io/component-helpers/node/topology
+k8s.io/component-helpers/nodedeclaredfeatures
+k8s.io/component-helpers/nodedeclaredfeatures/features
+k8s.io/component-helpers/nodedeclaredfeatures/features/extendwebsocketstokubelet
+k8s.io/component-helpers/nodedeclaredfeatures/features/inplacepodresize
+k8s.io/component-helpers/nodedeclaredfeatures/features/restartallcontainers
+k8s.io/component-helpers/nodedeclaredfeatures/features/usernamespaceshostnetwork
+k8s.io/component-helpers/nodedeclaredfeatures/types
 k8s.io/component-helpers/resource
 k8s.io/component-helpers/scheduling/corev1
 k8s.io/component-helpers/scheduling/corev1/nodeaffinity
+# k8s.io/controller-manager v0.36.0
+## explicit; go 1.26.0
+k8s.io/controller-manager/pkg/features
 # k8s.io/dynamic-resource-allocation v0.36.2
 ## explicit; go 1.26.0
+k8s.io/dynamic-resource-allocation/api
 k8s.io/dynamic-resource-allocation/cel
+k8s.io/dynamic-resource-allocation/resourceclaim
+k8s.io/dynamic-resource-allocation/structured
+k8s.io/dynamic-resource-allocation/structured/internal
+k8s.io/dynamic-resource-allocation/structured/internal/experimental
+k8s.io/dynamic-resource-allocation/structured/internal/incubating
+k8s.io/dynamic-resource-allocation/structured/internal/stable
+k8s.io/dynamic-resource-allocation/structured/schedulerapi
 # k8s.io/gengo/v2 v2.0.0-20250922181213-ec3ebc5fd46b
 ## explicit; go 1.23
 k8s.io/gengo/v2
@@ -1630,6 +1651,10 @@ k8s.io/kube-openapi/pkg/validation/errors
 k8s.io/kube-openapi/pkg/validation/spec
 k8s.io/kube-openapi/pkg/validation/strfmt
 k8s.io/kube-openapi/pkg/validation/strfmt/bson
+# k8s.io/kube-scheduler v0.36.0
+## explicit; go 1.26.0
+k8s.io/kube-scheduler/extender/v1
+k8s.io/kube-scheduler/framework
 # k8s.io/kubectl v0.36.2
 ## explicit; go 1.26.0
 k8s.io/kubectl/pkg/cmd/get
@@ -1642,6 +1667,32 @@ k8s.io/kubectl/pkg/util/openapi
 k8s.io/kubectl/pkg/util/templates
 k8s.io/kubectl/pkg/util/term
 k8s.io/kubectl/pkg/validation
+# k8s.io/kubernetes v1.36.2
+## explicit; go 1.26.0
+k8s.io/kubernetes/pkg/api/v1/pod
+k8s.io/kubernetes/pkg/apis/core
+k8s.io/kubernetes/pkg/apis/core/helper
+k8s.io/kubernetes/pkg/apis/core/v1/helper
+k8s.io/kubernetes/pkg/features
+k8s.io/kubernetes/pkg/scheduler/apis/config
+k8s.io/kubernetes/pkg/scheduler/apis/config/validation
+k8s.io/kubernetes/pkg/scheduler/backend/api_dispatcher
+k8s.io/kubernetes/pkg/scheduler/backend/cache
+k8s.io/kubernetes/pkg/scheduler/framework
+k8s.io/kubernetes/pkg/scheduler/framework/api_calls
+k8s.io/kubernetes/pkg/scheduler/framework/parallelize
+k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultbinder
+k8s.io/kubernetes/pkg/scheduler/framework/plugins/feature
+k8s.io/kubernetes/pkg/scheduler/framework/plugins/helper
+k8s.io/kubernetes/pkg/scheduler/framework/plugins/names
+k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeaffinity
+k8s.io/kubernetes/pkg/scheduler/framework/plugins/queuesort
+k8s.io/kubernetes/pkg/scheduler/framework/plugins/tainttoleration
+k8s.io/kubernetes/pkg/scheduler/framework/plugins/volumebinding/metrics
+k8s.io/kubernetes/pkg/scheduler/framework/runtime
+k8s.io/kubernetes/pkg/scheduler/metrics
+k8s.io/kubernetes/pkg/scheduler/profile
+k8s.io/kubernetes/pkg/scheduler/util
 # k8s.io/metrics v0.36.2
 ## explicit; go 1.26.0
 k8s.io/metrics/pkg/apis/metrics
@@ -1836,6 +1887,9 @@ sigs.k8s.io/lws/api/leaderworkerset/v1
 ## explicit; go 1.18
 sigs.k8s.io/randfill
 sigs.k8s.io/randfill/bytesource
+# sigs.k8s.io/scheduler-library v0.0.0-00010101000000-000000000000 => github.com/vshkrabkov/scheduler-library v0.0.0-20260511220521-d663684c55d1
+## explicit; go 1.26.0
+sigs.k8s.io/scheduler-library/pkg/snapshot
 # sigs.k8s.io/scheduler-plugins v0.34.4-devel-sg
 ## explicit; go 1.24.0
 sigs.k8s.io/scheduler-plugins/apis/scheduling
@@ -1857,3 +1911,4 @@ sigs.k8s.io/yaml/kyaml
 volcano.sh/apis/pkg/apis/scheduling
 volcano.sh/apis/pkg/apis/scheduling/v1beta1
 volcano.sh/apis/pkg/client/applyconfiguration/scheduling/v1beta1
+# sigs.k8s.io/scheduler-library => github.com/vshkrabkov/scheduler-library v0.0.0-20260511220521-d663684c55d1
