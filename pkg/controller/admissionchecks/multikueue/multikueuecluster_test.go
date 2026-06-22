@@ -976,7 +976,9 @@ func TestRemoteClientGC(t *testing.T) {
 				*baseJobBuilder.DeepCopy(),
 			},
 			workersJobs: []batchv1.Job{
-				*baseJobBuilder.DeepCopy(),
+				*baseJobBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
 			},
 		},
 		"unrelated workers and jobs are not deleted": {

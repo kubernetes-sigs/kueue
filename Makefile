@@ -167,7 +167,7 @@ generate-mocks: mockgen ## Generate mockgen mocks
 		-destination=$(MOCKS_DIR)/controller/jobframework/interface.go \
 		-copyright_file hack/boilerplate.txt \
 		-package mocks \
-		sigs.k8s.io/kueue/pkg/controller/jobframework GenericJob,JobWithCustomValidation,JobWithManagedBy,JobWithCustomWorkloadActivation,JobWithCustomAnnotations
+		sigs.k8s.io/kueue/pkg/controller/jobframework GenericJob,JobWithCustomValidation,JobWithManagedBy,JobWithCustomWorkloadActivation,JobWithCustomAnnotations,MultiKueueAdapter
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.

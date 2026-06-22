@@ -552,4 +552,53 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
+
+	ginkgo.It("Should not delete a pre-existing worker-local Job with the same NamespacedName", func() {
+		// Regression test for https://github.com/kubernetes-sigs/kueue/issues/11849.
+		// When a MultiKueue Job is dispatched to a worker cluster that already has a Job with
+		// the same NamespacedName (not owned by MultiKueue), the pre-existing Job must not be
+		// deleted by DeleteRemoteObject.
+		const jobName = "sample-job"
+
+		var preExistingUID types.UID
+		ginkgo.By("creating a pre-existing Job on worker1 not managed by MultiKueue", func() {
+			preExistingJob := testingjob.MakeJob(jobName, worker1Ns.Name).Obj()
+			util.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, preExistingJob)
+			preExistingUID = preExistingJob.UID
+		})
+
+		var managerJob *batchv1.Job
+		ginkgo.By("creating a MultiKueue Job on the manager cluster with the same NamespacedName", func() {
+			managerJob = testingjob.MakeJob(jobName, managerNs.Name).
+				ManagedBy(kueue.MultiKueueControllerName).
+				Queue(kueue.LocalQueueName(managerMkLq.Name)).
+				Obj()
+			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerJob)
+		})
+
+		wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(managerJob.Name, managerJob.UID), Namespace: managerNs.Name}
+
+		ginkgo.By("setting workload quota reservation in the management cluster", func() {
+			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerMkCq.Name)).Obj()
+			util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
+		})
+
+		ginkgo.By("waiting for the remote workload to appear on worker1, confirming reconcileGroup has run", func() {
+			remoteWl := &kueue.Workload{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, remoteWl)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("verifying the pre-existing worker-local Job was not deleted by MultiKueue", func() {
+			workerJob := &batchv1.Job{}
+			gomega.Expect(worker1TestCluster.client.Get(
+				worker1TestCluster.ctx,
+				types.NamespacedName{Name: jobName, Namespace: worker1Ns.Name},
+				workerJob,
+			)).To(gomega.Succeed())
+			gomega.Expect(workerJob.UID).To(gomega.Equal(preExistingUID),
+				"pre-existing worker-local Job must not be deleted and recreated by MultiKueue's DeleteRemoteObject")
+		})
+	})
 })
