@@ -938,6 +938,25 @@ const (
 	// WorkloadQuotaReserved means that the Workload has reserved quota a ClusterQueue.
 	WorkloadQuotaReserved = "QuotaReserved"
 
+	// Reasons for the WorkloadQuotaReserved condition.
+
+	// WorkloadQuotaReservedReasonNoMatchingFlavor indicates that the workload cannot be scheduled
+	// because no resource flavor matches its nodeSelector or taints.
+	WorkloadQuotaReservedReasonNoMatchingFlavor = "NoMatchingFlavor"
+
+	// WorkloadQuotaReservedReasonWaitingForQuota indicates that the workload is waiting for
+	// sufficient unused quota to become available in the ClusterQueue/Cohort.
+	WorkloadQuotaReservedReasonWaitingForQuota = "WaitingForQuota"
+
+	// WorkloadQuotaReservedReasonExceedsMaxQuota indicates that the workload requests resources
+	// exceeding the maximum capacity limits of the ClusterQueue or Cohort.
+	// This also includes exceeding ClusterQueue nominal + borrowingLimit constraints.
+	WorkloadQuotaReservedReasonExceedsMaxQuota = "ExceedsMaxQuota"
+
+	// WorkloadQuotaReservedReasonTopologyPlacementFailed indicates that the workload has topology
+	// requirements that cannot be satisfied with the current cluster topology usage.
+	WorkloadQuotaReservedReasonTopologyPlacementFailed = "TopologyPlacementFailed"
+
 	// WorkloadFinished means that the workload associated to the
 	// ResourceClaim finished running (failed or succeeded).
 	WorkloadFinished = "Finished"
