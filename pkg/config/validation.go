@@ -647,6 +647,8 @@ func LoadAndValidateFeatureGates(featureGateCLI string, featureGateMap map[strin
 		}
 	}
 
+	allErrs = append(allErrs, validateFeatureGateDependency(features.GangSchedulingPlacement, features.SchedulerLibraryIntegration)...)
+
 	allErrs = append(allErrs, validateDRAFeatureGateDependencies()...)
 
 	return allErrs

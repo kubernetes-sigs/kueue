@@ -445,6 +445,19 @@ const (
 	// UnadmittedWorkloadsObservability enables granular Prometheus metrics and
 	// updates status reasons for QuotaReserved/Admitted conditions to use tiered reasons.
 	UnadmittedWorkloadsObservability featuregate.Feature = "UnadmittedWorkloadsObservability"
+
+	// owner: @kshalot
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/8871
+	// Enable integration of the https://github.com/kubernetes-sigs/scheduler-library.
+	SchedulerLibraryIntegration featuregate.Feature = "SchedulerLibraryIntegration"
+
+	// owner: @sohankunkerkar
+	//
+	// Verify placement feasibility (node affinity, taints) for all PodSets
+	// before admitting a workload, providing placement-level gang scheduling.
+	// Requires SchedulerLibraryIntegration to be enabled.
+	GangSchedulingPlacement featuregate.Feature = "GangSchedulingPlacement"
 )
 
 func init() {
@@ -692,6 +705,14 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	UnadmittedWorkloadsObservability: {
 		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Beta},
+	},
+
+	SchedulerLibraryIntegration: {
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	GangSchedulingPlacement: {
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 
