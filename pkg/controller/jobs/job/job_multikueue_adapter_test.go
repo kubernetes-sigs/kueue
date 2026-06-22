@@ -639,9 +639,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 				key:          client.ObjectKeyFromObject(newJob().Obj()),
 				workloadName: jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration("test", "", gvk, 0),
 			},
-			// localJob/remoteJob left nil: the deferred path patches the local
-			// JobSuspended condition with a wall-clock timestamp not worth asserting
-			// here. This case guards the deferred flag, not the patched objects.
+			// localJob/remoteJob left nil: only the deferred flag is asserted here.
 			want: want{
 				deferred: true,
 			},
