@@ -469,7 +469,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			queueOptions = append(queueOptions, workload.WithPreprocessedDRAResources(draResources, replacedExtendedResources))
 		}
 
-		if workload.IsAdmissible(&wl) {
+		if workload.IsAdmissible(&wl) && !workload.IsRequeueHeld(&wl) {
 			if err := r.queues.AddOrUpdateWorkload(log, wl.DeepCopy(), queueOptions...); err != nil {
 				log.V(2).Info("Failed to add DRA workload to queue", "error", err)
 				return ctrl.Result{}, err
@@ -1210,7 +1210,7 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 		return true
 	}
 
-	if workload.IsAdmissible(e.Object) {
+	if workload.IsAdmissible(e.Object) && !workload.IsRequeueHeld(wlCopy) {
 		if err := r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
 			log.V(2).Info("ignored an error for now", "error", err)
 		}
@@ -1308,6 +1308,8 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		})
 	case prevStatus == workload.StatusPending && status == workload.StatusPending:
 		switch {
+		case requeueHeld:
+			log.V(2).Info("Skipping queue update for requeue-held workload")
 		case dra.NeedsDRAReconcile(e.ObjectNew, r.draBackedResources):
 			log.V(2).Info("Skipping queue update for DRA workload - handled in Reconcile")
 		default:
@@ -1575,7 +1577,7 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, q
 			continue
 		}
 
-		if workload.IsAdmissible(wlCopy) {
+		if workload.IsAdmissible(wlCopy) && !workload.IsRequeueHeld(wlCopy) {
 			if err = h.r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
 				log.V(2).Info("ignored an error for now", "error", err)
 			}
@@ -1781,7 +1783,7 @@ func (h *deviceClassHandler) reconcileWorkloads(ctx context.Context, q workqueue
 		for i := range lst.Items {
 			w := &lst.Items[i]
 			log.V(3).Info("Requeuing workload due to DeviceClass change", "workload", klog.KObj(w), "resource", name)
-			if !dra.NeedsDRAReconcile(w, h.r.draBackedResources) && workload.IsAdmissible(w) {
+			if !dra.NeedsDRAReconcile(w, h.r.draBackedResources) && workload.IsAdmissible(w) && !workload.IsRequeueHeld(w) {
 				wlCopy := w.DeepCopy()
 				workload.AdjustResources(ctx, h.r.client, wlCopy)
 				if err := h.r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
