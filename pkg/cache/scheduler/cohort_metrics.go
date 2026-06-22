@@ -18,9 +18,11 @@ package scheduler
 
 import (
 	"maps"
+	"math"
 	"slices"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 
@@ -37,6 +39,7 @@ type cohortMetricPoint struct {
 	flavorResource  resources.FlavorResource
 	quotaQty        int64
 	reservationsQty int64
+	borrowingLimit  *float64
 }
 
 func (c *Cache) RecordCohortMetrics(log logr.Logger, cohortName kueue.CohortReference) {
@@ -101,12 +104,18 @@ func (c *Cache) collectCohortMetricPoints(cohortName kueue.CohortReference, simu
 			ancestorSubtreeReservations = ancestorSubtreeReservations.Sub(chSubtreeReservations)
 		}
 
-		for fr := range flavorResourceKeys(ancestorSubtreeQuota, ancestorSubtreeReservations) {
+		for fr := range flavorResourceKeys(ancestorSubtreeQuota, ancestorSubtreeReservations, ancestor.resourceNode.Quotas) {
+			var borrowingLimit *float64
+			if quota, found := ancestor.resourceNode.Quotas[fr]; found {
+				value := quotaBorrowingLimitValue(fr.Resource, quota.BorrowingLimit)
+				borrowingLimit = &value
+			}
 			points = append(points, cohortMetricPoint{
 				cohortName:      ancestor.Name,
 				flavorResource:  fr,
 				quotaQty:        ancestorSubtreeQuota[fr].Int64(),
 				reservationsQty: ancestorSubtreeReservations[fr].Int64(),
+				borrowingLimit:  borrowingLimit,
 			})
 		}
 	}
@@ -117,11 +126,19 @@ func (c *Cache) withCohortLogger(log logr.Logger, cohortName kueue.CohortReferen
 	return log.WithValues("cohort", cohortName)
 }
 
-func flavorResourceKeys(quota, reservations resources.FlavorResourceQuantities) sets.Set[resources.FlavorResource] {
+func flavorResourceKeys(quota, reservations resources.FlavorResourceQuantities, ownQuotas map[resources.FlavorResource]ResourceQuota) sets.Set[resources.FlavorResource] {
 	keys := sets.New[resources.FlavorResource]()
 	keys.Insert(slices.Collect(maps.Keys(quota))...)
 	keys.Insert(slices.Collect(maps.Keys(reservations))...)
+	keys.Insert(slices.Collect(maps.Keys(ownQuotas))...)
 	return keys
+}
+
+func quotaBorrowingLimitValue(resource corev1.ResourceName, borrowingLimit *resources.Amount) float64 {
+	if borrowingLimit == nil || borrowingLimit.Equal(resources.Unlimited) {
+		return math.Inf(1)
+	}
+	return resourceFloat(resource, borrowingLimit.Int64())
 }
 
 func (c *Cache) applyCohortMetricPoint(p cohortMetricPoint) {
@@ -138,6 +155,12 @@ func (c *Cache) applyCohortMetricPoint(p cohortMetricPoint) {
 		metrics.ClearCohortSubtreeResourceReservations(p.cohortName, flavor, resource)
 	} else {
 		metrics.ReportCohortSubtreeResourceReservations(p.cohortName, flavor, resource, resourceFloat(resource, p.reservationsQty), c.customLabels.CohortGet(p.cohortName), c.roleTracker)
+	}
+
+	if p.borrowingLimit == nil {
+		metrics.ClearCohortSubtreeBorrowingLimit(p.cohortName, flavor, resource)
+	} else {
+		metrics.ReportCohortSubtreeBorrowingLimit(p.cohortName, flavor, resource, *p.borrowingLimit, c.customLabels.CohortGet(p.cohortName), c.roleTracker)
 	}
 }
 
