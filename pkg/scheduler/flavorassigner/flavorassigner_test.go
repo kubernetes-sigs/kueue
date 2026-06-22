@@ -5238,6 +5238,7 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 		siblingCQUsage     map[kueue.ClusterQueueReference]resources.FlavorResourceQuantities
 		replaceWl          *workload.Info
 		topologies         []*kueue.Topology
+		nodes              []corev1.Node
 		allowedFlavors     []kueue.ResourceFlavorReference
 		featureGates       map[featuregate.Feature]bool
 		simulationResult   map[resources.FlavorResource]simulationResultForFlavor
@@ -5390,6 +5391,13 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 			topologies: []*kueue.Topology{
 				utiltestingapi.MakeTopology("topology-tas").Levels("rack").Obj(),
 			},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("node-tas").
+					Label("rack", "rack-1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m")}).
+					Ready().
+					Obj(),
+			},
 			podSet: *utiltestingapi.MakePodSet("main", 1).
 				Request(corev1.ResourceCPU, "1").
 				RequiredTopologyRequest("rack").
@@ -5409,6 +5417,13 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 			cq:              tasCQ,
 			topologies: []*kueue.Topology{
 				utiltestingapi.MakeTopology("topology-tas").Levels("rack").Obj(),
+			},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("node-tas").
+					Label("rack", "rack-1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m")}).
+					Ready().
+					Obj(),
 			},
 			podSet: *utiltestingapi.MakePodSet("main", 1).
 				Request(corev1.ResourceCPU, "3").
@@ -5430,6 +5445,13 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 			cq:              tasCQ,
 			topologies: []*kueue.Topology{
 				utiltestingapi.MakeTopology("topology-tas").Levels("rack").Obj(),
+			},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("node-tas").
+					Label("rack", "rack-1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m")}).
+					Ready().
+					Obj(),
 			},
 			podSet: *utiltestingapi.MakePodSet("main", 1).
 				Request(corev1.ResourceCPU, "1").
@@ -5605,6 +5627,9 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 			}
 			for _, topology := range tc.topologies {
 				cache.AddOrUpdateTopology(log, topology)
+			}
+			for i := range tc.nodes {
+				cache.TASCache().SyncNode(&tc.nodes[i])
 			}
 			snapshot, err := cache.Snapshot(ctx)
 			if err != nil {
