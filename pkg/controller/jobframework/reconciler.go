@@ -27,6 +27,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/validate/content"
@@ -619,10 +620,77 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
+	// workload is admitted. For elastic (workload-slice-enabled) jobs, ensure
+	// the parent's PodTemplate carries the admitted PodSetInfo so that future
+	// pods (e.g. autoscaler-created) inherit flavor info without relying on
+	// per-pod injection by the ElasticJobUngater. Existing gated pods that
+	// predate this patch are still handled per-pod by the ungater; Merge is
+	// idempotent for pods that already have the info.
+	if WorkloadSliceEnabled(job) {
+		if err := r.ensureElasticPodSetInfoInjected(ctx, job, object, wl, log); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
+
 	// workload is admitted and job is running, nothing to do.
-	// For elastic jobs, pod ungating is handled by the ElasticJobUngater controller.
 	log.V(3).Info("Job running with admitted workload, nothing to do")
 	return ctrl.Result{}, nil
+}
+
+// ensureElasticPodSetInfoInjected patches the parent job's PodTemplate with the
+// admitted PodSetInfo when it differs from the current workload assignment.
+func (r *JobReconciler) ensureElasticPodSetInfoInjected(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload, log logr.Logger) error {
+	jobPodSets, err := JobPodSets(ctx, job, r.client)
+	if err != nil {
+		return fmt.Errorf("getting PodSets for elastic job: %w", err)
+	}
+	runningPodSets := expectedRunningPodSets(ctx, r.client, wl)
+	// Remove the elastic gate only from desired state. Keeping it in jobPodSets
+	// makes a still-gated owner template differ and trigger injection.
+	for i := range runningPodSets {
+		runningPodSets[i].Template.Spec.SchedulingGates = withoutElasticJobSchedulingGate(runningPodSets[i].Template.Spec.SchedulingGates)
+	}
+	if runningPodSets != nil && podSetInfoFieldsEqual(jobPodSets, runningPodSets) {
+		return nil
+	}
+
+	log.V(2).Info("Injecting PodSet info into elastic job template after admission")
+	if err := r.startJob(ctx, job, object, wl); err != nil {
+		log.Error(err, "Starting elastic job after admission")
+		if podset.IsPermanent(err) {
+			errUpdateStatus := workload.Finish(ctx, r.client, wl, FailedToStartFinishedReason, err.Error(), r.clock)
+			if errUpdateStatus != nil {
+				log.Error(errUpdateStatus, "Updating workload status on elastic start failure", "err", err)
+			}
+			return errUpdateStatus
+		}
+		return err
+	}
+	return nil
+}
+
+func podSetInfoFieldsEqual(a, b []kueue.PodSet) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Name != b[i].Name ||
+			!apiequality.Semantic.DeepEqual(a[i].Template.Annotations, b[i].Template.Annotations) ||
+			!apiequality.Semantic.DeepEqual(a[i].Template.Labels, b[i].Template.Labels) ||
+			!apiequality.Semantic.DeepEqual(a[i].Template.Spec.NodeSelector, b[i].Template.Spec.NodeSelector) ||
+			!apiequality.Semantic.DeepEqual(a[i].Template.Spec.Tolerations, b[i].Template.Spec.Tolerations) ||
+			!apiequality.Semantic.DeepEqual(a[i].Template.Spec.SchedulingGates, b[i].Template.Spec.SchedulingGates) {
+			return false
+		}
+	}
+	return true
+}
+
+func withoutElasticJobSchedulingGate(gates []corev1.PodSchedulingGate) []corev1.PodSchedulingGate {
+	return slices.Pick(gates, func(gate *corev1.PodSchedulingGate) bool {
+		return gate.Name != kueue.ElasticJobSchedulingGate
+	})
 }
 
 // loadJob retrieves and loads the specified job resource into memory.
@@ -1297,7 +1365,9 @@ func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job Generi
 	return wl, nil
 }
 
-// startJob will unsuspend the job, and also inject the node affinity.
+// startJob unsuspends the job and applies its admitted PodSetInfo. For
+// workload-slicing jobs, it first removes the elastic scheduling gate from the
+// canonical PodSets so newly created pods can start without per-pod ungating.
 func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload) error {
 	info, err := GetPodSetsInfoFromStatus(ctx, r.client, wl)
 	if err != nil {
@@ -1328,6 +1398,15 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 		}
 	} else {
 		if err := clientutil.Patch(ctx, r.client, object, func() (bool, error) {
+			if WorkloadSliceEnabled(job) {
+				// Workload PodSets are canonical for PodSetInfo-managed fields. Restoring
+				// them intentionally replaces out-of-band changes to those fields.
+				restoreInfo := GetPodSetsInfoFromWorkload(wl)
+				for i := range restoreInfo {
+					restoreInfo[i].SchedulingGates = withoutElasticJobSchedulingGate(restoreInfo[i].SchedulingGates)
+				}
+				job.RestorePodSetsInfo(restoreInfo)
+			}
 			return true, job.RunWithPodSetsInfo(ctx, r.client, info)
 		}); err != nil {
 			return err
@@ -1478,6 +1557,14 @@ func prepareWorkloadSlice(ctx context.Context, clnt client.Client, job GenericJo
 	case 1:
 		// Scale-up event - link to old slice and carry origin name.
 		oldSlice := workloadSlices[0]
+		desiredCounts := workload.ExtractPodSetCountsFromWorkload(wl)
+		oldCounts := workload.ExtractPodSetCountsFromWorkload(&oldSlice)
+		if desiredCounts.HasSamePodSetKeys(oldCounts) {
+			// The old slice retains the user-authored PodSet templates. The job's
+			// templates may contain runtime data from its current admission.
+			wl.Spec.PodSets = oldSlice.DeepCopy().Spec.PodSets
+			workload.ApplyPodSetCounts(wl, desiredCounts)
+		}
 		metav1.SetMetaDataAnnotation(&wl.ObjectMeta, workloadslicing.WorkloadSliceReplacementFor, string(workload.Key(&oldSlice)))
 		originName := oldSlice.Annotations[kueue.WorkloadSliceNameAnnotation]
 		if originName == "" {

@@ -697,10 +697,16 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 
 var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices support", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
-		ns             *corev1.Namespace
-		resourceFlavor *kueue.ResourceFlavor
-		clusterQueue   *kueue.ClusterQueue
-		localQueue     *kueue.LocalQueue
+		ns               *corev1.Namespace
+		resourceFlavor   *kueue.ResourceFlavor
+		clusterQueue     *kueue.ClusterQueue
+		localQueue       *kueue.LocalQueue
+		flavorToleration = corev1.Toleration{
+			Key:      "dedicated",
+			Operator: corev1.TolerationOpEqual,
+			Value:    "elastic",
+			Effect:   corev1.TaintEffectNoSchedule,
+		}
 	)
 	cpuNominalQuota := 5
 
@@ -715,7 +721,10 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
-		resourceFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
+		resourceFlavor = utiltestingapi.MakeResourceFlavor("default").
+			NodeLabel(instanceKey, "elastic").
+			Toleration(flavorToleration).
+			Obj()
 		util.MustCreate(ctx, k8sClient, resourceFlavor)
 
 		clusterQueue = utiltestingapi.MakeClusterQueue("default").
@@ -734,6 +743,79 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+	})
+
+	ginkgo.It("Should inject ResourceFlavor info into an already-running elastic RayCluster", func() {
+		ginkgo.By("holding the ClusterQueue before creating the RayCluster")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).Should(gomega.Succeed())
+			clusterQueue.Spec.StopPolicy = ptr.To(kueue.Hold)
+			g.Expect(k8sClient.Update(ctx, clusterQueue)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).Should(gomega.Succeed())
+			g.Expect(apimeta.IsStatusConditionFalse(clusterQueue.Status.Conditions, kueue.ClusterQueueActive)).Should(gomega.BeTrue())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		testRayCluster := testingraycluster.MakeCluster("flavor-injection", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Queue(localQueue.Name).
+			Request(rayv1.HeadNode, corev1.ResourceCPU, "1").
+			RequestWorkerGroup(corev1.ResourceCPU, "1").
+			WithEnableAutoscaling(new(true)).
+			ScaleFirstWorkerGroup(1).
+			Obj()
+		// Model the pre-admission state explicitly: elastic owner templates are
+		// gated until their Workload is admitted.
+		elasticGate := corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}
+		testRayCluster.Spec.HeadGroupSpec.Template.Spec.SchedulingGates = append(
+			testRayCluster.Spec.HeadGroupSpec.Template.Spec.SchedulingGates, elasticGate)
+		testRayCluster.Spec.WorkerGroupSpecs[0].Template.Spec.SchedulingGates = append(
+			testRayCluster.Spec.WorkerGroupSpecs[0].Template.Spec.SchedulingGates, elasticGate)
+
+		ginkgo.By("creating the RayCluster and waiting for its pending Workload")
+		util.MustCreate(ctx, k8sClient, testRayCluster)
+		var testRayClusterWorkload *kueue.Workload
+		gomega.Eventually(func(g gomega.Gomega) {
+			workloads := &kueue.WorkloadList{}
+			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
+			testRayClusterWorkload = &workloads.Items[0]
+			g.Expect(workload.IsAdmitted(testRayClusterWorkload)).Should(gomega.BeFalse())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("unsuspending the RayCluster before admission")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testRayCluster), testRayCluster)).Should(gomega.Succeed())
+			testRayCluster.Spec.Suspend = new(false)
+			g.Expect(k8sClient.Update(ctx, testRayCluster)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("resuming the ClusterQueue and admitting the Workload")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).Should(gomega.Succeed())
+			clusterQueue.Spec.StopPolicy = nil
+			g.Expect(k8sClient.Update(ctx, clusterQueue)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, testRayClusterWorkload)
+
+		ginkgo.By("checking ResourceFlavor info is injected into the owner templates")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testRayCluster), testRayCluster)).Should(gomega.Succeed())
+			g.Expect(testRayCluster.Spec.HeadGroupSpec.Template.Spec.NodeSelector).
+				Should(gomega.HaveKeyWithValue(instanceKey, "elastic"))
+			g.Expect(testRayCluster.Spec.HeadGroupSpec.Template.Spec.Tolerations).
+				Should(gomega.ContainElement(flavorToleration))
+			g.Expect(testRayCluster.Spec.HeadGroupSpec.Template.Spec.SchedulingGates).
+				ShouldNot(gomega.ContainElement(corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}))
+			g.Expect(testRayCluster.Spec.WorkerGroupSpecs[0].Template.Spec.NodeSelector).
+				Should(gomega.HaveKeyWithValue(instanceKey, "elastic"))
+			g.Expect(testRayCluster.Spec.WorkerGroupSpecs[0].Template.Spec.Tolerations).
+				Should(gomega.ContainElement(flavorToleration))
+			g.Expect(testRayCluster.Spec.WorkerGroupSpecs[0].Template.Spec.SchedulingGates).
+				ShouldNot(gomega.ContainElement(corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("Should support raycluster scale-down and scale-up", framework.SlowSpec, func() {

@@ -125,8 +125,11 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 		return reconcile.Result{}, nil
 	}
 
-	// Elastic jobs bypass startJob, so inject the same PodSetInfo here before
-	// ungating.
+	// The job reconciler patches the parent's PodTemplate with PodSetInfo via
+	// startJob on admission, so pods created after admission inherit flavor
+	// info from the template. Pods that already existed before admission
+	// (created from the unpatched template) still need per-pod injection here
+	// before ungating. Merge is idempotent for pods that already have the info.
 	infos, err := jobframework.GetPodSetsInfoFromStatus(ctx, r.client, wl)
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("building PodSet info for elastic ungater: %w", err)
