@@ -517,9 +517,14 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					g.Expect(workload.IsAdmitted(wl)).To(gomega.BeFalse())
 				}, util.ShortConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
-			// note to future developer: this non-TAS pod doesn't delete properly after ns clean-up,
-			// so it will keep taking node1's capacity.
-			// need to debug this before writing future tests.
+
+			ginkgo.By("cleanup: remove finalizer to let the pod delete", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(client.IgnoreNotFound(k8sClient.Get(ctx, client.ObjectKeyFromObject(nonTasPod), nonTasPod))).Should(gomega.Succeed())
+					nonTasPod.Finalizers = nil
+					g.Expect(client.IgnoreNotFound(k8sClient.Update(ctx, nonTasPod))).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
 		})
 	})
 
