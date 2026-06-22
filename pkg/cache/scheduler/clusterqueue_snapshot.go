@@ -231,7 +231,7 @@ func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
 		if features.Enabled(features.TASHandleOverlappingFlavors) && tasFlavorCache.isLowestLevelNode {
 			flvOpts = append(slices.Clone(options), WithAggregatedDomainUsages(aggregatedDomainUsages))
 		}
-		flvResult := tasFlavorCache.FindTopologyAssignmentsForFlavor(flavorTASRequests, flvOpts...)
+		flvResult := tasFlavorCache.FindTopologyAssignmentsForFlavor(log, flavorTASRequests, flvOpts...)
 		for psName, res := range flvResult {
 			res.Flavor = tasFlavor
 			result[psName] = res

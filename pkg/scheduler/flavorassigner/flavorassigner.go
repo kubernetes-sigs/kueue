@@ -994,7 +994,7 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 			continue
 		}
 
-		if flavorStatus := a.checkFlavorForPodSets(log, fName, psIDs, podSets, selectors, resourceGroup); !flavorStatus.IsFit() {
+		if flavorStatus := a.checkFlavorForPodSets(log, fName, psIDs, podSets, resourceGroup); !flavorStatus.IsFit() {
 			flavorStatus.noFitReason = kueue.WorkloadQuotaReservedReasonNoMatchingFlavor
 			status.reasons = append(status.reasons, flavorStatus.reasons...)
 			consideredFlavors.AddNoFitFlavorAttempt(fName, flavorStatus)

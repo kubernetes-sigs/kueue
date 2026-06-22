@@ -3579,9 +3579,9 @@ func TestAssignFlavors(t *testing.T) {
 		},
 	}
 	for name, tc := range cases {
-		for _, enabled := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s/gate_%t", name, enabled), func(t *testing.T) {
-				features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, enabled)
+		for _, unadmittedWorkloadsObservabilityEnabled := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/gate_%t", name, unadmittedWorkloadsObservabilityEnabled), func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, unadmittedWorkloadsObservabilityEnabled)
 				ctx, log := utiltesting.ContextWithLog(t)
 				for fg, val := range tc.featureGates {
 					features.SetFeatureGateDuringTest(t, fg, val)
@@ -3653,7 +3653,7 @@ func TestAssignFlavors(t *testing.T) {
 				}
 
 				var cmpOpts []cmp.Option
-				if !enabled {
+				if !unadmittedWorkloadsObservabilityEnabled {
 					cmpOpts = append(cmpOpts, cmpopts.IgnoreFields(Assignment{}, "NoFitReason"))
 					cmpOpts = append(cmpOpts, cmpopts.IgnoreFields(FlavorAssignmentAttempt{}, "NoFitReason"))
 				}
@@ -5273,12 +5273,15 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 				"flavor-b": "NoMatchingFlavor",
 			},
 		},
-		"node affinity mismatch": {
+		"node affinity mismatch when both flavors declare same key": {
 			podSet: *utiltestingapi.MakePodSet("main", 1).
 				Request(corev1.ResourceCPU, "1").
 				NodeSelector(map[string]string{"type": "non-existent"}).
-				Toleration(corev1.Toleration{Key: "key", Operator: corev1.TolerationOpEqual, Value: "val", Effect: corev1.TaintEffectNoSchedule}).
 				Obj(),
+			resourceFlavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
+				"flavor-a": utiltestingapi.MakeResourceFlavor("flavor-a").NodeLabel("type", "a").Obj(),
+				"flavor-b": utiltestingapi.MakeResourceFlavor("flavor-b").NodeLabel("type", "b").Obj(),
+			},
 			wantNoFitReason: "NoMatchingFlavor",
 			wantFlavorAttempts: map[kueue.ResourceFlavorReference]string{
 				"flavor-a": "NoMatchingFlavor",
