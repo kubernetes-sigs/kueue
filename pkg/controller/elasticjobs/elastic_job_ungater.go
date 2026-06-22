@@ -169,7 +169,7 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 			}
 			if info, ok := infoFor(pod); ok {
 				if mergeErr := podset.Merge(&pod.ObjectMeta, &pod.Spec, info); mergeErr != nil {
-					log.Error(mergeErr, "failed merging PodSet info before ungating; ungating without flavor injection",
+					log.Error(mergeErr, "failed merging PodSet info after ungating; pod released without flavor injection",
 						"pod", klog.KObj(pod))
 				} else {
 					log.V(3).Info("ungating elastic pod with assigned flavor info",
