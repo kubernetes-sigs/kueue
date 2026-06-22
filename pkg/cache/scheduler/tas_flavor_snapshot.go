@@ -30,6 +30,7 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/sets"
 	corev1helpers "k8s.io/component-helpers/scheduling/corev1"
 	"k8s.io/component-helpers/scheduling/corev1/nodeaffinity"
 	"k8s.io/utils/ptr"
@@ -664,7 +665,10 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 	// safety net.
 	var ignoreNodes sets.Set[string]
 	if features.Enabled(features.TASReplaceMultipleFailedNodes) && len(wl.Status.UnhealthyNodes) > 1 {
-		ignoreNodes = sets.New(wl.Status.UnhealthyNodes[1:]...)
+		ignoreNodes = sets.New[string]()
+		for _, n := range wl.Status.UnhealthyNodes[1:] {
+			ignoreNodes.Insert(n.Name)
+		}
 	}
 	if isStale, staleDomain := s.isTopologyAssignmentStaleIgnoring(existingAssignment, ignoreNodes); isStale {
 		return nil, nil, fmt.Sprintf("Cannot replace the node, because the existing topologyAssignment is invalid, as it contains the stale domain %v", staleDomain)
@@ -706,14 +710,19 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 	// single entry with Count+=Count, which silently loses a pod slot
 	// (corrupting podCounts so the kube-scheduler cannot place the pod). Detect
 	// this overlap and reject the cycle so a subsequent scheduling cycle
-	// retries with a fresh snapshot.
-	existingDomainIDs := make(map[utiltas.TopologyDomainID]struct{}, len(existingAssignment.Domains))
-	for _, d := range existingAssignment.Domains {
-		existingDomainIDs[utiltas.DomainID(d.Values)] = struct{}{}
-	}
-	for _, d := range replacementAssignment[tr.PodSet.Name].Domains {
-		if _, dup := existingDomainIDs[utiltas.DomainID(d.Values)]; dup {
-			return nil, nil, fmt.Sprintf("replacement candidate %v already present in existing TopologyAssignment; concurrent replacement race - retry on next cycle", d.Values)
+	// retries with a fresh snapshot. Only relevant for the multi-replacement
+	// path; the default single-node replacement (including multi-layer slice
+	// replacement) may legitimately return a candidate overlapping the existing
+	// assignment, so the check is scoped to the feature gate.
+	if features.Enabled(features.TASReplaceMultipleFailedNodes) {
+		existingDomainIDs := make(map[utiltas.TopologyDomainID]struct{}, len(existingAssignment.Domains))
+		for _, d := range existingAssignment.Domains {
+			existingDomainIDs[utiltas.DomainID(d.Values)] = struct{}{}
+		}
+		for _, d := range replacementAssignment[tr.PodSet.Name].Domains {
+			if _, dup := existingDomainIDs[utiltas.DomainID(d.Values)]; dup {
+				return nil, nil, fmt.Sprintf("replacement candidate %v already present in existing TopologyAssignment; concurrent replacement race - retry on next cycle", d.Values)
+			}
 		}
 	}
 	newAssignment := s.mergeTopologyAssignments(replacementAssignment[tr.PodSet.Name], existingAssignment)
@@ -810,12 +819,12 @@ func (s *TASFlavorSnapshot) IsTopologyAssignmentStale(ta *utiltas.TopologyAssign
 // ignoreNodes. Used by the head-of-queue replacement path so that other queued
 // unhealthy nodes (which may also be missing from the snapshot) do not poison
 // the stale-check for the head we are actively replacing.
-func (s *TASFlavorSnapshot) isTopologyAssignmentStaleIgnoring(ta *utiltas.TopologyAssignment, ignoreNodes map[string]struct{}) (bool, string) {
+func (s *TASFlavorSnapshot) isTopologyAssignmentStaleIgnoring(ta *utiltas.TopologyAssignment, ignoreNodes sets.Set[string]) (bool, string) {
 	for _, domain := range ta.Domains {
-		if len(ignoreNodes) > 0 {
+		if ignoreNodes.Len() > 0 {
 			// Node name is the lowest-level value (last entry).
 			nodeName := domain.Values[len(domain.Values)-1]
-			if _, skip := ignoreNodes[nodeName]; skip {
+			if ignoreNodes.Has(nodeName) {
 				continue
 			}
 		}
