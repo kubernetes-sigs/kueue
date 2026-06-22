@@ -46,6 +46,7 @@ feature-gates:
   - name: TASReplaceNodeOnPodTermination
   - name: TASBalancedPlacement
   - name: TASReplaceNodeOnNodeTaints
+  - name: TASReplaceMultipleFailedNodes
   - name: TASMultiLayerTopology
   - name: TASRespectNodeAffinityPreferred
   - name: TASHandleOverlappingFlavors

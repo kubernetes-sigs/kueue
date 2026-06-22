@@ -1415,6 +1415,43 @@ Kueue tries to find a replacement for a failed node until success (or until it g
 evicted by e.g. `waitForPodsReady.recoveryTimeout`). One can limit the number of retries
 to only one, by setting the `TASFailedNodeReplacementFailFast` feature gate to `true`.
 
+##### Replacing multiple failed nodes
+
+The mechanism described above replaces a single failed node. As soon as a *second* distinct
+node fails while a replacement is still in flight, the workload is evicted — both by the
+node-failure controller (the `evictWorkloadIfNeeded` "multiple node failures" path) and, when
+`TASFailedNodeReplacementFailFast` is enabled, by the scheduler's fail-fast eviction. The
+original design chose single-node replacement deliberately, since replacing multiple nodes at
+once complicates the assignment algorithm. The `UnhealthyNodes` status field was nonetheless
+modeled as a *list* (rather than a single node) to leave room for this generalization.
+
+For large, long-running gang-scheduled TAS workloads on unreliable hardware (e.g. GPU fleets),
+eviction is expensive: the whole workload is torn down and re-admitted, even though only a
+couple of nodes failed. We introduce the `TASReplaceMultipleFailedNodes` feature gate (Alpha,
+default off) which, when enabled, keeps the workload admitted and replaces the failed nodes
+incrementally instead of evicting:
+
+- The node-failure controller no longer evicts when a second distinct node fails during an
+  in-flight replacement; the new node is appended to `Status.UnhealthyNodes` and the workload
+  stays admitted.
+- The scheduler fail-fast eviction is suppressed; the gate overrides
+  `TASFailedNodeReplacementFailFast`.
+- Replacement is processed **head-of-queue, one node per scheduling cycle**. The planner
+  replaces `UnhealthyNodes[0]` and ignores the remaining queued unhealthy nodes during the
+  stale-assignment check, so a tail entry whose node is already missing from the snapshot does
+  not block head replacement. On a successful head replacement only the replaced head is dropped
+  from `UnhealthyNodes`; the remaining entries are retried on subsequent cycles (this matters
+  because a deleted tail node generates no further node events, so the tail must be carried
+  forward explicitly rather than re-discovered).
+
+The workload remains admitted throughout; head replacement is retried until a fit is found, and
+the `UnhealthyNodes` list drains as nodes are replaced.
+Because the eviction-vs-incremental tradeoff is genuinely workload-dependent (best-effort/elastic
+workloads prefer "never evict, keep replacing"; strict gang workloads may prefer "evict fast,
+re-admit cleanly"), we expect to keep a policy knob long-term — e.g. a per-ClusterQueue or
+per-Workload policy and/or a `maxUnhealthyNodesBeforeEviction` threshold — rather than making the
+no-eviction behavior unconditional. 
+
 #### Tainted nodes treatment
 
 We introduce the `TASReplaceNodeOnNodeTaints` feature gate from v0.17 as Beta, and backport to v0.15.5 and v0.16.2 as Alpha.
@@ -1938,6 +1975,12 @@ The new validations which are for MVP, but likely will be relaxed in the future:
 - change how the information about the failed nodes is stored at a Workload from Annotation into a field in workload.Status
 - handle a more comprehensive set of failure scenarios (e.g., including node becoming unschedulable due to a taint)
 - re-evaluate replacing `NodeToReplace` annotation with a status field, to optimize number of requests in scheduler loop. [Discussion](https://github.com/kubernetes-sigs/kueue/issues/5560)
+- re-evaluate the `TASReplaceMultipleFailedNodes` sub-feature (multiple-node hot swap): decide
+  whether the general (multi-node) algorithm subsumes single-node replacement, whether a bounded
+  fallback to eviction is required to preserve guaranteed progress, and whether the
+  eviction-vs-incremental tradeoff is exposed as a per-ClusterQueue/per-Workload policy (see the
+  open questions in [Node failures](#node-failures) and
+  [#6514](https://github.com/kubernetes-sigs/kueue/issues/6514)).
 
 #### Stable
 
