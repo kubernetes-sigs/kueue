@@ -256,18 +256,26 @@ func mostSevereReason(a, b string) string {
 	return b
 }
 
+const (
+	reasonSeverityNone int = iota
+	reasonSeverityTopologyPlacementFailed
+	reasonSeverityWaitingForQuota
+	reasonSeverityExceedsMaxQuota
+	reasonSeverityNoMatchingFlavor
+)
+
 func reasonSeverity(reason string) int {
 	switch reason {
 	case kueue.WorkloadQuotaReservedReasonNoMatchingFlavor:
-		return 4
+		return reasonSeverityNoMatchingFlavor
 	case kueue.WorkloadQuotaReservedReasonExceedsMaxQuota:
-		return 3
+		return reasonSeverityExceedsMaxQuota
 	case kueue.WorkloadQuotaReservedReasonWaitingForQuota:
-		return 2
+		return reasonSeverityWaitingForQuota
 	case kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed:
-		return 1
+		return reasonSeverityTopologyPlacementFailed
 	default:
-		return 0
+		return reasonSeverityNone
 	}
 }
 
