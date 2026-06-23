@@ -91,43 +91,42 @@ func TestFromQuotaReservedOrAdmittedToPending(t *testing.T) {
 	}
 }
 
-func TestIsStatefulSetScaledDownRelease(t *testing.T) {
+func TestIsOnHold(t *testing.T) {
 	cases := map[string]struct {
 		wl   kueue.Workload
 		want bool
 	}{
-		"false without quota reserved condition": {
+		"false without QuotaReserved condition": {
 			wl:   *utiltestingapi.MakeWorkload("wl", "ns").Obj(),
 			want: false,
 		},
-		"true with StatefulSetScaledDown reason": {
+		"true with QuotaReserved=False and reason OnHold": {
 			wl: *utiltestingapi.MakeWorkload("wl", "ns").
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadQuotaReserved,
 					Status:  metav1.ConditionFalse,
-					Reason:  "StatefulSetScaledDown",
-					Message: "StatefulSet scaled to zero; releasing previous quota reservation",
+					Reason:  kueue.WorkloadOnHold,
+					Message: "StatefulSet scaled to zero; workload on hold",
 				}).
 				Obj(),
 			want: true,
 		},
-		"false for other false quota reserved reason": {
+		"false when QuotaReserved=False with other reason": {
 			wl: *utiltestingapi.MakeWorkload("wl", "ns").
 				Condition(metav1.Condition{
-					Type:    kueue.WorkloadQuotaReserved,
-					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadInadmissible,
-					Message: "ClusterQueue cq is inactive",
+					Type:   kueue.WorkloadQuotaReserved,
+					Status: metav1.ConditionFalse,
+					Reason: kueue.WorkloadInadmissible,
 				}).
 				Obj(),
 			want: false,
 		},
-		"false when quota reserved is true": {
+		"false when QuotaReserved=True": {
 			wl: *utiltestingapi.MakeWorkload("wl", "ns").
 				Condition(metav1.Condition{
 					Type:   kueue.WorkloadQuotaReserved,
 					Status: metav1.ConditionTrue,
-					Reason: "QuotaReserved",
+					Reason: kueue.WorkloadOnHold,
 				}).
 				Obj(),
 			want: false,
@@ -136,92 +135,10 @@ func TestIsStatefulSetScaledDownRelease(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			if got := IsStatefulSetScaledDownRelease(&tc.wl); got != tc.want {
-				t.Fatalf("IsStatefulSetScaledDownRelease() = %v, want %v", got, tc.want)
+			if got := IsOnHold(&tc.wl); got != tc.want {
+				t.Fatalf("IsOnHold() = %v, want %v", got, tc.want)
 			}
 		})
-	}
-}
-
-func TestIsRequeueHeld(t *testing.T) {
-	cases := map[string]struct {
-		wl   kueue.Workload
-		want bool
-	}{
-		"false without RequeueHeld condition": {
-			wl:   *utiltestingapi.MakeWorkload("wl", "ns").Obj(),
-			want: false,
-		},
-		"true with RequeueHeld condition": {
-			wl: *utiltestingapi.MakeWorkload("wl", "ns").
-				Condition(metav1.Condition{
-					Type:    kueue.WorkloadRequeueHeld,
-					Status:  metav1.ConditionTrue,
-					Reason:  "StatefulSetScaledDown",
-					Message: "StatefulSet scaled to zero; workload should not be requeued",
-				}).
-				Obj(),
-			want: true,
-		},
-		"false when RequeueHeld condition is False": {
-			wl: *utiltestingapi.MakeWorkload("wl", "ns").
-				Condition(metav1.Condition{
-					Type:   kueue.WorkloadRequeueHeld,
-					Status: metav1.ConditionFalse,
-					Reason: "StatefulSetScaledDown",
-				}).
-				Obj(),
-			want: false,
-		},
-	}
-
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			if got := IsRequeueHeld(&tc.wl); got != tc.want {
-				t.Fatalf("IsRequeueHeld() = %v, want %v", got, tc.want)
-			}
-		})
-	}
-}
-
-func TestSetRequeueHeldCondition(t *testing.T) {
-	wl := utiltestingapi.MakeWorkload("wl", "ns").Obj()
-	changed := SetRequeueHeldCondition(wl, "StatefulSetScaledDown", "test message")
-	if !changed {
-		t.Fatal("expected changed=true on first set")
-	}
-	cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeueHeld)
-	if cond == nil || cond.Status != metav1.ConditionTrue || cond.Reason != "StatefulSetScaledDown" {
-		t.Fatalf("unexpected condition: %+v", cond)
-	}
-	// Setting again with same reason/message should return false.
-	changed = SetRequeueHeldCondition(wl, "StatefulSetScaledDown", "test message")
-	if changed {
-		t.Fatal("expected changed=false on idempotent set")
-	}
-}
-
-func TestUnsetRequeueHeldCondition(t *testing.T) {
-	wl := utiltestingapi.MakeWorkload("wl", "ns").
-		Condition(metav1.Condition{
-			Type:    kueue.WorkloadRequeueHeld,
-			Status:  metav1.ConditionTrue,
-			Reason:  "StatefulSetScaledDown",
-			Message: "test",
-		}).
-		Obj()
-	changed := UnsetRequeueHeldCondition(wl)
-	if !changed {
-		t.Fatal("expected changed=true when removing existing condition")
-	}
-	cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeueHeld)
-	if cond != nil {
-		t.Fatalf("expected condition to be removed, got %+v", cond)
-	}
-	// Removing again should return false.
-	changed = UnsetRequeueHeldCondition(wl)
-	if changed {
-		t.Fatal("expected changed=false on idempotent unset")
 	}
 }
 

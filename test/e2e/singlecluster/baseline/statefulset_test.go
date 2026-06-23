@@ -254,11 +254,10 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Check workload has RequeueHeld condition and quota is released", func() {
+			ginkgo.By("Check workload is on hold and quota is released", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-					g.Expect(apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadRequeueHeld)).To(gomega.BeTrue())
-					g.Expect(apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadQuotaReserved)).To(gomega.BeFalse())
+					g.Expect(createdWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, kueue.WorkloadOnHold))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -798,11 +797,10 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Verify workload has RequeueHeld condition and quota is released", func() {
+			ginkgo.By("Verify workload is on hold and quota is released", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-					g.Expect(createdWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, "StatefulSetScaledDown"))
-					g.Expect(createdWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadRequeueHeld, "StatefulSetScaledDown"))
+					g.Expect(createdWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, kueue.WorkloadOnHold))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -815,12 +813,15 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Verify workload is re-admitted and RequeueHeld condition is cleared", func() {
+			ginkgo.By("Verify workload is re-admitted and no longer on hold", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 					g.Expect(createdWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
-					// RequeueHeld condition should be removed after scale-up
-					g.Expect(apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadRequeueHeld)).To(gomega.BeNil())
+					// The OnHold reason should be cleared after scale-up
+					cond := apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadQuotaReserved)
+					if cond != nil && cond.Status == metav1.ConditionFalse {
+						g.Expect(cond.Reason).ShouldNot(gomega.Equal(kueue.WorkloadOnHold))
+					}
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 

@@ -1329,7 +1329,7 @@ func IsActive(w *kueue.Workload) bool {
 
 // IsAdmissible returns true if the workload can be added to the queue.
 func IsAdmissible(w *kueue.Workload) bool {
-	return !HasAdmissionGate(w) && !IsFinished(w) && IsActive(w) && !HasQuotaReservation(w)
+	return !HasAdmissionGate(w) && !IsFinished(w) && IsActive(w) && !HasQuotaReservation(w) && !IsOnHold(w)
 }
 
 // HasAdmissionGate returns true if the workload has an admission gate annotation and the AdmissionGatedBy feature is on
@@ -1352,40 +1352,14 @@ func HasActiveQuotaReservation(w *kueue.Workload) bool {
 	return HasQuotaReservation(w) && !IsFinished(w) && IsActive(w)
 }
 
-// IsStatefulSetScaledDownRelease returns true when the workload has already
-// released quota because its StatefulSet scaled down to zero.
-func IsStatefulSetScaledDownRelease(w *kueue.Workload) bool {
+// IsOnHold returns true when the workload's quota reservation is intentionally
+// released and the workload should not be requeued. This is indicated by the
+// QuotaReserved condition being False with reason "OnHold".
+// Any job integration can put the workload on hold to prevent requeuing
+// (e.g., StatefulSet on scale-to-zero).
+func IsOnHold(w *kueue.Workload) bool {
 	cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadQuotaReserved)
-	return cond != nil &&
-		cond.Status == metav1.ConditionFalse &&
-		cond.Reason == "StatefulSetScaledDown"
-}
-
-// IsRequeueHeld returns true when the workload should not be requeued after
-// its quota reservation is released. This is indicated by the WorkloadRequeueHeld
-// condition being set to True. Any job integration can set this condition to
-// prevent the workload from being requeued (e.g., StatefulSet on scale-to-zero).
-func IsRequeueHeld(w *kueue.Workload) bool {
-	cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadRequeueHeld)
-	return cond != nil && cond.Status == metav1.ConditionTrue
-}
-
-// SetRequeueHeldCondition sets the WorkloadRequeueHeld condition on the workload.
-// Returns true if the condition was changed.
-func SetRequeueHeldCondition(w *kueue.Workload, reason, message string) bool {
-	condition := metav1.Condition{
-		Type:    kueue.WorkloadRequeueHeld,
-		Status:  metav1.ConditionTrue,
-		Reason:  reason,
-		Message: api.TruncateConditionMessage(message),
-	}
-	return apimeta.SetStatusCondition(&w.Status.Conditions, condition)
-}
-
-// UnsetRequeueHeldCondition removes the WorkloadRequeueHeld condition from the workload.
-// Returns true if the condition was changed.
-func UnsetRequeueHeldCondition(w *kueue.Workload) bool {
-	return apimeta.RemoveStatusCondition(&w.Status.Conditions, kueue.WorkloadRequeueHeld)
+	return cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == kueue.WorkloadOnHold
 }
 
 // HasDRA returns true if the workload has DRA resources (ResourceClaims or ResourceClaimTemplates).
