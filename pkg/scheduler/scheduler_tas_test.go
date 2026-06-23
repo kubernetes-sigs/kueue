@@ -3470,6 +3470,191 @@ func TestScheduleForTAS(t *testing.T) {
 	}
 }
 
+// tasScheduleTestCase is the shared case definition for the TAS preemption and cohort
+// scheduling tests. Each test sets only the fields it needs; unused fields keep their
+// zero value.
+type tasScheduleTestCase struct {
+	nodes           []corev1.Node
+	pods            []corev1.Pod
+	topologies      []kueue.Topology
+	cohorts         []kueue.Cohort
+	resourceFlavors []kueue.ResourceFlavor
+	clusterQueues   []kueue.ClusterQueue
+	workloads       []kueue.Workload
+	wantWorkloads   []kueue.Workload
+
+	// wantNewAssignments is a summary of all new admissions in the cache after this cycle.
+	wantNewAssignments map[workload.Reference]kueue.Admission
+	// wantLeft is the workload keys that are left in the queues after this cycle.
+	wantLeft map[kueue.ClusterQueueReference][]workload.Reference
+	// wantInadmissibleLeft is the workload keys that are left in the inadmissible state after this cycle.
+	wantInadmissibleLeft map[kueue.ClusterQueueReference][]workload.Reference
+	// wantEvents asserts on the events, the comparison options are passed by eventCmpOpts
+	wantEvents []utiltesting.EventRecord
+	// eventCmpOpts are the comparison options for the events
+	eventCmpOpts cmp.Options
+
+	featureGates map[featuregate.Feature]bool
+}
+
+// tasScheduleTestConfig carries the per-suite fixtures and knobs shared by the TAS
+// preemption and cohort scheduling run procedure.
+type tasScheduleTestConfig struct {
+	queues []kueue.LocalQueue
+	now    time.Time
+	// sortEvents compares recorded events order-insensitively, matching the cohort
+	// scheduling test's assertion.
+	sortEvents bool
+}
+
+// runTASScheduleTestCases runs the shared "build client → schedule → assert" procedure for
+// the TAS preemption and cohort scheduling tests, including the WorkloadRequestUseMergePatch
+// on/off double run.
+func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[string]tasScheduleTestCase) {
+	t.Helper()
+	for name, tc := range cases {
+		for _, enabled := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
+				features.SetFeatureGatesDuringTest(t, tc.featureGates)
+
+				ctx, log := utiltesting.ContextWithLog(t)
+				testWls := make([]kueue.Workload, 0, len(tc.workloads))
+				for _, wl := range tc.workloads {
+					testWls = append(testWls, *wl.DeepCopy())
+				}
+				clientBuilder := utiltesting.NewClientBuilder().
+					WithLists(
+						&kueue.WorkloadList{Items: testWls},
+						&kueue.TopologyList{Items: tc.topologies},
+						&corev1.PodList{Items: tc.pods},
+						&corev1.NodeList{Items: tc.nodes},
+						&kueue.LocalQueueList{Items: cfg.queues}).
+					WithObjects(
+						utiltesting.MakeNamespace("default"),
+					).
+					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
+					WithStatusSubresource(&kueue.Workload{})
+				_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
+				cl := clientBuilder.Build()
+				recorder := &utiltesting.EventRecorder{}
+				cqCache := schdcache.New(cl)
+				qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+				topologyByName := slices.ToMap(tc.topologies, func(i int) (kueue.TopologyReference, kueue.Topology) {
+					return kueue.TopologyReference(tc.topologies[i].Name), tc.topologies[i]
+				})
+				for i := range tc.nodes {
+					cqCache.TASCache().SyncNode(&tc.nodes[i])
+				}
+				for _, flavor := range tc.resourceFlavors {
+					cqCache.AddOrUpdateResourceFlavor(log, &flavor)
+					if flavor.Spec.TopologyName != nil {
+						t := topologyByName[*flavor.Spec.TopologyName]
+						cqCache.AddOrUpdateTopology(log, &t)
+					}
+				}
+				for _, cohort := range tc.cohorts {
+					if err := cqCache.AddOrUpdateCohort(&cohort); err != nil {
+						t.Fatalf("Inserting Cohort %s in cache: %v", cohort.Name, err)
+					}
+				}
+				for _, cq := range tc.clusterQueues {
+					if err := cqCache.AddClusterQueue(ctx, &cq); err != nil {
+						t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
+					}
+					if err := qManager.AddClusterQueue(ctx, &cq); err != nil {
+						t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
+					}
+					if err := cl.Create(ctx, &cq); err != nil {
+						t.Fatalf("couldn't create the cluster queue: %v", err)
+					}
+				}
+				for _, q := range cfg.queues {
+					if err := qManager.AddLocalQueue(ctx, &q); err != nil {
+						t.Fatalf("Inserting queue %s/%s in manager: %v", q.Namespace, q.Name, err)
+					}
+				}
+				initiallyAdmittedWorkloads := sets.New[workload.Reference]()
+				for _, w := range testWls {
+					if workload.IsAdmitted(&w) {
+						initiallyAdmittedWorkloads.Insert(workload.Key(&w))
+					}
+				}
+				scheduler := New(qManager, cqCache, cl, recorder, WithClock(t, testingclock.NewFakeClock(cfg.now)), WithPreemptionExpectations(preemptexpectations.New()))
+				wg := sync.WaitGroup{}
+				scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
+					func() { wg.Add(1) },
+					func() { wg.Done() },
+				))
+
+				ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
+				go qManager.CleanUpOnContext(ctx)
+				defer cancel()
+
+				scheduler.schedule(ctx)
+				wg.Wait()
+				snapshot, err := cqCache.Snapshot(ctx)
+				if err != nil {
+					t.Fatalf("unexpected error while building snapshot: %v", err)
+				}
+
+				gotWorkloads := &kueue.WorkloadList{}
+				err = cl.List(ctx, gotWorkloads)
+				if err != nil {
+					t.Fatalf("Unexpected list workloads error: %v", err)
+				}
+
+				defaultWorkloadCmpOpts := cmp.Options{
+					cmpopts.EquateEmpty(),
+					cmpopts.IgnoreFields(kueue.Workload{}, "ObjectMeta.ResourceVersion"),
+					cmpopts.SortSlices(func(a, b metav1.Condition) bool {
+						return a.Type < b.Type
+					}),
+				}
+
+				if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads.Items, defaultWorkloadCmpOpts); diff != "" {
+					t.Errorf("Unexpected scheduled workloads (-want,+got):\n%s", diff)
+				}
+
+				gotAssignments := make(map[workload.Reference]kueue.Admission)
+				for cqName, c := range snapshot.ClusterQueues() {
+					for name, w := range c.Workloads {
+						if initiallyAdmittedWorkloads.Has(workload.Key(w.Obj)) {
+							continue
+						}
+						switch {
+						case !workload.HasQuotaReservation(w.Obj):
+							t.Fatalf("Workload %s is not admitted by a clusterQueue, but it is found as member of clusterQueue %s in the cache", name, cqName)
+						case w.Obj.Status.Admission.ClusterQueue != cqName:
+							t.Fatalf("Workload %s is admitted by clusterQueue %s, but it is found as member of clusterQueue %s in the cache", name, w.Obj.Status.Admission.ClusterQueue, cqName)
+						default:
+							gotAssignments[name] = *w.Obj.Status.Admission
+						}
+					}
+				}
+				if diff := cmp.Diff(tc.wantNewAssignments, gotAssignments, cmpopts.EquateEmpty()); diff != "" {
+					t.Errorf("Unexpected assigned clusterQueues in cache (-want,+got):\n%s", diff)
+				}
+				qDump := qManager.Dump()
+				if diff := cmp.Diff(tc.wantLeft, qDump, cmpDump...); diff != "" {
+					t.Errorf("Unexpected elements left in the queue (-want,+got):\n%s", diff)
+				}
+				qDumpInadmissible := qManager.DumpInadmissible()
+				if diff := cmp.Diff(tc.wantInadmissibleLeft, qDumpInadmissible, cmpDump...); diff != "" {
+					t.Errorf("Unexpected elements left in inadmissible workloads (-want,+got):\n%s", diff)
+				}
+				eventCmpOpts := tc.eventCmpOpts
+				if cfg.sortEvents {
+					eventCmpOpts = append(eventCmpOpts, cmpopts.SortSlices(utiltesting.SortEvents))
+				}
+				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, eventCmpOpts...); diff != "" {
+					t.Errorf("unexpected events (-want/+got):\n%s", diff)
+				}
+			})
+		}
+	}
+}
+
 func TestScheduleForTASPreemption(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	singleNode := testingnode.MakeNode("x1").
@@ -3521,28 +3706,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 		*utiltestingapi.MakeLocalQueue("tas-main", "default").ClusterQueue("tas-main").Obj(),
 	}
 	eventIgnoreMessage := cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message")
-	cases := map[string]struct {
-		nodes           []corev1.Node
-		pods            []corev1.Pod
-		topologies      []kueue.Topology
-		resourceFlavors []kueue.ResourceFlavor
-		clusterQueues   []kueue.ClusterQueue
-		workloads       []kueue.Workload
-		wantWorkloads   []kueue.Workload
-
-		// wantNewAssignments is a summary of all new admissions in the cache after this cycle.
-		wantNewAssignments map[workload.Reference]kueue.Admission
-		// wantLeft is the workload keys that are left in the queues after this cycle.
-		wantLeft map[kueue.ClusterQueueReference][]workload.Reference
-		// wantInadmissibleLeft is the workload keys that are left in the inadmissible state after this cycle.
-		wantInadmissibleLeft map[kueue.ClusterQueueReference][]workload.Reference
-		// wantEvents asserts on the events, the comparison options are passed by eventCmpOpts
-		wantEvents []utiltesting.EventRecord
-		// eventCmpOpts are the comparison options for the events
-		eventCmpOpts cmp.Options
-
-		featureGates map[featuregate.Feature]bool
-	}{
+	cases := map[string]tasScheduleTestCase{
 		"workload preempted due to quota is using deleted Node": {
 			// In this scenario the preemption target, based on quota, is a
 			// using an already deleted node (z).
@@ -4979,138 +5143,10 @@ func TestScheduleForTASPreemption(t *testing.T) {
 			},
 		},
 	}
-	for name, tc := range cases {
-		for _, enabled := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
-				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
-				features.SetFeatureGatesDuringTest(t, tc.featureGates)
-
-				ctx, log := utiltesting.ContextWithLog(t)
-				testWls := make([]kueue.Workload, 0, len(tc.workloads))
-				for _, wl := range tc.workloads {
-					testWls = append(testWls, *wl.DeepCopy())
-				}
-				clientBuilder := utiltesting.NewClientBuilder().
-					WithLists(
-						&kueue.WorkloadList{Items: testWls},
-						&kueue.TopologyList{Items: tc.topologies},
-						&corev1.PodList{Items: tc.pods},
-						&corev1.NodeList{Items: tc.nodes},
-						&kueue.LocalQueueList{Items: queues}).
-					WithObjects(
-						utiltesting.MakeNamespace("default"),
-					).
-					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
-					WithStatusSubresource(&kueue.Workload{})
-				_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
-				cl := clientBuilder.Build()
-				recorder := &utiltesting.EventRecorder{}
-				cqCache := schdcache.New(cl)
-				qManager := qcache.NewManagerForUnitTests(cl, cqCache)
-				topologyByName := slices.ToMap(tc.topologies, func(i int) (kueue.TopologyReference, kueue.Topology) {
-					return kueue.TopologyReference(tc.topologies[i].Name), tc.topologies[i]
-				})
-				for i := range tc.nodes {
-					cqCache.TASCache().SyncNode(&tc.nodes[i])
-				}
-				for _, flavor := range tc.resourceFlavors {
-					cqCache.AddOrUpdateResourceFlavor(log, &flavor)
-					if flavor.Spec.TopologyName != nil {
-						t := topologyByName[*flavor.Spec.TopologyName]
-						cqCache.AddOrUpdateTopology(log, &t)
-					}
-				}
-				for _, cq := range tc.clusterQueues {
-					if err := cqCache.AddClusterQueue(ctx, &cq); err != nil {
-						t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
-					}
-					if err := qManager.AddClusterQueue(ctx, &cq); err != nil {
-						t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
-					}
-					if err := cl.Create(ctx, &cq); err != nil {
-						t.Fatalf("couldn't create the cluster queue: %v", err)
-					}
-				}
-				for _, q := range queues {
-					if err := qManager.AddLocalQueue(ctx, &q); err != nil {
-						t.Fatalf("Inserting queue %s/%s in manager: %v", q.Namespace, q.Name, err)
-					}
-				}
-				initiallyAdmittedWorkloads := sets.New[workload.Reference]()
-				for _, w := range testWls {
-					if workload.IsAdmitted(&w) {
-						initiallyAdmittedWorkloads.Insert(workload.Key(&w))
-					}
-				}
-				scheduler := New(qManager, cqCache, cl, recorder, WithClock(t, testingclock.NewFakeClock(now)), WithPreemptionExpectations(preemptexpectations.New()))
-				wg := sync.WaitGroup{}
-				scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
-					func() { wg.Add(1) },
-					func() { wg.Done() },
-				))
-
-				ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
-				go qManager.CleanUpOnContext(ctx)
-				defer cancel()
-
-				scheduler.schedule(ctx)
-				wg.Wait()
-				snapshot, err := cqCache.Snapshot(ctx)
-				if err != nil {
-					t.Fatalf("unexpected error while building snapshot: %v", err)
-				}
-
-				gotWorkloads := &kueue.WorkloadList{}
-				err = cl.List(ctx, gotWorkloads)
-				if err != nil {
-					t.Fatalf("Unexpected list workloads error: %v", err)
-				}
-
-				defaultWorkloadCmpOpts := cmp.Options{
-					cmpopts.EquateEmpty(),
-					cmpopts.IgnoreFields(kueue.Workload{}, "ObjectMeta.ResourceVersion"),
-					cmpopts.SortSlices(func(a, b metav1.Condition) bool {
-						return a.Type < b.Type
-					}),
-				}
-
-				if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads.Items, defaultWorkloadCmpOpts); diff != "" {
-					t.Errorf("Unexpected scheduled workloads (-want,+got):\n%s", diff)
-				}
-
-				gotAssignments := make(map[workload.Reference]kueue.Admission)
-				for cqName, c := range snapshot.ClusterQueues() {
-					for name, w := range c.Workloads {
-						if initiallyAdmittedWorkloads.Has(workload.Key(w.Obj)) {
-							continue
-						}
-						switch {
-						case !workload.HasQuotaReservation(w.Obj):
-							t.Fatalf("Workload %s is not admitted by a clusterQueue, but it is found as member of clusterQueue %s in the cache", name, cqName)
-						case w.Obj.Status.Admission.ClusterQueue != cqName:
-							t.Fatalf("Workload %s is admitted by clusterQueue %s, but it is found as member of clusterQueue %s in the cache", name, w.Obj.Status.Admission.ClusterQueue, cqName)
-						default:
-							gotAssignments[name] = *w.Obj.Status.Admission
-						}
-					}
-				}
-				if diff := cmp.Diff(tc.wantNewAssignments, gotAssignments, cmpopts.EquateEmpty()); diff != "" {
-					t.Errorf("Unexpected assigned clusterQueues in cache (-want,+got):\n%s", diff)
-				}
-				qDump := qManager.Dump()
-				if diff := cmp.Diff(tc.wantLeft, qDump, cmpDump...); diff != "" {
-					t.Errorf("Unexpected elements left in the queue (-want,+got):\n%s", diff)
-				}
-				qDumpInadmissible := qManager.DumpInadmissible()
-				if diff := cmp.Diff(tc.wantInadmissibleLeft, qDumpInadmissible, cmpDump...); diff != "" {
-					t.Errorf("Unexpected elements left in inadmissible workloads (-want,+got):\n%s", diff)
-				}
-				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, tc.eventCmpOpts...); diff != "" {
-					t.Errorf("unexpected events (-want/+got):\n%s", diff)
-				}
-			})
-		}
-	}
+	runTASScheduleTestCases(t, tasScheduleTestConfig{
+		queues: queues,
+		now:    now,
+	}, cases)
 }
 
 func TestScheduleForTASCohorts(t *testing.T) {
@@ -5175,27 +5211,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 		*utiltestingapi.MakeLocalQueue("tas-lq-c", "default").ClusterQueue("tas-cq-c").Obj(),
 	}
 	eventIgnoreMessage := cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message")
-	cases := map[string]struct {
-		nodes           []corev1.Node
-		pods            []corev1.Pod
-		topologies      []kueue.Topology
-		cohorts         []kueue.Cohort
-		resourceFlavors []kueue.ResourceFlavor
-		clusterQueues   []kueue.ClusterQueue
-		workloads       []kueue.Workload
-		wantWorkloads   []kueue.Workload
-
-		// wantNewAssignments is a summary of all new admissions in the cache after this cycle.
-		wantNewAssignments map[workload.Reference]kueue.Admission
-		// wantLeft is the workload keys that are left in the queues after this cycle.
-		wantLeft map[kueue.ClusterQueueReference][]workload.Reference
-		// wantInadmissibleLeft is the workload keys that are left in the inadmissible state after this cycle.
-		wantInadmissibleLeft map[kueue.ClusterQueueReference][]workload.Reference
-		// wantEvents asserts on the events, the comparison options are passed by eventCmpOpts
-		wantEvents []utiltesting.EventRecord
-		// eventCmpOpts are the comparison options for the events
-		eventCmpOpts cmp.Options
-	}{
+	cases := map[string]tasScheduleTestCase{
 		"workload with two PodSets exceeds node pods capacity": {
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("x1").
@@ -7249,142 +7265,11 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 		},
 	}
-	for name, tc := range cases {
-		for _, enabled := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
-				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
-				ctx, log := utiltesting.ContextWithLog(t)
-
-				testWls := make([]kueue.Workload, 0, len(tc.workloads))
-				for _, wl := range tc.workloads {
-					testWls = append(testWls, *wl.DeepCopy())
-				}
-				clientBuilder := utiltesting.NewClientBuilder().
-					WithLists(
-						&kueue.WorkloadList{Items: testWls},
-						&kueue.TopologyList{Items: tc.topologies},
-						&corev1.PodList{Items: tc.pods},
-						&corev1.NodeList{Items: tc.nodes},
-						&kueue.LocalQueueList{Items: queues}).
-					WithObjects(
-						utiltesting.MakeNamespace("default"),
-					).
-					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
-					WithStatusSubresource(&kueue.Workload{})
-				_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
-				cl := clientBuilder.Build()
-				recorder := &utiltesting.EventRecorder{}
-				cqCache := schdcache.New(cl)
-				qManager := qcache.NewManagerForUnitTests(cl, cqCache)
-				topologyByName := slices.ToMap(tc.topologies, func(i int) (kueue.TopologyReference, kueue.Topology) {
-					return kueue.TopologyReference(tc.topologies[i].Name), tc.topologies[i]
-				})
-				for i := range tc.nodes {
-					cqCache.TASCache().SyncNode(&tc.nodes[i])
-				}
-				for _, flavor := range tc.resourceFlavors {
-					cqCache.AddOrUpdateResourceFlavor(log, &flavor)
-					if flavor.Spec.TopologyName != nil {
-						t := topologyByName[*flavor.Spec.TopologyName]
-						cqCache.AddOrUpdateTopology(log, &t)
-					}
-				}
-				for _, cohort := range tc.cohorts {
-					if err := cqCache.AddOrUpdateCohort(&cohort); err != nil {
-						t.Fatalf("Inserting Cohort %s in cache: %v", cohort.Name, err)
-					}
-				}
-				for _, cq := range tc.clusterQueues {
-					if err := cqCache.AddClusterQueue(ctx, &cq); err != nil {
-						t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
-					}
-					if err := qManager.AddClusterQueue(ctx, &cq); err != nil {
-						t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
-					}
-					if err := cl.Create(ctx, &cq); err != nil {
-						t.Fatalf("couldn't create the cluster queue: %v", err)
-					}
-				}
-				for _, q := range queues {
-					if err := qManager.AddLocalQueue(ctx, &q); err != nil {
-						t.Fatalf("Inserting queue %s/%s in manager: %v", q.Namespace, q.Name, err)
-					}
-				}
-				initiallyAdmittedWorkloads := sets.New[workload.Reference]()
-				for _, w := range testWls {
-					if workload.IsAdmitted(&w) {
-						initiallyAdmittedWorkloads.Insert(workload.Key(&w))
-					}
-				}
-				scheduler := New(qManager, cqCache, cl, recorder, WithClock(t, testingclock.NewFakeClock(now)), WithPreemptionExpectations(preemptexpectations.New()))
-				wg := sync.WaitGroup{}
-				scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
-					func() { wg.Add(1) },
-					func() { wg.Done() },
-				))
-
-				ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
-				go qManager.CleanUpOnContext(ctx)
-				defer cancel()
-
-				scheduler.schedule(ctx)
-				wg.Wait()
-				snapshot, err := cqCache.Snapshot(ctx)
-				if err != nil {
-					t.Fatalf("unexpected error while building snapshot: %v", err)
-				}
-
-				gotWorkloads := &kueue.WorkloadList{}
-				err = cl.List(ctx, gotWorkloads)
-				if err != nil {
-					t.Fatalf("Unexpected list workloads error: %v", err)
-				}
-
-				defaultWorkloadCmpOpts := cmp.Options{
-					cmpopts.EquateEmpty(),
-					cmpopts.IgnoreFields(kueue.Workload{}, "ObjectMeta.ResourceVersion"),
-					cmpopts.SortSlices(func(a, b metav1.Condition) bool {
-						return a.Type < b.Type
-					}),
-				}
-
-				if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads.Items, defaultWorkloadCmpOpts); diff != "" {
-					t.Errorf("Unexpected scheduled workloads (-want,+got):\n%s", diff)
-				}
-
-				gotAssignments := make(map[workload.Reference]kueue.Admission)
-				for cqName, c := range snapshot.ClusterQueues() {
-					for name, w := range c.Workloads {
-						if initiallyAdmittedWorkloads.Has(workload.Key(w.Obj)) {
-							continue
-						}
-						switch {
-						case !workload.HasQuotaReservation(w.Obj):
-							t.Fatalf("Workload %s is not admitted by a clusterQueue, but it is found as member of clusterQueue %s in the cache", name, cqName)
-						case w.Obj.Status.Admission.ClusterQueue != cqName:
-							t.Fatalf("Workload %s is admitted by clusterQueue %s, but it is found as member of clusterQueue %s in the cache", name, w.Obj.Status.Admission.ClusterQueue, cqName)
-						default:
-							gotAssignments[name] = *w.Obj.Status.Admission
-						}
-					}
-				}
-				if diff := cmp.Diff(tc.wantNewAssignments, gotAssignments, cmpopts.EquateEmpty()); diff != "" {
-					t.Errorf("Unexpected assigned clusterQueues in cache (-want,+got):\n%s", diff)
-				}
-				qDump := qManager.Dump()
-				if diff := cmp.Diff(tc.wantLeft, qDump, cmpDump...); diff != "" {
-					t.Errorf("Unexpected elements left in the queue (-want,+got):\n%s", diff)
-				}
-				qDumpInadmissible := qManager.DumpInadmissible()
-				if diff := cmp.Diff(tc.wantInadmissibleLeft, qDumpInadmissible, cmpDump...); diff != "" {
-					t.Errorf("Unexpected elements left in inadmissible workloads (-want,+got):\n%s", diff)
-				}
-				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, append(tc.eventCmpOpts, cmpopts.SortSlices(utiltesting.SortEvents))...); diff != "" {
-					t.Errorf("unexpected events (-want/+got):\n%s", diff)
-				}
-			})
-		}
-	}
+	runTASScheduleTestCases(t, tasScheduleTestConfig{
+		queues:     queues,
+		now:        now,
+		sortEvents: true,
+	}, cases)
 }
 
 func TestScheduleForTASWhenWorkloadModifiedConcurrently(t *testing.T) {
