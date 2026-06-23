@@ -93,6 +93,7 @@ func TestDefault(t *testing.T) {
 		namespaceSelector            *metav1.LabelSelector
 		podSelector                  *metav1.LabelSelector
 		enableIntegrations           []string
+		nativePodGroupsEnabled       bool
 		want                         *corev1.Pod
 		wantErr                      error
 	}{
@@ -121,6 +122,70 @@ func TestDefault(t *testing.T) {
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
 				ManagedByKueueLabel().
+				KueueSchedulingGate().
+				RoleHash("a9f06f3a").
+				KueueFinalizer().
+				Obj(),
+		},
+		"pod group defaults schedulingGroup when native PodGroups are enabled and annotation is set": {
+			featureGates:           map[featuregate.Feature]bool{features.TopologyAwareScheduling: false, features.WASPodGroups: true},
+			initObjects:            []client.Object{defaultNamespace},
+			nativePodGroupsEnabled: true,
+			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("test-queue").
+				GroupNameLabel("test-group").
+				GroupTotalCount("2").
+				WASPodGroupAnnotation().
+				Obj(),
+			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("test-queue").
+				GroupNameLabel("test-group").
+				GroupTotalCount("2").
+				WASPodGroupAnnotation().
+				ManagedByKueueLabel().
+				SchedulingGroupPodGroupName("test-group").
+				KueueSchedulingGate().
+				RoleHash("a9f06f3a").
+				KueueFinalizer().
+				Obj(),
+		},
+		"pod group does not default schedulingGroup when annotation is missing": {
+			featureGates:           map[featuregate.Feature]bool{features.TopologyAwareScheduling: false, features.WASPodGroups: true},
+			initObjects:            []client.Object{defaultNamespace},
+			nativePodGroupsEnabled: true,
+			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("test-queue").
+				GroupNameLabel("test-group").
+				GroupTotalCount("2").
+				Obj(),
+			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("test-queue").
+				GroupNameLabel("test-group").
+				GroupTotalCount("2").
+				ManagedByKueueLabel().
+				KueueSchedulingGate().
+				RoleHash("a9f06f3a").
+				KueueFinalizer().
+				Obj(),
+		},
+		"pod group preserves existing schedulingGroup when native PodGroups are enabled": {
+			featureGates:           map[featuregate.Feature]bool{features.TopologyAwareScheduling: false, features.WASPodGroups: true},
+			initObjects:            []client.Object{defaultNamespace},
+			nativePodGroupsEnabled: true,
+			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("test-queue").
+				GroupNameLabel("test-group").
+				GroupTotalCount("2").
+				WASPodGroupAnnotation().
+				SchedulingGroupPodGroupName("external-group").
+				Obj(),
+			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("test-queue").
+				GroupNameLabel("test-group").
+				GroupTotalCount("2").
+				WASPodGroupAnnotation().
+				ManagedByKueueLabel().
+				SchedulingGroupPodGroupName("external-group").
 				KueueSchedulingGate().
 				RoleHash("a9f06f3a").
 				KueueFinalizer().
@@ -669,6 +734,7 @@ func TestDefault(t *testing.T) {
 				managedJobsNamespaceSelector: tc.managedJobsNamespaceSelector,
 				namespaceSelector:            tc.namespaceSelector,
 				podSelector:                  tc.podSelector,
+				nativePodGroupsEnabled:       tc.nativePodGroupsEnabled,
 			}
 
 			if err := w.Default(ctx, tc.pod); err != nil {

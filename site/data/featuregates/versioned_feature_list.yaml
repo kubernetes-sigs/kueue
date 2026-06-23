@@ -501,6 +501,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.9"
+- name: WASPodGroups
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: WorkloadIdentifierAnnotations
   versionedSpecs:
   - default: true

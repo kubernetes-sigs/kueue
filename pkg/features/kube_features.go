@@ -410,6 +410,13 @@ const (
 	// disabled, the label-based identifiers are used instead.
 	WorkloadIdentifierAnnotations featuregate.Feature = "WorkloadIdentifierAnnotations"
 
+	// owner: @kannon92
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/12385-was-podgroups
+	//
+	// WASPodGroups enables creating native scheduling.k8s.io PodGroups for plain Pod
+	// groups and defaulting pod.spec.schedulingGroup.podGroupName.
+	WASPodGroups featuregate.Feature = "WASPodGroups"
+
 	// owner: @atosatto
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/10765-workload-priority-class-defaulting
 	//
@@ -667,6 +674,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	WorkloadIdentifierAnnotations: {
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
+	},
+	WASPodGroups: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	WorkloadPriorityClassDefaulting: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},

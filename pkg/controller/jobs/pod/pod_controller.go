@@ -108,6 +108,7 @@ func init() {
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=pods/status,verbs=get;patch
 // +kubebuilder:rbac:groups="",resources=pods/finalizers,verbs=get;update
+// +kubebuilder:rbac:groups=scheduling.k8s.io,resources=podgroups,verbs=get;list;watch;create
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
@@ -115,19 +116,22 @@ func init() {
 
 type Reconciler struct {
 	*jobframework.JobReconciler
-	expectationsStore *expectations.Store
-	clock             clock.Clock
+	expectationsStore      *expectations.Store
+	clock                  clock.Clock
+	nativePodGroupsEnabled bool
 }
 
 const controllerName = "v1_pod"
 
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	return r.ReconcileGenericJob(ctx, req, NewPod(WithExcessPodExpectations(r.expectationsStore), WithClock(r.clock)))
+	return r.ReconcileGenericJob(ctx, req, NewPod(WithExcessPodExpectations(r.expectationsStore), WithClock(r.clock), WithNativePodGroups(r.nativePodGroupsEnabled)))
 }
 
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
+	nativePodGroupsEnabled, nativePodGroupsReason := nativePodGroupsAvailability(mgr.GetRESTMapper())
+	r.nativePodGroupsEnabled = nativePodGroupsEnabled
 	concurrency := mgr.GetControllerOptions().GroupKindConcurrency[gvk.GroupKind().String()]
-	ctrl.Log.V(3).Info("Setting up Pod reconciler", "concurrency", max(1, concurrency))
+	ctrl.Log.V(3).Info("Setting up Pod reconciler", "concurrency", max(1, concurrency), "nativePodGroupsEnabled", r.nativePodGroupsEnabled, "nativePodGroupsReason", nativePodGroupsReason)
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(controllerName).
 		Watches(&corev1.Pod{}, &podEventHandler{cleanedUpPodsExpectations: r.expectationsStore}).
@@ -153,16 +157,17 @@ func NewReconciler(_ context.Context, c client.Client, _ client.FieldIndexer, re
 }
 
 type Pod struct {
-	pod                   corev1.Pod
-	key                   types.NamespacedName
-	isFound               bool
-	isGroup               bool
-	unretriableGroup      *bool
-	list                  corev1.PodList
-	absentPods            int
-	excessPodExpectations *expectations.Store
-	satisfiedExcessPods   bool
-	clock                 clock.Clock
+	pod                    corev1.Pod
+	key                    types.NamespacedName
+	isFound                bool
+	isGroup                bool
+	unretriableGroup       *bool
+	list                   corev1.PodList
+	absentPods             int
+	excessPodExpectations  *expectations.Store
+	satisfiedExcessPods    bool
+	clock                  clock.Clock
+	nativePodGroupsEnabled bool
 }
 
 var (
@@ -192,6 +197,13 @@ func WithExcessPodExpectations(store *expectations.Store) PodOption {
 func WithClock(clock clock.Clock) PodOption {
 	return func(pod *Pod) {
 		pod.clock = clock
+	}
+}
+
+// WithNativePodGroups sets whether the Pod should use native scheduling.k8s.io PodGroups.
+func WithNativePodGroups(enabled bool) PodOption {
+	return func(pod *Pod) {
+		pod.nativePodGroupsEnabled = enabled
 	}
 }
 
@@ -266,6 +278,10 @@ func (p *Pod) Suspend() {
 // Run will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
 func (p *Pod) Run(ctx context.Context, c client.Client, wl *kueue.Workload, podSetsInfo []podset.PodSetInfo, recorder events.EventRecorder, msg string) error {
 	log := ctrl.LoggerFrom(ctx)
+
+	if err := p.ensureNativePodGroup(ctx, c, wl, recorder); err != nil {
+		return err
+	}
 
 	if !p.isGroup {
 		if len(podSetsInfo) != 1 {
@@ -857,6 +873,7 @@ func (p *Pod) validatePodGroupMetadata(r events.EventRecorder, activePods []core
 		return jobframework.UnretryableError(errMsg)
 	}
 
+	expectedNativePodGroupName := nativePodGroupNameForPod(&p.pod)
 	for _, podInGroup := range p.list.Items {
 		// Skip failed pods
 		if podInGroup.Status.Phase == corev1.PodFailed {
@@ -881,6 +898,15 @@ func (p *Pod) validatePodGroupMetadata(r events.EventRecorder, activePods []core
 				p.pod.GetName(), podInGroup.GetName(),
 				podconstants.GroupTotalCountAnnotation,
 				groupTotalCount, tc))
+		}
+
+		if p.nativePodGroupsEnabled {
+			podNativePodGroupName := nativePodGroupNameForPod(&podInGroup)
+			if podNativePodGroupName != expectedNativePodGroupName {
+				return jobframework.UnretryableError(fmt.Sprintf("pods '%s' and '%s' have inconsistent schedulingGroup.podGroupName values: %q!=%q",
+					p.pod.GetName(), podInGroup.GetName(),
+					expectedNativePodGroupName, podNativePodGroupName))
+			}
 		}
 	}
 
