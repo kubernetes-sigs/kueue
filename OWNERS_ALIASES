@@ -12,6 +12,7 @@ aliases:
     - olekzabl
     - kshalot
     - sohankunkerkar
+    - amy
   dependency-approvers:
     - mbobrovskyi
     - pbundyra
