@@ -989,13 +989,6 @@ const (
 	// WorkloadDeactivationTarget means that the Workload should be deactivated.
 	// This condition is temporary, so it should be removed after deactivation.
 	WorkloadDeactivationTarget = "DeactivationTarget"
-
-	// WorkloadRequeueHeld means that the Workload should not be requeued
-	// after its quota reservation is released. The possible reasons for this
-	// condition are:
-	// - "StatefulSetScaledDown": the owning StatefulSet scaled to zero
-	// Other integrations may use additional reasons in the future.
-	WorkloadRequeueHeld = "RequeueHeld"
 )
 
 // Reasons for the WorkloadPreemptionBlocked condition.
@@ -1028,6 +1021,13 @@ const (
 	// WorkloadInadmissible means that the Workload can't reserve quota
 	// due to LocalQueue or ClusterQueue doesn't exist or inactive.
 	WorkloadInadmissible = "Inadmissible"
+
+	// WorkloadOnHold indicates that the Workload's quota reservation is
+	// intentionally released and the workload should not be requeued.
+	// The possible reasons for this are:
+	// - "StatefulSetScaledDown": the owning StatefulSet scaled to zero
+	// Other integrations may use additional reasons in the future.
+	WorkloadOnHold = "OnHold"
 
 	// WorkloadAdmissionGated indicates that the workload is inadmissible
 	// due to an AdmissionGatedBy annotation.
