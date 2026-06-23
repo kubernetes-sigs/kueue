@@ -264,3 +264,10 @@ ignoreFiles = []
 
 [security.node.permissions]
   allowRead = ["*"]
+
+# Remote Resource Cache Configuration (Ensures Medium RSS feed updates automatically)
+[caches]
+  [caches.getremote]
+    dir = ":cacheDir/getremote"
+    maxAge = "1h"
+
