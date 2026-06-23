@@ -57,6 +57,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utilstatefulset "sigs.k8s.io/kueue/pkg/util/statefulset"
@@ -479,7 +480,7 @@ func (r *Reconciler) reconcilePod(ctx context.Context, lws *leaderworkersetv1.Le
 	log := ctrl.LoggerFrom(ctx).WithValues(
 		"pod", klog.KObj(pod),
 		"podRevision", pod.Labels[appsv1.ControllerRevisionHashLabelKey],
-		"group", podcontroller.GetPodGroupName(pod))
+		"group", utilpod.GetPodGroupName(pod))
 	if sts != nil {
 		log = log.WithValues(
 			"statefulset", klog.KObj(sts),

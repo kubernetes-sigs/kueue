@@ -213,7 +213,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 					wlConditionCmpOpts...,
 				))
 
-				util.ExpectPodSchedulingGateRemovalSecondsMetricLessOrEqual(podconstants.SchedulingGateName, cqName, false, util.Timeout)
+				util.ExpectPodSchedulingGateRemovalSecondsMetricLessOrEqual(podconstants.SchedulingGateName, cqName, false, 1)
 
 				ginkgo.By("checking the workload is finished and the pod finalizer is removed when pod is succeeded")
 				util.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pod)

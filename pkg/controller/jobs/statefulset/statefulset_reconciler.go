@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilstatefulset "sigs.k8s.io/kueue/pkg/util/statefulset"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -128,7 +129,7 @@ func (r *Reconciler) finalizePod(ctx context.Context, sts *appsv1.StatefulSet, p
 			log.V(3).Info(
 				"Finalizing pod in group",
 				"pod", klog.KObj(pod),
-				"group", podcontroller.GetPodGroupName(pod),
+				"group", utilpod.GetPodGroupName(pod),
 			)
 			return true, nil
 		}
