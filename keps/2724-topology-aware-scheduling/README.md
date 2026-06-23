@@ -46,6 +46,7 @@
     - [Node failures](#node-failures)
       - [Until v0.13](#until-v013)
       - [Since v0.14](#since-v014)
+      - [Replacing multiple failed nodes](#replacing-multiple-failed-nodes)
     - [Tainted nodes treatment](#tainted-nodes-treatment)
       - [User stories](#user-stories-1)
   - [Implicit defaulting of TAS annotations](#implicit-defaulting-of-tas-annotations)
