@@ -1,0 +1,26 @@
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: cancer-research-
+  labels:
+    kueue.x-k8s.io/queue-name: emergency-queue
+    kueue.x-k8s.io/priority-class: human-critical
+spec:
+  parallelism: 3
+  completions: 3
+  suspend: true
+  template:
+    spec:
+      containers:
+      - name: cancer-cure-research-model-update
+        image: gcr.io/google-containers/busybox:latest
+        command: ['sh', '-c', 'echo "Searching cure against cancer..." && sleep 120']
+        resources:
+          requests:
+            cpu: 10m
+            memory: "100Mi"
+      restartPolicy: Never
+
+
+

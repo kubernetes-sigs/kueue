@@ -1,0 +1,44 @@
+
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin
+artifacts
+release-artifacts
+config/components/crd/_output
+testbin/*
+.DS_Store
+go.work*
+# Test binary, build with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# build_logs directory, where by default are downloaded artifacts from the CI job
+build_logs
+
+# editor and IDE paraphernalia
+.idea
+.vscode
+*.nix
+*.swp
+*.swo
+*~
+
+# Local Netlify folder
+.netlify
+
+# Directory with CRDs for dependencies
+dep-crds
+
+kueue.yaml
+
+node_modules
+test/e2e/kueueviz/cypress/screenshots
+test/e2e/kueueviz/cypress/videos
+
+

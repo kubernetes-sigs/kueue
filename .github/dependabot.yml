@@ -1,0 +1,106 @@
+version: 2
+updates:
+
+  # Maintain dependencies for go.
+  - package-ecosystem: "gomod"
+    directories:
+      - "/"
+      - "/hack/tools"
+      - "/site"
+      - "/cmd/kueueviz/backend"
+      - "/cmd/experimental/kueue-populator"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "ok-to-test"
+      - "release-note-none"
+      - "dependencies"
+      - "area/dependency"
+    groups:
+      kubernetes:
+        patterns:
+          - "k8s.io/*"
+    ignore:
+      # Ignore major and minor versions for dependencies updates
+      # Allow patches and security updates.
+      - dependency-name: k8s.io/*
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    labels:
+      - "ok-to-test"
+      - "release-note-none"
+      - "dependencies"
+      - "area/dependency"
+    open-pull-requests-limit: 10
+    groups:
+      all:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Maintain Dockerfiles
+  - package-ecosystem: "docker"
+    directories:
+      - "/"
+      - "/cmd/importer"
+      - "/cmd/experimental/kueue-populator"
+      - "/cmd/experimental/kueue-priority-booster"
+      - "/cmd/kueueviz/backend"
+      - "/cmd/kueueviz/frontend"
+      - "/hack/debugpod"
+      - "/hack/releasing/krew-release-bot"
+      - "/hack/testing/agnhost"
+      - "/hack/testing/cypress"
+      - "/hack/testing/depcheck"
+      - "/hack/testing/linkchecker"
+      - "/hack/testing/ray"
+      - "/hack/testing/ray-mini"
+      - "/hack/testing/redis"
+      - "/hack/testing/secretreader"
+      - "/hack/testing/shellcheck"
+      - "/hack/testing/skillsaw"
+      - "/hack/testing/spark"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "ok-to-test"
+      - "release-note-none"
+      - "dependencies"
+      - "area/dependency"
+
+  # Maintain npm dependencies
+  - package-ecosystem: "npm"
+    directories:
+      - /cmd/kueueviz/frontend
+      - /site
+      - /test/e2e/kueueviz
+    schedule:
+      interval: "weekly"
+    labels:
+      - "ok-to-test"
+      - "release-note-none"
+      - "dependencies"
+      - "area/dependency"
+    groups:
+      mui-packages:
+        patterns:
+          - "@mui/*"
+      # vite, @vitejs/*, and vitest share peer/version expectations; one PR avoids npm ERESOLVE in CI.
+      vite-stack:
+        patterns:
+          - "vite"
+          - "@vitejs/*"
+          - "vitest"
+      all:
+        update-types:
+          - "minor"
+          - "patch"
+        exclude-patterns:
+          - "@mui/*"
+          - "vite"
+          - "@vitejs/*"
+          - "vitest"

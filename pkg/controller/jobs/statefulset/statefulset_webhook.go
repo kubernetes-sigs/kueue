@@ -1,0 +1,228 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package statefulset
+
+import (
+	"context"
+
+	appsv1 "k8s.io/api/apps/v1"
+	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	"sigs.k8s.io/kueue/pkg/util/webhook"
+	"sigs.k8s.io/kueue/pkg/workload"
+)
+
+type Webhook struct {
+	client                       client.Client
+	manageJobsWithoutQueueName   bool
+	managedJobsNamespaceSelector labels.Selector
+	queues                       *qcache.Manager
+}
+
+func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
+	options := jobframework.ProcessOptions(opts...)
+	wh := &Webhook{
+		client:                       mgr.GetClient(),
+		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
+		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
+		queues:                       options.Queues,
+	}
+	obj := &appsv1.StatefulSet{}
+	if options.NoopWebhook {
+		return webhook.SetupNoopWebhook(mgr, obj)
+	}
+	return ctrl.NewWebhookManagedBy(mgr, obj).
+		WithDefaulter(wh).
+		WithValidator(wh).
+		WithLogConstructor(roletracker.WebhookLogConstructor(options.RoleTracker)).
+		Complete()
+}
+
+// +kubebuilder:webhook:path=/mutate-apps-v1-statefulset,mutating=true,failurePolicy=fail,sideEffects=None,groups="apps",resources=statefulsets,verbs=create;update,versions=v1,name=mstatefulset.kb.io,admissionReviewVersions=v1
+
+var _ admission.Defaulter[*appsv1.StatefulSet] = &Webhook{}
+
+func (wh *Webhook) Default(ctx context.Context, stsObj *appsv1.StatefulSet) error {
+	log := ctrl.LoggerFrom(ctx).WithName("statefulset-webhook")
+
+	if frameworkName, managed := managedByAnotherFramework(stsObj); managed {
+		log.V(3).Info("Skipping defaulting because the object is managed by another framework", "framework", frameworkName)
+		return nil
+	}
+
+	ss := fromObject(stsObj)
+
+	log.V(5).Info("Propagating queue-name")
+
+	jobframework.ApplyDefaultLocalQueue(ss.Object(), wh.queues.DefaultLocalQueueExist)
+	jobframework.ApplyDefaultWorkloadPriorityClass(ctx, wh.client, ss.Object())
+	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, ss.Object(), wh.client, wh.manageJobsWithoutQueueName, wh.managedJobsNamespaceSelector)
+	if err != nil {
+		return err
+	}
+	if suspend {
+		if ss.Spec.Template.Annotations == nil {
+			ss.Spec.Template.Annotations = make(map[string]string, 1)
+		}
+		ss.Spec.Template.Annotations[podconstants.SuspendedByParentAnnotation] = FrameworkName
+	}
+
+	return nil
+}
+
+// +kubebuilder:webhook:path=/validate-apps-v1-statefulset,mutating=false,failurePolicy=fail,sideEffects=None,groups="apps",resources=statefulsets,verbs=create;update,versions=v1,name=vstatefulset.kb.io,admissionReviewVersions=v1
+
+var _ admission.Validator[*appsv1.StatefulSet] = &Webhook{}
+
+func (wh *Webhook) ValidateCreate(ctx context.Context, stsObj *appsv1.StatefulSet) (warnings admission.Warnings, err error) {
+	log := ctrl.LoggerFrom(ctx).WithName("statefulset-webhook")
+
+	if frameworkName, managed := managedByAnotherFramework(stsObj); managed {
+		log.V(3).Info("Skipping create validation because the object is managed by another framework", "framework", frameworkName)
+		return nil, nil
+	}
+
+	log.V(5).Info("Validating create")
+
+	sts := fromObject(stsObj)
+
+	allErrs := jobframework.ValidateQueueName(sts.Object())
+	allErrs = append(allErrs, jobframework.ValidateElasticJobAnnotation(sts.Object(), sts.GVK())...)
+
+	if features.Enabled(features.AdmissionGatedBy) {
+		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnCreate(sts.Object())...)
+	}
+
+	return nil, allErrs.ToAggregate()
+}
+
+var (
+	labelsPath                 = field.NewPath("metadata", "labels")
+	queueNameLabelPath         = labelsPath.Key(controllerconstants.QueueLabel)
+	priorityClassNameLabelPath = labelsPath.Key(controllerconstants.WorkloadPriorityClassLabel)
+	specPath                   = field.NewPath("spec")
+	replicasPath               = specPath.Child("replicas")
+	specTemplatePath           = specPath.Child("template")
+	podSpecPath                = specTemplatePath.Child("spec")
+)
+
+func (wh *Webhook) ValidateUpdate(ctx context.Context, oldSTSObj, newSTSObj *appsv1.StatefulSet) (warnings admission.Warnings, err error) {
+	log := ctrl.LoggerFrom(ctx).WithName("statefulset-webhook")
+
+	if frameworkName, managed := managedByAnotherFramework(newSTSObj); managed {
+		log.V(3).Info("Skipping update validation because the object is managed by another framework", "framework", frameworkName)
+		return nil, nil
+	}
+
+	oldStatefulSet := fromObject(oldSTSObj)
+	newStatefulSet := fromObject(newSTSObj)
+
+	log.V(5).Info("Validating update")
+
+	oldQueueName := jobframework.QueueNameForObject(oldStatefulSet.Object())
+	newQueueName := jobframework.QueueNameForObject(newStatefulSet.Object())
+
+	allErrs := jobframework.ValidateQueueName(newStatefulSet.Object())
+	allErrs = append(allErrs, jobframework.ValidateElasticJobAnnotation(newStatefulSet.Object(), newStatefulSet.GVK())...)
+
+	// Prevents updating the queue-name if at least one Pod is not suspended
+	// or if the queue-name has been deleted.
+	isSuspended := oldStatefulSet.Status.ReadyReplicas == 0
+	if !isSuspended || newQueueName == "" {
+		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newQueueName, oldQueueName, queueNameLabelPath)...)
+	}
+	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(
+		isSuspended,
+		oldStatefulSet.Object(),
+		newStatefulSet.Object(),
+	)...)
+
+	if features.Enabled(features.AdmissionGatedBy) {
+		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnUpdate(oldStatefulSet.Object(), newStatefulSet.Object())...)
+	}
+
+	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, newStatefulSet.Object(), wh.client, wh.manageJobsWithoutQueueName, wh.managedJobsNamespaceSelector)
+	if err != nil {
+		return nil, err
+	}
+	if suspend {
+		allErrs = append(allErrs, jobframework.ValidateImmutablePodGroupPodSpec(
+			&newStatefulSet.Spec.Template.Spec,
+			&oldStatefulSet.Spec.Template.Spec,
+			podSpecPath,
+		)...)
+
+		oldReplicas := ptr.Deref(oldStatefulSet.Spec.Replicas, 1)
+		newReplicas := ptr.Deref(newStatefulSet.Spec.Replicas, 1)
+
+		// Allow only scale down to zero and scale up from zero.
+		// TODO(#3279): Support custom resizes later
+		if newReplicas != 0 && oldReplicas != 0 {
+			allErrs = append(allErrs, apivalidation.ValidateImmutableField(
+				newStatefulSet.Spec.Replicas,
+				oldStatefulSet.Spec.Replicas,
+				replicasPath,
+			)...)
+		}
+
+		if oldReplicas == 0 && newReplicas > 0 {
+			if newStatefulSet.Status.Replicas > 0 {
+				// Block if pods are still terminating
+				allErrs = append(allErrs, field.Forbidden(replicasPath, "scaling down is still in progress"))
+			} else {
+				// Block if workload is still being deleted (exists without OnHold).
+				// If the workload is on hold, it is intentionally kept alive during
+				// scale-to-zero and will be re-admitted on scale-up.
+				wlName, err := findWorkloadName(ctx, wh.client, oldSTSObj)
+				if err != nil {
+					return nil, err
+				}
+				var wl kueue.Workload
+				err = wh.client.Get(ctx, client.ObjectKey{Namespace: oldSTSObj.GetNamespace(), Name: wlName}, &wl)
+				if client.IgnoreNotFound(err) != nil {
+					return nil, err
+				} else if err == nil && !workload.IsOnHold(&wl) {
+					allErrs = append(allErrs, field.Forbidden(replicasPath, "workload from previous scale-down is still being deleted"))
+				}
+			}
+		}
+	}
+
+	return warnings, allErrs.ToAggregate()
+}
+
+func (wh *Webhook) ValidateDelete(_ context.Context, _ *appsv1.StatefulSet) (warnings admission.Warnings, err error) {
+	return nil, nil
+}
+
+func GetWorkloadName(uid types.UID, statefulSetName string) string {
+	return jobframework.GetWorkloadNameForOwnerWithGVK(statefulSetName, uid, gvk)
+}

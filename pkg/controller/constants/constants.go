@@ -1,0 +1,98 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package constants
+
+import kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+
+const (
+	// QueueLabel is the label key in the workload that holds the queue name.
+	QueueLabel = "kueue.x-k8s.io/queue-name"
+
+	// DefaultLocalQueueName is the name for default LocalQueue that is applied
+	// if QueueLabel is not specified.
+	DefaultLocalQueueName kueue.LocalQueueName = "default"
+
+	// PrebuiltWorkloadLabel is the label key on jobs that stores the name of the pre-built workload.
+	// This label is always allowed, including when the WorkloadIdentifierAnnotations feature is enabled.
+	// When the feature is enabled, we use the annotation value by default;
+	// if the annotation is absent, we fall back to this label.
+	PrebuiltWorkloadLabel = "kueue.x-k8s.io/prebuilt-workload-name"
+
+	// PrebuiltWorkloadAnnotation is the annotation key on jobs that stores the name of the pre-built workload.
+	// This annotation is allowed only when the WorkloadIdentifierAnnotations feature is enabled.
+	// When enabled, we use the value of pre-built workload from the annotation by default;
+	// if it is not present, we fall back to the label.
+	PrebuiltWorkloadAnnotation = "kueue.x-k8s.io/prebuilt-workload-name"
+
+	// JobUIDLabel is the label key in the workload resource, that holds the UID of
+	// the owner job.
+	JobUIDLabel = "kueue.x-k8s.io/job-uid"
+
+	// WorkloadPriorityClassLabel is the label key in the workload that holds the
+	// workloadPriorityClass name.
+	// This label is always mutable because it might be useful for the preemption.
+	WorkloadPriorityClassLabel = "kueue.x-k8s.io/priority-class"
+
+	// DefaultWorkloadPriorityClassName is the name for the default
+	// WorkloadPriorityClass that is applied if WorkloadPriorityClassLabel is not
+	// specified and the WorkloadPriorityClassDefaulting feature gate is enabled.
+	DefaultWorkloadPriorityClassName = "default"
+
+	// ProvReqAnnotationPrefix is the prefix for annotations that should be pass to ProvisioningRequest as Parameters.
+	ProvReqAnnotationPrefix = "provreq.kueue.x-k8s.io/"
+
+	// MaxExecTimeSecondsLabel is the label key in the job that holds the maximum execution time.
+	MaxExecTimeSecondsLabel = `kueue.x-k8s.io/max-exec-time-seconds`
+
+	// SafeToForcefullyDeleteAnnotationKey is the annotation key that controls whether a pod opted in to FailureRecoveryPolicy.
+	SafeToForcefullyDeleteAnnotationKey = "kueue.x-k8s.io/safe-to-forcefully-delete"
+	// SafeToForcefullyDeleteAnnotationValue is the value of that annotation that enables FailureRecoveryPolicy for that pod.
+	SafeToForcefullyDeleteAnnotationValue = "true"
+
+	// JobOwnerGVKAnnotation is the annotation key in the workload that holds the GVK of the owner job.
+	JobOwnerGVKAnnotation = "kueue.x-k8s.io/job-owner-gvk"
+
+	// JobOwnerNameAnnotation is the annotation key in the workload that holds the name of the owner job.
+	JobOwnerNameAnnotation = "kueue.x-k8s.io/job-owner-name"
+
+	// ComponentWorkloadIndexAnnotation stores the numeric index for component workloads
+	// in multi-workload jobs (e.g., LeaderWorkerSet replicas).
+	ComponentWorkloadIndexAnnotation = "kueue.x-k8s.io/component-workload-index"
+
+	// MultiKueuePreemptionGate is the name of the preemption gate managed by MultiKueue.
+	// This gate is automatically applied to remote Workloads to eliminate parallel preemptions.
+	MultiKueuePreemptionGate = "kueue.x-k8s.io/multikueue"
+
+	// ConcurrentAdmissionPreemptionGate is the name of the preemption gate managed by ConcurrentAdmission.
+	// It is applied to every Variant so that only one Variant per Parent issues preemptions at a time.
+	ConcurrentAdmissionPreemptionGate = "kueue.x-k8s.io/concurrent-admission"
+
+	// PriorityBoostAnnotationKey is the annotation key on a Workload that allows
+	// external controllers to adjust a workload's effective priority.
+	// Positive values increase priority; negative values decrease it.
+	PriorityBoostAnnotationKey = "kueue.x-k8s.io/priority-boost"
+
+	// WorkloadAllowedResourceFlavorAnnotation is an annotation used with ConcurrentAdmission feature
+	// It's set on a Workload level that defines which ResourceFlavors can be assigned to this Workload by Kueue scheduler.
+	// The value is a comma-separated list of resource flavor names (e.g., "reservation,spot").
+	WorkloadAllowedResourceFlavorAnnotation = "kueue.x-k8s.io/workload-allowed-resource-flavors"
+
+	// ConcurrentAdmissionParentLabelKey is the label key in the Workload that is a Parent of Variants.
+	// The value of this label is boolean, and it is set to "true" if the Workload is a parent of Variants.
+	// The label is used with ConcurrentAdmission feature.
+	ConcurrentAdmissionParentLabelKey = "kueue.x-k8s.io/concurrent-admission-parent"
+)

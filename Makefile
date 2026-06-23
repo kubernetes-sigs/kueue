@@ -1,0 +1,601 @@
+# Copyright 2022 The Kubernetes Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
+ifeq (,$(shell go env GOBIN))
+	GOBIN=$(shell go env GOPATH)/bin
+else
+	GOBIN=$(shell go env GOBIN)
+endif
+
+GO_CMD ?= go
+# Use go.mod go version as a single source of truth of GO version.
+GO_VERSION := $(shell awk '/^go /{split($$2, v, "."); print v[1] "." v[2]}' go.mod|head -n1)
+
+GIT_TAG ?= $(shell git describe --tags --dirty --always)
+GIT_COMMIT ?= $(shell git rev-parse HEAD)
+# Image URL to use all building/pushing image targets
+HOST_IMAGE_PLATFORM ?= linux/$(shell go env GOARCH)
+PLATFORMS ?= linux/amd64,linux/arm64,linux/s390x,linux/ppc64le
+CLI_PLATFORMS ?= linux/amd64,linux/arm64,darwin/amd64,darwin/arm64
+VIZ_PLATFORMS ?= linux/amd64,linux/arm64,linux/s390x,linux/ppc64le
+# Ray only provides PyPI wheels for amd64 and arm64
+RAY_PLATFORMS ?= linux/amd64,linux/arm64
+DOCKER_BUILDX_CMD ?= docker buildx
+IMAGE_BUILD_CMD ?= $(DOCKER_BUILDX_CMD) build
+
+STAGING_IMAGE_REGISTRY := us-central1-docker.pkg.dev/k8s-staging-images/kueue
+IMAGE_REGISTRY ?= $(STAGING_IMAGE_REGISTRY)
+
+IMAGE_REPO := $(IMAGE_REGISTRY)/kueue
+IMAGE_REPO_KUEUEVIZ_BACKEND := $(IMAGE_REGISTRY)/kueueviz-backend
+IMAGE_REPO_KUEUEVIZ_FRONTEND := $(IMAGE_REGISTRY)/kueueviz-frontend
+IMAGE_REPO_KUEUE_POPULATOR := $(IMAGE_REGISTRY)/kueue-populator
+IMAGE_REPO_KUEUE_PRIORITY_BOOSTER := $(IMAGE_REGISTRY)/kueue-priority-booster
+
+IMAGE_TAG := $(IMAGE_REPO):$(GIT_TAG)
+IMAGE_TAG_KUEUEVIZ_BACKEND := $(IMAGE_REPO_KUEUEVIZ_BACKEND):$(GIT_TAG)
+IMAGE_TAG_KUEUEVIZ_FRONTEND := $(IMAGE_REPO_KUEUEVIZ_FRONTEND):$(GIT_TAG)
+IMAGE_TAG_KUEUE_POPULATOR := $(IMAGE_REPO_KUEUE_POPULATOR):$(GIT_TAG)
+IMAGE_TAG_KUEUE_PRIORITY_BOOSTER := $(IMAGE_REPO_KUEUE_PRIORITY_BOOSTER):$(GIT_TAG)
+
+CLUSTERPROFILE_PLUGIN_IMAGE_VERSION ?= 0.0.1
+
+PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
+BIN_DIR ?= $(PROJECT_DIR)/bin
+ARTIFACTS ?= $(PROJECT_DIR)/artifacts
+RELEASE_ARTIFACTS ?= $(PROJECT_DIR)/release-artifacts
+HACK_DIR := $(PROJECT_DIR)/hack
+TOOLS_DIR := $(HACK_DIR)/tools
+TESTING_DIR := $(HACK_DIR)/testing
+MOCKS_DIR := internal/mocks
+
+RAY_VERSION := $(shell grep '^FROM' "${TESTING_DIR}/ray/Dockerfile" | cut -d: -f2 | cut -d@ -f1)
+RAYMINI_VERSION ?= 0.0.4
+
+# Use distroless as minimal base image to package the manager binary
+# Refer to https://github.com/GoogleContainerTools/distroless for more details
+BASE_IMAGE ?= gcr.io/distroless/static:nonroot@sha256:963fa6c544fe5ce420f1f54fb88b6fb01479f054c8056d0f74cc2c6000df5240
+BASE_BUILDER_IMAGE ?= golang
+BUILDER_IMAGE ?= $(BASE_BUILDER_IMAGE):$(GO_VERSION)@sha256:32c0e6e5c4f6707717051091b4d0b077464a679eaab563e11474efc5328e2aa5
+CGO_ENABLED ?= 0
+
+YAML_PROCESSOR_LOG_LEVEL ?= info
+
+IMAGE_PUSH_RETRY = $(PROJECT_DIR)/hack/testing/retry.sh --attempts 7 --delay 2 --exponential --stream --continue-if "grep -qiE 'context deadline exceeded' {output}" -- env
+
+MAKE_TIMING ?= $(if $(filter 1 true TRUE yes YES on ON,$(CI)),1,0)
+MAKE_TIMING_MIN_SECONDS ?= 1
+MAKE_TIMING_COMMANDS ?= 0
+export MAKE_TIMING
+export MAKE_TIMING_MIN_SECONDS
+export MAKE_TIMING_COMMANDS
+
+# Setting SHELL to bash allows bash commands to be executed by recipes.
+# This is a requirement for 'setup-envtest.sh' in the test target.
+# Options are set to exit when a recipe line exits non-zero or a piped command fails.
+ifeq ($(filter 1 true TRUE yes YES on ON,$(MAKE_TIMING)),)
+    SHELL = /usr/bin/env bash -o pipefail
+else
+    SHELL = $(PROJECT_DIR)/hack/make-timed-shell.sh
+endif
+.SHELLFLAGS = -ec
+
+# Setting SED allows macos users to install GNU sed and use the latter
+# instead of the default BSD sed.
+ifeq ($(shell command -v gsed 2>/dev/null),)
+    SED ?= $(shell command -v sed)
+else
+    SED ?= $(shell command -v gsed)
+endif
+ifeq ($(shell ${SED} --version 2>&1 | grep -q GNU; echo $$?),1)
+    $(error !!! GNU sed is required. If on OS X, use 'brew install gnu-sed'.)
+endif
+
+version_pkg = sigs.k8s.io/kueue/pkg/version
+LD_FLAGS += -X '$(version_pkg).GitVersion=$(GIT_TAG)'
+LD_FLAGS += -X '$(version_pkg).GitCommit=$(GIT_COMMIT)'
+LD_FLAGS += -X '$(version_pkg).BuildDate=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)'
+
+# Update these variables when preparing a new release or a release branch.
+# Then run `make prepare-release-branch`
+RELEASE_VERSION=v0.18.3
+RELEASE_BRANCH=main
+# Application version for Helm and npm (strips leading 'v' from RELEASE_VERSION)
+APP_VERSION := $(shell echo $(RELEASE_VERSION) | cut -c2-)
+
+.PHONY: all
+all: generate fmt vet build
+
+##@ General
+
+# The help target prints out all targets with their descriptions organized
+# beneath their categories. The categories are represented by '##@' and the
+# target descriptions by '##'. The awk commands is responsible for reading the
+# entire set of makefiles included in this invocation, looking for lines of the
+# file as xyz: ## something, and then pretty-format the target and help. Then,
+# if there's a line with ##@ something, that gets pretty-printed as a category.
+# More info on the usage of ANSI control characters for terminal formatting:
+# https://en.wikipedia.org/wiki/ANSI_escape_code#SGR_parameters
+# More info on the awk command:
+# http://linuxcommand.org/lc3_adv_awk.php
+
+.PHONY: help
+help: ## Display this help.
+	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-24s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
+
+include Makefile-deps.mk
+
+include Makefile-test.mk
+
+include Makefile-kueue-populator.mk
+include Makefile-kueue-priority-booster.mk
+
+# Repo-wide verification is defined in a separate fragment so it can be read/maintained
+# independently of build/test logic. See `Makefile-verify.mk` for what `make verify` runs.
+include Makefile-verify.mk
+
+##@ Development
+
+.PHONY: manifests
+manifests: controller-gen generate-code ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
+	$(CONTROLLER_GEN) \
+		crd:generateEmbeddedObjectMeta=true output:crd:artifacts:config=config/components/crd/bases\
+		paths="./apis/..."
+	$(CONTROLLER_GEN) \
+		rbac:roleName=manager-role output:rbac:artifacts:config=config/components/rbac\
+		webhook output:webhook:artifacts:config=config/components/webhook\
+		paths="./pkg/controller/...;./pkg/webhooks/...;./pkg/util/cert/...;./pkg/visibility/..."
+
+.PHONY: compile-crd-manifests
+compile-crd-manifests: manifests kustomize
+	@mkdir -p config/components/crd/_output
+	$(KUSTOMIZE) build config/components/crd > config/components/crd/_output/crds-with-webhooks.yaml
+
+.PHONY: update-helm
+update-helm: compile-crd-manifests yq yaml-processor
+	$(YAML_PROCESSOR) -zap-log-level=$(YAML_PROCESSOR_LOG_LEVEL) hack/processing-plan.yaml
+
+.PHONY: generate
+generate: generate-mocks generate-apiref generate-code generate-kueuectl-docs generate-helm-docs generate-metrics-tables generate-featuregates
+
+.PHONY: generate-code
+generate-code: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations and client-go libraries.
+	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./apis/..."
+	$(TOOLS_DIR)/code-generator/generate.sh $(GO_CMD)
+
+.PHONY: generate-mocks
+generate-mocks: mockgen ## Generate mockgen mocks
+	# Clean up previously generated mocks to keep generated mocks up-to-date.
+	rm -rf $(MOCKS_DIR)
+	$(MOCKGEN) \
+		-destination=$(MOCKS_DIR)/controller/jobframework/interface.go \
+		-copyright_file hack/boilerplate.txt \
+		-package mocks \
+		sigs.k8s.io/kueue/pkg/controller/jobframework GenericJob,JobWithCustomValidation,JobWithManagedBy,JobWithCustomWorkloadActivation,JobWithCustomAnnotations,MultiKueueAdapter
+	$(MOCKGEN) \
+		-destination=$(MOCKS_DIR)/controller/core/resourceflavor_controller.go \
+		-copyright_file hack/boilerplate.txt \
+		-package mocks \
+		sigs.k8s.io/kueue/pkg/controller/core ResourceFlavorUpdateWatcher
+
+.PHONY: fmt
+fmt: ## Run go fmt against code.
+	$(GO_CMD) fmt ./...
+
+.PHONY: gomod-download
+gomod-download: ## Download Go module dependencies (main)
+	@echo "→ Downloading main dependencies..."
+	$(NETWORK_INSTALL_RETRY) $(GO_CMD) mod download
+
+.PHONY: gomod-download-tools
+gomod-download-tools: ## Download Go module dependencies (tools)
+	@echo "→ Downloading tools dependencies..."
+	cd $(TOOLS_DIR) && $(NETWORK_INSTALL_RETRY) $(GO_CMD) mod download
+
+.PHONY: toc-update
+toc-update: mdtoc
+	$(TOOLS_DIR)/mdtoc/generate.sh
+
+.PHONY: helm-lint
+helm-lint: helm ## Run Helm chart lint test.
+	$(HELM) lint charts/kueue
+
+.PHONY: vet
+vet: ## Run go vet against code.
+	$(GO_CMD) vet ./...
+
+.PHONY: sync-hugo-version
+sync-hugo-version:
+	$(SED) -r 's/(.*(HUGO_VERSION).*)/  HUGO_VERSION = "$(subst v,,$(HUGO_VERSION))"/g' -i netlify.toml
+
+##@ Build
+
+.PHONY: build
+build:
+	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o bin/manager cmd/kueue/main.go
+
+.PHONY: run
+run: compile-crd-manifests generate fmt vet ## Run a controller from your host.
+	$(GO_CMD) run cmd/kueue/main.go
+
+# Build the multiplatform container image locally.
+.PHONY: image-local-build
+image-local-build:
+	BUILDER=$(shell $(DOCKER_BUILDX_CMD) create --use)
+	$(MAKE) image-build PUSH="$(PUSH)" IMAGE_BUILD_EXTRA_OPTS="$(IMAGE_BUILD_EXTRA_OPTS)"
+	$(DOCKER_BUILDX_CMD) rm $$BUILDER
+
+# Build the multiplatform container image locally and push to repo.
+.PHONY: image-local-push
+image-local-push: export IMAGE_BUILD_CMD := $(IMAGE_PUSH_RETRY) $(IMAGE_BUILD_CMD)
+image-local-push: PUSH=--push
+image-local-push: image-local-build
+
+.PHONY: image-build
+image-build:
+	$(IMAGE_BUILD_CMD) \
+		-t $(IMAGE_TAG) \
+		-t $(IMAGE_REPO):$(RELEASE_BRANCH) \
+		--platform=$(PLATFORMS) \
+		--build-arg BASE_IMAGE=$(BASE_IMAGE) \
+		--build-arg BUILDER_IMAGE=$(BUILDER_IMAGE) \
+		--build-arg CGO_ENABLED=$(CGO_ENABLED) \
+		--build-arg GIT_TAG=$(GIT_TAG) \
+		--build-arg GIT_COMMIT=$(GIT_COMMIT) \
+		$(PUSH) \
+		$(IMAGE_BUILD_EXTRA_OPTS) \
+		./
+
+.PHONY: image-pushing-periodic
+image-pushing-periodic:
+	$(MAKE) -j3 debug-image-push importer-image-push ray-project-mini-image-build-push
+
+.PHONY: image-pushing-postsubmit
+image-pushing-postsubmit:
+	$(MAKE) -j5 image-push helm-chart-push kueueviz-image-push kueue-populator-image-push kueue-priority-booster-image-push
+
+.PHONY: image-push
+image-push: IMAGE_BUILD_CMD := $(IMAGE_PUSH_RETRY) $(IMAGE_BUILD_CMD)
+image-push: PUSH=--push
+image-push: image-build
+
+.PHONY: helm-chart-package
+helm-chart-package: yq helm ## Package a chart into a versioned chart archive file.
+	DEST_CHART_DIR=$(DEST_CHART_DIR) \
+	HELM="$(HELM)" YQ="$(YQ)" GIT_TAG="$(GIT_TAG)" IMAGE_REGISTRY="$(IMAGE_REGISTRY)" \
+	HELM_CHART_PUSH=$(HELM_CHART_PUSH) \
+	./hack/helm-chart-package.sh
+
+.PHONY: helm-chart-push
+helm-chart-push: HELM_CHART_PUSH=true
+helm-chart-push: helm-chart-package
+
+# Build an image just for the host architecture that can be used for Kind E2E tests.
+.PHONY: kind-image-build
+kind-image-build: PLATFORMS=$(HOST_IMAGE_PLATFORM)
+kind-image-build: PUSH=--load
+kind-image-build: kind image-build
+
+YAML_PROCESSOR = $(BIN_DIR)/yaml-processor
+.PHONY: yaml-processor
+yaml-processor:
+	cd $(TOOLS_DIR)/yaml-processor && \
+	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(YAML_PROCESSOR)
+
+METRICSDOC = $(BIN_DIR)/metricsdoc
+.PHONY: metricsdoc
+metricsdoc:
+	cd $(TOOLS_DIR)/metricsdoc && \
+	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(METRICSDOC)
+
+##@ Deployment
+
+ifndef ignore-not-found
+  ignore-not-found = false
+endif
+
+clean-manifests = \
+	(cd config/components/manager && \
+		$(KUSTOMIZE) edit set image controller=$(STAGING_IMAGE_REGISTRY)/kueue:$(RELEASE_BRANCH)) && \
+	(cd config/components/kueueviz && \
+  		$(KUSTOMIZE) edit set image backend=$(STAGING_IMAGE_REGISTRY)/kueueviz-backend:$(RELEASE_BRANCH) && \
+  		$(KUSTOMIZE) edit set image frontend=$(STAGING_IMAGE_REGISTRY)/kueueviz-frontend:$(RELEASE_BRANCH)) && \
+	(cd cmd/experimental/kueue-populator/config && \
+    	$(KUSTOMIZE) edit set image controller=$(STAGING_IMAGE_REGISTRY)/kueue-populator:$(RELEASE_BRANCH)) && \
+	(cd cmd/experimental/kueue-priority-booster/config && \
+    	$(KUSTOMIZE) edit set image controller=$(STAGING_IMAGE_REGISTRY)/kueue-priority-booster:$(RELEASE_BRANCH))
+
+.PHONY: install
+install: compile-crd-manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
+	$(KUSTOMIZE) build config/components/crd | kubectl apply --server-side -f -
+
+.PHONY: uninstall
+uninstall: compile-crd-manifests kustomize ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
+	$(KUSTOMIZE) build config/components/crd | kubectl delete --ignore-not-found=$(ignore-not-found) -f -
+
+.PHONY: deploy
+deploy: compile-crd-manifests kustomize prepare-manifests ## Deploy controller to the K8s cluster specified in ~/.kube/config.
+	kubectl apply --server-side -k config/default
+	@$(call clean-manifests)
+
+.PHONY: prometheus
+prometheus:
+	kubectl apply --server-side -k config/prometheus
+
+.PHONY: undeploy
+undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
+	$(KUSTOMIZE) build config/default | kubectl delete --ignore-not-found=$(ignore-not-found) -f -
+
+.PHONY: site-server
+site-server: hugo
+	(cd site; $(HUGO) server)
+
+##@ Release
+.PHONY: clean-artifacts
+clean-artifacts:
+	if [ -d "$(ARTIFACTS)" ]; then rm -rf "$(ARTIFACTS)"; fi
+
+.PHONY: clean-release-artifacts
+clean-release-artifacts:
+	$(MAKE) clean-artifacts ARTIFACTS="$(RELEASE_ARTIFACTS)"
+
+.PHONY: prepare-manifests
+prepare-manifests:
+	cd config/components/manager && $(KUSTOMIZE) edit set image controller=$(IMAGE_TAG)
+	cd config/components/kueueviz && $(KUSTOMIZE) edit set image backend=$(IMAGE_TAG_KUEUEVIZ_BACKEND)
+	cd config/components/kueueviz && $(KUSTOMIZE) edit set image frontend=$(IMAGE_TAG_KUEUEVIZ_FRONTEND)
+	cd cmd/experimental/kueue-populator/config && $(KUSTOMIZE) edit set image controller=$(IMAGE_TAG_KUEUE_POPULATOR)
+	cd cmd/experimental/kueue-priority-booster/config && $(KUSTOMIZE) edit set image controller=$(IMAGE_TAG_KUEUE_PRIORITY_BOOSTER)
+
+.PHONY: artifacts
+artifacts: DEST_CHART_DIR="$(ARTIFACTS)"
+artifacts: clean-artifacts kustomize helm-chart-package prepare-manifests ## Generate local artifacts.
+	$(KUSTOMIZE) build config/default -o $(ARTIFACTS)/manifests.yaml
+	$(KUSTOMIZE) build config/dev -o $(ARTIFACTS)/manifests-dev.yaml
+	$(KUSTOMIZE) build config/alpha-enabled -o $(ARTIFACTS)/manifests-alpha-enabled.yaml
+	$(KUSTOMIZE) build config/prometheus -o $(ARTIFACTS)/prometheus.yaml
+	$(KUSTOMIZE) build config/visibility-apf -o $(ARTIFACTS)/visibility-apf.yaml
+	$(KUSTOMIZE) build config/kueueviz -o $(ARTIFACTS)/kueueviz.yaml
+	$(KUSTOMIZE) build cmd/experimental/kueue-populator/config -o $(ARTIFACTS)/kueue-populator.yaml
+	$(KUSTOMIZE) build cmd/experimental/kueue-priority-booster/config -o $(ARTIFACTS)/kueue-priority-booster.yaml
+	@$(call clean-manifests)
+	CGO_ENABLED=$(CGO_ENABLED) GO_CMD="$(GO_CMD)" LD_FLAGS="$(LD_FLAGS)" BUILD_PATH="$(ARTIFACTS)" BUILD_NAME=kubectl-kueue PLATFORMS="$(CLI_PLATFORMS)" ./hack/multiplatform-build.sh ./cmd/kueuectl/main.go
+
+.PHONY: release-artifacts
+release-artifacts: ## Generate release artifacts.
+	$(MAKE) artifacts ARTIFACTS="$(RELEASE_ARTIFACTS)"
+
+.PHONY: prepare-release-branch
+prepare-release-branch: yq kustomize ## Prepare the release branch with the release version.
+	$(SED) -r 's/v[0-9]+\.[0-9]+\.[0-9]+/$(RELEASE_VERSION)/g' -i README.md -i site/hugo.toml -i cmd/kueueviz/INSTALL.md
+	$(SED) -r 's/chart_version = "[0-9]+\.[0-9]+\.[0-9]+/chart_version = "$(APP_VERSION)/g' -i README.md -i site/hugo.toml
+	$(SED) -r 's/--version="[0-9]+\.[0-9]+\.[0-9]+/--version="$(APP_VERSION)/g' -i charts/kueue/README.md.gotmpl -i cmd/kueueviz/INSTALL.md
+	$(SED) -r 's/[0-9]+\.[0-9]+\.[0-9]+/$(APP_VERSION)/g' -i charts/kueue/README.md
+	$(YQ) e '.appVersion = "$(RELEASE_VERSION)" | .version = "$(APP_VERSION)"' -i charts/kueue/Chart.yaml
+	$(YQ) e '.controllerManager.manager.image.tag = "$(RELEASE_BRANCH)" | .kueueViz.backend.image.tag = "$(RELEASE_BRANCH)" | .kueueViz.frontend.image.tag = "$(RELEASE_BRANCH)"' -i charts/kueue/values.yaml
+	$(YQ) e '.version = "$(APP_VERSION)"' -i cmd/kueueviz/frontend/package.json
+	$(YQ) e '.version = "$(APP_VERSION)" | .packages[""].version = "$(APP_VERSION)"' -i cmd/kueueviz/frontend/package-lock.json
+	$(YQ) e '.version = "$(APP_VERSION)"' -i test/e2e/kueueviz/package.json
+	$(YQ) e '.version = "$(APP_VERSION)" | .packages[""].version = "$(APP_VERSION)"' -i test/e2e/kueueviz/package-lock.json
+	# Update kueue-populator chart version and image tag
+	$(YQ) e '.appVersion = "$(RELEASE_VERSION)" | .version = "$(APP_VERSION)" | .dependencies[0].version = "~$(APP_VERSION)"' -i cmd/experimental/kueue-populator/charts/kueue-populator/Chart.yaml
+	$(YQ) e '.kueuePopulator.image.tag = "$(RELEASE_BRANCH)"' -i cmd/experimental/kueue-populator/charts/kueue-populator/values.yaml
+	$(SED) -r 's/[0-9]+\.[0-9]+\.[0-9]+/$(APP_VERSION)/g' -i cmd/experimental/kueue-populator/README.md -i cmd/experimental/kueue-populator/charts/kueue-populator/README.md
+	# Update kueue-priority-booster chart version and image tag
+	$(YQ) e '.appVersion = "$(RELEASE_VERSION)" | .version = "$(APP_VERSION)" | .dependencies[0].version = "~$(APP_VERSION)"' -i cmd/experimental/kueue-priority-booster/charts/kueue-priority-booster/Chart.yaml
+	$(YQ) e '.kueuePriorityBooster.image.tag = "$(RELEASE_BRANCH)"' -i cmd/experimental/kueue-priority-booster/charts/kueue-priority-booster/values.yaml
+	$(SED) -r 's/[0-9]+\.[0-9]+\.[0-9]+/$(APP_VERSION)/g' -i cmd/experimental/kueue-priority-booster/README.md
+
+	$(MAKE) generate-helm-docs
+
+.PHONY: update-security-insights
+update-security-insights: yq
+	$(YQ) e '.header.last-updated = "$(shell git log -1 --date=short --format=%cd $(GIT_TAG))"' -i SECURITY-INSIGHTS.yaml
+	$(YQ) e '.header.last-reviewed = "$(shell git log -1 --date=short --format=%cd $(GIT_TAG))"' -i SECURITY-INSIGHTS.yaml
+	$(YQ) e '.header.commit-hash = "$(shell git rev-list -1 $(GIT_TAG))"' -i SECURITY-INSIGHTS.yaml
+	$(YQ) e '.header.project-release = "$(shell echo "$(GIT_TAG)" | $(SED) 's/v//g')"' -i SECURITY-INSIGHTS.yaml
+	$(YQ) e '.distribution-points[0] = "https://github.com/kubernetes-sigs/kueue/releases/download/$(GIT_TAG)/manifests.yaml"' -i SECURITY-INSIGHTS.yaml
+	$(YQ) e '.dependencies.sbom[0].sbom-file = "https://github.com/kubernetes-sigs/kueue/releases/download/$(GIT_TAG)/kueue-$(GIT_TAG).spdx.json"' -i SECURITY-INSIGHTS.yaml
+
+
+##@ Debug
+
+# Build an image that can be used with kubectl debug
+# Developers don't need to build this image, as it will be available as us-central1-docker.pkg.dev/k8s-staging-images/kueue/debug
+.PHONY: debug-image-push
+debug-image-push: ## Build and push the debug image to the registry
+	$(IMAGE_PUSH_RETRY) $(IMAGE_BUILD_CMD) \
+		-t $(IMAGE_REGISTRY)/debug:$(GIT_TAG) \
+		-t $(IMAGE_REGISTRY)/debug:$(RELEASE_BRANCH) \
+		--platform=$(PLATFORMS) \
+		--push ./hack/debugpod
+
+# Build the importer binary
+.PHONY: importer-build
+importer-build:
+	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o bin/importer cmd/importer/main.go
+
+.PHONY: importer-image-build
+importer-image-build:
+	$(IMAGE_BUILD_CMD) \
+		-t $(IMAGE_REGISTRY)/importer:$(GIT_TAG) \
+		-t $(IMAGE_REGISTRY)/importer:$(RELEASE_BRANCH) \
+		--platform=$(PLATFORMS) \
+		--build-arg BASE_IMAGE=$(BASE_IMAGE) \
+		--build-arg BUILDER_IMAGE=$(BUILDER_IMAGE) \
+		--build-arg CGO_ENABLED=$(CGO_ENABLED) \
+		$(PUSH) \
+		$(IMAGE_BUILD_EXTRA_OPTS) \
+		-f ./cmd/importer/Dockerfile ./
+
+.PHONY: importer-image-push
+importer-image-push: IMAGE_BUILD_CMD := $(IMAGE_PUSH_RETRY) $(IMAGE_BUILD_CMD)
+importer-image-push: PUSH=--push
+importer-image-push: importer-image-build
+
+# Build a docker local us-central1-docker.pkg.dev/k8s-staging-images/kueue/importer image
+.PHONY: importer-image
+importer-image: PLATFORMS=$(HOST_IMAGE_PLATFORM)
+importer-image: PUSH=--load
+importer-image: importer-image-build
+
+
+# Build the kueueviz dashboard images (frontend and backend)
+.PHONY: kueueviz-image-build
+kueueviz-image-build:
+	$(IMAGE_BUILD_CMD) \
+		-t $(IMAGE_TAG_KUEUEVIZ_BACKEND) \
+		-t $(IMAGE_REPO_KUEUEVIZ_BACKEND):$(RELEASE_BRANCH) \
+		--platform=$(VIZ_PLATFORMS) \
+		--build-arg BASE_IMAGE=$(BASE_IMAGE) \
+		--build-arg BUILDER_IMAGE=$(BUILDER_IMAGE) \
+		--build-arg CGO_ENABLED=$(CGO_ENABLED) \
+		$(PUSH) \
+		$(IMAGE_BUILD_EXTRA_OPTS) \
+		-f ./cmd/kueueviz/backend/Dockerfile .
+	$(IMAGE_BUILD_CMD) \
+		-t $(IMAGE_TAG_KUEUEVIZ_FRONTEND) \
+		-t $(IMAGE_REPO_KUEUEVIZ_FRONTEND):$(RELEASE_BRANCH) \
+		--platform=$(VIZ_PLATFORMS) \
+		$(PUSH) \
+		$(IMAGE_BUILD_EXTRA_OPTS) \
+		-f ./cmd/kueueviz/frontend/Dockerfile ./cmd/kueueviz/frontend
+
+.PHONY: kueueviz-image-push
+kueueviz-image-push: IMAGE_BUILD_CMD := $(IMAGE_PUSH_RETRY) $(IMAGE_BUILD_CMD)
+kueueviz-image-push: PUSH=--push
+kueueviz-image-push: kueueviz-image-build
+
+# Build a docker local us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz image
+.PHONY: kueueviz-image
+kueueviz-image: VIZ_PLATFORMS=$(HOST_IMAGE_PLATFORM)
+kueueviz-image: PUSH=--load
+kueueviz-image: kueueviz-image-build
+
+# Build the kueue-populator image
+.PHONY: kueue-populator-image-build
+kueue-populator-image-build:
+	$(MAKE) -C cmd/experimental/kueue-populator image-build \
+		IMAGE_REGISTRY=$(IMAGE_REGISTRY) \
+		IMAGE_TAG=$(IMAGE_TAG_KUEUE_POPULATOR) \
+		PLATFORMS="$(PLATFORMS)" \
+		BASE_IMAGE=$(BASE_IMAGE) \
+		BUILDER_IMAGE=$(BUILDER_IMAGE) \
+		CGO_ENABLED=$(CGO_ENABLED) \
+		PUSH=$(PUSH) \
+		IMAGE_BUILD_EXTRA_OPTS="$(IMAGE_BUILD_EXTRA_OPTS) -t $(IMAGE_REPO_KUEUE_POPULATOR):$(RELEASE_BRANCH)"
+
+.PHONY: kueue-populator-image-push
+kueue-populator-image-push: export IMAGE_BUILD_CMD := $(IMAGE_PUSH_RETRY) $(IMAGE_BUILD_CMD)
+kueue-populator-image-push: PUSH=--push
+kueue-populator-image-push: kueue-populator-image-build
+
+# Build a docker local us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-populator image
+.PHONY: kueue-populator-image
+kueue-populator-image: PLATFORMS=$(HOST_IMAGE_PLATFORM)
+kueue-populator-image: PUSH=--load
+kueue-populator-image: kueue-populator-image-build
+
+# Build the kueue-priority-booster image
+.PHONY: kueue-priority-booster-image-build
+kueue-priority-booster-image-build:
+	$(MAKE) -C cmd/experimental/kueue-priority-booster image-build \
+		IMAGE_REGISTRY=$(IMAGE_REGISTRY) \
+		IMAGE_TAG=$(IMAGE_TAG_KUEUE_PRIORITY_BOOSTER) \
+		PLATFORMS="$(PLATFORMS)" \
+		BASE_IMAGE=$(BASE_IMAGE) \
+		BUILDER_IMAGE=$(BUILDER_IMAGE) \
+		CGO_ENABLED=$(CGO_ENABLED) \
+		PUSH=$(PUSH) \
+		IMAGE_BUILD_EXTRA_OPTS="$(IMAGE_BUILD_EXTRA_OPTS) -t $(IMAGE_REPO_KUEUE_PRIORITY_BOOSTER):$(RELEASE_BRANCH)"
+
+.PHONY: kueue-priority-booster-image-push
+kueue-priority-booster-image-push: export IMAGE_BUILD_CMD := $(IMAGE_PUSH_RETRY) $(IMAGE_BUILD_CMD)
+kueue-priority-booster-image-push: PUSH=--push
+kueue-priority-booster-image-push: kueue-priority-booster-image-build
+
+# Build a docker local us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-priority-booster image
+.PHONY: kueue-priority-booster-image
+kueue-priority-booster-image: PLATFORMS=$(HOST_IMAGE_PLATFORM)
+kueue-priority-booster-image: PUSH=--load
+kueue-priority-booster-image: kueue-priority-booster-image-build
+
+.PHONY: kueuectl
+kueuectl:
+	CGO_ENABLED=$(CGO_ENABLED) $(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(BIN_DIR)/kubectl-kueue cmd/kueuectl/main.go
+
+.PHONY: generate-apiref
+generate-apiref: genref generate-code
+	cd $(PROJECT_DIR)/hack/genref/ && $(GENREF) -o $(PROJECT_DIR)/site/content/en/docs/reference
+
+##@ Documentation
+
+.PHONY: generate-featuregates
+generate-featuregates: ## Regenerate feature-gate YAML and site data.
+	$(TOOLS_DIR)/compatibility-lifecycle/generate.sh
+
+.PHONY: generate-kueuectl-docs
+generate-kueuectl-docs: kueuectl-docs
+	rm -Rf $(PROJECT_DIR)/site/content/en/docs/reference/kubectl-kueue/commands/kueuectl*
+	$(KUEUECTL_DOCS) \
+		$(PROJECT_DIR)/cmd/kueuectl-docs/templates \
+		$(PROJECT_DIR)/site/content/en/docs/reference/kubectl-kueue/commands
+
+.PHONY: generate-helm-docs
+generate-helm-docs: helm-docs
+	$(HELM_DOCS) -c $(PROJECT_DIR)/charts/kueue
+
+.PHONY: generate-metrics-tables
+generate-metrics-tables: metricsdoc
+	$(METRICSDOC) --metrics-package=pkg/metrics --out=site/content/en/docs/reference/metrics.md
+
+# Build the ray-project-mini image
+.PHONY: ray-project-mini-image-build
+ray-project-mini-image-build:
+	$(IMAGE_BUILD_CMD) \
+		-t $(IMAGE_REGISTRY)/ray-project-mini:$(RAYMINI_VERSION) \
+		-t $(IMAGE_REGISTRY)/ray-project-mini:$(RELEASE_BRANCH) \
+		--platform=$(RAY_PLATFORMS) \
+		--build-arg RAY_VERSION=$(RAY_VERSION) \
+		$(PUSH) \
+		$(IMAGE_BUILD_EXTRA_OPTS) \
+		-f ./hack/testing/ray-mini/Dockerfile ./
+
+.PHONY: ray-project-mini-image-build-push
+ray-project-mini-image-build-push: IMAGE_BUILD_CMD := $(IMAGE_PUSH_RETRY) $(IMAGE_BUILD_CMD)
+ray-project-mini-image-build-push: PUSH=--push
+ray-project-mini-image-build-push: ray-project-mini-image-build
+
+# The step is required for local e2e test run
+.PHONY: kind-ray-project-mini-image-build
+kind-ray-project-mini-image-build: RAY_PLATFORMS=$(HOST_IMAGE_PLATFORM)
+kind-ray-project-mini-image-build: PUSH=--load
+kind-ray-project-mini-image-build: ray-project-mini-image-build
+
+# Build the secretreader-plugin image
+.PHONY: secretreader-plugin-image-build
+secretreader-plugin-image-build:
+	$(IMAGE_BUILD_CMD) \
+		-t $(IMAGE_REGISTRY)/secretreader-plugin:$(CLUSTERPROFILE_PLUGIN_IMAGE_VERSION) \
+		--platform=$(PLATFORMS) \
+		--build-arg PLUGIN_VERSION=$(CLUSTERPROFILE_VERSION) \
+		$(PUSH) \
+		-f hack/testing/secretreader/Dockerfile ./
+
+# The step is required for local e2e test run
+.PHONY: kind-secretreader-plugin-image-build
+kind-secretreader-plugin-image-build: PLATFORMS=$(HOST_IMAGE_PLATFORM)
+kind-secretreader-plugin-image-build: PUSH=--load
+kind-secretreader-plugin-image-build: secretreader-plugin-image-build

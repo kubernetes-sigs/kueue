@@ -1,0 +1,433 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package priority
+
+import (
+	"math"
+	"testing"
+
+	"github.com/google/go-cmp/cmp"
+	schedulingv1 "k8s.io/api/scheduling/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/component-base/featuregate"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/features"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+)
+
+func TestPriority(t *testing.T) {
+	tests := map[string]struct {
+		workload *kueue.Workload
+		want     int32
+	}{
+		"priority is specified": {
+			workload: utiltestingapi.MakeWorkload("name", "ns").Priority(100).Obj(),
+			want:     100,
+		},
+		"priority is empty": {
+			workload: &kueue.Workload{
+				Spec: kueue.WorkloadSpec{},
+			},
+			want: constants.DefaultPriority,
+		},
+	}
+
+	for desc, tt := range tests {
+		t.Run(desc, func(t *testing.T) {
+			got := Priority(tt.workload)
+			if got != tt.want {
+				t.Errorf("Priority does not match: got: %d, expected: %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetPriorityFromPriorityClass(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := schedulingv1.AddToScheme(scheme); err != nil {
+		t.Fatalf("Failed adding scheduling scheme: %v", err)
+	}
+
+	tests := map[string]struct {
+		priorityClassList      *schedulingv1.PriorityClassList
+		priorityClassName      string
+		wantPriorityClassRef   *kueue.PriorityClassRef
+		wantPriorityClassValue int32
+		wantErr                error
+	}{
+		"priorityClass is specified and it exists": {
+			priorityClassList: &schedulingv1.PriorityClassList{
+				Items: []schedulingv1.PriorityClass{
+					{
+						ObjectMeta: metav1.ObjectMeta{Name: "test"},
+						Value:      50,
+					},
+				},
+			},
+
+			priorityClassName:      "test",
+			wantPriorityClassRef:   kueue.NewPodPriorityClassRef("test"),
+			wantPriorityClassValue: 50,
+		},
+		"priorityClass is specified and it does not exist": {
+			priorityClassList: &schedulingv1.PriorityClassList{
+				Items: []schedulingv1.PriorityClass{},
+			},
+			priorityClassName: "test",
+			wantErr:           apierrors.NewNotFound(schedulingv1.Resource("priorityclasses"), "test"),
+		},
+		"priorityClass is unspecified and one global default exists": {
+			priorityClassList: &schedulingv1.PriorityClassList{
+				Items: []schedulingv1.PriorityClass{
+					{
+						ObjectMeta:    metav1.ObjectMeta{Name: "globalDefault"},
+						GlobalDefault: true,
+						Value:         40,
+					},
+				},
+			},
+			wantPriorityClassRef:   kueue.NewPodPriorityClassRef("globalDefault"),
+			wantPriorityClassValue: 40,
+		},
+		"priorityClass is unspecified and multiple global defaults exist": {
+			priorityClassList: &schedulingv1.PriorityClassList{
+				Items: []schedulingv1.PriorityClass{
+					{
+						ObjectMeta:    metav1.ObjectMeta{Name: "globalDefault1"},
+						GlobalDefault: true,
+						Value:         90,
+					},
+					{
+						ObjectMeta:    metav1.ObjectMeta{Name: "globalDefault2"},
+						GlobalDefault: true,
+						Value:         20,
+					},
+					{
+						ObjectMeta:    metav1.ObjectMeta{Name: "globalDefault3"},
+						GlobalDefault: true,
+						Value:         50,
+					},
+				},
+			},
+			wantPriorityClassRef:   kueue.NewPodPriorityClassRef("globalDefault2"),
+			wantPriorityClassValue: 20,
+		},
+	}
+
+	for desc, tt := range tests {
+		t.Run(desc, func(t *testing.T) {
+			t.Parallel()
+
+			builder := fake.NewClientBuilder().WithScheme(scheme).WithLists(tt.priorityClassList)
+			client := builder.Build()
+
+			ctx, _ := utiltesting.ContextWithLog(t)
+			priorityClassRef, value, err := GetPriorityFromPriorityClass(ctx, client, tt.priorityClassName)
+			if diff := cmp.Diff(tt.wantErr, err); diff != "" {
+				t.Errorf("unexpected error (-want,+got):\n%s", diff)
+			}
+
+			if diff := cmp.Diff(tt.wantPriorityClassRef, priorityClassRef); diff != "" {
+				t.Errorf("unexpected priortyClassRef (-want,+got):\n%s", diff)
+			}
+
+			if value != tt.wantPriorityClassValue {
+				t.Errorf("unexpected value: got: %d, expected: %d", value, tt.wantPriorityClassValue)
+			}
+		})
+	}
+}
+
+func TestGetPriorityFromWorkloadPriorityClass(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := kueue.AddToScheme(scheme); err != nil {
+		t.Fatalf("Failed adding kueue scheme: %v", err)
+	}
+
+	tests := map[string]struct {
+		workloadPriorityClassList *kueue.WorkloadPriorityClassList
+		workloadPriorityClassName string
+		wantPriorityClassRef      *kueue.PriorityClassRef
+		wantPriorityClassValue    int32
+		wantErr                   error
+	}{
+		"workloadPriorityClass is specified and it exists": {
+			workloadPriorityClassList: &kueue.WorkloadPriorityClassList{
+				Items: []kueue.WorkloadPriorityClass{
+					{
+						ObjectMeta: metav1.ObjectMeta{Name: "test"},
+						Value:      50,
+					},
+				},
+			},
+			workloadPriorityClassName: "test",
+			wantPriorityClassRef:      kueue.NewWorkloadPriorityClassRef("test"),
+			wantPriorityClassValue:    50,
+		},
+		"workloadPriorityClass is specified and it does not exist": {
+			workloadPriorityClassList: &kueue.WorkloadPriorityClassList{
+				Items: []kueue.WorkloadPriorityClass{},
+			},
+			workloadPriorityClassName: "test",
+			wantErr:                   apierrors.NewNotFound(kueue.Resource("workloadpriorityclasses"), "test"),
+		},
+	}
+
+	for desc, tt := range tests {
+		t.Run(desc, func(t *testing.T) {
+			t.Parallel()
+
+			builder := fake.NewClientBuilder().WithScheme(scheme).WithLists(tt.workloadPriorityClassList)
+			client := builder.Build()
+			ctx, _ := utiltesting.ContextWithLog(t)
+			priorityClassRef, value, err := GetPriorityFromWorkloadPriorityClass(ctx, client, tt.workloadPriorityClassName)
+			if diff := cmp.Diff(tt.wantErr, err); diff != "" {
+				t.Errorf("unexpected error (-want,+got):\n%s", diff)
+			}
+
+			if diff := cmp.Diff(tt.wantPriorityClassRef, priorityClassRef); diff != "" {
+				t.Errorf("unexpected priortyClassRef (-want,+got):\n%s", diff)
+			}
+
+			if value != tt.wantPriorityClassValue {
+				t.Errorf("unexpected value: got: %d, expected: %d", value, tt.wantPriorityClassValue)
+			}
+		})
+	}
+}
+
+func TestDefaultWorkloadPriorityClassExist(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := kueue.AddToScheme(scheme); err != nil {
+		t.Fatalf("Failed adding kueue scheme: %v", err)
+	}
+
+	tests := map[string]struct {
+		workloadPriorityClassList *kueue.WorkloadPriorityClassList
+		wantExist                 bool
+	}{
+		"default workloadPriorityClass exists": {
+			workloadPriorityClassList: &kueue.WorkloadPriorityClassList{
+				Items: []kueue.WorkloadPriorityClass{
+					{
+						ObjectMeta: metav1.ObjectMeta{Name: "default"},
+						Value:      100,
+					},
+				},
+			},
+			wantExist: true,
+		},
+		"default workloadPriorityClass does not exist": {
+			workloadPriorityClassList: &kueue.WorkloadPriorityClassList{
+				Items: []kueue.WorkloadPriorityClass{
+					{
+						ObjectMeta: metav1.ObjectMeta{Name: "other"},
+						Value:      50,
+					},
+				},
+			},
+			wantExist: false,
+		},
+		"no workloadPriorityClasses exist": {
+			workloadPriorityClassList: &kueue.WorkloadPriorityClassList{},
+			wantExist:                 false,
+		},
+	}
+
+	for desc, tt := range tests {
+		t.Run(desc, func(t *testing.T) {
+			t.Parallel()
+
+			builder := fake.NewClientBuilder().WithScheme(scheme).WithLists(tt.workloadPriorityClassList)
+			client := builder.Build()
+			ctx, _ := utiltesting.ContextWithLog(t)
+			exist, err := DefaultWorkloadPriorityClassExist(ctx, client)
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+			if exist != tt.wantExist {
+				t.Errorf("unexpected result: got: %v, expected: %v", exist, tt.wantExist)
+			}
+		})
+	}
+}
+
+func TestPriorityBoost(t *testing.T) {
+	tests := map[string]struct {
+		workload     *kueue.Workload
+		wantBoost    int32
+		wantErr      bool
+		featureGates map[featuregate.Feature]bool
+	}{
+		"annotation not set": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Obj(),
+			wantBoost:    0,
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+		"positive boost": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Annotation(controllerconstants.PriorityBoostAnnotationKey, "100").Obj(),
+			wantBoost:    100,
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+		"negative boost": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Annotation(controllerconstants.PriorityBoostAnnotationKey, "-50").Obj(),
+			wantBoost:    -50,
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+		"zero boost": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Annotation(controllerconstants.PriorityBoostAnnotationKey, "0").Obj(),
+			wantBoost:    0,
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+		"empty string": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Annotation(controllerconstants.PriorityBoostAnnotationKey, "").Obj(),
+			wantBoost:    0,
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+		"invalid value": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Annotation(controllerconstants.PriorityBoostAnnotationKey, "invalid").Obj(),
+			wantBoost:    0,
+			wantErr:      true,
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+		"feature gate disabled": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Annotation(controllerconstants.PriorityBoostAnnotationKey, "100").Obj(),
+			wantBoost:    0,
+			wantErr:      false,
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: false},
+		},
+	}
+
+	for desc, tt := range tests {
+		t.Run(desc, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tt.featureGates)
+			got, err := PriorityBoost(tt.workload)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("PriorityBoost() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if got != tt.wantBoost {
+				t.Errorf("PriorityBoost() = %d, want %d", got, tt.wantBoost)
+			}
+		})
+	}
+}
+
+func TestParseEffectivePriority(t *testing.T) {
+	tests := map[string]struct {
+		workload     *kueue.Workload
+		wantPriority int64
+		wantErr      bool
+		featureGates map[featuregate.Feature]bool
+	}{
+		"no boost annotation": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Priority(200).Obj(),
+			wantPriority: 200,
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+		"positive boost": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Priority(200).Annotation(controllerconstants.PriorityBoostAnnotationKey, "50").Obj(),
+			wantPriority: 250,
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+		"negative boost": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Priority(200).Annotation(controllerconstants.PriorityBoostAnnotationKey, "-100").Obj(),
+			wantPriority: 100,
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+		"boost crosses priority class boundaries": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Priority(100).Annotation(controllerconstants.PriorityBoostAnnotationKey, "150").Obj(),
+			wantPriority: 250,
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+		"effective priority widens beyond int32 max": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Priority(math.MaxInt32).Annotation(controllerconstants.PriorityBoostAnnotationKey, "1").Obj(),
+			wantPriority: int64(math.MaxInt32) + 1,
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+		"effective priority widens below int32 min": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Priority(math.MinInt32).Annotation(controllerconstants.PriorityBoostAnnotationKey, "-1").Obj(),
+			wantPriority: int64(math.MinInt32) - 1,
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+		"invalid boost defaults to zero": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Priority(200).Annotation(controllerconstants.PriorityBoostAnnotationKey, "invalid").Obj(),
+			wantPriority: 200,
+			wantErr:      true,
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+	}
+
+	for desc, tt := range tests {
+		t.Run(desc, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tt.featureGates)
+			got, err := ParseEffectivePriority(tt.workload)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ParseEffectivePriority() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if got != tt.wantPriority {
+				t.Errorf("ParseEffectivePriority() = %d, want %d", got, tt.wantPriority)
+			}
+		})
+	}
+}
+
+func TestEffectivePriority(t *testing.T) {
+	tests := map[string]struct {
+		workload     *kueue.Workload
+		wantPriority int64
+		featureGates map[featuregate.Feature]bool
+	}{
+		"no boost annotation": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Priority(200).Obj(),
+			wantPriority: 200,
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+		"positive boost": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Priority(200).Annotation(controllerconstants.PriorityBoostAnnotationKey, "50").Obj(),
+			wantPriority: 250,
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+		"negative boost": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Priority(200).Annotation(controllerconstants.PriorityBoostAnnotationKey, "-100").Obj(),
+			wantPriority: 100,
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+		"invalid boost defaults to zero": {
+			workload:     utiltestingapi.MakeWorkload("name", "ns").Priority(200).Annotation(controllerconstants.PriorityBoostAnnotationKey, "invalid").Obj(),
+			wantPriority: 200,
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+		},
+	}
+
+	for desc, tt := range tests {
+		t.Run(desc, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tt.featureGates)
+			_, log := utiltesting.ContextWithLog(t)
+			got := EffectivePriority(log, tt.workload)
+			if got != tt.wantPriority {
+				t.Errorf("EffectivePriority() = %d, want %d", got, tt.wantPriority)
+			}
+		})
+	}
+}

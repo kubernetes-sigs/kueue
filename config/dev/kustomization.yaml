@@ -1,0 +1,9 @@
+# Dev/testing friendly settings for Kueue.
+
+# Use default settings as a base.
+resources:
+- ../default
+
+patches:
+# Modify logging for better user experience. 
+- path: manager_config_patch.yaml

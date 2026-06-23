@@ -1,0 +1,26 @@
+# Large-Scale Performance Test - Expected Performance Ranges
+#
+# Calibration procedure (mirrors baseline/rangespec.yaml):
+#   1. Run `make run-large-scale-performance-scheduler` at least 5 times
+#   2. Collect the cmdStats WallMs from artifacts/run-large-scale-performance-scheduler/minimalkueue.stats.yaml
+#   3. Collect per-class AverageTimeToAdmissionMs from artifacts/run-large-scale-performance-scheduler/summary.yaml
+#   4. Set maxWallMs = mean × 1.20 (rounded up to nearest 1000ms)
+#   5. Set wlClassesMaxAvgTimeToAdmissionMs = mean × 1.20 (rounded up to nearest 1000ms)
+#   6. Set clusterQueueClassesMinUsage = mean − 7% (rounded down to 0.1%)
+#
+# Calibrated from 19 successful periodic runs of
+# periodic-kueue-test-large-scale-scheduling-perf-main.
+
+cmd:
+  # mean=1179411ms, stdev=13280ms; mean×1.2 rounded up to nearest 1000ms
+  maxWallMs: 1_416_000
+
+clusterQueueClassesMinUsage:
+  # mean=38.64%, mean-7% rounded down to 0.1%
+  cq: 31.6 #%
+
+wlClassesMaxAvgTimeToAdmissionMs:
+  # mean×1.2 rounded up to nearest 1000ms
+  large: 128_000   # mean=105604ms
+  medium: 308_000  # mean=256413ms
+  small: 841_000   # mean=700379ms

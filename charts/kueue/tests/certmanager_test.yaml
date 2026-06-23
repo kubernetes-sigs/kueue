@@ -1,0 +1,184 @@
+suite: test cert-manager certificates
+templates:
+  - certmanager/issuer.yaml
+  - certmanager/certificate.yaml
+  - certmanager/certificate-metrics.yaml
+  - certmanager/certificate-visibility-server.yaml
+tests:
+  - it: should create a self-signed issuer by default when cert-manager is enabled
+    template: certmanager/issuer.yaml
+    set:
+      enableCertManager: true
+    asserts:
+      - isKind:
+          of: Issuer
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-kueue-selfsigned-issuer
+
+  - it: should use the self-signed issuer for metrics by default when cert-manager is enabled
+    template: certmanager/certificate-metrics.yaml
+    set:
+      enableCertManager: true
+    asserts:
+      - isKind:
+          of: Certificate
+      - equal:
+          path: spec.issuerRef.kind
+          value: Issuer
+      - equal:
+          path: spec.issuerRef.name
+          value: RELEASE-NAME-kueue-selfsigned-issuer
+
+  - it: should use the self-signed issuer for the visibility server by default when cert-manager is enabled
+    template: certmanager/certificate-visibility-server.yaml
+    set:
+      enableCertManager: true
+    asserts:
+      - isKind:
+          of: Certificate
+      - equal:
+          path: spec.issuerRef.kind
+          value: Issuer
+      - equal:
+          path: spec.issuerRef.name
+          value: RELEASE-NAME-kueue-selfsigned-issuer
+
+  - it: should not create a self-signed issuer when a custom issuerRef is configured
+    template: certmanager/issuer.yaml
+    set:
+      enableCertManager: true
+      certManager:
+        issuerRef:
+          group: cert-manager.io
+          kind: ClusterIssuer
+          name: shared-cluster-issuer
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should use a custom issuerRef for the webhook certificate
+    template: certmanager/certificate.yaml
+    set:
+      enableCertManager: true
+      certManager:
+        issuerRef:
+          group: cert-manager.io
+          kind: ClusterIssuer
+          name: shared-cluster-issuer
+    asserts:
+      - isKind:
+          of: Certificate
+      - equal:
+          path: spec.issuerRef.group
+          value: cert-manager.io
+      - equal:
+          path: spec.issuerRef.kind
+          value: ClusterIssuer
+      - equal:
+          path: spec.issuerRef.name
+          value: shared-cluster-issuer
+
+  - it: should use a custom issuerRef for the metrics certificate
+    template: certmanager/certificate-metrics.yaml
+    set:
+      enableCertManager: true
+      certManager:
+        issuerRef:
+          group: cert-manager.io
+          kind: ClusterIssuer
+          name: shared-cluster-issuer
+    asserts:
+      - equal:
+          path: spec.issuerRef.group
+          value: cert-manager.io
+      - equal:
+          path: spec.issuerRef.kind
+          value: ClusterIssuer
+      - equal:
+          path: spec.issuerRef.name
+          value: shared-cluster-issuer
+
+  - it: should use a custom issuerRef for the visibility server certificate
+    template: certmanager/certificate-visibility-server.yaml
+    set:
+      enableCertManager: true
+      certManager:
+        issuerRef:
+          group: cert-manager.io
+          kind: ClusterIssuer
+          name: shared-cluster-issuer
+    asserts:
+      - equal:
+          path: spec.issuerRef.group
+          value: cert-manager.io
+      - equal:
+          path: spec.issuerRef.kind
+          value: ClusterIssuer
+      - equal:
+          path: spec.issuerRef.name
+          value: shared-cluster-issuer
+
+  - it: should use a custom namespace-scoped issuerRef for all certificates
+    template: certmanager/certificate.yaml
+    set:
+      enableCertManager: true
+      certManager:
+        issuerRef:
+          group: cert-manager.io
+          kind: Issuer
+          name: release-namespace-issuer
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: Certificate
+      - equal:
+          path: spec.issuerRef.group
+          value: cert-manager.io
+      - equal:
+          path: spec.issuerRef.kind
+          value: Issuer
+      - equal:
+          path: spec.issuerRef.name
+          value: release-namespace-issuer
+
+  - it: should use a custom namespace-scoped issuerRef for the metrics certificate
+    template: certmanager/certificate-metrics.yaml
+    set:
+      enableCertManager: true
+      certManager:
+        issuerRef:
+          group: cert-manager.io
+          kind: Issuer
+          name: release-namespace-issuer
+    asserts:
+      - equal:
+          path: spec.issuerRef.group
+          value: cert-manager.io
+      - equal:
+          path: spec.issuerRef.kind
+          value: Issuer
+      - equal:
+          path: spec.issuerRef.name
+          value: release-namespace-issuer
+
+  - it: should use a custom namespace-scoped issuerRef for the visibility server certificate
+    template: certmanager/certificate-visibility-server.yaml
+    set:
+      enableCertManager: true
+      certManager:
+        issuerRef:
+          group: cert-manager.io
+          kind: Issuer
+          name: release-namespace-issuer
+    asserts:
+      - equal:
+          path: spec.issuerRef.group
+          value: cert-manager.io
+      - equal:
+          path: spec.issuerRef.kind
+          value: Issuer
+      - equal:
+          path: spec.issuerRef.name
+          value: release-namespace-issuer

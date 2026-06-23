@@ -1,0 +1,50 @@
+{
+  "name": "kueueviz-frontend",
+  "version": "0.18.3",
+  "private": true,
+  "description": "Frontend dashboard for visualizing Kueue status",
+  "main": "src/index.jsx",
+  "type": "module",
+  "scripts": {
+    "start": "vite",
+    "build": "vite build",
+    "dev": "vite --no-open",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "check-unused": "depcheck",
+    "serve": "serve -s build"
+  },
+  "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@mui/icons-material": "^9.2.0",
+    "@mui/material": "^9.1.2",
+    "ace-builds": "^1.44.0",
+    "react": "^19.2.7",
+    "react-ace": "^14.0.1",
+    "react-dom": "^19.2.7",
+    "react-router-dom": "^7.18.1",
+    "react-toastify": "^11.1.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.0.3",
+    "depcheck": "^1.4.7",
+    "serve": "^14.2.6",
+    "vite": "^8.1.4",
+    "vitest": "^4.1.10"
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  },
+  "author": "Akram Ben Aissi",
+  "license": "Apache 2.0"
+}

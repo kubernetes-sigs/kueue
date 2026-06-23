@@ -1,0 +1,30 @@
+title: Pending workloads visibility
+kep-number: 168
+authors:
+  - "@mimowo"
+status: provisional
+creation-date: 2023-07-14
+reviewers:
+  - "@ahg-g"
+  - "@alculquicondor"
+  - "@mwielgus"
+approvers:
+  - "@ahg-g"
+  - "@alculquicondor"
+
+see-also:
+  - "/keps/168-2-pending-workloads-visibility"
+
+stage: deprecated
+
+latest-milestone: "v0.9"
+
+milestone:
+  alpha: "v0.5"
+  deprecated: "v0.9"
+
+disable-supported: true
+
+feature-gates:
+  - name: QueueVisibility
+

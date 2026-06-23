@@ -1,0 +1,175 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package jobset
+
+import (
+	"context"
+
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/validation/field"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/webhook"
+)
+
+var (
+	replicatedJobsPath = field.NewPath("spec", "replicatedJobs")
+)
+
+type JobSetWebhook struct {
+	client                       client.Client
+	manageJobsWithoutQueueName   bool
+	managedJobsNamespaceSelector labels.Selector
+	queues                       *qcache.Manager
+	cache                        *schdcache.Cache
+}
+
+// SetupJobSetWebhook configures the webhook for kubeflow JobSet.
+func SetupJobSetWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
+	options := jobframework.ProcessOptions(opts...)
+	wh := &JobSetWebhook{
+		client:                       mgr.GetClient(),
+		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
+		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
+		queues:                       options.Queues,
+		cache:                        options.Cache,
+	}
+	obj := &jobsetapi.JobSet{}
+	if options.NoopWebhook {
+		return webhook.SetupNoopWebhook(mgr, obj)
+	}
+	return ctrl.NewWebhookManagedBy(mgr, obj).
+		WithDefaulter(wh).
+		WithValidator(wh).
+		WithLogConstructor(jobframework.WebhookLogConstructor(fromObject(obj).GVK(), options.RoleTracker)).
+		Complete()
+}
+
+// +kubebuilder:webhook:path=/mutate-jobset-x-k8s-io-v1alpha2-jobset,mutating=true,failurePolicy=fail,sideEffects=None,groups=jobset.x-k8s.io,resources=jobsets,verbs=create,versions=v1alpha2,name=mjobset.kb.io,admissionReviewVersions=v1
+
+var _ admission.Defaulter[*jobsetapi.JobSet] = &JobSetWebhook{}
+
+// Default implements webhook.CustomDefaulter so a webhook will be registered for the type
+func (w *JobSetWebhook) Default(ctx context.Context, obj *jobsetapi.JobSet) error {
+	jobSet := fromObject(obj)
+	log := ctrl.LoggerFrom(ctx).WithName("jobset-webhook")
+	log.V(5).Info("Applying defaults")
+
+	jobframework.ApplyDefaultLocalQueue(obj, w.queues.DefaultLocalQueueExist)
+	jobframework.ApplyDefaultWorkloadPriorityClass(ctx, w.client, obj)
+	if err := jobframework.ApplyDefaultForSuspend(ctx, jobSet, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
+		return err
+	}
+
+	jobframework.ApplyDefaultForManagedBy(jobSet, w.queues, w.cache, log)
+
+	return nil
+}
+
+// +kubebuilder:webhook:path=/validate-jobset-x-k8s-io-v1alpha2-jobset,mutating=false,failurePolicy=fail,sideEffects=None,groups=jobset.x-k8s.io,resources=jobsets,verbs=create;update,versions=v1alpha2,name=vjobset.kb.io,admissionReviewVersions=v1
+
+var _ admission.Validator[*jobsetapi.JobSet] = &JobSetWebhook{}
+
+// ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
+func (w *JobSetWebhook) ValidateCreate(ctx context.Context, obj *jobsetapi.JobSet) (admission.Warnings, error) {
+	jobSet := fromObject(obj)
+	log := ctrl.LoggerFrom(ctx).WithName("jobset-webhook")
+	log.Info("Validating create")
+	validationErrs, err := w.validateCreate(ctx, jobSet)
+	if err != nil {
+		return nil, err
+	}
+	return nil, validationErrs.ToAggregate()
+}
+
+// ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
+func (w *JobSetWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *jobsetapi.JobSet) (admission.Warnings, error) {
+	oldJobSet := fromObject(oldObj)
+	newJobSet := fromObject(newObj)
+	log := ctrl.LoggerFrom(ctx).WithName("jobset-webhook")
+	log.Info("Validating update")
+	validationErrs, err := w.validateUpdate(ctx, oldJobSet, newJobSet)
+	if err != nil {
+		return nil, err
+	}
+	return nil, validationErrs.ToAggregate()
+}
+
+func (w *JobSetWebhook) validateUpdate(ctx context.Context, oldJob, newJob *JobSet) (field.ErrorList, error) {
+	var allErrs field.ErrorList
+	allErrs = append(allErrs, jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist)...)
+	validationErrs, err := w.validateCreate(ctx, newJob)
+	if err != nil {
+		return nil, err
+	}
+	allErrs = append(allErrs, validationErrs...)
+	return allErrs, nil
+}
+
+func (w *JobSetWebhook) validateCreate(ctx context.Context, jobSet *JobSet) (field.ErrorList, error) {
+	var allErrs field.ErrorList
+	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(jobSet)...)
+	if features.Enabled(features.TopologyAwareScheduling) {
+		validationErrs, err := w.validateTopologyRequest(ctx, jobSet)
+		if err != nil {
+			return nil, err
+		}
+		allErrs = append(allErrs, validationErrs...)
+	}
+	return allErrs, nil
+}
+
+func (w *JobSetWebhook) validateTopologyRequest(ctx context.Context, jobSet *JobSet) (field.ErrorList, error) {
+	var allErrs field.ErrorList
+
+	podSets, podSetsErr := jobframework.JobPodSets(ctx, jobSet, nil)
+	if podSetsErr == nil {
+		for i, p := range podSets {
+			rjobsPath := replicatedJobsPath.Index(i).Child("template", "spec", "template", "metadata")
+			allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(rjobsPath, &p.Template.ObjectMeta)...)
+			allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(rjobsPath, &p.Template.ObjectMeta, &p)...)
+		}
+		allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSets, buildPodSetAnnotationsPathByNameMap(jobSet))...)
+	}
+
+	if len(allErrs) > 0 {
+		return allErrs, nil
+	}
+
+	return nil, podSetsErr
+}
+
+func buildPodSetAnnotationsPathByNameMap(jobSet *JobSet) map[kueue.PodSetReference]*field.Path {
+	podSetAnnotationsPathByName := make(map[kueue.PodSetReference]*field.Path)
+	for i, job := range jobSet.Spec.ReplicatedJobs {
+		podSetAnnotationsPathByName[kueue.NewPodSetReference(job.Name)] = replicatedJobsPath.Index(i).Child("template", "spec", "template", "metadata", "annotations")
+	}
+	return podSetAnnotationsPathByName
+}
+
+// ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
+func (w *JobSetWebhook) ValidateDelete(_ context.Context, _ *jobsetapi.JobSet) (admission.Warnings, error) {
+	return nil, nil
+}

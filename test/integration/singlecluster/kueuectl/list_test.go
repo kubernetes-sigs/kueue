@@ -1,0 +1,437 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package kueuectl
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"time"
+
+	"github.com/onsi/ginkgo/v2"
+	"github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/duration"
+	"k8s.io/cli-runtime/pkg/genericiooptions"
+	testingclock "k8s.io/utils/clock/testing"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/list"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/test/util"
+)
+
+var _ = ginkgo.Describe("Kueuectl List", func() {
+	var ns *corev1.Namespace
+
+	ginkgo.BeforeEach(func() {
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		os.Unsetenv(list.KueuectlListRequestLimitEnvName)
+	})
+
+	ginkgo.When("List LocalQueue", func() {
+		var (
+			lq1 *kueue.LocalQueue
+			lq2 *kueue.LocalQueue
+			lq3 *kueue.LocalQueue
+		)
+
+		ginkgo.JustBeforeEach(func() {
+			lq1 = utiltestingapi.MakeLocalQueue("lq1", ns.Name).ClusterQueue("cq1").Obj()
+			util.MustCreate(ctx, k8sClient, lq1)
+
+			lq2 = utiltestingapi.MakeLocalQueue("lq2", ns.Name).ClusterQueue("very-long-cluster-queue-name").Obj()
+			util.MustCreate(ctx, k8sClient, lq2)
+
+			lq3 = utiltestingapi.MakeLocalQueue("very-long-local-queue-name", ns.Name).ClusterQueue("cq1").Obj()
+			util.MustCreate(ctx, k8sClient, lq3)
+		})
+
+		// Simple client set that are using on unit tests not allow to filter by field selector.
+		ginkgo.It("Should print local queues list filtered by field selector", func() {
+			streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
+			configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+			executeTime := time.Now()
+			kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams, Clock: testingclock.NewFakeClock(executeTime)})
+
+			kueuectl.SetArgs([]string{"list", "localqueue", "--field-selector",
+				fmt.Sprintf("metadata.name=%s", lq1.Name), "--namespace", ns.Name})
+
+			err := kueuectl.Execute()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
+
+			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME   CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   AGE
+lq1    cq1            0                   0                    %s
+`,
+				duration.HumanDuration(executeTime.Sub(lq1.CreationTimestamp.Time)),
+			)))
+		})
+
+		// Simple client set that are using on unit tests not allow paging.
+		ginkgo.It("Should print local queues list with paging", func() {
+			streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
+			configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+			executeTime := time.Now()
+			kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams, Clock: testingclock.NewFakeClock(executeTime)})
+
+			os.Setenv(list.KueuectlListRequestLimitEnvName, "1")
+			kueuectl.SetArgs([]string{"list", "localqueue", "--namespace", ns.Name})
+
+			err := kueuectl.Execute()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
+
+			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME                         CLUSTERQUEUE                   PENDING WORKLOADS   ADMITTED WORKLOADS   AGE
+lq1                          cq1                            0                   0                    %s
+lq2                          very-long-cluster-queue-name   0                   0                    %s
+very-long-local-queue-name   cq1                            0                   0                    %s
+`,
+				duration.HumanDuration(executeTime.Sub(lq1.CreationTimestamp.Time)),
+				duration.HumanDuration(executeTime.Sub(lq2.CreationTimestamp.Time)),
+				duration.HumanDuration(executeTime.Sub(lq3.CreationTimestamp.Time)),
+			)))
+		})
+
+		ginkgo.It("Should list local queues in the current namespace as JSON", func() {
+			streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
+			configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+			kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+
+			kueuectl.SetArgs([]string{"list", "localqueue", "--namespace", ns.Name, "-o", "json"})
+
+			err := kueuectl.Execute()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
+
+			ginkgo.By("Verify the JSON output round-trips into the LocalQueueList type", func() {
+				var listOut kueue.LocalQueueList
+				gomega.Expect(json.Unmarshal(output.Bytes(), &listOut)).To(gomega.Succeed())
+				gomega.Expect(listOut.Items).To(gomega.HaveLen(3))
+				gomega.Expect(listOut.Items).To(gomega.ContainElement(gomega.SatisfyAll(
+					gomega.HaveField("Name", "lq1"),
+					gomega.HaveField("Spec.ClusterQueue", kueue.ClusterQueueReference("cq1")),
+				)))
+			})
+		})
+
+		ginkgo.It("Should list local queues across all namespaces with -A", func() {
+			otherNs := util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-other-")
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(util.DeleteNamespace(ctx, k8sClient, otherNs)).To(gomega.Succeed())
+			})
+			otherLq := utiltestingapi.MakeLocalQueue("lq-other", otherNs.Name).ClusterQueue("cq1").Obj()
+			util.MustCreate(ctx, k8sClient, otherLq)
+
+			// Create an LQ in the primary namespace so we can assert that both
+			// LQs (primary and other-ns) appear in the cross-namespace list.
+			primaryLq := utiltestingapi.MakeLocalQueue("lq-primary", ns.Name).ClusterQueue("cq1").Obj()
+			util.MustCreate(ctx, k8sClient, primaryLq)
+
+			streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
+			configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+			kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+
+			kueuectl.SetArgs([]string{"list", "localqueue", "-A", "-o", "json"})
+
+			err := kueuectl.Execute()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
+
+			ginkgo.By("Verify the JSON output contains the LQs from both namespaces", func() {
+				var listOut kueue.LocalQueueList
+				gomega.Expect(json.Unmarshal(output.Bytes(), &listOut)).To(gomega.Succeed())
+				gomega.Expect(listOut.Items).To(gomega.ContainElement(gomega.SatisfyAll(
+					gomega.HaveField("Name", "lq-primary"),
+					gomega.HaveField("Namespace", ns.Name),
+				)))
+				gomega.Expect(listOut.Items).To(gomega.ContainElement(gomega.SatisfyAll(
+					gomega.HaveField("Name", "lq-other"),
+					gomega.HaveField("Namespace", otherNs.Name),
+				)))
+			})
+		})
+	})
+
+	ginkgo.When("List ClusterQueue", func() {
+		var (
+			cq1 *kueue.ClusterQueue
+			cq2 *kueue.ClusterQueue
+		)
+
+		ginkgo.JustBeforeEach(func() {
+			cq1 = utiltestingapi.MakeClusterQueue("cq1").Obj()
+			util.MustCreate(ctx, k8sClient, cq1)
+
+			cq2 = utiltestingapi.MakeClusterQueue("very-long-cluster-queue-name").Obj()
+			util.MustCreate(ctx, k8sClient, cq2)
+
+			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq1, cq2)
+		})
+
+		ginkgo.JustAfterEach(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq1, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq2, true)
+		})
+
+		// Simple client set that are using on unit tests not allow to filter by field selector.
+		ginkgo.It("Should print cluster queues list filtered by field selector", func() {
+			streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
+			configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+			executeTime := time.Now()
+			kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams, Clock: testingclock.NewFakeClock(executeTime)})
+
+			kueuectl.SetArgs([]string{"list", "clusterqueue", "--field-selector",
+				fmt.Sprintf("metadata.name=%s", cq1.Name)})
+			err := kueuectl.Execute()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
+			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME   COHORT   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
+cq1             0                   0                    true     %s
+`,
+				duration.HumanDuration(executeTime.Sub(cq1.CreationTimestamp.Time)),
+			)))
+		})
+
+		// Simple client set that are using on unit tests not allow paging.
+		ginkgo.It("Should print cluster queues list with paging", func() {
+			streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
+			configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+			executeTime := time.Now()
+			kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams, Clock: testingclock.NewFakeClock(executeTime)})
+
+			os.Setenv(list.KueuectlListRequestLimitEnvName, "1")
+			kueuectl.SetArgs([]string{"list", "clusterqueue"})
+			err := kueuectl.Execute()
+
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
+			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME                           COHORT   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
+cq1                                     0                   0                    true     %s
+very-long-cluster-queue-name            0                   0                    true     %s
+`,
+				duration.HumanDuration(executeTime.Sub(cq1.CreationTimestamp.Time)),
+				duration.HumanDuration(executeTime.Sub(cq2.CreationTimestamp.Time)),
+			)))
+		})
+	})
+
+	ginkgo.When("List Workloads", func() {
+		var (
+			wl1 *kueue.Workload
+			wl2 *kueue.Workload
+			wl3 *kueue.Workload
+		)
+
+		ginkgo.JustBeforeEach(func() {
+			wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).Queue("lq1").Obj()
+			util.MustCreate(ctx, k8sClient, wl1)
+
+			wl2 = utiltestingapi.MakeWorkload("wl2", ns.Name).Queue("very-long-local-queue-name").Obj()
+			util.MustCreate(ctx, k8sClient, wl2)
+
+			wl3 = utiltestingapi.MakeWorkload("very-long-workload-name", ns.Name).Queue("lq1").Obj()
+			util.MustCreate(ctx, k8sClient, wl3)
+		})
+
+		// Simple client set that are using on unit tests not allow to filter by field selector.
+		ginkgo.It("Should print workloads list filtered by field selector", func() {
+			streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
+			configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+			executeTime := time.Now()
+			kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams, Clock: testingclock.NewFakeClock(executeTime)})
+
+			kueuectl.SetArgs([]string{"list", "workload", "--field-selector",
+				fmt.Sprintf("metadata.name=%s", wl1.Name), "--namespace", ns.Name})
+			err := kueuectl.Execute()
+
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
+			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
+wl1                          lq1                         PENDING                                   %s
+`,
+				duration.HumanDuration(executeTime.Sub(wl1.CreationTimestamp.Time)))))
+		})
+
+		// Simple client set that are using on unit tests not allow paging.
+		ginkgo.It("Should print workloads list with paging", func() {
+			streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
+			configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+			executeTime := time.Now()
+			kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams, Clock: testingclock.NewFakeClock(executeTime)})
+
+			os.Setenv(list.KueuectlListRequestLimitEnvName, "1")
+			kueuectl.SetArgs([]string{"list", "workload", "--namespace", ns.Name})
+			err := kueuectl.Execute()
+
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
+			gomega.Expect(output.String()).
+				Should(gomega.Equal(fmt.Sprintf(`NAME                      JOB TYPE   JOB NAME   LOCALQUEUE                   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
+very-long-workload-name                         lq1                                         PENDING                                   %s
+wl1                                             lq1                                         PENDING                                   %s
+wl2                                             very-long-local-queue-name                  PENDING                                   %s
+`,
+					duration.HumanDuration(executeTime.Sub(wl3.CreationTimestamp.Time)),
+					duration.HumanDuration(executeTime.Sub(wl1.CreationTimestamp.Time)),
+					duration.HumanDuration(executeTime.Sub(wl2.CreationTimestamp.Time)),
+				)))
+		})
+
+		ginkgo.It("Should filter workloads by status.admission.clusterQueue field selector", func() {
+			wlCQ1 := utiltestingapi.MakeWorkload("wl-cq1", ns.Name).Queue("lq1").Obj()
+			util.MustCreate(ctx, k8sClient, wlCQ1)
+			util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wlCQ1), utiltestingapi.MakeAdmission("cq1").Obj())
+
+			wlCQ2a := utiltestingapi.MakeWorkload("wl-cq2a", ns.Name).Queue("lq1").Obj()
+			util.MustCreate(ctx, k8sClient, wlCQ2a)
+			util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wlCQ2a), utiltestingapi.MakeAdmission("cq2").Obj())
+
+			wlCQ2b := utiltestingapi.MakeWorkload("wl-cq2b", ns.Name).Queue("lq1").Obj()
+			util.MustCreate(ctx, k8sClient, wlCQ2b)
+			util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wlCQ2b), utiltestingapi.MakeAdmission("cq2").Obj())
+
+			wlPending := utiltestingapi.MakeWorkload("wl-pending", ns.Name).Queue("lq1").Obj()
+			util.MustCreate(ctx, k8sClient, wlPending)
+
+			ginkgo.By("filtering for a specific ClusterQueue")
+			streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
+			configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+			kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams, Clock: testingclock.NewFakeClock(time.Now())})
+			kueuectl.SetArgs([]string{"list", "workload", "--field-selector",
+				"status.admission.clusterQueue=cq2", "--namespace", ns.Name})
+			err := kueuectl.Execute()
+
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
+			gomega.Expect(output.String()).Should(gomega.ContainSubstring("wl-cq2a"))
+			gomega.Expect(output.String()).Should(gomega.ContainSubstring("wl-cq2b"))
+			gomega.Expect(output.String()).ShouldNot(gomega.ContainSubstring("wl-cq1"))
+			gomega.Expect(output.String()).ShouldNot(gomega.ContainSubstring("wl-pending"))
+			gomega.Expect(output.String()).ShouldNot(gomega.ContainSubstring("very-long-workload-name"))
+
+			ginkgo.By("filtering for any ClusterQueue (all reserved workloads)")
+			streams, _, output, errOutput = genericiooptions.NewTestIOStreams()
+			configFlags = CreateConfigFlagsWithRestConfig(cfg, streams)
+			kueuectl = app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams, Clock: testingclock.NewFakeClock(time.Now())})
+			kueuectl.SetArgs([]string{"list", "workload", "--field-selector",
+				"status.admission.clusterQueue!=", "--namespace", ns.Name})
+			err = kueuectl.Execute()
+
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
+			gomega.Expect(output.String()).Should(gomega.ContainSubstring("wl-cq1"))
+			gomega.Expect(output.String()).Should(gomega.ContainSubstring("wl-cq2a"))
+			gomega.Expect(output.String()).Should(gomega.ContainSubstring("wl-cq2b"))
+			gomega.Expect(output.String()).ShouldNot(gomega.ContainSubstring("wl-pending"))
+			gomega.Expect(output.String()).ShouldNot(gomega.ContainSubstring("very-long-workload-name"))
+
+			ginkgo.By("filtering for workloads without quota reserved")
+			streams, _, output, errOutput = genericiooptions.NewTestIOStreams()
+			configFlags = CreateConfigFlagsWithRestConfig(cfg, streams)
+			kueuectl = app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams, Clock: testingclock.NewFakeClock(time.Now())})
+			kueuectl.SetArgs([]string{"list", "workload", "--field-selector",
+				"status.admission.clusterQueue=", "--namespace", ns.Name})
+			err = kueuectl.Execute()
+
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
+			gomega.Expect(output.String()).Should(gomega.ContainSubstring("wl-pending"))
+			gomega.Expect(output.String()).Should(gomega.ContainSubstring("wl1"))
+			gomega.Expect(output.String()).Should(gomega.ContainSubstring("wl2"))
+			gomega.Expect(output.String()).Should(gomega.ContainSubstring("very-long-workload-name"))
+			gomega.Expect(output.String()).ShouldNot(gomega.ContainSubstring("wl-cq1"))
+			gomega.Expect(output.String()).ShouldNot(gomega.ContainSubstring("wl-cq2a"))
+			gomega.Expect(output.String()).ShouldNot(gomega.ContainSubstring("wl-cq2b"))
+		})
+	})
+
+	ginkgo.When("List ResourceFlavors", func() {
+		var (
+			rf1 *kueue.ResourceFlavor
+			rf2 *kueue.ResourceFlavor
+		)
+
+		ginkgo.JustBeforeEach(func() {
+			rf1 = utiltestingapi.MakeResourceFlavor("rf1").Obj()
+			util.MustCreate(ctx, k8sClient, rf1)
+
+			rf2 = utiltestingapi.MakeResourceFlavor("very-long-resource-flavor-name").Obj()
+			util.MustCreate(ctx, k8sClient, rf2)
+		})
+
+		ginkgo.JustAfterEach(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, rf1, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, rf2, true)
+		})
+
+		// Simple client set that are using on unit tests not allow to filter by field selector.
+		ginkgo.It("Should print resource flavor list filtered by field selector", func() {
+			streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
+			configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+			executeTime := time.Now()
+			kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{
+				ConfigFlags: configFlags,
+				IOStreams:   streams,
+				Clock:       testingclock.NewFakeClock(executeTime),
+			})
+
+			kueuectl.SetArgs([]string{"list", "resourceflavor", "--field-selector",
+				fmt.Sprintf("metadata.name=%s", rf1.Name)})
+			err := kueuectl.Execute()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
+			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME   NODE LABELS   AGE
+rf1                  %s
+`,
+				duration.HumanDuration(executeTime.Sub(rf1.CreationTimestamp.Time)),
+			)))
+		})
+
+		// Simple client set that are using on unit tests not allow paging.
+		ginkgo.It("Should print resource flavor list with paging", func() {
+			streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
+			configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+			executeTime := time.Now()
+			kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{
+				ConfigFlags: configFlags,
+				IOStreams:   streams,
+				Clock:       testingclock.NewFakeClock(executeTime),
+			})
+
+			os.Setenv(list.KueuectlListRequestLimitEnvName, "1")
+			kueuectl.SetArgs([]string{"list", "resourceflavor"})
+			err := kueuectl.Execute()
+
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
+			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME                             NODE LABELS   AGE
+rf1                                            %s
+very-long-resource-flavor-name                 %s
+`,
+				duration.HumanDuration(executeTime.Sub(rf1.CreationTimestamp.Time)),
+				duration.HumanDuration(executeTime.Sub(rf2.CreationTimestamp.Time)),
+			)))
+		})
+	})
+})

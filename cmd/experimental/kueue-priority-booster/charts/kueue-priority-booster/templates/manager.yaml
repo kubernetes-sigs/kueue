@@ -1,0 +1,90 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-kueue-priority-booster-config
+  namespace: {{ .Release.Namespace }}
+data:
+  controller_manager_config.yaml: |
+    timeSharing:
+      interval: {{ .Values.kueuePriorityBooster.config.timeSharing.interval | quote }}
+      negativeBoost: {{ .Values.kueuePriorityBooster.config.timeSharing.negativeBoost }}
+{{- if .Values.kueuePriorityBooster.config.workloadSelector }}
+    workloadSelector:
+{{ toYaml .Values.kueuePriorityBooster.config.workloadSelector | nindent 6 }}
+{{- end }}
+{{- if hasKey .Values.kueuePriorityBooster.config "maxWorkloadPriority" }}
+    maxWorkloadPriority: {{ index .Values.kueuePriorityBooster.config "maxWorkloadPriority" }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-kueue-priority-booster
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: kueue-priority-booster
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    control-plane: kueue-priority-booster
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      control-plane: kueue-priority-booster
+      app.kubernetes.io/name: kueue-priority-booster
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        control-plane: kueue-priority-booster
+        app.kubernetes.io/name: kueue-priority-booster
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      serviceAccountName: {{ .Release.Name }}-kueue-priority-booster
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - args:
+        - "--config=/etc/kueue/controller_manager_config.yaml"
+        - "--zap-log-level=2"
+        image: "{{ .Values.kueuePriorityBooster.image.repository }}:{{ .Values.kueuePriorityBooster.image.tag }}"
+        imagePullPolicy: {{ .Values.kueuePriorityBooster.image.pullPolicy }}
+        name: manager
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: 100m
+            memory: 100Mi
+          requests:
+            cpu: 100m
+            memory: 100Mi
+        volumeMounts:
+        - mountPath: /etc/kueue
+          name: manager-config
+      {{- with .Values.kueuePriorityBooster.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: 10
+      volumes:
+      - configMap:
+          name: {{ .Release.Name }}-kueue-priority-booster-config
+        name: manager-config

@@ -1,0 +1,32 @@
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        type: string
+        required: true
+
+permissions: {}
+
+jobs:
+  vexctl:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set tag name
+        shell: bash
+        run: |
+          TAG=${{ github.event.inputs.tag }}
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: openvex/generate-vex@c59881b41451d7ccba5c3b74cd195382b8971fcd
+        name: Run vexctl
+        with:
+          product: pkg:golang/sigs.k8s.io/kueue@${{ env.TAG }}
+          file: /tmp/kueue.vex.json
+      - name: Upload openvex data
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload $TAG /tmp/kueue.vex.json

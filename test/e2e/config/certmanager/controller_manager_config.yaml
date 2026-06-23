@@ -1,0 +1,26 @@
+apiVersion: config.kueue.x-k8s.io/v1beta1
+kind: Configuration
+metrics:
+  enableClusterQueueResources: true
+leaderElection:
+  leaderElect: true
+controller:
+  groupKindConcurrency:
+    Job.batch: 5
+    Pod: 5
+    Workload.kueue.x-k8s.io: 10
+    LocalQueue.kueue.x-k8s.io: 5
+    ClusterQueue.kueue.x-k8s.io: 5
+    ResourceFlavor.kueue.x-k8s.io: 1
+fairSharing:
+  enable: false
+waitForPodsReady:
+  enable: false
+internalCertManagement:
+  enable: false
+clientConnection:
+  qps: 300
+  burst: 500
+integrations:
+  frameworks:
+    - "batch/job"

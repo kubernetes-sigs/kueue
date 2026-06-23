@@ -1,0 +1,18 @@
+title: AdmissionCheck per ResourceFlavor
+kep-number: 1913
+authors:
+  - "@pbundyra"
+status: implementable
+creation-date: 2024-03-26
+reviewers:
+  - "@mimowo"
+  - "@gabesaba"
+  - "@mwielgus"
+  - "@tenzen-y"
+approvers:
+  - "@alculquicondor"
+
+see-also:
+  - "/keps/993-two-phase-admission
+
+latest-milestone: "v0.7"

@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Name }}
+  labels:
+    kueue.x-k8s.io/queue-name: {{ .LocalQueueBasename }}-{{ (Mod (DivideInt .Index (DivideInt .NumPods .NumWorkloads)) .NumQueues) }}
+    kueue.x-k8s.io/pod-group-name: pod-group-{{ (DivideInt .Index (DivideInt .NumPods .NumWorkloads)) }}
+  annotations:
+    kueue.x-k8s.io/pod-group-total-count: "{{ (DivideInt .NumPods .NumWorkloads) }}"
+spec:
+  containers:
+    - name: {{ .Name }}
+      image: gcr.io/k8s-staging-perf-tests/sleep:v0.1.0
+      args:
+        - {{ .Sleep }}
+  restartPolicy: Never

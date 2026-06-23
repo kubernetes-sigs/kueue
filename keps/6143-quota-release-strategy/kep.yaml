@@ -1,0 +1,31 @@
+title: Quota Release Strategy
+kep-number: 6143
+authors:
+  - "@tkillian"
+status: provisional
+creation-date: 2026-02-17
+reviewers:
+  - @mimowo
+  - @amy
+  - @PBundyra
+  - @tenzen-y
+approvers:
+  - @mimowo
+  - @tenzen-y
+
+see-also:
+  - "/keps/976-plain-pods"
+
+stage: alpha
+latest-milestone: "v0.17"
+
+milestone:
+  alpha: "v0.17"
+  beta: "v0.18"
+  stable:
+
+feature-gates:
+  - name: FastQuotaReleaseInPodIntegration
+disable-supported: true
+
+metrics:

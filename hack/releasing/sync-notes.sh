@@ -1,0 +1,293 @@
+#!/usr/bin/env bash
+
+# Copyright 2025 The Kubernetes Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+set -o errexit
+set -o nounset
+set -o pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+declare -r REPO_ROOT
+cd "${REPO_ROOT}"
+
+# shellcheck source=hack/utils.sh
+source "${REPO_ROOT}/hack/utils.sh"
+
+UPSTREAM_REMOTE=${UPSTREAM_REMOTE:-upstream}
+MAIN_REPO_ORG=${MAIN_REPO_ORG:-$(get_repo_org "$(git remote get-url "$UPSTREAM_REMOTE")")}
+MAIN_REPO_NAME=${MAIN_REPO_NAME:-$(get_repo_name "$(git remote get-url "$UPSTREAM_REMOTE")")}
+
+if ! command -v gh > /dev/null; then
+  echo "Can't find 'gh' tool in PATH, please install from https://github.com/cli/cli"
+  exit 1
+fi
+
+if [[ "$#" -ne 1 ]]; then
+  echo "${0} <version>"
+  echo
+  echo "  Sync notes on the release issue"
+  echo
+  echo "  Example:"
+  echo "    $0 v0.13.2"
+  exit 2
+fi
+
+# Checks if you are logged in. Will error/bail if you are not.
+gh auth status
+
+declare -r RELEASE_VERSION="$1"
+
+if [[ ! "$RELEASE_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "!!! Invalid release version. It should be semantic version like v0.13.2"
+  exit 1
+fi
+
+git fetch "${UPSTREAM_REMOTE}" --tags
+
+# $1 - release version
+find_previous_version() {
+  local release_version="$1"
+  IFS='.' read -r major minor patch <<< "${release_version#v}"
+  # If patch is 0, treat it as a minor or major version bump
+  if [ "$patch" -eq 0 ]; then
+    if [ "$minor" -gt 0 ]; then
+      # Decrease minor version and set patch to 0
+      echo "v$major.$((minor-1)).0"
+      return 0
+    elif [ "$major" -gt 0 ]; then
+      # Decrease major version, set minor and patch to 0
+      echo "v$((major-1)).0.0"
+      return 0
+    fi
+  fi
+  for tag in $(git tag -l | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V -r); do
+    IFS='.' read -r t_major t_minor t_patch <<< "${tag#v}"
+    if [ "$t_major" -lt "$major" ] || \
+       { [ "$t_major" -eq "$major" ] && [ "$t_minor" -lt "$minor" ]; } || \
+       { [ "$t_major" -eq "$major" ] && [ "$t_minor" -eq "$minor" ] && [ "$t_patch" -lt "$patch" ]; }; then
+      echo "$tag"
+      return 0
+    fi
+  done
+}
+
+# $1 - release version (e.g. v0.13.1)
+function find_head_branch() {
+  local release_version="$1"
+  local head_branch="main"
+
+  IFS='.' read -r major minor patch <<< "${release_version#v}"
+
+  if [[ "${patch}" -ne "0" ]]; then
+    candidate_branch="release-${major}.${minor}"
+    # Use release branch if it exists
+    if git ls-remote --heads "$UPSTREAM_REMOTE" "$candidate_branch" | grep -q "$candidate_branch"; then
+      head_branch="$candidate_branch"
+    fi
+  fi
+
+  echo "$head_branch"
+}
+
+function release_note_links() {
+  local release_prefix="$1"
+  local start="$2"
+  local end="$3"
+  local release_suffix="$4"
+  local joined=""
+  local current release_version
+
+  for ((current = start; current <= end; current++)); do
+    release_version="${release_prefix}${current}${release_suffix}"
+    if [[ -n "${joined}" ]]; then
+      joined+=", "
+    fi
+    joined+="[\`${release_version}\`](https://github.com/${MAIN_REPO_ORG}/${MAIN_REPO_NAME}/releases/tag/${release_version})"
+  done
+  printf "%s" "${joined}"
+}
+
+# Returns links to the two latest minor `.0` release notes.
+function minor_upgrade_release_links() {
+  local release_version="$1"
+  local major minor patch
+  IFS='.' read -r major minor patch <<< "${release_version#v}"
+
+  local end_minor=$((patch == 0 ? minor - 1 : minor))
+  local start_minor=$((end_minor > 0 ? end_minor - 1 : 0))
+
+  release_note_links "v${major}." "${start_minor}" "${end_minor}" ".0"
+}
+
+# Returns links to earlier patch release notes in the same minor line.
+function patch_upgrade_release_links() {
+  local release_version="$1"
+  local major minor patch
+  IFS='.' read -r major minor patch <<< "${release_version#v}"
+
+  release_note_links "v${major}.${minor}." 1 "$((patch - 1))" ""
+}
+
+function add_upgrade_notes() {
+  local input_file="$1"
+  local output_file="$2"
+
+  # Add the upgrade notes under the upgrade actions section,
+  # or create that section immediately before "## Changes by Kind" if it is missing.
+  awk -v minor_release_links="$3" \
+      -v patch_release_links="$4" '
+    function print_upgrade_notes() {
+      if (minor_release_links != "") {
+        printf "- **Minor releases:** Review the `.0` release notes for each new minor version you cross; see: %s.\n", minor_release_links
+      }
+      if (patch_release_links != "") {
+        printf "- **Patch releases:** Review the patch release notes leading up to this version, but *only* within this minor release line; see: %s.\n", patch_release_links
+      }
+    }
+
+    /^## Urgent Upgrade Notes[[:space:]]*$/ {
+      print "## Actions Required Before Upgrading"
+      next
+    }
+
+    /^### \(No, really, you MUST read this before you upgrade\)[[:space:]]*$/ {
+      print
+      print ""
+      print_upgrade_notes()
+      inserted = 1
+      next
+    }
+
+    /^## Changes by Kind[[:space:]]*$/ && !inserted {
+      print "## Actions Required Before Upgrading"
+      print ""
+      print "### (No, really, you MUST read this before you upgrade)"
+      print ""
+      print_upgrade_notes()
+      print ""
+      inserted = 1
+    }
+
+    { print }
+  ' "$input_file" > "$output_file"
+}
+
+HEAD_BRANCH=$(find_head_branch "$RELEASE_VERSION")
+declare HEAD_BRANCH
+echo "+++ HEAD_BRANCH=$HEAD_BRANCH"
+
+PREVIOUS_VERSION=$(find_previous_version "$RELEASE_VERSION")
+declare PREVIOUS_VERSION
+echo "+++ PREVIOUS_VERSION=$PREVIOUS_VERSION"
+
+START_SHA=$(git rev-parse "${PREVIOUS_VERSION}^{commit}" 2>/dev/null)
+declare START_SHA
+
+END_SHA=$(git rev-parse "${UPSTREAM_REMOTE}/${HEAD_BRANCH}" 2>/dev/null)
+declare END_SHA
+
+CHANGELOG_FILE=$(mktemp)
+declare CHANGELOG_FILE
+
+FINAL_CHANGELOG_FILE="$CHANGELOG_FILE"
+declare FINAL_CHANGELOG_FILE
+
+echo "+++ Running release-notes:"
+echo
+echo "release-notes --org \"${MAIN_REPO_ORG}\" \\"
+echo "              --repo \"${MAIN_REPO_NAME}\" \\"
+echo "              --branch \"${HEAD_BRANCH}\" \\"
+echo "              --start-sha \"${START_SHA}\" \\"
+echo "              --end-sha \"${END_SHA}\" \\"
+echo "              --dependencies=false \\"
+echo "              --required-author=\"\" "
+echo "              --output=\"${CHANGELOG_FILE}\" "
+
+GITHUB_TOKEN=${GITHUB_TOKEN:-$(gh auth status --show-token | awk '/Token:/ {print $3}')}
+declare GITHUB_TOKEN
+
+GITHUB_TOKEN=${GITHUB_TOKEN} release-notes --org "${MAIN_REPO_ORG}" \
+              --repo "${MAIN_REPO_NAME}" \
+              --branch "${HEAD_BRANCH}" \
+              --start-sha "${START_SHA}" \
+              --end-sha "${END_SHA}" \
+              --dependencies=false \
+              --required-author="" \
+              --output="${CHANGELOG_FILE}"
+
+MINOR_UPGRADE_RELEASE_LINKS=$(minor_upgrade_release_links "${RELEASE_VERSION}")
+declare MINOR_UPGRADE_RELEASE_LINKS
+
+PATCH_UPGRADE_RELEASE_LINKS=$(patch_upgrade_release_links "${RELEASE_VERSION}")
+declare PATCH_UPGRADE_RELEASE_LINKS
+
+if [[ -n "${MINOR_UPGRADE_RELEASE_LINKS}${PATCH_UPGRADE_RELEASE_LINKS}" ]]; then
+  FINAL_CHANGELOG_FILE=$(mktemp)
+  add_upgrade_notes "${CHANGELOG_FILE}" "${FINAL_CHANGELOG_FILE}" "${MINOR_UPGRADE_RELEASE_LINKS}" "${PATCH_UPGRADE_RELEASE_LINKS}"
+fi
+
+cat "$FINAL_CHANGELOG_FILE"
+
+echo
+echo
+read -p "+++ Do you want to update release issue? [y/N] " -r
+if ! [[ "${REPLY}" =~ ^[yY]$ ]]; then
+  echo "Aborting." >&2
+  exit 1
+fi
+
+RELEASE_ISSUE_NAME="Release ${RELEASE_VERSION}"
+declare RELEASE_ISSUE_NAME
+
+RELEASE_ISSUE_NUMBER=$(gh issue list --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" --search "in:title ${RELEASE_ISSUE_NAME}" | awk '{print $1}' || true)
+if [ -z "$RELEASE_ISSUE_NUMBER" ]; then
+  echo "!!! No release issue found for version ${RELEASE_VERSION}. Please create 'Release ${RELEASE_VERSION}' issue first."
+  exit 1
+fi
+
+RELEASE_ISSUE=$(gh issue view "${RELEASE_ISSUE_NUMBER}" --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" --json body || true)
+if [ -z "$RELEASE_ISSUE" ]; then
+  echo "!!! No release issue found for version ${RELEASE_VERSION}. Please create 'Release ${RELEASE_VERSION}' issue first."
+  exit 1
+fi
+
+RELEASE_ISSUE_BODY=$(echo "${RELEASE_ISSUE}" | jq -r '.body')
+
+NEW_RELEASE_ISSUE_BODY=$(awk -v previous_version="$PREVIOUS_VERSION" -v changelog_file="$FINAL_CHANGELOG_FILE" '
+  BEGIN {
+    in_block=0
+    while ((getline line < changelog_file) > 0) {
+      changelog_lines = changelog_lines line "\n"
+    }
+    close(changelog_file)
+  }
+  /^```markdown$/ {
+    print $0
+    printf "Changes since `%s`:\n\n", previous_version
+    print changelog_lines
+    in_block=1
+    next
+  }
+  /^```$/ && in_block {
+    print $0
+    in_block=0
+    next
+  }
+  !in_block {
+    print $0
+  }
+' <<< "$RELEASE_ISSUE_BODY")
+
+gh issue edit "${RELEASE_ISSUE_NUMBER}" --body "${NEW_RELEASE_ISSUE_BODY}" --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}"

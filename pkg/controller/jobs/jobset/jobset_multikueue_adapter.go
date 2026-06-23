@@ -1,0 +1,119 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package jobset
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/util/api"
+	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+)
+
+type multiKueueAdapter struct{}
+
+var _ jobframework.MultiKueueAdapter = (*multiKueueAdapter)(nil)
+
+func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) (bool, error) {
+	localJob := jobset.JobSet{}
+	err := localClient.Get(ctx, key, &localJob)
+	if err != nil {
+		return false, err
+	}
+
+	remoteJob := jobset.JobSet{}
+	err = remoteClient.Get(ctx, key, &remoteJob)
+	if client.IgnoreNotFound(err) != nil {
+		return false, err
+	}
+
+	// if the remote exists, just copy the status
+	if err == nil {
+		return false, clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
+			localJob.Status = remoteJob.Status
+			return true, nil
+		})
+	}
+
+	remoteJob = jobset.JobSet{
+		ObjectMeta: api.CloneObjectMetaForCreation(&localJob.ObjectMeta),
+		Spec:       *localJob.Spec.DeepCopy(),
+	}
+
+	// Add prebuilt workload name and multikueue origin
+	jobframework.SetMultiKueueMeta(&remoteJob, workloadName, origin)
+
+	// clear the managedBy enables the JobSet controller to take over
+	remoteJob.Spec.ManagedBy = nil
+
+	return false, remoteClient.Create(ctx, &remoteJob)
+}
+
+func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {
+	job := jobset.JobSet{}
+	job.SetName(key.Name)
+	job.SetNamespace(key.Namespace)
+	return client.IgnoreNotFound(remoteClient.Delete(ctx, &job))
+}
+
+func (b *multiKueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {
+	js := jobset.JobSet{}
+	err := c.Get(ctx, key, &js)
+	if err != nil {
+		return false, "", err
+	}
+	jobsetControllerName := ptr.Deref(js.Spec.ManagedBy, "")
+	if jobsetControllerName != kueue.MultiKueueControllerName {
+		return false, fmt.Sprintf("Expecting spec.managedBy to be %q not %q", kueue.MultiKueueControllerName, jobsetControllerName), nil
+	}
+	return true, "", nil
+}
+
+func (b *multiKueueAdapter) GVK() schema.GroupVersionKind {
+	return gvk
+}
+
+var _ jobframework.MultiKueueWatcher = (*multiKueueAdapter)(nil)
+
+func (*multiKueueAdapter) GetEmptyList() client.ObjectList {
+	return &jobset.JobSetList{}
+}
+
+func (*multiKueueAdapter) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedName, error) {
+	jobSet, isJobSet := o.(*jobset.JobSet)
+	if !isJobSet {
+		return nil, errors.New("not a jobset")
+	}
+
+	prebuiltWorkload := jobframework.PrebuiltWorkloadNameFor(jobSet)
+	if prebuiltWorkload == "" {
+		return nil, fmt.Errorf("no prebuilt workload found for jobset: %s", klog.KObj(jobSet))
+	}
+
+	return []types.NamespacedName{{Name: prebuiltWorkload, Namespace: jobSet.Namespace}}, nil
+}

@@ -1,0 +1,39 @@
+aliases:
+  kueue-approvers:
+    - mimowo
+    - tenzen-y
+  kueue-reviewers:
+    - mbobrovskyi
+    - mimowo
+    - pbundyra
+    - tenzen-y
+    - kannon92
+    - pajakd
+    - olekzabl
+    - kshalot
+    - sohankunkerkar
+    - amy
+  dependency-approvers:
+    - mbobrovskyi
+    - pbundyra
+    - sohankunkerkar
+  test-approvers:
+    - mbobrovskyi
+    - olekzabl
+    - pbundyra
+    - sohankunkerkar
+  agent-approvers:
+    - amy
+    - kannon92
+    - pbundyra
+  agent-reviewers:
+    - amy
+    - kannon92
+    - pbundyra
+  hugo-approvers:
+    - mbobrovskyi
+  infra-approvers:
+    - mbobrovskyi
+  release-team:
+    - mbobrovskyi
+    - Singularity23x0

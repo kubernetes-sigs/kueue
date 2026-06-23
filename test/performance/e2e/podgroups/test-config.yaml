@@ -1,0 +1,72 @@
+# The quota for 100 pods is divided equally between 10 queues. Each queue has
+# quota for 10 pods, and may borrow up to 5 pods quota from its cohort based on
+# the borrow ratio.
+{{ $PODS_TOTAL_QUOTA := 100 }}
+{{ $QUEUES := 10 }}
+{{ $COHORTS := 2 }}
+{{ $BORROW_RATIO := 0.5 }}
+
+# The pods are distributed evenly among the workloads; 10 pods per workload.
+{{ $PODS := 1000 }}
+{{ $WORKLOADS := 100 }}
+
+{{ $CLUSTER_QUEUE_BASENAME := "pod-performance-cluster-queue" }}
+{{ $LOCAL_QUEUE_BASENAME := "pod-performance-local-queue" }}
+
+name: kueue-pod-performance
+
+namespace:
+  number: 1
+  prefix: kueue-pod-performance
+tuningSets:
+- name: UniformQPS
+  qpsLoad:
+    qps: 10
+steps:
+- name: Create cluster queues
+  phases:
+  - NamespaceList: [""]
+    replicasPerNamespace: {{ $QUEUES }}
+    tuningSet: UniformQPS
+    objectBundle:
+    - basename: {{ $CLUSTER_QUEUE_BASENAME }}
+      objectTemplatePath: "templates/cluster-queue.yaml"
+      templateFillMap:
+        NumCohorts: {{ $COHORTS }}
+        NumQueues: {{ $QUEUES }}
+        BorrowRatio: {{ $BORROW_RATIO }}
+        PodsTotalQuota: {{ $PODS_TOTAL_QUOTA }}
+- name: Create local queues
+  phases:
+  - namespaceRange:
+      min: 1
+      max: 1
+    replicasPerNamespace: {{ $QUEUES }}
+    tuningSet: UniformQPS
+    objectBundle:
+    - basename: {{ $LOCAL_QUEUE_BASENAME }}
+      objectTemplatePath: "templates/local-queue.yaml"
+      templateFillMap:
+        ClusterQueueBasename: {{ $CLUSTER_QUEUE_BASENAME }}
+- name: Create pods
+  phases:
+  - namespaceRange:
+      min: 1
+      max: 1
+    replicasPerNamespace: {{ $PODS }}
+    tuningSet: UniformQPS
+    objectBundle:
+    - basename: pods
+      objectTemplatePath: "templates/pod.yaml"
+      templateFillMap:
+        LocalQueueBasename: {{ $LOCAL_QUEUE_BASENAME }}
+        NumQueues: {{ $QUEUES }}
+        NumWorkloads: {{ $WORKLOADS }}
+        NumPods: {{ $PODS }}
+        Sleep: "1m"
+- name: Sleep
+  measurements:
+  - Identifier: sleep
+    Method: Sleep
+    Params:
+      duration: 15m

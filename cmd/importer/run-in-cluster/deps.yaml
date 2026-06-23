@@ -1,0 +1,107 @@
+
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: kueue-importer
+rules:
+  - verbs:
+      - get
+      - list
+      - patch
+      - update
+    apiGroups:
+      - ''
+    resources:
+      - pods
+  - verbs:
+      - get
+    apiGroups:
+      - ''
+    resources:
+      - pods/status
+  - verbs:
+      - get
+      - list
+    apiGroups:
+      - kueue.x-k8s.io
+    resources:
+      - clusterqueues
+  - verbs:
+      - get
+    apiGroups:
+      - kueue.x-k8s.io
+    resources:
+      - clusterqueues/status
+  - verbs:
+      - get
+      - list
+    apiGroups:
+      - kueue.x-k8s.io
+    resources:
+      - localqueues
+  - verbs:
+      - get
+    apiGroups:
+      - kueue.x-k8s.io
+    resources:
+      - localqueues/status
+  - verbs:
+      - get
+      - list
+    apiGroups:
+      - kueue.x-k8s.io
+    resources:
+      - resourceflavors
+  - verbs:
+      - create
+      - get
+      - list
+      - patch
+      - update
+    apiGroups:
+      - kueue.x-k8s.io
+    resources:
+      - workloads
+  - verbs:
+      - update
+    apiGroups:
+      - kueue.x-k8s.io
+    resources:
+      - workloads/finalizers
+  - verbs:
+      - get
+      - patch
+      - update
+    apiGroups:
+      - kueue.x-k8s.io
+    resources:
+      - workloads/status
+  - verbs:
+      - get
+      - list
+    apiGroups:
+      - scheduling.k8s.io
+    resources:
+      - priorityclasses
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kueue-importer
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kueue-importer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kueue-importer
+subjects:
+- kind: ServiceAccount
+  name: kueue-importer
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kueue-importer 

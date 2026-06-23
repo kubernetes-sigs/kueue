@@ -1,0 +1,175 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package testing
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"sync"
+
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/events"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+)
+
+func NewFakeClient(objs ...client.Object) client.Client {
+	return NewClientBuilder().WithObjects(objs...).WithStatusSubresource(objs...).Build()
+}
+
+func NewClientBuilder(addToSchemes ...func(s *runtime.Scheme) error) *fake.ClientBuilder {
+	scheme := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(kueue.AddToScheme(scheme))
+	utilruntime.Must(kueuev1beta1.AddToScheme(scheme))
+	for i := range addToSchemes {
+		utilruntime.Must(addToSchemes[i](scheme))
+	}
+
+	return fake.NewClientBuilder().WithScheme(scheme).
+		WithIndex(&kueue.LocalQueue{}, indexer.QueueClusterQueueKey, indexer.IndexQueueClusterQueue).
+		WithIndex(&kueue.Workload{}, indexer.WorkloadQueueKey, indexer.IndexWorkloadQueue).
+		WithIndex(&kueue.Workload{}, indexer.WorkloadClusterQueueKey, indexer.IndexWorkloadClusterQueue).
+		WithIndex(&kueue.Workload{}, indexer.OwnerReferenceUID, indexer.IndexOwnerUID)
+}
+
+type builderIndexer struct {
+	*fake.ClientBuilder
+}
+
+func (b *builderIndexer) IndexField(_ context.Context, obj client.Object, field string, extractValue client.IndexerFunc) error {
+	b.ClientBuilder = b.WithIndex(obj, field, extractValue)
+	return nil
+}
+
+func AsIndexer(builder *fake.ClientBuilder) client.FieldIndexer {
+	return &builderIndexer{ClientBuilder: builder}
+}
+
+type EventRecord struct {
+	Key       types.NamespacedName
+	EventType string
+	Reason    string
+	Message   string
+	// add annotations if ever needed
+}
+
+type EventRecorder struct {
+	lock           sync.Mutex
+	RecordedEvents []EventRecord
+}
+
+var _ events.EventRecorder = (*EventRecorder)(nil)
+
+func SortEvents(ei, ej EventRecord) bool {
+	if ei.Key.String() != ej.Key.String() {
+		return ei.Key.String() < ej.Key.String()
+	}
+	if ei.EventType != ej.EventType {
+		return ei.EventType < ej.EventType
+	}
+	if ei.Reason != ej.Reason {
+		return ei.Reason < ej.Reason
+	}
+	if ei.Message != ej.Message {
+		return ei.Message < ej.Message
+	}
+	return false
+}
+
+func (tr *EventRecorder) Eventf(regarding runtime.Object, _ runtime.Object, eventtype, reason, action, note string, args ...any) {
+	tr.lock.Lock()
+	defer tr.lock.Unlock()
+	key := types.NamespacedName{}
+	if cObj, isCObj := regarding.(client.Object); isCObj {
+		key = client.ObjectKeyFromObject(cObj)
+	}
+	tr.RecordedEvents = append(tr.RecordedEvents, EventRecord{
+		Key:       key,
+		EventType: eventtype,
+		Reason:    reason,
+		Message:   fmt.Sprintf(note, args...),
+	})
+}
+
+type ssaPatchAsStrategicMerge struct {
+	client.Patch
+}
+
+func (*ssaPatchAsStrategicMerge) Type() types.PatchType {
+	return types.StrategicMergePatchType
+}
+
+func wrapSSAPatch(patch client.Patch) client.Patch {
+	if patch.Type() == types.ApplyPatchType {
+		return &ssaPatchAsStrategicMerge{Patch: patch}
+	}
+	return patch
+}
+
+// TreatSSAAsStrategicMerge - can be used as a SubResourcePatch interceptor function to treat SSA patches as StrategicMergePatchType.
+// Note: By doing so the values set in the patch will be updated but the call will have no knowledge of FieldManagement when it
+// comes to detecting conflicts between managers or removing fields that are missing from the patch.
+func TreatSSAAsStrategicMerge(ctx context.Context, clnt client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+	filteredOpts := make([]client.SubResourcePatchOption, 0, len(opts))
+	for _, opt := range opts {
+		// Skip ForceOwnership for MergePatch to avoid invalid patch error, as it's only valid for ApplyPatch.
+		if opt != client.ForceOwnership {
+			filteredOpts = append(filteredOpts, opt)
+		}
+	}
+	return clnt.SubResource(subResourceName).Patch(ctx, obj, wrapSSAPatch(patch), filteredOpts...)
+}
+
+func TreatSSAAsStrategicMergeForApplyConfiguration(ctx context.Context, clnt client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+	patch, data, err := ConvertApplyConfigToObject(applyConf)
+	if err != nil {
+		return fmt.Errorf("failed to convert ApplyConfiguration to Object: %w", err)
+	}
+
+	obj := patch.DeepCopyObject().(client.Object)
+	err = clnt.Get(ctx, client.ObjectKeyFromObject(patch), obj)
+	if err != nil {
+		return fmt.Errorf("failed to get object: %w", err)
+	}
+
+	ssaPatch := client.RawPatch(types.ApplyPatchType, data)
+	return clnt.SubResource(subResourceName).Patch(ctx, obj, wrapSSAPatch(ssaPatch))
+}
+
+func ConvertApplyConfigToObject(applyConf runtime.ApplyConfiguration) (client.Object, []byte, error) {
+	data, err := json.Marshal(applyConf)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	u := &unstructured.Unstructured{}
+	if err := json.Unmarshal(data, u); err != nil {
+		return nil, nil, err
+	}
+
+	return u, data, nil
+}

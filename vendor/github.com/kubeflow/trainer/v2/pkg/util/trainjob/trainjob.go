@@ -1,0 +1,39 @@
+/*
+Copyright 2025 The Kubeflow Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package trainjob
+
+import (
+	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/utils/ptr"
+
+	trainer "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
+)
+
+func IsTrainJobFinished(trainJob *trainer.TrainJob) bool {
+	return meta.IsStatusConditionTrue(trainJob.Status.Conditions, trainer.TrainJobComplete) ||
+		meta.IsStatusConditionTrue(trainJob.Status.Conditions, trainer.TrainJobFailed)
+}
+
+func RuntimeRefIsTrainingRuntime(ref trainer.RuntimeRef) bool {
+	return ptr.Equal(ref.APIGroup, &trainer.GroupVersion.Group) &&
+		ptr.Equal(ref.Kind, ptr.To(trainer.TrainingRuntimeKind))
+}
+
+func RuntimeRefIsClusterTrainingRuntime(ref trainer.RuntimeRef) bool {
+	return ptr.Equal(ref.APIGroup, &trainer.GroupVersion.Group) &&
+		ptr.Equal(ref.Kind, ptr.To(trainer.ClusterTrainingRuntimeKind))
+}

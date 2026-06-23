@@ -1,0 +1,215 @@
+- id: nav_docs
+  translation: "Documentation"
+- id: nav_concepts
+  translation: "Concepts"
+- id: nav_tasks
+  translation: "Tasks"
+- id: nav_reference
+  translation: "Reference"
+- id: search_placeholder
+  translation: "Search documentation..."
+- id: edit_page
+  translation: "Edit this page"
+- id: last_modified
+  translation: "Last modified"
+- id: language_switch
+  translation: "Language"
+- id: post_create_child_page
+  translation: "Create child page"
+- id: ui_read_more
+  translation: "Read more"
+- id: post_view_this
+  translation: "View this page"
+- id: post_edit_this
+  translation: "Edit this page"
+- id: post_create_issue
+  translation: "Create issue"
+- id: post_create_project_issue
+  translation: "Create project issue"
+- id: feedback_title
+  translation: "Feedback"
+- id: feedback_question
+  translation: "Was this page helpful?"
+- id: feedback_positive
+  translation: "Yes"
+- id: feedback_negative
+  translation: "No"
+- id: labels_and_annotations_priority_boost_description
+  translation: |
+    An optional signed integer that adjusts a workload's effective priority:
+    `effectivePriority = workloadPriority + priorityBoost`.
+    Positive values increase priority; negative values decrease it.
+    The effective priority is used for both scheduling order and preemption candidate ordering.
+    This annotation is intended to be set directly on Workloads by external controllers (not propagated from Jobs).
+    If the value is missing or empty, it is treated as `0`.
+    If the value is invalid, Workload create or update is **rejected** by the admission webhook.
+
+# ==============================================================================
+# Homepage Strings
+# ==============================================================================
+
+# Hero Section
+- id: homepage_hero_tagline
+  translation: "Kubernetes-native Job Queueing"
+- id: homepage_hero_description
+  translation: "Manage quotas and resource sharing for batch, HPC, and AI/ML workloads. Kueue decides when and where jobs should run, integrating seamlessly with your existing ecosystem."
+- id: homepage_btn_install
+  translation: "Install Kueue"
+- id: homepage_btn_quick_start
+  translation: "Quick Start"
+- id: homepage_btn_join_slack
+  translation: "Join Slack"
+
+# Core Capabilities Section
+- id: homepage_capabilities_title
+  translation: "Core Capabilities"
+- id: homepage_capabilities_subtitle
+  translation: "Kueue governs resource admission natively for standard APIs (including **Job, JobSet, KubeRay, Kubeflow Trainer, and LeaderWorkerSet**) using these five core architectural pillars:"
+
+# Capabilities Cards
+- id: homepage_cap_multitenant_title
+  translation: "Multi-Tenant Quotas"
+- id: homepage_cap_multitenant_desc
+  translation: "Define resource quotas globally at the cluster level and share them securely across different teams and namespaces. Govern resource allocations, queue priorities, and limits using native Kubernetes APIs."
+
+- id: homepage_cap_sharing_title
+  translation: "Dynamic Capacity Sharing"
+- id: homepage_cap_sharing_desc
+  translation: "Group queues together to enable dynamic resource sharing. Workloads can automatically borrow unused capacity from peer teams when their resource pools are idle, maximizing overall GPU/CPU utilization and slashing costs."
+
+- id: homepage_cap_topology_title
+  translation: "Topology-Aware Placement"
+- id: homepage_cap_topology_desc
+  translation: "Optimize the placement of large, distributed machine learning training workloads (like LLMs) based on physical network topology. Minimize network latency by grouping tightly-coupled pods on the same infrastructure."
+
+- id: homepage_cap_preemption_title
+  translation: "Resource Pools & Preemption"
+- id: homepage_cap_preemption_desc
+  translation: "Support diverse hardware pools, such as Spot vs. On-Demand instances or different GPU models. Workloads are automatically routed to the appropriate resource pool, with priority-based preemption ensuring higher-priority jobs run first."
+
+- id: homepage_cap_multicluster_title
+  translation: "Multi-Cluster Scaling"
+- id: homepage_cap_multicluster_desc
+  translation: "Scale workloads seamlessly beyond a single cluster. A central control plane automatically dispatches jobs to multiple worker clusters based on global resource availability, enabling hybrid and multi-cloud scheduling."
+
+# Architecture Section
+- id: homepage_architecture_title
+  translation: "Architecture & Integration"
+- id: homepage_architecture_desc
+  translation: "Kueue acts as an admission controller *before* the scheduler, managing queues and quotas cleanly without replacing core Kubernetes components."
+- id: homepage_architecture_alt
+  translation: "Kueue Architecture & Integration Flow"
+
+# Community Section
+- id: homepage_community_title
+  translation: "Join the Conversation"
+- id: homepage_community_subtitle
+  translation: "Kueue is an open, community-driven CNCF project. Get involved!"
+
+- id: homepage_comm_slack_title
+  translation: "Slack"
+- id: homepage_comm_slack_desc
+  translation: "Chat with users and contributors in real-time."
+- id: homepage_comm_slack_btn
+  translation: "Join #wg-batch"
+
+- id: homepage_comm_github_title
+  translation: "GitHub"
+- id: homepage_comm_github_desc
+  translation: "Report bugs, submit PRs, or browse the source code."
+- id: homepage_comm_github_btn
+  translation: "Contribute"
+
+- id: homepage_comm_mail_title
+  translation: "Mailing List"
+- id: homepage_comm_mail_desc
+  translation: "Join our Google Group for announcements."
+- id: homepage_comm_mail_btn
+  translation: "Subscribe"
+
+# ==============================================================================
+# Adopters Page Strings
+# ==============================================================================
+- id: adopters_search_placeholder
+  translation: "Search by name or technology (e.g., Ray, IBM, GKE)..."
+- id: adopters_count_text
+  translation: "Showing <span id=\"visibleCount\">0</span> of <span id=\"totalCount\">0</span> organizations"
+- id: adopters_badge_end_user
+  translation: "End User"
+- id: adopters_badge_provider
+  translation: "Provider"
+- id: adopters_footer_contact
+  translation: "Community Contact:"
+
+# Homepage Badge Labels
+- id: homepage_badge_latest
+  translation: "Latest"
+- id: homepage_badge_stars
+  translation: "Stars"
+- id: homepage_badge_forks
+  translation: "Forks"
+
+# Community Page Layout
+- id: community_page_title
+  translation: "Kueue Community"
+- id: community_page_subtitle
+  translation: "Kueue is an open, collaborative, CNCF sandbox project. Join our community of users, operators, and contributors."
+
+# UI Elements
+- id: ui_search
+  translation: "Search"
+
+# Homepage URLs
+- id: homepage_url_install
+  translation: "/docs/getting-started/installation"
+- id: homepage_url_quick_start
+  translation: "/docs/getting-started/quick-start"
+
+# Medium RSS Feed
+- id: community_medium_badge
+  translation: "Community Blog"
+- id: community_medium_read_more
+  translation: "Read Article"
+- id: community_medium_unavailable
+  translation: "Medium feed temporarily unavailable. Check back later!"
+- id: community_medium_no_articles
+  translation: "No recent articles found. Check back later!"
+
+# ==============================================================================
+# Talks & Case Studies Page Strings
+# ==============================================================================
+- id: talks_search_placeholder
+  translation: "Search talks, speakers, or companies..."
+- id: talks_filter_all
+  translation: "Show All"
+- id: talks_filter_case_studies
+  translation: "Case Studies"
+- id: talks_filter_videos
+  translation: "Videos & Talks"
+- id: talks_filter_tutorials
+  translation: "Tutorials"
+- id: talks_btn_watch
+  translation: "Watch Video"
+- id: talks_btn_read_case_study
+  translation: "Read Case Study"
+- id: talks_btn_read_tutorial
+  translation: "Read Tutorial"
+- id: talks_btn_read_article
+  translation: "Read Article"
+
+- id: talks_btn_slides
+  translation: "Slides"
+- id: talks_btn_details
+  translation: "Talk Details"
+- id: talks_btn_materials
+  translation: "Materials"
+- id: talks_label_contributors
+  translation: "Contributors"
+- id: talks_no_results
+  translation: "No talks or presentations found matching your search."
+
+
+
+
+
+

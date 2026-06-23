@@ -1,0 +1,46 @@
+# This workflow syncs dependency versions for Dependabot PRs
+name: Dependabot Version Sync
+
+on:
+  pull_request_target:
+    branches: [ main ]
+
+jobs:
+    run-sync-hugo-version:
+        if: ${{ contains(github.event.pull_request.labels.*.name, 'ok-to-test') && github.actor == 'dependabot[bot]' }}
+        runs-on: ubuntu-latest
+
+        # Permission required to edit a PR
+        permissions:
+          contents: write
+
+        steps:
+            - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+              with: 
+                ref: ${{github.head_ref}}
+            - name: Set git user from last commit
+              run: |
+                git config user.name "$(git log -1 --pretty=%an)"
+                git config user.email "$(git log -1 --pretty=%ae)"
+            - name: Sync hugo version
+              if: ${{ contains(github.event.pull_request.title, 'hugo') }}
+              run: |
+                make sync-hugo-version
+                if ! git diff --exit-code; then
+                  git add .
+                  git commit -m "Sync hugo version"
+                  git push
+                else
+                  echo "No changes to commit"
+                fi
+            - name: Sync controller-tools version
+              if: ${{ contains(github.event.pull_request.title, 'sigs.k8s.io/controller-tools') }}
+              run: |
+                make manifests update-helm
+                if ! git diff --exit-code; then
+                  git add .
+                  git commit -m "Sync controller-tools version"
+                  git push
+                else
+                  echo "No changes to commit"
+                fi

@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: kueue-importer
+spec:
+  containers:
+  - name: importer
+    image: importer
+    imagePullPolicy: IfNotPresent
+    args:
+    - import
+    - -n=ns1,ns2
+    - --queuemapping-file=/mapping.yaml
+    - --dry-run=false
+    - -v=2
+    volumeMounts:
+    - name: config
+      mountPath: /mapping.yaml
+      subPath: mapping.yaml
+  restartPolicy: Never
+  volumes:
+    - name: config
+      configMap:
+        name: importer-config
+  serviceAccountName: kueue-importer

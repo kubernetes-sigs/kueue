@@ -1,0 +1,1623 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package core
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/onsi/ginkgo/v2"
+	"github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
+	eventsv1 "k8s.io/api/events/v1"
+	nodev1 "k8s.io/api/node/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	"sigs.k8s.io/kueue/pkg/util/slices"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
+	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
+	"sigs.k8s.io/kueue/test/integration/framework"
+	"sigs.k8s.io/kueue/test/util"
+)
+
+var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload", "area:core"), func() {
+	var (
+		ns                           *corev1.Namespace
+		updatedQueueWorkload         kueue.Workload
+		finalQueueWorkload           kueue.Workload
+		localQueue                   *kueue.LocalQueue
+		wl                           *kueue.Workload
+		message                      string
+		clusterQueue                 *kueue.ClusterQueue
+		workloadPriorityClass        *kueue.WorkloadPriorityClass
+		updatedWorkloadPriorityClass *kueue.WorkloadPriorityClass
+	)
+
+	ginkgo.BeforeEach(func() {
+		fwk.StartManager(ctx, cfg, managerSetup)
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
+	})
+
+	ginkgo.AfterEach(func() {
+		clusterQueue = nil
+		localQueue = nil
+		updatedQueueWorkload = kueue.Workload{}
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.When("the queue is not defined in the workload", func() {
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		})
+		ginkgo.It("Should update status when workloads are created", func() {
+			wl = utiltestingapi.MakeWorkload("one", ns.Name).Request(corev1.ResourceCPU, "1").Obj()
+			message = fmt.Sprintf("LocalQueue %s doesn't exist", "")
+			util.MustCreate(ctx, k8sClient, wl)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
+				g.Expect(updatedQueueWorkload.Status.Conditions).Should(gomega.HaveLen(1))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			gomega.Expect(updatedQueueWorkload.Status.Conditions[0]).To(
+				gomega.BeComparableTo(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: message,
+				}, util.IgnoreConditionTimestampsAndObservedGeneration),
+			)
+		})
+	})
+
+	ginkgo.When("the queue doesn't exist", func() {
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		})
+		ginkgo.It("Should update status when workloads are created", func() {
+			wl = utiltestingapi.MakeWorkload("two", ns.Name).Queue("non-created-queue").Request(corev1.ResourceCPU, "1").Obj()
+			message = fmt.Sprintf("LocalQueue %s doesn't exist", "non-created-queue")
+			util.MustCreate(ctx, k8sClient, wl)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
+				g.Expect(updatedQueueWorkload.Status.Conditions).Should(gomega.HaveLen(1))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			gomega.Expect(updatedQueueWorkload.Status.Conditions[0]).To(
+				gomega.BeComparableTo(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: message,
+				}, util.IgnoreConditionTimestampsAndObservedGeneration),
+			)
+		})
+	})
+
+	ginkgo.When("the clusterqueue doesn't exist", func() {
+		ginkgo.BeforeEach(func() {
+			localQueue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue("fooclusterqueue").Obj()
+			util.MustCreate(ctx, k8sClient, localQueue)
+		})
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		})
+		ginkgo.It("Should update status when workloads are created", func() {
+			wl = utiltestingapi.MakeWorkload("three", ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
+			message = fmt.Sprintf("ClusterQueue %s doesn't exist", "fooclusterqueue")
+			util.MustCreate(ctx, k8sClient, wl)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
+				g.Expect(updatedQueueWorkload.Status.Conditions).ShouldNot(gomega.BeNil())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			gomega.Expect(updatedQueueWorkload.Status.Conditions[0]).To(
+				gomega.BeComparableTo(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: message,
+				}, util.IgnoreConditionTimestampsAndObservedGeneration),
+			)
+		})
+	})
+
+	ginkgo.When("a workload is manually deactivated", func() {
+		var flavor *kueue.ResourceFlavor
+
+		ginkgo.BeforeEach(func() {
+			flavor = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()
+			util.MustCreate(ctx, k8sClient, flavor)
+			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavorOnDemand).Resource(corev1.ResourceCPU, "5", "5").Obj()).
+				Cohort("cohort").
+				Obj()
+			util.MustCreate(ctx, k8sClient, clusterQueue)
+			localQueue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+			util.MustCreate(ctx, k8sClient, localQueue)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+		})
+
+		ginkgo.It("should clear workload requeue state after deactivation", func() {
+			wl = utiltestingapi.MakeWorkload("reset-requeue", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+
+			util.MustCreate(ctx, k8sClient, wl)
+
+			wlKey := client.ObjectKeyFromObject(wl)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, &updatedQueueWorkload)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("manually setting RequeueState to simulate backoff", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &updatedQueueWorkload)).To(gomega.Succeed())
+					requeueAt := metav1.NewTime(time.Now().Add(30 * time.Second))
+					updatedQueueWorkload.Status.RequeueState = &kueue.RequeueState{
+						Count:     new(int32(2)),
+						RequeueAt: &requeueAt,
+					}
+					g.Expect(k8sClient.Status().Update(ctx, &updatedQueueWorkload)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &updatedQueueWorkload)).To(gomega.Succeed())
+					g.Expect(updatedQueueWorkload.Status.RequeueState).NotTo(gomega.BeNil())
+					g.Expect(updatedQueueWorkload.Status.RequeueState.Count).NotTo(gomega.BeNil())
+					g.Expect(updatedQueueWorkload.Status.RequeueState.RequeueAt).NotTo(gomega.BeNil())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("deactivating the workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &updatedQueueWorkload)).To(gomega.Succeed())
+					updatedQueueWorkload.Spec.Active = new(false)
+					g.Expect(k8sClient.Update(ctx, &updatedQueueWorkload)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying RequeueState is cleared by the controller", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &updatedQueueWorkload)).To(gomega.Succeed())
+					g.Expect(updatedQueueWorkload.Status.RequeueState).To(gomega.BeNil())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+	})
+
+	ginkgo.When("the workload is admitted", func() {
+		var flavor *kueue.ResourceFlavor
+
+		ginkgo.BeforeEach(func() {
+			flavor = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()
+			util.MustCreate(ctx, k8sClient, flavor)
+			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavorOnDemand).
+					Resource(resourceGPU, "5", "5").Obj()).
+				Cohort("cohort").
+				Obj()
+			util.MustCreate(ctx, k8sClient, clusterQueue)
+			localQueue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+			util.MustCreate(ctx, k8sClient, localQueue)
+		})
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+		})
+	})
+
+	ginkgo.When("the queue has admission checks", func() {
+		var (
+			flavor1 *kueue.ResourceFlavor
+			flavor2 *kueue.ResourceFlavor
+			check1  *kueue.AdmissionCheck
+			check2  *kueue.AdmissionCheck
+		)
+
+		ginkgo.BeforeEach(func() {
+			flavor1 = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()
+			util.MustCreate(ctx, k8sClient, flavor1)
+
+			flavor2 = utiltestingapi.MakeResourceFlavor(flavorSpot).Obj()
+			util.MustCreate(ctx, k8sClient, flavor2)
+
+			check1 = utiltestingapi.MakeAdmissionCheck("check1").ControllerName("ctrl").Obj()
+			util.MustCreate(ctx, k8sClient, check1)
+			util.SetAdmissionCheckActive(ctx, k8sClient, check1, metav1.ConditionTrue)
+
+			check2 = utiltestingapi.MakeAdmissionCheck("check2").ControllerName("ctrl").Obj()
+			util.MustCreate(ctx, k8sClient, check2)
+			util.SetAdmissionCheckActive(ctx, k8sClient, check2, metav1.ConditionTrue)
+
+			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavorOnDemand).Resource(resourceGPU, "5", "5").Obj()).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavorSpot).Resource(corev1.ResourceMemory, "5", "5").Obj()).
+				Cohort("cohort").
+				AdmissionCheckStrategy(
+					kueue.AdmissionCheckStrategyRule{Name: "check1"},
+					kueue.AdmissionCheckStrategyRule{Name: "check2"},
+					kueue.AdmissionCheckStrategyRule{
+						Name: "check3",
+						OnFlavors: []kueue.ResourceFlavorReference{
+							kueue.ResourceFlavorReference(flavor2.Name),
+						},
+					},
+				).
+				Obj()
+			util.MustCreate(ctx, k8sClient, clusterQueue)
+			localQueue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+			util.MustCreate(ctx, k8sClient, localQueue)
+		})
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, check2, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, check1, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor2, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor1, true)
+		})
+
+		ginkgo.It("the workload should have checks updated when changed on the cluster queue", func() {
+			wl := utiltestingapi.MakeWorkload("wl", ns.Name).Queue("queue").Obj()
+			wlKey := client.ObjectKeyFromObject(wl)
+			createdWl := kueue.Workload{}
+			ginkgo.By("creating the workload, the check conditions should be added", func() {
+				util.MustCreate(ctx, k8sClient, wl)
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+					g.Expect(slices.Map(createdWl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string {
+						return string(c.Name)
+					})).Should(gomega.ConsistOf("check1", "check2"))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("setting the check conditions", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+					workloadpatching.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+						Name:    "check1",
+						State:   kueue.CheckStateReady,
+						Message: "check successfully passed",
+					}, util.RealClock)
+					workloadpatching.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+						Name:    "check2",
+						State:   kueue.CheckStateRetry,
+						Message: "check rejected",
+					}, util.RealClock)
+					g.Expect(k8sClient.Status().Update(ctx, &createdWl)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			// save check2 condition
+			oldCheck2Cond := admissioncheck.FindAdmissionCheck(createdWl.Status.AdmissionChecks, "check2")
+			gomega.Expect(oldCheck2Cond).NotTo(gomega.BeNil())
+
+			ginkgo.By("updating the queue checks, the changes should propagate to the workload", func() {
+				createdQueue := kueue.ClusterQueue{}
+				queueKey := client.ObjectKeyFromObject(clusterQueue)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, queueKey, &createdQueue)).To(gomega.Succeed())
+					createdQueue.Spec.AdmissionChecksStrategy = &kueue.AdmissionChecksStrategy{
+						AdmissionChecks: []kueue.AdmissionCheckStrategyRule{
+							{Name: "check2"},
+							{Name: "check3"},
+						},
+					}
+					g.Expect(k8sClient.Update(ctx, &createdQueue)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				createdWl := kueue.Workload{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+					g.Expect(slices.Map(createdWl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string {
+						return string(c.Name)
+					})).Should(gomega.ConsistOf("check2", "check3"))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				check2Cond := admissioncheck.FindAdmissionCheck(createdWl.Status.AdmissionChecks, "check2")
+				gomega.Expect(check2Cond).To(gomega.Equal(oldCheck2Cond))
+			})
+		})
+
+		ginkgo.It("should finish an unadmitted workload with failure when a check is rejected", func() {
+			wl := utiltestingapi.MakeWorkload("wl", ns.Name).Queue("queue").Obj()
+			wlKey := client.ObjectKeyFromObject(wl)
+			createdWl := kueue.Workload{}
+			ginkgo.By("creating the workload, the check conditions should be added", func() {
+				util.MustCreate(ctx, k8sClient, wl)
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+					g.Expect(slices.Map(createdWl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string {
+						return string(c.Name)
+					})).Should(gomega.ConsistOf("check1", "check2"))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("reserving quota for a Workload", func() {
+				podSet := kueue.PodSetAssignment{
+					Name: kueue.DefaultPodSetName,
+					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+						corev1.ResourceCPU: kueue.ResourceFlavorReference(flavor1.Name),
+					},
+				}
+				util.SetQuotaReservation(
+					ctx,
+					k8sClient,
+					wlKey,
+					utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).PodSets(podSet).Obj(),
+				)
+			})
+
+			ginkgo.By("setting the check conditions", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+					workloadpatching.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+						Name:    "check1",
+						State:   kueue.CheckStateRejected,
+						Message: "check rejected",
+					}, util.RealClock)
+					g.Expect(k8sClient.Status().Update(ctx, &createdWl)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking if workload is deactivated, has Rejected status in the status.admissionCheck[*] field, an event is emitted and a metric is increased", func() {
+				updatedWl := &kueue.Workload{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
+					g.Expect(workload.IsActive(updatedWl)).To(gomega.BeFalse())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.ExpectEventAppeared(ctx, k8sClient, eventsv1.Event{
+					Reason: "AdmissionCheckRejected",
+					Type:   corev1.EventTypeWarning,
+					Note:   `Deactivated due to AdmissionCheck in Rejected state: "check1" (check rejected)`,
+				})
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
+					g.Expect(workloadevict.IsEvictedByDeactivation(updatedWl)).To(gomega.BeTrue())
+					util.ExpectEvictedWorkloadsTotalMetric(clusterQueue.Name, "Deactivated", "AdmissionCheck", "", 1)
+					util.ExpectEvictedWorkloadsOnceTotalMetric(clusterQueue.Name, "Deactivated", "AdmissionCheck", "", 1)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("should evict then finish with failure an admitted workload when a check is rejected", func() {
+			wl := utiltestingapi.MakeWorkload("wl", ns.Name).
+				Queue("queue").
+				Obj()
+			wlKey := client.ObjectKeyFromObject(wl)
+			createdWl := kueue.Workload{}
+			ginkgo.By("creating the workload, the check conditions should be added", func() {
+				util.MustCreate(ctx, k8sClient, wl)
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+					g.Expect(slices.Map(createdWl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string {
+						return string(c.Name)
+					})).Should(gomega.ConsistOf("check1", "check2"))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("setting quota reservation and the checks ready, should admit the workload", func() {
+				podSet := kueue.PodSetAssignment{
+					Name: kueue.DefaultPodSetName,
+					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+						corev1.ResourceCPU: kueue.ResourceFlavorReference(flavor1.Name),
+					},
+				}
+				util.SetQuotaReservation(
+					ctx,
+					k8sClient,
+					wlKey,
+					utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).PodSets(podSet).Obj(),
+				)
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+					workloadpatching.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+						Name:    "check1",
+						State:   kueue.CheckStateReady,
+						Message: "check ready",
+					}, util.RealClock)
+					workloadpatching.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+						Name:    "check2",
+						State:   kueue.CheckStateReady,
+						Message: "check ready",
+					}, util.RealClock)
+					g.Expect(k8sClient.Status().Update(ctx, &createdWl)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+					g.Expect(createdWl.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 1)
+			})
+
+			ginkgo.By("setting a rejected check condition", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+					workloadpatching.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+						Name:    "check1",
+						State:   kueue.CheckStateRejected,
+						Message: "check rejected",
+					}, util.RealClock)
+					g.Expect(k8sClient.Status().Update(ctx, &createdWl)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking if workload is deactivated, has Rejected status in the status.admissionCheck[*] field, an event is emitted and a metric is increased", func() {
+				updatedWl := &kueue.Workload{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
+					g.Expect(workload.IsActive(updatedWl)).To(gomega.BeFalse())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.ExpectEventAppeared(ctx, k8sClient, eventsv1.Event{
+					Reason: "AdmissionCheckRejected",
+					Type:   corev1.EventTypeWarning,
+					Note:   `Deactivated due to AdmissionCheck in Rejected state: "check1" (check rejected)`,
+				})
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
+
+					g.Expect(workloadevict.IsEvictedByDeactivation(updatedWl)).To(gomega.BeTrue())
+					util.ExpectEvictedWorkloadsTotalMetric(clusterQueue.Name, "Deactivated", "AdmissionCheck", "", 1)
+					util.ExpectEvictedWorkloadsOnceTotalMetric(clusterQueue.Name, "Deactivated", "AdmissionCheck", "", 1)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+	})
+
+	ginkgo.When("changing the priority value of PriorityClass changes the priority of the workload", func() {
+		ginkgo.BeforeEach(func() {
+			workloadPriorityClass = utiltestingapi.MakeWorkloadPriorityClass("workload-priority-class").PriorityValue(200).Obj()
+			util.MustCreate(ctx, k8sClient, workloadPriorityClass)
+		})
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Delete(ctx, workloadPriorityClass)).To(gomega.Succeed())
+		})
+		ginkgo.It("case of WorkloadPriorityClass", func() {
+			ginkgo.By("creating workload")
+			wl = utiltestingapi.MakeWorkload("wl", ns.Name).Queue("lq").Request(corev1.ResourceCPU, "1").
+				WorkloadPriorityClassRef("workload-priority-class").
+				Priority(200).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
+				g.Expect(updatedQueueWorkload.Status.Conditions).ShouldNot(gomega.BeNil())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			initialPriority := int32(200)
+			gomega.Expect(updatedQueueWorkload.Spec.Priority).To(gomega.Equal(&initialPriority))
+
+			ginkgo.By("updating workloadPriorityClass")
+			updatedPriority := int32(150)
+			updatedWorkloadPriorityClass = workloadPriorityClass.DeepCopy()
+			workloadPriorityClass.Value = updatedPriority
+			gomega.Expect(k8sClient.Update(ctx, workloadPriorityClass)).To(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workloadPriorityClass), updatedWorkloadPriorityClass)).To(gomega.Succeed())
+				g.Expect(updatedWorkloadPriorityClass.Value).Should(gomega.Equal(updatedPriority))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&updatedQueueWorkload), &finalQueueWorkload)).To(gomega.Succeed())
+				g.Expect(finalQueueWorkload.Spec.Priority).To(gomega.Equal(&updatedPriority))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.When("the workload has a maximum execution time set", func() {
+		ginkgo.It("should deactivate the workload when the time expires", framework.SlowSpec, func() {
+			// due time rounding in conditions, the workload will stay admitted
+			// for a time between maxExecutionTime - 1s and maxExecutionTime
+			maxExecTime := 2 * time.Second
+			wl := utiltestingapi.MakeWorkload("wl", ns.Name).
+				Queue("lq").
+				MaximumExecutionTimeSeconds(int32(maxExecTime.Seconds())).
+				Obj()
+			key := client.ObjectKeyFromObject(wl)
+			ginkgo.By("creating the workload and reserving its quota", func() {
+				util.MustCreate(ctx, k8sClient, wl)
+				admission := utiltestingapi.MakeAdmission("cq").Obj()
+				util.SetQuotaReservation(ctx, k8sClient, key, admission)
+			})
+			ginkgo.By("waiting for the workload to be admitted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())
+					g.Expect(workload.IsActive(wl)).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+			ginkgo.By("waiting for the workload to be deactivated", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
+					g.Expect(workload.IsActive(wl)).To(gomega.BeFalse())
+					g.Expect(wl.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(
+						metav1.Condition{
+							Type:    kueue.WorkloadEvicted,
+							Status:  metav1.ConditionTrue,
+							Reason:  "DeactivatedDueToMaximumExecutionTimeExceeded",
+							Message: "The workload is deactivated due to exceeding the maximum execution time",
+						},
+						util.IgnoreConditionTimestampsAndObservedGeneration,
+					)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+		ginkgo.It("should deactivate the workload when the time expires with multiple admissions", framework.SlowSpec, func() {
+			// due time rounding in conditions, the workload will stay admitted
+			// for a time between maxExecutionTime - 1s and maxExecutionTime
+			maxExecTime := 30 * time.Second
+			wl := utiltestingapi.MakeWorkload("wl", ns.Name).
+				Queue("lq").
+				MaximumExecutionTimeSeconds(int32(maxExecTime.Seconds())).
+				Obj()
+			key := client.ObjectKeyFromObject(wl)
+			ginkgo.By("creating the workload and reserving its quota", func() {
+				util.MustCreate(ctx, k8sClient, wl)
+				admission := utiltestingapi.MakeAdmission("cq").Obj()
+				util.SetQuotaReservation(ctx, k8sClient, key, admission)
+			})
+			ginkgo.By("waiting for the workload to be admitted, and for the time to change the second", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())
+					g.Expect(workload.IsActive(wl)).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
+				gomega.Expect(admittedCond).NotTo(gomega.BeNil())
+				time.Sleep(time.Until(admittedCond.LastTransitionTime.Add(time.Second)))
+			})
+
+			ginkgo.By("evicting the workload, the accumulated admission time is updated", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
+					g.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, wl, util.RealClock, func(wl *kueue.Workload) (bool, error) {
+						return workloadevict.SetEvictedCondition(wl, util.RealClock.Now(), "ByTest", "by test"), nil
+					})).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.FinishEvictionForWorkloads(ctx, k8sClient, wl)
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(wl)).To(gomega.BeFalse())
+					g.Expect(workload.IsActive(wl)).To(gomega.BeTrue())
+					g.Expect(ptr.Deref(wl.Status.AccumulatedPastExecutionTimeSeconds, 0)).To(gomega.BeNumerically(">", int32(0)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("setting the accumulated admission time closer to maximum", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
+					wl.Status.AccumulatedPastExecutionTimeSeconds = new(*wl.Spec.MaximumExecutionTimeSeconds - 1)
+					g.Expect(k8sClient.Status().Update(ctx, wl)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("reserving new quota", func() {
+				admission := utiltestingapi.MakeAdmission("cq").Obj()
+				util.SetQuotaReservation(ctx, k8sClient, key, admission)
+			})
+
+			ginkgo.By("waiting for the workload to be deactivated", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
+					g.Expect(workload.IsActive(wl)).To(gomega.BeFalse())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+	})
+
+	ginkgo.Context("with UnadmittedWorkloadsObservability feature gate enabled", func() {
+		var (
+			clusterQueue *kueue.ClusterQueue
+			localQueue   *kueue.LocalQueue
+			flavor       *kueue.ResourceFlavor
+			inactiveCq   *kueue.ClusterQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			inactiveCq = nil
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
+			flavor = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()
+			gomega.Expect(k8sClient.Create(ctx, flavor)).Should(gomega.Succeed())
+			clusterQueue = utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavorOnDemand).
+					Resource(corev1.ResourceCPU, "1").Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+			localQueue = utiltestingapi.MakeLocalQueue("q", ns.Name).ClusterQueue("cq").Obj()
+			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			if inactiveCq != nil {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, inactiveCq, true)
+			}
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+		})
+
+		ginkgo.It("should write granular conditions and reasons when queue is missing", func() {
+			wl := utiltestingapi.MakeWorkload("wl-missing-queue", ns.Name).Queue("non-existent-queue").Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, client.ObjectKeyFromObject(wl),
+				metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Message: "LocalQueue non-existent-queue doesn't exist",
+				},
+				metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				},
+			)
+		})
+
+		ginkgo.It("should write granular conditions and reasons when clusterQueue is missing", func() {
+			lq := utiltestingapi.MakeLocalQueue("missing-cq-q", ns.Name).ClusterQueue("non-existent-cq").Obj()
+			gomega.Expect(k8sClient.Create(ctx, lq)).To(gomega.Succeed())
+
+			ginkgo.By("Wait for LocalQueue to be reconciled and registered in the Queue Manager", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var fetchedLq kueue.LocalQueue
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), &fetchedLq)).To(gomega.Succeed())
+					g.Expect(apimeta.FindStatusCondition(fetchedLq.Status.Conditions, kueue.LocalQueueActive)).NotTo(gomega.BeNil())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			wl := utiltestingapi.MakeWorkload("wl-missing-cq", ns.Name).Queue("missing-cq-q").Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, client.ObjectKeyFromObject(wl),
+				metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Message: "ClusterQueue non-existent-cq doesn't exist",
+				},
+				metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				},
+			)
+		})
+
+		ginkgo.It("should write granular conditions and reasons when localQueue is inactive", func() {
+			lq := utiltestingapi.MakeLocalQueue("inactive-q", ns.Name).ClusterQueue("cq").Obj()
+			lq.Spec.StopPolicy = ptr.To(kueue.Hold)
+			gomega.Expect(k8sClient.Create(ctx, lq)).To(gomega.Succeed())
+
+			// Wait for LocalQueue to be reconciled and registered in the Queue Manager
+			gomega.Eventually(func(g gomega.Gomega) {
+				var fetchedLq kueue.LocalQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), &fetchedLq)).To(gomega.Succeed())
+				g.Expect(apimeta.FindStatusCondition(fetchedLq.Status.Conditions, kueue.LocalQueueActive)).NotTo(gomega.BeNil())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			wl := utiltestingapi.MakeWorkload("wl-inactive-q", ns.Name).Queue("inactive-q").Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, client.ObjectKeyFromObject(wl),
+				metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonSuspended,
+					Message: "LocalQueue inactive-q is inactive",
+				},
+				metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				},
+			)
+		})
+
+		ginkgo.It("should write granular conditions and reasons when clusterQueue is inactive", func() {
+			inactiveCq = utiltestingapi.MakeClusterQueue("inactive-cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavorOnDemand).
+					Resource(corev1.ResourceCPU, "1").Obj()).
+				Obj()
+			inactiveCq.Spec.StopPolicy = ptr.To(kueue.Hold)
+			gomega.Expect(k8sClient.Create(ctx, inactiveCq)).To(gomega.Succeed())
+
+			lq := utiltestingapi.MakeLocalQueue("inactive-cq-q", ns.Name).ClusterQueue("inactive-cq").Obj()
+			gomega.Expect(k8sClient.Create(ctx, lq)).To(gomega.Succeed())
+
+			// Wait for LocalQueue to be reconciled and registered in the Queue Manager
+			gomega.Eventually(func(g gomega.Gomega) {
+				var fetchedLq kueue.LocalQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), &fetchedLq)).To(gomega.Succeed())
+				g.Expect(apimeta.FindStatusCondition(fetchedLq.Status.Conditions, kueue.LocalQueueActive)).NotTo(gomega.BeNil())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			wl := utiltestingapi.MakeWorkload("wl-inactive-cq", ns.Name).Queue("inactive-cq-q").Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, client.ObjectKeyFromObject(wl),
+				metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonSuspended,
+					Message: "ClusterQueue inactive-cq is inactive",
+				},
+				metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				},
+			)
+		})
+
+		ginkgo.It("should write granular conditions and reasons when workload is deactivated", func() {
+			wl := utiltestingapi.MakeWorkload("wl-deactivated", ns.Name).Queue("q").Obj()
+			wl.Spec.Active = new(false)
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, client.ObjectKeyFromObject(wl),
+				metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadDeactivated,
+					Message: "The workload is deactivated",
+				},
+				metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadDeactivated,
+					Message: "The workload is deactivated",
+				},
+				metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				},
+			)
+		})
+	})
+
+	ginkgo.Context("with UnadmittedWorkloadsExplicitStatus feature gate enabled", func() {
+		var (
+			clusterQueue *kueue.ClusterQueue
+			localQueue   *kueue.LocalQueue
+			flavor       *kueue.ResourceFlavor
+		)
+
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsExplicitStatus, true)
+			flavor = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()
+			gomega.Expect(k8sClient.Create(ctx, flavor)).Should(gomega.Succeed())
+			clusterQueue = utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavorOnDemand).
+					Resource(corev1.ResourceCPU, "1").Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+			localQueue = utiltestingapi.MakeLocalQueue("q", ns.Name).ClusterQueue("cq").Obj()
+			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+		})
+
+		ginkgo.It("should immediately write unadmitted conditions for newly created valid workload", func() {
+			wl := utiltestingapi.MakeWorkload("wl-pending", ns.Name).Queue("q").Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, client.ObjectKeyFromObject(wl),
+				metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+					Message: "Workload is pending evaluation in the scheduling queue",
+				},
+				metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				},
+			)
+		})
+	})
+})
+
+var _ = ginkgo.Describe("Workload controller interaction with scheduler", func() {
+	var (
+		ns           *corev1.Namespace
+		clusterQueue *kueue.ClusterQueue
+		localQueue   *kueue.LocalQueue
+		wl           *kueue.Workload
+	)
+
+	startManager := func() {
+		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
+	}
+
+	stopManager := func() {
+		fwk.StopManager(ctx)
+	}
+
+	restartManager := func() {
+		stopManager()
+		startManager()
+	}
+
+	ginkgo.When("workload's runtime class is changed", func() {
+		var flavor *kueue.ResourceFlavor
+		var runtimeClass *nodev1.RuntimeClass
+
+		const runtimeClassName = "test-kueue-class"
+
+		ginkgo.BeforeEach(func() {
+			startManager()
+			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
+			flavor = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()
+			util.MustCreate(ctx, k8sClient, flavor)
+			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavorOnDemand).Resource(corev1.ResourceCPU, "5", "5").Obj()).
+				Cohort("cohort").
+				Obj()
+			util.MustCreate(ctx, k8sClient, clusterQueue)
+			localQueue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+			util.MustCreate(ctx, k8sClient, localQueue)
+			runtimeClass = utiltesting.MakeRuntimeClass(runtimeClassName, "rc-handler-1").Obj()
+			util.MustCreate(ctx, k8sClient, runtimeClass)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, runtimeClass, true)
+			stopManager()
+		})
+
+		ginkgo.It("should not temporarily admit an inactive workload after changing the runtime class", framework.SlowSpec, func() {
+			ginkgo.By("creating an inactive workload", func() {
+				wl = utiltestingapi.MakeWorkload("wl1", ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					Request(corev1.ResourceCPU, "1").
+					RuntimeClass(runtimeClassName).
+					Active(false).
+					Obj()
+				util.MustCreate(ctx, k8sClient, wl)
+
+				wlKey := client.ObjectKeyFromObject(wl)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("changing the runtime class", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					runtimeClassKey := client.ObjectKeyFromObject(runtimeClass)
+					g.Expect(k8sClient.Get(ctx, runtimeClassKey, runtimeClass)).To(gomega.Succeed())
+					if runtimeClass.ObjectMeta.Annotations == nil {
+						runtimeClass.ObjectMeta.Annotations = map[string]string{}
+					}
+					runtimeClass.ObjectMeta.Annotations["foo"] = "bar"
+					g.Expect(k8sClient.Update(ctx, runtimeClass)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("checking no 'quota reserved' event appearing for the workload", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					found, err := utiltesting.HasMatchingEventAppeared(ctx, k8sClient, func(e *eventsv1.Event) bool {
+						return e.Reason == "QuotaReserved" &&
+							e.Type == corev1.EventTypeNormal &&
+							e.Regarding.Kind == "Workload" &&
+							e.Regarding.Name == wl.Name &&
+							e.Regarding.Namespace == wl.Namespace
+					})
+					g.Expect(err).NotTo(gomega.HaveOccurred())
+					g.Expect(found).To(gomega.BeTrue())
+				}, util.ConsistentDuration, util.ShortInterval).ShouldNot(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("should not temporarily admit a finished workload after changing the runtime class", framework.SlowSpec, func() {
+			wl = utiltestingapi.MakeWorkload("wl1", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Request(corev1.ResourceCPU, "1").
+				RuntimeClass(runtimeClassName).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+
+			wlKey := client.ObjectKeyFromObject(wl)
+
+			ginkgo.By("creating a workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("waiting for admission", func() {
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			})
+
+			ginkgo.By("finishing the workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+					g.Expect(workloadfinish.Finish(ctx, k8sClient, wl, "ByTest", "By test", util.RealClock)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("waiting for finish", func() {
+				util.ExpectWorkloadToFinish(ctx, k8sClient, wlKey)
+			})
+
+			ginkgo.By("changing the runtime class", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					runtimeClassKey := client.ObjectKeyFromObject(runtimeClass)
+					g.Expect(k8sClient.Get(ctx, runtimeClassKey, runtimeClass)).To(gomega.Succeed())
+					if runtimeClass.ObjectMeta.Annotations == nil {
+						runtimeClass.ObjectMeta.Annotations = map[string]string{}
+					}
+					runtimeClass.ObjectMeta.Annotations["foo"] = "bar"
+					g.Expect(k8sClient.Update(ctx, runtimeClass)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("checking no 'quota reserved' event appearing for the workload", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					count, err := utiltesting.HasMatchingEventAppearedTimes(ctx, k8sClient, func(e *eventsv1.Event) bool {
+						return e.Reason == "QuotaReserved" &&
+							e.Type == corev1.EventTypeNormal &&
+							e.Regarding.Kind == "Workload" &&
+							e.Regarding.Name == wl.Name &&
+							e.Regarding.Namespace == wl.Namespace
+					})
+					g.Expect(err).NotTo(gomega.HaveOccurred())
+					g.Expect(count).To(gomega.Equal(1))
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("should not temporarily admit a finished workload on restart manager", framework.SlowSpec, func() {
+			wl = utiltestingapi.MakeWorkload("wl1", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Request(corev1.ResourceCPU, "1").
+				RuntimeClass(runtimeClassName).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+
+			wlKey := client.ObjectKeyFromObject(wl)
+
+			ginkgo.By("creating a workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("waiting for admission", func() {
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			})
+
+			ginkgo.By("finishing the workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+					g.Expect(workloadfinish.Finish(ctx, k8sClient, wl, "ByTest", "By test", util.RealClock)).To(gomega.Succeed(), nil)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("waiting for finish", func() {
+				util.ExpectWorkloadToFinish(ctx, k8sClient, wlKey)
+			})
+
+			ginkgo.By("restarting the manager", func() {
+				restartManager()
+			})
+			ginkgo.By("checking no 'quota reserved' event appearing for the workload", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					count, err := utiltesting.HasMatchingEventAppearedTimes(ctx, k8sClient, func(e *eventsv1.Event) bool {
+						return e.Reason == "QuotaReserved" &&
+							e.Type == corev1.EventTypeNormal &&
+							e.Regarding.Kind == "Workload" &&
+							e.Regarding.Name == wl.Name &&
+							e.Regarding.Namespace == wl.Namespace
+					})
+					g.Expect(err).NotTo(gomega.HaveOccurred())
+					g.Expect(count).To(gomega.Equal(1))
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			})
+		})
+	})
+
+	ginkgo.Context("with UnadmittedWorkloadsObservability feature gate enabled", func() {
+		var (
+			clusterQueue *kueue.ClusterQueue
+			localQueue   *kueue.LocalQueue
+			flavor       *kueue.ResourceFlavor
+		)
+
+		ginkgo.BeforeEach(func() {
+			startManager()
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
+			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
+			flavor = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()
+			gomega.Expect(k8sClient.Create(ctx, flavor)).Should(gomega.Succeed())
+			clusterQueue = utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavorOnDemand).
+					Resource(corev1.ResourceCPU, "1").Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+			localQueue = utiltestingapi.MakeLocalQueue("q", ns.Name).ClusterQueue("cq").Obj()
+			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+			stopManager()
+		})
+
+		ginkgo.It("should write granular reasons when waiting for quota", func() {
+			wl1 := utiltestingapi.MakeWorkload("wl-consuming-quota", ns.Name).Queue("q").Request(corev1.ResourceCPU, "1").Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl1)).To(gomega.Succeed())
+
+			wl1Key := client.ObjectKeyFromObject(wl1)
+			admission := utiltestingapi.MakeAdmission("cq").
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(flavor.Name), "1").
+					Obj()).
+				Obj()
+			util.SetQuotaReservation(ctx, k8sClient, wl1Key, admission)
+			util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl1)
+
+			wl2 := utiltestingapi.MakeWorkload("wl-waiting-for-quota", ns.Name).Queue("q").Request(corev1.ResourceCPU, "1").Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl2)).To(gomega.Succeed())
+
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, client.ObjectKeyFromObject(wl2),
+				metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+					Message: "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor on-demand, 1 more needed",
+				},
+				metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				},
+			)
+		})
+
+		ginkgo.It("should dynamically transition between reasons based on precedence", func() {
+			ginkgo.By("creating a workload that waits for quota")
+			wl1 := utiltestingapi.MakeWorkload("wl-consuming-quota", ns.Name).Queue("q").Request(corev1.ResourceCPU, "1").Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl1)).To(gomega.Succeed())
+			wl1Key := client.ObjectKeyFromObject(wl1)
+			admission := utiltestingapi.MakeAdmission("cq").
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(flavor.Name), "1").
+					Obj()).
+				Obj()
+			util.SetQuotaReservation(ctx, k8sClient, wl1Key, admission)
+			util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl1)
+
+			wl2 := utiltestingapi.MakeWorkload("wl-transitioning", ns.Name).Queue("q").Request(corev1.ResourceCPU, "1").Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl2)).To(gomega.Succeed())
+			wl2Key := client.ObjectKeyFromObject(wl2)
+
+			var updatedWl kueue.Workload
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wl2Key, &updatedWl)).To(gomega.Succeed())
+				cond := apimeta.FindStatusCondition(updatedWl.Status.Conditions, kueue.WorkloadQuotaReserved)
+				g.Expect(cond).NotTo(gomega.BeNil())
+				g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+				g.Expect(cond.Reason).To(gomega.Equal(string(kueue.WorkloadQuotaReservedReasonWaitingForQuota)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("making the LocalQueue inactive (should transition to Suspended)")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var fetchedLq kueue.LocalQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), &fetchedLq)).To(gomega.Succeed())
+				fetchedLq.Spec.StopPolicy = ptr.To(kueue.Hold)
+				g.Expect(k8sClient.Update(ctx, &fetchedLq)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wl2Key, &updatedWl)).To(gomega.Succeed())
+				cond := apimeta.FindStatusCondition(updatedWl.Status.Conditions, kueue.WorkloadQuotaReserved)
+				g.Expect(cond).NotTo(gomega.BeNil())
+				g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+				g.Expect(cond.Reason).To(gomega.Equal(kueue.WorkloadQuotaReservedReasonSuspended))
+				g.Expect(cond.Message).To(gomega.Equal(fmt.Sprintf("LocalQueue %s is inactive", localQueue.Name)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("deactivating the workload (should transition to Deactivated)")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wl2Key, &updatedWl)).To(gomega.Succeed())
+				updatedWl.Spec.Active = new(false)
+				g.Expect(k8sClient.Update(ctx, &updatedWl)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wl2Key, &updatedWl)).To(gomega.Succeed())
+				cond := apimeta.FindStatusCondition(updatedWl.Status.Conditions, kueue.WorkloadQuotaReserved)
+				g.Expect(cond).NotTo(gomega.BeNil())
+				g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+				g.Expect(cond.Reason).To(gomega.Equal(kueue.WorkloadDeactivated))
+				g.Expect(cond.Message).To(gomega.Equal("The workload is deactivated"))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("reactivating the workload and making the LocalQueue active again (should transition back to WaitingForQuota)")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var fetchedLq kueue.LocalQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), &fetchedLq)).To(gomega.Succeed())
+				fetchedLq.Spec.StopPolicy = ptr.To(kueue.None)
+				g.Expect(k8sClient.Update(ctx, &fetchedLq)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				var fetchedLq kueue.LocalQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), &fetchedLq)).To(gomega.Succeed())
+				cond := apimeta.FindStatusCondition(fetchedLq.Status.Conditions, kueue.LocalQueueActive)
+				g.Expect(cond).NotTo(gomega.BeNil())
+				g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionTrue))
+				g.Expect(cond.Reason).To(gomega.Equal("Ready"))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wl2Key, &updatedWl)).To(gomega.Succeed())
+				updatedWl.Spec.Active = new(true)
+				g.Expect(k8sClient.Update(ctx, &updatedWl)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wl2Key, &updatedWl)).To(gomega.Succeed())
+				cond := apimeta.FindStatusCondition(updatedWl.Status.Conditions, kueue.WorkloadQuotaReserved)
+				g.Expect(cond).NotTo(gomega.BeNil())
+				g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+				g.Expect(cond.Reason).To(gomega.Equal(string(kueue.WorkloadQuotaReservedReasonWaitingForQuota)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.When("the queue doesn't exist and is then created under the observability feature gate", func() {
+		var (
+			ns         *corev1.Namespace
+			wl         *kueue.Workload
+			localQueue *kueue.LocalQueue
+			cq         *kueue.ClusterQueue
+			rf         *kueue.ResourceFlavor
+		)
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
+			startManager()
+			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
+
+			rf = utiltestingapi.MakeResourceFlavor("default-flavor").Obj()
+			util.MustCreate(ctx, k8sClient, rf)
+
+			cq = utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default-flavor").
+						Resource(corev1.ResourceCPU, "0").
+						Obj(),
+				).
+				Obj()
+			util.MustCreate(ctx, k8sClient, cq)
+		})
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			if rf != nil {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
+			}
+			stopManager()
+		})
+		ginkgo.It("Should transition status from Misconfigured to ExceedsMaxQuota when the queue is created", func() {
+			wl = utiltestingapi.MakeWorkload("transition-test", ns.Name).
+				Queue("delayed-queue").
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+
+			ginkgo.By("Creating workload referencing non-existent queue")
+			util.MustCreate(ctx, k8sClient, wl)
+
+			ginkgo.By("Verifying workload is marked as misconfigured (missing queue)")
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, client.ObjectKeyFromObject(wl),
+				metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Message: "LocalQueue delayed-queue doesn't exist",
+				},
+				metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				},
+			)
+
+			ginkgo.By("Creating the LocalQueue")
+			localQueue = utiltestingapi.MakeLocalQueue("delayed-queue", ns.Name).ClusterQueue(cq.Name).Obj()
+			util.MustCreate(ctx, k8sClient, localQueue)
+
+			ginkgo.By("Verifying workload transitions to ExceedsMaxQuota")
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, client.ObjectKeyFromObject(wl),
+				metav1.Condition{
+					Type:   kueue.WorkloadQuotaReserved,
+					Status: metav1.ConditionFalse,
+					Reason: kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
+				},
+				metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				},
+			)
+		})
+	})
+})
+
+var _ = ginkgo.Describe("Workload controller with resource retention", func() {
+	ginkgo.When("manager is setup with tiny retention period", func() {
+		var (
+			ns              *corev1.Namespace
+			createdWorkload kueue.Workload
+			localQueue      *kueue.LocalQueue
+			clusterQueue    *kueue.ClusterQueue
+			flavor          *kueue.ResourceFlavor
+		)
+
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
+			fwk.StartManager(
+				ctx, cfg,
+				managerAndControllerSetup(
+					&config.Configuration{
+						ObjectRetentionPolicies: &config.ObjectRetentionPolicies{
+							Workloads: &config.WorkloadRetentionPolicy{
+								AfterFinished: &metav1.Duration{
+									Duration: util.TinyTimeout,
+								},
+							},
+						},
+					},
+				),
+			)
+			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
+			flavor = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()
+			gomega.Expect(k8sClient.Create(ctx, flavor)).Should(gomega.Succeed())
+			clusterQueue = utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavorOnDemand).
+					Resource(corev1.ResourceCPU, "1").Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+			localQueue = utiltestingapi.MakeLocalQueue("q", ns.Name).ClusterQueue("cq").Obj()
+			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+			fwk.StopManager(ctx)
+		})
+
+		ginkgo.It("should delete the workload after retention period elapses", framework.SlowSpec, func() {
+			var (
+				wl    *kueue.Workload
+				wlKey client.ObjectKey
+			)
+
+			ginkgo.By("creating a workload", func() {
+				wl = utiltestingapi.MakeWorkload("wl-to-expire", ns.Name).Queue("q").Obj()
+				wlKey = client.ObjectKeyFromObject(wl)
+				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("simulating workload admission", func() {
+				admission := utiltestingapi.MakeAdmission("cq").Obj()
+				util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+			})
+
+			ginkgo.By("marking workload as finished", func() {
+				gomega.Expect(k8sClient.Get(ctx, wlKey, &createdWorkload)).To(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdWorkload.Status.Conditions = append(createdWorkload.Status.Conditions, metav1.Condition{
+						Type:               kueue.WorkloadFinished,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+						Reason:             "FinishedByTest",
+						Message:            "Finished for testing purposes",
+					})
+					g.Expect(k8sClient.Status().Update(ctx, &createdWorkload)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("workload should be deleted after the retention period", func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, false)
+			})
+
+			util.ExpectFinishedWorkloadsGaugeMetric(clusterQueue, 0)
+			util.ExpectLQFinishedWorkloadsGaugeMetric(localQueue, 0)
+		})
+	})
+
+	ginkgo.When("manager is setup with long retention period", func() {
+		var (
+			ns              *corev1.Namespace
+			createdWorkload kueue.Workload
+			localQueue      *kueue.LocalQueue
+			clusterQueue    *kueue.ClusterQueue
+			flavor          *kueue.ResourceFlavor
+		)
+
+		startManager := func() {
+			fwk.StartManager(
+				ctx, cfg,
+				managerAndControllerSetup(
+					&config.Configuration{
+						ObjectRetentionPolicies: &config.ObjectRetentionPolicies{
+							Workloads: &config.WorkloadRetentionPolicy{
+								AfterFinished: &metav1.Duration{
+									Duration: util.MediumTimeout,
+								},
+							},
+						},
+					},
+				),
+			)
+		}
+
+		stopManager := func() {
+			fwk.StopManager(ctx)
+		}
+
+		restartManager := func() {
+			stopManager()
+			startManager()
+		}
+
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
+			startManager()
+			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
+			flavor = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()
+			gomega.Expect(k8sClient.Create(ctx, flavor)).Should(gomega.Succeed())
+			clusterQueue = utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavorOnDemand).
+					Resource(corev1.ResourceCPU, "1").Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+			localQueue = utiltestingapi.MakeLocalQueue("q", ns.Name).ClusterQueue("cq").Obj()
+			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+			stopManager()
+		})
+
+		ginkgo.It("should not delete the workload before retention period elapses", framework.SlowSpec, func() {
+			var (
+				wl    *kueue.Workload
+				wlKey client.ObjectKey
+			)
+
+			ginkgo.By("creating a workload", func() {
+				wl = utiltestingapi.MakeWorkload("wl-to-stay", ns.Name).Queue("q").Obj()
+				wlKey = client.ObjectKeyFromObject(wl)
+				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("simulating workload admission", func() {
+				admission := utiltestingapi.MakeAdmission("cq").Obj()
+				util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+			})
+
+			util.ExpectFinishedWorkloadsGaugeMetric(clusterQueue, 0)
+			util.ExpectLQFinishedWorkloadsGaugeMetric(localQueue, 0)
+
+			ginkgo.By("marking workload as finished", func() {
+				gomega.Expect(k8sClient.Get(ctx, wlKey, &createdWorkload)).To(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdWorkload.Status.Conditions = append(createdWorkload.Status.Conditions, metav1.Condition{
+						Type:               kueue.WorkloadFinished,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+						Reason:             "FinishedByTest",
+						Message:            "Finished for testing purposes",
+					})
+					g.Expect(k8sClient.Status().Update(ctx, &createdWorkload)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("workload should not be deleted before the retention period", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWorkload)).To(gomega.Succeed())
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			})
+
+			util.ExpectFinishedWorkloadsGaugeMetric(clusterQueue, 1)
+			util.ExpectLQFinishedWorkloadsGaugeMetric(localQueue, 1)
+
+			ginkgo.By("restarting the manager", func() {
+				restartManager()
+			})
+
+			ginkgo.By("waiting for workload controller to be active after restart", func() {
+				// Probe that controllers are reconciling after restart
+				// by creating a workload and waiting for it to be reflected
+				// in the LocalQueue status.
+				probeWl := utiltestingapi.MakeWorkload("probe-wl", ns.Name).Queue("q").
+					Request(corev1.ResourceCPU, "1").Obj()
+				gomega.Expect(k8sClient.Create(ctx, probeWl)).To(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) {
+					var lq kueue.LocalQueue
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), &lq)).To(gomega.Succeed())
+					g.Expect(lq.Status.PendingWorkloads).To(gomega.Equal(int32(1)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, probeWl, true)
+			})
+
+			ginkgo.By("verifying that the metrics still keep their counts", func() {
+				util.ExpectFinishedWorkloadsGaugeMetric(clusterQueue, 1)
+				util.ExpectLQFinishedWorkloadsGaugeMetric(localQueue, 1)
+			})
+
+			ginkgo.By("deleting the workload manually", func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
+			})
+
+			ginkgo.By("verifying that the metrics are updated", func() {
+				util.ExpectFinishedWorkloadsGaugeMetric(clusterQueue, 0)
+				util.ExpectLQFinishedWorkloadsGaugeMetric(localQueue, 0)
+			})
+		})
+	})
+
+	ginkgo.Context("with UnadmittedWorkloadsObservability feature gate enabled, namespace selector validation", func() {
+		var (
+			clusterQueue *kueue.ClusterQueue
+			localQueue   *kueue.LocalQueue
+			flavor       *kueue.ResourceFlavor
+			ns           *corev1.Namespace
+		)
+
+		startManager := func() {
+			fwk.StartManager(ctx, cfg, managerSetup)
+		}
+
+		stopManager := func() {
+			fwk.StopManager(ctx)
+		}
+
+		ginkgo.BeforeEach(func() {
+			startManager()
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
+			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-ns-selector-")
+			flavor = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()
+			gomega.Expect(k8sClient.Create(ctx, flavor)).Should(gomega.Succeed())
+			clusterQueue = utiltestingapi.MakeClusterQueue("cq-ns-selector").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavorOnDemand).
+					Resource(corev1.ResourceCPU, "1").Obj()).
+				NamespaceSelector(&metav1.LabelSelector{
+					MatchLabels: map[string]string{"foo": "bar"},
+				}).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+			localQueue = utiltestingapi.MakeLocalQueue("q-ns-selector", ns.Name).ClusterQueue("cq-ns-selector").Obj()
+			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+			stopManager()
+		})
+
+		ginkgo.It("should set Misconfigured on namespace mismatch and clear it when mismatch resolved", func() {
+			wl := utiltestingapi.MakeWorkload("wl-ns-mismatch", ns.Name).Queue("q-ns-selector").Request(corev1.ResourceCPU, "1").Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			wlKey := client.ObjectKeyFromObject(wl)
+			var updatedWl kueue.Workload
+
+			ginkgo.By("verifying that QuotaReserved is False with Reason Misconfigured")
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey,
+				metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Message: "workload namespace doesn't match ClusterQueue selector",
+				},
+			)
+
+			ginkgo.By("updating the Namespace to match ClusterQueue's selector", func() {
+				var fetchedNs corev1.Namespace
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(ns), &fetchedNs)).To(gomega.Succeed())
+				fetchedNs.Labels = map[string]string{"foo": "bar"}
+				gomega.Expect(k8sClient.Update(ctx, &fetchedNs)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("triggering reconciliation of the workload", func() {
+				// We can update a dummy annotation on the workload to trigger reconcile
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
+					if updatedWl.Annotations == nil {
+						updatedWl.Annotations = make(map[string]string)
+					}
+					updatedWl.Annotations["trigger-reconcile"] = "true"
+					g.Expect(k8sClient.Update(ctx, &updatedWl)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying that QuotaReserved transitions to PendingEvaluation")
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey,
+				metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+					Message: "Workload is pending evaluation in the scheduling queue",
+				},
+			)
+		})
+	})
+})

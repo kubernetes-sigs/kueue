@@ -1,0 +1,69 @@
+/*
+Add styles or override the theme's variables here.
+*/
+
+html.smooth-scroll {
+  scroll-behavior: smooth;
+}
+
+// Theme colors - Option 1: Modern Minimalist (Slate & Sky)
+$primary: #0f172a;       // Slate 900 (Deep, professional dark)
+$secondary: #ffffff;     // White
+$dark: #1e293b;          // Slate 800
+$info: #0ea5e9;          // Sky 500 (Vibrant teal/accent)
+$light: #f8fafc;         // Slate 50 (Very soft gray background)
+$link-color: #0ea5e9;    // Sky 500
+
+// Global Typography Overrides for a tighter, higher-density look
+$font-size-base: 0.9375rem !default; // 15px base body text (down from 16px)
+$h1-font-size: 2rem !default;        // Restrained heading sizes
+$h2-font-size: 1.5rem !default;
+$h3-font-size: 1.25rem !default;
+$h4-font-size: 1.1rem !default;
+$h5-font-size: 0.95rem !default;
+
+// Nav bar colors
+$white: #fff;
+$navbar-dark-color: rgba($primary, 0.8);
+$navbar-dark-hover-color: $info;
+$navbar-dark-active-color: $primary;
+
+// Fonts - Swapping to Inter
+$google_font_family: "Inter:wght@300;400;500;600;700&display=swap" !default;
+
+
+// Front page styling overrides
+.card-img-top {
+  object-fit: scale-down;
+}
+
+.text-white {
+  font-weight: 400;
+}
+
+// Clean utility classes for the new homepage
+.hero-grid-bg {
+  background-image: 
+    radial-gradient(circle at 1px 1px, #e2e8f0 1px, transparent 0),
+    radial-gradient(circle at 1px 1px, #e2e8f0 1px, transparent 0);
+  background-size: 40px 40px;
+  background-position: 0 0, 20px 20px;
+}
+
+.feature-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  border: 1px solid #e2e8f0 !important;
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.02);
+  }
+}
+
+.community-card {
+  transition: border-color 0.2s ease;
+  border: 1px solid #e2e8f0 !important;
+  &:hover {
+    border-color: $info !important;
+  }
+}
+

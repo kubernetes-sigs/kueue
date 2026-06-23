@@ -1,0 +1,1342 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package job
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
+	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
+	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/component-base/featuregate"
+	"k8s.io/utils/ptr"
+	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingutil "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
+	"sigs.k8s.io/kueue/pkg/util/webhook"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
+	testutil "sigs.k8s.io/kueue/test/util"
+
+	// without this only the job framework is registered
+	_ "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
+)
+
+var (
+	labelsPath                     = field.NewPath("metadata", "labels")
+	annotationsPath                = field.NewPath("metadata", "annotations")
+	admissionGatedByAnnotationPath = annotationsPath.Key(kueueconstants.AdmissionGatedByAnnotation)
+	prebuiltWorkloadAnnotationPath = annotationsPath.Key(constants.PrebuiltWorkloadAnnotation)
+	prebuiltWorkloadLabelPath      = labelsPath.Key(constants.PrebuiltWorkloadLabel)
+	queueNameLabelPath             = labelsPath.Key(constants.QueueLabel)
+	maxExecTimeLabelPath           = labelsPath.Key(constants.MaxExecTimeSecondsLabel)
+	workloadPriorityClassNamePath  = labelsPath.Key(constants.WorkloadPriorityClassLabel)
+)
+
+func TestValidateCreate(t *testing.T) {
+	testcases := []struct {
+		name               string
+		job                *batchv1.Job
+		wantValidationErrs field.ErrorList
+		wantErr            error
+		featureGates       map[featuregate.Feature]bool
+	}{
+		{
+			name:               "simple",
+			job:                testingutil.MakeJob("job", "default").Queue("queue").Obj(),
+			wantValidationErrs: nil,
+		},
+		{
+			name:               "invalid queue-name label",
+			job:                testingutil.MakeJob("job", "default").Queue("queue name").Obj(),
+			wantValidationErrs: field.ErrorList{field.Invalid(queueNameLabelPath, "queue name", testutil.InvalidRFC1123Message)},
+		},
+		{
+			name: "invalid partial admission annotation (format)",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "NaN").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(minPodsCountAnnotationsPath, "NaN", "strconv.Atoi: parsing \"NaN\": invalid syntax"),
+			},
+		},
+		{
+			name: "invalid partial admission annotation (badValue)",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "5").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(minPodsCountAnnotationsPath, 5, "should be between 0 and 3"),
+			},
+		},
+		{
+			name: "valid partial admission annotation",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				Obj(),
+			wantValidationErrs: nil,
+		},
+		{
+			name: "invalid sync completions annotation (format)",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "-").
+				Indexed(true).
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(syncCompletionAnnotationsPath, "-", "strconv.ParseBool: parsing \"-\": invalid syntax"),
+			},
+		},
+		{
+			name: "valid sync completions annotation, wrong completions count",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "true").
+				Indexed(true).
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(
+					field.NewPath("spec", "completions"),
+					ptr.To[int32](6),
+					fmt.Sprintf("should be equal to parallelism when %s is annotation is true", JobCompletionsEqualParallelismAnnotation),
+				),
+			},
+		},
+		{
+			name: "valid sync completions annotation, wrong job completions type (default)",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(4).
+				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "true").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(syncCompletionAnnotationsPath, "true", "should not be enabled for NonIndexed jobs"),
+			},
+		},
+		{
+			name: "valid sync completions annotation, wrong job completions type",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(4).
+				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "true").
+				Indexed(false).
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(syncCompletionAnnotationsPath, "true", "should not be enabled for NonIndexed jobs"),
+			},
+		},
+		{
+			name: "valid sync completions annotation",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(4).
+				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "true").
+				Indexed(true).
+				Obj(),
+			wantValidationErrs: nil,
+		},
+		{
+			name: "invalid prebuilt workload",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(4).
+				PrebuiltWorkloadLabel("workload name").
+				Indexed(true).
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(prebuiltWorkloadLabelPath, "workload name", testutil.InvalidRFC1123Message),
+			},
+		},
+		{
+			name: "valid prebuilt workload",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(4).
+				PrebuiltWorkloadLabel("workload-name").
+				Indexed(true).
+				Obj(),
+			wantValidationErrs: nil,
+		},
+		{
+			name: "invalid prebuilt workload annotation, WorkloadIdentifierAnnotations enabled",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(4).
+				PrebuiltWorkloadAnnotation("workload name").
+				Indexed(true).
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(prebuiltWorkloadAnnotationPath, "workload name", testutil.InvalidRFC1123Message),
+			},
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+		},
+		{
+			name: "valid prebuilt workload annotation, WorkloadIdentifierAnnotations enabled",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(4).
+				PrebuiltWorkloadAnnotation("workload-name").
+				Indexed(true).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+		},
+		{
+			name: "different prebuilt workload label and annotation, label ignored, WorkloadIdentifierAnnotations enabled",
+			job: testingutil.MakeJob("job", "default").
+				PrebuiltWorkloadLabel("workload-label").
+				PrebuiltWorkloadAnnotation("workload-annotation").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+		},
+		{
+			name: "invalid maximum execution time",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(4).
+				Label(constants.MaxExecTimeSecondsLabel, "NaN").
+				Indexed(true).
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(maxExecTimeLabelPath, "NaN", `strconv.Atoi: parsing "NaN": invalid syntax`),
+			},
+		},
+		{
+			name: "zero maximum execution time",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(4).
+				Label(constants.MaxExecTimeSecondsLabel, "0").
+				Indexed(true).
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(maxExecTimeLabelPath, 0, "should be greater than 0"),
+			},
+		},
+		{
+			name: "negative maximum execution time",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(4).
+				Label(constants.MaxExecTimeSecondsLabel, "-10").
+				Indexed(true).
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(maxExecTimeLabelPath, -10, "should be greater than 0"),
+			},
+		},
+		{
+			name: "valid maximum execution time",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(4).
+				Label(constants.MaxExecTimeSecondsLabel, "10").
+				Indexed(true).
+				Obj(),
+		},
+		{
+			name: "valid topology request",
+			job: testingutil.MakeJob("job", "default").
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			wantValidationErrs: nil,
+			featureGates:       map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		{
+			name: "invalid topology request - both annotations",
+			job: testingutil.MakeJob("job", "default").
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(replicaMetaPath.Child("annotations"), field.OmitValueType{},
+					`must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
+						`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`),
+			},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		{
+			name: "invalid topology request - invalid required",
+			job: testingutil.MakeJob("job", "default").
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, "some required value").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-required-topology"), "some required value",
+					testutil.InvalidLabelKeyMessage).WithOrigin("format=k8s-label-key"),
+			},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		{
+			name: "invalid topology request - invalid preferred",
+			job: testingutil.MakeJob("job", "default").
+				PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, "some preferred value").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-preferred-topology"), "some preferred value",
+					testutil.InvalidLabelKeyMessage).WithOrigin("format=k8s-label-key"),
+			},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		{
+			name: "valid slice topology request",
+			job: testingutil.MakeJob("job", "default").
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(kueue.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(kueue.PodSetSliceSizeAnnotation, "1").
+				Obj(),
+			wantValidationErrs: nil,
+			featureGates:       map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		{
+			name: "valid topology request - slice-only topology - unconstrained with slices defined",
+			job: testingutil.MakeJob("job", "default").
+				PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+				PodAnnotation(kueue.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(kueue.PodSetSliceSizeAnnotation, "1").
+				Obj(),
+			wantValidationErrs: nil,
+			featureGates:       map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		{
+			name: "invalid topology request - slice requested without slice size",
+			job: testingutil.MakeJob("job", "default").
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(kueue.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Required(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-size"), "must be set when 'kueue.x-k8s.io/podset-slice-required-topology' is specified"),
+			},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		{
+			name: "invalid topology request - slice size is not a number",
+			job: testingutil.MakeJob("job", "default").
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(kueue.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(kueue.PodSetSliceSizeAnnotation, "not a number").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-size"), "not a number", "must be a numeric value"),
+			},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		{
+			name: "invalid topology request - slice size is negative",
+			job: testingutil.MakeJob("job", "default").
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(kueue.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(kueue.PodSetSliceSizeAnnotation, "-1").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-size"), "-1", "must be greater than or equal to 1"),
+			},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		{
+			name: "invalid topology request - slice size is zero",
+			job: testingutil.MakeJob("job", "default").
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(kueue.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(kueue.PodSetSliceSizeAnnotation, "0").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-size"), "0", "must be greater than or equal to 1"),
+			},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		{
+			name: "invalid topology request - slice size provided without slice topology",
+			job: testingutil.MakeJob("job", "default").
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(kueue.PodSetSliceSizeAnnotation, "1").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Forbidden(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-size"), "may not be set when 'kueue.x-k8s.io/podset-slice-required-topology' is not specified"),
+			},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		{
+			name: "valid topology request - slice-only topology",
+			job: testingutil.MakeJob("job", "default").
+				PodAnnotation(kueue.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(kueue.PodSetSliceSizeAnnotation, "1").
+				Obj(),
+			wantValidationErrs: nil,
+			featureGates:       map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		{
+			name: "invalid slice topology request - slice size larger than number of podsets",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(kueue.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(kueue.PodSetSliceSizeAnnotation, "20").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(replicaMetaPath.Child("annotations").
+					Key("kueue.x-k8s.io/podset-slice-size"), "20", "must not be greater than pod set count 4"),
+			},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		{
+			name: "elastic job with required topology is rejected",
+			job: testingutil.MakeJob("job", "default").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Forbidden(replicaMetaPath.Child("annotations", kueue.PodSetRequiredTopologyAnnotation),
+					"required topology is not supported with elastic jobs"),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:      true,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+		},
+		{
+			name: "elastic job with preferred topology is rejected",
+			job: testingutil.MakeJob("job", "default").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Forbidden(replicaMetaPath.Child("annotations", kueue.PodSetPreferredTopologyAnnotation),
+					"preferred topology is not supported with elastic jobs"),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:      true,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+		},
+		{
+			name: "elastic job with unconstrained topology is accepted",
+			job: testingutil.MakeJob("job", "default").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+				Obj(),
+			wantValidationErrs: nil,
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:      true,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+		},
+		{
+			name: "valid AdmissionGatedBy annotation with single gate",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller").
+				Obj(),
+			wantValidationErrs: nil,
+			featureGates:       map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		{
+			name: "AdmissionGatedBy annotation - trailing space",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate ").
+				Obj(),
+			wantValidationErrs: nil,
+			featureGates:       map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		{
+			name: "AdmissionGatedBy annotation - space before comma",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate ,example.com/gate2").
+				Obj(),
+			wantValidationErrs: nil,
+			featureGates:       map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		{
+			name: "AdmissionGatedBy annotation - space after comma",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate, example.com/gate2").
+				Obj(),
+			wantValidationErrs: nil,
+			featureGates:       map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		{
+			name: "AdmissionGatedBy annotation - leading space",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, " example.com/gate").
+				Obj(),
+			wantValidationErrs: nil,
+			featureGates:       map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		{
+			name: "valid AdmissionGatedBy annotation with multiple gates",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/a,not.example.com/b").
+				Obj(),
+			wantValidationErrs: nil,
+			featureGates:       map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		{
+			name: "invalid AdmissionGatedBy annotation - not in subdomain/path format",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "this is an invalid value").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(admissionGatedByAnnotationPath, "this is an invalid value", "must be a domain-prefixed path (such as \"acme.io/foo\")"),
+			},
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		{
+			name: "invalid AdmissionGatedBy annotation - duplicate gates",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "duplicates.are/invalid,duplicates.are/invalid").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(admissionGatedByAnnotationPath, "duplicates.are/invalid,duplicates.are/invalid", "duplicate gate name: duplicates.are/invalid"),
+			},
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		{
+			name: "invalid AdmissionGatedBy annotation - gate name too long",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "cannot.be.too.long/"+strings.Repeat("but-this-is-too-long", 20)).
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.TooLong(admissionGatedByAnnotationPath, "", webhook.MaxGateNameLengthForAdmissionGatedBy),
+			},
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		{
+			name: "invalid AdmissionGatedBy annotation - space in path component",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate name").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(admissionGatedByAnnotationPath, "gate name", testutil.InvalidPathMessage),
+			},
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		{
+			name: "invalid AdmissionGatedBy annotation - space in domain component",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example .com/gate").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(admissionGatedByAnnotationPath, "example .com", testutil.InvalidRFC1123Message),
+			},
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		{
+			name: "invalid AdmissionGatedBy annotation - multiple gates with one containing space",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "valid.com/gate,invalid gate.com/controller").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(admissionGatedByAnnotationPath, "invalid gate.com", testutil.InvalidRFC1123Message),
+			},
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		{
+			name: "AdmissionGatedBy annotation with feature gate disabled - valid value",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: false},
+		},
+		{
+			name: "AdmissionGatedBy annotation with feature gate disabled - invalid value",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "this is an invalid value").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: false},
+		},
+		{
+			name: "AdmissionGatedBy annotation with feature gate enabled - empty string",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		{
+			name: "partial admission and elastic job cannot be used together",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "2").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(minPodsCountAnnotationsPath, "2", "partial admission and elastic job cannot be used together"),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+		},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+
+			jw := &JobWebhook{}
+
+			ctx, _ := utiltesting.ContextWithLog(t)
+			gotValidationErrs, gotErr := jw.validateCreate(ctx, (*Job)(tc.job))
+
+			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
+				t.Errorf("validateCreate() error mismatch (-want +got):\n%s", diff)
+			}
+
+			if diff := cmp.Diff(tc.wantValidationErrs, gotValidationErrs); diff != "" {
+				t.Errorf("validateCreate() validation errors mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestValidateUpdate(t *testing.T) {
+	testcases := []struct {
+		name               string
+		oldJob             *batchv1.Job
+		newJob             *batchv1.Job
+		wantValidationErrs field.ErrorList
+		wantErr            error
+		featureGates       map[featuregate.Feature]bool
+	}{
+		{
+			name:               "normal update",
+			oldJob:             testingutil.MakeJob("job", "default").Queue("queue").Obj(),
+			newJob:             testingutil.MakeJob("job", "default").Queue("queue").Suspend(false).Obj(),
+			wantValidationErrs: nil,
+		},
+		{
+			name:   "add queue name with suspend is false",
+			oldJob: testingutil.MakeJob("job", "default").Obj(),
+			newJob: testingutil.MakeJob("job", "default").Queue("queue").Suspend(false).Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(queueNameLabelPath, kueue.LocalQueueName("queue"), apivalidation.FieldImmutableErrorMsg),
+			},
+		},
+		{
+			name:               "add queue name with suspend is true",
+			oldJob:             testingutil.MakeJob("job", "default").Obj(),
+			newJob:             testingutil.MakeJob("job", "default").Queue("queue").Suspend(true).Obj(),
+			wantValidationErrs: nil,
+		},
+		{
+			name:   "change queue name with suspend is false",
+			oldJob: testingutil.MakeJob("job", "default").Queue("queue").Obj(),
+			newJob: testingutil.MakeJob("job", "default").Queue("queue2").Suspend(false).Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(queueNameLabelPath, kueue.LocalQueueName("queue2"), apivalidation.FieldImmutableErrorMsg),
+			},
+		},
+		{
+			name:               "change queue name with suspend is true",
+			oldJob:             testingutil.MakeJob("job", "default").Obj(),
+			newJob:             testingutil.MakeJob("job", "default").Queue("queue").Suspend(true).Obj(),
+			wantValidationErrs: nil,
+		},
+		{
+			name:               "change queue name with suspend is true, but invalid value",
+			oldJob:             testingutil.MakeJob("job", "default").Obj(),
+			newJob:             testingutil.MakeJob("job", "default").Queue("queue name").Suspend(true).Obj(),
+			wantValidationErrs: field.ErrorList{field.Invalid(queueNameLabelPath, "queue name", testutil.InvalidRFC1123Message)},
+		},
+		{
+			name: "immutable parallelism while unsuspended with partial admission enabled",
+			oldJob: testingutil.MakeJob("job", "default").
+				Suspend(false).
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Suspend(false).
+				Parallelism(5).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Forbidden(field.NewPath("spec", "parallelism"), "cannot change when partial admission is enabled and the job is not suspended"),
+			},
+		},
+		{
+			name: "mutable parallelism while suspended with partial admission enabled",
+			oldJob: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				SetAnnotation(StoppingAnnotation, "true").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Parallelism(5).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				Obj(),
+			wantValidationErrs: nil,
+		},
+		{
+			name: "immutable sync completion annotation while unsuspended",
+			oldJob: testingutil.MakeJob("job", "default").
+				Suspend(false).
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "true").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Suspend(false).
+				Parallelism(5).
+				Completions(6).
+				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "false").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Forbidden(syncCompletionAnnotationsPath, fmt.Sprintf("%s while the job is not suspended", apivalidation.FieldImmutableErrorMsg)),
+			},
+		},
+		{
+			name: "mutable sync completion annotation while suspended",
+			oldJob: testingutil.MakeJob("job", "default").
+				Suspend(true).
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "true").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Suspend(false).
+				Parallelism(5).
+				Completions(6).
+				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "false").
+				Obj(),
+			wantValidationErrs: nil,
+		},
+		{
+			name:               "set priority-class when job not suspend",
+			oldJob:             testingutil.MakeJob("job", "default").Suspend(false).Obj(),
+			newJob:             testingutil.MakeJob("job", "default").Suspend(false).WorkloadPriorityClass("test").Obj(),
+			wantValidationErrs: field.ErrorList{field.Invalid(workloadPriorityClassNamePath, "test", "WorkloadPriorityClass cannot be added to a non-suspended workload")},
+		},
+		{
+			name:   "update priority-class when job not suspend",
+			oldJob: testingutil.MakeJob("job", "default").Suspend(false).WorkloadPriorityClass("test").Obj(),
+			newJob: testingutil.MakeJob("job", "default").Suspend(false).WorkloadPriorityClass("new-test").Obj(),
+		},
+		{
+			name:               "delete priority-class when job not suspend",
+			oldJob:             testingutil.MakeJob("job", "default").Suspend(false).WorkloadPriorityClass("test").Obj(),
+			newJob:             testingutil.MakeJob("job", "default").Suspend(false).Obj(),
+			wantValidationErrs: field.ErrorList{field.Invalid(workloadPriorityClassNamePath, "", "WorkloadPriorityClass cannot be removed from a workload")},
+		},
+		{
+			name:   "set priority-class when job suspend",
+			oldJob: testingutil.MakeJob("job", "default").Suspend(true).Obj(),
+			newJob: testingutil.MakeJob("job", "default").Suspend(true).WorkloadPriorityClass("test").Obj(),
+		},
+		{
+			name:   "update priority-class when job suspend",
+			oldJob: testingutil.MakeJob("job", "default").Suspend(true).WorkloadPriorityClass("test").Obj(),
+			newJob: testingutil.MakeJob("job", "default").Suspend(true).WorkloadPriorityClass("new-test").Obj(),
+		},
+		{
+			name:               "delete priority-class when job suspend",
+			oldJob:             testingutil.MakeJob("job", "default").Suspend(true).WorkloadPriorityClass("test").Obj(),
+			newJob:             testingutil.MakeJob("job", "default").Suspend(true).Obj(),
+			wantValidationErrs: field.ErrorList{field.Invalid(workloadPriorityClassNamePath, "", "WorkloadPriorityClass cannot be removed from a workload")},
+		},
+		{
+			name: "immutable prebuilt workload ",
+			oldJob: testingutil.MakeJob("job", "default").
+				Suspend(true).
+				PrebuiltWorkloadLabel("old-workload").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Suspend(false).
+				PrebuiltWorkloadLabel("new-workload").
+				Obj(),
+			wantValidationErrs: apivalidation.ValidateImmutableField("new-workload", "old-workload", prebuiltWorkloadLabelPath),
+		},
+		{
+			name: "immutable prebuilt workload annotation, WorkloadIdentifierAnnotations enabled",
+			oldJob: testingutil.MakeJob("job", "default").
+				Suspend(true).
+				SetAnnotation(constants.PrebuiltWorkloadAnnotation, "old-workload").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Suspend(false).
+				SetAnnotation(constants.PrebuiltWorkloadAnnotation, "new-workload").
+				Obj(),
+			wantValidationErrs: apivalidation.ValidateImmutableField("new-workload", "old-workload", prebuiltWorkloadAnnotationPath),
+			featureGates:       map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+		},
+		{
+			name: "migrate from label to annotation, WorkloadIdentifierAnnotations enabled",
+			oldJob: testingutil.MakeJob("job", "default").
+				Suspend(true).
+				PrebuiltWorkloadLabel("workload-name").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Suspend(false).
+				PrebuiltWorkloadAnnotation("workload-name").
+				Obj(),
+			wantValidationErrs: nil,
+			featureGates:       map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+		},
+		{
+			name: "immutable queue name not suspend",
+			oldJob: testingutil.MakeJob("job", "default").
+				Suspend(false).
+				Label(constants.QueueLabel, "old-queue").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Suspend(false).
+				Label(constants.QueueLabel, "new-queue").
+				Obj(),
+			wantValidationErrs: apivalidation.ValidateImmutableField(kueue.LocalQueueName("new-queue"), "old-queue", queueNameLabelPath),
+		},
+		{
+			name: "queue name can changes when it is  suspend",
+			oldJob: testingutil.MakeJob("job", "default").
+				Suspend(true).
+				Label(constants.QueueLabel, "old-queue").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Suspend(true).
+				Label(constants.QueueLabel, "new-queue").
+				Obj(),
+			wantValidationErrs: nil,
+		},
+		{
+			name: "can update the kueue.x-k8s.io/job-min-parallelism  annotation",
+			oldJob: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "2").
+				Obj(),
+			wantValidationErrs: nil,
+		},
+		{
+			name: "validates kueue.x-k8s.io/job-min-parallelism annotation value (bad format)",
+			oldJob: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "NaN").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(minPodsCountAnnotationsPath, "NaN", "strconv.Atoi: parsing \"NaN\": invalid syntax"),
+			},
+		},
+		{
+			name: "immutable max exec time while unsuspended",
+			oldJob: testingutil.MakeJob("job", "default").
+				Suspend(false).
+				Label(constants.MaxExecTimeSecondsLabel, "10").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Suspend(false).
+				Label(constants.MaxExecTimeSecondsLabel, "20").
+				Obj(),
+			wantValidationErrs: apivalidation.ValidateImmutableField("20", "10", maxExecTimeLabelPath),
+		},
+		{
+			name: "immutable max exec time while transitioning to unsuspended",
+			oldJob: testingutil.MakeJob("job", "default").
+				Suspend(true).
+				Label(constants.MaxExecTimeSecondsLabel, "10").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Suspend(false).
+				Label(constants.MaxExecTimeSecondsLabel, "20").
+				Obj(),
+			wantValidationErrs: apivalidation.ValidateImmutableField("20", "10", maxExecTimeLabelPath),
+		},
+		{
+			name: "mutable max exec time while suspended",
+			oldJob: testingutil.MakeJob("job", "default").
+				Suspend(true).
+				Label(constants.MaxExecTimeSecondsLabel, "10").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Suspend(true).
+				Label(constants.MaxExecTimeSecondsLabel, "20").
+				Obj(),
+		},
+		{
+			name: "set valid TAS request",
+			oldJob: testingutil.MakeJob("job", "default").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		{
+			name: "attempt to set invalid TAS request",
+			oldJob: testingutil.MakeJob("job", "default").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(replicaMetaPath.Child("annotations"), field.OmitValueType{},
+					`must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
+						`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`)},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		{
+			name: "valid slice topology request",
+			oldJob: testingutil.MakeJob("job", "default").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(kueue.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(kueue.PodSetSliceSizeAnnotation, "1").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		{
+			name: "attempt to set invalid slice topology request",
+			oldJob: testingutil.MakeJob("job", "default").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(kueue.PodSetSliceRequiredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Required(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-slice-size"), "must be set when 'kueue.x-k8s.io/podset-slice-required-topology' is specified"),
+			},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		{
+			name: "reject adding AdmissionGatedBy annotation after Job creation",
+			oldJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Forbidden(admissionGatedByAnnotationPath, "cannot add admission gate after creation"),
+			},
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		{
+			name: "allow removing AdmissionGatedBy annotation with single gate",
+			oldJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				Obj(),
+			wantValidationErrs: nil,
+			featureGates:       map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		{
+			name: "allow removing AdmissionGatedBy annotation with multiple gates",
+			oldJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1,example.com/controller2").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				Obj(),
+			wantValidationErrs: nil,
+			featureGates:       map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		{
+			name: "allow removing one gate from AdmissionGatedBy annotation",
+			oldJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1,example.com/controller2").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller2").
+				Obj(),
+			wantValidationErrs: nil,
+			featureGates:       map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		{
+			name: "reject injecting new gate in AdmissionGatedBy annotation",
+			oldJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1,example.com/controller2").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller3").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Forbidden(admissionGatedByAnnotationPath, "can only remove gates, not add new ones"),
+			},
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+		{
+			name: "allow reordering gates in AdmissionGatedBy annotation",
+			oldJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1,example.com/controller2").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller2,example.com/controller1").
+				Obj(),
+			wantValidationErrs: nil,
+			featureGates:       map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+		},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			gotValidationErrs, gotErr := new(JobWebhook).validateUpdate(ctx, (*Job)(tc.oldJob), (*Job)(tc.newJob))
+			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{})); diff != "" {
+				t.Errorf("validateUpdate() error mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantValidationErrs, gotValidationErrs, cmpopts.IgnoreFields(field.Error{})); diff != "" {
+				t.Errorf("validateUpdate() validation errors mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestDefault(t *testing.T) {
+	testcases := map[string]struct {
+		job                        *batchv1.Job
+		objs                       []runtime.Object
+		queues                     []kueue.LocalQueue
+		clusterQueues              []kueue.ClusterQueue
+		admissionCheck             *kueue.AdmissionCheck
+		manageJobsWithoutQueueName bool
+		featureGates               map[featuregate.Feature]bool
+		defaultLqExist             bool
+		enableIntegrations         []string
+		want                       *batchv1.Job
+		wantErr                    error
+	}{
+		"update the suspend field with 'manageJobsWithoutQueueName=false'": {
+			job:  testingutil.MakeJob("job", "default").Queue("queue").Suspend(false).Obj(),
+			want: testingutil.MakeJob("job", "default").Queue("queue").Obj(),
+		},
+		"update the suspend field 'manageJobsWithoutQueueName=true'": {
+			job:                        testingutil.MakeJob("job", "default").Suspend(false).Obj(),
+			manageJobsWithoutQueueName: true,
+			want:                       testingutil.MakeJob("job", "default").Obj(),
+		},
+		"no change in managed by: features.MultiKueue disabled": {
+			job:          testingutil.MakeJob("job", "default").Queue("queue").Suspend(false).Obj(),
+			featureGates: map[featuregate.Feature]bool{features.MultiKueue: false},
+			want:         testingutil.MakeJob("job", "default").Queue("queue").Obj(),
+		},
+		"managed by is defaulted: queue label was set": {
+			job: testingutil.MakeJob("job", "default").
+				Queue("local-queue").
+				Suspend(false).
+				Obj(),
+			queues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("local-queue", "default").
+					ClusterQueue("cluster-queue").
+					Obj(),
+			},
+			clusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("cluster-queue").
+					AdmissionChecks("admission-check").
+					Obj(),
+			},
+			admissionCheck: utiltestingapi.MakeAdmissionCheck("admission-check").
+				ControllerName(kueue.MultiKueueControllerName).
+				Active(metav1.ConditionTrue).
+				Obj(),
+			want: testingutil.MakeJob("job", "default").
+				Queue("local-queue").
+				ManagedBy(kueue.MultiKueueControllerName).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.MultiKueue: true},
+		},
+		"no change in managed by: user specified managed by": {
+			job: testingutil.MakeJob("job", "default").
+				Queue("local-queue").
+				ManagedBy("example.com/foo").
+				Suspend(false).
+				Obj(),
+			queues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("local-queue", "default").
+					ClusterQueue("cluster-queue").
+					Obj(),
+			},
+			clusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("cluster-queue").
+					AdmissionChecks("admission-check").
+					Obj(),
+			},
+			admissionCheck: utiltestingapi.MakeAdmissionCheck("admission-check").
+				ControllerName(kueue.MultiKueueControllerName).
+				Active(metav1.ConditionTrue).
+				Obj(),
+			want: testingutil.MakeJob("job", "default").
+				Queue("local-queue").
+				ManagedBy("example.com/foo").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.MultiKueue: true},
+		},
+		"invalid queue name": {
+			job: testingutil.MakeJob("job", "default").
+				Queue("invalid-local-queue").
+				Suspend(false).
+				Obj(),
+			want: testingutil.MakeJob("job", "default").
+				Queue("invalid-local-queue").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.MultiKueue: true},
+		},
+		"default lq is created, job doesn't have queue label": {
+			defaultLqExist: true,
+			job:            testingutil.MakeJob("test-job", "default").Obj(),
+			want: testingutil.MakeJob("test-job", "default").
+				Queue("default").
+				Obj(),
+		},
+		"default lq is created, job has queue label": {
+			defaultLqExist: true,
+			job:            testingutil.MakeJob("test-job", "").Queue("test-queue").Obj(),
+			want: testingutil.MakeJob("test-job", "").
+				Queue("test-queue").
+				Obj(),
+		},
+		"default lq isn't created, job doesn't have queue label": {
+			defaultLqExist: false,
+			job:            testingutil.MakeJob("test-job", "").Obj(),
+			want: testingutil.MakeJob("test-job", "").
+				Obj(),
+		},
+		"job is managed by Kueue managed owner, job doesn't have queue label": {
+			defaultLqExist: true,
+			// MPIJob callBackFunction is registered as integrations since we initialize MPIJob integration package.
+			enableIntegrations: []string{"kubeflow.org/mpijob"},
+			job: testingutil.MakeJob("test-job", metav1.NamespaceDefault).
+				OwnerReference("owner", kfmpi.SchemeGroupVersionKind).
+				Obj(),
+			objs: []runtime.Object{
+				testingmpijob.MakeMPIJob("owner", "default").UID("owner").Obj(),
+			},
+			want: testingutil.MakeJob("test-job", metav1.NamespaceDefault).
+				OwnerReference("owner", kfmpi.SchemeGroupVersionKind).
+				Obj(),
+		},
+		"job is managed by non Kueue managed owner, job has queue label": {
+			defaultLqExist: true,
+			job: testingutil.MakeJob("test-job", metav1.NamespaceDefault).
+				OwnerReference("owner", jobsetapi.SchemeGroupVersion.WithKind("JobSet")).
+				Obj(),
+			want: testingutil.MakeJob("test-job", metav1.NamespaceDefault).
+				OwnerReference("owner", jobsetapi.SchemeGroupVersion.WithKind("JobSet")).
+				Queue("default").
+				Obj(),
+		},
+	}
+	for name, tc := range testcases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+
+			ctx, log := utiltesting.ContextWithLog(t)
+
+			clientBuilder := utiltesting.NewClientBuilder(kfmpi.AddToScheme).
+				WithObjects(utiltesting.MakeNamespace("default")).
+				WithRuntimeObjects(tc.objs...)
+			cl := clientBuilder.Build()
+			cqCache := schdcache.New(cl)
+			queueManager := qcache.NewManagerForUnitTests(cl, cqCache)
+			if tc.defaultLqExist {
+				if err := queueManager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("default", "default").
+					ClusterQueue("cluster-queue").Obj()); err != nil {
+					t.Fatalf("failed to create default local queue: %s", err)
+				}
+			}
+
+			for _, q := range tc.queues {
+				if err := queueManager.AddLocalQueue(ctx, &q); err != nil {
+					t.Fatalf("Inserting queue %s/%s in manager: %v", q.Namespace, q.Name, err)
+				}
+			}
+			for _, cq := range tc.clusterQueues {
+				if err := cqCache.AddClusterQueue(ctx, &cq); err != nil {
+					t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
+				}
+				if tc.admissionCheck != nil {
+					cqCache.AddOrUpdateAdmissionCheck(log, tc.admissionCheck)
+					if err := queueManager.AddClusterQueue(ctx, &cq); err != nil {
+						t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
+					}
+				}
+			}
+			t.Cleanup(jobframework.EnableIntegrationsForTest(t, tc.enableIntegrations...))
+			w := &JobWebhook{
+				client:                       cl,
+				manageJobsWithoutQueueName:   tc.manageJobsWithoutQueueName,
+				managedJobsNamespaceSelector: labels.Everything(),
+				queues:                       queueManager,
+				cache:                        cqCache,
+			}
+			gotErr := w.Default(ctx, tc.job)
+			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Default() error mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.want, tc.job); len(diff) != 0 {
+				t.Errorf("Default() mismatch (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func Test_applyWorkloadSliceSchedulingGate(t *testing.T) {
+	type args struct {
+		job *Job
+	}
+	// Test case matrix covers combinations of:
+	//   - WorkloadSlice feature enabled: true or false
+	//   - Job opt-in via annotation: present or absent
+	tests := map[string]struct {
+		featureGates map[featuregate.Feature]bool
+		args         args
+		want         []corev1.PodSchedulingGate
+	}{
+		"FeatureDisabledAndNotOptIn": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false},
+			args:         args{job: &Job{}},
+		},
+		"FeatureDisabledAndOptIn": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false},
+			args: args{
+				job: &Job{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
+						},
+					},
+				},
+			},
+		},
+		"FeatureEnabledButNotOptIn": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			args:         args{job: &Job{}},
+		},
+		"FeatureEnabledAndOptIn": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			args: args{
+				job: &Job{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
+						},
+					},
+					Spec: batchv1.JobSpec{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								SchedulingGates: []corev1.PodSchedulingGate{
+									// To assert that other gates are not removed as a side effect.
+									{Name: "SomeOtherGate"},
+								},
+							},
+						},
+					},
+				},
+			},
+			want: []corev1.PodSchedulingGate{
+				{Name: "SomeOtherGate"},
+				{Name: kueue.ElasticJobSchedulingGate},
+			},
+		},
+		"FeatureEnabledAndOptIn_SpecAlreadyContainsWorkloadSliceGate": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			args: args{
+				job: &Job{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
+						},
+					},
+					Spec: batchv1.JobSpec{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								SchedulingGates: []corev1.PodSchedulingGate{
+									{Name: kueue.ElasticJobSchedulingGate},
+								},
+							},
+						},
+					},
+				},
+			},
+			want: []corev1.PodSchedulingGate{
+				{Name: kueue.ElasticJobSchedulingGate},
+			},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tt.featureGates)
+			applyWorkloadSliceSchedulingGate(tt.args.job)
+			if diff := cmp.Diff(tt.args.job.Spec.Template.Spec.SchedulingGates, tt.want); diff != "" {
+				t.Errorf("applyWorkloadSliceSchedulingGate() got(-),want(+): %s", diff)
+			}
+		})
+	}
+}

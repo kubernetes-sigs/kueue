@@ -1,0 +1,133 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package tas
+
+import (
+	"strings"
+
+	corev1 "k8s.io/api/core/v1"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+)
+
+type TopologyDomainID string
+
+func DomainID(levelValues []string) TopologyDomainID {
+	return TopologyDomainID(strings.Join(levelValues, ","))
+}
+
+func IsTAS(pod *corev1.Pod) bool {
+	if IsExplicitTAS(pod.Annotations) {
+		return true
+	}
+	if _, ok := pod.Annotations[kueue.PodSetUnconstrainedTopologyAnnotation]; ok {
+		return true
+	}
+	return false
+}
+
+func IsExplicitTAS(annots map[string]string) bool {
+	if _, ok := annots[kueue.PodSetPreferredTopologyAnnotation]; ok {
+		return true
+	}
+	if _, ok := annots[kueue.PodSetRequiredTopologyAnnotation]; ok {
+		return true
+	}
+	if _, ok := annots[kueue.PodSetSliceRequiredTopologyAnnotation]; ok {
+		return true
+	}
+	if _, ok := annots[kueue.PodSetSliceRequiredTopologyConstraintsAnnotation]; ok {
+		return true
+	}
+	return false
+}
+
+func NodeLabelsFromKeysAndValues(keys, values []string) map[string]string {
+	result := make(map[string]string, len(keys))
+	for i := range keys {
+		result[keys[i]] = values[i]
+	}
+	return result
+}
+
+func LevelValues(levelKeys []string, objectLabels map[string]string) []string {
+	levelValues := make([]string, len(levelKeys))
+	for levelIdx, levelKey := range levelKeys {
+		levelValues[levelIdx] = objectLabels[levelKey]
+	}
+	return levelValues
+}
+
+func Levels(topology *kueue.Topology) []string {
+	result := make([]string, len(topology.Spec.Levels))
+	for i, level := range topology.Spec.Levels {
+		result[i] = level.NodeLabel
+	}
+	return result
+}
+
+func IsNodeStatusConditionTrue(conditions []corev1.NodeCondition, conditionType corev1.NodeConditionType) bool {
+	for _, cond := range conditions {
+		if cond.Type == conditionType {
+			return cond.Status == corev1.ConditionTrue
+		}
+	}
+	return false
+}
+
+func GetNodeCondition(node *corev1.Node, conditionType corev1.NodeConditionType) *corev1.NodeCondition {
+	for i := range node.Status.Conditions {
+		if node.Status.Conditions[i].Type == conditionType {
+			return &node.Status.Conditions[i]
+		}
+	}
+	return nil
+}
+
+// IsLowestLevelHostname checks if the lowest (last) level in the provided topology levels is node
+func IsLowestLevelHostname(levels []string) bool {
+	return levels[len(levels)-1] == corev1.LabelHostname
+}
+
+// PodSetSliceRequiredTopologyConstraints returns the unified slice topology
+// constraints for a PodSetTopologyRequest, regardless of whether they were
+// specified via the new multi-layer PodsetSliceRequiredTopologyConstraints
+// annotation or the old single-layer PodSetSliceRequiredTopology/
+// PodSetSliceSize fields.
+//
+// This is necessary to handle Workload objects that were persisted before the
+// unification, which only populate the legacy fields. Callers should use this
+// function instead of reading PodsetSliceRequiredTopologyConstraints directly
+// to ensure both annotation forms are handled consistently.
+func PodSetSliceRequiredTopologyConstraints(tr *kueue.PodSetTopologyRequest) []kueue.PodsetSliceRequiredTopologyConstraint {
+	if tr == nil {
+		return nil
+	}
+	if len(tr.PodsetSliceRequiredTopologyConstraints) > 0 {
+		return tr.PodsetSliceRequiredTopologyConstraints
+	}
+	if tr.PodSetSliceRequiredTopology == nil {
+		return nil
+	}
+	size := int32(0)
+	if tr.PodSetSliceSize != nil {
+		size = *tr.PodSetSliceSize
+	}
+	return []kueue.PodsetSliceRequiredTopologyConstraint{
+		{Topology: *tr.PodSetSliceRequiredTopology, Size: size},
+	}
+}

@@ -1,0 +1,2 @@
+FROM debian:stable@sha256:9631e4628fccfb6f1ff9e27de2af0e82f61591c78d1584c778f92db9a541a3cc
+USER 65532:65532

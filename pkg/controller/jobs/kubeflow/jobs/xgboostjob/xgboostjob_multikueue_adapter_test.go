@@ -1,0 +1,264 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package xgboostjob
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
+	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/component-base/featuregate"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/kubeflowjob"
+	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/slices"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	kfutiltesting "sigs.k8s.io/kueue/pkg/util/testingjobs/xgboostjob"
+)
+
+const (
+	TestNamespace = "ns"
+)
+
+func TestMultiKueueAdapter(t *testing.T) {
+	objCheckOpts := cmp.Options{
+		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
+		cmpopts.EquateEmpty(),
+	}
+
+	xgboostJobBuilder := kfutiltesting.MakeXGBoostJob("xgboostjob1", TestNamespace).Queue("queue").Suspend(false)
+	xgboostJobManagedByKueueBuilder := xgboostJobBuilder.Clone().ManagedBy(kueue.MultiKueueControllerName)
+
+	cases := map[string]struct {
+		managersXGBoostJobs []kftraining.XGBoostJob
+		workerXGBoostJobs   []kftraining.XGBoostJob
+
+		operation func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error
+
+		wantError               error
+		wantManagersXGBoostJobs []kftraining.XGBoostJob
+		wantWorkerXGBoostJobs   []kftraining.XGBoostJob
+		featureGates            map[featuregate.Feature]bool
+	}{
+		"sync creates missing remote xgboostjob": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			managersXGBoostJobs: []kftraining.XGBoostJob{
+				*xgboostJobBuilder.DeepCopy(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "xgboostjob1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
+			},
+
+			wantManagersXGBoostJobs: []kftraining.XGBoostJob{
+				*xgboostJobBuilder.DeepCopy(),
+			},
+			wantWorkerXGBoostJobs: []kftraining.XGBoostJob{
+				*xgboostJobBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Obj(),
+			},
+		},
+		"sync status from remote XgBoostJob": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			managersXGBoostJobs: []kftraining.XGBoostJob{
+				*xgboostJobBuilder.DeepCopy(),
+			},
+			workerXGBoostJobs: []kftraining.XGBoostJob{
+				*xgboostJobBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					StatusConditions(kftraining.JobCondition{Type: kftraining.JobSucceeded, Status: corev1.ConditionTrue}).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "xgboostjob1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
+			},
+
+			wantManagersXGBoostJobs: []kftraining.XGBoostJob{
+				*xgboostJobBuilder.Clone().
+					StatusConditions(kftraining.JobCondition{Type: kftraining.JobSucceeded, Status: corev1.ConditionTrue}).
+					Obj(),
+			},
+			wantWorkerXGBoostJobs: []kftraining.XGBoostJob{
+				*xgboostJobBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					StatusConditions(kftraining.JobCondition{Type: kftraining.JobSucceeded, Status: corev1.ConditionTrue}).
+					Obj(),
+			},
+		},
+		"sync status from remote while local XgBoostJob is suspended": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			managersXGBoostJobs: []kftraining.XGBoostJob{
+				*xgboostJobBuilder.Clone().
+					Suspend(true).
+					Obj(),
+			},
+			workerXGBoostJobs: []kftraining.XGBoostJob{
+				*xgboostJobBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Suspend(true).
+					StatusConditions(kftraining.JobCondition{Type: kftraining.JobSucceeded, Status: corev1.ConditionTrue}).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "xgboostjob1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
+			},
+
+			wantManagersXGBoostJobs: []kftraining.XGBoostJob{
+				*xgboostJobBuilder.Clone().
+					Suspend(true).
+					StatusConditions(kftraining.JobCondition{Type: kftraining.JobSucceeded, Status: corev1.ConditionTrue}).
+					Obj(),
+			},
+			wantWorkerXGBoostJobs: []kftraining.XGBoostJob{
+				*xgboostJobBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Suspend(true).
+					StatusConditions(kftraining.JobCondition{Type: kftraining.JobSucceeded, Status: corev1.ConditionTrue}).
+					Obj(),
+			},
+		},
+		"remote XgBoostJob is deleted": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			workerXGBoostJobs: []kftraining.XGBoostJob{
+				*xgboostJobBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				return adapter.DeleteRemoteObject(ctx, managerClient, workerClient, types.NamespacedName{Name: "xgboostjob1", Namespace: TestNamespace})
+			},
+		},
+		"missing job is not considered managed": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "xgboostjob1", Namespace: TestNamespace}); isManged {
+					return errors.New("expecting false")
+				}
+				return nil
+			},
+		},
+		"job with wrong managedBy is not considered managed": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			managersXGBoostJobs: []kftraining.XGBoostJob{
+				*xgboostJobBuilder.DeepCopy(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "xgboostjob1", Namespace: TestNamespace}); isManged {
+					return errors.New("expecting false")
+				}
+				return nil
+			},
+			wantManagersXGBoostJobs: []kftraining.XGBoostJob{
+				*xgboostJobBuilder.DeepCopy(),
+			},
+		},
+		"job managedBy multikueue": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			managersXGBoostJobs: []kftraining.XGBoostJob{
+				*xgboostJobManagedByKueueBuilder.DeepCopy(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				if isManged, _, _ := adapter.IsJobManagedByKueue(ctx, managerClient, types.NamespacedName{Name: "xgboostjob1", Namespace: TestNamespace}); !isManged {
+					return errors.New("expecting true")
+				}
+				return nil
+			},
+			wantManagersXGBoostJobs: []kftraining.XGBoostJob{
+				*xgboostJobManagedByKueueBuilder.DeepCopy(),
+			},
+		},
+		"sync creates missing remote xgboostjob, WorkloadIdentifierAnnotations enabled": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+			managersXGBoostJobs: []kftraining.XGBoostJob{
+				*xgboostJobBuilder.DeepCopy(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "xgboostjob1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
+			},
+			wantManagersXGBoostJobs: []kftraining.XGBoostJob{
+				*xgboostJobBuilder.DeepCopy(),
+			},
+			wantWorkerXGBoostJobs: []kftraining.XGBoostJob{
+				*xgboostJobBuilder.Clone().
+					PrebuiltWorkloadAnnotation("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Obj(),
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			managerBuilder := utiltesting.NewClientBuilder(kftraining.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+			managerBuilder = managerBuilder.WithLists(&kftraining.XGBoostJobList{Items: tc.managersXGBoostJobs})
+			managerBuilder = managerBuilder.WithStatusSubresource(slices.Map(tc.managersXGBoostJobs, func(w *kftraining.XGBoostJob) client.Object { return w })...)
+			managerClient := managerBuilder.Build()
+
+			workerBuilder := utiltesting.NewClientBuilder(kftraining.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+			workerBuilder = workerBuilder.WithLists(&kftraining.XGBoostJobList{Items: tc.workerXGBoostJobs})
+			workerClient := workerBuilder.Build()
+
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			adapter := kubeflowjob.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, fromObject)
+
+			gotErr := tc.operation(ctx, adapter, managerClient, workerClient)
+
+			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("unexpected error (-want/+got):\n%s", diff)
+			}
+
+			gotManagersXGBoostJob := &kftraining.XGBoostJobList{}
+			if err := managerClient.List(ctx, gotManagersXGBoostJob); err != nil {
+				t.Errorf("unexpected list manager's XgBoostJobs error %s", err)
+			} else {
+				if diff := cmp.Diff(tc.wantManagersXGBoostJobs, gotManagersXGBoostJob.Items, objCheckOpts...); diff != "" {
+					t.Errorf("unexpected manager's XgBoostJobs (-want/+got):\n%s", diff)
+				}
+			}
+
+			gotWorkerXGBoostJobs := &kftraining.XGBoostJobList{}
+			if err := workerClient.List(ctx, gotWorkerXGBoostJobs); err != nil {
+				t.Errorf("unexpected list worker's XgBoostJobs error %s", err)
+			} else {
+				if diff := cmp.Diff(tc.wantWorkerXGBoostJobs, gotWorkerXGBoostJobs.Items, objCheckOpts...); diff != "" {
+					t.Errorf("unexpected worker's XgBoostJobs (-want/+got):\n%s", diff)
+				}
+			}
+		})
+	}
+}

@@ -1,0 +1,691 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package core
+
+import (
+	"context"
+	"time"
+
+	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/workqueue"
+	"k8s.io/klog/v2"
+	"k8s.io/utils/clock"
+	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
+
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
+	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
+	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
+	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
+)
+
+const (
+	localQueueIsInactiveMsg   = "LocalQueue is stopped"
+	clusterQueueIsInactiveMsg = "Can't submit new workloads to clusterQueue"
+	failedUpdateLqStatusMsg   = "Failed to retrieve localQueue status"
+)
+
+const (
+	StoppedReason                = "Stopped"
+	clusterQueueIsInactiveReason = "ClusterQueueIsInactive"
+)
+
+type LocalQueueReconcilerOptions struct {
+	admissionFSConfig *config.AdmissionFairSharing
+	clock             clock.Clock
+	roleTracker       *roletracker.RoleTracker
+	customLabels      *metrics.CustomLabels
+	lqMetrics         *metrics.LocalQueueMetricsConfig
+}
+
+// LocalQueueReconcilerOption configures the reconciler.
+type LocalQueueReconcilerOption func(*LocalQueueReconcilerOptions)
+
+func WithAdmissionFairSharingConfig(cfg *config.AdmissionFairSharing) LocalQueueReconcilerOption {
+	return func(o *LocalQueueReconcilerOptions) {
+		o.admissionFSConfig = cfg
+	}
+}
+
+func WithClock(c clock.Clock) LocalQueueReconcilerOption {
+	return func(o *LocalQueueReconcilerOptions) {
+		o.clock = c
+	}
+}
+
+func WithRoleTracker(tracker *roletracker.RoleTracker) LocalQueueReconcilerOption {
+	return func(o *LocalQueueReconcilerOptions) {
+		o.roleTracker = tracker
+	}
+}
+
+func WithCustomLabels(cl *metrics.CustomLabels) LocalQueueReconcilerOption {
+	return func(o *LocalQueueReconcilerOptions) {
+		o.customLabels = cl
+	}
+}
+
+func WithLocalQueueMetrics(value *metrics.LocalQueueMetricsConfig) LocalQueueReconcilerOption {
+	return func(o *LocalQueueReconcilerOptions) {
+		o.lqMetrics = value
+	}
+}
+
+var defaultLQOptions = LocalQueueReconcilerOptions{
+	clock: realClock,
+}
+
+// LocalQueueReconciler reconciles a LocalQueue object
+type LocalQueueReconciler struct {
+	client            client.Client
+	logName           string
+	queues            *qcache.Manager
+	cache             *schdcache.Cache
+	wlUpdateCh        chan event.GenericEvent
+	admissionFSConfig *config.AdmissionFairSharing
+	clock             clock.Clock
+	roleTracker       *roletracker.RoleTracker
+	customLabels      *metrics.CustomLabels
+	lqMetrics         *metrics.LocalQueueMetricsConfig
+}
+
+var _ reconcile.Reconciler = (*LocalQueueReconciler)(nil)
+var _ predicate.TypedPredicate[*kueue.LocalQueue] = (*LocalQueueReconciler)(nil)
+
+func NewLocalQueueReconciler(
+	client client.Client,
+	queues *qcache.Manager,
+	cache *schdcache.Cache,
+	opts ...LocalQueueReconcilerOption,
+) *LocalQueueReconciler {
+	options := defaultLQOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
+	return &LocalQueueReconciler{
+		logName:           "localqueue-reconciler",
+		queues:            queues,
+		cache:             cache,
+		client:            client,
+		wlUpdateCh:        make(chan event.GenericEvent, updateChBuffer),
+		admissionFSConfig: options.admissionFSConfig,
+		clock:             options.clock,
+		roleTracker:       options.roleTracker,
+		customLabels:      options.customLabels,
+		lqMetrics:         options.lqMetrics,
+	}
+}
+
+func (r *LocalQueueReconciler) logger() logr.Logger {
+	return roletracker.WithReplicaRole(ctrl.Log.WithName(r.logName), r.roleTracker)
+}
+
+func (r *LocalQueueReconciler) NotifyWorkloadUpdate(oldWl, newWl *kueue.Workload) {
+	if oldWl != nil {
+		r.wlUpdateCh <- event.GenericEvent{Object: oldWl}
+		if newWl != nil && oldWl.Spec.QueueName != newWl.Spec.QueueName {
+			r.wlUpdateCh <- event.GenericEvent{Object: newWl}
+		}
+		return
+	}
+	if newWl != nil {
+		r.wlUpdateCh <- event.GenericEvent{Object: newWl}
+	}
+}
+
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;watch;update;patch
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=localqueues,verbs=get;list;watch
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=localqueues/status,verbs=get;update;patch
+
+func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	var queueObj kueue.LocalQueue
+	if err := r.client.Get(ctx, req.NamespacedName, &queueObj); err != nil {
+		// we'll ignore not-found errors, since there is nothing to do.
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	log := ctrl.LoggerFrom(ctx)
+	log.V(2).Info("Reconcile LocalQueue")
+
+	if features.Enabled(features.CustomMetricLabels) {
+		r.customLabels.LQStore(
+			utilqueue.Key(&queueObj),
+			queueObj.GetLabels(), queueObj.GetAnnotations(),
+		)
+	}
+
+	if ptr.Deref(queueObj.Spec.StopPolicy, kueue.None) != kueue.None {
+		err := r.UpdateStatusIfChanged(ctx, &queueObj, metav1.ConditionFalse, StoppedReason, localQueueIsInactiveMsg)
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	var cq kueue.ClusterQueue
+	if err := r.client.Get(ctx, client.ObjectKey{Name: string(queueObj.Spec.ClusterQueue)}, &cq); err != nil {
+		if apierrors.IsNotFound(err) {
+			err = r.UpdateStatusIfChanged(ctx, &queueObj, metav1.ConditionFalse, "ClusterQueueDoesNotExist", clusterQueueIsInactiveMsg)
+		}
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	if meta.IsStatusConditionTrue(cq.Status.Conditions, kueue.ClusterQueueActive) {
+		if err := r.UpdateStatusIfChanged(ctx, &queueObj, metav1.ConditionTrue, "Ready", "Can submit new workloads to localQueue"); err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+	} else {
+		err := r.UpdateStatusIfChanged(ctx, &queueObj, metav1.ConditionFalse, clusterQueueIsInactiveReason, clusterQueueIsInactiveMsg)
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	if afs.Enabled(r.admissionFSConfig) {
+		lqKey := utilqueue.Key(&queueObj)
+		hadCache, entry := r.initializeAfsIfNeeded(&queueObj)
+		sinceLastUpdate := r.clock.Now().Sub(entry.LastUpdate)
+		// Enforce the sampling interval when the cache already existed
+		// before this reconcile. Without this, self-triggered status
+		// updates cause sub-millisecond reconciles where the decay math
+		// truncates CPU consumed resources to zero.
+		if interval := r.admissionFSConfig.UsageSamplingInterval.Duration; hadCache && sinceLastUpdate < interval && !r.queues.AfsEntryPenalties.HasPendingFor(lqKey) {
+			return ctrl.Result{RequeueAfter: interval - sinceLastUpdate}, nil
+		}
+		if err := r.reconcileConsumedUsage(ctx, &queueObj); err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+		if err := r.queues.RebuildClusterQueue(&cq, queueObj.Name); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{RequeueAfter: r.admissionFSConfig.UsageSamplingInterval.Duration}, nil
+	}
+	return ctrl.Result{}, nil
+}
+
+func (r *LocalQueueReconciler) Create(e event.TypedCreateEvent[*kueue.LocalQueue]) bool {
+	log := r.logger().WithValues("localQueue", klog.KObj(e.Object))
+	log.V(2).Info("LocalQueue create event")
+
+	if ptr.Deref(e.Object.Spec.StopPolicy, kueue.None) == kueue.None {
+		ctx := logr.NewContext(context.Background(), log)
+		if err := r.queues.AddLocalQueue(ctx, e.Object); err != nil {
+			log.Error(err, "Failed to add localQueue to the queueing system")
+		}
+	}
+
+	if err := r.cache.AddLocalQueue(e.Object); err != nil {
+		log.Error(err, "Failed to add localQueue to the cache")
+	}
+
+	if features.Enabled(features.CustomMetricLabels) {
+		r.customLabels.LQStore(utilqueue.Key(e.Object), e.Object.GetLabels(), e.Object.GetAnnotations())
+	}
+
+	if r.lqMetrics.ShouldExposeLocalQueueMetrics(e.Object.GetLabels()) {
+		r.cache.RecordLocalQueueResourceMetrics(log, e.Object.Spec.ClusterQueue, utilqueue.Key(e.Object))
+	}
+
+	return true
+}
+
+func (r *LocalQueueReconciler) Delete(e event.TypedDeleteEvent[*kueue.LocalQueue]) bool {
+	if r.lqMetrics.IsEnabled() {
+		metrics.ClearLocalQueueResourceMetrics(localQueueReferenceFromLocalQueue(e.Object))
+	}
+	if afs.Enabled(r.admissionFSConfig) {
+		lqKey := utilqueue.Key(e.Object)
+		r.queues.AfsConsumedResources.Delete(lqKey)
+		r.queues.AfsEntryPenalties.Delete(lqKey)
+	}
+
+	if features.Enabled(features.CustomMetricLabels) {
+		r.customLabels.LQDelete(utilqueue.Key(e.Object))
+	}
+
+	log := r.logger().WithValues("localQueue", klog.KObj(e.Object))
+	log.V(2).Info("LocalQueue delete event")
+	r.queues.DeleteLocalQueue(log, e.Object)
+	r.cache.DeleteLocalQueue(e.Object)
+	return true
+}
+
+func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue]) bool {
+	log := r.logger().WithValues("localQueue", klog.KObj(e.ObjectNew))
+	log.V(2).Info("Queue update event")
+	oldMetricsExposed := r.lqMetrics.ShouldExposeLocalQueueMetrics(e.ObjectOld.GetLabels())
+	newMetricsExposed := r.lqMetrics.ShouldExposeLocalQueueMetrics(e.ObjectNew.GetLabels())
+
+	var customLabelsChanged bool
+	if features.Enabled(features.CustomMetricLabels) {
+		customLabelsChanged = r.customLabels.LQStore(
+			utilqueue.Key(e.ObjectNew),
+			e.ObjectNew.GetLabels(), e.ObjectNew.GetAnnotations(),
+		)
+	}
+
+	oldStopPolicy := ptr.Deref(e.ObjectOld.Spec.StopPolicy, kueue.None)
+	newStopPolicy := ptr.Deref(e.ObjectNew.Spec.StopPolicy, kueue.None)
+	clusterQueueChanged := e.ObjectOld.Spec.ClusterQueue != e.ObjectNew.Spec.ClusterQueue
+	stoppingQueue := oldStopPolicy != newStopPolicy && newStopPolicy != kueue.None
+
+	switch {
+	case oldStopPolicy == newStopPolicy:
+		if newStopPolicy == kueue.None {
+			if err := r.queues.UpdateLocalQueue(log, e.ObjectNew); err != nil {
+				log.Error(err, "Failed to update queue in the queueing system")
+			}
+		}
+		if err := r.cache.UpdateLocalQueue(e.ObjectOld, e.ObjectNew); err != nil {
+			log.Error(err, "Failed to update localQueue in the cache")
+		}
+	case newStopPolicy == kueue.None:
+		if customLabelsChanged || clusterQueueChanged {
+			if err := r.cache.UpdateLocalQueue(e.ObjectOld, e.ObjectNew); err != nil {
+				log.Error(err, "Failed to update localQueue in the cache")
+			}
+		}
+		ctx := logr.NewContext(context.Background(), log)
+		if err := r.queues.AddLocalQueue(ctx, e.ObjectNew); err != nil {
+			log.Error(err, "Failed to add localQueue to the queueing system")
+		}
+	default:
+		r.queues.DeleteLocalQueue(log, e.ObjectOld)
+	}
+
+	// Clear after manager update to avoid race with concurrent metric reports.
+	if newMetricsExposed && !customLabelsChanged {
+		r.updateLocalQueueResourceMetrics(log, e.ObjectNew)
+	} else if oldMetricsExposed {
+		clearLocalQueueMetrics(e.ObjectOld)
+	}
+
+	if newMetricsExposed && (customLabelsChanged || !oldMetricsExposed) && !stoppingQueue {
+		r.resyncLocalQueueGaugeMetrics(e.ObjectNew)
+	}
+
+	return true
+}
+
+func (r *LocalQueueReconciler) initializeAfsIfNeeded(lq *kueue.LocalQueue) (hadCache bool, entry queueafs.ConsumedResourcesEntry) {
+	if lq.Status.FairSharing == nil {
+		lq.Status.FairSharing = &kueue.LocalQueueFairSharingStatus{}
+	}
+
+	lqKey := utilqueue.Key(lq)
+	hasStatus := lq.Status.FairSharing.AdmissionFairSharingStatus != nil
+
+	now := r.clock.Now()
+
+	if !hasStatus {
+		lq.Status.FairSharing.AdmissionFairSharingStatus = &kueue.LocalQueueAdmissionFairSharingStatus{
+			LastUpdate: metav1.NewTime(now),
+		}
+	}
+
+	// Seed only from persisted state, never from live admitted usage: a live
+	// snapshot can include a concurrently-admitted Workload that its still-pending
+	// entry penalty already prices, double-counting it (#12783). An empty seed is
+	// correct for a fresh LocalQueue: entry penalties cover its early admissions.
+	// LastUpdate=now keeps the first sampling tick at ~zero elapsed, so it folds
+	// no live usage and the seed stays independent of in-flight admissions.
+	// If settlement created the entry first (post-restart admission), the persisted
+	// history is merged into it exactly once per process, tracked by StatusAccounted.
+	// The merge can slightly over-count: a second settlement before this reconcile
+	// folds alpha(elapsed) of live usage, which after a restart overlaps the persisted
+	// status; bounded by the short pre-reconcile window and decaying within a half-life.
+	seeded := corev1.ResourceList{}
+	if hasStatus {
+		seeded = lq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources.DeepCopy()
+	}
+	entry = r.queues.AfsConsumedResources.Update(lqKey, func(old queueafs.ConsumedResourcesEntry, found bool) queueafs.ConsumedResourcesEntry {
+		hadCache = found
+		switch {
+		case !found:
+			return queueafs.ConsumedResourcesEntry{Resources: seeded, LastUpdate: now, StatusAccounted: true}
+		case !old.StatusAccounted:
+			return queueafs.ConsumedResourcesEntry{
+				Resources:       utilresource.MergeResourceListKeepSum(old.Resources, seeded),
+				LastUpdate:      old.LastUpdate,
+				StatusAccounted: true,
+			}
+		default:
+			return old
+		}
+	})
+
+	return hadCache, entry
+}
+
+func (r *LocalQueueReconciler) reconcileConsumedUsage(ctx context.Context, lq *kueue.LocalQueue) error {
+	log := r.logger()
+	lqKey := utilqueue.Key(lq)
+	halfLifeTime := r.admissionFSConfig.UsageHalfLifeTime.Seconds()
+	now := r.clock.Now()
+
+	if halfLifeTime == 0 {
+		if err := r.updateAdmissionFsStatus(ctx, lq, corev1.ResourceList{}, now); err != nil {
+			log.V(2).Info("Failed to reset LocalQueue status", "namespace", lq.Namespace, "name", lq.Name, "error", err)
+			return err
+		}
+		r.queues.AfsConsumedResources.Update(lqKey, func(old queueafs.ConsumedResourcesEntry, found bool) queueafs.ConsumedResourcesEntry {
+			return queueafs.ConsumedResourcesEntry{Resources: corev1.ResourceList{}, LastUpdate: now, StatusAccounted: old.StatusAccounted || !found}
+		})
+		log.V(2).Info("Reset AFS consumed resources cache", "namespace", lq.Namespace, "name", lq.Name)
+		return nil
+	}
+
+	entry, _ := r.queues.AfsConsumedResources.Get(lqKey)
+
+	cacheLq, err := r.cache.GetCacheLocalQueue(lq.Spec.ClusterQueue, lqKey)
+	if err != nil {
+		return err
+	}
+
+	oldUsage := entry.Resources
+	newUsage := cacheLq.GetAdmittedUsage()
+	// A concurrent settlement can stamp an entry's LastUpdate later than now.
+	// A negative elapsed would drive the decay alpha outside [0, 1] and inflate
+	// consumed usage, so every elapsed derived from a stored LastUpdate is
+	// clamped to a non-negative value (here, the in-lock recompute below, and
+	// updateAfsConsumedUsage). Those cache writes also keep the stored timestamp
+	// monotonic so the next decay does not over-elapse; this pre-lock path
+	// persists LastUpdate=now to the status, so it only needs the clamp.
+	elapsed := max(0, now.Sub(entry.LastUpdate).Seconds())
+	newConsumed := afs.CalculateDecayedConsumed(oldUsage, newUsage, elapsed, halfLifeTime)
+
+	if err := r.updateAdmissionFsStatus(ctx, lq, newConsumed, now); err != nil {
+		log.V(2).Info("Failed to update LocalQueue status", "namespace", lq.Namespace, "name", lq.Name, "error", err)
+		return err
+	}
+	// Recompute inside the lock rather than storing newConsumed: a settlement can
+	// land between the Get above and this write (the status update is an API call),
+	// and its folded penalty must not be overwritten. The persisted status may lag
+	// the stored value by one interval in that case; the next tick converges it.
+	stored := r.queues.AfsConsumedResources.Update(lqKey, func(old queueafs.ConsumedResourcesEntry, found bool) queueafs.ConsumedResourcesEntry {
+		if !found {
+			return queueafs.ConsumedResourcesEntry{Resources: newConsumed, LastUpdate: now, StatusAccounted: true}
+		}
+		// Clamp elapsed and keep the stored timestamp monotonic; see the
+		// canonical note above.
+		elapsed := max(0, now.Sub(old.LastUpdate).Seconds())
+		storedLastUpdate := now
+		if old.LastUpdate.After(now) {
+			storedLastUpdate = old.LastUpdate
+		}
+		return queueafs.ConsumedResourcesEntry{
+			Resources:       afs.CalculateDecayedConsumed(old.Resources, newUsage, elapsed, halfLifeTime),
+			LastUpdate:      storedLastUpdate,
+			StatusAccounted: old.StatusAccounted,
+		}
+	})
+	log.V(2).Info("Updated AFS consumed resources cache", "namespace", lq.Namespace, "name", lq.Name, "consumedResources", stored.Resources)
+	return nil
+}
+
+func (r *LocalQueueReconciler) reportAfsUsage(lq *kueue.LocalQueue, consumedResources corev1.ResourceList) {
+	if !afs.Enabled(r.admissionFSConfig) {
+		return
+	}
+	if !r.lqMetrics.ShouldExposeLocalQueueMetrics(lq.GetLabels()) {
+		return
+	}
+	lqKey := utilqueue.Key(lq)
+	penalty := r.queues.AfsEntryPenalties.Peek(lqKey)
+	metrics.ReportLocalQueueAdmissionFairSharingUsage(
+		localQueueReferenceFromLocalQueue(lq),
+		lq.Spec.ClusterQueue,
+		afs.CalculateUsage(consumedResources, penalty, afs.LQWeightAsFloat64(lq), r.admissionFSConfig.ResourceWeights),
+		r.customLabels.LQGet(lqKey),
+		r.roleTracker,
+	)
+}
+
+func (r *LocalQueueReconciler) updateAdmissionFsStatus(ctx context.Context, lq *kueue.LocalQueue, consumedResources corev1.ResourceList, lastUpdate time.Time) error {
+	lq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources = consumedResources
+	lq.Status.FairSharing.AdmissionFairSharingStatus.LastUpdate = metav1.NewTime(lastUpdate)
+	if err := r.client.Status().Update(ctx, lq); err != nil {
+		return err
+	}
+	r.reportAfsUsage(lq, consumedResources)
+	return nil
+}
+
+func localQueueReferenceFromLocalQueue(lq *kueue.LocalQueue) metrics.LocalQueueReference {
+	return metrics.LocalQueueReference{
+		Name:      kueue.LocalQueueName(lq.Name),
+		Namespace: lq.Namespace,
+	}
+}
+
+func (r *LocalQueueReconciler) updateLocalQueueResourceMetrics(log logr.Logger, queue *kueue.LocalQueue) {
+	lqRef := localQueueReferenceFromLocalQueue(queue)
+	metrics.ClearLocalQueueResourceMetrics(lqRef)
+	r.cache.RecordLocalQueueResourceMetrics(log, queue.Spec.ClusterQueue, utilqueue.Key(queue))
+}
+
+func clearLocalQueueMetrics(lq *kueue.LocalQueue) {
+	lqRef := localQueueReferenceFromLocalQueue(lq)
+	metrics.ClearLocalQueueMetrics(lqRef)
+	metrics.ClearLocalQueueCacheMetrics(lqRef)
+	metrics.ClearLocalQueueResourceMetrics(lqRef)
+}
+
+func (r *LocalQueueReconciler) resyncLocalQueueGaugeMetrics(lq *kueue.LocalQueue) {
+	lqKey := utilqueue.Key(lq)
+	clearLocalQueueMetrics(lq)
+	r.queues.ResyncLocalQueueGaugeMetrics(lqKey)
+	r.cache.ResyncLocalQueueGaugeMetrics(lq.Spec.ClusterQueue, lqKey)
+
+	if !r.lqMetrics.ShouldExposeLocalQueueMetrics(lq.GetLabels()) {
+		return
+	}
+	if entry, found := r.queues.AfsConsumedResources.Get(lqKey); found {
+		r.reportAfsUsage(lq, entry.Resources)
+	}
+	condition := meta.FindStatusCondition(lq.Status.Conditions, kueue.LocalQueueActive)
+	if condition == nil {
+		return
+	}
+	metrics.ReportLocalQueueStatus(
+		localQueueReferenceFromLocalQueue(lq),
+		condition.Status,
+		r.customLabels.LQGet(lqKey),
+		r.roleTracker,
+	)
+}
+
+func (r *LocalQueueReconciler) Generic(e event.TypedGenericEvent[*kueue.LocalQueue]) bool {
+	r.logger().V(2).Info("LocalQueue generic event", "localQueue", klog.KObj(e.Object))
+	return true
+}
+
+// qWorkloadHandler signals the controller to reconcile the Queue associated
+// to the workload in the event.
+// Since the events come from a channel Source, only the Generic handler will
+// receive events.
+type qWorkloadHandler struct{}
+
+func (h *qWorkloadHandler) Create(context.Context, event.CreateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *qWorkloadHandler) Update(context.Context, event.UpdateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *qWorkloadHandler) Delete(context.Context, event.DeleteEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *qWorkloadHandler) Generic(_ context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	w := e.Object.(*kueue.Workload)
+	if w.Name == "" {
+		return
+	}
+	req := reconcile.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      string(w.Spec.QueueName),
+			Namespace: w.Namespace,
+		},
+	}
+	q.AddAfter(req, constants.UpdatesBatchPeriod)
+}
+
+// qCQHandler signals the controller to reconcile the Queue associated
+// to the workload in the event.
+type qCQHandler struct {
+	client client.Client
+}
+
+func (h *qCQHandler) Create(ctx context.Context, e event.CreateEvent, wq workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	cq, ok := e.Object.(*kueue.ClusterQueue)
+	if !ok {
+		return
+	}
+	h.addLocalQueueToWorkQueue(ctx, cq, wq)
+}
+
+func (h *qCQHandler) Update(ctx context.Context, e event.UpdateEvent, wq workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	newCq, ok := e.ObjectNew.(*kueue.ClusterQueue)
+	if !ok {
+		return
+	}
+	oldCq, ok := e.ObjectOld.(*kueue.ClusterQueue)
+	if !ok {
+		return
+	}
+	// Iff .status.conditions of the clusterQueue is updated,
+	// this handler sends all queues related to the clusterQueue to workqueue.
+	if equality.Semantic.DeepEqual(oldCq.Status.Conditions, newCq.Status.Conditions) {
+		return
+	}
+	h.addLocalQueueToWorkQueue(ctx, newCq, wq)
+}
+
+func (h *qCQHandler) Delete(ctx context.Context, e event.DeleteEvent, wq workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	cq, ok := e.Object.(*kueue.ClusterQueue)
+	if !ok {
+		return
+	}
+	h.addLocalQueueToWorkQueue(ctx, cq, wq)
+}
+
+func (h *qCQHandler) Generic(context.Context, event.GenericEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *qCQHandler) addLocalQueueToWorkQueue(ctx context.Context, cq *kueue.ClusterQueue, wq workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	log := ctrl.LoggerFrom(ctx).WithValues("clusterQueue", klog.KObj(cq))
+	ctx = ctrl.LoggerInto(ctx, log)
+
+	var queues kueue.LocalQueueList
+	err := h.client.List(ctx, &queues, client.MatchingFields{indexer.QueueClusterQueueKey: cq.Name})
+	if err != nil {
+		log.Error(err, "Could not list queues that match the clusterQueue")
+		return
+	}
+	for _, q := range queues.Items {
+		wq.Add(reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&q)})
+	}
+}
+
+// SetupWithManager sets up the controller with the Manager.
+func (r *LocalQueueReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Configuration) error {
+	queueCQHandler := qCQHandler{
+		client: r.client,
+	}
+	return builder.TypedControllerManagedBy[reconcile.Request](mgr).
+		Named("localqueue_controller").
+		WatchesRawSource(source.TypedKind(
+			mgr.GetCache(),
+			&kueue.LocalQueue{},
+			&handler.TypedEnqueueRequestForObject[*kueue.LocalQueue]{},
+			r,
+		)).
+		WithOptions(controller.Options{
+			NeedLeaderElection:      new(false),
+			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.SchemeGroupVersion.WithKind("LocalQueue").GroupKind().String()],
+			LogConstructor:          roletracker.NewLogConstructor(r.roleTracker, "localqueue-reconciler"),
+		}).
+		WatchesRawSource(source.Channel(r.wlUpdateCh, &qWorkloadHandler{})).
+		Watches(&kueue.ClusterQueue{}, &queueCQHandler).
+		Complete(WithLeadingManager(mgr, r, &kueue.LocalQueue{}, cfg))
+}
+
+func (r *LocalQueueReconciler) UpdateStatusIfChanged(
+	ctx context.Context,
+	queue *kueue.LocalQueue,
+	conditionStatus metav1.ConditionStatus,
+	reason, msg string,
+) error {
+	log := r.logger()
+	oldStatus := queue.Status.DeepCopy()
+	var (
+		pendingWls int32
+		err        error
+	)
+	if ptr.Deref(queue.Spec.StopPolicy, kueue.None) == kueue.None {
+		pendingWls, err = r.queues.PendingWorkloads(queue)
+		if err != nil {
+			log.Error(err, failedUpdateLqStatusMsg)
+			return err
+		}
+	}
+	stats, err := r.cache.LocalQueueUsage(queue)
+	if err != nil {
+		log.Error(err, failedUpdateLqStatusMsg)
+		return err
+	}
+	queue.Status.PendingWorkloads = pendingWls
+	queue.Status.ReservingWorkloads = int32(stats.ReservingWorkloads)
+	queue.Status.AdmittedWorkloads = int32(stats.AdmittedWorkloads)
+	queue.Status.FlavorsReservation = stats.ReservedResources
+	queue.Status.FlavorsUsage = stats.AdmittedResources
+	if len(conditionStatus) != 0 && len(reason) != 0 && len(msg) != 0 {
+		meta.SetStatusCondition(&queue.Status.Conditions, metav1.Condition{
+			Type:               kueue.LocalQueueActive,
+			Status:             conditionStatus,
+			Reason:             reason,
+			Message:            msg,
+			ObservedGeneration: queue.Generation,
+		})
+		if r.lqMetrics.ShouldExposeLocalQueueMetrics(queue.GetLabels()) {
+			metrics.ReportLocalQueueStatus(metrics.LocalQueueReference{
+				Name:      kueue.LocalQueueName(queue.Name),
+				Namespace: queue.Namespace,
+			}, conditionStatus, r.customLabels.LQGet(utilqueue.Key(queue)), r.roleTracker)
+		}
+	}
+	if !equality.Semantic.DeepEqual(oldStatus, queue.Status) {
+		return r.client.Status().Update(ctx, queue)
+	}
+	return nil
+}

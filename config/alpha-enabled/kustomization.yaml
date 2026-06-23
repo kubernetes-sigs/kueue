@@ -1,0 +1,9 @@
+# AllAlpha=true settings for Kueue.
+
+# Use default settings as a base.
+resources:
+- ../default
+
+patches:
+# Modify feature gates to enable AllAlpha=true
+- path: manager_config_patch.yaml

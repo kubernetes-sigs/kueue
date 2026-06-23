@@ -1,0 +1,19 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kueueviz-backend-ingress
+  namespace: system
+spec:
+  rules:
+    - host: backend.kueueviz.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: kueueviz-backend
+                port:
+                  number: 8080
+

@@ -1,0 +1,187 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package handlers
+
+import (
+	"context"
+
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
+	ctrlmanager "sigs.k8s.io/controller-runtime/pkg/manager"
+)
+
+type Client interface {
+	ctrlclient.Reader
+
+	GetInformerForKind(ctx context.Context, gvk schema.GroupVersionKind, opts ...cache.InformerGetOption) (cache.Informer, error)
+}
+
+type client struct {
+	ctrlclient.Reader
+	cache.Informers
+}
+
+func NewClientFromManager(manager ctrlmanager.Manager) Client {
+	return &client{
+		Reader:    manager.GetClient(),
+		Informers: manager.GetCache(),
+	}
+}
+
+// GVK helper functions for informers
+
+// ClusterQueuesGVK returns the GroupVersionKind for ClusterQueues
+func ClusterQueuesGVK() schema.GroupVersionKind {
+	return schema.GroupVersionKind{
+		Group:   "kueue.x-k8s.io",
+		Version: "v1beta2",
+		Kind:    "ClusterQueue",
+	}
+}
+
+// WorkloadsGVK returns the GroupVersionKind for Workloads
+func WorkloadsGVK() schema.GroupVersionKind {
+	return schema.GroupVersionKind{
+		Group:   "kueue.x-k8s.io",
+		Version: "v1beta2",
+		Kind:    "Workload",
+	}
+}
+
+// LocalQueuesGVK returns the GroupVersionKind for LocalQueues
+func LocalQueuesGVK() schema.GroupVersionKind {
+	return schema.GroupVersionKind{
+		Group:   "kueue.x-k8s.io",
+		Version: "v1beta2",
+		Kind:    "LocalQueue",
+	}
+}
+
+// ResourceFlavorsGVK returns the GroupVersionKind for ResourceFlavors
+func ResourceFlavorsGVK() schema.GroupVersionKind {
+	return schema.GroupVersionKind{
+		Group:   "kueue.x-k8s.io",
+		Version: "v1beta2",
+		Kind:    "ResourceFlavor",
+	}
+}
+
+// PodsGVK returns the GroupVersionKind for Pods
+func PodsGVK() schema.GroupVersionKind {
+	return schema.GroupVersionKind{
+		Group:   "",
+		Version: "v1",
+		Kind:    "Pod",
+	}
+}
+
+// EventsGVK returns the GroupVersionKind for Events
+func EventsGVK() schema.GroupVersionKind {
+	return schema.GroupVersionKind{
+		Group:   "",
+		Version: "v1",
+		Kind:    "Event",
+	}
+}
+
+// NodesGVK returns the GroupVersionKind for Nodes
+func NodesGVK() schema.GroupVersionKind {
+	return schema.GroupVersionKind{
+		Group:   "",
+		Version: "v1",
+		Kind:    "Node",
+	}
+}
+
+// GVR helper functions for dynamic client operations
+
+// ClusterQueuesGVR defines the GroupVersionResource for ClusterQueues
+func ClusterQueuesGVR() schema.GroupVersionResource {
+	return schema.GroupVersionResource{
+		Group:    "kueue.x-k8s.io",
+		Version:  "v1beta2",
+		Resource: "clusterqueues",
+	}
+}
+
+// WorkloadsGVR defines the GroupVersionResource for Workloads
+func WorkloadsGVR() schema.GroupVersionResource {
+	workloadsGVR := schema.GroupVersionResource{
+		Group:    "kueue.x-k8s.io",
+		Version:  "v1beta2",
+		Resource: "workloads",
+	}
+	return workloadsGVR
+}
+
+// LocalQueuesGVR defines the GroupVersionResource  for LocalQueues
+func LocalQueuesGVR() schema.GroupVersionResource {
+	localQueuesGVR := schema.GroupVersionResource{
+		Group:    "kueue.x-k8s.io",
+		Version:  "v1beta2",
+		Resource: "localqueues",
+	}
+	return localQueuesGVR
+}
+
+// CohortsGVR defines the GroupVersionResource for Cohorts
+func CohortsGVR() schema.GroupVersionResource {
+	cohortsGVR := schema.GroupVersionResource{
+		Group:    "kueue.x-k8s.io",
+		Version:  "v1beta2",
+		Resource: "cohorts",
+	}
+	return cohortsGVR
+}
+
+// ResourceFlavorsGVR defines the GroupVersionResource for ResourceFlavors
+func ResourceFlavorsGVR() schema.GroupVersionResource {
+	resourceFlavorsGVR := schema.GroupVersionResource{
+		Group:    "kueue.x-k8s.io",
+		Version:  "v1beta2",
+		Resource: "resourceflavors",
+	}
+	return resourceFlavorsGVR
+}
+
+// EventsGVR defines the GroupVersionResource for Events
+func EventsGVR() schema.GroupVersionResource {
+	return schema.GroupVersionResource{
+		Group:    "",
+		Version:  "v1",
+		Resource: "events",
+	}
+}
+
+// NodesGVR defines the GroupVersionResource for Nodes
+func NodesGVR() schema.GroupVersionResource {
+	return schema.GroupVersionResource{
+		Group:    "",
+		Version:  "v1",
+		Resource: "nodes",
+	}
+}
+
+// PodsGVR defines the GroupVersionResource for Pods
+func PodsGVR() schema.GroupVersionResource {
+	return schema.GroupVersionResource{
+		Group:    "",
+		Version:  "v1",
+		Resource: "pods",
+	}
+}

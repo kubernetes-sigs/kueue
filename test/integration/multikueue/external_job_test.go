@@ -1,0 +1,606 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package multikueue
+
+import (
+	"context"
+	"time"
+
+	"github.com/onsi/ginkgo/v2"
+	"github.com/onsi/gomega"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
+	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue/externalframeworks"
+	"sigs.k8s.io/kueue/pkg/controller/core"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
+	"sigs.k8s.io/kueue/pkg/controller/workloaddispatcher"
+	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
+	"sigs.k8s.io/kueue/pkg/webhooks"
+	"sigs.k8s.io/kueue/test/util"
+)
+
+var _ = ginkgo.Describe(
+	"MultiKueue",
+	ginkgo.Label("area:multikueue", "feature:multikueue"),
+	ginkgo.Ordered,
+	ginkgo.ContinueOnFailure,
+	func() {
+		ginkgo.When("the external RayCluster adapter is enabled", func() {
+			var (
+				managerNs *corev1.Namespace
+				worker1Ns *corev1.Namespace
+				worker2Ns *corev1.Namespace
+
+				managerMultiKueueSecret1 *corev1.Secret
+				managerMultiKueueSecret2 *corev1.Secret
+				workerCluster1           *kueue.MultiKueueCluster
+				workerCluster2           *kueue.MultiKueueCluster
+				managerMultiKueueConfig  *kueue.MultiKueueConfig
+				multiKueueAC             *kueue.AdmissionCheck
+				managerCq                *kueue.ClusterQueue
+				managerLq                *kueue.LocalQueue
+				managerFlavor            *kueue.ResourceFlavor
+
+				worker1Cq *kueue.ClusterQueue
+				worker1Lq *kueue.LocalQueue
+
+				worker2Cq *kueue.ClusterQueue
+				worker2Lq *kueue.LocalQueue
+			)
+
+			ginkgo.BeforeAll(func() {
+				// TODO https://github.com/kubernetes-sigs/kueue/issues/9022 (Eliminate the global state RayJob reconciler)
+				// Originally this test uses RayJob, we hit a global variable issue `var reconciler rayJobReconciler`.
+				// Change to use RayCluster now. When the global variable is solved, change back to use RayJob in this test.
+				managerTestCluster.fwk.StartManager(
+					managerTestCluster.ctx,
+					managerTestCluster.cfg,
+					func(ctx context.Context, mgr manager.Manager) {
+						// Set up core controllers and RayCluster webhook (but not MultiKueue integration)
+						err := indexer.Setup(ctx, mgr.GetFieldIndexer())
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+						cCache := schdcache.New(mgr.GetClient())
+						preemptionExpectations := preemptexpectations.New()
+						queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
+						queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+
+						configuration := &config.Configuration{}
+						mgr.GetScheme().Default(configuration)
+
+						failedCtrl, err := core.SetupControllers(
+							mgr,
+							queues,
+							cCache,
+							configuration,
+							core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations},
+						)
+						gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
+
+						failedWebhook, err := webhooks.Setup(mgr, nil)
+						gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
+
+						// Set up RayCluster webhook (but not MultiKueue integration)
+						err = workloadraycluster.SetupIndexes(ctx, mgr.GetFieldIndexer())
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+						rayclusterReconciler, _ := workloadraycluster.NewReconciler(
+							ctx,
+							mgr.GetClient(),
+							mgr.GetFieldIndexer(),
+							mgr.GetEventRecorder(constants.JobControllerName))
+						err = rayclusterReconciler.SetupWithManager(mgr)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+						err = workloadraycluster.SetupRayClusterWebhook(
+							mgr,
+							jobframework.WithCache(cCache),
+							jobframework.WithQueues(queues),
+						)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+						// Set up multikueue with external frameworks only
+						err = multikueue.SetupIndexer(ctx, mgr.GetFieldIndexer(), managersConfigNamespace.Name)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+						cfg := &config.Configuration{}
+						mgr.GetScheme().Default(cfg)
+						cfg.MultiKueue.ExternalFrameworks = []config.MultiKueueExternalFramework{
+							{
+								Name: "RayCluster.v1.ray.io",
+							},
+						}
+
+						// Get external adapters for MultiKueue synchronization
+						externalAdapters, err := externalframeworks.NewAdapters(cfg.MultiKueue.ExternalFrameworks)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+						adapters := make(map[string]jobframework.MultiKueueAdapter)
+						for _, adapter := range externalAdapters {
+							gvk := adapter.GVK()
+							adapters[gvk.String()] = adapter
+						}
+
+						err = multikueue.SetupControllers(mgr, managersConfigNamespace.Name,
+							multikueue.WithGCInterval(2*time.Second),
+							multikueue.WithWorkerLostTimeout(testingWorkerLostTimeout),
+							multikueue.WithEventsBatchPeriod(250*time.Millisecond),
+							multikueue.WithAdapters(adapters),
+							multikueue.WithDispatcherName(config.MultiKueueDispatcherModeAllAtOnce),
+						)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+						_, err = workloaddispatcher.SetupControllers(mgr, configuration, nil)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					},
+				)
+			})
+
+			ginkgo.AfterAll(func() {
+				managerTestCluster.fwk.StopManager(managerTestCluster.ctx)
+			})
+
+			ginkgo.BeforeEach(func() {
+				managerNs = util.CreateNamespaceFromPrefixWithLog(
+					managerTestCluster.ctx,
+					managerTestCluster.client,
+					"multikueue-",
+				)
+				worker1Ns = util.CreateNamespaceWithLog(
+					worker1TestCluster.ctx,
+					worker1TestCluster.client,
+					managerNs.Name,
+				)
+				worker2Ns = util.CreateNamespaceWithLog(
+					worker2TestCluster.ctx,
+					worker2TestCluster.client,
+					managerNs.Name,
+				)
+
+				w1Kubeconfig, err := worker1TestCluster.kubeConfigBytes()
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+				w2Kubeconfig, err := worker2TestCluster.kubeConfigBytes()
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+				managerMultiKueueSecret1 = utiltesting.MakeSecret("multikueue1", managersConfigNamespace.Name).
+					Data(kueue.MultiKueueConfigSecretKey, w1Kubeconfig).
+					Obj()
+				util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueSecret1)
+
+				managerMultiKueueSecret2 = utiltesting.MakeSecret("multikueue2", managersConfigNamespace.Name).
+					Data(kueue.MultiKueueConfigSecretKey, w2Kubeconfig).
+					Obj()
+				util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueSecret2)
+
+				workerCluster1 = utiltestingapi.MakeMultiKueueCluster("worker1").
+					KubeConfig(kueue.SecretLocationType, managerMultiKueueSecret1.Name).
+					Obj()
+				util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, workerCluster1)
+
+				workerCluster2 = utiltestingapi.MakeMultiKueueCluster("worker2").
+					KubeConfig(kueue.SecretLocationType, managerMultiKueueSecret2.Name).
+					Obj()
+				util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, workerCluster2)
+
+				managerMultiKueueConfig = utiltestingapi.MakeMultiKueueConfig("multikueueconfig").
+					Clusters(workerCluster1.Name, workerCluster2.Name).
+					Obj()
+				util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueConfig)
+
+				multiKueueAC = utiltestingapi.MakeAdmissionCheck("ac1").
+					ControllerName(kueue.MultiKueueControllerName).
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", managerMultiKueueConfig.Name).
+					Obj()
+				util.CreateAdmissionChecksAndWaitForActive(
+					managerTestCluster.ctx,
+					managerTestCluster.client,
+					multiKueueAC,
+				)
+
+				managerFlavor = utiltestingapi.MakeResourceFlavor(string(multikueueTestFlavor)).Obj()
+				util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerFlavor)
+
+				managerCq = utiltestingapi.MakeClusterQueue("q1").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas(string(multikueueTestFlavor)).Resource(corev1.ResourceCPU, "5").Obj()).
+					AdmissionChecks(kueue.AdmissionCheckReference(multiKueueAC.Name)).
+					Obj()
+				util.CreateClusterQueuesAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, managerCq)
+
+				managerLq = utiltestingapi.MakeLocalQueue(managerCq.Name, managerNs.Name).
+					ClusterQueue(managerCq.Name).
+					Obj()
+				util.CreateLocalQueuesAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, managerLq)
+
+				worker1Cq = utiltestingapi.MakeClusterQueue("q1").Obj()
+				util.CreateClusterQueuesAndWaitForActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1Cq)
+				worker1Lq = utiltestingapi.MakeLocalQueue(worker1Cq.Name, worker1Ns.Name).
+					ClusterQueue(worker1Cq.Name).
+					Obj()
+				util.CreateLocalQueuesAndWaitForActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1Lq)
+
+				worker2Cq = utiltestingapi.MakeClusterQueue("q1").Obj()
+				util.CreateClusterQueuesAndWaitForActive(worker2TestCluster.ctx, worker2TestCluster.client, worker2Cq)
+				worker2Lq = utiltestingapi.MakeLocalQueue(worker2Cq.Name, worker2Ns.Name).
+					ClusterQueue(worker2Cq.Name).
+					Obj()
+				util.CreateLocalQueuesAndWaitForActive(worker2TestCluster.ctx, worker2TestCluster.client, worker2Lq)
+			})
+
+			ginkgo.AfterEach(func() {
+				gomega.Expect(util.DeleteNamespace(managerTestCluster.ctx, managerTestCluster.client, managerNs)).
+					To(gomega.Succeed())
+				gomega.Expect(util.DeleteNamespace(worker1TestCluster.ctx, worker1TestCluster.client, worker1Ns)).
+					To(gomega.Succeed())
+				gomega.Expect(util.DeleteNamespace(worker2TestCluster.ctx, worker2TestCluster.client, worker2Ns)).
+					To(gomega.Succeed())
+				util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerCq, true)
+				util.ExpectObjectToBeDeleted(worker1TestCluster.ctx, worker1TestCluster.client, worker1Cq, true)
+				util.ExpectObjectToBeDeleted(worker2TestCluster.ctx, worker2TestCluster.client, worker2Cq, true)
+				util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerFlavor, true)
+				util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC, true)
+				util.ExpectObjectToBeDeleted(
+					managerTestCluster.ctx,
+					managerTestCluster.client,
+					managerMultiKueueConfig,
+					true,
+				)
+				util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, workerCluster1, true)
+				util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, workerCluster2, true)
+				util.ExpectObjectToBeDeleted(
+					managerTestCluster.ctx,
+					managerTestCluster.client,
+					managerMultiKueueSecret1,
+					true,
+				)
+				util.ExpectObjectToBeDeleted(
+					managerTestCluster.ctx,
+					managerTestCluster.client,
+					managerMultiKueueSecret2,
+					true,
+				)
+			})
+
+			ginkgo.It("Should run a RayCluster on worker if admitted", func() {
+				admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).PodSets(
+					utiltestingapi.MakePodSetAssignment("head").Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj(),
+					utiltestingapi.MakePodSetAssignment("workers-group-0").
+						Flavor(corev1.ResourceCPU, multikueueTestFlavor).
+						Obj(),
+				)
+				raycluster := testingraycluster.MakeCluster("raycluster1", managerNs.Name).
+					Queue(managerLq.Name).
+					Obj()
+				util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, raycluster)
+				wlLookupKey := types.NamespacedName{
+					Name:      workloadraycluster.GetWorkloadNameForRayCluster(raycluster.Name, raycluster.UID),
+					Namespace: managerNs.Name,
+				}
+				util.SetQuotaReservation(
+					managerTestCluster.ctx,
+					managerTestCluster.client,
+					wlLookupKey,
+					admission.Obj(),
+				)
+
+				admitWorkloadAndCheckWorkerCopies(multiKueueAC.Name, wlLookupKey, admission)
+
+				ginkgo.By(
+					"changing the status of the RayCluster in the worker, updates the manager's RayCluster status",
+					func() {
+						gomega.Eventually(func(g gomega.Gomega) {
+							createdRayCluster := rayv1.RayCluster{}
+							g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(raycluster), &createdRayCluster)).
+								To(gomega.Succeed())
+							//nolint:staticcheck //SA1019: createdRayCluster.Status.State is deprecated
+							createdRayCluster.Status.State = rayv1.Ready
+							g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdRayCluster)).
+								To(gomega.Succeed())
+						}, util.Timeout, util.Interval).Should(gomega.Succeed())
+						gomega.Eventually(func(g gomega.Gomega) {
+							createdRayCluster := rayv1.RayCluster{}
+							g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(raycluster), &createdRayCluster)).
+								To(gomega.Succeed())
+							//nolint:staticcheck //SA1019: createdRayCluster.Status.State is deprecated
+							g.Expect(createdRayCluster.Status.State).To(gomega.Equal(rayv1.Ready))
+						}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					},
+				)
+
+				// TODO RayCluster Finished() always returns false, uncomment following after following:
+				// 1. The global `var reconciler rayJobReconciler` is solved.
+				// 2. Use RayJob in this test instead of use RayCluster
+				// ginkgo.By("finishing the worker RayCluster, the manager's wl is marked as finished and the worker2 wl removed", func() {
+				//	finishJobReason := ""
+				//	gomega.Eventually(func(g gomega.Gomega) {
+				//		createdRayCluster := rayv1.RayCluster{}
+				//		g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(raycluster), &createdRayCluster)).To(gomega.Succeed())
+				//		//nolint:staticcheck //SA1019: createdRayCluster.Status.State is deprecated
+				//		createdRayCluster.Status.State = rayv1.Ready
+				//		g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdRayCluster)).To(gomega.Succeed())
+				//	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				//
+				//	waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlLookupKey, finishJobReason)
+				// })
+			})
+
+			ginkgo.It("Should create the remote RayCluster without the manager's ownerReferences", func() {
+				admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).PodSets(
+					utiltestingapi.MakePodSetAssignment("head").Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj(),
+					utiltestingapi.MakePodSetAssignment("workers-group-0").
+						Flavor(corev1.ResourceCPU, multikueueTestFlavor).
+						Obj(),
+				)
+				raycluster := testingraycluster.MakeCluster("raycluster1", managerNs.Name).
+					Queue(managerLq.Name).
+					Obj()
+				// The owner UID exists only on the manager, so a worker GC would delete a copy that kept it.
+				raycluster.OwnerReferences = []metav1.OwnerReference{{
+					APIVersion: "example.com/v1",
+					Kind:       "FakeOwner",
+					Name:       "fake-owner",
+					UID:        "11111111-1111-1111-1111-111111111111",
+				}}
+				util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, raycluster)
+				wlLookupKey := types.NamespacedName{
+					Name:      workloadraycluster.GetWorkloadNameForRayCluster(raycluster.Name, raycluster.UID),
+					Namespace: managerNs.Name,
+				}
+
+				admitWorkloadAndCheckWorkerCopies(multiKueueAC.Name, wlLookupKey, admission)
+
+				// uid/resourceVersion are server-assigned, so only owner-refs/finalizers/status are checked.
+				ginkgo.By("checking the remote RayCluster carries no source-cluster metadata", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						createdRayCluster := rayv1.RayCluster{}
+						g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(raycluster), &createdRayCluster)).
+							To(gomega.Succeed())
+						g.Expect(createdRayCluster.OwnerReferences).To(gomega.BeEmpty())
+						g.Expect(createdRayCluster.Finalizers).To(gomega.BeEmpty())
+						g.Expect(createdRayCluster.Status).To(gomega.BeZero())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+			})
+
+			ginkgo.It("Should run a RayCluster on worker if admitted (ManagedBy)", func() {
+				admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).PodSets(
+					utiltestingapi.MakePodSetAssignment("head").Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj(),
+					utiltestingapi.MakePodSetAssignment("workers-group-0").
+						Flavor(corev1.ResourceCPU, multikueueTestFlavor).
+						Obj(),
+				)
+				raycluster := testingraycluster.MakeCluster("raycluster1", managerNs.Name).
+					Queue(managerLq.Name).
+					ManagedBy(kueue.MultiKueueControllerName).
+					Obj()
+				util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, raycluster)
+				wlLookupKey := types.NamespacedName{
+					Name:      workloadraycluster.GetWorkloadNameForRayCluster(raycluster.Name, raycluster.UID),
+					Namespace: managerNs.Name,
+				}
+				util.SetQuotaReservation(
+					managerTestCluster.ctx,
+					managerTestCluster.client,
+					wlLookupKey,
+					admission.Obj(),
+				)
+
+				admitWorkloadAndCheckWorkerCopies(multiKueueAC.Name, wlLookupKey, admission)
+
+				ginkgo.By(
+					"changing the status of the RayCluster in the worker, updates the manager's RayCluster status",
+					func() {
+						gomega.Eventually(func(g gomega.Gomega) {
+							createdRayCluster := rayv1.RayCluster{}
+							g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(raycluster), &createdRayCluster)).
+								To(gomega.Succeed())
+							//nolint:staticcheck //SA1019: createdRayCluster.Status.State is deprecated
+							createdRayCluster.Status.State = rayv1.Ready
+							g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdRayCluster)).
+								To(gomega.Succeed())
+						}, util.Timeout, util.Interval).Should(gomega.Succeed())
+						gomega.Eventually(func(g gomega.Gomega) {
+							createdRayCluster := rayv1.RayCluster{}
+							g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(raycluster), &createdRayCluster)).
+								To(gomega.Succeed())
+							//nolint:staticcheck //SA1019: createdRayCluster.Status.State is deprecated
+							g.Expect(createdRayCluster.Status.State).To(gomega.Equal(rayv1.Ready))
+						}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					},
+				)
+
+				// TODO RayCluster Finished() always returns false, uncomment following after following:
+				// 1. The global `var reconciler rayJobReconciler` is solved.
+				// 2. Use RayJob in this test instead of use RayCluster
+				// ginkgo.By("finishing the worker raycluster, the manager's wl is marked as finished and the worker2 wl removed", func() {
+				//	finishJobReason := ""
+				//	gomega.Eventually(func(g gomega.Gomega) {
+				//		createdRayCluster := rayv1.RayCluster{}
+				//		g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(raycluster), &createdRayCluster)).To(gomega.Succeed())
+				//		g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdRayCluster)).To(gomega.Succeed())
+				//	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				//
+				//	waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlLookupKey, finishJobReason)
+				// })
+			})
+
+			ginkgo.It(
+				"Should remove the worker's workload and raycluster after reconnect when the managers raycluster and workload are deleted",
+				func() {
+					raycluster := testingraycluster.MakeCluster("raycluster1", managerNs.Name).
+						Queue(managerLq.Name).
+						Obj()
+					util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, raycluster)
+					rayclusterLookupKey := client.ObjectKeyFromObject(raycluster)
+					createdRayCluster := &rayv1.RayCluster{}
+
+					createdWorkload := &kueue.Workload{}
+					wlLookupKey := types.NamespacedName{
+						Name:      workloadraycluster.GetWorkloadNameForRayCluster(raycluster.Name, raycluster.UID),
+						Namespace: managerNs.Name,
+					}
+
+					ginkgo.By("setting workload reservation in the management cluster", func() {
+						admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).PodSets(
+							utiltestingapi.MakePodSetAssignment("head").
+								Flavor(corev1.ResourceCPU, multikueueTestFlavor).
+								Obj(),
+							utiltestingapi.MakePodSetAssignment("workers-group-0").
+								Flavor(corev1.ResourceCPU, multikueueTestFlavor).
+								Obj(),
+						)
+						gomega.Eventually(func(g gomega.Gomega) {
+							g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).
+								To(gomega.Succeed())
+							util.SetQuotaReservation(
+								managerTestCluster.ctx,
+								managerTestCluster.client,
+								wlLookupKey,
+								admission.Obj(),
+							)
+						}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					})
+
+					ginkgo.By("checking the workload creation in the worker clusters", func() {
+						managerWl := &kueue.Workload{}
+						gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).
+							To(gomega.Succeed())
+						gomega.Eventually(func(g gomega.Gomega) {
+							g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).
+								To(gomega.Succeed())
+							g.Expect(createdWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
+							g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).
+								To(gomega.Succeed())
+							g.Expect(createdWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
+						}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+					})
+
+					restoreConnectionToWorker2 := util.BreakConnection(
+						managerTestCluster.ctx,
+						managerTestCluster.client,
+						workerCluster2,
+					)
+
+					ginkgo.By("setting workload reservation in worker1, the raycluster is created in worker1", func() {
+						admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).PodSets(
+							utiltestingapi.MakePodSetAssignment("head").
+								Flavor(corev1.ResourceCPU, multikueueTestFlavor).
+								Obj(),
+							utiltestingapi.MakePodSetAssignment("workers-group-0").
+								Flavor(corev1.ResourceCPU, multikueueTestFlavor).
+								Obj(),
+						)
+
+						gomega.Eventually(func(g gomega.Gomega) {
+							g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).
+								To(gomega.Succeed())
+							util.SetQuotaReservation(
+								worker1TestCluster.ctx,
+								worker1TestCluster.client,
+								wlLookupKey,
+								admission.Obj(),
+							)
+						}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+						gomega.Eventually(func(g gomega.Gomega) {
+							g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, rayclusterLookupKey, createdRayCluster)).
+								To(gomega.Succeed())
+						}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					})
+
+					restoreConnectionToWorker1 := util.BreakConnection(
+						managerTestCluster.ctx,
+						managerTestCluster.client,
+						workerCluster1,
+					)
+
+					ginkgo.By("removing the managers raycluster and workload", func() {
+						gomega.Expect(managerTestCluster.client.Delete(managerTestCluster.ctx, raycluster)).
+							Should(gomega.Succeed())
+						gomega.Eventually(func(g gomega.Gomega) {
+							g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).
+								To(gomega.Succeed())
+							g.Expect(managerTestCluster.client.Delete(managerTestCluster.ctx, createdWorkload)).
+								To(gomega.Succeed())
+						}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+						gomega.Eventually(func(g gomega.Gomega) {
+							g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).
+								To(utiltesting.BeNotFoundError(), "workload not deleted")
+						}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					})
+
+					ginkgo.By("the worker objects are still present", func() {
+						gomega.Eventually(func(g gomega.Gomega) {
+							g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).
+								To(gomega.Succeed())
+						}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+						gomega.Eventually(func(g gomega.Gomega) {
+							g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, rayclusterLookupKey, createdRayCluster)).
+								To(gomega.Succeed())
+						}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+						gomega.Eventually(func(g gomega.Gomega) {
+							g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).
+								To(gomega.Succeed())
+						}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					})
+
+					ginkgo.By("restoring the connection to worker2", func() {
+						restoreConnectionToWorker2()
+					})
+
+					ginkgo.By("the worker2 wl is removed by the garbage collector", func() {
+						gomega.Eventually(func(g gomega.Gomega) {
+							g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).
+								To(utiltesting.BeNotFoundError())
+						}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+					})
+
+					ginkgo.By("restoring the connection to worker1", func() {
+						restoreConnectionToWorker1()
+					})
+
+					ginkgo.By("the wl and raycluster are removed on the worker1", func() {
+						gomega.Eventually(func(g gomega.Gomega) {
+							g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, rayclusterLookupKey, createdRayCluster)).
+								To(utiltesting.BeNotFoundError())
+							g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).
+								To(utiltesting.BeNotFoundError())
+						}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+					})
+				},
+			)
+		})
+	},
+)

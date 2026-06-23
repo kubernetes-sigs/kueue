@@ -1,0 +1,153 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package node
+
+import (
+	"maps"
+
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+// NodeWrapper wraps a Node.
+type NodeWrapper struct {
+	corev1.Node
+}
+
+// MakeNode creates a wrapper for a Node
+func MakeNode(name string) *NodeWrapper {
+	return &NodeWrapper{corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		},
+	},
+	}
+}
+
+// Obj returns the inner Node.
+func (n *NodeWrapper) Obj() *corev1.Node {
+	return &n.Node
+}
+
+// Clone returns a deep copy of the NodeWrapper.
+func (n *NodeWrapper) Clone() *NodeWrapper {
+	return &NodeWrapper{Node: *n.Obj().DeepCopy()}
+}
+
+// Name updates the name of the node
+func (n *NodeWrapper) Name(name string) *NodeWrapper {
+	n.ObjectMeta.Name = name
+	return n
+}
+
+// Label adds a label to the Node
+func (n *NodeWrapper) Label(k, v string) *NodeWrapper {
+	if n.Labels == nil {
+		n.Labels = make(map[string]string)
+	}
+	n.Labels[k] = v
+	return n
+}
+
+// Annotation adds an annotation to the Node
+func (n *NodeWrapper) Annotation(k, v string) *NodeWrapper {
+	if n.Annotations == nil {
+		n.Annotations = make(map[string]string, 1)
+	}
+	n.Annotations[k] = v
+	return n
+}
+
+// StatusConditions appends the given status conditions to the Node.
+func (n *NodeWrapper) StatusConditions(conditions ...corev1.NodeCondition) *NodeWrapper {
+	n.Status.Conditions = append(n.Status.Conditions, conditions...)
+	return n
+}
+
+// StatusAllocatable updates the allocatable resources of the Node.
+func (n *NodeWrapper) StatusAllocatable(resources corev1.ResourceList) *NodeWrapper {
+	if n.Status.Allocatable == nil {
+		n.Status.Allocatable = make(corev1.ResourceList, len(resources))
+	}
+	maps.Copy(n.Status.Allocatable, resources)
+	return n
+}
+
+// Taints appends the given taints to the Node.
+func (n *NodeWrapper) Taints(taints ...corev1.Taint) *NodeWrapper {
+	n.Spec.Taints = append(n.Spec.Taints, taints...)
+	return n
+}
+
+// Ready sets the Node to a ready status condition
+func (n *NodeWrapper) Ready() *NodeWrapper {
+	n.StatusConditions(corev1.NodeCondition{
+		Type:   corev1.NodeReady,
+		Status: corev1.ConditionTrue,
+	})
+	return n
+}
+
+// NotReady sets the Node to a not ready status condition
+func (n *NodeWrapper) NotReady() *NodeWrapper {
+	n.StatusConditions(corev1.NodeCondition{
+		Type:   corev1.NodeReady,
+		Status: corev1.ConditionFalse,
+	})
+	return n
+}
+
+// Unschedulable sets the Node to an unschedulable state.
+func (n *NodeWrapper) Unschedulable() *NodeWrapper {
+	n.Spec.Unschedulable = true
+	return n
+}
+
+// ConditionHeartbeat updates the LastHeartbeatTime of an existing condition.
+func (n *NodeWrapper) ConditionHeartbeat(conditionType corev1.NodeConditionType, heartbeat metav1.Time) *NodeWrapper {
+	for i := range n.Status.Conditions {
+		if n.Status.Conditions[i].Type == conditionType {
+			n.Status.Conditions[i].LastHeartbeatTime = heartbeat
+			break
+		}
+	}
+	return n
+}
+
+// ResourceVersion sets the ResourceVersion of the Node.
+func (n *NodeWrapper) ResourceVersion(version string) *NodeWrapper {
+	n.ObjectMeta.ResourceVersion = version
+	return n
+}
+
+// ManagedFields sets the ManagedFields of the Node.
+func (n *NodeWrapper) ManagedFields(fields []metav1.ManagedFieldsEntry) *NodeWrapper {
+	n.ObjectMeta.ManagedFields = fields
+	return n
+}
+
+// RuntimeHandlers sets the runtime handlers in the node's status.
+func (n *NodeWrapper) RuntimeHandlers(nodeRunTimeHandles []corev1.NodeRuntimeHandler) *NodeWrapper {
+	n.Status.RuntimeHandlers = nodeRunTimeHandles
+	return n
+}
+
+// Images sets the container images in the node's status.
+func (n *NodeWrapper) Images(images []corev1.ContainerImage) *NodeWrapper {
+	n.Status.Images = images
+	return n
+}

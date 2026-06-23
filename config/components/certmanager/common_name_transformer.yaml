@@ -1,0 +1,9 @@
+apiVersion: builtin
+kind: PrefixSuffixTransformer
+metadata:
+  name: add-prefix-to-common-name
+prefix: kueue-
+fieldSpecs:
+  - kind: Certificate
+    group: cert-manager.io
+    path: spec/commonName

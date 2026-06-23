@@ -1,0 +1,49 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package scheduler
+
+import (
+	"github.com/go-logr/logr"
+	"k8s.io/klog/v2"
+
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/util/logging"
+)
+
+func logAdmissionAttemptIfVerbose(log logr.Logger, e *entry) {
+	logV := log.V(3)
+	if !logV.Enabled() {
+		return
+	}
+	args := []any{
+		"workload", klog.KObj(e.Obj),
+		"clusterQueue", klog.KRef("", string(e.ClusterQueue)),
+		"status", e.status,
+		"reason", e.inadmissibleMsg,
+	}
+	if log.V(4).Enabled() {
+		args = append(args, "nominatedAssignment", e.assignment)
+		args = append(args, "preempted", logging.GetObjectReferences(e.preemptionTargets))
+	}
+	logV.Info("Workload evaluated for admission", args...)
+}
+
+func logSnapshotIfVerbose(log logr.Logger, s *schdcache.Snapshot) {
+	if logV := log.V(6); logV.Enabled() {
+		s.Log(logV)
+	}
+}

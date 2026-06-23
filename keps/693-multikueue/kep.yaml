@@ -1,0 +1,39 @@
+title: MultiKueue
+kep-number: 693
+authors:
+  - "@mwielgus"
+  - "@trasc"
+status: draft
+creation-date: 2023-09-20
+reviewers:
+  - "@kerthcet"
+  - "@alculquicondor"
+approvers:
+  - "@alculquicondor"
+
+# The target maturity stage in the current dev cycle for this KEP.
+stage: beta
+
+# The most recent milestone for which work toward delivery of this KEP has been
+# done. This can be the current (upcoming) milestone, if it is being actively
+# worked on.
+latest-milestone: "v0.17"
+
+# The milestone at which this feature was, or is targeted to be, at each stage.
+milestone:
+  alpha: "v0.6"
+  beta: "v0.8"
+  stable: TBD
+
+feature-gates:
+  - MultiKueue
+  - MultiKueueBatchJobWithManagedBy
+
+# The following PRR answers are required at alpha release
+# List the feature gate name and the components for which it must be enabled
+disable-supported: false
+
+# The following PRR answers are required at beta release
+# metrics:
+#   - my_feature_metric
+

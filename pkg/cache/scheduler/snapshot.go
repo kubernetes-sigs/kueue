@@ -1,0 +1,336 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package scheduler
+
+import (
+	"context"
+	"fmt"
+	"maps"
+	"slices"
+
+	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/klog/v2"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
+	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
+	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/resources"
+	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
+	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
+	"sigs.k8s.io/kueue/pkg/workload"
+)
+
+type inactiveCQReason string
+
+const (
+	inactiveCQReasonNotActive         inactiveCQReason = "NotActive"
+	inactiveCQReasonHasCycle          inactiveCQReason = "HasCycle"
+	inactiveCQReasonTASUsageNotSynced inactiveCQReason = "TASUsageNotSynced"
+)
+
+type Snapshot struct {
+	hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]
+	ResourceFlavors          map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
+	InactiveClusterQueueSets sets.Set[kueue.ClusterQueueReference]
+}
+
+// RemoveWorkload removes a workload from its corresponding ClusterQueue and
+// updates resource usage.
+func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
+	cq := s.ClusterQueue(wl.ClusterQueue)
+	delete(cq.Workloads, workload.Key(wl.Obj))
+	cq.RemoveUsage(wl.Usage())
+}
+
+// AddWorkload adds a workload to its corresponding ClusterQueue and
+// updates resource usage.
+func (s *Snapshot) AddWorkload(wl *workload.Info) {
+	cq := s.ClusterQueue(wl.ClusterQueue)
+	cq.Workloads[workload.Key(wl.Obj)] = wl
+	cq.AddUsage(wl.Usage())
+}
+
+// SimulateWorkloadRemoval modifies the snapshot by removing the usage
+// corresponding to the list of workloads from workloads' respective
+// ClusterQueues. It returns a function which can be used to restore
+// this usage.
+func (s *Snapshot) SimulateWorkloadRemoval(workloads []*workload.Info) func() {
+	type cqUsage struct {
+		cq    kueue.ClusterQueueReference
+		usage workload.Usage
+	}
+	cqUsages := make([]cqUsage, 0, len(workloads))
+	for _, w := range workloads {
+		cqUsages = append(cqUsages, cqUsage{cq: w.ClusterQueue, usage: w.Usage()})
+	}
+	for _, cqUsage := range cqUsages {
+		s.ClusterQueue(cqUsage.cq).RemoveUsage(cqUsage.usage)
+	}
+	return func() {
+		for _, cqUsage := range cqUsages {
+			s.ClusterQueue(cqUsage.cq).AddUsage(cqUsage.usage)
+		}
+	}
+}
+
+func (s *Snapshot) Log(log logr.Logger) {
+	for name, cq := range s.ClusterQueues() {
+		cohortName := "<none>"
+		if cq.HasParent() {
+			cohortName = string(cq.Parent().Name)
+		}
+
+		log.Info("Found ClusterQueue",
+			"clusterQueue", klog.KRef("", string(name)),
+			"cohort", cohortName,
+			"resourceGroups", cq.ResourceGroups,
+			"usage", cq.ResourceNode.Usage,
+			"workloads", slices.Collect(maps.Keys(cq.Workloads)),
+		)
+	}
+	for name, cohort := range s.Cohorts() {
+		log.Info("Found cohort",
+			"cohort", name,
+			"resources", cohort.ResourceNode.SubtreeQuota,
+			"usage", cohort.ResourceNode.Usage,
+		)
+	}
+
+	// Dump TAS snapshots if the feature is enabled
+	if features.Enabled(features.TopologyAwareScheduling) {
+		for cqName, cq := range s.ClusterQueues() {
+			for tasFlavor, tasSnapshot := range cq.TASFlavors {
+				freeCapacityPerDomain, err := tasSnapshot.SerializeFreeCapacityPerDomain()
+				if err != nil {
+					log.Error(err, "Failed to serialize TAS snapshot free capacity",
+						"clusterQueue", cqName,
+						"resourceFlavor", tasFlavor,
+					)
+					continue
+				}
+
+				log.Info("TAS Snapshot Free Capacity",
+					"clusterQueue", cqName,
+					"resourceFlavor", tasFlavor,
+					"freeCapacityPerDomain", freeCapacityPerDomain,
+				)
+			}
+		}
+	}
+}
+
+type snapshotOption struct {
+	afsEntryPenalties    *queueafs.AfsEntryPenalties
+	afsConsumedResources *queueafs.AfsConsumedResources
+}
+
+type SnapshotOption func(*snapshotOption)
+
+func WithAfsEntryPenalties(penalties *queueafs.AfsEntryPenalties) SnapshotOption {
+	return func(o *snapshotOption) {
+		o.afsEntryPenalties = penalties
+	}
+}
+
+func WithAfsConsumedResources(consumedResources *queueafs.AfsConsumedResources) SnapshotOption {
+	return func(o *snapshotOption) {
+		o.afsConsumedResources = consumedResources
+	}
+}
+
+func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snapshot, error) {
+	c.RLock()
+	defer c.RUnlock()
+
+	opts := &snapshotOption{}
+	for _, option := range options {
+		option(opts)
+	}
+
+	snap := Snapshot{
+		Manager:                  hierarchy.NewManager(newCohortSnapshot),
+		ResourceFlavors:          make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, len(c.resourceFlavors)),
+		InactiveClusterQueueSets: sets.New[kueue.ClusterQueueReference](),
+	}
+	for _, cohort := range c.hm.Cohorts() {
+		if hierarchy.HasCycle(cohort) {
+			continue
+		}
+		snap.AddCohort(cohort.Name)
+		snap.Cohort(cohort.Name).ResourceNode = cohort.resourceNode.Clone()
+		snap.Cohort(cohort.Name).FairWeight = cohort.FairWeight
+		if cohort.HasParent() {
+			snap.UpdateCohortEdge(cohort.Name, cohort.Parent().Name)
+		}
+	}
+	log := ctrl.LoggerFrom(ctx)
+	cqNames := c.hm.ClusterQueues()
+	for _, cq := range cqNames {
+		if reason := skipInactiveCQReason(cq); reason != "" {
+			log.V(3).Info("Skipping ClusterQueue", "clusterQueue", cq.Name, "reason", reason)
+			snap.InactiveClusterQueueSets.Insert(cq.Name)
+			continue
+		}
+	}
+	tasSnapshots := make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot)
+	if features.Enabled(features.TopologyAwareScheduling) {
+		var aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests
+		flvTASCache := c.tasCache.Clone()
+
+		if features.Enabled(features.TASHandleOverlappingFlavors) {
+			aggregatedDomainUsages = make(map[utiltas.TopologyDomainID]resources.Requests)
+			for _, cache := range flvTASCache {
+				c.snapshotTopologyDomainUsages(cache, aggregatedDomainUsages)
+			}
+			log.V(4).Info("Aggregated TAS usage across flavors")
+		}
+		for flavor, cache := range flvTASCache {
+			// Only when this flavor is aggregation targets,
+			// we should propagate aggregated domain usages to snapshot constructions.
+			var aggregatedDomainUsagesForFlavor map[utiltas.TopologyDomainID]resources.Requests
+			if features.Enabled(features.TASHandleOverlappingFlavors) && utiltas.IsLowestLevelHostname(cache.topology.Levels) {
+				aggregatedDomainUsagesForFlavor = aggregatedDomainUsages
+			}
+			tasSnapshots[flavor] = cache.snapshot(
+				log,
+				c.tasCache.nodesCache.find(cache.flavor.NodeLabels, cache.topology.Levels),
+				aggregatedDomainUsagesForFlavor,
+			)
+		}
+	}
+	for _, cq := range cqNames {
+		if snap.InactiveClusterQueueSets.Has(cq.Name) {
+			continue
+		}
+		cqSnapshot, err := c.snapshotClusterQueue(ctx, cq, opts.afsEntryPenalties, opts.afsConsumedResources)
+		if err != nil {
+			return nil, err
+		}
+		snap.AddClusterQueue(cqSnapshot)
+		if cq.HasParent() {
+			snap.UpdateClusterQueueEdge(cq.Name, cq.Parent().Name)
+		}
+		if features.Enabled(features.TopologyAwareScheduling) {
+			for tasFlv, s := range tasSnapshots {
+				if cq.flavorInUse(tasFlv) {
+					cqSnapshot.TASFlavors[tasFlv] = s
+				}
+			}
+		}
+	}
+	// Shallow copy is enough
+	maps.Copy(snap.ResourceFlavors, c.resourceFlavors)
+	return &snap, nil
+}
+
+func (c *Cache) snapshotTopologyDomainUsages(
+	tasFlvCache *TASFlavorCache, aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests,
+) {
+	tasFlvCache.RLock()
+	defer tasFlvCache.RUnlock()
+
+	if len(tasFlvCache.topology.Levels) == 0 || !utiltas.IsLowestLevelHostname(tasFlvCache.topology.Levels) {
+		return
+	}
+	for domainID, domainUsage := range tasFlvCache.usage {
+		if _, ok := aggregatedDomainUsages[domainID]; ok {
+			aggregatedDomainUsages[domainID].Add(domainUsage)
+		} else {
+			aggregatedDomainUsages[domainID] = domainUsage.Clone()
+		}
+	}
+}
+
+// skipInactiveCQReason reports why the CQ should not be considered for
+// admitting workloads in this scheduler snapshot. If the CQ can be considered,
+// an empty reason is returned.
+func skipInactiveCQReason(cq *clusterQueue) inactiveCQReason {
+	if !cq.Active() {
+		return inactiveCQReasonNotActive
+	}
+	if cq.HasParent() && hierarchy.HasCycle(cq.Parent()) {
+		return inactiveCQReasonHasCycle
+	}
+	if features.Enabled(features.TopologyAwareScheduling) && len(cq.tasFlavors) > 0 && !cq.isTASSynced {
+		// The CQ uses a TAS flavor, but TAS usage is not synced yet.
+		return inactiveCQReasonTASUsageNotSynced
+	}
+	return ""
+}
+
+// snapshotClusterQueue creates a copy of ClusterQueue that includes
+// references to immutable objects and deep copies of changing ones.
+func (c *Cache) snapshotClusterQueue(
+	ctx context.Context,
+	cq *clusterQueue,
+	afsEntryPenalties *queueafs.AfsEntryPenalties,
+	afsConsumedResources *queueafs.AfsConsumedResources,
+) (*ClusterQueueSnapshot, error) {
+	log := log.FromContext(ctx)
+	cc := &ClusterQueueSnapshot{
+		Name:                          cq.Name,
+		ResourceGroups:                make([]ResourceGroup, len(cq.ResourceGroups)),
+		FlavorFungibility:             cq.FlavorFungibility,
+		FairWeight:                    cq.FairWeight,
+		AllocatableResourceGeneration: cq.AllocatableResourceGeneration,
+		Workloads:                     maps.Clone(cq.Workloads),
+		Preemption:                    cq.Preemption,
+		NamespaceSelector:             cq.NamespaceSelector,
+		Status:                        cq.Status,
+		AdmissionChecks:               utilmaps.DeepCopySets(cq.AdmissionChecks),
+		ResourceNode:                  cq.resourceNode.Clone(),
+		ConcurrentAdmissionPolicy:     cq.ConcurrentAdmissionPolicy,
+		TASFlavors:                    make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot),
+		tasOnly:                       cq.isTASOnly(),
+		flavorsForProvReqACs:          cq.flavorsWithProvReqAdmissionCheck(),
+		hasMultiKueueAC:               cq.hasMultiKueueAdmissionCheck(),
+	}
+	for i, rg := range cq.ResourceGroups {
+		cc.ResourceGroups[i] = rg.Clone()
+	}
+	if afs.Enabled(c.admissionFairSharing) {
+		if cq.AdmissionScope != nil {
+			cc.AdmissionScope = *cq.AdmissionScope.DeepCopy()
+		}
+		afsEnabled, resourceWeights := afs.ResourceWeights(&cc.AdmissionScope, c.admissionFairSharing)
+		if !afsEnabled {
+			return cc, nil
+		}
+		for _, wl := range cc.Workloads {
+			usage, err := wl.CalcLocalQueueFSUsage(ctx, c.client, resourceWeights, afsEntryPenalties, afsConsumedResources)
+			if err != nil {
+				return nil, fmt.Errorf("failed to calculate LocalQueue FS usage for LocalQueue %v", client.ObjectKey{Namespace: wl.Obj.Namespace, Name: string(wl.Obj.Spec.QueueName)})
+			}
+			wl.LocalQueueFSUsage = &usage
+			log.V(5).Info("Calculated LocalQueueFSUsage for workload", "workload", klog.KObj(wl.Obj), "queue", wl.Obj.Spec.QueueName, "usage", usage)
+		}
+	}
+	return cc, nil
+}
+
+func newCohortSnapshot(name kueue.CohortReference) *CohortSnapshot {
+	return &CohortSnapshot{
+		Name:   name,
+		Cohort: hierarchy.NewCohort[*ClusterQueueSnapshot](),
+	}
+}

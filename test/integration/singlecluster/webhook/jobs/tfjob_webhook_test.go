@@ -1,0 +1,64 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package jobs
+
+import (
+	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
+	"github.com/onsi/ginkgo/v2"
+	"github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/tfjob"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	testingjobstfjob "sigs.k8s.io/kueue/pkg/util/testingjobs/tfjob"
+	"sigs.k8s.io/kueue/test/util"
+)
+
+var _ = ginkgo.Describe("TFJob Webhook", func() {
+	var ns *corev1.Namespace
+	ginkgo.BeforeEach(func() {
+		fwk.StartManager(ctx, cfg, managerSetup(tfjob.SetupTFJobWebhook))
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tf-")
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.When("with TopologyAwareScheduling", func() {
+		ginkgo.It("the creation doesn't succeed if job contain both kueue.x-k8s.io/podset-required-topology and kueue.x-k8s.io/podset-preferred-topology annotations", func() {
+			job := testingjobstfjob.MakeTFJob("job", ns.Name).
+				TFReplicaSpecs(
+					testingjobstfjob.TFReplicaSpecRequirement{
+						ReplicaType:  kftraining.TFJobReplicaTypeChief,
+						ReplicaCount: 1,
+						Annotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/rack",
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/rack",
+						},
+					},
+				).
+				Queue("lq").
+				Obj()
+			err := k8sClient.Create(ctx, job)
+			gomega.Expect(err).Should(gomega.HaveOccurred())
+			gomega.Expect(err).Should(utiltesting.BeForbiddenError(), "error: %v", err)
+		})
+	})
+})

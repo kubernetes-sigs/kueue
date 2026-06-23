@@ -1,0 +1,71 @@
+resources:
+# All RBAC will be applied under this service account in
+# the deployment namespace. You may comment out this resource
+# if your manager will use a service account that exists at
+# runtime. Be sure to update RoleBinding and ClusterRoleBinding
+# subjects if changing service account names.
+- service_account.yaml
+- role.yaml
+- role_binding.yaml
+- leader_election_role.yaml
+- leader_election_role_binding.yaml
+- manager_secrets_role.yaml
+- manager_secrets_role_binding.yaml
+- manager_clusterprofiles_role.yaml
+- manager_clusterprofiles_role_binding.yaml
+# The following RBAC configurations are used to protect
+# the metrics endpoint with authn/authz. These configurations
+# ensure that only authorized users and service accounts
+# can access the metrics endpoint. Comment the following
+# permissions if you want to disable this protection.
+# More info: https://book.kubebuilder.io/reference/metrics.html
+- metrics_auth_role.yaml
+- metrics_auth_role_binding.yaml
+- metrics_reader_role.yaml
+# ClusterRoles for Kueue APIs
+- batch_admin_role.yaml
+- batch_user_role.yaml
+- clusterqueue_editor_role.yaml
+- clusterqueue_viewer_role.yaml
+- localqueue_editor_role.yaml
+- localqueue_viewer_role.yaml
+- resourceflavor_editor_role.yaml
+- resourceflavor_viewer_role.yaml
+- pending_workloads_cq_viewer_role.yaml
+- pending_workloads_lq_viewer_role.yaml
+- topology_editor_role.yaml
+- topology_viewer_role.yaml
+- workload_editor_role.yaml
+- workload_viewer_role.yaml
+- cohort_editor_role.yaml
+- cohort_viewer_role.yaml
+
+# ClusterRoles for Kueue integrations
+- job_editor_role.yaml
+- job_viewer_role.yaml
+- jobset_editor_role.yaml
+- jobset_viewer_role.yaml
+- mpijob_editor_role.yaml
+- mpijob_viewer_role.yaml
+- raycluster_editor_role.yaml
+- raycluster_viewer_role.yaml
+- rayjob_editor_role.yaml
+- rayjob_viewer_role.yaml
+- rayservice_editor_role.yaml
+- rayservice_viewer_role.yaml
+- pytorchjob_editor_role.yaml
+- pytorchjob_viewer_role.yaml
+- tfjob_editor_role.yaml
+- tfjob_viewer_role.yaml
+- xgboostjob_editor_role.yaml
+- xgboostjob_viewer_role.yaml
+- paddlejob_editor_role.yaml
+- paddlejob_viewer_role.yaml
+- jaxjob_editor_role.yaml
+- jaxjob_viewer_role.yaml
+- trainjob_editor_role.yaml
+- trainjob_viewer_role.yaml
+- leaderworkerset_editor_role.yaml
+- leaderworkerset_viewer_role.yaml
+- sparkapplication_editor_role.yaml
+- sparkapplication_viewer_role.yaml

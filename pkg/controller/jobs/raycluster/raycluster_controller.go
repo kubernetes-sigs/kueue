@@ -1,0 +1,165 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package raycluster
+
+import (
+	"context"
+	"fmt"
+
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/ray"
+	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/podset"
+)
+
+var (
+	gvk = rayv1.GroupVersion.WithKind("RayCluster")
+)
+
+const (
+	headGroupPodSetName = "head"
+	FrameworkName       = "ray.io/raycluster"
+)
+
+func init() {
+	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
+		SetupIndexes:      SetupIndexes,
+		NewJob:            NewJob,
+		NewReconciler:     NewReconciler,
+		SetupWebhook:      SetupRayClusterWebhook,
+		JobType:           &rayv1.RayCluster{},
+		AddToScheme:       rayv1.AddToScheme,
+		MultiKueueAdapter: ray.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy),
+	}))
+}
+
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;watch;update;patch
+// +kubebuilder:rbac:groups=ray.io,resources=rayclusters,verbs=get;list;watch;update;patch;delete
+// +kubebuilder:rbac:groups=ray.io,resources=rayclusters/status,verbs=get;patch;update
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
+// +kubebuilder:rbac:groups=ray.io,resources=rayclusters/finalizers,verbs=get;update
+
+func NewJob() jobframework.GenericJob {
+	return &RayCluster{}
+}
+
+var NewReconciler = jobframework.NewGenericReconcilerFactory(NewJob)
+
+type RayCluster rayv1.RayCluster
+
+var _ jobframework.GenericJob = (*RayCluster)(nil)
+var _ jobframework.JobWithManagedBy = (*RayCluster)(nil)
+
+func (j *RayCluster) Object() client.Object {
+	return (*rayv1.RayCluster)(j)
+}
+
+func (j *RayCluster) IsSuspended() bool {
+	return j.Spec.Suspend != nil && *j.Spec.Suspend
+}
+
+func (j *RayCluster) IsActive() bool {
+	return j.Status.State == rayv1.Ready
+}
+
+func (j *RayCluster) Suspend() {
+	j.Spec.Suspend = new(true)
+}
+
+func (j *RayCluster) GVK() schema.GroupVersionKind {
+	return gvk
+}
+
+func (j *RayCluster) PodLabelSelector() string {
+	return fmt.Sprintf("%s=%s", rayutils.RayClusterLabelKey, j.Name)
+}
+
+func (j *RayCluster) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, error) {
+	return BuildPodSets(&j.Spec, j.Annotations)
+}
+
+func (j *RayCluster) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSetsInfo []podset.PodSetInfo) error {
+	expectedLen := ExpectedPodSetsCount(&j.Spec)
+	if len(podSetsInfo) != expectedLen {
+		return podset.BadPodSetsInfoLenError(expectedLen, len(podSetsInfo))
+	}
+
+	j.Spec.Suspend = new(false)
+
+	err := UpdateRayClusterSpecToRunWithPodSetsInfo(&j.Spec, podSetsInfo)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (j *RayCluster) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
+	if len(podSetsInfo) != ExpectedPodSetsCount(&j.Spec) {
+		return false
+	}
+
+	return RestorePodSetsInfo(&j.Spec, podSetsInfo)
+}
+
+func (j *RayCluster) Finished(ctx context.Context) (message string, success, finished bool) {
+	// Technically a RayCluster is never "finished"
+	return j.Status.Reason, j.Status.State != rayv1.Failed, false
+}
+
+func (j *RayCluster) PodsReady(ctx context.Context, _ client.Client) bool {
+	return j.Status.State == rayv1.Ready
+}
+
+func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
+	return jobframework.SetupWorkloadOwnerIndex(ctx, indexer, gvk)
+}
+
+func GetWorkloadNameForRayCluster(jobName string, jobUID types.UID) string {
+	return jobframework.GetWorkloadNameForOwnerWithGVK(jobName, jobUID, gvk)
+}
+
+func fromObject(o runtime.Object) *RayCluster {
+	return (*RayCluster)(o.(*rayv1.RayCluster))
+}
+
+func (j *RayCluster) CanDefaultManagedBy() bool {
+	jobSpecManagedBy := j.Spec.ManagedBy
+	return features.Enabled(features.MultiKueue) &&
+		(jobSpecManagedBy == nil || *jobSpecManagedBy == rayutils.KubeRayController)
+}
+
+func (j *RayCluster) ManagedBy() *string {
+	return j.Spec.ManagedBy
+}
+
+func (j *RayCluster) SetManagedBy(managedBy *string) {
+	j.Spec.ManagedBy = managedBy
+}

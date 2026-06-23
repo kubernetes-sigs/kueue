@@ -1,0 +1,206 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package pod
+
+import (
+	"crypto/sha256"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"slices"
+	"strconv"
+
+	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/klog/v2"
+	"k8s.io/utils/clock"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
+)
+
+// HasGate checks if the pod has a scheduling gate with a specified name.
+func HasGate(pod *corev1.Pod, gateName string) bool {
+	return gateIndex(&pod.Spec, gateName) >= 0
+}
+
+// HasCondition checks if there is a condition in the Pod's status
+// with exactly the same Type and Status.
+func HasCondition(p *corev1.Pod, cond *corev1.PodCondition) bool {
+	return slices.ContainsFunc(p.Status.Conditions, func(c corev1.PodCondition) bool {
+		return c.Type == cond.Type && c.Status == cond.Status
+	})
+}
+
+// Ungate removes scheduling gate from the Pod if present.
+// Returns true if the pod has been updated and false otherwise.
+func Ungate(pod *corev1.Pod, gateName string) bool {
+	if idx := gateIndex(&pod.Spec, gateName); idx >= 0 {
+		pod.Spec.SchedulingGates = slices.Delete(pod.Spec.SchedulingGates, idx, idx+1)
+		return true
+	}
+	return false
+}
+
+// Gate adds scheduling gate from the Pod if present.
+// Returns true if the pod has been updated and false otherwise.
+func Gate(pod *corev1.Pod, gateName string) bool {
+	return gateSpec(&pod.Spec, gateName)
+}
+
+// GateTemplate adds scheduling gate to the PodTemplate.
+// Returns true if the PodTemplate has been updated and false otherwise.
+func GateTemplate(template *corev1.PodTemplateSpec, gateName string) bool {
+	return gateSpec(&template.Spec, gateName)
+}
+
+// Gate adds scheduling gate to the PodSpec.
+// Returns true if the PodSpec has been updated and false otherwise.
+func gateSpec(podSpec *corev1.PodSpec, gateName string) bool {
+	if gateIndex(podSpec, gateName) < 0 {
+		podSpec.SchedulingGates = append(podSpec.SchedulingGates, corev1.PodSchedulingGate{
+			Name: gateName,
+		})
+		return true
+	}
+	return false
+}
+
+// gateIndex returns the index of the Kueue scheduling gate for corev1.Pod.
+// If the scheduling gate is not found, returns -1.
+func gateIndex(spec *corev1.PodSpec, gateName string) int {
+	return slices.IndexFunc(spec.SchedulingGates, func(g corev1.PodSchedulingGate) bool {
+		return g.Name == gateName
+	})
+}
+
+var (
+	ErrLabelNotFound = errors.New("label not found")
+	ErrInvalidUInt   = errors.New("invalid unsigned integer")
+	ErrValidation    = errors.New("validation error")
+)
+
+func IgnoreLabelNotFoundError(err error) error {
+	if errors.Is(err, ErrLabelNotFound) {
+		return nil
+	}
+	return err
+}
+
+func ReadUIntFromLabelBelowBound(obj client.Object, labelKey string, bound int) (*int, error) {
+	value, found := obj.GetLabels()[labelKey]
+	kind := obj.GetObjectKind().GroupVersionKind().Kind
+	if !found {
+		return nil, fmt.Errorf("%w: no label %q for %s %q", ErrLabelNotFound, labelKey, kind, klog.KObj(obj))
+	}
+	intValue, err := readUIntFromStringBelowBound(value, bound)
+	if err != nil {
+		return nil, fmt.Errorf("incorrect label value %q for %s %q: %w", value, kind, klog.KObj(obj), err)
+	}
+	return intValue, nil
+}
+
+func readUIntFromStringBelowBound(value string, bound int) (*int, error) {
+	uintValue, err := strconv.ParseUint(value, 10, 0)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrInvalidUInt, err.Error())
+	}
+	if uintValue >= uint64(bound) {
+		return nil, fmt.Errorf("%w: value should be less than %d", ErrValidation, bound)
+	}
+	return new(int(uintValue)), nil
+}
+
+func GenerateRoleHash(podSpec *corev1.PodSpec) (string, error) {
+	shape := map[string]any{
+		"spec": SpecShape(podSpec),
+	}
+
+	shapeJSON, err := json.Marshal(shape)
+	if err != nil {
+		return "", err
+	}
+
+	// Trim hash to 8 characters and return
+	return fmt.Sprintf("%x", sha256.Sum256(shapeJSON))[:8], nil
+}
+
+func SpecShape(podSpec *corev1.PodSpec) (result map[string]any) {
+	shape := map[string]any{
+		"initContainers":            ContainersShape(podSpec.InitContainers),
+		"containers":                ContainersShape(podSpec.Containers),
+		"nodeSelector":              podSpec.NodeSelector,
+		"affinity":                  podSpec.Affinity,
+		"tolerations":               podSpec.Tolerations,
+		"runtimeClassName":          podSpec.RuntimeClassName,
+		"priority":                  podSpec.Priority,
+		"topologySpreadConstraints": podSpec.TopologySpreadConstraints,
+		"overhead":                  podSpec.Overhead,
+		"resourceClaims":            podSpec.ResourceClaims,
+	}
+	// Pod-level resources (KEP-2837) only contribute to the shape when set, so that
+	// role hashes computed for pods without them stay stable across upgrades.
+	if podSpec.Resources != nil {
+		shape["resources"] = podSpec.Resources.Requests
+	}
+	return shape
+}
+
+func ContainersShape(containers []corev1.Container) (result []map[string]any) {
+	for _, c := range containers {
+		result = append(result, map[string]any{
+			"resources": map[string]any{
+				"requests": c.Resources.Requests,
+			},
+			"ports": c.Ports,
+		})
+	}
+	return result
+}
+
+func IsTerminated(p *corev1.Pod) bool {
+	return p.Status.Phase == corev1.PodFailed || p.Status.Phase == corev1.PodSucceeded
+}
+
+func RecordPodSchedulingGateRemovalSeconds(cl clock.Clock, name string, wl *kueue.Workload, isGroup bool) {
+	cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
+	if cond == nil || cond.Status != metav1.ConditionTrue {
+		return
+	}
+	latency := cl.Now().Sub(cond.LastTransitionTime.Time)
+	metrics.RecordPodSchedulingGateRemovalSeconds(name, wl.Status.Admission.ClusterQueue, isGroup, latency)
+}
+
+// GetPodGroupName returns the pod group name for the given pod. It reads the
+// GroupNameLabel, or when the WorkloadIdentifierAnnotations feature gate is
+// enabled it first reads the GroupNameAnnotation and then falls back to the label.
+func GetPodGroupName(p *corev1.Pod) string {
+	if features.Enabled(features.WorkloadIdentifierAnnotations) {
+		if name := p.Annotations[podconstants.GroupNameAnnotation]; name != "" {
+			return name
+		}
+	}
+	return p.Labels[podconstants.GroupNameLabel]
+}
+
+func IsPodGroup(p *corev1.Pod) bool {
+	return GetPodGroupName(p) != ""
+}

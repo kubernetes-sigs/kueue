@@ -1,0 +1,297 @@
+a {
+  text-decoration: none;
+}
+
+// --------------------------------------------------
+// remove whitespace after footer
+// --------------------------------------------------
+footer {
+  min-height: auto;
+}
+
+// --------------------------------------------------
+// prevent overflow of long names in sidebar
+// --------------------------------------------------
+.td-sidebar-nav__section > ul {
+  overflow-wrap: break-word;
+}
+
+.td-overlay--dark::after {
+  background-color: rgba(33, 61, 122, 0.6);
+}
+
+#main_navbar {
+  justify-content: end;
+  padding-right: 16px;
+}
+
+.row > * {
+  flex-shrink: 1;
+}
+
+.row > .container {
+  max-width: 1200px;
+}
+
+// --------------------------------------------------
+// custom navbar with larger logo, dropdown on mobile
+// --------------------------------------------------
+.td-navbar {
+  min-height: 3.5rem;
+  background-color: rgba(255, 255, 255, 0.96) !important;
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid #e2e8f0 !important;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+
+  .navbar-brand {
+    margin: 0;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+
+    .text-uppercase {
+      display: inline-block !important;
+      font-size: 1.15rem;
+      font-weight: 700;
+      letter-spacing: -0.025em;
+      color: #0f172a !important; // Slate 900
+      text-transform: none !important; // Keep 'Kueue' mixed case
+    }
+
+    .navbar-logo {
+      display: flex;
+      align-items: center;
+
+      svg {
+        display: inline-block;
+        position: static; // Reset absolute positioning
+        height: 28px; // Sleeker, more compact height
+        width: auto;
+        padding: 0;
+        background: transparent;
+        border: none;
+        z-index: auto;
+
+        @include media-breakpoint-down(md) {
+          height: 24px;
+        }
+      }
+    }
+  }
+
+
+  .navbar-nav {
+    align-items: center;
+    
+    .nav-link {
+      font-weight: 400; // Normal weight to prevent faux-bold smudging on Chinese fonts and FontAwesome icons
+      color: #475569 !important; // Slate 600
+      transition: color 0.15s ease;
+      padding: 0.5rem 0.75rem;
+      text-shadow: none !important;
+
+      &:hover, &.active {
+        color: #0ea5e9 !important; // Sky 500 (Teal/Accent)
+      }
+    }
+
+    @include media-breakpoint-down(md) {
+      font-size: .875rem;
+      align-items: flex-start;
+      .dropdown {
+        min-width: inherit;
+      }
+    }
+  }
+}
+
+.td-navbar-cover * {
+  text-shadow: none !important;
+}
+
+.td-navbar * {
+  text-shadow: none !important;
+  -webkit-font-smoothing: antialiased;
+}
+
+
+.td-sidebar {
+  padding-bottom: 0.5rem;
+
+  .td-sidebar__inner {
+    padding-top: 30px;
+
+    @include media-breakpoint-down(md) {
+      padding-top: 10px;
+    }
+  }
+}
+
+// Structural layout override: Constrain the navigation scroll container height
+// on desktop so the scrollbar and links never overlap the full-width footer.
+@media (min-width: 768px) {
+  .td-sidebar-nav {
+    max-height: calc(100vh - 14.5rem) !important;
+  }
+}
+
+.td-sidebar-toc {
+  @supports (position: sticky) {
+      position: sticky;
+      top: 60px;
+      height: calc(100vh - 120px);
+      overflow-y: auto;
+  }
+}
+
+
+// --------------------------------------------------
+// 404 page
+// --------------------------------------------------
+.error-page {
+  margin-top: 120px;
+
+  ul {
+    margin-bottom: 50px;
+    list-style-type: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    padding-left: 0;
+  }
+
+  li {
+    margin-left: 10px;
+    margin-right: 10px;
+  }
+
+  h1 {
+    text-align: center;
+    margin-bottom: 20px;
+  }
+
+  @media (min-width: 768px) and (max-width: 991px) {
+    margin-top: 100px;
+  }
+
+  @media (max-width: 767px) {
+    margin-top: 50px;
+  }
+}
+
+figcaption {
+  font-size: 0.8rem;
+  text-align: center;
+  font-style: italic;
+  color: #6c757d;
+}
+
+// --------------------------------------------------
+// for tabbed code blocks
+// --------------------------------------------------
+.nav-tabs {
+  border-bottom: none !important;
+}
+
+.td-content > ul li,
+.td-content > ol li.nav-item {
+  margin-bottom: 0px;
+}
+
+.td-content .tab-content .highlight {
+  margin: 0;
+}
+
+.tab-pane {
+  border-radius: 0.25rem;
+  padding: 0 16px 16px;
+
+  border: 1px solid #dee2e6;
+
+  &:first-of-type.active {
+    border-top-left-radius: 0;
+  }
+}
+
+nav.foldable-nav .ul-1 .with-child>label:hover:before {
+  transform: none;
+}
+
+nav.foldable-nav .ul-1 .with-child>input:checked~label:hover:before {
+  transform: rotate(90deg) !important;
+}
+
+div.feature-state-notice {
+    background-color: #daeaf9;
+    border-radius: 0.75rem;
+    padding: 1rem;
+    margin-bottom: 1em;
+
+    font-size: 1.2em;
+
+    > .feature-state-name::before {
+      content: 'ⓘ  ';
+      color: #326ce5; // Kubernetes blue
+    }
+    > .feature-state-name {
+      display: inline-block;
+      font-size: 0.95em;
+      font-weight: bold;
+      color: #000;
+    }
+
+    code {
+      color: #000;
+      font-size: 1em;
+      background-color: #daeaf9;
+    }
+
+    margin-right: 2em;
+    max-width: 80%;
+
+    &.feature-deprecated {
+      > .feature-state-name::before {
+        color: #ed6a5a;
+      }
+
+      background-color: #fbe1de;
+    }
+  }
+
+// --------------------------------------------------
+// Homepage static feature cards
+// --------------------------------------------------
+.feature-card {
+  cursor: default;
+  
+  h1, h2, h3, h4, h5, h6, p, span, i, div {
+    cursor: inherit;
+  }
+}
+
+// --------------------------------------------------
+// Sidebar Search Button (Permanent Visibility & Left-Alignment)
+// --------------------------------------------------
+#td-sidebar-menu {
+  .btn-outline-secondary {
+    // Override theme's white-on-white variables for the light sidebar
+    --bs-btn-color: var(--bs-secondary-color, #6c757d) !important;
+    --bs-btn-border-color: var(--bs-border-color, #dee2e6) !important;
+    
+    // Hover states (keeps background transparent/intact, subtly darkens text and border)
+    --bs-btn-hover-color: var(--bs-secondary-color, #6c757d) !important;
+    --bs-btn-hover-bg: transparent !important;
+    --bs-btn-hover-border-color: var(--bs-border-color, #dee2e6) !important;
+    
+    // Active/Focus states (subtle click feedback with very light gray)
+    --bs-btn-active-color: var(--bs-secondary-color, #6c757d) !important;
+    --bs-btn-active-bg: rgba(0, 0, 0, 0.05) !important;
+    --bs-btn-active-border-color: var(--bs-border-color, #dee2e6) !important;
+    
+    // Force text and icon alignment to the left
+    text-align: left !important;
+    padding-left: 0.75rem !important;
+  }
+}

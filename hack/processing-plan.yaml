@@ -1,0 +1,807 @@
+globalOptions:
+  boilerplatePath: ./hack/boilerplate.go.txt
+files:
+  - path: ./config/components/crd/bases/*.yaml
+    outputDir: ./charts/kueue/templates/crd/
+    removeComments: true
+    excludes:
+      - kustomization.yaml
+    continueOnError: true
+    operations:
+      - type: INSERT_OBJECT
+        key: .spec
+        onFileCondition: '{"Workload": true, "LocalQueue": true, "ClusterQueue": true, "Cohort": true, "MultiKueueCluster": true}[.spec.names.kind]'
+        value: |
+          conversion:
+              strategy: Webhook
+              webhook:
+                clientConfig:
+                  service:
+                    name: '{{ include "kueue.fullname" . }}-webhook-service'
+                    namespace: '{{ .Release.Namespace }}'
+                    path: /convert
+                conversionReviewVersions:
+                  - v1
+    postOperations:
+      - type: INSERT_TEXT
+        key: .metadata.annotations
+        value: |
+          {{- if .Values.enableCertManager }}
+          cert-manager.io/inject-ca-from: '{{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-serving-cert'
+          {{- end }}
+        indentation: 2
+      - type: INSERT_TEXT
+        key: .metadata
+        value: |
+          labels:
+          {{- include "kueue.labels" . | nindent 4 }}
+        indentation: 2
+  - path: ./config/components/rbac/*.yaml
+    outputDir: ./charts/kueue/templates/rbac
+    removeComments: true
+    excludes:
+      - kustomization.yaml
+    continueOnError: true
+    operations:
+      - type: APPEND
+        key: .metadata.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: UPDATE
+        key: .metadata.namespace
+        value: '"{{ .Release.Namespace }}"'
+      - type: APPEND
+        key: .roleRef.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: APPEND
+        key: .subjects.[].name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: UPDATE
+        key: .subjects.[].namespace
+        value: '"{{ .Release.Namespace }}"'
+    postOperations:
+      - type: INSERT_TEXT
+        key: .metadata.labels
+        value: |
+          {{- include "kueue.labels" . | nindent 4 }}
+        onFileCondition: '.metadata.labels != null'
+      - type: INSERT_TEXT
+        key: .metadata
+        value: |
+          labels:
+          {{- include "kueue.labels" . | nindent 4 }}
+        indentation: 2
+        onFileCondition: '.metadata.labels == null'
+  - path: ./config/components/visibility/*.yaml
+    outputDir: ./charts/kueue/templates/visibility
+    removeComments: true
+    excludes:
+      - kustomization.yaml
+      - subject_transformer.yaml
+    continueOnError: true
+    operations:
+      - type: APPEND
+        key: .metadata.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+        onFileCondition: '.metadata.name != "v1beta*"'
+      - type: UPDATE
+        key: .metadata.namespace
+        value: '"{{ .Release.Namespace }}"'
+        onFileCondition: '.metadata.namespace != "kube-system"'
+      - type: APPEND
+        key: .spec.service.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: UPDATE
+        key: .spec.service.namespace
+        value: '"{{ .Release.Namespace }}"'
+      - type: UPDATE
+        key: .subjects.[].namespace
+        value: '"{{ .Release.Namespace }}"'
+      - type: APPEND
+        key: .subjects.[].name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: DELETE
+        key: .spec.insecureSkipTLSVerify
+        onFileCondition: '.kind == "APIService"'
+    postOperations:
+      - type: INSERT_TEXT
+        key: .metadata
+        value: |
+          labels:
+          {{- include "kueue.visibilityService.labels" . | nindent 4 }}
+        indentation: 2
+      - type: INSERT_TEXT
+        key: .spec
+        value: |
+          selector:
+          {{- include "kueue.selectorLabels" . | nindent 4 }}
+        indentation: 2
+        onFileCondition: '.kind == "Service"'
+      - type: INSERT_TEXT
+        key: .metadata
+        value: |
+          {{- if .Values.enableCertManager }}
+          annotations:
+            cert-manager.io/inject-ca-from: '{{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-visibility-server-cert'
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "APIService"'
+      - type: INSERT_TEXT
+        key: .spec
+        value: |
+          {{- if not .Values.enableCertManager }}
+          insecureSkipTLSVerify: true
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "APIService"'
+  - path: ./config/components/visibility-apf/*.yaml
+    outputDir: ./charts/kueue/templates/visibility-apf
+    removeComments: true
+    excludes:
+      - kustomization.yaml
+    continueOnError: true
+    operations:
+      - type: APPEND
+        key: .metadata.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+        onFileCondition: '.metadata.name != "v1beta*"'
+      - type: UPDATE
+        key: .metadata.namespace
+        value: '"{{ .Release.Namespace }}"'
+        onFileCondition: '.metadata.namespace != "kube-system"'
+      - type: APPEND
+        key: .spec.priorityLevelConfiguration.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: APPEND
+        key: .spec.service.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: UPDATE
+        key: .spec.service.namespace
+        value: '"{{ .Release.Namespace }}"'
+      - type: UPDATE
+        key: .subjects.[].namespace
+        value: '"{{ .Release.Namespace }}"'
+    postOperations:
+      - type: INSERT_TEXT
+        key: .metadata
+        value: |
+          labels:
+          {{- include "kueue.labels" . | nindent 4 }}
+        indentation: 2
+      - type: INSERT_TEXT
+        position: START
+        value: |
+          {{- if .Values.enableVisibilityAPF }}
+      - type: INSERT_TEXT
+        position: END
+        value: |
+          {{- end }}
+  - path: ./config/components/webhook/service.yaml
+    outputDir: ./charts/kueue/templates/webhook
+    removeComments: true
+    continueOnError: true
+    operations:
+      - type: APPEND
+        key: .metadata.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: UPDATE
+        key: .metadata.namespace
+        value: '"{{ .Release.Namespace }}"'
+      - type: INSERT_OBJECT
+        key: .spec.type
+        value: '"{{ .Values.webhookService.type }}"'
+        addKeyIfMissing: true
+      - type: DELETE
+        key: .spec.ports
+    postOperations:
+      - type: INSERT_TEXT
+        key: .metadata
+        value: |
+          labels:
+          {{- include "kueue.webhookService.labels" . | nindent 4 }}
+        indentation: 2
+      - type: INSERT_TEXT
+        key: .spec.type
+        value: |
+          {{- if .Values.webhookService.ipDualStack.enabled }}
+          ipFamilies: {{ toYaml .Values.webhookService.ipDualStack.ipFamilies | nindent 4 }}
+          ipFamilyPolicy: {{ .Values.webhookService.ipDualStack.ipFamilyPolicy }}
+          {{- end }}
+          selector:
+          {{- include "kueue.selectorLabels" . | nindent 4 }}
+          ports:
+          {{- .Values.webhookService.ports | toYaml | nindent 2 -}}
+  - path: ./config/components/webhook/manifests.yaml
+    outputDir: ./charts/kueue/templates/webhook/
+    removeComments: true
+    continueOnError: true
+    operations:
+      - type: APPEND
+        key: .metadata.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: APPEND
+        key: .webhooks.[].clientConfig.service.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: APPEND
+        key: .webhooks.[].reinvocationPolicy
+        value: '"{{ .Values.mutatingWebhook.reinvocationPolicy }}"'
+        onFileCondition: '.kind == "MutatingWebhookConfiguration"'
+        addKeyIfMissing: true
+      - type: UPDATE
+        key: .webhooks.[].clientConfig.service.namespace
+        value: '"{{ .Release.Namespace }}"'
+      - type: DELETE
+        key: .webhooks.[].failurePolicy
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/mutate--v1-pod"'
+      - type: DELETE
+        key: .webhooks.[].failurePolicy
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate--v1-pod"'
+      - type: DELETE
+        key: .webhooks.[].failurePolicy
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/mutate-apps-v1-deployment"'
+      - type: DELETE
+        key: .webhooks.[].failurePolicy
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-apps-v1-deployment"'
+      - type: DELETE
+        key: .webhooks.[].failurePolicy
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/mutate-apps-v1-statefulset"'
+      - type: DELETE
+        key: .webhooks.[].failurePolicy
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-apps-v1-statefulset"'
+    postOperations:
+      - type: INSERT_TEXT
+        position: START
+        value: |
+          {{- $integrationsConfig := (fromYaml .Values.managerConfig.controllerManagerConfigYaml).integrations }}
+          {{- $managerConfig := (fromYaml .Values.managerConfig.controllerManagerConfigYaml) }}
+        onFileCondition: '.kind == "MutatingWebhookConfiguration"'
+      - type: INSERT_TEXT
+        key: .metadata
+        value: |
+          labels:
+          {{- include "kueue.labels" . | nindent 4 }}
+        indentation: 2
+      - type: INSERT_TEXT
+        key: .metadata.name
+        value: |
+          {{- if .Values.enableCertManager }}
+          annotations:
+            cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-serving-cert
+          {{- end }}
+          namespace: '{{ .Release.Namespace }}'
+      - type: INSERT_TEXT
+        key: .webhooks.[].name
+        value: |
+          namespaceSelector:
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+            {{- else }}
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: NotIn
+                values:
+                  - kube-system
+                  - '{{ .Release.Namespace }}'
+            {{- end }}
+        onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].rules[0].apiGroups[0] != "kueue.x-k8s.io"'
+      - type: INSERT_TEXT
+        key: .webhooks.[].name
+        value: |
+          namespaceSelector:
+            {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+              {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+            {{- else }}
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: NotIn
+                values:
+                  - kube-system
+                  - '{{ .Release.Namespace }}'
+            {{- end }}
+        onFileCondition: '.kind == "MutatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].rules[0].apiGroups[0] != "kueue.x-k8s.io"'
+      - type: INSERT_TEXT
+        key: .webhooks.[].name
+        value: |
+          {{- if has "pod" $integrationsConfig.frameworks }}
+          failurePolicy: Fail
+          {{- else }}
+          failurePolicy: Ignore
+          {{- end }}
+        onFileCondition: '.kind == "MutatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/mutate--v1-pod"'
+      - type: INSERT_TEXT
+        key: .webhooks.[].name
+        value: |
+          {{- if has "pod" $integrationsConfig.frameworks }}
+          failurePolicy: Fail
+          {{- else }}
+          failurePolicy: Ignore
+          {{- end }}
+        onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate--v1-pod"'
+      - type: INSERT_TEXT
+        key: .webhooks.[].name
+        value: |
+          {{- if has "deployment" $integrationsConfig.frameworks }}
+          failurePolicy: Fail
+          {{- else }}
+          failurePolicy: Ignore
+          {{- end }}
+        onFileCondition: '.kind == "MutatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/mutate-apps-v1-deployment"'
+      - type: INSERT_TEXT
+        key: .webhooks.[].name
+        value: |
+          {{- if has "deployment" $integrationsConfig.frameworks }}
+          failurePolicy: Fail
+          {{- else }}
+          failurePolicy: Ignore
+          {{- end }}
+        onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-apps-v1-deployment"'
+      - type: INSERT_TEXT
+        key: .webhooks.[].name
+        value: |
+          {{- if has "statefulset" $integrationsConfig.frameworks }}
+          failurePolicy: Fail
+          {{- else }}
+          failurePolicy: Ignore
+          {{- end }}
+        onFileCondition: '.kind == "MutatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/mutate-apps-v1-statefulset"'
+      - type: INSERT_TEXT
+        key: .webhooks.[].name
+        value: |
+          {{- if has "statefulset" $integrationsConfig.frameworks }}
+          failurePolicy: Fail
+          {{- else }}
+          failurePolicy: Ignore
+          {{- end }}
+        onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
+        onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-apps-v1-statefulset"'
+  - path: ./config/components/kueueviz/*.yaml
+    outputDir: ./charts/kueue/templates/kueueviz
+    removeComments: true
+    excludes:
+      - kustomization.yaml
+      - frontend-configmap.yaml
+    continueOnError: true
+    operations:
+      - type: UPDATE
+        key: .spec.rules[0].host
+        value: '"{{ .Values.kueueViz.backend.ingress.host | default \"backend.kueueviz.local\" }}"'
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-backend-ingress")'
+      - type: UPDATE
+        key: .spec.rules[0].host
+        value: '"{{ .Values.kueueViz.frontend.ingress.host | default \"frontend.kueueviz.local\" }}"'
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-frontend-ingress")'
+      - type: UPDATE
+        key: .spec.template.spec.containers[0].image
+        value: '"{{ .Values.kueueViz.backend.image.repository }}:{{ .Values.kueueViz.backend.image.tag | default .Chart.AppVersion }}"'
+        onFileCondition: '.metadata.name == "kueueviz-backend"'
+      - type: UPDATE
+        key: .spec.template.spec.containers[0].imagePullPolicy
+        value: '"{{ .Values.kueueViz.backend.image.pullPolicy }}"'
+        onFileCondition: '.metadata.name == "kueueviz-backend"'
+      - type: UPDATE
+        key: .spec.template.spec.containers[0].image
+        value: '"{{ .Values.kueueViz.frontend.image.repository }}:{{ .Values.kueueViz.frontend.image.tag | default .Chart.AppVersion }}"'
+        onFileCondition: '.metadata.name == "kueueviz-frontend"'
+      - type: UPDATE
+        key: .spec.template.spec.containers[0].imagePullPolicy
+        value: '"{{ .Values.kueueViz.frontend.image.pullPolicy }}"'
+        onFileCondition: '.metadata.name == "kueueviz-frontend"'
+      - type: APPEND
+        key: .metadata.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: APPEND
+        key: .spec.rules.[].http.paths.[].backend.service.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+        onFileCondition: '.kind == "Ingress"'
+      - type: APPEND
+        key: .roleRef.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+        onFileCondition: '.kind == "ClusterRoleBinding"'
+      - type: UPDATE
+        key: .subjects.[].namespace
+        value: '"{{ .Release.Namespace }}"'
+      - type: UPDATE
+        key: .metadata.namespace
+        value: '"{{ .Release.Namespace }}"'
+      - type: APPEND
+        key: .spec.template.spec.volumes.[].configMap.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+        onFileCondition: '.kind == "Deployment" and .metadata.name | contains("kueueviz-frontend")'
+      - type: DELETE
+        key: .spec.template.spec.containers.[].resources
+        onFileCondition: '.kind == "Deployment" and .metadata.name | contains("kueueviz-backend")'
+      - type: DELETE
+        key: .spec.template.spec.containers.[].resources
+        onFileCondition: '.kind == "Deployment" and .metadata.name | contains("kueueviz-frontend")'
+      - type: DELETE
+        key: .spec.template.spec.securityContext
+        onFileCondition: '.kind == "Deployment" and .metadata.name | contains("kueueviz-backend")'
+      - type: DELETE
+        key: .spec.template.spec.containers.[].securityContext
+        onFileCondition: '.kind == "Deployment" and .metadata.name | contains("kueueviz-backend")'
+      - type: DELETE
+        key: .spec.template.spec.securityContext
+        onFileCondition: '.kind == "Deployment" and .metadata.name | contains("kueueviz-frontend")'
+      - type: DELETE
+        key: .spec.template.spec.containers.[].securityContext
+        onFileCondition: '.kind == "Deployment" and .metadata.name | contains("kueueviz-frontend")'
+    postOperations:
+      - type: INSERT_TEXT
+        key: .spec
+        value: |
+          {{- if .Values.kueueViz.backend.ingress.ingressClassName }}
+          ingressClassName: {{ .Values.kueueViz.backend.ingress.ingressClassName }}
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-backend-ingress")'
+      - type: INSERT_TEXT
+        key: .spec
+        value: |
+          {{- if .Values.kueueViz.frontend.ingress.ingressClassName }}
+          ingressClassName: {{ .Values.kueueViz.frontend.ingress.ingressClassName }}
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-frontend-ingress")'
+      - type: INSERT_TEXT
+        key: .spec.template.metadata
+        value: |
+          annotations:
+            charts.kueue.x-k8s.io/config-checksum: {{ include (print .Template.BasePath "/kueueviz/frontend-configmap.yaml") . | sha256sum }}
+        indentation: 2
+        onFileCondition: '.kind == "Deployment" and  .metadata.name | contains("frontend")'
+      - type: INSERT_TEXT
+        key: .spec.template.spec
+        value: |
+          {{- with .Values.kueueViz.frontend.imagePullSecrets  }}
+          imagePullSecrets:
+          {{- toYaml . | nindent 8 }}
+          {{- end }}
+          {{- with  .Values.kueueViz.frontend.priorityClassName }}
+          priorityClassName: {{ . }}
+          {{- end }}
+          {{- with .Values.kueueViz.frontend.nodeSelector }}
+          nodeSelector:
+          {{- toYaml . | nindent 8 }}
+          {{- end }}
+          {{- with .Values.kueueViz.frontend.tolerations }}
+          tolerations:
+          {{- toYaml . | nindent 8 }}
+          {{- end }}
+          {{- with .Values.kueueViz.frontend.podSecurityContext }}
+          securityContext:
+          {{- toYaml . | nindent 8 }}
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "Deployment" and  .metadata.name | contains("frontend")'
+      - type: INSERT_TEXT
+        key: .spec
+        value: |
+          {{- if .Values.kueueViz.backend.ingress.tlsSecretName }}
+          tls:
+            - hosts:
+                - '{{ .Values.kueueViz.backend.ingress.host | default "backend.kueueviz.local" }}'
+              secretName: '{{ .Values.kueueViz.backend.ingress.tlsSecretName }}'
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "Ingress" and  .metadata.name | contains("backend")'
+      - type: INSERT_TEXT
+        key: .spec
+        value: |
+          {{- if .Values.kueueViz.frontend.ingress.tlsSecretName }}
+          tls:
+            - hosts:
+                - '{{ .Values.kueueViz.frontend.ingress.host | default "frontend.kueueviz.local" }}'
+              secretName: '{{ .Values.kueueViz.frontend.ingress.tlsSecretName }}'
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "Ingress" and  .metadata.name | contains("frontend")'
+      - type: INSERT_TEXT
+        key: .metadata
+        value: |
+          {{- with .Values.kueueViz.backend.ingress.annotations }}
+          annotations:
+            {{- toYaml . | nindent 4 }}
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "Ingress" and  .metadata.name | contains("backend")'
+      - type: INSERT_TEXT
+        key: .metadata
+        value: |
+          {{- with .Values.kueueViz.frontend.ingress.annotations }}
+          annotations:
+            {{- toYaml . | nindent 4 }}
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "Ingress" and  .metadata.name | contains("frontend")'
+      - type: INSERT_TEXT
+        key: .spec.template.spec.containers.[].name
+        value: |
+          {{- with .Values.kueueViz.frontend.env }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "Deployment" and  .metadata.name | contains("frontend")'
+      - type: INSERT_TEXT
+        key: .spec.template.spec.containers.[].name
+        value: |
+          {{- $authEnv := list }}
+          {{- if eq .Values.kueueViz.backend.auth.mode "TokenReview" }}
+          {{- $authEnv = append $authEnv (dict "name" "KUEUEVIZ_AUTH_MODE" "value" "TokenReview") }}
+          {{- with .Values.kueueViz.backend.auth.tokenReviewConfig.audiences }}
+          {{- $authEnv = append $authEnv (dict "name" "KUEUEVIZ_AUTH_TOKEN_REVIEW_AUDIENCES" "value" .) }}
+          {{- end }}
+          {{- $authEnv = append $authEnv (dict "name" "KUEUEVIZ_AUTH_TOKEN_REVIEW_CACHE_TTL" "value" (.Values.kueueViz.backend.auth.tokenReviewConfig.cacheTTL | default "60s")) }}
+          {{- $authEnv = append $authEnv (dict "name" "KUEUEVIZ_AUTH_TOKEN_REVIEW_NEGATIVE_CACHE_TTL" "value" (.Values.kueueViz.backend.auth.tokenReviewConfig.negativeCacheTTL | default "5s")) }}
+          {{- end }}
+          {{- $allEnv := concat (.Values.kueueViz.backend.env | default list) $authEnv }}
+          {{- if $allEnv }}
+          env:
+            {{- toYaml $allEnv | nindent 12 }}
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "Deployment" and  .metadata.name | contains("backend")'
+      - type: INSERT_TEXT
+        key: .spec.template.spec.containers.[].imagePullPolicy
+        value: |
+          resources:
+            {{- toYaml .Values.kueueViz.backend.resources | nindent 12 }}
+          {{- with .Values.kueueViz.backend.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        indentation: 0
+        onFileCondition: '.kind == "Deployment" and  .metadata.name | contains("backend")'
+      - type: INSERT_TEXT
+        key: .spec.template.spec.containers.[].imagePullPolicy
+        value: |
+          resources:
+            {{- toYaml .Values.kueueViz.frontend.resources | nindent 12 }}
+          {{- with .Values.kueueViz.frontend.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        indentation: 0
+        onFileCondition: '.kind == "Deployment" and  .metadata.name | contains("frontend")'
+      - type: INSERT_TEXT
+        key: .spec.template.spec
+        value: |
+          {{- with .Values.kueueViz.backend.imagePullSecrets  }}
+          imagePullSecrets:
+          {{- toYaml . | nindent 8 }}
+          {{- end }}
+          {{- with  .Values.kueueViz.backend.priorityClassName }}
+          priorityClassName: {{ . }}
+          {{- end }}
+          {{- with .Values.kueueViz.backend.nodeSelector }}
+          nodeSelector:
+          {{- toYaml . | nindent 8 }}
+          {{- end }}
+          {{- with .Values.kueueViz.backend.tolerations }}
+          tolerations:
+          {{- toYaml . | nindent 8 }}
+          {{- end }}
+          {{- with .Values.kueueViz.backend.podSecurityContext }}
+          securityContext:
+          {{- toYaml . | nindent 8 }}
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "Deployment" and  .metadata.name | contains("backend")' 
+      - type: INSERT_TEXT
+        position: END
+        value: |
+          {{- if ne .Values.kueueViz.backend.auth.mode "Disabled" }}
+            - apiGroups: ["authentication.k8s.io"]
+              resources: ["tokenreviews"]
+              verbs: ["create"]
+          {{- end }}
+        onFileCondition: '.kind == "ClusterRole"'
+      - type: INSERT_TEXT
+        position: START
+        value: |
+          {{- if .Values.enableKueueViz }}
+        onFileCondition: '.kind != "Ingress"'
+      - type: INSERT_TEXT
+        position: END
+        value: |
+          {{- end }}
+        onFileCondition: '.kind != "Ingress"'
+      - type: INSERT_TEXT
+        position: START
+        value: |
+          {{- if and .Values.enableKueueViz .Values.kueueViz.backend.ingress.enabled }}
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("backend")'
+      - type: INSERT_TEXT
+        position: END
+        value: |
+          {{- end }}
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("backend")'
+      - type: INSERT_TEXT
+        position: START
+        value: |
+          {{- if and .Values.enableKueueViz .Values.kueueViz.frontend.ingress.enabled }}
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("frontend")'
+      - type: INSERT_TEXT
+        position: END
+        value: |
+          {{- end }}
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("frontend")'
+  - path: ./config/components/internalcert/*.yaml
+    outputDir: ./charts/kueue/templates/internalcert
+    removeComments: true
+    excludes:
+      - kustomization.yaml
+    continueOnError: true
+    operations:
+      - type: APPEND
+        key: .metadata.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: UPDATE
+        key: .metadata.namespace
+        value: '"{{ .Release.Namespace }}"'
+    postOperations:
+      - type: INSERT_TEXT
+        key: .metadata
+        value: |
+          labels:
+          {{- include "kueue.labels" . | nindent 4 }}
+        indentation: 2
+      - type: INSERT_TEXT
+        position: START
+        value: |
+          {{- if not .Values.enableCertManager }}
+      - type: INSERT_TEXT
+        position: END
+        value: |
+          {{- end }}
+  - path: ./config/components/prometheus/*.yaml
+    outputDir: ./charts/kueue/templates/prometheus
+    removeComments: true
+    excludes:
+      - kustomization.yaml
+      - monitor_tls_patch.yaml
+    continueOnError: true
+    operations:
+      - type: APPEND
+        key: .metadata.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: APPEND
+        key: .roleRef.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+        onFileCondition: '.kind == "RoleBinding"'
+      - type: UPDATE
+        key: .metadata.namespace
+        value: '"{{ .Release.Namespace }}"'
+      - type: DELETE
+        key: .spec.endpoints.[].tlsConfig
+        onFileCondition: '.kind == "ServiceMonitor"'
+        onItemCondition: '.spec.endpoints.[].path == "/metrics"'
+      - type: UPDATE
+        key: .subjects.[].namespace
+        value: '"{{ .Values.metrics.prometheusNamespace }}"'
+        onFileCondition: '.kind == "RoleBinding"'
+      - type: DELETE
+        key: .spec.selector
+        onFileCondition: '.kind == "ServiceMonitor"'
+    postOperations:
+      - type: INSERT_TEXT
+        key: .metadata
+        value: |
+          labels:
+          {{- include "kueue.labels" . | nindent 4 }}
+        indentation: 2
+      - type: INSERT_TEXT
+        key: .spec
+        value: |
+          selector:
+            matchLabels:
+            {{- include "kueue.metricsService.labels" . | nindent 6 }}
+        indentation: 2
+        onFileCondition: '.kind == "ServiceMonitor"'
+      - type: INSERT_TEXT
+        key: .spec.endpoints.[].bearerTokenFile
+        value: |
+          tlsConfig:
+          {{- toYaml .Values.metrics.serviceMonitor.tlsConfig | nindent 8 }}
+        onFileCondition: '.kind == "ServiceMonitor"'
+        onItemCondition: '.spec.endpoints.[].path == "/metrics"'
+      - type: INSERT_TEXT
+        position: START
+        value: |
+          {{- if .Values.enablePrometheus }}
+      - type: INSERT_TEXT
+        position: END
+        value: |
+          {{- end }}
+  - path: ./config/components/certmanager/*.yaml
+    outputDir: ./charts/kueue/templates/certmanager
+    removeComments: true
+    excludes:
+      - certificate.yaml
+      - kustomization.yaml
+      - kustomizeconfig.yaml
+      - common_name_transformer.yaml
+      - secret_name_transformer.yaml
+    continueOnError: true
+    operations:
+      - type: APPEND
+        key: .metadata.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: UPDATE
+        key: .metadata.namespace
+        value: '"{{ .Release.Namespace }}"'
+      - type: APPEND
+        key: .spec.commonName
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+        onFileCondition: '.kind == "Certificate"'
+      - type: APPEND
+        key: .spec.secretName
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+        onFileCondition: '.kind == "Certificate"'
+      - type: DELETE
+        key: .spec.dnsNames
+        onFileCondition: '.kind == "Certificate"'
+      - type: DELETE
+        key: .spec.issuerRef
+        onFileCondition: '.kind == "Certificate"'
+    postOperations:
+      - type: INSERT_TEXT
+        key: .metadata
+        value: |
+          labels:
+          {{- include "kueue.labels" . | nindent 4 }}
+        indentation: 2
+      - type: INSERT_TEXT
+        key: .spec
+        value: |
+          dnsNames:
+          - '{{ include "kueue.fullname" . }}-controller-manager-metrics-service.{{ .Release.Namespace }}.svc'
+          - '{{ include "kueue.fullname" . }}-controller-manager-metrics-service.{{ .Release.Namespace }}.svc.{{ .Values.kubernetesClusterDomain }}'
+        indentation: 2
+        onFileCondition: '.kind == "Certificate" and .metadata.name | contains("metrics-cert")'
+      - type: INSERT_TEXT
+        key: .spec.commonName
+        value: |
+          issuerRef:{{ include "kueue.certManager.issuerRef" . | trim | nindent 4 }}
+        indentation: 0
+        onFileCondition: '.kind == "Certificate" and .metadata.name | contains("metrics-cert")'
+      - type: INSERT_TEXT
+        key: .spec
+        value: |
+          dnsNames:
+          - '{{ include "kueue.fullname" . }}-visibility-server.{{ .Release.Namespace }}.svc'
+          - '{{ include "kueue.fullname" . }}-visibility-server.{{ .Release.Namespace }}.svc.{{ .Values.kubernetesClusterDomain }}'
+        indentation: 2
+        onFileCondition: '.kind == "Certificate" and .metadata.name | contains("visibility-server-cert")'
+      - type: INSERT_TEXT
+        key: .spec.commonName
+        value: |
+          issuerRef:{{ include "kueue.certManager.issuerRef" . | trim | nindent 4 }}
+        indentation: 0
+        onFileCondition: '.kind == "Certificate" and .metadata.name | contains("visibility-server-cert")'
+      - type: INSERT_TEXT
+        position: START
+        value: |
+          {{- if and .Values.enableCertManager (not .Values.certManager.issuerRef) }}
+        onFileCondition: '.kind == "Issuer"'
+      - type: INSERT_TEXT
+        position: START
+        value: |
+          {{- if .Values.enableCertManager }}
+        onFileCondition: '.kind == "Certificate"'
+      - type: INSERT_TEXT
+        position: END
+        value: |
+          {{- end }}
+        onFileCondition: '.kind == "Issuer"'
+      - type: INSERT_TEXT
+        position: END
+        value: |
+          {{- end }}
+        onFileCondition: '.kind == "Certificate"'

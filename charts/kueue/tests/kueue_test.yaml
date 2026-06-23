@@ -1,0 +1,338 @@
+suite: test kueueviz deployment
+templates:
+  - kueueviz/backend-deployment.yaml
+  - kueueviz/frontend-deployment.yaml
+  - kueueviz/frontend-configmap.yaml
+  - kueueviz/backend-ingress.yaml
+  - kueueviz/frontend-ingress.yaml
+tests:
+  - it: should set the pod priorityClassName when provided for backend deployment
+    template: kueueviz/backend-deployment.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        backend:
+          priorityClassName: "foo"
+    asserts:
+      - equal:
+          path: spec.template.spec.priorityClassName
+          value: foo
+  - it: should not render the pod priorityClassName if not set for backend deployment
+    template: kueueviz/backend-deployment.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        backend:
+          priorityClassName:
+    asserts:
+      - notExists:
+          path: spec.template.spec.priorityClassName
+  - it: should set the pod priorityClassName when provided for frontend deployment 
+    template: kueueviz/frontend-deployment.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        frontend:
+          priorityClassName: "foo"
+    asserts:
+      - equal:
+          path: spec.template.spec.priorityClassName
+          value: foo
+  - it: should not render the pod priorityClassName if not set for frontend deployment
+    template: kueueviz/frontend-deployment.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        frontend:
+          priorityClassName:       
+    asserts:
+      - notExists:
+          path: spec.template.spec.priorityClassName
+  - it: should mount env-config volume in frontend deployment
+    template: kueueviz/frontend-deployment.yaml
+    set:
+      enableKueueViz: true
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes[0].name
+          value: env-config
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[0].name
+          value: env-config
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[0].mountPath
+          value: /app/build/env.js
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[0].subPath
+          value: env.js
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[0].readOnly
+          value: true
+  - it: should not render the tls if not set for backend ingress
+    template: kueueviz/backend-ingress.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        backend:
+          ingress:
+            tlsSecretName: ""
+    asserts:
+      - notExists:
+          path: spec.tls[0]
+  - it: Should Render Ingress for Backend Component
+    template: kueueviz/backend-ingress.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:  
+        backend:
+          ingress:
+            annotations: 
+              nginx.ingress.kubernetes.io/rewrite-target: "/"
+              nginx.ingress.kubernetes.io/ssl-redirect: "true"
+            ingressClassName: "nginx-external-ingress"
+            host: "backend.kueueviz.in"
+            tlsSecretName: "kueueviz-backend-tls-secret"
+    asserts:
+      - equal:
+          path: spec.ingressClassName
+          value: "nginx-external-ingress"
+      - equal:
+          path: spec.rules[0].host
+          value: "backend.kueueviz.in"
+      - equal:
+          path: spec.tls[0].secretName
+          value: "kueueviz-backend-tls-secret"
+      - equal:
+          path: metadata.annotations["nginx.ingress.kubernetes.io/rewrite-target"]
+          value: "/"
+      - equal:
+          path: metadata.annotations["nginx.ingress.kubernetes.io/ssl-redirect"]
+          value: "true"
+  - it: should not render annotations if not set for backend ingress
+    template: kueueviz/backend-ingress.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        backend:
+          ingress:
+            annotations: ""
+    asserts:
+      - notExists:
+          path: metadata.annotations
+  - it: should not render the tls if not set for frontend ingress
+    template: kueueviz/frontend-ingress.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        frontend:
+          ingress:
+            tlsSecretName: ""
+    asserts:
+      - notExists:
+          path: spec.tls[0]
+  - it: Should Render Ingress for Frontend Component
+    template: kueueviz/frontend-ingress.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        ingressClassName: "nginx-external"
+        frontend:
+          ingress:
+            annotations: 
+              nginx.ingress.kubernetes.io/rewrite-target: "/"
+              nginx.ingress.kubernetes.io/ssl-redirect: "true"
+            ingressClassName: "nginx-external"
+            host: "frontend.kueueviz.in"
+            tlsSecretName: "frontend-tls"
+    asserts:
+      - equal:
+          path: spec.ingressClassName
+          value: "nginx-external"
+      - equal:
+          path: spec.rules[0].host
+          value: "frontend.kueueviz.in"
+      - equal:
+          path: spec.tls[0].secretName
+          value: "frontend-tls"
+      - equal:
+          path: metadata.annotations["nginx.ingress.kubernetes.io/rewrite-target"]
+          value: "/"
+      - equal:
+          path: metadata.annotations["nginx.ingress.kubernetes.io/ssl-redirect"]
+          value: "true"
+  - it: should not render annotations if not set for frontend ingress
+    template: kueueviz/frontend-ingress.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        frontend:
+          ingress:
+            annotations: ""
+    asserts:
+      - notExists:
+          path: metadata.annotations
+  - it: should set the imagePullSecrets for backend deployment
+    template: kueueviz/backend-deployment.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        backend:
+          imagePullSecrets:
+            - name: "my-secret"
+    asserts:
+      - equal:
+          path: spec.template.spec.imagePullSecrets[0].name
+          value: "my-secret"
+  - it: should set the imagePullSecrets for frontend deployment
+    template: kueueviz/frontend-deployment.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        frontend:
+          imagePullSecrets:
+            - name: "my-secret"
+    asserts:
+      - equal:
+          path: spec.template.spec.imagePullSecrets[0].name
+          value: "my-secret"
+  - it: should set the environment variables for backend deployment
+    template: kueueviz/backend-deployment.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        backend:
+          env:
+            - name: KUEUEVIZ_ALLOWED_ORIGINS
+              value: "https://frontend.kueueviz.local"
+            - name: KUEUEVIZ_PORT
+              value: "8080"
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[0].name
+          value: KUEUEVIZ_ALLOWED_ORIGINS
+      - equal:
+          path: spec.template.spec.containers[0].env[0].value
+          value: "https://frontend.kueueviz.local"
+      - equal:
+          path: spec.template.spec.containers[0].env[1].name
+          value: KUEUEVIZ_PORT
+      - equal:
+          path: spec.template.spec.containers[0].env[1].value
+          value: "8080"
+  - it: should not set the environment variables if not set for backend deployment
+    template: kueueviz/backend-deployment.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        backend:
+          env: []
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].env[0]
+  - it: should set the environment variables for frontend deployment
+    template: kueueviz/frontend-deployment.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        frontend:
+          env:
+            - name: REACT_APP_WEBSOCKET_URL
+              value: "wss://backend.kueueviz.local"
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[0].name
+          value: REACT_APP_WEBSOCKET_URL
+      - equal:
+          path: spec.template.spec.containers[0].env[0].value
+          value: "wss://backend.kueueviz.local"
+  - it: should not set the environment variables if not set for frontend deployment
+    template: kueueviz/frontend-deployment.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        frontend:
+          env: []
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].env[0]
+  - it: should render frontend configmap with wss when backend tls is set
+    template: kueueviz/frontend-configmap.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        backend:
+          ingress:
+            host: "backend.kueueviz.local"
+            tlsSecretName: "kueueviz-backend-tls"
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - matchRegex:
+          path: data["env.js"]
+          pattern: "wss://backend.kueueviz.local"
+  - it: should render frontend configmap with ws when backend tls is empty
+    template: kueueviz/frontend-configmap.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        backend:
+          ingress:
+            host: "backend.kueueviz.local"
+            tlsSecretName: ""
+    asserts:
+      - matchRegex:
+          path: data["env.js"]
+          pattern: "ws://backend.kueueviz.local"
+  - it: should render frontend configmap with custom backend host
+    template: kueueviz/frontend-configmap.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        backend:
+          ingress:
+            host: "backend.kueueviz.fr"
+            tlsSecretName: "my-tls"
+    asserts:
+      - matchRegex:
+          path: data["env.js"]
+          pattern: "wss://backend.kueueviz.fr"
+  - it: should not render backend ingress when backend ingress is disabled
+    template: kueueviz/backend-ingress.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        backend:
+          ingress:
+            enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+  - it: should not render frontend ingress when frontend ingress is disabled
+    template: kueueviz/frontend-ingress.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        frontend:
+          ingress:
+            enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+  - it: should render backend ingress when backend ingress is enabled (default)
+    template: kueueviz/backend-ingress.yaml
+    set:
+      enableKueueViz: true
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: Ingress
+  - it: should render frontend ingress when frontend ingress is enabled (default)
+    template: kueueviz/frontend-ingress.yaml
+    set:
+      enableKueueViz: true
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: Ingress

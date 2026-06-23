@@ -1,0 +1,37 @@
+---
+# Cohort referenced by multiple ClusterQueues
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: Cohort
+metadata:
+  name: ai-for-humanity-foundation
+spec: {}
+---
+# Orphan cohort with no ClusterQueues
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: Cohort
+metadata:
+  name: orphan-cohort-for-testing
+spec: {}
+---
+# Root cohort
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: Cohort
+metadata:
+  name: organization
+spec: {}
+---
+# Child cohort under organization
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: Cohort
+metadata:
+  name: research
+spec:
+  parentName: organization
+---
+# Another child under organization
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: Cohort
+metadata:
+  name: engineering
+spec:
+  parentName: organization

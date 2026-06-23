@@ -1,0 +1,379 @@
+# Adds namespace to all resources.
+namespace: kueue-system
+
+# Value of this field is prepended to the
+# names of all resources, e.g. a deployment named
+# "wordpress" becomes "alices-wordpress".
+# Note that it should also match with the prefix (text before '-') of the namespace
+# field above.
+namePrefix: kueue-
+
+labels:
+  - pairs:
+      app.kubernetes.io/name: kueue
+    includeTemplates: true
+  - pairs:
+      control-plane: controller-manager
+    includeSelectors: true
+
+resources:
+- ../components/crd
+- ../components/rbac
+- ../components/manager
+- ../components/internalcert
+- ../components/visibility
+# [WEBHOOK] To enable webhook, uncomment all the sections with [WEBHOOK] prefix including the one in ../components/crd/kustomization.yaml
+- ../components/webhook
+# [CERTMANAGER] To enable cert-manager, uncomment all sections with 'CERTMANAGER'. 'WEBHOOK' components are required.
+#- ../components/certmanager
+# [PROMETHEUS] To enable prometheus monitor, uncomment all sections with 'PROMETHEUS'.
+#- ../components/prometheus
+# [METRICS] Expose the controller manager metrics service.
+- metrics_service.yaml
+
+transformers:
+# Sets the namespace for the role binding as kube-system instead of default kueue-system
+- role_binding_visibility_transformer.yaml
+
+patches:
+# Mount the controller config file for loading manager configurations
+# through a ComponentConfig type
+- path: manager_config_patch.yaml
+
+# [WEBHOOK] To enable webhook, uncomment all the sections with [WEBHOOK] prefix including the one in crd/kustomization.yaml
+- path: manager_webhook_patch.yaml
+
+# Expose port used by the visibility server
+- path: manager_visibility_patch.yaml
+
+# Expose port used by the metrics service
+- path: manager_metrics_patch.yaml
+
+# Add component labels to services
+- patch: |-
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: webhook-service
+      namespace: system
+      labels:
+        app.kubernetes.io/component: webhook-service
+- patch: |-
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: visibility-server
+      namespace: kueue-system
+      labels:
+        app.kubernetes.io/component: visibility-service
+- patch: |-
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: controller-manager-metrics-service
+      namespace: system
+      labels:
+        app.kubernetes.io/component: metrics-service
+- patch: |-
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: controller-manager
+      namespace: system
+      labels:
+        app.kubernetes.io/component: controller
+
+# [CERTMANAGER] To enable cert-manager, uncomment all sections with 'CERTMANAGER'.
+# Uncomment 'CERTMANAGER' sections in crd/kustomization.yaml to enable the CA injection in the admission webhooks.
+# 'CERTMANAGER' needs to be enabled to use ca injection
+#- path: mutating_webhookcainjection_patch.yaml
+#- path: validating_webhookcainjection_patch.yaml
+
+
+# Uncomment the patches line if you enable Metrics and CertManager
+# [CERTMANAGER] To enable metrics protected with certManager, uncomment the following line.
+# This patch will protect the metrics with certManager self-signed certs.
+#- path: cert_metrics_manager_patch.yaml
+#  target:
+#    kind: Deployment
+
+# [CERTMANAGER] To enable visibility server protected with certManager, uncomment the following line.
+#- path: apiservice_cainjection_patch.yaml
+#- path: apiservice_insecure_removal.yaml # to remove insecureSkipTLSVerify from the APIService
+#  target:
+#    kind: APIService
+#    name: v1beta1.visibility.kueue.x-k8s.io
+#- path: cert_visibility_manager_patch.yaml
+#  target:
+#    kind: Deployment
+
+#replacements:
+# [CERTMANAGER] To enable cert-manager, uncomment all sections with 'CERTMANAGER' prefix.
+#  # 1. Replace $(METRICS_SERVICE_NAME)
+#  - source:
+#      kind: Service
+#      name: controller-manager-metrics-service
+#      version: v1
+#      fieldPath: metadata.name
+#    targets:
+#      - select:
+#          kind: Certificate
+#          name: metrics-cert
+#        fieldPaths:
+#          - spec.dnsNames.0
+#          - spec.dnsNames.1
+#        options:
+#          delimiter: "."
+#          index: 0
+#      - select:              
+#          kind: ServiceMonitor
+#          name: controller-manager-metrics-monitor
+#          version: v1
+#        fieldPaths:
+#          - spec.endpoints.0.tlsConfig.serverName
+#        options:
+#          delimiter: "."
+#          index: 0      
+
+#  # 2. Replace METRICS_SERVICE_NAMESPACE 
+#  - source:
+#      kind: Service
+#      name: controller-manager-metrics-service
+#      version: v1
+#      fieldPath: metadata.namespace
+#    targets:
+#      - select:
+#          kind: Certificate
+#          name: metrics-cert
+#        fieldPaths:
+#          - spec.dnsNames.0
+#          - spec.dnsNames.1
+#        options:
+#          delimiter: "."
+#          index: 1 
+#      - select:     
+#          kind: ServiceMonitor
+#          name: controller-manager-metrics-monitor
+#          version: v1
+#        fieldPaths:
+#           - spec.endpoints.0.tlsConfig.serverName
+#        options:
+#          delimiter: "."
+#          index: 1     
+
+
+#  # 3. Replace $(SERVICE_NAME)
+#  - source:
+#      kind: Service
+#      name: webhook-service
+#      version: v1
+#      fieldPath: metadata.name
+#    targets:
+#      - select:
+#          kind: Certificate
+#          name: serving-cert
+#        fieldPaths:
+#          - spec.dnsNames.0
+#          - spec.dnsNames.1
+#        options:
+#          delimiter: "."
+#          index: 0              
+
+
+#  # 4. Replace $(SERVICE_NAMESPACE)
+#  - source:
+#      kind: Service
+#      name: webhook-service
+#      version: v1
+#      fieldPath: metadata.namespace
+#    targets:
+#      - select:
+#          kind: Certificate
+#          name: serving-cert
+#        fieldPaths:
+#          - spec.dnsNames.0
+#          - spec.dnsNames.1
+#        options:
+#          delimiter: "."
+#          index: 1 
+
+#  #5.  Replace $(CERTIFICATE_NAME)  
+#  - source:
+#      kind: Certificate
+#      name: serving-cert
+#      version: v1
+#      fieldPath: metadata.name
+#    targets:
+#      - select:
+#          kind: CustomResourceDefinition
+#          name: clusterqueues.kueue.x-k8s.io
+#        fieldPaths:
+#          - metadata.annotations.[cert-manager.io/inject-ca-from]
+#        options:
+#          delimiter: "/"
+#          index: 1
+#      - select:
+#          kind: CustomResourceDefinition
+#          name: localqueues.kueue.x-k8s.io
+#        fieldPaths:
+#          - metadata.annotations.[cert-manager.io/inject-ca-from]
+#        options:
+#          delimiter: "/"
+#          index: 1
+#      - select:
+#          kind: CustomResourceDefinition
+#          name: resourceflavors.kueue.x-k8s.io
+#        fieldPaths:
+#          - metadata.annotations.[cert-manager.io/inject-ca-from]
+#        options:
+#          delimiter: "/"
+#          index: 1
+#      - select:
+#          kind: CustomResourceDefinition
+#          name: workloads.kueue.x-k8s.io
+#        fieldPaths:
+#          - metadata.annotations.[cert-manager.io/inject-ca-from]
+#        options:
+#          delimiter: "/"
+#          index: 1
+#      - select:
+#          kind: MutatingWebhookConfiguration
+#          name: mutating-webhook-configuration
+#        fieldPaths:
+#          - metadata.annotations.[cert-manager.io/inject-ca-from]
+#        options:
+#          delimiter: "/"
+#          index: 1
+#      - select:
+#          kind: ValidatingWebhookConfiguration
+#          name: validating-webhook-configuration
+#        fieldPaths:
+#          - metadata.annotations.[cert-manager.io/inject-ca-from]
+#        options:
+#          delimiter: "/"
+#          index: 1
+
+#  #6.  Replace $(CERTIFICATE_NAMESPACE)  
+#  - source:
+#      kind: Certificate
+#      name: serving-cert
+#      version: v1
+#      fieldPath: metadata.namespace
+#    targets:
+#      - select:
+#          kind: CustomResourceDefinition
+#          name: clusterqueues.kueue.x-k8s.io
+#        fieldPaths:
+#          - metadata.annotations.[cert-manager.io/inject-ca-from]
+#        options:
+#          delimiter: "/"
+#          index: 0
+#      - select:
+#          kind: CustomResourceDefinition
+#          name: localqueues.kueue.x-k8s.io
+#        fieldPaths:
+#          - metadata.annotations.[cert-manager.io/inject-ca-from]
+#        options:
+#          delimiter: "/"
+#          index: 0
+#      - select:
+#          kind: CustomResourceDefinition
+#          name: resourceflavors.kueue.x-k8s.io
+#        fieldPaths:
+#          - metadata.annotations.[cert-manager.io/inject-ca-from]
+#        options:
+#          delimiter: "/"
+#          index: 0
+#      - select:
+#          kind: CustomResourceDefinition
+#          name: workloads.kueue.x-k8s.io
+#        fieldPaths:
+#          - metadata.annotations.[cert-manager.io/inject-ca-from]
+#        options:
+#          delimiter: "/"
+#          index: 0
+#      - select:
+#          kind: MutatingWebhookConfiguration
+#          name: mutating-webhook-configuration
+#        fieldPaths:
+#          - metadata.annotations.[cert-manager.io/inject-ca-from]
+#        options:
+#          delimiter: "/"
+#          index: 0
+#      - select:
+#          kind: ValidatingWebhookConfiguration
+#          name: validating-webhook-configuration
+#        fieldPaths:
+#          - metadata.annotations.[cert-manager.io/inject-ca-from]
+#        options:
+#          delimiter: "/"
+#          index: 0
+
+#   #7. Replace $(VISIBILITY_SERVICE_NAME)
+#  - source:
+#      kind: Service
+#      name: visibility-server
+#      version: v1
+#      fieldPath: metadata.name
+#    targets:
+#      - select:
+#          kind: Certificate
+#          name: visibility-server-cert
+#        fieldPaths:
+#          - spec.dnsNames.0
+#          - spec.dnsNames.1
+#        options:
+#          delimiter: "."
+#          index: 0
+
+#   #8. Replace $(VISIBILITY_SERVICE_NAMESPACE)
+#  - source:
+#      kind: Service
+#      name: visibility-server
+#      version: v1
+#      fieldPath: metadata.namespace
+#    targets:
+#      - select:
+#          kind: Certificate
+#          name: visibility-server-cert
+#        fieldPaths:
+#          - spec.dnsNames.0
+#          - spec.dnsNames.1
+#        options:
+#          delimiter: "."
+#          index: 1
+
+#   #9. Replace $(VISIBILITY_CERTIFICATE_NAME)
+#  - source:
+#      group: cert-manager.io
+#      kind: Certificate
+#      name: visibility-server-cert
+#      version: v1
+#      fieldPath: metadata.name
+#    targets:
+#      - select:
+#          kind: APIService
+#          name: v1beta1.visibility.kueue.x-k8s.io
+#        fieldPaths:
+#          - metadata.annotations.[cert-manager.io/inject-ca-from]
+#        options:
+#          delimiter: "/"
+#          index: 1
+
+
+#  #10. Replace $(VISIBILITY_CERTIFICATE_NAMESPACE)
+#  - source:
+#       group: cert-manager.io
+#       kind: Certificate
+#       name: visibility-server-cert
+#       version: v1
+#       fieldPath: metadata.namespace
+#    targets:
+#      - select:
+#          kind: APIService
+#          name: v1beta1.visibility.kueue.x-k8s.io
+#        fieldPaths:
+#          - metadata.annotations.[cert-manager.io/inject-ca-from]
+#        options:
+#          delimiter: "/"
+#          index: 0
