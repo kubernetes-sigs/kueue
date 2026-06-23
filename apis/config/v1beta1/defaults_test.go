@@ -63,8 +63,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 		},
 	}
 	defaultClientConnection := &ClientConnection{
-		QPS:   ptr.To[float32](expectedDefaultClientConnectionQPS),
-		Burst: ptr.To[int32](expectedDefaultClientConnectionBurst),
+		QPS:   new(expectedDefaultClientConnectionQPS),
+		Burst: new(expectedDefaultClientConnectionBurst),
 	}
 	defaultIntegrations := &Integrations{
 		Frameworks: []string{defaultJobFrameworkName},
