@@ -6,7 +6,7 @@ menu:
   main:
     weight: 20
 description: >
-  Talks and presentations showcasing Kueue
+  Talks & case studies showcasing Kueue
 ---
 
 # 2026

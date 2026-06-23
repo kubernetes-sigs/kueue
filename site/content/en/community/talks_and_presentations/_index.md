@@ -1,9 +1,9 @@
 ---
-title: "Talks and presentations"
-linkTitle: "Talks and presentations"
+title: "Talks & Case Studies"
+linkTitle: "Talks & Case Studies"
 weight: 20
 description: >
-  Talks and presentations showcasing Kueue
+  Talks & case studies showcasing Kueue
 ---
 
 
