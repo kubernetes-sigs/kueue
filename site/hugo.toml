@@ -265,9 +265,30 @@ ignoreFiles = []
 [security.node.permissions]
   allowRead = ["*"]
 
-# Remote Resource Cache Configuration (Ensures Medium RSS feed updates automatically)
+# Complete & Safe Cache Configuration (Overrides getresource to 1h while preserving all defaults)
 [caches]
-  [caches.getremote]
-    dir = ":cacheDir/getremote"
+  [caches.assets]
+    dir = ":cacheDir/assets"
+    maxAge = -1
+  [caches.getresource]
+    dir = ":cacheDir/getresource"
     maxAge = "1h"
+  [caches.images]
+    dir = ":cacheDir/images"
+    maxAge = -1
+  [caches.misc]
+    dir = ":cacheDir/misc"
+    maxAge = -1
+  [caches.modulegitinfo]
+    dir = ":cacheDir/modules"
+    maxAge = -1
+  [caches.modulequeries]
+    dir = ":cacheDir/modules"
+    maxAge = -1
+  [caches.modules]
+    dir = ":cacheDir/modules"
+    maxAge = -1
+
+
+
 
