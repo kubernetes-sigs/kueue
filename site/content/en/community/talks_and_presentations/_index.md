@@ -2,12 +2,10 @@
 title: "Talks and presentations"
 linkTitle: "Talks and presentations"
 weight: 20
-menu:
-  main:
-    weight: 20
 description: >
   Talks and presentations showcasing Kueue
 ---
+
 
 # 2026
 

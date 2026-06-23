@@ -1,0 +1,288 @@
+{{ define "main" }}
+
+<!-- LOCAL STATIC PARAMETERS (No network dependencies, 100% reliable builds) -->
+{{ $stars := site.Params.github_stars | default "1.5k+" }}
+{{ $forks := site.Params.github_forks | default "300+" }}
+{{ $version := site.Params.version | default "v0.18.1" }}
+
+
+<!-- 1. HERO SECTION (Streamlined & Polished with Navbar Offset) -->
+<section class="hero-grid-bg bg-white border-bottom" style="padding-top: 5.5rem !important; padding-bottom: 2.5rem !important;">
+  <div class="container text-center">
+    <div class="mx-auto" style="max-width: 800px;">
+      
+      <!-- Highlighted Social Proof Badges (Inline styled for 100% rendering reliability) -->
+      <div style="display: flex; justify-content: center; align-items: center; gap: 8px; margin-bottom: 16px; flex-wrap: wrap;">
+        
+        <!-- Version Badge -->
+        <a href="https://github.com/kubernetes-sigs/kueue/releases" target="_blank" rel="noopener" style="text-decoration: none; display: inline-block;">
+          <span style="display: inline-block; padding: 4px 12px; background-color: #0ea5e9; color: white; border-radius: 50rem; font-size: 0.8rem; font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+            <i class="fas fa-tag" style="margin-right: 4px;"></i> {{ T "homepage_badge_latest" | default "Latest" }}: <span style="font-weight: 700;">{{ $version }}</span>
+          </span>
+        </a>
+        
+        <!-- Stars Badge -->
+        <a href="https://github.com/kubernetes-sigs/kueue/stargazers" target="_blank" rel="noopener" style="text-decoration: none; display: inline-block;">
+          <span style="display: inline-block; padding: 4px 12px; background-color: white; color: #334155; border: 1px solid #0ea5e9; border-radius: 50rem; font-size: 0.8rem; font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+            <i class="fab fa-github" style="margin-right: 4px; color: #0ea5e9;"></i> <span style="font-weight: 700; color: #0f172a;">{{ $stars }}</span> {{ T "homepage_badge_stars" | default "Stars" }}
+          </span>
+        </a>
+        
+        <!-- Forks Badge -->
+        <a href="https://github.com/kubernetes-sigs/kueue/forks" target="_blank" rel="noopener" style="text-decoration: none; display: inline-block;">
+          <span style="display: inline-block; padding: 4px 12px; background-color: white; color: #334155; border: 1px solid #0ea5e9; border-radius: 50rem; font-size: 0.8rem; font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+            <i class="fas fa-code-branch" style="margin-right: 4px; color: #0ea5e9;"></i> <span style="font-weight: 700; color: #0f172a;">{{ $forks }}</span> {{ T "homepage_badge_forks" | default "Forks" }}
+          </span>
+        </a>
+        
+      </div>
+
+
+      <!-- Centered Hero Brand Mark (Idea 1 - Static Floating Emblem) -->
+      <div style="display: flex; justify-content: center; margin-bottom: 24px;">
+        <div class="brand-logo-emblem" style="display: flex; align-items: center; justify-content: center; border: 1.5px solid #0ea5e9; border-radius: 50%; width: 90px; height: 90px; box-shadow: 0 12px 28px rgba(14, 165, 233, 0.22), 0 8px 10px rgba(14, 165, 233, 0.12); background-color: white;">
+          {{ with resources.Get "icons/logo.svg" }}
+            {{ .Content | safeHTML }}
+          {{ else }}
+            <span style="font-weight: 700; color: #0ea5e9; font-size: 1.2rem;">K</span>
+          {{ end }}
+        </div>
+      </div>
+
+
+
+
+      <h1 class="hero-title fw-bold text-primary mb-2" style="letter-spacing: -0.03em; line-height: 1.15;">
+        <span style="color: #0ea5e9;">Kueue</span>: {{ T "homepage_hero_tagline" | default "Kubernetes-native Job Queueing" }}
+      </h1>
+
+
+      
+      <p class="lead text-muted fs-5 mb-4" style="font-weight: 400; line-height: 1.5;">
+        {{ T "homepage_hero_description" }}
+      </p>
+      
+      <!-- Streamlined CTAs (Install Kueue -> Get Started -> Join Slack) -->
+      <div class="d-flex justify-content-center gap-2 mb-2">
+        {{ $defaultSite := index site.Sites 0 }}
+        
+        {{ $url_install := T "homepage_url_install" | default "/docs/getting-started/installation" }}
+        {{ $page_install := site.GetPage $url_install }}
+        {{ if not $page_install }}
+          {{ $page_install = $defaultSite.GetPage $url_install }}
+        {{ end }}
+        <a class="btn btn-info text-white px-4 py-2.5 fw-semibold" href="{{ $page_install.Permalink }}">
+          {{ T "homepage_btn_install" }} <i class="fas fa-download ms-2 small"></i>
+        </a>
+
+        {{ $url_get_started := T "homepage_url_get_started" | default "/docs/getting-started/quick-start" }}
+        {{ $page_get_started := site.GetPage $url_get_started }}
+        {{ if not $page_get_started }}
+          {{ $page_get_started = $defaultSite.GetPage $url_get_started }}
+        {{ end }}
+        <a class="btn btn-outline-dark px-4 py-2.5 fw-semibold" href="{{ $page_get_started.Permalink }}">
+          {{ T "homepage_btn_get_started" }} <i class="fas fa-arrow-right ms-2 small"></i>
+        </a>
+
+        <a class="btn btn-outline-info px-4 py-2.5 fw-semibold" href="https://kubernetes.slack.com/messages/wg-batch" target="_blank" rel="noopener">
+          {{ T "homepage_btn_join_slack" }} <i class="fab fa-slack ms-2"></i>
+        </a>
+      </div>
+
+
+    </div>
+  </div>
+</section>
+
+<!-- 2. CORE CAPABILITIES (Refined 3+2 Jargon-Free Grid) -->
+<section class="py-4 bg-light border-bottom">
+  <div class="container py-2">
+    <div class="text-center mb-4 mx-auto" style="max-width: 800px;">
+      <h3 class="fw-bold text-primary mb-1.5">{{ T "homepage_capabilities_title" }}</h3>
+      <p class="text-muted small mb-0">
+        {{ T "homepage_capabilities_subtitle" | markdownify }}
+      </p>
+    </div>
+    
+    <!-- Top Row: 3 Columns -->
+    <div class="row g-3 mb-3">
+      
+      <!-- 1. Multi-Tenant Quotas -->
+      <div class="col-md-4">
+        <div class="card h-100 feature-card bg-white border-0 rounded-3 shadow-sm">
+          <div class="card-body p-3">
+            <div class="text-info mb-2">
+              <i class="fas fa-users-cog fa-lg"></i>
+            </div>
+            <h5 class="fw-bold text-primary mb-1.5">{{ T "homepage_cap_multitenant_title" }}</h5>
+            <p class="text-muted small mb-0">
+              {{ T "homepage_cap_multitenant_desc" }}
+            </p>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 2. Dynamic Resource Sharing -->
+      <div class="col-md-4">
+        <div class="card h-100 feature-card bg-white border-0 rounded-3 shadow-sm">
+          <div class="card-body p-3">
+            <div class="text-info mb-2">
+              <i class="fas fa-share-alt fa-lg"></i>
+            </div>
+            <h5 class="fw-bold text-primary mb-1.5">{{ T "homepage_cap_sharing_title" }}</h5>
+            <p class="text-muted small mb-0">
+              {{ T "homepage_cap_sharing_desc" }}
+            </p>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 3. Topology-Aware Placement -->
+      <div class="col-md-4">
+        <div class="card h-100 feature-card bg-white border-0 rounded-3 shadow-sm">
+          <div class="card-body p-3">
+            <div class="text-info mb-2">
+              <i class="fas fa-network-wired fa-lg"></i>
+            </div>
+            <h5 class="fw-bold text-primary mb-1.5">{{ T "homepage_cap_topology_title" }}</h5>
+            <p class="text-muted small mb-0">
+              {{ T "homepage_cap_topology_desc" }}
+            </p>
+          </div>
+        </div>
+      </div>
+      
+    </div>
+    
+    <!-- Bottom Row: 2 Columns (Centered) -->
+    <div class="row g-3 justify-content-center">
+      
+      <!-- 4. Resource Pools & Preemption -->
+      <div class="col-md-4">
+        <div class="card h-100 feature-card bg-white border-0 rounded-3 shadow-sm">
+          <div class="card-body p-3">
+            <div class="text-info mb-2">
+              <i class="fas fa-layer-group fa-lg"></i>
+            </div>
+            <h5 class="fw-bold text-primary mb-1.5">{{ T "homepage_cap_preemption_title" }}</h5>
+            <p class="text-muted small mb-0">
+              {{ T "homepage_cap_preemption_desc" }}
+            </p>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 5. Multi-Cluster Scaling -->
+      <div class="col-md-4">
+        <div class="card h-100 feature-card bg-white border-0 rounded-3 shadow-sm">
+          <div class="card-body p-3">
+            <div class="text-info mb-2">
+              <i class="fas fa-server fa-lg"></i>
+            </div>
+            <h5 class="fw-bold text-primary mb-1.5">{{ T "homepage_cap_multicluster_title" }}</h5>
+            <p class="text-muted small mb-0">
+              {{ T "homepage_cap_multicluster_desc" }}
+            </p>
+          </div>
+        </div>
+      </div>
+      
+    </div>
+  </div>
+</section>
+
+
+<!-- 3. WHERE KUEUE SITS (Architecture & Integration Flow) -->
+<section class="py-4 bg-white border-bottom">
+  <div class="container py-2">
+    <div class="text-center mb-4">
+      <h3 class="fw-bold text-primary mb-1">{{ T "homepage_architecture_title" }}</h3>
+      <p class="text-muted small">{{ T "homepage_architecture_desc" | markdownify }}</p>
+    </div>
+    
+    <div class="d-flex justify-content-center">
+      <div class="bg-light p-2 rounded-3 border text-center shadow-sm w-100" style="max-width: 800px;">
+        <img src="{{ "images/kueue-architecture.svg" | relURL }}" alt="{{ T "homepage_architecture_alt" }}" class="img-fluid" style="max-height: 220px; width: auto;">
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- 6. JOIN THE COMMUNITY -->
+<section class="py-4 bg-light">
+  <div class="container py-2">
+    <div class="text-center mb-4">
+      <h3 class="fw-bold text-primary mb-1">{{ T "homepage_community_title" }}</h3>
+      <p class="text-muted small">{{ T "homepage_community_subtitle" }}</p>
+    </div>
+    <div class="row g-3 justify-content-center">
+      <div class="col-md-4">
+        <div class="card h-100 border-0 shadow-sm bg-white rounded-3 text-center">
+          <div class="card-body p-3 d-flex flex-column align-items-center">
+            <div class="text-info mb-2">
+              <i class="fab fa-slack fa-lg"></i>
+            </div>
+            <h6 class="fw-bold mb-1">{{ T "homepage_comm_slack_title" }}</h6>
+            <p class="text-muted small mb-3">{{ T "homepage_comm_slack_desc" }}</p>
+            <a href="https://kubernetes.slack.com/messages/wg-batch" target="_blank" rel="noopener" class="btn btn-xs btn-outline-primary mt-auto">
+              {{ T "homepage_comm_slack_btn" }}
+            </a>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card h-100 border-0 shadow-sm bg-white rounded-3 text-center">
+          <div class="card-body p-3 d-flex flex-column align-items-center">
+            <div class="text-info mb-2">
+              <i class="fab fa-github fa-lg"></i>
+            </div>
+            <h6 class="fw-bold mb-1">{{ T "homepage_comm_github_title" }}</h6>
+            <p class="text-muted small mb-3">{{ T "homepage_comm_github_desc" }}</p>
+            <a href="https://github.com/kubernetes-sigs/kueue" target="_blank" rel="noopener" class="btn btn-xs btn-outline-primary mt-auto">
+              {{ T "homepage_comm_github_btn" }}
+            </a>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card h-100 border-0 shadow-sm bg-white rounded-3 text-center">
+          <div class="card-body p-3 d-flex flex-column align-items-center">
+            <div class="text-info mb-2">
+              <i class="fa fa-envelope fa-lg"></i>
+            </div>
+            <h6 class="fw-bold mb-1">{{ T "homepage_comm_mail_title" }}</h6>
+            <p class="text-muted small mb-3">{{ T "homepage_comm_mail_desc" }}</p>
+            <a href="https://groups.google.com/a/kubernetes.io/g/wg-batch" target="_blank" rel="noopener" class="btn btn-xs btn-outline-primary mt-auto">
+              {{ T "homepage_comm_mail_btn" }}
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Localized Brand Emblem Styling -->
+<style>
+/* Crisp sizing for the inlined SVG */
+.brand-logo-emblem svg {
+  height: 48px;
+  width: auto;
+}
+/* Responsive Hero Title for Option B (forces single line on desktop) */
+.hero-title {
+  font-size: 2.65rem;
+}
+@media (max-width: 768px) {
+  .hero-title {
+    font-size: 2.1rem;
+  }
+}
+</style>
+
+
+
+
+{{ end }}
+

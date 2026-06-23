@@ -311,4 +311,6 @@ The ShortWorkloadNames features are available starting from versions 0.15.7 and 
 ## What's next
 
 - Follow the [Quick Start](/docs/getting-started/quick-start) guide to run your first Job with Kueue.
+- Learn how to deploy and optimize Kueue on [Cloud Providers](/docs/getting-started/cloud-providers/) like GKE or EKS.
 - Read the [API reference](/docs/reference/kueue-config.v1beta1/#Configuration) for `Configuration`
+

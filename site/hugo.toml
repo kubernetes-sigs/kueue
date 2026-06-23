@@ -1,7 +1,11 @@
 baseURL = "/"
 title = "Kueue"
 
+[outputs]
+  home = ["HTML", "RSS", "JSON"]
+
 enableRobotsTXT = true
+
 
 ###############################################################################
 # Docsy
@@ -25,10 +29,17 @@ ignoreFiles = []
 [menu]
 
   [[menu.main]]
+    name = "Slack"
+    weight = 98
+    pre = "<i class='fab fa-slack pe-2'></i>"
+    url = "https://kubernetes.slack.com/messages/wg-batch"
+
+  [[menu.main]]
     name = "GitHub"
     weight = 99
     pre = "<i class='fab fa-github pe-2'></i>"
     url = "https://github.com/kubernetes-sigs/kueue"
+
 
 ###############################################################################
 # Docsy - Goldmark markdown parser
@@ -98,8 +109,15 @@ ignoreFiles = []
   # version number for this doc set.
   version = "v0.18.1"
 
+  # Static GitHub stats for reliable, network-free builds (updated at release time)
+  github_stars = "1.6k"
+  github_forks = "350"
+
   # Version of Kueue without the leading "v", as used for Helm charts.
   chart_version = "0.18.1"
+
+
+
 
   # Flag used in the "version-banner" partial to decide whether to display a
   # banner on every page indicating that this is an archived version of the docs.

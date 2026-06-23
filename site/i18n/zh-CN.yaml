@@ -42,3 +42,137 @@
     有效优先级同时用于调度排序和抢占候选排序。
     此注解由外部控制器直接设置在 Workload 上（不从 Job 传播）。
     如果值缺失或非法，会按 `0` 处理。
+
+# ==============================================================================
+# Homepage Strings (Chinese)
+# ==============================================================================
+
+# Hero Section
+- id: homepage_hero_tagline
+  translation: "Kubernetes 原生作业队列系统"
+- id: homepage_hero_description
+  translation: "管理批处理、HPC 和 AI/ML 工作负载的配额和资源共享。Kueue 决定作业应在何时何地运行，并与您现有的生态系统无缝集成。"
+- id: homepage_btn_install
+  translation: "安装 Kueue"
+- id: homepage_btn_get_started
+  translation: "开始使用"
+- id: homepage_btn_join_slack
+  translation: "加入 Slack"
+
+# Core Capabilities Section
+- id: homepage_capabilities_title
+  translation: "核心功能"
+- id: homepage_capabilities_subtitle
+  translation: "Kueue 基于以下五个核心架构支柱，原生管理标准 API（包括 **Job、JobSet、KubeRay、Kubeflow Trainer 和 LeaderWorkerSet**）的资源准入："
+
+# Capabilities Cards
+- id: homepage_cap_multitenant_title
+  translation: "多租户配额"
+- id: homepage_cap_multitenant_desc
+  translation: "在集群级别全局定义资源配额，并在不同团队和命名空间之间安全共享。使用原生 Kubernetes API 管理资源分配、队列优先级和限制。"
+
+- id: homepage_cap_sharing_title
+  translation: "动态容量共享"
+- id: homepage_cap_sharing_desc
+  translation: "将队列组合在一起以实现动态资源共享。当团队的资源池空闲时，工作负载可以自动从同伴团队借用未使用的容量，从而最大化 GPU/CPU 整体利用率并降低成本。"
+
+- id: homepage_cap_topology_title
+  translation: "拓扑感知部署"
+- id: homepage_cap_topology_desc
+  translation: "根据物理网络拓扑优化大型分布式机器学习训练工作负载（如 LLM）的部署。通过将紧密耦合的 Pod 编组在相同的基础设施上，来最小化网络延迟。"
+
+- id: homepage_cap_preemption_title
+  translation: "资源池与抢占"
+- id: homepage_cap_preemption_desc
+  translation: "支持多样化的硬件池，例如 Spot 与按需实例或不同的 GPU 型号。工作负载会自动路由到合适的资源池，并通过基于优先级的抢占确保高优先级作业优先运行。"
+
+- id: homepage_cap_multicluster_title
+  translation: "多集群扩展"
+- id: homepage_cap_multicluster_desc
+  translation: "无缝地将工作负载扩展到单个集群之外。中央控制平面根据全局资源可用性自动将作业调度到多个工作集群，从而实现混合云和多云调度。"
+
+# Architecture Section
+- id: homepage_architecture_title
+  translation: "架构与集成"
+- id: homepage_architecture_desc
+  translation: "Kueue 在调度器*之前*充当准入控制器，在不替换核心 Kubernetes 组件的情况下干净地管理队列和配额。"
+- id: homepage_architecture_alt
+  translation: "Kueue 架构与集成流程"
+
+# Community Section
+- id: homepage_community_title
+  translation: "加入社区对话"
+- id: homepage_community_subtitle
+  translation: "Kueue 是一个开放的、社区驱动的 CNCF 项目。欢迎参与！"
+
+- id: homepage_comm_slack_title
+  translation: "Slack"
+- id: homepage_comm_slack_desc
+  translation: "与用户和贡献者进行实时交流。"
+- id: homepage_comm_slack_btn
+  translation: "加入 #wg-batch"
+
+- id: homepage_comm_github_title
+  translation: "GitHub"
+- id: homepage_comm_github_desc
+  translation: "报告 bug、提交 PR 或浏览源代码。"
+- id: homepage_comm_github_btn
+  translation: "参与贡献"
+
+- id: homepage_comm_mail_title
+  translation: "邮件列表"
+- id: homepage_comm_mail_desc
+  translation: "加入我们的 Google Group 以获取公告。"
+- id: homepage_comm_mail_btn
+  translation: "订阅"
+
+# ==============================================================================
+# Adopters Page Strings (Chinese)
+# ==============================================================================
+- id: adopters_search_placeholder
+  translation: "按名称或技术栈搜索（例如：Ray、IBM、GKE）..."
+- id: adopters_count_text
+  translation: "显示 <span id=\"visibleCount\">0</span> / <span id=\"totalCount\">0</span> 个组织"
+- id: adopters_badge_end_user
+  translation: "最终用户"
+- id: adopters_badge_provider
+  translation: "服务商"
+- id: adopters_footer_contact
+  translation: "社区联系人:"
+
+# Homepage Badge Labels (Chinese)
+- id: homepage_badge_latest
+  translation: "最新"
+- id: homepage_badge_stars
+  translation: "Stars"
+- id: homepage_badge_forks
+  translation: "Forks"
+
+# Community Page Layout (Chinese)
+- id: community_page_title
+  translation: "Kueue 社区"
+- id: community_page_subtitle
+  translation: "Kueue 是一个开放、协作的 CNCF 沙箱项目。加入我们的用户、运营商和贡献者社区。"
+
+# UI Elements (Chinese)
+- id: ui_search
+  translation: "搜索"
+
+# Homepage URLs (Chinese)
+- id: homepage_url_install
+  translation: "/docs/installation"
+- id: homepage_url_get_started
+  translation: "/docs/getting-started/quick-start"
+
+# Medium RSS Feed (Chinese)
+- id: community_medium_badge
+  translation: "社区博客"
+- id: community_medium_read_more
+  translation: "阅读文章"
+- id: community_medium_unavailable
+  translation: "Medium 博客动态暂时不可用，请稍后再试！"
+- id: community_medium_no_articles
+  translation: "未找到最近的博客文章，请稍后再试！"
+
+
+
