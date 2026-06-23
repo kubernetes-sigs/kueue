@@ -105,13 +105,10 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 	if !r.expectationsStore.Satisfied(log, req.NamespacedName) {
 		return reconcile.Result{}, errPendingUngateOps
 	}
-	// Ungate pods for workloads that were admitted (including finished ones
-	// whose pods may still be gated after scale-up). Pending workloads that
-	// were never admitted keep their pods gated.
 	if !workloadslicing.IsElasticWorkload(wl) {
 		return reconcile.Result{}, nil
 	}
-	if !workload.IsAdmitted(wl) && !workload.HasQuotaReservation(wl) {
+	if !workload.HasActiveQuotaReservation(wl) {
 		return reconcile.Result{}, nil
 	}
 
