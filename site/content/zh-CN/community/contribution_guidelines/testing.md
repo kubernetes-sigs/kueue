@@ -186,7 +186,7 @@ E2E_MODE=dev IMAGE_TAG=us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue
 1. 检出该版本的 tag（例如 `git checkout v0.16.0`）。仓库中的 CRD 与部署配置在每个版本中均已提交，无需执行 `make manifests`。
 2. 使用相同镜像 tag 运行上述命令，例如 `E2E_MODE=dev IMAGE_TAG=registry.k8s.io/kueue/kueue:v0.16.0 make test-e2e-baseline`。
 
-适用于在特定已发布版本上复现问题（例如值班排查）。若要在真实集群（非 e2e）中安装已发布版本，请参阅[安装已发布版本](/zh-CN/docs/installation/#install-a-released-version)。
+适用于在特定已发布版本上复现问题（例如值班排查）。若要在真实集群（非 e2e）中安装已发布版本，请参阅[安装已发布版本](/zh-cn/docs/installation/#install-a-released-version)。
 
 ### 旧方式：交互式附加模式 {#legacy-interactive-attach-mode}
 
@@ -392,7 +392,7 @@ func TestValidateClusterQueue(t *testing.T) {
 E2E_MODE=dev GINKGO_ARGS="--label-filter=feature:prometheus" make kind-image-build test-e2e-baseline
 ```
 
-更多详情，请参阅 [Setup Dev Monitoring](/zh-CN/docs/tasks/dev/setup_dev_monitoring)。
+更多详情，请参阅 [Setup Dev Monitoring](/zh-cn/docs/tasks/dev/setup_dev_monitoring)。
 
 ### 另请参阅 {#see-also}
 - [Kubernetes 测试指南](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-testing/testing.md)
