@@ -251,6 +251,10 @@ var (
 	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",flavor="the resource flavor name",resource="the resource name",replica_role="one of `leader`, `follower`, or `standalone`"
 	LocalQueueResourceUsage *prometheus.GaugeVec
 
+	// +metricsdoc:group=localqueue
+	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",cluster_queue="the name of the ClusterQueue",replica_role="one of `leader`, `follower`, or `standalone`"
+	LocalQueueAdmissionFairSharingUsage *prometheus.GaugeVec
+
 	// +metricsdoc:group=optional_clusterqueue_resources
 	// +metricsdoc:labels=cohort="the name of the Cohort",cluster_queue="the name of the ClusterQueue",flavor="the resource flavor name",resource="the resource name",replica_role="one of `leader`, `follower`, or `standalone`"
 	ClusterQueueResourceNominalQuota *prometheus.GaugeVec
@@ -793,6 +797,17 @@ For a LocalQueue, the metric only reports a value of 1 for one of the statuses.`
 	)
 	trackGaugeVec(LocalQueueResourceUsage, gaugeCleanupScopeLocalQueueResource)
 
+	LocalQueueAdmissionFairSharingUsage = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "local_queue_admission_fair_sharing_usage",
+			Help: `Reports a value representing the LocalQueue's Admission Fair Sharing usage,
+calculated from the resource-weighted sum of consumed resources and pending
+admission penalties, divided by the LocalQueue's fair sharing weight`,
+		}, append([]string{"name", "namespace", "cluster_queue", "replica_role"}, extraLabels...),
+	)
+	trackGaugeVec(LocalQueueAdmissionFairSharingUsage, gaugeCleanupScopeLocalQueue)
+
 	ClusterQueueResourceNominalQuota = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
@@ -1255,6 +1270,11 @@ func ReportLocalQueueResourceUsage(lq LocalQueueReference, flavor, resource stri
 	LocalQueueResourceUsage.WithLabelValues(labels...).Set(usage)
 }
 
+func ReportLocalQueueAdmissionFairSharingUsage(lq LocalQueueReference, clusterQueue kueue.ClusterQueueReference, usage float64, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(lq.Name), lq.Namespace, string(clusterQueue), roletracker.GetRole(tracker)}, customLabelValues...)
+	LocalQueueAdmissionFairSharingUsage.WithLabelValues(labels...).Set(usage)
+}
+
 func ReportClusterQueueWeightedShare(cq kueue.ClusterQueueReference, cohort kueue.CohortReference, weightedShare float64, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	labels := append([]string{string(cq), string(cohort), roletracker.GetRole(tracker)}, customLabelValues...)
 	ClusterQueueWeightedShare.WithLabelValues(labels...).Set(weightedShare)
@@ -1431,5 +1451,6 @@ func RegisterLQMetrics() {
 		LocalQueueByStatus,
 		LocalQueueResourceReservations,
 		LocalQueueResourceUsage,
+		LocalQueueAdmissionFairSharingUsage,
 	)
 }

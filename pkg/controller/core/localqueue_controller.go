@@ -408,10 +408,32 @@ func (r *LocalQueueReconciler) reconcileConsumedUsage(ctx context.Context, lq *k
 	return nil
 }
 
+func (r *LocalQueueReconciler) reportAfsUsage(lq *kueue.LocalQueue, consumedResources corev1.ResourceList) {
+	if !afs.Enabled(r.admissionFSConfig) {
+		return
+	}
+	if !r.lqMetrics.ShouldExposeLocalQueueMetrics(lq.GetLabels()) {
+		return
+	}
+	lqKey := utilqueue.Key(lq)
+	penalty := r.queues.AfsEntryPenalties.Peek(lqKey)
+	metrics.ReportLocalQueueAdmissionFairSharingUsage(
+		localQueueReferenceFromLocalQueue(lq),
+		lq.Spec.ClusterQueue,
+		afs.CalculateUsage(consumedResources, penalty, afs.LQWeightAsFloat64(lq), r.admissionFSConfig.ResourceWeights),
+		r.customLabels.LQGet(lqKey),
+		r.roleTracker,
+	)
+}
+
 func (r *LocalQueueReconciler) updateAdmissionFsStatus(ctx context.Context, lq *kueue.LocalQueue, consumedResources corev1.ResourceList, lastUpdate time.Time) error {
 	lq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources = consumedResources
 	lq.Status.FairSharing.AdmissionFairSharingStatus.LastUpdate = metav1.NewTime(lastUpdate)
-	return r.client.Status().Update(ctx, lq)
+	if err := r.client.Status().Update(ctx, lq); err != nil {
+		return err
+	}
+	r.reportAfsUsage(lq, consumedResources)
+	return nil
 }
 
 func localQueueReferenceFromLocalQueue(lq *kueue.LocalQueue) metrics.LocalQueueReference {
@@ -442,6 +464,9 @@ func (r *LocalQueueReconciler) resyncLocalQueueGaugeMetrics(lq *kueue.LocalQueue
 
 	if !r.lqMetrics.ShouldExposeLocalQueueMetrics(lq.GetLabels()) {
 		return
+	}
+	if entry, found := r.queues.AfsConsumedResources.Get(lqKey); found {
+		r.reportAfsUsage(lq, entry.Resources)
 	}
 	condition := meta.FindStatusCondition(lq.Status.Conditions, kueue.LocalQueueActive)
 	if condition == nil {

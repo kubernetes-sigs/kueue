@@ -119,7 +119,7 @@ test-integration: compile-crd-manifests $(ENVTEST) $(GINKGO)
 	GOWORK=off $(GINKGO) -procs=$(INTEGRATION_NPROCS) -v ./test/integration/...
 
 .PHONY: test-e2e
-test-e2e: helm-verify-install
+test-e2e: helm-verify-lifecycle
 	./run-e2e.sh
 
 .PHONY: test
@@ -168,6 +168,6 @@ helm-chart-package: $(HELM) $(YQ) ## Package a chart into a versioned chart arch
 helm-chart-push: HELM_CHART_PUSH=true
 helm-chart-push: helm-chart-package
 
-.PHONY: helm-verify-install
-helm-verify-install: ## Run Helm install verification script.
-	./test/verify-helm-install.sh
+.PHONY: helm-verify-lifecycle
+helm-verify-lifecycle: ## Run Helm install/uninstall lifecycle verification script.
+	./test/verify-helm-lifecycle.sh
