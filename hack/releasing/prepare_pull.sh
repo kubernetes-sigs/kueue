@@ -266,6 +266,11 @@ function prepare_local_branch() {
     # Update security insights only for main branch PRs.
     if [ "$1" = "main" ]; then
       make update-security-insights GIT_TAG="${RELEASE_VERSION}"
+      # Freeze the release's docs into a path-based snapshot (site/content/*/v0.X/docs)
+      # and add it to the version dropdown. Sourced from the release branch, which
+      # holds this release's docs; committed on main and flows to the live website
+      # branch via the usual main->website merge.
+      hack/releasing/snapshot-docs.sh "v${MAJOR_MINOR}" "${UPSTREAM_REMOTE}/${RELEASE_BRANCH}"
     fi
   fi
 
