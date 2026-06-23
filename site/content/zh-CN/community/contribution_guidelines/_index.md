@@ -4,6 +4,7 @@ linkTitle: "贡献指南"
 weight: 25
 description: >
   如何为 Kueue 做出贡献
+type: docs
 ---
 
 欢迎来到 Kubernetes。我们非常期待你加入我们的[社区](https://git.k8s.io/community)！
