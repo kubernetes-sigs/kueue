@@ -2,9 +2,6 @@
 title: "演讲和展示"
 linkTitle: "演讲和展示"
 weight: 20
-menu:
-  main:
-    weight: 20
 description: >
   Talks & case studies showcasing Kueue
 ---
