@@ -37,8 +37,7 @@ func TestReleaseScaleDownReservation(t *testing.T) {
 		wantQuotaReservedStatus metav1.ConditionStatus
 		wantQuotaReservedReason string
 		wantAdmissionNil        bool
-		wantRequeueHeld         bool
-		wantRequeueHeldReason   string
+		wantOnHold              bool
 	}{
 		"releases admitted workload": {
 			workload: utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
@@ -47,10 +46,9 @@ func TestReleaseScaleDownReservation(t *testing.T) {
 				AdmittedAt(true, now).
 				Obj(),
 			wantQuotaReservedStatus: metav1.ConditionFalse,
-			wantQuotaReservedReason: "StatefulSetScaledDown",
+			wantQuotaReservedReason: kueue.WorkloadOnHold,
 			wantAdmissionNil:        true,
-			wantRequeueHeld:         true,
-			wantRequeueHeldReason:   "StatefulSetScaledDown",
+			wantOnHold:              true,
 		},
 		"ignores workload without active reservation": {
 			workload: utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
@@ -58,7 +56,7 @@ func TestReleaseScaleDownReservation(t *testing.T) {
 				Obj(),
 			wantQuotaReservedStatus: "",
 			wantAdmissionNil:        true,
-			wantRequeueHeld:         false,
+			wantOnHold:              false,
 		},
 		"ignores finished workload": {
 			workload: utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
@@ -75,7 +73,7 @@ func TestReleaseScaleDownReservation(t *testing.T) {
 			wantQuotaReservedStatus: metav1.ConditionTrue,
 			wantQuotaReservedReason: "AdmittedByTest",
 			wantAdmissionNil:        false,
-			wantRequeueHeld:         false,
+			wantOnHold:              false,
 		},
 	}
 
@@ -112,13 +110,14 @@ func TestReleaseScaleDownReservation(t *testing.T) {
 			} else if got.Status.Admission == nil {
 				t.Fatalf("expected admission to not be nil, but it was nil")
 			}
-			requeueHeldCond := apimeta.FindStatusCondition(got.Status.Conditions, kueue.WorkloadRequeueHeld)
-			if tc.wantRequeueHeld {
-				if requeueHeldCond == nil || requeueHeldCond.Status != metav1.ConditionTrue || requeueHeldCond.Reason != tc.wantRequeueHeldReason {
-					t.Fatalf("unexpected RequeueHeld condition: %+v", requeueHeldCond)
+			// When on hold, QuotaReserved=False with reason OnHold
+			onHoldCond := apimeta.FindStatusCondition(got.Status.Conditions, kueue.WorkloadQuotaReserved)
+			if tc.wantOnHold {
+				if onHoldCond == nil || onHoldCond.Status != metav1.ConditionFalse || onHoldCond.Reason != kueue.WorkloadOnHold {
+					t.Fatalf("expected QuotaReserved=False with reason OnHold, got %+v", onHoldCond)
 				}
-			} else if requeueHeldCond != nil {
-				t.Fatalf("expected no RequeueHeld condition, got %+v", requeueHeldCond)
+			} else if onHoldCond != nil && onHoldCond.Status == metav1.ConditionFalse && onHoldCond.Reason == kueue.WorkloadOnHold {
+				t.Fatalf("expected workload not to be on hold, but QuotaReserved=False with reason OnHold")
 			}
 		})
 	}

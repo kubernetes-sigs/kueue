@@ -487,7 +487,7 @@ func (m *Manager) addLocalQueueLocked(ctx context.Context, q *kueue.LocalQueue) 
 			m.addFinishedWorkloadWithoutLock(&w)
 		}
 
-		if !workload.IsAdmissible(&w) || workload.IsRequeueHeld(&w) {
+		if !workload.IsAdmissible(&w) {
 			continue
 		}
 

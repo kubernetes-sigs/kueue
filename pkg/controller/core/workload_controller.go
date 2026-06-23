@@ -469,7 +469,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			queueOptions = append(queueOptions, workload.WithPreprocessedDRAResources(draResources, replacedExtendedResources))
 		}
 
-		if workload.IsAdmissible(&wl) && !workload.IsRequeueHeld(&wl) {
+		if workload.IsAdmissible(&wl) {
 			if err := r.queues.AddOrUpdateWorkload(log, wl.DeepCopy(), queueOptions...); err != nil {
 				log.V(2).Info("Failed to add DRA workload to queue", "error", err)
 				return ctrl.Result{}, err
@@ -1210,7 +1210,7 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 		return true
 	}
 
-	if workload.IsAdmissible(e.Object) && !workload.IsRequeueHeld(wlCopy) {
+	if workload.IsAdmissible(e.Object) {
 		if err := r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
 			log.V(2).Info("ignored an error for now", "error", err)
 		}
@@ -1281,7 +1281,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 	// We do not handle old workload here as it will be deleted or replaced by new one anyway.
 	workload.AdjustResources(ctrl.LoggerInto(ctx, log), r.client, wlCopy)
 
-	requeueHeld := workload.IsRequeueHeld(wlCopy)
+	onHold := workload.IsOnHold(wlCopy)
 
 	switch {
 	case status == workload.StatusFinished || !active:
@@ -1308,8 +1308,8 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		})
 	case prevStatus == workload.StatusPending && status == workload.StatusPending:
 		switch {
-		case requeueHeld:
-			log.V(2).Info("Skipping queue update for requeue-held workload")
+		case onHold:
+			log.V(2).Info("Skipping queue update for workload on hold")
 		case dra.NeedsDRAReconcile(e.ObjectNew, r.draBackedResources):
 			log.V(2).Info("Skipping queue update for DRA workload - handled in Reconcile")
 		default:
@@ -1343,10 +1343,10 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			if err := r.cache.DeleteWorkload(log, wlKey); err != nil {
 				log.Error(err, "Failed to delete workload from cache")
 			}
-			// Requeue-held workloads (e.g. StatefulSet scale-to-zero) have already
+			// Workloads on hold (e.g. StatefulSet scale-to-zero) have already
 			// unreserved quota and should not be put back into the scheduling queue
 			// during the terminating-pod window. Keep the cache cleanup, but stop here.
-			if requeueHeld {
+			if onHold {
 				r.queues.DeleteSecondPassWithoutLock(wlKey)
 				return
 			}
@@ -1383,7 +1383,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		// and are not supposed to actually change anything.
 		r.cache.AddOrUpdateWorkload(log, wlCopy)
 	}
-	if !requeueHeld {
+	if !onHold {
 		r.queues.QueueSecondPassIfNeeded(ctx, wlCopy, 0)
 	}
 	return true
@@ -1577,7 +1577,7 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, q
 			continue
 		}
 
-		if workload.IsAdmissible(wlCopy) && !workload.IsRequeueHeld(wlCopy) {
+		if workload.IsAdmissible(wlCopy) {
 			if err = h.r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
 				log.V(2).Info("ignored an error for now", "error", err)
 			}
@@ -1783,7 +1783,7 @@ func (h *deviceClassHandler) reconcileWorkloads(ctx context.Context, q workqueue
 		for i := range lst.Items {
 			w := &lst.Items[i]
 			log.V(3).Info("Requeuing workload due to DeviceClass change", "workload", klog.KObj(w), "resource", name)
-			if !dra.NeedsDRAReconcile(w, h.r.draBackedResources) && workload.IsAdmissible(w) && !workload.IsRequeueHeld(w) {
+			if !dra.NeedsDRAReconcile(w, h.r.draBackedResources) && workload.IsAdmissible(w) {
 				wlCopy := w.DeepCopy()
 				workload.AdjustResources(ctx, h.r.client, wlCopy)
 				if err := h.r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {

@@ -218,16 +218,16 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 	// previous reconcile (e.g. owner-ref update succeeded but status patch
 	// failed) does not leave the workload stuck.
 	shouldReleaseReservation := replicas == 0 && workload.HasActiveQuotaReservation(wl) && !workload.IsFinished(wl)
-	shouldClearRequeueHeld := replicas > 0 && workload.IsRequeueHeld(wl)
+	shouldClearOnHold := replicas > 0 && workload.IsOnHold(wl)
 
 	switch {
 	case hasOwnerReference && replicas == 0:
 		// Keep the owner reference when scaling to zero so that the workload
 		// is not considered orphaned by the workload controller. The workload
-		// will be released with a RequeueHeld condition instead.
+		// will be put on hold instead.
 	case !hasOwnerReference && replicas == 0:
 		// Owner reference was already removed in a previous reconcile (before
-		// RequeueHeld was introduced), but quota reservation release may have
+		// OnHold was introduced), but quota reservation release may have
 		// failed. Retry the release if still active.
 	case !hasOwnerReference && replicas > 0:
 		shouldUpdate = true
@@ -256,8 +256,8 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 		if shouldReleaseReservation {
 			return r.releaseScaleDownReservation(ctx, wl)
 		}
-		if shouldClearRequeueHeld {
-			return r.clearRequeueHeld(ctx, wl)
+		if shouldClearOnHold {
+			return r.clearOnHold(ctx, wl)
 		}
 		return nil
 	}
@@ -270,19 +270,26 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 		return r.releaseScaleDownReservation(ctx, wl)
 	}
 
-	if shouldClearRequeueHeld {
-		return r.clearRequeueHeld(ctx, wl)
+	if shouldClearOnHold {
+		return r.clearOnHold(ctx, wl)
 	}
 
 	return nil
 }
 
-func (r *Reconciler) clearRequeueHeld(ctx context.Context, wl *kueue.Workload) error {
-	if !workload.IsRequeueHeld(wl) {
+func (r *Reconciler) clearOnHold(ctx context.Context, wl *kueue.Workload) error {
+	if !workload.IsOnHold(wl) {
 		return nil
 	}
 	return clientutil.PatchStatus(ctx, r.client, wl, func() (bool, error) {
-		changed := workload.UnsetRequeueHeldCondition(wl)
+		// Change the QuotaReserved reason from "OnHold" to "Pending"
+		// so the workload becomes admissible again and can be requeued.
+		changed := workload.UnsetQuotaReservationWithCondition(
+			wl,
+			"Pending",
+			"Workload no longer on hold; waiting for quota reservation",
+			metav1.Now().Time,
+		)
 		return changed, nil
 	}, clientutil.WithRetryOnConflict())
 }
@@ -293,15 +300,14 @@ func (r *Reconciler) releaseScaleDownReservation(ctx context.Context, wl *kueue.
 	}
 
 	return clientutil.PatchStatus(ctx, r.client, wl, func() (bool, error) {
+		// Set QuotaReserved=False with reason "OnHold" to both release the
+		// quota reservation and prevent the workload from being requeued.
 		changed := workload.UnsetQuotaReservationWithCondition(
 			wl,
-			"StatefulSetScaledDown",
-			"StatefulSet scaled to zero; releasing previous quota reservation",
+			kueue.WorkloadOnHold,
+			"StatefulSet scaled to zero; workload on hold",
 			metav1.Now().Time,
 		)
-		if workload.SetRequeueHeldCondition(wl, "StatefulSetScaledDown", "StatefulSet scaled to zero; workload should not be requeued") {
-			changed = true
-		}
 		return changed, nil
 	}, clientutil.WithRetryOnConflict())
 }
