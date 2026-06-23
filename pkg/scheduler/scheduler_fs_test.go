@@ -3461,6 +3461,7 @@ func TestScheduleForFairSharing(t *testing.T) {
 			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
 				metrics.AdmissionCyclePreemptionSkips.Reset()
+				metrics.AdmissionCyclePreemptionSkipsTotal.Reset()
 
 				ctx, log := utiltesting.ContextWithLog(t)
 
@@ -3601,6 +3602,13 @@ func TestScheduleForFairSharing(t *testing.T) {
 					got := int(val)
 					if want != got {
 						t.Errorf("Counted %d skips for %q, want %d", got, cqName, want)
+					}
+
+					// In a single scheduling cycle the cumulative counter, summed over
+					// its reason values, must match the per-cycle gauge.
+					gotTotal := skipsTotalForCQ(t, cqName)
+					if want != gotTotal {
+						t.Errorf("Counted %d skips_total for %q, want %d", gotTotal, cqName, want)
 					}
 				}
 			})

@@ -283,6 +283,15 @@ func (s *Scheduler) reportSkippedPreemptions(p map[kueue.ClusterQueueReference]i
 	}
 }
 
+// recordSkippedPreemption tallies a skipped preemption both into the per-cycle map
+// that feeds the admission_cycle_preemption_skips gauge and into the cumulative
+// admission_cycle_preemption_skips_total counter, labelled by reason. Keeping the two
+// updates together ensures the gauge and counter never diverge.
+func (s *Scheduler) recordSkippedPreemption(cqName kueue.ClusterQueueReference, reason string, skipped map[kueue.ClusterQueueReference]int) {
+	skipped[cqName]++
+	metrics.ReportAdmissionCyclePreemptionSkipTotal(cqName, reason, s.customLabels.CQGet(cqName), s.roleTracker)
+}
+
 func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	s.schedulingCycle++
 	log := roletracker.WithReplicaRole(ctrl.LoggerFrom(ctx), s.roleTracker).WithValues("schedulingCycle", s.schedulingCycle)
@@ -421,7 +430,7 @@ func (s *Scheduler) processEntry(
 	// We skip multiple-preemptions per cohort if any of the targets are overlapping
 	if preemptedWorkloads.HasAny(e.preemptionTargets) {
 		e.markSkipped("Workload has overlapping preemption targets with another workload")
-		skippedPreemptions[cq.Name]++
+		s.recordSkippedPreemption(cq.Name, metrics.PreemptionSkipReasonOverlappingTargets, skippedPreemptions)
 		return
 	}
 
@@ -429,7 +438,7 @@ func (s *Scheduler) processEntry(
 	if !fits(snapshot, cq, &usage, preemptedWorkloads, e.preemptionTargets) {
 		e.markSkipped("Workload no longer fits after processing another workload")
 		if mode == flavorassigner.Preempt {
-			skippedPreemptions[cq.Name]++
+			s.recordSkippedPreemption(cq.Name, metrics.PreemptionSkipReasonNoLongerFits, skippedPreemptions)
 		}
 		return
 	}

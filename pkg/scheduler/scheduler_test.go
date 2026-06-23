@@ -5889,6 +5889,7 @@ func TestSchedule(t *testing.T) {
 			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
 				metrics.AdmissionCyclePreemptionSkips.Reset()
+				metrics.AdmissionCyclePreemptionSkipsTotal.Reset()
 				features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
 				ctx, log := utiltesting.ContextWithLog(t)
@@ -6038,10 +6039,35 @@ func TestSchedule(t *testing.T) {
 					if want != got {
 						t.Errorf("Counted %d skips for %q, want %d", got, cqName, want)
 					}
+
+					// In a single scheduling cycle the cumulative counter, summed over
+					// its reason values, must match the per-cycle gauge.
+					gotTotal := skipsTotalForCQ(t, cqName)
+					if want != gotTotal {
+						t.Errorf("Counted %d skips_total for %q, want %d", gotTotal, cqName, want)
+					}
 				}
 			})
 		}
 	}
+}
+
+// skipsTotalForCQ returns the admission_cycle_preemption_skips_total counter for the
+// given ClusterQueue summed over all of its reason label values.
+func skipsTotalForCQ(t *testing.T, cqName string) int {
+	t.Helper()
+	total := 0
+	for _, reason := range []string{
+		metrics.PreemptionSkipReasonOverlappingTargets,
+		metrics.PreemptionSkipReasonNoLongerFits,
+	} {
+		val, err := testutil.GetCounterMetricValue(metrics.AdmissionCyclePreemptionSkipsTotal.WithLabelValues(cqName, reason, roletracker.RoleStandalone))
+		if err != nil {
+			t.Fatalf("Couldn't get value for metric admission_cycle_preemption_skips_total for %q/%q: %v", cqName, reason, err)
+		}
+		total += int(val)
+	}
+	return total
 }
 
 func TestEntryOrdering(t *testing.T) {

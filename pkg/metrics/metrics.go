@@ -60,6 +60,15 @@ const (
 	CQStatusActive ClusterQueueStatus = "active"
 	// CQStatusTerminating means the clusterQueue is in pending deletion.
 	CQStatusTerminating ClusterQueueStatus = "terminating"
+
+	// PreemptionSkipReasonOverlappingTargets is the 'reason' label value of
+	// AdmissionCyclePreemptionSkipsTotal when a workload's preemption targets
+	// overlapped with another workload already processed in the same scheduling cycle.
+	PreemptionSkipReasonOverlappingTargets = "OverlappingPreemptionTargets"
+	// PreemptionSkipReasonNoLongerFits is the 'reason' label value of
+	// AdmissionCyclePreemptionSkipsTotal when a workload no longer fit after another
+	// workload consumed capacity in the same scheduling cycle.
+	PreemptionSkipReasonNoLongerFits = "NoLongerFits"
 )
 
 var (
@@ -78,6 +87,10 @@ var (
 	// +metricsdoc:group=clusterqueue
 	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",replica_role="one of `leader`, `follower`, or `standalone`"
 	AdmissionCyclePreemptionSkips *prometheus.GaugeVec
+
+	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",reason="why the preemption was skipped, one of `OverlappingPreemptionTargets` or `NoLongerFits`",replica_role="one of `leader`, `follower`, or `standalone`"
+	AdmissionCyclePreemptionSkipsTotal *prometheus.CounterVec
 
 	// Metrics tied to the queue system.
 
@@ -355,6 +368,17 @@ The label 'result' can have the following values:
 		}, append([]string{"cluster_queue", "replica_role"}, extraLabels...),
 	)
 	trackGaugeVec(AdmissionCyclePreemptionSkips, gaugeCleanupScopeClusterQueue)
+
+	AdmissionCyclePreemptionSkipsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Subsystem: constants.KueueName,
+			Name:      "admission_cycle_preemption_skips_total",
+			Help: `The total number of times Workloads in the ClusterQueue got preemption candidates but had to be skipped because other ClusterQueues needed the same resources in the same cycle.
+The label 'reason' can have the following values:
+- "OverlappingPreemptionTargets" means the Workload's preemption targets overlapped with another Workload already processed in the same scheduling cycle.
+- "NoLongerFits" means the Workload no longer fit after another Workload consumed capacity in the same scheduling cycle.`,
+		}, append([]string{"cluster_queue", "reason", "replica_role"}, extraLabels...),
+	)
 
 	buildInfo = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -1077,6 +1101,7 @@ func ClearClusterQueueMetrics(cq kueue.ClusterQueueReference) {
 	EvictedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	EvictedWorkloadsOnceTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	PreemptedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"preempting_cluster_queue": cqName})
+	AdmissionCyclePreemptionSkipsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	// Histogram vec, not cleared by gauge cleanup above.
 	WorkloadEvictionLatencySeconds.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	PodSchedulingGateRemovalSeconds.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
@@ -1300,6 +1325,11 @@ func ReportAdmissionCyclePreemptionSkips(cqName kueue.ClusterQueueReference, cou
 	AdmissionCyclePreemptionSkips.WithLabelValues(labels...).Set(float64(count))
 }
 
+func ReportAdmissionCyclePreemptionSkipTotal(cqName kueue.ClusterQueueReference, reason string, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cqName), reason, roletracker.GetRole(tracker)}, customLabelValues...)
+	AdmissionCyclePreemptionSkipsTotal.WithLabelValues(labels...).Inc()
+}
+
 func clearScopedGaugeMetrics(scope gaugeCleanupScope, lbls prometheus.Labels) {
 	for _, g := range gaugeVecsByScope[scope] {
 		g.DeletePartialMatch(lbls)
@@ -1371,6 +1401,7 @@ func Register() {
 		AdmissionAttemptsTotal,
 		admissionAttemptDuration,
 		AdmissionCyclePreemptionSkips,
+		AdmissionCyclePreemptionSkipsTotal,
 		PendingWorkloads,
 		FinishedWorkloads,
 		QuotaReservedWorkloadsTotal,
