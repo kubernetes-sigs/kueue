@@ -24,7 +24,6 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -56,7 +55,6 @@ import (
 const ControllerName = "ElasticJobUngater"
 
 var errPendingUngateOps = errors.New("pending elastic ungate operations")
-var errMissingControllerOwner = errors.New("elastic workload slice has no controller owner reference")
 
 type elasticJobUngater struct {
 	client            client.Client
@@ -112,13 +110,16 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 	if !r.expectationsStore.Satisfied(log, req.NamespacedName) {
 		return reconcile.Result{}, errPendingUngateOps
 	}
-	// Ungate pods for workloads that were admitted (including finished ones
-	// whose pods may still be gated after scale-up). Pending workloads that
-	// were never admitted keep their pods gated.
+	// Ungate pods for the slice we are currently reconciling. We skip
+	// non-elastic workloads, pending workloads (no quota), and finished slices
+	// (whose pods are either rescheduled by the replacement slice or being
+	// terminated by the parent job). Skipping finished slices is what makes
+	// "the reconciled workload is the latest admitted slice" hold, so its own
+	// granted PodSet counts are the right cap for ungating.
 	if !workloadslicing.IsElasticWorkload(wl) {
 		return reconcile.Result{}, nil
 	}
-	if !workload.IsAdmitted(wl) && !workload.HasQuotaReservation(wl) {
+	if workload.IsFinished(wl) || (!workload.IsAdmitted(wl) && !workload.HasQuotaReservation(wl)) {
 		return reconcile.Result{}, nil
 	}
 
@@ -163,6 +164,12 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 }
 
 func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload) ([]*corev1.Pod, error) {
+	// All pods in the slice chain share the same WorkloadSliceNameAnnotation,
+	// so the index lookup returns every pod created on behalf of this job.
+	// Although those pods may still carry an older slice's name in their
+	// WorkloadAnnotation (the template is stamped at the slice's admission),
+	// the reconcile guards ensure wl is the currently-admitted slice, so its
+	// granted PodSet counts are the right cap for ungating any of them.
 	sliceName := workloadslicing.SliceName(wl)
 	var podList corev1.PodList
 	if err := r.client.List(ctx, &podList,
@@ -172,23 +179,11 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 		return nil, fmt.Errorf("listing pods for workload slice: %w", err)
 	}
 
-	// Cap ungating, per PodSet, to the replicas actually granted quota across the
-	// slice chain. Without this cap, scale-up surplus pods (which carry the
-	// chain-root workload name, like the admitted slice's pods) would be ungated
-	// even though their replacement slice has not been admitted, bypassing the
-	// ClusterQueue quota.
-	granted, err := r.grantedPodSetCounts(ctx, wl)
-	if err != nil {
-		return nil, err
-	}
-
+	granted := workload.ExtractPodSetCountsFromWorkload(wl)
 	gatedPerPodSet := make(map[kueue.PodSetReference][]*corev1.Pod)
 	ungatedPerPodSet := make(map[kueue.PodSetReference]int32)
 	for i := range podList.Items {
 		p := &podList.Items[i]
-		if p.Annotations[kueue.WorkloadAnnotation] != wl.Name {
-			continue
-		}
 		ps := kueue.PodSetReference(p.Labels[constants.PodSetLabel])
 		if utilpod.HasGate(p, kueue.ElasticJobSchedulingGate) {
 			gatedPerPodSet[ps] = append(gatedPerPodSet[ps], p)
@@ -214,59 +209,6 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 	return gated, nil
 }
 
-// grantedPodSetCounts returns, per PodSet, the maximum replica Count among the
-// workload slices in wl's chain that hold an active quota reservation. The
-// chain is identified by slices owned by the same parent job (matched via the
-// OwnerReferenceUID index) that share the same slice name.
-func (r *elasticJobUngater) grantedPodSetCounts(ctx context.Context, wl *kueue.Workload) (workload.PodSetsCounts, error) {
-	granted := workload.PodSetsCounts{}
-	mergeMax := func(w *kueue.Workload) {
-		// Finished (e.g. replaced) slices retain QuotaReserved=True, so require an
-		// active reservation to avoid inflating the cap from stale slices after a
-		// scale-up-then-scale-down cycle.
-		if !workload.HasActiveQuotaReservation(w) {
-			return
-		}
-		for ps, count := range workload.ExtractPodSetCountsFromWorkload(w) {
-			if existing, ok := granted[ps]; !ok || count > existing {
-				granted[ps] = count
-			}
-		}
-	}
-
-	mergeMax(wl)
-
-	// Elastic workload slices are always created with a controller owner
-	// reference to their job; without it the slice chain cannot be resolved.
-	owner := metav1.GetControllerOf(wl)
-	if owner == nil {
-		return nil, fmt.Errorf("%w: %s", errMissingControllerOwner, klog.KObj(wl))
-	}
-
-	// Surplus scale-up pods keep the chain-root workload name in their
-	// kueue.WorkloadAnnotation, while the quota granted for them lives on the
-	// replacement slice. Since podsToUngate only matches pods annotated with
-	// wl.Name, the reconcile of the root slice must consult its sibling slices'
-	// reservations; otherwise, once the replacement is admitted (finishing the
-	// root slice), the surplus pods would stay gated forever.
-	sliceName := workloadslicing.SliceName(wl)
-	var wlList kueue.WorkloadList
-	if err := r.client.List(ctx, &wlList,
-		client.InNamespace(wl.Namespace),
-		client.MatchingFields{indexer.OwnerReferenceUID: string(owner.UID)},
-	); err != nil {
-		return nil, fmt.Errorf("listing slice chain workloads: %w", err)
-	}
-	for i := range wlList.Items {
-		sibling := &wlList.Items[i]
-		if sibling.Name == wl.Name || workloadslicing.SliceName(sibling) != sliceName {
-			continue
-		}
-		mergeMax(sibling)
-	}
-	return granted, nil
-}
-
 // Workload predicates
 
 func (r *elasticJobUngater) Create(e event.TypedCreateEvent[*kueue.Workload]) bool {
@@ -279,6 +221,7 @@ func (r *elasticJobUngater) Update(e event.TypedUpdateEvent[*kueue.Workload]) bo
 
 func shouldUngate(wl *kueue.Workload) bool {
 	return workloadslicing.IsElasticWorkload(wl) &&
+		!workload.IsFinished(wl) &&
 		(workload.IsAdmitted(wl) || workload.HasQuotaReservation(wl))
 }
 

@@ -273,7 +273,13 @@ func TestReconcile(t *testing.T) {
 			},
 			wantErr: errPendingUngateOps,
 		},
-		"only ungate own pods after scale-up": {
+		"reconciling latest admitted slice ungates pods minted by the previous slice": {
+			// Surplus scale-up pods stay annotated with the chain-root workload
+			// name (the template was stamped at the root slice's admission), but
+			// they all share the same WorkloadSliceNameAnnotation. The reconcile
+			// of the latest admitted slice ("wl-slice-1") therefore sees both pods
+			// via the WorkloadSliceNameKey index and ungates them up to its own
+			// granted count, regardless of which past slice they were minted by.
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl-slice-1", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
@@ -307,59 +313,10 @@ func TestReconcile(t *testing.T) {
 				*testingpod.MakePod("pod-from-parent", "ns").
 					Annotation(kueue.WorkloadAnnotation, "wl").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
-					Gate(kueue.ElasticJobSchedulingGate).
 					Obj(),
 				*testingpod.MakePod("pod-from-scale-up", "ns").
 					Annotation(kueue.WorkloadAnnotation, "wl-slice-1").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
-					Obj(),
-			},
-		},
-		"skip pods belonging to non-admitted workload after scale-up": {
-			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("wl", "ns").
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					ControllerReference(rayClusterGVK, "ray", "ray-uid").
-					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuotaAt(
-						utiltestingapi.MakeAdmission("cq").
-							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-								Assignment(corev1.ResourceCPU, "flavor", "1").
-								Obj()).
-							Obj(), now,
-					).
-					AdmittedAt(true, now).
-					Obj(),
-				*utiltestingapi.MakeWorkload("wl-slice-1", "ns").
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
-					ControllerReference(rayClusterGVK, "ray", "ray-uid").
-					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
-					Obj(),
-			},
-			pods: []corev1.Pod{
-				*testingpod.MakePod("pod-from-admitted-slice", "ns").
-					Annotation(kueue.WorkloadAnnotation, "wl").
-					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
-					Gate(kueue.ElasticJobSchedulingGate).
-					Obj(),
-				*testingpod.MakePod("pod-from-pending-slice", "ns").
-					Annotation(kueue.WorkloadAnnotation, "wl-slice-1").
-					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
-					Gate(kueue.ElasticJobSchedulingGate).
-					Obj(),
-			},
-			wantPods: []corev1.Pod{
-				*testingpod.MakePod("pod-from-admitted-slice", "ns").
-					Annotation(kueue.WorkloadAnnotation, "wl").
-					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
-					Obj(),
-				*testingpod.MakePod("pod-from-pending-slice", "ns").
-					Annotation(kueue.WorkloadAnnotation, "wl-slice-1").
-					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
-					Gate(kueue.ElasticJobSchedulingGate).
 					Obj(),
 			},
 		},
@@ -395,38 +352,6 @@ func TestReconcile(t *testing.T) {
 					TopologySchedulingGate().
 					Obj(),
 			},
-		},
-		"error when elastic workload has no controller owner": {
-			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("wl", "ns").
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuotaAt(
-						utiltestingapi.MakeAdmission("cq").
-							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-								Assignment(corev1.ResourceCPU, "flavor", "1").
-								Obj()).
-							Obj(), now,
-					).
-					AdmittedAt(true, now).
-					Obj(),
-			},
-			pods: []corev1.Pod{
-				*testingpod.MakePod("pod", "ns").
-					Annotation(kueue.WorkloadAnnotation, "wl").
-					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
-					Gate(kueue.ElasticJobSchedulingGate).
-					Obj(),
-			},
-			wantPods: []corev1.Pod{
-				*testingpod.MakePod("pod", "ns").
-					Annotation(kueue.WorkloadAnnotation, "wl").
-					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
-					Gate(kueue.ElasticJobSchedulingGate).
-					Obj(),
-			},
-			wantErr: errMissingControllerOwner,
 		},
 		"skip surplus pods over quota during scale-up": {
 			workloads: []kueue.Workload{
@@ -491,10 +416,13 @@ func TestReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
-		"cap excludes finished slices after scale-up-then-scale-down": {
+		"no-op for finished slice": {
+			// Slice replacement marks the previous slice Finished while keeping
+			// its Admitted and QuotaReserved conditions True. Reconciling such a
+			// slice must not ungate any pods using its stale count: the latest
+			// admitted (replacement) slice owns the active grant. The reconcile
+			// guard short-circuits before podsToUngate runs.
 			workloads: []kueue.Workload{
-				// Chain root: scaled up to 3, then replaced. Finished slices retain
-				// QuotaReserved=True, so the stale count of 3 must not inflate the cap.
 				*utiltestingapi.MakeWorkload("wl", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
@@ -510,50 +438,16 @@ func TestReconcile(t *testing.T) {
 					AdmittedAt(true, now).
 					FinishedAt(now).
 					Obj(),
-				// Active slice after scaling back down to 2.
-				*utiltestingapi.MakeWorkload("wl-slice-1", "ns").
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
-					ControllerReference(rayClusterGVK, "ray", "ray-uid").
-					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuotaAt(
-						utiltestingapi.MakeAdmission("cq").
-							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-								Assignment(corev1.ResourceCPU, "flavor", "2").
-								Obj()).
-							Obj(), now,
-					).
-					AdmittedAt(true, now).
-					Obj(),
 			},
 			pods: []corev1.Pod{
-				*testingpod.MakePod("pod-0", "ns").
-					Annotation(kueue.WorkloadAnnotation, "wl").
-					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
-					Obj(),
-				*testingpod.MakePod("pod-1", "ns").
-					Annotation(kueue.WorkloadAnnotation, "wl").
-					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
-					Obj(),
-				*testingpod.MakePod("pod-2", "ns").
+				*testingpod.MakePod("pod", "ns").
 					Annotation(kueue.WorkloadAnnotation, "wl").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
 					Gate(kueue.ElasticJobSchedulingGate).
 					Obj(),
 			},
-			// Active grant is 2 and 2 pods are already ungated; the gated pod must
-			// stay gated even though the finished slice's count is 3.
 			wantPods: []corev1.Pod{
-				*testingpod.MakePod("pod-0", "ns").
-					Annotation(kueue.WorkloadAnnotation, "wl").
-					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
-					Obj(),
-				*testingpod.MakePod("pod-1", "ns").
-					Annotation(kueue.WorkloadAnnotation, "wl").
-					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
-					Obj(),
-				*testingpod.MakePod("pod-2", "ns").
+				*testingpod.MakePod("pod", "ns").
 					Annotation(kueue.WorkloadAnnotation, "wl").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
 					Gate(kueue.ElasticJobSchedulingGate).
@@ -561,23 +455,12 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		"ungate surplus once replacement admitted": {
+			// The replacement slice ("wl-slice-1") becomes the latest admitted
+			// slice on scale-up to 3 replicas. Reconciling it ungates the surplus
+			// pods that were stuck during scale-up — including the ones still
+			// carrying the chain-root name in their WorkloadAnnotation. Listed
+			// first so workloads[0] is the reconcile target.
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("wl", "ns").
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					ControllerReference(rayClusterGVK, "ray", "ray-uid").
-					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuotaAt(
-						utiltestingapi.MakeAdmission("cq").
-							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-								Assignment(corev1.ResourceCPU, "flavor", "1").
-								Obj()).
-							Obj(), now,
-					).
-					AdmittedAt(true, now).
-					Obj(),
-				// Replacement slice for the scale-up to 3 replicas, now admitted with
-				// quota, so the surplus pods may be ungated.
 				*utiltestingapi.MakeWorkload("wl-slice-1", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
@@ -592,6 +475,24 @@ func TestReconcile(t *testing.T) {
 							Obj(), now,
 					).
 					AdmittedAt(true, now).
+					Obj(),
+				// Root slice, now Finished by the replacement. Kept so the test
+				// fixture matches a real chain, even though the reconcile target
+				// is the replacement above.
+				*utiltestingapi.MakeWorkload("wl", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					ControllerReference(rayClusterGVK, "ray", "ray-uid").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "flavor", "1").
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					FinishedAt(now).
 					Obj(),
 			},
 			pods: []corev1.Pod{
