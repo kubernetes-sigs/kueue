@@ -118,6 +118,11 @@
   stage: Deprecated
   from: "0.11"
   to: "0.16"
+- feature: LocalQueueDefaulting
+  default: true
+  lockToDefault: true
+  preRelease: GA
+  version: "0.17"
 - feature: DRAExtendedResources
   default: false
   stage: Alpha
