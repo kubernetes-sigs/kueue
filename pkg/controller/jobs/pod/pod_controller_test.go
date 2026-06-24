@@ -344,7 +344,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					ReserveQuotaAt(
-						utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).
+						utiltestingapi.MakeAdmission(clusterQueueName).
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
 								Obj()).
@@ -360,7 +360,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					ReserveQuotaAt(
-						utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).
+						utiltestingapi.MakeAdmission(clusterQueueName).
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
 								Obj()).
@@ -391,7 +391,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					AdmittedAt(true, now).
 					Obj(),
@@ -767,7 +767,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					Obj(),
@@ -775,7 +775,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
@@ -822,7 +822,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					AdmittedAt(true, now).
 					Obj(),
@@ -830,7 +830,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
@@ -1429,7 +1429,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					ReserveQuotaAt(
-						utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).
+						utiltestingapi.MakeAdmission(clusterQueueName).
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "2").
 								Count(2).
@@ -1451,7 +1451,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					ReserveQuotaAt(
-						utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).
+						utiltestingapi.MakeAdmission(clusterQueueName).
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "2").
 								Count(2).
@@ -1525,7 +1525,7 @@ func TestReconciler(t *testing.T) {
 							Obj(),
 					).
 					Queue(localUserQueueName).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					AdmittedAt(true, now).
@@ -1539,7 +1539,7 @@ func TestReconciler(t *testing.T) {
 							Obj(),
 					).
 					Queue(localUserQueueName).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					AdmittedAt(true, now).
@@ -1594,7 +1594,7 @@ func TestReconciler(t *testing.T) {
 							Obj(),
 					).
 					Queue(localUserQueueName).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
@@ -1608,7 +1608,7 @@ func TestReconciler(t *testing.T) {
 							Obj(),
 					).
 					Queue(localUserQueueName).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
@@ -1655,7 +1655,7 @@ func TestReconciler(t *testing.T) {
 					).
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -1674,7 +1674,7 @@ func TestReconciler(t *testing.T) {
 					).
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -1793,7 +1793,7 @@ func TestReconciler(t *testing.T) {
 					).
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    "Finished",
@@ -1818,7 +1818,7 @@ func TestReconciler(t *testing.T) {
 					).
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    "Finished",
@@ -1923,7 +1923,7 @@ func TestReconciler(t *testing.T) {
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					Queue(localTestQueueName).
 					ReserveQuotaAt(
-						utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).
+						utiltestingapi.MakeAdmission(clusterQueueName).
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "2").
 								Count(2).
@@ -2004,7 +2004,7 @@ func TestReconciler(t *testing.T) {
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -2024,7 +2024,7 @@ func TestReconciler(t *testing.T) {
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -2094,7 +2094,7 @@ func TestReconciler(t *testing.T) {
 							Obj(),
 					).
 					Queue(localUserQueueName).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(3).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(3).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
@@ -2152,7 +2152,7 @@ func TestReconciler(t *testing.T) {
 							Obj(),
 					).
 					Queue(localUserQueueName).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(3).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(3).Obj()).Obj(), now).
 					ReclaimablePods(kueue.ReclaimablePod{
 						Name:  kueue.NewPodSetReference(podUID),
 						Count: 1,
@@ -2244,7 +2244,7 @@ func TestReconciler(t *testing.T) {
 							Obj(),
 					).
 					Queue(localUserQueueName).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
@@ -2259,7 +2259,7 @@ func TestReconciler(t *testing.T) {
 							Obj(),
 					).
 					Queue(localUserQueueName).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
@@ -2315,7 +2315,7 @@ func TestReconciler(t *testing.T) {
 					).
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
@@ -2341,7 +2341,7 @@ func TestReconciler(t *testing.T) {
 							Obj(),
 					).
 					Queue(localUserQueueName).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
@@ -2395,7 +2395,7 @@ func TestReconciler(t *testing.T) {
 					).
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now.Add(-time.Second)).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
@@ -2422,7 +2422,7 @@ func TestReconciler(t *testing.T) {
 					).
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					PastAdmittedTime(1).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadAdmitted,
@@ -2516,7 +2516,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(*utiltestingapi.MakePodSet("incorrect-role-name", 1).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue(localTestQueueName).
 					ReserveQuotaAt(
-						utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).
+						utiltestingapi.MakeAdmission(clusterQueueName).
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "2").
 								Count(2).
@@ -2603,7 +2603,7 @@ func TestReconciler(t *testing.T) {
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -2623,7 +2623,7 @@ func TestReconciler(t *testing.T) {
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -2668,7 +2668,7 @@ func TestReconciler(t *testing.T) {
 							Obj(),
 					).
 					Queue(localUserQueueName).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
@@ -2690,7 +2690,7 @@ func TestReconciler(t *testing.T) {
 							Obj(),
 					).
 					Queue(localUserQueueName).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
@@ -2937,7 +2937,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod3", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -2962,7 +2962,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod3", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -3063,7 +3063,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod3", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -3085,7 +3085,7 @@ func TestReconciler(t *testing.T) {
 							Obj(),
 					).
 					Queue(localUserQueueName).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
@@ -3182,7 +3182,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod3", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -3204,7 +3204,7 @@ func TestReconciler(t *testing.T) {
 							Obj(),
 					).
 					Queue(localUserQueueName).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
@@ -3420,7 +3420,7 @@ func TestReconciler(t *testing.T) {
 							Obj(),
 					).
 					Queue(localUserQueueName).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
@@ -3442,7 +3442,7 @@ func TestReconciler(t *testing.T) {
 							Obj(),
 					).
 					Queue(localUserQueueName).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
@@ -3539,7 +3539,7 @@ func TestReconciler(t *testing.T) {
 							Obj(),
 					).
 					Queue(localUserQueueName).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Obj(),
 			},
@@ -3551,7 +3551,7 @@ func TestReconciler(t *testing.T) {
 							Obj(),
 					).
 					Queue(localUserQueueName).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Obj(),
 			},
@@ -3624,7 +3624,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "pod2").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod3", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Obj(),
 			},
@@ -3639,7 +3639,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "pod2").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod3", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Obj(),
 			},
@@ -3869,7 +3869,7 @@ func TestReconciler(t *testing.T) {
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -3890,7 +3890,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "replacement-for-pod1", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -4275,7 +4275,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "finished-with-error", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "deleted", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "finished-with-error2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -4299,7 +4299,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "finished-with-error2", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "replacement1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "replacement2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -4397,7 +4397,7 @@ func TestReconciler(t *testing.T) {
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "active-pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "finished-with-error", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Obj(),
 			},
@@ -4411,7 +4411,7 @@ func TestReconciler(t *testing.T) {
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "active-pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "finished-with-error", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Obj(),
 			},
@@ -4511,7 +4511,7 @@ func TestReconciler(t *testing.T) {
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "finished-with-error", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "finished-with-error-no-finalizer", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -4532,7 +4532,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "finished-with-error", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "finished-with-error-no-finalizer", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "replacement", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -4757,7 +4757,7 @@ func TestReconciler(t *testing.T) {
 					Queue(localUserQueueName).
 					Priority(0).
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(false, now).
 					Obj(),
 			},
@@ -4787,7 +4787,7 @@ func TestReconciler(t *testing.T) {
 					Queue(localUserQueueName).
 					Priority(0).
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(false, now).
 					Obj(),
 			},
@@ -4845,7 +4845,7 @@ func TestReconciler(t *testing.T) {
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(false, now).
 					Obj(),
 			},
@@ -4872,7 +4872,7 @@ func TestReconciler(t *testing.T) {
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(false, now).
 					Obj(),
 			},
@@ -4944,7 +4944,7 @@ func TestReconciler(t *testing.T) {
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Obj(),
 			},
@@ -4988,7 +4988,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "replacement", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Obj(),
 			},
@@ -5042,7 +5042,7 @@ func TestReconciler(t *testing.T) {
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Obj(),
 			},
@@ -5078,7 +5078,7 @@ func TestReconciler(t *testing.T) {
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Obj(),
 			},
@@ -5118,7 +5118,7 @@ func TestReconciler(t *testing.T) {
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Obj(),
 			},
@@ -5154,7 +5154,7 @@ func TestReconciler(t *testing.T) {
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -5201,7 +5201,7 @@ func TestReconciler(t *testing.T) {
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Obj(),
 			},
@@ -5238,7 +5238,7 @@ func TestReconciler(t *testing.T) {
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -5285,7 +5285,7 @@ func TestReconciler(t *testing.T) {
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
@@ -5328,7 +5328,7 @@ func TestReconciler(t *testing.T) {
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
@@ -5383,7 +5383,7 @@ func TestReconciler(t *testing.T) {
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadEvicted,
@@ -5431,7 +5431,7 @@ func TestReconciler(t *testing.T) {
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadEvicted,
@@ -5483,7 +5483,7 @@ func TestReconciler(t *testing.T) {
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
@@ -5533,7 +5533,7 @@ func TestReconciler(t *testing.T) {
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
@@ -5587,7 +5587,7 @@ func TestReconciler(t *testing.T) {
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -5629,7 +5629,7 @@ func TestReconciler(t *testing.T) {
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    WorkloadWaitingForReplacementPods,
@@ -5959,7 +5959,7 @@ func TestReconciler(t *testing.T) {
 					).
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now.Add(-time.Second)).
 					Active(false).
 					Condition(metav1.Condition{
@@ -5980,7 +5980,7 @@ func TestReconciler(t *testing.T) {
 					).
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					PastAdmittedTime(1).
 					Active(false).
 					Condition(metav1.Condition{
