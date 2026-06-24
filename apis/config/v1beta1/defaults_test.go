@@ -512,9 +512,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Origin:            new("multikueue-manager1"),
 					WorkerLostTimeout: &metav1.Duration{Duration: time.Minute},
 					DispatcherName:    new(MultiKueueDispatcherModeIncremental),
-					IncrementalDispatcherConfig: &IncrementalDispatcherConfig{
-						StepSize: ptr.To[int32](3),
-					},
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				WaitForPodsReady:             &WaitForPodsReady{},
