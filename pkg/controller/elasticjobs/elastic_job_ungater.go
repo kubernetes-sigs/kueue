@@ -79,12 +79,24 @@ func SetupWithManager(mgr ctrl.Manager, cfg *configapi.Configuration, roleTracke
 	podHandler := elasticPodHandler{
 		expectationsStore: r.expectationsStore,
 	}
+	// Reconcile by the stable slice-chain key rather than by an individual
+	// workload, so every slice in a chain (and every pod that names any slice in
+	// it) maps to a single reconcile request. Reconcile then resolves the active
+	// slice from that key.
+	sliceKeyHandler := handler.TypedEnqueueRequestsFromMapFunc(
+		func(_ context.Context, wl *kueue.Workload) []reconcile.Request {
+			return []reconcile.Request{{NamespacedName: types.NamespacedName{
+				Namespace: wl.Namespace,
+				Name:      workloadslicing.SliceName(wl),
+			}}}
+		},
+	)
 	return ControllerName, builder.TypedControllerManagedBy[reconcile.Request](mgr).
 		Named("elastic_job_ungater").
 		WatchesRawSource(source.TypedKind(
 			mgr.GetCache(),
 			&kueue.Workload{},
-			&handler.TypedEnqueueRequestForObject[*kueue.Workload]{},
+			sliceKeyHandler,
 			r,
 		)).
 		Watches(&corev1.Pod{}, &podHandler).
@@ -100,30 +112,25 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile ElasticJobUngater")
 
-	wl := &kueue.Workload{}
-	if err := r.client.Get(ctx, req.NamespacedName, wl); err != nil {
-		if client.IgnoreNotFound(err) != nil {
-			return reconcile.Result{}, err
-		}
-		return reconcile.Result{}, nil
-	}
 	if !r.expectationsStore.Satisfied(log, req.NamespacedName) {
 		return reconcile.Result{}, errPendingUngateOps
 	}
-	// Ungate pods for the slice we are currently reconciling. We skip
-	// non-elastic workloads, pending workloads (no quota), and finished slices
-	// (whose pods are either rescheduled by the replacement slice or being
-	// terminated by the parent job). Skipping finished slices is what makes
-	// "the reconciled workload is the latest admitted slice" hold, so its own
-	// granted PodSet counts are the right cap for ungating.
-	if !workloadslicing.IsElasticWorkload(wl) {
-		return reconcile.Result{}, nil
+
+	// req.Name is the stable slice-chain key shared by every slice and pod in the
+	// chain (see workloadslicing.SliceName). Resolve the active (latest admitted,
+	// non-finished) slice: it is the only one whose granted PodSet counts define
+	// how many pods may be ungated. Finished and pending slices are skipped here,
+	// so the cap is always taken from the live slice regardless of which slice (or
+	// which pod's stamped WorkloadAnnotation) triggered the event.
+	active, err := r.activeSlice(ctx, req.Namespace, req.Name)
+	if err != nil {
+		return reconcile.Result{}, err
 	}
-	if workload.IsFinished(wl) || (!workload.IsAdmitted(wl) && !workload.HasQuotaReservation(wl)) {
+	if active == nil {
 		return reconcile.Result{}, nil
 	}
 
-	pods, err := r.podsToUngate(ctx, wl)
+	pods, err := r.podsToUngate(ctx, active)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
@@ -168,8 +175,8 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 	// so the index lookup returns every pod created on behalf of this job.
 	// Although those pods may still carry an older slice's name in their
 	// WorkloadAnnotation (the template is stamped at the slice's admission),
-	// the reconcile guards ensure wl is the currently-admitted slice, so its
-	// granted PodSet counts are the right cap for ungating any of them.
+	// wl is the chain's active slice (resolved in Reconcile), so its granted
+	// PodSet counts are the right cap for ungating any of them.
 	sliceName := workloadslicing.SliceName(wl)
 	var podList corev1.PodList
 	if err := r.client.List(ctx, &podList,
@@ -207,6 +214,39 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 		gated = append(gated, pods...)
 	}
 	return gated, nil
+}
+
+// activeSlice returns the active (latest admitted, non-finished) workload slice
+// for the chain identified by sliceName, or nil if none qualifies.
+func (r *elasticJobUngater) activeSlice(ctx context.Context, namespace, sliceName string) (*kueue.Workload, error) {
+	var list kueue.WorkloadList
+	if err := r.client.List(ctx, &list,
+		client.InNamespace(namespace),
+		client.MatchingFields{indexer.WorkloadSliceNameWorkloadKey: sliceName},
+	); err != nil {
+		return nil, fmt.Errorf("listing workload slices: %w", err)
+	}
+	var active *kueue.Workload
+	for i := range list.Items {
+		wl := &list.Items[i]
+		if !shouldUngate(wl) {
+			continue
+		}
+		if active == nil || moreActiveSlice(wl, active) {
+			active = wl
+		}
+	}
+	return active, nil
+}
+
+// moreActiveSlice reports whether slice a is the better cap source than b: the
+// newer slice wins, and on equal creation timestamps the replacement slice
+// (carrying WorkloadSliceReplacementFor) is treated as newer than the root.
+func moreActiveSlice(a, b *kueue.Workload) bool {
+	if c := a.CreationTimestamp.Compare(b.CreationTimestamp.Time); c != 0 {
+		return c > 0
+	}
+	return workloadslicing.ScaledUp(a) && !workloadslicing.ScaledUp(b)
 }
 
 // Workload predicates
@@ -261,18 +301,32 @@ func (h *elasticPodHandler) queueReconcileForPod(ctx context.Context, object cli
 	if !isPod {
 		return
 	}
-	wlName, found := pod.Annotations[kueue.WorkloadAnnotation]
-	if !found {
+	// Enqueue by the stable slice-chain key, not the pod's stamped
+	// WorkloadAnnotation. A pod minted after a scale-up still carries the previous
+	// (now Finished) slice's name, but the chain key is shared by every slice, so
+	// Reconcile can always resolve the active slice from it.
+	sliceName := podSliceName(pod)
+	if sliceName == "" {
 		return
 	}
 	key := types.NamespacedName{
-		Name:      wlName,
+		Name:      sliceName,
 		Namespace: pod.Namespace,
 	}
 	// Mark expectation as observed when the gate has been removed or the pod is deleted.
 	if !utilpod.HasGate(pod, kueue.ElasticJobSchedulingGate) || deleted {
-		log := ctrl.LoggerFrom(ctx).WithValues("pod", klog.KObj(pod), "workload", key.String())
+		log := ctrl.LoggerFrom(ctx).WithValues("pod", klog.KObj(pod), "workloadSlice", key.String())
 		h.expectationsStore.ObservedUID(log, key, pod.UID)
 	}
 	q.AddAfter(reconcile.Request{NamespacedName: key}, constants.UpdatesBatchPeriod)
+}
+
+// podSliceName returns the slice-chain key for a pod: the WorkloadSliceName
+// annotation if present, otherwise the stamped Workload annotation. Mirrors
+// indexer.IndexPodWorkloadSliceName so the key matches the pod index.
+func podSliceName(pod *corev1.Pod) string {
+	if v, found := pod.Annotations[kueue.WorkloadSliceNameAnnotation]; found {
+		return v
+	}
+	return pod.Annotations[kueue.WorkloadAnnotation]
 }

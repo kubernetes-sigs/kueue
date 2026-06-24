@@ -418,10 +418,10 @@ func TestReconcile(t *testing.T) {
 		},
 		"no-op for finished slice": {
 			// Slice replacement marks the previous slice Finished while keeping
-			// its Admitted and QuotaReserved conditions True. Reconciling such a
-			// slice must not ungate any pods using its stale count: the latest
-			// admitted (replacement) slice owns the active grant. The reconcile
-			// guard short-circuits before podsToUngate runs.
+			// its Admitted and QuotaReserved conditions True. Reconciling the chain
+			// must not ungate any pods using this slice's stale count: activeSlice
+			// skips it (shouldUngate is false for finished slices) and, with no
+			// other live slice in the chain, returns nil so nothing is ungated.
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
@@ -456,10 +456,11 @@ func TestReconcile(t *testing.T) {
 		},
 		"ungate surplus once replacement admitted": {
 			// The replacement slice ("wl-slice-1") becomes the latest admitted
-			// slice on scale-up to 3 replicas. Reconciling it ungates the surplus
-			// pods that were stuck during scale-up — including the ones still
-			// carrying the chain-root name in their WorkloadAnnotation. Listed
-			// first so workloads[0] is the reconcile target.
+			// slice on scale-up to 3 replicas. Reconciling by the chain key
+			// resolves it as the active slice and ungates the surplus pods that
+			// were stuck during scale-up — including the ones still carrying the
+			// chain-root name in their WorkloadAnnotation. All slices share the
+			// chain key, so the workload order in the fixture does not matter.
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl-slice-1", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
@@ -544,6 +545,7 @@ func TestReconcile(t *testing.T) {
 
 			clientBuilder := utiltesting.NewClientBuilder().
 				WithIndex(&corev1.Pod{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexPodWorkloadSliceName).
+				WithIndex(&kueue.Workload{}, coreindexer.WorkloadSliceNameWorkloadKey, coreindexer.IndexWorkloadSliceName).
 				WithInterceptorFuncs(interceptor.Funcs{
 					Patch: func(ctx context.Context, clnt client.WithWatch, obj client.Object, _ client.Patch, _ ...client.PatchOption) error {
 						// The fake client doesn't handle MergePatch for slice fields correctly.
@@ -582,7 +584,12 @@ func TestReconcile(t *testing.T) {
 				return
 			}
 
-			key := client.ObjectKeyFromObject(&tc.workloads[0])
+			// The ungater reconciles by the stable slice-chain key, not by an
+			// individual workload name, so derive the request key from the chain.
+			key := types.NamespacedName{
+				Namespace: tc.workloads[0].Namespace,
+				Name:      workloadslicing.SliceName(&tc.workloads[0]),
+			}
 			if len(tc.expectUIDs) > 0 {
 				ungater.expectationsStore.ExpectUIDs(log, key, tc.expectUIDs)
 			}
