@@ -97,12 +97,6 @@ const (
 	// Enabled gathering of LocalQueue metrics
 	LocalQueueMetrics featuregate.Feature = "LocalQueueMetrics"
 
-	// owner: @yaroslava-serdiuk
-	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2936-local-queue-defaulting
-	//
-	// Enable to set default LocalQueue.
-	LocalQueueDefaulting featuregate.Feature = "LocalQueueDefaulting"
-
 	// owner: @pbundyra
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
 	//
@@ -490,11 +484,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	LocalQueueMetrics: {
 		{Version: version.MustParse("0.10"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
-	},
-	LocalQueueDefaulting: {
-		{Version: version.MustParse("0.10"), Default: false, PreRelease: featuregate.Alpha},
-		{Version: version.MustParse("0.12"), Default: true, PreRelease: featuregate.Beta},
-		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.19
 	},
 	TASProfileMixed: {
 		{Version: version.MustParse("0.10"), Default: false, PreRelease: featuregate.Alpha},
