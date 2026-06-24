@@ -1023,4 +1023,133 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 			g.Expect(countUngated(g)).Should(gomega.Equal(grantedWorkerCount))
 		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 	})
+
+	ginkgo.It("Should ungate a scale-up worker pod minted after the replacement slice was admitted", framework.SlowSpec, func() {
+		// Reproduces the trigger gap behind the kuberay InTreeAutoscaling e2e
+		// failure on kueue#12045. After a scale-up, the replacement slice is the
+		// active (latest admitted) workload, while the previous slice is Finished.
+		// A worker pod minted by the autoscaler *after* the replacement's reconcile
+		// still carries the previous (now Finished) slice's name in its
+		// WorkloadAnnotation. The pod event therefore enqueues the Finished slice,
+		// which the reconcile guard skips, and nothing re-reconciles the active
+		// slice — so the pod stays scheduling-gated forever.
+		testRayCluster := testingraycluster.MakeCluster("late-ungate", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Queue(localQueue.Name).
+			Request(rayv1.HeadNode, corev1.ResourceCPU, "1").
+			RequestWorkerGroup(corev1.ResourceCPU, "1").
+			WithEnableAutoscaling(new(true)).
+			ScaleFirstWorkerGroup(1).
+			Obj()
+
+		ginkgo.By("creating the raycluster with a single worker")
+		util.MustCreate(ctx, k8sClient, testRayCluster)
+
+		var (
+			rootWorkloadName string
+			workerPodSet     kueue.PodSetReference
+		)
+		ginkgo.By("admitting the root slice at 1 worker")
+		gomega.Eventually(func(g gomega.Gomega) {
+			workloads := &kueue.WorkloadList{}
+			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
+			g.Expect(workload.IsAdmitted(&workloads.Items[0])).Should(gomega.BeTrue())
+			g.Expect(workloads.Items[0].Spec.PodSets[1].Count).Should(gomega.BeEquivalentTo(int32(1)))
+			rootWorkloadName = workloads.Items[0].Name
+			workerPodSet = workloads.Items[0].Spec.PodSets[1].Name
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		// Ungate the root slice's single worker first, mirroring the e2e where one
+		// worker is already running before the autoscaler scales up. This is what
+		// makes the repro faithful: after the scale-up the active slice is granted
+		// 2 workers with 1 already ungated, so the late pod is the *second* worker.
+		// Capping ungating at the Finished root's stale count (1) therefore leaves
+		// no room for it (1 granted - 1 already ungated = 0). That rejects the
+		// tempting "just drop the IsFinished guard" hack, which would reconcile the
+		// Finished root and cap at 1 — only enqueuing the active slice (cap 2) works.
+		initialPod := testingpod.MakePod("initial-worker", ns.Name).
+			Annotation(kueue.WorkloadAnnotation, rootWorkloadName).
+			Annotation(kueue.WorkloadSliceNameAnnotation, rootWorkloadName).
+			Label(pkgconstants.PodSetLabel, string(workerPodSet)).
+			Gate(kueue.ElasticJobSchedulingGate).
+			Obj()
+		ginkgo.By("minting the root slice's worker pod and waiting for it to be ungated")
+		util.MustCreate(ctx, k8sClient, initialPod)
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(initialPod), initialPod)).Should(gomega.Succeed())
+			g.Expect(utilpod.HasGate(initialPod, kueue.ElasticJobSchedulingGate)).Should(gomega.BeFalse())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("scaling the worker group up to 2 (emulates the autoscaler)")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testRayCluster), testRayCluster)).Should(gomega.Succeed())
+			testRayCluster.Spec.WorkerGroupSpecs[0].Replicas = new(int32(2))
+			g.Expect(k8sClient.Update(ctx, testRayCluster)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		var activeWorkload *kueue.Workload
+		ginkgo.By("the replacement slice is admitted at 2 workers and the root slice is finished")
+		gomega.Eventually(func(g gomega.Gomega) {
+			workloads := &kueue.WorkloadList{}
+			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+			g.Expect(workloads.Items).Should(gomega.HaveLen(2))
+			var foundFinishedRoot bool
+			for i := range workloads.Items {
+				wl := &workloads.Items[i]
+				if workload.IsFinished(wl) {
+					g.Expect(wl.Name).Should(gomega.Equal(rootWorkloadName))
+					foundFinishedRoot = true
+					continue
+				}
+				g.Expect(workload.IsAdmitted(wl)).Should(gomega.BeTrue())
+				g.Expect(wl.Spec.PodSets[1].Count).Should(gomega.BeEquivalentTo(int32(2)))
+				activeWorkload = wl
+				workerPodSet = wl.Spec.PodSets[1].Name
+			}
+			g.Expect(foundFinishedRoot).Should(gomega.BeTrue())
+			g.Expect(activeWorkload).ShouldNot(gomega.BeNil())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		// Mint the late worker pod only now — after the replacement slice has
+		// already been reconciled — carrying the Finished root slice's name, just
+		// as the Ray autoscaler does in the e2e.
+		latePod := testingpod.MakePod("late-worker", ns.Name).
+			Annotation(kueue.WorkloadAnnotation, rootWorkloadName).
+			Annotation(kueue.WorkloadSliceNameAnnotation, rootWorkloadName).
+			Label(pkgconstants.PodSetLabel, string(workerPodSet)).
+			Gate(kueue.ElasticJobSchedulingGate).
+			Obj()
+		ginkgo.By("minting a late gated worker pod annotated with the finished root slice")
+		util.MustCreate(ctx, k8sClient, latePod)
+
+		// The active (replacement) slice is granted 2 workers with 1 already ungated
+		// (the root's worker), so there is room for exactly this second worker. The
+		// ungater must ungate it. This fails on the current code: the pod event
+		// enqueues the Finished root slice (skipped by the reconcile guard) and
+		// nothing re-reconciles the active slice, so the pod stays scheduling-gated
+		// indefinitely — the same stall that times out the kuberay InTreeAutoscaling
+		// e2e on kueue#12045. It also fails if one merely drops the IsFinished guard:
+		// reconciling the Finished root caps ungating at its stale count of 1, which
+		// is already consumed by the running worker (room = 0).
+		ginkgo.By("the ungater ungates the late worker pod within the granted quota")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(latePod), latePod)).Should(gomega.Succeed())
+			g.Expect(utilpod.HasGate(latePod, kueue.ElasticJobSchedulingGate)).Should(gomega.BeFalse(),
+				"late scale-up worker pod must be ungated, but it stayed scheduling-gated")
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("the cap holds: both granted workers are ungated and no surplus is")
+		gomega.Consistently(func(g gomega.Gomega) {
+			pods := &corev1.PodList{}
+			g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+			ungated := 0
+			for i := range pods.Items {
+				if !utilpod.HasGate(&pods.Items[i], kueue.ElasticJobSchedulingGate) {
+					ungated++
+				}
+			}
+			g.Expect(ungated).Should(gomega.Equal(2))
+		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+	})
 })
