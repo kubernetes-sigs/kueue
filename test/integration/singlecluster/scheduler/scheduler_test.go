@@ -3302,11 +3302,9 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		ginkgo.It("Should not deadlock the preempting workloads", func() {
 			admissionPatchStarted := make(chan struct{}, 1)
 			allowAdmissionPatch := make(chan struct{})
-			evictionPatchAttempted := make(chan struct{}, 1)
 			admissionPatchReleased := false
 
 			var admissionPatchCount atomic.Int32
-			var evictionPatchCount atomic.Int32
 
 			wl1 := utiltestingapi.MakeWorkload("wl1", ns.Name).
 				Queue(kueue.LocalQueueName(q.Name)).
@@ -3336,19 +3334,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 					return fallThrough, nil
 				}
 
-				// Intercept wl1 eviction patch (triggered by wl2)
-				if wl.Name == wl1.Name && meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
-					count := evictionPatchCount.Add(1)
-					if count == 1 {
-						// Drop the first eviction patch to simulate it being immediately overwritten
-						// by the async admission patch before the cache can process it.
-						evictionPatchAttempted <- struct{}{}
-						return emitResponse, nil
-					}
-					// Allow subsequent eviction patches
-					return fallThrough, nil
-				}
-
 				return fallThrough, nil
 			}
 			defer func() {
@@ -3366,13 +3351,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			ginkgo.By("Creating a high priority workload wl2")
 			gomega.Expect(k8sClient.Create(ctx, wl2)).To(gomega.Succeed())
 
-			ginkgo.By("Waiting for wl2 to issue the eviction patch against wl1")
-			gomega.Eventually(evictionPatchAttempted, util.Timeout, util.Interval).Should(gomega.Receive())
-
-			ginkgo.By("Unblocking wl1 admission patch to overwrite the simulated eviction")
-			admissionPatchReleased = true
-			close(allowAdmissionPatch)
-
 			wl1Created := &kueue.Workload{}
 			ginkgo.By("Waiting for wl1 to be evicted")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -3380,6 +3358,19 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				g.Expect(meta.IsStatusConditionTrue(wl1Created.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeTrue())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
+			ginkgo.By("Unblocking wl1 admission patch to overwrite the simulated eviction")
+			admissionPatchReleased = true
+			close(allowAdmissionPatch)
+
+			ginkgo.By("Waiting for wl1 eviction to be overwritten")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1Created)).To(gomega.Succeed())
+				g.Expect(meta.IsStatusConditionTrue(wl1Created.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeFalse())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			// When the race condition occurs, the test would most likely fail here.
+			// This is because the `Evicted` condition is overwritten by the previous patch
+			// and is never re-added because of the unsatisfied `preemptionExpectations` entry.
 			ginkgo.By("Simulating the job controller unsetting wl1's QuotaReserved after eviction")
 			util.FinishEvictionForWorkloads(ctx, k8sClient, wl1Created)
 
