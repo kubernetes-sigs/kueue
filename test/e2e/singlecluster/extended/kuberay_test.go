@@ -140,7 +140,7 @@ var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:k
 		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
-	ginkgo.It("Should run a rayjob if admitted", func() {
+	ginkgo.It("Should run a rayjob if admitted", ginkgo.Label("shard:kuberay-a"), func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
 		rayJob := testingrayjob.MakeJob("rayjob", ns.Name).
@@ -170,6 +170,7 @@ var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:k
 					RestartPolicy: corev1.RestartPolicyOnFailure,
 				},
 			}).
+			TerminationGracePeriod(1).
 			Image(rayv1.HeadNode, kuberayTestImage).
 			Image(rayv1.WorkerNode, kuberayTestImage).Obj()
 
@@ -220,8 +221,7 @@ var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:k
 		})
 	})
 
-	// ginkgo.Serial prevents concurrent ray-head containers from competing for CPU, causing liveness probe failures and crash-loops
-	ginkgo.It("Should run a rayjob with InTreeAutoscaling", ginkgo.Serial, func() {
+	ginkgo.It("Should run a rayjob with InTreeAutoscaling", ginkgo.Label("shard:kuberay-b"), func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
 		// Create ConfigMap with Python script
@@ -242,10 +242,14 @@ def my_task(x, s):
     time.sleep(s)
     return x * x
 
-# 3 parallel tasks with 60s sleep: triggers scale-up to 2 workers
-# (1 task on head + 2 on workers) and keeps them alive through
-# pod replacement verification.
-print(ray.get([my_task.remote(i, 60) for i in range(3)]))`,
+# A queue of 20 short tasks (~200 task-seconds over at most 3 slots:
+# 1 on head + 1 per worker) triggers scale-up to 2 workers and keeps
+# both busy through pod replacement verification: pending tasks hold
+# the demand no matter how long scale-up or replacement takes, and the
+# job drains quickly once the queue is empty. With a few long tasks
+# instead, their expiry races the autoscaler's idle scale-down
+# (idleTimeoutSeconds=10) during verification.
+print(ray.get([my_task.remote(i, 10) for i in range(20)]))`,
 			},
 		}
 
@@ -302,7 +306,7 @@ print(ray.get([my_task.remote(i, 60) for i in range(3)]))`,
 			Image(rayv1.WorkerNode, kuberayTestImage).
 			Volumes(rayv1.HeadNode, volumes).
 			VolumeMounts(rayv1.HeadNode, volumeMounts).
-			TerminationGracePeriodSeconds(int64(1)).
+			TerminationGracePeriod(1).
 			Obj()
 
 		ginkgo.By("Creating the ConfigMap", func() {
@@ -407,7 +411,7 @@ print(ray.get([my_task.remote(i, 60) for i in range(3)]))`,
 		})
 	})
 
-	ginkgo.It("Should run a rayjob with multi scale-up steps", func() {
+	ginkgo.It("Should run a rayjob with multi scale-up steps", ginkgo.Label("shard:kuberay-a"), func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
 		// Create ConfigMap with Python script that triggers multiple scale-up phases
@@ -443,8 +447,10 @@ print(ray.get([my_task.remote(i, 8) for i in range(4)]))
 # create workload slices, and schedule new workers.
 print(ray.get([my_task.remote(i, 8) for i in range(16)]))
 
-# run tasks in sequence to trigger scaling down
-print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
+# run tasks in sequence to trigger scaling down; 20 tasks (~25s with
+# scheduling overhead) keep the job alive through idle detection
+# (idleTimeoutSeconds=10) and the scale-down annotation update
+print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 			},
 		}
 
@@ -500,7 +506,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 			Image(rayv1.WorkerNode, kuberayTestImage).
 			Volumes(rayv1.HeadNode, volumes).
 			VolumeMounts(rayv1.HeadNode, volumeMounts).
-			TerminationGracePeriodSeconds(int64(1)).
+			TerminationGracePeriod(1).
 			Obj()
 
 		ginkgo.By("Creating the ConfigMap", func() {
@@ -617,8 +623,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 		})
 	})
 
-	// ginkgo.Serial prevents concurrent ray-head containers from competing for CPU, causing liveness probe failures and crash-loops
-	ginkgo.It("Should run a RayCluster on worker if admitted", ginkgo.Serial, func() {
+	ginkgo.It("Should run a RayCluster on worker if admitted", ginkgo.Label("shard:kuberay-a"), func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
 		raycluster := testingraycluster.MakeCluster("raycluster1", ns.Name).
@@ -659,7 +664,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 		})
 	})
 
-	ginkgo.It("Should run a RayService if admitted", func() {
+	ginkgo.It("Should run a RayService if admitted", ginkgo.Label("shard:kuberay-a"), func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
 		// Create ConfigMap with a simple Ray Serve application
@@ -738,6 +743,7 @@ app = HelloWorld.bind()`,
 			Volumes(rayv1.WorkerNode, volumes).
 			VolumeMounts(rayv1.HeadNode, volumeMounts).
 			VolumeMounts(rayv1.WorkerNode, volumeMounts).
+			TerminationGracePeriod(1).
 			Obj()
 
 		ginkgo.By("Creating the ConfigMap", func() {
@@ -792,8 +798,7 @@ app = HelloWorld.bind()`,
 		})
 	})
 
-	// ginkgo.Serial prevents concurrent ray-head containers from competing for CPU, causing liveness probe failures and crash-loops
-	ginkgo.It("Should run a rayservice with InTreeAutoscaling", ginkgo.Serial, func() {
+	ginkgo.It("Should run a rayservice with InTreeAutoscaling", ginkgo.Label("shard:kuberay-b"), func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
 		// Create ConfigMap with a Ray Serve application that supports a delay parameter
@@ -884,6 +889,7 @@ app = HelloWorld.bind()`,
 			Volumes(rayv1.WorkerNode, volumes).
 			VolumeMounts(rayv1.HeadNode, volumeMounts).
 			VolumeMounts(rayv1.WorkerNode, volumeMounts).
+			TerminationGracePeriod(1).
 			Obj()
 
 		ginkgo.By("Creating the ConfigMap", func() {

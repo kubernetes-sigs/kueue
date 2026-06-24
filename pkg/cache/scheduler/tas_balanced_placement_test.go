@@ -73,7 +73,7 @@ func TestSelectOptimalDomainSetToFit(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "dummy", []string{}, nil)
+			s := newTASFlavorSnapshot(log, "dummy", []string{})
 			got := selectOptimalDomainSetToFit(s, tc.domains, tc.workerCount, tc.leaderCount, 1, true)
 			gotIDs := make([]string, len(got))
 			for i, d := range got {
@@ -151,7 +151,7 @@ func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			domains := make([]*domain, len(tc.domains))
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "dummy", []string{}, nil)
+			s := newTASFlavorSnapshot(log, "dummy", []string{})
 			for i, d := range tc.domains {
 				clone := *d
 				domains[i] = &clone
@@ -222,7 +222,7 @@ func TestPruneDomainsBelowThreshold(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			domains, domainsByName := tc.domains()
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "dummy", []string{}, nil)
+			s := newTASFlavorSnapshot(log, "dummy", []string{})
 
 			s.pruneDomainsBelowThreshold(domains, tc.threshold, tc.sliceSize, tc.sliceLevelIdx, tc.level, tc.leaderRequired)
 
@@ -298,7 +298,7 @@ func TestFindBestDomainsForBalancedPlacement(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "dummy", []string{"block", "rack"}, nil)
+			s := newTASFlavorSnapshot(log, "dummy", []string{"block", "rack"})
 			domainsByID := make(map[string]*domain, len(tc.domains))
 			for _, spec := range tc.domains {
 				d := &domain{

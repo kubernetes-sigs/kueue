@@ -17,6 +17,7 @@ limitations under the License.
 package metrics
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -198,6 +199,10 @@ var (
 	// +metricsdoc:labels=job_kind="the kind of the job",replica_role="one of `leader`, `follower`, or `standalone`"
 	WorkloadCreationLatency *prometheus.HistogramVec
 
+	// +metricsdoc:group=health
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",is_group="whether the gate removal applies to a pod group or a single pod",name="one of `kueue.x-k8s.io/topology`, `kueue.x-k8s.io/admission`, or `kueue.x-k8s.io/elastic-job`"
+	PodSchedulingGateRemovalSeconds *prometheus.HistogramVec
+
 	// Metrics tied to the cache.
 
 	// +metricsdoc:group=clusterqueue
@@ -245,6 +250,10 @@ var (
 	// +metricsdoc:group=localqueue
 	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",flavor="the resource flavor name",resource="the resource name",replica_role="one of `leader`, `follower`, or `standalone`"
 	LocalQueueResourceUsage *prometheus.GaugeVec
+
+	// +metricsdoc:group=localqueue
+	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",cluster_queue="the name of the ClusterQueue",replica_role="one of `leader`, `follower`, or `standalone`"
+	LocalQueueAdmissionFairSharingUsage *prometheus.GaugeVec
 
 	// +metricsdoc:group=optional_clusterqueue_resources
 	// +metricsdoc:labels=cohort="the name of the Cohort",cluster_queue="the name of the ClusterQueue",flavor="the resource flavor name",resource="the resource name",replica_role="one of `leader`, `follower`, or `standalone`"
@@ -573,6 +582,14 @@ The label 'underlying_cause' can have the following values:
 		}, append([]string{"job_kind", "replica_role"}, extraLabels...),
 	)
 
+	PodSchedulingGateRemovalSeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: constants.KueueName,
+			Name:      "pod_scheduling_gate_removal_seconds",
+			Help:      "Duration from Workload admission to removal of a Pod scheduling gate.",
+		}, append([]string{"name", "cluster_queue", "is_group"}, extraLabels...),
+	)
+
 	EvictedWorkloadsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: constants.KueueName,
@@ -780,6 +797,17 @@ For a LocalQueue, the metric only reports a value of 1 for one of the statuses.`
 	)
 	trackGaugeVec(LocalQueueResourceUsage, gaugeCleanupScopeLocalQueueResource)
 
+	LocalQueueAdmissionFairSharingUsage = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "local_queue_admission_fair_sharing_usage",
+			Help: `Reports a value representing the LocalQueue's Admission Fair Sharing usage,
+calculated from the resource-weighted sum of consumed resources and pending
+admission penalties, divided by the LocalQueue's fair sharing weight`,
+		}, append([]string{"name", "namespace", "cluster_queue", "replica_role"}, extraLabels...),
+	)
+	trackGaugeVec(LocalQueueAdmissionFairSharingUsage, gaugeCleanupScopeLocalQueue)
+
 	ClusterQueueResourceNominalQuota = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
@@ -793,7 +821,7 @@ For a LocalQueue, the metric only reports a value of 1 for one of the statuses.`
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "cluster_queue_borrowing_limit",
-			Help:      `Reports the cluster_queue's resource borrowing limit within all the flavors`,
+			Help:      `Reports the cluster_queue's resource borrowing limit within all the flavors. If borrowingLimit is unset, this metric reports +Inf.`,
 		}, append([]string{"cohort", "cluster_queue", "flavor", "resource", "replica_role"}, extraLabels...),
 	)
 	trackGaugeVec(ClusterQueueResourceBorrowingLimit, gaugeCleanupScopeClusterQueueResource)
@@ -802,7 +830,7 @@ For a LocalQueue, the metric only reports a value of 1 for one of the statuses.`
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "cluster_queue_lending_limit",
-			Help:      `Reports the cluster_queue's resource lending limit within all the flavors`,
+			Help:      `Reports the cluster_queue's resource lending limit within all the flavors. If lendingLimit is unset, this metric reports +Inf.`,
 		}, append([]string{"cohort", "cluster_queue", "flavor", "resource", "replica_role"}, extraLabels...),
 	)
 	trackGaugeVec(ClusterQueueResourceLendingLimit, gaugeCleanupScopeClusterQueueResource)
@@ -902,6 +930,10 @@ func AdmissionAttempt(result AdmissionResult, duration time.Duration, tracker *r
 func RecordWorkloadCreationLatency(jobKind string, latency time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	labels := append([]string{jobKind, roletracker.GetRole(tracker)}, customLabelValues...)
 	WorkloadCreationLatency.WithLabelValues(labels...).Observe(latency.Seconds())
+}
+
+func RecordPodSchedulingGateRemovalSeconds(name string, clusterQueue kueue.ClusterQueueReference, isGroup bool, latency time.Duration) {
+	PodSchedulingGateRemovalSeconds.WithLabelValues(name, string(clusterQueue), strconv.FormatBool(isGroup)).Observe(latency.Seconds())
 }
 
 func QuotaReservedWorkload(cqName kueue.ClusterQueueReference, priorityClass string, waitTime time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
@@ -1062,6 +1094,7 @@ func ClearClusterQueueMetrics(cq kueue.ClusterQueueReference) {
 	PreemptedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"preempting_cluster_queue": cqName})
 	// Histogram vec, not cleared by gauge cleanup above.
 	WorkloadEvictionLatencySeconds.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
+	PodSchedulingGateRemovalSeconds.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 }
 
 func ClearClusterQueueMetricsOnLabelChange(cq kueue.ClusterQueueReference) {
@@ -1237,6 +1270,11 @@ func ReportLocalQueueResourceUsage(lq LocalQueueReference, flavor, resource stri
 	LocalQueueResourceUsage.WithLabelValues(labels...).Set(usage)
 }
 
+func ReportLocalQueueAdmissionFairSharingUsage(lq LocalQueueReference, clusterQueue kueue.ClusterQueueReference, usage float64, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(lq.Name), lq.Namespace, string(clusterQueue), roletracker.GetRole(tracker)}, customLabelValues...)
+	LocalQueueAdmissionFairSharingUsage.WithLabelValues(labels...).Set(usage)
+}
+
 func ReportClusterQueueWeightedShare(cq kueue.ClusterQueueReference, cohort kueue.CohortReference, weightedShare float64, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	labels := append([]string{string(cq), string(cohort), roletracker.GetRole(tracker)}, customLabelValues...)
 	ClusterQueueWeightedShare.WithLabelValues(labels...).Set(weightedShare)
@@ -1385,6 +1423,7 @@ func Register() {
 		CohortSubtreeAdmittedWorkloadsTotal,
 		CohortSubtreeResourceReservations,
 		CohortSubtreeAdmittedActiveWorkloads,
+		PodSchedulingGateRemovalSeconds,
 	)
 	if features.Enabled(features.MetricForWorkloadCreationLatency) {
 		metrics.Registry.MustRegister(WorkloadCreationLatency)
@@ -1412,5 +1451,6 @@ func RegisterLQMetrics() {
 		LocalQueueByStatus,
 		LocalQueueResourceReservations,
 		LocalQueueResourceUsage,
+		LocalQueueAdmissionFairSharingUsage,
 	)
 }

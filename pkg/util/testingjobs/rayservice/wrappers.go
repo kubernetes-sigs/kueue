@@ -241,6 +241,14 @@ func (j *ServiceWrapper) WorkloadPriorityClass(wpc string) *ServiceWrapper {
 	return j
 }
 
+func (j *ServiceWrapper) TerminationGracePeriod(seconds int64) *ServiceWrapper {
+	j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.TerminationGracePeriodSeconds = new(seconds)
+	for i := range len(j.Spec.RayClusterSpec.WorkerGroupSpecs) {
+		j.Spec.RayClusterSpec.WorkerGroupSpecs[i].Template.Spec.TerminationGracePeriodSeconds = new(seconds)
+	}
+	return j
+}
+
 // WithWorkerGroups sets the worker groups.
 func (j *ServiceWrapper) WithWorkerGroups(workers ...rayv1.WorkerGroupSpec) *ServiceWrapper {
 	j.Spec.RayClusterSpec.WorkerGroupSpecs = workers

@@ -61,6 +61,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
+	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	qutil "sigs.k8s.io/kueue/pkg/util/queue"
@@ -76,6 +77,21 @@ import (
 var (
 	realClock = clock.RealClock{}
 )
+
+// hasInternalError reports whether the field error list contains an internal
+// error. DRA resolution reports retryable failures — API errors and cluster-state
+// shortages that clear once ResourceSlices change — as internal errors, so the
+// reconciler retries them with controller-runtime backoff; deterministic spec or
+// configuration errors use other field error types and are left inadmissible
+// without requeue.
+func hasInternalError(errs field.ErrorList) bool {
+	for _, e := range errs {
+		if e.Type == field.ErrorTypeInternal {
+			return true
+		}
+	}
+	return false
+}
 
 type waitForPodsReadyConfig struct {
 	timeout                     time.Duration
@@ -351,7 +367,10 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			if updateErr != nil {
 				return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA error: %w", updateErr)
 			}
-			return ctrl.Result{}, err
+			if hasInternalError(fieldErrs) {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{}, nil
 		}
 
 		// Process Extended Resources backed by DRA (new path)
@@ -373,7 +392,10 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				if updateErr != nil {
 					return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA extended resources error: %w", updateErr)
 				}
-				return ctrl.Result{}, err
+				if hasInternalError(extFieldErrs) {
+					return ctrl.Result{}, err
+				}
+				return ctrl.Result{}, nil
 			}
 		}
 
@@ -408,7 +430,10 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				if updateErr != nil {
 					return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA counter resources error: %w", updateErr)
 				}
-				return ctrl.Result{}, err
+				if hasInternalError(counterFieldErrs) {
+					return ctrl.Result{}, err
+				}
+				return ctrl.Result{}, nil
 			}
 			for podSetName, resources := range counterResources {
 				if existing, ok := draResources[podSetName]; ok {
@@ -866,7 +891,7 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 			return false, err
 		}
 		log.V(3).Info("Workload is deactivated due to rejected admission checks", "workload", klog.KObj(wl), "rejectedChecks", rejectedChecks)
-		r.recorder.Eventf(wl, nil, corev1.EventTypeWarning, "AdmissionCheckRejected", "AdmissionCheckRejected", "Deactivated due to %s", message)
+		r.recorder.Eventf(wl, nil, corev1.EventTypeWarning, "AdmissionCheckRejected", "AdmissionCheckRejected", api.TruncateEventMessage(fmt.Sprintf("Deactivated due to %s", message)))
 		return true, nil
 	}
 	// at this point we know a Workload has at least one Retry AdmissionCheck
@@ -1742,7 +1767,16 @@ func (h *deviceClassHandler) reconcileWorkloads(ctx context.Context, q workqueue
 			log.Error(err, "Could not list workloads for extended resource", "resource", name)
 			continue
 		}
-		for _, w := range lst.Items {
+		for i := range lst.Items {
+			w := &lst.Items[i]
+			log.V(3).Info("Requeuing workload due to DeviceClass change", "workload", klog.KObj(w), "resource", name)
+			if !dra.NeedsDRAReconcile(w, h.r.draBackedResources) && workload.IsAdmissible(w) {
+				wlCopy := w.DeepCopy()
+				workload.AdjustResources(ctx, h.r.client, wlCopy)
+				if err := h.r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
+					log.Error(err, "Failed to re-add workload to queue after DeviceClass change")
+				}
+			}
 			q.AddAfter(reconcile.Request{
 				NamespacedName: types.NamespacedName{
 					Name:      w.Name,

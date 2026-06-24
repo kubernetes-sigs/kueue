@@ -17,6 +17,8 @@ limitations under the License.
 package excluderesources
 
 import (
+	"fmt"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -323,6 +325,52 @@ var _ = ginkgo.Describe("TAS with ExcludeResourcePrefixes", ginkgo.Ordered, gink
 			resourceUsage := wl.Status.Admission.PodSetAssignments[0].ResourceUsage
 			gomega.Expect(resourceUsage).To(gomega.HaveKey(corev1.ResourceCPU))
 			gomega.Expect(resourceUsage).NotTo(gomega.HaveKey(corev1.ResourceName("example.com/test-resource")))
+		})
+	})
+
+	ginkgo.It("should account for excluded PodSpec resources in TAS placement across workloads", func() {
+		wls := []*kueue.Workload{}
+		for i := range 4 {
+			wl := utiltestingapi.MakeWorkload(fmt.Sprintf("wl-%d", i), ns.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PreferredTopologyRequest(corev1.LabelHostname).
+					Request(corev1.ResourceCPU, "100m").
+					Request("example.com/test-resource", "1").
+					Obj()).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			wls = append(wls, wl)
+		}
+
+		ginkgo.By("verifying workloads are placed within excluded resource capacity", func() {
+			assignedPodsByNode := map[string]int32{}
+			for _, wl := range wls {
+				gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: wl.Name, Namespace: ns.Name}, wl)).To(gomega.Succeed())
+				topologyAssignment := wl.Status.Admission.PodSetAssignments[0].TopologyAssignment
+				gomega.Expect(topologyAssignment).NotTo(gomega.BeNil())
+
+				domains := utiltas.InternalFrom(topologyAssignment).Domains
+				gomega.Expect(domains).To(gomega.HaveLen(1))
+				for _, domain := range domains {
+					gomega.Expect(domain.Count).To(gomega.Equal(int32(1)))
+					assignedPodsByNode[domain.Values[0]] += domain.Count
+				}
+			}
+
+			for _, node := range nodes {
+				allocatable := node.Status.Allocatable[corev1.ResourceName("example.com/test-resource")]
+				gomega.Expect(assignedPodsByNode[node.Name]).To(gomega.BeNumerically("<=", allocatable.Value()))
+			}
+		})
+
+		ginkgo.By("verifying excluded resource is not included in quota usage", func() {
+			for _, wl := range wls {
+				resourceUsage := wl.Status.Admission.PodSetAssignments[0].ResourceUsage
+				gomega.Expect(resourceUsage).To(gomega.HaveKey(corev1.ResourceCPU))
+				gomega.Expect(resourceUsage).NotTo(gomega.HaveKey(corev1.ResourceName("example.com/test-resource")))
+			}
 		})
 	})
 })

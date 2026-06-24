@@ -693,7 +693,11 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	}
 	log := ctrl.LoggerFrom(ctx)
 	workload.AdjustResources(ctx, m.client, &w)
-	info.Update(log, &w)
+	if dra.NeedsDRAReconcile(&w, m.draBackedResources) {
+		info.Update(log, &w, workload.WithPreserveTotalRequests())
+	} else {
+		info.Update(log, &w, m.workloadInfoOptions...)
+	}
 	m.addWorkload(info, q)
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
@@ -897,10 +901,11 @@ func (m *Manager) DeleteSecondPassWithoutLock(wlKey workload.Reference) {
 // delay.
 func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload, iteration int) bool {
 	log := ctrl.LoggerFrom(ctx)
+	wlKey := workload.Key(w)
 	if workload.NeedsSecondPass(w) {
 		iteration++
 		delay := m.secondPassQueue.nextDelay(iteration)
-		log.V(3).Info("Workload pre-queued for second pass (with backoff)", "workload", workload.Key(w), "delay", delay)
+		log.V(3).Info("Workload pre-queued for second pass (with backoff)", "workload", wlKey, "delay", delay)
 		m.secondPassQueue.prequeue(w)
 		m.clock.AfterFunc(delay, func() {
 			m.queueSecondPass(ctx, w, iteration)
@@ -909,9 +914,9 @@ func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload
 	} else if iteration > 0 {
 		// Remove the workload from the second-pass queue only after at least one
 		// retry iteration, to avoid canceling the initial backoff window.
-		// See #8357.
-		log.V(3).Info("Workload removed from second pass queue", "workload", workload.Key(w))
-		m.secondPassQueue.deleteByKey(workload.Key(w))
+		// See https://github.com/kubernetes-sigs/kueue/issues/8357.
+		log.V(3).Info("Workload removed from second pass queue", "workload", wlKey)
+		m.secondPassQueue.deleteByKey(wlKey)
 	}
 	return false
 }

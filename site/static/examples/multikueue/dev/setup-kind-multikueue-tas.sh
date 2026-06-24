@@ -102,14 +102,14 @@ data:
       groupKindConcurrency:
         Job.batch: 5
         Pod: 5
-        Workload.kueue.x-k8s.io: 5
-        LocalQueue.kueue.x-k8s.io: 1
+        Workload.kueue.x-k8s.io: 10
+        LocalQueue.kueue.x-k8s.io: 5
         Cohort.kueue.x-k8s.io: 1
-        ClusterQueue.kueue.x-k8s.io: 1
+        ClusterQueue.kueue.x-k8s.io: 5
         ResourceFlavor.kueue.x-k8s.io: 1
     clientConnection:
-      qps: 50
-      burst: 100
+      qps: 300
+      burst: 500
     integrations:
       frameworks:
       - "batch/job"
@@ -175,7 +175,7 @@ EOF
     # Extract the Certificate Authority
     CA_DATA=$(kubectl --context "kind-${cluster}" config view --minify --raw -o jsonpath='{.clusters[0].cluster.certificate-authority-data}')
 
-    # Create kubeconfig with insecure-skip-tls-verify for Kind clusters
+    # Create kubeconfig with the cluster's certificate authority for Kind clusters
     cat > "${SCRIPT_DIR}/${cluster}.kubeconfig" <<EOF
 apiVersion: v1
 kind: Config

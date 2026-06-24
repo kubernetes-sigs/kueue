@@ -30,6 +30,8 @@ HOST_IMAGE_PLATFORM ?= linux/$(shell go env GOARCH)
 PLATFORMS ?= linux/amd64,linux/arm64,linux/s390x,linux/ppc64le
 CLI_PLATFORMS ?= linux/amd64,linux/arm64,darwin/amd64,darwin/arm64
 VIZ_PLATFORMS ?= linux/amd64,linux/arm64,linux/s390x,linux/ppc64le
+# Ray only provides PyPI wheels for amd64 and arm64
+RAY_PLATFORMS ?= linux/amd64,linux/arm64
 DOCKER_BUILDX_CMD ?= docker buildx
 IMAGE_BUILD_CMD ?= $(DOCKER_BUILDX_CMD) build
 
@@ -95,7 +97,7 @@ LD_FLAGS += -X '$(version_pkg).BuildDate=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)'
 
 # Update these variables when preparing a new release or a release branch.
 # Then run `make prepare-release-branch`
-RELEASE_VERSION=v0.18.0
+RELEASE_VERSION=v0.18.1
 RELEASE_BRANCH=main
 # Application version for Helm and npm (strips leading 'v' from RELEASE_VERSION)
 APP_VERSION := $(shell echo $(RELEASE_VERSION) | cut -c2-)
@@ -168,7 +170,7 @@ generate-mocks: mockgen ## Generate mockgen mocks
 		-destination=$(MOCKS_DIR)/controller/jobframework/interface.go \
 		-copyright_file hack/boilerplate.txt \
 		-package mocks \
-		sigs.k8s.io/kueue/pkg/controller/jobframework GenericJob,JobWithCustomValidation,JobWithManagedBy,JobWithCustomWorkloadActivation,JobWithCustomAnnotations
+		sigs.k8s.io/kueue/pkg/controller/jobframework GenericJob,JobWithCustomValidation,JobWithManagedBy,JobWithCustomWorkloadActivation,JobWithCustomAnnotations,MultiKueueAdapter
 	$(MOCKGEN) \
 		-destination=$(MOCKS_DIR)/controller/core/resourceflavor_controller.go \
 		-copyright_file hack/boilerplate.txt \
@@ -182,12 +184,12 @@ fmt: ## Run go fmt against code.
 .PHONY: gomod-download
 gomod-download: ## Download Go module dependencies (main)
 	@echo "→ Downloading main dependencies..."
-	$(GO_CMD) mod download
+	$(NETWORK_INSTALL_RETRY) $(GO_CMD) mod download
 
 .PHONY: gomod-download-tools
 gomod-download-tools: ## Download Go module dependencies (tools)
 	@echo "→ Downloading tools dependencies..."
-	cd $(TOOLS_DIR) && $(GO_CMD) mod download
+	cd $(TOOLS_DIR) && $(NETWORK_INSTALL_RETRY) $(GO_CMD) mod download
 
 .PHONY: toc-update
 toc-update: mdtoc
@@ -241,6 +243,14 @@ image-build:
 		$(PUSH) \
 		$(IMAGE_BUILD_EXTRA_OPTS) \
 		./
+
+.PHONY: image-pushing-periodic
+image-pushing-periodic:
+	$(MAKE) -j3 debug-image-push importer-image-push ray-project-mini-image-build-push
+
+.PHONY: image-pushing-postsubmit
+image-pushing-postsubmit:
+	$(MAKE) -j5 image-push helm-chart-push kueueviz-image-push kueue-populator-image-push kueue-priority-booster-image-push
 
 .PHONY: image-push
 image-push: PUSH=--push
@@ -438,7 +448,7 @@ kueueviz-image-build:
 		--build-arg CGO_ENABLED=$(CGO_ENABLED) \
 		$(PUSH) \
 		$(IMAGE_BUILD_EXTRA_OPTS) \
-		-f ./cmd/kueueviz/backend/Dockerfile ./cmd/kueueviz/backend
+		-f ./cmd/kueueviz/backend/Dockerfile .
 	$(IMAGE_BUILD_CMD) \
 		-t $(IMAGE_TAG_KUEUEVIZ_FRONTEND) \
 		-t $(IMAGE_REPO_KUEUEVIZ_FRONTEND):$(RELEASE_BRANCH) \
@@ -538,15 +548,19 @@ ray-project-mini-image-build:
 	$(IMAGE_BUILD_CMD) \
 		-t $(IMAGE_REGISTRY)/ray-project-mini:$(RAYMINI_VERSION) \
 		-t $(IMAGE_REGISTRY)/ray-project-mini:$(RELEASE_BRANCH) \
-		--platform=$(PLATFORMS) \
+		--platform=$(RAY_PLATFORMS) \
 		--build-arg RAY_VERSION=$(RAY_VERSION) \
 		$(PUSH) \
 		$(IMAGE_BUILD_EXTRA_OPTS) \
-		-f ./hack/testing/ray-mini/Dockerfile ./ \
+		-f ./hack/testing/ray-mini/Dockerfile ./
+
+.PHONY: ray-project-mini-image-build-push
+ray-project-mini-image-build-push: PUSH=--push
+ray-project-mini-image-build-push: ray-project-mini-image-build
 
 # The step is required for local e2e test run
 .PHONY: kind-ray-project-mini-image-build
-kind-ray-project-mini-image-build: PLATFORMS=$(HOST_IMAGE_PLATFORM)
+kind-ray-project-mini-image-build: RAY_PLATFORMS=$(HOST_IMAGE_PLATFORM)
 kind-ray-project-mini-image-build: PUSH=--load
 kind-ray-project-mini-image-build: ray-project-mini-image-build
 
@@ -558,7 +572,7 @@ secretreader-plugin-image-build:
 		--platform=$(PLATFORMS) \
 		--build-arg PLUGIN_VERSION=$(CLUSTERPROFILE_VERSION) \
 		$(PUSH) \
-		-f hack/testing/secretreader/Dockerfile ./ \
+		-f hack/testing/secretreader/Dockerfile ./
 
 # The step is required for local e2e test run
 .PHONY: kind-secretreader-plugin-image-build

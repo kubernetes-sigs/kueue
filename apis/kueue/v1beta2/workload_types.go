@@ -938,6 +938,52 @@ const (
 	// WorkloadQuotaReserved means that the Workload has reserved quota a ClusterQueue.
 	WorkloadQuotaReserved = "QuotaReserved"
 
+	// Reasons for the WorkloadQuotaReserved condition.
+
+	// WorkloadQuotaReservedReasonNoMatchingFlavor indicates that the workload cannot be scheduled
+	// because no resource flavor matches its nodeSelector or taints.
+	WorkloadQuotaReservedReasonNoMatchingFlavor = "NoMatchingFlavor"
+
+	// WorkloadQuotaReservedReasonWaitingForQuota indicates that the workload is waiting for
+	// sufficient unused quota to become available in the ClusterQueue/Cohort.
+	WorkloadQuotaReservedReasonWaitingForQuota = "WaitingForQuota"
+
+	// WorkloadQuotaReservedReasonExceedsMaxQuota indicates that the workload requests resources
+	// exceeding the maximum capacity limits of the ClusterQueue or Cohort.
+	// This also includes exceeding ClusterQueue nominal + borrowingLimit constraints.
+	WorkloadQuotaReservedReasonExceedsMaxQuota = "ExceedsMaxQuota"
+
+	// WorkloadQuotaReservedReasonTopologyPlacementFailed indicates that the workload has topology
+	// requirements that cannot be satisfied with the current cluster topology usage.
+	WorkloadQuotaReservedReasonTopologyPlacementFailed = "TopologyPlacementFailed"
+
+	// WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads indicates that the workload is waiting
+	// for preempted workloads to release their quota or topology resources (in case of topology-driven preemptions).
+	WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads = "WaitingForPreemptedWorkloads"
+
+	// WorkloadQuotaReservedReasonMisconfigured indicates that the workload is inadmissible due to
+	// misconfiguration, such as missing LocalQueue or ClusterQueue.
+	WorkloadQuotaReservedReasonMisconfigured = "Misconfigured"
+
+	// WorkloadQuotaReservedReasonSuspended indicates that the workload is inadmissible because
+	// the LocalQueue or ClusterQueue StopPolicy is active.
+	WorkloadQuotaReservedReasonSuspended = "Suspended"
+
+	// WorkloadQuotaReservedReasonPendingEvaluation indicates that the workload is pending evaluation in the scheduling queue.
+	WorkloadQuotaReservedReasonPendingEvaluation = "PendingEvaluation"
+
+	// WorkloadQuotaReservedReasonWaitingForPodsReady indicates that the workload is waiting
+	// for previously admitted workloads to reach PodsReady condition under waitForPodsReady configuration.
+	WorkloadQuotaReservedReasonWaitingForPodsReady = "WaitingForPodsReady"
+
+	// WorkloadAdmittedReasonNoReservation indicates that the workload has no reservation.
+	WorkloadAdmittedReasonNoReservation = "NoReservation"
+
+	// WorkloadAdmittedReasonUnsatisfiedAdmissionChecks indicates that the workload has not all checks ready.
+	WorkloadAdmittedReasonUnsatisfiedAdmissionChecks = "UnsatisfiedAdmissionChecks"
+
+	// WorkloadAdmittedReasonPendingDelayedTopologyRequests indicates that there are pending delayed topology requests.
+	WorkloadAdmittedReasonPendingDelayedTopologyRequests = "PendingDelayedTopologyRequests"
 	// WorkloadFinished means that the workload associated to the
 	// ResourceClaim finished running (failed or succeeded).
 	WorkloadFinished = "Finished"

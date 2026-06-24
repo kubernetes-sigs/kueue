@@ -74,6 +74,9 @@ const (
 	// until the annotation is removed. The value is a comma-separated list of
 	// controller names (e.g., "example.com/controller1,example.com/controller2").
 	//
-	// This annotation is alpha-level and requires the AdmissionGatedBy feature gate, disabled by default.
+	// This annotation is beta-level and requires the AdmissionGatedBy feature gate, enabled by default.
 	AdmissionGatedByAnnotation = "kueue.x-k8s.io/admission-gated-by"
+
+	// ElasticJobAnnotation is an annotation set on the Job to indicate that it is an elastic job.
+	ElasticJobAnnotation = "kueue.x-k8s.io/elastic-job"
 )

@@ -359,10 +359,9 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 			lookup: defaultLookup,
 			wantErr: field.ErrorList{
-				field.Invalid(
+				field.InternalError(
 					field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(0).Child("exactly", "selectors"),
-					"",
-					"",
+					errors.New(""),
 				),
 			},
 		},
@@ -395,10 +394,9 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 			lookup: defaultLookup,
 			wantErr: field.ErrorList{
-				field.Invalid(
+				field.InternalError(
 					field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(0).Child("exactly", "selectors"),
-					"",
-					"",
+					errors.New(""),
 				),
 			},
 		},
@@ -460,10 +458,9 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 			lookup: defaultLookup,
 			wantErr: field.ErrorList{
-				field.Invalid(
+				field.InternalError(
 					field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(1).Child("exactly", "selectors"),
-					"",
-					"",
+					errors.New(""),
 				),
 			},
 		},
@@ -493,7 +490,7 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 		},
 		{
-			name: "Device constraints returns error",
+			name: "Device constraints are pass-through and counted correctly",
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-constraints", "ns1").
 					DeviceRequest("gpu-1", "test-deviceclass-1", 1).
@@ -507,8 +504,8 @@ func Test_GetResourceRequests(t *testing.T) {
 				}
 			},
 			lookup: defaultLookup,
-			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "constraints"), "", ""),
+			want: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {"res-1": resource.MustParse("2")},
 			},
 		},
 		{
@@ -628,7 +625,7 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 		},
 		{
-			name: "Device config returns error",
+			name: "Device config is pass-through and counted correctly",
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-config", "ns1").
 					DeviceRequest("req", "test-deviceclass-1", 1).
@@ -641,8 +638,8 @@ func Test_GetResourceRequests(t *testing.T) {
 				}
 			},
 			lookup: defaultLookup,
-			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "config"), "", ""),
+			want: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {"res-1": resource.MustParse("1")},
 			},
 		},
 	}

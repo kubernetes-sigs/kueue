@@ -474,12 +474,12 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
-		"empty multiKueue.clusterProfile.credentialsProviders.name": {
+		"empty multiKueue.clusterProfile.accessProviders.name": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
 					ClusterProfile: &configapi.ClusterProfile{
-						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+						AccessProviders: []configapi.ClusterProfileAccessProvider{
 							{
 								Name: "",
 								ExecConfig: clientcmdapi.ExecConfig{
@@ -495,16 +495,16 @@ func TestValidate(t *testing.T) {
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeRequired,
-					Field: "multiKueue.clusterProfile.credentialsProviders.name",
+					Field: "multiKueue.clusterProfile.accessProviders.name",
 				},
 			},
 		},
-		"empty multiKueue.clusterProfile.credentialsProviders.execConfig.command": {
+		"empty multiKueue.clusterProfile.accessProviders.execConfig.command": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
 					ClusterProfile: &configapi.ClusterProfile{
-						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+						AccessProviders: []configapi.ClusterProfileAccessProvider{
 							{
 								Name: "test-provider",
 								ExecConfig: clientcmdapi.ExecConfig{
@@ -520,16 +520,16 @@ func TestValidate(t *testing.T) {
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeRequired,
-					Field: "multiKueue.clusterProfile.credentialsProviders.execConfig.command",
+					Field: "multiKueue.clusterProfile.accessProviders.execConfig.command",
 				},
 			},
 		},
-		"empty multiKueue.clusterProfile.credentialsProviders.execConfig.apiVersion": {
+		"empty multiKueue.clusterProfile.accessProviders.execConfig.apiVersion": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
 					ClusterProfile: &configapi.ClusterProfile{
-						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+						AccessProviders: []configapi.ClusterProfileAccessProvider{
 							{
 								Name: "test-provider",
 								ExecConfig: clientcmdapi.ExecConfig{
@@ -545,16 +545,16 @@ func TestValidate(t *testing.T) {
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeRequired,
-					Field: "multiKueue.clusterProfile.credentialsProviders.execConfig.apiVersion",
+					Field: "multiKueue.clusterProfile.accessProviders.execConfig.apiVersion",
 				},
 			},
 		},
-		"empty multiKueue.clusterProfile.credentialsProviders.execConfig.env.name": {
+		"empty multiKueue.clusterProfile.accessProviders.execConfig.env.name": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
 					ClusterProfile: &configapi.ClusterProfile{
-						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+						AccessProviders: []configapi.ClusterProfileAccessProvider{
 							{
 								Name: "test-provider",
 								ExecConfig: clientcmdapi.ExecConfig{
@@ -573,16 +573,16 @@ func TestValidate(t *testing.T) {
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeRequired,
-					Field: "multiKueue.clusterProfile.credentialsProviders.execConfig.env.name",
+					Field: "multiKueue.clusterProfile.accessProviders.execConfig.env.name",
 				},
 			},
 		},
-		"empty multiKueue.clusterProfile.credentialsProviders.execConfig.interactiveMode": {
+		"empty multiKueue.clusterProfile.accessProviders.execConfig.interactiveMode": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
 					ClusterProfile: &configapi.ClusterProfile{
-						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+						AccessProviders: []configapi.ClusterProfileAccessProvider{
 							{
 								Name: "test-provider",
 								ExecConfig: clientcmdapi.ExecConfig{
@@ -598,16 +598,16 @@ func TestValidate(t *testing.T) {
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeRequired,
-					Field: "multiKueue.clusterProfile.credentialsProviders.execConfig.interactiveMode",
+					Field: "multiKueue.clusterProfile.accessProviders.execConfig.interactiveMode",
 				},
 			},
 		},
-		"invalid multiKueue.clusterProfile.credentialsProviders.execConfig.interactiveMode": {
+		"invalid multiKueue.clusterProfile.accessProviders.execConfig.interactiveMode": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
 					ClusterProfile: &configapi.ClusterProfile{
-						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+						AccessProviders: []configapi.ClusterProfileAccessProvider{
 							{
 								Name: "test-provider",
 								ExecConfig: clientcmdapi.ExecConfig{
@@ -623,7 +623,7 @@ func TestValidate(t *testing.T) {
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeNotSupported,
-					Field: "multiKueue.clusterProfile.credentialsProviders.execConfig.interactiveMode",
+					Field: "multiKueue.clusterProfile.accessProviders.execConfig.interactiveMode",
 				},
 			},
 		},
@@ -632,7 +632,7 @@ func TestValidate(t *testing.T) {
 				Integrations: defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
 					ClusterProfile: &configapi.ClusterProfile{
-						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+						AccessProviders: []configapi.ClusterProfileAccessProvider{
 							{
 								Name: "test-provider",
 								ExecConfig: clientcmdapi.ExecConfig{
@@ -646,6 +646,88 @@ func TestValidate(t *testing.T) {
 							},
 						},
 					},
+				},
+			},
+		},
+		"valid multiKueue.clusterProfile credentialsProviders configuration": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					ClusterProfile: &configapi.ClusterProfile{
+						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+							{
+								Name: "legacy-provider",
+								ExecConfig: clientcmdapi.ExecConfig{
+									Command:         "test-command",
+									APIVersion:      "client.authentication.k8s.io/v1",
+									InteractiveMode: clientcmdapi.NeverExecInteractiveMode,
+									Env: []clientcmdapi.ExecEnvVar{
+										{Name: "TEST_VAR", Value: "test-value"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		"multiKueue.clusterProfile accessProviders and credentialsProviders are mutually exclusive": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					ClusterProfile: &configapi.ClusterProfile{
+						AccessProviders: []configapi.ClusterProfileAccessProvider{
+							{
+								Name: "test-provider",
+								ExecConfig: clientcmdapi.ExecConfig{
+									Command:         "test-command",
+									APIVersion:      "client.authentication.k8s.io/v1",
+									InteractiveMode: clientcmdapi.NeverExecInteractiveMode,
+								},
+							},
+						},
+						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+							{
+								Name: "test-provider",
+								ExecConfig: clientcmdapi.ExecConfig{
+									Command:         "deprecated-command",
+									APIVersion:      "client.authentication.k8s.io/v1",
+									InteractiveMode: clientcmdapi.NeverExecInteractiveMode,
+								},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: "multiKueue.clusterProfile.credentialsProviders",
+				},
+			},
+		},
+		"invalid multiKueue.clusterProfile.credentialsProviders configuration": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					ClusterProfile: &configapi.ClusterProfile{
+						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
+							{
+								Name: "legacy-provider",
+								ExecConfig: clientcmdapi.ExecConfig{
+									Command:         "",
+									APIVersion:      "client.authentication.k8s.io/v1",
+									InteractiveMode: clientcmdapi.NeverExecInteractiveMode,
+								},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "multiKueue.clusterProfile.credentialsProviders.execConfig.command",
 				},
 			},
 		},
@@ -1171,6 +1253,34 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"sources configured but KueueDRAIntegrationPartitionableDevices disabled": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"mig.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "memory",
+									Driver: "gpu.nvidia.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[0].sources",
+				},
+			},
+		},
 		"sources: missing driver": {
 			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
 			cfg: &configapi.Configuration{
@@ -1344,6 +1454,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASFailedNodeReplacementFailFast): false,
 				string(features.TASReplaceNodeOnPodTermination):   false,
 				string(features.TASReplaceNodeOnNodeTaints):       false,
+				string(features.TASMultiLayerTopology):            false,
 			},
 			gatesToRestore: map[featuregate.Feature]bool{
 				features.TASProfileMixed:                  false,
@@ -1352,6 +1463,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				features.TASFailedNodeReplacementFailFast: true,
 				features.TASReplaceNodeOnPodTermination:   true,
 				features.TASReplaceNodeOnNodeTaints:       true,
+				features.TASMultiLayerTopology:            true,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -1393,6 +1505,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASFailedNodeReplacementFailFast):    false,
 				string(features.TASReplaceNodeOnPodTermination):      false,
 				string(features.TASReplaceNodeOnNodeTaints):          false,
+				string(features.TASMultiLayerTopology):               false,
 			},
 			gatesToRestore: map[featuregate.Feature]bool{
 				features.ElasticJobsViaWorkloadSlicesWithTAS: false,
@@ -1403,6 +1516,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				features.TASFailedNodeReplacementFailFast:    true,
 				features.TASReplaceNodeOnPodTermination:      true,
 				features.TASReplaceNodeOnNodeTaints:          true,
+				features.TASMultiLayerTopology:               true,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -1437,6 +1551,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASFailedNodeReplacementFailFast):    false,
 				string(features.TASReplaceNodeOnPodTermination):      false,
 				string(features.TASReplaceNodeOnNodeTaints):          false,
+				string(features.TASMultiLayerTopology):               false,
 			},
 			gatesToRestore: map[featuregate.Feature]bool{
 				features.TASProfileMixed:                     false,
@@ -1448,6 +1563,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				features.TASFailedNodeReplacementFailFast:    true,
 				features.TASReplaceNodeOnPodTermination:      true,
 				features.TASReplaceNodeOnNodeTaints:          true,
+				features.TASMultiLayerTopology:               true,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -1498,6 +1614,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASFailedNodeReplacementFailFast): false,
 				string(features.TASReplaceNodeOnPodTermination):   false,
 				string(features.TASReplaceNodeOnNodeTaints):       false,
+				string(features.TASMultiLayerTopology):            false,
 			},
 			gatesToRestore: map[featuregate.Feature]bool{
 				features.TASHandleOverlappingFlavors:      true,
@@ -1507,6 +1624,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				features.TASFailedNodeReplacementFailFast: true,
 				features.TASReplaceNodeOnPodTermination:   true,
 				features.TASReplaceNodeOnNodeTaints:       true,
+				features.TASMultiLayerTopology:            true,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -1536,6 +1654,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASFailedNodeReplacementFailFast): false,
 				string(features.TASReplaceNodeOnPodTermination):   false,
 				string(features.TASReplaceNodeOnNodeTaints):       false,
+				string(features.TASMultiLayerTopology):            false,
 			},
 			gatesToRestore: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling:          true,
@@ -1545,6 +1664,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				features.TASFailedNodeReplacementFailFast: true,
 				features.TASReplaceNodeOnPodTermination:   true,
 				features.TASReplaceNodeOnNodeTaints:       true,
+				features.TASMultiLayerTopology:            true,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -1564,6 +1684,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASReplaceNodeOnPodTermination):   false,
 				string(features.TASReplaceNodeOnNodeTaints):       false,
 				string(features.TASBalancedPlacement):             true,
+				string(features.TASMultiLayerTopology):            false,
 			},
 			gatesToRestore: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling:          true,
@@ -1574,6 +1695,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				features.TASReplaceNodeOnPodTermination:   true,
 				features.TASReplaceNodeOnNodeTaints:       true,
 				features.TASBalancedPlacement:             false,
+				features.TASMultiLayerTopology:            true,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -1592,6 +1714,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASFailedNodeReplacementFailFast): false,
 				string(features.TASReplaceNodeOnPodTermination):   false,
 				string(features.TASReplaceNodeOnNodeTaints):       true,
+				string(features.TASMultiLayerTopology):            false,
 			},
 			gatesToRestore: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling:          true,
@@ -1601,6 +1724,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				features.TASFailedNodeReplacementFailFast: true,
 				features.TASReplaceNodeOnPodTermination:   true,
 				features.TASReplaceNodeOnNodeTaints:       true,
+				features.TASMultiLayerTopology:            true,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -1649,6 +1773,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASReplaceNodeOnPodTermination):   false,
 				string(features.TASReplaceNodeOnNodeTaints):       false,
 				string(features.TASRespectNodeAffinityPreferred):  true,
+				string(features.TASMultiLayerTopology):            false,
 			},
 			gatesToRestore: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling:          true,
@@ -1659,6 +1784,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				features.TASReplaceNodeOnPodTermination:   true,
 				features.TASReplaceNodeOnNodeTaints:       true,
 				features.TASRespectNodeAffinityPreferred:  false,
+				features.TASMultiLayerTopology:            true,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -1674,12 +1800,14 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASFailedNodeReplacement):         false,
 				string(features.TASFailedNodeReplacementFailFast): true,
 				string(features.TASReplaceNodeOnPodTermination):   false,
+				string(features.TASMultiLayerTopology):            false,
 			},
 			gatesToRestore: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling:          true,
 				features.TASFailedNodeReplacement:         true,
 				features.TASFailedNodeReplacementFailFast: true,
 				features.TASReplaceNodeOnPodTermination:   true,
+				features.TASMultiLayerTopology:            true,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -1719,6 +1847,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASFailedNodeReplacementFailFast): true,
 				string(features.TASReplaceNodeOnPodTermination):   false,
 				string(features.TASReplaceNodeOnNodeTaints):       false,
+				string(features.TASMultiLayerTopology):            false,
 			},
 			gatesToRestore: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling:          true,
@@ -1728,6 +1857,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				features.TASFailedNodeReplacementFailFast: true,
 				features.TASReplaceNodeOnPodTermination:   true,
 				features.TASReplaceNodeOnNodeTaints:       true,
+				features.TASMultiLayerTopology:            true,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -1751,6 +1881,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASFailedNodeReplacementFailFast): false,
 				string(features.TASReplaceNodeOnPodTermination):   true,
 				string(features.TASReplaceNodeOnNodeTaints):       false,
+				string(features.TASMultiLayerTopology):            false,
 			},
 			gatesToRestore: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling:          true,
@@ -1760,6 +1891,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				features.TASFailedNodeReplacementFailFast: true,
 				features.TASReplaceNodeOnPodTermination:   true,
 				features.TASReplaceNodeOnNodeTaints:       true,
+				features.TASMultiLayerTopology:            true,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{

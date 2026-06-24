@@ -178,9 +178,6 @@ const (
 	// Enable quota accounting for Dynamic Resource Allocation (DRA) devices in workloads.
 	KueueDRAIntegration featuregate.Feature = "KueueDRAIntegration"
 
-	// Deprecated: planned to be removed in 0.19. Use KueueDRAIntegration instead.
-	DynamicResourceAllocation featuregate.Feature = "DynamicResourceAllocation"
-
 	// owner: @sohankunkerkar
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2941-DRA
 	//
@@ -200,7 +197,7 @@ const (
 	// owner: @kannon92
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2941-DRA
 	//
-	// Reject workloads that use DRA resources when the DynamicResourceAllocation feature gate is disabled.
+	// Reject workloads that use DRA resources when the KueueDRAIntegration feature gate is disabled.
 	KueueDRARejectWorkloadsWhenDRADisabled featuregate.Feature = "KueueDRARejectWorkloadsWhenDRADisabled"
 
 	// owner: @PannagaRao
@@ -221,21 +218,12 @@ const (
 	// Enable all updates to Workload objects to use Patch Merge instead of Patch Apply.
 	WorkloadRequestUseMergePatch featuregate.Feature = "WorkloadRequestUseMergePatch"
 
-	// owner: @mbobrovskyi
-	//
-	// SanitizePodSets enables automatic sanitization of PodSets when creating the Workload object.
-	// The main use case it deduplication of environment variables
-	// in PodSet templates within Workload objects. When enabled, duplicate env var entries
-	// are resolved by keeping only the last occurrence, allowing workload creation to succeed
-	// even when duplicates are present in the spec.
-	SanitizePodSets featuregate.Feature = "SanitizePodSets"
-
 	// owner: @mszadkow
 	//
 	// Allow insecure kubeconfigs in MultiKueue setup.
 	// Requires careful consideration as it may lead to security issues.
 	//
-	// Deprecated: planned to be removed in 0.17
+	// Deprecated: locked to its default value (false) in 0.19; planned to be removed in 0.20.
 	MultiKueueAllowInsecureKubeconfigs featuregate.Feature = "MultiKueueAllowInsecureKubeconfigs"
 
 	// owner: @pbundyra
@@ -441,11 +429,19 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/7539
 	// Enable reporting of Cohort related metrics (also including ClusterQueueInfo metric).
 	MetricsForCohorts featuregate.Feature = "MetricsForCohorts"
+
 	// owner: @tenzen-y
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/10659
 	// Enable accurately topology aware scheduling when multiple flavors cover the same Node.
 	TASHandleOverlappingFlavors featuregate.Feature = "TASHandleOverlappingFlavors"
+
+	// owner: @j-skiba
+	// kep: https://github.com/kubernetes-sigs/kueue/issues/10852
+	//
+	// UnadmittedWorkloadsObservability enables granular Prometheus metrics and
+	// updates status reasons for QuotaReserved/Admitted conditions to use tiered reasons.
+	UnadmittedWorkloadsObservability featuregate.Feature = "UnadmittedWorkloadsObservability"
 )
 
 func init() {
@@ -552,10 +548,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	KueueDRAIntegration: {
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
 	},
-	DynamicResourceAllocation: {
-		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},
-		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Deprecated, LockToDefault: true}, // remove in 0.19
-	},
 	KueueDRAIntegrationExtendedResource: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
 	},
@@ -579,13 +571,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	WorkloadRequestUseMergePatch: {
 		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},
 	},
-	SanitizePodSets: {
-		{Version: version.MustParse("0.13"), Default: true, PreRelease: featuregate.Beta},
-		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.19
-	},
 	MultiKueueAllowInsecureKubeconfigs: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
-		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Deprecated}, // remove in 0.19
+		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Deprecated},
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Deprecated, LockToDefault: true}, // remove in 0.20
 	},
 	ReclaimablePods: {
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
@@ -627,6 +616,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	TASMultiLayerTopology: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
 	},
 	SchedulingEquivalenceHashing: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Beta},
@@ -652,6 +642,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	AdmissionGatedBy: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
 	},
 	ShortWorkloadNames: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
@@ -694,6 +685,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	TASHandleOverlappingFlavors: {
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
+	},
+	UnadmittedWorkloadsObservability: {
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Beta},
 	},
 }
 

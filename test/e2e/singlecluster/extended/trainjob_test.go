@@ -17,10 +17,12 @@ limitations under the License.
 package extended
 
 import (
+	kftrainerapi "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -102,6 +104,11 @@ var _ = ginkgo.Describe("TrainJob", ginkgo.Label("area:singlecluster", "feature:
 			})
 
 			ginkgo.By("Waiting for the trainjob to finish", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(trainjob), trainjob)).To(gomega.Succeed())
+					g.Expect(trainjob.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kftrainerapi.TrainJobComplete), "trainjob is complete")
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsg[runtime.Object]("TrainJob or Workload did not finish", trainjob))
+
 				util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, util.LongTimeout)
 			})
 		})

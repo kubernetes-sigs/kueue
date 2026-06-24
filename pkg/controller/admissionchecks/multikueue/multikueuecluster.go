@@ -50,7 +50,7 @@ import (
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
-	"sigs.k8s.io/cluster-inventory-api/pkg/credentials"
+	"sigs.k8s.io/cluster-inventory-api/pkg/access"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -558,7 +558,8 @@ func (rc *remoteClient) runGC(ctx context.Context) {
 				wlLog.V(2).Info("No adapter found", "adapterKey", adapterKey, "ownerKey", ownerKey)
 			} else {
 				wlLog.V(5).Info("MultiKueueGC deleting workload owner", "ownerKey", ownerKey, "ownerKind", controller)
-				err := adapter.DeleteRemoteObject(ctx, rc.localClient, rc.client, types.NamespacedName{Name: controller.Name, Namespace: remoteWl.Namespace})
+				wlKey := types.NamespacedName{Name: controller.Name, Namespace: remoteWl.Namespace}
+				err := jobframework.DeleteRemoteObjectIfOwned(ctx, rc.localClient, rc.client, adapter, wlKey, rc.origin)
 				if client.IgnoreNotFound(err) != nil {
 					wlLog.Error(err, "Deleting remote workload's owner", "ownerKey", ownerKey)
 				}
@@ -606,24 +607,24 @@ type clustersReconciler struct {
 
 	adapters map[string]jobframework.MultiKueueAdapter
 
-	clusterProfileCreds clusterProfileCreds
+	clusterProfileAccessProvider clusterProfileAccessProvider
 
 	logName     string
 	roleTracker *roletracker.RoleTracker
 }
 
-type clusterProfileCreds interface {
+type clusterProfileAccessProvider interface {
 	BuildConfigFromCP(clusterprofile *inventoryv1alpha1.ClusterProfile) (*rest.Config, error)
 }
 
-type NoOpClusterProfileCreds struct{}
+type NoOpClusterProfileAccessProvider struct{}
 
-func (NoOpClusterProfileCreds) BuildConfigFromCP(clusterprofile *inventoryv1alpha1.ClusterProfile) (*rest.Config, error) {
-	return nil, errors.New("no credentials provider configured")
+func (NoOpClusterProfileAccessProvider) BuildConfigFromCP(clusterprofile *inventoryv1alpha1.ClusterProfile) (*rest.Config, error) {
+	return nil, errors.New("no access provider configured")
 }
 
-var _ clusterProfileCreds = (*credentials.CredentialsProvider)(nil)
-var _ clusterProfileCreds = (*NoOpClusterProfileCreds)(nil)
+var _ clusterProfileAccessProvider = (*access.Config)(nil)
+var _ clusterProfileAccessProvider = (*NoOpClusterProfileAccessProvider)(nil)
 
 var _ manager.Runnable = (*clustersReconciler)(nil)
 var _ reconcile.Reconciler = (*clustersReconciler)(nil)
@@ -745,7 +746,6 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 }
 
 func (c *clustersReconciler) loadClientConfig(ctx context.Context, cluster *kueue.MultiKueueCluster) (*clientConfig, string, error) {
-	log := ctrl.LoggerFrom(ctx)
 	if cluster.Spec.ClusterSource.ClusterProfileRef != nil {
 		if !features.Enabled(features.MultiKueueClusterProfile) {
 			return nil, "MultiKueueClusterProfileFeatureDisabled", errors.New("MultiKueueClusterProfile feature gate is disabled")
@@ -755,7 +755,7 @@ func (c *clustersReconciler) loadClientConfig(ctx context.Context, cluster *kueu
 			return nil, "BadClusterProfile", err
 		}
 		opts := validateRestConfigOptions{
-			// ExecProvider is allowed for ClusterProfile credentials plugins.
+			// ExecProvider is allowed for ClusterProfile access plugins.
 			allowExecProvider: true,
 		}
 		if err := validateRestConfig(restConfig, opts); err != nil {
@@ -769,10 +769,6 @@ func (c *clustersReconciler) loadClientConfig(ctx context.Context, cluster *kueu
 		return nil, "BadKubeConfig", err
 	}
 
-	if features.Enabled(features.MultiKueueAllowInsecureKubeconfigs) {
-		log.V(3).Info("Feature MultiKueueAllowInsecureKubeconfigs is enabled, skipping kubeconfig validation")
-		return &clientConfig{Kubeconfig: kubeConfig}, "", nil
-	}
 	if err := validateKubeconfig(kubeConfig); err != nil {
 		return nil, "InsecureKubeConfig", err
 	}
@@ -883,7 +879,7 @@ func (c *clustersReconciler) getRestConfigFromClusterProfile(ctx context.Context
 		return nil, err
 	}
 
-	return c.clusterProfileCreds.BuildConfigFromCP(cp)
+	return c.clusterProfileAccessProvider.BuildConfigFromCP(cp)
 }
 
 func (c *clustersReconciler) getKubeConfigFromSecret(ctx context.Context, secretName string) ([]byte, error) {
@@ -969,23 +965,23 @@ func newClustersReconciler(
 	origin string,
 	fsWatcher *KubeConfigFSWatcher,
 	adapters map[string]jobframework.MultiKueueAdapter,
-	cpCreds clusterProfileCreds,
+	cpAccessProvider clusterProfileAccessProvider,
 	roleTracker *roletracker.RoleTracker,
 ) *clustersReconciler {
 	return &clustersReconciler{
-		localClient:         c,
-		configNamespace:     namespace,
-		remoteClients:       make(map[string]*remoteClient),
-		wlUpdateCh:          make(chan event.GenericEvent, eventChBufferSize),
-		watchEndedCh:        make(chan event.GenericEvent, eventChBufferSize),
-		cqUpdateCh:          make(chan event.TypedGenericEvent[kueue.ClusterQueueReference], eventChBufferSize),
-		gcInterval:          gcInterval,
-		origin:              origin,
-		fsWatcher:           fsWatcher,
-		adapters:            adapters,
-		clusterProfileCreds: cpCreds,
-		logName:             "multikueuecluster-reconciler",
-		roleTracker:         roleTracker,
+		localClient:                  c,
+		configNamespace:              namespace,
+		remoteClients:                make(map[string]*remoteClient),
+		wlUpdateCh:                   make(chan event.GenericEvent, eventChBufferSize),
+		watchEndedCh:                 make(chan event.GenericEvent, eventChBufferSize),
+		cqUpdateCh:                   make(chan event.TypedGenericEvent[kueue.ClusterQueueReference], eventChBufferSize),
+		gcInterval:                   gcInterval,
+		origin:                       origin,
+		fsWatcher:                    fsWatcher,
+		adapters:                     adapters,
+		clusterProfileAccessProvider: cpAccessProvider,
+		logName:                      "multikueuecluster-reconciler",
+		roleTracker:                  roleTracker,
 	}
 }
 

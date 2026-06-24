@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -51,10 +52,13 @@ import (
 )
 
 const (
-	ConcurrentAdmissionController = "concurrent-admission-controller"
-	ReasonCreatedVariant          = "CreatedVariant"
-	ReasonActivatedVariant        = "ActivatedVariant"
-	ReasonDeactivatedVariant      = "DeactivatedVariant"
+	ConcurrentAdmissionController  = "concurrent-admission-controller"
+	ReasonCreatedVariant           = "CreatedVariant"
+	ReasonActivatedVariant         = "ActivatedVariant"
+	ReasonDeactivatedVariant       = "DeactivatedVariant"
+	ReasonPreemptionUngatedVariant = "PreemptionUngatedVariant"
+
+	preemptionTimeout = 5 * time.Minute
 )
 
 type variantReconciler struct {
@@ -177,7 +181,14 @@ func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		log.Error(err, "Failed to sync admission status")
 		return ctrl.Result{}, err
 	}
-	return ctrl.Result{}, nil
+
+	candidate, timeToWait := r.selectVariantToOpenPreemptionGate(ctx, variants)
+	if candidate != nil {
+		if err := r.openPreemptionGate(ctx, candidate); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+	return ctrl.Result{RequeueAfter: timeToWait}, nil
 }
 
 func (r *variantReconciler) getFamilyAndClusterQueue(ctx context.Context, req ctrl.Request) (*kueue.Workload, []kueue.Workload, *kueue.ClusterQueue, error) {
@@ -267,6 +278,8 @@ func generateVariant(parent *kueue.Workload, flavor kueue.ResourceFlavorReferenc
 		Spec:   parent.Spec,
 		Status: parent.Status,
 	}
+	variant.Spec.PreemptionGates = slices.Clone(variant.Spec.PreemptionGates)
+	workload.EnsurePreemptionGateOnSpec(variant, constants.ConcurrentAdmissionPreemptionGate)
 	delete(variant.Labels, constants.ConcurrentAdmissionParentLabelKey)
 	metav1.SetMetaDataAnnotation(&variant.ObjectMeta, constants.WorkloadAllowedResourceFlavorAnnotation, string(flavor))
 	return variant
@@ -629,6 +642,87 @@ func (r *variantReconciler) shouldReconcile(wl *kueue.Workload) bool {
 	}
 	log.V(3).Info("Workload is neither a parent variant nor a variant, ignoring", "workload", klog.KObj(wl))
 	return false
+}
+
+func (r *variantReconciler) selectVariantToOpenPreemptionGate(ctx context.Context, variants []kueue.Workload) (*kueue.Workload, time.Duration) {
+	log := ctrl.LoggerFrom(ctx).WithValues("op", "selectVariantToOpenPreemptionGate")
+
+	admissible := admissibleVariants(variants)
+	candidate := firstCandidateVariant(log, admissible)
+	if candidate == nil {
+		log.V(4).Info("No candidate variant found for ungating preemptions")
+		return nil, 0
+	}
+
+	lastUngateTime := latestOpenGateTime(log, admissible)
+	if lastUngateTime == nil {
+		log.V(4).Info("Found variant to ungate, no gate is currently open", "variantToUngate", klog.KObj(candidate))
+		return candidate, preemptionTimeout
+	}
+	timeToWait := preemptionTimeout - r.clock.Since(lastUngateTime.Time)
+	if timeToWait > 0 {
+		log.V(4).Info("Single preemption timeout did not expire", "timeToWait", timeToWait, "nextVariantToUngate", klog.KObj(candidate))
+		return nil, timeToWait
+	}
+	log.V(4).Info("Found variant to ungate", "variantToUngate", klog.KObj(candidate))
+	return candidate, preemptionTimeout
+}
+
+func firstCandidateVariant(log logr.Logger, admissibleVariants []*kueue.Workload) *kueue.Workload {
+	for _, wl := range admissibleVariants {
+		if workload.HasOpenPreemptionGate(wl, constants.ConcurrentAdmissionPreemptionGate) {
+			continue
+		}
+		wlLog := log.WithValues("candidateVariant", klog.KObj(wl), "flavor", concurrentadmission.GetVariantFlavor(wl))
+		if workload.BlockedOnPreemptionGatesCondition(wl) == nil {
+			wlLog.V(4).Info("Variant does not require preemption")
+			continue
+		}
+		wlLog.V(4).Info("Variant is the candidate for ungating")
+		return wl
+	}
+	return nil
+}
+
+func latestOpenGateTime(log logr.Logger, admissibleVariants []*kueue.Workload) *metav1.Time {
+	var lastUngateTime *metav1.Time
+	for _, wl := range admissibleVariants {
+		openGate := workload.FindPreemptionGate(wl, constants.ConcurrentAdmissionPreemptionGate)
+		if openGate == nil || openGate.Position != kueue.PreemptionGatePositionOpen {
+			continue
+		}
+		if lastUngateTime == nil || openGate.LastTransitionTime.After(lastUngateTime.Time) {
+			log.V(4).Info("Variant has the latest preemption ungating time", "openPreemptionGateVariant", klog.KObj(wl), "flavor", concurrentadmission.GetVariantFlavor(wl))
+			lastUngateTime = &openGate.LastTransitionTime
+		}
+	}
+	return lastUngateTime
+}
+
+func admissibleVariants(variants []kueue.Workload) []*kueue.Workload {
+	var ret []*kueue.Workload
+	for i := range variants {
+		if workload.IsAdmissible(&variants[i]) {
+			ret = append(ret, &variants[i])
+		}
+	}
+	return ret
+}
+
+func (r *variantReconciler) openPreemptionGate(ctx context.Context, variant *kueue.Workload) error {
+	log := ctrl.LoggerFrom(ctx)
+	log.V(2).Info("Opening preemption gate for variant", "variant", klog.KObj(variant), "flavor", concurrentadmission.GetVariantFlavor(variant))
+	var opened bool
+	if err := workload.PatchAdmissionStatus(ctx, r.client, variant, r.clock, func(wl *kueue.Workload) (bool, error) {
+		opened = workload.OpenPreemptionGate(wl, constants.ConcurrentAdmissionPreemptionGate, metav1.NewTime(r.clock.Now()))
+		return opened, nil
+	}, workload.WithRetryOnConflictForPatch()); err != nil {
+		return fmt.Errorf("opening preemption gate on variant %s: %w", klog.KObj(variant), err)
+	}
+	if opened {
+		r.recorder.Eventf(variant, nil, corev1.EventTypeNormal, ReasonPreemptionUngatedVariant, ReasonPreemptionUngatedVariant, "Opened preemption gate for variant workload %q", klog.KObj(variant))
+	}
+	return nil
 }
 
 func getAdmittedVariant(variants []kueue.Workload) *kueue.Workload {

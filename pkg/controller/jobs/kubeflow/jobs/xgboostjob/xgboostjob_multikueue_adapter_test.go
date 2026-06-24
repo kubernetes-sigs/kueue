@@ -70,7 +70,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*xgboostJobBuilder.DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "xgboostjob1", Namespace: TestNamespace}, "wl1", "origin1")
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "xgboostjob1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
 			},
 
 			wantManagersXGBoostJobs: []kftraining.XGBoostJob{
@@ -96,7 +97,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "xgboostjob1", Namespace: TestNamespace}, "wl1", "origin1")
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "xgboostjob1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
 			},
 
 			wantManagersXGBoostJobs: []kftraining.XGBoostJob{
@@ -128,7 +130,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "xgboostjob1", Namespace: TestNamespace}, "wl1", "origin1")
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "xgboostjob1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
 			},
 
 			wantManagersXGBoostJobs: []kftraining.XGBoostJob{
@@ -203,7 +206,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*xgboostJobBuilder.DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "xgboostjob1", Namespace: TestNamespace}, "wl1", "origin1")
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "xgboostjob1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
 			},
 			wantManagersXGBoostJobs: []kftraining.XGBoostJob{
 				*xgboostJobBuilder.DeepCopy(),

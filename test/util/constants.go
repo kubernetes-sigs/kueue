@@ -46,6 +46,8 @@ const (
 	ShortInterval           = 10 * time.Millisecond
 	Interval                = time.Millisecond * 250
 	LongInterval            = time.Second * 1
+	// DRAExampleDriverName is the DeviceClass name registered by the dra-example-driver.
+	DRAExampleDriverName = "gpu.example.com"
 )
 
 var (
@@ -105,4 +107,7 @@ const (
 var (
 	sparkTestImageOnce sync.Once
 	sparkTestImage     string
+
+	agnHostImageOnce sync.Once
+	agnHostImage     string
 )

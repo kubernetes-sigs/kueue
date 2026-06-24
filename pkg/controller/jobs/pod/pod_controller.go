@@ -50,6 +50,7 @@ import (
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
@@ -114,12 +115,13 @@ func init() {
 type Reconciler struct {
 	*jobframework.JobReconciler
 	expectationsStore *expectations.Store
+	clock             clock.Clock
 }
 
 const controllerName = "v1_pod"
 
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	return r.ReconcileGenericJob(ctx, req, NewPod(WithExcessPodExpectations(r.expectationsStore), WithClock(realClock)))
+	return r.ReconcileGenericJob(ctx, req, NewPod(WithExcessPodExpectations(r.expectationsStore), WithClock(r.clock)))
 }
 
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -141,9 +143,11 @@ func NewJob() jobframework.GenericJob {
 }
 
 func NewReconciler(_ context.Context, c client.Client, _ client.FieldIndexer, record events.EventRecorder, opts ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
+	options := jobframework.ProcessOptions(opts...)
 	return &Reconciler{
 		JobReconciler:     jobframework.NewReconciler(c, record, opts...),
 		expectationsStore: expectations.NewStore("finalizedPods"),
+		clock:             options.Clock,
 	}, nil
 }
 
@@ -259,7 +263,7 @@ func (p *Pod) Suspend() {
 }
 
 // Run will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
-func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, recorder events.EventRecorder, msg string) error {
+func (p *Pod) Run(ctx context.Context, c client.Client, wl *kueue.Workload, podSetsInfo []podset.PodSetInfo, recorder events.EventRecorder, msg string) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	if !p.isGroup {
@@ -281,7 +285,7 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 			recorder.Eventf(&p.pod, nil, corev1.EventTypeNormal, jobframework.ReasonStarted, "Started", msg)
 		}
 
-		return nil
+		utilpod.RecordPodSchedulingGateRemovalSeconds(p.clock, podconstants.SchedulingGateName, wl, p.isGroup)
 	}
 
 	return parallelize.Until(ctx, len(p.list.Items), func(i int) error {
@@ -319,6 +323,9 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 		if recorder != nil {
 			recorder.Eventf(pod, nil, corev1.EventTypeNormal, jobframework.ReasonStarted, "Started", msg)
 		}
+
+		utilpod.RecordPodSchedulingGateRemovalSeconds(p.clock, podconstants.SchedulingGateName, wl, p.isGroup)
+
 		return nil
 	})
 }
@@ -568,7 +575,7 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 }
 
 func (p *Pod) Finalize(ctx context.Context, c client.Client) error {
-	groupName := GetPodGroupName(&p.pod)
+	groupName := utilpod.GetPodGroupName(&p.pod)
 
 	var podsInGroup corev1.PodList
 	if groupName == "" {
@@ -602,18 +609,6 @@ func (p *Pod) Skip(ctx context.Context) bool {
 	return false
 }
 
-// GetPodGroupName returns the pod group name for the given pod. It reads the
-// GroupNameLabel, or when the WorkloadIdentifierAnnotations feature gate is
-// enabled it first reads the GroupNameAnnotation and then falls back to the label.
-func GetPodGroupName(p *corev1.Pod) string {
-	if features.Enabled(features.WorkloadIdentifierAnnotations) {
-		if name := p.Annotations[podconstants.GroupNameAnnotation]; name != "" {
-			return name
-		}
-	}
-	return p.Labels[podconstants.GroupNameLabel]
-}
-
 // SetPodGroupName stores the pod group name on the given pod.
 // When the WorkloadIdentifierAnnotations feature gate is enabled the name is
 // written to the GroupNameAnnotation. Otherwise, it is written to the GroupNameLabel.
@@ -634,7 +629,7 @@ func SetPodGroupName(p *corev1.Pod, groupName string) {
 // groupTotalCount returns the value of GroupTotalCountAnnotation for the pod being reconciled at the moment.
 // It doesn't check if the whole group has the same total group count annotation value.
 func (p *Pod) groupTotalCount() (int, error) {
-	if groupName := GetPodGroupName(&p.pod); groupName == "" {
+	if groupName := utilpod.GetPodGroupName(&p.pod); groupName == "" {
 		if features.Enabled(features.WorkloadIdentifierAnnotations) {
 			return 0, fmt.Errorf("pod doesn't have a '%s' annotation/label", podconstants.GroupNameAnnotation)
 		}
@@ -684,7 +679,7 @@ func (p *Pod) Load(ctx context.Context, c client.Client, key *types.NamespacedNa
 
 		// If the key.Namespace doesn't contain a "group/" prefix, even though
 		// the pod has a group name, there's something wrong with the event handler.
-		if groupName := GetPodGroupName(&p.pod); groupName != "" {
+		if groupName := utilpod.GetPodGroupName(&p.pod); groupName != "" {
 			return false, errIncorrectReconcileRequest
 		}
 
@@ -835,7 +830,7 @@ func (p *Pod) validatePodGroupMetadata(r events.EventRecorder, activePods []core
 	_, useFastAdmission := p.pod.GetAnnotations()[podconstants.GroupFastAdmissionAnnotationKey]
 
 	if !useFastAdmission && len(activePods) < groupTotalCount {
-		errMsg := fmt.Sprintf("'%s' group has fewer runnable pods than expected", GetPodGroupName(&p.pod))
+		errMsg := fmt.Sprintf("'%s' group has fewer runnable pods than expected", utilpod.GetPodGroupName(&p.pod))
 		r.Eventf(p.Object(), nil, corev1.EventTypeWarning, jobframework.ReasonErrWorkloadCompose, "ErrWorkloadCompose", errMsg)
 		return jobframework.UnretryableError(errMsg)
 	}
@@ -1134,7 +1129,7 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 	podSets, err := jobframework.JobPodSets(ctx, p, nil)
 	if err != nil {
 		if jobframework.IsUnretryableError(err) {
-			r.Eventf(p.Object(), nil, corev1.EventTypeWarning, jobframework.ReasonErrWorkloadCompose, "ErrWorkloadCompose", err.Error())
+			r.Eventf(p.Object(), nil, corev1.EventTypeWarning, jobframework.ReasonErrWorkloadCompose, "ErrWorkloadCompose", api.TruncateEventMessage(err.Error()))
 		}
 		return nil, err
 	}
@@ -1166,7 +1161,7 @@ func (p *Pod) workloadName() string {
 		return GetWorkloadNameForPod(p.pod.GetName(), p.pod.GetUID())
 	}
 
-	return GetPodGroupName(&p.pod)
+	return utilpod.GetPodGroupName(&p.pod)
 }
 
 func (p *Pod) ListChildWorkloads(ctx context.Context, c client.Client, key types.NamespacedName) (*kueue.WorkloadList, error) {
@@ -1202,7 +1197,7 @@ func (p *Pod) ListChildWorkloads(ctx context.Context, c client.Client, key types
 func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r events.EventRecorder) (*kueue.Workload, []*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
 
-	groupName := GetPodGroupName(&p.pod)
+	groupName := utilpod.GetPodGroupName(&p.pod)
 	if groupName == "" {
 		return jobframework.FindMatchingWorkloads(ctx, c, p)
 	}

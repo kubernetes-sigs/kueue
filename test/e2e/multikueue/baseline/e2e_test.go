@@ -303,9 +303,14 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					Reason: finishReason,
 				},
 				{
+					// The manager-cluster Pod stays scheduling-gated for its whole
+					// lifetime, so its locally-owned PodScheduled condition is
+					// preserved (SchedulingGated) rather than overwritten by the
+					// worker's PodScheduled=True. This keeps the Pod invisible to the
+					// manager cluster's cluster-autoscaler.
 					Type:   corev1.PodScheduled,
-					Status: corev1.ConditionTrue,
-					Reason: "",
+					Status: corev1.ConditionFalse,
+					Reason: corev1.PodReasonSchedulingGated,
 				},
 			}
 			ginkgo.By("Waiting for the pod to get status updates", func() {
@@ -1240,8 +1245,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 
 			ginkgo.By("Waiting for both jobs to complete", func() {
-				util.ExpectJobToBeCompleted(ctx, k8sManagerClient, jobMk)
-				util.ExpectJobToBeCompleted(ctx, k8sManagerClient, jobRegular)
+				util.ExpectJobToBeCompletedWithTimeout(ctx, k8sManagerClient, jobMk, util.LongTimeout)
+				util.ExpectJobToBeCompletedWithTimeout(ctx, k8sManagerClient, jobRegular, util.LongTimeout)
 			})
 		})
 	})

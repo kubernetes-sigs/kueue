@@ -106,12 +106,12 @@ func makeTestSecret(name string, kubeconfig string) corev1.Secret {
 	return *utiltesting.MakeSecret(name, TestNamespace).Data(kueue.MultiKueueConfigSecretKey, []byte(kubeconfig)).Obj()
 }
 
-type testClusterProfileCreds struct {
+type testClusterProfileAccessProvider struct {
 	supportedProviders map[string]bool
 }
 
-func (t *testClusterProfileCreds) BuildConfigFromCP(clusterprofile *inventoryv1alpha1.ClusterProfile) (*rest.Config, error) {
-	for _, provider := range clusterprofile.Status.CredentialProviders {
+func (t *testClusterProfileAccessProvider) BuildConfigFromCP(clusterprofile *inventoryv1alpha1.ClusterProfile) (*rest.Config, error) {
+	for _, provider := range clusterprofile.Status.AccessProviders {
 		if t.supportedProviders[provider.Name] {
 			if strings.Contains(clusterprofile.Name, "invalid") {
 				return testRestConfigInvalid(), nil
@@ -119,7 +119,7 @@ func (t *testClusterProfileCreds) BuildConfigFromCP(clusterprofile *inventoryv1a
 			return testRestConfig(), nil
 		}
 	}
-	return nil, errors.New("unsupported credential provider")
+	return nil, errors.New("unsupported access provider")
 }
 
 func testRestConfig() *rest.Config {
@@ -146,7 +146,7 @@ func makeTestClusterProfile(name string, providerName string) inventoryv1alpha1.
 			Namespace: TestNamespace,
 		},
 		Status: inventoryv1alpha1.ClusterProfileStatus{
-			CredentialProviders: []inventoryv1alpha1.CredentialProvider{
+			AccessProviders: []inventoryv1alpha1.AccessProvider{
 				{
 					Name: providerName,
 				},
@@ -184,19 +184,18 @@ func TestUpdateConfig(t *testing.T) {
 	validKubeconfigLocation := filepath.Join(t.TempDir(), "worker1KubeConfig")
 
 	cases := map[string]struct {
-		reconcileFor    string
-		remoteClients   map[string]*remoteClient
-		clusters        []kueue.MultiKueueCluster
-		secrets         []corev1.Secret
-		clusterprofiles []inventoryv1alpha1.ClusterProfile
-		cpCreds         clusterProfileCreds
+		reconcileFor     string
+		remoteClients    map[string]*remoteClient
+		clusters         []kueue.MultiKueueCluster
+		secrets          []corev1.Secret
+		clusterprofiles  []inventoryv1alpha1.ClusterProfile
+		cpAccessProvider clusterProfileAccessProvider
 
-		wantRemoteClients      map[string]*remoteClient
-		wantClusters           []kueue.MultiKueueCluster
-		wantRequeueAfter       time.Duration
-		wantCancelCalled       int
-		wantErr                error
-		skipInsecureKubeconfig bool
+		wantRemoteClients map[string]*remoteClient
+		wantClusters      []kueue.MultiKueueCluster
+		wantRequeueAfter  time.Duration
+		wantCancelCalled  int
+		wantErr           error
 	}{
 		"new valid client is added": {
 			reconcileFor: "worker1",
@@ -508,33 +507,6 @@ func TestUpdateConfig(t *testing.T) {
 			wantCancelCalled: 1,
 			wantErr:          fmt.Errorf("failed to load client config, reason: InsecureKubeConfig, error: %w", errors.New("tokenFile is not allowed")),
 		},
-		"skip insecure kubeconfig validation": {
-			reconcileFor: "worker1",
-			clusters: []kueue.MultiKueueCluster{
-				*utiltestingapi.MakeMultiKueueCluster("worker1").
-					KubeConfig(kueue.SecretLocationType, "worker1").
-					Generation(1).
-					Obj(),
-			},
-			secrets: []corev1.Secret{
-				makeTestSecret("worker1", testKubeconfigInsecure("worker1", new("/path/to/tokenfile"))),
-			},
-			wantClusters: []kueue.MultiKueueCluster{
-				*utiltestingapi.MakeMultiKueueCluster("worker1").
-					KubeConfig(kueue.SecretLocationType, "worker1").
-					Active(metav1.ConditionTrue, "Active", "Connected", 1).
-					Generation(1).
-					Obj(),
-			},
-			wantRemoteClients: map[string]*remoteClient{
-				"worker1": {
-					config: &clientConfig{
-						Kubeconfig: []byte(testKubeconfigInsecure("worker1", new("/path/to/tokenfile"))),
-					},
-				},
-			},
-			skipInsecureKubeconfig: true,
-		},
 		"use cluster profile": {
 			reconcileFor: "worker1",
 			clusters: []kueue.MultiKueueCluster{
@@ -545,11 +517,11 @@ func TestUpdateConfig(t *testing.T) {
 			},
 			secrets: []corev1.Secret{},
 			clusterprofiles: []inventoryv1alpha1.ClusterProfile{
-				makeTestClusterProfile("worker1", "credentialProvider1"),
+				makeTestClusterProfile("worker1", "accessProvider1"),
 			},
-			cpCreds: &testClusterProfileCreds{
+			cpAccessProvider: &testClusterProfileAccessProvider{
 				supportedProviders: map[string]bool{
-					"credentialProvider1": true,
+					"accessProvider1": true,
 				},
 			},
 			wantClusters: []kueue.MultiKueueCluster{
@@ -567,7 +539,7 @@ func TestUpdateConfig(t *testing.T) {
 				},
 			},
 		},
-		"unsupported credential provider": {
+		"unsupported access provider": {
 			reconcileFor: "worker1",
 			clusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
@@ -577,19 +549,19 @@ func TestUpdateConfig(t *testing.T) {
 			},
 			secrets: []corev1.Secret{},
 			clusterprofiles: []inventoryv1alpha1.ClusterProfile{
-				makeTestClusterProfile("worker1", "credentialProvider1"),
+				makeTestClusterProfile("worker1", "accessProvider1"),
 			},
-			cpCreds: &testClusterProfileCreds{
+			cpAccessProvider: &testClusterProfileAccessProvider{
 				supportedProviders: map[string]bool{},
 			},
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					ClusterProfile("worker1").
-					Active(metav1.ConditionFalse, "BadClusterProfile", "load client config failed: unsupported credential provider", 1).
+					Active(metav1.ConditionFalse, "BadClusterProfile", "load client config failed: unsupported access provider", 1).
 					Generation(1).
 					Obj(),
 			},
-			wantErr: fmt.Errorf("failed to load client config, reason: BadClusterProfile, error: %w", errors.New("unsupported credential provider")),
+			wantErr: fmt.Errorf("failed to load client config, reason: BadClusterProfile, error: %w", errors.New("unsupported access provider")),
 		},
 		"cluster profile not found": {
 			reconcileFor: "worker1",
@@ -601,9 +573,9 @@ func TestUpdateConfig(t *testing.T) {
 			},
 			secrets: []corev1.Secret{},
 			clusterprofiles: []inventoryv1alpha1.ClusterProfile{
-				makeTestClusterProfile("worker2", "credentialProvider2"),
+				makeTestClusterProfile("worker2", "accessProvider2"),
 			},
-			cpCreds: &testClusterProfileCreds{
+			cpAccessProvider: &testClusterProfileAccessProvider{
 				supportedProviders: map[string]bool{},
 			},
 			wantClusters: []kueue.MultiKueueCluster{
@@ -624,7 +596,7 @@ func TestUpdateConfig(t *testing.T) {
 					Obj(),
 			},
 			secrets: []corev1.Secret{},
-			cpCreds: &testClusterProfileCreds{
+			cpAccessProvider: &testClusterProfileAccessProvider{
 				supportedProviders: map[string]bool{},
 			},
 			wantClusters: []kueue.MultiKueueCluster{
@@ -646,11 +618,11 @@ func TestUpdateConfig(t *testing.T) {
 			},
 			secrets: []corev1.Secret{},
 			clusterprofiles: []inventoryv1alpha1.ClusterProfile{
-				makeTestClusterProfile("invalid", "credentialProvider1"),
+				makeTestClusterProfile("invalid", "accessProvider1"),
 			},
-			cpCreds: &testClusterProfileCreds{
+			cpAccessProvider: &testClusterProfileAccessProvider{
 				supportedProviders: map[string]bool{
-					"credentialProvider1": true,
+					"accessProvider1": true,
 				},
 			},
 			wantClusters: []kueue.MultiKueueCluster{
@@ -675,7 +647,7 @@ func TestUpdateConfig(t *testing.T) {
 			c := builder.Build()
 
 			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
-			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, tc.cpCreds, nil)
+			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, tc.cpAccessProvider, nil)
 
 			reconciler.rootContext = ctx
 
@@ -683,10 +655,6 @@ func TestUpdateConfig(t *testing.T) {
 				reconciler.remoteClients = tc.remoteClients
 			}
 			reconciler.builderOverride = fakeClientBuilder(ctx)
-
-			if tc.skipInsecureKubeconfig {
-				features.SetFeatureGateDuringTest(t, features.MultiKueueAllowInsecureKubeconfigs, true)
-			}
 
 			if len(tc.clusterprofiles) > 0 {
 				features.SetFeatureGateDuringTest(t, features.MultiKueueClusterProfile, true)
@@ -826,7 +794,7 @@ func TestReconnectBackoff(t *testing.T) {
 			c := builder.Build()
 
 			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
-			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, &testClusterProfileCreds{}, nil)
+			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, &testClusterProfileAccessProvider{}, nil)
 			reconciler.rootContext = ctx
 
 			var buildCalls int
@@ -881,7 +849,7 @@ func TestDisconnectedClientReconnectsWithSameConfig(t *testing.T) {
 	c := builder.Build()
 
 	adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
-	reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, &testClusterProfileCreds{}, nil)
+	reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, &testClusterProfileAccessProvider{}, nil)
 	reconciler.rootContext = ctx
 
 	var buildCalls int
@@ -977,7 +945,9 @@ func TestRemoteClientGC(t *testing.T) {
 				*baseJobBuilder.DeepCopy(),
 			},
 			workersJobs: []batchv1.Job{
-				*baseJobBuilder.DeepCopy(),
+				*baseJobBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
 			},
 		},
 		"unrelated workers and jobs are not deleted": {
@@ -1207,7 +1177,7 @@ func TestClustersReconcilerEventFilters(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			c := getClientBuilder(ctx).Build()
-			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, newKubeConfigFSWatcher(), nil, &NoOpClusterProfileCreds{}, nil)
+			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, newKubeConfigFSWatcher(), nil, &NoOpClusterProfileAccessProvider{}, nil)
 			reconciler.rootContext = ctx
 
 			if got := tc.invoke(reconciler); got != tc.wantReconcile {
@@ -1373,7 +1343,7 @@ func TestSetRemoteClientConfigDoesNotBlockOtherClusters(t *testing.T) {
 		WithStatusSubresource(slowCluster, fastCluster).
 		Build()
 
-	reconciler := newClustersReconciler(localClient, TestNamespace, 0, defaultOrigin, nil, nil, &NoOpClusterProfileCreds{}, nil)
+	reconciler := newClustersReconciler(localClient, TestNamespace, 0, defaultOrigin, nil, nil, &NoOpClusterProfileAccessProvider{}, nil)
 	reconciler.rootContext = ctx
 	reconciler.builderOverride = gatedBuilder
 

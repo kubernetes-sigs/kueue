@@ -27,6 +27,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/wait"
 )
@@ -41,10 +42,21 @@ func SyncAdmittedCondition(w *kueue.Workload, now time.Time) bool {
 	hasAllChecksReady := HasAllChecksReady(w)
 	isAdmitted := IsAdmitted(w)
 	hasAllTopologyAssignmentsReady := !HasTopologyAssignmentsPending(w)
+	admittedCond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadAdmitted)
+	quotaReservedCond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadQuotaReserved)
 
-	if isAdmitted == (hasReservation && hasAllChecksReady && hasAllTopologyAssignmentsReady) {
-		return false
+	if features.Enabled(features.UnadmittedWorkloadsObservability) {
+		// If QuotaReserved is not set yet, we don't want to explicitly initialize
+		// the Admitted condition either (keeping them both absent).
+		if quotaReservedCond == nil && admittedCond == nil {
+			return false
+		}
+	} else {
+		if isAdmitted == (hasReservation && hasAllChecksReady && hasAllTopologyAssignmentsReady) {
+			return false
+		}
 	}
+
 	newCondition := metav1.Condition{
 		Type:               kueue.WorkloadAdmitted,
 		Status:             metav1.ConditionTrue,
@@ -56,19 +68,24 @@ func SyncAdmittedCondition(w *kueue.Workload, now time.Time) bool {
 	switch {
 	case !hasReservation && !hasAllChecksReady:
 		newCondition.Status = metav1.ConditionFalse
-		newCondition.Reason = "NoReservationUnsatisfiedChecks"
-		newCondition.Message = "The workload has no reservation and not all checks ready"
+		if features.Enabled(features.UnadmittedWorkloadsObservability) {
+			newCondition.Reason = kueue.WorkloadAdmittedReasonNoReservation
+			newCondition.Message = "The workload has no reservation"
+		} else {
+			newCondition.Reason = "NoReservationUnsatisfiedChecks"
+			newCondition.Message = "The workload has no reservation and not all checks ready"
+		}
 	case !hasReservation:
 		newCondition.Status = metav1.ConditionFalse
-		newCondition.Reason = "NoReservation"
+		newCondition.Reason = kueue.WorkloadAdmittedReasonNoReservation
 		newCondition.Message = "The workload has no reservation"
 	case !hasAllChecksReady:
 		newCondition.Status = metav1.ConditionFalse
-		newCondition.Reason = "UnsatisfiedChecks"
+		newCondition.Reason = UnadmittedWorkloadReasonWithFallback(kueue.WorkloadAdmittedReasonUnsatisfiedAdmissionChecks, "UnsatisfiedChecks")
 		newCondition.Message = "The workload has not all checks ready"
 	case !hasAllTopologyAssignmentsReady:
 		newCondition.Status = metav1.ConditionFalse
-		newCondition.Reason = "PendingDelayedTopologyRequests"
+		newCondition.Reason = kueue.WorkloadAdmittedReasonPendingDelayedTopologyRequests
 		newCondition.Message = "There are pending delayed topology requests"
 	}
 

@@ -239,10 +239,10 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		gomega.Expect(client.IgnoreNotFound(k8sWorker1Client.Delete(ctx, rayServiceConfigMap.DeepCopy()))).To(gomega.Succeed())
 		gomega.Expect(client.IgnoreNotFound(k8sWorker2Client.Delete(ctx, rayServiceConfigMap.DeepCopy()))).To(gomega.Succeed())
 
-		rayService := &rayv1.RayService{ObjectMeta: metav1.ObjectMeta{Name: "rayservice1", Namespace: managerNs.Name}}
-		gomega.Expect(client.IgnoreNotFound(k8sManagerClient.Delete(ctx, rayService))).To(gomega.Succeed())
-		gomega.Expect(client.IgnoreNotFound(k8sWorker1Client.Delete(ctx, rayService.DeepCopy()))).To(gomega.Succeed())
-		gomega.Expect(client.IgnoreNotFound(k8sWorker2Client.Delete(ctx, rayService.DeepCopy()))).To(gomega.Succeed())
+		// Use the CRD-tolerant helper: shards without KubeRay have no RayService CRD installed.
+		gomega.Expect(util.DeleteAllRayServicesInNamespace(ctx, k8sManagerClient, managerNs)).To(gomega.Succeed())
+		gomega.Expect(util.DeleteAllRayServicesInNamespace(ctx, k8sWorker1Client, worker1Ns)).To(gomega.Succeed())
+		gomega.Expect(util.DeleteAllRayServicesInNamespace(ctx, k8sWorker2Client, worker2Ns)).To(gomega.Succeed())
 
 		gomega.Expect(util.DeleteNamespace(ctx, k8sManagerClient, managerNs)).To(gomega.Succeed())
 		gomega.Expect(util.DeleteNamespace(ctx, k8sWorker1Client, worker1Ns)).To(gomega.Succeed())
@@ -273,7 +273,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 	})
 
 	ginkgo.When("Creating a multikueue integration workload", func() {
-		ginkgo.It("Should sync a LeaderWorkerSet and run replicas on worker cluster", func() {
+		ginkgo.It("Should sync a LeaderWorkerSet and run replicas on worker cluster", ginkgo.Label("feature:leaderworkerset"), func() {
 			lws := testingleaderworkerset.MakeLeaderWorkerSet("leaderworkerset", managerNs.Name).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Replicas(2).
@@ -357,7 +357,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 		})
 
-		ginkgo.It("Should dispatch all LeaderWorkerSet workloads to the same worker", func() {
+		ginkgo.It("Should dispatch all LeaderWorkerSet workloads to the same worker", ginkgo.Label("feature:leaderworkerset"), func() {
 			const lwsReplicas = 3
 			lws := testingleaderworkerset.MakeLeaderWorkerSet("leaderworkerset", managerNs.Name).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
@@ -440,7 +440,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 		})
 
-		ginkgo.It("Should run a jobSet on worker if admitted", func() {
+		ginkgo.It("Should run a jobSet on worker if admitted", ginkgo.Label("feature:jobset"), func() {
 			jobSet := testingjobset.MakeJobSet("job-set", managerNs.Name).
 				Queue(managerLq.Name).
 				ReplicatedJobs(
@@ -520,7 +520,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 		})
 
-		ginkgo.It("Should run an appwrapper containing a job on worker if admitted", func() {
+		ginkgo.It("Should run an appwrapper containing a job on worker if admitted", ginkgo.Label("feature:appwrapper"), func() {
 			jobName := "job-1"
 			aw := testingaw.MakeAppWrapper("aw", managerNs.Name).
 				Queue(managerLq.Name).
@@ -576,7 +576,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 		})
 
-		ginkgo.It("Should run a kubeflow PyTorchJob on worker if admitted", func() {
+		ginkgo.It("Should run a kubeflow PyTorchJob on worker if admitted", ginkgo.Label("feature:pytorchjob"), func() {
 			pyTorchJob := testingpytorchjob.MakePyTorchJob("pytorchjob1", managerNs.Name).
 				ManagedBy(kueue.MultiKueueControllerName).
 				Queue(managerLq.Name).
@@ -634,7 +634,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 		})
 
-		ginkgo.It("Should run a MPIJob on worker if admitted", func() {
+		ginkgo.It("Should run a MPIJob on worker if admitted", ginkgo.Label("feature:mpijob"), func() {
 			mpijob := testingmpijob.MakeMPIJob("mpijob1", managerNs.Name).
 				Queue(managerLq.Name).
 				ManagedBy(kueue.MultiKueueControllerName).
@@ -695,7 +695,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 		})
 
-		ginkgo.It("Should run a TrainJob on worker if admitted", func() {
+		ginkgo.It("Should run a TrainJob on worker if admitted", ginkgo.Label("feature:trainjob"), func() {
 			trainjob := testingtrainjob.MakeTrainJob("trainjob-test", managerNs.Name).
 				RuntimeRefName("torch-distributed").
 				Queue(managerLq.Name).
@@ -723,7 +723,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 		})
 
-		ginkgo.When("Ray integration tests", ginkgo.Ordered, func() {
+		ginkgo.When("Ray integration tests", ginkgo.Ordered, ginkgo.Label("feature:kuberay"), func() {
 			ginkgo.It("Should run a RayJob on worker if admitted", func() {
 				kuberayTestImage := util.GetKuberayTestImage()
 				rayjob := testingrayjob.MakeJob("rayjob1", managerNs.Name).
@@ -735,6 +735,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "0.5").
 					Image(rayv1.HeadNode, kuberayTestImage).
 					Image(rayv1.WorkerNode, kuberayTestImage).
+					TerminationGracePeriod(1).
 					Obj()
 
 				ginkgo.By("Creating the RayJob", func() {
@@ -876,6 +877,7 @@ app = HelloWorld.bind()`,
 					Volumes(rayv1.WorkerNode, volumes).
 					VolumeMounts(rayv1.HeadNode, volumeMounts).
 					VolumeMounts(rayv1.WorkerNode, volumeMounts).
+					TerminationGracePeriod(1).
 					Obj()
 
 				rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].GroupName = "small-group"

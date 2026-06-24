@@ -541,7 +541,7 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
-		"request removed on workload finished": {
+		"request not removed on workload finished": {
 			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
 				Condition(metav1.Condition{
 					Type:   kueue.WorkloadFinished,
@@ -549,12 +549,14 @@ func TestReconcile(t *testing.T) {
 				}).
 				Obj(),
 
-			checks:               []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
-			flavors:              []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
-			configs:              []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
-			requests:             []autoscaling.ProvisioningRequest{*baseRequest.DeepCopy()},
-			templates:            []corev1.PodTemplate{*baseTemplate1.DeepCopy(), *baseTemplate2.DeepCopy()},
-			wantRequestsNotFound: []string{"wl-check1"},
+			checks:    []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors:   []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs:   []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			requests:  []autoscaling.ProvisioningRequest{*baseRequest.DeepCopy()},
+			templates: []corev1.PodTemplate{*baseTemplate1.DeepCopy(), *baseTemplate2.DeepCopy()},
+			wantRequests: map[string]*autoscaling.ProvisioningRequest{
+				baseRequest.Name: baseRequest.DeepCopy(),
+			},
 		},
 		"when request fails and is retried": {
 			workload: baseWorkload.DeepCopy(),
