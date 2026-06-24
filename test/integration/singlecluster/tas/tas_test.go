@@ -2133,6 +2133,79 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 				})
 			})
+
+			ginkgo.It("should keep the TopologyAssignment pod count consistent with the PodSet count across multiple node replacements", framework.SlowSpec, func() {
+				// Invariant check for multi-node replacement: after several
+				// failed nodes are replaced incrementally, the workload must
+				// still describe exactly PodSet.Count pods, one per node, with no
+				// node double-booked and no inflated total domain count.
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASReplaceMultipleFailedNodes, true)
+
+				var wl1 *kueue.Workload
+				const podCount = 2
+				node1Name := "x3" // b1/r1
+				node2Name := "x1" // b1/r2
+
+				ginkgo.By("creating a workload", func() {
+					wl1 = utiltestingapi.MakeWorkload("wl-count", ns.Name).
+						PodSets(*utiltestingapi.MakePodSet("worker", podCount).
+							PreferredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+							Obj()).
+						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
+					util.MustCreate(ctx, k8sClient, wl1)
+				})
+
+				ginkgo.By("verify the workload is admitted to block b1", func() {
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
+					gomega.Expect(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
+						utiltas.V1Beta2From(&utiltas.TopologyAssignment{
+							Levels: []string{corev1.LabelHostname},
+							Domains: []utiltas.TopologyDomainAssignment{
+								{Count: 1, Values: []string{node1Name}},
+								{Count: 1, Values: []string{node2Name}},
+							},
+						}),
+					))
+				})
+
+				ginkgo.By("deleting both assigned nodes to force two replacement cycles", func() {
+					for _, name := range []string{node1Name, node2Name} {
+						nodeToDelete := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: name}}
+						gomega.Expect(k8sClient.Delete(ctx, nodeToDelete)).Should(gomega.Succeed())
+						util.ExpectObjectToBeDeleted(ctx, k8sClient, nodeToDelete, false)
+					}
+				})
+
+				ginkgo.By("verify the TopologyAssignment pod count stays equal to the PodSet count, one pod per node", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						updatedWl := &kueue.Workload{}
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), updatedWl)).To(gomega.Succeed())
+						g.Expect(workload.IsAdmitted(updatedWl)).To(gomega.BeTrue())
+						g.Expect(updatedWl.Status.UnhealthyNodes).Should(gomega.BeEmpty(),
+							"replacement must finish before checking the count invariant")
+
+						psa := updatedWl.Status.Admission.PodSetAssignments[0]
+						ta := psa.TopologyAssignment
+						g.Expect(ta).NotTo(gomega.BeNil())
+
+						// Invariant: sum of per-domain pod counts == PodSet count.
+						totalPods := 0
+						nodes := sets.New[string]()
+						for d := range utiltas.InternalSeqFrom(ta) {
+							totalPods += int(d.Count)
+							g.Expect(d.Count).To(gomega.Equal(int32(1)),
+								"no node may host more than one pod for this workload")
+							nodes.Insert(d.Values[len(d.Values)-1])
+						}
+						g.Expect(totalPods).To(gomega.Equal(int(ptr.Deref(psa.Count, 0))),
+							"TopologyAssignment pod count must equal the PodSet count")
+						g.Expect(totalPods).To(gomega.Equal(podCount))
+						g.Expect(nodes.Len()).To(gomega.Equal(podCount),
+							"each pod must be on a distinct node (no double-booking)")
+					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				})
+			})
 			// Fixes https://github.com/kubernetes-sigs/kueue/issues/9210
 			ginkgo.It("should fallback to greedy assignment when replacement pod conflicts with already running pod", framework.SlowSpec, func() {
 				// Scenario: This test simulates an edge case during node replacement where a running pod (p1, rank 1)

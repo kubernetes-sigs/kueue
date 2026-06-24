@@ -703,28 +703,6 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 	if replacementAssignment == nil || len(replacementAssignment[tr.PodSet.Name].Domains) == 0 {
 		return nil, nil, fmt.Sprintf("cannot find replacement assignment for unhealthy node: %v", headNodeName)
 	}
-	// With TASReplaceMultipleFailedNodes, multiple replacement cycles can
-	// run on the same workload before each other's TA write propagates to the
-	// cache snapshot. If two concurrent cycles pick the same replacement
-	// domain, mergeTopologyAssignments collapses them via canMergeDomains into a
-	// single entry with Count+=Count, which silently loses a pod slot
-	// (corrupting podCounts so the kube-scheduler cannot place the pod). Detect
-	// this overlap and reject the cycle so a subsequent scheduling cycle
-	// retries with a fresh snapshot. Only relevant for the multi-replacement
-	// path; the default single-node replacement (including multi-layer slice
-	// replacement) may legitimately return a candidate overlapping the existing
-	// assignment, so the check is scoped to the feature gate.
-	if features.Enabled(features.TASReplaceMultipleFailedNodes) {
-		existingDomainIDs := make(map[utiltas.TopologyDomainID]struct{}, len(existingAssignment.Domains))
-		for _, d := range existingAssignment.Domains {
-			existingDomainIDs[utiltas.DomainID(d.Values)] = struct{}{}
-		}
-		for _, d := range replacementAssignment[tr.PodSet.Name].Domains {
-			if _, dup := existingDomainIDs[utiltas.DomainID(d.Values)]; dup {
-				return nil, nil, fmt.Sprintf("replacement candidate %v already present in existing TopologyAssignment; concurrent replacement race - retry on next cycle", d.Values)
-			}
-		}
-	}
 	newAssignment := s.mergeTopologyAssignments(replacementAssignment[tr.PodSet.Name], existingAssignment)
 	return newAssignment, replacementAssignment[tr.PodSet.Name], ""
 }
