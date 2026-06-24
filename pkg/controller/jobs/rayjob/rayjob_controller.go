@@ -141,6 +141,8 @@ func (j *RayJob) PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet, 
 		return nil, err
 	}
 
+	j.addSidecarSubmitterToHeadPodSet(podSets)
+
 	rayClusterName := j.Status.RayClusterName
 	podSets, err = raycluster.UpdatePodSets(ctx, podSets, c, j.Object(), j.Spec.RayClusterSpec.EnableInTreeAutoscaling, rayClusterName)
 	if err != nil {
@@ -228,6 +230,22 @@ func GetWorkloadNameForRayJob(jobName string, jobUID types.UID) string {
 	return jobframework.GetWorkloadNameForOwnerWithGVK(jobName, jobUID, gvk)
 }
 
+// defaultSubmitterResources mirrors the resources KubeRay assigns to the Ray job
+// submitter container by default (ray-operator/controllers/ray/common/job.go:
+// GetDefaultSubmitterContainer).
+func defaultSubmitterResources() corev1.ResourceRequirements {
+	return corev1.ResourceRequirements{
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("1"),
+			corev1.ResourceMemory: resource.MustParse("1Gi"),
+		},
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("500m"),
+			corev1.ResourceMemory: resource.MustParse("200Mi"),
+		},
+	}
+}
+
 // getSubmitterTemplate returns the PodTemplteSpec of the submitter Job used for RayJob when submissionMode=K8sJobMode
 func getSubmitterTemplate(rayJob *RayJob) *corev1.PodTemplateSpec {
 	if rayJob.Spec.SubmitterPodTemplate != nil {
@@ -242,17 +260,8 @@ func getSubmitterTemplate(rayJob *RayJob) *corev1.PodTemplateSpec {
 				{
 					Name: "ray-job-submitter",
 					// Use the image of the Ray head to be defensive against version mismatch issues
-					Image: rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Image,
-					Resources: corev1.ResourceRequirements{
-						Limits: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("1"),
-							corev1.ResourceMemory: resource.MustParse("1Gi"),
-						},
-						Requests: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("500m"),
-							corev1.ResourceMemory: resource.MustParse("200Mi"),
-						},
-					},
+					Image:     rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Image,
+					Resources: defaultSubmitterResources(),
 				},
 			},
 			RestartPolicy: corev1.RestartPolicyNever,
@@ -283,6 +292,27 @@ func (j *RayJob) addSubmitterPodSet(podSets []kueue.PodSet) ([]kueue.PodSet, err
 	}
 
 	return append(podSets, submitterJobPodSet), nil
+}
+
+// addSidecarSubmitterToHeadPodSet accounts for the submitter container that
+// KubeRay injects into the head Pod when submissionMode=SidecarMode. KubeRay
+// always uses the default submitter resources in this mode and ignores
+// SubmitterPodTemplate (ray-operator/controllers/ray/rayjob_controller.go:
+// getSubmitterContainer), so mirror those defaults on the head PodSet to keep
+// quota accurate.
+func (j *RayJob) addSidecarSubmitterToHeadPodSet(podSets []kueue.PodSet) {
+	if j.Spec.SubmissionMode != rayv1.SidecarMode {
+		return
+	}
+	for i := range podSets {
+		if podSets[i].Name == headGroupPodSetName {
+			podSets[i].Template.Spec.Containers = append(podSets[i].Template.Spec.Containers, corev1.Container{
+				Name:      "ray-job-submitter",
+				Resources: defaultSubmitterResources(),
+			})
+			return
+		}
+	}
 }
 
 func (j *RayJob) CanDefaultManagedBy() bool {
