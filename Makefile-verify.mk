@@ -22,8 +22,13 @@ VERIFY_NPROCS ?= 8
 # Requires GNU Make 4.0+. Values: target, line, recurse, or empty.
 ifeq ($(shell uname),Darwin)
     VERIFY_OUTPUT_SYNC ?=
+    # SELinux :Z relabeling and label confinement are Linux-only.
+    VOLUME_FLAGS ?=
+    CONTAINER_SECURITY_OPTS ?= --security-opt label=disable
 else
     VERIFY_OUTPUT_SYNC ?= target
+    VOLUME_FLAGS ?= :Z
+    CONTAINER_SECURITY_OPTS ?=
 endif
 # Paths whose content is expected to be fully reproducible from sources.
 # The final step of `make verify` enforces that these paths have:
@@ -163,7 +168,7 @@ endef
 # Validates skills against https://agentskills.io/specification
 define _skills_lint_recipe
 mkdir -p $(ARTIFACTS)
-$(CONTAINER_ENGINE) run --rm -v $(PROJECT_DIR):/workspace:Z -v $(ARTIFACTS):/out:Z $(SKILLSAW_IMAGE) --output /out/skillsaw-summary.html
+$(CONTAINER_ENGINE) run --rm $(CONTAINER_SECURITY_OPTS) -v $(PROJECT_DIR):/workspace$(VOLUME_FLAGS) -v $(ARTIFACTS):/out$(VOLUME_FLAGS) $(SKILLSAW_IMAGE) --output /out/skillsaw-summary.html
 endef
 
 
