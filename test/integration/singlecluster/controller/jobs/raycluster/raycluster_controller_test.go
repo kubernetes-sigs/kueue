@@ -37,12 +37,15 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	pkgconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -942,5 +945,82 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testRayClusterB), testRayClusterB)).Should(gomega.Succeed())
 			g.Expect(ptr.Deref(testRayClusterB.Spec.Suspend, false)).Should(gomega.BeFalse())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("Should cap elastic pod ungating to the granted quota", framework.SlowSpec, func() {
+		// Regression test for kueue#11977: before the fix, the ElasticJobUngater
+		// ungated every gated pod found via the WorkloadSliceNameKey index, so
+		// once an admitted slice existed the surplus pods minted optimistically
+		// for an over-quota scale-up bypassed the ClusterQueue's nominal quota.
+		// This test mints more gated worker pods than the admitted slice was
+		// granted (KubeRay is not running in the integration manager, so the pod
+		// creation is done by hand) and asserts the cap holds — both immediately
+		// and consistently.
+		const (
+			grantedWorkerCount = 2
+			totalWorkerPods    = 5
+		)
+
+		testRayCluster := testingraycluster.MakeCluster("ungate-cap", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Queue(localQueue.Name).
+			Request(rayv1.HeadNode, corev1.ResourceCPU, "1").
+			RequestWorkerGroup(corev1.ResourceCPU, "1").
+			WithEnableAutoscaling(new(true)).
+			ScaleFirstWorkerGroup(grantedWorkerCount).
+			Obj()
+
+		ginkgo.By("creating the raycluster")
+		util.MustCreate(ctx, k8sClient, testRayCluster)
+
+		var (
+			rayWorkload  *kueue.Workload
+			workerPodSet kueue.PodSetReference
+		)
+		ginkgo.By("admitting the raycluster's workload at the granted worker count")
+		gomega.Eventually(func(g gomega.Gomega) {
+			workloads := &kueue.WorkloadList{}
+			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
+			rayWorkload = &workloads.Items[0]
+			g.Expect(workload.IsAdmitted(rayWorkload)).Should(gomega.BeTrue())
+			g.Expect(rayWorkload.Spec.PodSets).Should(gomega.HaveLen(2))
+			g.Expect(rayWorkload.Spec.PodSets[1].Count).Should(gomega.BeEquivalentTo(int32(grantedWorkerCount)))
+			workerPodSet = rayWorkload.Spec.PodSets[1].Name
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By(fmt.Sprintf("minting %d gated worker pods (more than the granted %d)", totalWorkerPods, grantedWorkerCount))
+		for i := range totalWorkerPods {
+			pod := testingpod.MakePod(fmt.Sprintf("worker-%d", i), ns.Name).
+				Annotation(kueue.WorkloadAnnotation, rayWorkload.Name).
+				Annotation(kueue.WorkloadSliceNameAnnotation, rayWorkload.Name).
+				Label(pkgconstants.PodSetLabel, string(workerPodSet)).
+				Gate(kueue.ElasticJobSchedulingGate).
+				Obj()
+			util.MustCreate(ctx, k8sClient, pod)
+		}
+
+		countUngated := func(g gomega.Gomega) int {
+			pods := &corev1.PodList{}
+			g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+			g.Expect(pods.Items).Should(gomega.HaveLen(totalWorkerPods))
+			ungated := 0
+			for i := range pods.Items {
+				if !utilpod.HasGate(&pods.Items[i], kueue.ElasticJobSchedulingGate) {
+					ungated++
+				}
+			}
+			return ungated
+		}
+
+		ginkgo.By("the ungater ungates exactly the granted count and leaves the surplus gated")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(countUngated(g)).Should(gomega.Equal(grantedWorkerCount))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("the cap is stable: the ungater never exceeds the granted quota")
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(countUngated(g)).Should(gomega.Equal(grantedWorkerCount))
+		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 	})
 })
