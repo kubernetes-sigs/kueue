@@ -19,12 +19,14 @@ endif
 GO_TEST_FLAGS ?= -race
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION ?= 1.36
+ENVTEST_K8S_VERSION ?= 1.36.2
 
 ENVTEST_RETRY_ATTEMPTS ?= 4
 ENVTEST_RETRY_DELAY ?= 5
+ENVTEST_ETCD_VERSION ?= 3.6.8
+SETUP_ENVTEST_ASSETS = $(PROJECT_DIR)/hack/testing/setup-envtest-assets.sh
 KUBEBUILDER_ASSETS = $(or \
-	$(shell $(PROJECT_DIR)/hack/testing/retry.sh --attempts $(ENVTEST_RETRY_ATTEMPTS) --delay $(ENVTEST_RETRY_DELAY) -- $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path), \
+	$(shell $(PROJECT_DIR)/hack/testing/retry.sh --attempts $(ENVTEST_RETRY_ATTEMPTS) --delay $(ENVTEST_RETRY_DELAY) -- env ENVTEST=$(ENVTEST) ENVTEST_ETCD_VERSION=$(ENVTEST_ETCD_VERSION) $(SETUP_ENVTEST_ASSETS) $(ENVTEST_K8S_VERSION)), \
 	$(error setup-envtest failed to download binaries. KUBEBUILDER_ASSETS is empty))
 
 TEST_LOG_LEVEL ?= -3

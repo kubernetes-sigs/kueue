@@ -69,11 +69,10 @@ const (
 )
 
 type cluster struct {
-	cfg                     *rest.Config
-	client                  client.Client
-	ctx                     context.Context
-	fwk                     *framework.Framework
-	stopJobStatusController func()
+	cfg    *rest.Config
+	client client.Client
+	ctx    context.Context
+	fwk    *framework.Framework
 }
 
 func (c *cluster) kubeConfigBytes() ([]byte, error) {
@@ -82,7 +81,6 @@ func (c *cluster) kubeConfigBytes() ([]byte, error) {
 
 func (c *cluster) StopAndTeardown() {
 	c.fwk.StopManager(c.ctx)
-	c.stopJobStatusController()
 	c.fwk.Teardown()
 }
 
@@ -122,7 +120,6 @@ func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) c
 	mu.Lock()
 	c.cfg = c.fwk.Init()
 	c.ctx, c.client = c.fwk.SetupClient(c.cfg)
-	c.stopJobStatusController = util.StartJobStatusController(c.ctx, c.client)
 	mu.Unlock()
 
 	// skip the manager setup if setup func is not provided
