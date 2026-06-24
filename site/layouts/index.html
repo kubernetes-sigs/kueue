@@ -75,13 +75,13 @@
           {{ T "homepage_btn_install" }} <i class="fas fa-download ms-2 small"></i>
         </a>
 
-        {{ $url_get_started := T "homepage_url_get_started" | default "/docs/getting-started/quick-start" }}
-        {{ $page_get_started := site.GetPage $url_get_started }}
-        {{ if not $page_get_started }}
-          {{ $page_get_started = $defaultSite.GetPage $url_get_started }}
+        {{ $url_quick_start := T "homepage_url_quick_start" | default "/docs/getting-started/quick-start" }}
+        {{ $page_quick_start := site.GetPage $url_quick_start }}
+        {{ if not $page_quick_start }}
+          {{ $page_quick_start = $defaultSite.GetPage $url_quick_start }}
         {{ end }}
-        <a class="btn btn-outline-dark px-4 py-2.5 fw-semibold" href="{{ $page_get_started.Permalink }}">
-          {{ T "homepage_btn_get_started" }} <i class="fas fa-arrow-right ms-2 small"></i>
+        <a class="btn btn-outline-dark px-4 py-2.5 fw-semibold" href="{{ $page_quick_start.Permalink }}">
+          {{ T "homepage_btn_quick_start" }} <i class="fas fa-arrow-right ms-2 small"></i>
         </a>
 
         <a class="btn btn-outline-info px-4 py-2.5 fw-semibold" href="https://kubernetes.slack.com/messages/wg-batch" target="_blank" rel="noopener">

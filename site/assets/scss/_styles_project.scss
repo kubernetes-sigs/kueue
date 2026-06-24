@@ -265,6 +265,10 @@ div.feature-state-notice {
 // --------------------------------------------------
 .feature-card {
   cursor: default;
+  
+  h1, h2, h3, h4, h5, h6, p, span, i, div {
+    cursor: inherit;
+  }
 }
 
 // --------------------------------------------------

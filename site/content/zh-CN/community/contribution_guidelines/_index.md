@@ -24,7 +24,8 @@ Kubernetes 社区遵守 CNCF [行为准则](https://git.k8s.io/community/code-of
 - [贡献者许可协议](https://git.k8s.io/community/CLA.md) - Kubernetes 项目要求你签署贡献者许可协议 (CLA)，然后我们才能接受你的 PR
 - [Kubernetes 贡献者指南](https://git.k8s.io/community/contributors/guide) - 主要的贡献者文档，或者你可以直接跳到[贡献部分](https://git.k8s.io/community/contributors/guide#contributing)
 - [贡献者备忘单](https://git.k8s.io/community/contributors/guide/contributor-cheatsheet) - 针对现有开发者的常见资源
-- [运行和调试测试](testing)
+- [开发]({{< relref path="/community/contribution_guidelines/development.md" lang="en" >}})
+- [运行和调试测试]({{< relref "/community/contribution_guidelines/testing.md" >}})
 
 ## 导师制
 

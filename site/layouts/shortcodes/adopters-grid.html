@@ -1,11 +1,11 @@
 <!-- 1. SEARCH BAR (Real-time filtering by Name or Tech Stack) -->
 <div class="mb-4 mx-auto" style="max-width: 500px;">
-  <div class="input-group shadow-sm rounded-3 overflow-hidden">
-    <span class="input-group-text bg-white border-end-0 text-muted" style="padding-left: 12px; padding-right: 8px;">
+  <div class="input-group shadow-sm">
+    <span class="input-group-text bg-white border-end-0 text-muted rounded-start-3" style="padding-left: 12px; padding-right: 8px;">
       <i class="fas fa-search fa-sm"></i>
     </span>
     <!-- Inline oninput binding guarantees this works instantly with zero DOM race conditions -->
-    <input type="text" id="adopterSearch" oninput="filterAdopters(this.value)" class="form-control border-start-0 ps-1 py-2" placeholder="{{ T "adopters_search_placeholder" }}" style="font-size: 0.9rem; focus: none; box-shadow: none;">
+    <input type="text" id="adopterSearch" oninput="filterAdopters(this.value)" class="form-control border-start-0 ps-1 py-2 rounded-end-3" placeholder="{{ T "adopters_search_placeholder" }}" style="font-size: 0.9rem; outline: none; box-shadow: none;">
   </div>
   <div id="searchCount" class="text-muted small text-end mt-1.5" style="font-size: 0.75rem; display: none;">
     {{ T "adopters_count_text" | safeHTML }}
@@ -133,11 +133,14 @@
 }
 /* Style overrides to make input group look premium */
 .input-group:focus-within {
-  border-color: #0ea5e9 !important;
   box-shadow: 0 0 0 0.25rem rgba(14, 165, 233, 0.15) !important;
+  border-radius: 0.5rem; /* Match rounded-3 */
 }
 .input-group:focus-within .input-group-text,
 .input-group:focus-within input {
   border-color: #0ea5e9 !important;
+}
+.input-group .form-control:focus {
+  box-shadow: none !important;
 }
 </style>

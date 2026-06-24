@@ -54,8 +54,8 @@
   translation: "管理批处理、HPC 和 AI/ML 工作负载的配额和资源共享。Kueue 决定作业应在何时何地运行，并与您现有的生态系统无缝集成。"
 - id: homepage_btn_install
   translation: "安装 Kueue"
-- id: homepage_btn_get_started
-  translation: "开始使用"
+- id: homepage_btn_quick_start
+  translation: "快速入门"
 - id: homepage_btn_join_slack
   translation: "加入 Slack"
 
@@ -161,7 +161,7 @@
 # Homepage URLs (Chinese)
 - id: homepage_url_install
   translation: "/docs/installation"
-- id: homepage_url_get_started
+- id: homepage_url_quick_start
   translation: "/docs/getting-started/quick-start"
 
 # Medium RSS Feed (Chinese)
