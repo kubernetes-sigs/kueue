@@ -3497,14 +3497,11 @@ type tasScheduleTestCase struct {
 	featureGates map[featuregate.Feature]bool
 }
 
-// tasScheduleTestConfig carries the per-suite fixtures and knobs shared by the TAS
-// preemption and cohort scheduling run procedure.
+// tasScheduleTestConfig carries the per-suite fixtures shared by the TAS preemption
+// and cohort scheduling run procedure.
 type tasScheduleTestConfig struct {
 	queues []kueue.LocalQueue
 	now    time.Time
-	// sortEvents compares recorded events order-insensitively, matching the cohort
-	// scheduling test's assertion.
-	sortEvents bool
 }
 
 // runTASScheduleTestCases runs the shared "build client → schedule → assert" procedure for
@@ -3643,10 +3640,9 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 				if diff := cmp.Diff(tc.wantInadmissibleLeft, qDumpInadmissible, cmpDump...); diff != "" {
 					t.Errorf("Unexpected elements left in inadmissible workloads (-want,+got):\n%s", diff)
 				}
-				eventCmpOpts := tc.eventCmpOpts
-				if cfg.sortEvents {
-					eventCmpOpts = append(eventCmpOpts, cmpopts.SortSlices(utiltesting.SortEvents))
-				}
+				// Recorded event order is not guaranteed, so sort both sides to keep the
+				// assertion deterministic.
+				eventCmpOpts := append(tc.eventCmpOpts, cmpopts.SortSlices(utiltesting.SortEvents))
 				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, eventCmpOpts...); diff != "" {
 					t.Errorf("unexpected events (-want/+got):\n%s", diff)
 				}
@@ -4933,7 +4929,6 @@ func TestScheduleForTASPreemption(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{
 				eventIgnoreMessage,
-				cmpopts.SortSlices(utiltesting.SortEvents),
 			},
 		},
 		// Same-flavor preemption correctly accounts for sibling-flavor usage on the
@@ -5133,7 +5128,6 @@ func TestScheduleForTASPreemption(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{
 				eventIgnoreMessage,
-				cmpopts.SortSlices(utiltesting.SortEvents),
 			},
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "w1-low-prio-a", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
@@ -7266,9 +7260,8 @@ func TestScheduleForTASCohorts(t *testing.T) {
 		},
 	}
 	runTASScheduleTestCases(t, tasScheduleTestConfig{
-		queues:     queues,
-		now:        now,
-		sortEvents: true,
+		queues: queues,
+		now:    now,
 	}, cases)
 }
 
