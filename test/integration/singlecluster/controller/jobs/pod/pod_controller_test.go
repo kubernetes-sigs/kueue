@@ -3044,7 +3044,6 @@ var _ = ginkgo.Describe("Pod controller with deployment-owned pods and waitForPo
 			g.Expect(wl1.Status.Conditions).Should(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadFinished, kueue.WorkloadFinishedReasonOwnerNotFound))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
-
 })
 
 var _ = ginkgo.Describe("Pod controller with WASPodGroups", ginkgo.Label("job:pod", "area:jobs", "feature:was"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -3123,7 +3122,7 @@ var _ = ginkgo.Describe("Pod controller with WASPodGroups", ginkgo.Label("job:po
 			WASPodGroupAnnotation().
 			MakeGroup(2)
 		for _, pod := range pods {
-			pod.Spec.SchedulingGroup = &corev1.PodSchedulingGroup{PodGroupName: ptr.To(externalPodGroupName)}
+			pod.Spec.SchedulingGroup = &corev1.PodSchedulingGroup{PodGroupName: new(externalPodGroupName)}
 			util.MustCreate(ctx, k8sClient, pod)
 		}
 

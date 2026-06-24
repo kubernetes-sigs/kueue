@@ -175,8 +175,8 @@ func TestEnsureNativePodGroup(t *testing.T) {
 		pod         *Pod
 		workload    *kueue.Workload
 		initObjects []client.Object
-		wantErr   error
-		wantCount int
+		wantErr     error
+		wantCount   int
 		wantReason  string
 	}{
 		"creates native PodGroup for managed pod group": {

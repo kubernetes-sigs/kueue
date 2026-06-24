@@ -26,7 +26,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -296,7 +295,7 @@ func TestEnsureNativePodGroupOwnershipConflict(t *testing.T) {
 				Kind:       "Workload",
 				Name:       "other-workload",
 				UID:        "other-uid",
-				Controller: ptr.To(true),
+				Controller: new(true),
 			}},
 		},
 	}
