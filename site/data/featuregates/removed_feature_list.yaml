@@ -123,4 +123,14 @@
   lockToDefault: true
   preRelease: GA
   version: "0.17"
+- feature: SanitizePodSets
+  default: true
+  stage: Beta
+  from: "0.13"
+  to: "0.16"
+- feature: SanitizePodSets
+  default: true
+  stage: GA
+  from: "0.17"
+  to: "0.18"
 
