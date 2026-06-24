@@ -40,6 +40,8 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -247,7 +249,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 			createdWl := &kueue.Workload{}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWl)).To(gomega.Succeed())
-				g.Expect(workload.IsFinished(createdWl)).To(gomega.BeTrue())
+				g.Expect(workloadfinish.IsFinished(createdWl)).To(gomega.BeTrue())
 				g.Expect(createdWl.Finalizers).To(gomega.BeEmpty())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -629,7 +631,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 			ginkgo.By("Checking that the low-priority workload is successfully preempted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, lowWlLookupKey, lowCreatedWorkload)).Should(gomega.Succeed())
-					g.Expect(workload.IsEvicted(lowCreatedWorkload)).Should(gomega.BeTrue())
+					g.Expect(workloadevict.IsEvicted(lowCreatedWorkload)).Should(gomega.BeTrue())
 					g.Expect(lowCreatedWorkload.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadPreempted))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})

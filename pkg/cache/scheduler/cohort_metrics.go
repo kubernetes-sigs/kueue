@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
-	"sigs.k8s.io/kueue/pkg/workload"
+	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 )
 
 type cohortMetricPoint struct {
@@ -190,7 +190,7 @@ func (c *Cache) ReportCohortSubtreeAdmittedWorkload(log logr.Logger, wl *kueue.W
 	for _, ancestor := range ancestors {
 		metrics.ReportCohortSubtreeAdmittedWorkload(
 			ancestor,
-			workload.PriorityClassName(wl),
+			workloadpatching.PriorityClassName(wl),
 			c.customLabels.CohortGet(ancestor),
 			c.roleTracker,
 		)

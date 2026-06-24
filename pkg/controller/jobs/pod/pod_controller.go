@@ -60,7 +60,7 @@ import (
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
-	"sigs.k8s.io/kueue/pkg/workload"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 )
 
 const (
@@ -1316,7 +1316,7 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r even
 }
 
 func (p *Pod) equivalentToWorkload(wl *kueue.Workload, jobPodSets []kueue.PodSet) bool {
-	workloadFinished := workload.IsFinished(wl)
+	workloadFinished := workloadfinish.IsFinished(wl)
 
 	if wl.GetName() != p.workloadName() {
 		return false

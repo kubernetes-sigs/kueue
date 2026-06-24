@@ -48,6 +48,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 )
 
 var snapCmpOpts = cmp.Options{
@@ -4482,7 +4483,7 @@ func TestIssuePreemptionsCountsFailures(t *testing.T) {
 	if err := cl.Get(ctx, client.ObjectKeyFromObject(targetWl), &gotTarget); err != nil {
 		t.Fatalf("Failed getting target workload: %v", err)
 	}
-	if workload.IsEvicted(&gotTarget) {
+	if workloadevict.IsEvicted(&gotTarget) {
 		t.Error("Target workload should not be marked evicted after failed preemption patch")
 	}
 	if !store.Satisfied(log, client.ObjectKeyFromObject(targetWl)) {

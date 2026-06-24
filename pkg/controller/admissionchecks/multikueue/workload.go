@@ -55,6 +55,9 @@ import (
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
+	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -119,7 +122,7 @@ func WithClock(_ testing.TB, c clock.Clock) Option {
 
 // IsFinished returns true if the local workload is finished.
 func (g *wlGroup) IsFinished() bool {
-	return workload.IsFinished(g.local)
+	return workloadfinish.IsFinished(g.local)
 }
 
 // IsElasticWorkload returns true if the workload is considered elastic,
@@ -263,11 +266,11 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 }
 
 func (w *wlReconciler) updateACS(ctx context.Context, wl *kueue.Workload, acs *kueue.AdmissionCheckState, status kueue.CheckState, message string) error {
-	return workload.PatchStatus(ctx, w.client, wl, kueue.MultiKueueControllerName, func(wl *kueue.Workload) (bool, error) {
+	return workloadpatching.PatchStatus(ctx, w.client, wl, kueue.MultiKueueControllerName, func(wl *kueue.Workload) (bool, error) {
 		acs.State = status
 		acs.Message = message
 		acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
-		return workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *acs, w.clock), nil
+		return workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *acs, w.clock), nil
 	})
 }
 
@@ -398,7 +401,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		}
 
 		// finish workload and copy the status to the local one
-		return reconcile.Result{}, workload.Finish(ctx, w.client, group.local, remoteFinishedCond.Reason, remoteFinishedCond.Message, w.clock)
+		return reconcile.Result{}, workloadfinish.Finish(ctx, w.client, group.local, remoteFinishedCond.Reason, remoteFinishedCond.Message, w.clock)
 	}
 
 	// 4. Handle workload eviction
@@ -411,7 +414,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		ctx = ctrl.LoggerInto(ctx, log)
 
 		// workload evicted on manager cluster
-		if workload.IsEvicted(group.local) {
+		if workloadevict.IsEvicted(group.local) {
 			if _, err := jobframework.ValidateRemoteObjectOwnership(ctx, remoteCl, group.controllerKey, group.jobAdapter.GVK(), w.origin); err != nil {
 				log.Error(err, "validating remote controller object", "cluster", evictedRemote)
 				return reconcile.Result{}, err
@@ -435,11 +438,11 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		if acs.State == kueue.CheckStateReady {
 			// workload evicted on worker cluster
 			log.V(3).Info("Workload was evicted in the remote cluster", "cluster", evictedRemote)
-			if err := workload.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
+			if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
 				acs.Message = fmt.Sprintf("Workload evicted on worker cluster: %q, resetting for re-admission. Previously: %q", *group.local.Status.ClusterName, acs.State)
 				acs.State = kueue.CheckStateRetry
 				acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
-				return workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *acs, w.clock), nil
+				return workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *acs, w.clock), nil
 			}); err != nil {
 				log.Error(err, "Failed to patch workload status")
 				return reconcile.Result{}, err
@@ -520,7 +523,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 		evictedCond := apimeta.FindStatusCondition(group.local.Status.Conditions, kueue.WorkloadEvicted)
 		if workload.HasQuotaReservation(group.local) && evictedCond != nil && evictedCond.Status == metav1.ConditionTrue {
-			err := workload.PatchAdmissionStatus(ctx, remoteCl, remoteWl, w.clock, func(remoteWl *kueue.Workload) (bool, error) {
+			err := workloadpatching.PatchAdmissionStatus(ctx, remoteCl, remoteWl, w.clock, func(remoteWl *kueue.Workload) (bool, error) {
 				return workload.SetDeactivationTarget(
 					remoteWl,
 					kueue.WorkloadEvictedOnManagerCluster,
@@ -803,7 +806,7 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 		log.V(3).Info("Using cluster from component workloads", "cluster", assignedWorkerCluster)
 		if _, ok := group.remotes[assignedWorkerCluster]; ok {
 			if !slices.Contains(group.local.Status.NominatedClusterNames, assignedWorkerCluster) {
-				if err := workload.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
+				if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
 					wl.Status.NominatedClusterNames = []string{assignedWorkerCluster}
 					return true, nil
 				}); err != nil {
@@ -835,7 +838,7 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 		}
 
 		if !nominatedClusterSetsEqual(group.local.Status.NominatedClusterNames, nominatedWorkers) {
-			if err := workload.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
+			if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
 				wl.Status.NominatedClusterNames = nominatedWorkers
 				return true, nil
 			}); err != nil {
@@ -1049,7 +1052,7 @@ func (w *wlReconciler) syncReservingRemoteState(ctx context.Context, group *wlGr
 		return nil
 	}
 
-	if err := workload.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
+	if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
 		if needsTopologyUpdate {
 			updateDelayedTopologyRequest(wl, group.remotes[reservingRemote])
 		}
@@ -1061,7 +1064,7 @@ func (w *wlReconciler) syncReservingRemoteState(ctx context.Context, group *wlGr
 			// update the transition time since is used to detect the lost worker state.
 			acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
 
-			workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *acs, w.clock)
+			workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *acs, w.clock)
 			// Set the cluster name to the reserving remote and clear the nominated clusters.
 			// Only set ClusterName if not already set, as it is immutable once set.
 			if wl.Status.ClusterName == nil {
