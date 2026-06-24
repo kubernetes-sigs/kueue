@@ -19,6 +19,7 @@ package tas
 import (
 	"maps"
 	"slices"
+	"strconv"
 	"testing"
 	"time"
 
@@ -30,6 +31,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/component-base/metrics/testutil"
+	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -41,6 +44,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	coreindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -2673,6 +2677,242 @@ func TestReconcile(t *testing.T) {
 			gotCountsMap := extractCountsMapFromPods(gotPods.Items)
 			if diff := gocmp.Diff(wantCountsMap, gotCountsMap); diff != "" {
 				t.Errorf("unexpected counts (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
+	const (
+		rfName = "rf"
+		cqName = "cq"
+	)
+
+	now := time.Now().Truncate(time.Second)
+
+	testCases := map[string]struct {
+		isGroup            bool
+		pods               []corev1.Pod
+		workloads          []kueue.Workload
+		wantPods           []corev1.Pod
+		wantMetricsCount   uint64
+		wantMetricsSeconds float64
+		wantErr            error
+	}{
+		"one workload for pod group with two pods; they remove the scheduling gates with different delays": {
+			isGroup: true,
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod1", corev1.NamespaceDefault).
+					Annotation(kueue.WorkloadAnnotation, "group").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					GroupNameLabel("group").
+					GroupTotalCount("2").
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+				*testingpod.MakePod("pod2", corev1.NamespaceDefault).
+					Annotation(kueue.WorkloadAnnotation, "group").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					TopologySchedulingGate().
+					GroupNameLabel("group").
+					GroupTotalCount("2").
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("group", corev1.NamespaceDefault).Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission(cqName).
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, rfName, "1").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultTestLevels).
+									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 2).Obj()).
+									Obj()).
+								Obj()).
+							Obj(), now.Add(-2*time.Second),
+					).
+					AdmittedAt(true, now.Add(-2*time.Second)).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod1", corev1.NamespaceDefault).
+					Annotation(kueue.WorkloadAnnotation, "group").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					GroupNameLabel("group").
+					GroupTotalCount("2").
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+				*testingpod.MakePod("pod2", corev1.NamespaceDefault).
+					Annotation(kueue.WorkloadAnnotation, "group").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					GroupNameLabel("group").
+					GroupTotalCount("2").
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+			},
+			wantMetricsCount:   1,
+			wantMetricsSeconds: 2,
+			wantErr:            nil,
+		},
+		"one workload for pod group with two pods; they remove the tas scheduling gates at the same time": {
+			isGroup: true,
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod1", corev1.NamespaceDefault).
+					Annotation(kueue.WorkloadAnnotation, "group").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					TopologySchedulingGate().
+					GroupNameLabel("group").
+					GroupTotalCount("2").
+					Obj(),
+				*testingpod.MakePod("pod2", corev1.NamespaceDefault).
+					Annotation(kueue.WorkloadAnnotation, "group").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					TopologySchedulingGate().
+					GroupNameLabel("group").
+					GroupTotalCount("2").
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("group", corev1.NamespaceDefault).Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission(cqName).
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, rfName, "1").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultTestLevels).
+									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 2).Obj()).
+									Obj()).
+								Obj()).
+							Obj(), now.Add(-2*time.Second),
+					).
+					AdmittedAt(true, now.Add(-2*time.Second)).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod1", corev1.NamespaceDefault).
+					Annotation(kueue.WorkloadAnnotation, "group").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					GroupNameLabel("group").
+					GroupTotalCount("2").
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+				*testingpod.MakePod("pod2", corev1.NamespaceDefault).
+					Annotation(kueue.WorkloadAnnotation, "group").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					GroupNameLabel("group").
+					GroupTotalCount("2").
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+			},
+			wantMetricsCount:   2,
+			wantMetricsSeconds: 4,
+			wantErr:            nil,
+		},
+		"one workload with one pod (no group)": {
+			isGroup: false,
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod", corev1.NamespaceDefault).
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					TopologySchedulingGate().
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", corev1.NamespaceDefault).Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission(cqName).
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, rfName, "1").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultTestLevels).
+									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(), now.Add(-2*time.Second),
+					).
+					AdmittedAt(true, now.Add(-2*time.Second)).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod", corev1.NamespaceDefault).
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+			},
+			wantMetricsCount:   1,
+			wantMetricsSeconds: 2,
+			wantErr:            nil,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			metrics.ClearClusterQueueMetrics(cqName)
+
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			clientBuilder := utiltesting.
+				NewClientBuilder().
+				WithLists(&corev1.PodList{Items: tc.pods}).
+				WithLists(&kueue.WorkloadList{Items: tc.workloads}).
+				WithStatusSubresource(&kueue.Workload{}).
+				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+
+			if err := indexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
+				t.Fatalf("Could not setup indexes: %v", err)
+			}
+			if err := utiltesting.AsIndexer(clientBuilder).IndexField(ctx, &corev1.Pod{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexPodWorkloadSliceName); err != nil {
+				t.Fatalf("Could not setup WorkloadSliceNameKey index: %v", err)
+			}
+
+			kClient := clientBuilder.Build()
+
+			topologyUngater := newTopologyUngater(kClient, nil, WithClock(testingclock.NewFakeClock(now)))
+
+			key := client.ObjectKeyFromObject(&tc.workloads[0])
+			request := reconcile.Request{NamespacedName: key}
+
+			_, err := topologyUngater.Reconcile(ctx, request)
+
+			if diff := gocmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
+			}
+
+			var gotPods corev1.PodList
+			if err := kClient.List(ctx, &gotPods); err != nil {
+				if !apierrors.IsNotFound(err) {
+					t.Fatalf("Could not get Pods after reconcile: %v", err)
+				}
+			}
+
+			if diff := gocmp.Diff(tc.wantPods, gotPods.Items, podCmpOpts...); diff != "" {
+				t.Errorf("Pods after reconcile (-want,+got):\n%s", diff)
+			}
+
+			count, err := testutil.GetHistogramMetricCount(
+				metrics.PodSchedulingGateRemovalSeconds.WithLabelValues(kueue.TopologySchedulingGate, cqName, strconv.FormatBool(tc.isGroup)),
+			)
+			if err != nil {
+				t.Fatalf("Error getting PodSchedulingGateRemovalSeconds metric count: %v", err)
+			}
+			if diff := gocmp.Diff(tc.wantMetricsCount, count, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Invalid PodSchedulingGateRemovalSeconds count (-want,+got):\n%s", diff)
+			}
+
+			seconds, err := testutil.GetHistogramMetricValue(
+				metrics.PodSchedulingGateRemovalSeconds.WithLabelValues(kueue.TopologySchedulingGate, cqName, strconv.FormatBool(tc.isGroup)),
+			)
+			if err != nil {
+				t.Fatalf("Error getting PodSchedulingGateRemovalSeconds metric seconds: %v", err)
+			}
+			if diff := gocmp.Diff(tc.wantMetricsSeconds, seconds, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Invalid PodSchedulingGateRemovalSeconds seconds (-want,+got):\n%s", diff)
 			}
 		})
 	}

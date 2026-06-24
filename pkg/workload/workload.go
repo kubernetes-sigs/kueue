@@ -51,6 +51,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
@@ -58,7 +59,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	utilptr "sigs.k8s.io/kueue/pkg/util/ptr"
 	"sigs.k8s.io/kueue/pkg/util/queue"
-	"sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/util/tas"
@@ -461,27 +461,8 @@ func (i *Info) CalcLocalQueueFSUsage(
 	if err := c.Get(ctx, lqObjKey, &lq); err != nil {
 		return 0, err
 	}
-	var lqWeight float64 = 1
-	if lq.Spec.FairSharing != nil && lq.Spec.FairSharing.Weight != nil {
-		lqWeight = lq.Spec.FairSharing.Weight.AsApproximateFloat64()
-	}
-	return CalcFSUsageFromResources(consumed, penalty, lqWeight, resWeights), nil
-}
-
-// CalcFSUsageFromResources computes fair-sharing usage from consumed resources
-// and penalties. Keys are iterated in sorted order for deterministic results.
-func CalcFSUsageFromResources(consumed, penalty corev1.ResourceList, lqWeight float64, resWeights map[corev1.ResourceName]float64) float64 {
-	allResources := resource.MergeResourceListKeepSum(consumed, penalty)
-	var usage float64
-	for _, resName := range slices.Sorted(maps.Keys(allResources)) {
-		resVal := allResources[resName]
-		weight, found := resWeights[resName]
-		if !found {
-			weight = 1
-		}
-		usage += weight * resVal.AsApproximateFloat64()
-	}
-	return usage / lqWeight
+	lqWeight := afs.LQWeightAsFloat64(&lq)
+	return afs.CalculateUsage(consumed, penalty, lqWeight, resWeights), nil
 }
 
 // IsUsingTAS returns information if the workload is using TAS
@@ -2057,4 +2038,13 @@ func IsElasticWorkload(wl *kueue.Workload) bool {
 		return false
 	}
 	return features.Enabled(features.ElasticJobsViaWorkloadSlices) && wl.GetAnnotations()[constants.ElasticJobAnnotation] == "true"
+}
+
+// UnadmittedWorkloadReasonWithFallback returns the granularReason if the UnadmittedWorkloadsObservability
+// feature gate is enabled, otherwise it returns the fallback.
+func UnadmittedWorkloadReasonWithFallback(granularReason, fallback string) string {
+	if features.Enabled(features.UnadmittedWorkloadsObservability) {
+		return granularReason
+	}
+	return fallback
 }

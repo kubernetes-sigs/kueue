@@ -44,6 +44,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -93,6 +94,7 @@ func createPodsForWorkload(wl *kueue.Workload, nsName string, withTopologyReques
 	})
 }
 
+// _ is an unused variable placeholder, commonly used to ignore returned values or satisfy unused variable constraints.
 var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 	var (
 		ns *corev1.Namespace
@@ -1164,6 +1166,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				for _, node := range nodes {
 					util.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
 				}
+
+				metrics.ClearClusterQueueMetrics(kueue.ClusterQueueReference(clusterQueue.Name))
 			})
 
 			ginkgo.It("should respect TAS usage from workload admitted before Topology re-creation", func() {
@@ -2142,6 +2146,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						g.Expect(pod.Spec.NodeSelector).Should(gomega.HaveKey(corev1.LabelHostname))
 						g.Expect(pod.Spec.NodeSelector[corev1.LabelHostname]).To(gomega.Equal("x1"))
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+					util.ExpectPodSchedulingGateRemovalSecondsMetricLessOrEqual(kueue.TopologySchedulingGate, kueue.ClusterQueueReference(clusterQueue.Name), false, 1)
 				})
 			})
 		})

@@ -97,12 +97,6 @@ const (
 	// Enabled gathering of LocalQueue metrics
 	LocalQueueMetrics featuregate.Feature = "LocalQueueMetrics"
 
-	// owner: @yaroslava-serdiuk
-	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2936-local-queue-defaulting
-	//
-	// Enable to set default LocalQueue.
-	LocalQueueDefaulting featuregate.Feature = "LocalQueueDefaulting"
-
 	// owner: @pbundyra
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
 	//
@@ -214,15 +208,6 @@ const (
 	//
 	// Enable all updates to Workload objects to use Patch Merge instead of Patch Apply.
 	WorkloadRequestUseMergePatch featuregate.Feature = "WorkloadRequestUseMergePatch"
-
-	// owner: @mbobrovskyi
-	//
-	// SanitizePodSets enables automatic sanitization of PodSets when creating the Workload object.
-	// The main use case it deduplication of environment variables
-	// in PodSet templates within Workload objects. When enabled, duplicate env var entries
-	// are resolved by keeping only the last occurrence, allowing workload creation to succeed
-	// even when duplicates are present in the spec.
-	SanitizePodSets featuregate.Feature = "SanitizePodSets"
 
 	// owner: @mszadkow
 	//
@@ -497,11 +482,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.10"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
 	},
-	LocalQueueDefaulting: {
-		{Version: version.MustParse("0.10"), Default: false, PreRelease: featuregate.Alpha},
-		{Version: version.MustParse("0.12"), Default: true, PreRelease: featuregate.Beta},
-		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.19
-	},
 	TASProfileMixed: {
 		{Version: version.MustParse("0.10"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
@@ -566,10 +546,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	WorkloadRequestUseMergePatch: {
 		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},
-	},
-	SanitizePodSets: {
-		{Version: version.MustParse("0.13"), Default: true, PreRelease: featuregate.Beta},
-		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.19
 	},
 	MultiKueueAllowInsecureKubeconfigs: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},

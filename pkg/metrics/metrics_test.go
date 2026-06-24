@@ -296,6 +296,17 @@ func TestReportLocalQueueAdmissionChecksWaitTimeHasPriorityLabel(t *testing.T) {
 	expectFilteredMetricsCount(t, LocalQueueAdmissionChecksWaitTime, 0, "name", "lq3", "namespace", "ns3")
 }
 
+func TestReportAndCleanupLocalQueueAdmissionFairSharingUsage(t *testing.T) {
+	lq := LocalQueueReference{Name: "lq-afs-usage", Namespace: "ns-afs-usage"}
+	cq := kueue.ClusterQueueReference("cq-afs-usage")
+	ReportLocalQueueAdmissionFairSharingUsage(lq, cq, 7, nil, nil)
+
+	expectFilteredMetricsCount(t, LocalQueueAdmissionFairSharingUsage, 1, "name", string(lq.Name), "namespace", lq.Namespace, "cluster_queue", string(cq))
+
+	ClearLocalQueueMetrics(lq)
+	expectFilteredMetricsCount(t, LocalQueueAdmissionFairSharingUsage, 0, "name", string(lq.Name), "namespace", lq.Namespace, "cluster_queue", string(cq))
+}
+
 func TestReportAndCleanupLocalQueueQuotaReservedNumber(t *testing.T) {
 	lq := LocalQueueReference{Name: kueue.LocalQueueName("lq1"), Namespace: "ns1"}
 	LocalQueueQuotaReservedWorkload(lq, "", 0, nil, nil)
@@ -451,16 +462,19 @@ func TestClearClusterQueueResourceMetricsOnlyClearsResourceScopedGauges(t *testi
 
 func TestClearLocalQueueResourceMetricsOnlyClearsResourceScopedGauges(t *testing.T) {
 	lq := LocalQueueReference{Name: "lq-resource-scope", Namespace: "ns-resource-scope"}
+	cq := kueue.ClusterQueueReference("cq-resource-scope")
 
 	ReportLocalQueueResourceReservations(lq, "flavor", "cpu", 7, nil, nil)
 	ReportLocalQueueResourceUsage(lq, "flavor", "cpu", 6, nil, nil)
 	ReportLocalQueueStatus(lq, "True", nil, nil)
 	ReportLocalQueuePendingWorkloads(lq, 4, 2, nil, nil)
+	ReportLocalQueueAdmissionFairSharingUsage(lq, cq, 5, nil, nil)
 
 	expectFilteredMetricsCount(t, LocalQueueResourceReservations, 1, "name", string(lq.Name), "namespace", lq.Namespace)
 	expectFilteredMetricsCount(t, LocalQueueResourceUsage, 1, "name", string(lq.Name), "namespace", lq.Namespace)
 	expectFilteredMetricsCount(t, LocalQueueByStatus, 3, "name", string(lq.Name), "namespace", lq.Namespace)
 	expectFilteredMetricsCount(t, LocalQueuePendingWorkloads, 2, "name", string(lq.Name), "namespace", lq.Namespace)
+	expectFilteredMetricsCount(t, LocalQueueAdmissionFairSharingUsage, 1, "name", string(lq.Name), "namespace", lq.Namespace, "cluster_queue", string(cq))
 
 	ClearLocalQueueResourceMetrics(lq)
 
@@ -468,6 +482,7 @@ func TestClearLocalQueueResourceMetricsOnlyClearsResourceScopedGauges(t *testing
 	expectFilteredMetricsCount(t, LocalQueueResourceUsage, 0, "name", string(lq.Name), "namespace", lq.Namespace)
 	expectFilteredMetricsCount(t, LocalQueueByStatus, 3, "name", string(lq.Name), "namespace", lq.Namespace)
 	expectFilteredMetricsCount(t, LocalQueuePendingWorkloads, 2, "name", string(lq.Name), "namespace", lq.Namespace)
+	expectFilteredMetricsCount(t, LocalQueueAdmissionFairSharingUsage, 1, "name", string(lq.Name), "namespace", lq.Namespace, "cluster_queue", string(cq))
 
 	ClearLocalQueueCacheMetrics(lq)
 	ClearLocalQueueMetrics(lq)

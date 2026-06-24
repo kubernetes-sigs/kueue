@@ -36,6 +36,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 )
 
 var (
@@ -43,7 +44,7 @@ var (
 )
 
 func reconcileRequestForPod(p *corev1.Pod) reconcile.Request {
-	groupName := GetPodGroupName(p)
+	groupName := utilpod.GetPodGroupName(p)
 
 	if groupName == "" {
 		return reconcile.Request{
@@ -83,7 +84,7 @@ func (h *podEventHandler) Delete(ctx context.Context, e event.DeleteEvent, q wor
 
 	log := ctrl.LoggerFrom(ctx).WithValues("pod", klog.KObj(p))
 
-	if groupName := GetPodGroupName(p); groupName != "" {
+	if groupName := utilpod.GetPodGroupName(p); groupName != "" {
 		// If the watch was temporarily unavailable, it is possible that the object reported in the event still
 		// has a finalizer, but we can consider this Pod cleaned up, as it is being deleted.
 		h.cleanedUpPodsExpectations.ObservedUID(log, types.NamespacedName{Namespace: p.Namespace, Name: groupName}, p.UID)
@@ -105,7 +106,7 @@ func (h *podEventHandler) queueReconcileForPod(ctx context.Context, object clien
 
 	log := ctrl.LoggerFrom(ctx).WithValues("pod", klog.KObj(p))
 
-	if groupName := GetPodGroupName(p); groupName != "" {
+	if groupName := utilpod.GetPodGroupName(p); groupName != "" {
 		if !slices.Contains(p.Finalizers, podconstants.PodFinalizer) {
 			h.cleanedUpPodsExpectations.ObservedUID(log, types.NamespacedName{Namespace: p.Namespace, Name: groupName}, p.UID)
 		}
