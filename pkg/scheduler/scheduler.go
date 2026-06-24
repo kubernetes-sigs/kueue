@@ -534,10 +534,7 @@ func (s *Scheduler) waitForPodsReadyIfBlocked(ctx context.Context, log logr.Logg
 	log.V(5).Info("Waiting for all admitted workloads to be in the PodsReady condition")
 	wl := e.Obj.DeepCopy()
 	if err := workload.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
-		reason := "Waiting"
-		if features.Enabled(features.UnadmittedWorkloadsObservability) {
-			reason = kueue.WorkloadQuotaReservedReasonWaitingForPodsReady
-		}
+		reason := workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonWaitingForPodsReady, "Waiting")
 		return workload.UnsetQuotaReservationWithCondition(wl, reason, "waiting for all admitted workloads to be in PodsReady condition", s.clock.Now()), nil
 	}, workload.WithLooseOnApply(), workload.WithRetryOnConflictForPatch()); err != nil {
 		log.Error(err, "Could not update Workload status")
@@ -986,10 +983,7 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 		Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)), "queue", klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName)), "requeueReason", e.requeueReason, "added", added, "status", e.status)
 	if e.status == notNominated || e.status == skipped || e.status == preemptionGated {
 		wl := e.Obj.DeepCopy()
-		condReason := "Pending"
-		if features.Enabled(features.UnadmittedWorkloadsObservability) {
-			condReason = e.quotaReservedReason
-		}
+		condReason := workload.UnadmittedWorkloadReasonWithFallback(e.quotaReservedReason, "Pending")
 		if err := workload.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
 			updated := workload.UnsetQuotaReservationWithCondition(wl, condReason, e.inadmissibleMsg, s.clock.Now())
 			if workload.PropagateResourceRequests(wl, &e.Info) {
