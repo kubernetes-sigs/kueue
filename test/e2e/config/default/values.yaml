@@ -36,6 +36,8 @@ featureGates:
   enabled: true
 - name: ConcurrentAdmission
   enabled: true
+- name: WASPodGroups
+  enabled: true
 managerConfig:
   controllerManagerConfigYaml: |-
     apiVersion: config.kueue.x-k8s.io/v1beta2
