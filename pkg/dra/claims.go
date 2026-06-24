@@ -52,8 +52,8 @@ type celDeviceRequest struct {
 
 // countDevicesPerClass returns a resources.Requests representing the
 // total number of devices requested for each DeviceClass inside the provided
-// ResourceClaimSpec. It validates that only supported DRA features are used
-// and returns field errors if unsupported features are detected.
+// ResourceClaimSpec. Returns field errors for unsupported request features
+// (FirstAvailable, AdminAccess, AllocationMode All).
 func countDevicesPerClass(claimSpec *resourcev1.ResourceClaimSpec) (resources.Requests, field.ErrorList) {
 	out := resources.Requests{}
 	if claimSpec == nil {
@@ -61,18 +61,6 @@ func countDevicesPerClass(claimSpec *resourcev1.ResourceClaimSpec) (resources.Re
 	}
 
 	var allErrs field.ErrorList
-
-	// Check for unsupported device constraints
-	if len(claimSpec.Devices.Constraints) > 0 {
-		allErrs = append(allErrs, field.Invalid(field.NewPath("devices", "constraints"), nil, "device constraints (MatchAttribute) are not supported"))
-		return nil, allErrs
-	}
-
-	// Check for unsupported device config
-	if len(claimSpec.Devices.Config) > 0 {
-		allErrs = append(allErrs, field.Invalid(field.NewPath("devices", "config"), nil, "device config is not supported"))
-		return nil, allErrs
-	}
 
 	devicesRequestsPath := field.NewPath("devices", "requests")
 
