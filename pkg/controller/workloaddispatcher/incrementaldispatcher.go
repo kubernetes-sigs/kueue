@@ -44,7 +44,9 @@ import (
 )
 
 const (
-	incrementalDispatcherRoundTimeout = 5 * time.Minute
+	IncrementalDispatcherControllerName = "multikueue_incremental_dispatcher"
+	incrementalDispatcherRoundTimeout   = 5 * time.Minute
+	DefaultStepSize                     = 3
 )
 
 var ErrNoMoreWorkers = errors.New("no more workers to nominate")
@@ -55,16 +57,11 @@ type IncrementalDispatcherReconciler struct {
 	clock           clock.Clock
 	roundStartTimes *utilmaps.SyncMap[types.NamespacedName, time.Time]
 	roleTracker     *roletracker.RoleTracker
-	cfg             *kueueconfig.Configuration
+	cfg             *kueueconfig.IncrementalDispatcherConfig
 }
 
 var realClock = clock.RealClock{}
 var _ reconcile.Reconciler = (*IncrementalDispatcherReconciler)(nil)
-
-const (
-	IncrementalDispatcherControllerName = "multikueue_incremental_dispatcher"
-	DefaultStepSize                     = 3
-)
 
 func (r *IncrementalDispatcherReconciler) SetupWithManager(mgr ctrl.Manager, cfg *kueueconfig.Configuration) error {
 	return ctrl.NewControllerManagedBy(mgr).
@@ -78,7 +75,7 @@ func NewIncrementalDispatcherReconciler(
 	c client.Client,
 	helper *admissioncheck.MultiKueueStoreHelper,
 	roleTracker *roletracker.RoleTracker,
-	cfg *kueueconfig.Configuration,
+	cfg *kueueconfig.IncrementalDispatcherConfig,
 ) *IncrementalDispatcherReconciler {
 	return &IncrementalDispatcherReconciler{
 		client:          c,
@@ -191,11 +188,8 @@ func getNextNominatedWorkers(log logr.Logger, wl *kueue.Workload, remoteClusters
 
 func (r *IncrementalDispatcherReconciler) stepSize() int {
 	if utilfeature.DefaultFeatureGate.Enabled(features.MultiKueueIncrementalDispatcherConfig) &&
-		r.cfg != nil &&
-		r.cfg.MultiKueue != nil &&
-		r.cfg.MultiKueue.IncrementalDispatcherConfig != nil &&
-		r.cfg.MultiKueue.IncrementalDispatcherConfig.StepSize != nil {
-		return int(*r.cfg.MultiKueue.IncrementalDispatcherConfig.StepSize)
+		r.cfg != nil && r.cfg.StepSize != nil {
+		return int(*r.cfg.StepSize)
 	}
 
 	return DefaultStepSize

@@ -253,9 +253,9 @@
     version: "0.15"
 - name: MultiKueueIncrementalDispatcherConfig
   versionedSpecs:
-  - default: false
+  - default: true
     lockToDefault: false
-    preRelease: Alpha
+    preRelease: Beta
     version: "0.19"
 - name: MultiKueueManagerQuotaAutomation
   versionedSpecs:

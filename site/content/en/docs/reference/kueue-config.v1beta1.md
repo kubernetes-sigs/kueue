@@ -669,34 +669,6 @@ The default strategy is [&quot;LessThanOrEqualToFinalShare&quot;, &quot;LessThan
 </tbody>
 </table>
 
-## `IncrementalDispatcherConfig`     {#config-kueue-x-k8s-io-v1beta1-IncrementalDispatcherConfig}
-    
-
-**Appears in:**
-
-- [MultiKueue](#config-kueue-x-k8s-io-v1beta1-MultiKueue)
-
-
-<p>IncrementalDispatcherConfig holds configuration for the MultiKueue Incremental Dispatcher.</p>
-
-
-<table class="table">
-<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
-<tbody>
-    
-  
-<tr><td><code>stepSize</code><br/>
-<code>int32</code>
-</td>
-<td>
-   <p>StepSize defines the number of worker clusters the Incremental Dispatcher
-will query simultaneously.
-Minimum value is 1. If not set, defaults to 3.</p>
-</td>
-</tr>
-</tbody>
-</table>
-
 ## `Integrations`     {#config-kueue-x-k8s-io-v1beta1-Integrations}
     
 
@@ -919,15 +891,6 @@ if the connection with its reserving worker cluster is lost.</p>
    <p>ExternalFrameworks defines a list of external frameworks that should be supported
 by the generic MultiKueue adapter. Each entry defines how to handle a specific
 GroupVersionKind (GVK) for MultiKueue operations.</p>
-</td>
-</tr>
-<tr><td><code>incrementalDispatcherConfig</code><br/>
-<a href="#config-kueue-x-k8s-io-v1beta1-IncrementalDispatcherConfig"><code>IncrementalDispatcherConfig</code></a>
-</td>
-<td>
-   <p>IncrementalDispatcherConfig contains the configuration for the incremental dispatcher.
-This field is only valid when DispatcherName is set to the incremental dispatcher.
-Note: This field is going to be ignored when the MultiKueueIncrementalDispatcherConfig feature gate is disabled.</p>
 </td>
 </tr>
 </tbody>

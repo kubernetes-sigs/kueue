@@ -804,7 +804,7 @@ newest start time first.</li>
 <td>
    <p>StepSize defines the number of worker clusters the Incremental Dispatcher
 will query simultaneously.
-Minimum value is 1. If not set, defaults to 3.</p>
+Minimum value is 1. If not set, it defaults to 3.</p>
 </td>
 </tr>
 </tbody>
