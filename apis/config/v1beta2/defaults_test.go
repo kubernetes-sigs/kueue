@@ -557,7 +557,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					WorkerLostTimeout: &metav1.Duration{Duration: time.Minute},
 					DispatcherName:    new(MultiKueueDispatcherModeIncremental),
 					IncrementalDispatcherConfig: &IncrementalDispatcherConfig{
-						StepSize: ptr.To[int32](3),
+						StepSize: new(int32(3)),
 					},
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,

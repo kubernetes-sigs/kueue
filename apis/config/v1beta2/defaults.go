@@ -126,7 +126,7 @@ func SetDefaults_Configuration(cfg *Configuration) {
 
 	if ptr.Deref(cfg.MultiKueue.DispatcherName, "") == MultiKueueDispatcherModeIncremental {
 		cfg.MultiKueue.IncrementalDispatcherConfig = cmp.Or(cfg.MultiKueue.IncrementalDispatcherConfig, &IncrementalDispatcherConfig{})
-		cfg.MultiKueue.IncrementalDispatcherConfig.StepSize = cmp.Or(cfg.MultiKueue.IncrementalDispatcherConfig.StepSize, ptr.To[int32](3))
+		cfg.MultiKueue.IncrementalDispatcherConfig.StepSize = cmp.Or(cfg.MultiKueue.IncrementalDispatcherConfig.StepSize, new(int32(3)))
 	}
 
 	if afs := cfg.AdmissionFairSharing; afs != nil {

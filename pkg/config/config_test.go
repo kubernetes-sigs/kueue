@@ -771,7 +771,7 @@ objectRetentionPolicies:
 					WorkerLostTimeout: &metav1.Duration{Duration: 10 * time.Minute},
 					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeIncremental),
 					IncrementalDispatcherConfig: &configapi.IncrementalDispatcherConfig{
-						StepSize: ptr.To[int32](3),
+						StepSize: new(int32(3)),
 					},
 					ClusterProfile: &configapi.ClusterProfile{
 						AccessProviders: []configapi.ClusterProfileAccessProvider{
@@ -814,7 +814,7 @@ objectRetentionPolicies:
 					WorkerLostTimeout: &metav1.Duration{Duration: 10 * time.Minute},
 					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeIncremental),
 					IncrementalDispatcherConfig: &configapi.IncrementalDispatcherConfig{
-						StepSize: ptr.To[int32](3),
+						StepSize: new(int32(3)),
 					},
 					ClusterProfile: &configapi.ClusterProfile{
 						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{

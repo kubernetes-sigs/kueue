@@ -31,7 +31,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -275,7 +274,7 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 			remoteClusters: sets.New("A", "B", "C", "D", "E"),
 			workload:       baseWl.DeepCopy(),
 			cfg: &kueueconfig.IncrementalDispatcherConfig{
-				StepSize: ptr.To[int32](2),
+				StepSize: new(int32(2)),
 			},
 			wantNominatedClustersCount: 2,
 			wantErr:                    nil,
@@ -286,7 +285,7 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 			remoteClusters: sets.New("A", "B", "C", "D", "E"),
 			workload:       baseWl.Clone().NominatedClusterNames("A", "B").Obj(),
 			cfg: &kueueconfig.IncrementalDispatcherConfig{
-				StepSize: ptr.To[int32](2),
+				StepSize: new(int32(2)),
 			},
 			wantNominatedClustersCount: 4,
 			wantErr:                    nil,
@@ -297,7 +296,7 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 			remoteClusters: sets.New("A", "B", "C", "D", "E", "F", "G"),
 			workload:       baseWl.DeepCopy(),
 			cfg: &kueueconfig.IncrementalDispatcherConfig{
-				StepSize: ptr.To[int32](10),
+				StepSize: new(int32(10)),
 			},
 			featureGates: map[featuregate.Feature]bool{
 				features.MultiKueueIncrementalDispatcherConfig: false,

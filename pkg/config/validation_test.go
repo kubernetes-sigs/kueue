@@ -435,7 +435,7 @@ func TestValidate(t *testing.T) {
 				MultiKueue: &configapi.MultiKueue{
 					DispatcherName: ptr.To(configapi.MultiKueueDispatcherModeIncremental),
 					IncrementalDispatcherConfig: &configapi.IncrementalDispatcherConfig{
-						StepSize: ptr.To[int32](2),
+						StepSize: new(int32(2)),
 					},
 				},
 			},
@@ -446,7 +446,7 @@ func TestValidate(t *testing.T) {
 				MultiKueue: &configapi.MultiKueue{
 					DispatcherName: ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
 					IncrementalDispatcherConfig: &configapi.IncrementalDispatcherConfig{
-						StepSize: ptr.To[int32](2),
+						StepSize: new(int32(2)),
 					},
 				},
 			},
@@ -463,7 +463,7 @@ func TestValidate(t *testing.T) {
 				MultiKueue: &configapi.MultiKueue{
 					DispatcherName: ptr.To(configapi.MultiKueueDispatcherModeIncremental),
 					IncrementalDispatcherConfig: &configapi.IncrementalDispatcherConfig{
-						StepSize: ptr.To[int32](0),
+						StepSize: new(int32(0)),
 					},
 				},
 			},
