@@ -207,6 +207,18 @@ func validateMultiKueue(c *configapi.Configuration) field.ErrorList {
 				allErrs = append(allErrs, validateClusterProfileAccessProviders(credentialsProviders, clusterProfileCredentialProvidersPath)...)
 			}
 		}
+
+		if idc := c.MultiKueue.IncrementalDispatcherConfig; idc != nil {
+			idcPath := multiKueuePath.Child("incrementalDispatcherConfig")
+			if ptr.Deref(c.MultiKueue.DispatcherName, "") != configapi.MultiKueueDispatcherModeIncremental {
+				allErrs = append(allErrs, field.Invalid(idcPath, idc,
+					"incrementalDispatcherConfig is only valid when dispatcherName is set to the incremental dispatcher"))
+			}
+			if idc.StepSize != nil && *idc.StepSize < 1 {
+				allErrs = append(allErrs, field.Invalid(idcPath.Child("stepSize"), *idc.StepSize,
+					"must be greater than or equal to 1"))
+			}
+		}
 	}
 	return allErrs
 }
