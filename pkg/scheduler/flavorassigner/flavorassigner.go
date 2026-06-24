@@ -941,13 +941,8 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 	requests = filterRequestedResources(requests, resourceGroup.CoveredResources)
 
 	podSets := make([]*kueue.PodSet, len(psIDs))
-	selectors := make([]nodeaffinity.RequiredNodeAffinity, len(psIDs))
-
 	for idx, psID := range psIDs {
-		ps := &a.wl.Obj.Spec.PodSets[psID]
-		podSets[idx] = ps
-
-		selectors[idx] = flavorSelector(&ps.Template.Spec, resourceGroup.LabelKeys)
+		podSets[idx] = &a.wl.Obj.Spec.PodSets[psID]
 	}
 
 	var bestAssignment ResourceAssignment
@@ -965,7 +960,7 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 			continue
 		}
 
-		if flavorStatus := a.checkFlavorForPodSets(log, fName, psIDs, podSets, selectors, resourceGroup); !flavorStatus.IsFit() {
+		if flavorStatus := a.checkFlavorForPodSets(log, fName, psIDs, podSets, resourceGroup); !flavorStatus.IsFit() {
 			flavorStatus.noFitReason = kueue.WorkloadQuotaReservedReasonNoMatchingFlavor
 			status.reasons = append(status.reasons, flavorStatus.reasons...)
 			consideredFlavors.AddNoFitFlavorAttempt(fName, flavorStatus)
@@ -1075,7 +1070,6 @@ func (a *FlavorAssigner) checkFlavorForPodSets(
 	flavorName kueue.ResourceFlavorReference,
 	psIDs []int,
 	podSets []*kueue.PodSet,
-	selectors []nodeaffinity.RequiredNodeAffinity,
 	rg *schdcache.ResourceGroup,
 ) *Status {
 	status := NewStatus()
@@ -1086,6 +1080,11 @@ func (a *FlavorAssigner) checkFlavorForPodSets(
 		status.appendf("flavor %s not found", flavorName)
 		return status
 	}
+
+	// Use only this flavor's own label keys (not the union across all flavors in
+	// the resource group) so that affinity terms referencing keys from other
+	// flavors are correctly ignored when evaluating this flavor.
+	flavorLabelKeys := sets.KeySet(flavor.Spec.NodeLabels)
 
 	for psIdx, psID := range psIDs {
 		if features.Enabled(features.TopologyAwareScheduling) {
@@ -1104,7 +1103,7 @@ func (a *FlavorAssigner) checkFlavorForPodSets(
 			status.appendf("untolerated taint %s in flavor %s", taint, flavorName)
 			return status
 		}
-		selector := selectors[psIdx]
+		selector := flavorSelector(&podSpec, flavorLabelKeys)
 		if match, err := selector.Match(&corev1.Node{ObjectMeta: metav1.ObjectMeta{Labels: flavor.Spec.NodeLabels}}); !match || err != nil {
 			if err != nil {
 				status.err = err
