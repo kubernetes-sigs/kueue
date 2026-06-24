@@ -49,10 +49,6 @@ const (
 	// WorkloadSliceNameKey is an index for pods by their workload slice name annotation.
 	// Used to find pods belonging to an elastic workload slice chain.
 	WorkloadSliceNameKey = "metadata.workloadSliceName"
-	// WorkloadSliceNameWorkloadKey is an index for workloads by their workload slice
-	// name (the stable chain key). Used to resolve the active slice of an elastic
-	// workload slice chain when reconciling by chain key.
-	WorkloadSliceNameWorkloadKey = "metadata.workloadSliceName.workload"
 
 	// OwnerReferenceGroupKindFmt defines the format string used to construct a field path
 	// for indexing or matching against a specific owner Group and Kind in a Kubernetes object's metadata.
@@ -198,20 +194,6 @@ func IndexPodWorkloadSliceName(obj client.Object) []string {
 	return nil
 }
 
-// IndexWorkloadSliceName indexes workloads by their workload slice name (the
-// stable chain key). Mirrors workloadslicing.SliceName: uses
-// WorkloadSliceNameAnnotation if present, otherwise the workload's own name.
-func IndexWorkloadSliceName(obj client.Object) []string {
-	wl, ok := obj.(*kueue.Workload)
-	if !ok {
-		return nil
-	}
-	if value, found := wl.Annotations[kueue.WorkloadSliceNameAnnotation]; found {
-		return []string{value}
-	}
-	return []string{wl.Name}
-}
-
 func IndexWorkloadAdmissionCheck(obj client.Object) []string {
 	wl, ok := obj.(*kueue.Workload)
 	if !ok || len(wl.Status.AdmissionChecks) == 0 {
@@ -306,13 +288,6 @@ func Setup(ctx context.Context, indexer client.FieldIndexer) error {
 	if features.Enabled(features.ElasticJobsViaWorkloadSlices) || features.Enabled(features.TopologyAwareScheduling) {
 		if err := indexer.IndexField(ctx, &corev1.Pod{}, WorkloadSliceNameKey, IndexPodWorkloadSliceName); err != nil {
 			return fmt.Errorf("setting index on workloadSliceName for Pod: %w", err)
-		}
-	}
-	// Index workloads by their slice (chain) name so the elastic ungater can
-	// resolve the active slice when reconciling by chain key.
-	if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
-		if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadSliceNameWorkloadKey, IndexWorkloadSliceName); err != nil {
-			return fmt.Errorf("setting index on workloadSliceName for Workload: %w", err)
 		}
 	}
 	// Index DeviceClasses by extendedResourceName for fast lookup during extended resource translation.

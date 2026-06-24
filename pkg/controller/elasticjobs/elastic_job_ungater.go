@@ -24,6 +24,8 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -117,12 +119,17 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 	}
 
 	// req.Name is the stable slice-chain key shared by every slice and pod in the
-	// chain (see workloadslicing.SliceName). Resolve the active (latest admitted,
-	// non-finished) slice: it is the only one whose granted PodSet counts define
-	// how many pods may be ungated. Finished and pending slices are skipped here,
-	// so the cap is always taken from the live slice regardless of which slice (or
-	// which pod's stamped WorkloadAnnotation) triggered the event.
-	active, err := r.activeSlice(ctx, req.Namespace, req.Name)
+	// chain (see workloadslicing.SliceName); it is the name of the chain's root
+	// slice. Load it to find the owning job, then resolve the active (latest
+	// admitted, non-finished) slice from the job's slice chain: it is the only
+	// one whose granted PodSet counts define how many pods may be ungated, so the
+	// cap is always taken from the live slice regardless of which slice (or which
+	// pod's stamped WorkloadAnnotation) triggered the event.
+	root := &kueue.Workload{}
+	if err := r.client.Get(ctx, req.NamespacedName, root); err != nil {
+		return reconcile.Result{}, client.IgnoreNotFound(err)
+	}
+	active, err := r.activeSlice(ctx, root)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
@@ -216,37 +223,19 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 	return gated, nil
 }
 
-// activeSlice returns the active (latest admitted, non-finished) workload slice
-// for the chain identified by sliceName, or nil if none qualifies.
-func (r *elasticJobUngater) activeSlice(ctx context.Context, namespace, sliceName string) (*kueue.Workload, error) {
-	var list kueue.WorkloadList
-	if err := r.client.List(ctx, &list,
-		client.InNamespace(namespace),
-		client.MatchingFields{indexer.WorkloadSliceNameWorkloadKey: sliceName},
-	); err != nil {
-		return nil, fmt.Errorf("listing workload slices: %w", err)
+// activeSlice resolves the active (latest admitted, non-finished) workload slice
+// of the chain that anyWl belongs to, or nil if none qualifies. It looks up the
+// chain through the owning job's workload index, reusing the same slice ordering
+// as the rest of the slicing code (workloadslicing.FindLatestActiveWorkload).
+func (r *elasticJobUngater) activeSlice(ctx context.Context, anyWl *kueue.Workload) (*kueue.Workload, error) {
+	owner := metav1.GetControllerOf(anyWl)
+	if owner == nil {
+		return nil, nil
 	}
-	var active *kueue.Workload
-	for i := range list.Items {
-		wl := &list.Items[i]
-		if !shouldUngate(wl) {
-			continue
-		}
-		if active == nil || moreActiveSlice(wl, active) {
-			active = wl
-		}
+	jobObject := &metav1.PartialObjectMetadata{
+		ObjectMeta: metav1.ObjectMeta{Namespace: anyWl.Namespace, Name: owner.Name},
 	}
-	return active, nil
-}
-
-// moreActiveSlice reports whether slice a is the better cap source than b: the
-// newer slice wins, and on equal creation timestamps the replacement slice
-// (carrying WorkloadSliceReplacementFor) is treated as newer than the root.
-func moreActiveSlice(a, b *kueue.Workload) bool {
-	if c := a.CreationTimestamp.Compare(b.CreationTimestamp.Time); c != 0 {
-		return c > 0
-	}
-	return workloadslicing.ScaledUp(a) && !workloadslicing.ScaledUp(b)
+	return workloadslicing.FindLatestActiveWorkload(ctx, r.client, jobObject, schema.FromAPIVersionAndKind(owner.APIVersion, owner.Kind))
 }
 
 // Workload predicates
