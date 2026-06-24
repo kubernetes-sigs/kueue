@@ -47,10 +47,11 @@ import (
 )
 
 var (
-	cfg       *rest.Config
-	k8sClient client.Client
-	ctx       context.Context
-	fwk       *framework.Framework
+	cfg                     *rest.Config
+	k8sClient               client.Client
+	ctx                     context.Context
+	fwk                     *framework.Framework
+	stopJobStatusController func()
 )
 
 func TestAPIs(t *testing.T) {
@@ -61,9 +62,11 @@ var _ = ginkgo.BeforeSuite(func() {
 	fwk = &framework.Framework{}
 	cfg = fwk.Init()
 	ctx, k8sClient = fwk.SetupClient(cfg)
+	stopJobStatusController = util.StartJobStatusController(ctx, k8sClient)
 })
 
 var _ = ginkgo.AfterSuite(func() {
+	stopJobStatusController()
 	fwk.Teardown()
 })
 
