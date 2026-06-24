@@ -127,7 +127,8 @@ var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:k
 		cq = utiltestingapi.MakeClusterQueue(clusterQueueName).
 			ResourceGroup(
 				*utiltestingapi.MakeFlavorQuotas(rf.Name).
-					Resource(corev1.ResourceCPU, "3").Obj()).
+					Resource(corev1.ResourceCPU, "3").
+					Resource(corev1.ResourceMemory, "2Gi").Obj()).
 			Obj()
 		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 
@@ -621,6 +622,80 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 				g.Expect(createdRayJob.Status.JobDeploymentStatus).To(gomega.Equal(rayv1.JobDeploymentStatusComplete))
 				g.Expect(createdRayJob.Status.JobStatus).To(gomega.Equal(rayv1.JobStatusSucceeded))
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsg("RayJob did not finish successfully", createdRayJob))
+		})
+	})
+
+	ginkgo.It("Should account for the SidecarMode submitter in the head PodSet quota", ginkgo.Label("shard:kuberay-b"), func() {
+		kuberayTestImage := util.GetKuberayTestImage()
+
+		rayJob := testingrayjob.MakeJob("rayjob-sidecar", ns.Name).
+			Queue(localQueueName).
+			WithSubmissionMode(rayv1.SidecarMode).
+			Entrypoint("python -c \"import ray; ray.init(); print(ray.cluster_resources())\"").
+			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
+			RayStartParam(rayv1.HeadNode, "object-store-memory", objectStoreMemory).
+			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "400m").
+			RayStartParam(rayv1.WorkerNode, "object-store-memory", objectStoreMemory).
+			TerminationGracePeriod(1).
+			Image(rayv1.HeadNode, kuberayTestImage).
+			Image(rayv1.WorkerNode, kuberayTestImage).Obj()
+
+		ginkgo.By("Creating the rayJob", func() {
+			gomega.Expect(k8sClient.Create(ctx, rayJob)).Should(gomega.Succeed())
+		})
+
+		// In SidecarMode KubeRay injects the job submitter as a container in the
+		// head Pod, so Kueue must account for it on the head PodSet.
+		createdWorkload := &kueue.Workload{}
+		var kueueSubmitterRequests corev1.ResourceList
+		ginkgo.By("Checking the workload is admitted and its head PodSet includes the submitter", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				workloadList := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				active := util.FindNonFinishedWorkloads(workloadList.Items)
+				g.Expect(active).To(gomega.HaveLen(1), "expected exactly one non-finished workload")
+				g.Expect(workload.IsAdmitted(&active[0])).To(gomega.BeTrue(), "workload should be admitted")
+				*createdWorkload = active[0]
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+
+			var headPodSet *kueue.PodSet
+			for i := range createdWorkload.Spec.PodSets {
+				if createdWorkload.Spec.PodSets[i].Name == "head" {
+					headPodSet = &createdWorkload.Spec.PodSets[i]
+					break
+				}
+			}
+			gomega.Expect(headPodSet).NotTo(gomega.BeNil(), "workload should have a head PodSet")
+
+			var submitter *corev1.Container
+			for i := range headPodSet.Template.Spec.Containers {
+				if headPodSet.Template.Spec.Containers[i].Name == "ray-job-submitter" {
+					submitter = &headPodSet.Template.Spec.Containers[i]
+					break
+				}
+			}
+			gomega.Expect(submitter).NotTo(gomega.BeNil(), "head PodSet should include the submitter sidecar container")
+			kueueSubmitterRequests = submitter.Resources.Requests
+		})
+
+		// Drift check: the resources Kueue accounted for must match the submitter
+		// container KubeRay actually injects into the head Pod.
+		ginkgo.By("Checking the accounted submitter resources match the real head Pod", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				headPod := getRayHeadPod(g)
+				var submitter *corev1.Container
+				for i := range headPod.Spec.Containers {
+					if headPod.Spec.Containers[i].Name == "ray-job-submitter" {
+						submitter = &headPod.Spec.Containers[i]
+						break
+					}
+				}
+				g.Expect(submitter).NotTo(gomega.BeNil(), "KubeRay should inject the submitter container into the head Pod")
+				g.Expect(kueueSubmitterRequests.Cpu().Cmp(*submitter.Resources.Requests.Cpu())).To(gomega.Equal(0),
+					"Kueue's accounted submitter CPU should match the head Pod's")
+				g.Expect(kueueSubmitterRequests.Memory().Cmp(*submitter.Resources.Requests.Memory())).To(gomega.Equal(0),
+					"Kueue's accounted submitter memory should match the head Pod's")
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 
