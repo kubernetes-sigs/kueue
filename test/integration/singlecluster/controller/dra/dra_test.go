@@ -653,7 +653,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.It("Should reject workload with device constraints", func() {
+		ginkgo.It("Should admit workload with device constraints (matchAttribute)", func() {
 			ginkgo.By("Creating a ResourceClaimTemplate with device constraints")
 			rct := utiltesting.MakeResourceClaimTemplate("constraint-template", ns.Name).
 				DeviceRequest("gpu-1", "foo.example.com", 1).
@@ -677,19 +677,18 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			}
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
-			ginkgo.By("Verifying workload is marked as inadmissible")
+			ginkgo.By("Verifying workload is admitted with correct resource usage")
 			gomega.Eventually(func(g gomega.Gomega) {
 				var updatedWl kueue.Workload
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
-				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeTrue())
+				g.Expect(updatedWl.Status.Admission).NotTo(gomega.BeNil())
+				g.Expect(updatedWl.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
 
-				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
-					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
-					gomega.HaveField("Status", metav1.ConditionFalse),
-					gomega.HaveField("Reason", kueue.WorkloadInadmissible),
-					gomega.HaveField("Message", gomega.ContainSubstring("device constraints (MatchAttribute) are not supported")),
-				)))
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				assignment := updatedWl.Status.Admission.PodSetAssignments[0]
+				g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(corev1.ResourceName("foo")))
+				g.Expect(assignment.ResourceUsage["foo"]).To(gomega.Equal(resource.MustParse("2")))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should reject workload with AdminAccess", func() {
@@ -739,7 +738,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.It("Should reject workload with device config", func() {
+		ginkgo.It("Should admit workload with device config", func() {
 			ginkgo.By("Creating a ResourceClaimTemplate with device config")
 			rct := utiltesting.MakeResourceClaimTemplate("device-config-template", ns.Name).
 				DeviceRequest("device-request", "foo.example.com", 2).
@@ -762,19 +761,18 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			}
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
-			ginkgo.By("Verifying workload is marked as inadmissible")
+			ginkgo.By("Verifying workload is admitted with correct resource usage")
 			gomega.Eventually(func(g gomega.Gomega) {
 				var updatedWl kueue.Workload
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
-				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeTrue())
+				g.Expect(updatedWl.Status.Admission).NotTo(gomega.BeNil())
+				g.Expect(updatedWl.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
 
-				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
-					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
-					gomega.HaveField("Status", metav1.ConditionFalse),
-					gomega.HaveField("Reason", kueue.WorkloadInadmissible),
-					gomega.HaveField("Message", gomega.ContainSubstring("device config is not supported")),
-				)))
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				assignment := updatedWl.Status.Admission.PodSetAssignments[0]
+				g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(corev1.ResourceName("foo")))
+				g.Expect(assignment.ResourceUsage["foo"]).To(gomega.Equal(resource.MustParse("2")))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should reject workload with FirstAvailable", func() {
