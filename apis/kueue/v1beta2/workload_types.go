@@ -957,6 +957,33 @@ const (
 	// requirements that cannot be satisfied with the current cluster topology usage.
 	WorkloadQuotaReservedReasonTopologyPlacementFailed = "TopologyPlacementFailed"
 
+	// WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads indicates that the workload is waiting
+	// for preempted workloads to release their quota or topology resources (in case of topology-driven preemptions).
+	WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads = "WaitingForPreemptedWorkloads"
+
+	// WorkloadQuotaReservedReasonMisconfigured indicates that the workload is inadmissible due to
+	// misconfiguration, such as missing LocalQueue or ClusterQueue.
+	WorkloadQuotaReservedReasonMisconfigured = "Misconfigured"
+
+	// WorkloadQuotaReservedReasonSuspended indicates that the workload is inadmissible because
+	// the LocalQueue or ClusterQueue StopPolicy is active.
+	WorkloadQuotaReservedReasonSuspended = "Suspended"
+
+	// WorkloadQuotaReservedReasonPendingEvaluation indicates that the workload is pending evaluation in the scheduling queue.
+	WorkloadQuotaReservedReasonPendingEvaluation = "PendingEvaluation"
+
+	// WorkloadQuotaReservedReasonWaitingForPodsReady indicates that the workload is waiting
+	// for previously admitted workloads to reach PodsReady condition under waitForPodsReady configuration.
+	WorkloadQuotaReservedReasonWaitingForPodsReady = "WaitingForPodsReady"
+
+	// WorkloadAdmittedReasonNoReservation indicates that the workload has no reservation.
+	WorkloadAdmittedReasonNoReservation = "NoReservation"
+
+	// WorkloadAdmittedReasonUnsatisfiedAdmissionChecks indicates that the workload has not all checks ready.
+	WorkloadAdmittedReasonUnsatisfiedAdmissionChecks = "UnsatisfiedAdmissionChecks"
+
+	// WorkloadAdmittedReasonPendingDelayedTopologyRequests indicates that there are pending delayed topology requests.
+	WorkloadAdmittedReasonPendingDelayedTopologyRequests = "PendingDelayedTopologyRequests"
 	// WorkloadFinished means that the workload associated to the
 	// ResourceClaim finished running (failed or succeeded).
 	WorkloadFinished = "Finished"

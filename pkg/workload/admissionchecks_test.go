@@ -340,6 +340,154 @@ func TestSyncAdmittedCondition(t *testing.T) {
 			},
 			wantChange: false,
 		},
+		"reservation, checks not ready with observability": {
+			featureGates: map[featuregate.Feature]bool{features.UnadmittedWorkloadsObservability: true},
+			checkStates: []kueue.AdmissionCheckState{
+				{
+					Name:  "check1",
+					State: kueue.CheckStatePending,
+				},
+				{
+					Name:  "check2",
+					State: kueue.CheckStateReady,
+				},
+			},
+			conditions: []metav1.Condition{
+				{
+					Type:   kueue.WorkloadQuotaReserved,
+					Status: metav1.ConditionTrue,
+				},
+			},
+			wantConditions: []metav1.Condition{
+				{
+					Type:   kueue.WorkloadQuotaReserved,
+					Status: metav1.ConditionTrue,
+				},
+				{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadAdmittedReasonUnsatisfiedAdmissionChecks,
+					ObservedGeneration: 1,
+				},
+			},
+			wantChange: true,
+		},
+		"reservation lost with observability": {
+			featureGates: map[featuregate.Feature]bool{features.UnadmittedWorkloadsObservability: true},
+			checkStates: []kueue.AdmissionCheckState{
+				{
+					Name:  "check1",
+					State: kueue.CheckStateReady,
+				},
+				{
+					Name:  "check2",
+					State: kueue.CheckStateReady,
+				},
+			},
+			conditions: []metav1.Condition{
+				{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(testTime.Add(-time.Second)),
+				},
+			},
+			wantConditions: []metav1.Condition{
+				{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+					ObservedGeneration: 1,
+				},
+			},
+			wantChange:       true,
+			wantAdmittedTime: 1,
+		},
+		"check lost with observability": {
+			featureGates: map[featuregate.Feature]bool{features.UnadmittedWorkloadsObservability: true},
+			checkStates: []kueue.AdmissionCheckState{
+				{
+					Name:  "check1",
+					State: kueue.CheckStateReady,
+				},
+				{
+					Name:  "check2",
+					State: kueue.CheckStatePending,
+				},
+			},
+			conditions: []metav1.Condition{
+				{
+					Type:   kueue.WorkloadQuotaReserved,
+					Status: metav1.ConditionTrue,
+				},
+				{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(testTime.Add(-time.Second)),
+				},
+			},
+			wantConditions: []metav1.Condition{
+				{
+					Type:   kueue.WorkloadQuotaReserved,
+					Status: metav1.ConditionTrue,
+				},
+				{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadAdmittedReasonUnsatisfiedAdmissionChecks,
+					ObservedGeneration: 1,
+				},
+			},
+			wantChange:       true,
+			wantAdmittedTime: 1,
+		},
+		"reservation and check lost with observability": {
+			featureGates: map[featuregate.Feature]bool{features.UnadmittedWorkloadsObservability: true},
+			checkStates: []kueue.AdmissionCheckState{
+				{
+					Name:  "check1",
+					State: kueue.CheckStateReady,
+				},
+				{
+					Name:  "check2",
+					State: kueue.CheckStatePending,
+				},
+			},
+			conditions: []metav1.Condition{
+				{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(testTime.Add(-time.Second)),
+				},
+			},
+			wantConditions: []metav1.Condition{
+				{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+					ObservedGeneration: 1,
+				},
+			},
+			wantChange: true,
+		},
+		"no reservation, no condition initially with observability (explicit status initialization disabled)": {
+			featureGates: map[featuregate.Feature]bool{features.UnadmittedWorkloadsObservability: true},
+			checkStates: []kueue.AdmissionCheckState{
+				{
+					Name:  "check1",
+					State: kueue.CheckStatePending,
+				},
+			},
+			wantChange: false,
+		},
+		"no reservation, no condition initially (explicit status initialization disabled)": {
+			checkStates: []kueue.AdmissionCheckState{
+				{
+					Name:  "check1",
+					State: kueue.CheckStatePending,
+				},
+			},
+			wantChange: false,
+		},
 	}
 
 	for name, tc := range cases {
