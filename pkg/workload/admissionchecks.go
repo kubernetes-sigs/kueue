@@ -81,11 +81,7 @@ func SyncAdmittedCondition(w *kueue.Workload, now time.Time) bool {
 		newCondition.Message = "The workload has no reservation"
 	case !hasAllChecksReady:
 		newCondition.Status = metav1.ConditionFalse
-		if features.Enabled(features.UnadmittedWorkloadsObservability) {
-			newCondition.Reason = kueue.WorkloadAdmittedReasonUnsatisfiedAdmissionChecks
-		} else {
-			newCondition.Reason = "UnsatisfiedChecks"
-		}
+		newCondition.Reason = UnadmittedWorkloadReasonWithFallback(kueue.WorkloadAdmittedReasonUnsatisfiedAdmissionChecks, "UnsatisfiedChecks")
 		newCondition.Message = "The workload has not all checks ready"
 	case !hasAllTopologyAssignmentsReady:
 		newCondition.Status = metav1.ConditionFalse
