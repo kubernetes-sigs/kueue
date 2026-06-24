@@ -347,25 +347,17 @@ func (c *clusterQueue) isTASViolated() bool {
 // UpdateWithFlavors updates a ClusterQueue based on the passed ResourceFlavors set.
 // Exported only for testing.
 func (c *clusterQueue) UpdateWithFlavors(log logr.Logger, flavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) {
-	c.updateLabelKeys(flavors)
+	c.updateFlavorMetadata(flavors)
 	c.updateQueueStatus(log)
 }
 
-func (c *clusterQueue) updateLabelKeys(flavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) {
+func (c *clusterQueue) updateFlavorMetadata(flavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) {
 	c.missingFlavors = nil
 	c.tasFlavors = nil
 	for i := range c.ResourceGroups {
 		rg := &c.ResourceGroups[i]
-		if len(rg.Flavors) == 0 {
-			rg.LabelKeys = nil
-			continue
-		}
-		keys := sets.New[string]()
 		for _, fName := range rg.Flavors {
 			if flv, exist := flavors[fName]; exist {
-				for k := range flv.Spec.NodeLabels {
-					keys.Insert(k)
-				}
 				if flv.Spec.TopologyName != nil {
 					if c.tasFlavors == nil {
 						c.tasFlavors = make(map[kueue.ResourceFlavorReference]kueue.TopologyReference, 1)
@@ -375,10 +367,6 @@ func (c *clusterQueue) updateLabelKeys(flavors map[kueue.ResourceFlavorReference
 			} else {
 				c.missingFlavors = append(c.missingFlavors, fName)
 			}
-		}
-
-		if keys.Len() > 0 {
-			rg.LabelKeys = keys
 		}
 	}
 }
