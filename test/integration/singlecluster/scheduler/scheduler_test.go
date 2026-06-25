@@ -3366,7 +3366,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				}
 				if wl.Name == wl1.Name && meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadQuotaReserved) && meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
 					// The first request evicting wl1 will set both the quota reservation and eviction, as this status is assumed in the cache.
-					// We sleep here in order to lag the next scheduling cycle.
+					// We wait here until the admission patch overwrites the eviction and only then continue with the next scheduling cycle.
 					<-continueSchedulingAfterAdmissionPatch
 					return fallThrough, nil
 				}
