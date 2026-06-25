@@ -3271,7 +3271,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		// 6. wl2 is created.
 		// 7. wl2 evicts wl1 - issues a patch to the API server to set the `Evicted` condition and sets `preemptionExpectations`.
 		// 8. wl1 now has the `Evicted` condition.
-		// 9. admissionRoutine for wl1 issues a patch to the API served to set `Admitted` condition.
+		// 9. admissionRoutine for wl1 issues a patch to the API server to set `Admitted` condition.
 		// 10. wl1 now does not have the `Evicted` condition.
 		// 11. schedulingCycle 3 begins.
 		// 12. wl2 does nothing to wl1, as it's waiting on the unsatisfied `preemptionExpectations`.
