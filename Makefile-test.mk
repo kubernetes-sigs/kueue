@@ -19,7 +19,7 @@ endif
 GO_TEST_FLAGS ?= -race
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION ?= 1.36.2
+ENVTEST_K8S_VERSION ?= 1.36
 
 ENVTEST_RETRY_ATTEMPTS ?= 4
 ENVTEST_RETRY_DELAY ?= 5
