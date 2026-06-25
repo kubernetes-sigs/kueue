@@ -163,9 +163,16 @@
                     <div class="d-flex gap-2 w-100">
                       {{ if .links.article }}
                         <a href="{{ .links.article }}" target="_blank" rel="noopener" class="btn btn-sm btn-primary flex-grow-1 fw-semibold py-1.5">
-                          <i class="fas fa-book-open me-1.5"></i> {{ T "talks_btn_read" }}
+                          {{ if eq .type "tutorial" }}
+                            <i class="fas fa-graduation-cap me-1.5"></i> {{ T "talks_btn_read_tutorial" }}
+                          {{ else if eq .type "case-study" }}
+                            <i class="fas fa-book-open me-1.5"></i> {{ T "talks_btn_read_case_study" }}
+                          {{ else }}
+                            <i class="fas fa-book-open me-1.5"></i> {{ T "talks_btn_read_article" }}
+                          {{ end }}
                         </a>
                       {{ end }}
+
                       
                       {{ if .links.video }}
                         {{ if .links.article }}

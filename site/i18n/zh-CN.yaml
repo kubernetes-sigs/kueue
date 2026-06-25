@@ -189,8 +189,13 @@
   translation: "教程与材料"
 - id: talks_btn_watch
   translation: "观看视频"
-- id: talks_btn_read
-  translation: "阅读案例"
+- id: talks_btn_read_case_study
+  translation: "阅读案例研究"
+- id: talks_btn_read_tutorial
+  translation: "阅读教程"
+- id: talks_btn_read_article
+  translation: "阅读文章"
+
 - id: talks_btn_slides
   translation: "幻灯片"
 - id: talks_btn_details
