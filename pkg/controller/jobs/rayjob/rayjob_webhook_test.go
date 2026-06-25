@@ -206,6 +206,15 @@ func TestValidateCreate(t *testing.T) {
 				field.TooMany(field.NewPath("spec", "rayClusterSpec", "workerGroupSpecs"), 8, 7),
 			}.ToAggregate(),
 		},
+		"valid managed - max worker groups with gcs fault tolerance": {
+			job: func() *rayv1.RayJob {
+				job := testingrayutil.MakeJob("job", "ns").Queue("queue").
+					WithWorkerGroups(bigWorkerGroup[:7]...).
+					Obj()
+				job.Spec.RayClusterSpec.GcsFaultToleranceOptions = &rayv1.GcsFaultToleranceOptions{RedisAddress: "redis:6379"}
+				return job
+			}(),
+		},
 		"worker group uses head name": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			job: testingrayutil.MakeJob("job", "ns").Queue("queue").

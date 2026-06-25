@@ -25,8 +25,10 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -46,6 +48,7 @@ import (
 func TestBuildPodSets(t *testing.T) {
 	testCases := map[string]struct {
 		rayClusterSpec *rayv1.RayClusterSpec
+		annotations    map[string]string
 		wantPodSets    []kueue.PodSet
 		wantErr        bool
 	}{
@@ -199,11 +202,115 @@ func TestBuildPodSets(t *testing.T) {
 					Obj(),
 			},
 		},
+		"spec with gcs fault tolerance": {
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				GcsFaultToleranceOptions: &rayv1.GcsFaultToleranceOptions{
+					RedisAddress: "redis:6379",
+				},
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Labels: map[string]string{"ray.io/cluster": "raycluster"},
+						},
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{
+								Name:  "head",
+								Image: "rayproject/ray:2.0.0",
+								Resources: corev1.ResourceRequirements{
+									Requests: corev1.ResourceList{
+										corev1.ResourceCPU: resource.MustParse("1"),
+									},
+								},
+							}},
+						},
+					},
+				},
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName: "workers",
+						Replicas:  ptr.To[int32](1),
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker"}},
+							},
+						},
+					},
+				},
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+					Labels(map[string]string{"ray.io/cluster": "raycluster"}).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{{
+							Name:  "head",
+							Image: "rayproject/ray:2.0.0",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("1"),
+									corev1.ResourceMemory: resource.MustParse("256Mi"),
+								},
+							},
+						}},
+					}).
+					Obj(),
+				*utiltestingapi.MakePodSet("workers", 1).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "worker"}},
+					}).
+					Obj(),
+			},
+		},
+		"spec with gcs fault tolerance annotation": {
+			annotations: map[string]string{rayutils.RayFTEnabledAnnotationKey: "true"},
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Labels: map[string]string{"ray.io/cluster": "raycluster"},
+						},
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{
+								Name:  "head",
+								Image: "rayproject/ray:2.0.0",
+							}},
+						},
+					},
+				},
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+					Labels(map[string]string{"ray.io/cluster": "raycluster"}).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{{
+							Name:  "head",
+							Image: "rayproject/ray:2.0.0",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("200m"),
+									corev1.ResourceMemory: resource.MustParse("256Mi"),
+								},
+							},
+						}},
+					}).
+					Obj(),
+			},
+		},
+		"spec with gcs fault tolerance and missing head container": {
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				GcsFaultToleranceOptions: &rayv1.GcsFaultToleranceOptions{
+					RedisAddress: "redis:6379",
+				},
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{},
+				},
+			},
+			wantErr: true,
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			gotPodSets, err := BuildPodSets(tc.rayClusterSpec)
+			gotPodSets, err := BuildPodSets(tc.rayClusterSpec, tc.annotations)
 
 			if tc.wantErr {
 				if err == nil {
