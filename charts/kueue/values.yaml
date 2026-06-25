@@ -312,6 +312,7 @@ kueueViz:
     # -- KueueViz frontend pod securityContext
     podSecurityContext:
       runAsNonRoot: true
+      runAsUser: 1000
       seccompProfile:
         type: RuntimeDefault
     # -- KueueViz frontend container securityContext
