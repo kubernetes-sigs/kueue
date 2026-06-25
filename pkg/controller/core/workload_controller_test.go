@@ -38,6 +38,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -419,6 +420,60 @@ type reconcileTestCase struct {
 	wantEvents                []utiltesting.EventRecord
 	wantResult                reconcile.Result
 	reconcilerOpts            []Option
+}
+
+func TestUpdateSkipsRequeueForOnHoldWorkload(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	fakeClock := testingclock.NewFakeClock(now)
+
+	oldWl := utiltestingapi.MakeWorkload("wl", "ns").
+		Queue("lq").
+		Active(true).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+		AdmittedAt(true, now).
+		Obj()
+	newWl := utiltestingapi.MakeWorkload("wl", "ns").
+		Queue("lq").
+		Active(true).
+		Condition(metav1.Condition{
+			Type:    kueue.WorkloadQuotaReserved,
+			Status:  metav1.ConditionFalse,
+			Reason:  kueue.WorkloadOnHold,
+			Message: "StatefulSet scaled to zero; workload on hold",
+		}).
+		Obj()
+
+	cl := utiltesting.NewClientBuilder().Build()
+	recorder := &utiltesting.EventRecorder{}
+	cqCache := schdcache.New(cl)
+	qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithClock(fakeClock))
+	reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder)
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	setupClusterQueue(ctx, t, cl, qManager, cqCache, utiltestingapi.MakeClusterQueue("cq").Obj(), false)
+	setupLocalQueue(ctx, t, cl, qManager, utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(), false)
+
+	if got := reconciler.Update(event.TypedUpdateEvent[*kueue.Workload]{
+		ObjectOld: oldWl,
+		ObjectNew: newWl,
+	}); !got {
+		t.Fatalf("Update() = %v, want true", got)
+	}
+
+	if pending := qManager.PendingWorkloadsInfo("cq"); len(pending) != 0 {
+		t.Fatalf("expected no workloads in pending queue, got %d", len(pending))
+	}
+
+	fakeClock.Step(time.Second)
+
+	headsCtx, headsCancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer headsCancel()
+	go qManager.CleanUpOnContext(headsCtx)
+
+	if heads := qManager.Heads(headsCtx); len(heads) != 0 {
+		t.Fatalf("expected no second-pass workloads, got %d", len(heads))
+	}
 }
 
 func TestReconcile(t *testing.T) {

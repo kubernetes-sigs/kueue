@@ -250,18 +250,10 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 		shouldUpdate = gateUpdated || shouldUpdate
 	}
 
-	if !shouldUpdate {
-		if shouldReleaseReservation {
-			return r.releaseScaleDownReservation(ctx, wl)
+	if shouldUpdate {
+		if err := r.client.Update(ctx, wl); err != nil {
+			return err
 		}
-		if shouldClearOnHold {
-			return r.clearOnHold(ctx, wl)
-		}
-		return nil
-	}
-
-	if err := r.client.Update(ctx, wl); err != nil {
-		return err
 	}
 
 	if shouldReleaseReservation {

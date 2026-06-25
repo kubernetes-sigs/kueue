@@ -1166,6 +1166,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 	workload.AdjustResources(ctrl.LoggerInto(ctx, log), r.client, wlCopy)
 
 	onHold := workload.IsOnHold(wlCopy)
+	skipSecondPass := false
 
 	switch {
 	case status == workload.StatusFinished || !active:
@@ -1224,27 +1225,29 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			if err := r.cache.DeleteWorkload(log, wlKey); err != nil {
 				log.Error(err, "Failed to delete workload from cache")
 			}
-			// Workloads on hold (e.g. StatefulSet scale-to-zero) have already
-			// unreserved quota and should not be put back into the scheduling queue
-			// during the terminating-pod window. Keep the cache cleanup, but stop here.
-			if onHold {
-				r.queues.DeleteSecondPassWithoutLock(wlKey)
-				return
-			}
 			// Here we don't take the lock as it is already taken by the wrapping function.
 			// The delayed requeue is done in the Reconcile function, but we need to
 			// keep the immediate retry here because it will ensure that
 			// AddOrUpdateWorkload is only called once. When moving it to the main
 			// reconciler, we would execute it on every run, which might mess up the state.
 			if immediate {
-				if dra.NeedsDRAReconcile(e.ObjectNew) {
+				switch {
+				case onHold:
+					log.V(2).Info("Skipping immediate requeue for on-hold workload")
+				case dra.NeedsDRAReconcile(e.ObjectNew):
 					log.V(2).Info("Skipping immediate requeue for DRA workload - handled in Reconcile")
-				} else {
+				default:
 					if err := r.queues.AddOrUpdateWorkloadWithoutLock(log, wlCopy); err != nil {
 						log.V(2).Info("ignored an error for now", "error", err)
 					}
 					r.queues.DeleteSecondPassWithoutLock(wlKey)
 				}
+			}
+			// Clean up second pass for on-hold workloads since NeedsSecondPass
+			// returns false for them and they should not be re-queued.
+			if onHold {
+				skipSecondPass = true
+				r.queues.DeleteSecondPassWithoutLock(wlKey)
 			}
 		})
 	case prevStatus == workload.StatusAdmitted && status == workload.StatusAdmitted && !equality.Semantic.DeepEqual(e.ObjectOld.Status.ReclaimablePods, e.ObjectNew.Status.ReclaimablePods),
@@ -1263,7 +1266,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		// and are not supposed to actually change anything.
 		r.cache.AddOrUpdateWorkload(log, wlCopy)
 	}
-	if !onHold {
+	if !skipSecondPass {
 		r.queues.QueueSecondPassIfNeeded(ctx, wlCopy, 0)
 	}
 	return true

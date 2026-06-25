@@ -42,6 +42,9 @@ import (
 // Note: there is no DeviceClass watcher. If a DeviceClass is created after a workload
 // was marked inadmissible, requeuing depends on the next QueueInadmissibleWorkloads event.
 func NeedsDRAReconcile(wl *kueue.Workload) bool {
+	if workload.IsOnHold(wl) {
+		return false
+	}
 	if !features.Enabled(features.DynamicResourceAllocation) {
 		return false
 	}
