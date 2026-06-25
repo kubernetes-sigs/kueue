@@ -61,7 +61,7 @@ TOOLS_DIR := $(HACK_DIR)/tools
 TESTING_DIR := $(HACK_DIR)/testing
 MOCKS_DIR := internal/mocks
 
-RAY_VERSION := $(shell grep '^FROM' "${TESTING_DIR}/ray/Dockerfile" | cut -d: -f2)
+RAY_VERSION := $(shell grep '^FROM' "${TESTING_DIR}/ray/Dockerfile" | cut -d: -f2 | cut -d@ -f1)
 RAYMINI_VERSION ?= 0.0.3
 
 # Use distroless as minimal base image to package the manager binary
