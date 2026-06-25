@@ -44,7 +44,7 @@ const (
 	// FitsCheckNoQuota indicates the workload does not fit due to quota.
 	FitsCheckNoQuota
 
-	// FitsCheckNoTAS indicatas the workload fits within quota, btt TAS rejects.
+	// FitsCheckNoTAS indicates the workload fits within quota, but TAS rejects.
 	FitsCheckNoTAS
 )
 

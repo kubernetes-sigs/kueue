@@ -660,18 +660,18 @@ func (s *Scheduler) updateAssignmentIfNeeded(log logr.Logger,
 	usage := e.assignmentUsage(log)
 	fitsCheck := fits(snapshot, cq, &usage, preemptedWorkloads, e.preemptionTargets)
 	if fitsCheck == schdcache.FitsCheckNoTAS && features.Enabled(features.TASRecomputeAssignmentWithinSchedulingCycle) {
-		log.Info("Re-computing the assignment as it doesn't fit for TAS")
-		lastAssignment := e.LastAssignment
+		log.V(2).Info("Re-computing the assignment as it doesn't fit for TAS")
+		// Clear the last assignment so that we can start from the first flavor again and
+		// reach all flavors from the nomination.
 		e.LastAssignment = nil
 		e.NominationMapping = e.readResourceToFlavorMapping()
 		newAssignment, newTargets := s.getAssignments(log, &e.Info, snapshot)
 		e.recordAssignment(newAssignment, newTargets)
 		usage = e.assignmentUsage(log)
 		fitsCheck = fits(snapshot, cq, &usage, preemptedWorkloads, newTargets)
-		log.Info("Re-computed assignment", "newMode", newAssignment.RepresentativeMode())
+		log.V(2).Info("Re-computed assignment", "newMode", newAssignment.RepresentativeMode())
 		// clear the assignment flavors as they are only used within a single scheduling cycle
 		e.NominationMapping = nil
-		e.LastAssignment = lastAssignment
 	}
 	return usage, schdcache.FitsCheckOk == fitsCheck
 }
