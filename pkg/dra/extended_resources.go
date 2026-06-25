@@ -38,6 +38,9 @@ import (
 // For extended resources, checks the provided cache to confirm the resource
 // is backed by a DeviceClass before triggering DRA reconciliation.
 func NeedsDRAReconcile(wl *kueue.Workload, erCache *ExtendedResourceCache) bool {
+	if workload.IsOnHold(wl) {
+		return false
+	}
 	if !features.Enabled(features.KueueDRAIntegration) {
 		return features.Enabled(features.KueueDRARejectWorkloadsWhenDRADisabled) && workload.HasDRA(wl)
 	}

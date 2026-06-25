@@ -33,11 +33,9 @@ func TestReleaseScaleDownReservation(t *testing.T) {
 	now := time.Now()
 
 	cases := map[string]struct {
-		workload                *kueue.Workload
-		wantQuotaReservedStatus metav1.ConditionStatus
-		wantQuotaReservedReason string
-		wantAdmissionNil        bool
-		wantOnHold              bool
+		workload          *kueue.Workload
+		wantQuotaReserved *metav1.Condition
+		wantAdmissionNil  bool
 	}{
 		"releases admitted workload": {
 			workload: utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
@@ -45,18 +43,17 @@ func TestReleaseScaleDownReservation(t *testing.T) {
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
 				AdmittedAt(true, now).
 				Obj(),
-			wantQuotaReservedStatus: metav1.ConditionFalse,
-			wantQuotaReservedReason: kueue.WorkloadOnHold,
-			wantAdmissionNil:        true,
-			wantOnHold:              true,
+			wantQuotaReserved: &metav1.Condition{
+				Status: metav1.ConditionFalse,
+				Reason: kueue.WorkloadOnHold,
+			},
+			wantAdmissionNil: true,
 		},
 		"ignores workload without active reservation": {
 			workload: utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
 				Queue("lq").
 				Obj(),
-			wantQuotaReservedStatus: "",
-			wantAdmissionNil:        true,
-			wantOnHold:              false,
+			wantAdmissionNil: true,
 		},
 		"ignores finished workload": {
 			workload: utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
@@ -70,10 +67,11 @@ func TestReleaseScaleDownReservation(t *testing.T) {
 					Message: "Job finished successfully",
 				}).
 				Obj(),
-			wantQuotaReservedStatus: metav1.ConditionTrue,
-			wantQuotaReservedReason: "AdmittedByTest",
-			wantAdmissionNil:        false,
-			wantOnHold:              false,
+			wantQuotaReserved: &metav1.Condition{
+				Status: metav1.ConditionTrue,
+				Reason: "AdmittedByTest",
+			},
+			wantAdmissionNil: false,
 		},
 	}
 
@@ -92,16 +90,12 @@ func TestReleaseScaleDownReservation(t *testing.T) {
 				t.Fatalf("failed to get workload: %v", err)
 			}
 
-			if tc.wantQuotaReservedStatus != "" {
-				cond := apimeta.FindStatusCondition(got.Status.Conditions, kueue.WorkloadQuotaReserved)
-				if cond == nil || cond.Status != tc.wantQuotaReservedStatus || cond.Reason != tc.wantQuotaReservedReason {
-					t.Fatalf("unexpected quota reserved condition: %+v", cond)
-				}
-			} else {
-				cond := apimeta.FindStatusCondition(got.Status.Conditions, kueue.WorkloadQuotaReserved)
-				if cond != nil {
-					t.Fatalf("expected no QuotaReserved condition, got %+v", cond)
-				}
+			cond := apimeta.FindStatusCondition(got.Status.Conditions, kueue.WorkloadQuotaReserved)
+			switch {
+			case tc.wantQuotaReserved == nil && cond != nil:
+				t.Fatalf("expected no QuotaReserved condition, got %+v", cond)
+			case tc.wantQuotaReserved != nil && (cond == nil || cond.Status != tc.wantQuotaReserved.Status || cond.Reason != tc.wantQuotaReserved.Reason):
+				t.Fatalf("unexpected quota reserved condition: %+v", cond)
 			}
 			if tc.wantAdmissionNil {
 				if got.Status.Admission != nil {
@@ -109,15 +103,6 @@ func TestReleaseScaleDownReservation(t *testing.T) {
 				}
 			} else if got.Status.Admission == nil {
 				t.Fatalf("expected admission to not be nil, but it was nil")
-			}
-			// When on hold, QuotaReserved=False with reason OnHold
-			onHoldCond := apimeta.FindStatusCondition(got.Status.Conditions, kueue.WorkloadQuotaReserved)
-			if tc.wantOnHold {
-				if onHoldCond == nil || onHoldCond.Status != metav1.ConditionFalse || onHoldCond.Reason != kueue.WorkloadOnHold {
-					t.Fatalf("expected QuotaReserved=False with reason OnHold, got %+v", onHoldCond)
-				}
-			} else if onHoldCond != nil && onHoldCond.Status == metav1.ConditionFalse && onHoldCond.Reason == kueue.WorkloadOnHold {
-				t.Fatalf("expected workload not to be on hold, but QuotaReserved=False with reason OnHold")
 			}
 		})
 	}

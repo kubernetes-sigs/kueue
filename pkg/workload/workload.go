@@ -919,7 +919,7 @@ func resetActiveCondition(conds *[]metav1.Condition, gen int64, condType, reason
 // NeedsSecondPass checks if the second pass of scheduling is needed for the
 // workload.
 func NeedsSecondPass(w *kueue.Workload) bool {
-	if IsFinished(w) || IsEvicted(w) || !HasQuotaReservation(w) {
+	if IsFinished(w) || IsEvicted(w) || !HasQuotaReservation(w) || IsOnHold(w) {
 		return false
 	}
 	return needsSecondPassForDelayedAssignment(w) || needsSecondPassAfterNodeFailure(w)
