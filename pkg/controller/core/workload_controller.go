@@ -663,11 +663,42 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	// false before the workloads eviction.
 	if !workload.IsAdmitted(&wl) {
 		var updated bool
-		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-			updated = workload.SyncAdmittedCondition(wl, r.clock.Now())
+		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+			if features.Enabled(features.UnadmittedWorkloadsObservability) {
+				if !workload.HasQuotaReservation(wl) {
+					cqActive := cqOk && r.cache.ClusterQueueActive(cqName)
+					cond := r.resolveUnadmittedQuotaReservedCondition(wl, lqExists, lqActive, cqOk, cqActive)
+					if cond != nil {
+						if apimeta.SetStatusCondition(&wl.Status.Conditions, *cond) {
+							updated = true
+						}
+					}
+					if wl.Status.Admission != nil {
+						wl.Status.Admission = nil
+						updated = true
+					}
+				}
+				if workload.HasRejectedChecks(wl) {
+					rejectedChecks := workload.RejectedChecks(wl)
+					message := buildAdmissionChecksMessage(rejectedChecks, kueue.CheckStateRejected)
+					if workload.SetDeactivationTarget(wl, kueue.WorkloadEvictedByAdmissionCheck, message) {
+						updated = true
+					}
+				}
+			}
+			if workload.SyncAdmittedCondition(wl, r.clock.Now()) {
+				updated = true
+			}
 			return updated, nil
-		}); err != nil {
+		})
+		if err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+		// If the observability feature gate is enabled and the workload has no quota reservation,
+		// we have already resolved and patched the granular conditions (e.g., missing or inactive
+		// queue) in the block above.
+		if features.Enabled(features.UnadmittedWorkloadsObservability) && !workload.HasQuotaReservation(&wl) {
+			return ctrl.Result{}, nil
 		}
 		isAdmitted := workload.IsAdmitted(&wl)
 		if isAdmitted {
@@ -707,6 +738,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				)
 			}
 		}
+
 	}
 
 	if workload.HasQuotaReservation(&wl) {
@@ -1812,5 +1844,63 @@ func (h *deviceClassHandler) reconcileWorkloads(ctx context.Context, q workqueue
 				},
 			}, time.Second)
 		}
+	}
+}
+
+func (r *WorkloadReconciler) resolveUnadmittedQuotaReservedCondition(wl *kueue.Workload, lqExists, lqActive, cqOk, cqActive bool) *metav1.Condition {
+	cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+
+	var newReason, newMsg string
+	switch {
+	case !workload.IsActive(wl):
+		newReason = kueue.WorkloadDeactivated
+		newMsg = "The workload is deactivated"
+	case !lqExists:
+		newReason = kueue.WorkloadQuotaReservedReasonMisconfigured
+		newMsg = fmt.Sprintf("LocalQueue %s doesn't exist", wl.Spec.QueueName)
+	case !lqActive:
+		newReason = kueue.WorkloadQuotaReservedReasonSuspended
+		newMsg = fmt.Sprintf("LocalQueue %s is inactive", wl.Spec.QueueName)
+	case !cqOk:
+		cqName, _ := r.queues.ClusterQueueForWorkload(wl)
+		newReason = kueue.WorkloadQuotaReservedReasonMisconfigured
+		newMsg = fmt.Sprintf("ClusterQueue %s doesn't exist", cqName)
+	case cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == kueue.WorkloadQuotaReservedReasonNoMatchingFlavor:
+		newReason = cond.Reason
+		newMsg = cond.Message
+	case !cqActive:
+		cqName, _ := r.queues.ClusterQueueForWorkload(wl)
+		newReason = kueue.WorkloadQuotaReservedReasonSuspended
+		newMsg = fmt.Sprintf("ClusterQueue %s is inactive", cqName)
+	case workload.HasAdmissionGate(wl):
+		newReason = kueue.WorkloadAdmissionGated
+		newMsg = fmt.Sprintf("Admission is gated by: %s", wl.Annotations[constants.AdmissionGatedByAnnotation])
+	case cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == kueue.WorkloadQuotaReservedReasonWaitingForPodsReady:
+		newReason = cond.Reason
+		newMsg = cond.Message
+	case cond != nil && cond.Status == metav1.ConditionFalse && (cond.Reason == kueue.WorkloadQuotaReservedReasonExceedsMaxQuota ||
+		cond.Reason == kueue.WorkloadQuotaReservedReasonWaitingForQuota ||
+		cond.Reason == kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed ||
+		cond.Reason == kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads):
+		newReason = cond.Reason
+		newMsg = cond.Message
+	default:
+		newReason = kueue.WorkloadQuotaReservedReasonPendingEvaluation
+		newMsg = "Workload is pending evaluation in the scheduling queue"
+	}
+
+	// Stamping the condition on creation is deferred to the next feature gate:
+	// UnadmittedWorkloadsObservabilityExplicitStatus.
+	if newReason == kueue.WorkloadQuotaReservedReasonPendingEvaluation && cond == nil {
+		return nil
+	}
+
+	return &metav1.Condition{
+		Type:               kueue.WorkloadQuotaReserved,
+		Status:             metav1.ConditionFalse,
+		Reason:             newReason,
+		Message:            api.TruncateConditionMessage(newMsg),
+		LastTransitionTime: metav1.NewTime(r.clock.Now()),
+		ObservedGeneration: wl.Generation,
 	}
 }
