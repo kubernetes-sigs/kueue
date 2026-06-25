@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"sync/atomic"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -3335,6 +3336,21 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 				return fallThrough, nil
 			}
+
+			fakeSubResourcePatchResponseHookSpec = func(obj client.Object, err error) (fakeClientUsage, error) {
+				wl, ok := obj.(*kueue.Workload)
+				if !ok {
+					return fallThrough, nil
+				}
+				if wl.Name == wl1.Name && meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadQuotaReserved) && meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
+					// The first request evicting wl1 will set both the quota reservation and eviction, as this status is assumed in the cache.
+					// We sleep here in order to lag the next scheduling cycle.
+					time.Sleep(time.Second * 3)
+					return fallThrough, nil
+				}
+				return fallThrough, nil
+			}
+
 			defer func() {
 				if !admissionPatchReleased {
 					close(allowAdmissionPatch)
