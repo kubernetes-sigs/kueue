@@ -280,15 +280,15 @@ div.feature-state-notice {
     --bs-btn-color: var(--bs-secondary-color, #6c757d) !important;
     --bs-btn-border-color: var(--bs-border-color, #dee2e6) !important;
     
-    // Hover states (fills with secondary gray, text turns white)
-    --bs-btn-hover-color: #ffffff !important;
-    --bs-btn-hover-bg: var(--bs-secondary, #6c757d) !important;
-    --bs-btn-hover-border-color: var(--bs-secondary, #6c757d) !important;
+    // Hover states (keeps background transparent/intact, subtly darkens text and border)
+    --bs-btn-hover-color: #495057 !important;
+    --bs-btn-hover-bg: transparent !important;
+    --bs-btn-hover-border-color: #adb5bd !important;
     
-    // Active/Focus states
-    --bs-btn-active-color: #ffffff !important;
-    --bs-btn-active-bg: var(--bs-secondary, #6c757d) !important;
-    --bs-btn-active-border-color: var(--bs-secondary, #6c757d) !important;
+    // Active/Focus states (subtle click feedback with very light gray)
+    --bs-btn-active-color: #495057 !important;
+    --bs-btn-active-bg: rgba(0, 0, 0, 0.05) !important;
+    --bs-btn-active-border-color: #adb5bd !important;
     
     // Force text and icon alignment to the left
     text-align: left !important;
