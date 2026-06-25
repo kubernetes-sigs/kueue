@@ -174,5 +174,36 @@
 - id: community_medium_no_articles
   translation: "未找到最近的博客文章，请稍后再试！"
 
+# ==============================================================================
+# Talks & Case Studies Page Strings (Chinese)
+# ==============================================================================
+- id: talks_search_placeholder
+  translation: "搜索演讲、发言人或公司..."
+- id: talks_filter_all
+  translation: "显示全部"
+- id: talks_filter_case_studies
+  translation: "案例研究"
+- id: talks_filter_videos
+  translation: "视频与演讲"
+- id: talks_filter_tutorials
+  translation: "教程与材料"
+- id: talks_btn_watch
+  translation: "观看视频"
+- id: talks_btn_read
+  translation: "阅读案例"
+- id: talks_btn_slides
+  translation: "幻灯片"
+- id: talks_btn_details
+  translation: "演讲详情"
+- id: talks_btn_materials
+  translation: "附加材料"
+- id: talks_label_contributors
+  translation: "分享者"
+- id: talks_no_results
+  translation: "没有找到匹配您搜索的演讲或展示。"
+
+
+
+
 
 

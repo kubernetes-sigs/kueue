@@ -175,5 +175,36 @@
 - id: community_medium_no_articles
   translation: "No recent articles found. Check back later!"
 
+# ==============================================================================
+# Talks & Case Studies Page Strings
+# ==============================================================================
+- id: talks_search_placeholder
+  translation: "Search talks, speakers, or companies..."
+- id: talks_filter_all
+  translation: "Show All"
+- id: talks_filter_case_studies
+  translation: "Case Studies"
+- id: talks_filter_videos
+  translation: "Videos & Talks"
+- id: talks_filter_tutorials
+  translation: "Tutorials"
+- id: talks_btn_watch
+  translation: "Watch Video"
+- id: talks_btn_read
+  translation: "Read Case Study"
+- id: talks_btn_slides
+  translation: "Slides"
+- id: talks_btn_details
+  translation: "Talk Details"
+- id: talks_btn_materials
+  translation: "Materials"
+- id: talks_label_contributors
+  translation: "Contributors"
+- id: talks_no_results
+  translation: "No talks or presentations found matching your search."
+
+
+
+
 
 
