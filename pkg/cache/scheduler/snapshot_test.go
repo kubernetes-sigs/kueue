@@ -243,7 +243,6 @@ func TestSnapshot(t *testing.T) {
 									{
 										CoveredResources: sets.New(corev1.ResourceCPU),
 										Flavors:          []kueue.ResourceFlavorReference{"demand", "spot"},
-										LabelKeys:        sets.New("instance"),
 									},
 								},
 								ResourceNode: resourceNode{
@@ -284,7 +283,6 @@ func TestSnapshot(t *testing.T) {
 									{
 										CoveredResources: sets.New(corev1.ResourceCPU),
 										Flavors:          []kueue.ResourceFlavorReference{"spot"},
-										LabelKeys:        sets.New("instance"),
 									},
 									{
 										CoveredResources: sets.New[corev1.ResourceName]("example.com/gpu"),
@@ -505,7 +503,6 @@ func TestSnapshot(t *testing.T) {
 									{
 										CoveredResources: sets.New(corev1.ResourceCPU),
 										Flavors:          []kueue.ResourceFlavorReference{"arm", "x86"},
-										LabelKeys:        sets.New("arch"),
 									},
 								},
 								ResourceNode: resourceNode{
@@ -567,7 +564,6 @@ func TestSnapshot(t *testing.T) {
 									{
 										CoveredResources: sets.New(corev1.ResourceCPU),
 										Flavors:          []kueue.ResourceFlavorReference{"arm", "x86"},
-										LabelKeys:        sets.New("arch"),
 									},
 								},
 								ResourceNode: resourceNode{
