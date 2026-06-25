@@ -62,13 +62,10 @@ We will update the global `Configuration` API (specifically the `MultiKueue` str
 
 The field will be named `IncrementalDispatcherConfig` and will contain a `StepSize` field. To ensure backwards compatibility and preserve existing system behavior, the default value for `StepSize` will be `3`.
 
+Only the new field is shown below; existing `MultiKueue` fields are unchanged.
+
 ```go
 type MultiKueue struct {
-       // Other existing fields...
-
-      // DispatcherName defines the type of dispatcher to use.
-      DispatcherName *string `json:"dispatcherName,omitempty"`
-
       // IncrementalDispatcherConfig contains the configuration for the incremental dispatcher.
       // This field is only valid when DispatcherName is set to the incremental dispatcher.
       // Note: This field is ignored when the MultiKueueIncrementalDispatcher feature gate is disabled.
@@ -77,13 +74,15 @@ type MultiKueue struct {
 }
 
 type IncrementalDispatcherConfig struct {
-      // StepSize defines the number of worker clusters the Incremental 
-      // Dispatcher will query simultaneously. 
+      // StepSize defines the number of worker clusters the Incremental
+      // Dispatcher will query simultaneously.
       // Minimum value is 1. If not set, it defaults to 3.
       // +optional
       StepSize *int32 `json:"stepSize,omitempty"`
 }
 ```
+
+Because the `Configuration` API is a component-config (ConfigMap-based) API rather than a CRD, kubebuilder markers are not used for schema generation, validation, or defaulting. Accordingly, the `StepSize` minimum (`1`) and default (`3`) are enforced through the manual validation and defaulting code under `apis/config/v1beta2` (e.g. `defaults.go`).
 
 ### Implementation overview
 
