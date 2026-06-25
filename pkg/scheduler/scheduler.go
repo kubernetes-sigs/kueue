@@ -396,7 +396,7 @@ func (s *Scheduler) processEntry(
 	if features.Enabled(features.TASFailedNodeReplacementFailFast) && workload.HasTopologyAssignmentWithUnhealthyNode(e.Obj) &&
 		mode != flavorassigner.Fit &&
 		(!features.Enabled(features.TASReplaceMultipleFailedNodes) ||
-			len(e.Obj.Status.UnhealthyNodes) >= workload.UnhealthyNodesEvictionThreshold(e.Obj)) {
+			len(e.Obj.Status.UnhealthyNodes) > workload.UnhealthyNodesEvictionThreshold(e.Obj)) {
 		s.handleFailedTASReplacement(ctx, log, e)
 		return
 	}
