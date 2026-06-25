@@ -3263,25 +3263,33 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		// See: https://github.com/kubernetes-sigs/kueue/issues/11480
 		//
 		// The exact order of events that this is testing is as follows:
-		// 1. schedulingCycle 1 begins.
-		// 2. wl1 is created.
+		// 1. wl1 is created.
+		// 2. schedulingCycle 1 begins.
 		// 3. wl1 is admitted in the scheduling cycle and assumed in the cache.
-		// 4. admissionRoutine for wl1 starts.
-		// 5. schedulingCycle 2 begins.
-		// 6. wl2 is created.
+		// 4. admissionRoutine for wl1 starts, signals `admissionPatchStarted` and waits for `allowAdmissionPatch`.
+		// 5. wl2 is created after `admissionPatchStarted`.
+		// 6. schedulingCycle 2 begins.
 		// 7. wl2 evicts wl1 - issues a patch to the API server to set the `Evicted` condition and sets `preemptionExpectations`.
-		// 8. wl1 now has the `Evicted` condition.
-		// 9. admissionRoutine for wl1 issues a patch to the API server to set `Admitted` condition.
-		// 10. wl1 now does not have the `Evicted` condition (overwritten by patch in step 9).
-		// 11. schedulingCycle 3 begins.
-		// 12. wl2 does nothing to wl1, as it's waiting on the unsatisfied `preemptionExpectations`.
-		// 13. schedulingCycle 4 begins.
-		// 14. wl2 does nothing to wl1, as it's waiting on the unsatisfied `preemptionExpectations`.
-		// 15. ...forever
+		// 8. schedulingCycle 2 hangs on `continueSchedulingAfterAdmissionPatch`.
+		// 9. wl1 now has the `Evicted` condition which unblocks `allowAdmissionPatch`.
+		// 10. admissionRoutine for wl1 issues a patch to the API server to set `Admitted` condition.
+		// 11. wl1 now does not have the `Evicted` condition (overwritten by patch in step 9).
+		// 12. admissionRoutine signals `continueSchedulingAfterAdmissionPatch`, allowing schedulingCycle 2 to continue.
+		// 13. schedulingCycle 2 finishes.
+		// 14. schedulingCycle 3 begins.
+		// 15. wl2 does nothing to wl1, as it's waiting on the unsatisfied `preemptionExpectations`.
+		// 16. schedulingCycle 4 begins.
+		// 17. wl2 does nothing to wl1, as it's waiting on the unsatisfied `preemptionExpectations`.
+		// 18. ...forever
 		//
-		// https://github.com/kubernetes-sigs/kueue/pull/11502 fixes this by adding step 9.2:
-		// 9.2. admissionRoutine for wl1 satisfies the `preemptionExpectations` after the patch,
-		// which allows wl2 to issue the eviction again in step 12.
+		// https://github.com/kubernetes-sigs/kueue/pull/11502 fixes this by adding step 10.2:
+		// 10.2. admissionRoutine for wl1 satisfies the `preemptionExpectations` after the patch,
+		// which allows wl2 to issue the eviction again in step 15.
+		//
+		// In natural language, this test forces an order of events, where the next scheduling cycle after
+		// wl2 evicts wl1 sees a state where the admissionRoutine has overwritten the eviction, i.e. we are still expecting
+		// an eviction to happen (`preemptionExpectations`), but we lost the `Evicted` condition.
+		// The fix in #11502 allows the scheduler to re-trigger eviction by clearing the `preemptionExpectation`.
 		var (
 			cq      *kueue.ClusterQueue
 			q       *kueue.LocalQueue
