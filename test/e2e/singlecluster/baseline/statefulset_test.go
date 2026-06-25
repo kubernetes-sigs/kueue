@@ -758,7 +758,7 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 
 	ginkgo.When("StatefulSet scaling to zero with quota release", func() {
 		// Regression test for https://github.com/kubernetes-sigs/kueue/issues/12232
-		ginkgo.It("should set RequeueHeld condition on scale-to-zero and clear it on scale-up", func() {
+		ginkgo.It("should set the workload OnHold on scale-to-zero and clear it on scale-up", func() {
 			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "200m").

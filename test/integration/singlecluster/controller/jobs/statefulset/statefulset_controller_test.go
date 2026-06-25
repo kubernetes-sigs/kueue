@@ -153,7 +153,7 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 
-	ginkgo.It("Should set RequeueHeld condition when StatefulSet scales to zero and clear it on scale-up", func() {
+	ginkgo.It("Should set the workload OnHold when StatefulSet scales to zero and clear it on scale-up", func() {
 		ginkgo.By("Creating a StatefulSet with replicas=1")
 		sts := testingstatefulset.MakeStatefulSet("test-sts", ns.Name).
 			Queue("lq").
