@@ -39,16 +39,6 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.17"
-- name: DRAExtendedResources
-  versionedSpecs:
-  - default: false
-    lockToDefault: false
-    preRelease: Alpha
-    version: "0.17"
-  - default: false
-    lockToDefault: true
-    preRelease: Deprecated
-    version: "0.18"
 - name: ElasticJobsViaWorkloadSlices
   versionedSpecs:
   - default: false

@@ -123,6 +123,16 @@
   lockToDefault: true
   preRelease: GA
   version: "0.17"
+- feature: DRAExtendedResources
+  default: false
+  stage: Alpha
+  from: "0.17"
+  to: "0.17"
+- feature: DRAExtendedResources
+  default: false
+  stage: Deprecated
+  from: "0.18"
+  to: "0.18"
 - feature: SanitizePodSets
   default: true
   stage: Beta
