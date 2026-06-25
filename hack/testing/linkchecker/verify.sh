@@ -22,11 +22,15 @@ DOCKER="${DOCKER:-docker}"
 SOURCE_DIR="$(cd "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 ROOT_DIR="${SOURCE_DIR}/../../.."
 
+# Site to check. Defaults to the live site so the periodic job is unchanged;
+# verify-preview.sh overrides this to point at a PR's Netlify deploy preview.
+LINK_CHECK_URL="${LINK_CHECK_URL:-https://kueue.sigs.k8s.io/}"
+
 echo "Building linkchecker Docker image..."
 "${DOCKER}" build --load -f "${SOURCE_DIR}/Dockerfile" -t linkchecker "${SOURCE_DIR}"
 
-echo "Running linkchecker..."
+echo "Running linkchecker against ${LINK_CHECK_URL} ..."
 "${ROOT_DIR}/hack/testing/retry.sh" --attempts 5 --delay 5 --stream -- \
-    "${DOCKER}" run --rm linkchecker --no-warnings --ignore-url='^mailto:' --ignore-url='^tel:' https://kueue.sigs.k8s.io/
+    "${DOCKER}" run --rm linkchecker --no-warnings --ignore-url='^mailto:' --ignore-url='^tel:' "${LINK_CHECK_URL}"
 
 echo "Link check completed successfully"
