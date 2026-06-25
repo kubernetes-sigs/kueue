@@ -94,40 +94,13 @@ func TestNodeHandler_Update(t *testing.T) {
 			wantChanged: nodeUnchanged,
 		},
 		"RuntimeHandler order changed": {
-			oldNode: func() *corev1.Node {
-				n := baseNode.DeepCopy()
-				n.Status.RuntimeHandlers = []corev1.NodeRuntimeHandler{
-					{Name: "test-handler"},
-					{Name: "runc"},
-				}
-				return n
-			}(),
-			newNode: func() *corev1.Node {
-				n := baseNode.DeepCopy()
-				n.Status.RuntimeHandlers = []corev1.NodeRuntimeHandler{
-					{Name: "runc"},
-					{Name: "test-handler"},
-				}
-				return n
-			}(),
+			oldNode:     baseNode.Clone().RuntimeHandlers([]corev1.NodeRuntimeHandler{{Name: "test-handler"}, {Name: "runc"}}).Obj(),
+			newNode:     baseNode.Clone().RuntimeHandlers([]corev1.NodeRuntimeHandler{{Name: "runc"}, {Name: "test-handler"}}).Obj(),
 			wantChanged: nodeUnchanged,
 		},
 		"Images changed": {
-			oldNode: func() *corev1.Node {
-				n := baseNode.DeepCopy()
-				n.Status.Images = []corev1.ContainerImage{
-					{Names: []string{"nginx:1.20"}, SizeBytes: 100},
-				}
-				return n
-			}(),
-			newNode: func() *corev1.Node {
-				n := baseNode.DeepCopy()
-				n.Status.Images = []corev1.ContainerImage{
-					{Names: []string{"nginx:1.20"}, SizeBytes: 100},
-					{Names: []string{"postgres:13"}, SizeBytes: 200},
-				}
-				return n
-			}(),
+			oldNode:     baseNode.Clone().Images([]corev1.ContainerImage{{Names: []string{"nginx:1.20"}, SizeBytes: 100}}).Obj(),
+			newNode:     baseNode.Clone().Images([]corev1.ContainerImage{{Names: []string{"nginx:1.20"}, SizeBytes: 100}, {Names: []string{"postgres:13"}, SizeBytes: 200}}).Obj(),
 			wantChanged: nodeUnchanged,
 		},
 		"Annotation changed": {
