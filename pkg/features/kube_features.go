@@ -372,6 +372,12 @@ const (
 	// deletes a Deployment-owned pod).
 	FinishOrphanedWorkloads featuregate.Feature = "FinishOrphanedWorkloads"
 
+	// owner: @Mostafahassen1
+	//
+	// kep: https://github.com/kubernetes-sigs/kueue/pull/10877#issuecomment-4412688735
+	// Enables configurable stepSize for the MultiKueue Incremental Dispatcher.
+	MultiKueueIncrementalDispatcherConfig featuregate.Feature = "MultiKueueIncrementalDispatcherConfig"
+
 	// owner: @pbundyra
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/8691-concurrent-admission
 	//
@@ -631,6 +637,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	FinishOrphanedWorkloads: {
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
+	},
+	MultiKueueIncrementalDispatcherConfig: {
+		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
 	},
 	ConcurrentAdmission: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
