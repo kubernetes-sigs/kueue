@@ -84,6 +84,42 @@ For the next example, having the `worker1` cluster Kubeconfig stored in a file c
 
 Check the [worker](#multikueue-specific-kubeconfig) section for details on Kubeconfig generation.
 
+### (Optional) Enable `locationType=Path` for kubeconfig files
+
+{{% alert title="Security Notice" color="warning" %}}
+`locationType=Path` path validation is an **alpha feature** (disabled by default).
+In production, use `locationType=Secret` or `ClusterProfile` instead.
+{{% /alert %}}
+
+The `MultiKueueKubeConfigPathValidation` feature gate (alpha, disabled by default)
+restricts kubeconfig file paths to the hardcoded prefix
+`/etc/multikueue/kubeconfigs/`. When enabled, the controller will:
+
+- Reject empty or relative paths.
+- Reject paths containing `..` segments after cleaning.
+- Resolve symlinks and reject any path that resolves outside the prefix.
+
+To enable this validation, set the feature gate:
+
+```
+--feature-gates=MultiKueueKubeConfigPathValidation=true
+```
+
+To use a path-based kubeconfig, mount the file into the controller pod under
+`/etc/multikueue/kubeconfigs/` and reference it in the `MultiKueueCluster`:
+
+```yaml
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: MultiKueueCluster
+metadata:
+  name: worker1
+spec:
+  clusterSource:
+    kubeConfig:
+      locationType: Path
+      location: /etc/multikueue/kubeconfigs/worker1.kubeconfig
+```
+
 ### Create a sample setup
 
 Apply the following to create a sample setup in which the Jobs submitted in the ClusterQueue `cluster-queue` are delegated to a worker `worker1`

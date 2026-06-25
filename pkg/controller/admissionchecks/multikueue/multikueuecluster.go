@@ -24,6 +24,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -45,6 +46,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
@@ -574,9 +576,16 @@ func (rc *remoteClient) runGC(ctx context.Context) {
 
 // clustersReconciler implements the reconciler for all MultiKueueClusters.
 // Its main task being to maintain the list of remote clients associated to each MultiKueueCluster.
+// defaultKubeConfigPathPrefix is the hardcoded directory under which
+// kubeconfig files must reside when the MultiKueueKubeConfigPathValidation feature
+// gate is enabled (the default).
+const defaultKubeConfigPathPrefix = "/etc/multikueue/kubeconfigs"
+
 type clustersReconciler struct {
-	localClient     client.Client
-	configNamespace string
+	localClient          client.Client
+	configNamespace      string
+	kubeConfigPathPrefix string
+	recorder             record.EventRecorder
 
 	lock sync.RWMutex
 	// The list of remote remoteClients, indexed by the cluster name.
@@ -710,6 +719,15 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile MultiKueueCluster")
+
+	// Warn about deprecated Path usage when the validation feature gate is off.
+	if cluster.Spec.ClusterSource.KubeConfig != nil &&
+		cluster.Spec.ClusterSource.KubeConfig.LocationType == kueue.PathLocationType &&
+		!features.Enabled(features.MultiKueueKubeConfigPathValidation) {
+		c.recorder.Event(cluster, corev1.EventTypeWarning, "DeprecatedPathUsage",
+			"Using locationType=Path without MultiKueueKubeConfigPathValidation feature gate is deprecated and will be removed in a future release. "+
+				"Enable the MultiKueueKubeConfigPathValidation feature gate and place kubeconfig files under /etc/multikueue/kubeconfigs/.")
+	}
 
 	if err != nil || !cluster.DeletionTimestamp.IsZero() {
 		c.stopAndRemoveCluster(req.Name)
@@ -901,8 +919,70 @@ func (c *clustersReconciler) getKubeConfigFromSecret(ctx context.Context, secret
 	return kconfigBytes, nil
 }
 
-func (c *clustersReconciler) getKubeConfigFromPath(path string) ([]byte, error) {
-	return os.ReadFile(path)
+// errPathNotAllowed is returned when the resolved kubeconfig path escapes the
+// configured allowed prefix directory.
+var errPathNotAllowed = errors.New("kubeconfig path is not under the allowed prefix")
+
+// validateKubeConfigPath resolves symlinks and ensures the resulting absolute
+// path is located under allowedPrefix when the MultiKueueKubeConfigPathValidation
+// feature gate is enabled (the default). When the gate is disabled, any
+// path is accepted (legacy unsafe behavior).
+func validateKubeConfigPath(ctx context.Context, rawPath, allowedPrefix string) (string, error) {
+	if !features.Enabled(features.MultiKueueKubeConfigPathValidation) {
+		// Legacy unsafe behavior: accept any path.
+		log := ctrl.LoggerFrom(ctx)
+		log.V(2).Info("Legacy unsafe behavior detected: this will be deprecated in the future.")
+		return rawPath, nil
+	}
+	if rawPath == "" {
+		return "", errors.New("kubeconfig path must not be empty")
+	}
+
+	cleaned := filepath.Clean(rawPath)
+
+	// Reject paths where any component is exactly ".." after cleaning.
+	if slices.Contains(strings.Split(cleaned, string(filepath.Separator)), "..") {
+		return "", fmt.Errorf("%w: path contains \"..\"", errPathNotAllowed)
+	}
+
+	// Require an absolute path.
+	if !filepath.IsAbs(cleaned) {
+		return "", fmt.Errorf("%w: path must be absolute", errPathNotAllowed)
+	}
+
+	// Resolve symlinks and get the absolute path of the allowed prefix.
+	// If the prefix directory does not exist, no kubeconfig can be under it.
+	resolvedPrefix, err := filepath.EvalSymlinks(allowedPrefix)
+	if err != nil {
+		return "", fmt.Errorf("%w: %q is not under %q", errPathNotAllowed, cleaned, filepath.Clean(allowedPrefix))
+	}
+	allowedAbs, err := filepath.Abs(resolvedPrefix)
+	if err != nil {
+		return "", fmt.Errorf("cannot resolve allowed prefix: %w", err)
+	}
+
+	// Resolve symlinks so an attacker cannot use a symlink to escape.
+	resolved, err := filepath.EvalSymlinks(cleaned)
+	if err != nil {
+		return "", fmt.Errorf("cannot resolve kubeconfig path symlinks: %w", err)
+	}
+
+	// Ensure the prefix directory boundary is respected.
+	// Add a trailing separator so "/etc/kueue" does not match "/etc/kueue-other".
+	prefixWithSep := allowedAbs + string(filepath.Separator)
+	if !strings.HasPrefix(resolved+string(filepath.Separator), prefixWithSep) {
+		return "", fmt.Errorf("%w: %q is not under %q", errPathNotAllowed, resolved, allowedAbs)
+	}
+
+	return resolved, nil
+}
+
+func (c *clustersReconciler) getKubeConfigFromPath(rawPath string) ([]byte, error) {
+	validated, err := validateKubeConfigPath(c.rootContext, rawPath, c.kubeConfigPathPrefix)
+	if err != nil {
+		return nil, err
+	}
+	return os.ReadFile(validated)
 }
 
 func (c *clustersReconciler) updateStatus(ctx context.Context, cluster *kueue.MultiKueueCluster, active bool, reason, message string) error {
@@ -967,10 +1047,13 @@ func newClustersReconciler(
 	adapters map[string]jobframework.MultiKueueAdapter,
 	cpAccessProvider clusterProfileAccessProvider,
 	roleTracker *roletracker.RoleTracker,
+	recorder record.EventRecorder,
 ) *clustersReconciler {
 	return &clustersReconciler{
 		localClient:                  c,
 		configNamespace:              namespace,
+		kubeConfigPathPrefix:         defaultKubeConfigPathPrefix,
+		recorder:                     recorder,
 		remoteClients:                make(map[string]*remoteClient),
 		wlUpdateCh:                   make(chan event.GenericEvent, eventChBufferSize),
 		watchEndedCh:                 make(chan event.GenericEvent, eventChBufferSize),
@@ -1043,8 +1126,9 @@ func (c *clustersReconciler) Create(e event.CreateEvent) bool {
 		log := c.logger().WithValues("multiKueueCluster", klog.KObj(cluster))
 		log.V(5).Info("MultiKueueCluster create event")
 		if cluster.Spec.ClusterSource.KubeConfig != nil && cluster.Spec.ClusterSource.KubeConfig.LocationType == kueue.PathLocationType {
-			err := c.fsWatcher.AddOrUpdate(cluster.Name, cluster.Spec.ClusterSource.KubeConfig.Location)
-			if err != nil {
+			if validated, err := validateKubeConfigPath(c.rootContext, cluster.Spec.ClusterSource.KubeConfig.Location, c.kubeConfigPathPrefix); err != nil {
+				log.Error(err, "Rejecting FS watch for invalid path")
+			} else if err := c.fsWatcher.AddOrUpdate(cluster.Name, validated); err != nil {
 				log.Error(err, "AddOrUpdate FS watch")
 			}
 		}
@@ -1071,8 +1155,9 @@ func (c *clustersReconciler) Update(e event.UpdateEvent) bool {
 	}
 
 	if clusterNewHasKubeConfigPath {
-		err := c.fsWatcher.AddOrUpdate(clusterNew.Name, clusterNew.Spec.ClusterSource.KubeConfig.Location)
-		if err != nil {
+		if validated, err := validateKubeConfigPath(c.rootContext, clusterNew.Spec.ClusterSource.KubeConfig.Location, c.kubeConfigPathPrefix); err != nil {
+			log.Error(err, "Rejecting FS watch for invalid path")
+		} else if err := c.fsWatcher.AddOrUpdate(clusterNew.Name, validated); err != nil {
 			log.Error(err, "AddOrUpdate FS watch")
 		}
 	}
