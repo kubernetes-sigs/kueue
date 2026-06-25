@@ -839,11 +839,9 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 	for ; idx < len(resourceGroup.Flavors); idx++ {
 		attemptedFlavorIdx = idx
 		fName := resourceGroup.Flavors[idx]
-		if a.shouldRespectNominationMapping() {
-			if a.shouldSkipBasedOnNominationMapping(log, fName, psIDs, resName) {
-				status.appendf("skipping flavor %s as it is not found in the nomination mapping for resource %s", fName, resName)
-				continue
-			}
+		if a.shouldRespectNominationMapping() && a.shouldSkipBasedOnNominationMapping(log, fName, psIDs, resName) {
+			status.appendf("skipping flavor %s as it is not found in the nomination mapping for resource %s", fName, resName)
+			continue
 		}
 		if features.Enabled(features.ConcurrentAdmission) && !concurrentadmission.IsFlavorAllowedForVariant(a.wl.Obj, fName) {
 			status.appendf("skipping flavor %s due to WorkloadAllowedResourceFlavorAnnotation annotation", fName)
@@ -1155,10 +1153,10 @@ func (a *FlavorAssigner) shouldSkipBasedOnNominationMapping(log logr.Logger,
 	for _, psID := range psIDs {
 		psName := a.wl.Obj.Spec.PodSets[psID].Name
 		if fName == a.wl.NominationMapping[psName][resName] {
-			log.Info("Found flavor in the nomination mapping - cannot skip", "psName", psName, "resName", resName, "flavorName", fName)
+			log.V(5).Info("Found flavor in the nomination mapping - cannot skip", "psName", psName, "resName", resName, "flavorName", fName)
 			return false
 		}
 	}
-	log.Info("Didn't find the flavor in the nomination mapping - skipping", "resName", resName, "flavorName", fName)
+	log.V(5).Info("Didn't find the flavor in the nomination mapping - skipping", "resName", resName, "flavorName", fName)
 	return true
 }
