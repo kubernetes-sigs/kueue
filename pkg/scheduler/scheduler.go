@@ -281,9 +281,6 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		log.V(2).Info("Scheduling cycle complete", "duration", s.clock.Since(cycleStartTime))
 	}()
 
-	// TEMPORARY
-	time.Sleep(5 * time.Second)
-
 	// 1. Get the heads from the queues, including their desired clusterQueue.
 	// This operation blocks while the queues are empty.
 	headWorkloads := s.queues.Heads(ctx)
