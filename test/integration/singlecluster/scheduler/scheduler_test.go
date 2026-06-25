@@ -20,7 +20,6 @@ import (
 	"errors"
 	"fmt"
 	"sync/atomic"
-	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -3303,6 +3302,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			admissionPatchStarted := make(chan struct{}, 1)
 			allowAdmissionPatch := make(chan struct{})
 			admissionPatchReleased := false
+			continueSchedulingAfterAdmissionPatch := make(chan struct{})
+			schedulingReleased := false
 
 			var admissionPatchCount atomic.Int32
 
@@ -3345,7 +3346,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				if wl.Name == wl1.Name && meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadQuotaReserved) && meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
 					// The first request evicting wl1 will set both the quota reservation and eviction, as this status is assumed in the cache.
 					// We sleep here in order to lag the next scheduling cycle.
-					time.Sleep(time.Second * 3)
+					<-continueSchedulingAfterAdmissionPatch
 					return fallThrough, nil
 				}
 				return fallThrough, nil
@@ -3354,6 +3355,9 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			defer func() {
 				if !admissionPatchReleased {
 					close(allowAdmissionPatch)
+				}
+				if !schedulingReleased {
+					close(continueSchedulingAfterAdmissionPatch)
 				}
 			}()
 
@@ -3382,6 +3386,10 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1Created)).To(gomega.Succeed())
 				g.Expect(meta.IsStatusConditionTrue(wl1Created.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeFalse())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Unblocking the next scheduling cycle for wl2")
+			schedulingReleased = true
+			close(continueSchedulingAfterAdmissionPatch)
 
 			// When the race condition occurs, the test would most likely fail here.
 			// This is because the `Evicted` condition is overwritten by the previous patch
