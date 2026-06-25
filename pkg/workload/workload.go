@@ -22,7 +22,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"math"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1571,6 +1573,44 @@ func HasTopologyAssignmentWithUnhealthyNode(w *kueue.Workload) bool {
 		}
 	}
 	return false
+}
+
+// DefaultUnhealthyNodesEvictionThreshold is used when the
+// TASUnhealthyNodesEvictionThresholdAnnotation is absent or invalid. It
+// reproduces the default single-node-replacement behavior: the Workload is
+// evicted as soon as a second distinct node fails (i.e. it tolerates one
+// unhealthy node while a replacement is in flight).
+const DefaultUnhealthyNodesEvictionThreshold = 1
+
+// UnlimitedUnhealthyNodesEvictionThreshold is returned when the annotation is
+// set to "0", meaning the Workload is never evicted due to node failures: its
+// failed nodes are always replaced in place. It is large enough that the
+// `len(UnhealthyNodes) >= threshold` eviction checks can never be satisfied.
+const UnlimitedUnhealthyNodesEvictionThreshold = math.MaxInt
+
+// UnhealthyNodesEvictionThreshold returns the maximum number of the Workload's
+// nodes that may be unhealthy at once before the Workload is evicted instead of
+// having its failed nodes replaced in place, as configured by the
+// TASUnhealthyNodesEvictionThresholdAnnotation:
+//   - "0" means never evict (UnlimitedUnhealthyNodesEvictionThreshold);
+//   - a positive integer N tolerates up to N unhealthy nodes;
+//   - an absent or otherwise invalid value returns
+//     DefaultUnhealthyNodesEvictionThreshold (1).
+func UnhealthyNodesEvictionThreshold(w *kueue.Workload) int {
+	if w == nil {
+		return DefaultUnhealthyNodesEvictionThreshold
+	}
+	if v, ok := w.Annotations[kueue.TASUnhealthyNodesEvictionThresholdAnnotation]; ok {
+		if n, err := strconv.Atoi(v); err == nil {
+			if n == 0 {
+				return UnlimitedUnhealthyNodesEvictionThreshold
+			}
+			if n >= 1 {
+				return n
+			}
+		}
+	}
+	return DefaultUnhealthyNodesEvictionThreshold
 }
 
 // IsAdmittedByTAS checks if a workload is admitted by TAS.

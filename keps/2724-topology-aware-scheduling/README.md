@@ -1429,14 +1429,17 @@ modeled as a *list* (rather than a single node) to leave room for this generaliz
 For large, long-running gang-scheduled TAS workloads on unreliable hardware (e.g. GPU fleets),
 eviction is expensive: the whole workload is torn down and re-admitted, even though only a
 couple of nodes failed. We introduce the `TASReplaceMultipleFailedNodes` feature gate (Alpha,
-default off) which, when enabled, keeps the workload admitted and replaces the failed nodes
-incrementally instead of evicting:
+default off) which, when enabled, allows a workload to keep being admitted while its failed
+nodes are replaced incrementally instead of evicting. How many nodes may be unhealthy at once
+before falling back to eviction is controlled per-Workload by the
+`kueue.x-k8s.io/tas-unhealthy-nodes-eviction-threshold` annotation (a positive integer `N`,
+default `1`):
 
-- The node-failure controller no longer evicts when a second distinct node fails during an
-  in-flight replacement; the new node is appended to `Status.UnhealthyNodes` and the workload
-  stays admitted.
-- The scheduler fail-fast eviction is suppressed; the gate overrides
-  `TASFailedNodeReplacementFailFast`.
+- The node-failure controller evicts only once the Workload already has `N` unhealthy nodes and
+  a further distinct node fails; below that it appends the new node to `Status.UnhealthyNodes`
+  and the workload stays admitted.
+- The scheduler fail-fast eviction is suppressed while the number of unhealthy nodes is below
+  `N` (overriding `TASFailedNodeReplacementFailFast`); at or above `N` it is allowed to evict.
 - Replacement is processed **head-of-queue, one node per scheduling cycle**. The planner
   replaces `UnhealthyNodes[0]` and ignores the remaining queued unhealthy nodes during the
   stale-assignment check, so a tail entry whose node is already missing from the snapshot does
@@ -1445,13 +1448,17 @@ incrementally instead of evicting:
   because a deleted tail node generates no further node events, so the tail must be carried
   forward explicitly rather than re-discovered).
 
-The workload remains admitted throughout; head replacement is retried until a fit is found, and
-the `UnhealthyNodes` list drains as nodes are replaced.
-Because the eviction-vs-incremental tradeoff is genuinely workload-dependent (best-effort/elastic
-workloads prefer "never evict, keep replacing"; strict gang workloads may prefer "evict fast,
-re-admit cleanly"), we expect to keep a policy knob long-term — e.g. a per-ClusterQueue or
-per-Workload policy and/or a `maxUnhealthyNodesBeforeEviction` threshold — rather than making the
-no-eviction behavior unconditional. 
+The default threshold of `1` reproduces the original single-node-replacement behavior: the
+Workload tolerates one unhealthy node while a replacement is in flight, and is evicted on the
+second distinct failure. So enabling the gate alone changes nothing until a Workload opts into a
+higher threshold; with a higher threshold the Workload stays admitted, head replacement is
+retried until a fit is found, and the `UnhealthyNodes` list drains as nodes are replaced.
+
+This makes the eviction-vs-incremental tradeoff — which is genuinely workload-dependent
+(best-effort/elastic workloads prefer "keep replacing"; strict gang workloads may prefer "evict
+fast, re-admit cleanly") — a per-Workload policy with a conservative default, while preserving
+eviction as a bounded guaranteed-progress fallback. The annotation-based surface is intentionally
+minimal for Alpha; a richer (e.g. per-ClusterQueue) configuration can be revisited for Beta.
 
 #### Tainted nodes treatment
 
