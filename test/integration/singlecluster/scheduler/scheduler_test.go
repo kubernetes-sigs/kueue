@@ -3260,8 +3260,28 @@ var _ = ginkgo.Describe("Scheduler", func() {
 	ginkgo.When("The admission goroutine races with preemptions in the next scheduling cycle", func() {
 		// This deterministically reproduces a race condition in the scheduler, where the asynchronous
 		// admission goroutine does not finish before the next scheduling cycle starts.
-		// Reverting https://github.com/kubernetes-sigs/kueue/pull/11502 makes this test fail.
 		// See: https://github.com/kubernetes-sigs/kueue/issues/11480
+		//
+		// The exact order of events that this is testing is as follows:
+		// 1. schedulingCycle 1 begins.
+		// 2. wl1 is created.
+		// 3. wl1 is admitted in the scheduling cycle and assumed in the cache.
+		// 4. admissionRoutine for wl1 starts.
+		// 5. schedulingCycle 2 begins.
+		// 6. wl2 is created.
+		// 7. wl2 evicts wl1 - issues a patch to the API server to set the `Evicted` condition and sets `preemptionExpectations`.
+		// 8. wl1 now has the `Evicted` condition.
+		// 9. admissionRoutine for wl1 issues a patch to the API served to set `Admitted` condition.
+		// 10. wl1 now does not have the `Evicted` condition.
+		// 11. schedulingCycle 3 begins.
+		// 12. wl2 does nothing to wl1, as it's waiting on the unsatisfied `preemptionExpectations`.
+		// 13. schedulingCycle 4 begins.
+		// 14. wl2 does nothing to wl1, as it's waiting on the unsatisfied `preemptionExpectations`.
+		// 15. ...forever
+		//
+		// https://github.com/kubernetes-sigs/kueue/pull/11502 fixes this by adding step 9.2:
+		// 9.2. admissionRoutine for wl1 satisfies the `preemptionExpectations` after the patch,
+		// which allows wl2 to issue the eviction again in step 12.
 		var (
 			cq      *kueue.ClusterQueue
 			q       *kueue.LocalQueue
