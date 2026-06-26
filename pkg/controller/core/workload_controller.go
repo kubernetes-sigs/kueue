@@ -1282,7 +1282,6 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 	workload.AdjustResources(ctrl.LoggerInto(ctx, log), r.client, wlCopy)
 
 	onHold := workload.IsOnHold(wlCopy)
-	skipSecondPass := false
 
 	switch {
 	case status == workload.StatusFinished || !active:
@@ -1362,10 +1361,9 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 					r.queues.DeleteSecondPassWithoutLock(wlKey)
 				}
 			}
-			// Clean up second pass for on-hold workloads since NeedsSecondPass
-			// returns false for them and they should not be re-queued.
-			if onHold {
-				skipSecondPass = true
+
+			// Clean up second pass when the updated workload no longer needs it.
+			if !workload.NeedsSecondPass(wlCopy) {
 				r.queues.DeleteSecondPassWithoutLock(wlKey)
 			}
 		})
@@ -1385,9 +1383,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		// and are not supposed to actually change anything.
 		r.cache.AddOrUpdateWorkload(log, wlCopy)
 	}
-	if !skipSecondPass {
-		r.queues.QueueSecondPassIfNeeded(ctx, wlCopy, 0)
-	}
+	r.queues.QueueSecondPassIfNeeded(ctx, wlCopy, 0)
 	return true
 }
 
