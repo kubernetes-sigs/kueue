@@ -1032,6 +1032,28 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
+		// Regression test for issue #12552.
+		// https://github.com/kubernetes-sigs/kueue/issues/12552
+		// The CEL rule guarding queueName immutability uses a ternary that short-
+		// circuits to true whenever either side of the comparison lacks the field.
+		// An attacker can bypass the check by removing queueName:
+		//   PATCH remove /spec/queueName  → has(self.spec.queueName)==false  → true (allowed)
+		// This operation must be rejected while QuotaReserved=True.
+		ginkgo.It("Should prevent removing queueName on admitted workload (issue 12552)", func() {
+			ginkgo.By("Creating and admitting a Workload with queueName 'queue1'")
+			workload := utiltestingapi.MakeWorkload(workloadName, ns.Name).Queue("queue1").Obj()
+			util.MustCreate(ctx, k8sClient, workload)
+			util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(workload), utiltestingapi.MakeAdmission("cq").Obj())
+
+			ginkgo.By("Removing queueName from the admitted workload (must be rejected)")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var wl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &wl)).To(gomega.Succeed())
+				wl.Spec.QueueName = "" // omitempty omits the field → has(self.spec.queueName)==false
+				g.Expect(k8sClient.Update(ctx, &wl)).Should(utiltesting.BeInvalidError())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
 		ginkgo.It("Should forbid the change of status.admission", func() {
 			ginkgo.By("Creating a new Workload")
 			workload := utiltestingapi.MakeWorkload(workloadName, ns.Name).Obj()
