@@ -14,9 +14,7 @@
         
         <!-- Version Badge -->
         <a href="https://github.com/kubernetes-sigs/kueue/releases" target="_blank" rel="noopener" style="text-decoration: none; display: inline-block;">
-          <span style="display: inline-block; padding: 4px 12px; background-color: #0ea5e9; color: white; border-radius: 50rem; font-size: 0.8rem; font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-            <i class="fas fa-tag" style="margin-right: 4px;"></i> {{ T "homepage_badge_latest" | default "Latest" }}: <span style="font-weight: 700;">{{ $version }}</span>
-          </span>
+          <img alt="Latest Version" src="https://img.shields.io/static/v1?label={{ (T "homepage_badge_latest" | default "Latest") | urlquery }}&message={{ $version | urlquery }}&color=0ea5e9&labelColor=0ea5e9&style=flat&logo=tag&logoColor=white" style="border-radius: 50rem; height: 26px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
         </a>
         
         <!-- Stars Badge -->
