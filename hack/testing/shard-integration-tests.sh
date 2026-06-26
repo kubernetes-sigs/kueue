@@ -26,7 +26,7 @@ TARGET_PATTERN=${3:-./test/integration/singlecluster/...}
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-"$SCRIPT_DIR/shard_test_packages.sh" \
+bash "$SCRIPT_DIR/shard_test_packages.sh" \
     "$INTEGRATION_SHARD_INDEX" \
     "$INTEGRATION_TOTAL_SHARDS" \
     "$TARGET_PATTERN" \
