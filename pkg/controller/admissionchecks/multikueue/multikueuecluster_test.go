@@ -38,7 +38,6 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
-	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/clock"
 	testingclock "k8s.io/utils/clock/testing"
 	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
@@ -197,7 +196,7 @@ func TestUpdateConfig(t *testing.T) {
 		wantRequeueAfter              time.Duration
 		wantCancelCalled              int
 		wantErr                       error
-		wantEvent                     string
+		wantEvents                    []utiltesting.EventRecord
 		overrideKubeConfigPrefix      bool
 		multiKueueSafePathFeatureGate bool
 	}{
@@ -634,7 +633,14 @@ func TestUpdateConfig(t *testing.T) {
 				"worker1": newTestClient(ctx, []byte(testKubeconfig("worker1")), nil, nil),
 			},
 			multiKueueSafePathFeatureGate: false,
-			wantEvent:                     "Warning DeprecatedPathUsage Using locationType=Path without MultiKueueKubeConfigPathValidation feature gate is deprecated and will be removed in a future release. Enable the MultiKueueKubeConfigPathValidation feature gate and place kubeconfig files under /etc/multikueue/kubeconfigs/.",
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "worker1"},
+					EventType: "Warning",
+					Reason:    "DeprecatedPathUsage",
+					Message:   "Using locationType=Path without MultiKueueKubeConfigPathValidation feature gate is deprecated and will be removed in a future release. Enable the MultiKueueKubeConfigPathValidation feature gate and place kubeconfig files under /etc/multikueue/kubeconfigs/.",
+				},
+			},
 		},
 		"invalid rest config from cluster profile": {
 			reconcileFor: "invalid",
@@ -675,8 +681,8 @@ func TestUpdateConfig(t *testing.T) {
 			c := builder.Build()
 
 			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
-			fakeRecorder := record.NewFakeRecorder(10)
-			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, tc.cpAccessProvider, nil, fakeRecorder)
+			recorder := &utiltesting.EventRecorder{}
+			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, tc.cpAccessProvider, nil, recorder)
 
 			reconciler.rootContext = ctx
 
@@ -755,23 +761,8 @@ func TestUpdateConfig(t *testing.T) {
 				t.Errorf("unexpected controllers (-want/+got):\n%s", diff)
 			}
 
-			// Check for expected events.
-			if tc.wantEvent != "" {
-				select {
-				case gotEvent := <-fakeRecorder.Events:
-					if diff := cmp.Diff(tc.wantEvent, gotEvent); diff != "" {
-						t.Errorf("unexpected event (-want/+got):\n%s", diff)
-					}
-				default:
-					t.Error("expected a warning event but none was recorded")
-				}
-			} else {
-				select {
-				case gotEvent := <-fakeRecorder.Events:
-					t.Errorf("unexpected event recorded: %s", gotEvent)
-				default:
-					// No event expected, none received. Good.
-				}
+			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
+				t.Errorf("unexpected events (-want/+got):\n%s", diff)
 			}
 		})
 	}
@@ -849,7 +840,8 @@ func TestReconnectBackoff(t *testing.T) {
 			c := builder.Build()
 
 			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
-			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, &testClusterProfileAccessProvider{}, nil, record.NewFakeRecorder(10))
+			recorder := &utiltesting.EventRecorder{}
+			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, &testClusterProfileAccessProvider{}, nil, recorder)
 			reconciler.rootContext = ctx
 
 			var buildCalls int
@@ -904,7 +896,8 @@ func TestDisconnectedClientReconnectsWithSameConfig(t *testing.T) {
 	c := builder.Build()
 
 	adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
-	reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, &testClusterProfileAccessProvider{}, nil, record.NewFakeRecorder(10))
+	recorder := &utiltesting.EventRecorder{}
+	reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, &testClusterProfileAccessProvider{}, nil, recorder)
 	reconciler.rootContext = ctx
 
 	var buildCalls int
@@ -1232,7 +1225,8 @@ func TestClustersReconcilerEventFilters(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			c := getClientBuilder(ctx).Build()
-			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, newKubeConfigFSWatcher(), nil, &NoOpClusterProfileAccessProvider{}, nil, record.NewFakeRecorder(10))
+			recorder := &utiltesting.EventRecorder{}
+			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, newKubeConfigFSWatcher(), nil, &NoOpClusterProfileAccessProvider{}, nil, recorder)
 			reconciler.rootContext = ctx
 
 			if got := tc.invoke(reconciler); got != tc.wantReconcile {
@@ -1398,7 +1392,8 @@ func TestSetRemoteClientConfigDoesNotBlockOtherClusters(t *testing.T) {
 		WithStatusSubresource(slowCluster, fastCluster).
 		Build()
 
-	reconciler := newClustersReconciler(localClient, TestNamespace, 0, defaultOrigin, nil, nil, &NoOpClusterProfileAccessProvider{}, nil, record.NewFakeRecorder(10))
+	recorder := &utiltesting.EventRecorder{}
+	reconciler := newClustersReconciler(localClient, TestNamespace, 0, defaultOrigin, nil, nil, &NoOpClusterProfileAccessProvider{}, nil, recorder)
 	reconciler.rootContext = ctx
 	reconciler.builderOverride = gatedBuilder
 

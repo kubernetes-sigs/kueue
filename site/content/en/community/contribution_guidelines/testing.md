@@ -4,6 +4,7 @@ linkTitle: "Running tests"
 weight: 25
 description: >
   Running and debugging tests
+type: docs
 ---
 
 ## Quick start
@@ -189,7 +190,7 @@ E2E_MODE=dev IMAGE_TAG=us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue
 1. Check out that version's tag (e.g. `git checkout v0.16.0`). The CRD and deployment config in the repo are committed at each release, so no `make manifests` step is needed.
 2. Run the command above with the same image tag, e.g. `E2E_MODE=dev IMAGE_TAG=registry.k8s.io/kueue/kueue:v0.16.0 make test-e2e-baseline`.
 
-This is useful to reproduce issues on a specific released version (e.g. for on-call debugging). For installing a released version into a real cluster (not e2e), see [Install a released version](/docs/installation/#install-a-released-version).
+This is useful to reproduce issues on a specific released version (e.g. for on-call debugging). For installing a released version into a real cluster (not e2e), see [Install a released version](/docs/getting-started/installation/#install-a-released-version).
 
 ### Legacy: interactive attach mode
 

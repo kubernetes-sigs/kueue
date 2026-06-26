@@ -1,7 +1,9 @@
 baseURL = "/"
 title = "Kueue"
 
+
 enableRobotsTXT = true
+
 
 ###############################################################################
 # Docsy
@@ -25,10 +27,17 @@ ignoreFiles = []
 [menu]
 
   [[menu.main]]
+    name = "Slack"
+    weight = 98
+    pre = "<i class='fab fa-slack pe-2'></i>"
+    url = "https://kubernetes.slack.com/messages/wg-batch"
+
+  [[menu.main]]
     name = "GitHub"
     weight = 99
     pre = "<i class='fab fa-github pe-2'></i>"
     url = "https://github.com/kubernetes-sigs/kueue"
+
 
 ###############################################################################
 # Docsy - Goldmark markdown parser
@@ -246,3 +255,27 @@ ignoreFiles = []
 
 [security.node.permissions]
   allowRead = ["*"]
+
+# Complete & Safe Cache Configuration (Overrides getresource to 1h while preserving all defaults)
+[caches]
+  [caches.assets]
+    dir = ":cacheDir/assets"
+    maxAge = -1
+  [caches.getresource]
+    dir = ":cacheDir/getresource"
+    maxAge = "1h"
+  [caches.images]
+    dir = ":cacheDir/images"
+    maxAge = -1
+  [caches.misc]
+    dir = ":cacheDir/misc"
+    maxAge = -1
+  [caches.modulegitinfo]
+    dir = ":cacheDir/modules"
+    maxAge = -1
+  [caches.modulequeries]
+    dir = ":cacheDir/modules"
+    maxAge = -1
+  [caches.modules]
+    dir = ":cacheDir/modules"
+    maxAge = -1
