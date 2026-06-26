@@ -24,6 +24,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/go-logr/logr"
 	"kueueviz/config"
@@ -57,8 +58,12 @@ func main() {
 	}
 
 	srv := &http.Server{
-		Addr:    serverConfig.GetServerAddress(),
-		Handler: r.Handler(),
+		Addr:              serverConfig.GetServerAddress(),
+		Handler:           r.Handler(),
+		ReadHeaderTimeout: 3 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	h := handlers.New(handlers.NewClientFromManager(manager))
