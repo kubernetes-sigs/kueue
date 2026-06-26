@@ -1,3 +1,34 @@
+## v0.17.6
+
+Changes since `v0.17.5`:
+
+## Actions Required Before Upgrading
+
+### (No, really, you MUST read this before you upgrade)
+
+- **Minor releases:** Review the `.0` release notes for each new minor version you cross; see: [`v0.16.0`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.16.0), [`v0.17.0`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.17.0).
+- **Patch releases:** Review the patch release notes leading up to this version, but *only* within this minor release line; see: [`v0.17.1`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.17.1), [`v0.17.2`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.17.2), [`v0.17.3`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.17.3), [`v0.17.4`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.17.4), [`v0.17.5`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.17.5).
+
+- KueuePopulator Helm: `helm uninstall` removes the ClusterQueue, ResourceFlavor, Topology, ConfigMap, and RBAC created by the chart, which previously leaked after uninstall.
+  
+  If you installed a previous version of the kueue-populator chart, its ConfigMap and RBAC (`*-kueue-hook-*` ServiceAccount/ClusterRole/ClusterRoleBinding and the `*-kueue-resources` ConfigMap) were created as Helm hooks and are not adopted by the new release. Delete them manually before upgrading to avoid `helm upgrade`/`install` ownership conflicts. (#12450, @kevin85421)
+ 
+## Changes by Kind
+
+### Bug or Regression
+
+- Importer: Fixed LocalQueue namespace isolation to prevent information leakage between
+  namespaces when multiple LocalQueues with the same name exist in different namespaces. (#12348, @Singularity23x0)
+- KueueViz: Fixed WebSocket backend handlers to report errors while fetching dashboard data
+  instead of silently ignoring them. (#12347, @yuluo-yx)
+- MultiKueue: Creating a Job on the manager cluster deletes any pre-existing remote worker Job that happens to share the same NamespacedName. (#12383, @mszadkow)
+- MultiKueue: Fixed a bug where admitted Pod workloads could trigger unnecessary Cluster Autoscaler scale-ups
+  in the manager cluster. Kueue now preserves the scheduling-gated PodScheduled condition for manager-cluster
+  Pods, since they are intended to run only in worker clusters. (#12273, @fg91)
+- RayJob, RayCluster, and RayServe integrations: Fixed missing quota accounting for Redis cleanup resources when GCS fault tolerance is enabled. Kueue accounts for the Redis cleanup Job resources for workloads by folding the cleanup Job requests into the Ray head PodSet. (#11260, @nerdeveloper)
+- Scheduling: Fixed a bug where a workload could be stuck pending when its node selector referenced a label key declared by a different flavor in the same resource group. (#12449, @carterpewpew)
+- TAS: Fixed a bug that could cause workloads from ClusterQueues considered later in a scheduling cycle to remain pending for prolonged periods. This could happen because TAS assignments computed independently during nomination were likely to conflict on some topology domains. Kueue now re-evaluates TAS assignments during scheduling when needed. (#12523, @mimowo)
+
 ## v0.17.5
 
 Changes since `v0.17.4`:
