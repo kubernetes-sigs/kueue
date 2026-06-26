@@ -143,6 +143,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 				{"kueue_admission_attempts_total"},
 				{"kueue_admission_attempt_duration_seconds"},
 				{"kueue_pending_workloads", clusterQueue.Name},
+				{"kueue_pending_scheduling_hashes", clusterQueue.Name},
 				{"kueue_reserving_active_workloads", clusterQueue.Name},
 				{"kueue_admitted_active_workloads", clusterQueue.Name},
 				{"kueue_quota_reserved_workloads_total", clusterQueue.Name},
@@ -180,6 +181,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 
 			deletedMetrics := [][]string{
 				{"kueue_pending_workloads", clusterQueue.Name},
+				{"kueue_pending_scheduling_hashes", clusterQueue.Name},
 				{"kueue_reserving_active_workloads", clusterQueue.Name},
 				{"kueue_admitted_active_workloads", clusterQueue.Name},
 				{"kueue_quota_reserved_workloads_total", clusterQueue.Name},

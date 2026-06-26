@@ -18,6 +18,7 @@ package queue
 
 import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/queue"
@@ -52,6 +53,10 @@ func reportCQPendingWorkloads(m *Manager, cq *ClusterQueue) {
 	}
 	cqCustomLabels := m.customLabels.CQGet(cq.name)
 	metrics.ReportPendingWorkloads(cq.name, active, inadmissible, cqCustomLabels, m.roleTracker)
+	if features.Enabled(features.SchedulingEquivalenceHashing) {
+		activeHashes, inadmissibleHashes := cq.PendingSchedulingHashes()
+		metrics.ReportPendingSchedulingHashes(cq.name, activeHashes, inadmissibleHashes, cqCustomLabels, m.roleTracker)
+	}
 
 	if m.resourceMetricsEnabled {
 		// pendingResourcesTotal carries 0 entries for configured resources (seeded by
