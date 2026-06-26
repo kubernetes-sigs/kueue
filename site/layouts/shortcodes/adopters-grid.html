@@ -47,7 +47,7 @@
         
         <!-- Description -->
         <p class="text-muted small mb-3 flex-grow-1" style="font-size: 0.8rem; line-height: 1.45;">
-          {{ .description }}
+          {{ .description | markdownify }}
         </p>
         
         <!-- Integrations (Tech Stack Pills) -->
