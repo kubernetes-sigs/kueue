@@ -276,6 +276,10 @@ skills-lint: ## Lint agent skills with skillsaw.
 verify-website-links: ## Check for broken internal links on the public website.
 	$(PROJECT_DIR)/hack/testing/linkchecker/verify.sh
 
+.PHONY: verify-website-links-preview
+verify-website-links-preview: ## Check links on a PR Netlify deploy preview; skips if no fresh same-commit preview exists.
+	$(PROJECT_DIR)/hack/testing/linkchecker/verify-preview.sh
+
 .PHONY: i18n-verify
 i18n-verify: ## Verify localized docs are in sync with English. Usage: make i18n-verify [TARGET_LANG=zh-CN]
 	@if [ -n "$(TARGET_LANG)" ]; then \
