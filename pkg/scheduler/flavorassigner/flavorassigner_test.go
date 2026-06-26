@@ -29,6 +29,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 
@@ -5650,5 +5651,266 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestAssignFlavors_LeaderWorkerSetTASFlavor exercises the full flavor-assignment pipeline
+// (not just WorkloadsTopologyRequests in isolation) for PodSet groups where one member -
+// e.g. an LWS leader - requests none of the group's managed resources. Such a PodSet must
+// still end up with the group's resolved TAS flavor so it can be placed.
+func TestAssignFlavors_LeaderWorkerSetTASFlavor(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
+
+	resourceFlavors := map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
+		"tas-a": utiltestingapi.MakeResourceFlavor("tas-a").TopologyName("tas-topo-a").Obj(),
+		"tas-b": utiltestingapi.MakeResourceFlavor("tas-b").TopologyName("tas-topo-b").Obj(),
+	}
+	topologies := []*kueue.Topology{
+		utiltestingapi.MakeTopology("tas-topo-a").Levels(corev1.LabelHostname).Obj(),
+		utiltestingapi.MakeTopology("tas-topo-b").Levels(corev1.LabelHostname).Obj(),
+	}
+
+	cases := map[string]struct {
+		wlPods            []kueue.PodSet
+		clusterQueue      kueue.ClusterQueue
+		wantPodSetErrors  map[kueue.PodSetReference]error
+		wantPodSetFlavors map[kueue.PodSetReference]ResourceAssignment
+	}{
+		"leader without a managed request infers the group's TAS flavor": {
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("leader", 1).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					PodSetGroup("group1").
+					Obj(),
+				*utiltestingapi.MakePodSet("worker", 1).
+					Request("example.com/gpu", "1").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					PodSetGroup("group1").
+					Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-a").
+						Resource("example.com/gpu", "4").
+						Obj(),
+				).Obj(),
+			wantPodSetErrors: map[kueue.PodSetReference]error{},
+			wantPodSetFlavors: map[kueue.PodSetReference]ResourceAssignment{
+				"leader": {"example.com/gpu": {Name: "tas-a", Mode: NoFit, TriedFlavorIdx: -1}},
+				"worker": {"example.com/gpu": {Name: "tas-a", Mode: NoFit, TriedFlavorIdx: -1}},
+			},
+		},
+		"leader without a group infers the sole flavor of a single-flavor ClusterQueue": {
+			// Mirrors kubernetes-sigs/kueue#12417: no PodSetGroupName anywhere, but the
+			// ClusterQueue only offers one flavor overall, so there is no ambiguity about
+			// which one the request-less leader should use.
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("leader", 1).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Obj(),
+				*utiltestingapi.MakePodSet("worker", 1).
+					Request("example.com/gpu", "1").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-a").
+						Resource("example.com/gpu", "4").
+						Obj(),
+				).Obj(),
+			wantPodSetErrors: map[kueue.PodSetReference]error{},
+			wantPodSetFlavors: map[kueue.PodSetReference]ResourceAssignment{
+				"leader": {"example.com/gpu": {Name: "tas-a", Mode: NoFit, TriedFlavorIdx: -1}},
+				"worker": {"example.com/gpu": {Name: "tas-a", Mode: Fit, TriedFlavorIdx: -1}},
+			},
+		},
+		"leader without a group is rejected when the ClusterQueue has more than one flavor": {
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("leader", 1).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Obj(),
+				*utiltestingapi.MakePodSet("worker-a", 1).
+					Request("example.com/gpu-a", "1").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Obj(),
+				*utiltestingapi.MakePodSet("worker-b", 1).
+					Request("example.com/gpu-b", "1").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-a").
+						Resource("example.com/gpu-a", "4").
+						Obj(),
+				).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-b").
+						Resource("example.com/gpu-b", "4").
+						Obj(),
+				).Obj(),
+			wantPodSetErrors: map[kueue.PodSetReference]error{
+				"leader": errNoTASFlavorAssigned,
+			},
+			wantPodSetFlavors: map[kueue.PodSetReference]ResourceAssignment{
+				"leader":   {},
+				"worker-a": {"example.com/gpu-a": {Name: "tas-a", Mode: Fit, TriedFlavorIdx: -1}},
+				"worker-b": {"example.com/gpu-b": {Name: "tas-b", Mode: Fit, TriedFlavorIdx: -1}},
+			},
+		},
+		"peers in the same group resolving to different TAS flavors are rejected": {
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("leader", 1).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					PodSetGroup("group1").
+					Obj(),
+				*utiltestingapi.MakePodSet("worker-a", 1).
+					Request("example.com/gpu-a", "1").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					PodSetGroup("group1").
+					Obj(),
+				*utiltestingapi.MakePodSet("worker-b", 1).
+					Request("example.com/gpu-b", "1").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					PodSetGroup("group1").
+					Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-a").
+						Resource("example.com/gpu-a", "4").
+						Obj(),
+				).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-b").
+						Resource("example.com/gpu-b", "4").
+						Obj(),
+				).Obj(),
+			wantPodSetErrors: map[kueue.PodSetReference]error{
+				"leader": errMoreThanOneTASFlavorAssigned,
+			},
+			wantPodSetFlavors: map[kueue.PodSetReference]ResourceAssignment{
+				"leader":   {"example.com/gpu-a": {Name: "tas-a", Mode: Fit, TriedFlavorIdx: -1}, "example.com/gpu-b": {Name: "tas-b", Mode: Fit, TriedFlavorIdx: -1}},
+				"worker-a": {"example.com/gpu-a": {Name: "tas-a", Mode: Fit, TriedFlavorIdx: -1}},
+				"worker-b": {"example.com/gpu-b": {Name: "tas-b", Mode: Fit, TriedFlavorIdx: -1}},
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+
+			wlInfo := workload.NewInfo(&kueue.Workload{Spec: kueue.WorkloadSpec{PodSets: tc.wlPods}})
+
+			cache := schdcache.New(utiltesting.NewFakeClient())
+			if err := cache.AddClusterQueue(ctx, &tc.clusterQueue); err != nil {
+				t.Fatalf("Failed to add CQ to cache: %v", err)
+			}
+			for _, rf := range resourceFlavors {
+				cache.AddOrUpdateResourceFlavor(log, rf)
+			}
+			for _, topology := range topologies {
+				cache.AddOrUpdateTopology(log, topology)
+			}
+			if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort(tc.clusterQueue.Spec.CohortName).Obj()); err != nil {
+				t.Fatalf("Failed to create a cohort: %v", err)
+			}
+
+			snapshot, err := cache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
+			cq := snapshot.ClusterQueue(kueue.ClusterQueueReference(tc.clusterQueue.Name))
+			if cq == nil {
+				t.Fatalf("Failed to create CQ snapshot")
+			}
+
+			flvAssigner := New(wlInfo, cq, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared)
+			assignment := flvAssigner.Assign(log, nil)
+
+			gotErrors := map[kueue.PodSetReference]error{}
+			gotFlavors := map[kueue.PodSetReference]ResourceAssignment{}
+			for _, ps := range assignment.PodSets {
+				if ps.Status.err != nil {
+					gotErrors[ps.Name] = ps.Status.err
+				}
+				gotFlavors[ps.Name] = ps.Flavors
+			}
+			if diff := cmp.Diff(tc.wantPodSetErrors, gotErrors, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("podSet errors mismatch (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantPodSetFlavors, gotFlavors, cmpopts.IgnoreUnexported(FlavorAssignment{}), cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("podSet flavors mismatch (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestTasFlavorsOnly(t *testing.T) {
+	tasFlavors := map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot{"tas": {}}
+	in := ResourceAssignment{
+		"example.com/gpu":  {Name: "tas", Mode: Fit, TriedFlavorIdx: -1},
+		corev1.ResourceCPU: {Name: "quota", Mode: Fit, TriedFlavorIdx: -1},
+	}
+	want := ResourceAssignment{
+		"example.com/gpu": {Name: "tas", Mode: Fit, TriedFlavorIdx: -1},
+	}
+	got := tasFlavorsOnly(in, tasFlavors)
+	if diff := cmp.Diff(want, got, cmpopts.IgnoreUnexported(FlavorAssignment{})); diff != "" {
+		t.Errorf("tasFlavorsOnly() mismatch (-want,+got):\n%s", diff)
+	}
+}
+
+func TestWorkloadsTopologyRequests_RequiredTopologyRejectedForElasticWorkloadSlices(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithTAS, true)
+
+	assignment := Assignment{
+		PodSets: []PodSetAssignment{
+			{Name: "leader", Flavors: ResourceAssignment{}, Count: 1, Status: *NewStatus()},
+			{Name: "worker", Flavors: ResourceAssignment{"example.com/gpu": {Name: "tas", Mode: Fit, TriedFlavorIdx: -1}}, Count: 1, Status: *NewStatus()},
+		},
+	}
+	wl := workload.NewInfo(&kueue.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{
+				"kueue.x-k8s.io/elastic-job": "true",
+			},
+		},
+		Spec: kueue.WorkloadSpec{
+			PodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("leader", 1).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					PodSetGroup("group1").
+					Obj(),
+				*utiltestingapi.MakePodSet("worker", 1).
+					Request("example.com/gpu", "1").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					PodSetGroup("group1").
+					Obj(),
+			},
+		},
+	})
+	cq := schdcache.ClusterQueueSnapshot{
+		TASFlavors: map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot{
+			"tas": {},
+		},
+		ResourceGroups: []schdcache.ResourceGroup{
+			{
+				CoveredResources: sets.New(corev1.ResourceName("example.com/gpu")),
+				Flavors:          []kueue.ResourceFlavorReference{"tas"},
+			},
+		},
+	}
+
+	_ = assignment.WorkloadsTopologyRequests(testr.New(t), wl, &cq)
+
+	if assignment.PodSets[0].Status.err == nil {
+		t.Fatalf("expected leader podSet error to be persisted")
+	}
+	if got, want := assignment.PodSets[0].Status.err.Error(), "required topology is not supported with ElasticJobsViaWorkloadSlices"; got != want {
+		t.Fatalf("leader error mismatch: got %q, want %q", got, want)
 	}
 }
