@@ -25,7 +25,7 @@ GO_TEST_TARGET=${3:-.}
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-"$SCRIPT_DIR/shard_test_packages.sh" \
+bash "$SCRIPT_DIR/shard_test_packages.sh" \
     "$UNIT_SHARD_INDEX" \
     "$UNIT_TOTAL_SHARDS" \
     "${GO_TEST_TARGET}/..." \
