@@ -77,6 +77,18 @@ E2E_GINKGO_ARGS = $(GINKGO_ARGS) $(if $(filter-out 1,$(E2E_NPROCS)),-procs=$(E2E
 # For restricting to a specific directory
 GO_TEST_TARGET ?= .
 
+# Unit test sharding: set UNIT_TOTAL_SHARDS to split packages across parallel CI jobs.
+# UNIT_SHARD_INDEX selects which shard this job runs (0-based).
+# When UNIT_TOTAL_SHARDS is not set, all packages run in a single job (existing behaviour).
+ifdef UNIT_TOTAL_SHARDS
+UNIT_TEST_PACKAGES := $(shell ./hack/testing/shard-unit-tests.sh $(UNIT_SHARD_INDEX) $(UNIT_TOTAL_SHARDS))
+ifeq ($(UNIT_TEST_PACKAGES),)
+$(error Aborting: shard-unit-tests.sh returned no packages. Check UNIT_SHARD_INDEX / UNIT_TOTAL_SHARDS.)
+endif
+else
+UNIT_TEST_PACKAGES := $(shell $(GO_CMD) list $(GO_TEST_TARGET)/... | grep -v '/test/')
+endif
+
 ##@ Tests
 
 # Periodic builds are tested with full ray image
@@ -90,9 +102,9 @@ else
 endif
 
 .PHONY: test
-test: gotestsum ## Run tests.
+test: gotestsum ## Run tests. Set UNIT_TOTAL_SHARDS and UNIT_SHARD_INDEX to run a specific shard.
 	mkdir -p $(ARTIFACTS)
-	TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) $(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GOFLAGS) $(GO_TEST_FLAGS) $(shell $(GO_CMD) list $(GO_TEST_TARGET)/... | grep -v '/test/') -coverpkg=$(GO_TEST_TARGET)/... -coverprofile $(ARTIFACTS)/cover.out
+	TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) $(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GOFLAGS) $(GO_TEST_FLAGS) $(UNIT_TEST_PACKAGES) -coverpkg=$(GO_TEST_TARGET)/... -coverprofile $(ARTIFACTS)/cover.out
 
 ## Label Taxonomy:
 ##   Controllers: controller:workload, controller:localqueue, controller:clusterqueue, controller:admissioncheck, controller:resourceflavor, controller:provisioning
