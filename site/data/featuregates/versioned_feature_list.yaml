@@ -460,7 +460,7 @@
   - default: true
     lockToDefault: false
     preRelease: Beta
-    version: "0.19"
+    version: "0.18"
 - name: TASReplaceNodeOnNodeTaints
   versionedSpecs:
   - default: true
