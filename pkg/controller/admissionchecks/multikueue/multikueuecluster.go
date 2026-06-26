@@ -46,7 +46,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
@@ -585,7 +585,7 @@ type clustersReconciler struct {
 	localClient          client.Client
 	configNamespace      string
 	kubeConfigPathPrefix string
-	recorder             record.EventRecorder
+	recorder             events.EventRecorder
 
 	lock sync.RWMutex
 	// The list of remote remoteClients, indexed by the cluster name.
@@ -724,7 +724,7 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 	if cluster.Spec.ClusterSource.KubeConfig != nil &&
 		cluster.Spec.ClusterSource.KubeConfig.LocationType == kueue.PathLocationType &&
 		!features.Enabled(features.MultiKueueKubeConfigPathValidation) {
-		c.recorder.Event(cluster, corev1.EventTypeWarning, "DeprecatedPathUsage",
+		c.recorder.Eventf(cluster, nil, corev1.EventTypeWarning, "DeprecatedPathUsage", "DeprecatedPathUsage",
 			"Using locationType=Path without MultiKueueKubeConfigPathValidation feature gate is deprecated and will be removed in a future release. "+
 				"Enable the MultiKueueKubeConfigPathValidation feature gate and place kubeconfig files under /etc/multikueue/kubeconfigs/.")
 	}
@@ -1047,7 +1047,7 @@ func newClustersReconciler(
 	adapters map[string]jobframework.MultiKueueAdapter,
 	cpAccessProvider clusterProfileAccessProvider,
 	roleTracker *roletracker.RoleTracker,
-	recorder record.EventRecorder,
+	recorder events.EventRecorder,
 ) *clustersReconciler {
 	return &clustersReconciler{
 		localClient:                  c,
