@@ -24,6 +24,15 @@
 #     - materials: URL to code repos or additional tutorial materials
 # =====================================================================
 
+- title: "Krea 2 Technical Report"
+  event: "Krea Blog"
+  date: 2026-06-23
+  type: "case-study"
+  presenters:
+    - name: "Sangwu Lee"
+      company: "Krea"
+  links:
+    article: "https://www.krea.ai/blog/krea-2-technical-report"
 - title: "How Netflix Simplified Batch Compute with Kueue"
   event: "Netflix Technology Blog"
   date: 2026-06-22
