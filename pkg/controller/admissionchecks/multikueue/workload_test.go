@@ -32,7 +32,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/tools/record"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
@@ -1630,7 +1629,8 @@ func TestWlReconcile(t *testing.T) {
 
 				managerClient := managerBuilder.Build()
 				adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
-				cRec := newClustersReconciler(managerClient, TestNamespace, 0, defaultOrigin, nil, adapters, nil, nil, record.NewFakeRecorder(10))
+				recorder := &utiltesting.EventRecorder{}
+				cRec := newClustersReconciler(managerClient, TestNamespace, 0, defaultOrigin, nil, adapters, nil, nil, recorder)
 
 				worker1Client := NewNeverCachingClient(getClientBuilder(ctx).
 					WithLists(&kueue.WorkloadList{Items: tc.worker1Workloads}, &batchv1.JobList{Items: tc.worker1Jobs}).
@@ -1678,7 +1678,6 @@ func TestWlReconcile(t *testing.T) {
 				}
 
 				helper, _ := admissioncheck.NewMultiKueueStoreHelper(managerClient)
-				recorder := &utiltesting.EventRecorder{}
 				mkDispatcherName := ptr.Deref(tc.dispatcherName, config.MultiKueueDispatcherModeAllAtOnce)
 				reconciler := newWlReconciler(managerClient, helper, cRec, defaultOrigin, recorder, defaultWorkerLostTimeout, time.Second, adapters, mkDispatcherName, nil, WithClock(t, fakeClock))
 

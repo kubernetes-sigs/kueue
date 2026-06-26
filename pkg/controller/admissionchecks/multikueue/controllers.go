@@ -155,7 +155,7 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 	cRec := newClustersReconciler(
 		mgr.GetClient(), namespace, options.gcInterval, options.origin, fsWatcher,
 		options.adapters, cpAccessProvider, options.roleTracker,
-		mgr.GetEventRecorderFor("multikueue-cluster"),
+		mgr.GetEventRecorder("multikueue-cluster"),
 	)
 	err = cRec.setupWithManager(mgr)
 	if err != nil {
