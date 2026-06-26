@@ -299,7 +299,7 @@ GPU memory quota, while a team requesting a 7g.80gb profile should consume 80Gi.
 - **Extended Resources** requires DeviceClasses to have `spec.extendedResourceName` set.
   This depends on the Kubernetes `DRAExtendedResource` feature gate (alpha in k8s 1.35).
   When enabled, kube-scheduler automatically creates ResourceClaims for pods requesting extended resources.
-  Extended resources support in Kueue is gated behind the `DRAExtendedResources` feature gate.
+  Extended resources support in Kueue is gated behind the `KueueDRAIntegrationExtendedResource` feature gate.
 - **GPU time-slicing and MPS via extended resources are not supported in Alpha.**
   Time-slicing and MPS sharing modes require opaque parameters on the DeviceClass
   (e.g., `GpuConfig` with `sharing.strategy: TimeSlicing`). When kube-scheduler creates
@@ -377,7 +377,7 @@ is documented here:
 Three feature gates control DRA support in Kueue:
 - `DynamicResourceAllocation`: gates ResourceClaimTemplate-based DRA quota accounting.
   Uses `deviceClassMappings` for DeviceClass-to-quota-resource mapping.
-- `DRAExtendedResources`: gates extended resources support, including DeviceClass
+- `KueueDRAIntegrationExtendedResource`: gates extended resources support, including DeviceClass
   auto-discovery via `extendedResourceName`. Does not use `deviceClassMappings`.
   Requires `DynamicResourceAllocation` to also be enabled.
 - `KueueDRAIntegrationPartitionableDevices`: gates counter-based quota for partitionable
@@ -681,7 +681,7 @@ When a user submits a workload and DynamicResourceAllocation feature gate is ena
 8. Status Update: Once the quota is reserved, the workload status reflects the assigned flavors and resource usage, including DRA resources.
 
 Note: The flow above applies to the ResourceClaimTemplate path (`DynamicResourceAllocation` gate).
-When the `DRAExtendedResources` gate is also enabled, workloads with extended resources in
+When the `KueueDRAIntegrationExtendedResource` gate is also enabled, workloads with extended resources in
 `resources.requests` follow a separate resolution path through the ExtendedResourceCache.
 See [Extended Resources](#extended-resources) for details. Both paths can be active simultaneously
 for workloads that use both ResourceClaimTemplates and extended resources.
@@ -811,7 +811,7 @@ status:
 
 ### Extended Resources
 
-This section is gated behind the `DRAExtendedResources` Kueue feature gate.
+This section is gated behind the `KueueDRAIntegrationExtendedResource` Kueue feature gate.
 
 Kueue also supports workloads requesting DRA devices via `resources.requests` (e.g., `example.com/gpu: 1`).
 When a DeviceClass has `spec.extendedResourceName` set, kube-scheduler automatically creates ResourceClaims.
@@ -861,7 +861,7 @@ continues to use `deviceClassMappings`.
 #### Path Separation
 
 The two DRA paths resolve quota independently:
-1. **Extended resources** (`DRAExtendedResources` gate): auto-discovers DeviceClass via
+1. **Extended resources** (`KueueDRAIntegrationExtendedResource` gate): auto-discovers DeviceClass via
    field indexer. Uses `extendedResourceName` as the default quota key. If the resolved
    DeviceClass is also present in `deviceClassMappings`, Kueue uses the mapped logical
    name instead to unify quota with the ResourceClaimTemplate path. If the mapping has

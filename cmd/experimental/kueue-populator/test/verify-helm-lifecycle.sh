@@ -53,7 +53,7 @@ IMAGE_TAG="us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-populator:$
 echo "Building Helm dependencies..."
 "$HELM" dependency build charts/kueue-populator
 
-echo "Installing kueue-populator with Topology and ResourceFlavor..."
+echo "Installing kueue-populator with Topology, ResourceFlavor and ClusterQueue..."
 "$HELM" upgrade --install kueue-populator charts/kueue-populator \
   --namespace kueue-system \
   --create-namespace \
@@ -62,9 +62,39 @@ echo "Installing kueue-populator with Topology and ResourceFlavor..."
   --set image.pullPolicy=IfNotPresent \
   --set kueuePopulator.config.topology.levels[0].nodeLabel="cloud.google.com/gke-nodepool" \
   --set kueuePopulator.config.resourceFlavor.nodeLabels."cloud\.google\.com/gke-nodepool"="default-pool" \
+  --set kueuePopulator.config.clusterQueue.name="cluster-queue" \
+  --set kueuePopulator.config.clusterQueue.resources[0].name="cpu" \
+  --set kueuePopulator.config.clusterQueue.resources[0].nominalQuota=10 \
   --wait
 
 echo "Running Helm tests..."
 "$HELM" test kueue-populator --namespace kueue-system
+
+# The post-install Job creates the cluster-scoped Kueue resources from the chart's
+# ConfigMap (see charts/kueue-populator/templates/setup-hook.yaml).
+echo "Verifying the Kueue resources were created..."
+kubectl get topology default
+kubectl get resourceflavor tas-gpu-default
+kubectl get clusterqueue cluster-queue
+
+echo "Uninstalling kueue-populator (triggers the pre-delete cleanup hook)..."
+"$HELM" uninstall kueue-populator --namespace kueue-system
+
+# The pre-delete Job must delete the resources created above so they do not leak
+# on `helm uninstall`. helm waits for the hook Job to complete, so the objects
+# should already be gone once uninstall returns.
+echo "Verifying the Kueue resources were cleaned up by the pre-delete hook..."
+if kubectl get topology default >/dev/null 2>&1; then
+  echo "ERROR: Topology \"default\" still exists after helm uninstall" >&2
+  exit 1
+fi
+if kubectl get resourceflavor tas-gpu-default >/dev/null 2>&1; then
+  echo "ERROR: ResourceFlavor \"tas-gpu-default\" still exists after helm uninstall" >&2
+  exit 1
+fi
+if kubectl get clusterqueue cluster-queue >/dev/null 2>&1; then
+  echo "ERROR: ClusterQueue \"cluster-queue\" still exists after helm uninstall" >&2
+  exit 1
+fi
 
 echo "Verification passed!"

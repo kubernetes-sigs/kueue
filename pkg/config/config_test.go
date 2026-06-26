@@ -770,6 +770,9 @@ objectRetentionPolicies:
 					Origin:            new("multikueue-manager1"),
 					WorkerLostTimeout: &metav1.Duration{Duration: 10 * time.Minute},
 					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeIncremental),
+					IncrementalDispatcherConfig: &configapi.IncrementalDispatcherConfig{
+						StepSize: new(int32(3)),
+					},
 					ClusterProfile: &configapi.ClusterProfile{
 						AccessProviders: []configapi.ClusterProfileAccessProvider{
 							{
@@ -810,6 +813,9 @@ objectRetentionPolicies:
 					Origin:            new("multikueue-manager1"),
 					WorkerLostTimeout: &metav1.Duration{Duration: 10 * time.Minute},
 					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeIncremental),
+					IncrementalDispatcherConfig: &configapi.IncrementalDispatcherConfig{
+						StepSize: new(int32(3)),
+					},
 					ClusterProfile: &configapi.ClusterProfile{
 						CredentialsProviders: []configapi.ClusterProfileCredentialsProvider{
 							{

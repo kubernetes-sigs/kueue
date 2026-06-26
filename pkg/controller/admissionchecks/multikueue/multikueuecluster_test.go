@@ -38,6 +38,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/clock"
 	testingclock "k8s.io/utils/clock/testing"
 	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
@@ -191,11 +192,14 @@ func TestUpdateConfig(t *testing.T) {
 		clusterprofiles  []inventoryv1alpha1.ClusterProfile
 		cpAccessProvider clusterProfileAccessProvider
 
-		wantRemoteClients map[string]*remoteClient
-		wantClusters      []kueue.MultiKueueCluster
-		wantRequeueAfter  time.Duration
-		wantCancelCalled  int
-		wantErr           error
+		wantRemoteClients             map[string]*remoteClient
+		wantClusters                  []kueue.MultiKueueCluster
+		wantRequeueAfter              time.Duration
+		wantCancelCalled              int
+		wantErr                       error
+		wantEvent                     string
+		overrideKubeConfigPrefix      bool
+		multiKueueSafePathFeatureGate bool
 	}{
 		"new valid client is added": {
 			reconcileFor: "worker1",
@@ -270,7 +274,9 @@ func TestUpdateConfig(t *testing.T) {
 			wantRemoteClients: map[string]*remoteClient{
 				"worker1": newTestClient(ctx, []byte(testKubeconfig("worker1")), nil, nil),
 			},
-			wantCancelCalled: 1,
+			wantCancelCalled:              1,
+			overrideKubeConfigPrefix:      true,
+			multiKueueSafePathFeatureGate: true,
 		},
 		"update client with invalid secret config": {
 			reconcileFor: "worker1",
@@ -300,7 +306,8 @@ func TestUpdateConfig(t *testing.T) {
 			wantCancelCalled: 1,
 		},
 		"update client with invalid path config": {
-			reconcileFor: "worker1",
+			reconcileFor:                  "worker1",
+			multiKueueSafePathFeatureGate: true,
 			clusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					KubeConfig(kueue.PathLocationType, "").
@@ -313,7 +320,7 @@ func TestUpdateConfig(t *testing.T) {
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					KubeConfig(kueue.PathLocationType, "").
-					Active(metav1.ConditionFalse, "BadKubeConfig", "load client config failed: open : no such file or directory", 1).
+					Active(metav1.ConditionFalse, "BadKubeConfig", "load client config failed: kubeconfig path must not be empty", 1).
 					Generation(1).
 					Obj(),
 			},
@@ -321,7 +328,7 @@ func TestUpdateConfig(t *testing.T) {
 				"worker1": newTestClient(ctx, []byte("worker1 old kubeconfig"), nil, nil),
 			},
 			wantCancelCalled: 1,
-			wantErr:          fmt.Errorf("failed to load client config, reason: BadKubeConfig, error: %w", errors.New("open : no such file or directory")),
+			wantErr:          fmt.Errorf("failed to load client config, reason: BadKubeConfig, error: %w", errors.New("kubeconfig path must not be empty")),
 		},
 		"missing cluster is removed": {
 			reconcileFor: "worker2",
@@ -608,6 +615,27 @@ func TestUpdateConfig(t *testing.T) {
 			},
 			wantErr: fmt.Errorf("failed to load client config, reason: MultiKueueClusterProfileFeatureDisabled, error: %w", errors.New("MultiKueueClusterProfile feature gate is disabled")),
 		},
+		"path with feature gate off emits deprecation warning": {
+			reconcileFor: "worker1",
+			clusters: []kueue.MultiKueueCluster{
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
+					KubeConfig(kueue.PathLocationType, validKubeconfigLocation).
+					Generation(1).
+					Obj(),
+			},
+			wantClusters: []kueue.MultiKueueCluster{
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
+					KubeConfig(kueue.PathLocationType, validKubeconfigLocation).
+					Active(metav1.ConditionTrue, "Active", "Connected", 1).
+					Generation(1).
+					Obj(),
+			},
+			wantRemoteClients: map[string]*remoteClient{
+				"worker1": newTestClient(ctx, []byte(testKubeconfig("worker1")), nil, nil),
+			},
+			multiKueueSafePathFeatureGate: false,
+			wantEvent:                     "Warning DeprecatedPathUsage Using locationType=Path without MultiKueueKubeConfigPathValidation feature gate is deprecated and will be removed in a future release. Enable the MultiKueueKubeConfigPathValidation feature gate and place kubeconfig files under /etc/multikueue/kubeconfigs/.",
+		},
 		"invalid rest config from cluster profile": {
 			reconcileFor: "invalid",
 			clusters: []kueue.MultiKueueCluster{
@@ -647,7 +675,8 @@ func TestUpdateConfig(t *testing.T) {
 			c := builder.Build()
 
 			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
-			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, tc.cpAccessProvider, nil)
+			fakeRecorder := record.NewFakeRecorder(10)
+			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, tc.cpAccessProvider, nil, fakeRecorder)
 
 			reconciler.rootContext = ctx
 
@@ -655,6 +684,13 @@ func TestUpdateConfig(t *testing.T) {
 				reconciler.remoteClients = tc.remoteClients
 			}
 			reconciler.builderOverride = fakeClientBuilder(ctx)
+
+			features.SetFeatureGateDuringTest(t, features.MultiKueueKubeConfigPathValidation, tc.multiKueueSafePathFeatureGate)
+
+			if tc.overrideKubeConfigPrefix {
+				// Override the hardcoded prefix for testing with temp dirs.
+				reconciler.kubeConfigPathPrefix = filepath.Dir(validKubeconfigLocation)
+			}
 
 			if len(tc.clusterprofiles) > 0 {
 				features.SetFeatureGateDuringTest(t, features.MultiKueueClusterProfile, true)
@@ -717,6 +753,25 @@ func TestUpdateConfig(t *testing.T) {
 					return true
 				})); diff != "" {
 				t.Errorf("unexpected controllers (-want/+got):\n%s", diff)
+			}
+
+			// Check for expected events.
+			if tc.wantEvent != "" {
+				select {
+				case gotEvent := <-fakeRecorder.Events:
+					if diff := cmp.Diff(tc.wantEvent, gotEvent); diff != "" {
+						t.Errorf("unexpected event (-want/+got):\n%s", diff)
+					}
+				default:
+					t.Error("expected a warning event but none was recorded")
+				}
+			} else {
+				select {
+				case gotEvent := <-fakeRecorder.Events:
+					t.Errorf("unexpected event recorded: %s", gotEvent)
+				default:
+					// No event expected, none received. Good.
+				}
 			}
 		})
 	}
@@ -794,7 +849,7 @@ func TestReconnectBackoff(t *testing.T) {
 			c := builder.Build()
 
 			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
-			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, &testClusterProfileAccessProvider{}, nil)
+			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, &testClusterProfileAccessProvider{}, nil, record.NewFakeRecorder(10))
 			reconciler.rootContext = ctx
 
 			var buildCalls int
@@ -849,7 +904,7 @@ func TestDisconnectedClientReconnectsWithSameConfig(t *testing.T) {
 	c := builder.Build()
 
 	adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
-	reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, &testClusterProfileAccessProvider{}, nil)
+	reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, &testClusterProfileAccessProvider{}, nil, record.NewFakeRecorder(10))
 	reconciler.rootContext = ctx
 
 	var buildCalls int
@@ -1177,7 +1232,7 @@ func TestClustersReconcilerEventFilters(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			c := getClientBuilder(ctx).Build()
-			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, newKubeConfigFSWatcher(), nil, &NoOpClusterProfileAccessProvider{}, nil)
+			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, newKubeConfigFSWatcher(), nil, &NoOpClusterProfileAccessProvider{}, nil, record.NewFakeRecorder(10))
 			reconciler.rootContext = ctx
 
 			if got := tc.invoke(reconciler); got != tc.wantReconcile {
@@ -1343,7 +1398,7 @@ func TestSetRemoteClientConfigDoesNotBlockOtherClusters(t *testing.T) {
 		WithStatusSubresource(slowCluster, fastCluster).
 		Build()
 
-	reconciler := newClustersReconciler(localClient, TestNamespace, 0, defaultOrigin, nil, nil, &NoOpClusterProfileAccessProvider{}, nil)
+	reconciler := newClustersReconciler(localClient, TestNamespace, 0, defaultOrigin, nil, nil, &NoOpClusterProfileAccessProvider{}, nil, record.NewFakeRecorder(10))
 	reconciler.rootContext = ctx
 	reconciler.builderOverride = gatedBuilder
 
@@ -1379,5 +1434,110 @@ func TestSetRemoteClientConfigDoesNotBlockOtherClusters(t *testing.T) {
 	case <-slowDone:
 	case <-time.After(stuckWatchTimeout):
 		t.Fatal("slow goroutine did not exit after release")
+	}
+}
+
+func TestValidateKubeConfigPath(t *testing.T) {
+	allowedDir := t.TempDir()
+	// Create a real file under the allowed dir to test symlink resolution.
+	validFile := filepath.Join(allowedDir, "worker.kubeconfig")
+	if err := os.WriteFile(validFile, []byte("test"), 0644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	// Create a symlink inside allowedDir that points outside.
+	externalFile := filepath.Join(t.TempDir(), "external-secret")
+	if err := os.WriteFile(externalFile, []byte("token"), 0644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	symlink := filepath.Join(allowedDir, "escape-symlink")
+	if err := os.Symlink(externalFile, symlink); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	cases := map[string]struct {
+		path          string
+		allowedPrefix string
+		featureGate   bool
+		wantErr       bool
+		errContains   string
+	}{
+		"safe FG disabled allows any path (legacy)": {
+			path:          "/any/arbitrary/path",
+			allowedPrefix: allowedDir,
+			featureGate:   false,
+		},
+		"valid path under prefix": {
+			path:          validFile,
+			allowedPrefix: allowedDir,
+			featureGate:   true,
+		},
+		"empty path": {
+			path:          "",
+			allowedPrefix: allowedDir,
+			wantErr:       true,
+			errContains:   "must not be empty",
+			featureGate:   true,
+		},
+		"path with dot-dot traversal": {
+			path:          filepath.Join(allowedDir, "..", "etc", "passwd"),
+			allowedPrefix: allowedDir,
+			wantErr:       true,
+			errContains:   "cannot resolve kubeconfig path symlinks",
+			featureGate:   true,
+		},
+		"path outside prefix": {
+			path:          "/var/run/secrets/kubernetes.io/serviceaccount/token",
+			allowedPrefix: allowedDir,
+			wantErr:       true,
+			errContains:   "cannot resolve kubeconfig path symlinks",
+			featureGate:   true,
+		},
+		"relative path rejected": {
+			path:          "relative/path/file",
+			allowedPrefix: allowedDir,
+			wantErr:       true,
+			errContains:   "must be absolute",
+			featureGate:   true,
+		},
+		"symlink escape rejected": {
+			path:          symlink,
+			allowedPrefix: allowedDir,
+			wantErr:       true,
+			errContains:   "not under",
+			featureGate:   true,
+		},
+		"SA token path rejected": {
+			path:          "/var/run/secrets/kubernetes.io/serviceaccount/token",
+			allowedPrefix: "/etc/multikueue/kubeconfigs",
+			wantErr:       true,
+			errContains:   "not under",
+			featureGate:   true,
+		},
+		"prefix name collision": {
+			// /etc/kueue-other should not match prefix /etc/kueue
+			path:          "/etc/kueue-other/file",
+			allowedPrefix: "/etc/kueue",
+			wantErr:       true,
+			errContains:   "not under",
+			featureGate:   true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.MultiKueueKubeConfigPathValidation, tc.featureGate)
+			_, err := validateKubeConfigPath(t.Context(), tc.path, tc.allowedPrefix)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error containing %q, got nil", tc.errContains)
+				}
+				if !strings.Contains(err.Error(), tc.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tc.errContains)
+				}
+			} else if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
 	}
 }

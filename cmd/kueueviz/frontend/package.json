@@ -18,7 +18,7 @@
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
     "@mui/icons-material": "^9.1.1",
-    "@mui/material": "^9.1.1",
+    "@mui/material": "^9.1.2",
     "ace-builds": "^1.44.0",
     "react": "^19.2.7",
     "react-ace": "^14.0.1",
@@ -27,10 +27,10 @@
     "react-toastify": "^11.1.0"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^6.0.2",
+    "@vitejs/plugin-react": "^6.0.3",
     "depcheck": "^1.4.7",
     "serve": "^14.2.6",
-    "vite": "^8.0.16",
+    "vite": "^8.1.0",
     "vitest": "^4.1.9"
   },
   "browserslist": {

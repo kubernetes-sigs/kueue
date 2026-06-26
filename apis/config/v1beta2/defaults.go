@@ -41,8 +41,8 @@ const (
 	DefaultLeaderElectionLeaseDuration            = 15 * time.Second
 	DefaultLeaderElectionRenewDeadline            = 10 * time.Second
 	DefaultLeaderElectionRetryPeriod              = 2 * time.Second
-	DefaultClientConnectionQPS            float32 = 20.0
-	DefaultClientConnectionBurst          int32   = 30
+	DefaultClientConnectionQPS            float32 = 300.0
+	DefaultClientConnectionBurst          int32   = 500
 	defaultJobFrameworkName                       = "batch/job"
 	DefaultMultiKueueGCInterval                   = time.Minute
 	DefaultMultiKueueOrigin                       = "multikueue"
@@ -123,6 +123,11 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	cfg.MultiKueue.Origin = new(cmp.Or(ptr.Deref(cfg.MultiKueue.Origin, ""), DefaultMultiKueueOrigin))
 	cfg.MultiKueue.WorkerLostTimeout = cmp.Or(cfg.MultiKueue.WorkerLostTimeout, &metav1.Duration{Duration: DefaultMultiKueueWorkerLostTimeout})
 	cfg.MultiKueue.DispatcherName = cmp.Or(cfg.MultiKueue.DispatcherName, new(MultiKueueDispatcherModeAllAtOnce))
+
+	if ptr.Deref(cfg.MultiKueue.DispatcherName, "") == MultiKueueDispatcherModeIncremental {
+		cfg.MultiKueue.IncrementalDispatcherConfig = cmp.Or(cfg.MultiKueue.IncrementalDispatcherConfig, &IncrementalDispatcherConfig{})
+		cfg.MultiKueue.IncrementalDispatcherConfig.StepSize = cmp.Or(cfg.MultiKueue.IncrementalDispatcherConfig.StepSize, new(int32(3)))
+	}
 
 	if afs := cfg.AdmissionFairSharing; afs != nil {
 		afs.UsageSamplingInterval.Duration = cmp.Or(afs.UsageSamplingInterval.Duration, 5*time.Minute)

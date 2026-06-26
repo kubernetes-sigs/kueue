@@ -38,8 +38,11 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/features"
+	kueuemetrics "sigs.k8s.io/kueue/pkg/metrics"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -639,5 +642,87 @@ func TestLocalQueueReconcile(t *testing.T) {
 				t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestLocalQueueReconcileReportsAdmissionFairSharingUsageMetric(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, true)
+	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
+
+	now := time.Now().Truncate(time.Second)
+	clock := testingclock.NewFakeClock(now)
+	afsConfig := &config.AdmissionFairSharing{
+		UsageHalfLifeTime:     metav1.Duration{Duration: 5 * time.Minute},
+		UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
+		ResourceWeights: map[corev1.ResourceName]float64{
+			corev1.ResourceCPU: 2,
+			resourceGPU:        10,
+		},
+	}
+	clusterQueue := utiltestingapi.MakeClusterQueue("cq-afs-metric").
+		Active(metav1.ConditionTrue).
+		Obj()
+	localQueue := utiltestingapi.MakeLocalQueue("lq-afs-metric", "default").
+		ClusterQueue("cq-afs-metric").
+		Active(metav1.ConditionTrue).
+		FairSharing(&kueue.FairSharing{
+			Weight: new(resource.MustParse("2")),
+		}).
+		Obj()
+	lqKey := utilqueue.Key(localQueue)
+	defer kueuemetrics.ClearLocalQueueMetrics(kueuemetrics.LocalQueueReference{
+		Name:      kueue.LocalQueueName(localQueue.Name),
+		Namespace: localQueue.Namespace,
+	})
+
+	objs := []client.Object{clusterQueue, localQueue}
+	cl := utiltesting.NewClientBuilder().
+		WithObjects(objs...).
+		WithStatusSubresource(objs...).
+		WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
+		Build()
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+	cqCache := schdcache.New(cl)
+	if err := cqCache.AddClusterQueue(ctx, clusterQueue); err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	_ = cqCache.AddLocalQueue(localQueue)
+	qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithAdmissionFairSharing(afsConfig))
+	if err := qManager.AddClusterQueue(ctx, clusterQueue); err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if err := qManager.AddLocalQueue(ctx, localQueue); err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	qManager.AfsConsumedResources.Set(lqKey, corev1.ResourceList{
+		corev1.ResourceCPU: resource.MustParse("8"),
+		resourceGPU:        resource.MustParse("4"),
+	}, now.Add(-5*time.Minute))
+	qManager.AfsEntryPenalties.Push(lqKey, corev1.ResourceList{
+		corev1.ResourceCPU: resource.MustParse("1"),
+		resourceGPU:        resource.MustParse("1"),
+	})
+
+	reconciler := NewLocalQueueReconciler(cl, qManager, cqCache,
+		WithClock(clock),
+		WithAdmissionFairSharingConfig(afsConfig))
+
+	if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(localQueue)}); err != nil {
+		t.Fatalf("Reconcile failed: %v", err)
+	}
+	got := utiltestingmetrics.CollectFilteredGaugeVec(kueuemetrics.LocalQueueAdmissionFairSharingUsage, map[string]string{
+		"name":          localQueue.Name,
+		"namespace":     localQueue.Namespace,
+		"cluster_queue": string(localQueue.Spec.ClusterQueue),
+	})
+	if len(got) != 1 {
+		t.Fatalf("Expected one LocalQueue AFS usage metric, got %d", len(got))
+	}
+	// One half-life decays cached usage to CPU=4 and GPU=2.
+	// Pending penalties add CPU=1 and GPU=1: ((4+1)*2 + (2+1)*10) / 2 = 20.
+	const wantUsage = 20
+	if got[0].Value != wantUsage {
+		t.Fatalf("Expected LocalQueue AFS usage metric value %v, got %v", wantUsage, got[0].Value)
 	}
 }
