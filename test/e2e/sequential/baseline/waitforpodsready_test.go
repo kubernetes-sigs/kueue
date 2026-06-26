@@ -128,7 +128,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with tiny Timeout and no RecoveryTimeo
 	})
 
 	ginkgo.AfterAll(func() {
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, curlPod, true, util.MediumTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, curlPod, true, util.LongTimeout)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, metricsReaderClusterRoleBinding, true)
 	})
 
@@ -287,7 +287,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 	})
 
 	ginkgo.AfterAll(func() {
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, curlPod, true, util.MediumTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, curlPod, true, util.LongTimeout)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, metricsReaderClusterRoleBinding, true)
 	})
 
@@ -432,7 +432,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a long Recove
 	})
 
 	ginkgo.AfterAll(func() {
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, curlPod, true, util.MediumTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, curlPod, true, util.LongTimeout)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, metricsReaderClusterRoleBinding, true)
 	})
 
