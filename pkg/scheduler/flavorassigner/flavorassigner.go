@@ -955,6 +955,10 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 	for ; idx < len(resourceGroup.Flavors); idx++ {
 		attemptedFlavorIdx = idx
 		fName := resourceGroup.Flavors[idx]
+		if a.shouldRespectNominationMapping() && a.shouldSkipBasedOnNominationMapping(log, fName, psIDs, resName) {
+			status.appendf("skipping flavor %s as it is not found in the nomination mapping for resource %s", fName, resName)
+			continue
+		}
 		if features.Enabled(features.ConcurrentAdmission) && !concurrentadmission.IsFlavorAllowedForVariant(a.wl.Obj, fName) {
 			status.appendf("skipping flavor %s due to WorkloadAllowedResourceFlavorAnnotation annotation", fName)
 			continue
@@ -1251,4 +1255,34 @@ func filterRequestedResources(req resources.Requests, allowList sets.Set[corev1.
 		}
 	}
 	return filtered
+}
+
+// shouldRespectNominationMapping returns true if flavor stickiness should be enforced.
+// Active during recomputation when TAS is enabled and NominationMapping is populated.
+func (a *FlavorAssigner) shouldRespectNominationMapping() bool {
+	return features.Enabled(features.TopologyAwareScheduling) &&
+		features.Enabled(features.TASRecomputeAssignmentWithinSchedulingCycle) &&
+		len(a.wl.NominationMapping) > 0
+}
+
+// shouldSkipBasedOnNominationMapping returns true if the flavor should be skipped to enforce stickiness.
+// We stick to nominated flavors from the initial attempt to avoid flavor switching during recomputation.
+//
+// Note: Assumes NominationMapping is complete. If a resource is not requested by a pod set in the group,
+// it returns "" which won't match fName. We rely on the upstream guarantee that at least one pod set
+// in the group requests the resource and has a nominated flavor, otherwise it would incorrectly skip.
+func (a *FlavorAssigner) shouldSkipBasedOnNominationMapping(log logr.Logger,
+	fName kueue.ResourceFlavorReference,
+	psIDs []int,
+	resName corev1.ResourceName,
+) bool {
+	for _, psID := range psIDs {
+		psName := a.wl.Obj.Spec.PodSets[psID].Name
+		if fName == a.wl.NominationMapping[psName][resName] {
+			log.V(5).Info("Found flavor in the nomination mapping - cannot skip", "psName", psName, "resName", resName, "flavorName", fName)
+			return false
+		}
+	}
+	log.V(5).Info("Didn't find the flavor in the nomination mapping - skipping", "resName", resName, "flavorName", fName)
+	return true
 }

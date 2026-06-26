@@ -54,6 +54,7 @@
     - [Selecting the algorithm](#selecting-the-algorithm)
       - [Until v0.14](#until-v014)
       - [Since v0.15](#since-v015)
+    - [Re-computation of TAS assignments within the workload evaluation phase](#re-computation-of-tas-assignments-within-the-workload-evaluation-phase)
   - [Two-level Topology Aware scheduling](#two-level-topology-aware-scheduling)
     - [Example](#example-1)
   - [Multi-level Topology Aware scheduling](#multi-level-topology-aware-scheduling)
@@ -1559,6 +1560,32 @@ Since v0.15, the available feature gates are as follows:
 Based on the user feedback, we decided to make `TASProfileMixed` default starting in v0.15. (The corresponding feature gate is hence obsolete; we formally keep it "deprecated" for backwards compatibility). It differs from the previous default only in the `unconstrained` case - in which Kueue should prioritize minimizing fragmentation which is provided by the `LeastFreeCapacity` algorithm.
 
 For users still preferring the "always BestFit" profile, we introduce the `TASProfileBestFit` feature gate, marking it as deprecated. We will remove it in v0.17 if we see no report indicating a need for that configuration.
+
+#### Re-computation of TAS assignments within the workload evaluation phase
+
+Regular quota scheduling is performed in scheduling cycles. During the **nomination phase**,
+Kueue assigns Workload PodSets to ResourceFlavors while evaluating each Workload independently.
+
+The nomination result is then used to order Workloads for the subsequent **evaluation phase**,
+where Workloads are processed one by one. As a result, a Workload that was initially nominated
+as Fit may no longer be able to fit when it is evaluated later in the cycle, after earlier
+Workloads have consumed the relevant quota or topology capacity.  In that case,
+the Workload fails with the `FailedAfterNomination` reason.
+
+This situation can occur in regular quota scheduling, but it is typically rare because
+ResourceFlavors usually represent relatively large pools of resources. With TAS, however,
+such conflicts are much more common because the assignment is effectively made at the level
+of individual nodes and follows a deterministic placement strategy, usually BestFit.
+
+This has caused outages in environments with many ClusterQueues, where a Workload could remain
+suspended for hours due to repeated conflicts.
+
+We therefore treat this as a TAS-specific bug and address it by recomputing the TAS assignment
+when a Workload still fits in quota but fails the TAS placement check after accounting for
+previously evaluated Workloads. During this recomputation, the PodSet-to-ResourceFlavor assignment
+remains sticky so that the quota calculations made earlier in the cycle remain valid.
+This behavior was introduced in 0.19.0 and guarded by the `TASRecomputeAssignmentWithinSchedulingCycle`
+feature gate (enabled by defualt as Beta). The fix is also cherry-picked to 0.17.6 and 0.18.2.
 
 ### Two-level Topology Aware scheduling
 In consideration of a [Story 5](#story-5) a two-level scheduling is introduced.

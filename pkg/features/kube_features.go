@@ -442,6 +442,12 @@ const (
 	// UnadmittedWorkloadsObservability enables granular Prometheus metrics and
 	// updates status reasons for QuotaReserved/Admitted conditions to use tiered reasons.
 	UnadmittedWorkloadsObservability featuregate.Feature = "UnadmittedWorkloadsObservability"
+
+	// owner: @mimowo
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
+	//
+	// Enable re-computing the assignment within the same scheduling cycle when a TAS workload doesn't fit.
+	TASRecomputeAssignmentWithinSchedulingCycle featuregate.Feature = "TASRecomputeAssignmentWithinSchedulingCycle"
 )
 
 func init() {
@@ -683,6 +689,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	UnadmittedWorkloadsObservability: {
 		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Beta},
+	},
+
+	TASRecomputeAssignmentWithinSchedulingCycle: {
+		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 
