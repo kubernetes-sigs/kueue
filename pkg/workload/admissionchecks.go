@@ -45,9 +45,9 @@ func SyncAdmittedCondition(w *kueue.Workload, now time.Time) bool {
 	quotaReservedCond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadQuotaReserved)
 
 	if features.Enabled(features.UnadmittedWorkloadsObservability) {
-		// If QuotaReserved is not set yet, we don't want to explicitly initialize
-		// the Admitted condition either (keeping them both absent).
-		if quotaReservedCond == nil && admittedCond == nil {
+		// If QuotaReserved is not set yet, and the UnadmittedWorkloadsExplicitStatus feature gate is disabled,
+		// we don't want to explicitly initialize the Admitted condition either (keeping them both absent).
+		if !features.Enabled(features.UnadmittedWorkloadsExplicitStatus) && quotaReservedCond == nil && admittedCond == nil {
 			return false
 		}
 	} else {

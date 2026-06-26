@@ -592,27 +592,47 @@ func TestScheduleForAFS(t *testing.T) {
 
 	scenarios := []map[featuregate.Feature]bool{
 		{
-			features.WorkloadRequestUseMergePatch:     false,
-			features.UnadmittedWorkloadsObservability: false,
+			features.WorkloadRequestUseMergePatch:      false,
+			features.UnadmittedWorkloadsObservability:  false,
+			features.UnadmittedWorkloadsExplicitStatus: false,
 		},
 		{
-			features.WorkloadRequestUseMergePatch:     false,
-			features.UnadmittedWorkloadsObservability: true,
+			features.WorkloadRequestUseMergePatch:      false,
+			features.UnadmittedWorkloadsObservability:  true,
+			features.UnadmittedWorkloadsExplicitStatus: false,
 		},
 		{
-			features.WorkloadRequestUseMergePatch:     true,
-			features.UnadmittedWorkloadsObservability: false,
+			features.WorkloadRequestUseMergePatch:      false,
+			features.UnadmittedWorkloadsObservability:  true,
+			features.UnadmittedWorkloadsExplicitStatus: true,
 		},
 		{
-			features.WorkloadRequestUseMergePatch:     true,
-			features.UnadmittedWorkloadsObservability: true,
+			features.WorkloadRequestUseMergePatch:      true,
+			features.UnadmittedWorkloadsObservability:  false,
+			features.UnadmittedWorkloadsExplicitStatus: false,
+		},
+		{
+			features.WorkloadRequestUseMergePatch:      true,
+			features.UnadmittedWorkloadsObservability:  true,
+			features.UnadmittedWorkloadsExplicitStatus: false,
+		},
+		{
+			features.WorkloadRequestUseMergePatch:      true,
+			features.UnadmittedWorkloadsObservability:  true,
+			features.UnadmittedWorkloadsExplicitStatus: true,
 		},
 	}
 
 	for name, tc := range cases {
 		for _, scenario := range scenarios {
 			t.Run(
-				fmt.Sprintf("%s WorkloadRequestUseMergePatch:%t observability:%t", name, scenario[features.WorkloadRequestUseMergePatch], scenario[features.UnadmittedWorkloadsObservability]),
+				fmt.Sprintf(
+					"%s WorkloadRequestUseMergePatch:%t observability:%t explicitStatus:%t",
+					name,
+					scenario[features.WorkloadRequestUseMergePatch],
+					scenario[features.UnadmittedWorkloadsObservability],
+					scenario[features.UnadmittedWorkloadsExplicitStatus],
+				),
 				func(t *testing.T) {
 					features.SetFeatureGatesDuringTest(t, scenario)
 					features.SetFeatureGatesDuringTest(t, tc.featureGates)
