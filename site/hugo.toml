@@ -1,8 +1,6 @@
 baseURL = "/"
 title = "Kueue"
 
-[outputs]
-  home = ["HTML", "RSS", "JSON"]
 
 enableRobotsTXT = true
 
