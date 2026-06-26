@@ -209,23 +209,46 @@ func (s *Scheduler) setAdmissionRoutineWrapper(wrapper routine.Wrapper) {
 	s.admissionRoutineWrapper = wrapper
 }
 
-func setSkipped(e *entry, inadmissibleMsg string) {
+// markSkipped marks the entry as skipped for this cycle. The flavor
+// assignment is cleared so the next cycle retries all flavors (e.g.
+// after Fit no longer fitting, or Preempt being skipped due to an
+// overlapping earlier admission).
+func (e *entry) markSkipped(msg string) {
 	e.status = skipped
-	e.inadmissibleMsg = inadmissibleMsg
-	// Reset assignment so that we retry all flavors
-	// after skipping due to Fit no longer fitting,
-	// or Preempt being skipped due to an overlapping
-	// earlier admission.
+	e.inadmissibleMsg = msg
 	e.LastAssignment = nil
 }
 
-func setPreemptionGated(e *entry, preemptionGatedMsg string) {
+// markPreemptionGated marks the entry as gated pending preemption.
+// The flavor assignment is cleared so the next cycle retries all
+// flavors.
+func (e *entry) markPreemptionGated(msg string) {
 	e.status = preemptionGated
-	e.inadmissibleMsg = preemptionGatedMsg
+	e.inadmissibleMsg = msg
 	e.requeueReason = qcache.RequeueReasonPreemptionGated
-	// Reset assignment so that we retry all flavors
-	// after being gated.
 	e.LastAssignment = nil
+}
+
+func (e *entry) markEvicted() {
+	e.status = evicted
+}
+
+func (e *entry) markNominated() {
+	e.status = nominated
+}
+
+func (e *entry) markAssumed() {
+	e.status = assumed
+}
+
+// recordAssignment stores a flavor assignment and its preemption
+// targets from nominate. LastAssignment aliases the stored
+// assignment's LastState so it tracks any later mutation.
+func (e *entry) recordAssignment(a flavorassigner.Assignment, targets []*preemption.Target) {
+	e.assignment = a
+	e.preemptionTargets = targets
+	e.inadmissibleMsg = e.assignment.Message()
+	e.LastAssignment = &e.assignment.LastState
 }
 
 // markPreemptionOutcome records the outcome of IssuePreemptions and
@@ -368,21 +391,21 @@ func (s *Scheduler) processEntry(
 		if features.Enabled(features.MultiKueueOrchestratedPreemption) && workload.HasClosedPreemptionGate(e.Obj) {
 			gatedMsg := "Workload requires preemption, but it's gated"
 			log.V(3).Info(gatedMsg)
-			setPreemptionGated(e, gatedMsg)
+			e.markPreemptionGated(gatedMsg)
 			return
 		}
 	}
 
 	// We skip multiple-preemptions per cohort if any of the targets are overlapping
 	if preemptedWorkloads.HasAny(e.preemptionTargets) {
-		setSkipped(e, "Workload has overlapping preemption targets with another workload")
+		e.markSkipped("Workload has overlapping preemption targets with another workload")
 		skippedPreemptions[cq.Name]++
 		return
 	}
 
 	usage := e.assignmentUsage(log)
 	if !fits(snapshot, cq, &usage, preemptedWorkloads, e.preemptionTargets) {
-		setSkipped(e, "Workload no longer fits after processing another workload")
+		e.markSkipped("Workload no longer fits after processing another workload")
 		if mode == flavorassigner.Preempt {
 			skippedPreemptions[cq.Name]++
 		}
@@ -410,7 +433,7 @@ func (s *Scheduler) processEntry(
 		}
 	}
 
-	e.status = nominated
+	e.markNominated()
 	if err := s.admit(ctx, e, cq, oldWorkloadSlice); err != nil {
 		e.inadmissibleMsg = fmt.Sprintf("Failed to admit workload: %v", err)
 	}
@@ -421,7 +444,7 @@ func (s *Scheduler) handleFailedTASReplacement(ctx context.Context, log logr.Log
 		log.V(2).Error(err, "Failed to evict workload")
 		return
 	}
-	e.status = evicted
+	e.markEvicted()
 }
 
 // reserveCapacityForUnreclaimablePreempt is called when an entry needs preemption
@@ -436,19 +459,11 @@ func (s *Scheduler) reserveCapacityForUnreclaimablePreempt(log logr.Logger, e *e
 }
 
 func (s *Scheduler) issuePreemptions(ctx context.Context, log logr.Logger, e *entry, preemptionTargets []*preemption.Target) {
-	// If preemptions are issued, the next attempt should try all the flavors.
-	e.LastAssignment = nil
 	preempted, errors, err := s.preemptor.IssuePreemptions(ctx, s.cache, &e.Info, preemptionTargets, e.clusterQueueSnapshot)
 	if err != nil {
 		log.Error(err, "Failed to preempt workloads")
 	}
-	if preempted != 0 {
-		e.inadmissibleMsg += fmt.Sprintf(". Pending the preemption of %d workload(s)", preempted)
-		e.requeueReason = qcache.RequeueReasonPendingPreemption
-	} else if errors > 0 {
-		e.inadmissibleMsg += fmt.Sprintf(". Preempting %d workload(s) failed, will retry.", errors)
-		e.requeueReason = qcache.RequeueReasonPreemptionFailed
-	}
+	e.markPreemptionOutcome(preempted, errors)
 }
 
 // waitForPodsReadyIfBlocked blocks admission until all currently admitted
@@ -548,9 +563,8 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 		} else if err := workload.ValidateLimitRange(ctx, s.client, &w); err != nil {
 			e.inadmissibleMsg = fmt.Sprintf("%s: %v", errLimitRangeConstraintsUnsatisfiedResources, err.ToAggregate())
 		} else {
-			e.assignment, e.preemptionTargets = s.getAssignments(log, &e.Info, snap)
-			e.inadmissibleMsg = e.assignment.Message()
-			e.LastAssignment = &e.assignment.LastState
+			assignment, targets := s.getAssignments(log, &e.Info, snap)
+			e.recordAssignment(assignment, targets)
 			entries = append(entries, e)
 			continue
 		}
@@ -801,7 +815,7 @@ func (s *Scheduler) assumeWorkload(log logr.Logger, e *entry, cq *schdcache.Clus
 		return nil, fmt.Errorf("workload %s/%s could not be added to the cache", cacheWl.Namespace, cacheWl.Name)
 	}
 
-	e.status = assumed
+	e.markAssumed()
 	log.V(2).Info("Workload assumed in the cache")
 
 	if afs.Enabled(s.admissionFairSharing) {
