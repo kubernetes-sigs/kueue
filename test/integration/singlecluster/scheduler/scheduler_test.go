@@ -842,7 +842,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			queue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
 			util.MustCreate(ctx, k8sClient, queue)
 
-			fakeSubResourcePatchSpec = func(obj client.Object) (fakeClientUsage, error) {
+			setFakeSubResourcePatchSpec(func(obj client.Object) (fakeClientUsage, error) {
 				wl, ok := obj.(*kueue.Workload)
 				if !ok {
 					return fallThrough, nil
@@ -852,12 +852,12 @@ var _ = ginkgo.Describe("Scheduler", func() {
 					return emitResponse, errors.New("simulated admission patch failure")
 				}
 				return fallThrough, nil
-			}
+			})
 		})
 
 		ginkgo.AfterEach(func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-			fakeSubResourcePatchSpec = nil
+			setFakeSubResourcePatchSpec(nil)
 		})
 
 		ginkgo.It("Should not reserve quota", func() {
@@ -3349,7 +3349,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				Request(corev1.ResourceCPU, "1").
 				Obj()
 
-			fakeSubResourcePatchSpec = func(obj client.Object) (fakeClientUsage, error) {
+			setFakeSubResourcePatchSpec(func(obj client.Object) (fakeClientUsage, error) {
 				wl, ok := obj.(*kueue.Workload)
 				if !ok {
 					return fallThrough, nil
@@ -3365,9 +3365,9 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				}
 
 				return fallThrough, nil
-			}
+			})
 
-			fakeSubResourcePatchResponseHookSpec = func(obj client.Object, err error) (fakeClientUsage, error) {
+			setFakeSubResourcePatchResponseHookSpec(func(obj client.Object, err error) (fakeClientUsage, error) {
 				wl, ok := obj.(*kueue.Workload)
 				if !ok {
 					return fallThrough, nil
@@ -3379,7 +3379,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 					return fallThrough, nil
 				}
 				return fallThrough, nil
-			}
+			})
 
 			defer func() {
 				if !admissionPatchReleased {
