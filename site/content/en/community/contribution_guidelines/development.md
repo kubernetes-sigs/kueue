@@ -4,6 +4,7 @@ linkTitle: "Development"
 weight: 20
 description: >
   Setting up a local development environment for Kueue
+type: docs
 ---
 
 ## Prerequisites

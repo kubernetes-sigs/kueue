@@ -16,7 +16,7 @@ description: >
 
 - 一个 Kubernetes 集群正在运行。
 - kubectl 命令行工具与你的集群通信。
-- [Kueue 已安装](/zh-CN/docs/installation)。
+- [Kueue 已安装](/zh-cn/docs/installation)。
 - Cert Manager 已[安装](https://cert-manager.io/docs/installation/)
 
 Kueue 支持 Kustomize 或通过 Helm chart 进行安装。

@@ -1,0 +1,27 @@
+{{ define "main" }}
+<!-- Clean, minimalist wrapper with Navbar Offset that bypasses Docsy's redundant community template -->
+<div class="bg-light border-bottom" style="padding-top: 5.5rem !important; padding-bottom: 2.5rem !important;">
+  <div class="container text-center">
+    <div class="mx-auto" style="max-width: 800px;">
+
+      <h1 class="display-5 fw-bold text-primary mb-2" style="letter-spacing: -0.03em;">
+        {{ T "community_page_title" | default "Kueue Community" }}
+      </h1>
+      <p class="lead text-muted fs-5 mb-0" style="font-weight: 400; line-height: 1.5;">
+        {{ T "community_page_subtitle" | default "Kueue is an open, collaborative, CNCF sandbox project. Join our community of users, operators, and contributors." }}
+      </p>
+    </div>
+  </div>
+</div>
+
+<div class="bg-white py-5">
+  <div class="container">
+    <div class="row justify-content-center">
+      <div class="col-lg-11">
+        <!-- Render the rich content defined in our _index.md/html -->
+        {{ .Content }}
+      </div>
+    </div>
+  </div>
+</div>
+{{ end }}

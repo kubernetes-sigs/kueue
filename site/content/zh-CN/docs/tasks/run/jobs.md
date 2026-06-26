@@ -17,8 +17,8 @@ description: >
 
 - Kubernetes 集群正在运行。
 - kubectl 命令行工具能够与您的集群通信。
-- [已安装 Kueue](/zh-CN/docs/installation)。
-- 集群已[配置配额](/zh-CN/docs/tasks/manage/administer_cluster_quotas)。
+- [已安装 Kueue](/zh-cn/docs/installation)。
+- 集群已[配置配额](/zh-cn/docs/tasks/manage/administer_cluster_quotas)。
 
 下图显示了您在本教程中将要学习的所有概念：
 
@@ -41,7 +41,7 @@ NAME         CLUSTERQUEUE    PENDING WORKLOADS
 user-queue   cluster-queue   3
 ```
 
-[ClusterQueue](/zh-CN/docs/concepts/cluster_queue) 定义了队列的配额。
+[ClusterQueue](/zh-cn/docs/concepts/cluster_queue) 定义了队列的配额。
 
 ## 1. 定义 Job {#1-define-the-job}
 
@@ -66,7 +66,7 @@ user-queue   cluster-queue   3
 kubectl create -f sample-job.yaml
 ```
 
-在内部，Kueue 将为此 Job 创建一个与名称匹配的相应[Workload](/zh-CN/docs/concepts/workload)。
+在内部，Kueue 将为此 Job 创建一个与名称匹配的相应[Workload](/zh-cn/docs/concepts/workload)。
 
 ```shell
 kubectl -n default get workloads.kueue.x-k8s.io

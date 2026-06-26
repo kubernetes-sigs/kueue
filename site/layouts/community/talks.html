@@ -1,0 +1,318 @@
+{{ define "main" }}
+<!-- 1. HEADER SECTION (Inherits Kueue's premium branding with navbar offset) -->
+<div class="bg-light border-bottom" style="padding-top: 5.5rem !important; padding-bottom: 2.5rem !important;">
+  <div class="container text-center">
+    <div class="mx-auto" style="max-width: 800px;">
+      <h1 class="display-5 fw-bold text-primary mb-2" style="letter-spacing: -0.03em;">
+        {{ .Title }}
+      </h1>
+      {{ with .Params.description }}
+      <p class="lead text-muted fs-5 mb-0" style="font-weight: 400; line-height: 1.5;">
+        {{ . }}
+      </p>
+      {{ end }}
+    </div>
+  </div>
+</div>
+
+<div class="bg-white py-5">
+  <div class="container">
+    <div class="row justify-content-center">
+      <div class="col-lg-11">
+        
+        <!-- 2. OPTIONAL INTRO CONTENT -->
+        {{ if .Content }}
+          <div class="mb-5 text-muted text-center mx-auto" style="max-width: 800px; font-size: 0.95rem; line-height: 1.6;">
+            {{ .Content }}
+          </div>
+        {{ end }}
+
+        <!-- 3. INTERACTIVE CONTROLS (SEARCH & FILTER TABS) -->
+        <div class="d-flex flex-column align-items-center gap-4 mb-5">
+          
+          <!-- Real-Time Search Bar -->
+          <div class="w-100 shadow-sm" style="max-width: 500px;">
+            <div class="input-group">
+              <span class="input-group-text bg-white border-end-0 text-muted rounded-start-3" style="padding-left: 14px; padding-right: 8px;">
+                <i class="fas fa-search fa-sm"></i>
+              </span>
+              <input type="text" id="talksSearch" oninput="setSearchQuery(this.value)" class="form-control border-start-0 ps-1 py-2 rounded-end-3" placeholder="{{ T "talks_search_placeholder" }}" style="font-size: 0.9rem; outline: none; box-shadow: none;">
+            </div>
+          </div>
+
+          <!-- Filter Tabs -->
+          <div class="d-flex flex-wrap justify-content-center gap-2">
+            <button onclick="setTabFilter('all', this)" class="btn btn-sm btn-primary active tab-filter-btn px-3 py-1.5 fw-semibold rounded-pill">
+              {{ T "talks_filter_all" }}
+            </button>
+            <button onclick="setTabFilter('case-study', this)" class="btn btn-sm btn-outline-primary tab-filter-btn px-3 py-1.5 fw-semibold rounded-pill">
+              <i class="fas fa-book-open me-1.5"></i> {{ T "talks_filter_case_studies" }}
+            </button>
+            <button onclick="setTabFilter('talk', this)" class="btn btn-sm btn-outline-primary tab-filter-btn px-3 py-1.5 fw-semibold rounded-pill">
+              <i class="fas fa-video me-1.5"></i> {{ T "talks_filter_videos" }}
+            </button>
+            <button onclick="setTabFilter('tutorial', this)" class="btn btn-sm btn-outline-primary tab-filter-btn px-3 py-1.5 fw-semibold rounded-pill">
+              <i class="fas fa-tools me-1.5"></i> {{ T "talks_filter_tutorials" }}
+            </button>
+          </div>
+
+        </div>
+
+        <!-- 4. CARDS GRID (Automatically sorted by Date descending at build-time) -->
+        <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4" id="talksGrid">
+          {{ range sort site.Data.talks "date" "desc" }}
+          
+            <!-- Pre-compute search string for instantaneous client-side searching -->
+            {{ $year := dateFormat "2006" .date }}
+            {{ $presenterNames := slice }}
+            {{ $presenterCompanies := slice }}
+            {{ range .presenters }}
+              {{ $presenterNames = $presenterNames | append .name }}
+              {{ if .company }}
+                {{ $presenterCompanies = $presenterCompanies | append .company }}
+              {{ end }}
+            {{ end }}
+            {{ $searchString := printf "%s %s %s %s %s" .title .event $year (delimit $presenterNames " ") (delimit $presenterCompanies " ") | lower }}
+
+
+            <div class="col talk-card-col" data-type="{{ .type }}" data-search="{{ $searchString }}">
+              <div class="card h-100 shadow-sm bg-white border rounded-3 hover-shadow" style="transition: all 0.2s ease-in-out;">
+                <div class="card-body p-4 d-flex flex-column">
+                  
+                  <!-- Card Header: Type Badge & Year -->
+                  <div class="d-flex justify-content-between align-items-center mb-3">
+                    <div>
+                      {{ if eq .type "case-study" }}
+                        <span style="display: inline-block; padding: 3px 10px; background-color: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; border-radius: 50rem; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap;">
+                          {{ if and .links.video (not .links.article) }}
+                            <!-- Video Case Study -->
+                            <i class="fas fa-video me-1"></i> {{ T "talks_filter_case_studies" }}
+                          {{ else }}
+                            <!-- Written / General Case Study -->
+                            <i class="fas fa-book-open me-1"></i> {{ T "talks_filter_case_studies" }}
+                          {{ end }}
+                        </span>
+                      {{ else if eq .type "tutorial" }}
+                        <span style="display: inline-block; padding: 3px 10px; background-color: #faf5ff; color: #7c3aed; border: 1px solid #e9d5ff; border-radius: 50rem; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap;">
+                          <i class="fas fa-graduation-cap me-1"></i> {{ T "talks_filter_tutorials" }}
+                        </span>
+                      {{ else }}
+                        <span style="display: inline-block; padding: 3px 10px; background-color: #f0f9ff; color: #0369a1; border: 1px solid #bae6fd; border-radius: 50rem; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap;">
+                          <i class="fas fa-video me-1"></i> {{ T "talks_filter_videos" }}
+                        </span>
+                      {{ end }}
+                    </div>
+                    <span class="text-muted small fw-bold" style="font-size: 0.8rem; font-family: monospace;">
+                      {{ dateFormat "2006" .date }}
+                    </span>
+                  </div>
+
+                  <!-- Title -->
+                  <h5 class="card-title fw-bold text-primary mb-2" style="font-size: 1.05rem; line-height: 1.4; letter-spacing: -0.01em;">
+                    {{ .title }}
+                  </h5>
+
+                  <!-- Event details with dynamic icon -->
+                  <div class="text-muted small mb-3" style="font-size: 0.8rem;">
+                    {{ if and .links.article (not .links.video) }}
+                      <!-- Written Article / Blog Post -->
+                      <i class="fas fa-pen-nib text-info me-1.5" style="font-size: 0.8rem;"></i>
+                    {{ else }}
+                      <!-- Live Presentation / Conference Event -->
+                      <i class="fas fa-calendar-alt text-info me-1.5" style="font-size: 0.8rem;"></i>
+                    {{ end }}
+                    {{ .event }}
+                  </div>
+
+                  <!-- Description (Optional) -->
+                  {{ if .description }}
+                    <p class="card-text text-muted small mb-3" style="font-size: 0.825rem; line-height: 1.5;">
+                      {{ .description }}
+                    </p>
+                  {{ end }}
+
+                  <!-- Speakers/Authors list -->
+                  {{ if .presenters }}
+                    <div class="border-top pt-3 mb-3">
+                      <span class="text-muted d-block small mb-1.5 fw-semibold" style="font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.05em;">
+                        {{ T "talks_label_contributors" }}
+                      </span>
+                      <div class="d-flex flex-wrap gap-1.5">
+
+
+                        {{ range .presenters }}
+                          <span style="display: inline-block; padding: 2px 8px; background-color: #f1f5f9; color: #334155; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 0.7rem; font-weight: 500;">
+                            <i class="fas fa-user text-muted me-1" style="font-size: 0.65rem;"></i>
+                            {{ .name }}
+                            {{ if .company }}
+                              <span class="text-muted fw-normal" style="font-size: 0.65rem;">({{ .company }})</span>
+                            {{ end }}
+                          </span>
+                        {{ end }}
+                      </div>
+                    </div>
+                  {{ end }}
+
+                  <!-- The Spacer that pins the buttons to the bottom of the card -->
+                  <div class="flex-grow-1"></div>
+
+                  <!-- Action Buttons (Dynamic link rendering hierarchy) -->
+                  <div class="border-top pt-3 d-flex flex-column gap-2.5">
+
+                    
+                    <div class="d-flex gap-2 w-100">
+                      {{ if .links.article }}
+                        <a href="{{ .links.article }}" target="_blank" rel="noopener" class="btn btn-sm btn-primary flex-grow-1 fw-semibold py-1.5">
+                          {{ if eq .type "tutorial" }}
+                            <i class="fas fa-graduation-cap me-1.5"></i> {{ T "talks_btn_read_tutorial" }}
+                          {{ else if eq .type "case-study" }}
+                            <i class="fas fa-book-open me-1.5"></i> {{ T "talks_btn_read_case_study" }}
+                          {{ else }}
+                            <i class="fas fa-book-open me-1.5"></i> {{ T "talks_btn_read_article" }}
+                          {{ end }}
+                        </a>
+                      {{ end }}
+
+                      
+                      {{ if .links.video }}
+                        {{ if .links.article }}
+                          <!-- If both article and video exist, watch video is outline -->
+                          <a href="{{ .links.video }}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary flex-grow-1 fw-semibold py-1.5">
+                            <i class="fas fa-play me-1.5"></i> {{ T "talks_btn_watch" }}
+                          </a>
+                        {{ else }}
+                          <!-- If only video exists, it is the primary action -->
+                          <a href="{{ .links.video }}" target="_blank" rel="noopener" class="btn btn-sm btn-primary flex-grow-1 fw-semibold py-1.5">
+                            <i class="fas fa-play me-1.5"></i> {{ T "talks_btn_watch" }}
+                          </a>
+                        {{ end }}
+                      {{ end }}
+                    </div>
+
+                    <!-- Supporting/Secondary links (Slides, Details, Materials) -->
+                    <div class="d-flex flex-wrap justify-content-center gap-3 border-top" style="font-size: 0.75rem; padding-top: 0.625rem; {{ if not (or .links.details .links.slides .links.materials) }}visibility: hidden;{{ end }}">
+                      {{ if .links.details }}
+                        <a href="{{ .links.details }}" target="_blank" rel="noopener" class="text-info text-decoration-none hover-teal fw-semibold">
+                          <i class="fas fa-info-circle me-1"></i> {{ T "talks_btn_details" }}
+                        </a>
+                      {{ end }}
+                      {{ if .links.slides }}
+                        <a href="{{ .links.slides }}" target="_blank" rel="noopener" class="text-info text-decoration-none hover-teal fw-semibold">
+                          <i class="fas fa-file-powerpoint me-1"></i> {{ T "talks_btn_slides" }}
+                        </a>
+                      {{ end }}
+                      {{ if .links.materials }}
+                        <a href="{{ .links.materials }}" target="_blank" rel="noopener" class="text-info text-decoration-none hover-teal fw-semibold">
+                          <i class="fas fa-folder-open me-1"></i> {{ T "talks_btn_materials" }}
+                        </a>
+                      {{ end }}
+                      {{ if not (or .links.details .links.slides .links.materials) }}
+                        <!-- Dummy link to maintain height -->
+                        <a href="#" class="text-info text-decoration-none fw-semibold">
+                          <i class="fas fa-info-circle me-1"></i>&nbsp;
+                        </a>
+                      {{ end }}
+                    </div>
+
+                  </div>
+
+                </div>
+              </div>
+            </div>
+          {{ end }}
+        </div>
+
+        <!-- 5. NO RESULTS STATE -->
+        <div id="noResults" class="text-center py-5 mt-4" style="display: none;">
+          <div class="text-muted mb-2">
+            <i class="fas fa-search-minus fa-3x"></i>
+          </div>
+          <p class="lead text-muted mb-0" style="font-size: 1.1rem;">
+            {{ T "talks_no_results" }}
+          </p>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 6. HIGH-PERFORMANCE JS CONTROLLER -->
+<script>
+  let activeTab = "all";
+  let activeQuery = "";
+
+  // Dynamic filter pipeline
+  window.filterTalks = function() {
+    const cardCols = document.querySelectorAll(".talk-card-col");
+    const noResultsDiv = document.getElementById("noResults");
+    let visibleCount = 0;
+
+    cardCols.forEach(col => {
+      const type = col.getAttribute("data-type") || "";
+      const searchText = col.getAttribute("data-search") || "";
+
+      const matchesTab = (activeTab === "all" || type === activeTab);
+      const matchesSearch = (activeQuery === "" || searchText.includes(activeQuery));
+
+      if (matchesTab && matchesSearch) {
+        col.style.display = ""; // Show
+        visibleCount++;
+      } else {
+        col.style.display = "none"; // Hide
+      }
+    });
+
+    // Toggle no-results overlay
+    if (visibleCount === 0) {
+      noResultsDiv.style.display = "block";
+    } else {
+      noResultsDiv.style.display = "none";
+    }
+  };
+
+  // Tab trigger
+  window.setTabFilter = function(tabName, btnElement) {
+    activeTab = tabName;
+    
+    // Toggle active button styling
+    const tabButtons = document.querySelectorAll(".tab-filter-btn");
+    tabButtons.forEach(btn => {
+      btn.classList.remove("active", "btn-primary");
+      btn.classList.add("btn-outline-primary");
+    });
+    
+    btnElement.classList.remove("btn-outline-primary");
+    btnElement.classList.add("active", "btn-primary");
+
+    filterTalks();
+  };
+
+  // Search trigger
+  window.setSearchQuery = function(value) {
+    activeQuery = (value || "").toLowerCase().trim();
+    filterTalks();
+  };
+</script>
+
+<!-- 7. SCALABLE HOVER EFFECTS -->
+<style>
+.hover-shadow:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 0.5rem 1.5rem rgba(15, 23, 42, 0.08) !important;
+  border-color: #0ea5e9 !important; /* Sky-500 border highlight */
+}
+/* Style overrides to make input group look premium */
+.input-group:focus-within {
+  box-shadow: 0 0 0 0.25rem rgba(14, 165, 233, 0.15) !important;
+  border-radius: 0.5rem;
+}
+.input-group:focus-within .input-group-text,
+.input-group:focus-within input {
+  border-color: #0ea5e9 !important;
+}
+.input-group .form-control:focus {
+  box-shadow: none !important;
+}
+</style>
+{{ end }}
