@@ -83,7 +83,10 @@ GO_TEST_TARGET ?= .
 ifeq ($(JOB_TYPE),periodic)
     export USE_RAY_FOR_TESTS="ray"
 else
-    export USE_RAY_FOR_TESTS="raymini"
+	export USE_RAY_FOR_TESTS="ray"
+# Use full ray temporarily for presubmit jobs until we figure out the issue with raymini
+# See: https://github.com/kubernetes-sigs/kueue/issues/12579
+# export USE_RAY_FOR_TESTS="raymini"
 endif
 
 .PHONY: test
