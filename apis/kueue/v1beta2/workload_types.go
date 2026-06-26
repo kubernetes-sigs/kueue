@@ -984,6 +984,15 @@ const (
 
 	// WorkloadAdmittedReasonPendingDelayedTopologyRequests indicates that there are pending delayed topology requests.
 	WorkloadAdmittedReasonPendingDelayedTopologyRequests = "PendingDelayedTopologyRequests"
+
+	// WorkloadUnadmittedCauseChecksNotReady indicates that the workload has reserved quota,
+	// but is blocked by pending admission checks.
+	WorkloadUnadmittedCauseChecksNotReady = "ChecksNotReady"
+
+	// WorkloadUnadmittedCausePendingTopology indicates that the workload has reserved quota,
+	// but is blocked by delayed topology requests.
+	WorkloadUnadmittedCausePendingTopology = "PendingTopology"
+
 	// WorkloadFinished means that the workload associated to the
 	// ResourceClaim finished running (failed or succeeded).
 	WorkloadFinished = "Finished"
