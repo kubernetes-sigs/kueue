@@ -190,8 +190,7 @@
                     </div>
 
                     <!-- Supporting/Secondary links (Slides, Details, Materials) -->
-                    {{ if or .links.details .links.slides .links.materials }}
-                    <div class="d-flex flex-wrap justify-content-center gap-3 border-top pt-2.5" style="font-size: 0.75rem;">
+                    <div class="d-flex flex-wrap justify-content-center gap-3 border-top" style="font-size: 0.75rem; padding-top: 0.625rem; {{ if not (or .links.details .links.slides .links.materials) }}visibility: hidden;{{ end }}">
                       {{ if .links.details }}
                         <a href="{{ .links.details }}" target="_blank" rel="noopener" class="text-info text-decoration-none hover-teal fw-semibold">
                           <i class="fas fa-info-circle me-1"></i> {{ T "talks_btn_details" }}
@@ -207,8 +206,13 @@
                           <i class="fas fa-folder-open me-1"></i> {{ T "talks_btn_materials" }}
                         </a>
                       {{ end }}
+                      {{ if not (or .links.details .links.slides .links.materials) }}
+                        <!-- Dummy link to maintain height -->
+                        <a href="#" class="text-info text-decoration-none fw-semibold">
+                          <i class="fas fa-info-circle me-1"></i>&nbsp;
+                        </a>
+                      {{ end }}
                     </div>
-                    {{ end }}
 
                   </div>
 
