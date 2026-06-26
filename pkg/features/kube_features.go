@@ -381,6 +381,12 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/10659
 	// Enable accurately topology aware scheduling when multiple flavors cover the same Node.
 	TASHandleOverlappingFlavors featuregate.Feature = "TASHandleOverlappingFlavors"
+
+	// owner: @mimowo
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
+	//
+	// Enable re-computing the assignment within the same scheduling cycle when a TAS workload doesn't fit.
+	TASRecomputeAssignmentWithinSchedulingCycle featuregate.Feature = "TASRecomputeAssignmentWithinSchedulingCycle"
 )
 
 func init() {
@@ -583,6 +589,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	TASHandleOverlappingFlavors: {
 		{Version: version.MustParse("0.16"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	TASRecomputeAssignmentWithinSchedulingCycle: {
+		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 
