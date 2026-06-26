@@ -510,6 +510,14 @@ const (
 	// UnadmittedWorkloadsObservability enables granular Prometheus metrics and
 	// updates status reasons for QuotaReserved/Admitted conditions to use tiered reasons.
 	UnadmittedWorkloadsObservability featuregate.Feature = "UnadmittedWorkloadsObservability"
+
+	// owner: @j-skiba
+	// kep: https://github.com/kubernetes-sigs/kueue/issues/10852
+	//
+	// UnadmittedWorkloadsExplicitStatus gates the immediate, proactive
+	// initialization of both QuotaReserved and Admitted status conditions
+	// to False during a workload's first reconciliation.
+	UnadmittedWorkloadsExplicitStatus featuregate.Feature = "UnadmittedWorkloadsExplicitStatus"
 )
 
 func init() {
@@ -789,6 +797,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
 	},
 	UnadmittedWorkloadsObservability: {
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	UnadmittedWorkloadsExplicitStatus: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
