@@ -455,6 +455,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.15"
+- name: TASRecomputeAssignmentWithinSchedulingCycle
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.18"
 - name: TASReplaceNodeOnNodeTaints
   versionedSpecs:
   - default: true
