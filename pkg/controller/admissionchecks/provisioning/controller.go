@@ -53,6 +53,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 )
 
 const (
@@ -332,10 +333,10 @@ func (c *Controller) syncOwnedProvisionRequest(
 
 func (c *Controller) handleError(ctx context.Context, wl *kueue.Workload, ac *kueue.AdmissionCheckState, msg string, err error) error {
 	c.record.Eventf(wl, nil, corev1.EventTypeWarning, "FailedCreate", "FailedCreate", api.TruncateEventMessage(msg))
-	patchErr := workload.PatchStatus(ctx, c.client, wl, kueue.ProvisioningRequestControllerName, func(wl *kueue.Workload) (bool, error) {
+	patchErr := workloadpatching.PatchStatus(ctx, c.client, wl, kueue.ProvisioningRequestControllerName, func(wl *kueue.Workload) (bool, error) {
 		ac.Message = api.TruncateConditionMessage(msg)
 		ac.LastTransitionTime = metav1.NewTime(c.clock.Now())
-		return workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *ac, c.clock), nil
+		return workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *ac, c.clock), nil
 	})
 	return errors.Join(err, patchErr)
 }
@@ -485,7 +486,7 @@ func updateCheckState(checkState *kueue.AdmissionCheckState, state kueue.CheckSt
 
 func (wlInfo *workloadInfo) update(wl *kueue.Workload, c clock.Clock) {
 	for _, check := range wl.Status.AdmissionChecks {
-		workload.SetAdmissionCheckState(&wlInfo.checkStates, check, c)
+		workloadpatching.SetAdmissionCheckState(&wlInfo.checkStates, check, c)
 	}
 }
 
@@ -500,7 +501,7 @@ func (c *Controller) syncCheckStates(
 	checksMap := slices.ToRefMap(wl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) kueue.AdmissionCheckReference { return c.Name })
 	recorderMessages := make([]string, 0, len(checkConfig))
 	updated := false
-	err := workload.PatchStatus(ctx, c.client, wl, kueue.ProvisioningRequestControllerName, func(wlPatch *kueue.Workload) (bool, error) {
+	err := workloadpatching.PatchStatus(ctx, c.client, wl, kueue.ProvisioningRequestControllerName, func(wlPatch *kueue.Workload) (bool, error) {
 		// Inside PatchStatus (Apply), we use BaseSSAWorkload() to create the patch.
 		// This patch does not include wl.Status.AdmissionChecks, which leads to errors
 		// in subsequent steps due to the missing field.
@@ -610,7 +611,7 @@ func (c *Controller) syncCheckStates(
 				}
 				recorderMessages = append(recorderMessages, message)
 			}
-			workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, checkState, c.clock)
+			workloadpatching.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, checkState, c.clock)
 		}
 		return updated, nil
 	})
