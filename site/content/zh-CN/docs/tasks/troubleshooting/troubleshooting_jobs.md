@@ -72,7 +72,7 @@ kubectl describe workload -n my-namespace job-my-job-19797
 ```
 
 如果你使用的 agent 可以访问 Kueue 的实验性 skills，请参阅
-[使用 Agent Skills 进行故障排除](/zh-CN/docs/tasks/troubleshooting/troubleshooting_agent_skills)，
+[使用 Agent Skills 进行故障排除](/zh-cn/docs/tasks/troubleshooting/troubleshooting_agent_skills)，
 从 Workload 或 Job 追踪到完整的 Pod 链路。
 
 ## 我的 Job 使用什么 ResourceFlavors？ {#what-resourceflavors-is-my-job-using}
@@ -301,7 +301,7 @@ status:
 `QuotaReserved` 条件显示 Kueue 已经尝试再次准入它，在这种情况下不成功。
 
 如果你需要识别触发抢占的 Workload，请参阅
-[使用 Agent Skills 进行故障排除](/zh-CN/docs/tasks/troubleshooting/troubleshooting_agent_skills)
+[使用 Agent Skills 进行故障排除](/zh-cn/docs/tasks/troubleshooting/troubleshooting_agent_skills)
 中的 `kueue-who-preempted` runbook。
 
 ## 我的 Job 的 Pod 是否在运行？ {#are-the-pods-of-my-job-running}

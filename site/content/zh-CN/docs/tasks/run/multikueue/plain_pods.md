@@ -9,9 +9,9 @@ description: 在多集群环境中运行普通 Pod
 
 ## 开始之前 {#before-you-begin}
 
-1. 请查阅 [MultiKueue 安装指南](/zh-CN/docs/tasks/manage/setup_multikueue)了解如何正确设置 MultiKueue 集群。
+1. 请查阅 [MultiKueue 安装指南](/zh-cn/docs/tasks/manage/setup_multikueue)了解如何正确设置 MultiKueue 集群。
 
-2. 按照[运行 Plain Pod](/zh-CN/docs/tasks/run/plain_pods/#before-you-begin)的步骤，
+2. 按照[运行 Plain Pod](/zh-cn/docs/tasks/run/plain_pods/#before-you-begin)的步骤，
    了解如何启用和配置 `pod` 集成。
 
 在管理集群上创建的 Pod 会自动被管控，并实时接收来自远程副本的状态更新。

@@ -6,24 +6,33 @@ html.smooth-scroll {
   scroll-behavior: smooth;
 }
 
-// Theme colors
-$primary: #4279f4;
-$secondary: #fff;
-$dark: #213d7a;
-$info: #adb5bd;
-$light: #dee2e6;
-$link-color: #3176d9;
+// Theme colors - Option 1: Modern Minimalist (Slate & Sky)
+$primary: #0f172a;       // Slate 900 (Deep, professional dark)
+$secondary: #ffffff;     // White
+$dark: #1e293b;          // Slate 800
+$info: #0ea5e9;          // Sky 500 (Vibrant teal/accent)
+$light: #f8fafc;         // Slate 50 (Very soft gray background)
+$link-color: #0ea5e9;    // Sky 500
+
+// Global Typography Overrides for a tighter, higher-density look
+$font-size-base: 0.9375rem !default; // 15px base body text (down from 16px)
+$h1-font-size: 2rem !default;        // Restrained heading sizes
+$h2-font-size: 1.5rem !default;
+$h3-font-size: 1.25rem !default;
+$h4-font-size: 1.1rem !default;
+$h5-font-size: 0.95rem !default;
 
 // Nav bar colors
 $white: #fff;
-$navbar-dark-color: rgba($white, 1);
-$navbar-dark-hover-color: rgba($white, 0.75);
-$navbar-dark-active-color: $navbar-dark-color;
+$navbar-dark-color: rgba($primary, 0.8);
+$navbar-dark-hover-color: $info;
+$navbar-dark-active-color: $primary;
 
-// Fonts
-$google_font_family: "Open+Sans:300,300i,400,400i,600,600i,700,700i&display=swap" !default;
+// Fonts - Swapping to Inter
+$google_font_family: "Inter:wght@300;400;500;600;700&display=swap" !default;
 
-// Front page styling
+
+// Front page styling overrides
 .card-img-top {
   object-fit: scale-down;
 }
@@ -32,121 +41,29 @@ $google_font_family: "Open+Sans:300,300i,400,400i,600,600i,700,700i&display=swap
   font-weight: 400;
 }
 
-.bg-primary-dark {
-  background-color: $dark;
+// Clean utility classes for the new homepage
+.hero-grid-bg {
+  background-image: 
+    radial-gradient(circle at 1px 1px, #e2e8f0 1px, transparent 0),
+    radial-gradient(circle at 1px 1px, #e2e8f0 1px, transparent 0);
+  background-size: 40px 40px;
+  background-position: 0 0, 20px 20px;
+}
 
-  a {
-    border-bottom: 1px dotted paleturquoise;
-    
-    color: paleturquoise !important;
-    font-weight: 600;
-    padding: 0 2px 1px 2px;
-    text-decoration: none;
-    
-    &:hover {
-      border-bottom: 1px dotted #fff;
-
-      color: #fff !important;
-    }
+.feature-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  border: 1px solid #e2e8f0 !important;
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.02);
   }
 }
 
-.border-primary-dark {
-  border-color: $info !important;
+.community-card {
+  transition: border-color 0.2s ease;
+  border: 1px solid #e2e8f0 !important;
+  &:hover {
+    border-color: $info !important;
+  }
 }
 
-.section-head {
-  font-size: 1.25em;
-  color: $primary;
-  font-weight: bold;
-  padding: 0 0 1em 0;
-}
-
-.contain {
-  margin: 0 auto;
-  max-width: 1200px; }
-
-.image {
-  display: block; }
-  .image img {
-    display: block;
-    width: 100%;
-    height: auto; }
-  .image.left, .image.right {
-    max-width: 45%; }
-    .image.left::after, .image.right::after {
-      clear: both;
-      content: "";
-      display: block; }
-  .image.left {
-    float: left;
-    margin: 0 1.5em 1.5em 0; }
-  .image.right {
-    float: right;
-    margin: 0 0 1.5em 1.5em; }
-
-#overview, #community {
-  padding: 6em 1.5em 3em 1.5em;
-  text-align: center;
-  margin: 0; }
-  #overview p, #community p {
-    font-size: 1.125em;}
-
-#overview {
-  border-bottom: 2px solid #b6d0ff;
-}
-
-#community {
-  border-top: 2px solid #b6d0ff;
-}
-
-#pageContent .lead {
-  margin: 0 1.5em 3em 1.5em;}
-  #pageContent .lead > .image {
-    padding: 0 1.5em;
-    max-width: 60%;
-    margin-bottom: 1.5em; }
-  #pageContent .lead > .text p {
-    font-size: 1em; }
-
-@media screen and (min-width: 480px) {
-  #overview, #community {
-    font-size: 1.125em; }
-  #pageContent .lead > .image {
-    max-width: 35%;
-    margin-bottom: 3em; }
-  #pageContent .lead > .text p {
-    font-size: 1em; } }
-
-@media screen and (min-width: 769px) {
-  #pageContent .lead {
-    margin-top: 1em;
-    display: -ms-flexbox;
-    display: flex;
-    -ms-flex-direction: row;
-        flex-direction: row;
-    -ms-flex-wrap: nowrap;
-        flex-wrap: nowrap;
-    -ms-flex-pack: justify;
-        justify-content: space-between;
-    -ms-flex-align: stretch;
-        align-items: stretch; }
-    #pageContent .lead > * {
-      -ms-flex: 0 1 auto;
-          flex: 0 1 auto; }
-    #pageContent .lead > .image {
-      display: block;
-      margin: 0 auto;
-      max-width: 100%; }
-      #pageContent .lead > .image > img {
-        max-width: 80%;
-        margin: 0 auto; }
-    #pageContent .lead > .text {
-      -ms-flex-preferred-size: 70%;
-          flex-basis: 70%; }
-    #pageContent .lead:nth-child(2n+0) > .image {
-      -ms-flex-order: 2;
-          order: 2; }
-    #pageContent .lead:nth-child(2n+0) > .text {
-      -ms-flex-order: 1;
-          order: 1; } }
