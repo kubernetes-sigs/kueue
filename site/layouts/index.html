@@ -1,8 +1,6 @@
 {{ define "main" }}
 
-<!-- LOCAL STATIC PARAMETERS (No network dependencies, 100% reliable builds) -->
-{{ $stars := site.Params.github_stars | default "1.5k+" }}
-{{ $forks := site.Params.github_forks | default "300+" }}
+<!-- LOCAL STATIC PARAMETERS -->
 {{ $version := site.Params.version | default "v0.18.1" }}
 
 
@@ -22,17 +20,13 @@
         </a>
         
         <!-- Stars Badge -->
-        <a href="https://github.com/kubernetes-sigs/kueue/stargazers" target="_blank" rel="noopener" style="text-decoration: none; display: inline-block;">
-          <span style="display: inline-block; padding: 4px 12px; background-color: white; color: #334155; border: 1px solid #0ea5e9; border-radius: 50rem; font-size: 0.8rem; font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-            <i class="fab fa-github" style="margin-right: 4px; color: #0ea5e9;"></i> <span style="font-weight: 700; color: #0f172a;">{{ $stars }}</span> {{ T "homepage_badge_stars" | default "Stars" }}
-          </span>
+        <a href="https://github.com/kubernetes-sigs/kueue" target="_blank" rel="noopener" style="text-decoration: none; display: inline-block;">
+          <img alt="GitHub stars" src="https://img.shields.io/github/stars/kubernetes-sigs/kueue?style=social">
         </a>
         
         <!-- Forks Badge -->
-        <a href="https://github.com/kubernetes-sigs/kueue/forks" target="_blank" rel="noopener" style="text-decoration: none; display: inline-block;">
-          <span style="display: inline-block; padding: 4px 12px; background-color: white; color: #334155; border: 1px solid #0ea5e9; border-radius: 50rem; font-size: 0.8rem; font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-            <i class="fas fa-code-branch" style="margin-right: 4px; color: #0ea5e9;"></i> <span style="font-weight: 700; color: #0f172a;">{{ $forks }}</span> {{ T "homepage_badge_forks" | default "Forks" }}
-          </span>
+        <a href="https://github.com/kubernetes-sigs/kueue/fork" target="_blank" rel="noopener" style="text-decoration: none; display: inline-block;">
+          <img alt="GitHub forks" src="https://img.shields.io/github/forks/kubernetes-sigs/kueue?style=social">
         </a>
         
       </div>
