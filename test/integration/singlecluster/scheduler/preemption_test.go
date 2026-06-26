@@ -154,7 +154,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 		ginkgo.It("Should retry on failed preemptions", func() {
 			var attempt atomic.Int32
 			var allowPreemption atomic.Bool
-			fakeSubResourcePatchSpec = func(obj client.Object) (fakeClientUsage, error) {
+			setFakeSubResourcePatchSpec(func(obj client.Object) (fakeClientUsage, error) {
 				wl, ok := obj.(*kueue.Workload)
 				if !ok {
 					return fallThrough, nil
@@ -172,7 +172,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 					return emitResponse, errors.New("simulate API server error while preempting workload")
 				}
 				return fallThrough, nil
-			}
+			})
 			ginkgo.By("Creating a low priority Workload")
 			lowWl := utiltestingapi.MakeWorkload("low-wl", ns.Name).
 				Queue(kueue.LocalQueueName(q.Name)).

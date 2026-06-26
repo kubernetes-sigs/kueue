@@ -19,6 +19,7 @@ package scheduler
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/onsi/ginkgo/v2"
@@ -60,9 +61,22 @@ var (
 	k8sClient                            client.Client
 	ctx                                  context.Context
 	fwk                                  *framework.Framework
+	fakeClientMutex                      sync.RWMutex
 	fakeSubResourcePatchSpec             fakeClientCallSpec
 	fakeSubResourcePatchResponseHookSpec fakeClientCallResponseHookSpec
 )
+
+func setFakeSubResourcePatchSpec(f fakeClientCallSpec) {
+	fakeClientMutex.Lock()
+	defer fakeClientMutex.Unlock()
+	fakeSubResourcePatchSpec = f
+}
+
+func setFakeSubResourcePatchResponseHookSpec(g fakeClientCallResponseHookSpec) {
+	fakeClientMutex.Lock()
+	defer fakeClientMutex.Unlock()
+	fakeSubResourcePatchResponseHookSpec = g
+}
 
 func TestScheduler(t *testing.T) {
 	util.RunSuite(t, "Scheduler Suite")
@@ -82,8 +96,8 @@ var _ = ginkgo.AfterSuite(func() {
 })
 
 var _ = ginkgo.BeforeEach(func() {
-	fakeSubResourcePatchSpec = nil
-	fakeSubResourcePatchResponseHookSpec = nil
+	setFakeSubResourcePatchSpec(nil)
+	setFakeSubResourcePatchResponseHookSpec(nil)
 })
 
 func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
@@ -137,7 +151,7 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 func setupInterceptedClient() (context.Context, client.Client) {
 	ctx, baseClient := fwk.SetupClient(cfg)
 	funcs := interceptor.Funcs{
-		SubResourcePatch: fakeSubResourcePatchFrom(&fakeSubResourcePatchSpec, &fakeSubResourcePatchResponseHookSpec, baseClient),
+		SubResourcePatch: fakeSubResourcePatchFrom(baseClient),
 	}
 	client := interceptor.NewClient(baseClient, funcs)
 	return ctx, client
@@ -149,19 +163,21 @@ func newInterceptedClient(config *rest.Config, options client.Options) (client.C
 		return nil, err
 	}
 	funcs := interceptor.Funcs{
-		SubResourcePatch: fakeSubResourcePatchFrom(&fakeSubResourcePatchSpec, &fakeSubResourcePatchResponseHookSpec, baseClient),
+		SubResourcePatch: fakeSubResourcePatchFrom(baseClient),
 	}
 	client := interceptor.NewClient(baseClient, funcs)
 	return client, nil
 }
 
-func fakeSubResourcePatchFrom(f *fakeClientCallSpec, g *fakeClientCallResponseHookSpec, baseK8sClient client.Client) subResourcePatchFn {
-	if f == nil {
-		panic("Nil pointer passed to wrapFakeSubResourcePatch")
-	}
+func fakeSubResourcePatchFrom(baseK8sClient client.Client) subResourcePatchFn {
 	return func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-		if *f != nil {
-			fakeUsage, err := (*f)(obj)
+		fakeClientMutex.RLock()
+		fSpec := fakeSubResourcePatchSpec
+		gSpec := fakeSubResourcePatchResponseHookSpec
+		fakeClientMutex.RUnlock()
+
+		if fSpec != nil {
+			fakeUsage, err := fSpec(obj)
 			if fakeUsage == emitResponse {
 				return err
 			}
@@ -169,8 +185,8 @@ func fakeSubResourcePatchFrom(f *fakeClientCallSpec, g *fakeClientCallResponseHo
 		switch subResourceName {
 		case "status":
 			response := baseK8sClient.Status().Patch(ctx, obj, patch, opts...)
-			if *g != nil {
-				fakeUsage, err := (*g)(obj, response)
+			if gSpec != nil {
+				fakeUsage, err := gSpec(obj, response)
 				if fakeUsage == emitResponse {
 					return err
 				}
