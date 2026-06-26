@@ -148,7 +148,7 @@ func TestFromAssignment(t *testing.T) {
 				Count: ptr.To[int32](2),
 			},
 			defaultCount: 4,
-			wantError:    apierrors.NewNotFound(schema.GroupResource{Group: kueue.GroupVersion.Group, Resource: "resourceflavors"}, "flavor1"),
+			wantError:    apierrors.NewNotFound(schema.GroupResource{Group: kueue.SchemeGroupVersion.Group, Resource: "resourceflavors"}, "flavor1"),
 		},
 		"default count": {
 			assignment: &kueue.PodSetAssignment{

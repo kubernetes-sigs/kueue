@@ -126,7 +126,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Label("area:multikue
 
 		multiKueueAC = utiltestingapi.MakeAdmissionCheck("ac1").
 			ControllerName(kueue.MultiKueueControllerName).
-			Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", managerMultiKueueConfig.Name).
+			Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", managerMultiKueueConfig.Name).
 			Obj()
 		util.CreateAdmissionChecksAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC)
 
@@ -375,13 +375,13 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Label("area:multikue
 
 			worker1Ac = utiltestingapi.MakeAdmissionCheck("provisioning").
 				ControllerName(kueue.ProvisioningRequestControllerName).
-				Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", worker1Prc.Name).
+				Parameters(kueue.SchemeGroupVersion.Group, "ProvisioningRequestConfig", worker1Prc.Name).
 				Obj()
 			util.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, worker1Ac)
 
 			worker2Ac = utiltestingapi.MakeAdmissionCheck("provisioning").
 				ControllerName(kueue.ProvisioningRequestControllerName).
-				Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", worker2Prc.Name).
+				Parameters(kueue.SchemeGroupVersion.Group, "ProvisioningRequestConfig", worker2Prc.Name).
 				Obj()
 			util.MustCreate(worker2TestCluster.ctx, worker2TestCluster.client, worker2Ac)
 
