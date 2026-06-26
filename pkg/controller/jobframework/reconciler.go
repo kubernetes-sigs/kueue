@@ -646,11 +646,6 @@ func (r *JobReconciler) ensureElasticPodSetInfoInjected(ctx context.Context, job
 		return fmt.Errorf("getting PodSets for elastic job: %w", err)
 	}
 	runningPodSets := expectedRunningPodSets(ctx, r.client, wl)
-	// Remove the elastic gate only from desired state. Keeping it in jobPodSets
-	// makes a still-gated owner template differ and trigger injection.
-	for i := range runningPodSets {
-		runningPodSets[i].Template.Spec.SchedulingGates = withoutElasticJobSchedulingGate(runningPodSets[i].Template.Spec.SchedulingGates)
-	}
 	if runningPodSets != nil && podSetInfoFieldsEqual(jobPodSets, runningPodSets) {
 		return nil
 	}
@@ -685,12 +680,6 @@ func podSetInfoFieldsEqual(a, b []kueue.PodSet) bool {
 		}
 	}
 	return true
-}
-
-func withoutElasticJobSchedulingGate(gates []corev1.PodSchedulingGate) []corev1.PodSchedulingGate {
-	return slices.Pick(gates, func(gate *corev1.PodSchedulingGate) bool {
-		return gate.Name != kueue.ElasticJobSchedulingGate
-	})
 }
 
 // loadJob retrieves and loads the specified job resource into memory.
@@ -1365,9 +1354,7 @@ func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job Generi
 	return wl, nil
 }
 
-// startJob unsuspends the job and applies its admitted PodSetInfo. For
-// workload-slicing jobs, it first removes the elastic scheduling gate from the
-// canonical PodSets so newly created pods can start without per-pod ungating.
+// startJob unsuspends the job and applies its admitted PodSetInfo.
 func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload) error {
 	info, err := GetPodSetsInfoFromStatus(ctx, r.client, wl)
 	if err != nil {
@@ -1399,13 +1386,9 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 	} else {
 		if err := clientutil.Patch(ctx, r.client, object, func() (bool, error) {
 			if WorkloadSliceEnabled(job) {
-				// Workload PodSets are canonical for PodSetInfo-managed fields. Restoring
-				// them intentionally replaces out-of-band changes to those fields.
-				restoreInfo := GetPodSetsInfoFromWorkload(wl)
-				for i := range restoreInfo {
-					restoreInfo[i].SchedulingGates = withoutElasticJobSchedulingGate(restoreInfo[i].SchedulingGates)
-				}
-				job.RestorePodSetsInfo(restoreInfo)
+				// Reset admission-specific values from a prior slice before merging the
+				// current one. The canonical PodSetInfo intentionally retains the elastic gate.
+				job.RestorePodSetsInfo(GetPodSetsInfoFromWorkload(wl))
 			}
 			return true, job.RunWithPodSetsInfo(ctx, r.client, info)
 		}); err != nil {

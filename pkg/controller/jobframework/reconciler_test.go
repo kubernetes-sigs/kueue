@@ -1146,7 +1146,10 @@ func TestReconcileElasticJobInjectsPodSetInfoOnAdmission(t *testing.T) {
 	runningPodSet.Template.Labels = map[string]string{
 		kueueconstants.PodSetLabel: "main",
 	}
-	runningPodSet.Template.Spec.SchedulingGates = []corev1.PodSchedulingGate{{Name: otherGate}}
+	runningPodSet.Template.Spec.SchedulingGates = []corev1.PodSchedulingGate{
+		{Name: otherGate},
+		{Name: kueue.ElasticJobSchedulingGate},
+	}
 	runningPodSets := []kueue.PodSet{
 		*runningPodSet,
 	}
@@ -1231,19 +1234,8 @@ func TestReconcileElasticJobInjectsPodSetInfoOnAdmission(t *testing.T) {
 			if tc.wantRunCalls > 0 {
 				mgj.EXPECT().RestorePodSetsInfo(gomock.Any()).
 					DoAndReturn(func(infos []podset.PodSetInfo) bool {
-						for _, info := range infos {
-							otherGateFound := false
-							for _, gate := range info.SchedulingGates {
-								if gate.Name == kueue.ElasticJobSchedulingGate {
-									t.Errorf("RestorePodSetsInfo() retained elastic scheduling gate")
-								}
-								if gate.Name == otherGate {
-									otherGateFound = true
-								}
-							}
-							if !otherGateFound {
-								t.Errorf("RestorePodSetsInfo() removed non-elastic scheduling gate")
-							}
+						if diff := cmp.Diff(GetPodSetsInfoFromWorkload(wl), infos); diff != "" {
+							t.Errorf("RestorePodSetsInfo() mismatch (-want, +got):\n%s", diff)
 						}
 						return true
 					}).Times(tc.wantRunCalls)

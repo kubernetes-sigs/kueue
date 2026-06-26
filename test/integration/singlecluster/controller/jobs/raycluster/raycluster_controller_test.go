@@ -745,7 +745,7 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
 	})
 
-	ginkgo.It("Should inject ResourceFlavor info into an already-running elastic RayCluster", func() {
+	ginkgo.It("Should inject ResourceFlavor info and retain the scheduling gate in an already-running elastic RayCluster", func() {
 		ginkgo.By("holding the ClusterQueue before creating the RayCluster")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).Should(gomega.Succeed())
@@ -808,13 +808,13 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 			g.Expect(testRayCluster.Spec.HeadGroupSpec.Template.Spec.Tolerations).
 				Should(gomega.ContainElement(flavorToleration))
 			g.Expect(testRayCluster.Spec.HeadGroupSpec.Template.Spec.SchedulingGates).
-				ShouldNot(gomega.ContainElement(corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}))
+				Should(gomega.ContainElement(corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}))
 			g.Expect(testRayCluster.Spec.WorkerGroupSpecs[0].Template.Spec.NodeSelector).
 				Should(gomega.HaveKeyWithValue(instanceKey, "elastic"))
 			g.Expect(testRayCluster.Spec.WorkerGroupSpecs[0].Template.Spec.Tolerations).
 				Should(gomega.ContainElement(flavorToleration))
 			g.Expect(testRayCluster.Spec.WorkerGroupSpecs[0].Template.Spec.SchedulingGates).
-				ShouldNot(gomega.ContainElement(corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}))
+				Should(gomega.ContainElement(corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 
@@ -946,6 +946,19 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 			g.Expect(testRayClusterWorkload.Spec.PodSets).Should(gomega.HaveLen(2))
 			g.Expect(testRayClusterWorkload.Spec.PodSets[0].Count).Should(gomega.Equal(int32(1)))
 			g.Expect(testRayClusterWorkload.Spec.PodSets[1].Count).Should(gomega.Equal(int32(2)))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("the RayCluster retains ResourceFlavor info after scale-up")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testRayCluster), testRayCluster)).Should(gomega.Succeed())
+			g.Expect(testRayCluster.Spec.HeadGroupSpec.Template.Spec.NodeSelector).
+				Should(gomega.HaveKeyWithValue(instanceKey, "elastic"))
+			g.Expect(testRayCluster.Spec.HeadGroupSpec.Template.Spec.Tolerations).
+				Should(gomega.ContainElement(flavorToleration))
+			g.Expect(testRayCluster.Spec.WorkerGroupSpecs[0].Template.Spec.NodeSelector).
+				Should(gomega.HaveKeyWithValue(instanceKey, "elastic"))
+			g.Expect(testRayCluster.Spec.WorkerGroupSpecs[0].Template.Spec.Tolerations).
+				Should(gomega.ContainElement(flavorToleration))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 
