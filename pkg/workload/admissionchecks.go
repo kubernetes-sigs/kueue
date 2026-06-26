@@ -28,7 +28,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/wait"
 )
 
@@ -126,34 +125,6 @@ func resetChecksOnEviction(w *kueue.Workload, now time.Time) {
 			RetryCount:          retryCount,
 		}
 	}
-}
-
-// SetAdmissionCheckState - adds or updates newCheck in the provided checks list.
-func SetAdmissionCheckState(checks *[]kueue.AdmissionCheckState, newCheck kueue.AdmissionCheckState, clock clock.Clock) bool {
-	if checks == nil {
-		return false
-	}
-	existingCondition := admissioncheck.FindAdmissionCheck(*checks, newCheck.Name)
-	if existingCondition == nil {
-		if newCheck.LastTransitionTime.IsZero() {
-			newCheck.LastTransitionTime = metav1.NewTime(clock.Now())
-		}
-		*checks = append(*checks, newCheck)
-		return true
-	}
-
-	if existingCondition.State != newCheck.State {
-		existingCondition.State = newCheck.State
-		if !newCheck.LastTransitionTime.IsZero() {
-			existingCondition.LastTransitionTime = newCheck.LastTransitionTime
-		} else {
-			existingCondition.LastTransitionTime = metav1.NewTime(clock.Now())
-		}
-	}
-	existingCondition.Message = newCheck.Message
-	existingCondition.PodSetUpdates = newCheck.PodSetUpdates
-	existingCondition.RequeueAfterSeconds = newCheck.RequeueAfterSeconds
-	return true
 }
 
 // matchingChecks returns the list of admission checks in the given state.
