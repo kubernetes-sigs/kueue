@@ -150,9 +150,7 @@
 - name: Krea AI
   url: https://www.krea.ai
   type: End User
-  description: Large-scale pretraining and high quality video generation. (See <a href="https://www.krea.ai/blog/krea-2-technical-report" target="_blank">Technical Report</a>)
-  integrations:
-  - batch/job
-  - kubeflow.org/mpijob
+  description: Large-scale pretraining and high quality video generation. (See <a href="https://www.krea.ai/blog/krea-2-technical-report" target="_blank">Krea 2 Technical Report</a>)
+  integrations: []
   contact: '@krea-ai'
   contact_url: https://twitter.com/krea_ai
