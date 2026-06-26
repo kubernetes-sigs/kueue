@@ -147,3 +147,12 @@
   - pod
   contact: '@mukund-wayve'
   contact_url: https://github.com/mukund-wayve
+- name: Krea AI
+  url: https://www.krea.ai
+  type: End User
+  description: Large-scale pretraining and high quality video generation. (See <a href="https://www.krea.ai/blog/krea-2-technical-report" target="_blank">Technical Report</a>)
+  integrations:
+  - batch/job
+  - kubeflow.org/mpijob
+  contact: '@krea-ai'
+  contact_url: https://twitter.com/krea_ai
