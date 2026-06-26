@@ -768,9 +768,7 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 		finalConsidered := finalizeFlavorAssignmentAttempts(consideredFlavors)
 		atLeastOnePodsAssignmentFailed := false
 		for _, podSet := range podSets {
-			podSetFlavors := utilmaps.FilterKeys(groupFlavors, slices.Collect(maps.Keys(podSet.podSet.Requests)))
-
-			podSet.podSetAssignment.Flavors = podSetFlavors
+			podSet.podSetAssignment.Flavors = a.resolvePodSetFlavors(log, podSet, groupFlavors)
 			podSet.podSetAssignment.Status = groupStatus
 			podSet.podSetAssignment.FlavorAssignmentAttempts = finalConsidered
 
@@ -837,6 +835,69 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 		assignment.resolveNoFitReason(a.cq)
 	}
 	return assignment
+}
+
+// resolvePodSetFlavors returns the flavors podSet should be assigned, given the flavors
+// already resolved for its whole PodSet group (groupFlavors). Normally this is just
+// groupFlavors filtered down to the resources podSet itself requests. A PodSet requesting
+// none of the group's managed resources (e.g. an LWS leader) would otherwise end up with no
+// flavor and be rejected from TAS, so such a PodSet instead falls back to: the group's TAS
+// flavor(s) if it belongs to a topology group, or the ClusterQueue's sole flavor if the
+// ClusterQueue is unambiguous.
+func (a *FlavorAssigner) resolvePodSetFlavors(log logr.Logger, idxPodSet indexedPodSet, groupFlavors ResourceAssignment) ResourceAssignment {
+	// Strategy 1: Filter group flavors to requested resources.
+	podSetFlavors := utilmaps.FilterKeys(groupFlavors, slices.Collect(maps.Keys(idxPodSet.podSet.Requests)))
+	if len(podSetFlavors) != 0 {
+		log.V(5).Info("Resolved PodSet flavors from group flavors",
+			"podSet", idxPodSet.podSet.Name,
+			"requestedResources", len(podSetFlavors),
+			"resolvedFlavors", len(podSetFlavors))
+		return podSetFlavors
+	}
+
+	// Strategy 2: PodSet has no requests; try topology group's TAS flavors.
+	if groupName := podSetGroupName(&a.wl.Obj.Spec.PodSets[idxPodSet.originalIndex]); groupName != nil {
+		// A PodSet with no resource requests in a topology group (e.g. an LWS leader) still needs a
+		// resolved TAS flavor so it can be placed; keep the group's TAS flavor(s) instead
+		// of filtering the group's resolution down to nothing.
+		podSetFlavors = tasFlavorsOnly(groupFlavors, a.cq.TASFlavors)
+		if len(podSetFlavors) > 0 {
+			log.V(5).Info("Using TAS flavors from topology group for PodSet with no resource requests", "podSet", idxPodSet.podSet.Name, "flavors", podSetFlavors)
+		}
+	}
+
+	// Strategy 3: Fallback to sole ClusterQueue flavor if unambiguous.
+	if len(podSetFlavors) == 0 {
+		// No group (or no group peer resolved a TAS flavor either). If the whole
+		// ClusterQueue only offers a single flavor, assign it to a PodSet with no
+		// resource requests.
+		cqFlavors := schdcache.AllFlavors(a.cq.ResourceGroups)
+		if cqFlavors.Len() == 1 {
+			flavor, _ := cqFlavors.PopAny()
+			if a.cq.TASFlavors[flavor] != nil {
+				coveredResources := coveredResourcesForFlavor(a.cq, flavor)
+				if len(coveredResources) > 0 {
+					cqFlavor := make(ResourceAssignment)
+					for resourceName := range coveredResources {
+						cqFlavor[resourceName] = &FlavorAssignment{Name: flavor, Mode: Fit, TriedFlavorIdx: -1}
+					}
+					log.V(5).Info("Using sole ClusterQueue flavor for PodSet with no resource requests", "podSet", idxPodSet.podSet.Name, "flavor", flavor)
+					podSetFlavors = cqFlavor
+				}
+			}
+		}
+	}
+	return podSetFlavors
+}
+
+// coveredResourcesForFlavor returns the set of all resources covered by the given flavor
+// across all resource groups that include that flavor in a ClusterQueue.
+func coveredResourcesForFlavor(cq *schdcache.ClusterQueueSnapshot, flavor kueue.ResourceFlavorReference) sets.Set[corev1.ResourceName] {
+	result := sets.New[corev1.ResourceName]()
+	for _, rgIdx := range findRGIndicesByFlavor(cq, flavor) {
+		result = result.Union(cq.ResourceGroups[rgIdx].CoveredResources)
+	}
+	return result
 }
 
 func (a *Assignment) resolveNoFitReason(cq *schdcache.ClusterQueueSnapshot) {

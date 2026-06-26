@@ -122,11 +122,6 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 			}
 		}
 	}
-	var podSetGroupName *string
-	if podSet.TopologyRequest != nil {
-		podSetGroupName = podSet.TopologyRequest.PodSetGroupName
-	}
-
 	return &schdcache.TASPodSetRequests{
 		Count:              podCount,
 		SinglePodRequests:  singlePodRequests,
@@ -134,9 +129,17 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 		PodSetUpdates:      podSetUpdates,
 		Flavor:             *tasFlvr,
 		Implied:            isTASImplied,
-		PodSetGroupName:    podSetGroupName,
+		PodSetGroupName:    podSetGroupName(podSet),
 		PreviousAssignment: previousAssignment,
 	}, nil
+}
+
+// podSetGroupName returns ps's PodSetGroupName, or nil if ps has no TopologyRequest.
+func podSetGroupName(ps *kueue.PodSet) *string {
+	if ps.TopologyRequest == nil {
+		return nil
+	}
+	return ps.TopologyRequest.PodSetGroupName
 }
 
 func onlyTASFlavor(
@@ -160,6 +163,20 @@ func onlyTASFlavor(
 	}
 
 	return nil, &MultipleTASFlavorsAssignedError{Flavors: sets.List(flavors)}
+}
+
+// tasFlavorsOnly returns the subset of resourceAssignment whose flavor is a TAS flavor.
+func tasFlavorsOnly(
+	resourceAssignment ResourceAssignment,
+	tasFlavors map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot,
+) ResourceAssignment {
+	result := make(ResourceAssignment, len(resourceAssignment))
+	for resName, flavorAssignment := range resourceAssignment {
+		if tasFlavors[flavorAssignment.Name] != nil {
+			result[resName] = flavorAssignment
+		}
+	}
+	return result
 }
 
 func checkPodSetAndFlavorMatchForTAS(cq *schdcache.ClusterQueueSnapshot, ps *kueue.PodSet, flavor *kueue.ResourceFlavor, rg *schdcache.ResourceGroup) *string {
