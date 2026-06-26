@@ -471,7 +471,7 @@ objectRetentionPolicies:
 			configFile: emptyConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
-					APIVersion: configapi.GroupVersion.String(),
+					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
 				Namespace:                    ptr.To(configapi.DefaultNamespace),
@@ -498,7 +498,7 @@ objectRetentionPolicies:
 			configFile: namespaceOverWriteConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
-					APIVersion: configapi.GroupVersion.String(),
+					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
 				Namespace:                  new("kueue-tenant-a"),
@@ -527,7 +527,7 @@ objectRetentionPolicies:
 			configFile: ctrlManagerConfigSpecOverWriteConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
-					APIVersion: configapi.GroupVersion.String(),
+					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
 				Namespace:                    ptr.To(configapi.DefaultNamespace),
@@ -559,7 +559,7 @@ objectRetentionPolicies:
 			configFile: certOverWriteConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
-					APIVersion: configapi.GroupVersion.String(),
+					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
 				Namespace:                  ptr.To(configapi.DefaultNamespace),
@@ -582,7 +582,7 @@ objectRetentionPolicies:
 			configFile: disableCertOverWriteConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
-					APIVersion: configapi.GroupVersion.String(),
+					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
 				Namespace:                  ptr.To(configapi.DefaultNamespace),
@@ -603,7 +603,7 @@ objectRetentionPolicies:
 			configFile: leaderElectionDisabledConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
-					APIVersion: configapi.GroupVersion.String(),
+					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
 				Namespace:                    new("kueue-system"),
@@ -635,7 +635,7 @@ objectRetentionPolicies:
 			configFile: waitForPodsReadyEnabledConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
-					APIVersion: configapi.GroupVersion.String(),
+					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
 				Namespace:                  ptr.To(configapi.DefaultNamespace),
@@ -665,7 +665,7 @@ objectRetentionPolicies:
 			configFile: clientConnectionConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
-					APIVersion: configapi.GroupVersion.String(),
+					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
 				Namespace:                  ptr.To(configapi.DefaultNamespace),
@@ -687,7 +687,7 @@ objectRetentionPolicies:
 			configFile: fullControllerConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
-					APIVersion: configapi.GroupVersion.String(),
+					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
 				Namespace:                  ptr.To(configapi.DefaultNamespace),
@@ -732,7 +732,7 @@ objectRetentionPolicies:
 			configFile: integrationsConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
-					APIVersion: configapi.GroupVersion.String(),
+					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
 				Namespace:                  ptr.To(configapi.DefaultNamespace),
@@ -757,7 +757,7 @@ objectRetentionPolicies:
 			configFile: multiKueueConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
-					APIVersion: configapi.GroupVersion.String(),
+					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
 				Namespace:                  ptr.To(configapi.DefaultNamespace),
@@ -800,7 +800,7 @@ objectRetentionPolicies:
 			configFile: multiKueueCredentialsProvidersConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
-					APIVersion: configapi.GroupVersion.String(),
+					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
 				Namespace:                  ptr.To(configapi.DefaultNamespace),
@@ -839,7 +839,7 @@ objectRetentionPolicies:
 			configFile: resourceTransformConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
-					APIVersion: configapi.GroupVersion.String(),
+					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
 				Namespace:                    ptr.To(configapi.DefaultNamespace),
@@ -893,7 +893,7 @@ objectRetentionPolicies:
 			configFile: objectRetentionPoliciesConfig,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
-					APIVersion: configapi.GroupVersion.String(),
+					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
 				Namespace:                    ptr.To(configapi.DefaultNamespace),
@@ -1002,7 +1002,7 @@ webhook:
 			featureGates: map[featuregate.Feature]bool{features.TLSOptions: true},
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
-					APIVersion: configapi.GroupVersion.String(),
+					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
 				Namespace:                  ptr.To(configapi.DefaultNamespace),
@@ -1052,7 +1052,7 @@ webhook:
 			featureGates: map[featuregate.Feature]bool{features.TLSOptions: false},
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
-					APIVersion: configapi.GroupVersion.String(),
+					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
 				Namespace:                  ptr.To(configapi.DefaultNamespace),
@@ -1102,7 +1102,7 @@ webhook:
 			featureGates: map[featuregate.Feature]bool{features.TLSOptions: true},
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
-					APIVersion: configapi.GroupVersion.String(),
+					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
 				Namespace:                  ptr.To(configapi.DefaultNamespace),
@@ -1154,7 +1154,7 @@ webhook:
 			featureGates: map[featuregate.Feature]bool{features.TLSOptions: false},
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
-					APIVersion: configapi.GroupVersion.String(),
+					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
 				Namespace:                  ptr.To(configapi.DefaultNamespace),
@@ -1200,7 +1200,7 @@ webhook:
 			featureGates: map[featuregate.Feature]bool{features.TLSOptions: false},
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
-					APIVersion: configapi.GroupVersion.String(),
+					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
 				Namespace:                  ptr.To(configapi.DefaultNamespace),

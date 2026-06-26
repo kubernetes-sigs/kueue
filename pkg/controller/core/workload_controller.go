@@ -1449,7 +1449,7 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 		WatchesRawSource(source.Channel(r.draReconcileChannel, deh)).
 		WithOptions(controller.Options{
 			NeedLeaderElection:      new(false),
-			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("Workload").GroupKind().String()],
+			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.SchemeGroupVersion.WithKind("Workload").GroupKind().String()],
 			LogConstructor:          roletracker.NewLogConstructor(r.roleTracker, "workload-reconciler"),
 		}).
 		Watches(&corev1.LimitRange{}, ruh).

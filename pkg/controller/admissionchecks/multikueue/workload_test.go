@@ -1623,7 +1623,7 @@ func TestWlReconcile(t *testing.T) {
 				managerBuilder = managerBuilder.WithObjects(
 					utiltestingapi.MakeMultiKueueConfig("config1").Clusters(workerClusters...).Obj(),
 					utiltestingapi.MakeAdmissionCheck("ac1").ControllerName(kueue.MultiKueueControllerName).
-						Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+						Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
 						Obj(),
 				)
 
@@ -1958,7 +1958,7 @@ func TestConfigHandlerUpdate(t *testing.T) {
 			admissionChecks: []kueue.AdmissionCheck{
 				*utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
 					Obj(),
 			},
 			workloads: []kueue.Workload{
@@ -1974,7 +1974,7 @@ func TestConfigHandlerUpdate(t *testing.T) {
 			admissionChecks: []kueue.AdmissionCheck{
 				*utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
 					Obj(),
 			},
 			workloads: []kueue.Workload{
@@ -1993,11 +1993,11 @@ func TestConfigHandlerUpdate(t *testing.T) {
 			admissionChecks: []kueue.AdmissionCheck{
 				*utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
 					Obj(),
 				*utiltestingapi.MakeAdmissionCheck("ac2").
 					ControllerName(kueue.MultiKueueControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "other-config").
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "other-config").
 					Obj(),
 			},
 			workloads: []kueue.Workload{
@@ -2054,7 +2054,7 @@ func TestConfigHandlerDelete(t *testing.T) {
 
 	admissionCheck := utiltestingapi.MakeAdmissionCheck("ac1").
 		ControllerName(kueue.MultiKueueControllerName).
-		Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+		Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
 		Obj()
 
 	workload := utiltestingapi.MakeWorkload("wl1", TestNamespace).

@@ -118,7 +118,7 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 		ginkgo.By("Creating and initializing MultiKueue specific resources", func() {
 			multiKueueAC = utiltestingapi.MakeAdmissionCheck("ac1").
 				ControllerName(kueue.MultiKueueControllerName).
-				Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", managerMultiKueueConfig.Name).
+				Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", managerMultiKueueConfig.Name).
 				Obj()
 			util.CreateAdmissionChecksAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC)
 

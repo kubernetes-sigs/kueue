@@ -60,35 +60,35 @@ func TestConfigHelper(t *testing.T) {
 		},
 		"bad parameter reference, no name": {
 			admissioncheck: utiltestingapi.MakeAdmissionCheck("ac").
-				Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", "").
+				Parameters(kueue.SchemeGroupVersion.Group, "ProvisioningRequestConfig", "").
 				Obj(),
 			targetAdmissionCheck: "ac",
 			wantError:            ErrBadParametersRef,
 		},
 		"bad parameter reference, bad group": {
 			admissioncheck: utiltestingapi.MakeAdmissionCheck("ac").
-				Parameters("not-"+kueue.GroupVersion.Group, "ProvisioningRequestConfig", "config").
+				Parameters("not-"+kueue.SchemeGroupVersion.Group, "ProvisioningRequestConfig", "config").
 				Obj(),
 			targetAdmissionCheck: "ac",
 			wantError:            ErrBadParametersRef,
 		},
 		"bad parameter reference, bad kind": {
 			admissioncheck: utiltestingapi.MakeAdmissionCheck("ac").
-				Parameters(kueue.GroupVersion.Group, "NptProvisioningRequestConfig", "config").
+				Parameters(kueue.SchemeGroupVersion.Group, "NptProvisioningRequestConfig", "config").
 				Obj(),
 			targetAdmissionCheck: "ac",
 			wantError:            ErrBadParametersRef,
 		},
 		"config not found": {
 			admissioncheck: utiltestingapi.MakeAdmissionCheck("ac").
-				Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", "config").
+				Parameters(kueue.SchemeGroupVersion.Group, "ProvisioningRequestConfig", "config").
 				Obj(),
 			targetAdmissionCheck: "ac",
 			wantError:            cmpopts.AnyError,
 		},
 		"config found": {
 			admissioncheck: utiltestingapi.MakeAdmissionCheck("ac").
-				Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", "config").
+				Parameters(kueue.SchemeGroupVersion.Group, "ProvisioningRequestConfig", "config").
 				Obj(),
 			config:               testConfig.DeepCopy(),
 			targetAdmissionCheck: "ac",
@@ -134,19 +134,19 @@ func TestIndexerFunc(t *testing.T) {
 		"wrong controller": {
 			admissioncheck: utiltestingapi.MakeAdmissionCheck("ac").
 				ControllerName("other-controller").
-				Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", "config-name").
+				Parameters(kueue.SchemeGroupVersion.Group, "ProvisioningRequestConfig", "config-name").
 				Obj(),
 		},
 		"wrong ref": {
 			admissioncheck: utiltestingapi.MakeAdmissionCheck("ac").
 				ControllerName("test-controller").
-				Parameters(kueue.GroupVersion.Group, "NotProvisioningRequestConfig", "config-name").
+				Parameters(kueue.SchemeGroupVersion.Group, "NotProvisioningRequestConfig", "config-name").
 				Obj(),
 		},
 		"good": {
 			admissioncheck: utiltestingapi.MakeAdmissionCheck("ac").
 				ControllerName("test-controller").
-				Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", "config-name").
+				Parameters(kueue.SchemeGroupVersion.Group, "ProvisioningRequestConfig", "config-name").
 				Obj(),
 			wantResult: []string{"config-name"},
 		},
@@ -158,7 +158,7 @@ func TestIndexerFunc(t *testing.T) {
 			utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 			utilruntime.Must(kueue.AddToScheme(scheme))
 
-			indexFnc := IndexerByConfigFunction("test-controller", kueue.GroupVersion.WithKind("ProvisioningRequestConfig"))
+			indexFnc := IndexerByConfigFunction("test-controller", kueue.SchemeGroupVersion.WithKind("ProvisioningRequestConfig"))
 
 			gotResult := indexFnc(tc.admissioncheck)
 
@@ -330,7 +330,7 @@ func TestGetRemoteClusters(t *testing.T) {
 			})
 			ac := utiltestingapi.MakeAdmissionCheck(acTest).
 				ControllerName(kueue.MultiKueueControllerName).
-				Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", acTest).
+				Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", acTest).
 				Obj()
 			builder = builder.WithObjects(ac)
 
