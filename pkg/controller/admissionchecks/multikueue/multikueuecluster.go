@@ -267,7 +267,10 @@ func (rc *remoteClient) setConfig(watchCtx context.Context, config *clientConfig
 		return rc.increaseFailedConnAttempt(), err
 	}
 
+	// Lock the swap so a concurrent getClient() never reads a torn rc.client. See #12557.
+	rc.mu.Lock()
 	rc.client = remoteClient
+	rc.mu.Unlock()
 
 	err = rc.startWatcher(watchCtx, kueue.GroupVersion.WithKind("Workload").GroupKind().String(), &workloadKueueWatcher{})
 	if err != nil {
@@ -444,8 +447,12 @@ func (rc *remoteClient) startQueueWatchers(ctx context.Context) error {
 func (rc *remoteClient) queueEventsForCQ(ctx context.Context, remoteCQ *kueue.ClusterQueue) {
 	log := ctrl.LoggerFrom(ctx).WithValues("remoteCQ", remoteCQ.Name)
 
+	remoteCl := rc.getClient()
+	if remoteCl == nil {
+		return
+	}
 	lqList := kueue.LocalQueueList{}
-	err := rc.client.List(ctx, &lqList, client.MatchingFields{indexer.QueueClusterQueueKey: remoteCQ.Name})
+	err := remoteCl.List(ctx, &lqList, client.MatchingFields{indexer.QueueClusterQueueKey: remoteCQ.Name})
 	if err != nil {
 		log.Error(err, "Failed to list remote LocalQueues from cache")
 		return
@@ -481,6 +488,14 @@ func (rc *remoteClient) getRetryConnNextAttempt() metav1.Time {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
 	return rc.retryConnNextAttempt
+}
+
+// getClient reads rc.client under the read lock so callers never observe a torn
+// value while setConfig swaps it on a reconnect. See #12557.
+func (rc *remoteClient) getClient() SelectivelyCachingClient {
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	return rc.client
 }
 
 func (rc *remoteClient) StopWatchers() {
@@ -531,8 +546,13 @@ func (rc *remoteClient) runGC(ctx context.Context) {
 		return
 	}
 
+	remoteCl := rc.getClient()
+	if remoteCl == nil {
+		return
+	}
+
 	wls := &kueue.WorkloadList{}
-	err := rc.client.List(ctx, wls, client.MatchingLabels{kueue.MultiKueueOriginLabel: rc.origin})
+	err := remoteCl.List(ctx, wls, client.MatchingLabels{kueue.MultiKueueOriginLabel: rc.origin})
 	if err != nil {
 		log.Error(err, "Listing remote workloads")
 		return
@@ -561,14 +581,14 @@ func (rc *remoteClient) runGC(ctx context.Context) {
 			} else {
 				wlLog.V(5).Info("MultiKueueGC deleting workload owner", "ownerKey", ownerKey, "ownerKind", controller)
 				wlKey := types.NamespacedName{Name: controller.Name, Namespace: remoteWl.Namespace}
-				err := jobframework.DeleteRemoteObjectIfOwned(ctx, rc.localClient, rc.client, adapter, wlKey, rc.origin)
+				err := jobframework.DeleteRemoteObjectIfOwned(ctx, rc.localClient, remoteCl, adapter, wlKey, rc.origin)
 				if client.IgnoreNotFound(err) != nil {
 					wlLog.Error(err, "Deleting remote workload's owner", "ownerKey", ownerKey)
 				}
 			}
 		}
 		wlLog.V(5).Info("MultiKueueGC deleting remote workload")
-		if err := rc.client.Delete(ctx, &remoteWl); client.IgnoreNotFound(err) != nil {
+		if err := remoteCl.Delete(ctx, &remoteWl); client.IgnoreNotFound(err) != nil {
 			wlLog.Error(err, "Deleting remote workload")
 		}
 	}
