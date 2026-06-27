@@ -771,6 +771,67 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 			})
 		})
 
+		ginkgo.It("Should treat manager-level and worker-level preemption gates independently", func() {
+			job := testingjob.MakeJob("job-with-gates", managerNs.Name).
+				Queue(kueue.LocalQueueName(managerLq.Name)).
+				RequestAndLimit(corev1.ResourceCPU, "0.1").
+				RequestAndLimit(corev1.ResourceMemory, "0.1G").
+				TerminationGracePeriod(1).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Obj()
+
+			ginkgo.By("Creating the job", func() {
+				util.MustCreate(ctx, k8sManagerClient, job)
+			})
+
+			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
+
+			managerWl := &kueue.Workload{}
+			ginkgo.By("Waiting for the workload to be created", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			dummyGateName := "dummy-gate"
+			ginkgo.By("Adding a dummy preemption gate to the workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
+					managerWl.Spec.PreemptionGates = []kueue.PreemptionGate{{Name: dummyGateName}}
+					g.Expect(k8sManagerClient.Update(ctx, managerWl)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			workerWl := &kueue.Workload{}
+			var workerClient client.Client
+			var initialUID types.UID
+			ginkgo.By("Waiting for the workload to be created on one of the workers", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					if err := k8sWorker1Client.Get(ctx, wlLookupKey, workerWl); err == nil {
+						initialUID = workerWl.UID
+						workerClient = k8sWorker1Client
+					} else {
+						gomega.Expect(k8sWorker2Client.Get(ctx, wlLookupKey, workerWl)).To(gomega.Succeed())
+						initialUID = workerWl.UID
+						workerClient = k8sWorker2Client
+					}
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that the workload is not continuously recreated on workers", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(workerClient.Get(ctx, wlLookupKey, workerWl)).To(gomega.Succeed())
+					g.Expect(workerWl.Spec.PreemptionGates).To(gomega.Not(gomega.ContainElement(kueue.PreemptionGate{Name: dummyGateName})))
+					g.Expect(workerWl.UID).To(gomega.Equal(initialUID))
+				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that the remote workload does not contain the manager workload's dummy gate", func() {
+				gomega.Expect(workerClient.Get(ctx, wlLookupKey, workerWl)).To(gomega.Succeed())
+				gomega.Expect(workerWl.Spec.PreemptionGates).To(gomega.Not(gomega.ContainElement(kueue.PreemptionGate{Name: dummyGateName})))
+			})
+		})
+
 		ginkgo.It("should not trigger concurrent preemptions", func() {
 			// Fits only in worker1
 			lowJob1 := testingjob.MakeJob("low-job1", managerNs.Name).
