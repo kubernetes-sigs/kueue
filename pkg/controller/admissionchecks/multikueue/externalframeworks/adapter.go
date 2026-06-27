@@ -86,9 +86,7 @@ func (a *Adapter) SyncJob(ctx context.Context, localClient client.Client, remote
 func (a *Adapter) createRemoteObject(ctx context.Context, remoteClient client.Client, localObj *unstructured.Unstructured, workloadName, origin string) error {
 	log := ctrl.LoggerFrom(ctx)
 
-	// Create a copy of the local object for the remote cluster
-	remoteObj := localObj.DeepCopy()
-	remoteObj.SetResourceVersion("")
+	remoteObj := cloneUnstructuredForCreation(localObj)
 
 	// Apply default transformation: remove the managedBy field
 	a.removeManagedByField(remoteObj)
@@ -99,6 +97,24 @@ func (a *Adapter) createRemoteObject(ctx context.Context, remoteClient client.Cl
 	// Create the object in the remote cluster
 	log.V(2).Info("Creating remote object", "gvk", a.gvk, "name", remoteObj.GetName(), "namespace", remoteObj.GetNamespace())
 	return remoteClient.Create(ctx, remoteObj)
+}
+
+// cloneUnstructuredForCreation creates a copy of obj containing only the GVK, name,
+// namespace, labels, annotations and spec, the unstructured analogue of
+// api.CloneObjectMetaForCreation; keep the two in sync. Dropping the rest (notably
+// ownerReferences, whose UIDs don't exist remotely) avoids the remote GC deleting the
+// copy in a create-delete loop.
+func cloneUnstructuredForCreation(obj *unstructured.Unstructured) *unstructured.Unstructured {
+	remote := &unstructured.Unstructured{Object: map[string]any{}}
+	remote.SetGroupVersionKind(obj.GroupVersionKind())
+	remote.SetName(obj.GetName())
+	remote.SetNamespace(obj.GetNamespace())
+	remote.SetLabels(obj.GetLabels())
+	remote.SetAnnotations(obj.GetAnnotations())
+	if spec, found, _ := unstructured.NestedFieldCopy(obj.Object, "spec"); found {
+		remote.Object["spec"] = spec
+	}
+	return remote
 }
 
 func (a *Adapter) syncStatus(ctx context.Context, localClient client.Client, localObj, remoteObj *unstructured.Unstructured) error {
