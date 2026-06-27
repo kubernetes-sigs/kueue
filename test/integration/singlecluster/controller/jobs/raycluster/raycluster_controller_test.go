@@ -784,6 +784,19 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 			g.Expect(workload.IsAdmitted(testRayClusterWorkload)).Should(gomega.BeFalse())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
+		ginkgo.By("checking ResourceFlavor info is not injected before admission")
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testRayCluster), testRayCluster)).Should(gomega.Succeed())
+			g.Expect(testRayCluster.Spec.HeadGroupSpec.Template.Spec.NodeSelector).
+				ShouldNot(gomega.HaveKey(instanceKey))
+			g.Expect(testRayCluster.Spec.HeadGroupSpec.Template.Spec.Tolerations).
+				ShouldNot(gomega.ContainElement(flavorToleration))
+			g.Expect(testRayCluster.Spec.WorkerGroupSpecs[0].Template.Spec.NodeSelector).
+				ShouldNot(gomega.HaveKey(instanceKey))
+			g.Expect(testRayCluster.Spec.WorkerGroupSpecs[0].Template.Spec.Tolerations).
+				ShouldNot(gomega.ContainElement(flavorToleration))
+		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+
 		ginkgo.By("unsuspending the RayCluster before admission")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testRayCluster), testRayCluster)).Should(gomega.Succeed())
