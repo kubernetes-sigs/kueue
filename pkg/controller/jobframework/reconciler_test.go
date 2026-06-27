@@ -1190,9 +1190,9 @@ func TestReconcileElasticJobInjectsPodSetInfoOnAdmission(t *testing.T) {
 			wantRunCalls: 0,
 			admitted:     true,
 		},
-		"admitted replacement with stale slice metadata starts the job": {
+		"admitted replacement with stale workload annotation does not start the job again": {
 			jobPodSets:   stalePodSets,
-			wantRunCalls: 1,
+			wantRunCalls: 0,
 			admitted:     true,
 		},
 		"not admitted does not start the job": {

@@ -670,8 +670,15 @@ func podSetInfoFieldsEqual(a, b []kueue.PodSet) bool {
 		return false
 	}
 	for i := range a {
+		aAnnotations := maps.Clone(a[i].Template.Annotations)
+		bAnnotations := maps.Clone(b[i].Template.Annotations)
+		// The Workload annotation identifies the current slice and changes on
+		// scale-up; it isn't part of the stable PodSetInfo injected into the job.
+		delete(aAnnotations, kueue.WorkloadAnnotation)
+		delete(bAnnotations, kueue.WorkloadAnnotation)
+
 		if a[i].Name != b[i].Name ||
-			!apiequality.Semantic.DeepEqual(a[i].Template.Annotations, b[i].Template.Annotations) ||
+			!apiequality.Semantic.DeepEqual(aAnnotations, bAnnotations) ||
 			!apiequality.Semantic.DeepEqual(a[i].Template.Labels, b[i].Template.Labels) ||
 			!apiequality.Semantic.DeepEqual(a[i].Template.Spec.NodeSelector, b[i].Template.Spec.NodeSelector) ||
 			!apiequality.Semantic.DeepEqual(a[i].Template.Spec.Tolerations, b[i].Template.Spec.Tolerations) ||
