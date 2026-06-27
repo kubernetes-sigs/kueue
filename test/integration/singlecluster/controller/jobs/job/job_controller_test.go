@@ -3085,6 +3085,9 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 			ginkgo.By("setting quota reservation")
 			util.SetQuotaReservation(ctx, k8sClient, wlKey, utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).Obj())
 
+			ginkgo.By("waiting for the job to be unsuspended")
+			util.ExpectJobUnsuspended(ctx, k8sClient, jobKey)
+
 			ginkgo.By("setting all job's pods to be ready")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, jobKey, job)).Should(gomega.Succeed())
@@ -3140,6 +3143,9 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 
 			ginkgo.By("setting quota reservation")
 			util.SetQuotaReservation(ctx, k8sClient, wlKey, utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).Obj())
+
+			ginkgo.By("waiting for the job to be unsuspended")
+			util.ExpectJobUnsuspended(ctx, k8sClient, jobKey)
 
 			ginkgo.By("setting all job's pods to be ready")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -3214,6 +3220,9 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 
 			ginkgo.By("setting quota reservation")
 			util.SetQuotaReservation(ctx, k8sClient, wlKey, utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).Obj())
+
+			ginkgo.By("waiting for the job to be unsuspended")
+			util.ExpectJobUnsuspended(ctx, k8sClient, jobKey)
 
 			ginkgo.By("setting all job's pods to be ready")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -3449,6 +3458,10 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 			ginkgo.By("setting quota reservation for both jobs")
 			util.SetQuotaReservation(ctx, k8sClient, lowWlKey, utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).Obj())
 			util.SetQuotaReservation(ctx, k8sClient, highWlKey, utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).Obj())
+
+			ginkgo.By("waiting for both jobs to be unsuspended")
+			util.ExpectJobUnsuspended(ctx, k8sClient, lowJobKey)
+			util.ExpectJobUnsuspended(ctx, k8sClient, highJobKey)
 
 			ginkgo.By("setting low priority job's pods to be ready")
 			gomega.Eventually(func(g gomega.Gomega) {
