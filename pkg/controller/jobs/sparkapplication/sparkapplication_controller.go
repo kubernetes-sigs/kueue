@@ -157,6 +157,8 @@ func (j *SparkApplication) RunWithPodSetsInfo(ctx context.Context, podSetsInfo [
 
 	j.Spec.Suspend = ptr.To(false)
 
+	origGlobalNodeSelector := maps.Clone(j.Spec.NodeSelector)
+
 	mutatePodSetInfoFor := func(role string) error {
 		var podSetInfo podset.PodSetInfo
 		var nodeSelector map[string]string
@@ -170,8 +172,8 @@ func (j *SparkApplication) RunWithPodSetsInfo(ctx context.Context, podSetsInfo [
 			}
 			// spec.NodeSelector and spec.driver.nodeSelector is mutually exclusive
 			nodeSelector = j.Spec.Driver.NodeSelector
-			if j.Spec.NodeSelector != nil {
-				nodeSelector = j.Spec.NodeSelector
+			if origGlobalNodeSelector != nil {
+				nodeSelector = maps.Clone(origGlobalNodeSelector)
 			}
 			sparkPodSpec = &j.Spec.Driver.SparkPodSpec
 		case sparkcommon.SparkRoleExecutor:
@@ -182,8 +184,8 @@ func (j *SparkApplication) RunWithPodSetsInfo(ctx context.Context, podSetsInfo [
 			}
 			// spec.NodeSelector and spec.executor.nodeSelector is mutually exclusive
 			nodeSelector = j.Spec.Executor.NodeSelector
-			if j.Spec.NodeSelector != nil {
-				nodeSelector = j.Spec.NodeSelector
+			if origGlobalNodeSelector != nil {
+				nodeSelector = maps.Clone(origGlobalNodeSelector)
 			}
 		default:
 			return fmt.Errorf("unknown Spark role: %s", role)
@@ -201,11 +203,7 @@ func (j *SparkApplication) RunWithPodSetsInfo(ctx context.Context, podSetsInfo [
 		}
 		sparkPodSpec.Annotations = sparkPodSetInfo.Annotations
 		sparkPodSpec.Labels = sparkPodSetInfo.Labels
-		if j.Spec.NodeSelector != nil {
-			j.Spec.NodeSelector = sparkPodSetInfo.NodeSelector
-		} else {
-			sparkPodSpec.NodeSelector = sparkPodSetInfo.NodeSelector
-		}
+		sparkPodSpec.NodeSelector = sparkPodSetInfo.NodeSelector
 		sparkPodSpec.Tolerations = sparkPodSetInfo.Tolerations
 		sparkPodSpec.Template.Spec.SchedulingGates = sparkPodSetInfo.SchedulingGates
 		return nil
@@ -218,6 +216,10 @@ func (j *SparkApplication) RunWithPodSetsInfo(ctx context.Context, podSetsInfo [
 		return err
 	}
 
+	if origGlobalNodeSelector != nil {
+		j.Spec.NodeSelector = nil
+	}
+
 	return nil
 }
 
@@ -226,6 +228,8 @@ func (j *SparkApplication) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) b
 	if len(podSetsInfo) != expectedLength {
 		return false
 	}
+
+	hadGlobalNodeSelector := j.Spec.NodeSelector != nil
 
 	restorePodSetsInfoFrom := func(role string) bool {
 		var podSetInfo podset.PodSetInfo
@@ -254,16 +258,9 @@ func (j *SparkApplication) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) b
 			sparkPodSpec.Labels = maps.Clone(podSetInfo.Labels)
 			changed = true
 		}
-		if j.Spec.NodeSelector != nil {
-			if !maps.Equal(j.Spec.NodeSelector, podSetInfo.NodeSelector) {
-				j.Spec.NodeSelector = maps.Clone(podSetInfo.NodeSelector)
-				changed = true
-			}
-		} else {
-			if !maps.Equal(sparkPodSpec.NodeSelector, podSetInfo.NodeSelector) {
-				sparkPodSpec.NodeSelector = maps.Clone(podSetInfo.NodeSelector)
-				changed = true
-			}
+		if !maps.Equal(sparkPodSpec.NodeSelector, podSetInfo.NodeSelector) {
+			sparkPodSpec.NodeSelector = maps.Clone(podSetInfo.NodeSelector)
+			changed = true
 		}
 		if !slices.Equal(sparkPodSpec.Tolerations, podSetInfo.Tolerations) {
 			sparkPodSpec.Tolerations = slices.Clone(podSetInfo.Tolerations)
@@ -286,6 +283,13 @@ func (j *SparkApplication) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) b
 
 	driverChanged := restorePodSetsInfoFrom(sparkcommon.SparkRoleDriver)
 	executorChanged := restorePodSetsInfoFrom(sparkcommon.SparkRoleExecutor)
+
+	// Defensive: RunWithPodSetsInfo clears spec.nodeSelector, so this only
+	// fires if the object was never admitted or was re-populated externally.
+	if hadGlobalNodeSelector && j.Spec.NodeSelector != nil {
+		j.Spec.NodeSelector = nil
+		driverChanged = true
+	}
 
 	return driverChanged || executorChanged
 }
