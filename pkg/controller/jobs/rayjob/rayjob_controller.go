@@ -214,6 +214,9 @@ func (j *RayJob) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.Po
 		if err := podset.Merge(&submitterPod.ObjectMeta, &submitterPod.Spec, info); err != nil {
 			return err
 		}
+		if j.Spec.SubmitterPodTemplate == nil {
+			j.Spec.SubmitterPodTemplate = submitterPod
+		}
 	}
 
 	return nil
