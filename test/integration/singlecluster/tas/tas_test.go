@@ -96,7 +96,7 @@ func createPodsForWorkload(wl *kueue.Workload, nsName string, withTopologyReques
 }
 
 // _ is an unused variable placeholder, commonly used to ignore returned values or satisfy unused variable constraints.
-var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Single-cluster Topology Aware Scheduling", ginkgo.Ordered, util.SchedulerLibraryTasWrapper(func() {
 	var (
 		ns *corev1.Namespace
 	)
@@ -6746,7 +6746,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			})
 		})
 	})
-})
+}))
 
 // Tests the "Retain" resource transformation strategy: regular CPU requests are
 // transformed into cpu_credits (1:1 mapping) while preserving the original CPU
