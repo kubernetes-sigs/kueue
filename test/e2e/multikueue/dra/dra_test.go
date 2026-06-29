@@ -421,16 +421,12 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 				g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
 				selectedWorker = util.GetClientForSelectedWorkerCluster(
 					managerWl,
-					util.ClusterInfo{
-						Name:   "worker1",
-						Client: k8sWorker1Client,
-						Ctx:    ctx,
-					},
-					util.ClusterInfo{
-						Name:   "worker2",
-						Client: k8sWorker2Client,
-						Ctx:    ctx,
-					},
+					util.ClusterInfosForE2E(
+						k8sWorker1Client,
+						ctx,
+						k8sWorker2Client,
+						ctx,
+					)...,
 				)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
