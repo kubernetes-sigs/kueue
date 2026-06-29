@@ -1857,3 +1857,4 @@ sigs.k8s.io/yaml/kyaml
 volcano.sh/apis/pkg/apis/scheduling
 volcano.sh/apis/pkg/apis/scheduling/v1beta1
 volcano.sh/apis/pkg/client/applyconfiguration/scheduling/v1beta1
+# sigs.k8s.io/scheduler-library => github.com/vshkrabkov/scheduler-library v0.0.0-20260511220521-d663684c55d1

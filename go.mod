@@ -172,3 +172,5 @@ require (
 	sigs.k8s.io/scheduler-plugins v0.34.4-devel-sg // indirect
 	volcano.sh/apis v1.14.0 // indirect
 )
+
+replace sigs.k8s.io/scheduler-library => github.com/vshkrabkov/scheduler-library v0.0.0-20260511220521-d663684c55d1
