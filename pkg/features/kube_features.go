@@ -295,9 +295,7 @@ const (
 	//
 	// Enable multi-layer topology constraints for TAS, allowing up to 3 slice
 	// layers (in addition to the podset-level constraint) for fine-grained
-	// placement across deep topology hierarchies. Since v0.19 (Beta), the
-	// single-layer podset-slice-size annotation is unified internally with
-	// this multi-layer data structure via PodsetSliceRequiredTopologyConstraints.
+	// placement across deep topology hierarchies.
 	TASMultiLayerTopology featuregate.Feature = "TASMultiLayerTopology"
 
 	// owner: @sohankunkerkar

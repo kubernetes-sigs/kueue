@@ -118,29 +118,3 @@ func (p *podSetTopologyRequestBuilder) Build() (*kueue.PodSetTopologyRequest, er
 
 	return &psTopologyReq, nil
 }
-
-// NormalizeTopologyRequest ensures a PodSetTopologyRequest uses the unified
-// PodsetSliceRequiredTopologyConstraints format for the slice constraints,
-// regardless of whether the Workload was created via the old single-layer
-// PodSetSliceRequiredTopology/PodSetSliceSize fields or the new multi-layer
-// constraints annotation.
-//
-// This is necessary to handle Workload objects that were persisted before the
-// unification, which only populate the legacy fields.
-// After calling this function callers only need to inspect
-// PodsetSliceRequiredTopologyConstraints to determine the slice configuration.
-func NormalizeTopologyRequest(tr *kueue.PodSetTopologyRequest) {
-	if tr == nil {
-		return
-	}
-	// Already has constraints - nothing to do.
-	if len(tr.PodsetSliceRequiredTopologyConstraints) > 0 {
-		return
-	}
-	// Migrate old single-layer fields into the unified constraints slice.
-	if tr.PodSetSliceRequiredTopology != nil && tr.PodSetSliceSize != nil {
-		tr.PodsetSliceRequiredTopologyConstraints = []kueue.PodsetSliceRequiredTopologyConstraint{
-			{Topology: *tr.PodSetSliceRequiredTopology, Size: *tr.PodSetSliceSize},
-		}
-	}
-}
