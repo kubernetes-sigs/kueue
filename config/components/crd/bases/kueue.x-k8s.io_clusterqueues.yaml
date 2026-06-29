@@ -475,7 +475,7 @@ spec:
                               - nominalQuota
                               type: object
                             maxItems: 64
-                            minItems: 1
+                            minItems: 0
                             type: array
                             x-kubernetes-list-map-keys:
                             - name
@@ -485,7 +485,7 @@ spec:
                         - resources
                         type: object
                       maxItems: 64
-                      minItems: 1
+                      minItems: 0
                       type: array
                       x-kubernetes-list-map-keys:
                       - name
@@ -1309,7 +1309,7 @@ spec:
                               - nominalQuota
                               type: object
                             maxItems: 64
-                            minItems: 1
+                            minItems: 0
                             type: array
                             x-kubernetes-list-map-keys:
                             - name
@@ -1319,7 +1319,7 @@ spec:
                         - resources
                         type: object
                       maxItems: 64
-                      minItems: 1
+                      minItems: 0
                       type: array
                       x-kubernetes-list-map-keys:
                       - name
