@@ -1,0 +1,338 @@
+# =====================================================================
+# KUEUE TALKS & CASE STUDIES DATA
+# =====================================================================
+# How to add a new Talk, Case Study, or Tutorial:
+# 1. Copy one of the blocks below.
+# 2. Paste it at the bottom of this file.
+# 3. Fill in the details.
+#
+# Fields:
+#  - title:       Title of the talk or article (Required)
+#  - event:       Conference (e.g. "KubeCon EU") or Platform (e.g. "Medium") (Required)
+#  - date:        YYYY-MM-DD format. Used for automatic chronological sorting. (Required)
+#  - type:        Choose one: "talk" (video), "case-study" (customer story/article), "tutorial" (guide) (Required)
+#  - featured:    Set to true to highlight this if we use featured layouts. (Optional)
+#  - presenters:  List of speakers or authors. (Optional)
+#     - name:     Speaker name (Required if presenters is used)
+#       company:  Speaker company (Optional)
+#  - description: A 1-2 sentence summary of the content. (Optional, can be added manually by authors)
+#  - links:       Add links to available resources (Optional)
+#     - details:   URL to the event schedule page (e.g., sched.co)
+#     - video:     URL to the YouTube recording
+#     - slides:    URL to the PDF slides
+#     - article:   URL to a written blog post or case study article
+#     - materials: URL to code repos or additional tutorial materials
+# =====================================================================
+
+- title: "Krea 2 Technical Report"
+  event: "Krea Blog"
+  date: 2026-06-23
+  type: "case-study"
+  presenters:
+    - name: "Sangwu Lee"
+      company: "Krea"
+  links:
+    article: "https://www.krea.ai/blog/krea-2-technical-report"
+- title: "How Netflix Simplified Batch Compute with Kueue"
+  event: "Netflix Technology Blog"
+  date: 2026-06-22
+  type: "case-study"
+  presenters:
+    - name: "Alvin Bao"
+      company: "Netflix"
+    - name: "Alex Petrov"
+      company: "Netflix"
+    - name: "Jennifer Lai"
+      company: "Netflix"
+    - name: "Aidan Sherr"
+      company: "Netflix"
+    - name: "Samartha Chandrashekar"
+      company: "Netflix"
+  links:
+    article: "https://netflixtechblog.com/how-netflix-simplified-batch-compute-with-kueue-87860682629c"
+
+- title: "Have Your Cake and Eat It Too: Combining Atomic Provisioning with Node Reuse in GKE"
+  event: "Google Cloud - Community"
+  date: 2026-06-09
+  type: "tutorial"
+  presenters:
+    - name: "Michał Żyliński"
+      company: "Google"
+  links:
+    article: "https://medium.com/google-cloud/have-your-cake-and-eat-it-too-combining-atomic-provisioning-with-node-reuse-in-gke-2935e37943d8"
+
+
+- title: "Stop Waiting in Line: Scaling Faster with Kueue’s Concurrent Admission"
+  event: "Google Cloud - Community"
+  date: 2026-06-01
+  type: "tutorial"
+  presenters:
+    - name: "Michał Żyliński"
+      company: "Google"
+  links:
+    article: "https://medium.com/google-cloud/stop-waiting-in-line-scaling-faster-with-kueues-concurrent-admission-1dc8bfa5a33e"
+
+- title: "No Idle GPUs: Managing Research Compute at Runway"
+  event: "Runway News"
+  date: 2026-04-27
+  type: "case-study"
+  presenters:
+    - name: "Matt Kafonek"
+      company: "Runway"
+    - name: "Brannon Dorsey"
+      company: "Runway"
+  links:
+    article: "https://runwayml.com/news/no-idle-gpus-managing-research-compute-at-runway"
+
+
+- title: "Making “Best Effort” Even Better: Improving the Kueue Scheduler"
+  event: "Google Cloud - Community"
+  date: 2026-03-31
+  type: "tutorial"
+  presenters:
+    - name: "Michał Żyliński"
+      company: "Google"
+  links:
+    article: "https://medium.com/google-cloud/making-best-effort-even-better-improving-the-kueue-scheduler-72b1be6b37db"
+
+- title: "Rules of the Road for Shared GPUs: AI Inference Scheduling at Wayve"
+  event: "KubeCon EU, Amsterdam"
+  date: 2026-03-10
+  type: "case-study"
+  presenters:
+    - name: "Mukund Muralikrishnan"
+      company: "Wayve"
+  links:
+    details: "https://sched.co/2HgE0"
+    video: "https://youtu.be/QblJjpN15R8"
+
+- title: "Instrumenting Kueue Scheduling for ML Training"
+  event: "KubeCon EU, Amsterdam"
+  date: 2026-03-10
+  type: "talk"
+  presenters:
+    - name: "Amy Chen"
+      company: "CoreWeave"
+    - name: "Gabe Saba"
+      company: "Google"
+  links:
+    details: "https://sched.co/2CW0P"
+    video: "https://youtu.be/rcrl8-CudVw"
+
+- title: "Kueue for AI: The Power of Atomic Admission & Topology Awareness"
+  event: "Google Cloud - Community"
+  date: 2026-01-05
+  type: "tutorial"
+  presenters:
+    - name: "Michał Żyliński"
+      company: "Google"
+  links:
+    article: "https://medium.com/google-cloud/kueue-for-ai-the-power-of-atomic-admission-topology-awareness-59c2fd1f86ed"
+
+- title: "Mastering Workloads in Kubernetes with Kueue — Part 4: Admission Fair Sharing"
+  event: "Google Cloud - Community"
+  date: 2025-11-24
+  type: "tutorial"
+  presenters:
+    - name: "Michał Żyliński"
+      company: "Google"
+  links:
+    article: "https://medium.com/google-cloud/mastering-workloads-in-kubernetes-with-kueue-part-4-admission-fair-sharing-6af6c6c6a635"
+
+- title: "How We Built a 130,000-Node GKE Cluster"
+  event: "Google Cloud Blog"
+  date: 2025-11-22
+  type: "case-study"
+  presenters:
+    - name: "Besher Massri"
+      company: "Google"
+    - name: "Maciek Różacki"
+      company: "Google"
+  links:
+    article: "https://cloud.google.com/blog/products/containers-kubernetes/how-we-built-a-130000-node-gke-cluster/"
+
+- title: "Mastering Workloads in Kubernetes with Kueue — Part 3: Embracing Fair Sharing"
+  event: "Google Cloud - Community"
+  date: 2025-11-12
+  type: "tutorial"
+  presenters:
+    - name: "Michał Żyliński"
+      company: "Google"
+  links:
+    article: "https://medium.com/google-cloud/mastering-workloads-in-kubernetes-with-kueue-part-3-embracing-fair-sharing-8fef4d7fc13f"
+
+- title: "Resource Fairness and Utilization for Heterogeneous Batch/ML Platforms With Kueue"
+  event: "KubeCon NA, Atlanta"
+  date: 2025-11-12
+  type: "case-study"
+  presenters:
+    - name: "Yuki Iwai"
+      company: "CyberAgent, Inc."
+    - name: "Gabe Saba"
+      company: "Google"
+  links:
+    details: "https://sched.co/28D9C"
+    video: "https://youtu.be/dKhF-hZi7CI"
+
+- title: "Mastering Workloads in Kubernetes with Kueue — Part 2: Cohorts"
+  event: "Google Cloud - Community"
+  date: 2025-11-03
+  type: "tutorial"
+  presenters:
+    - name: "Michał Żyliński"
+      company: "Google"
+  links:
+    article: "https://medium.com/google-cloud/mastering-workloads-in-kubernetes-with-kueue-part-2-cohorts-8f2359d1e723"
+
+- title: "Mastering Workloads in Kubernetes with Kueue — Part 1: Queues and Priorities"
+  event: "Google Cloud - Community"
+  date: 2025-10-27
+  type: "tutorial"
+  presenters:
+    - name: "Michał Żyliński"
+      company: "Google"
+  links:
+    article: "https://medium.com/google-cloud/mastering-workloads-in-kubernetes-with-kueue-part-1-queues-and-priorities-339257d8b4ba"
+
+- title: "Accelerate Your AI/ML Workloads With Topology-Aware Scheduling in Kueue"
+  event: "KubeCon EU, London"
+  date: 2025-04-01
+  type: "talk"
+  presenters:
+    - name: "Michał Woźniak"
+      company: "Google"
+    - name: "Yuki Iwai"
+      company: "CyberAgent, Inc."
+  links:
+    details: "https://sched.co/1u5fo"
+    video: "https://youtu.be/F55pFM1M1bU"
+
+- title: "Tutorial: Build, Operate, and Use a Multi-Tenant AI Cluster Based Entirely on Open Source"
+  event: "KubeCon EU, London"
+  date: 2025-04-01
+  type: "tutorial"
+  presenters:
+    - name: "Claudia Misale"
+      company: "IBM Research"
+    - name: "Olivier Tardieu"
+      company: "IBM Research"
+    - name: "David Grove"
+      company: "IBM Research"
+  links:
+    details: "https://sched.co/1tx6h"
+    video: "https://youtu.be/Ab7mRoJYsMo"
+    materials: "https://github.com/project-codeflare/mlbatch/tree/main/setup.KubeConEU25"
+
+- title: "Kueue: Save Some QPS for the Rest of Us! How To Manage 100k Updates Per Second"
+  event: "KubeCon EU, London"
+  date: 2025-04-01
+  type: "talk"
+  presenters:
+    - name: "Patryk Bundyra"
+      company: "Google"
+  links:
+    details: "https://sched.co/1txCn"
+    video: "https://youtu.be/njNXlZNT3dw"
+
+- title: "Keynote: Multicluster Batch Jobs Dispatching with Kueue at CERN"
+  event: "KubeCon NA, Salt Lake City"
+  date: 2024-11-12
+  type: "case-study"
+  presenters:
+    - name: "Ricardo Rocha"
+      company: "CERN"
+    - name: "Marcin Wielgus"
+      company: "Google"
+  links:
+    details: "https://sched.co/1iCOV"
+    video: "https://youtu.be/xMmskWIlktA"
+
+- title: "Multitenancy and Fairness at Scale with Kueue: A Case Study"
+  event: "KubeCon NA, Salt Lake City"
+  date: 2024-11-12
+  type: "case-study"
+  presenters:
+    - name: "Aldo Culquicondor"
+      company: "Google"
+    - name: "Rajat Phull"
+      company: "Apple"
+  links:
+    details: "https://sched.co/1izqO"
+    video: "https://youtu.be/GYiuTQCvTx8"
+
+- title: "Advanced Resource Management for Running AI/ML Workloads with Kueue"
+  event: "KubeCon EU, Paris"
+  date: 2024-03-19
+  type: "talk"
+  presenters:
+    - name: "Michał Woźniak"
+      company: "Google"
+    - name: "Yuki Iwai"
+      company: "CyberAgent, Inc."
+  links:
+    details: "https://kccnceu2024.sched.com/event/1YeLj"
+    video: "https://youtu.be/6k_8Go3u8Qk"
+
+- title: "Scale Your Batch / Big Data / AI Workloads Beyond the Kubernetes Scheduler"
+  event: "KubeCon EU, Paris"
+  date: 2024-03-19
+  type: "talk"
+  presenters:
+    - name: "Antonin Stefanutti"
+      company: "Red Hat"
+    - name: "Anish Asthana"
+      company: "Red Hat"
+  links:
+    details: "https://sched.co/1YFjv"
+    video: "https://youtu.be/Ij5EAnuF-jk"
+    materials: "https://github.com/astefanutti/kube-schedulers"
+
+- title: "Batch Systems in Production with Kueue: Multi-Tenancy and Fungibility"
+  event: "KubeCon NA, Chicago"
+  date: 2023-11-06
+  type: "case-study"
+  presenters:
+    - name: "Yuki Iwai"
+      company: "CyberAgent, Inc."
+    - name: "Aldo Culquicondor"
+      company: "Google"
+  links:
+    details: "https://sched.co/1Rj23"
+    video: "https://youtu.be/cEnor-oW9_s"
+
+- title: "Sailing Ray Workloads with KubeRay and Kueue in Kubernetes"
+  event: "KubeCon China, Shanghai"
+  date: 2023-09-26
+  type: "talk"
+  presenters:
+    - name: "Jason Hu"
+      company: "Volcano Engine"
+    - name: "Kante Yin"
+      company: "DaoCloud"
+  links:
+    details: "https://sched.co/1PTGw"
+    video: "https://youtu.be/Q-sQLDMeJ8M"
+
+- title: "Building a Batch System for the Cloud with Kueue"
+  event: "KubeCon EU, Amsterdam"
+  date: 2023-04-18
+  type: "talk"
+  presenters:
+    - name: "Aldo Culquicondor"
+      company: "Google"
+    - name: "Kante Yin"
+      company: "DaoCloud"
+  links:
+    details: "https://sched.co/1Jo8r"
+    video: "https://youtu.be/5qasif08vnM"
+
+- title: "Kueue: A Kubernetes-native Job Queueing"
+  event: "KubeCon EU, Valencia"
+  date: 2022-03-15
+  type: "talk"
+  presenters:
+    - name: "Abdullah Gharaibeh"
+      company: "Google"
+  links:
+    details: "https://sched.co/10F0V"
+    video: "https://youtu.be/YwSZUdU3iRY"

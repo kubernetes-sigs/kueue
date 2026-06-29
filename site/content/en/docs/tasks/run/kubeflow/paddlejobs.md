@@ -10,6 +10,12 @@ This page shows how to leverage Kueue's scheduling and resource management capab
 
 This guide is for [batch users](/docs/tasks#batch-user) that have a basic understanding of Kueue. For more information, see [Kueue's overview](/docs/overview).
 
+{{% alert title="Warning" color="warning" %}}
+**Deprecation Notice:** The integration with [Kubeflow Trainer v1](https://www.kubeflow.org/docs/components/trainer/legacy-v1/) (including PaddleJob) is **deprecated** in Kueue and will be removed in a future release, tentatively **v0.20**.
+
+Kubeflow Trainer v1 is now legacy. We strongly recommend migrating to [Kubeflow Trainer v2](https://github.com/kubeflow/trainer) (which is supported in Kueue via [TrainJob](/docs/tasks/run/trainjobs/)), or using an alternative framework such as [JobSet](/docs/tasks/run/jobsets/) to run your jobs.
+{{% /alert %}}
+
 ## Before you begin
 
 Check [administer cluster quotas](/docs/tasks/manage/administer_cluster_quotas) for details on the initial cluster setup.

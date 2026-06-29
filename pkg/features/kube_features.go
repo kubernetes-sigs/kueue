@@ -97,12 +97,6 @@ const (
 	// Enabled gathering of LocalQueue metrics
 	LocalQueueMetrics featuregate.Feature = "LocalQueueMetrics"
 
-	// owner: @yaroslava-serdiuk
-	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2936-local-queue-defaulting
-	//
-	// Enable to set default LocalQueue.
-	LocalQueueDefaulting featuregate.Feature = "LocalQueueDefaulting"
-
 	// owner: @pbundyra
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
 	//
@@ -185,9 +179,6 @@ const (
 	// via standard resources.requests using DeviceClass extendedResourceName.
 	KueueDRAIntegrationExtendedResource featuregate.Feature = "KueueDRAIntegrationExtendedResource"
 
-	// Deprecated: planned to be removed in 0.19. Use KueueDRAIntegrationExtendedResource instead.
-	DRAExtendedResources featuregate.Feature = "DRAExtendedResources"
-
 	// owner: @MaysaMacedo
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/7513-quota-check-strategy
 	//
@@ -225,6 +216,15 @@ const (
 	//
 	// Deprecated: locked to its default value (false) in 0.19; planned to be removed in 0.20.
 	MultiKueueAllowInsecureKubeconfigs featuregate.Feature = "MultiKueueAllowInsecureKubeconfigs"
+
+	// owner: @kannon92
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/12144
+	//
+	// Enforce safe path validation for locationType=Path MultiKueueCluster
+	// kubeconfig references. When enabled (the default), only paths under
+	// /etc/multikueue/kubeconfigs/ are accepted. When disabled, the
+	// controller falls back to the legacy behavior of allowing any path.
+	MultiKueueKubeConfigPathValidation featuregate.Feature = "MultiKueueKubeConfigPathValidation"
 
 	// owner: @pbundyra
 	//
@@ -381,6 +381,12 @@ const (
 	// deletes a Deployment-owned pod).
 	FinishOrphanedWorkloads featuregate.Feature = "FinishOrphanedWorkloads"
 
+	// owner: @Mostafahassen1
+	//
+	// kep: https://github.com/kubernetes-sigs/kueue/pull/10877#issuecomment-4412688735
+	// Enables configurable stepSize for the MultiKueue Incremental Dispatcher.
+	MultiKueueIncrementalDispatcherConfig featuregate.Feature = "MultiKueueIncrementalDispatcherConfig"
+
 	// owner: @pbundyra
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/8691-concurrent-admission
 	//
@@ -424,6 +430,12 @@ const (
 	// Enable reporting of Cohort related metrics (also including ClusterQueueInfo metric).
 	MetricsForCohorts featuregate.Feature = "MetricsForCohorts"
 
+	// owner: @MatteoFari
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/11677
+	// Enables cleaning up ProvisioningRequests owned by an evicted Workload.
+	CleanupProvisioningRequestsOnEviction featuregate.Feature = "CleanupProvisioningRequestsOnEviction"
+
 	// owner: @tenzen-y
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/10659
@@ -436,6 +448,12 @@ const (
 	// UnadmittedWorkloadsObservability enables granular Prometheus metrics and
 	// updates status reasons for QuotaReserved/Admitted conditions to use tiered reasons.
 	UnadmittedWorkloadsObservability featuregate.Feature = "UnadmittedWorkloadsObservability"
+
+	// owner: @mimowo
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
+	//
+	// Enable re-computing the assignment within the same scheduling cycle when a TAS workload doesn't fit.
+	TASRecomputeAssignmentWithinSchedulingCycle featuregate.Feature = "TASRecomputeAssignmentWithinSchedulingCycle"
 )
 
 func init() {
@@ -491,11 +509,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.10"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
 	},
-	LocalQueueDefaulting: {
-		{Version: version.MustParse("0.10"), Default: false, PreRelease: featuregate.Alpha},
-		{Version: version.MustParse("0.12"), Default: true, PreRelease: featuregate.Beta},
-		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.19
-	},
 	TASProfileMixed: {
 		{Version: version.MustParse("0.10"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
@@ -545,10 +558,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	KueueDRAIntegrationExtendedResource: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
 	},
-	DRAExtendedResources: {
-		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
-		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Deprecated, LockToDefault: true}, // remove in 0.19
-	},
 
 	KueueDRARejectWorkloadsWhenDRADisabled: {
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
@@ -569,6 +578,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Deprecated},
 		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Deprecated, LockToDefault: true}, // remove in 0.20
+	},
+
+	MultiKueueKubeConfigPathValidation: {
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	ReclaimablePods: {
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
@@ -650,6 +663,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	FinishOrphanedWorkloads: {
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
 	},
+	MultiKueueIncrementalDispatcherConfig: {
+		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+	},
 	ConcurrentAdmission: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
 	},
@@ -674,11 +690,18 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	MetricsForCohorts: {
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
 	},
+	CleanupProvisioningRequestsOnEviction: {
+		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+	},
 	TASHandleOverlappingFlavors: {
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
 	},
 	UnadmittedWorkloadsObservability: {
 		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Beta},
+	},
+
+	TASRecomputeAssignmentWithinSchedulingCycle: {
+		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 

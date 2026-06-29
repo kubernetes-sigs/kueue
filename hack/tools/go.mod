@@ -27,15 +27,15 @@ require (
 	github.com/google/go-cmp v0.7.0
 	github.com/helm-unittest/helm-unittest v1.1.1
 	github.com/kubernetes-sigs/reference-docs/genref v0.28.0
-	github.com/mikefarah/yq/v4 v4.53.2
+	github.com/mikefarah/yq/v4 v4.53.3
 	github.com/norwoodj/helm-docs v1.14.2
-	github.com/onsi/ginkgo/v2 v2.31.0
+	github.com/onsi/ginkgo/v2 v2.32.0
 	go.uber.org/mock v0.6.0
 	go.uber.org/zap v1.28.0
 	gopkg.in/op/go-logging.v1 v1.0.0-20160211212156-b2cb9fa56473
 	gopkg.in/yaml.v3 v3.0.1
 	gotest.tools/gotestsum v1.13.0
-	helm.sh/helm/v4 v4.2.1
+	helm.sh/helm/v4 v4.2.2
 	k8s.io/code-generator v0.36.2 // Used not only as code-generator but also for compatibility_lifecycle (feature-gates docs) tool versioning.
 	sigs.k8s.io/cluster-inventory-api v0.1.3 // indirect
 	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.24.1
@@ -455,7 +455,7 @@ require (
 	github.com/yuin/goldmark-emoji v1.0.6 // indirect
 	github.com/yuin/goldmark-highlighting v0.0.0-20210516132338-9216f9c5aa01 // indirect
 	github.com/yuin/gopher-lua v1.1.2 // indirect
-	github.com/zclconf/go-cty v1.18.0 // indirect
+	github.com/zclconf/go-cty v1.18.1 // indirect
 	gitlab.com/bosi/decorder v0.4.2 // indirect
 	go-simpler.org/musttag v0.14.0 // indirect
 	go-simpler.org/sloglint v0.12.0 // indirect

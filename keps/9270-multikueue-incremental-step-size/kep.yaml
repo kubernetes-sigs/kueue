@@ -1,0 +1,32 @@
+title: Introduce configuration for the MultiKueue Incremental Dispatcher
+kep-number: 9270
+authors:
+  - "@Mostafahassen1"
+status: provisional
+creation-date: "2026-05-01"
+reviewers:
+  - olekzabl
+  - mimowo
+approvers:
+  - mimowo
+  - tenzen-y
+
+# The target maturity stage in the current dev cycle for this KEP.
+stage: beta
+
+# The most recent milestone for which work toward delivery of this KEP has been
+# done. Kueue typically uses 0.x versioning.
+latest-milestone: "v0.19"
+
+# The milestone at which this feature was, or is targeted to be, at each stage.
+milestone:
+  beta: "v0.19"
+  stable: "TBD"
+
+# The following PRR answers are required at alpha release
+# List the feature gate name and the components for which it must be enabled
+feature-gates:
+  - name: MultiKueueIncrementalDispatcherConfig
+    components:
+      - kueue-controller-manager
+disable-supported: true

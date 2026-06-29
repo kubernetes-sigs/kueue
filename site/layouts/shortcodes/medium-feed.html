@@ -1,0 +1,87 @@
+{{/* Fetch Medium RSS feed for tag "kueue" at build time with try() safeguard */}}
+{{ $remote := try (resources.GetRemote "https://medium.com/feed/tag/kueue") }}
+
+<div class="row g-4 mt-2">
+  {{ with $remote }}
+    {{ if .Err }}
+      <!-- Fallback if network or remote fetch error occurs -->
+      <div class="col-12 text-center py-4">
+        <p class="text-muted">{{ T "community_medium_unavailable" }}</p>
+      </div>
+    {{ else if .Value }}
+      {{ $xml := .Value | transform.Unmarshal }}
+      
+      {{/* Verify we have items in the channel */}}
+      {{ if and $xml (index $xml "channel") (index $xml.channel "item") }}
+        
+        {{/* Loop through the first 3 items */}}
+        {{ range first 3 $xml.channel.item }}
+          
+          {{/* Format the publication date */}}
+          {{ $date := "" }}
+          {{ if .pubDate }}
+            {{ $date = .pubDate | time.Format "Jan 2, 2006" }}
+          {{ end }}
+          
+          <div class="col-md-4">
+            <div class="card h-100 community-card shadow-sm bg-white rounded-3">
+              <div class="card-body d-flex flex-column p-3">
+                <div class="d-flex align-items-center mb-2.5">
+                  <div class="bg-light text-info rounded-circle d-flex align-items-center justify-content-center me-2.5" style="width: 32px; height: 32px;">
+                    <i class="fas fa-pen-nib fa-sm"></i>
+                  </div>
+                  <div>
+                    <span class="badge bg-light text-muted border fw-semibold" style="font-size: 0.75rem; padding: 0.25em 0.5em;">{{ T "community_medium_badge" }}</span>
+                  </div>
+                </div>
+                
+                <h6 class="card-title fw-bold mb-3" style="font-size: 0.9rem; line-height: 1.4;">
+                  <a href="{{ .link }}" target="_blank" rel="noopener" class="text-dark text-decoration-none hover-teal">
+                    {{ .title }}
+                  </a>
+                </h6>
+                
+                <div class="d-flex align-items-center justify-content-between mt-auto pt-2.5 border-top text-muted" style="font-size: 0.75rem;">
+                  <div>
+                    <i class="fas fa-external-link-alt me-1"></i> {{ T "community_medium_read_more" }}
+                  </div>
+  
+                  {{ if $date }}
+                  <div>
+                    <i class="fas fa-calendar-alt me-1"></i> {{ $date }}
+                  </div>
+                  {{ end }}
+                </div>
+              </div>
+            </div>
+          </div>
+  
+        {{ end }}
+        
+      {{ else }}
+        <!-- Fallback if feed format is unexpected or empty -->
+        <div class="col-12 text-center py-4">
+          <p class="text-muted">{{ T "community_medium_no_articles" }}</p>
+        </div>
+      {{ end }}
+    {{ else }}
+      <!-- Fallback if value is nil (e.g., 404 Not Found) -->
+      <div class="col-12 text-center py-4">
+        <p class="text-muted">{{ T "community_medium_unavailable" }}</p>
+      </div>
+    {{ end }}
+  {{ else }}
+    <div class="col-12 text-center py-4">
+      <p class="text-muted">{{ T "community_medium_unavailable" }}</p>
+    </div>
+  {{ end }}
+</div>
+
+<style>
+  .hover-teal {
+    transition: color 0.15s ease;
+  }
+  .hover-teal:hover {
+    color: #0ea5e9 !important; /* Sky 500 */
+  }
+</style>

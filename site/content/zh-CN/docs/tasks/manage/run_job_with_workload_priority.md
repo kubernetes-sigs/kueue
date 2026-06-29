@@ -8,7 +8,7 @@ description: >
 
 通常，在 Kueue 中，工作负载的优先级是使用 Pod 的优先级来计算的，用于排队和抢占。
 
-通过使用 [`WorkloadPriorityClass`](/zh-CN/docs/concepts/workload_priority_class)，
+通过使用 [`WorkloadPriorityClass`](/zh-cn/docs/concepts/workload_priority_class)，
 你可以独立管理工作负载的优先级，以便进行排队和抢占，与 Pod 的优先级分开。
 
 此页面包含如何使用工作负载优先级运行作业的说明。
@@ -19,7 +19,7 @@ description: >
 
 - 一个正在运行的 Kubernetes 集群。
 - kubectl 命令行工具能够与你的集群通信。
-- [Kueue 已安装](/zh-CN/docs/installation)。
+- [Kueue 已安装](/zh-cn/docs/installation)。
 
 ## 0. 创建 WorkloadPriorityClass
 

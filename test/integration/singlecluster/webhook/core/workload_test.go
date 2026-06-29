@@ -36,6 +36,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -353,7 +354,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
-				err := workload.PatchAdmissionStatus(ctx, k8sClient, wl, util.RealClock, func(wl *kueue.Workload) (bool, error) {
+				err := workloadpatching.PatchAdmissionStatus(ctx, k8sClient, wl, util.RealClock, func(wl *kueue.Workload) (bool, error) {
 					return workload.SetQuotaReservation(wl, a, util.RealClock), nil
 				})
 				g.Expect(err).Should(matcher)
@@ -463,7 +464,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
-				workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, acs, util.RealClock)
+				workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, acs, util.RealClock)
 				g.Expect(k8sClient.Status().Update(ctx, wl)).Should(utiltesting.BeForbiddenError())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		},
@@ -1031,6 +1032,28 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
+		// Regression test for issue #12552.
+		// https://github.com/kubernetes-sigs/kueue/issues/12552
+		// The CEL rule guarding queueName immutability uses a ternary that short-
+		// circuits to true whenever either side of the comparison lacks the field.
+		// An attacker can bypass the check by removing queueName:
+		//   PATCH remove /spec/queueName  → has(self.spec.queueName)==false  → true (allowed)
+		// This operation must be rejected while QuotaReserved=True.
+		ginkgo.It("Should prevent removing queueName on admitted workload (issue 12552)", func() {
+			ginkgo.By("Creating and admitting a Workload with queueName 'queue1'")
+			workload := utiltestingapi.MakeWorkload(workloadName, ns.Name).Queue("queue1").Obj()
+			util.MustCreate(ctx, k8sClient, workload)
+			util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(workload), utiltestingapi.MakeAdmission("cq").Obj())
+
+			ginkgo.By("Removing queueName from the admitted workload (must be rejected)")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var wl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &wl)).To(gomega.Succeed())
+				wl.Spec.QueueName = "" // omitempty omits the field → has(self.spec.queueName)==false
+				g.Expect(k8sClient.Update(ctx, &wl)).Should(utiltesting.BeInvalidError())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
 		ginkgo.It("Should forbid the change of status.admission", func() {
 			ginkgo.By("Creating a new Workload")
 			workload := utiltestingapi.MakeWorkload(workloadName, ns.Name).Obj()
@@ -1182,7 +1205,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			ginkgo.By("Setting admission check state")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
-				workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+				workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, kueue.AdmissionCheckState{
 					Name:               "ac1",
 					Message:            "old",
 					LastTransitionTime: metav1.NewTime(time.Now()),
@@ -1195,7 +1218,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			ginkgo.By("Updating admission check state")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
-				workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+				workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, kueue.AdmissionCheckState{
 					Name:               "ac1",
 					Message:            "new",
 					LastTransitionTime: metav1.NewTime(time.Now()),

@@ -61,17 +61,19 @@ TOOLS_DIR := $(HACK_DIR)/tools
 TESTING_DIR := $(HACK_DIR)/testing
 MOCKS_DIR := internal/mocks
 
-RAY_VERSION := $(shell grep '^FROM' "${TESTING_DIR}/ray/Dockerfile" | cut -d: -f2)
+RAY_VERSION := $(shell grep '^FROM' "${TESTING_DIR}/ray/Dockerfile" | cut -d: -f2 | cut -d@ -f1)
 RAYMINI_VERSION ?= 0.0.3
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
-BASE_IMAGE ?= gcr.io/distroless/static:nonroot
+BASE_IMAGE ?= gcr.io/distroless/static:nonroot@sha256:963fa6c544fe5ce420f1f54fb88b6fb01479f054c8056d0f74cc2c6000df5240
 BASE_BUILDER_IMAGE ?= golang
-BUILDER_IMAGE ?= $(BASE_BUILDER_IMAGE):$(GO_VERSION)
+BUILDER_IMAGE ?= $(BASE_BUILDER_IMAGE):$(GO_VERSION)@sha256:32c0e6e5c4f6707717051091b4d0b077464a679eaab563e11474efc5328e2aa5
 CGO_ENABLED ?= 0
 
 YAML_PROCESSOR_LOG_LEVEL ?= info
+
+IMAGE_PUSH_RETRY = $(PROJECT_DIR)/hack/testing/retry.sh --attempts 7 --delay 2 --exponential --stream --continue-if "grep -qiE 'context deadline exceeded' {output}" -- env
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # This is a requirement for 'setup-envtest.sh' in the test target.
@@ -97,7 +99,7 @@ LD_FLAGS += -X '$(version_pkg).BuildDate=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)'
 
 # Update these variables when preparing a new release or a release branch.
 # Then run `make prepare-release-branch`
-RELEASE_VERSION=v0.18.1
+RELEASE_VERSION=v0.18.2
 RELEASE_BRANCH=main
 # Application version for Helm and npm (strips leading 'v' from RELEASE_VERSION)
 APP_VERSION := $(shell echo $(RELEASE_VERSION) | cut -c2-)
@@ -226,6 +228,7 @@ image-local-build:
 
 # Build the multiplatform container image locally and push to repo.
 .PHONY: image-local-push
+image-local-push: IMAGE_BUILD_CMD := $(IMAGE_PUSH_RETRY) $(IMAGE_BUILD_CMD)
 image-local-push: PUSH=--push
 image-local-push: image-local-build
 
@@ -253,6 +256,7 @@ image-pushing-postsubmit:
 	$(MAKE) -j5 image-push helm-chart-push kueueviz-image-push kueue-populator-image-push kueue-priority-booster-image-push
 
 .PHONY: image-push
+image-push: IMAGE_BUILD_CMD := $(IMAGE_PUSH_RETRY) $(IMAGE_BUILD_CMD)
 image-push: PUSH=--push
 image-push: image-build
 
@@ -401,7 +405,7 @@ update-security-insights: yq
 # Developers don't need to build this image, as it will be available as us-central1-docker.pkg.dev/k8s-staging-images/kueue/debug
 .PHONY: debug-image-push
 debug-image-push: ## Build and push the debug image to the registry
-	$(IMAGE_BUILD_CMD) \
+	$(IMAGE_PUSH_RETRY) $(IMAGE_BUILD_CMD) \
 		-t $(IMAGE_REGISTRY)/debug:$(GIT_TAG) \
 		-t $(IMAGE_REGISTRY)/debug:$(RELEASE_BRANCH) \
 		--platform=$(PLATFORMS) \
@@ -426,6 +430,7 @@ importer-image-build:
 		-f ./cmd/importer/Dockerfile ./
 
 .PHONY: importer-image-push
+importer-image-push: IMAGE_BUILD_CMD := $(IMAGE_PUSH_RETRY) $(IMAGE_BUILD_CMD)
 importer-image-push: PUSH=--push
 importer-image-push: importer-image-build
 
@@ -458,6 +463,7 @@ kueueviz-image-build:
 		-f ./cmd/kueueviz/frontend/Dockerfile ./cmd/kueueviz/frontend
 
 .PHONY: kueueviz-image-push
+kueueviz-image-push: IMAGE_BUILD_CMD := $(IMAGE_PUSH_RETRY) $(IMAGE_BUILD_CMD)
 kueueviz-image-push: PUSH=--push
 kueueviz-image-push: kueueviz-image-build
 
@@ -481,6 +487,7 @@ kueue-populator-image-build:
 		IMAGE_BUILD_EXTRA_OPTS="$(IMAGE_BUILD_EXTRA_OPTS) -t $(IMAGE_REPO_KUEUE_POPULATOR):$(RELEASE_BRANCH)"
 
 .PHONY: kueue-populator-image-push
+kueue-populator-image-push: IMAGE_BUILD_CMD := $(IMAGE_PUSH_RETRY) $(IMAGE_BUILD_CMD)
 kueue-populator-image-push: PUSH=--push
 kueue-populator-image-push: kueue-populator-image-build
 
@@ -504,6 +511,7 @@ kueue-priority-booster-image-build:
 		IMAGE_BUILD_EXTRA_OPTS="$(IMAGE_BUILD_EXTRA_OPTS) -t $(IMAGE_REPO_KUEUE_PRIORITY_BOOSTER):$(RELEASE_BRANCH)"
 
 .PHONY: kueue-priority-booster-image-push
+kueue-priority-booster-image-push: IMAGE_BUILD_CMD := $(IMAGE_PUSH_RETRY) $(IMAGE_BUILD_CMD)
 kueue-priority-booster-image-push: PUSH=--push
 kueue-priority-booster-image-push: kueue-priority-booster-image-build
 
@@ -555,6 +563,7 @@ ray-project-mini-image-build:
 		-f ./hack/testing/ray-mini/Dockerfile ./
 
 .PHONY: ray-project-mini-image-build-push
+ray-project-mini-image-build-push: IMAGE_BUILD_CMD := $(IMAGE_PUSH_RETRY) $(IMAGE_BUILD_CMD)
 ray-project-mini-image-build-push: PUSH=--push
 ray-project-mini-image-build-push: ray-project-mini-image-build
 

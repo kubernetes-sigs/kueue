@@ -14,7 +14,7 @@ Kueue is a set of APIs and controller for [job](https://kueue.sigs.k8s.io/docs/c
 a job should be [admitted](https://kueue.sigs.k8s.io/docs/concepts#admission) to start (as in pods can be
 created) and when it should stop (as in active pods should be deleted).
 
-Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) and watch the Kueue-related [talks & presentations](https://kueue.sigs.k8s.io/docs/talks_and_presentations/) to learn more.
+Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) and watch the Kueue-related [talks & presentations](https://kueue.sigs.k8s.io/community/talks_and_presentations/) to learn more.
 
 ## Features overview
 
@@ -89,7 +89,7 @@ Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) and watch the Kueu
 - ✔️ Monitoring via [metrics](https://kueue.sigs.k8s.io/docs/reference/metrics).
 - ✔️ Security: RBAC based accessibility.
 - ✔️ Stable [release](RELEASE.md) cycle (2-3 months).
-- ✔️ [Adopters](https://kueue.sigs.k8s.io/docs/adopters/) running on production.
+- ✔️ [Adopters](https://kueue.sigs.k8s.io/community/adopters/) running on production.
 
   _Based on community feedback, we continue to simplify and evolve the API to
   address new use cases_.
@@ -101,7 +101,7 @@ Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) and watch the Kueu
 To install the latest release of Kueue in your cluster, run the following command:
 
 ```shell
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.18.1/manifests.yaml
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.18.2/manifests.yaml
 ```
 
 The controller runs in the `kueue-system` namespace.

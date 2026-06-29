@@ -60,6 +60,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/wait"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
+	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -392,6 +393,12 @@ func (s *Scheduler) processEntry(
 		}
 	}
 
+	// The assignment was computed during nomination, but it may need to be refreshed.
+	// For example, TAS nominations for workloads from different CQs are computed
+	// independently, making them likely to choose conflicting topology domains.
+	// Recompute when needed so CQs considered later in the cycle don't repeatedly
+	// lose to earlier CQs and starve for prolonged periods.
+	usage, fits := s.updateAssignmentIfNeeded(log, e, snapshot, cq, preemptedWorkloads)
 	mode := e.assignment.RepresentativeMode()
 
 	if features.Enabled(features.TASFailedNodeReplacementFailFast) && workload.HasTopologyAssignmentWithUnhealthyNode(e.Obj) && mode != flavorassigner.Fit {
@@ -430,8 +437,7 @@ func (s *Scheduler) processEntry(
 		return
 	}
 
-	usage := e.assignmentUsage(log)
-	if !fits(snapshot, cq, &usage, preemptedWorkloads, e.preemptionTargets) {
+	if !fits {
 		e.markSkipped("Workload no longer fits after processing another workload")
 		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForQuota
 		if mode == flavorassigner.Preempt {
@@ -533,10 +539,10 @@ func (s *Scheduler) waitForPodsReadyIfBlocked(ctx context.Context, log logr.Logg
 	}
 	log.V(5).Info("Waiting for all admitted workloads to be in the PodsReady condition")
 	wl := e.Obj.DeepCopy()
-	if err := workload.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
+	if err := workloadpatching.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
 		reason := workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonWaitingForPodsReady, "Waiting")
 		return workload.UnsetQuotaReservationWithCondition(wl, reason, "waiting for all admitted workloads to be in PodsReady condition", s.clock.Now()), nil
-	}, workload.WithLooseOnApply(), workload.WithRetryOnConflictForPatch()); err != nil {
+	}, workloadpatching.WithLooseOnApply(), workloadpatching.WithRetryOnConflict()); err != nil {
 		log.Error(err, "Could not update Workload status")
 	}
 	s.cache.WaitForPodsReady(ctx)
@@ -588,6 +594,17 @@ func (e *entry) assignmentUsage(log logr.Logger) workload.Usage {
 	return netUsage(log, e, e.assignment.Usage.Quota)
 }
 
+func (e *entry) readResourceToFlavorMapping() workload.PodSetResourcesToFlavors {
+	flavors := make(workload.PodSetResourcesToFlavors, len(e.assignment.PodSets))
+	for _, ps := range e.assignment.PodSets {
+		flavors[ps.Name] = make(workload.ResourceToFlavor)
+		for resName, flavor := range ps.Flavors {
+			flavors[ps.Name][resName] = flavor.Name
+		}
+	}
+	return flavors
+}
+
 // nominate returns the workloads with their requirements (resource flavors, borrowing) if
 // they were admitted by the clusterQueues in the snapshot. The second return value
 // is the list of inadmissibleEntries.
@@ -636,7 +653,32 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 	return entries, inadmissibleEntries
 }
 
-func fits(snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, usage *workload.Usage, preemptedWorkloads preemption.PreemptedWorkloads, newTargets []*preemption.Target) bool {
+func (s *Scheduler) updateAssignmentIfNeeded(log logr.Logger,
+	e *entry,
+	snapshot *schdcache.Snapshot,
+	cq *schdcache.ClusterQueueSnapshot,
+	preemptedWorkloads preemption.PreemptedWorkloads) (workload.Usage, bool) {
+	usage := e.assignmentUsage(log)
+	fitsCheck := fits(snapshot, cq, &usage, preemptedWorkloads, e.preemptionTargets)
+	if fitsCheck == schdcache.FitsCheckNoTAS && features.Enabled(features.TASRecomputeAssignmentWithinSchedulingCycle) {
+		log.V(2).Info("Re-computing the assignment as it doesn't fit for TAS")
+		// Clear the last assignment so that we can start from the first flavor again and
+		// reach all flavors from the nomination.
+		e.LastAssignment = nil
+		e.NominationMapping = e.readResourceToFlavorMapping()
+		newAssignment, newTargets := s.getAssignments(log, &e.Info, snapshot)
+		e.recordAssignment(newAssignment, newTargets)
+		usage = e.assignmentUsage(log)
+		fitsCheck = fits(snapshot, cq, &usage, preemptedWorkloads, newTargets)
+		log.V(2).Info("Re-computed assignment", "newMode", newAssignment.RepresentativeMode())
+		// clear the assignment flavors as they are only used within a single scheduling cycle
+		e.NominationMapping = nil
+	}
+	return usage, schdcache.FitsCheckOk == fitsCheck
+}
+
+func fits(snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, usage *workload.Usage, preemptedWorkloads preemption.PreemptedWorkloads,
+	newTargets []*preemption.Target) schdcache.FitsCheck {
 	workloads := slices.Collect(maps.Values(preemptedWorkloads))
 	for _, target := range newTargets {
 		workloads = append(workloads, target.WorkloadInfo)
@@ -819,14 +861,14 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 
 	newWorkload := e.Obj.DeepCopy()
 	s.admissionRoutineWrapper.Run(func() {
-		err := workload.PatchAdmissionStatus(ctx, s.client, newWorkload, s.clock, func(wl *kueue.Workload) (bool, error) {
+		err := workloadpatching.PatchAdmissionStatus(ctx, s.client, newWorkload, s.clock, func(wl *kueue.Workload) (bool, error) {
 			s.prepareWorkload(log, wl, cq, admission)
 			if features.Enabled(features.TopologyAwareScheduling) && workload.HasUnhealthyNodes(e.Obj) {
 				log.V(5).Info("Clearing the topology assignment recovery field from the workload status after successful recovery")
 				wl.Status.UnhealthyNodes = nil
 			}
 			return true, nil
-		}, workload.WithLooseOnApply(), workload.WithRetryOnConflictForPatch())
+		}, workloadpatching.WithLooseOnApply(), workloadpatching.WithRetryOnConflict())
 		if err == nil {
 			// Make sure the preemption expectation for an assumed workload is satisfied.
 			// See: https://github.com/kubernetes-sigs/kueue/issues/11480
@@ -984,7 +1026,7 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 	if e.status == notNominated || e.status == skipped || e.status == preemptionGated {
 		wl := e.Obj.DeepCopy()
 		condReason := workload.UnadmittedWorkloadReasonWithFallback(e.quotaReservedReason, "Pending")
-		if err := workload.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
+		if err := workloadpatching.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
 			updated := workload.UnsetQuotaReservationWithCondition(wl, condReason, e.inadmissibleMsg, s.clock.Now())
 			if workload.PropagateResourceRequests(wl, &e.Info) {
 				updated = true
@@ -993,7 +1035,7 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 				updated = workload.SetBlockedOnPreemptionGatesCondition(wl, s.clock.Now(), kueue.PreemptionGated, e.inadmissibleMsg)
 			}
 			return updated, nil
-		}, workload.WithLooseOnApply(), workload.WithRetryOnConflictForPatch()); err != nil {
+		}, workloadpatching.WithLooseOnApply(), workloadpatching.WithRetryOnConflict()); err != nil {
 			log.Error(err, "Could not update Workload status")
 		}
 		s.recorder.Eventf(e.Obj, nil, corev1.EventTypeWarning, "Pending", "Pending", api.TruncateEventMessage(e.inadmissibleMsg))
@@ -1021,7 +1063,7 @@ func (s *Scheduler) recordQuotaReservationMetrics(log logr.Logger, newWorkload, 
 
 	s.recorder.Eventf(newWorkload, nil, corev1.EventTypeNormal, "QuotaReserved", "QuotaReserved", api.TruncateEventMessage(quotaReservedEventMessage))
 
-	priorityClassName := workload.PriorityClassName(newWorkload)
+	priorityClassName := workloadpatching.PriorityClassName(newWorkload)
 	metrics.QuotaReservedWorkload(admission.ClusterQueue, priorityClassName, waitTime, s.customLabels.CQGet(admission.ClusterQueue), s.roleTracker)
 	lqRef := metrics.LQRefFromWorkload(newWorkload)
 	if s.cache.ShouldExposeLocalQueueMetricsForWorkload(log, newWorkload) {
@@ -1037,7 +1079,7 @@ func (s *Scheduler) recordWorkloadAdmissionEvents(log logr.Logger, newWorkload, 
 
 	s.recorder.Eventf(newWorkload, nil, corev1.EventTypeNormal, "Admitted", "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was 0s", admission.ClusterQueue)
 
-	priorityClassName := workload.PriorityClassName(newWorkload)
+	priorityClassName := workloadpatching.PriorityClassName(newWorkload)
 	cqCustomLabels := s.customLabels.CQGet(admission.ClusterQueue)
 	s.cache.ReportCohortSubtreeAdmittedWorkload(log, newWorkload)
 	metrics.AdmittedWorkload(admission.ClusterQueue, priorityClassName, waitTime, cqCustomLabels, s.roleTracker)
