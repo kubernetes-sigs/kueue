@@ -26,6 +26,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -62,6 +63,7 @@ func TestReconcile(t *testing.T) {
 		resourceFlavors []kueue.ResourceFlavor
 		wantPods        []corev1.Pod
 		wantErr         error
+		wantEvent       bool
 	}{
 		"ungate single pod": {
 			workloads: []kueue.Workload{
@@ -594,6 +596,47 @@ func TestReconcile(t *testing.T) {
 			// pod-still-gated check below is the real assertion.
 			wantErr: cmpopts.AnyError,
 		},
+		"merge conflict keeps pod gated and records an event": {
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "flv", "1").
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			resourceFlavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("flv").
+					NodeLabel("cloud.google.com/gke-nodepool", "reserved-pool").Obj(),
+			},
+			pods: []corev1.Pod{
+				// The pod hardcodes a conflicting value for the node-selector key
+				// the assigned flavor wants, so podset.Merge fails.
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					NodeSelector("cloud.google.com/gke-nodepool", "other-pool").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				// The gate is retained and no flavor info is injected.
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					NodeSelector("cloud.google.com/gke-nodepool", "other-pool").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+			wantEvent: true,
+		},
 	}
 
 	for name, tc := range testCases {
@@ -626,9 +669,11 @@ func TestReconcile(t *testing.T) {
 				}
 			}
 
+			recorder := record.NewFakeRecorder(10)
 			ungater := &elasticJobUngater{
 				client:            kClient,
 				expectationsStore: expectations.NewStore(ControllerName),
+				recorder:          recorder,
 			}
 
 			if len(tc.workloads) == 0 {
@@ -659,6 +704,11 @@ func TestReconcile(t *testing.T) {
 			}
 			if diff := gocmp.Diff(tc.wantPods, gotPods.Items, podCmpOpts...); diff != "" {
 				t.Errorf("Pods after reconcile (-want,+got):\n%s", diff)
+			}
+
+			gotEvent := len(recorder.Events) > 0
+			if gotEvent != tc.wantEvent {
+				t.Errorf("recorded event = %v, want %v", gotEvent, tc.wantEvent)
 			}
 		})
 	}

@@ -23,6 +23,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -53,12 +54,17 @@ import (
 
 const ControllerName = "ElasticJobUngater"
 
+// reasonInjectionConflict is recorded on a Pod that is kept gated because its
+// assigned PodSet info conflicts with the Pod template and cannot be merged.
+const reasonInjectionConflict = "ElasticInjectionConflict"
+
 var errPendingUngateOps = errors.New("pending elastic ungate operations")
 
 type elasticJobUngater struct {
 	client            client.Client
 	expectationsStore *expectations.Store
 	roleTracker       *roletracker.RoleTracker
+	recorder          record.EventRecorder
 }
 
 var _ reconcile.Reconciler = (*elasticJobUngater)(nil)
@@ -72,6 +78,7 @@ func SetupWithManager(mgr ctrl.Manager, cfg *configapi.Configuration, roleTracke
 		client:            mgr.GetClient(),
 		expectationsStore: expectations.NewStore(ControllerName),
 		roleTracker:       roleTracker,
+		recorder:          mgr.GetEventRecorderFor(ControllerName),
 	}
 	podHandler := elasticPodHandler{
 		expectationsStore: r.expectationsStore,
@@ -164,30 +171,42 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 
 	err = parallelize.Until(ctx, len(pods), func(i int) error {
 		pod := pods[i]
-		var ungated bool
 		e := utilclient.Patch(ctx, r.client, pod, func() (bool, error) {
-			ungated = utilpod.Ungate(pod, kueue.ElasticJobSchedulingGate)
-			if !ungated {
+			if !utilpod.HasGate(pod, kueue.ElasticJobSchedulingGate) {
 				return false, nil
 			}
+			// Merge the assigned PodSet info before ungating so that a merge
+			// conflict aborts the patch and leaves the pod gated rather than
+			// releasing it without its flavor placement.
 			if info, ok := infoFor(pod); ok {
 				if mergeErr := podset.Merge(&pod.ObjectMeta, &pod.Spec, info); mergeErr != nil {
-					log.Error(mergeErr, "failed merging PodSet info after ungating; pod released without flavor injection",
-						"pod", klog.KObj(pod))
-				} else {
-					log.V(3).Info("ungating elastic pod with assigned flavor info",
-						"pod", klog.KObj(pod), "flavors", flavorsByPodSet[info.Name])
+					return false, mergeErr
 				}
+				log.V(3).Info("ungating elastic pod with assigned flavor info",
+					"pod", klog.KObj(pod), "flavors", flavorsByPodSet[info.Name])
 			} else {
 				log.V(0).Info("ungating elastic pod without flavor info; no matching PodSet",
 					"pod", klog.KObj(pod))
 			}
+			utilpod.Ungate(pod, kueue.ElasticJobSchedulingGate)
 			return true, nil
 		})
-		if e != nil {
-			r.expectationsStore.ObservedUID(log, req.NamespacedName, pod.UID)
-			log.Error(e, "failed ungating elastic pod", "pod", klog.KObj(pod))
+		if e == nil {
+			return nil
 		}
+		r.expectationsStore.ObservedUID(log, req.NamespacedName, pod.UID)
+		if podset.IsPermanent(e) {
+			// Deterministic conflict (e.g. the pod template hardcodes a node
+			// selector clashing with the assigned flavor). Retrying cannot
+			// succeed, so keep the pod gated and surface the conflict for an
+			// operator to resolve rather than misscheduling the pod.
+			log.Error(e, "keeping elastic pod gated; assigned PodSet info conflicts with pod template",
+				"pod", klog.KObj(pod))
+			r.recorder.Eventf(pod, corev1.EventTypeWarning, reasonInjectionConflict,
+				"Keeping pod gated: assigned flavor info conflicts with the pod template: %v", e)
+			return nil
+		}
+		log.Error(e, "failed ungating elastic pod", "pod", klog.KObj(pod))
 		return e
 	})
 	return reconcile.Result{}, err
