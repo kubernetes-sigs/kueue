@@ -14,20 +14,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Wrapper around shard_test_packages.sh for integration tests.
-# Converts module-path output (sigs.k8s.io/kueue/...) to relative paths (./...)
-# as required by Ginkgo.
+# Wrapper around shard_test_packages.sh for unit tests.
+# Excludes packages under ./test/ which are integration/e2e tests.
 #
-# Usage: shard-integration-tests.sh <shard_index> <total_shards> [target_pattern]
+# Usage: shard-unit-tests.sh <shard_index> <total_shards> [go_test_target]
 
-INTEGRATION_SHARD_INDEX=$1
-INTEGRATION_TOTAL_SHARDS=$2
-TARGET_PATTERN=${3:-./test/integration/singlecluster/...}
+UNIT_SHARD_INDEX=$1
+UNIT_TOTAL_SHARDS=$2
+GO_TEST_TARGET=${3:-.}
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 bash "$SCRIPT_DIR/shard_test_packages.sh" \
-    "$INTEGRATION_SHARD_INDEX" \
-    "$INTEGRATION_TOTAL_SHARDS" \
-    "$TARGET_PATTERN" \
-    | sed 's|^sigs.k8s.io/kueue/|./|'
+    "$UNIT_SHARD_INDEX" \
+    "$UNIT_TOTAL_SHARDS" \
+    "${GO_TEST_TARGET}/..." \
+    | grep -v '/test/'
