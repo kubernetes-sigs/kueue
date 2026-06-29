@@ -435,6 +435,13 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/7539
 	// Enable reporting of Cohort related metrics (also including ClusterQueueInfo metric).
 	MetricsForCohorts featuregate.Feature = "MetricsForCohorts"
+
+	// owner: @MatteoFari
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/11677
+	// Enables cleaning up ProvisioningRequests owned by an evicted Workload.
+	CleanupProvisioningRequestsOnEviction featuregate.Feature = "CleanupProvisioningRequestsOnEviction"
+
 	// owner: @tenzen-y
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/10659
@@ -687,6 +694,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	MetricsForCohorts: {
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
+	},
+	CleanupProvisioningRequestsOnEviction: {
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
 	},
 	TASHandleOverlappingFlavors: {
