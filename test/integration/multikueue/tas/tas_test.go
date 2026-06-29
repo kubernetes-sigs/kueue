@@ -32,7 +32,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	"k8s.io/utils/ptr"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -277,26 +276,26 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Label("area:multikue
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			var assignedWorkerCluster client.Client
-			var assignedWorkerCtx context.Context
-			var assignedClusterName string
+			var selectedWorker util.ClusterInfo
 			ginkgo.By("checking which worker cluster was assigned", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					managerWl := &kueue.Workload{}
 					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
-					g.Expect(managerWl.Status.ClusterName).NotTo(gomega.BeNil())
+					selectedWorker = util.GetClientForSelectedWorkerCluster(
+						managerWl,
+						util.ClusterInfo{
+							Name:   "worker1",
+							Client: worker1TestCluster.client,
+							Ctx:    worker1TestCluster.ctx,
+						},
+						util.ClusterInfo{
+							Name:   "worker2",
+							Client: worker2TestCluster.client,
+							Ctx:    worker2TestCluster.ctx,
+						},
+					)
 
-					assignedClusterName = *managerWl.Status.ClusterName
-					g.Expect(assignedClusterName).To(gomega.Or(gomega.Equal(workerCluster1.Name), gomega.Equal(workerCluster2.Name)))
-					if assignedClusterName == workerCluster1.Name {
-						assignedWorkerCluster = worker1TestCluster.client
-						assignedWorkerCtx = worker1TestCluster.ctx
-					} else {
-						assignedWorkerCluster = worker2TestCluster.client
-						assignedWorkerCtx = worker2TestCluster.ctx
-					}
-
-					g.Expect(assignedWorkerCluster.Get(assignedWorkerCtx, wlLookupKey, wl)).To(gomega.Succeed())
+					g.Expect(selectedWorker.Client.Get(selectedWorker.Ctx, wlLookupKey, wl)).To(gomega.Succeed())
 					g.Expect(wl.Spec.PodSets).Should(gomega.BeComparableTo([]kueue.PodSet{{
 						Name:  kueue.DefaultPodSetName,
 						Count: 1,
@@ -309,12 +308,12 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Label("area:multikue
 			})
 
 			ginkgo.By("verify the workload is admitted in the assigned worker cluster", func() {
-				util.ExpectWorkloadsToBeAdmitted(assignedWorkerCtx, assignedWorkerCluster, wl)
+				util.ExpectWorkloadsToBeAdmitted(selectedWorker.Ctx, selectedWorker.Client, wl)
 			})
 
 			ginkgo.By("verify TopologyAssignment for the workload in the assigned worker cluster", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(assignedWorkerCluster.Get(assignedWorkerCtx, wlLookupKey, wl)).Should(gomega.Succeed())
+					g.Expect(selectedWorker.Client.Get(selectedWorker.Ctx, wlLookupKey, wl)).Should(gomega.Succeed())
 					g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
 					g.Expect(wl.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
 					g.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
