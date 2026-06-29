@@ -771,10 +771,7 @@ func buildSnapshotSort(
 			log.V(2).Error(err, "Failed to get LocalQueue for FS weight", "localQueue", klog.KRef(ns, string(name)))
 			return 0, false
 		}
-		if lq.Spec.FairSharing != nil && lq.Spec.FairSharing.Weight != nil {
-			return lq.Spec.FairSharing.Weight.AsApproximateFloat64(), true
-		}
-		return 1, true
+		return afs.LQWeightAsFloat64(&lq), true
 	}
 
 	return func(elements []*workload.Info) {
@@ -797,7 +794,7 @@ func buildSnapshotSort(
 			if !ok {
 				continue
 			}
-			usageCache[lqKey] = workload.CalcFSUsageFromResources(consumed, penalty, lqWeight, fsResWeights)
+			usageCache[lqKey] = afs.CalculateUsage(consumed, penalty, lqWeight, fsResWeights)
 		}
 
 		slices.SortFunc(elements, func(a, b *workload.Info) int {

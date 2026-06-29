@@ -8,7 +8,7 @@ description: 在多集群环境中运行 KubeRay Job
 
 ## 开始之前 {#before-you-begin}
 
-请查阅 [MultiKueue 安装指南](/zh-CN/docs/tasks/manage/setup_multikueue)了解如何正确设置 MultiKueue 集群。
+请查阅 [MultiKueue 安装指南](/zh-cn/docs/tasks/manage/setup_multikueue)了解如何正确设置 MultiKueue 集群。
 
 为方便安装和使用，建议至少使用 Kueue v0.11.0 及 KubeRay Operator v1.3.1 及以上版本。
 
@@ -27,7 +27,7 @@ kubectl create -k "github.com/ray-project/kuberay/ray-operator/config/crd?ref=v1
 
 ## MultiKueue 集成 {#multikueue-integration}
 
-完成设置后，你可以通过运行 RayJob [`ray-job-sample.yaml`](/zh-CN/docs/tasks/run/rayjobs/#example-rayjob)进行测试。
+完成设置后，你可以通过运行 RayJob [`ray-job-sample.yaml`](/zh-cn/docs/tasks/run/rayjobs/#example-rayjob)进行测试。
 
 {{% alert title="注意" color="primary" %}}
 注意：Kueue 会在管理集群上的 KubeRay Job（RayJob、RayCluster、RayService）默认设置 `spec.managedBy` 字段为 `kueue.x-k8s.io/multikueue`。

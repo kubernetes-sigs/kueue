@@ -27,6 +27,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.17"
+- name: CleanupProvisioningRequestsOnEviction
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
 - name: ConcurrentAdmission
   versionedSpecs:
   - default: false
@@ -39,16 +45,6 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.17"
-- name: DRAExtendedResources
-  versionedSpecs:
-  - default: false
-    lockToDefault: false
-    preRelease: Alpha
-    version: "0.17"
-  - default: false
-    lockToDefault: true
-    preRelease: Deprecated
-    version: "0.18"
 - name: ElasticJobsViaWorkloadSlices
   versionedSpecs:
   - default: false
@@ -149,20 +145,6 @@
     lockToDefault: true
     preRelease: GA
     version: "0.17"
-- name: LocalQueueDefaulting
-  versionedSpecs:
-  - default: false
-    lockToDefault: false
-    preRelease: Alpha
-    version: "0.10"
-  - default: true
-    lockToDefault: false
-    preRelease: Beta
-    version: "0.12"
-  - default: true
-    lockToDefault: true
-    preRelease: GA
-    version: "0.17"
 - name: LocalQueueMetrics
   versionedSpecs:
   - default: false
@@ -249,6 +231,18 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.15"
+- name: MultiKueueIncrementalDispatcherConfig
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
+- name: MultiKueueKubeConfigPathValidation
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.19"
 - name: MultiKueueManagerQuotaAutomation
   versionedSpecs:
   - default: false
@@ -351,16 +345,6 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.17"
-- name: SanitizePodSets
-  versionedSpecs:
-  - default: true
-    lockToDefault: false
-    preRelease: Beta
-    version: "0.13"
-  - default: true
-    lockToDefault: true
-    preRelease: GA
-    version: "0.17"
 - name: SchedulerLongRequeueInterval
   versionedSpecs:
   - default: false
@@ -457,6 +441,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.15"
+- name: TASRecomputeAssignmentWithinSchedulingCycle
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
 - name: TASReplaceNodeOnNodeTaints
   versionedSpecs:
   - default: true

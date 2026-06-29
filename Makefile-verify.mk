@@ -22,8 +22,13 @@ VERIFY_NPROCS ?= 8
 # Requires GNU Make 4.0+. Values: target, line, recurse, or empty.
 ifeq ($(shell uname),Darwin)
     VERIFY_OUTPUT_SYNC ?=
+    # SELinux :Z relabeling and label confinement are Linux-only.
+    VOLUME_FLAGS ?=
+    CONTAINER_SECURITY_OPTS ?= --security-opt label=disable
 else
     VERIFY_OUTPUT_SYNC ?= target
+    VOLUME_FLAGS ?= :Z
+    CONTAINER_SECURITY_OPTS ?=
 endif
 # Paths whose content is expected to be fully reproducible from sources.
 # The final step of `make verify` enforces that these paths have:
@@ -163,7 +168,7 @@ endef
 # Validates skills against https://agentskills.io/specification
 define _skills_lint_recipe
 mkdir -p $(ARTIFACTS)
-$(CONTAINER_ENGINE) run --rm -v $(PROJECT_DIR):/workspace:Z -v $(ARTIFACTS):/out:Z $(SKILLSAW_IMAGE) --output /out/skillsaw-summary.html
+$(CONTAINER_ENGINE) run --rm $(CONTAINER_SECURITY_OPTS) -v $(PROJECT_DIR):/workspace$(VOLUME_FLAGS) -v $(ARTIFACTS):/out$(VOLUME_FLAGS) $(SKILLSAW_IMAGE) --output /out/skillsaw-summary.html
 endef
 
 
@@ -270,6 +275,10 @@ skills-lint: ## Lint agent skills with skillsaw.
 .PHONY: verify-website-links
 verify-website-links: ## Check for broken internal links on the public website.
 	$(PROJECT_DIR)/hack/testing/linkchecker/verify.sh
+
+.PHONY: verify-website-links-preview
+verify-website-links-preview: ## Check links on a PR Netlify deploy preview; skips if no fresh same-commit preview exists.
+	$(PROJECT_DIR)/hack/testing/linkchecker/verify-preview.sh
 
 .PHONY: i18n-verify
 i18n-verify: ## Verify localized docs are in sync with English. Usage: make i18n-verify [TARGET_LANG=zh-CN]

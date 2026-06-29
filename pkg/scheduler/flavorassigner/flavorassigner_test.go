@@ -201,8 +201,10 @@ func TestAssignFlavors(t *testing.T) {
 				Effect:   corev1.TaintEffectNoSchedule,
 			}).
 			Obj(),
-		"tas-a": utiltestingapi.MakeResourceFlavor("tas-a").TopologyName("tas-topo-a").Obj(),
-		"tas-b": utiltestingapi.MakeResourceFlavor("tas-b").TopologyName("tas-topo-b").Obj(),
+		"label-x-a":  utiltestingapi.MakeResourceFlavor("label-x-a").NodeLabel("x", "a").Obj(),
+		"label-xy-b": utiltestingapi.MakeResourceFlavor("label-xy-b").NodeLabel("x", "b").NodeLabel("y", "k").Obj(),
+		"tas-a":      utiltestingapi.MakeResourceFlavor("tas-a").TopologyName("tas-topo-a").Obj(),
+		"tas-b":      utiltestingapi.MakeResourceFlavor("tas-b").TopologyName("tas-topo-b").Obj(),
 	}
 
 	cases := map[string]struct {
@@ -1134,6 +1136,80 @@ func TestAssignFlavors(t *testing.T) {
 				}},
 				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
+				}},
+			},
+		},
+		"multiple flavors with different label keys, selector only uses flavor's own keys": {
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					NodeSelector(map[string]string{"x": "a", "y": "g"}).
+					Containers(
+						utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
+							corev1.ResourceCPU: "1",
+						})...,
+					).
+					Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("label-x-a").
+						Resource(corev1.ResourceCPU, "4").
+						Obj(),
+					*utiltestingapi.MakeFlavorQuotas("label-xy-b").
+						Resource(corev1.ResourceCPU, "4").
+						Obj(),
+				).Obj(),
+			wantRepMode: Fit,
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: {Name: "label-x-a", Mode: Fit, TriedFlavorIdx: 0},
+					},
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					},
+					Count: 1,
+				}},
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+					{Flavor: "label-x-a", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
+				}},
+			},
+		},
+		"labelless flavor in group with labeled flavor, workload uses labeled selector": {
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					NodeSelector(map[string]string{"type": "two"}).
+					Containers(
+						utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
+							corev1.ResourceCPU: "1",
+						})...,
+					).
+					Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "4").
+						Obj(),
+					*utiltestingapi.MakeFlavorQuotas("two").
+						Resource(corev1.ResourceCPU, "4").
+						Obj(),
+				).Obj(),
+			wantRepMode: Fit,
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: {Name: "default", Mode: Fit, TriedFlavorIdx: 0},
+					},
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					},
+					Count: 1,
+				}},
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+					{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
 				}},
 			},
 		},
@@ -5196,12 +5272,28 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 				"flavor-b": "NoMatchingFlavor",
 			},
 		},
-		"node affinity mismatch": {
+		"succeeds to schedule on flavor-b with a tolerated taint": {
 			podSet: *utiltestingapi.MakePodSet("main", 1).
 				Request(corev1.ResourceCPU, "1").
 				NodeSelector(map[string]string{"type": "non-existent"}).
 				Toleration(corev1.Toleration{Key: "key", Operator: corev1.TolerationOpEqual, Value: "val", Effect: corev1.TaintEffectNoSchedule}).
 				Obj(),
+			// flavor-b has no label keys so the workload's "type" selector is
+			// irrelevant to it; it matches and the workload is admitted there.
+			wantNoFitReason: "",
+			wantFlavorAttempts: map[kueue.ResourceFlavorReference]string{
+				"flavor-a": "NoMatchingFlavor",
+			},
+		},
+		"node affinity mismatch when both flavors declare same key": {
+			podSet: *utiltestingapi.MakePodSet("main", 1).
+				Request(corev1.ResourceCPU, "1").
+				NodeSelector(map[string]string{"type": "non-existent"}).
+				Obj(),
+			resourceFlavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
+				"flavor-a": utiltestingapi.MakeResourceFlavor("flavor-a").NodeLabel("type", "a").Obj(),
+				"flavor-b": utiltestingapi.MakeResourceFlavor("flavor-b").NodeLabel("type", "b").Obj(),
+			},
 			wantNoFitReason: "NoMatchingFlavor",
 			wantFlavorAttempts: map[kueue.ResourceFlavorReference]string{
 				"flavor-a": "NoMatchingFlavor",

@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 )
 
 type multiKueueAdapter struct{}
@@ -48,7 +49,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 		return false, err
 	}
 
-	groupName := GetPodGroupName(&localPod)
+	groupName := utilpod.GetPodGroupName(&localPod)
 	if groupName == "" {
 		return false, syncLocalPodWithRemote(ctx, localClient, remoteClient, &localPod, workloadName, origin, &log)
 	}
@@ -63,7 +64,7 @@ func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, localClient 
 		return client.IgnoreNotFound(err)
 	}
 
-	groupName := GetPodGroupName(&pod)
+	groupName := utilpod.GetPodGroupName(&pod)
 	if groupName == "" {
 		return client.IgnoreNotFound(remoteClient.Delete(ctx, &pod))
 	}

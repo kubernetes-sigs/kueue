@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -60,8 +61,25 @@ var (
 	errParseOffsetAnnotation = errors.New("failed to parse offset annotation")
 )
 
+type topologyUngaterOptions struct {
+	clock clock.Clock
+}
+
+type topologyUngaterOption func(options *topologyUngaterOptions)
+
+func WithClock(clock clock.Clock) topologyUngaterOption {
+	return func(opts *topologyUngaterOptions) {
+		opts.clock = clock
+	}
+}
+
+var defaultOptions = topologyUngaterOptions{
+	clock: clock.RealClock{},
+}
+
 type topologyUngater struct {
 	client            client.Client
+	clock             clock.Clock
 	expectationsStore *expectations.Store
 	roleTracker       *roletracker.RoleTracker
 }
@@ -83,9 +101,14 @@ var _ predicate.TypedPredicate[*kueue.Workload] = (*topologyUngater)(nil)
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get
 
-func newTopologyUngater(c client.Client, roleTracker *roletracker.RoleTracker) *topologyUngater {
+func newTopologyUngater(c client.Client, roleTracker *roletracker.RoleTracker, opts ...topologyUngaterOption) *topologyUngater {
+	options := defaultOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
 	return &topologyUngater{
 		client:            c,
+		clock:             options.clock,
 		expectationsStore: expectations.NewStore(TASTopologyUngater),
 		roleTracker:       roleTracker,
 	}
@@ -280,6 +303,8 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 		if !ungated {
 			// We don't expect an event in this case.
 			r.expectationsStore.ObservedUID(log, req.NamespacedName, podWithUngateInfo.pod.UID)
+		} else {
+			utilpod.RecordPodSchedulingGateRemovalSeconds(r.clock, kueue.TopologySchedulingGate, wl, utilpod.IsPodGroup(podWithUngateInfo.pod))
 		}
 		return e
 	})

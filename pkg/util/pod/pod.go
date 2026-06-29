@@ -25,8 +25,16 @@ import (
 	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 )
 
 // HasGate checks if the pod has a scheduling gate with a specified name.
@@ -164,4 +172,29 @@ func ContainersShape(containers []corev1.Container) (result []map[string]any) {
 
 func IsTerminated(p *corev1.Pod) bool {
 	return p.Status.Phase == corev1.PodFailed || p.Status.Phase == corev1.PodSucceeded
+}
+
+func RecordPodSchedulingGateRemovalSeconds(cl clock.Clock, name string, wl *kueue.Workload, isGroup bool) {
+	cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
+	if cond == nil || cond.Status != metav1.ConditionTrue {
+		return
+	}
+	latency := cl.Now().Sub(cond.LastTransitionTime.Time)
+	metrics.RecordPodSchedulingGateRemovalSeconds(name, wl.Status.Admission.ClusterQueue, isGroup, latency)
+}
+
+// GetPodGroupName returns the pod group name for the given pod. It reads the
+// GroupNameLabel, or when the WorkloadIdentifierAnnotations feature gate is
+// enabled it first reads the GroupNameAnnotation and then falls back to the label.
+func GetPodGroupName(p *corev1.Pod) string {
+	if features.Enabled(features.WorkloadIdentifierAnnotations) {
+		if name := p.Annotations[podconstants.GroupNameAnnotation]; name != "" {
+			return name
+		}
+	}
+	return p.Labels[podconstants.GroupNameLabel]
+}
+
+func IsPodGroup(p *corev1.Pod) bool {
+	return GetPodGroupName(p) != ""
 }

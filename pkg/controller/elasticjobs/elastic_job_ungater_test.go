@@ -26,7 +26,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/component-base/metrics/testutil"
+	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -34,7 +35,9 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	coreindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -669,9 +672,10 @@ func TestReconcile(t *testing.T) {
 				}
 			}
 
-			recorder := record.NewFakeRecorder(10)
+			recorder := &utiltesting.EventRecorder{}
 			ungater := &elasticJobUngater{
 				client:            kClient,
+				clock:             testingclock.NewFakeClock(now),
 				expectationsStore: expectations.NewStore(ControllerName),
 				recorder:          recorder,
 			}
@@ -706,9 +710,135 @@ func TestReconcile(t *testing.T) {
 				t.Errorf("Pods after reconcile (-want,+got):\n%s", diff)
 			}
 
-			gotEvent := len(recorder.Events) > 0
+			gotEvent := len(recorder.RecordedEvents) > 0
 			if gotEvent != tc.wantEvent {
 				t.Errorf("recorded event = %v, want %v", gotEvent, tc.wantEvent)
+			}
+		})
+	}
+}
+
+func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
+	// Queue-label assignment is exercised in jobframework tests; disable it here
+	// so the expected pods only reflect the slice/flavor injection under test.
+	features.SetFeatureGateDuringTest(t, features.AssignQueueLabelsForPods, false)
+	const (
+		rfName = "rf"
+		cqName = "cq"
+	)
+
+	now := time.Now().Truncate(time.Second)
+
+	testCases := map[string]struct {
+		pods               []corev1.Pod
+		workloads          []kueue.Workload
+		wantPods           []corev1.Pod
+		wantMetricsCount   uint64
+		wantMetricsSeconds float64
+		wantErr            error
+	}{
+		"one workload with one pod (no group)": {
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod", corev1.NamespaceDefault).
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", corev1.NamespaceDefault).Finalizers(kueue.ResourceInUseFinalizerName).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission(cqName).
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, rfName, "1").
+								Obj()).
+							Obj(), now.Add(-2*time.Second),
+					).
+					AdmittedAt(true, now.Add(-2*time.Second)).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod", corev1.NamespaceDefault).
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					Obj(),
+			},
+			wantMetricsCount:   1,
+			wantMetricsSeconds: 2,
+			wantErr:            nil,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			metrics.ClearClusterQueueMetrics(cqName)
+
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			clientBuilder := utiltesting.
+				NewClientBuilder().
+				WithLists(&corev1.PodList{Items: tc.pods}).
+				WithLists(&kueue.WorkloadList{Items: tc.workloads}).
+				WithObjects(utiltestingapi.MakeResourceFlavor(rfName).Obj()).
+				WithStatusSubresource(&kueue.Workload{}).
+				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+
+			if err := indexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
+				t.Fatalf("Could not setup indexes: %v", err)
+			}
+			if err := utiltesting.AsIndexer(clientBuilder).IndexField(ctx, &corev1.Pod{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexPodWorkloadSliceName); err != nil {
+				t.Fatalf("Could not setup WorkloadSliceNameKey index: %v", err)
+			}
+
+			kClient := clientBuilder.Build()
+
+			ungater := &elasticJobUngater{
+				client:            kClient,
+				clock:             testingclock.NewFakeClock(now),
+				expectationsStore: expectations.NewStore(ControllerName),
+			}
+
+			key := client.ObjectKeyFromObject(&tc.workloads[0])
+			request := reconcile.Request{NamespacedName: key}
+
+			_, err := ungater.Reconcile(ctx, request)
+
+			if diff := gocmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
+			}
+
+			var gotPods corev1.PodList
+			if err := kClient.List(ctx, &gotPods); err != nil {
+				if !apierrors.IsNotFound(err) {
+					t.Fatalf("Could not get Pods after reconcile: %v", err)
+				}
+			}
+
+			if diff := gocmp.Diff(tc.wantPods, gotPods.Items, podCmpOpts...); diff != "" {
+				t.Errorf("Pods after reconcile (-want,+got):\n%s", diff)
+			}
+
+			count, err := testutil.GetHistogramMetricCount(
+				metrics.PodSchedulingGateRemovalSeconds.WithLabelValues(kueue.ElasticJobSchedulingGate, cqName, "false"),
+			)
+			if err != nil {
+				t.Fatalf("Error getting PodSchedulingGateRemovalSeconds metric count: %v", err)
+			}
+			if diff := gocmp.Diff(tc.wantMetricsCount, count, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Invalid PodSchedulingGateRemovalSeconds count (-want,+got):\n%s", diff)
+			}
+
+			seconds, err := testutil.GetHistogramMetricValue(
+				metrics.PodSchedulingGateRemovalSeconds.WithLabelValues(kueue.ElasticJobSchedulingGate, cqName, "false"),
+			)
+			if err != nil {
+				t.Fatalf("Error getting PodSchedulingGateRemovalSeconds metric seconds: %v", err)
+			}
+			if diff := gocmp.Diff(tc.wantMetricsSeconds, seconds, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Invalid PodSchedulingGateRemovalSeconds seconds (-want,+got):\n%s", diff)
 			}
 		})
 	}

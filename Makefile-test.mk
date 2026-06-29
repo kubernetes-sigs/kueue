@@ -78,19 +78,35 @@ E2E_GINKGO_ARGS = $(GINKGO_ARGS) $(if $(filter-out 1,$(E2E_NPROCS)),-procs=$(E2E
 # For restricting to a specific directory
 GO_TEST_TARGET ?= .
 
+# Unit test sharding: set UNIT_TOTAL_SHARDS to split packages across parallel CI jobs.
+# UNIT_SHARD_INDEX selects which shard this job runs (0-based).
+# When UNIT_TOTAL_SHARDS is not set, all packages run in a single job (existing behaviour).
+ifdef UNIT_TOTAL_SHARDS
+UNIT_TEST_PACKAGES := $(shell ./hack/testing/shard-unit-tests.sh $(UNIT_SHARD_INDEX) $(UNIT_TOTAL_SHARDS))
+ifeq ($(UNIT_TEST_PACKAGES),)
+$(error Aborting: shard-unit-tests.sh returned no packages. Check UNIT_SHARD_INDEX / UNIT_TOTAL_SHARDS.)
+endif
+else
+UNIT_TEST_PACKAGES := $(shell $(GO_CMD) list $(GO_TEST_TARGET)/... | grep -v '/test/')
+endif
+
 ##@ Tests
 
 # Periodic builds are tested with full ray image
 ifeq ($(JOB_TYPE),periodic)
     export USE_RAY_FOR_TESTS="ray"
 else
-    export USE_RAY_FOR_TESTS="raymini"
+	export USE_RAY_FOR_TESTS="raymini"
 endif
 
+# When using raymini, exclude tests that require the full ray image (e.g. RayService).
+# Workaround until upstream Ray fixes protobuf 7.35+ compatibility (ray-project/ray#64362).
+FULLRAY_EXCLUDE := $(if $(filter "raymini",$(USE_RAY_FOR_TESTS)), && !requires:fullray)
+
 .PHONY: test
-test: gotestsum ## Run tests.
+test: gotestsum ## Run tests. Set UNIT_TOTAL_SHARDS and UNIT_SHARD_INDEX to run a specific shard.
 	mkdir -p $(ARTIFACTS)
-	TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) $(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GOFLAGS) $(GO_TEST_FLAGS) $(shell $(GO_CMD) list $(GO_TEST_TARGET)/... | grep -v '/test/') -coverpkg=$(GO_TEST_TARGET)/... -coverprofile $(ARTIFACTS)/cover.out
+	TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) $(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GOFLAGS) $(GO_TEST_FLAGS) $(UNIT_TEST_PACKAGES) -coverpkg=$(GO_TEST_TARGET)/... -coverprofile $(ARTIFACTS)/cover.out
 
 ## Label Taxonomy:
 ##   Controllers: controller:workload, controller:localqueue, controller:clusterqueue, controller:admissioncheck, controller:resourceflavor, controller:provisioning
@@ -182,7 +198,7 @@ test-multikueue-e2e-extended-shard-0: setup-e2e-env run-test-multikueue-e2e-exte
 
 .PHONY: test-multikueue-e2e-extended-shard-1
 test-multikueue-e2e-extended-shard-1: E2E_NPROCS := 5
-test-multikueue-e2e-extended-shard-1: GINKGO_ARGS=--label-filter=feature:kuberay
+test-multikueue-e2e-extended-shard-1: GINKGO_ARGS=--label-filter='feature:kuberay$(FULLRAY_EXCLUDE)'
 test-multikueue-e2e-extended-shard-1: E2E_CONFIG_FOLDER=multikueue/extended-shard-1
 test-multikueue-e2e-extended-shard-1: setup-e2e-env run-test-multikueue-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
@@ -233,7 +249,7 @@ test-e2e-extended: run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%) #
 
 .PHONY: test-e2e-extended-shard-0
 test-e2e-extended-shard-0: E2E_NPROCS := 4
-test-e2e-extended-shard-0: GINKGO_ARGS=--label-filter='feature:kuberay && shard:kuberay-a'
+test-e2e-extended-shard-0: GINKGO_ARGS=--label-filter='feature:kuberay && shard:kuberay-a$(FULLRAY_EXCLUDE)'
 test-e2e-extended-shard-0: setup-e2e-env run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-e2e-extended-shard-1
@@ -243,7 +259,7 @@ test-e2e-extended-shard-1: setup-e2e-env run-test-e2e-extended-$(E2E_KIND_VERSIO
 
 .PHONY: test-e2e-extended-shard-2
 test-e2e-extended-shard-2: E2E_NPROCS := 2
-test-e2e-extended-shard-2: GINKGO_ARGS=--label-filter='feature:kuberay && shard:kuberay-b'
+test-e2e-extended-shard-2: GINKGO_ARGS=--label-filter='feature:kuberay && shard:kuberay-b$(FULLRAY_EXCLUDE)'
 test-e2e-extended-shard-2: setup-e2e-env run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 ## Label Taxonomy:

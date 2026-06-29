@@ -71,6 +71,7 @@ import (
 	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
+	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -251,7 +252,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	if features.Enabled(features.MultiKueueOrchestratedPreemption) {
-		updateErr := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		updateErr := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			updated := r.syncPreemptionGateStates(wl)
 			return updated, nil
 		})
@@ -303,7 +304,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	if requeueAt := workload.NeedsRequeueAtUpdate(&wl, r.clock); requeueAt != nil {
-		err := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			if wl.Status.RequeueState == nil {
 				wl.Status.RequeueState = &kueue.RequeueState{}
 			}
@@ -318,7 +319,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		features.Enabled(features.KueueDRARejectWorkloadsWhenDRADisabled) &&
 		workload.HasDRA(&wl) {
 		log.V(3).Info("Rejecting workload that uses DRA resources because KueueDRAIntegration feature gate is disabled")
-		err := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			updated := workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadInadmissible,
 				"Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled",
 				r.clock.Now())
@@ -337,7 +338,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		workload.AdjustResources(ctx, r.client, &wl)
 		if workload.HasResourceClaim(&wl) {
 			log.V(3).Info("Workload is inadmissible because it uses resource claims which is not supported")
-			err := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+			err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 				updated := workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadInadmissible, "KueueDRAIntegration feature does not support use of resource claims", r.clock.Now())
 				if updated && workload.SetRequeuedCondition(wl, kueue.WorkloadInadmissible, "DRA resource claims not supported", false) {
 					updated = true
@@ -357,7 +358,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if len(fieldErrs) > 0 {
 			err := fieldErrs.ToAggregate()
 			log.Error(err, "Failed to process DRA resources for workload")
-			updateErr := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+			updateErr := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 				updated := workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadInadmissible, err.Error(), r.clock.Now())
 				if updated && workload.SetRequeuedCondition(wl, kueue.WorkloadInadmissible, err.Error(), false) {
 					updated = true
@@ -382,7 +383,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			if len(extFieldErrs) > 0 {
 				err := extFieldErrs.ToAggregate()
 				log.Error(err, "Failed to process DRA extended resources for workload")
-				updateErr := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+				updateErr := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 					updated := workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadInadmissible, err.Error(), r.clock.Now())
 					if updated && workload.SetRequeuedCondition(wl, kueue.WorkloadInadmissible, err.Error(), false) {
 						updated = true
@@ -420,7 +421,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			if len(counterFieldErrs) > 0 {
 				err := counterFieldErrs.ToAggregate()
 				log.Error(err, "Failed to process DRA counter resources for workload")
-				updateErr := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+				updateErr := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 					updated := workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadInadmissible, err.Error(), r.clock.Now())
 					if updated && workload.SetRequeuedCondition(wl, kueue.WorkloadInadmissible, err.Error(), false) {
 						updated = true
@@ -499,7 +500,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				log.V(3).Info("Pending workload requeued after backoff")
 
 				// Clear RequeueAt since backoff has elapsed
-				err := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+				err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 					if wl.Status.RequeueState != nil {
 						wl.Status.RequeueState.RequeueAt = nil
 					}
@@ -521,7 +522,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 		var updated bool
 		var requeueAfter time.Duration
-		err := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			if cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued); cond != nil && cond.Status == metav1.ConditionFalse {
 				switch cond.Reason {
 				case kueue.WorkloadDeactivated:
@@ -623,7 +624,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	lqExists := err == nil
 	lqActive := ptr.Deref(lq.Spec.StopPolicy, kueue.None) == kueue.None
 	if lqExists && lqActive && isDisabledRequeuedByLocalQueueStopped(&wl) {
-		return ctrl.Result{}, client.IgnoreNotFound(workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		return ctrl.Result{}, client.IgnoreNotFound(workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			return workload.SetRequeuedCondition(wl, kueue.WorkloadLocalQueueRestarted, "The LocalQueue was restarted after being stopped", true), nil
 		}))
 	}
@@ -643,7 +644,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 		// If stopped cluster queue is started we need to set the WorkloadRequeued condition to true.
 		if isDisabledRequeuedByClusterQueueStopped(&wl) && ptr.Deref(cq.Spec.StopPolicy, kueue.None) == kueue.None {
-			return ctrl.Result{}, client.IgnoreNotFound(workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+			return ctrl.Result{}, client.IgnoreNotFound(workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 				return workload.SetRequeuedCondition(wl, kueue.WorkloadClusterQueueRestarted, "The ClusterQueue was restarted after being stopped", true), nil
 			}))
 		}
@@ -656,7 +657,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	// false before the workloads eviction.
 	if !workload.IsAdmitted(&wl) {
 		var updated bool
-		if err := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			updated = workload.SyncAdmittedCondition(wl, r.clock.Now())
 			return updated, nil
 		}); err != nil {
@@ -676,7 +677,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				wl.Status.Admission.ClusterQueue,
 				quotaReservedWaitTime.Seconds(),
 			)
-			priorityClassName := workload.PriorityClassName(&wl)
+			priorityClassName := workloadpatching.PriorityClassName(&wl)
 			r.cache.ReportCohortSubtreeAdmittedWorkload(log, &wl)
 			metrics.AdmittedWorkload(cqName, priorityClassName, queuedWaitTime, r.customLabels.CQGet(cqName), r.roleTracker)
 			metrics.ReportAdmissionChecksWaitTime(cqName, priorityClassName, quotaReservedWaitTime, r.customLabels.CQGet(cqName), r.roleTracker)
@@ -737,28 +738,28 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	switch {
 	case !lqExists:
 		log.V(3).Info("Workload is inadmissible because of missing LocalQueue", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)))
-		if err := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			return workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadInadmissible, fmt.Sprintf("LocalQueue %s doesn't exist", wl.Spec.QueueName), r.clock.Now()), nil
 		}); err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 	case !lqActive:
 		log.V(3).Info("Workload is inadmissible because of stopped LocalQueue", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)))
-		if err := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			return workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadInadmissible, fmt.Sprintf("LocalQueue %s is inactive", wl.Spec.QueueName), r.clock.Now()), nil
 		}); err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 	case !cqOk:
 		log.V(3).Info("Workload is inadmissible because of missing ClusterQueue", "clusterQueue", klog.KRef("", string(cqName)))
-		if err := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			return workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadInadmissible, fmt.Sprintf("ClusterQueue %s doesn't exist", cqName), r.clock.Now()), nil
 		}); err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 	case !r.cache.ClusterQueueActive(cqName):
 		log.V(3).Info("Workload is inadmissible because ClusterQueue is inactive", "clusterQueue", klog.KRef("", string(cqName)))
-		if err := workload.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			return workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadInadmissible, fmt.Sprintf("ClusterQueue %s is inactive", cqName), r.clock.Now()), nil
 		}); err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -824,7 +825,7 @@ func (r *WorkloadReconciler) reconcileMaxExecutionTime(ctx context.Context, wl *
 	}
 
 	if !apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadDeactivationTarget) {
-		err := workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			updated := workload.SetDeactivationTarget(wl, kueue.WorkloadMaximumExecutionTimeExceeded, "exceeding the maximum execution time")
 			if wl.Status.AccumulatedPastExecutionTimeSeconds != nil {
 				wl.Status.AccumulatedPastExecutionTimeSeconds = nil
@@ -884,7 +885,7 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 	if workload.HasRejectedChecks(wl) {
 		rejectedChecks := workload.RejectedChecks(wl)
 		message := buildAdmissionChecksMessage(rejectedChecks, kueue.CheckStateRejected)
-		err := workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			return workload.SetDeactivationTarget(wl, kueue.WorkloadEvictedByAdmissionCheck, message), nil
 		})
 		if err != nil {
@@ -976,14 +977,14 @@ func (r *WorkloadReconciler) reconcileOnLocalQueueActiveState(ctx context.Contex
 
 	if !lqExists || !lq.DeletionTimestamp.IsZero() {
 		log.V(3).Info("Workload is inadmissible because the LocalQueue is terminating or missing", "localQueue", klog.KRef("", string(wl.Spec.QueueName)))
-		return true, workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		return true, workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			return workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadInadmissible, fmt.Sprintf("LocalQueue %s is terminating or missing", wl.Spec.QueueName), r.clock.Now()), nil
 		})
 	}
 
 	if queueStopPolicy != kueue.None {
 		log.V(3).Info("Workload is inadmissible because the LocalQueue is stopped", "localQueue", klog.KRef("", string(wl.Spec.QueueName)))
-		return true, workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		return true, workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			return workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadInadmissible, fmt.Sprintf("LocalQueue %s is stopped", wl.Spec.QueueName), r.clock.Now()), nil
 		})
 	}
@@ -1019,14 +1020,14 @@ func (r *WorkloadReconciler) reconcileOnClusterQueueActiveState(ctx context.Cont
 
 	if !cqExists || !cq.DeletionTimestamp.IsZero() {
 		log.V(3).Info("Workload is inadmissible because the ClusterQueue is terminating or missing", "clusterQueue", klog.KRef("", string(cqName)))
-		return true, workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		return true, workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			return workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadInadmissible, fmt.Sprintf("ClusterQueue %s is terminating or missing", cqName), r.clock.Now()), nil
 		})
 	}
 
 	if queueStopPolicy != kueue.None {
 		log.V(3).Info("Workload is inadmissible because the ClusterQueue is stopped", "clusterQueue", klog.KRef("", string(cqName)))
-		return true, workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		return true, workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			return workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadInadmissible, fmt.Sprintf("ClusterQueue %s is stopped", cqName), r.clock.Now()), nil
 		})
 	}
@@ -1049,7 +1050,7 @@ func (r *WorkloadReconciler) mayUpdateConditionForAdmissionGatedBy(ctx context.C
 
 	if !hasGatedAnnotation && hasGatedCondition {
 		// This previously gated workload is becoming admissible because its AdmissionGatedBy annotation is cleared
-		err := workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			// Update the condition to indicate the gate is cleared, rather than removing it
 			return workload.UnsetQuotaReservationWithCondition(wl, "Pending", "AdmissionGatedBy cleared, waiting for quota reservation", r.clock.Now()), nil
 		})
@@ -1061,7 +1062,7 @@ func (r *WorkloadReconciler) mayUpdateConditionForAdmissionGatedBy(ctx context.C
 		return true, nil
 	} else if hasGatedAnnotation && !hasGatedCondition {
 		// This is the first detection we see a non-empty AdmissionGatedBy annotation
-		err := workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			return workload.UnsetQuotaReservationWithCondition(
 				wl,
 				kueue.WorkloadAdmissionGated,
@@ -1097,7 +1098,7 @@ func syncAdmissionCheckConditions(conds []kueue.AdmissionCheckState, admissionCh
 	currentChecks := utilslices.ToRefMap(conds, func(c *kueue.AdmissionCheckState) kueue.AdmissionCheckReference { return c.Name })
 	for t := range admissionChecks {
 		if _, found := currentChecks[t]; !found {
-			workload.SetAdmissionCheckState(&conds, kueue.AdmissionCheckState{
+			workloadpatching.SetAdmissionCheckState(&conds, kueue.AdmissionCheckState{
 				Name:  t,
 				State: kueue.CheckStatePending,
 			}, c)
@@ -1180,7 +1181,7 @@ func (r *WorkloadReconciler) triggerDeactivation(ctx context.Context, wl *kueue.
 	requeueState := ptr.Deref(wl.Status.RequeueState, kueue.RequeueState{})
 	// If requeuingBackoffLimitCount equals to null, the workloads is repeatedly and endless re-queued.
 	if r.waitForPodsReady.requeuingBackoffLimitCount != nil && ptr.Deref(requeueState.Count, 0)+1 > *r.waitForPodsReady.requeuingBackoffLimitCount {
-		if err := workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			return workload.SetDeactivationTarget(wl, kueue.WorkloadRequeuingLimitExceeded, "exceeding the maximum number of re-queuing retries"), nil
 		}); err != nil {
 			return false, err
@@ -1417,7 +1418,7 @@ func (r *WorkloadReconciler) notifyWatchers(oldWl, newWl *kueue.Workload) {
 }
 
 func (r *WorkloadReconciler) reportFinishedWorkload(log logr.Logger, wl *kueue.Workload) {
-	priorityClassName := workload.PriorityClassName(wl)
+	priorityClassName := workloadpatching.PriorityClassName(wl)
 	cqName := ptr.Deref(wl.Status.Admission, kueue.Admission{}).ClusterQueue
 	metrics.IncrementFinishedWorkloadTotal(cqName, priorityClassName, r.customLabels.CQGet(cqName), r.roleTracker)
 	lqRef := metrics.LQRefFromWorkload(wl)

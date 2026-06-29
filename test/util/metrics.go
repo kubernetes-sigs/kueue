@@ -380,8 +380,8 @@ func ExpectClusterQueueInfoMetric(cqName, parentCohort, rootCohort string, count
 	expectGaugeMetric(metrics.ClusterQueueInfo, lvs, gomega.Equal(count))
 }
 
-func ExpectPodSchedulingGateRemovalSecondsMetricLessOrEqual(name string, cqName kueue.ClusterQueueReference, isGroup bool, duration time.Duration) {
+func ExpectPodSchedulingGateRemovalSecondsMetricLessOrEqual(name string, cqName kueue.ClusterQueueReference, isGroup bool, count int) {
 	ginkgo.GinkgoHelper()
-	matcher := gomega.BeNumerically("<=", duration.Seconds())
+	matcher := gomega.Equal(count)
 	expectHistogramMetric(metrics.PodSchedulingGateRemovalSeconds, matcher, name, string(cqName), strconv.FormatBool(isGroup))
 }

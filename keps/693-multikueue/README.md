@@ -152,6 +152,23 @@ deployments with very high job throughput (above 1M jobs per day).
     learning the state of the world from the worker clusters (not covered
     by this KEP).
 
+* **Arbitrary file read via `locationType=Path`**: When `KubeConfig.LocationType`
+  is set to `Path`, the controller reads the file at the user-supplied location
+  using `os.ReadFile`. Without path restrictions, any principal with
+  `create`/`update` access to `MultiKueueCluster` resources could read arbitrary
+  files from the controller pod's filesystem (e.g. the projected service account
+  token). This is mitigated by:
+  * Gating safe path validation behind the `MultiKueueKubeConfigPathValidation` feature
+    gate (Alpha, default disabled). When the gate is on, only
+    paths under the hardcoded prefix `/etc/multikueue/kubeconfigs/` are
+    accepted. When disabled, the controller falls back to the legacy
+    behavior of allowing any path.
+  * Canonicalizing and validating the path: the controller cleans the path,
+    rejects `..` segments, resolves symlinks, and requires the resolved absolute
+    path to reside under the prefix directory.
+  * Recommended deployment practice is to use `locationType=Secret` or
+    `ClusterProfile` instead of `Path` in production environments.
+
 ## Design Details
 MultiKueue will be enabled on a cluster queue using the admission check fields.
 Just like ProvisioningRequest, MultiKueue will have its own configuration, 
