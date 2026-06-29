@@ -577,7 +577,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		// start the job if the workload has been admitted, and the job is still suspended
 		if workload.IsAdmitted(wl) {
 			log.V(2).Info("Job admitted, unsuspending")
-			err := r.startJob(ctx, job, object, wl)
+			err := r.startJob(ctx, job, object, wl, true)
 			if err != nil {
 				log.Error(err, "Unsuspending job")
 				if podset.IsPermanent(err) {
@@ -651,7 +651,9 @@ func (r *JobReconciler) ensureElasticPodSetInfoInjected(ctx context.Context, job
 	}
 
 	log.V(2).Info("Injecting PodSet info into elastic job template after admission")
-	if err := r.startJob(ctx, job, object, wl); err != nil {
+	// The job is already running; suppress the spurious "Started" event since
+	// this only patches the owner template with the admitted PodSetInfo.
+	if err := r.startJob(ctx, job, object, wl, false); err != nil {
 		log.Error(err, "Starting elastic job after admission")
 		if podset.IsPermanent(err) {
 			errUpdateStatus := workload.Finish(ctx, r.client, wl, FailedToStartFinishedReason, err.Error(), r.clock)
@@ -1362,7 +1364,10 @@ func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job Generi
 }
 
 // startJob unsuspends the job and applies its admitted PodSetInfo.
-func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload) error {
+// recordStartedEvent controls whether the "Started" event is emitted; it is set
+// to false when reusing this path to patch the template of an already-running
+// elastic job, where nothing is actually being started.
+func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload, recordStartedEvent bool) error {
 	info, err := GetPodSetsInfoFromStatus(ctx, r.client, wl)
 	if err != nil {
 		return err
@@ -1401,7 +1406,9 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 		}); err != nil {
 			return err
 		}
-		r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonStarted, "Started", msg)
+		if recordStartedEvent {
+			r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonStarted, "Started", msg)
+		}
 	}
 
 	return nil

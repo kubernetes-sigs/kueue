@@ -1257,6 +1257,14 @@ func TestReconcileElasticJobInjectsPodSetInfoOnAdmission(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Reconcile returned error: %v", err)
 			}
+
+			// Patching the template of an already-running elastic job must not
+			// emit a spurious "Started" event; nothing is actually started.
+			for _, ev := range recorder.RecordedEvents {
+				if ev.Reason == ReasonStarted {
+					t.Errorf("unexpected %q event recorded for already-running elastic job", ReasonStarted)
+				}
+			}
 		})
 	}
 }
