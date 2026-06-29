@@ -213,6 +213,17 @@ func (p *PodWrapper) RoleHash(h string) *PodWrapper {
 	return p.Annotation(podconstants.RoleHashAnnotation, h)
 }
 
+// WASPodGroupAnnotation sets the opt-in annotation for native WAS PodGroup creation.
+func (p *PodWrapper) WASPodGroupAnnotation() *PodWrapper {
+	return p.Annotation(podconstants.WASPodGroupAnnotation, "true")
+}
+
+// SchedulingGroupPodGroupName sets pod.spec.schedulingGroup.podGroupName.
+func (p *PodWrapper) SchedulingGroupPodGroupName(name string) *PodWrapper {
+	p.Spec.SchedulingGroup = &corev1.PodSchedulingGroup{PodGroupName: &name}
+	return p
+}
+
 // KueueSchedulingGate adds kueue scheduling gate to the Pod
 func (p *PodWrapper) KueueSchedulingGate() *PodWrapper {
 	return p.Gate(podconstants.SchedulingGateName)

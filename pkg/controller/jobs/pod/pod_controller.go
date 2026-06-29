@@ -105,6 +105,8 @@ func init() {
 }
 
 // +kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch
+// +kubebuilder:rbac:groups=scheduling.k8s.io,resources=workloads,verbs=get;list;watch;create
+// +kubebuilder:rbac:groups=scheduling.k8s.io,resources=podgroups,verbs=get;list;watch;create
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;watch;update;patch
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=pods/status,verbs=get;patch
@@ -116,17 +118,22 @@ func init() {
 
 type Reconciler struct {
 	*jobframework.JobReconciler
-	expectationsStore *expectations.Store
-	clock             clock.Clock
+	expectationsStore      *expectations.Store
+	clock                  clock.Clock
+	nativePodGroupsEnabled bool
 }
 
 const controllerName = "v1_pod"
 
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	return r.ReconcileGenericJob(ctx, req, NewPod(WithExcessPodExpectations(r.expectationsStore), WithClock(r.clock)))
+	return r.ReconcileGenericJob(ctx, req, NewPod(WithExcessPodExpectations(r.expectationsStore), WithClock(r.clock), WithNativePodGroupsEnabled(r.nativePodGroupsEnabled)))
 }
 
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
+	enabled, reason := nativePodGroupsAvailability(mgr.GetRESTMapper())
+	r.nativePodGroupsEnabled = enabled
+	ctrl.Log.V(3).Info("Native PodGroups availability", "enabled", enabled, "reason", reason)
+
 	concurrency := mgr.GetControllerOptions().GroupKindConcurrency[gvk.GroupKind().String()]
 	ctrl.Log.V(3).Info("Setting up Pod reconciler", "concurrency", max(1, concurrency))
 	return ctrl.NewControllerManagedBy(mgr).
@@ -163,7 +170,8 @@ type Pod struct {
 	absentPods            int
 	excessPodExpectations *expectations.Store
 	satisfiedExcessPods   bool
-	clock                 clock.Clock
+	clock                  clock.Clock
+	nativePodGroupsEnabled bool
 }
 
 var (
@@ -193,6 +201,13 @@ func WithExcessPodExpectations(store *expectations.Store) PodOption {
 func WithClock(clock clock.Clock) PodOption {
 	return func(pod *Pod) {
 		pod.clock = clock
+	}
+}
+
+// WithNativePodGroupsEnabled sets whether native WAS PodGroup creation is enabled.
+func WithNativePodGroupsEnabled(enabled bool) PodOption {
+	return func(pod *Pod) {
+		pod.nativePodGroupsEnabled = enabled
 	}
 }
 
@@ -267,6 +282,12 @@ func (p *Pod) Suspend() {
 // Run will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
 func (p *Pod) Run(ctx context.Context, c client.Client, wl *kueue.Workload, podSetsInfo []podset.PodSetInfo, recorder events.EventRecorder, msg string) error {
 	log := ctrl.LoggerFrom(ctx)
+
+	// Ensure a native WAS PodGroup exists before ungating pods, so kube-scheduler
+	// can enforce gang placement when it sees the pods.
+	if err := p.ensureNativePodGroup(ctx, c, wl, recorder); err != nil {
+		return fmt.Errorf("ensuring native PodGroup: %w", err)
+	}
 
 	if !p.isGroup {
 		if len(podSetsInfo) != 1 {
@@ -865,6 +886,18 @@ func (p *Pod) validatePodGroupMetadata(r events.EventRecorder, activePods []core
 				p.pod.GetName(), podInGroup.GetName(),
 				podconstants.GroupTotalCountAnnotation,
 				groupTotalCount, tc))
+		}
+
+		// Validate that all pods in the group have the same schedulingGroup.podGroupName
+		// when WAS PodGroups are enabled.
+		if p.nativePodGroupsEnabled {
+			leaderPGName := nativePodGroupNameForPod(&p.pod)
+			podPGName := nativePodGroupNameForPod(&podInGroup)
+			if leaderPGName != podPGName {
+				return jobframework.UnretryableError(fmt.Sprintf(
+					"inconsistent schedulingGroup.podGroupName in pod group: pod '%s' has '%s' but pod '%s' has '%s'",
+					p.pod.GetName(), leaderPGName, podInGroup.GetName(), podPGName))
+			}
 		}
 	}
 
