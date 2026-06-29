@@ -317,8 +317,7 @@ func ClusterInfosForE2E(
 	}
 }
 
-func GetClientForSelectedWorkerCluster(
-	managerWl *kueue.Workload, clusters ...ClusterInfo) ClusterInfo {
+func GetClientForSelectedWorkerCluster(managerWl *kueue.Workload, clusters ...ClusterInfo) ClusterInfo {
 	ginkgo.GinkgoHelper()
 
 	clusterName := managerWl.Status.ClusterName
