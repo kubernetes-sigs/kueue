@@ -799,7 +799,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				})
 			})
 
-			ginkgo.It("Should run a RayService on worker if admitted", func() {
+			ginkgo.It("Should run a RayService on worker if admitted", ginkgo.Label("requires:fullray"), func() {
 				kuberayTestImage := util.GetKuberayTestImage()
 
 				// Create ConfigMap with a simple Ray Serve application
