@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1409,4 +1410,69 @@ func TestSetRemoteClientConfigDoesNotBlockOtherClusters(t *testing.T) {
 	case <-time.After(stuckWatchTimeout):
 		t.Fatal("slow goroutine did not exit after release")
 	}
+}
+
+// hammerSetConfigWithReader runs reader concurrently with updateConfigAndRefreshWatchers
+// swapping rc.client, as a regression harness for the #12557 data race. Only meaningful
+// under `go test -race`.
+func hammerSetConfigWithReader(t *testing.T, reader func(ctx context.Context, rc *remoteClient)) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	rc := newTestClient(ctx, []byte(testKubeconfig("worker1")), nil, nil)
+	rc.origin = defaultOrigin
+	rc.adapters = map[string]jobframework.MultiKueueAdapter{}
+
+	// Seed an initial client so the first read has a client to observe.
+	rc.connecting.Store(true)
+	if _, err := rc.updateConfigAndRefreshWatchers(ctx, rc.config); err != nil {
+		t.Fatalf("seeding initial client: %v", err)
+	}
+
+	const iterations = 200
+	var writerDone atomic.Bool
+	var wg sync.WaitGroup
+
+	// Writer: swap rc.client each iteration; fail if the update errors (swaps would stop).
+	var writerErr error
+	wg.Go(func() {
+		defer writerDone.Store(true)
+		for i := range iterations {
+			cfg := &clientConfig{Kubeconfig: []byte(testKubeconfig(fmt.Sprintf("worker-%d", i)))}
+			if _, err := rc.updateConfigAndRefreshWatchers(ctx, cfg); err != nil {
+				writerErr = err
+				return
+			}
+		}
+	})
+
+	wg.Go(func() {
+		for !writerDone.Load() {
+			reader(ctx, rc)
+		}
+	})
+
+	wg.Wait()
+	if writerErr != nil {
+		t.Fatalf("writer updateConfigAndRefreshWatchers: %v", writerErr)
+	}
+}
+
+func TestRemoteClientConcurrentSetConfigAndGC(t *testing.T) {
+	hammerSetConfigWithReader(t, func(ctx context.Context, rc *remoteClient) {
+		rc.runGC(ctx)
+	})
+}
+
+func TestRemoteClientConcurrentSetConfigAndReaders(t *testing.T) {
+	wlKey := client.ObjectKey{Namespace: metav1.NamespaceDefault, Name: "wl"}
+	hammerSetConfigWithReader(t, func(ctx context.Context, rc *remoteClient) {
+		remoteCl := rc.getClient()
+		if remoteCl == nil {
+			return
+		}
+		_ = remoteCl.Get(ctx, wlKey, &kueue.Workload{}) // workload.go-style read
+		_ = remoteCl.List(ctx, &kueue.LocalQueueList{}) // generic cache List read
+	})
 }
