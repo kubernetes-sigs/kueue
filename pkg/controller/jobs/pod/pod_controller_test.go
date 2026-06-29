@@ -28,6 +28,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1alpha2 "k8s.io/api/scheduling/v1alpha2"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -166,6 +167,142 @@ func TestRun(t *testing.T) {
 				t.Errorf("error mismatch (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestEnsureNativePodGroup(t *testing.T) {
+	testCases := map[string]struct {
+		pod         *Pod
+		workload    *kueue.Workload
+		initObjects []client.Object
+		wantErr     error
+		wantCount   int
+		wantReason  string
+	}{
+		"creates native PodGroup for managed pod group": {
+			pod: &Pod{
+				pod: *testingpod.MakePod("driver", metav1.NamespaceDefault).
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					WASPodGroupAnnotation().
+					SchedulingGroupPodGroupName("test-group").
+					Obj(),
+				isGroup:                true,
+				nativePodGroupsEnabled: true,
+			},
+			workload:   utiltestingapi.MakeWorkload("test-group", metav1.NamespaceDefault).Obj(),
+			wantCount:  1,
+			wantReason: podconstants.ReasonNativePodGroupCreated,
+		},
+		"skips native PodGroup when annotation is missing": {
+			pod: &Pod{
+				pod: *testingpod.MakePod("driver", metav1.NamespaceDefault).
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					SchedulingGroupPodGroupName("test-group").
+					Obj(),
+				isGroup:                true,
+				nativePodGroupsEnabled: true,
+			},
+			workload:  utiltestingapi.MakeWorkload("test-group", metav1.NamespaceDefault).Obj(),
+			wantCount: 0,
+		},
+		"reuses existing external PodGroup without managing it": {
+			pod: &Pod{
+				pod: *testingpod.MakePod("driver", metav1.NamespaceDefault).
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					WASPodGroupAnnotation().
+					SchedulingGroupPodGroupName("test-group").
+					Obj(),
+				isGroup:                true,
+				nativePodGroupsEnabled: true,
+			},
+			workload: utiltestingapi.MakeWorkload("test-group", metav1.NamespaceDefault).Obj(),
+			initObjects: []client.Object{
+				&schedulingv1alpha2.PodGroup{ObjectMeta: metav1.ObjectMeta{Name: "test-group", Namespace: metav1.NamespaceDefault}},
+			},
+			wantCount:  1,
+			wantReason: podconstants.ReasonNativePodGroupReused,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			clientBuilder := utiltesting.NewClientBuilder()
+			kClient := clientBuilder.WithObjects(tc.initObjects...).Build()
+			recorder := &utiltesting.EventRecorder{}
+
+			gotErr := tc.pod.ensureNativePodGroup(ctx, kClient, tc.workload, recorder)
+			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
+				t.Fatalf("unexpected error (-want,+got):\n%s", diff)
+			}
+
+			podGroups := &schedulingv1alpha2.PodGroupList{}
+			if err := kClient.List(ctx, podGroups, client.InNamespace(metav1.NamespaceDefault)); err != nil {
+				t.Fatalf("listing PodGroups: %v", err)
+			}
+			if diff := cmp.Diff(tc.wantCount, len(podGroups.Items)); diff != "" {
+				t.Fatalf("unexpected PodGroup count (-want,+got):\n%s", diff)
+			}
+			if tc.wantCount == 1 {
+				got := podGroups.Items[0]
+				if got.Labels[constants.ManagedByKueueLabelKey] == constants.ManagedByKueueLabelValue {
+					if diff := cmp.Diff(int32(2), got.Spec.SchedulingPolicy.Gang.MinCount); diff != "" {
+						t.Errorf("unexpected gang minCount (-want,+got):\n%s", diff)
+					}
+				}
+			}
+			if tc.wantReason != "" {
+				if len(recorder.RecordedEvents) == 0 {
+					t.Fatalf("expected recorded event with reason %q", tc.wantReason)
+				}
+				if diff := cmp.Diff(tc.wantReason, recorder.RecordedEvents[0].Reason); diff != "" {
+					t.Fatalf("unexpected event reason (-want,+got):\n%s", diff)
+				}
+			}
+		})
+	}
+}
+
+func TestValidatePodGroupMetadataSchedulingGroupConsistency(t *testing.T) {
+	recorder := &utiltesting.EventRecorder{}
+	p := &Pod{
+		pod: *testingpod.MakePod("driver", "ns").
+			Queue("user-queue").
+			GroupNameLabel("test-group").
+			GroupTotalCount("2").
+			WASPodGroupAnnotation().
+			SchedulingGroupPodGroupName("group-a").
+			Obj(),
+		isGroup:                true,
+		nativePodGroupsEnabled: true,
+		list: corev1.PodList{Items: []corev1.Pod{
+			*testingpod.MakePod("driver", "ns").
+				Queue("user-queue").
+				GroupNameLabel("test-group").
+				GroupTotalCount("2").
+				WASPodGroupAnnotation().
+				SchedulingGroupPodGroupName("group-a").
+				Obj(),
+			*testingpod.MakePod("worker", "ns").
+				Queue("user-queue").
+				GroupNameLabel("test-group").
+				GroupTotalCount("2").
+				WASPodGroupAnnotation().
+				SchedulingGroupPodGroupName("group-b").
+				Obj(),
+		}},
+	}
+
+	active, _ := p.partitionPods()
+	gotErr := p.validatePodGroupMetadata(recorder, active)
+	if gotErr == nil {
+		t.Fatal("expected error for inconsistent schedulingGroup.podGroupName values")
+	}
+	if !strings.Contains(gotErr.Error(), "inconsistent schedulingGroup.podGroupName") {
+		t.Fatalf("unexpected error: %v", gotErr)
 	}
 }
 

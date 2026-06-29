@@ -499,7 +499,7 @@ apiServer:
   - name: enable-aggregator-routing
     value: \"true\"
   - name: runtime-config
-    value: \"scheduling.k8s.io/v1alpha3=true\"
+    value: \"scheduling.k8s.io/v1alpha2=true\"
   - name: v
     value: \"3\"
 "' "$patched_config"
@@ -515,7 +515,7 @@ controllerManager:
 apiServer:
   extraArgs:
     enable-aggregator-routing: \"true\"
-    runtime-config: \"scheduling.k8s.io/v1alpha3=true\"
+    runtime-config: \"scheduling.k8s.io/v1alpha2=true\"
     v: \"3\"
 "]' "$patched_config"
 

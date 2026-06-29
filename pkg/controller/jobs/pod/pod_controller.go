@@ -161,7 +161,8 @@ type Pod struct {
 	absentPods            int
 	excessPodExpectations *expectations.Store
 	satisfiedExcessPods   bool
-	clock                 clock.Clock
+	clock                  clock.Clock
+	nativePodGroupsEnabled bool
 }
 
 var (
