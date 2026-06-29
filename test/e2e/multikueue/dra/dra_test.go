@@ -420,8 +420,9 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 				managerWl := &kueue.Workload{}
 				g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
 				selectedWorker = util.GetClientForSelectedWorkerCluster(
+					g,
 					managerWl,
-					util.ClusterInfosForE2E(
+					util.DefaultClusterInfosForTests(
 						k8sWorker1Client,
 						ctx,
 						k8sWorker2Client,

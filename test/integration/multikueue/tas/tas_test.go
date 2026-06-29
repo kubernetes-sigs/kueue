@@ -282,8 +282,9 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Label("area:multikue
 					managerWl := &kueue.Workload{}
 					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
 					selectedWorker = util.GetClientForSelectedWorkerCluster(
+						g,
 						managerWl,
-						util.ClusterInfosForE2E(
+						util.DefaultClusterInfosForTests(
 							worker1TestCluster.client,
 							worker1TestCluster.ctx,
 							worker2TestCluster.client,

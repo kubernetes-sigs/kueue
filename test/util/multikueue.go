@@ -297,7 +297,7 @@ type ClusterInfo struct {
 	Ctx    context.Context
 }
 
-func ClusterInfosForE2E(
+func DefaultClusterInfosForTests(
 	client1 client.Client,
 	ctx1 context.Context,
 	client2 client.Client,
@@ -317,11 +317,11 @@ func ClusterInfosForE2E(
 	}
 }
 
-func GetClientForSelectedWorkerCluster(managerWl *kueue.Workload, clusters ...ClusterInfo) ClusterInfo {
+func GetClientForSelectedWorkerCluster(g gomega.Gomega, managerWl *kueue.Workload, clusters ...ClusterInfo) ClusterInfo {
 	ginkgo.GinkgoHelper()
 
 	clusterName := managerWl.Status.ClusterName
-	gomega.Expect(clusterName).ToNot(gomega.BeNil())
+	g.Expect(clusterName).ToNot(gomega.BeNil())
 
 	for _, cluster := range clusters {
 		if cluster.Name == *clusterName {
