@@ -297,6 +297,8 @@ type ClusterInfo struct {
 	Ctx    context.Context
 }
 
+//revive:disable:context-as-argument
+
 func DefaultClusterInfosForTests(
 	ctx1 context.Context,
 	client1 client.Client,
@@ -316,6 +318,8 @@ func DefaultClusterInfosForTests(
 		},
 	}
 }
+
+//revive:enable:context-as-argument
 
 func GetClientForSelectedWorkerCluster(g gomega.Gomega, managerWl *kueue.Workload, clusters ...ClusterInfo) ClusterInfo {
 	ginkgo.GinkgoHelper()
