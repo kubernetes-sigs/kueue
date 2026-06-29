@@ -27,6 +27,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.17"
+- name: CleanupProvisioningRequestsOnEviction
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
 - name: ConcurrentAdmission
   versionedSpecs:
   - default: false

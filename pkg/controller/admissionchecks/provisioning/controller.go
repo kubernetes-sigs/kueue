@@ -47,6 +47,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
@@ -128,13 +129,27 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile Workload")
 
-	if !workload.HasQuotaReservation(wl) || workload.IsFinished(wl) || workload.IsEvicted(wl) {
+	isFinished := workload.IsFinished(wl)
+	isEvicted := workload.IsEvicted(wl)
+	if !workload.HasQuotaReservation(wl) && !isFinished && !isEvicted {
 		return reconcile.Result{}, nil
 	}
 
 	provReqs := &autoscaling.ProvisioningRequestList{}
 	if err := c.client.List(ctx, provReqs, client.InNamespace(wl.Namespace), client.MatchingFields{RequestsOwnedByWorkloadKey: wl.Name}); client.IgnoreNotFound(err) != nil {
 		return reconcile.Result{}, err
+	}
+
+	if isFinished || (isEvicted && features.Enabled(features.CleanupProvisioningRequestsOnEviction)) {
+		err = c.deleteUnusedProvisioningRequests(ctx, provReqs.Items, nil)
+		if err != nil {
+			log.V(2).Error(err, "failed to delete stale provisioning requests")
+			return reconcile.Result{}, err
+		}
+		return reconcile.Result{}, nil
+	}
+	if isEvicted {
+		return reconcile.Result{}, nil
 	}
 
 	// get the lists of relevant checks
@@ -252,6 +267,11 @@ func (c *Controller) syncOwnedProvisionRequest(
 
 		req, exists := activeOrLastPRForChecks[checkName]
 		attempt := int32(1)
+		if ac != nil {
+			// When cleanup deleted the previous ProvisioningRequest, the Workload
+			// admission check keeps the retry count needed to name the next attempt.
+			attempt = ptr.Deref(ac.RetryCount, 0) + 1
+		}
 		shouldCreatePr := false
 		if exists {
 			if (isFailed(req) || (isBookingExpired(req) && !workload.IsAdmitted(wl))) &&
