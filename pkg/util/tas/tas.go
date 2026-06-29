@@ -102,3 +102,19 @@ func GetNodeCondition(node *corev1.Node, conditionType corev1.NodeConditionType)
 func IsLowestLevelHostname(levels []string) bool {
 	return levels[len(levels)-1] == corev1.LabelHostname
 }
+
+// NormalizeTopologyRequest ensures a PodSetTopologyRequest uses the unified
+// PodsetSliceRequiredTopologyConstraints format. Workloads stored before the
+// unification only have the legacy PodSetSliceRequiredTopology/PodSetSliceSize
+// fields; this function synthesizes the constraints list from them so that all
+// scheduling logic can use a single code path.
+func NormalizeTopologyRequest(tr *kueue.PodSetTopologyRequest) {
+	if tr == nil || len(tr.PodsetSliceRequiredTopologyConstraints) > 0 {
+		return
+	}
+	if tr.PodSetSliceRequiredTopology != nil && tr.PodSetSliceSize != nil {
+		tr.PodsetSliceRequiredTopologyConstraints = []kueue.PodsetSliceRequiredTopologyConstraint{
+			{Topology: *tr.PodSetSliceRequiredTopology, Size: *tr.PodSetSliceSize},
+		}
+	}
+}

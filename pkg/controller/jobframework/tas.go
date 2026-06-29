@@ -25,7 +25,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/features"
 )
 
 var (
@@ -88,7 +87,7 @@ func (p *podSetTopologyRequestBuilder) Build() (*kueue.PodSetTopologyRequest, er
 	}
 
 	// Parse multi-level constraints annotation (mutually exclusive with two-level fields).
-	if features.Enabled(features.TASMultiLayerTopology) && constraintsFound {
+	if constraintsFound {
 		var constraints []kueue.PodsetSliceRequiredTopologyConstraint
 		if err := json.Unmarshal([]byte(constraintsJSON), &constraints); err != nil {
 			return nil, fmt.Errorf("%w: %w", errParseTopologyConstraints, err)
@@ -102,8 +101,12 @@ func (p *podSetTopologyRequestBuilder) Build() (*kueue.PodSetTopologyRequest, er
 		if err != nil {
 			return nil, err
 		}
+		sliceSizeInt32 := int32(sliceSizeIntValue)
 		psTopologyReq.PodSetSliceRequiredTopology = &sliceRequiredTopologyValue
-		psTopologyReq.PodSetSliceSize = new(int32(sliceSizeIntValue))
+		psTopologyReq.PodSetSliceSize = &sliceSizeInt32
+		psTopologyReq.PodsetSliceRequiredTopologyConstraints = []kueue.PodsetSliceRequiredTopologyConstraint{
+			{Topology: sliceRequiredTopologyValue, Size: int32(sliceSizeIntValue)},
+		}
 	}
 
 	psTopologyReq.PodIndexLabel = p.podIndexLabel
@@ -114,4 +117,30 @@ func (p *podSetTopologyRequestBuilder) Build() (*kueue.PodSetTopologyRequest, er
 	}
 
 	return &psTopologyReq, nil
+}
+
+// NormalizeTopologyRequest ensures a PodSetTopologyRequest uses the unified
+// PodsetSliceRequiredTopologyConstraints format for the slice constraints,
+// regardless of whether the Workload was created via the old single-layer
+// PodSetSliceRequiredTopology/PodSetSliceSize fields or the new multi-layer
+// constraints annotation.
+//
+// This is necessary to handle Workload objects that were persisted before the
+// unification, which only populate the legacy fields.
+// After calling this function callers only need to inspect
+// PodsetSliceRequiredTopologyConstraints to determine the slice configuration.
+func NormalizeTopologyRequest(tr *kueue.PodSetTopologyRequest) {
+	if tr == nil {
+		return
+	}
+	// Already has constraints - nothing to do.
+	if len(tr.PodsetSliceRequiredTopologyConstraints) > 0 {
+		return
+	}
+	// Migrate old single-layer fields into the unified constraints slice.
+	if tr.PodSetSliceRequiredTopology != nil && tr.PodSetSliceSize != nil {
+		tr.PodsetSliceRequiredTopologyConstraints = []kueue.PodsetSliceRequiredTopologyConstraint{
+			{Topology: *tr.PodSetSliceRequiredTopology, Size: *tr.PodSetSliceSize},
+		}
+	}
 }
