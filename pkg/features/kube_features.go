@@ -448,6 +448,12 @@ const (
 	//
 	// Enable re-computing the assignment within the same scheduling cycle when a TAS workload doesn't fit.
 	TASRecomputeAssignmentWithinSchedulingCycle featuregate.Feature = "TASRecomputeAssignmentWithinSchedulingCycle"
+
+	// owner: @kshalot
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/8871
+	// Enable integration of the https://github.com/kubernetes-sigs/scheduler-library.
+	SchedulerLibraryIntegration featuregate.Feature = "SchedulerLibraryIntegration"
 )
 
 func init() {
@@ -690,9 +696,11 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	UnadmittedWorkloadsObservability: {
 		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Beta},
 	},
-
 	TASRecomputeAssignmentWithinSchedulingCycle: {
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+	},
+	SchedulerLibraryIntegration: {
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 
