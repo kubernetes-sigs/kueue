@@ -575,8 +575,9 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
 					selectedWorker := util.GetClientForSelectedWorkerCluster(
+						g,
 						managerWl,
-						util.ClusterInfosForE2E(
+						util.DefaultClusterInfosForTests(
 							worker1TestCluster.client,
 							worker1TestCluster.ctx,
 							worker2TestCluster.client,
