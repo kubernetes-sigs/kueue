@@ -108,13 +108,17 @@ func IsLowestLevelHostname(levels []string) bool {
 // unification only have the legacy PodSetSliceRequiredTopology/PodSetSliceSize
 // fields; this function synthesizes the constraints list from them so that all
 // scheduling logic can use a single code path.
-func NormalizeTopologyRequest(tr *kueue.PodSetTopologyRequest) {
-	if tr == nil || len(tr.PodsetSliceRequiredTopologyConstraints) > 0 {
-		return
+func PodSetSliceRequiredTopologyConstraints(tr *kueue.PodSetTopologyRequest) []kueue.PodsetSliceRequiredTopologyConstraint {
+	if tr == nil {
+		return nil
+	}
+	if len(tr.PodsetSliceRequiredTopologyConstraints) > 0 {
+		return tr.PodsetSliceRequiredTopologyConstraints
 	}
 	if tr.PodSetSliceRequiredTopology != nil && tr.PodSetSliceSize != nil {
-		tr.PodsetSliceRequiredTopologyConstraints = []kueue.PodsetSliceRequiredTopologyConstraint{
+		return []kueue.PodsetSliceRequiredTopologyConstraint{
 			{Topology: *tr.PodSetSliceRequiredTopology, Size: *tr.PodSetSliceSize},
 		}
 	}
+	return nil
 }

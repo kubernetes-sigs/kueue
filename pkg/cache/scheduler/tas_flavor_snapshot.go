@@ -675,7 +675,7 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 		// pods to preserve leaf-level grouping
 		effectiveSliceSize := int32(1)
 		var effectiveSliceTopology *string
-		constraints := tr.PodSet.TopologyRequest.PodsetSliceRequiredTopologyConstraints
+		constraints := utiltas.PodSetSliceRequiredTopologyConstraints(tr.PodSet.TopologyRequest)
 		for _, v := range slices.Backward(constraints) {
 			if tr.Count%v.Size == 0 {
 				effectiveSliceSize = v.Size
@@ -746,7 +746,7 @@ func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta 
 		// For multi-layer constraints, find the innermost broken constraint's domain.
 		// This ensures the replacement is confined to the tightest topology level
 		// that needs repair, preserving intermediate grouping invariants.
-		constraints := tr.PodSet.TopologyRequest.PodsetSliceRequiredTopologyConstraints
+		constraints := utiltas.PodSetSliceRequiredTopologyConstraints(tr.PodSet.TopologyRequest)
 		if len(constraints) > 1 {
 			for _, v := range slices.Backward(constraints) {
 				if tr.Count%v.Size != 0 {
@@ -854,9 +854,6 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	leaderTasPodSetRequests *TASPodSetRequests,
 	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
 	simulateEmpty bool, requiredReplacementDomain utiltas.TopologyDomainID) (map[kueue.PodSetReference]*utiltas.TopologyAssignment, string) {
-	if workersTasPodSetRequests.PodSet.TopologyRequest != nil {
-		utiltas.NormalizeTopologyRequest(workersTasPodSetRequests.PodSet.TopologyRequest)
-	}
 	requirements := &topologyAssignmentPodRequirements{
 		assumedUsage:              assumedUsage,
 		requiredReplacementDomain: requiredReplacementDomain,
@@ -922,7 +919,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	state.sliceSizeAtLevel = sliceSizeAtLevel
 
 	if len(sliceSizeAtLevel) > 0 {
-		state.multiLayerConstraints = workersTasPodSetRequests.PodSet.TopologyRequest.PodsetSliceRequiredTopologyConstraints
+		state.multiLayerConstraints = utiltas.PodSetSliceRequiredTopologyConstraints(workersTasPodSetRequests.PodSet.TopologyRequest)
 	}
 
 	requirements.tolerations = append(info.Tolerations, s.tolerations...)
@@ -1090,7 +1087,7 @@ func (s *TASFlavorSnapshot) buildSliceSizeAtLevel(
 	// Skip the first (outermost) constraint layer — it is already represented
 	// by sliceSize / sliceLevelIdx which the caller resolved from the annotation.
 	// Process only the inner layers that introduce additional grouping.
-	innerLayers := workersTasPodSetRequests.PodSet.TopologyRequest.PodsetSliceRequiredTopologyConstraints
+	innerLayers := utiltas.PodSetSliceRequiredTopologyConstraints(workersTasPodSetRequests.PodSet.TopologyRequest)
 	if len(innerLayers) > 1 {
 		innerLayers = innerLayers[1:]
 	} else {
