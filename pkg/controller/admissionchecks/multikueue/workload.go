@@ -133,7 +133,7 @@ func (g *wlGroup) bestMatchByCondition(conditionType string) (*metav1.Condition,
 // The controller object is deleted first to handle cases where GC has already removed
 // the remote workload.
 func (g *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error {
-	remoteClient := g.remoteClients[cluster].client
+	remoteClient := g.remoteClients[cluster].getClient()
 	origin := g.remoteClients[cluster].origin
 	if err := jobframework.DeleteRemoteObjectIfOwned(ctx, g.localClient, remoteClient, g.jobAdapter, g.controllerKey, origin); err != nil {
 		return fmt.Errorf("deleting remote controller object: %w", err)
@@ -317,7 +317,7 @@ func (w *wlReconciler) readGroup(ctx context.Context, local *kueue.Workload, acN
 
 	for remote, rClient := range rClients {
 		wl := &kueue.Workload{}
-		err := rClient.client.Get(ctx, client.ObjectKeyFromObject(local), wl)
+		err := rClient.getClient().Get(ctx, client.ObjectKeyFromObject(local), wl)
 		if client.IgnoreNotFound(err) != nil {
 			return nil, err
 		}
@@ -362,12 +362,13 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		// it should not be problematic, but the "From remote xxxx:" could be lost ....
 
 		if group.jobAdapter != nil {
-			if _, err := jobframework.ValidateRemoteObjectOwnership(ctx, group.remoteClients[remote].client, group.controllerKey, group.jobAdapter.GVK(), w.origin); err != nil {
+			remoteCl := group.remoteClients[remote].getClient()
+			if _, err := jobframework.ValidateRemoteObjectOwnership(ctx, remoteCl, group.controllerKey, group.jobAdapter.GVK(), w.origin); err != nil {
 				log.Error(err, "validating remote controller object", "workerCluster", remote)
 				return reconcile.Result{}, err
 			}
 
-			if err := group.jobAdapter.SyncJob(ctx, w.client, group.remoteClients[remote].client, group.controllerKey, group.local.Name, w.origin); err != nil {
+			if err := group.jobAdapter.SyncJob(ctx, w.client, remoteCl, group.controllerKey, group.local.Name, w.origin); err != nil {
 				log.V(2).Error(err, "copying remote controller status", "workerCluster", remote)
 				// we should retry this
 				return reconcile.Result{}, err
@@ -383,7 +384,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	// 4. Handle workload eviction
 	remoteEvictCond, evictedRemote := group.bestMatchByCondition(kueue.WorkloadEvicted)
 	if remoteEvictCond != nil {
-		remoteCl := group.remoteClients[evictedRemote].client
+		remoteCl := group.remoteClients[evictedRemote].getClient()
 		remoteWl := group.remotes[evictedRemote]
 
 		log = log.WithValues("remote", evictedRemote, "remoteWorkload", klog.KObj(remoteWl))
@@ -456,7 +457,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 					remWl.Spec.PreemptionGates = remotePreemptionGates
 				}
 
-				if err := remClient.client.Update(ctx, remWl); err != nil {
+				if err := remClient.getClient().Update(ctx, remWl); err != nil {
 					return reconcile.Result{}, fmt.Errorf("failed to update remote workload: %w", err)
 				}
 				continue
@@ -487,7 +488,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			}
 		}
 
-		remoteCl := group.remoteClients[reservingRemote].client
+		remoteCl := group.remoteClients[reservingRemote].getClient()
 		remoteWl := group.remotes[reservingRemote]
 
 		log = log.WithValues("remote", reservingRemote, "remoteWorkload", klog.KObj(remoteWl))
@@ -543,7 +544,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			remWl := group.remotes[*remWlName]
 			remClient := group.remoteClients[*remWlName]
 			workload.SetPreemptionGatePosition(remWl, constants.MultiKueuePreemptionGate, kueue.PreemptionGatePositionOpen, metav1.NewTime(w.clock.Now()))
-			if err := remClient.client.Status().Update(ctx, remWl); err != nil {
+			if err := remClient.getClient().Status().Update(ctx, remWl); err != nil {
 				return reconcile.Result{}, fmt.Errorf("failed to update remote workload: %w", err)
 			}
 		}
@@ -698,7 +699,7 @@ func (w *wlReconciler) syncToSingleCluster(ctx context.Context, log klog.Logger,
 		if clusterName == targetCluster {
 			if remoteWl == nil {
 				clone := cloneForCreate(group.local, group.remoteClients[clusterName].origin, false)
-				if err := group.remoteClients[clusterName].client.Create(ctx, clone); err != nil {
+				if err := group.remoteClients[clusterName].getClient().Create(ctx, clone); err != nil {
 					log.V(2).Error(err, "creating remote workload", "cluster", clusterName)
 					errs = append(errs, err)
 				}
@@ -828,7 +829,7 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 		if slices.Contains(nominatedWorkers, rem) {
 			if remoteWl == nil {
 				clone := cloneForCreate(group.local, group.remoteClients[rem].origin, true)
-				if err := group.remoteClients[rem].client.Create(ctx, clone); err != nil {
+				if err := group.remoteClients[rem].getClient().Create(ctx, clone); err != nil {
 					log.V(2).Error(err, "creating remote object", "remote", rem)
 					errs = append(errs, err)
 				}
