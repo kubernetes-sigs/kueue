@@ -297,6 +297,26 @@ type ClusterInfo struct {
 	Ctx    context.Context
 }
 
+func ClusterInfosForE2E(
+	client1 client.Client,
+	ctx1 context.Context,
+	client2 client.Client,
+	ctx2 context.Context,
+) []ClusterInfo {
+	return []ClusterInfo{
+		{
+			Name:   "worker1",
+			Client: client1,
+			Ctx:    ctx1,
+		},
+		{
+			Name:   "worker2",
+			Client: client2,
+			Ctx:    ctx2,
+		},
+	}
+}
+
 func GetClientForSelectedWorkerCluster(
 	managerWl *kueue.Workload, clusters ...ClusterInfo) ClusterInfo {
 	ginkgo.GinkgoHelper()
