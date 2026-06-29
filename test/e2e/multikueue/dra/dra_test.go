@@ -423,10 +423,10 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 					g,
 					managerWl,
 					util.DefaultClusterInfosForTests(
+						ctx,
 						k8sWorker1Client,
 						ctx,
 						k8sWorker2Client,
-						ctx,
 					)...,
 				)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
