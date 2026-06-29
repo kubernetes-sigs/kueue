@@ -710,9 +710,15 @@ func TestReconcile(t *testing.T) {
 				t.Errorf("Pods after reconcile (-want,+got):\n%s", diff)
 			}
 
-			gotEvent := len(recorder.RecordedEvents) > 0
-			if gotEvent != tc.wantEvent {
-				t.Errorf("recorded event = %v, want %v", gotEvent, tc.wantEvent)
+			if tc.wantEvent {
+				if len(recorder.RecordedEvents) != 1 {
+					t.Fatalf("recorded %d events, want 1", len(recorder.RecordedEvents))
+				}
+				if ev := recorder.RecordedEvents[0]; ev.EventType != corev1.EventTypeWarning || ev.Reason != reasonInjectionConflict {
+					t.Errorf("recorded event = %s/%s, want %s/%s", ev.EventType, ev.Reason, corev1.EventTypeWarning, reasonInjectionConflict)
+				}
+			} else if len(recorder.RecordedEvents) != 0 {
+				t.Errorf("recorded %d events, want 0", len(recorder.RecordedEvents))
 			}
 		})
 	}
