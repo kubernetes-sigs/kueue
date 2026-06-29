@@ -195,7 +195,7 @@ func (r *cqReconciler) aggregateWorkerQuotas(ctx context.Context, cq *kueue.Clus
 		}
 		remoteLQList := &kueue.LocalQueueList{}
 		// This List is cached (by the selectivelyCachingClient).
-		if err := rc.client.List(ctx, remoteLQList); err != nil {
+		if err := rc.getClient().List(ctx, remoteLQList); err != nil {
 			return nil, err
 		}
 		remoteCQKeys := sets.New[types.NamespacedName]()
@@ -207,7 +207,7 @@ func (r *cqReconciler) aggregateWorkerQuotas(ctx context.Context, cq *kueue.Clus
 
 		remoteCQList := &kueue.ClusterQueueList{}
 		// This List is cached (by the selectivelyCachingClient).
-		if err := rc.client.List(ctx, remoteCQList); err != nil {
+		if err := rc.getClient().List(ctx, remoteCQList); err != nil {
 			return nil, err
 		}
 
