@@ -298,10 +298,10 @@ type ClusterInfo struct {
 }
 
 func DefaultClusterInfosForTests(
-	client1 client.Client,
 	ctx1 context.Context,
-	client2 client.Client,
+	client1 client.Client,
 	ctx2 context.Context,
+	client2 client.Client,
 ) []ClusterInfo {
 	return []ClusterInfo{
 		{

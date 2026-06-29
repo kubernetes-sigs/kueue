@@ -285,10 +285,10 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Label("area:multikue
 						g,
 						managerWl,
 						util.DefaultClusterInfosForTests(
-							worker1TestCluster.client,
 							worker1TestCluster.ctx,
-							worker2TestCluster.client,
+							worker1TestCluster.client,
 							worker2TestCluster.ctx,
+							worker2TestCluster.client,
 						)...,
 					)
 
