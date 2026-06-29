@@ -1538,8 +1538,9 @@ func TestValidateKubeConfigPath(t *testing.T) {
 	}
 }
 
-// hammerSetConfigWithReader runs reader concurrently with setConfig swapping rc.client,
-// as a regression harness for the #12557 data race. Only meaningful under `go test -race`.
+// hammerSetConfigWithReader runs reader concurrently with updateConfigAndRefreshWatchers
+// swapping rc.client, as a regression harness for the #12557 data race. Only meaningful
+// under `go test -race`.
 func hammerSetConfigWithReader(t *testing.T, reader func(ctx context.Context, rc *remoteClient)) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
@@ -1551,7 +1552,7 @@ func hammerSetConfigWithReader(t *testing.T, reader func(ctx context.Context, rc
 
 	// Seed an initial client so the first read has a client to observe.
 	rc.connecting.Store(true)
-	if _, err := rc.setConfig(ctx, rc.config); err != nil {
+	if _, err := rc.updateConfigAndRefreshWatchers(ctx, rc.config); err != nil {
 		t.Fatalf("seeding initial client: %v", err)
 	}
 
@@ -1559,13 +1560,13 @@ func hammerSetConfigWithReader(t *testing.T, reader func(ctx context.Context, rc
 	var writerDone atomic.Bool
 	var wg sync.WaitGroup
 
-	// Writer: swap rc.client each iteration; fail if setConfig errors (swaps would stop).
+	// Writer: swap rc.client each iteration; fail if the update errors (swaps would stop).
 	var writerErr error
 	wg.Go(func() {
 		defer writerDone.Store(true)
 		for i := range iterations {
 			cfg := &clientConfig{Kubeconfig: []byte(testKubeconfig(fmt.Sprintf("worker-%d", i)))}
-			if _, err := rc.setConfig(ctx, cfg); err != nil {
+			if _, err := rc.updateConfigAndRefreshWatchers(ctx, cfg); err != nil {
 				writerErr = err
 				return
 			}
@@ -1580,7 +1581,7 @@ func hammerSetConfigWithReader(t *testing.T, reader func(ctx context.Context, rc
 
 	wg.Wait()
 	if writerErr != nil {
-		t.Fatalf("writer setConfig: %v", writerErr)
+		t.Fatalf("writer updateConfigAndRefreshWatchers: %v", writerErr)
 	}
 }
 
