@@ -6,6 +6,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/kube-scheduler/framework"
+	"k8s.io/kubernetes/pkg/scheduler"
 	schedulerconfig "k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"k8s.io/kubernetes/pkg/scheduler/backend/cache"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultbinder"
@@ -14,8 +15,8 @@ import (
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/queuesort"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/tainttoleration"
 	fwkruntime "k8s.io/kubernetes/pkg/scheduler/framework/runtime"
-	"k8s.io/kubernetes/pkg/scheduler/profile"
 	"sigs.k8s.io/scheduler-library/pkg/snapshot"
+	upstreamsync "sigs.k8s.io/scheduler-library/pkg/upstream_sync"
 )
 
 func NewClusterSnapshot(nodes []*nodeInfo) (*snapshot.ClusterSnapshot, error) {
@@ -69,15 +70,22 @@ func NewClusterSnapshot(nodes []*nodeInfo) (*snapshot.ClusterSnapshot, error) {
 		},
 	}
 
-	fwk, err := fwkruntime.NewFramework(context.Background(), registry, cfg, fwkruntime.WithSnapshotSharedLister(upstreamCache))
+	upstreamSched, err := scheduler.New(
+		context.Background(),
+		nil,
+		nil,
+		nil,
+		nil,
+		scheduler.WithProfiles(*cfg),
+		scheduler.WithFrameworkOutOfTreeRegistry(registry),
+		scheduler.WithNodeInfoSnapshot(upstreamCache),
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	pm := profile.Map{
-		"default-scheduler": fwk,
-	}
-	wasSnapshot := snapshot.NewClusterSnapshot(upstreamCache, pm)
+	sched := upstreamsync.NewScheduler(upstreamSched, upstreamCache)
+	wasSnapshot := snapshot.New(upstreamCache, sched)
 
 	return wasSnapshot, nil
 }

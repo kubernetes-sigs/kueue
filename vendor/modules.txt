@@ -235,7 +235,7 @@ github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1
 github.com/kubeflow/spark-operator/v2/api/v1beta2
 github.com/kubeflow/spark-operator/v2/pkg/common
 github.com/kubeflow/spark-operator/v2/pkg/util
-# github.com/kubeflow/trainer/v2 v2.2.1
+# github.com/kubeflow/trainer/v2 v2.2.1 => ../../trainer
 ## explicit; go 1.26.0
 github.com/kubeflow/trainer/v2/pkg/apis/config/v1alpha1
 github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1
@@ -852,7 +852,7 @@ k8s.io/api/storage/v1
 k8s.io/api/storage/v1alpha1
 k8s.io/api/storage/v1beta1
 k8s.io/api/storagemigration/v1beta1
-# k8s.io/apiextensions-apiserver v0.36.2
+# k8s.io/apiextensions-apiserver v0.37.0-alpha.2
 ## explicit; go 1.26.0
 k8s.io/apiextensions-apiserver/pkg/apis/apiextensions
 k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1
@@ -1138,7 +1138,7 @@ k8s.io/apiserver/plugin/pkg/authorizer/webhook/metrics
 # k8s.io/autoscaler/cluster-autoscaler/apis v0.0.0-20240830133931-adfbe7e45277
 ## explicit; go 1.22.0
 k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1
-# k8s.io/cli-runtime v0.36.2
+# k8s.io/cli-runtime v0.37.0-alpha.2
 ## explicit; go 1.26.0
 k8s.io/cli-runtime/pkg/genericclioptions
 k8s.io/cli-runtime/pkg/genericiooptions
@@ -1499,11 +1499,11 @@ k8s.io/client-go/util/keyutil
 k8s.io/client-go/util/retry
 k8s.io/client-go/util/watchlist
 k8s.io/client-go/util/workqueue
-# k8s.io/cloud-provider v0.34.4
-## explicit; go 1.24.0
+# k8s.io/cloud-provider v0.37.0-alpha.2
+## explicit; go 1.26.0
 k8s.io/cloud-provider/volume
 k8s.io/cloud-provider/volume/helpers
-# k8s.io/code-generator v0.36.2
+# k8s.io/code-generator v0.37.0-alpha.2
 ## explicit; go 1.26.0
 k8s.io/code-generator
 k8s.io/code-generator/cmd/applyconfiguration-gen
@@ -1536,6 +1536,10 @@ k8s.io/code-generator/cmd/lister-gen/generators
 k8s.io/code-generator/cmd/register-gen
 k8s.io/code-generator/cmd/register-gen/args
 k8s.io/code-generator/cmd/register-gen/generators
+k8s.io/code-generator/cmd/validation-gen
+k8s.io/code-generator/cmd/validation-gen/util
+k8s.io/code-generator/cmd/validation-gen/validators
+k8s.io/code-generator/pkg/apidefinitions
 k8s.io/code-generator/pkg/namer
 k8s.io/code-generator/pkg/util
 k8s.io/code-generator/third_party/forked/golang/reflect
@@ -1612,6 +1616,7 @@ k8s.io/gengo/v2/codetags
 k8s.io/gengo/v2/generator
 k8s.io/gengo/v2/namer
 k8s.io/gengo/v2/parser
+k8s.io/gengo/v2/parser/tags
 k8s.io/gengo/v2/types
 # k8s.io/klog/v2 v2.140.0
 ## explicit; go 1.21
@@ -1669,7 +1674,7 @@ k8s.io/kube-openapi/pkg/validation/strfmt/bson
 k8s.io/kube-scheduler/config/v1
 k8s.io/kube-scheduler/extender/v1
 k8s.io/kube-scheduler/framework
-# k8s.io/kubectl v0.36.2
+# k8s.io/kubectl v0.37.0-alpha.2
 ## explicit; go 1.26.0
 k8s.io/kubectl/pkg/cmd/get
 k8s.io/kubectl/pkg/cmd/util
@@ -1751,7 +1756,7 @@ k8s.io/kubernetes/pkg/scheduler/profile
 k8s.io/kubernetes/pkg/scheduler/util
 k8s.io/kubernetes/pkg/scheduler/util/assumecache
 k8s.io/kubernetes/pkg/util/parsers
-# k8s.io/metrics v0.36.2
+# k8s.io/metrics v0.37.0-alpha.2
 ## explicit; go 1.26.0
 k8s.io/metrics/pkg/apis/metrics
 k8s.io/metrics/pkg/apis/metrics/install
@@ -1971,3 +1976,4 @@ volcano.sh/apis/pkg/apis/scheduling
 volcano.sh/apis/pkg/apis/scheduling/v1beta1
 volcano.sh/apis/pkg/client/applyconfiguration/scheduling/v1beta1
 # sigs.k8s.io/scheduler-library => github.com/vshkrabkov/scheduler-library v0.0.0-20260626162112-b962015b5726
+# github.com/kubeflow/trainer/v2 => ../../trainer

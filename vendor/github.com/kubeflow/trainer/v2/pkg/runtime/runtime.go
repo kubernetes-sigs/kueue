@@ -225,6 +225,22 @@ func (i *Info) FindPodSetByName(psName string) *PodSet {
 	return nil
 }
 
+// FindContainerByPodSetName finds a runtime.Container within the named PodSet,
+// searching regular containers before init containers; returns nil if no match.
+func (i *Info) FindContainerByPodSetName(psName, containerName string) *Container {
+	ps := i.FindPodSetByName(psName)
+	if ps == nil {
+		return nil
+	}
+	if idx := slices.IndexFunc(ps.Containers, func(c Container) bool { return c.Name == containerName }); idx != -1 {
+		return &ps.Containers[idx]
+	}
+	if idx := slices.IndexFunc(ps.InitContainers, func(c Container) bool { return c.Name == containerName }); idx != -1 {
+		return &ps.InitContainers[idx]
+	}
+	return nil
+}
+
 func RuntimeRefToRuntimeRegistryKey(runtimeRef trainer.RuntimeRef) string {
 	return schema.GroupKind{
 		Group: ptr.Deref(runtimeRef.APIGroup, ""),

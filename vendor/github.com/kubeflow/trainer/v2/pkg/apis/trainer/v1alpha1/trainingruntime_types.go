@@ -206,7 +206,55 @@ type MLPolicySource struct {
 }
 
 // TorchMLPolicySource represents a PyTorch runtime configuration.
-type TorchMLPolicySource struct{}
+type TorchMLPolicySource struct {
+	// envInjection configures which additional containers should receive the
+	// PET_* environment variables. By default, the PET_* variables are injected
+	// only into the main "node" container. Use this field to also inject them
+	// into selected sidecar or init containers. For torchtune, envInjection
+	// targets still receive PET_MASTER_ADDR and PET_MASTER_PORT even though the
+	// main trainer container uses command-line rendezvous instead.
+	// Defaults to empty (main container only).
+	// +optional
+	EnvInjection *EnvInjection `json:"envInjection,omitempty"`
+}
+
+// EnvInjection specifies which containers in which jobs receive framework env injection.
+// Defined as a standalone type so it can be embedded by other MLPolicySource
+// variants in the future.
+type EnvInjection struct {
+	// targets defines which replicated job containers receive PET_* env injection.
+	// The item limit keeps runtime validation bounded while allowing common
+	// multi-job runtimes to target their auxiliary containers.
+	// +listType=map
+	// +listMapKey=jobName
+	// +kubebuilder:validation:MaxItems=16
+	// +optional
+	Targets []EnvInjectionTarget `json:"targets,omitempty"`
+}
+
+// EnvInjectionTarget specifies a replicated job and the containers within it
+// that should receive PET_* env injection.
+type EnvInjectionTarget struct {
+	// jobName is the name of the target replicated job (e.g. "node").
+	// Using "jobName" rather than "replicatedJobName" keeps the API
+	// future-proof for other CRD types (LWS, Grove, Slurm, etc.).
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +required
+	JobName string `json:"jobName,omitempty"`
+
+	// containerNames lists the container names within the target job
+	// that should receive PET_* envs.
+	// The item limit keeps admission checks small while covering typical
+	// preflight and sidecar use cases.
+	// +listType=set
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=8
+	// +kubebuilder:validation:items:MaxLength=63
+	// +kubebuilder:validation:XValidation:rule="!self.exists(c, c == 'node')", message="containerNames must not include the main node container because PET_* envs are always injected into it"
+	// +required
+	ContainerNames []string `json:"containerNames,omitempty"`
+}
 
 // JAXMLPolicySource represents a jax runtime configuration.
 type JAXMLPolicySource struct{}

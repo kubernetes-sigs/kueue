@@ -194,6 +194,9 @@ type Initializer struct {
 // which contains this label: `trainer.kubeflow.org/trainjob-ancestor-step: dataset-initializer`
 type DatasetInitializer struct {
 	// storageUri is the URI for the dataset provider.
+	// If set, it may be empty, or it must be a valid URI format
+	// (e.g., s3://bucket/path, gs://bucket/path).
+	// +kubebuilder:validation:XValidation:rule="self == '' || self.matches('^[A-Za-z][A-Za-z0-9+.-]*://.+$')",message="storageUri may be empty, or it must be a valid URI (scheme://...)"
 	// +kubebuilder:validation:MaxLength=2048
 	// +optional
 	StorageUri *string `json:"storageUri,omitempty"`
@@ -217,6 +220,9 @@ type DatasetInitializer struct {
 // which contains this label: `trainer.kubeflow.org/trainjob-ancestor-step: dataset-initializer`
 type ModelInitializer struct {
 	// storageUri is the URI for the model provider.
+	// If set, it may be empty, or it must be a valid URI format
+	// (e.g., s3://bucket/path, gs://bucket/path).
+	// +kubebuilder:validation:XValidation:rule="self == '' || self.matches('^[A-Za-z][A-Za-z0-9+.-]*://.+$')",message="storageUri may be empty, or it must be a valid URI (scheme://...)"
 	// +kubebuilder:validation:MaxLength=2048
 	// +optional
 	StorageUri *string `json:"storageUri,omitempty"`
@@ -447,6 +453,13 @@ type PodSpecPatch struct {
 	// +kubebuilder:validation:MaxItems=16
 	// +optional
 	SchedulingGates []corev1.PodSchedulingGate `json:"schedulingGates,omitempty"`
+
+	// terminationGracePeriodSeconds patches the termination grace period for Pods
+	// in the target job templates.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="field is immutable"
+	// +optional
+	TerminationGracePeriodSeconds *int64 `json:"terminationGracePeriodSeconds,omitempty"`
 }
 
 // ContainerPatch represents parameters that can be patched using PodSpecPatch.

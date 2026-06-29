@@ -202,6 +202,7 @@ func (f *Flux) EnforceMLPolicy(info *runtime.Info, trainJob *trainer.TrainJob) e
 					*corev1ac.VolumeMount().WithName(constants.FluxSpackViewVolumeName).WithMountPath(constants.FluxSpackViewVolumePath),
 					*corev1ac.VolumeMount().WithName(configMapName).WithMountPath(constants.FluxConfigVolumeName).WithReadOnly(true),
 					*corev1ac.VolumeMount().WithName(constants.FluxCurveVolumeName).WithMountPath(constants.FluxCurveVolumePath).WithReadOnly(true),
+					*corev1ac.VolumeMount().WithName(constants.FluxMemoryVolumeName).WithMountPath(constants.FluxMemoryVolumePath).WithReadOnly(true),
 				)
 			}
 		}
@@ -296,6 +297,10 @@ func getViewVolumes(configMapName string) []corev1ac.VolumeApplyConfiguration {
 	spackInstallAC := corev1ac.Volume().
 		WithName(constants.FluxSpackViewVolumeName).
 		WithEmptyDir(corev1ac.EmptyDirVolumeSource())
+	memoryVolumeAC := corev1ac.Volume().
+		WithName(constants.FluxMemoryVolumeName).
+		WithEmptyDir(corev1ac.EmptyDirVolumeSource().
+			WithMedium(corev1.StorageMediumMemory))
 	fluxVolumeAC := corev1ac.Volume().
 		WithEmptyDir(corev1ac.EmptyDirVolumeSource()).
 		WithName(constants.FluxInstallVolumeName)
@@ -306,7 +311,7 @@ func getViewVolumes(configMapName string) []corev1ac.VolumeApplyConfiguration {
 				WithName(configMapName).
 				WithDefaultMode(0755),
 		)
-	return []corev1ac.VolumeApplyConfiguration{*spackInstallAC, *fluxVolumeAC, *cmAC}
+	return []corev1ac.VolumeApplyConfiguration{*spackInstallAC, *fluxVolumeAC, *cmAC, *memoryVolumeAC}
 }
 
 // buildInitScriptConfigMap creates a ConfigMapApplyConfiguration to support server-side Apply
@@ -403,13 +408,16 @@ func (f *Flux) generateFluxEntrypoint(trainJob *trainer.TrainJob, info *runtime.
 	// Derive number of tasks
 	// This may not technically be the number of processes per node,
 	// but that is all the TrainJob can currently represent.
-	var tasks string
+	var tasks int32
+	var flags string
+
 	nodes := *trainJob.Spec.Trainer.NumNodes
 	if trainJob.Spec.Trainer.NumProcPerNode != nil {
-		tasks = fmt.Sprintf("-N %d -n %d", nodes, *trainJob.Spec.Trainer.NumProcPerNode*nodes)
+		tasks = *trainJob.Spec.Trainer.NumProcPerNode
 	} else {
-		tasks = fmt.Sprintf("-N %d -n %d", nodes, *info.RuntimePolicy.MLPolicySource.Flux.NumProcPerNode*nodes)
+		tasks = *info.RuntimePolicy.MLPolicySource.Flux.NumProcPerNode
 	}
+	flags = fmt.Sprintf("-N %d -n %d", nodes, tasks*nodes)
 
 	// Derive number of GPUs from resources. In Flux, -g is --gpus-per-task
 	resourcesPerNode := ptr.Deref(runtime.ExtractResourcePerNodeFromRuntime(info), corev1.ResourceRequirements{})
@@ -417,11 +425,17 @@ func (f *Flux) generateFluxEntrypoint(trainJob *trainer.TrainJob, info *runtime.
 		resourcesPerNode = ptr.Deref(jobTrainer.ResourcesPerNode, corev1.ResourceRequirements{})
 	}
 	gpus := runtime.GetNumGPUPerNode(&resourcesPerNode)
-	if gpus > 0 {
-		tasks = fmt.Sprintf("%s -g %d", tasks, gpus)
-	}
 
-	return fmt.Sprintf(entrypointTemplate, mainHost, tasks)
+	// Resource file for cluster includes GPUs or not
+	// flux R encode --hosts=${hosts} --cores=0-1 --gpu=0
+	coreSpec := generateRange(int32(tasks), 0)
+	Rspec := fmt.Sprintf("--cores=%s", coreSpec)
+	if gpus > 0 {
+		flags = fmt.Sprintf("%s -g %d", flags, gpus)
+		gpuSpec := generateRange(int32(gpus), 0)
+		Rspec = fmt.Sprintf("%s --gpu=%s", Rspec, gpuSpec)
+	}
+	return fmt.Sprintf(entrypointTemplate, Rspec, mainHost, flags)
 }
 
 // generateInitEntrypoint generates the flux entrypoint to prepare flux

@@ -73,6 +73,33 @@ func validateTorchTune(runtimeInfo *runtime.Info, newObj *trainer.TrainJob) (adm
 			)
 		}
 	}
+	// LoRA fine-tuning is not supported for multi-node training in TorchTune.
+	// getRecipeAndConfig silently falls through to full_finetune_distributed when
+	// numNodes > 1, discarding LoRA args without any user-visible error.
+	if numNodes > 1 && (isLoraConfigEnabled(newObj.Spec.Trainer.Args) || isUseQLoraFinetune(newObj.Spec.Trainer.Args)) {
+		allErrs = append(allErrs, field.Invalid(
+			numNodesRefPath,
+			numNodes,
+			"LoRA fine-tuning is not supported for multi-node training in TorchTune",
+		))
+	}
+
+	// Immutable runtime configs must not be set in spec.trainer.args.
+	// output_dir, tokenizer.path, checkpointer.checkpoint_dir, and tokenizer.merges_file
+	// are injected by the runtime via extractOverridesFromRuntime and must not be
+	// overridden by the user.
+	trainerArgsPath := specPath.Child("trainer").Child("args")
+	for i, arg := range newObj.Spec.Trainer.Args {
+		key := strings.SplitN(arg, "=", 2)[0]
+		if constants.TorchTuneImmutableConfigs.Has(key) {
+			allErrs = append(allErrs, field.Invalid(
+				trainerArgsPath.Index(i),
+				arg,
+				fmt.Sprintf("must not set immutable config %q in trainer args; it is managed by the runtime", key),
+			))
+		}
+	}
+
 	return nil, allErrs
 }
 

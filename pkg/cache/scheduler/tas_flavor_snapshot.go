@@ -1752,7 +1752,7 @@ func (s *TASFlavorSnapshot) fillInCounts(requirements *topologyAssignmentPodRequ
 			ObjectMeta: requirements.podTemplate.ObjectMeta,
 			Spec:       requirements.podTemplate.Spec,
 		}
-		feasibleNodeNames, err := s.schedulingSnapshot.CanSchedulePod(context.Background(), s.log, snapshot.SchedulablePod{
+		feasibleNodeNames, _, err := s.schedulingSnapshot.CanSchedulePod(context.Background(), s.log, snapshot.SchedulablePod{
 			Pod:                dummyPod,
 			CandidateNodeNames: candidateNodeNames,
 		})
