@@ -1231,6 +1231,86 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", func()
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
+
+	ginkgo.When("the queue doesn't exist and is then created under the observability feature gate", func() {
+		var (
+			ns                   *corev1.Namespace
+			wl                   *kueue.Workload
+			localQueue           *kueue.LocalQueue
+			updatedQueueWorkload kueue.Workload
+			cq                   *kueue.ClusterQueue
+			rf                   *kueue.ResourceFlavor
+		)
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
+			startManager()
+			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
+
+			rf = utiltestingapi.MakeResourceFlavor("default-flavor").Obj()
+			util.MustCreate(ctx, k8sClient, rf)
+
+			cq = utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default-flavor").
+						Resource(corev1.ResourceCPU, "0").
+						Obj(),
+				).
+				Obj()
+			util.MustCreate(ctx, k8sClient, cq)
+		})
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			if rf != nil {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
+			}
+			stopManager()
+		})
+		ginkgo.It("Should transition status from Misconfigured to ExceedsMaxQuota when the queue is created", func() {
+			wl = utiltestingapi.MakeWorkload("transition-test", ns.Name).
+				Queue("delayed-queue").
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+
+			ginkgo.By("Creating workload referencing non-existent queue")
+			util.MustCreate(ctx, k8sClient, wl)
+
+			ginkgo.By("Verifying workload is marked as misconfigured (missing queue)")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
+
+				cond := apimeta.FindStatusCondition(updatedQueueWorkload.Status.Conditions, kueue.WorkloadQuotaReserved)
+				g.Expect(cond).NotTo(gomega.BeNil())
+				g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+				g.Expect(cond.Reason).To(gomega.Equal(kueue.WorkloadQuotaReservedReasonMisconfigured))
+				g.Expect(cond.Message).To(gomega.Equal(fmt.Sprintf("LocalQueue %s doesn't exist", "delayed-queue")))
+
+				admittedCond := apimeta.FindStatusCondition(updatedQueueWorkload.Status.Conditions, kueue.WorkloadAdmitted)
+				g.Expect(admittedCond).NotTo(gomega.BeNil())
+				g.Expect(admittedCond.Status).To(gomega.Equal(metav1.ConditionFalse))
+				g.Expect(admittedCond.Reason).To(gomega.Equal("NoReservation"))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Creating the LocalQueue")
+			localQueue = utiltestingapi.MakeLocalQueue("delayed-queue", ns.Name).ClusterQueue(cq.Name).Obj()
+			util.MustCreate(ctx, k8sClient, localQueue)
+
+			ginkgo.By("Verifying workload transitions to ExceedsMaxQuota")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
+
+				cond := apimeta.FindStatusCondition(updatedQueueWorkload.Status.Conditions, kueue.WorkloadQuotaReserved)
+				g.Expect(cond).NotTo(gomega.BeNil())
+				g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+				g.Expect(cond.Reason).To(gomega.Equal(kueue.WorkloadQuotaReservedReasonExceedsMaxQuota))
+
+				admittedCond := apimeta.FindStatusCondition(updatedQueueWorkload.Status.Conditions, kueue.WorkloadAdmitted)
+				g.Expect(admittedCond).NotTo(gomega.BeNil())
+				g.Expect(admittedCond.Status).To(gomega.Equal(metav1.ConditionFalse))
+				g.Expect(admittedCond.Reason).To(gomega.Equal("NoReservation"))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
 })
 
 var _ = ginkgo.Describe("Workload controller with resource retention", func() {

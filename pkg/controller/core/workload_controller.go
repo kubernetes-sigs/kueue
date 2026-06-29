@@ -80,6 +80,13 @@ var (
 	realClock = clock.RealClock{}
 )
 
+const (
+	localQueueDoesNotExistMsgFormat   = "LocalQueue %s doesn't exist"
+	clusterQueueDoesNotExistMsgFormat = "ClusterQueue %s doesn't exist"
+	localQueueIsInactiveMsgFormat     = "LocalQueue %s is inactive"
+	clusterQueueIsInactiveMsgFormat   = "ClusterQueue %s is inactive"
+)
+
 // hasInternalError reports whether the field error list contains an internal
 // error. DRA resolution reports retryable failures — API errors and cluster-state
 // shortages that clear once ResourceSlices change — as internal errors, so the
@@ -776,7 +783,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		log.V(3).Info("Workload is inadmissible because of missing LocalQueue", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)))
 		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			reason := workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonMisconfigured, kueue.WorkloadInadmissible)
-			return workload.UnsetQuotaReservationWithCondition(wl, reason, fmt.Sprintf("LocalQueue %s doesn't exist", wl.Spec.QueueName), r.clock.Now()), nil
+			return workload.UnsetQuotaReservationWithCondition(wl, reason, fmt.Sprintf(localQueueDoesNotExistMsgFormat, wl.Spec.QueueName), r.clock.Now()), nil
 		}); err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
@@ -784,7 +791,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		log.V(3).Info("Workload is inadmissible because of stopped LocalQueue", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)))
 		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			reason := workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonSuspended, kueue.WorkloadInadmissible)
-			return workload.UnsetQuotaReservationWithCondition(wl, reason, fmt.Sprintf("LocalQueue %s is inactive", wl.Spec.QueueName), r.clock.Now()), nil
+			return workload.UnsetQuotaReservationWithCondition(wl, reason, fmt.Sprintf(localQueueIsInactiveMsgFormat, wl.Spec.QueueName), r.clock.Now()), nil
 		}); err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
@@ -792,7 +799,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		log.V(3).Info("Workload is inadmissible because of missing ClusterQueue", "clusterQueue", klog.KRef("", string(cqName)))
 		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			reason := workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonMisconfigured, kueue.WorkloadInadmissible)
-			return workload.UnsetQuotaReservationWithCondition(wl, reason, fmt.Sprintf("ClusterQueue %s doesn't exist", cqName), r.clock.Now()), nil
+			return workload.UnsetQuotaReservationWithCondition(wl, reason, fmt.Sprintf(clusterQueueDoesNotExistMsgFormat, cqName), r.clock.Now()), nil
 		}); err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
@@ -800,7 +807,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		log.V(3).Info("Workload is inadmissible because ClusterQueue is inactive", "clusterQueue", klog.KRef("", string(cqName)))
 		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			reason := workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonSuspended, kueue.WorkloadInadmissible)
-			return workload.UnsetQuotaReservationWithCondition(wl, reason, fmt.Sprintf("ClusterQueue %s is inactive", cqName), r.clock.Now()), nil
+			return workload.UnsetQuotaReservationWithCondition(wl, reason, fmt.Sprintf(clusterQueueIsInactiveMsgFormat, cqName), r.clock.Now()), nil
 		}); err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
@@ -1857,31 +1864,39 @@ func (r *WorkloadReconciler) resolveUnadmittedQuotaReservedCondition(wl *kueue.W
 		newMsg = "The workload is deactivated"
 	case !lqExists:
 		newReason = kueue.WorkloadQuotaReservedReasonMisconfigured
-		newMsg = fmt.Sprintf("LocalQueue %s doesn't exist", wl.Spec.QueueName)
+		newMsg = fmt.Sprintf(localQueueDoesNotExistMsgFormat, wl.Spec.QueueName)
 	case !lqActive:
 		newReason = kueue.WorkloadQuotaReservedReasonSuspended
-		newMsg = fmt.Sprintf("LocalQueue %s is inactive", wl.Spec.QueueName)
+		newMsg = fmt.Sprintf(localQueueIsInactiveMsgFormat, wl.Spec.QueueName)
 	case !cqOk:
 		cqName, _ := r.queues.ClusterQueueForWorkload(wl)
 		newReason = kueue.WorkloadQuotaReservedReasonMisconfigured
-		newMsg = fmt.Sprintf("ClusterQueue %s doesn't exist", cqName)
+		newMsg = fmt.Sprintf(clusterQueueDoesNotExistMsgFormat, cqName)
 	case cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == kueue.WorkloadQuotaReservedReasonNoMatchingFlavor:
 		newReason = cond.Reason
 		newMsg = cond.Message
 	case !cqActive:
 		cqName, _ := r.queues.ClusterQueueForWorkload(wl)
 		newReason = kueue.WorkloadQuotaReservedReasonSuspended
-		newMsg = fmt.Sprintf("ClusterQueue %s is inactive", cqName)
+		newMsg = fmt.Sprintf(clusterQueueIsInactiveMsgFormat, cqName)
 	case workload.HasAdmissionGate(wl):
 		newReason = kueue.WorkloadAdmissionGated
 		newMsg = fmt.Sprintf("Admission is gated by: %s", wl.Annotations[constants.AdmissionGatedByAnnotation])
 	case cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == kueue.WorkloadQuotaReservedReasonWaitingForPodsReady:
 		newReason = cond.Reason
 		newMsg = cond.Message
-	case cond != nil && cond.Status == metav1.ConditionFalse && (cond.Reason == kueue.WorkloadQuotaReservedReasonExceedsMaxQuota ||
-		cond.Reason == kueue.WorkloadQuotaReservedReasonWaitingForQuota ||
-		cond.Reason == kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed ||
-		cond.Reason == kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads):
+	case cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == kueue.WorkloadQuotaReservedReasonMisconfigured:
+		cqName, _ := r.queues.ClusterQueueForWorkload(wl)
+		if cond.Message == fmt.Sprintf(localQueueDoesNotExistMsgFormat, wl.Spec.QueueName) ||
+			cond.Message == fmt.Sprintf(clusterQueueDoesNotExistMsgFormat, cqName) {
+			newReason = kueue.WorkloadQuotaReservedReasonPendingEvaluation
+			newMsg = "Workload is pending evaluation in the scheduling queue"
+		} else {
+			newReason = cond.Reason
+			newMsg = cond.Message
+		}
+	case cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason != "" &&
+		cond.Reason != kueue.WorkloadQuotaReservedReasonSuspended:
 		newReason = cond.Reason
 		newMsg = cond.Message
 	default:
