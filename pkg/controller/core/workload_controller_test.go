@@ -49,9 +49,11 @@ import (
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -271,6 +273,163 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 			if tc.wantUnderlyingCause != underlyingCause {
 				t.Errorf("Unexpected underlyingCause, want=%v, got=%v", tc.wantUnderlyingCause, underlyingCause)
 			}
+		})
+	}
+}
+
+func TestReportPodsReadyWorkloadsMetrics(t *testing.T) {
+	const ns = "ns"
+
+	var (
+		cq1 = kueue.ClusterQueueReference("cq1")
+		cq2 = kueue.ClusterQueueReference("cq2")
+		lq1 = metrics.LocalQueueReference{Name: "lq1", Namespace: ns}
+		lq2 = metrics.LocalQueueReference{Name: "lq2", Namespace: ns}
+	)
+	now := time.Now().Truncate(time.Second)
+
+	makeWorkload := func(name string, queue kueue.LocalQueueName, cq kueue.ClusterQueueReference, podsReady metav1.ConditionStatus, admitted bool) *kueue.Workload {
+		wlBuilder := utiltestingapi.MakeWorkload(name, ns).
+			Queue(queue).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission(cq).Obj(), now)
+		if admitted {
+			wlBuilder = wlBuilder.AdmittedAt(true, now)
+		}
+		reason := kueue.WorkloadWaitForStart
+		if podsReady == metav1.ConditionTrue {
+			reason = kueue.WorkloadStarted
+		}
+		return wlBuilder.
+			Condition(metav1.Condition{
+				Type:               kueue.WorkloadPodsReady,
+				Status:             podsReady,
+				Reason:             reason,
+				LastTransitionTime: metav1.NewTime(now),
+			}).
+			Obj()
+	}
+
+	expectGauge := func(t *testing.T, metricLabels map[string]string, expectedSeries int, expectedValue float64) {
+		t.Helper()
+		dps := testingmetrics.CollectFilteredGaugeVec(metrics.PodsReadyWorkloads, metricLabels)
+		if len(dps) != expectedSeries {
+			t.Fatalf("Unexpected series count for %v: got %d, want %d", metricLabels, len(dps), expectedSeries)
+		}
+		if expectedSeries > 0 && dps[0].Value != expectedValue {
+			t.Fatalf("Unexpected gauge value for %v: got %v, want %v", metricLabels, dps[0].Value, expectedValue)
+		}
+	}
+	expectLocalGauge := func(t *testing.T, lq metrics.LocalQueueReference, expectedSeries int, expectedValue float64) {
+		t.Helper()
+		dps := testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueuePodsReadyWorkloads, map[string]string{
+			"name":      string(lq.Name),
+			"namespace": lq.Namespace,
+		})
+		if len(dps) != expectedSeries {
+			t.Fatalf("Unexpected local queue series count for %v: got %d, want %d", lq, len(dps), expectedSeries)
+		}
+		if expectedSeries > 0 && dps[0].Value != expectedValue {
+			t.Fatalf("Unexpected local queue gauge value for %v: got %v, want %v", lq, dps[0].Value, expectedValue)
+		}
+	}
+
+	type metricWant struct {
+		series int
+		value  float64
+	}
+	cases := map[string]struct {
+		oldWl       *kueue.Workload
+		newWl       *kueue.Workload
+		current     []client.Object
+		reportTwice bool
+		wantCQ1     metricWant
+		wantCQ2     metricWant
+		wantLQ1     metricWant
+		wantLQ2     metricWant
+	}{
+		"create counted workload reports current cache count": {
+			oldWl: nil,
+			newWl: makeWorkload("wl1", "lq1", cq1, metav1.ConditionTrue, true),
+			current: []client.Object{
+				makeWorkload("wl1", "lq1", cq1, metav1.ConditionTrue, true),
+				makeWorkload("wl2", "lq1", cq1, metav1.ConditionTrue, true),
+				makeWorkload("wl3", "lq1", cq1, metav1.ConditionFalse, true),
+			},
+			reportTwice: true,
+			wantCQ1:     metricWant{series: 1, value: 2},
+			wantLQ1:     metricWant{series: 1, value: 2},
+		},
+		"update false to true reports current cache count": {
+			oldWl: makeWorkload("wl1", "lq1", cq1, metav1.ConditionFalse, true),
+			newWl: makeWorkload("wl1", "lq1", cq1, metav1.ConditionTrue, true),
+			current: []client.Object{
+				makeWorkload("wl1", "lq1", cq1, metav1.ConditionTrue, true),
+				makeWorkload("wl2", "lq1", cq1, metav1.ConditionTrue, true),
+			},
+			wantCQ1: metricWant{series: 1, value: 2},
+			wantLQ1: metricWant{series: 1, value: 2},
+		},
+		"update true to false reports zero": {
+			oldWl: makeWorkload("wl1", "lq1", cq1, metav1.ConditionTrue, true),
+			newWl: makeWorkload("wl1", "lq1", cq1, metav1.ConditionFalse, true),
+			current: []client.Object{
+				makeWorkload("wl1", "lq1", cq1, metav1.ConditionFalse, true),
+			},
+			wantCQ1: metricWant{series: 1},
+			wantLQ1: metricWant{series: 1},
+		},
+		"delete counted workload reports zero and is idempotent": {
+			oldWl:       makeWorkload("wl1", "lq1", cq1, metav1.ConditionTrue, true),
+			newWl:       nil,
+			reportTwice: true,
+			wantCQ1:     metricWant{series: 1},
+			wantLQ1:     metricWant{series: 1},
+		},
+		"move counted workload between queues reports both queues": {
+			oldWl: makeWorkload("wl1", "lq1", cq1, metav1.ConditionTrue, true),
+			newWl: makeWorkload("wl1", "lq2", cq2, metav1.ConditionTrue, true),
+			current: []client.Object{
+				makeWorkload("wl1", "lq2", cq2, metav1.ConditionTrue, true),
+			},
+			wantCQ1: metricWant{series: 1},
+			wantCQ2: metricWant{series: 1, value: 1},
+			wantLQ1: metricWant{series: 1},
+			wantLQ2: metricWant{series: 1, value: 1},
+		},
+		"pods ready but not admitted does not report": {
+			oldWl: nil,
+			newWl: makeWorkload("wl1", "lq1", cq1, metav1.ConditionTrue, false),
+			current: []client.Object{
+				makeWorkload("wl1", "lq1", cq1, metav1.ConditionTrue, false),
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
+			metrics.ClearClusterQueueMetrics(cq1)
+			metrics.ClearClusterQueueMetrics(cq2)
+			metrics.ClearLocalQueueMetrics(lq1)
+			metrics.ClearLocalQueueMetrics(lq2)
+			t.Cleanup(func() {
+				metrics.ClearClusterQueueMetrics(cq1)
+				metrics.ClearClusterQueueMetrics(cq2)
+				metrics.ClearLocalQueueMetrics(lq1)
+				metrics.ClearLocalQueueMetrics(lq2)
+			})
+
+			cl := utiltesting.NewClientBuilder().WithObjects(tc.current...).Build()
+			reconciler := &WorkloadReconciler{client: cl}
+			reconciler.reportPodsReadyWorkloadsMetrics(context.Background(), tc.oldWl, tc.newWl)
+			if tc.reportTwice {
+				reconciler.reportPodsReadyWorkloadsMetrics(context.Background(), tc.oldWl, tc.newWl)
+			}
+
+			expectGauge(t, map[string]string{"cluster_queue": string(cq1)}, tc.wantCQ1.series, tc.wantCQ1.value)
+			expectGauge(t, map[string]string{"cluster_queue": string(cq2)}, tc.wantCQ2.series, tc.wantCQ2.value)
+			expectLocalGauge(t, lq1, tc.wantLQ1.series, tc.wantLQ1.value)
+			expectLocalGauge(t, lq2, tc.wantLQ2.series, tc.wantLQ2.value)
 		})
 	}
 }

@@ -1285,6 +1285,23 @@ func IsEvicted(w *kueue.Workload) bool {
 	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadEvicted)
 }
 
+// HasPodsReady reports whether the Workload has PodsReady=True.
+func HasPodsReady(wl *kueue.Workload) bool {
+	podsReadyCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsReady)
+	return podsReadyCond != nil && podsReadyCond.Status == metav1.ConditionTrue
+}
+
+// CountsTowardsPodsReadyWorkloadsMetric reports whether the Workload should be
+// included in pods-ready workload gauges.
+func CountsTowardsPodsReadyWorkloadsMetric(wl *kueue.Workload) bool {
+	return wl != nil &&
+		wl.Status.Admission != nil &&
+		IsAdmitted(wl) &&
+		!IsFinished(wl) &&
+		!IsEvicted(wl) &&
+		HasPodsReady(wl)
+}
+
 // HasConditionWithTypeAndReason checks if there is a condition in Workload's status
 // with exactly the same Type, Status and Reason
 func HasConditionWithTypeAndReason(w *kueue.Workload, cond *metav1.Condition) bool {
