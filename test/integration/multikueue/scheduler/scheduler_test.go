@@ -574,22 +574,24 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 			ginkgo.By("Checking that the workload gets admitted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
-					clusterName := managerWl.Status.ClusterName
-					g.Expect(clusterName).ToNot(gomega.BeNil())
-					var workerClient client.Client
-					var workerCtx context.Context
-					if *clusterName == "worker1" {
-						workerClient = worker1TestCluster.client
-						workerCtx = worker1TestCluster.ctx
-					} else {
-						workerClient = worker2TestCluster.client
-						workerCtx = worker2TestCluster.ctx
-					}
+					selectedWorker := util.GetClientForSelectedWorkerCluster(
+						managerWl,
+						util.ClusterInfo{
+							Name:   "worker1",
+							Client: worker1TestCluster.client,
+							Ctx:    worker1TestCluster.ctx,
+						},
+						util.ClusterInfo{
+							Name:   "worker2",
+							Client: worker2TestCluster.client,
+							Ctx:    worker2TestCluster.ctx,
+						},
+					)
 
 					// When the gates are not treated independently, a mismatch between the gates will cause
 					// the workload to never get admitted and be continuously recreated.
 					// See: https://github.com/kubernetes-sigs/kueue/issues/12543
-					g.Expect(workerClient.Get(workerCtx, wlLookupKey, workerWl)).To(gomega.Succeed())
+					g.Expect(selectedWorker.Client.Get(selectedWorker.Ctx, wlLookupKey, workerWl)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(workerWl)).To(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
