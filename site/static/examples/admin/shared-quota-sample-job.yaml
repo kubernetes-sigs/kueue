@@ -16,7 +16,8 @@ spec:
       containers:
       - name: worker
         image: registry.k8s.io/e2e-test-images/agnhost:2.53
-        args: ["sleep", "300"]
+        command: ["/bin/sh"]
+        args: ["-c", "sleep 300"]
         resources:
           requests:
             cpu: "3"
