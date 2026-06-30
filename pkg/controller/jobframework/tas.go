@@ -25,6 +25,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
 var (
@@ -87,7 +89,7 @@ func (p *podSetTopologyRequestBuilder) Build() (*kueue.PodSetTopologyRequest, er
 	}
 
 	// Parse multi-level constraints annotation (mutually exclusive with two-level fields).
-	if constraintsFound {
+	if features.Enabled(features.TASMultiLayerTopology) && constraintsFound {
 		var constraints []kueue.PodsetSliceRequiredTopologyConstraint
 		if err := json.Unmarshal([]byte(constraintsJSON), &constraints); err != nil {
 			return nil, fmt.Errorf("%w: %w", errParseTopologyConstraints, err)
@@ -96,7 +98,10 @@ func (p *podSetTopologyRequestBuilder) Build() (*kueue.PodSetTopologyRequest, er
 			return nil, fmt.Errorf("%w: got %d", errTopologyConstraintsLayerCount, len(constraints))
 		}
 		psTopologyReq.PodsetSliceRequiredTopologyConstraints = constraints
-	} else if sliceRequiredTopologyFound && sliceSizeFound {
+	} else if sliceRequiredTopologyFound {
+		if !sliceSizeFound {
+			return nil, fmt.Errorf("%s annotation requires %s annotation to be set", kueue.PodSetSliceRequiredTopologyAnnotation, kueue.PodSetSliceSizeAnnotation)
+		}
 		sliceSizeIntValue, err := strconv.ParseInt(sliceSizeValue, 10, 32)
 		if err != nil {
 			return nil, err
@@ -104,9 +109,7 @@ func (p *podSetTopologyRequestBuilder) Build() (*kueue.PodSetTopologyRequest, er
 		sliceSizeInt32 := int32(sliceSizeIntValue)
 		psTopologyReq.PodSetSliceRequiredTopology = &sliceRequiredTopologyValue
 		psTopologyReq.PodSetSliceSize = &sliceSizeInt32
-		psTopologyReq.PodsetSliceRequiredTopologyConstraints = []kueue.PodsetSliceRequiredTopologyConstraint{
-			{Topology: sliceRequiredTopologyValue, Size: int32(sliceSizeIntValue)},
-		}
+		psTopologyReq.PodsetSliceRequiredTopologyConstraints = utiltas.PodSetSliceRequiredTopologyConstraints(&psTopologyReq)
 	}
 
 	psTopologyReq.PodIndexLabel = p.podIndexLabel

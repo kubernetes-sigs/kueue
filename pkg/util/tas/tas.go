@@ -103,11 +103,16 @@ func IsLowestLevelHostname(levels []string) bool {
 	return levels[len(levels)-1] == corev1.LabelHostname
 }
 
-// NormalizeTopologyRequest ensures a PodSetTopologyRequest uses the unified
-// PodsetSliceRequiredTopologyConstraints format. Workloads stored before the
-// unification only have the legacy PodSetSliceRequiredTopology/PodSetSliceSize
-// fields; this function synthesizes the constraints list from them so that all
-// scheduling logic can use a single code path.
+// PodSetSliceRequiredTopologyConstraints returns the unified slice topology
+// constraints for a PodSetTopologyRequest, regardless of whether they were
+// specified via the new multi-layer PodsetSliceRequiredTopologyConstraints
+// annotation or the old single-layer PodSetSliceRequiredTopology/
+// PodSetSliceSize fields.
+//
+// This is necessary to handle Workload objects that were persisted before the
+// unification, which only populate the legacy fields. Callers should use this
+// function instead of reading PodsetSliceRequiredTopologyConstraints directly
+// to ensure both annotation forms are handled consistently.
 func PodSetSliceRequiredTopologyConstraints(tr *kueue.PodSetTopologyRequest) []kueue.PodsetSliceRequiredTopologyConstraint {
 	if tr == nil {
 		return nil

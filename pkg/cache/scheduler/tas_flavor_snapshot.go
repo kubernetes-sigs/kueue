@@ -1211,7 +1211,11 @@ func getSliceSizeWithSinglePodAsDefault(tr *kueue.PodSetTopologyRequest) (int32,
 	if tr == nil || len(tr.PodsetSliceRequiredTopologyConstraints) == 0 {
 		return 1, ""
 	}
-	return tr.PodsetSliceRequiredTopologyConstraints[0].Size, ""
+	size := tr.PodsetSliceRequiredTopologyConstraints[0].Size
+	if size <= 0 {
+		return 0, "slice topology requested, but slice size not provided"
+	}
+	return size, ""
 }
 
 // findBestFitDomain finds an index of the first domain with the lowest
