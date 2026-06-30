@@ -301,6 +301,18 @@ in `pkg/metrics/metrics.go` at the time of implementation.
    `CohortWeightedShare` series must also be deleted when a Cohort is
    removed; the Cohort reconciler's delete path must call
    `DeletePartialMatch` for it.
+   Metrics that source label values from Workloads
+   will have an added layer of calculation handling.
+   On a higher level, ClusterQueue, LocalQueue, or Cohort deletions
+   will trigger the cleanup of all partially-matched series
+   via `DeletePartialMatch` (and `CohortWeightedShare`).
+   Each such series corresponds to a set of workloads,
+   whose non-workload-sourced label values match the deleted object.
+   On a lower level, when the update happens due to the removal of a workload,
+   the metric must find an exact match for the workload's entry, then subtract the workload.
+   This means that workload deletions will be treated as data-point updates
+   rather than deletions of entire series of data.
+   For gauges, this means decrementing the entry by an appropriate amount.
 5. **Value-change cleanup**: The controller keeps an in-memory map
    from object name to last-reported custom label values. On every
    reconciliation of a ClusterQueue, LocalQueue, or Cohort:
