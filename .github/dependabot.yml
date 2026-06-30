@@ -45,7 +45,13 @@ updates:
   # Maintain Dockerfiles
   - package-ecosystem: "docker"
     directories:
+      - "/"
+      - "/cmd/importer"
+      - "/cmd/experimental/kueue-populator"
+      - "/cmd/experimental/kueue-priority-booster"
+      - "/cmd/kueueviz/backend"
       - "/cmd/kueueviz/frontend"
+      - "/hack/debugpod"
       - "/hack/releasing/krew-release-bot"
       - "/hack/testing/agnhost"
       - "/hack/testing/cypress"

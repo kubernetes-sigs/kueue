@@ -941,13 +941,8 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 	requests = filterRequestedResources(requests, resourceGroup.CoveredResources)
 
 	podSets := make([]*kueue.PodSet, len(psIDs))
-	selectors := make([]nodeaffinity.RequiredNodeAffinity, len(psIDs))
-
 	for idx, psID := range psIDs {
-		ps := &a.wl.Obj.Spec.PodSets[psID]
-		podSets[idx] = ps
-
-		selectors[idx] = flavorSelector(&ps.Template.Spec, resourceGroup.LabelKeys)
+		podSets[idx] = &a.wl.Obj.Spec.PodSets[psID]
 	}
 
 	var bestAssignment ResourceAssignment
@@ -960,12 +955,16 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 	for ; idx < len(resourceGroup.Flavors); idx++ {
 		attemptedFlavorIdx = idx
 		fName := resourceGroup.Flavors[idx]
+		if a.shouldRespectNominationMapping() && a.shouldSkipBasedOnNominationMapping(log, fName, psIDs, resName) {
+			status.appendf("skipping flavor %s as it is not found in the nomination mapping for resource %s", fName, resName)
+			continue
+		}
 		if features.Enabled(features.ConcurrentAdmission) && !concurrentadmission.IsFlavorAllowedForVariant(a.wl.Obj, fName) {
 			status.appendf("skipping flavor %s due to WorkloadAllowedResourceFlavorAnnotation annotation", fName)
 			continue
 		}
 
-		if flavorStatus := a.checkFlavorForPodSets(log, fName, psIDs, podSets, selectors, resourceGroup); !flavorStatus.IsFit() {
+		if flavorStatus := a.checkFlavorForPodSets(log, fName, psIDs, podSets, resourceGroup); !flavorStatus.IsFit() {
 			flavorStatus.noFitReason = kueue.WorkloadQuotaReservedReasonNoMatchingFlavor
 			status.reasons = append(status.reasons, flavorStatus.reasons...)
 			consideredFlavors.AddNoFitFlavorAttempt(fName, flavorStatus)
@@ -1075,7 +1074,6 @@ func (a *FlavorAssigner) checkFlavorForPodSets(
 	flavorName kueue.ResourceFlavorReference,
 	psIDs []int,
 	podSets []*kueue.PodSet,
-	selectors []nodeaffinity.RequiredNodeAffinity,
 	rg *schdcache.ResourceGroup,
 ) *Status {
 	status := NewStatus()
@@ -1086,6 +1084,11 @@ func (a *FlavorAssigner) checkFlavorForPodSets(
 		status.appendf("flavor %s not found", flavorName)
 		return status
 	}
+
+	// Use only this flavor's own label keys (not the union across all flavors in
+	// the resource group) so that affinity terms referencing keys from other
+	// flavors are correctly ignored when evaluating this flavor.
+	flavorLabelKeys := sets.KeySet(flavor.Spec.NodeLabels)
 
 	for psIdx, psID := range psIDs {
 		if features.Enabled(features.TopologyAwareScheduling) {
@@ -1104,7 +1107,7 @@ func (a *FlavorAssigner) checkFlavorForPodSets(
 			status.appendf("untolerated taint %s in flavor %s", taint, flavorName)
 			return status
 		}
-		selector := selectors[psIdx]
+		selector := flavorSelector(&podSpec, flavorLabelKeys)
 		if match, err := selector.Match(&corev1.Node{ObjectMeta: metav1.ObjectMeta{Labels: flavor.Spec.NodeLabels}}); !match || err != nil {
 			if err != nil {
 				status.err = err
@@ -1252,4 +1255,34 @@ func filterRequestedResources(req resources.Requests, allowList sets.Set[corev1.
 		}
 	}
 	return filtered
+}
+
+// shouldRespectNominationMapping returns true if flavor stickiness should be enforced.
+// Active during recomputation when TAS is enabled and NominationMapping is populated.
+func (a *FlavorAssigner) shouldRespectNominationMapping() bool {
+	return features.Enabled(features.TopologyAwareScheduling) &&
+		features.Enabled(features.TASRecomputeAssignmentWithinSchedulingCycle) &&
+		len(a.wl.NominationMapping) > 0
+}
+
+// shouldSkipBasedOnNominationMapping returns true if the flavor should be skipped to enforce stickiness.
+// We stick to nominated flavors from the initial attempt to avoid flavor switching during recomputation.
+//
+// Note: Assumes NominationMapping is complete. If a resource is not requested by a pod set in the group,
+// it returns "" which won't match fName. We rely on the upstream guarantee that at least one pod set
+// in the group requests the resource and has a nominated flavor, otherwise it would incorrectly skip.
+func (a *FlavorAssigner) shouldSkipBasedOnNominationMapping(log logr.Logger,
+	fName kueue.ResourceFlavorReference,
+	psIDs []int,
+	resName corev1.ResourceName,
+) bool {
+	for _, psID := range psIDs {
+		psName := a.wl.Obj.Spec.PodSets[psID].Name
+		if fName == a.wl.NominationMapping[psName][resName] {
+			log.V(5).Info("Found flavor in the nomination mapping - cannot skip", "psName", psName, "resName", resName, "flavorName", fName)
+			return false
+		}
+	}
+	log.V(5).Info("Didn't find the flavor in the nomination mapping - skipping", "resName", resName, "flavorName", fName)
+	return true
 }

@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -55,6 +56,7 @@ var errPendingUngateOps = errors.New("pending elastic ungate operations")
 
 type elasticJobUngater struct {
 	client            client.Client
+	clock             clock.Clock
 	expectationsStore *expectations.Store
 	roleTracker       *roletracker.RoleTracker
 }
@@ -68,6 +70,7 @@ var _ predicate.TypedPredicate[*kueue.Workload] = (*elasticJobUngater)(nil)
 func SetupWithManager(mgr ctrl.Manager, cfg *configapi.Configuration, roleTracker *roletracker.RoleTracker) (string, error) {
 	r := &elasticJobUngater{
 		client:            mgr.GetClient(),
+		clock:             clock.RealClock{},
 		expectationsStore: expectations.NewStore(ControllerName),
 		roleTracker:       roleTracker,
 	}
@@ -143,8 +146,14 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 		if e != nil {
 			r.expectationsStore.ObservedUID(log, req.NamespacedName, pod.UID)
 			log.Error(e, "failed ungating elastic pod", "pod", klog.KObj(pod))
+			return e
 		}
-		return e
+		if !ungated {
+			r.expectationsStore.ObservedUID(log, req.NamespacedName, pod.UID)
+		} else {
+			utilpod.RecordPodSchedulingGateRemovalSeconds(r.clock, kueue.ElasticJobSchedulingGate, wl, false)
+		}
+		return nil
 	})
 	return reconcile.Result{}, err
 }

@@ -429,6 +429,51 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"valid multiKueue.incrementalDispatcherConfig with incremental dispatcher": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					DispatcherName: ptr.To(configapi.MultiKueueDispatcherModeIncremental),
+					IncrementalDispatcherConfig: &configapi.IncrementalDispatcherConfig{
+						StepSize: new(int32(2)),
+					},
+				},
+			},
+		},
+		"multiKueue.incrementalDispatcherConfig without incremental dispatcher": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					DispatcherName: ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
+					IncrementalDispatcherConfig: &configapi.IncrementalDispatcherConfig{
+						StepSize: new(int32(2)),
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "multiKueue.incrementalDispatcherConfig",
+				},
+			},
+		},
+		"multiKueue.incrementalDispatcherConfig.stepSize below minimum": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					DispatcherName: ptr.To(configapi.MultiKueueDispatcherModeIncremental),
+					IncrementalDispatcherConfig: &configapi.IncrementalDispatcherConfig{
+						StepSize: new(int32(0)),
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "multiKueue.incrementalDispatcherConfig.stepSize",
+				},
+			},
+		},
 		"empty multiKueue.clusterProfile.accessProviders.name": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,

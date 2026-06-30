@@ -37,46 +37,84 @@ footer {
 // custom navbar with larger logo, dropdown on mobile
 // --------------------------------------------------
 .td-navbar {
-  min-height: auto;
+  min-height: 3.5rem;
+  background-color: rgba(255, 255, 255, 0.96) !important;
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid #e2e8f0 !important;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
 
   .navbar-brand {
     margin: 0;
     padding: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
 
     .text-uppercase {
-      display: none;
+      display: inline-block !important;
+      font-size: 1.15rem;
+      font-weight: 700;
+      letter-spacing: -0.025em;
+      color: #0f172a !important; // Slate 900
+      text-transform: none !important; // Keep 'Kueue' mixed case
     }
 
     .navbar-logo {
+      display: flex;
+      align-items: center;
+
       svg {
         display: inline-block;
-        position: absolute;
-        top: 0;
-        z-index: 33;
-        padding: 10px;
-        height: 95px;
-        background: white;
-        border: 2px solid #4279f4;
-        border-top: none;
+        position: static; // Reset absolute positioning
+        height: 28px; // Sleeker, more compact height
+        width: auto;
+        padding: 0;
+        background: transparent;
+        border: none;
+        z-index: auto;
 
         @include media-breakpoint-down(md) {
-          width: 80px;
-          height: auto;
-          padding: 6px;
+          height: 24px;
         }
       }
     }
   }
 
+
   .navbar-nav {
+    align-items: center;
+    
+    .nav-link {
+      font-weight: 400; // Normal weight to prevent faux-bold smudging on Chinese fonts and FontAwesome icons
+      color: #475569 !important; // Slate 600
+      transition: color 0.15s ease;
+      padding: 0.5rem 0.75rem;
+      text-shadow: none !important;
+
+      &:hover, &.active {
+        color: #0ea5e9 !important; // Sky 500 (Teal/Accent)
+      }
+    }
+
     @include media-breakpoint-down(md) {
       font-size: .875rem;
+      align-items: flex-start;
       .dropdown {
         min-width: inherit;
       }
     }
   }
 }
+
+.td-navbar-cover * {
+  text-shadow: none !important;
+}
+
+.td-navbar * {
+  text-shadow: none !important;
+  -webkit-font-smoothing: antialiased;
+}
+
 
 .td-sidebar {
   padding-bottom: 0.5rem;
@@ -87,6 +125,14 @@ footer {
     @include media-breakpoint-down(md) {
       padding-top: 10px;
     }
+  }
+}
+
+// Structural layout override: Constrain the navigation scroll container height
+// on desktop so the scrollbar and links never overlap the full-width footer.
+@media (min-width: 768px) {
+  .td-sidebar-nav {
+    max-height: calc(100vh - 14.5rem) !important;
   }
 }
 
@@ -213,3 +259,39 @@ div.feature-state-notice {
       background-color: #fbe1de;
     }
   }
+
+// --------------------------------------------------
+// Homepage static feature cards
+// --------------------------------------------------
+.feature-card {
+  cursor: default;
+  
+  h1, h2, h3, h4, h5, h6, p, span, i, div {
+    cursor: inherit;
+  }
+}
+
+// --------------------------------------------------
+// Sidebar Search Button (Permanent Visibility & Left-Alignment)
+// --------------------------------------------------
+#td-sidebar-menu {
+  .btn-outline-secondary {
+    // Override theme's white-on-white variables for the light sidebar
+    --bs-btn-color: var(--bs-secondary-color, #6c757d) !important;
+    --bs-btn-border-color: var(--bs-border-color, #dee2e6) !important;
+    
+    // Hover states (keeps background transparent/intact, subtly darkens text and border)
+    --bs-btn-hover-color: var(--bs-secondary-color, #6c757d) !important;
+    --bs-btn-hover-bg: transparent !important;
+    --bs-btn-hover-border-color: var(--bs-border-color, #dee2e6) !important;
+    
+    // Active/Focus states (subtle click feedback with very light gray)
+    --bs-btn-active-color: var(--bs-secondary-color, #6c757d) !important;
+    --bs-btn-active-bg: rgba(0, 0, 0, 0.05) !important;
+    --bs-btn-active-border-color: var(--bs-border-color, #dee2e6) !important;
+    
+    // Force text and icon alignment to the left
+    text-align: left !important;
+    padding-left: 0.75rem !important;
+  }
+}

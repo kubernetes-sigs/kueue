@@ -19,6 +19,7 @@ aliases:
     - sohankunkerkar
   test-approvers:
     - mbobrovskyi
+    - olekzabl
     - pbundyra
     - sohankunkerkar
   agent-approvers:

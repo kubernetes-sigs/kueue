@@ -12,7 +12,7 @@ Check the concepts section for a [MultiKueue overview](/docs/concepts/multikueue
 
 ## Setup MultiKueue with E2E Test Cluster
 
-The [e2e test development mode](/docs/contribution_guidelines/testing/#dev-mode-keep-the-cluster) can be used to maintain a MultiKueue cluster setup and run end-to-end tests
+The [e2e test development mode](/community/contribution_guidelines/testing/#dev-mode-keep-the-cluster) can be used to maintain a MultiKueue cluster setup and run end-to-end tests
 against it without recreating and tearing it down each time.
 
 For example:
@@ -26,7 +26,7 @@ To use a staging Kueue image without building (no `kind-image-build` needed), pa
 E2E_MODE=dev IMAGE_TAG=us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:main make test-multikueue-e2e-baseline
 ```
 
-For using a released version (with matching manifests) and for more information about the DEV mode, refer to the [testing documentation](/docs/contribution_guidelines/testing/#dev-mode-keep-the-cluster).
+For using a released version (with matching manifests) and for more information about the DEV mode, refer to the [testing documentation](/community/contribution_guidelines/testing/#dev-mode-keep-the-cluster).
 
 ## Setup MultiKueue with TAS
 

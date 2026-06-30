@@ -11,7 +11,7 @@ Workload 都将由 Kueue 管理，即使它们缺少 `kueue.x-k8s.io/queue-name`
 
 ## 在你开始之前
 
-学习如何[安装带有自定义管理器配置的 Kueue](/zh-CN/docs/installation/#install-a-custom-configured-released-version)。
+学习如何[安装带有自定义管理器配置的 Kueue](/zh-cn/docs/installation/#install-a-custom-configured-released-version)。
 
 ## 配置
 

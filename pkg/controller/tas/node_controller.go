@@ -59,6 +59,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -333,7 +335,7 @@ func (r *nodeReconciler) getWorkloadsFromPodsOnNode(
 			logger.V(4).Info("Failed to get workload", "workload", wlKey, "error", err)
 			continue
 		}
-		if !workload.IsFinished(&wl) && !workload.IsEvicted(&wl) {
+		if !workload.IsFinished(&wl) && !workloadevict.IsEvicted(&wl) {
 			latePodWorkloads.Insert(wlKey)
 		}
 	}
@@ -484,14 +486,18 @@ func (r *nodeReconciler) checkPodsOnNode(
 // evictWorkloadIfNeeded idempotently evicts the workload when the node has failed.
 // It returns whether the node was evicted, and whether an error was encountered.
 func (r *nodeReconciler) evictWorkloadIfNeeded(ctx context.Context, wl *kueue.Workload, nodeName string) (bool, error) {
-	if workload.HasUnhealthyNodes(wl) && !workload.HasUnhealthyNode(wl, nodeName) && !workload.IsEvicted(wl) {
+	if workload.HasUnhealthyNodes(wl) && !workload.HasUnhealthyNode(wl, nodeName) && !workloadevict.IsEvicted(wl) {
 		unhealthyNodeNames := workload.UnhealthyNodeNames(wl)
 		log := ctrl.LoggerFrom(ctx).WithValues("unhealthyNodes", unhealthyNodeNames)
 		log.V(3).Info("Evicting workload due to multiple node failures")
 		allUnhealthyNodeNames := append(unhealthyNodeNames, nodeName)
 		evictionMsg := fmt.Sprintf(nodeMultipleFailuresEvictionMessageFormat, strings.Join(allUnhealthyNodeNames, ", "))
 		exposeLqMetrics := r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl)
-		if evictionErr := workload.Evict(ctx, r.client, r.recorder, wl, kueue.WorkloadEvictedDueToNodeFailures, evictionMsg, "", r.clock, exposeLqMetrics, r.roleTracker, nil); evictionErr != nil {
+		if evictionErr := workloadevict.Evict(
+			ctx, r.client, r.recorder, wl,
+			kueue.WorkloadEvictedDueToNodeFailures, evictionMsg, "",
+			r.clock, exposeLqMetrics, r.roleTracker, nil,
+		); evictionErr != nil {
 			log.Error(evictionErr, "Failed to complete eviction process")
 			return false, evictionErr
 		} else {
@@ -527,7 +533,7 @@ func (r *nodeReconciler) handleUnhealthyNode(ctx context.Context, nodeName strin
 			workloadProcessingErrors = append(workloadProcessingErrors, err)
 			continue
 		}
-		if evictedNow || workload.IsEvicted(&wl) {
+		if evictedNow || workloadevict.IsEvicted(&wl) {
 			evictedWorkloads.Insert(wlKey)
 			continue
 		}
@@ -665,7 +671,7 @@ func (r *nodeReconciler) handleHealthyNode(ctx context.Context, nodeName string,
 
 func (r *nodeReconciler) removeUnhealthyNodes(ctx context.Context, wl *kueue.Workload, nodeName string) error {
 	if workload.HasUnhealthyNode(wl, nodeName) {
-		return workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		return workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			wl.Status.UnhealthyNodes = slices.DeleteFunc(wl.Status.UnhealthyNodes, func(n kueue.UnhealthyNode) bool {
 				return n.Name == nodeName
 			})
@@ -677,7 +683,7 @@ func (r *nodeReconciler) removeUnhealthyNodes(ctx context.Context, wl *kueue.Wor
 
 func (r *nodeReconciler) addUnhealthyNode(ctx context.Context, wl *kueue.Workload, nodeName string) error {
 	if !workload.HasUnhealthyNode(wl, nodeName) {
-		return workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		return workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			wl.Status.UnhealthyNodes = append(wl.Status.UnhealthyNodes, kueue.UnhealthyNode{Name: nodeName})
 			return true, nil
 		})

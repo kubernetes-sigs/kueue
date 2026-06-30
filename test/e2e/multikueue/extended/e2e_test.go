@@ -353,7 +353,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey1, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
 					g.Expect(workerClient.Get(ctx, wlLookupKey0, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
 					g.Expect(workerClient.Get(ctx, wlLookupKey1, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -436,7 +436,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						g.Expect(k8sManagerClient.Get(ctx, key, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
 						g.Expect(workerClient.Get(ctx, key, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
 					}
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -799,7 +799,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				})
 			})
 
-			ginkgo.It("Should run a RayService on worker if admitted", func() {
+			ginkgo.It("Should run a RayService on worker if admitted", ginkgo.Label("requires:fullray"), func() {
 				kuberayTestImage := util.GetKuberayTestImage()
 
 				// Create ConfigMap with a simple Ray Serve application

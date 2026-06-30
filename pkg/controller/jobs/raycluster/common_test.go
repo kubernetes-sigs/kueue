@@ -307,6 +307,94 @@ func TestBuildPodSets(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		"autoscaler sidecar added to head podSet with default resources when in-tree autoscaling is enabled": {
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				EnableInTreeAutoscaling: new(true),
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{Name: "head"}},
+						},
+					},
+				},
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName: "workers",
+						Replicas:  ptr.To[int32](1),
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker"}},
+							},
+						},
+					},
+				},
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{
+							{Name: "head"},
+							{
+								Name: "autoscaler",
+								Resources: corev1.ResourceRequirements{
+									Requests: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("500m"),
+										corev1.ResourceMemory: resource.MustParse("512Mi"),
+									},
+									Limits: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("500m"),
+										corev1.ResourceMemory: resource.MustParse("512Mi"),
+									},
+								},
+							},
+						},
+					}).
+					Obj(),
+				*utiltestingapi.MakePodSet("workers", 1).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "worker"}},
+					}).
+					Obj(),
+			},
+		},
+		"autoscaler sidecar uses AutoscalerOptions.Resources override when set": {
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				EnableInTreeAutoscaling: new(true),
+				AutoscalerOptions: &rayv1.AutoscalerOptions{
+					Resources: &corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("250m"),
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
+					},
+				},
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{Name: "head"}},
+						},
+					},
+				},
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{
+							{Name: "head"},
+							{
+								Name: "autoscaler",
+								Resources: corev1.ResourceRequirements{
+									Requests: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("250m"),
+										corev1.ResourceMemory: resource.MustParse("256Mi"),
+									},
+								},
+							},
+						},
+					}).
+					Obj(),
+			},
+		},
 	}
 
 	for name, tc := range testCases {

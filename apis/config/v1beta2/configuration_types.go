@@ -335,6 +335,21 @@ type MultiKueue struct {
 	// ClusterProfile defines configuration for using the ClusterProfile API.
 	// +optional
 	ClusterProfile *ClusterProfile `json:"clusterProfile,omitempty"`
+
+	// IncrementalDispatcherConfig contains the configuration for the incremental dispatcher.
+	// This field is only valid when DispatcherName is set to the incremental dispatcher.
+	// Note: This field is going to be ignored when the MultiKueueIncrementalDispatcherConfig feature gate is disabled.
+	// +optional
+	IncrementalDispatcherConfig *IncrementalDispatcherConfig `json:"incrementalDispatcherConfig,omitempty"`
+}
+
+// IncrementalDispatcherConfig holds configuration for the MultiKueue Incremental Dispatcher.
+type IncrementalDispatcherConfig struct {
+	// StepSize defines the number of worker clusters the Incremental Dispatcher
+	// will query simultaneously.
+	// Minimum value is 1. If not set, it defaults to 3.
+	// +optional
+	StepSize *int32 `json:"stepSize,omitempty"`
 }
 
 // MultiKueueExternalFramework defines a framework that is not built-in.

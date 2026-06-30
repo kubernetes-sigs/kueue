@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type Webhook struct {
@@ -197,7 +198,9 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldSTSObj, newSTSObj *app
 				// Block if pods are still terminating
 				allErrs = append(allErrs, field.Forbidden(replicasPath, "scaling down is still in progress"))
 			} else {
-				// Block if workload is still being deleted
+				// Block if workload is still being deleted (exists without OnHold).
+				// If the workload is on hold, it is intentionally kept alive during
+				// scale-to-zero and will be re-admitted on scale-up.
 				wlName, err := findWorkloadName(ctx, wh.client, oldSTSObj)
 				if err != nil {
 					return nil, err
@@ -206,7 +209,7 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldSTSObj, newSTSObj *app
 				err = wh.client.Get(ctx, client.ObjectKey{Namespace: oldSTSObj.GetNamespace(), Name: wlName}, &wl)
 				if client.IgnoreNotFound(err) != nil {
 					return nil, err
-				} else if err == nil {
+				} else if err == nil && !workload.IsOnHold(&wl) {
 					allErrs = append(allErrs, field.Forbidden(replicasPath, "workload from previous scale-down is still being deleted"))
 				}
 			}

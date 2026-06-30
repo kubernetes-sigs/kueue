@@ -52,6 +52,8 @@ import (
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
@@ -856,7 +858,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 				gomega.Eventually(func(g gomega.Gomega) {
 					var newWL kueue.Workload
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdWorkload), &newWL)).To(gomega.Succeed())
-					workload.SetAdmissionCheckState(&newWL.Status.AdmissionChecks, kueue.AdmissionCheckState{
+					workloadpatching.SetAdmissionCheckState(&newWL.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:  "check",
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
@@ -994,7 +996,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 				gomega.Eventually(func(g gomega.Gomega) {
 					var newWL kueue.Workload
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdWorkload), &newWL)).To(gomega.Succeed())
-					workload.SetAdmissionCheckState(&newWL.Status.AdmissionChecks, kueue.AdmissionCheckState{
+					workloadpatching.SetAdmissionCheckState(&newWL.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:  "check",
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
@@ -2797,7 +2799,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 				g.Expect(workload.IsActive(wl)).To(gomega.BeFalse())
-				g.Expect(workload.IsEvicted(wl)).To(gomega.BeTrue())
+				g.Expect(workloadevict.IsEvicted(wl)).To(gomega.BeTrue())
 				g.Expect(workload.IsAdmitted(wl)).To(gomega.BeFalse())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -2810,7 +2812,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			gomega.Consistently(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 				g.Expect(workload.IsAdmitted(wl)).To(gomega.BeFalse())
-				g.Expect(workload.IsEvicted(wl)).To(gomega.BeTrue())
+				g.Expect(workloadevict.IsEvicted(wl)).To(gomega.BeTrue())
 				// Using short intervals to make it likely to fail if the conditions flip
 			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			// NOTE: controller restart in integration tests does not reset the metrics
@@ -2901,7 +2903,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			ginkgo.By("Setting ready for admission checks in low priority workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, lowWlLookupKey, createdLowWorkload)).To(gomega.Succeed())
-					workload.SetAdmissionCheckState(&createdLowWorkload.Status.AdmissionChecks, kueue.AdmissionCheckState{
+					workloadpatching.SetAdmissionCheckState(&createdLowWorkload.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:  kueue.AdmissionCheckReference(admissionCheck.Name),
 						State: kueue.CheckStateReady,
 					}, util.RealClock)
@@ -2945,7 +2947,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			ginkgo.By("Setting ready for admission checks in high priority workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, highWlLookupKey, createdHighWorkload)).To(gomega.Succeed())
-					workload.SetAdmissionCheckState(&createdHighWorkload.Status.AdmissionChecks, kueue.AdmissionCheckState{
+					workloadpatching.SetAdmissionCheckState(&createdHighWorkload.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:  kueue.AdmissionCheckReference(admissionCheck.Name),
 						State: kueue.CheckStateReady,
 					}, util.RealClock)
@@ -3085,6 +3087,9 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 			ginkgo.By("setting quota reservation")
 			util.SetQuotaReservation(ctx, k8sClient, wlKey, utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).Obj())
 
+			ginkgo.By("waiting for the job to be unsuspended")
+			util.ExpectJobUnsuspended(ctx, k8sClient, jobKey)
+
 			ginkgo.By("setting all job's pods to be ready")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, jobKey, job)).Should(gomega.Succeed())
@@ -3140,6 +3145,9 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 
 			ginkgo.By("setting quota reservation")
 			util.SetQuotaReservation(ctx, k8sClient, wlKey, utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).Obj())
+
+			ginkgo.By("waiting for the job to be unsuspended")
+			util.ExpectJobUnsuspended(ctx, k8sClient, jobKey)
 
 			ginkgo.By("setting all job's pods to be ready")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -3214,6 +3222,9 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 
 			ginkgo.By("setting quota reservation")
 			util.SetQuotaReservation(ctx, k8sClient, wlKey, utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).Obj())
+
+			ginkgo.By("waiting for the job to be unsuspended")
+			util.ExpectJobUnsuspended(ctx, k8sClient, jobKey)
 
 			ginkgo.By("setting all job's pods to be ready")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -3449,6 +3460,10 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 			ginkgo.By("setting quota reservation for both jobs")
 			util.SetQuotaReservation(ctx, k8sClient, lowWlKey, utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).Obj())
 			util.SetQuotaReservation(ctx, k8sClient, highWlKey, utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).Obj())
+
+			ginkgo.By("waiting for both jobs to be unsuspended")
+			util.ExpectJobUnsuspended(ctx, k8sClient, lowJobKey)
+			util.ExpectJobUnsuspended(ctx, k8sClient, highJobKey)
 
 			ginkgo.By("setting low priority job's pods to be ready")
 			gomega.Eventually(func(g gomega.Gomega) {
