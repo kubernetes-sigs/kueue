@@ -168,7 +168,7 @@ const (
 
 type ControllerMetricsCustomLabel struct {
     // Name is the Prometheus metric label name suffix.
-    // Prepended with "custom_" to form the full Prometheus label name 
+    // Prepended with "custom_" to form the full Prometheus label name
     // (e.g., "team" becomes "custom_team").
     // Must contain only [a-zA-Z0-9_] characters and start with a letter.
     Name string `json:"name"`
@@ -199,8 +199,6 @@ type ControllerMetrics struct {
     ...
     // CustomLabels is a list of entries whose values will be added as extra
     // Prometheus labels on ClusterQueue, LocalQueue, and Cohort metrics.
-    // The values of these labels are meant to be sourced from the
-    // ClusterQueue, LocalQueue, or Cohort objects themselves.
     // +optional
     // +kubebuilder:validation:MaxItems=8
     CustomLabels []ControllerMetricsCustomLabel `json:"customLabels,omitempty"`
