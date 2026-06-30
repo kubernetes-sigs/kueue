@@ -886,7 +886,7 @@ func resetActiveCondition(conds *[]metav1.Condition, gen int64, condType, reason
 // NeedsSecondPass checks if the second pass of scheduling is needed for the
 // workload.
 func NeedsSecondPass(w *kueue.Workload) bool {
-	if IsFinished(w) || IsEvicted(w) || !HasQuotaReservation(w) {
+	if IsFinished(w) || IsEvicted(w) || !HasQuotaReservation(w) || IsOnHold(w) {
 		return false
 	}
 	return needsSecondPassForDelayedAssignment(w) || needsSecondPassAfterNodeFailure(w)
@@ -1200,7 +1200,7 @@ func IsActive(w *kueue.Workload) bool {
 
 // IsAdmissible returns true if the workload can be added to the queue.
 func IsAdmissible(w *kueue.Workload) bool {
-	return !HasAdmissionGate(w) && !IsFinished(w) && IsActive(w) && !HasQuotaReservation(w)
+	return !HasAdmissionGate(w) && !IsFinished(w) && IsActive(w) && !HasQuotaReservation(w) && !IsOnHold(w)
 }
 
 // HasAdmissionGate returns true if the workload has an admission gate annotation and the AdmissionGatedBy feature is on
@@ -1221,6 +1221,16 @@ func HasAdmissionGate(w *kueue.Workload) bool {
 // workload to be active, not finished, and holding a quota reservation.
 func HasActiveQuotaReservation(w *kueue.Workload) bool {
 	return HasQuotaReservation(w) && !IsFinished(w) && IsActive(w)
+}
+
+// IsOnHold returns true when the workload's quota reservation is intentionally
+// released and the workload should not be requeued. This is indicated by the
+// QuotaReserved condition being False with reason "OnHold".
+// Any job integration can put the workload on hold to prevent requeuing
+// (e.g., StatefulSet on scale-to-zero).
+func IsOnHold(w *kueue.Workload) bool {
+	cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadQuotaReserved)
+	return cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == kueue.WorkloadOnHold
 }
 
 // HasDRA returns true if the workload has DRA resources (ResourceClaims or ResourceClaimTemplates).
