@@ -166,8 +166,12 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 		if e != nil {
 			r.expectationsStore.ObservedUID(log, req.NamespacedName, pod.UID)
 			log.Error(e, "failed ungating elastic pod", "pod", klog.KObj(pod))
+			return e
 		}
-		return e
+		if !ungated {
+			r.expectationsStore.ObservedUID(log, req.NamespacedName, pod.UID)
+		}
+		return nil
 	})
 	return reconcile.Result{}, err
 }
