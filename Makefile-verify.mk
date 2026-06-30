@@ -96,7 +96,7 @@ verify-tree-prereqs: verify-go-prereqs verify-docs-prereqs verify-helm-prereqs
 ## Read-only verification targets that should not mutate the repo.
 ## Add new check-only targets here.
 verify-checks: ## Phase 2 (parallel): checks that should run after generation completes.
-verify-checks: verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-skills-lint
+verify-checks: verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-make-timed-shell-test verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-skills-lint
 
 # ---- Shared check recipes -------------------------------------------------
 # Each recipe is stored in a variable so that both the lightweight standalone
@@ -137,6 +137,10 @@ endef
 
 define _e2e_common_test_recipe
 bash $(PROJECT_DIR)/hack/testing/e2e-common_test.sh
+endef
+
+define _make_timed_shell_test_recipe
+bash $(PROJECT_DIR)/hack/make-timed-shell_test.sh
 endef
 
 define _helm_verify_recipe
@@ -194,6 +198,9 @@ verify-shell-lint: verify-tree-prereqs ## Shell lint after generation
 verify-e2e-common-test: verify-tree-prereqs ## e2e-common shell helper tests after generation
 	$(_e2e_common_test_recipe)
 
+.PHONY: verify-make-timed-shell-test
+verify-make-timed-shell-test: make-timed-shell-test ## Verify Makefile timing shell wrapper.
+
 .PHONY: verify-helm-verify
 verify-helm-verify: verify-tree-prereqs helm ## Helm verification after generation
 	$(_helm_verify_recipe)
@@ -247,6 +254,10 @@ fmt-verify: ## Verify Go code formatting (no changes allowed).
 .PHONY: shell-lint
 shell-lint: ## Run shell script linting (via shellcheck).
 	$(_shell_lint_recipe)
+
+.PHONY: make-timed-shell-test
+make-timed-shell-test: ## Run Makefile timing shell wrapper tests.
+	$(_make_timed_shell_test_recipe)
 
 .PHONY: e2e-common-test
 e2e-common-test: ## Run e2e-common shell helper tests.
