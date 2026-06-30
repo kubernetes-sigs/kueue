@@ -1049,6 +1049,12 @@ const (
 	// due to LocalQueue or ClusterQueue doesn't exist or inactive.
 	WorkloadInadmissible = "Inadmissible"
 
+	// WorkloadOnHold is the QuotaReserved=False reason used when a Workload's
+	// quota reservation is intentionally released and the workload should not be
+	// requeued. It is currently used by StatefulSet scale-to-zero, and other
+	// integrations may reuse the same reason in the future.
+	WorkloadOnHold = "OnHold"
+
 	// WorkloadAdmissionGated indicates that the workload is inadmissible
 	// due to an AdmissionGatedBy annotation.
 	WorkloadAdmissionGated = "AdmissionGated"

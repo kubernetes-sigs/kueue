@@ -202,17 +202,22 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 			}
 			return nil
 		}
-		r.expectationsStore.ObservedUID(log, req.NamespacedName, pod.UID)
 		if podset.IsPermanent(e) {
 			// Deterministic conflict (e.g. the pod template hardcodes a node
 			// selector clashing with the assigned flavor). Retrying cannot
 			// succeed, so keep the pod gated and surface the conflict for an
 			// operator to resolve rather than misscheduling the pod.
+			r.expectationsStore.ObservedUID(log, req.NamespacedName, pod.UID)
 			log.Error(e, "keeping elastic pod gated; assigned PodSet info conflicts with pod template",
 				"pod", klog.KObj(pod))
 			r.recorder.Eventf(pod, nil, corev1.EventTypeWarning, reasonInjectionConflict, "KeptGated",
 				"Keeping pod gated: assigned flavor info conflicts with the pod template: %v", e)
 			return nil
+		}
+		if !ungated {
+			r.expectationsStore.ObservedUID(log, req.NamespacedName, pod.UID)
+		} else {
+			utilpod.RecordPodSchedulingGateRemovalSeconds(r.clock, kueue.ElasticJobSchedulingGate, wl, false)
 		}
 		log.Error(e, "failed ungating elastic pod", "pod", klog.KObj(pod))
 		return e

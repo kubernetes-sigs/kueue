@@ -60,6 +60,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/wait"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
@@ -510,9 +511,9 @@ func (s *Scheduler) issueMigration(ctx context.Context, log logr.Logger, e *entr
 	wlCopy := migrationVictim.Obj.DeepCopy()
 	exposeLqMetrics := s.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wlCopy)
 	message := fmt.Sprintf("Evicted to accommodate a workload (UID: %s) due to migration to more favorable resource flavor", e.Obj.UID)
-	err := workload.Evict(
+	err := workloadevict.Evict(
 		ctx, s.client, s.recorder, wlCopy, kueue.WorkloadEvictedByFlavorMigration, message, "", s.clock, exposeLqMetrics, s.roleTracker, s.customLabels,
-		workload.EvictWithLooseOnApply(), workload.EvictWithRetryOnConflictForPatch(),
+		workloadevict.WithLooseOnApply(), workloadevict.WithRetryOnConflict(),
 	)
 	if err != nil {
 		log.Error(err, "Failed to evict workload for migration")
@@ -807,9 +808,9 @@ func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, 
 	log.V(3).Info("Evicting workload after failed try to find a node replacement; TASFailedNodeReplacementFailFast enabled", "unhealthyNodes", unhealthyNodes)
 	msg := fmt.Sprintf("Workload was evicted as there was no replacement for unhealthy node(s): %s", unhealthyNodesCsv)
 	exposeLqMetrics := s.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl)
-	if err := workload.Evict(
+	if err := workloadevict.Evict(
 		ctx, s.client, s.recorder, wl, kueue.WorkloadEvictedDueToNodeFailures, msg, "", s.clock, exposeLqMetrics, s.roleTracker, s.customLabels,
-		workload.EvictWithLooseOnApply(), workload.EvictWithRetryOnConflictForPatch(),
+		workloadevict.WithLooseOnApply(), workloadevict.WithRetryOnConflict(),
 	); err != nil {
 		return fmt.Errorf("failed to evict workload after failed try to find a replacement for unhealthy nodes: %s, %w", unhealthyNodesCsv, err)
 	}

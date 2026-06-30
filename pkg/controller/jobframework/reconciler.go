@@ -69,6 +69,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
@@ -798,7 +799,7 @@ func (r *JobReconciler) shouldSuspendChildJob(ctx context.Context, childJob Gene
 				// With workload slicing, during autoscaling-up, there will be two workloads at certain time for workload slice
 				// replacement. The old one was finished, the new one is going to be admitted. There is no admitted workload in
 				// this case, and we should not suspend the job. As a workaround, check evicted status instead.
-				return workload.IsEvicted(ancestorNotFinishedWorkload), nil
+				return workloadevict.IsEvicted(ancestorNotFinishedWorkload), nil
 			}
 			// For none workload slicing, suspend the job if workload not admitted
 			return !workload.IsAdmitted(ancestorNotFinishedWorkload), nil
@@ -808,7 +809,7 @@ func (r *JobReconciler) shouldSuspendChildJob(ctx context.Context, childJob Gene
 }
 
 func (r *JobReconciler) shouldHandleDeletionOfDeactivatedWorkload(wl *kueue.Workload) bool {
-	return r.workloadRetentionPolicy.AfterDeactivatedByKueue != nil && !workload.IsActive(wl) && workload.IsEvictedDueToDeactivationByKueue(wl)
+	return r.workloadRetentionPolicy.AfterDeactivatedByKueue != nil && !workload.IsActive(wl) && workloadevict.IsEvictedDueToDeactivationByKueue(wl)
 }
 
 func (r *JobReconciler) handleWorkloadAfterDeactivatedPolicy(ctx context.Context, job GenericJob, wl *kueue.Workload) (time.Duration, error) {
