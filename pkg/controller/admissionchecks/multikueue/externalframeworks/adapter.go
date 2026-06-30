@@ -34,6 +34,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/api"
 )
 
 // Adapter implements the MultiKueueAdapter interface for external frameworks
@@ -86,7 +87,10 @@ func (a *Adapter) SyncJob(ctx context.Context, localClient client.Client, remote
 func (a *Adapter) createRemoteObject(ctx context.Context, remoteClient client.Client, localObj *unstructured.Unstructured, workloadName, origin string) error {
 	log := ctrl.LoggerFrom(ctx)
 
-	remoteObj := cloneUnstructuredForCreation(localObj)
+	remoteObj, err := cloneUnstructuredForCreation(localObj)
+	if err != nil {
+		return err
+	}
 
 	// Apply default transformation: remove the managedBy field
 	a.removeManagedByField(remoteObj)
@@ -101,20 +105,32 @@ func (a *Adapter) createRemoteObject(ctx context.Context, remoteClient client.Cl
 
 // cloneUnstructuredForCreation creates a copy of obj containing only the GVK, name,
 // namespace, labels, annotations and spec, the unstructured analogue of
-// api.CloneObjectMetaForCreation; keep the two in sync. Dropping the rest (notably
-// ownerReferences, whose UIDs don't exist remotely) avoids the remote GC deleting the
-// copy in a create-delete loop.
-func cloneUnstructuredForCreation(obj *unstructured.Unstructured) *unstructured.Unstructured {
+// api.CloneObjectMetaForCreation, which it reuses for the metadata. Dropping the rest
+// (notably ownerReferences, whose UIDs don't exist remotely) avoids the remote GC
+// deleting the copy in a create-delete loop.
+func cloneUnstructuredForCreation(obj *unstructured.Unstructured) (*unstructured.Unstructured, error) {
+	var meta metav1.ObjectMeta
+	if metaMap, found, err := unstructured.NestedMap(obj.Object, "metadata"); err != nil {
+		return nil, fmt.Errorf("reading metadata: %w", err)
+	} else if found {
+		if err := runtime.DefaultUnstructuredConverter.FromUnstructured(metaMap, &meta); err != nil {
+			return nil, fmt.Errorf("converting metadata to ObjectMeta: %w", err)
+		}
+	}
+
+	cleaned := api.CloneObjectMetaForCreation(&meta)
+	cleanedMeta, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&cleaned)
+	if err != nil {
+		return nil, fmt.Errorf("converting cleaned metadata to unstructured: %w", err)
+	}
+
 	remote := &unstructured.Unstructured{Object: map[string]any{}}
 	remote.SetGroupVersionKind(obj.GroupVersionKind())
-	remote.SetName(obj.GetName())
-	remote.SetNamespace(obj.GetNamespace())
-	remote.SetLabels(obj.GetLabels())
-	remote.SetAnnotations(obj.GetAnnotations())
+	remote.Object["metadata"] = cleanedMeta
 	if spec, found, _ := unstructured.NestedFieldCopy(obj.Object, "spec"); found {
 		remote.Object["spec"] = spec
 	}
-	return remote
+	return remote, nil
 }
 
 func (a *Adapter) syncStatus(ctx context.Context, localClient client.Client, localObj, remoteObj *unstructured.Unstructured) error {

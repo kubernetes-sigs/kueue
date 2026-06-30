@@ -210,7 +210,10 @@ func TestCloneUnstructuredForCreation(t *testing.T) {
 			}}
 			obj.SetGroupVersionKind(gvk)
 
-			got := cloneUnstructuredForCreation(obj)
+			got, err := cloneUnstructuredForCreation(obj)
+			if err != nil {
+				t.Fatalf("cloneUnstructuredForCreation() error: %v", err)
+			}
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("cloneUnstructuredForCreation() (-want,+got):\n%s", diff)
 			}
