@@ -62,6 +62,86 @@ var (
 	)
 )
 
+func TestFromQuotaReservedOrAdmittedToPending(t *testing.T) {
+	cases := map[string]struct {
+		prev, new string
+		want      bool
+	}{
+		"quotaReserved to pending":  {StatusQuotaReserved, StatusPending, true},
+		"admitted to pending":       {StatusAdmitted, StatusPending, true},
+		"pending to pending":        {StatusPending, StatusPending, false},
+		"pending to quotaReserved":  {StatusPending, StatusQuotaReserved, false},
+		"pending to admitted":       {StatusPending, StatusAdmitted, false},
+		"quotaReserved to admitted": {StatusQuotaReserved, StatusAdmitted, false},
+		"admitted to quotaReserved": {StatusAdmitted, StatusQuotaReserved, false},
+		"finished to pending":       {StatusFinished, StatusPending, false},
+		"quotaReserved to finished": {StatusQuotaReserved, StatusFinished, false},
+		"admitted to finished":      {StatusAdmitted, StatusFinished, false},
+		"same quotaReserved":        {StatusQuotaReserved, StatusQuotaReserved, false},
+		"same admitted":             {StatusAdmitted, StatusAdmitted, false},
+		"pending to finished":       {StatusPending, StatusFinished, false},
+		"finished to quotaReserved": {StatusFinished, StatusQuotaReserved, false},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := FromQuotaReservedOrAdmittedToPending(tc.prev, tc.new); got != tc.want {
+				t.Errorf("FromQuotaReservedOrAdmittedToPending(%q, %q) = %v, want %v", tc.prev, tc.new, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestIsOnHold(t *testing.T) {
+	cases := map[string]struct {
+		wl   kueue.Workload
+		want bool
+	}{
+		"false without QuotaReserved condition": {
+			wl:   *utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+			want: false,
+		},
+		"true with QuotaReserved=False and reason OnHold": {
+			wl: *utiltestingapi.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadOnHold,
+					Message: "StatefulSet scaled to zero; workload on hold",
+				}).
+				Obj(),
+			want: true,
+		},
+		"false when QuotaReserved=False with other reason": {
+			wl: *utiltestingapi.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadQuotaReserved,
+					Status: metav1.ConditionFalse,
+					Reason: kueue.WorkloadInadmissible,
+				}).
+				Obj(),
+			want: false,
+		},
+		"false when QuotaReserved=True": {
+			wl: *utiltestingapi.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadQuotaReserved,
+					Status: metav1.ConditionTrue,
+					Reason: kueue.WorkloadOnHold,
+				}).
+				Obj(),
+			want: false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := IsOnHold(&tc.wl); got != tc.want {
+				t.Fatalf("IsOnHold() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestNewInfo(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	cases := map[string]struct {
@@ -1684,6 +1764,34 @@ func TestNeedsSecondPass(t *testing.T) {
 					RequiredTopologyRequest(corev1.LabelHostname).
 					Request(corev1.ResourceCPU, "1").
 					Obj()).
+				Obj(),
+			want: false,
+		},
+		"on-hold workload with UnhealthyNode": {
+			wl: utiltestingapi.MakeWorkload("foo", "default").
+				UnhealthyNodes("x0").
+				Queue("tas-main").
+				PodSets(*utiltestingapi.MakePodSet("one", 1).
+					PreferredTopologyRequest(corev1.LabelHostname).
+					Request(corev1.ResourceCPU, "1").
+					Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("tas-main").
+						PodSets(utiltestingapi.MakePodSetAssignment("one").
+							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
+								Obj()).
+							Obj()).
+						Obj(), now,
+				).
+				AdmittedAt(true, now).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadOnHold,
+					Message: "On hold",
+				}).
 				Obj(),
 			want: false,
 		},

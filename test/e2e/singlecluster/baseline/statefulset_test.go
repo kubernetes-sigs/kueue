@@ -23,6 +23,7 @@ import (
 	"github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -253,8 +254,11 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Check workload is deleted", func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, createdWorkload, false)
+			ginkgo.By("Check workload is on hold and quota is released", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(createdWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, kueue.WorkloadOnHold))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -748,6 +752,85 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 
 			ginkgo.By("Check workload is deleted", func() {
 				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload, false, util.MediumTimeout)
+			})
+		})
+	})
+
+	ginkgo.When("StatefulSet scaling to zero with quota release", func() {
+		// Regression test for https://github.com/kubernetes-sigs/kueue/issues/12232
+		ginkgo.It("should set the workload OnHold on scale-to-zero and clear it on scale-up", func() {
+			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				TerminationGracePeriod(1).
+				Replicas(3).
+				Queue(lq.Name).
+				Obj()
+			ginkgo.By("Create StatefulSet", func() {
+				util.MustCreate(ctx, k8sClient, statefulSet)
+			})
+
+			wlLookupKey := types.NamespacedName{Name: statefulset.GetWorkloadName(statefulSet.UID, statefulSet.Name), Namespace: ns.Name}
+
+			ginkgo.By("Waiting for replicas to be ready", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdStatefulSet := &appsv1.StatefulSet{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
+					g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			createdWorkload := &kueue.Workload{}
+			ginkgo.By("Check workload is admitted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(createdWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Scale down replicas to zero", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdStatefulSet := &appsv1.StatefulSet{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
+					createdStatefulSet.Spec.Replicas = ptr.To[int32](0)
+					g.Expect(k8sClient.Update(ctx, createdStatefulSet)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verify workload is on hold and quota is released", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(createdWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, kueue.WorkloadOnHold))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Scale up replicas", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdStatefulSet := &appsv1.StatefulSet{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
+					createdStatefulSet.Spec.Replicas = ptr.To[int32](3)
+					g.Expect(k8sClient.Update(ctx, createdStatefulSet)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verify workload is re-admitted and no longer on hold", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(createdWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+					// The OnHold reason should be cleared after scale-up
+					cond := apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadQuotaReserved)
+					if cond != nil && cond.Status == metav1.ConditionFalse {
+						g.Expect(cond.Reason).ShouldNot(gomega.Equal(kueue.WorkloadOnHold))
+					}
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Waiting for replicas to be ready again", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdStatefulSet := &appsv1.StatefulSet{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
+					g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 	})

@@ -1165,6 +1165,8 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 	// We do not handle old workload here as it will be deleted or replaced by new one anyway.
 	workload.AdjustResources(ctrl.LoggerInto(ctx, log), r.client, wlCopy)
 
+	onHold := workload.IsOnHold(wlCopy)
+
 	switch {
 	case status == workload.StatusFinished || !active:
 		if !active {
@@ -1189,9 +1191,12 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			}
 		})
 	case prevStatus == workload.StatusPending && status == workload.StatusPending:
-		if dra.NeedsDRAReconcile(e.ObjectNew) {
+		switch {
+		case onHold:
+			log.V(2).Info("Skipping queue update for workload on hold")
+		case dra.NeedsDRAReconcile(e.ObjectNew):
 			log.V(2).Info("Skipping queue update for DRA workload - handled in Reconcile")
-		} else {
+		default:
 			if err := r.queues.UpdateWorkload(log, wlCopy); err != nil {
 				log.V(2).Info("ignored an error for now", "error", err)
 			}
@@ -1225,14 +1230,22 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			// AddOrUpdateWorkload is only called once. When moving it to the main
 			// reconciler, we would execute it on every run, which might mess up the state.
 			if immediate {
-				if dra.NeedsDRAReconcile(e.ObjectNew) {
+				switch {
+				case onHold:
+					log.V(2).Info("Skipping immediate requeue for on-hold workload")
+				case dra.NeedsDRAReconcile(e.ObjectNew):
 					log.V(2).Info("Skipping immediate requeue for DRA workload - handled in Reconcile")
-				} else {
+				default:
 					if err := r.queues.AddOrUpdateWorkloadWithoutLock(log, wlCopy); err != nil {
 						log.V(2).Info("ignored an error for now", "error", err)
 					}
 					r.queues.DeleteSecondPassWithoutLock(wlKey)
 				}
+			}
+
+			// Clean up second pass when the updated workload no longer needs it.
+			if !workload.NeedsSecondPass(wlCopy) {
+				r.queues.DeleteSecondPassWithoutLock(wlKey)
 			}
 		})
 	case prevStatus == workload.StatusAdmitted && status == workload.StatusAdmitted && !equality.Semantic.DeepEqual(e.ObjectOld.Status.ReclaimablePods, e.ObjectNew.Status.ReclaimablePods),
