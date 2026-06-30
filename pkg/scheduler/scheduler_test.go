@@ -163,7 +163,7 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 							wantWorkloads[i] = *tc.wantWorkloads[i].DeepCopy()
 						}
 						if !scenario[features.UnadmittedWorkloadsObservability] {
-							utiltesting.AdjustWorkloadsForDisabledObservability(wantWorkloads)
+							utiltesting.AdjustWorkloadsForDisabledObservabilityInScheduler(wantWorkloads)
 						}
 					}
 
@@ -174,7 +174,7 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 							wantWorkloadUseMergePatch[i] = *tc.wantWorkloadUseMergePatch[i].DeepCopy()
 						}
 						if !scenario[features.UnadmittedWorkloadsObservability] {
-							utiltesting.AdjustWorkloadsForDisabledObservability(wantWorkloadUseMergePatch)
+							utiltesting.AdjustWorkloadsForDisabledObservabilityInScheduler(wantWorkloadUseMergePatch)
 						}
 					}
 
@@ -4401,7 +4401,7 @@ func TestSchedule(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("sales", "new", "Pending", corev1.EventTypeWarning).
 					Message(fmt.Sprintf("%s: %s",
-						errLimitRangeConstraintsUnsatisfiedResources,
+						workload.ErrLimitRangeConstraintsUnsatisfiedResources,
 						field.Invalid(
 							workload.PodSetsPath.Index(0).Child("template").Child("spec").Child("containers").Index(0),
 							[]corev1.ResourceName{corev1.ResourceCPU},
@@ -4456,7 +4456,7 @@ func TestSchedule(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("sales", "new", "Pending", corev1.EventTypeWarning).
 					Message(fmt.Sprintf("%s: %s",
-						errInvalidWLResources,
+						workload.ErrInvalidWLResources,
 						field.Invalid(
 							workload.PodSetsPath.Index(0).Child("template").Child("spec").Child("containers").Index(0),
 							[]corev1.ResourceName{corev1.ResourceCPU}, workload.RequestsMustNotExceedLimitMessage,
@@ -7711,7 +7711,7 @@ func TestLastSchedulingContext(t *testing.T) {
 						wantWorkloads[i] = *tc.wantWorkloads[i].DeepCopy()
 					}
 					if !scenario[features.UnadmittedWorkloadsObservability] {
-						utiltesting.AdjustWorkloadsForDisabledObservability(wantWorkloads)
+						utiltesting.AdjustWorkloadsForDisabledObservabilityInScheduler(wantWorkloads)
 					}
 					clientBuilder := utiltesting.NewClientBuilder().
 						WithLists(
@@ -8013,7 +8013,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 
 				wantStatus := *tc.wantStatus.DeepCopy()
 				if !unadmittedWorkloadsObservabilityEnabled {
-					wantStatus.Conditions = utiltesting.AdjustConditionsForDisabledObservability(wantStatus.Conditions)
+					wantStatus.Conditions = utiltesting.AdjustConditionsForDisabledObservabilityInScheduler(wantStatus.Conditions)
 				}
 
 				if diff := cmp.Diff(wantStatus, updatedWl.Status,
@@ -8632,7 +8632,7 @@ func TestSchedulerWhenWorkloadModifiedConcurrently(t *testing.T) {
 						wantWorkloads[i] = *tc.wantWorkloads[i].DeepCopy()
 					}
 					if !scenario[features.UnadmittedWorkloadsObservability] {
-						utiltesting.AdjustWorkloadsForDisabledObservability(wantWorkloads)
+						utiltesting.AdjustWorkloadsForDisabledObservabilityInScheduler(wantWorkloads)
 					}
 
 					opts := cmp.Options{
