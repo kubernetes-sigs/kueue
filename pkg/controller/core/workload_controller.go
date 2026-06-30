@@ -1281,6 +1281,8 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 	// We do not handle old workload here as it will be deleted or replaced by new one anyway.
 	workload.AdjustResources(ctrl.LoggerInto(ctx, log), r.client, wlCopy)
 
+	onHold := workload.IsOnHold(wlCopy)
+
 	switch {
 	case status == workload.StatusFinished || !active:
 		if !active {
@@ -1306,6 +1308,8 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		})
 	case prevStatus == workload.StatusPending && status == workload.StatusPending:
 		switch {
+		case onHold:
+			log.V(2).Info("Skipping queue update for workload on hold")
 		case dra.NeedsDRAReconcile(e.ObjectNew, r.draBackedResources):
 			log.V(2).Info("Skipping queue update for DRA workload - handled in Reconcile")
 		default:
@@ -1346,6 +1350,8 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			// reconciler, we would execute it on every run, which might mess up the state.
 			if immediate {
 				switch {
+				case onHold:
+					log.V(2).Info("Skipping immediate requeue for on-hold workload")
 				case dra.NeedsDRAReconcile(e.ObjectNew, r.draBackedResources):
 					log.V(2).Info("Skipping immediate requeue for DRA workload - handled in Reconcile")
 				default:
@@ -1354,6 +1360,11 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 					}
 					r.queues.DeleteSecondPassWithoutLock(wlKey)
 				}
+			}
+
+			// Clean up second pass when the updated workload no longer needs it.
+			if !workload.NeedsSecondPass(wlCopy) {
+				r.queues.DeleteSecondPassWithoutLock(wlKey)
 			}
 		})
 	case prevStatus == workload.StatusAdmitted && status == workload.StatusAdmitted && !equality.Semantic.DeepEqual(e.ObjectOld.Status.ReclaimablePods, e.ObjectNew.Status.ReclaimablePods),

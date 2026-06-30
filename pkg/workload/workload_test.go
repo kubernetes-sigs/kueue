@@ -92,6 +92,57 @@ func TestFromQuotaReservedOrAdmittedToPending(t *testing.T) {
 	}
 }
 
+func TestIsOnHold(t *testing.T) {
+	cases := map[string]struct {
+		wl   kueue.Workload
+		want bool
+	}{
+		"false without QuotaReserved condition": {
+			wl:   *utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+			want: false,
+		},
+		"true with QuotaReserved=False and reason OnHold": {
+			wl: *utiltestingapi.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadOnHold,
+					Message: "StatefulSet scaled to zero; workload on hold",
+				}).
+				Obj(),
+			want: true,
+		},
+		"false when QuotaReserved=False with other reason": {
+			wl: *utiltestingapi.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadQuotaReserved,
+					Status: metav1.ConditionFalse,
+					Reason: kueue.WorkloadInadmissible,
+				}).
+				Obj(),
+			want: false,
+		},
+		"false when QuotaReserved=True": {
+			wl: *utiltestingapi.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadQuotaReserved,
+					Status: metav1.ConditionTrue,
+					Reason: kueue.WorkloadOnHold,
+				}).
+				Obj(),
+			want: false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := IsOnHold(&tc.wl); got != tc.want {
+				t.Fatalf("IsOnHold() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestNewInfo(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	cases := map[string]struct {
@@ -1722,6 +1773,34 @@ func TestNeedsSecondPass(t *testing.T) {
 					RequiredTopologyRequest(corev1.LabelHostname).
 					Request(corev1.ResourceCPU, "1").
 					Obj()).
+				Obj(),
+			want: false,
+		},
+		"on-hold workload with UnhealthyNode": {
+			wl: utiltestingapi.MakeWorkload("foo", "default").
+				UnhealthyNodes("x0").
+				Queue("tas-main").
+				PodSets(*utiltestingapi.MakePodSet("one", 1).
+					PreferredTopologyRequest(corev1.LabelHostname).
+					Request(corev1.ResourceCPU, "1").
+					Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("tas-main").
+						PodSets(utiltestingapi.MakePodSetAssignment("one").
+							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
+								Obj()).
+							Obj()).
+						Obj(), now,
+				).
+				AdmittedAt(true, now).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadOnHold,
+					Message: "On hold",
+				}).
 				Obj(),
 			want: false,
 		},

@@ -478,6 +478,23 @@ func TestReconcileRequeue(t *testing.T) {
 				}).
 				Obj(),
 		},
+		"scale-to-zero released workload should not be requeued while transitioning back to pending": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Active(true).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+				AdmittedAt(true, now).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadOnHold,
+					Message: "StatefulSet scaled to zero; workload on hold",
+				}).
+				Obj(),
+			cq:                   utiltestingapi.MakeClusterQueue("cq").Obj(),
+			lq:                   utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkloadsInQueue: new(int),
+		},
 		"shouldn't set the WorkloadRequeued condition when backoff expires and workload finished": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
