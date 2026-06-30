@@ -46,6 +46,7 @@ import (
 
 type reconciler struct {
 	client        client.Client
+	apiReader     client.Reader
 	atLock        sync.RWMutex
 	admissionTime map[types.UID]time.Time
 	recorder      *recorder.Recorder
@@ -118,7 +119,7 @@ func (r *reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	// this should only:
 	// 1. finish the workloads eviction
 	if workload.IsEvicted(&wl) {
-		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, r.apiReader, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			return workload.UnsetQuotaReservationWithCondition(wl, "Pending", "Evicted by the test runner", time.Now()), nil
 		})
 		if err == nil {
@@ -144,7 +145,7 @@ func (r *reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		if remaining > 0 {
 			return reconcile.Result{RequeueAfter: remaining}, nil
 		} else {
-			err := workload.SetConditionAndUpdate(ctx, r.client, &wl, kueue.WorkloadFinished, metav1.ConditionTrue, "ByTest", "By test runner", constants.JobControllerName, r.clock)
+			err := workload.SetConditionAndUpdate(ctx, r.client, r.apiReader, &wl, kueue.WorkloadFinished, metav1.ConditionTrue, "ByTest", "By test runner", constants.JobControllerName, r.clock)
 			if err == nil {
 				log.V(5).Info("Finish Workload")
 			}
@@ -164,6 +165,7 @@ func NewReconciler(c client.Client, r *recorder.Recorder) *reconciler {
 }
 
 func (r *reconciler) SetupWithManager(mgr ctrl.Manager) error {
+	r.apiReader = mgr.GetAPIReader()
 	cqHandler := handler.Funcs{
 		CreateFunc: func(_ context.Context, ev event.CreateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 			if cq, isCq := ev.Object.(*kueue.ClusterQueue); isCq {

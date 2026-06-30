@@ -29,6 +29,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -1611,7 +1612,10 @@ func TestWlReconcile(t *testing.T) {
 
 				ctx, _ := utiltesting.ContextWithLog(t)
 				managerBuilder := getClientBuilder(ctx)
-				managerBuilder = managerBuilder.WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+				managerBuilder = managerBuilder.WithInterceptorFuncs(interceptor.Funcs{
+					SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
+					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+				})
 
 				workerClusters := []string{"worker1"}
 				if tc.useSecondWorker {
@@ -1635,7 +1639,10 @@ func TestWlReconcile(t *testing.T) {
 				worker1Client := NewNeverCachingClient(getClientBuilder(ctx).
 					WithLists(&kueue.WorkloadList{Items: tc.worker1Workloads}, &batchv1.JobList{Items: tc.worker1Jobs}).
 					WithStatusSubresource(&kueue.Workload{}).
-					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
+					WithInterceptorFuncs(interceptor.Funcs{
+						SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
+						SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+					}).
 					Build())
 
 				w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
@@ -1894,6 +1901,9 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 					local.Status.NominatedClusterNames = obj.(*kueue.Workload).Status.NominatedClusterNames
 					return utiltesting.TreatSSAAsStrategicMerge(ctx, client, subResourceName, obj, patch, opts...)
 				},
+				SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+					return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, c, subResourceName, applyConf, opts...)
+				},
 			}).WithObjects(objs...).WithStatusSubresource(objs...)
 
 			remoteClientBuilders := make(map[string]*fake.ClientBuilder, len(tt.remotes))
@@ -1918,10 +1928,12 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 				acName:        "ac1",
 			}
 
+			wlClient := wlClientBuilder.Build()
 			wlRec := &wlReconciler{
 				clock:          fakeClock,
 				dispatcherName: tt.dispatcherMode,
-				client:         wlClientBuilder.Build(),
+				client:         wlClient,
+				apiReader:      wlClient,
 			}
 
 			ctx, _ := utiltesting.ContextWithLog(t)
@@ -2168,6 +2180,7 @@ func TestReconcileGroup_SyncDeferred_ShortRequeue(t *testing.T) {
 
 	reconciler := &wlReconciler{
 		client:            managerClient,
+		apiReader:         managerClient,
 		clock:             fakeClock,
 		origin:            defaultOrigin,
 		workerLostTimeout: defaultWorkerLostTimeout,

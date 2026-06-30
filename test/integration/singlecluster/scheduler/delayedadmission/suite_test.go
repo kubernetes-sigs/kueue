@@ -98,6 +98,7 @@ func managerAndSchedulerSetup(configuration *configapi.Configuration) framework.
 			queues,
 			cCache,
 			mgr.GetClient(),
+			mgr.GetAPIReader(),
 			mgr.GetEventRecorder(constants.AdmissionName),
 			schedOpts...)
 

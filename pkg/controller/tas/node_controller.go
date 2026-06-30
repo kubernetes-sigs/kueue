@@ -123,6 +123,7 @@ type workloadHealthCheck struct {
 // nodeReconciler reconciles Nodes to detect failures and update affected Workloads
 type nodeReconciler struct {
 	client      client.Client
+	apiReader   client.Reader
 	cache       *schdcache.Cache
 	clock       clock.Clock
 	logName     string
@@ -254,7 +255,9 @@ func newNodeReconciler(
 		opt(&options)
 	}
 	return &nodeReconciler{
-		client:      client,
+		client: client,
+		// Default to the cached client; SetupWithManager overrides with mgr.GetAPIReader().
+		apiReader:   client,
 		cache:       cache,
 		logName:     TASNodeController,
 		clock:       clock.RealClock{},
@@ -275,6 +278,7 @@ func (r *nodeReconciler) notifyWatchers(oldNode, newNode *corev1.Node) {
 }
 
 func (r *nodeReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Configuration) (string, error) {
+	r.apiReader = mgr.GetAPIReader()
 	podHandler := &nodeFailurePodHandler{client: r.client}
 	return TASNodeController, builder.ControllerManagedBy(mgr).
 		Named("tas_node_controller").
@@ -492,7 +496,7 @@ func (r *nodeReconciler) evictWorkloadIfNeeded(ctx context.Context, wl *kueue.Wo
 		allUnhealthyNodeNames := append(unhealthyNodeNames, nodeName)
 		evictionMsg := fmt.Sprintf(nodeMultipleFailuresEvictionMessageFormat, strings.Join(allUnhealthyNodeNames, ", "))
 		exposeLqMetrics := r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl)
-		if evictionErr := workload.Evict(ctx, r.client, r.recorder, wl, kueue.WorkloadEvictedDueToNodeFailures, evictionMsg, "", r.clock, exposeLqMetrics, r.roleTracker, nil); evictionErr != nil {
+		if evictionErr := workload.Evict(ctx, r.client, r.apiReader, r.recorder, wl, kueue.WorkloadEvictedDueToNodeFailures, evictionMsg, "", r.clock, exposeLqMetrics, r.roleTracker, nil); evictionErr != nil {
 			log.Error(evictionErr, "Failed to complete eviction process")
 			return false, evictionErr
 		} else {
@@ -666,7 +670,7 @@ func (r *nodeReconciler) handleHealthyNode(ctx context.Context, nodeName string,
 
 func (r *nodeReconciler) removeUnhealthyNodes(ctx context.Context, wl *kueue.Workload, nodeName string) error {
 	if workload.HasUnhealthyNode(wl, nodeName) {
-		return workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		return workloadpatching.PatchAdmissionStatus(ctx, r.client, r.apiReader, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			wl.Status.UnhealthyNodes = slices.DeleteFunc(wl.Status.UnhealthyNodes, func(n kueue.UnhealthyNode) bool {
 				return n.Name == nodeName
 			})
@@ -678,7 +682,7 @@ func (r *nodeReconciler) removeUnhealthyNodes(ctx context.Context, wl *kueue.Wor
 
 func (r *nodeReconciler) addUnhealthyNode(ctx context.Context, wl *kueue.Workload, nodeName string) error {
 	if !workload.HasUnhealthyNode(wl, nodeName) {
-		return workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		return workloadpatching.PatchAdmissionStatus(ctx, r.client, r.apiReader, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			wl.Status.UnhealthyNodes = append(wl.Status.UnhealthyNodes, kueue.UnhealthyNode{Name: nodeName})
 			return true, nil
 		})

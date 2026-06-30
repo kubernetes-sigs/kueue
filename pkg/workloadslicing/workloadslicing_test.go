@@ -29,6 +29,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -408,6 +409,38 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		return nil
 	}
 
+	assertStatusConditionApply := func(t *testing.T, subResourceName string, applyConf runtime.ApplyConfiguration, wantWorkloadName string, activeConditionType, activeConditionReason string) error {
+		if subResourceName != "status" {
+			t.Errorf("unexpected workload apply subresource: %s", subResourceName)
+		}
+		obj, _, err := utiltesting.ConvertApplyConfigToObject(applyConf)
+		if err != nil {
+			t.Fatalf("failed to convert apply config to object: %v", err)
+		}
+		u, ok := obj.(*unstructured.Unstructured)
+		if !ok {
+			t.Fatalf("unexpected apply config object type: %T", obj)
+		}
+		wl := &kueue.Workload{}
+		if err := runtime.DefaultUnstructuredConverter.FromUnstructured(u.Object, wl); err != nil {
+			t.Fatalf("failed to convert unstructured to Workload: %v", err)
+		}
+		if wl.Name != wantWorkloadName {
+			t.Errorf("unexpected workload name: %s", wl.Name)
+		}
+		condition := apimeta.FindStatusCondition(wl.Status.Conditions, activeConditionType)
+		if condition == nil {
+			t.Fatalf("applied condition: %s is not found", activeConditionType)
+		}
+		if condition.Status != metav1.ConditionTrue {
+			t.Errorf("applied condition: %s is not active", activeConditionType)
+		}
+		if condition.Reason != activeConditionReason {
+			t.Errorf("applied condition: %s reason - want: %s, got: %s", activeConditionType, activeConditionReason, condition.Reason)
+		}
+		return nil
+	}
+
 	tests := map[string]struct {
 		args args
 		want want
@@ -668,6 +701,9 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
 							return assertStatusConditionPatch(t, subResourceName, obj, testJobObject.Name+"-1", kueue.WorkloadFinished, kueue.WorkloadFinishedReasonOutOfSync)
 						},
+						SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+							return assertStatusConditionApply(t, subResourceName, applyConf, testJobObject.Name+"-1", kueue.WorkloadFinished, kueue.WorkloadFinishedReasonOutOfSync)
+						},
 					}).
 					Build(),
 				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()},
@@ -701,6 +737,9 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						Obj()).
 					WithInterceptorFuncs(interceptor.Funcs{
 						SubResourcePatch: func(_ context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+							return errors.New("test-patch-failure")
+						},
+						SubResourceApply: func(_ context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
 							return errors.New("test-patch-failure")
 						},
 					}).
@@ -781,7 +820,10 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						Creation(now).
 						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
 						Obj()).
-					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
+					WithInterceptorFuncs(interceptor.Funcs{
+						SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
+						SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+					}).
 					Build(),
 				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()},
 				jobObject:    testJobObject,
@@ -947,6 +989,9 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
 							return assertStatusConditionPatch(t, subResourceName, obj, testJobObject.Name+"-1", kueue.WorkloadFinished, kueue.WorkloadFinishedReasonOutOfSync)
 						},
+						SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+							return assertStatusConditionApply(t, subResourceName, applyConf, testJobObject.Name+"-1", kueue.WorkloadFinished, kueue.WorkloadFinishedReasonOutOfSync)
+						},
 					}).
 					Build(),
 				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()},
@@ -986,7 +1031,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			gotWorkload, gotCompatible, gotError := EnsureWorkloadSlices(ctx, tt.args.clnt, fakeClock, tt.args.jobPodSets, tt.args.jobObject, tt.args.jobObjectGVK)
+			gotWorkload, gotCompatible, gotError := EnsureWorkloadSlices(ctx, tt.args.clnt, tt.args.clnt, fakeClock, tt.args.jobPodSets, tt.args.jobObject, tt.args.jobObjectGVK)
 			if (gotError != nil) != tt.want.error {
 				t.Errorf("EnsureWorkloadSlices() error = %v, wantErr %v", gotError, tt.want.error)
 				return
@@ -1119,7 +1164,7 @@ func TestNormalizeActiveSlices(t *testing.T) {
 				WithObjects(objs...).
 				Build()
 
-			survivor, err := normalizeActiveSlices(ctx, clnt, fakeClock, tc.workloads)
+			survivor, err := normalizeActiveSlices(ctx, clnt, clnt, fakeClock, tc.workloads)
 			if (err != nil) != tc.want.error {
 				t.Fatalf("normalizeActiveSlices() error = %v, wantErr %v", err, tc.want.error)
 			}

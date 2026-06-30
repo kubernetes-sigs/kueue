@@ -758,6 +758,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					g.Expect(workload.SetConditionAndUpdate(
 						ctx,
 						k8sWorker1Client,
+						k8sWorker1Client,
 						workerWorkload,
 						kueue.WorkloadEvicted,
 						metav1.ConditionTrue,

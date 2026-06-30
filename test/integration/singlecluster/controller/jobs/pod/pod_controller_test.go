@@ -404,7 +404,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 					ginkgo.By("checking that pod is stopped when workload is evicted")
 
 					gomega.Expect(
-						workload.SetConditionAndUpdate(ctx, k8sClient, createdWorkload, kueue.WorkloadEvicted, metav1.ConditionTrue,
+						workload.SetConditionAndUpdate(ctx, k8sClient, k8sClient, createdWorkload, kueue.WorkloadEvicted, metav1.ConditionTrue,
 							kueue.WorkloadEvictedByPreemption, "By test", "evict", util.RealClock),
 					).Should(gomega.Succeed())
 					util.FinishEvictionForWorkloads(ctx, k8sClient, createdWorkload)
@@ -874,7 +874,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 					createdWorkload := &kueue.Workload{}
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-						g.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, createdWorkload, util.RealClock, func(wl *kueue.Workload) (bool, error) {
+						g.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, k8sClient, createdWorkload, util.RealClock, func(wl *kueue.Workload) (bool, error) {
 							return workload.SetEvictedCondition(wl, util.RealClock.Now(), "ByTest", "by test"), nil
 						})).Should(gomega.Succeed())
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -1467,7 +1467,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				ginkgo.By("setting evicted condition to true", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
-						g.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, wl, util.RealClock, func(wl *kueue.Workload) (bool, error) {
+						g.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, k8sClient, wl, util.RealClock, func(wl *kueue.Workload) (bool, error) {
 							return workload.SetEvictedCondition(wl, util.RealClock.Now(), kueue.WorkloadEvictedByPreemption, "By test"), nil
 						})).Should(gomega.Succeed())
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())

@@ -210,7 +210,7 @@ func admitWorkload(ctx context.Context, c client.Client, wl *kueue.Workload, cq 
 	}
 
 	for {
-		err := workloadpatching.PatchAdmissionStatus(ctx, c, wl, realClock, update, workloadpatching.WithForceApply())
+		err := workloadpatching.PatchAdmissionStatus(ctx, c, c, wl, realClock, update, workloadpatching.WithForceApply()) // importer is a one-shot CLI; reuse c as the reader for the post-apply refresh.
 		retry, _, timeout := checkError(err)
 		if !retry {
 			if err != nil {

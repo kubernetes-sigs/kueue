@@ -634,7 +634,7 @@ func TestScheduleForAFS(t *testing.T) {
 							utiltesting.MakeNamespace("default"),
 						).
 						WithStatusSubresource(&kueue.Workload{}).
-						WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+						WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge, SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration})
 					cl := clientBuilder.Build()
 
 					cqCache := schdcache.New(cl, schdcache.WithFairSharing(tc.featureGates[features.AdmissionFairSharing]), schdcache.WithAdmissionFairSharing(afsConfig))
@@ -666,7 +666,7 @@ func TestScheduleForAFS(t *testing.T) {
 					if tc.featureGates[features.AdmissionFairSharing] {
 						preemptionFairSharing = &config.FairSharing{}
 					}
-					scheduler := New(qManager, cqCache, cl, recorder,
+					scheduler := New(qManager, cqCache, cl, cl, recorder,
 						WithFairSharing(preemptionFairSharing),
 						WithAdmissionFairSharing(afsConfig),
 						WithClock(t, fakeClock),

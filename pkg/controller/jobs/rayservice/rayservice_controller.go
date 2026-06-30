@@ -109,6 +109,7 @@ func (r *rayServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 }
 
 func (r *rayServiceReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	r.jr.SetAPIReader(mgr.GetAPIReader())
 	controllerName := strings.ToLower(newJob().GVK().Kind)
 	b := ctrl.NewControllerManagedBy(mgr).
 		For(newJob().Object()).Owns(&kueue.Workload{}).

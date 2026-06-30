@@ -158,6 +158,7 @@ func managerSetup(
 				queues,
 				cCache,
 				mgr.GetClient(),
+				mgr.GetAPIReader(),
 				mgr.GetEventRecorder(constants.AdmissionName),
 				scheduler.WithPreemptionExpectations(preemptionExpectations),
 			)

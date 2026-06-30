@@ -161,6 +161,7 @@ func ScaledUp(workload *kueue.Workload) bool {
 func EnsureWorkloadSlices(
 	ctx context.Context,
 	clnt client.Client,
+	apiReader client.Reader,
 	clk clock.Clock,
 	jobPodSets []kueue.PodSet,
 	jobObject client.Object,
@@ -208,7 +209,7 @@ func EnsureWorkloadSlices(
 		return nil, true, nil
 
 	default:
-		selectedWorkload, err := normalizeActiveSlices(ctx, clnt, clk, workloads)
+		selectedWorkload, err := normalizeActiveSlices(ctx, clnt, apiReader, clk, workloads)
 		if err != nil {
 			return nil, true, err
 		}
@@ -250,6 +251,7 @@ func EnsureWorkloadSlices(
 func normalizeActiveSlices(
 	ctx context.Context,
 	clnt client.Client,
+	apiReader client.Reader,
 	clk clock.Clock,
 	workloads []kueue.Workload,
 ) (*kueue.Workload, error) {
@@ -307,7 +309,7 @@ func normalizeActiveSlices(
 			continue
 		}
 		log.V(2).Info("Finishing out-of-sync workload slice", "workload", workload.Key(wl))
-		if err := workload.Finish(ctx, clnt, wl, kueue.WorkloadFinishedReasonOutOfSync,
+		if err := workload.Finish(ctx, clnt, apiReader, wl, kueue.WorkloadFinishedReasonOutOfSync,
 			"The workload slice is out of sync with its parent job", clk); err != nil {
 			return nil, err
 		}

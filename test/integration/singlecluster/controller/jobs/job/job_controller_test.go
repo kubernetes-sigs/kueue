@@ -750,6 +750,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 				g.Expect(workload.SetConditionAndUpdate(
 					ctx,
 					k8sClient,
+					k8sClient,
 					wl,
 					kueue.WorkloadEvicted,
 					metav1.ConditionTrue,

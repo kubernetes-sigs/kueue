@@ -148,6 +148,7 @@ func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSet
 			queues,
 			cCache,
 			mgr.GetClient(),
+			mgr.GetAPIReader(),
 			mgr.GetEventRecorder("kueue-admission"),
 			scheduler.WithPreemptionExpectations(preemptionExpectations),
 		)

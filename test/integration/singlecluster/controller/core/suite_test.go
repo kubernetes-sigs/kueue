@@ -160,6 +160,7 @@ func managerAndControllerSetup(
 				queues,
 				cCache,
 				mgr.GetClient(),
+				mgr.GetAPIReader(),
 				mgr.GetEventRecorder(constants.AdmissionName),
 				scheduler.WithPreemptionExpectations(preemptionExpectations),
 				scheduler.WithCustomLabels(customLabels),

@@ -696,6 +696,7 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 //   - Message truncated to the allowed length
 func SetConditionAndUpdate(ctx context.Context,
 	c client.Client,
+	apiReader client.Reader,
 	wl *kueue.Workload,
 	conditionType string,
 	conditionStatus metav1.ConditionStatus,
@@ -711,7 +712,7 @@ func SetConditionAndUpdate(ctx context.Context,
 		Reason:             reason,
 		Message:            api.TruncateConditionMessage(message),
 	}
-	return workloadpatching.PatchStatus(ctx, c, wl, client.FieldOwner(managerPrefix+"-"+condition.Type), func(wl *kueue.Workload) (bool, error) {
+	return workloadpatching.PatchStatus(ctx, c, apiReader, wl, client.FieldOwner(managerPrefix+"-"+condition.Type), func(wl *kueue.Workload) (bool, error) {
 		return apimeta.SetStatusCondition(&wl.Status.Conditions, condition), nil
 	})
 }
@@ -1165,8 +1166,8 @@ func EvictionPendingLatency(oldWl, newWl *kueue.Workload, now time.Time) (kueue.
 }
 
 // UpdateReclaimablePods updates the ReclaimablePods list for the workload with SSA.
-func UpdateReclaimablePods(ctx context.Context, c client.Client, wl *kueue.Workload, reclaimablePods []kueue.ReclaimablePod) error {
-	return workloadpatching.PatchStatus(ctx, c, wl, constants.ReclaimablePodsMgr, func(wl *kueue.Workload) (bool, error) {
+func UpdateReclaimablePods(ctx context.Context, c client.Client, apiReader client.Reader, wl *kueue.Workload, reclaimablePods []kueue.ReclaimablePod) error {
+	return workloadpatching.PatchStatus(ctx, c, apiReader, wl, constants.ReclaimablePodsMgr, func(wl *kueue.Workload) (bool, error) {
 		wl.Status.ReclaimablePods = reclaimablePods
 		return true, nil
 	})
@@ -1386,13 +1387,13 @@ func CreatePodsReadyCondition(status metav1.ConditionStatus, reason, message str
 	}
 }
 
-func FinalizeOrphanedWorkload(ctx context.Context, c client.Client, clk clock.Clock, wl *kueue.Workload, canFinish bool) error {
+func FinalizeOrphanedWorkload(ctx context.Context, c client.Client, apiReader client.Reader, clk clock.Clock, wl *kueue.Workload, canFinish bool) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	// Only Finish workloads that are not currently being deleted.
 	if features.Enabled(features.FinishOrphanedWorkloads) && wl.DeletionTimestamp.IsZero() && canFinish {
 		log.V(2).Info("Workload is orphaned; finishing to release quota")
-		if err := Finish(ctx, c, wl, kueue.WorkloadFinishedReasonOwnerNotFound,
+		if err := Finish(ctx, c, apiReader, wl, kueue.WorkloadFinishedReasonOwnerNotFound,
 			"The workload's owner no longer exists", clk); err != nil {
 			if client.IgnoreNotFound(err) != nil {
 				log.Error(err, "Failed to finish Workload")
@@ -1534,6 +1535,7 @@ func EvictWithRetryOnConflictForPatch() EvictOption {
 func Evict(
 	ctx context.Context,
 	c client.Client,
+	apiReader client.Reader,
 	recorder events.EventRecorder,
 	wl *kueue.Workload,
 	reason, msg string,
@@ -1564,7 +1566,7 @@ func Evict(
 		patchOpts = append(patchOpts, workloadpatching.WithRetryOnConflict())
 	}
 
-	if err := workloadpatching.PatchAdmissionStatus(ctx, c, wl, clock, func(wl *kueue.Workload) (bool, error) {
+	if err := workloadpatching.PatchAdmissionStatus(ctx, c, apiReader, wl, clock, func(wl *kueue.Workload) (bool, error) {
 		if opts.CustomPrepare != nil {
 			opts.CustomPrepare(wl)
 		}
@@ -1595,11 +1597,11 @@ func Evict(
 	return nil
 }
 
-func Finish(ctx context.Context, c client.Client, wl *kueue.Workload, reason, msg string, clock clock.Clock) error {
+func Finish(ctx context.Context, c client.Client, apiReader client.Reader, wl *kueue.Workload, reason, msg string, clock clock.Clock) error {
 	if IsFinished(wl) {
 		return nil
 	}
-	err := workloadpatching.PatchAdmissionStatus(ctx, c, wl, clock, func(wl *kueue.Workload) (bool, error) {
+	err := workloadpatching.PatchAdmissionStatus(ctx, c, apiReader, wl, clock, func(wl *kueue.Workload) (bool, error) {
 		return SetFinishedCondition(wl, clock.Now(), reason, msg), nil
 	})
 	if err != nil {

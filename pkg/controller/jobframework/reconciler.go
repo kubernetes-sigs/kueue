@@ -94,6 +94,7 @@ type WorkloadRetentionPolicy struct {
 type JobReconciler struct {
 	cache                        *schdcache.Cache
 	client                       client.Client
+	apiReader                    client.Reader
 	record                       events.EventRecorder
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
@@ -108,6 +109,13 @@ type JobReconciler struct {
 // RoleTracker returns the role tracker for HA logging.
 func (r *JobReconciler) RoleTracker() *roletracker.RoleTracker {
 	return r.roleTracker
+}
+
+// SetAPIReader sets the uncached reader used to refresh workloads after a
+// Server-Side-Apply status update. It must be called during controller setup
+// with mgr.GetAPIReader().
+func (r *JobReconciler) SetAPIReader(apiReader client.Reader) {
+	r.apiReader = apiReader
 }
 
 type Options struct {
@@ -267,8 +275,11 @@ func NewReconciler(
 	options := ProcessOptions(opts...)
 
 	return &JobReconciler{
-		cache:                        options.Cache,
-		client:                       client,
+		cache:  options.Cache,
+		client: client,
+		// Default to the cached client; SetupWithManager overrides this with the
+		// uncached mgr.GetAPIReader() (via SetAPIReader) for the post-Apply status refresh.
+		apiReader:                    client,
 		record:                       record,
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
@@ -405,7 +416,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	if jobCond, ok := job.(JobWithCustomWorkloadConditions); wl != nil && ok {
 		if conditions, updated := jobCond.CustomWorkloadConditions(wl); updated {
 			return reconcile.Result{}, workloadpatching.PatchStatus(
-				ctx, r.client, wl,
+				ctx, r.client, r.apiReader, wl,
 				client.FieldOwner(fmt.Sprintf("%s-%s-controller", constants.KueueName, strings.ToLower(job.GVK().Kind))),
 				func(wl *kueue.Workload) (bool, error) {
 					for _, cond := range conditions {
@@ -457,7 +468,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			if !success {
 				reason = kueue.WorkloadFinishedReasonFailed
 			}
-			err := workload.Finish(ctx, r.client, wl, reason, message, r.clock)
+			err := workload.Finish(ctx, r.client, r.apiReader, wl, reason, message, r.clock)
 			if err != nil && !apierrors.IsNotFound(err) {
 				return ctrl.Result{}, err
 			}
@@ -500,7 +511,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		}
 
 		if !workload.ReclaimablePodsAreEqual(reclPods, wl.Status.ReclaimablePods) {
-			err = workload.UpdateReclaimablePods(ctx, r.client, wl, reclPods)
+			err = workload.UpdateReclaimablePods(ctx, r.client, r.apiReader, wl, reclPods)
 			if err != nil {
 				log.Error(err, "Updating reclaimable pods")
 				return ctrl.Result{}, err
@@ -518,7 +529,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		condition := generatePodsReadyCondition(ctx, r.client, job, wl, r.clock)
 		if !workload.HasConditionWithTypeAndReason(wl, &condition) {
 			log.V(3).Info("Updating the PodsReady condition", "reason", condition.Reason, "status", condition.Status)
-			err := workload.SetConditionAndUpdate(ctx, r.client, wl, condition.Type, condition.Status, condition.Reason, condition.Message, constants.JobControllerName, r.clock)
+			err := workload.SetConditionAndUpdate(ctx, r.client, r.apiReader, wl, condition.Type, condition.Status, condition.Reason, condition.Message, constants.JobControllerName, r.clock)
 			if err != nil {
 				log.Error(err, "Updating workload status")
 				return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -554,7 +565,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		if workload.HasQuotaReservation(wl) {
 			if !job.IsActive() {
 				log.V(6).Info("The job is no longer active, clear the workloads admission")
-				err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+				err := workloadpatching.PatchAdmissionStatus(ctx, r.client, r.apiReader, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 					// The requeued condition status set to true only on EvictedByPreemption
 					setRequeued := (evCond.Reason == kueue.WorkloadEvictedByPreemption) || (evCond.Reason == kueue.WorkloadEvictedDueToNodeFailures)
 					updated := workload.SetRequeuedCondition(wl, evCond.Reason, evCond.Message, setRequeued)
@@ -582,7 +593,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 				log.Error(err, "Unsuspending job")
 				if podset.IsPermanent(err) {
 					// Mark the workload as finished with failure since the is no point to retry.
-					errUpdateStatus := workload.Finish(ctx, r.client, wl, FailedToStartFinishedReason, err.Error(), r.clock)
+					errUpdateStatus := workload.Finish(ctx, r.client, r.apiReader, wl, FailedToStartFinishedReason, err.Error(), r.clock)
 					if errUpdateStatus != nil {
 						log.Error(errUpdateStatus, "Updating workload status, on start failure", "err", err)
 					}
@@ -690,7 +701,7 @@ func (r *JobReconciler) finalizeWorkloads(ctx context.Context, key types.Namespa
 	}
 	for i := range workloads {
 		wl := &workloads[i]
-		if err := workload.FinalizeOrphanedWorkload(ctx, r.client, r.clock, wl, controllerutil.HasControllerReference(wl)); err != nil {
+		if err := workload.FinalizeOrphanedWorkload(ctx, r.client, r.apiReader, r.clock, wl, controllerutil.HasControllerReference(wl)); err != nil {
 			return err
 		}
 	}
@@ -958,7 +969,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 		// Workload slices allow modifications only to PodSet.Count.
 		// Any other changes will result in the slice being marked as incompatible,
 		// and the workload will fall back to being processed by the original ensureOneWorkload function.
-		wl, compatible, err := workloadslicing.EnsureWorkloadSlices(ctx, r.client, r.clock, podSets, object, job.GVK())
+		wl, compatible, err := workloadslicing.EnsureWorkloadSlices(ctx, r.client, r.apiReader, r.clock, podSets, object, job.GVK())
 		if err != nil {
 			return nil, err
 		}
@@ -1202,7 +1213,7 @@ func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, wl *ku
 		}
 		// mark the workload as finished
 		msg := "The prebuilt workload is out of sync with its user job"
-		return false, workload.Finish(ctx, r.client, wl, kueue.WorkloadFinishedReasonOutOfSync, msg, r.clock)
+		return false, workload.Finish(ctx, r.client, r.apiReader, wl, kueue.WorkloadFinishedReasonOutOfSync, msg, r.clock)
 	}
 	return true, nil
 }
@@ -1761,6 +1772,7 @@ func (r *genericReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 }
 
 func (r *genericReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	r.jr.SetAPIReader(mgr.GetAPIReader())
 	controllerName := strings.ToLower(r.newJob().GVK().Kind)
 	b := ctrl.NewControllerManagedBy(mgr).
 		For(r.newJob().Object()).Owns(&kueue.Workload{}).

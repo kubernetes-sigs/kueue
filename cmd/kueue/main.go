@@ -630,6 +630,7 @@ func setupScheduler(
 		queues,
 		cCache,
 		mgr.GetClient(),
+		mgr.GetAPIReader(),
 		mgr.GetEventRecorder(constants.AdmissionName),
 		scheduler.WithPodsReadyRequeuingTimestamp(podsReadyRequeuingTimestamp(cfg)),
 		scheduler.WithFairSharing(cfg.FairSharing),

@@ -59,8 +59,9 @@ const parallelPreemptions = 8
 type Preemptor struct {
 	clock clock.Clock
 
-	client   client.Client
-	recorder events.EventRecorder
+	client    client.Client
+	apiReader client.Reader
+	recorder  events.EventRecorder
 
 	workloadOrdering  workload.Ordering
 	enableFairSharing bool
@@ -85,6 +86,7 @@ type preemptionCtx struct {
 
 func New(
 	cl client.Client,
+	apiReader client.Reader,
 	workloadOrdering workload.Ordering,
 	recorder events.EventRecorder,
 	fs *config.FairSharing,
@@ -97,6 +99,7 @@ func New(
 	p := &Preemptor{
 		clock:                  clock,
 		client:                 cl,
+		apiReader:              apiReader,
 		recorder:               recorder,
 		workloadOrdering:       workloadOrdering,
 		enableFairSharing:      fairsharing.Enabled(fs),
@@ -229,7 +232,7 @@ func (p *Preemptor) IssuePreemptions(
 		wlCopy := target.WorkloadInfo.Obj.DeepCopy()
 		exposeLqMetrics := cache.ShouldExposeLocalQueueMetricsForWorkload(log, wlCopy)
 		err := workload.Evict(
-			ctx, p.client, p.recorder, wlCopy, kueue.WorkloadEvictedByPreemption, message, "", p.clock, exposeLqMetrics, p.roleTracker, p.customLabels,
+			ctx, p.client, p.apiReader, p.recorder, wlCopy, kueue.WorkloadEvictedByPreemption, message, "", p.clock, exposeLqMetrics, p.roleTracker, p.customLabels,
 			workload.WithCustomPrepare(func(wl *kueue.Workload) {
 				workload.SetPreemptedCondition(wl, p.clock.Now(), target.Reason, message)
 			}),
