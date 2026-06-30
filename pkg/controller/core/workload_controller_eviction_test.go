@@ -68,6 +68,12 @@ func TestReconcileEviction(t *testing.T) {
 						Reason:  "AdmissionCheck",
 						Message: `AdmissionCheck in Rejected state: "check"`,
 					},
+					metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadAdmittedReasonUnsatisfiedAdmissionChecks,
+						Message: "The workload has not all checks ready",
+					},
 				).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
@@ -315,6 +321,12 @@ func TestReconcileEviction(t *testing.T) {
 					Reason:  "AdmissionCheck",
 					Message: `Evicted due to AdmissionCheck in Retry state: "check-1"`,
 				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonUnsatisfiedAdmissionChecks,
+					Message: "The workload has not all checks ready",
+				}).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
 						Reason: kueue.WorkloadEvictedByAdmissionCheck,
@@ -470,6 +482,12 @@ func TestReconcileEviction(t *testing.T) {
 					Status:  "True",
 					Reason:  "AdmissionCheck",
 					Message: `Evicted due to AdmissionChecks in Retry state: "check-1" (infrastructure not prepared); "check-3" (budget exhausted)`,
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonUnsatisfiedAdmissionChecks,
+					Message: "The workload has not all checks ready",
 				}).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
