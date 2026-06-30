@@ -54,6 +54,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 )
 
@@ -130,7 +131,7 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	log.V(2).Info("Reconcile Workload")
 
 	isFinished := workload.IsFinished(wl)
-	isEvicted := workload.IsEvicted(wl)
+	isEvicted := workloadevict.IsEvicted(wl)
 	if !workload.HasQuotaReservation(wl) && !isFinished && !isEvicted {
 		return reconcile.Result{}, nil
 	}

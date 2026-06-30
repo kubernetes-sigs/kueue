@@ -29,6 +29,7 @@ import (
 	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 )
 
 // CandidatesOrdering criteria:
@@ -42,8 +43,8 @@ func CandidatesOrdering(log logr.Logger, afsEnabled bool, a, b *workload.Info, c
 	return cmputil.LazyOr(
 		func() int {
 			return cmputil.CompareBool(
-				workload.IsEvicted(a.Obj),
-				workload.IsEvicted(b.Obj),
+				workloadevict.IsEvicted(a.Obj),
+				workloadevict.IsEvicted(b.Obj),
 			)
 		},
 		func() int {

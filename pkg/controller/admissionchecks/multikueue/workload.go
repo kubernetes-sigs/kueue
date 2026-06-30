@@ -55,6 +55,7 @@ import (
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
@@ -413,7 +414,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		ctx = ctrl.LoggerInto(ctx, log)
 
 		// workload evicted on manager cluster
-		if workload.IsEvicted(group.local) {
+		if workloadevict.IsEvicted(group.local) {
 			if _, err := jobframework.ValidateRemoteObjectOwnership(ctx, remoteCl, group.controllerKey, group.jobAdapter.GVK(), w.origin); err != nil {
 				log.Error(err, "validating remote controller object", "cluster", evictedRemote)
 				return reconcile.Result{}, err
