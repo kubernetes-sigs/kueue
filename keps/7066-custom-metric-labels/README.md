@@ -54,19 +54,19 @@ it easier to build dashboards and filter or aggregate metrics.
 
 ## Proposal
 
-Add `customLabels` lists to the `metrics` config section. Each entry
+Add a `customLabels` list to the `metrics` config section. Each entry
 has a `name` (used as the Prometheus label suffix after prepending
 `custom_`), and optionally a `sourceLabelKey` or `sourceAnnotationKey`
 to specify where to read the value from. If neither source field is
 set, `name` is used as the Kubernetes label key. 
 
 Additionally, each label can have a list of `SourceKind` values defined,
-allowing to specify what type of object should the label be sourced from.
-Available kinds include: `Workload`, `ClusterQueue`, `LocalQueue` and `Cohort`.
-If `sourceKinds` is empty, the label will default to a list of: `ClusterQueue, LocalQueue, Cohort`.
+allowing users to specify what type of object the label should be sourced from.
+Available kinds include: `Workload`, `ClusterQueue`, `LocalQueue`, and `Cohort`.
+If `sourceKinds` is empty, the label will default to `Cohort`, `LocalQueue`, and `ClusterQueue`.
 The list of `sourceKinds` cannot contain both `Workload` and `ClusterQueue` values,
-as some metrics can gather label values form both types at the same time.
-If any other combinations of `sourceKinds` are used at once by new metrics in the future,
+as some metrics can gather label values from both types at the same time.
+If other combinations of `sourceKinds` are used by new metrics in the future,
 this restriction will have to be expanded.
 If a metric uses only `sourceKinds` not listed for a specific label,
 that label will be **omitted** by the metric and will not be added
@@ -168,9 +168,8 @@ const (
 
 type ControllerMetricsCustomLabel struct {
     // Name is the Prometheus metric label name suffix.
-    // Prepended with "custom_" (or "customworkload_" for workload labels)
-    // to form the full Prometheus label name 
-    // (e.g., "team" becomes "custom_team", "priority_class" becomes "customworkload_priority_class").
+    // Prepended with "custom_" to form the full Prometheus label name 
+    // (e.g., "team" becomes "custom_team").
     // Must contain only [a-zA-Z0-9_] characters and start with a letter.
     Name string `json:"name"`
 
@@ -258,8 +257,8 @@ Truly global metrics that have no object key are excluded:
 `AdmissionAttemptsTotal`, `admissionAttemptDuration`, and `buildInfo`.
 
 Some metrics that make sense to be broken down by workload attributes
-will support grouping of data by labels sourced form workload objects themselves.
-Example: `kueue_admitted_active_workloads` will provide a grouping
+will support grouping of data by labels sourced from the Workload objects themselves.
+For example, `kueue_admitted_active_workloads` will provide a grouping
 not only by ClusterQueue labels, but also by Workload labels,
 when specified with `sourceKinds: ["Workload", ...]`.
 
@@ -278,10 +277,10 @@ in `pkg/metrics/metrics.go` at the time of implementation.
    registration in `Register()`.
    Metrics are initialized only with labels that match their `sourceKinds`,
    as configured on a metric-by-metric basis.
-   For example: metrics that do not support workload-sourced
-   labels will ignore any label with `sourceKinds=[Workload]`.
-   Metrics that support cohorts on the other hand, will make use of
-   labels with `sourceKinds=[Workload, Cohort]`.
+   For example, metrics that do not support workload-sourced
+   labels will ignore any label with `sourceKinds: ["Workload"]`.
+   Metrics that support cohorts, on the other hand, will make use of
+   labels with `sourceKinds: ["Workload", "Cohort"]`.
 3. **Reporting**: All `Report*` functions currently use positional
    `WithLabelValues(...)` and accept primitive parameters (strings,
    ints), not queue objects. Custom label values must be threaded
@@ -323,9 +322,9 @@ in `pkg/metrics/metrics.go` at the time of implementation.
    and `increase()` handle counter resets correctly.
 
    Metrics supporting workload-sourced labels will be maintained
-   on the ClusterQueue, LocalQueue or Cohort level.
+   on the ClusterQueue, LocalQueue, or Cohort level.
 
-   For all Workload labels specified in the config with `SourceKind`: `Workload`,
+   For all workload labels specified in the config with `sourceKinds` containing `Workload`,
    the values of these labels will be automatically copied
    from the owning GenericJob object into the Workload when the Workload
    is created. This means workload labels used by the mechanism will be
