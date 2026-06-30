@@ -257,8 +257,8 @@ Truly global metrics that have no object key are excluded:
 Some metrics that make sense to be broken down by workload attributes
 will support grouping of data by labels sourced from the Workload objects themselves.
 For example, `kueue_admitted_active_workloads` will provide a grouping
-not only by ClusterQueue labels, but also by Workload labels,
-when specified with `sourceKinds: ["Workload", ...]`.
+not only by ClusterQueue labels, but also by Workload labels
+specified with `sourceKinds: ["Workload", ...]`.
 
 The full set of affected metrics is determined by the metric definitions
 in `pkg/metrics/metrics.go` at the time of implementation.
