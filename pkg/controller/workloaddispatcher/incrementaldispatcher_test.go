@@ -155,6 +155,7 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 			helper, _ := admissioncheck.NewMultiKueueStoreHelper(cl)
 			rec := &IncrementalDispatcherReconciler{
 				client:          cl,
+				apiReader:       cl,
 				helper:          helper,
 				clock:           fakeClock,
 				roundStartTimes: utilmaps.NewSyncMap[types.NamespacedName, time.Time](0),
@@ -320,16 +321,20 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 			}
 
 			objs := []client.Object{tc.workload}
-			client := fake.NewClientBuilder().WithScheme(scheme).
+			cl := fake.NewClientBuilder().WithScheme(scheme).
 				WithInterceptorFuncs(interceptor.Funcs{
 					SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
 						tc.workload.Status.NominatedClusterNames = obj.(*kueue.Workload).Status.NominatedClusterNames
 						return utiltesting.TreatSSAAsStrategicMerge(ctx, client, subResourceName, obj, patch, opts...)
 					},
+					SubResourceApply: func(ctx context.Context, client client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+						return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, client, subResourceName, applyConf, opts...)
+					},
 				}).WithObjects(objs...).WithStatusSubresource(objs...).Build()
 
 			reconciler := &IncrementalDispatcherReconciler{
-				client:          client,
+				client:          cl,
+				apiReader:       cl,
 				clock:           fakeClock,
 				roundStartTimes: utilmaps.NewSyncMap[types.NamespacedName, time.Time](0),
 				cfg:             tc.cfg,

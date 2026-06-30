@@ -99,6 +99,7 @@ func managerAndSchedulerSetup(transformations []config.ResourceTransformation) f
 			queues,
 			cCache,
 			mgr.GetClient(),
+			mgr.GetAPIReader(),
 			mgr.GetEventRecorder(constants.AdmissionName),
 			scheduler.WithPreemptionExpectations(preemptionExpectations),
 		)

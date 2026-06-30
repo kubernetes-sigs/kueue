@@ -80,6 +80,7 @@ func newProvisioningConfigHelper(c client.Client) (*provisioningConfigHelper, er
 
 type Controller struct {
 	client      client.Client
+	apiReader   client.Reader
 	record      events.EventRecorder
 	helper      *provisioningConfigHelper
 	clock       clock.Clock
@@ -107,7 +108,10 @@ func NewController(client client.Client, record events.EventRecorder, roleTracke
 		return nil, err
 	}
 	return &Controller{
-		client:      client,
+		client: client,
+		// Default to the cached client; SetupWithManager overrides this with the
+		// uncached mgr.GetAPIReader() for the post-Apply status refresh.
+		apiReader:   client,
 		record:      record,
 		helper:      helper,
 		clock:       realClock,
@@ -353,7 +357,7 @@ func (c *Controller) syncOwnedProvisionRequest(
 
 func (c *Controller) handleError(ctx context.Context, wl *kueue.Workload, ac *kueue.AdmissionCheckState, msg string, err error) error {
 	c.record.Eventf(wl, nil, corev1.EventTypeWarning, "FailedCreate", "FailedCreate", api.TruncateEventMessage(msg))
-	patchErr := workloadpatching.PatchStatus(ctx, c.client, wl, kueue.ProvisioningRequestControllerName, func(wl *kueue.Workload) (bool, error) {
+	patchErr := workloadpatching.PatchStatus(ctx, c.client, c.apiReader, wl, kueue.ProvisioningRequestControllerName, func(wl *kueue.Workload) (bool, error) {
 		ac.Message = api.TruncateConditionMessage(msg)
 		ac.LastTransitionTime = metav1.NewTime(c.clock.Now())
 		return workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *ac, c.clock), nil
@@ -521,7 +525,7 @@ func (c *Controller) syncCheckStates(
 	checksMap := slices.ToRefMap(wl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) kueue.AdmissionCheckReference { return c.Name })
 	recorderMessages := make([]string, 0, len(checkConfig))
 	updated := false
-	err := workloadpatching.PatchStatus(ctx, c.client, wl, kueue.ProvisioningRequestControllerName, func(wlPatch *kueue.Workload) (bool, error) {
+	err := workloadpatching.PatchStatus(ctx, c.client, c.apiReader, wl, kueue.ProvisioningRequestControllerName, func(wlPatch *kueue.Workload) (bool, error) {
 		// Inside PatchStatus (Apply), we use BaseSSAWorkload() to create the patch.
 		// This patch does not include wl.Status.AdmissionChecks, which leads to errors
 		// in subsequent steps due to the missing field.
@@ -821,6 +825,7 @@ func (p *prcHandler) reconcileWorkloadsUsing(ctx context.Context, config string,
 }
 
 func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
+	c.apiReader = mgr.GetAPIReader()
 	ach := &acHandler{
 		client: c.client,
 	}

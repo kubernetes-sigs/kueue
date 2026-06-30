@@ -66,6 +66,7 @@ type variantReconciler struct {
 	logName     string
 	queues      *qcache.Manager
 	client      client.Client
+	apiReader   client.Reader
 	recorder    events.EventRecorder
 	roleTracker *roletracker.RoleTracker
 	clock       clock.Clock
@@ -76,8 +77,10 @@ var _ predicate.TypedPredicate[*kueue.Workload] = (*variantReconciler)(nil)
 
 func newVariantReconciler(c client.Client, queues *qcache.Manager, recorder events.EventRecorder, roleTracker *roletracker.RoleTracker) *variantReconciler {
 	return &variantReconciler{
-		logName:     ConcurrentAdmissionController,
-		client:      c,
+		logName: ConcurrentAdmissionController,
+		client:  c,
+		// Default to the cached client; setup overrides with mgr.GetAPIReader() for the post-Apply status refresh.
+		apiReader:   c,
 		queues:      queues,
 		recorder:    recorder,
 		roleTracker: roleTracker,
@@ -88,6 +91,7 @@ func newVariantReconciler(c client.Client, queues *qcache.Manager, recorder even
 func SetupControllers(mgr ctrl.Manager, queues *qcache.Manager, cfg *configapi.Configuration, roleTracker *roletracker.RoleTracker) (string, error) {
 	recorder := mgr.GetEventRecorder(ConcurrentAdmissionController)
 	variantRec := newVariantReconciler(mgr.GetClient(), queues, recorder, roleTracker)
+	variantRec.apiReader = mgr.GetAPIReader()
 	if ctrlName, err := variantRec.setupWithManager(mgr, cfg); err != nil {
 		return ctrlName, err
 	}
@@ -317,7 +321,7 @@ func (r *variantReconciler) syncVariantEvictionStatus(ctx context.Context, paren
 			if workload.HasQuotaReservation(parent) {
 				if !workload.IsEvicted(parent) {
 					log.V(2).Info("Evicting parent", "parent", klog.KObj(parent))
-					err := workloadpatching.PatchAdmissionStatus(ctx, r.client, parent, r.clock, func(w *kueue.Workload) (bool, error) {
+					err := workloadpatching.PatchAdmissionStatus(ctx, r.client, r.apiReader, parent, r.clock, func(w *kueue.Workload) (bool, error) {
 						return workload.SetEvictedCondition(w, r.clock.Now(), "VariantEvicted", "Admitted variant was evicted"), nil
 					})
 					if err != nil {
@@ -340,7 +344,7 @@ func (r *variantReconciler) syncVariantEvictionStatus(ctx context.Context, paren
 }
 
 func (r *variantReconciler) clearWorkloadAdmission(ctx context.Context, wl *kueue.Workload, evCond *metav1.Condition) error {
-	return workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(w *kueue.Workload) (bool, error) {
+	return workloadpatching.PatchAdmissionStatus(ctx, r.client, r.apiReader, wl, r.clock, func(w *kueue.Workload) (bool, error) {
 		setRequeued := (evCond.Reason == kueue.WorkloadEvictedByPreemption) ||
 			(evCond.Reason == kueue.WorkloadEvictedDueToNodeFailures)
 		updated := workload.SetRequeuedCondition(w, evCond.Reason, evCond.Message, setRequeued)
@@ -543,7 +547,7 @@ func (r *variantReconciler) syncFinished(ctx context.Context, parent *kueue.Work
 	finishCond := apimeta.FindStatusCondition(parent.Status.Conditions, kueue.WorkloadFinished)
 	for i := range variants {
 		v := &variants[i]
-		if err := workload.Finish(ctx, r.client, v, finishCond.Reason, finishCond.Message, r.clock); err != nil && !apierrors.IsNotFound(err) {
+		if err := workload.Finish(ctx, r.client, r.apiReader, v, finishCond.Reason, finishCond.Message, r.clock); err != nil && !apierrors.IsNotFound(err) {
 			return err
 		}
 	}
@@ -568,7 +572,7 @@ func (r *variantReconciler) syncAdmissionStatus(ctx context.Context, parent *kue
 	switch {
 	case admittedVariant == nil && workload.IsAdmitted(parent):
 		log.V(2).Info("Parent admitted and no Variant is admitted, evicting parent", "parent", klog.KObj(parent))
-		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, parent, r.clock, func(wl *kueue.Workload) (bool, error) {
+		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, r.apiReader, parent, r.clock, func(wl *kueue.Workload) (bool, error) {
 			return workload.SetEvictedCondition(wl, r.clock.Now(), "ConcurrentAdmission", "No variant is running"), nil
 		})
 		if err != nil {
@@ -577,12 +581,12 @@ func (r *variantReconciler) syncAdmissionStatus(ctx context.Context, parent *kue
 	case admittedVariant != nil && !workload.IsAdmitted(parent):
 		log.V(2).Info("Parent not admitted and Variant admitted, syncing their status", "parent", klog.KObj(parent), "Variant", klog.KObj(admittedVariant))
 		log.V(3).Info("Syncing WaitForPodsReady condition")
-		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, admittedVariant, r.clock, func(wl *kueue.Workload) (bool, error) {
+		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, r.apiReader, admittedVariant, r.clock, func(wl *kueue.Workload) (bool, error) {
 			return r.syncPodsReadyCond(parent, wl), nil
 		}); err != nil {
 			return client.IgnoreNotFound(err)
 		}
-		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, parent, r.clock, func(wl *kueue.Workload) (bool, error) {
+		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, r.apiReader, parent, r.clock, func(wl *kueue.Workload) (bool, error) {
 			workload.SetQuotaReservation(wl, admittedVariant.Status.Admission, r.clock)
 			workload.SetAdmittedCondition(wl, r.clock.Now(), "Admitted", fmt.Sprintf("The variant %s is admitted", admittedVariant.Name))
 			log.V(2).Info("Parent is not admitted but a variant is admitted, updating parent to admitted", "parent", klog.KObj(parent), "admittedVariant", klog.KObj(admittedVariant))
@@ -593,7 +597,7 @@ func (r *variantReconciler) syncAdmissionStatus(ctx context.Context, parent *kue
 	case admittedVariant != nil && workload.IsAdmitted(parent):
 		log.V(2).Info("Parent and Variant admitted, syncing their status", "parent", klog.KObj(parent), "Variant", klog.KObj(admittedVariant))
 		log.V(3).Info("Syncing WaitForPodsReady condition")
-		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, admittedVariant, r.clock, func(wl *kueue.Workload) (bool, error) {
+		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, r.apiReader, admittedVariant, r.clock, func(wl *kueue.Workload) (bool, error) {
 			return r.syncPodsReadyCond(parent, wl), nil
 		}); err != nil {
 			return client.IgnoreNotFound(err)
@@ -714,7 +718,7 @@ func (r *variantReconciler) openPreemptionGate(ctx context.Context, variant *kue
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Opening preemption gate for variant", "variant", klog.KObj(variant), "flavor", concurrentadmission.GetVariantFlavor(variant))
 	var opened bool
-	if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, variant, r.clock, func(wl *kueue.Workload) (bool, error) {
+	if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, r.apiReader, variant, r.clock, func(wl *kueue.Workload) (bool, error) {
 		opened = workload.OpenPreemptionGate(wl, constants.ConcurrentAdmissionPreemptionGate, metav1.NewTime(r.clock.Now()))
 		return opened, nil
 	}, workloadpatching.WithRetryOnConflict()); err != nil {

@@ -259,7 +259,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 			ginkgo.By("Evicting the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					g.Expect(workload.SetConditionAndUpdate(ctx, k8sClient, &updatedWl, kueue.WorkloadEvicted, metav1.ConditionTrue,
+					g.Expect(workload.SetConditionAndUpdate(ctx, k8sClient, k8sClient, &updatedWl, kueue.WorkloadEvicted, metav1.ConditionTrue,
 						kueue.WorkloadEvictedByPreemption, "By test", "evict", util.RealClock)).
 						To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())

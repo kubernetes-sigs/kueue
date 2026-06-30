@@ -29,6 +29,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/component-base/featuregate"
 	clocktesting "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
@@ -4108,7 +4109,7 @@ func TestPreemption(t *testing.T) {
 				cl := utiltesting.NewClientBuilder().
 					WithLists(&kueue.WorkloadList{Items: tc.admitted}).
 					WithStatusSubresource(&kueue.Workload{}).
-					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
+					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge, SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration}).
 					Build()
 
 				cqCache := schdcache.New(cl)
@@ -4127,7 +4128,7 @@ func TestPreemption(t *testing.T) {
 				}
 
 				recorder := &utiltesting.EventRecorder{}
-				preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
+				preemptor := New(cl, cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
 
 				beforeSnapshot, err := cqCache.Snapshot(ctx)
 				if err != nil {
@@ -4334,6 +4335,23 @@ func TestPreemptionWhenWorkloadModifiedConcurrently(t *testing.T) {
 							}
 							return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
 						},
+						SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+							if subResourceName == "status" && !patched {
+								patched = true
+								for _, wl := range tc.workloads {
+									// Simulate concurrent modification by another controller
+									wlCopy := wl.DeepCopy()
+									if wlCopy.Labels == nil {
+										wlCopy.Labels = make(map[string]string, 1)
+									}
+									wlCopy.Labels["test.kueue.x-k8s.io/timestamp"] = time.Now().String()
+									if err := c.Update(ctx, wlCopy); err != nil {
+										return err
+									}
+								}
+							}
+							return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, c, subResourceName, applyConf, opts...)
+						},
 					}).
 					Build()
 
@@ -4344,7 +4362,7 @@ func TestPreemptionWhenWorkloadModifiedConcurrently(t *testing.T) {
 				}
 
 				recorder := &utiltesting.EventRecorder{}
-				preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
+				preemptor := New(cl, cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
 
 				beforeSnapshot, err := cqCache.Snapshot(ctx)
 				if err != nil {
@@ -4437,6 +4455,13 @@ func TestIssuePreemptionsCountsFailures(t *testing.T) {
 				}
 				return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
 			},
+			SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+				patchCount++
+				if subResourceName == "status" {
+					return errors.New("simulate API server error while preempting workload")
+				}
+				return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, c, subResourceName, applyConf, opts...)
+			},
 		}).
 		Build()
 
@@ -4448,7 +4473,7 @@ func TestIssuePreemptionsCountsFailures(t *testing.T) {
 
 	recorder := &utiltesting.EventRecorder{}
 	store := preemptexpectations.New()
-	preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, store, nil)
+	preemptor := New(cl, cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, store, nil)
 
 	snapshot, err := cqCache.Snapshot(ctx)
 	if err != nil {
@@ -4556,6 +4581,10 @@ func TestIssuePreemptionsSkipsDuplicate(t *testing.T) {
 							patchCount++
 							return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
 						},
+						SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+							patchCount++
+							return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, c, subResourceName, applyConf, opts...)
+						},
 					}).
 					Build()
 
@@ -4566,7 +4595,7 @@ func TestIssuePreemptionsSkipsDuplicate(t *testing.T) {
 				}
 
 				recorder := &utiltesting.EventRecorder{}
-				preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, store, nil)
+				preemptor := New(cl, cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, store, nil)
 
 				snapshot, err := cqCache.Snapshot(ctx)
 				if err != nil {

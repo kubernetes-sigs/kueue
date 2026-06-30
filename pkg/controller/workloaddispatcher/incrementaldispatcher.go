@@ -54,6 +54,7 @@ var ErrNoMoreWorkers = errors.New("no more workers to nominate")
 
 type IncrementalDispatcherReconciler struct {
 	client          client.Client
+	apiReader       client.Reader
 	helper          *admissioncheck.MultiKueueStoreHelper
 	clock           clock.Clock
 	roundStartTimes *utilmaps.SyncMap[types.NamespacedName, time.Time]
@@ -65,6 +66,7 @@ var realClock = clock.RealClock{}
 var _ reconcile.Reconciler = (*IncrementalDispatcherReconciler)(nil)
 
 func (r *IncrementalDispatcherReconciler) SetupWithManager(mgr ctrl.Manager, cfg *kueueconfig.Configuration) error {
+	r.apiReader = mgr.GetAPIReader()
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(IncrementalDispatcherControllerName).
 		For(&kueue.Workload{}).
@@ -79,7 +81,9 @@ func NewIncrementalDispatcherReconciler(
 	cfg *kueueconfig.IncrementalDispatcherConfig,
 ) *IncrementalDispatcherReconciler {
 	return &IncrementalDispatcherReconciler{
-		client:          c,
+		client: c,
+		// Default to the cached client; SetupWithManager overrides with mgr.GetAPIReader().
+		apiReader:       c,
 		helper:          helper,
 		clock:           realClock,
 		roundStartTimes: utilmaps.NewSyncMap[types.NamespacedName, time.Time](0),
@@ -152,7 +156,7 @@ func (r *IncrementalDispatcherReconciler) nominateWorkers(ctx context.Context, w
 	}
 
 	nominatedWorkers := append(wl.Status.NominatedClusterNames, nextNominatedWorkers...)
-	if err = workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+	if err = workloadpatching.PatchAdmissionStatus(ctx, r.client, r.apiReader, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 		wl.Status.NominatedClusterNames = nominatedWorkers
 		return true, nil
 	}); err != nil {

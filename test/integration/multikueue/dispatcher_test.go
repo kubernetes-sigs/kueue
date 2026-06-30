@@ -200,7 +200,7 @@ var _ = ginkgo.Describe("MultiKueueDispatcherIncremental", ginkgo.Label("area:mu
 		ginkgo.By("setting the check conditions for eviction", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				g.Expect(workloadpatching.PatchAdmissionStatus(managerTestCluster.ctx, managerTestCluster.client, createdWorkload, util.RealClock, func(wl *kueue.Workload) (bool, error) {
+				g.Expect(workloadpatching.PatchAdmissionStatus(managerTestCluster.ctx, managerTestCluster.client, managerTestCluster.client, createdWorkload, util.RealClock, func(wl *kueue.Workload) (bool, error) {
 					acs := kueue.AdmissionCheckState{
 						Name:    kueue.AdmissionCheckReference(multiKueueAC.Name),
 						State:   kueue.CheckStateRejected,
@@ -356,7 +356,7 @@ var _ = ginkgo.Describe("MultiKueueDispatcherExternal", ginkgo.Label("area:multi
 			gomega.Eventually(func(g gomega.Gomega) {
 				managerWl := &kueue.Workload{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
-				g.Expect(workloadpatching.PatchAdmissionStatus(managerTestCluster.ctx, managerTestCluster.client, managerWl, util.RealClock, func(wl *kueue.Workload) (bool, error) {
+				g.Expect(workloadpatching.PatchAdmissionStatus(managerTestCluster.ctx, managerTestCluster.client, managerTestCluster.client, managerWl, util.RealClock, func(wl *kueue.Workload) (bool, error) {
 					wl.Status.NominatedClusterNames = []string{workerCluster2.Name}
 					return true, nil
 				})).To(gomega.Succeed())
@@ -386,7 +386,7 @@ var _ = ginkgo.Describe("MultiKueueDispatcherExternal", ginkgo.Label("area:multi
 			managerWl := &kueue.Workload{}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
-				g.Expect(workloadpatching.PatchAdmissionStatus(managerTestCluster.ctx, managerTestCluster.client, managerWl, util.RealClock, func(wl *kueue.Workload) (bool, error) {
+				g.Expect(workloadpatching.PatchAdmissionStatus(managerTestCluster.ctx, managerTestCluster.client, managerTestCluster.client, managerWl, util.RealClock, func(wl *kueue.Workload) (bool, error) {
 					wl.Status.NominatedClusterNames = []string{workerCluster1.Name, workerCluster2.Name}
 					return true, nil
 				})).To(gomega.Succeed())
@@ -430,7 +430,7 @@ var _ = ginkgo.Describe("MultiKueueDispatcherExternal", ginkgo.Label("area:multi
 		ginkgo.By("setting the check conditions for eviction", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				g.Expect(workloadpatching.PatchAdmissionStatus(managerTestCluster.ctx, managerTestCluster.client, createdWorkload, util.RealClock, func(wl *kueue.Workload) (bool, error) {
+				g.Expect(workloadpatching.PatchAdmissionStatus(managerTestCluster.ctx, managerTestCluster.client, managerTestCluster.client, createdWorkload, util.RealClock, func(wl *kueue.Workload) (bool, error) {
 					acs := kueue.AdmissionCheckState{
 						Name:    kueue.AdmissionCheckReference(multiKueueAC.Name),
 						State:   kueue.CheckStateRejected,
@@ -630,7 +630,7 @@ var _ = ginkgo.Describe("MultiKueueDispatcherAllAtOnce", ginkgo.Label("area:mult
 		ginkgo.By("Resetting ClusterName field in the manager", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				g.Expect(workloadpatching.PatchAdmissionStatus(managerTestCluster.ctx, managerTestCluster.client, createdWorkload, util.RealClock, func(wl *kueue.Workload) (bool, error) {
+				g.Expect(workloadpatching.PatchAdmissionStatus(managerTestCluster.ctx, managerTestCluster.client, managerTestCluster.client, createdWorkload, util.RealClock, func(wl *kueue.Workload) (bool, error) {
 					wl.Status.ClusterName = nil
 					return true, nil
 				})).To(gomega.Succeed())

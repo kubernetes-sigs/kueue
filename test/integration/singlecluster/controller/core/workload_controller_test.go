@@ -610,7 +610,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 			ginkgo.By("evicting the workload, the accumulated admission time is updated", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
-					g.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, wl, util.RealClock, func(wl *kueue.Workload) (bool, error) {
+					g.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, k8sClient, wl, util.RealClock, func(wl *kueue.Workload) (bool, error) {
 						return workload.SetEvictedCondition(wl, util.RealClock.Now(), "ByTest", "by test"), nil
 					})).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -764,7 +764,7 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", func()
 			ginkgo.By("finishing the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
-					g.Expect(workload.Finish(ctx, k8sClient, wl, "ByTest", "By test", util.RealClock)).To(gomega.Succeed())
+					g.Expect(workload.Finish(ctx, k8sClient, k8sClient, wl, "ByTest", "By test", util.RealClock)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -822,7 +822,7 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", func()
 			ginkgo.By("finishing the workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
-					g.Expect(workload.Finish(ctx, k8sClient, wl, "ByTest", "By test", util.RealClock)).To(gomega.Succeed(), nil)
+					g.Expect(workload.Finish(ctx, k8sClient, k8sClient, wl, "ByTest", "By test", util.RealClock)).To(gomega.Succeed(), nil)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 

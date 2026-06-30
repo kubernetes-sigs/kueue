@@ -85,6 +85,7 @@ const syncDeferredRequeueAfter = 2 * time.Second
 
 type wlReconciler struct {
 	client            client.Client
+	apiReader         client.Reader
 	helper            *admissioncheck.MultiKueueStoreHelper
 	clusters          *clustersReconciler
 	origin            string
@@ -264,7 +265,7 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 }
 
 func (w *wlReconciler) updateACS(ctx context.Context, wl *kueue.Workload, acs *kueue.AdmissionCheckState, status kueue.CheckState, message string) error {
-	return workloadpatching.PatchStatus(ctx, w.client, wl, kueue.MultiKueueControllerName, func(wl *kueue.Workload) (bool, error) {
+	return workloadpatching.PatchStatus(ctx, w.client, w.apiReader, wl, kueue.MultiKueueControllerName, func(wl *kueue.Workload) (bool, error) {
 		acs.State = status
 		acs.Message = message
 		acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
@@ -400,7 +401,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		}
 
 		// finish workload and copy the status to the local one
-		return reconcile.Result{}, workload.Finish(ctx, w.client, group.local, remoteFinishedCond.Reason, remoteFinishedCond.Message, w.clock)
+		return reconcile.Result{}, workload.Finish(ctx, w.client, w.apiReader, group.local, remoteFinishedCond.Reason, remoteFinishedCond.Message, w.clock)
 	}
 
 	// 4. Handle workload eviction
@@ -437,7 +438,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		if acs.State == kueue.CheckStateReady {
 			// workload evicted on worker cluster
 			log.V(3).Info("Workload was evicted in the remote cluster", "cluster", evictedRemote)
-			if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
+			if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, w.apiReader, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
 				acs.Message = fmt.Sprintf("Workload evicted on worker cluster: %q, resetting for re-admission. Previously: %q", *group.local.Status.ClusterName, acs.State)
 				acs.State = kueue.CheckStateRetry
 				acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
@@ -522,7 +523,8 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 		evictedCond := apimeta.FindStatusCondition(group.local.Status.Conditions, kueue.WorkloadEvicted)
 		if workload.HasQuotaReservation(group.local) && evictedCond != nil && evictedCond.Status == metav1.ConditionTrue {
-			err := workloadpatching.PatchAdmissionStatus(ctx, remoteCl, remoteWl, w.clock, func(remoteWl *kueue.Workload) (bool, error) {
+			// remoteCl is a direct (uncached) client, so it doubles as the apiReader for the post-apply refresh.
+			err := workloadpatching.PatchAdmissionStatus(ctx, remoteCl, remoteCl, remoteWl, w.clock, func(remoteWl *kueue.Workload) (bool, error) {
 				return workload.SetDeactivationTarget(
 					remoteWl,
 					kueue.WorkloadEvictedOnManagerCluster,
@@ -805,7 +807,7 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 		log.V(3).Info("Using cluster from component workloads", "cluster", assignedWorkerCluster)
 		if _, ok := group.remotes[assignedWorkerCluster]; ok {
 			if !slices.Contains(group.local.Status.NominatedClusterNames, assignedWorkerCluster) {
-				if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
+				if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, w.apiReader, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
 					wl.Status.NominatedClusterNames = []string{assignedWorkerCluster}
 					return true, nil
 				}); err != nil {
@@ -837,7 +839,7 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 		}
 
 		if !nominatedClusterSetsEqual(group.local.Status.NominatedClusterNames, nominatedWorkers) {
-			if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
+			if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, w.apiReader, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
 				wl.Status.NominatedClusterNames = nominatedWorkers
 				return true, nil
 			}); err != nil {
@@ -905,7 +907,9 @@ func newWlReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelp
 	options ...Option,
 ) *wlReconciler {
 	r := &wlReconciler{
-		client:            c,
+		client: c,
+		// Default to the cached client; setupWithManager overrides with mgr.GetAPIReader().
+		apiReader:         c,
 		helper:            helper,
 		clusters:          cRec,
 		origin:            origin,
@@ -984,6 +988,7 @@ func (c *configHandler) queueWorkloadsForConfig(ctx context.Context, configName 
 }
 
 func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
+	w.apiReader = mgr.GetAPIReader()
 	syncHndl := handler.Funcs{
 		GenericFunc: func(_ context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 			q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{
@@ -1051,7 +1056,7 @@ func (w *wlReconciler) syncReservingRemoteState(ctx context.Context, group *wlGr
 		return nil
 	}
 
-	if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
+	if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, w.apiReader, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
 		if needsTopologyUpdate {
 			updateDelayedTopologyRequest(wl, group.remotes[reservingRemote])
 		}

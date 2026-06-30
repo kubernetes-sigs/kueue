@@ -121,6 +121,7 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 			queues,
 			cCache,
 			mgr.GetClient(),
+			mgr.GetAPIReader(),
 			mgr.GetEventRecorder(constants.AdmissionName),
 			scheduler.WithPreemptionExpectations(preemptionExpectations),
 		)

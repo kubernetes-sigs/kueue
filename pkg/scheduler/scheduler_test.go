@@ -33,6 +33,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/component-base/metrics/testutil"
@@ -201,6 +202,12 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 								}
 								return utiltesting.TreatSSAAsStrategicMerge(ctx, client, subResourceName, obj, patch, opts...)
 							},
+							SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+								if subResourceName == "status" && tc.admissionError != nil {
+									return tc.admissionError
+								}
+								return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, c, subResourceName, applyConf, opts...)
+							},
 						})
 
 					cl := clientBuilder.Build()
@@ -238,7 +245,7 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 					if tc.enableFairSharing {
 						fairSharing = &config.FairSharing{}
 					}
-					scheduler := New(qManager, cqCache, cl, recorder,
+					scheduler := New(qManager, cqCache, cl, cl, recorder,
 						WithFairSharing(fairSharing), WithClock(t, cfg.fakeClock), WithPreemptionExpectations(preemptexpectations.New()))
 					wg := sync.WaitGroup{}
 					scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
@@ -7723,7 +7730,7 @@ func TestLastSchedulingContext(t *testing.T) {
 							utiltesting.MakeNamespace("default"),
 						).
 						WithStatusSubresource(&kueue.Workload{}).
-						WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+						WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge, SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration})
 
 					cl := clientBuilder.Build()
 					recorder := &utiltesting.EventRecorder{}
@@ -7746,7 +7753,7 @@ func TestLastSchedulingContext(t *testing.T) {
 							t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
 						}
 					}
-					scheduler := New(qManager, cqCache, cl, recorder, WithClock(t, fakeClock), WithPreemptionExpectations(preemptexpectations.New()))
+					scheduler := New(qManager, cqCache, cl, cl, recorder, WithClock(t, fakeClock), WithPreemptionExpectations(preemptexpectations.New()))
 
 					wg := sync.WaitGroup{}
 					scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
@@ -7971,11 +7978,15 @@ func TestRequeueAndUpdate(t *testing.T) {
 						updates++
 						return utiltesting.TreatSSAAsStrategicMerge(ctx, client, subResourceName, obj, patch, opts...)
 					},
+					SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+						updates++
+						return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, c, subResourceName, applyConf, opts...)
+					},
 				}).WithObjects(objs...).WithStatusSubresource(objs...).Build()
 				recorder := &utiltesting.EventRecorder{}
 				cqCache := schdcache.New(cl)
 				qManager := qcache.NewManagerForUnitTests(cl, cqCache)
-				scheduler := New(qManager, cqCache, cl, recorder, WithPreemptionExpectations(preemptexpectations.New()))
+				scheduler := New(qManager, cqCache, cl, cl, recorder, WithPreemptionExpectations(preemptexpectations.New()))
 				if err := qManager.AddLocalQueue(ctx, q1); err != nil {
 					t.Fatalf("Inserting queue %s/%s in manager: %v", q1.Namespace, q1.Name, err)
 				}
@@ -8588,6 +8599,21 @@ func TestSchedulerWhenWorkloadModifiedConcurrently(t *testing.T) {
 								}
 								return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
 							},
+							SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+								if subResourceName == "status" && !patched {
+									patched = true
+									// Simulate concurrent modification by another controller
+									wlCopy := tc.workload.DeepCopy()
+									if wlCopy.Labels == nil {
+										wlCopy.Labels = make(map[string]string, 1)
+									}
+									wlCopy.Labels["test.kueue.x-k8s.io/timestamp"] = time.Now().String()
+									if err := c.Update(ctx, wlCopy); err != nil {
+										return err
+									}
+								}
+								return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, c, subResourceName, applyConf, opts...)
+							},
 						})
 					cl := clientBuilder.Build()
 					recorder := &utiltesting.EventRecorder{}
@@ -8606,7 +8632,7 @@ func TestSchedulerWhenWorkloadModifiedConcurrently(t *testing.T) {
 						t.Fatalf("Inserting queue %s/%s in manager: %v", lq.Namespace, lq.Name, err)
 					}
 
-					scheduler := New(qManager, cqCache, cl, recorder, WithClock(t, testingclock.NewFakeClock(now)), WithPreemptionExpectations(preemptexpectations.New()))
+					scheduler := New(qManager, cqCache, cl, cl, recorder, WithClock(t, testingclock.NewFakeClock(now)), WithPreemptionExpectations(preemptexpectations.New()))
 
 					wg := sync.WaitGroup{}
 					scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
@@ -8685,6 +8711,10 @@ func TestSchedulerNotifiesWatchersWhenAssumedWorkloadAdmissionFailsWithNotFound(
 				patchAttempted = true
 				return apierrors.NewNotFound(kueue.Resource("workload"), wl.Name)
 			},
+			SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+				patchAttempted = true
+				return apierrors.NewNotFound(kueue.Resource("workload"), wl.Name)
+			},
 		}).
 		Build()
 
@@ -8704,7 +8734,7 @@ func TestSchedulerNotifiesWatchersWhenAssumedWorkloadAdmissionFailsWithNotFound(
 		t.Fatalf("Inserting queue %s/%s in manager: %v", lq.Namespace, lq.Name, err)
 	}
 
-	scheduler := New(qManager, cqCache, cl, &utiltesting.EventRecorder{}, WithClock(t, testingclock.NewFakeClock(now)), WithPreemptionExpectations(preemptexpectations.New()))
+	scheduler := New(qManager, cqCache, cl, cl, &utiltesting.EventRecorder{}, WithClock(t, testingclock.NewFakeClock(now)), WithPreemptionExpectations(preemptexpectations.New()))
 	wg := sync.WaitGroup{}
 	scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
 		func() { wg.Add(1) },

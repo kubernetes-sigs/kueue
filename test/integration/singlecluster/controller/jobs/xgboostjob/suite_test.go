@@ -122,6 +122,7 @@ func managerAndSchedulerSetup(setupTASControllers bool, opts ...jobframework.Opt
 			queues,
 			cCache,
 			mgr.GetClient(),
+			mgr.GetAPIReader(),
 			mgr.GetEventRecorder(constants.AdmissionName),
 			scheduler.WithPreemptionExpectations(preemptexpectations.New()),
 		)

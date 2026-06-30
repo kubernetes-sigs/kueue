@@ -354,7 +354,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
-				err := workloadpatching.PatchAdmissionStatus(ctx, k8sClient, wl, util.RealClock, func(wl *kueue.Workload) (bool, error) {
+				err := workloadpatching.PatchAdmissionStatus(ctx, k8sClient, k8sClient, wl, util.RealClock, func(wl *kueue.Workload) (bool, error) {
 					return workload.SetQuotaReservation(wl, a, util.RealClock), nil
 				})
 				g.Expect(err).Should(matcher)
@@ -1853,6 +1853,6 @@ func expectUpdateReclaimablePodsBeForbiddenError(wlKey client.ObjectKey, reclaim
 	wl := &kueue.Workload{}
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
-		g.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, wl, reclaimablePods)).Should(utiltesting.BeForbiddenError())
+		g.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, k8sClient, wl, reclaimablePods)).Should(utiltesting.BeForbiddenError())
 	}, util.Timeout, util.Interval).Should(gomega.Succeed())
 }

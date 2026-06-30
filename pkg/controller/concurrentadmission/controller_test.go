@@ -17,6 +17,7 @@ limitations under the License.
 package concurrentadmission
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -25,11 +26,13 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -1930,6 +1933,11 @@ func TestReconcile(t *testing.T) {
 			cl := utiltesting.NewClientBuilder().
 				WithObjects(objects...).
 				WithStatusSubresource(objects...).
+				WithInterceptorFuncs(interceptor.Funcs{
+					SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+						return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, c, subResourceName, applyConf, opts...)
+					},
+				}).
 				Build()
 			preemptionExpectations := preemptexpectations.New()
 			qManager := qcache.NewManagerForUnitTests(cl, nil, qcache.WithPreemptionExpectations(preemptionExpectations))
@@ -1967,6 +1975,7 @@ func TestReconcile(t *testing.T) {
 			r := &variantReconciler{
 				logName:     ConcurrentAdmissionController,
 				client:      cl,
+				apiReader:   cl,
 				queues:      qManager,
 				roleTracker: roleTracker,
 				clock:       testingclock.NewFakeClock(fakeNow),
