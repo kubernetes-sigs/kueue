@@ -115,7 +115,7 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 			queues,
 			cCache,
 			mgr.GetClient(),
-			mgr.GetEventRecorder(constants.AdmissionName),
+			mgr.GetEventRecorderFor(constants.AdmissionName),
 			scheduler.WithPreemptionExpectations(preemptionExpectations),
 		)
 		err = sched.Start(ctx)

@@ -451,8 +451,20 @@ func TestUpdateSkipsRequeueForOnHoldWorkload(t *testing.T) {
 
 	ctx, _ := utiltesting.ContextWithLog(t)
 
-	setupClusterQueue(ctx, t, cl, qManager, cqCache, utiltestingapi.MakeClusterQueue("cq").Obj(), false)
-	setupLocalQueue(ctx, t, cl, qManager, utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(), false)
+	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+	if err := cl.Create(ctx, cq); err != nil {
+		t.Fatalf("couldn't create the cluster queue: %v", err)
+	}
+	if err := qManager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("couldn't add the cluster queue to the queue manager: %v", err)
+	}
+	lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()
+	if err := cl.Create(ctx, lq); err != nil {
+		t.Fatalf("couldn't create the local queue: %v", err)
+	}
+	if err := qManager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("couldn't add the local queue to the queue manager: %v", err)
+	}
 
 	if got := reconciler.Update(event.TypedUpdateEvent[*kueue.Workload]{
 		ObjectOld: oldWl,

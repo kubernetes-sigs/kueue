@@ -107,6 +107,11 @@ func Status(w *kueue.Workload) string {
 	return StatusPending
 }
 
+// FromQuotaReservedOrAdmittedToPending reports a transition from quota-reserved or admitted to pending.
+func FromQuotaReservedOrAdmittedToPending(prevStatus, newStatus string) bool {
+	return (prevStatus == StatusQuotaReserved || prevStatus == StatusAdmitted) && newStatus == StatusPending
+}
+
 type AssignmentClusterQueueState struct {
 	LastTriedFlavorIdx     []map[corev1.ResourceName]int
 	ClusterQueueGeneration int64
