@@ -3566,7 +3566,7 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 							wantWorkloads[i] = *tc.wantWorkloads[i].DeepCopy()
 						}
 						if !scenario[features.UnadmittedWorkloadsObservability] {
-							utiltesting.AdjustWorkloadsForDisabledObservability(wantWorkloads)
+							utiltesting.AdjustWorkloadsForDisabledObservabilityInScheduler(wantWorkloads)
 						}
 					}
 

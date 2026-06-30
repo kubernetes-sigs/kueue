@@ -30,7 +30,6 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/events"
@@ -66,9 +65,7 @@ import (
 )
 
 const (
-	errCouldNotAdmitWL                           = "Could not admit Workload and assign flavors in apiserver"
-	errInvalidWLResources                        = "resources validation failed"
-	errLimitRangeConstraintsUnsatisfiedResources = "resources didn't satisfy LimitRange constraints"
+	errCouldNotAdmitWL = "Could not admit Workload and assign flavors in apiserver"
 )
 
 var (
@@ -615,7 +612,6 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 	var inadmissibleEntries []entry
 	for _, w := range workloads {
 		log := log.WithValues("workload", klog.KObj(w.Obj), "clusterQueue", klog.KRef("", string(w.ClusterQueue)))
-		ns := corev1.Namespace{}
 		e := entry{Info: w}
 		e.clusterQueueSnapshot = snap.ClusterQueue(w.ClusterQueue)
 		if !workload.NeedsSecondPass(w.Obj) && s.cache.IsAdded(w) {
@@ -630,19 +626,12 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 		} else if e.clusterQueueSnapshot == nil {
 			e.inadmissibleMsg = fmt.Sprintf("ClusterQueue %s not found", w.ClusterQueue)
 			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
-		} else if err := s.client.Get(ctx, types.NamespacedName{Name: w.Obj.Namespace}, &ns); err != nil {
-			e.inadmissibleMsg = fmt.Sprintf("Could not obtain workload namespace: %v", err)
+		} else if msg, isNamespaceMismatch := workload.ValidateAdmissibility(ctx, s.client, &w, e.clusterQueueSnapshot.NamespaceSelector); msg != "" {
+			e.inadmissibleMsg = msg
 			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
-		} else if !e.clusterQueueSnapshot.NamespaceSelector.Matches(labels.Set(ns.Labels)) {
-			e.inadmissibleMsg = "Workload namespace doesn't match ClusterQueue selector"
-			e.requeueReason = qcache.RequeueReasonNamespaceMismatch
-			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
-		} else if err := workload.ValidateResources(&w); err != nil {
-			e.inadmissibleMsg = fmt.Sprintf("%s: %v", errInvalidWLResources, err.ToAggregate())
-			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
-		} else if err := workload.ValidateLimitRange(ctx, s.client, &w); err != nil {
-			e.inadmissibleMsg = fmt.Sprintf("%s: %v", errLimitRangeConstraintsUnsatisfiedResources, err.ToAggregate())
-			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
+			if isNamespaceMismatch {
+				e.requeueReason = qcache.RequeueReasonNamespaceMismatch
+			}
 		} else {
 			assignment, targets := s.getAssignments(log, &e.Info, snap)
 			e.recordAssignment(assignment, targets)
