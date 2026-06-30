@@ -673,7 +673,8 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}); err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
-		if workload.IsAdmitted(&wl) {
+		isAdmitted := workload.IsAdmitted(&wl)
+		if isAdmitted {
 			queuedWaitTime := workload.QueuedWaitTime(&wl, r.clock)
 			quotaReservedCondition := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
 			quotaReservedWaitTime := r.clock.Since(quotaReservedCondition.LastTransitionTime.Time)
@@ -710,7 +711,10 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				)
 			}
 		}
-		if updated {
+		// Return early if the status was updated and either:
+		// 1. The observability feature gate is disabled (legacy behavior).
+		// 2. The workload actually transitioned to Admitted.
+		if updated && (!features.Enabled(features.UnadmittedWorkloadsObservability) || isAdmitted) {
 			return ctrl.Result{}, nil
 		}
 	}

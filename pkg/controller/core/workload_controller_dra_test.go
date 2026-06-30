@@ -66,8 +66,14 @@ func TestReconcileDRA(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadQuotaReserved,
 					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadInadmissible,
+					Reason:  kueue.WorkloadQuotaReservedReasonMisconfigured,
 					Message: "KueueDRAIntegration feature does not support use of resource claims",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
 				}).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadRequeued,
@@ -104,8 +110,14 @@ func TestReconcileDRA(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadQuotaReserved,
 					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadInadmissible,
+					Reason:  kueue.WorkloadQuotaReservedReasonMisconfigured,
 					Message: "Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
 				}).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadRequeued,
@@ -142,8 +154,14 @@ func TestReconcileDRA(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadQuotaReserved,
 					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadInadmissible,
+					Reason:  kueue.WorkloadQuotaReservedReasonMisconfigured,
 					Message: "Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
 				}).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadRequeued,
@@ -186,8 +204,14 @@ func TestReconcileDRA(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadQuotaReserved,
 					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadInadmissible,
+					Reason:  kueue.WorkloadQuotaReservedReasonSuspended,
 					Message: "ClusterQueue cq is inactive",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
 				}).
 				Obj(),
 			wantEvents: nil,
@@ -224,8 +248,14 @@ func TestReconcileDRA(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadQuotaReserved,
 					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadInadmissible,
+					Reason:  kueue.WorkloadQuotaReservedReasonSuspended,
 					Message: "ClusterQueue cq is inactive",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
 				}).
 				Obj(),
 			wantEvents: nil,
@@ -261,8 +291,14 @@ func TestReconcileDRA(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadInadmissible,
+						Reason:  kueue.WorkloadQuotaReservedReasonMisconfigured,
 						Message: "spec.podSets[0].template.spec.resourceClaims[0].resourceClaimTemplateName: Not found: \"DeviceClass unmapped.example.com is not mapped in DRA configuration for podset main\"",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+						Message: "The workload has no reservation",
 					}).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadRequeued,
@@ -307,8 +343,14 @@ func TestReconcileDRA(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadQuotaReserved,
 					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadInadmissible,
+					Reason:  kueue.WorkloadQuotaReservedReasonMisconfigured,
 					Message: "spec.podSets[0].template.spec.containers[0].resources.requests.example.com/gpu: Invalid value: \"1500m\": extended resource quantity must be an integer",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
 				}).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadRequeued,
@@ -343,8 +385,14 @@ func TestReconcileDRA(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadQuotaReserved,
 					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadInadmissible,
+					Reason:  kueue.WorkloadQuotaReservedReasonMisconfigured,
 					Message: `spec.podSets[0].template.spec.resourceClaims[0]: Internal error: failed to get claim spec for ResourceClaimTemplate missing-template in podset main: resourceclaimtemplates.resource.k8s.io "missing-template" not found`,
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
 				}).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadRequeued,
