@@ -1178,6 +1178,14 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 1)
 				})
 
+				ginkgo.By("wait for the finalizer to be added to the topology", func() {
+					var updatedTopology kueue.Topology
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(topology), &updatedTopology)).To(gomega.Succeed())
+						g.Expect(updatedTopology.Finalizers).Should(gomega.Equal([]string{kueue.ResourceInUseFinalizerName}))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
 				ginkgo.By("trigger topology deletion", func() {
 					gomega.Expect(util.DeleteObject(ctx, k8sClient, topology)).To(gomega.Succeed())
 				})
@@ -1238,6 +1246,14 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				ginkgo.By("verify the workload is admitted", func() {
 					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
 					util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 1)
+				})
+
+				ginkgo.By("wait for the finalizer to be added to the topology", func() {
+					var updatedTopology kueue.Topology
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(topology), &updatedTopology)).To(gomega.Succeed())
+						g.Expect(updatedTopology.Finalizers).Should(gomega.Equal([]string{kueue.ResourceInUseFinalizerName}))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 
 				ginkgo.By("trigger topology deletion", func() {
