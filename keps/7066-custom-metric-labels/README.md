@@ -417,6 +417,7 @@ committing the changes necessary to implement this enhancement.
 ## Implementation History
 
 - 2026-02-13: Initial KEP draft.
+- 2026-06-30: Added support for Workload-sourced labels.
 
 ## Drawbacks
 
