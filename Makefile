@@ -80,11 +80,20 @@ IMAGE_BUILD_RETRY = $(PROJECT_DIR)/hack/testing/retry.sh \
 	--stream \
 	--continue-if "grep -qiE '(context deadline exceeded|unexpected status from HEAD request to .*: 401 Unauthorized|connection reset by peer)' {output}" \
 	-- env
-	
+
+MAKE_TIMING ?= $(if $(filter 1 true TRUE yes YES on ON,$(CI)),1,0)
+MAKE_TIMING_MIN_SECONDS ?= 1
+export MAKE_TIMING
+export MAKE_TIMING_MIN_SECONDS
+
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # This is a requirement for 'setup-envtest.sh' in the test target.
 # Options are set to exit when a recipe line exits non-zero or a piped command fails.
-SHELL = /usr/bin/env bash -o pipefail
+ifeq ($(filter 1 true TRUE yes YES on ON,$(MAKE_TIMING)),)
+    SHELL = /usr/bin/env bash -o pipefail
+else
+    SHELL = $(PROJECT_DIR)/hack/make-timed-shell.sh
+endif
 .SHELLFLAGS = -ec
 
 # Setting SED allows macos users to install GNU sed and use the latter
