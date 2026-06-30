@@ -27,6 +27,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 )
 
@@ -53,7 +54,7 @@ func FinishEvictionOfWorkloadsInCQ(ctx context.Context, k8sClient client.Client,
 			if wl.Status.Admission == nil || string(wl.Status.Admission.ClusterQueue) != cq.Name {
 				continue
 			}
-			if workload.IsEvicted(&wl) && workload.HasQuotaReservation(&wl) {
+			if workloadevict.IsEvicted(&wl) && workload.HasQuotaReservation(&wl) {
 				g.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, &wl, RealClock, func(wl *kueue.Workload) (bool, error) {
 					return workload.UnsetQuotaReservationWithCondition(wl, "Pending", "Eviction finished by test", time.Now()), nil
 				}),

@@ -83,6 +83,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
@@ -455,7 +456,7 @@ func ExpectWorkloadsToHaveQuotaReservationByKey(ctx context.Context, k8sClient c
 }
 
 func FilterEvictedWorkloads(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) []*kueue.Workload {
-	return filterWorkloads(ctx, k8sClient, workload.IsEvicted, wls...)
+	return filterWorkloads(ctx, k8sClient, workloadevict.IsEvicted, wls...)
 }
 
 func filterWorkloads(ctx context.Context, k8sClient client.Client, filter func(*kueue.Workload) bool, wls ...*kueue.Workload) []*kueue.Workload {
@@ -841,7 +842,7 @@ func ExpectWorkloadsToBeEvictedByKeys(ctx context.Context, k8sClient client.Clie
 		for i, wlKey := range wlKeys {
 			wl := &kueue.Workload{}
 			g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
-			if workload.IsEvicted(wl) {
+			if workloadevict.IsEvicted(wl) {
 				evicted = append(evicted, wlKey)
 			}
 			wlObjects[i] = wl

@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 )
 
 // Workload slicing refers to a specialized Kueue feature designed to support workload scaling up.
@@ -258,7 +259,7 @@ func normalizeActiveSlices(
 	var latestWithQuotaReservation, pendingReplacement, latestNonEvicted *kueue.Workload
 	for i, _ := range slices.Backward(workloads) {
 		wl := &workloads[i]
-		if workload.IsEvicted(wl) {
+		if workloadevict.IsEvicted(wl) {
 			continue
 		}
 		if latestNonEvicted == nil {
@@ -275,7 +276,7 @@ func normalizeActiveSlices(
 		latestWithQuotaReservationKey := workload.Key(latestWithQuotaReservation)
 		for i, _ := range slices.Backward(workloads) {
 			wl := &workloads[i]
-			if workload.HasQuotaReservation(wl) || workload.IsEvicted(wl) {
+			if workload.HasQuotaReservation(wl) || workloadevict.IsEvicted(wl) {
 				continue
 			}
 			if replKey := ReplacementForKey(wl); replKey != nil && *replKey == latestWithQuotaReservationKey {

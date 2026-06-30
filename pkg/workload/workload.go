@@ -32,7 +32,6 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/tools/events"
 	resourcehelpers "k8s.io/component-helpers/resource"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
@@ -48,7 +47,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
@@ -58,10 +56,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	utilptr "sigs.k8s.io/kueue/pkg/util/ptr"
 	"sigs.k8s.io/kueue/pkg/util/queue"
-	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/util/wait"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 )
 
@@ -807,26 +805,6 @@ func QueuedWaitTime(wl *kueue.Workload, clock clock.Clock) time.Duration {
 	return clock.Since(queuedTime)
 }
 
-// workloadsWithPodsReadyToEvictedTime is the amount of time it takes a workload's pods running to getting evicted.
-// This measures runtime of workloads that do not run to completion (ie are evicted).
-func workloadsWithPodsReadyToEvictedTime(wl *kueue.Workload) *time.Duration {
-	var podsReady *time.Time
-	if c := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsReady); c != nil && c.Status == metav1.ConditionTrue {
-		podsReady = &c.LastTransitionTime.Time
-	} else {
-		return nil
-	}
-
-	var evicted *time.Time
-	if c := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted); c != nil && c.Status == metav1.ConditionTrue {
-		evicted = &c.LastTransitionTime.Time
-	} else {
-		return nil
-	}
-
-	return new(evicted.Sub(*podsReady))
-}
-
 // SetQuotaReservation records that quota has been reserved for the given Workload
 // in the specified ClusterQueue and updates the Workload status accordingly.
 //
@@ -886,7 +864,7 @@ func resetActiveCondition(conds *[]metav1.Condition, gen int64, condType, reason
 // NeedsSecondPass checks if the second pass of scheduling is needed for the
 // workload.
 func NeedsSecondPass(w *kueue.Workload) bool {
-	if IsFinished(w) || IsEvicted(w) || !HasQuotaReservation(w) || IsOnHold(w) {
+	if IsFinished(w) || workloadevict.IsEvicted(w) || !HasQuotaReservation(w) || IsOnHold(w) {
 		return false
 	}
 	return needsSecondPassForDelayedAssignment(w) || needsSecondPassAfterNodeFailure(w)
@@ -935,18 +913,6 @@ func SetDeactivationTarget(w *kueue.Workload, reason string, message string) boo
 		Status:             metav1.ConditionTrue,
 		Reason:             reason,
 		Message:            message,
-		ObservedGeneration: w.Generation,
-	}
-	return apimeta.SetStatusCondition(&w.Status.Conditions, condition)
-}
-
-func SetEvictedCondition(w *kueue.Workload, now time.Time, reason string, message string) bool {
-	condition := metav1.Condition{
-		Type:               kueue.WorkloadEvicted,
-		Status:             metav1.ConditionTrue,
-		LastTransitionTime: metav1.NewTime(now),
-		Reason:             reason,
-		Message:            api.TruncateConditionMessage(message),
 		ObservedGeneration: w.Generation,
 	}
 	return apimeta.SetStatusCondition(&w.Status.Conditions, condition)
@@ -1113,11 +1079,11 @@ type Ordering struct {
 // be the workload creation time or the last time a PodsReady timeout has occurred.
 func (o Ordering) GetQueueOrderTimestamp(w *kueue.Workload) *metav1.Time {
 	if o.PodsReadyRequeuingTimestamp == config.EvictionTimestamp {
-		if evictedCond, evictedByTimeout := IsEvictedByPodsReadyTimeout(w); evictedByTimeout {
+		if evictedCond, evictedByTimeout := workloadevict.IsEvictedByPodsReadyTimeout(w); evictedByTimeout {
 			return &evictedCond.LastTransitionTime
 		}
 	}
-	if evictedCond, evictedByCheck := IsEvictedByAdmissionCheck(w); evictedByCheck {
+	if evictedCond, evictedByCheck := workloadevict.IsEvictedByAdmissionCheck(w); evictedByCheck {
 		return &evictedCond.LastTransitionTime
 	}
 	if !features.Enabled(features.PrioritySortingWithinCohort) {
@@ -1263,38 +1229,6 @@ func HasResourceClaim(w *kueue.Workload) bool {
 }
 
 // IsEvictedByDeactivation returns true if the workload is evicted by deactivation.
-func IsEvictedByDeactivation(w *kueue.Workload) bool {
-	cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted)
-	return cond != nil && cond.Status == metav1.ConditionTrue && strings.HasPrefix(cond.Reason, kueue.WorkloadDeactivated)
-}
-
-// IsEvictedDueToDeactivationByKueue returns true if the workload is evicted by deactivation by kueue.
-func IsEvictedDueToDeactivationByKueue(w *kueue.Workload) bool {
-	cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted)
-	return cond != nil && cond.Status == metav1.ConditionTrue &&
-		strings.HasPrefix(cond.Reason, workloadpatching.ReasonWithCause(kueue.WorkloadDeactivated, ""))
-}
-
-func IsEvictedByPodsReadyTimeout(w *kueue.Workload) (*metav1.Condition, bool) {
-	cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted)
-	if cond == nil || cond.Status != metav1.ConditionTrue || cond.Reason != kueue.WorkloadEvictedByPodsReadyTimeout {
-		return nil, false
-	}
-	return cond, true
-}
-
-func IsEvictedByAdmissionCheck(w *kueue.Workload) (*metav1.Condition, bool) {
-	cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted)
-	if cond == nil || cond.Status != metav1.ConditionTrue || cond.Reason != kueue.WorkloadEvictedByAdmissionCheck {
-		return nil, false
-	}
-	return cond, true
-}
-
-func IsEvicted(w *kueue.Workload) bool {
-	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadEvicted)
-}
-
 // HasConditionWithTypeAndReason checks if there is a condition in Workload's status
 // with exactly the same Type, Status and Reason
 func HasConditionWithTypeAndReason(w *kueue.Workload, cond *metav1.Condition) bool {
@@ -1496,105 +1430,6 @@ func findAdmissionFlavors(admission kueue.Admission) sets.Set[kueue.ResourceFlav
 	return assignedFlavors
 }
 
-type EvictOption func(*EvictOptions)
-
-type EvictOptions struct {
-	CustomPrepare           func(wl *kueue.Workload)
-	StrictApply             bool
-	RetryOnConflictForPatch bool
-}
-
-func DefaultEvictOptions() *EvictOptions {
-	return &EvictOptions{
-		CustomPrepare: nil,
-		StrictApply:   true,
-	}
-}
-
-func WithCustomPrepare(customPrepare func(wl *kueue.Workload)) EvictOption {
-	return func(o *EvictOptions) {
-		if customPrepare != nil {
-			o.CustomPrepare = customPrepare
-		}
-	}
-}
-
-func EvictWithLooseOnApply() EvictOption {
-	return func(o *EvictOptions) {
-		o.StrictApply = false
-	}
-}
-
-func EvictWithRetryOnConflictForPatch() EvictOption {
-	return func(o *EvictOptions) {
-		o.RetryOnConflictForPatch = true
-	}
-}
-
-func Evict(
-	ctx context.Context,
-	c client.Client,
-	recorder events.EventRecorder,
-	wl *kueue.Workload,
-	reason, msg string,
-	underlyingCause kueue.EvictionUnderlyingCause,
-	clock clock.Clock,
-	exposeLqMetrics bool,
-	tracker *roletracker.RoleTracker,
-	cl *metrics.CustomLabels,
-	options ...EvictOption,
-) error {
-	opts := DefaultEvictOptions()
-	for _, opt := range options {
-		opt(opts)
-	}
-
-	var (
-		hadAdmission              = wl.Status.Admission != nil
-		reportWorkloadEvictedOnce bool
-	)
-
-	var patchOpts []workloadpatching.PatchStatusOption
-
-	if !opts.StrictApply {
-		patchOpts = append(patchOpts, workloadpatching.WithLooseOnApply())
-	}
-
-	if opts.RetryOnConflictForPatch {
-		patchOpts = append(patchOpts, workloadpatching.WithRetryOnConflict())
-	}
-
-	if err := workloadpatching.PatchAdmissionStatus(ctx, c, wl, clock, func(wl *kueue.Workload) (bool, error) {
-		if opts.CustomPrepare != nil {
-			opts.CustomPrepare(wl)
-		}
-
-		evictionReason := reason
-		if reason == kueue.WorkloadDeactivated && underlyingCause != "" {
-			evictionReason = workloadpatching.ReasonWithCause(evictionReason, string(underlyingCause))
-		}
-		prepareForEviction(wl, clock.Now(), evictionReason, msg)
-		reportWorkloadEvictedOnce = workloadEvictionStateInc(wl, reason, underlyingCause)
-		return true, nil
-	}, patchOpts...); err != nil {
-		return err
-	}
-	if !hadAdmission {
-		// This is an extra safeguard for access to `wl.Status.Admission`.
-		// This function is expected to be called only for workload which have
-		// Admission.
-		log := log.FromContext(ctx)
-		log.V(3).Info("WARNING: unexpected eviction of workload without status.Admission", "workload", klog.KObj(wl))
-		return nil
-	}
-	reportEvictedWorkload(recorder, wl, wl.Status.Admission.ClusterQueue, reason, msg, underlyingCause, exposeLqMetrics, tracker, cl)
-	if reportWorkloadEvictedOnce {
-		metrics.ReportEvictedWorkloadsOnce(wl.Status.Admission.ClusterQueue, reason, string(underlyingCause),
-			workloadpatching.PriorityClassName(wl), cl.CQGet(wl.Status.Admission.ClusterQueue), tracker)
-	}
-	return nil
-}
-
 func Finish(ctx context.Context, c client.Client, wl *kueue.Workload, reason, msg string, clock clock.Clock) error {
 	if IsFinished(wl) {
 		return nil
@@ -1624,80 +1459,6 @@ func HasNoPriority(wl *kueue.Workload) bool {
 	return wl.Spec.PriorityClassRef == nil
 }
 
-func prepareForEviction(w *kueue.Workload, now time.Time, reason, message string) {
-	SetEvictedCondition(w, now, reason, message)
-	resetClusterNomination(w)
-	resetChecksOnEviction(w, now)
-	resetUnhealthyNodes(w)
-	unsetBlockedOnPreemptionGatesCondition(w, now, reason, message)
-	closeAllPreemptionGates(w, now)
-}
-
-func resetClusterNomination(w *kueue.Workload) {
-	w.Status.ClusterName = nil
-	w.Status.NominatedClusterNames = nil
-}
-
-func resetUnhealthyNodes(w *kueue.Workload) {
-	w.Status.UnhealthyNodes = nil
-}
-
-func unsetBlockedOnPreemptionGatesCondition(w *kueue.Workload, now time.Time, reason, message string) {
-	preemptionSignalCond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadBlockedOnPreemptionGates)
-	if preemptionSignalCond == nil || preemptionSignalCond.Status != metav1.ConditionTrue {
-		return
-	}
-
-	condition := metav1.Condition{
-		Type:               kueue.WorkloadBlockedOnPreemptionGates,
-		Status:             metav1.ConditionFalse,
-		LastTransitionTime: metav1.NewTime(now),
-		Reason:             reason,
-		Message:            api.TruncateConditionMessage(message),
-		ObservedGeneration: w.Generation,
-	}
-	apimeta.SetStatusCondition(&w.Status.Conditions, condition)
-}
-
-func closeAllPreemptionGates(w *kueue.Workload, now time.Time) {
-	for i := range w.Status.PreemptionGates {
-		w.Status.PreemptionGates[i].Position = kueue.PreemptionGatePositionClosed
-		w.Status.PreemptionGates[i].LastTransitionTime = metav1.NewTime(now)
-	}
-}
-
-func reportEvictedWorkload(recorder events.EventRecorder, wl *kueue.Workload, cqName kueue.ClusterQueueReference,
-	reason, message string, underlyingCause kueue.EvictionUnderlyingCause, exposeLqMetrics bool,
-	tracker *roletracker.RoleTracker, cl *metrics.CustomLabels,
-) {
-	priorityClassName := workloadpatching.PriorityClassName(wl)
-	cqCustomLabels := cl.CQGet(cqName)
-	metrics.ReportEvictedWorkloads(cqName, reason, string(underlyingCause), priorityClassName, cqCustomLabels, tracker)
-	if podsReadyToEvictionTime := workloadsWithPodsReadyToEvictedTime(wl); podsReadyToEvictionTime != nil {
-		metrics.ReportPodsReadyToEvictedTimeSeconds(cqName, reason, string(underlyingCause), *podsReadyToEvictionTime, cqCustomLabels, tracker)
-	}
-	if exposeLqMetrics {
-		lqRef := metrics.LQRefFromWorkload(wl)
-		metrics.ReportLocalQueueEvictedWorkloads(
-			lqRef,
-			reason,
-			string(underlyingCause),
-			priorityClassName,
-			cl.LQGet(queue.KeyFromWorkload(wl)),
-			tracker,
-		)
-	}
-	eventReason := workloadpatching.ReasonWithCause(kueue.WorkloadEvicted, reason)
-	if reason == kueue.WorkloadDeactivated && underlyingCause != "" {
-		eventReason = workloadpatching.ReasonWithCause(eventReason, string(underlyingCause))
-	}
-	recorder.Eventf(wl, nil, corev1.EventTypeNormal, eventReason, eventReason, api.TruncateEventMessage(message))
-}
-
-func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingReason string, targetCqName kueue.ClusterQueueReference, tracker *roletracker.RoleTracker, cl *metrics.CustomLabels) {
-	metrics.ReportPreemption(preemptingCqName, preemptingReason, targetCqName, cl.CQGet(preemptingCqName), tracker)
-}
-
 func References(wls []*Info) []klog.ObjectRef {
 	if len(wls) == 0 {
 		return nil
@@ -1707,47 +1468,6 @@ func References(wls []*Info) []klog.ObjectRef {
 		keys[i] = klog.KObj(wl.Obj)
 	}
 	return keys
-}
-
-func workloadEvictionStateInc(wl *kueue.Workload, reason string, underlyingCause kueue.EvictionUnderlyingCause) bool {
-	evictionState := findSchedulingStatsEvictionByReason(wl, reason, underlyingCause)
-	if evictionState == nil {
-		evictionState = &kueue.WorkloadSchedulingStatsEviction{
-			Reason:          reason,
-			UnderlyingCause: underlyingCause,
-		}
-	}
-	report := evictionState.Count == 0
-	evictionState.Count++
-	setSchedulingStatsEviction(wl, *evictionState)
-	return report
-}
-
-func findSchedulingStatsEvictionByReason(wl *kueue.Workload, reason string, underlyingCause kueue.EvictionUnderlyingCause) *kueue.WorkloadSchedulingStatsEviction {
-	if wl.Status.SchedulingStats != nil {
-		for i := range wl.Status.SchedulingStats.Evictions {
-			if wl.Status.SchedulingStats.Evictions[i].Reason == reason && wl.Status.SchedulingStats.Evictions[i].UnderlyingCause == underlyingCause {
-				return &wl.Status.SchedulingStats.Evictions[i]
-			}
-		}
-	}
-	return nil
-}
-
-func setSchedulingStatsEviction(wl *kueue.Workload, newEvictionState kueue.WorkloadSchedulingStatsEviction) bool {
-	if wl.Status.SchedulingStats == nil {
-		wl.Status.SchedulingStats = &kueue.SchedulingStats{}
-	}
-	evictionState := findSchedulingStatsEvictionByReason(wl, newEvictionState.Reason, newEvictionState.UnderlyingCause)
-	if evictionState == nil {
-		wl.Status.SchedulingStats.Evictions = append(wl.Status.SchedulingStats.Evictions, newEvictionState)
-		return true
-	}
-	if evictionState.Count != newEvictionState.Count {
-		evictionState.Count = newEvictionState.Count
-		return true
-	}
-	return false
 }
 
 // ClusterName returns the name of the remote cluster where the original workload
