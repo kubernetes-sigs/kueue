@@ -345,7 +345,7 @@ func (r *variantReconciler) clearWorkloadAdmission(ctx context.Context, wl *kueu
 		setRequeued := (evCond.Reason == kueue.WorkloadEvictedByPreemption) ||
 			(evCond.Reason == kueue.WorkloadEvictedDueToNodeFailures)
 		updated := workload.SetRequeuedCondition(w, evCond.Reason, evCond.Message, setRequeued)
-		if workload.UnsetQuotaReservationWithCondition(w, "Pending", evCond.Message, r.clock.Now()) {
+		if workload.UnsetQuotaReservationWithCondition(w, kueue.WorkloadPending, evCond.Message, r.clock.Now()) {
 			updated = true
 		}
 		return updated, nil

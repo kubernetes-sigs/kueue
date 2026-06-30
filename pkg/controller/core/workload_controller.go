@@ -1069,7 +1069,7 @@ func (r *WorkloadReconciler) mayUpdateConditionForAdmissionGatedBy(ctx context.C
 	if !hasGatedAnnotation && hasGatedCondition {
 		// This previously gated workload is becoming admissible because its AdmissionGatedBy annotation is cleared
 		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-			reason := workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonPendingEvaluation, "Pending")
+			reason := workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonPendingEvaluation, kueue.WorkloadPending)
 			// Update the condition to indicate the gate is cleared, rather than removing it
 			return workload.UnsetQuotaReservationWithCondition(wl, reason, "AdmissionGatedBy cleared, waiting for quota reservation", r.clock.Now()), nil
 		})

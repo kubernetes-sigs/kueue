@@ -559,7 +559,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 					// The requeued condition status set to true only on EvictedByPreemption
 					setRequeued := (evCond.Reason == kueue.WorkloadEvictedByPreemption) || (evCond.Reason == kueue.WorkloadEvictedDueToNodeFailures)
 					updated := workload.SetRequeuedCondition(wl, evCond.Reason, evCond.Message, setRequeued)
-					if workload.UnsetQuotaReservationWithCondition(wl, "Pending", evCond.Message, r.clock.Now()) {
+					if workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadPending, evCond.Message, r.clock.Now()) {
 						updated = true
 					}
 					return updated, nil
