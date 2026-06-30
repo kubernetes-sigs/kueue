@@ -79,6 +79,15 @@ func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec, annotations map[string]s
 			return nil, err
 		}
 	}
+	// When in-tree autoscaling is enabled, KubeRay injects an autoscaler sidecar
+	// container into the head Pod. It is added at Pod-build time and is not part
+	// of HeadGroupSpec.Template, so account for it here to keep quota accurate.
+	if ptr.Deref(rayClusterSpec.EnableInTreeAutoscaling, false) {
+		headPodSet.Template.Spec.Containers = append(
+			headPodSet.Template.Spec.Containers,
+			autoscalerContainer(rayClusterSpec.AutoscalerOptions),
+		)
+	}
 	podSets = append(podSets, headPodSet)
 
 	// workers
@@ -130,6 +139,40 @@ func redisCleanupResourceRequests() corev1.ResourceList {
 
 func shouldAccountForRedisCleanup(rayClusterSpec *rayv1.RayClusterSpec, annotations map[string]string) bool {
 	return rayutils.IsGCSFaultToleranceEnabled(rayClusterSpec, annotations)
+}
+
+// autoscalerContainerName is the name KubeRay gives the autoscaler sidecar.
+const autoscalerContainerName = "autoscaler"
+
+// defaultAutoscalerResources mirrors the resources KubeRay assigns to the Ray
+// autoscaler sidecar container when AutoscalerOptions.Resources is not set
+// (ray-operator/controllers/ray/common/pod.go: BuildAutoscalerContainer).
+func defaultAutoscalerResources() corev1.ResourceRequirements {
+	return corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("500m"),
+			corev1.ResourceMemory: resource.MustParse("512Mi"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("500m"),
+			corev1.ResourceMemory: resource.MustParse("512Mi"),
+		},
+	}
+}
+
+// autoscalerContainer returns a container mirroring the Ray autoscaler sidecar
+// that KubeRay injects into the head Pod when in-tree autoscaling is enabled.
+// It uses AutoscalerOptions.Resources when provided, otherwise KubeRay's
+// defaults, matching how KubeRay builds the actual container.
+func autoscalerContainer(opts *rayv1.AutoscalerOptions) corev1.Container {
+	resources := defaultAutoscalerResources()
+	if opts != nil && opts.Resources != nil {
+		resources = *opts.Resources.DeepCopy()
+	}
+	return corev1.Container{
+		Name:      autoscalerContainerName,
+		Resources: resources,
+	}
 }
 
 func ExpectedPodSetsCount(rayClusterSpec *rayv1.RayClusterSpec) int {
