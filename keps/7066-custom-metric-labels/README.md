@@ -187,7 +187,7 @@ type ControllerMetricsCustomLabel struct {
     // SourceKinds is a list of object kinds from which the label value should be sourced.
     // If empty, the label will be enabled for: Cohort, LocalQueue, and ClusterQueue.
     //
-    // +kubebuilder:default:="Cohort,LocalQueue,ClusterQueue"
+    // +kubebuilder:default:={Cohort,LocalQueue,ClusterQueue}
     // +kubebuilder:validation:Enum=Cohort;LocalQueue;ClusterQueue;Workload
     // +kubebuilder:validation:UniqueItems=true
     // +kubebuilder:validation:XValidation:rule="!('Workload' in self && 'ClusterQueue' in self)",message="cannot use the same label for both Workload and ClusterQueue as some metrics combine label values from both kinds"
