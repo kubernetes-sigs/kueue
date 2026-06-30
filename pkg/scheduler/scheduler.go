@@ -538,7 +538,7 @@ func (s *Scheduler) waitForPodsReadyIfBlocked(ctx context.Context, log logr.Logg
 	log.V(5).Info("Waiting for all admitted workloads to be in the PodsReady condition")
 	wl := e.Obj.DeepCopy()
 	if err := workloadpatching.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
-		reason := workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonWaitingForPodsReady, "Waiting")
+		reason := workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonWaitingForPodsReady, kueue.WorkloadWaiting)
 		return workload.UnsetQuotaReservationWithCondition(wl, reason, "waiting for all admitted workloads to be in PodsReady condition", s.clock.Now()), nil
 	}, workloadpatching.WithLooseOnApply(), workloadpatching.WithRetryOnConflict()); err != nil {
 		log.Error(err, "Could not update Workload status")
@@ -626,10 +626,10 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 		} else if e.clusterQueueSnapshot == nil {
 			e.inadmissibleMsg = fmt.Sprintf("ClusterQueue %s not found", w.ClusterQueue)
 			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
-		} else if msg, isNamespaceMismatch := workload.ValidateAdmissibility(ctx, s.client, &w, e.clusterQueueSnapshot.NamespaceSelector); msg != "" {
-			e.inadmissibleMsg = msg
+		} else if err := workload.ValidateAdmissibility(ctx, s.client, &w, e.clusterQueueSnapshot.NamespaceSelector); err != nil {
+			e.inadmissibleMsg = err.Error()
 			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
-			if isNamespaceMismatch {
+			if errors.Is(err, workload.ErrNamespaceMismatch) {
 				e.requeueReason = qcache.RequeueReasonNamespaceMismatch
 			}
 		} else {

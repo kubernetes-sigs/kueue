@@ -18,6 +18,7 @@ package workload
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
@@ -36,7 +37,8 @@ import (
 )
 
 var (
-	PodSetsPath = field.NewPath("spec").Child("podSets")
+	PodSetsPath          = field.NewPath("spec").Child("podSets")
+	ErrNamespaceMismatch = errors.New("Workload namespace doesn't match ClusterQueue selector")
 )
 
 const (
@@ -189,28 +191,28 @@ func ValidateLimitRange(ctx context.Context, c client.Client, wi *Info) field.Er
 
 // ValidateAdmissibility checks if the workload's namespace matches the ClusterQueue's
 // namespace selector, and if its resource requests are valid and satisfy LimitRanges.
-// Returns the admissibility error message and a boolean indicating if it was a namespace mismatch.
+// Returns the admissibility error if any.
 func ValidateAdmissibility(
 	ctx context.Context,
 	c client.Client,
 	wi *Info,
 	cqNamespaceSelector labels.Selector,
-) (string, bool) {
+) error {
 	var ns corev1.Namespace
 	if err := c.Get(ctx, types.NamespacedName{Name: wi.Obj.Namespace}, &ns); err != nil {
-		return fmt.Sprintf("Could not obtain workload namespace: %v", err), false
+		return fmt.Errorf("could not obtain workload namespace: %w", err)
 	}
 	if cqNamespaceSelector != nil && !cqNamespaceSelector.Matches(labels.Set(ns.Labels)) {
-		return "Workload namespace doesn't match ClusterQueue selector", true
+		return ErrNamespaceMismatch
 	}
 
 	if errs := ValidateResources(wi); len(errs) > 0 {
-		return fmt.Sprintf("%s: %v", ErrInvalidWLResources, errs.ToAggregate()), false
+		return fmt.Errorf("%s: %w", ErrInvalidWLResources, errs.ToAggregate())
 	}
 
 	if errs := ValidateLimitRange(ctx, c, wi); len(errs) > 0 {
-		return fmt.Sprintf("%s: %v", ErrLimitRangeConstraintsUnsatisfiedResources, errs.ToAggregate()), false
+		return fmt.Errorf("%s: %w", ErrLimitRangeConstraintsUnsatisfiedResources, errs.ToAggregate())
 	}
 
-	return "", false
+	return nil
 }
