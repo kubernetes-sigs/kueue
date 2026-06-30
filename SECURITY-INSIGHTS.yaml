@@ -1,6 +1,6 @@
 header:
   schema-version: 1.0.0
-  expiration-date: '2024-09-28T01:00:00.000Z'
+  expiration-date: '2027-06-26T01:00:00.000Z'
   last-updated: '2026-06-26'
   last-reviewed: '2026-06-26'
   commit-hash: "444058af81a08235306ef2a43581692289cd4822"
@@ -57,6 +57,25 @@ vulnerability-reporting:
   Security-policy: 'https://kubernetes.io/security/'
   bug-bounty-available: true
   bug-bounty-url: 'https://hackerone.com/kubernetes'
+  in-scope:
+    - Privilege escalation or workload admission bypass in the Kueue
+      controller-manager and its admission/validating webhooks
+    - Tenant isolation breakout across ClusterQueues, LocalQueues, and Cohorts
+      (e.g. quota borrowing or preemption affecting workloads of another tenant)
+    - Improper RBAC defaults in the shipped manifests and Helm chart that grant
+      excessive permissions to Kueue components
+    - Vulnerabilities in the optional KueueViz dashboard backend and frontend
+      (authentication, access control, or injection)
+  out-of-scope:
+    - Vulnerabilities in Kubernetes core, the kube-apiserver, or other core
+      Kubernetes components, which are handled by the Kubernetes security
+      process at https://kubernetes.io/security/
+    - Issues that only affect unsupported Kueue releases (see the release policy
+      in RELEASE.md); only the latest supported minor versions receive fixes
+    - Insecure configuration in a consuming cluster, such as disabling webhooks,
+      relaxing the provided RBAC, or running components with custom privileges
+    - Reports requiring pre-existing cluster-admin or equivalent privileged
+      access, since such access already permits the reported impact
 dependencies:
   third-party-packages: true
   dependencies-lists:
