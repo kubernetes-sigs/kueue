@@ -30,7 +30,7 @@
 
 Allow cluster admins to configure Kueue to promote specific Kubernetes
 labels or annotations from ClusterQueue, LocalQueue, Cohort, and Workload objects
-into Prometheus metric labels (with a mandatory `custom_` or `customworkload_` prefix),
+into Prometheus metric labels (with a mandatory `custom_` prefix),
 enabling filtering and aggregation by organizational metadata.
 
 ## Motivation
@@ -54,19 +54,28 @@ it easier to build dashboards and filter or aggregate metrics.
 
 ## Proposal
 
-Add `customLabels` and `customWorkloadLabels` lists to the `metrics` config section. Each entry
+Add `customLabels` lists to the `metrics` config section. Each entry
 has a `name` (used as the Prometheus label suffix after prepending
 `custom_`), and optionally a `sourceLabelKey` or `sourceAnnotationKey`
 to specify where to read the value from. If neither source field is
-set, `name` is used as the Kubernetes label key. At startup, Kueue
-validates the configuration and initializes ClusterQueue, LocalQueue,
+set, `name` is used as the Kubernetes label key. 
+
+Additionally, each label can have a list of `SourceKind` values defined,
+allowing to specify what type of object should the label be sourced from.
+Available kinds include: `Workload`, `ClusterQueue`, `LocalQueue` and `Cohort`.
+If `sourceKinds` is empty, the label will default to a list of: `ClusterQueue, LocalQueue, Cohort`.
+The list of `sourceKinds` cannot contain both `Workload` and `ClusterQueue` values,
+as some metrics can gather label values form both types at the same time.
+If any other combinations of `sourceKinds` are used at once by new metrics in the future,
+this restriction will have to be expanded.
+If a metric uses only `sourceKinds` not listed for a specific label,
+that label will be **omitted** by the metric and will not be added
+as an additional dimension to it.
+
+At startup, Kueue validates the configuration and initializes ClusterQueue, LocalQueue,
 and Cohort metric vectors with the additional label dimensions. When
 reporting metrics, the corresponding Kubernetes label or annotation
 values are included in the label set.
-
-`customWorkloadLabels` will be used by select metrics to provide a more granular data breakdown.
-Supported metrics will expand their labels roster with both `customLabels` and `customWorkloadLabels`.
-Values for the latter will be sourced from the reported workloads themselves.
 
 ### User Stories
 
@@ -89,8 +98,8 @@ is configured with `name: "cost_center"` and
 `custom_budget_code="ABC-123"` in metrics.
 
 **Admitted Active Workloads grouping by priority class.**
-A ClusterQueue configured with `customWorkloadLabels` containing 
-`name: "priority_class"` and `sourceLabelKey: "kueue.x-k8s.io/priority-class"`, 
+A ClusterQueue configured with a custom label
+`name: "priority_class"`, `sourceLabelKey: "kueue.x-k8s.io/priority-class"`, and `sourceKinds: ["Workload"]`,
 producing the `kueue_admitted_active_workloads` metric with a breakdown of workload counts by priority class.
 
 **Example configuration:**
@@ -105,9 +114,11 @@ metrics:
       sourceLabelKey: "cost-center"                       # reads from label "cost-center"
     - name: "budget_code"
       sourceAnnotationKey: "billing.company.com/budget"   # reads from annotation
-  customWorkloadLabels:
     - name: "priority_class"
       sourceLabelKey: "kueue.x-k8s.io/priority-class"     # reads from label "kueue.x-k8s.io/priority-class"
+      sourceKinds: [
+        "Workload"
+      ]
 ```
 
 Resulting metric:
@@ -118,7 +129,7 @@ kueue_admitted_active_workloads{
   custom_team="platform", custom_env="prod",
   custom_cost_center="12345",
   custom_budget_code="ABC-123",
-  customworkload_priority_class="high"} 10
+  custom_priority_class="high"} 10
 ```
 
 ### Risks and Mitigations
@@ -146,6 +157,15 @@ Extend `ControllerMetrics` in
 `apis/config/v1beta2/configuration_types.go`:
 
 ```go
+type SourceKind string
+
+const (
+	SourceKindCohort       SourceKind = "Cohort"
+	SourceKindLocalQueue   SourceKind = "LocalQueue"
+	SourceKindClusterQueue SourceKind = "ClusterQueue"
+	SourceKindWorkload     SourceKind = "Workload"
+)
+
 type ControllerMetricsCustomLabel struct {
     // Name is the Prometheus metric label name suffix.
     // Prepended with "custom_" (or "customworkload_" for workload labels)
@@ -164,6 +184,16 @@ type ControllerMetricsCustomLabel struct {
     // Mutually exclusive with SourceLabelKey.
     // +optional
     SourceAnnotationKey string `json:"sourceAnnotationKey,omitempty"`
+
+    // SourceKinds is a list of object kinds from which the label value should be sourced.
+    // If empty, the label will be enabled for: Cohort, LocalQueue, and ClusterQueue.
+    //
+    // +kubebuilder:default:="Cohort,LocalQueue,ClusterQueue"
+    // +kubebuilder:validation:Enum=Cohort;LocalQueue;ClusterQueue;Workload
+    // +kubebuilder:validation:UniqueItems=true
+    // +kubebuilder:validation:XValidation:rule="!('Workload' in self && 'ClusterQueue' in self)",message="cannot use the same label for both Workload and ClusterQueue as some metrics combine label values from both kinds"
+    // +optional
+    SourceKinds []SourceKind `json:"sourceKinds,omitempty"`
 }
 
 type ControllerMetrics struct {
@@ -175,19 +205,12 @@ type ControllerMetrics struct {
     // +optional
     // +kubebuilder:validation:MaxItems=8
     CustomLabels []ControllerMetricsCustomLabel `json:"customLabels,omitempty"`
-
-    // CustomWorkloadLabels is a list of entries whose values will be added as extra
-    // Prometheus labels on ClusterQueue, LocalQueue, and Cohort metrics.
-    // The values of these labels are meant to be sourced from workloads.
-    // +optional
-    // +kubebuilder:validation:MaxItems=8
-    CustomWorkloadLabels []ControllerMetricsCustomLabel `json:"customWorkloadLabels,omitempty"`
 }
 ```
 
 ### Label Name Validation
 
-Each `customLabels` and `customWorkloadLabels` entry is validated at startup:
+Each `customLabels` entry is validated at startup:
 
 1. `Name` must match `[a-zA-Z][a-zA-Z0-9_]*` (a valid Prometheus label
    suffix). After prepending `custom_`, the result matches the
@@ -206,7 +229,7 @@ Each `customLabels` and `customWorkloadLabels` entry is validated at startup:
 
 Validation runs at startup regardless of whether the
 `CustomMetricLabels` feature gate is enabled, so configuration errors
-are caught early. When `customLabels` or `customWorkloadLabels` are configured but the feature
+are caught early. When `customLabels` are configured but the feature
 gate is disabled, the controller logs a warning indicating that the
 configuration will have no effect until the gate is enabled.
 
@@ -235,18 +258,17 @@ Truly global metrics that have no object key are excluded:
 `AdmissionAttemptsTotal`, `admissionAttemptDuration`, and `buildInfo`.
 
 Some metrics that make sense to be broken down by workload attributes
-will support grouping of data by `customWorkloadLabels`, in addition to 
-`customLabels`.
-
+will support grouping of data by labels sourced form workload objects themselves.
 Example: `kueue_admitted_active_workloads` will provide a grouping
-not only by ClusterQueue labels, but also by Workload labels.
+not only by ClusterQueue labels, but also by Workload labels,
+when specified with `sourceKinds: ["Workload", ...]`.
 
 The full set of affected metrics is determined by the metric definitions
 in `pkg/metrics/metrics.go` at the time of implementation.
 
 ### Implementation Approach
 
-1. **Startup**: Read `customLabels` and `customWorkloadLabels`, validate, compute Prometheus names.
+1. **Startup**: Read `customLabels`, validate, compute Prometheus names.
 2. **Metric vector initialization**: Metric vectors are currently
    declared as package-level variables with `prometheus.NewXxxVec(...)`.
    Since the label set must include custom labels, the vectors need to
@@ -254,6 +276,12 @@ in `pkg/metrics/metrics.go` at the time of implementation.
    should remain in source so the metricsdoc generator can parse them,
    but the vectors must be reassigned with the extended label set before
    registration in `Register()`.
+   Metrics are initialized only with labels that match their `sourceKinds`,
+   as configured on a metric-by-metric basis.
+   For example: metrics that do not support workload-sourced
+   labels will ignore any label with `sourceKinds=[Workload]`.
+   Metrics that support cohorts on the other hand, will make use of
+   labels with `sourceKinds=[Workload, Cohort]`.
 3. **Reporting**: All `Report*` functions currently use positional
    `WithLabelValues(...)` and accept primitive parameters (strings,
    ints), not queue objects. Custom label values must be threaded
@@ -294,15 +322,15 @@ in `pkg/metrics/metrics.go` at the time of implementation.
    re-creating a series resets it to zero. This is expected; `rate()`
    and `increase()` handle counter resets correctly.
 
-   Metrics supporting `customWorkloadLabels` will be maintained
+   Metrics supporting workload-sourced labels will be maintained
    on the ClusterQueue, LocalQueue or Cohort level.
 
-   For all Workload labels specified via the `customWorkloadLabels`
-   config, the values of these labels will be automatically copied
-   from the owning GenericJob object to the Workload when the Workload
+   For all Workload labels specified in the config with `SourceKind`: `Workload`,
+   the values of these labels will be automatically copied
+   from the owning GenericJob object into the Workload when the Workload
    is created. This means workload labels used by the mechanism will be
    immutable once the workload is created. Breaking this convention will
-   lead to updated workloads being registered as "new entities"
+   lead to workloads with updated label values being registered as "new entities"
    from the metrics' perspective.
 
 ### Metrics Documentation Generator
