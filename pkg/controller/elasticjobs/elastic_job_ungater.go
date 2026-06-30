@@ -148,7 +148,9 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 			log.Error(e, "failed ungating elastic pod", "pod", klog.KObj(pod))
 			return e
 		}
-		if ungated {
+		if !ungated {
+			r.expectationsStore.ObservedUID(log, req.NamespacedName, pod.UID)
+		} else {
 			utilpod.RecordPodSchedulingGateRemovalSeconds(r.clock, kueue.ElasticJobSchedulingGate, wl, false)
 		}
 		return nil
