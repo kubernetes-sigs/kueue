@@ -325,7 +325,7 @@ in `pkg/metrics/metrics.go` at the time of implementation.
    For all workload labels specified in the config with `sourceKinds` containing `Workload`,
    the values of these labels will be automatically copied
    from the owning GenericJob object into the Workload when the Workload
-   is created. This means workload labels used by the mechanism will be
+   is created. This means workload labels used by the mechanism will be assumed to be
    immutable once the workload is created. Breaking this convention will
    lead to workloads with updated label values being registered as "new entities"
    from the metrics' perspective.
