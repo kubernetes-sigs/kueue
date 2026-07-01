@@ -376,6 +376,12 @@ const (
 	// disabled, the label-based identifiers are used instead.
 	WorkloadIdentifierAnnotations featuregate.Feature = "WorkloadIdentifierAnnotations"
 
+	// owner: @MatteoFari
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/11677
+	// Enables cleaning up ProvisioningRequests owned by an evicted Workload.
+	CleanupProvisioningRequestsOnEviction featuregate.Feature = "CleanupProvisioningRequestsOnEviction"
+
 	// owner: @tenzen-y
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/10659
@@ -586,6 +592,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	WorkloadIdentifierAnnotations: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	CleanupProvisioningRequestsOnEviction: {
+		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
 	},
 	TASHandleOverlappingFlavors: {
 		{Version: version.MustParse("0.16"), Default: false, PreRelease: featuregate.Alpha},
