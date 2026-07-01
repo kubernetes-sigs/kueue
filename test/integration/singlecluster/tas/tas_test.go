@@ -2107,8 +2107,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ginkgo.By("deleting the first assigned node: "+node1Name, func() {
 					nodeToDelete := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: node1Name}}
-					gomega.Expect(k8sClient.Delete(ctx, nodeToDelete)).Should(gomega.Succeed())
-					util.ExpectObjectToBeDeleted(ctx, k8sClient, nodeToDelete, false)
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, nodeToDelete, true)
 				})
 				ginkgo.By("deleting the second assigned node: "+node2Name, func() {
 					nodeToDelete := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: node2Name}}
