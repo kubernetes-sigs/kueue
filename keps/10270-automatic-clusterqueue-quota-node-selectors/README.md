@@ -381,8 +381,12 @@ type NodeQuotaPolicyTargetRef struct {
 // FlavorNodeQuotaPolicy defines how to compute nominalQuota for one flavor.
 type FlavorNodeQuotaPolicy struct {
     // flavorName references the ResourceFlavor whose nodeLabels are used as
-    // the base node selector. The referenced ResourceFlavor must define at
-    // least one nodeLabel; otherwise the controller marks the policy as invalid.
+    // the base node selector. A ResourceFlavor with no nodeLabels is allowed and
+    // matches all nodes (the "default flavor" case); its computed quota is then
+    // the sum of Allocatable across every matching node. Note that a match-all
+    // flavor also counts control-plane/unschedulable nodes unless they are
+    // filtered out (see node filtering); use headroom or per-resource rules to
+    // adjust if needed.
     // +required
     FlavorName ResourceFlavorReference `json:"flavorName"`
 
