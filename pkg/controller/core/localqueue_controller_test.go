@@ -568,6 +568,38 @@ func TestLocalQueueReconcile(t *testing.T) {
 				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
 			},
 		},
+		"AFS reconcile skips when cache is recent but status lacks AdmissionFairSharingStatus": {
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq-afs-skip").
+				Active(metav1.ConditionTrue).
+				Obj(),
+			localQueue: utiltestingapi.MakeLocalQueue("lq-afs-skip", "default").
+				ClusterQueue("cq-afs-skip").
+				Active(metav1.ConditionTrue).
+				FairSharing(&kueue.FairSharing{
+					Weight: ptr.To(resource.MustParse("1")),
+				}).
+				Obj(),
+			initialConsumedResources: queueafs.ConsumedResourcesEntry{
+				Resources: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("500m"),
+				},
+				// 1s ago: within the 5s sampling interval, so reconcile should skip.
+				LastUpdate: clock.Now().Add(-1 * time.Second),
+			},
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("lq-afs-skip", "default").
+				ClusterQueue("cq-afs-skip").
+				Active(metav1.ConditionTrue).
+				FairSharing(&kueue.FairSharing{
+					Weight: ptr.To(resource.MustParse("1")),
+				}).
+				Obj(),
+			// 5s interval - 1s elapsed = 4s remaining
+			wantRequeueAfter: ptr.To(4 * time.Second),
+			afsConfig: &config.AdmissionFairSharing{
+				UsageHalfLifeTime:     metav1.Duration{Duration: 60 * time.Second},
+				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Second},
+			},
+		},
 	}
 
 	for name, tc := range cases {
