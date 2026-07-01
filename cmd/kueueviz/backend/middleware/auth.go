@@ -94,6 +94,7 @@ func (a *Authenticator) Middleware() gin.HandlerFunc {
 		if cached, ok := a.cache.Get(key, now); ok {
 			if cached.authenticated {
 				c.Set("username", cached.username)
+				c.Set("token", token)
 				c.Next()
 				return
 			}
@@ -123,8 +124,34 @@ func (a *Authenticator) Middleware() gin.HandlerFunc {
 		}
 
 		c.Set("username", username)
+		c.Set("token", token)
 		c.Next()
 	}
+}
+
+// ValidateToken checks whether token is still valid using the cache and, if
+// the cache entry has expired, by issuing a fresh TokenReview against the
+// Kubernetes API. It returns true only when the token is authenticated.
+func (a *Authenticator) ValidateToken(ctx context.Context, token string) (bool, error) {
+	key := hashToken(token)
+	now := a.clock.Now()
+	if cached, ok := a.cache.Get(key, now); ok {
+		return cached.authenticated, nil
+	}
+	authenticated, username, err := a.reviewToken(ctx, token)
+	if err != nil {
+		return false, err
+	}
+	ttl := a.config.NegativeCacheTTL
+	if authenticated {
+		ttl = a.config.CacheTTL
+	}
+	a.cache.Set(key, cacheEntry{
+		authenticated: authenticated,
+		username:      username,
+		expiresAt:     now.Add(ttl),
+	})
+	return authenticated, nil
 }
 
 func (a *Authenticator) reviewToken(ctx context.Context, token string) (bool, string, error) {

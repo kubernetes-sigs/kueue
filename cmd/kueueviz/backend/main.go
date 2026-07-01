@@ -61,7 +61,7 @@ func main() {
 		Handler: r.Handler(),
 	}
 
-	h := handlers.New(handlers.NewClientFromManager(manager))
+	h := handlers.New(handlers.NewClientFromManager(manager), nil)
 
 	publicRoutes := r.Group("/")
 	handlers.InitializeUnauthenticatedRoutes(publicRoutes, serverConfig.AuthMode)
@@ -71,6 +71,7 @@ func main() {
 		slog.Info("Authentication enabled", "mode", serverConfig.AuthMode)
 		auth := middleware.NewAuthenticator(clientset, serverConfig.AuthConfig)
 		protectedRoutes.Use(auth.Middleware())
+		h = handlers.New(handlers.NewClientFromManager(manager), auth)
 	}
 
 	h.InitializeWebSocketRoutes(protectedRoutes)
