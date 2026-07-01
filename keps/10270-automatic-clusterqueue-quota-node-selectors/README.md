@@ -465,8 +465,15 @@ type NodeQuotaPolicyStatus struct {
     Conditions []metav1.Condition `json:"conditions,omitempty"`
 
     // computedQuotas reports the nominalQuota values most recently written to
-    // the target object, one entry per (flavor, resource) pair.
+    // the target object, one entry per (flavor, resource) pair. Entries are
+    // keyed by (flavorName, resourceName), giving a deterministic order and
+    // stable server-side-apply merge semantics so the status does not churn on
+    // every reconcile.
     // +optional
+    // +listType=map
+    // +listMapKey=flavorName
+    // +listMapKey=resourceName
+    // +kubebuilder:validation:MaxItems=256
     ComputedQuotas []ComputedFlavorQuota `json:"computedQuotas,omitempty"`
 }
 
