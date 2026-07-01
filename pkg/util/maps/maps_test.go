@@ -22,6 +22,10 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	corev1 "k8s.io/api/core/v1"
+
+	"k8s.io/apimachinery/pkg/api/resource"
+	r "sigs.k8s.io/kueue/pkg/util/resource"
 )
 
 func TestCopy(t *testing.T) {
@@ -288,6 +292,60 @@ func TestFilterKeys(t *testing.T) {
 			got := FilterKeys(tc.m, tc.k)
 			if diff := cmp.Diff(got, tc.want); diff != "" {
 				t.Errorf("Unexpected result, expecting %v", tc.want)
+			}
+		})
+	}
+}
+
+func TestGetAndUpdate(t *testing.T) {
+	add5CPU := corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("5")}
+	add3CPU := corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("3")}
+
+	cases := map[string]struct {
+		initial map[string]corev1.ResourceList
+		k       string
+		f       func(corev1.ResourceList) corev1.ResourceList
+		want    corev1.ResourceList
+	}{
+		"missing key is treated as empty ResourceList": {
+			initial: map[string]corev1.ResourceList{},
+			k:       "default/lq1",
+			f: func(existing corev1.ResourceList) corev1.ResourceList {
+				return r.MergeResourceListKeepSum(existing, add5CPU)
+			},
+			want: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("5")},
+		},
+		"existing key is accumulated": {
+			initial: map[string]corev1.ResourceList{
+				"default/lq1": {corev1.ResourceCPU: resource.MustParse("3")},
+			},
+			k: "default/lq1",
+			f: func(existing corev1.ResourceList) corev1.ResourceList {
+				return r.MergeResourceListKeepSum(existing, add5CPU)
+			},
+			want: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")},
+		},
+		"different key is not affected": {
+			initial: map[string]corev1.ResourceList{
+				"default/lq2": {corev1.ResourceCPU: resource.MustParse("3")},
+			},
+			k: "default/lq1",
+			f: func(existing corev1.ResourceList) corev1.ResourceList {
+				return r.MergeResourceListKeepSum(existing, add3CPU)
+			},
+			want: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("3")},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			syncMap := NewSyncMap[string, corev1.ResourceList](0)
+			for k, v := range tc.initial {
+				syncMap.Add(k, v)
+			}
+			syncMap.GetAndUpdate(tc.k, tc.f)
+			got, _ := syncMap.Get(tc.k)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("Unexpected result (-want,+got):\n%s", diff)
 			}
 		})
 	}
