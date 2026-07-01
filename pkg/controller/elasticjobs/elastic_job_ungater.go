@@ -207,18 +207,27 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 		}
 	}
 
+	log := ctrl.LoggerFrom(ctx)
 	var gated []*corev1.Pod
-	for ps, pods := range gatedPerPodSet {
+	for ps, candidates := range gatedPerPodSet {
 		room := granted[ps] - ungatedPerPodSet[ps]
-		if room <= 0 {
-			continue
+		var toUngate []*corev1.Pod
+		if room > 0 {
+			// Ungate the lowest-named pods first for deterministic behavior.
+			slices.SortFunc(candidates, func(a, b *corev1.Pod) int { return strings.Compare(a.Name, b.Name) })
+			toUngate = candidates
+			if int32(len(candidates)) > room {
+				toUngate = candidates[:room]
+			}
 		}
-		// Ungate the lowest-named pods first for deterministic behavior.
-		slices.SortFunc(pods, func(a, b *corev1.Pod) int { return strings.Compare(a.Name, b.Name) })
-		if int32(len(pods)) > room {
-			pods = pods[:room]
-		}
-		gated = append(gated, pods...)
+		log.V(4).Info("elastic ungating quota accounting for PodSet",
+			"podSet", ps,
+			"grantedCount", granted[ps],
+			"alreadyUngatedCount", ungatedPerPodSet[ps],
+			"gatedCount", len(candidates),
+			"ungatingCount", len(toUngate),
+		)
+		gated = append(gated, toUngate...)
 	}
 	return gated, nil
 }
