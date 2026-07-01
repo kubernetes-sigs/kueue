@@ -22,6 +22,9 @@ KUSTOMIZE_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}
 ENVTEST_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/controller-runtime/tools/setup-envtest)
 GOTESTSUM_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' gotest.tools/gotestsum)
 KIND_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/kind)
+KUBECTL_VERSION ?= v$(E2E_K8S_FULL_VERSION)
+KUBECTL_DOWNLOAD_RETRIES ?= 3
+KUBECTL_DOWNLOAD_TIMEOUT ?= 300
 YQ_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/mikefarah/yq/v4)
 HELM_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' helm.sh/helm/v4)
 HELM_UNITTEST_PLUGIN_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/helm-unittest/helm-unittest)
@@ -51,6 +54,7 @@ KUSTOMIZE = $(BIN_DIR)/kustomize
 GINKGO = $(BIN_DIR)/ginkgo
 GOTESTSUM = $(BIN_DIR)/gotestsum
 KIND = $(BIN_DIR)/kind
+KUBECTL = $(BIN_DIR)/kubectl
 ENVTEST = $(BIN_DIR)/setup-envtest
 YQ = $(BIN_DIR)/yq
 HELM = $(BIN_DIR)/helm
@@ -107,6 +111,28 @@ gotestsum: gomod-download-tools ## Download gotestsum locally if necessary.
 .PHONY: kind
 kind: gomod-download-tools ## Download kind locally if necessary.
 	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install sigs.k8s.io/kind@$(KIND_VERSION)
+
+.PHONY: kubectl
+kubectl: ## Download kubectl locally if necessary.
+	@echo "Downloading kubectl $(KUBECTL_VERSION) locally if necessary..."
+	@case "$$($(GO_CMD) env GOOS)/$$($(GO_CMD) env GOARCH)" in \
+		linux/amd64|linux/arm64|linux/ppc64le|linux/s390x|darwin/amd64|darwin/arm64) ;; \
+		*) echo "Unsupported kubectl platform: $$($(GO_CMD) env GOOS)/$$($(GO_CMD) env GOARCH)" >&2; exit 1 ;; \
+	esac
+	@command -v curl >/dev/null || { echo "curl is required to download kubectl" >&2; exit 1; }
+	@{ command -v sha256sum >/dev/null || command -v shasum >/dev/null; } || { echo "sha256sum or shasum is required to verify kubectl" >&2; exit 1; }
+	@tmp_dir=$$(mktemp -d); \
+	trap 'rm -rf "$$tmp_dir"' EXIT; \
+	kubectl_url="https://dl.k8s.io/release/$(KUBECTL_VERSION)/bin/$$($(GO_CMD) env GOOS)/$$($(GO_CMD) env GOARCH)/kubectl"; \
+	curl -fsSL --retry "$(KUBECTL_DOWNLOAD_RETRIES)" --retry-delay 2 --connect-timeout 10 --max-time "$(KUBECTL_DOWNLOAD_TIMEOUT)" -o "$$tmp_dir/kubectl" "$$kubectl_url"; \
+	curl -fsSL --retry "$(KUBECTL_DOWNLOAD_RETRIES)" --retry-delay 2 --connect-timeout 10 --max-time "$(KUBECTL_DOWNLOAD_TIMEOUT)" -o "$$tmp_dir/kubectl.sha256" "$$kubectl_url.sha256"; \
+	if command -v sha256sum >/dev/null; then \
+		(cd "$$tmp_dir" && echo "$$(cat kubectl.sha256)  kubectl" | sha256sum --check -); \
+	else \
+		(cd "$$tmp_dir" && echo "$$(cat kubectl.sha256)  kubectl" | shasum -a 256 --check -); \
+	fi; \
+	mkdir -p "$(BIN_DIR)"; \
+	install -m 0755 "$$tmp_dir/kubectl" "$(KUBECTL)"
 
 .PHONY: yq
 yq: gomod-download-tools ## Download yq locally if necessary.
