@@ -30,7 +30,8 @@
 
 Allow cluster admins to configure Kueue to promote specific Kubernetes
 labels or annotations from ClusterQueue, LocalQueue, Cohort, and Workload objects
-into Prometheus metric labels (with a mandatory `custom_` prefix),
+into Prometheus metric labels (with a mandatory `<sourcekind>_custom_` prefix,
+where `<sourcekind>` denotes the kind of object that will carry the value of the custom label),
 enabling filtering and aggregation by organizational metadata.
 
 ## Motivation
@@ -55,8 +56,8 @@ it easier to build dashboards and filter or aggregate metrics.
 ## Proposal
 
 Add a `customLabels` list to the `metrics` config section. Each entry
-has a `name` (used as the Prometheus label suffix after prepending
-`custom_`), and optionally a `sourceLabelKey` or `sourceAnnotationKey`
+has a `name` (used as the Prometheus label suffix after prepending the appropriate prefix),
+and optionally a `sourceLabelKey` or `sourceAnnotationKey`
 to specify where to read the value from. If neither source field is
 set, `name` is used as the Kubernetes label key. 
 
@@ -64,13 +65,13 @@ Additionally, each label can have a list of `SourceKind` values defined,
 allowing users to specify what type of object the label should be sourced from.
 Available kinds include: `Workload`, `ClusterQueue`, `LocalQueue`, and `Cohort`.
 If `sourceKinds` is empty, the label will default to `Cohort`, `LocalQueue`, and `ClusterQueue`.
-The list of `sourceKinds` cannot contain both `Workload` and `ClusterQueue` values,
-as some metrics can gather label values from both types at the same time.
-If other combinations of `sourceKinds` are used by new metrics in the future,
-this restriction will have to be expanded.
+
 If a metric uses only `sourceKinds` not listed for a specific label,
 that label will be **omitted** by the metric and will not be added
 as an additional dimension to it.
+
+Each label will be instantiated per `SourceKind` declared.
+To distinguish between them, their names will be adorned with the `<sourcekind>_custom_` prefix.
 
 At startup, Kueue validates the configuration and initializes ClusterQueue, LocalQueue,
 and Cohort metric vectors with the additional label dimensions. When
@@ -80,27 +81,47 @@ values are included in the label set.
 ### User Stories
 
 **Team aggregation.** A ClusterQueue labeled `team=platform` produces
-`custom_team="platform"` in metrics, enabling PromQL like
-`sum by (custom_team) (kueue_cluster_queue_resource_usage)`.
+`clusterqueue_custom_team="platform"` in metrics, enabling PromQL like
+`sum by (clusterqueue_custom_team) (kueue_cluster_queue_resource_usage)`.
 
 **Environment filtering.** A ClusterQueue labeled `env=prod` produces
-`custom_env="prod"`, allowing Grafana dashboards filtered by environment.
+`clusterqueue_custom_env="prod"`, allowing Grafana dashboards filtered by environment.
 
 **Cost center grouping.** A ClusterQueue labeled `cost-center=12345`
 is configured with `name: "cost_center"` and
 `sourceLabelKey: "cost-center"`, producing
-`custom_cost_center="12345"` in metrics.
+`clusterqueue_custom_cost_center="12345"` in metrics.
 
 **Annotation-based billing.** A ClusterQueue annotated with
 `billing.company.com/budget=ABC-123` is configured with
 `name: "budget_code"` and
 `sourceAnnotationKey: "billing.company.com/budget"`, producing
-`custom_budget_code="ABC-123"` in metrics.
+`clusterqueue_custom_budget_code="ABC-123"` in metrics.
 
 **Admitted Active Workloads grouping by priority class.**
-A ClusterQueue configured with a custom label
-`name: "priority_class"`, `sourceLabelKey: "kueue.x-k8s.io/priority-class"`, and `sourceKinds: ["Workload"]`,
-producing the `kueue_admitted_active_workloads` metric with a breakdown of workload counts by priority class.
+
+Custom labels configuration of:
+* `name: "team"`, `sourceKinds: ["clusterqueue"]`
+* `name: "priority_class"`, `sourceLabelKey: "kueue.x-k8s.io/priority-class"`, `sourceKinds: ["Workload"]`,
+resulting in the `kueue_admitted_active_workloads` metric with a breakdown of workload counts by priority class.
+
+Workloads with priority class High and Low, each admitted to the same ClusterQueue with `name=cq-1` and the labels `team=platform` produce:
+
+```
+kueue_admitted_active_workloads{
+  cluster_queue="cq-1",
+  ...
+  clusterqueue_custom_team="platform",
+  workload_custom_priority_class="high",
+} 1
+
+kueue_admitted_active_workloads{
+  cluster_queue="cq-1",
+  ...
+  clusterqueue_custom_team="platform",
+  workload_custom_priority_class="low",
+} 1
+```
 
 **Example configuration:**
 
@@ -126,10 +147,10 @@ Resulting metric:
 ```
 kueue_admitted_active_workloads{
   cluster_queue="cq-1", ...
-  custom_team="platform", custom_env="prod",
-  custom_cost_center="12345",
-  custom_budget_code="ABC-123",
-  custom_priority_class="high"} 10
+  clusterqueue_custom_team="platform", clusterqueue_custom_env="prod",
+  clusterqueue_custom_cost_center="12345",
+  clusterqueue_custom_budget_code="ABC-123",
+  workload_custom_priority_class="high"} 10
 ```
 
 ### Risks and Mitigations
@@ -142,8 +163,9 @@ creates a new series; the old one must be explicitly deleted (see
 stable metadata (team, environment, cost center) and avoid values that
 change frequently.
 
-**Name collisions.** The mandatory `custom_` prefix prevents collisions
-with current or future built-in labels.
+**Name collisions.** The mandatory `<sourcekind>_custom_` prefix prevents collisions
+with current or future built-in labels, as well as collisions between the same labels
+on different objects when gathering label values from multiple source kinds.
 
 **Stale metrics.** When a queue's label or annotation value changes,
 the old series persists until explicitly deleted. See
@@ -190,7 +212,6 @@ type ControllerMetricsCustomLabel struct {
     // +kubebuilder:default:={Cohort,LocalQueue,ClusterQueue}
     // +kubebuilder:validation:Enum=Cohort;LocalQueue;ClusterQueue;Workload
     // +kubebuilder:validation:UniqueItems=true
-    // +kubebuilder:validation:XValidation:rule="!('Workload' in self && 'ClusterQueue' in self)",message="cannot use the same label for both Workload and ClusterQueue as some metrics combine label values from both kinds"
     // +optional
     SourceKinds []SourceKind `json:"sourceKinds,omitempty"`
 }
