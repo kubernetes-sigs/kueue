@@ -667,27 +667,20 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	if !workload.IsAdmitted(&wl) {
 		var updated bool
 		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-			if features.Enabled(features.UnadmittedWorkloadsObservability) {
-				if !workload.HasQuotaReservation(wl) {
-					cqActive := cqOk && r.cache.ClusterQueueActive(cqName)
-					cond, err := r.resolveUnadmittedQuotaReservedCondition(ctx, wl, lqExists, lqActive, cqOk, cqActive, cq)
-					if err != nil {
-						return false, err
-					}
-					if cond != nil {
-						if apimeta.SetStatusCondition(&wl.Status.Conditions, *cond) {
-							updated = true
-						}
-					}
-					if wl.Status.Admission != nil {
-						wl.Status.Admission = nil
-						updated = true
-					}
+			if !workload.HasQuotaReservation(wl) {
+				cqActive := cqOk && r.cache.ClusterQueueActive(cqName)
+				var cond *metav1.Condition
+				var err error
+				if features.Enabled(features.UnadmittedWorkloadsObservability) {
+					cond, err = r.resolveUnadmittedQuotaReservedCondition(ctx, wl, lqExists, lqActive, cqOk, cqActive, cq)
+				} else {
+					cond = r.resolveLegacyUnadmittedQuotaReservedCondition(wl, lqExists, lqActive, cqOk, cqActive)
 				}
-				if workload.HasRejectedChecks(wl) {
-					rejectedChecks := workload.RejectedChecks(wl)
-					message := buildAdmissionChecksMessage(rejectedChecks, kueue.CheckStateRejected)
-					if workload.SetDeactivationTarget(wl, kueue.WorkloadEvictedByAdmissionCheck, message) {
+				if err != nil {
+					return false, err
+				}
+				if cond != nil {
+					if apimeta.SetStatusCondition(&wl.Status.Conditions, *cond) {
 						updated = true
 					}
 				}
@@ -699,12 +692,6 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		})
 		if err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
-		// If the observability feature gate is enabled and the workload has no quota reservation,
-		// we have already resolved and patched the granular conditions (e.g., missing or inactive
-		// queue) in the block above.
-		if features.Enabled(features.UnadmittedWorkloadsObservability) && !workload.HasQuotaReservation(&wl) {
-			return ctrl.Result{}, nil
 		}
 		isAdmitted := workload.IsAdmitted(&wl)
 		if isAdmitted {
@@ -774,41 +761,6 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			recheckAfter = max(podsReadyRecheckAfter, maxExecRecheckAfter)
 		}
 		return ctrl.Result{RequeueAfter: recheckAfter}, nil
-	}
-
-	switch {
-	case !lqExists:
-		log.V(3).Info("Workload is inadmissible because of missing LocalQueue", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)))
-		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-			reason := workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonMisconfigured, kueue.WorkloadInadmissible)
-			return workload.UnsetQuotaReservationWithCondition(wl, reason, fmt.Sprintf("LocalQueue %s doesn't exist", wl.Spec.QueueName), r.clock.Now()), nil
-		}); err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
-	case !lqActive:
-		log.V(3).Info("Workload is inadmissible because of stopped LocalQueue", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)))
-		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-			reason := workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonSuspended, kueue.WorkloadInadmissible)
-			return workload.UnsetQuotaReservationWithCondition(wl, reason, fmt.Sprintf("LocalQueue %s is inactive", wl.Spec.QueueName), r.clock.Now()), nil
-		}); err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
-	case !cqOk:
-		log.V(3).Info("Workload is inadmissible because of missing ClusterQueue", "clusterQueue", klog.KRef("", string(cqName)))
-		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-			reason := workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonMisconfigured, kueue.WorkloadInadmissible)
-			return workload.UnsetQuotaReservationWithCondition(wl, reason, fmt.Sprintf("ClusterQueue %s doesn't exist", cqName), r.clock.Now()), nil
-		}); err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
-	case !r.cache.ClusterQueueActive(cqName):
-		log.V(3).Info("Workload is inadmissible because ClusterQueue is inactive", "clusterQueue", klog.KRef("", string(cqName)))
-		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-			reason := workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonSuspended, kueue.WorkloadInadmissible)
-			return workload.UnsetQuotaReservationWithCondition(wl, reason, fmt.Sprintf("ClusterQueue %s is inactive", cqName), r.clock.Now()), nil
-		}); err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
 	}
 
 	return ctrl.Result{}, nil
@@ -1872,7 +1824,7 @@ func (r *WorkloadReconciler) resolveUnadmittedQuotaReservedCondition(
 		}
 		wlInfo := workload.NewInfo(wl)
 		admissibilityErr = workload.ValidateAdmissibility(ctx, r.client, wlInfo, selector)
-		if admissibilityErr != nil && errors.Is(admissibilityErr, workload.ErrAPI) {
+		if admissibilityErr != nil && errors.Is(admissibilityErr, workload.ErrInternal) {
 			return nil, admissibilityErr
 		}
 	}
@@ -1911,6 +1863,23 @@ func (r *WorkloadReconciler) resolveUnadmittedQuotaReservedCondition(
 			return nil, nil
 		}
 		return r.newQuotaReservedCondition(wl, kueue.WorkloadQuotaReservedReasonPendingEvaluation, "Workload is pending evaluation in the scheduling queue"), nil
+	}
+}
+
+func (r *WorkloadReconciler) resolveLegacyUnadmittedQuotaReservedCondition(wl *kueue.Workload, lqExists, lqActive, cqOk, cqActive bool) *metav1.Condition {
+	switch {
+	case !lqExists:
+		return r.newQuotaReservedCondition(wl, kueue.WorkloadInadmissible, fmt.Sprintf("LocalQueue %s doesn't exist", wl.Spec.QueueName))
+	case !lqActive:
+		return r.newQuotaReservedCondition(wl, kueue.WorkloadInadmissible, fmt.Sprintf("LocalQueue %s is inactive", wl.Spec.QueueName))
+	case !cqOk:
+		cqName, _ := r.queues.ClusterQueueForWorkload(wl)
+		return r.newQuotaReservedCondition(wl, kueue.WorkloadInadmissible, fmt.Sprintf("ClusterQueue %s doesn't exist", cqName))
+	case !cqActive:
+		cqName, _ := r.queues.ClusterQueueForWorkload(wl)
+		return r.newQuotaReservedCondition(wl, kueue.WorkloadInadmissible, fmt.Sprintf("ClusterQueue %s is inactive", cqName))
+	default:
+		return nil
 	}
 }
 
