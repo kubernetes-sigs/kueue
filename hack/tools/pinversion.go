@@ -27,6 +27,7 @@ import (
 	_ "github.com/mikefarah/yq/v4"
 	_ "github.com/norwoodj/helm-docs/cmd/helm-docs"
 	_ "github.com/onsi/ginkgo/v2/ginkgo"
+	_ "github.com/sigstore/cosign/v2/cmd/cosign"
 	_ "go.uber.org/mock/mockgen"
 	_ "gotest.tools/gotestsum"
 	_ "helm.sh/helm/v4/cmd/helm"

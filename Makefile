@@ -269,6 +269,22 @@ image-push: IMAGE_BUILD_CMD := $(IMAGE_PUSH_RETRY) $(IMAGE_BUILD_CMD)
 image-push: PUSH=--push
 image-push: image-build
 
+.PHONY: attest-images
+attest-images: cosign ## Generate SLSA provenance and attest staging images using Cosign.
+	@echo "Generating SLSA build provenance predicate..."
+	@echo '{"builder":{"id":"https://cloudbuild.googleapis.com/GoogleCloudBuild"},"buildType":"https://cloud.google.com/build/v1","invocation":{"configSource":{"uri":"git+https://github.com/kubernetes-sigs/kueue.git","entryPoint":"cloudbuild.yaml"},"parameters":{"commit_sha":"$(COMMIT_SHA)","build_id":"$(BUILD_ID)"}},"metadata":{"buildInvocationId":"$(BUILD_ID)"},"materials":[{"uri":"git+https://github.com/kubernetes-sigs/kueue.git","digest":{"sha1":"$(COMMIT_SHA)"}}]}' > slsa-predicate.json
+	@IMAGE_REGISTRY=$${IMAGE_REGISTRY:-us-central1-docker.pkg.dev/k8s-staging-images/kueue}; \
+	GIT_TAG=$${GIT_TAG:-0.0.0}; \
+	IMAGES="kueue kueueviz-backend kueueviz-frontend kueue-populator kueue-priority-booster importer debug"; \
+	for img in $$IMAGES; do \
+		echo "Attesting $${IMAGE_REGISTRY}/$$img:$${GIT_TAG} with SLSA provenance..."; \
+		"$(COSIGN)" attest --yes \
+			--type slsaprovenance \
+			--predicate slsa-predicate.json \
+			$${IMAGE_REGISTRY}/$$img:$${GIT_TAG} || exit 1; \
+	done
+	@rm -f slsa-predicate.json
+
 .PHONY: helm-chart-package
 helm-chart-package: yq helm ## Package a chart into a versioned chart archive file.
 	DEST_CHART_DIR=$(DEST_CHART_DIR) \
