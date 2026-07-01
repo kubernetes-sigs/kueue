@@ -754,25 +754,6 @@ writes directly. This mirrors VPA's recommendation-only (`updateMode: Off`) vs.
 auto modes. Exposing the proposed values and letting consumers diff against the
 live object is preferred over persisting a diff artifact that can go stale.
 
-### RBAC Requirements
-
-Kueue already has the necessary RBAC for Node watching:
-
-```go
-// +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
-```
-
-The `NodeQuotaPolicyReconciler` additionally needs patch access on ClusterQueue and Cohort, which existing Kueue controllers already have:
-
-```go
-// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=clusterqueues,verbs=get;list;watch;patch
-// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=cohorts,verbs=get;list;watch;patch
-// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=nodequotapolicies,verbs=get;list;watch;patch
-// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=nodequotapolicies/status,verbs=get;update;patch
-```
-
-No additional RBAC changes are needed beyond the new CRD's own verbs.
-
 ### Test Plan
 
 #### Prerequisite testing updates

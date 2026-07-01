@@ -2,6 +2,7 @@ title: Concurrent Admission
 kep-number: 10270
 authors:
   - "@gyliu513"
+  - "@andrewseif"
 status: implementable
 creation-date: 2026-04-23
 reviewers:
