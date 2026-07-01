@@ -602,6 +602,9 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 }
 
 func isRemoteSpecOutOfSync(local, remote kueue.WorkloadSpec) bool {
+	// Preemption gates should be treated independently on the remotes and manager,
+	// so any differences should not be considered as out-of-sync.
+	local.PreemptionGates = nil
 	remote.PreemptionGates = nil
 	return !equality.Semantic.DeepEqual(local, remote)
 }
@@ -1182,6 +1185,9 @@ func cloneForCreate(orig *kueue.Workload, origin string, preemptionGated bool) *
 	orig.Spec.DeepCopyInto(&remoteWl.Spec)
 
 	if features.Enabled(features.MultiKueueOrchestratedPreemption) && preemptionGated {
+		// Preemption gates should be treated independently on the remotes and manager,
+		// so we avoid copying them over to the remote.
+		remoteWl.Spec.PreemptionGates = nil
 		workload.EnsurePreemptionGateOnSpec(remoteWl, constants.MultiKueuePreemptionGate)
 	}
 

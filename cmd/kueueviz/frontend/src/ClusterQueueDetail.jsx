@@ -139,7 +139,7 @@ const ClusterQueueDetail = () => {
                   <React.Fragment key={`resourceGroup-${groupIndex}`}>
                     {group.flavors.map((flavor, flavorIndex) => (
                       <React.Fragment key={`${groupIndex}-${flavor.name}`}>
-                        {flavor.resources.map((resource, resourceIndex) => {
+                        {flavor.resources?.map((resource, resourceIndex) => {
                           const usageFlavor = clusterQueue.status?.flavorsUsage?.find(f => f.name === flavor.name);
                           const usageRes = usageFlavor?.resources?.find(r => r.name === resource.name);
                           const usageVal = toNumber(usageRes?.total);

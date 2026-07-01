@@ -17,37 +17,24 @@ limitations under the License.
 package testing
 
 import (
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
-// AdjustConditionsForDisabledObservability adjusts a slice of workload status conditions
-// to match the scenario when the UnadmittedWorkloadsObservability feature gate is disabled.
-// Specifically, it performs the following modifications:
-//  1. For queueing workloads (not evicted/preempted), it removes the false 'Admitted' condition
-//     entirely, as legacy Kueue left it absent during initial queueing.
-//  2. For evicted/preempted workloads, it keeps the false 'Admitted' condition but rolls back
-//     its reason from 'UnsatisfiedAdmissionChecks' to the legacy 'UnsatisfiedChecks'.
-//  3. Removes the false 'Admitted' condition if its reason is 'NoReservation'.
-//  4. Rolls back the reason of the 'QuotaReserved: False' condition to the generic "Pending".
-func AdjustConditionsForDisabledObservability(conditions []metav1.Condition) []metav1.Condition {
-	isEvicted := false
-	for _, cond := range conditions {
-		if (cond.Type == kueue.WorkloadEvicted || cond.Type == kueue.WorkloadPreempted) && cond.Status == metav1.ConditionTrue {
-			isEvicted = true
-			break
-		}
-	}
-
+// AdjustConditionsForDisabledObservabilityInWorkloadController adjusts a slice of workload status conditions
+// to match the scenario when the UnadmittedWorkloadsObservability feature gate is disabled,
+// specifically from the perspective of the workload controller.
+func AdjustConditionsForDisabledObservabilityInWorkloadController(conditions []metav1.Condition, wasAdmitted bool) []metav1.Condition {
 	var filtered []metav1.Condition
 	for _, cond := range conditions {
 		if cond.Type == kueue.WorkloadAdmitted && cond.Status == metav1.ConditionFalse {
-			if !isEvicted {
-				// In the queueing case, legacy Kueue never sets Admitted: False.
+			if !wasAdmitted {
+				// In legacy Kueue, if the workload was never admitted, we never write Admitted: False.
 				continue
 			}
-			if cond.Reason == kueue.WorkloadAdmittedReasonNoReservation {
+			if cond.Reason == kueue.WorkloadAdmittedReasonNoReservation || cond.Reason == "NoReservationUnsatisfiedChecks" {
 				continue
 			}
 			if cond.Reason == kueue.WorkloadAdmittedReasonUnsatisfiedAdmissionChecks {
@@ -55,19 +42,76 @@ func AdjustConditionsForDisabledObservability(conditions []metav1.Condition) []m
 			}
 		}
 		if cond.Type == kueue.WorkloadQuotaReserved && cond.Status == metav1.ConditionFalse {
-			cond.Reason = "Pending"
+			switch cond.Reason {
+			case kueue.WorkloadQuotaReservedReasonWaitingForPodsReady:
+				cond.Reason = "Waiting"
+			case kueue.WorkloadAdmissionGated:
+				// Keep as is
+			case kueue.WorkloadQuotaReservedReasonMisconfigured,
+				kueue.WorkloadQuotaReservedReasonSuspended,
+				kueue.WorkloadInadmissible:
+				cond.Reason = kueue.WorkloadInadmissible
+			default:
+				cond.Reason = "Pending"
+			}
 		}
 		filtered = append(filtered, cond)
 	}
 	return filtered
 }
 
-// AdjustWorkloadsForDisabledObservability adjusts the workload status conditions in-place for
+// AdjustWorkloadsForDisabledObservabilityInWorkloadController adjusts the workload status conditions in-place for
 // a slice of workloads, matching the scenario when the UnadmittedWorkloadsObservability
-// feature gate is disabled. It delegates the condition adjustments to AdjustConditionsForDisabledObservability.
-func AdjustWorkloadsForDisabledObservability(workloads []kueue.Workload) {
+// feature gate is disabled. It delegates the condition adjustments to AdjustConditionsForDisabledObservabilityInWorkloadController.
+func AdjustWorkloadsForDisabledObservabilityInWorkloadController(workloads []kueue.Workload) {
 	for i := range workloads {
 		wl := &workloads[i]
-		wl.Status.Conditions = AdjustConditionsForDisabledObservability(wl.Status.Conditions)
+		wasAdmitted := false
+		if cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted); cond != nil {
+			if cond.Status == metav1.ConditionTrue {
+				wasAdmitted = true
+			} else if cond.Reason != kueue.WorkloadAdmittedReasonNoReservation &&
+				cond.Reason != "NoReservationUnsatisfiedChecks" {
+				wasAdmitted = true
+			}
+		}
+		if !wasAdmitted && (apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) ||
+			apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished)) {
+			wasAdmitted = true
+		}
+		wl.Status.Conditions = AdjustConditionsForDisabledObservabilityInWorkloadController(wl.Status.Conditions, wasAdmitted)
+	}
+}
+
+// AdjustConditionsForDisabledObservabilityInScheduler adjusts a slice of workload status conditions
+// to match the scenario when the UnadmittedWorkloadsObservability feature gate is disabled,
+// specifically from the perspective of the scheduler.
+func AdjustConditionsForDisabledObservabilityInScheduler(conditions []metav1.Condition) []metav1.Condition {
+	var filtered []metav1.Condition
+	for _, cond := range conditions {
+		if cond.Type == kueue.WorkloadAdmitted && cond.Status == metav1.ConditionFalse {
+			// The scheduler never writes or manages Admitted: False.
+			continue
+		}
+		if cond.Type == kueue.WorkloadQuotaReserved && cond.Status == metav1.ConditionFalse {
+			switch cond.Reason {
+			case kueue.WorkloadQuotaReservedReasonWaitingForPodsReady:
+				cond.Reason = "Waiting"
+			default:
+				cond.Reason = "Pending"
+			}
+		}
+		filtered = append(filtered, cond)
+	}
+	return filtered
+}
+
+// AdjustWorkloadsForDisabledObservabilityInScheduler adjusts the workload status conditions in-place for
+// a slice of workloads, matching the scenario when the UnadmittedWorkloadsObservability
+// feature gate is disabled. It delegates the condition adjustments to AdjustConditionsForDisabledObservabilityInScheduler.
+func AdjustWorkloadsForDisabledObservabilityInScheduler(workloads []kueue.Workload) {
+	for i := range workloads {
+		wl := &workloads[i]
+		wl.Status.Conditions = AdjustConditionsForDisabledObservabilityInScheduler(wl.Status.Conditions)
 	}
 }

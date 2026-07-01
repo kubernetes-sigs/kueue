@@ -622,7 +622,7 @@ func TestScheduleForAFS(t *testing.T) {
 						wantWorkloads[i] = *tc.wantWorkloads[i].DeepCopy()
 					}
 					if !scenario[features.UnadmittedWorkloadsObservability] {
-						utiltesting.AdjustWorkloadsForDisabledObservability(wantWorkloads)
+						utiltesting.AdjustWorkloadsForDisabledObservabilityInScheduler(wantWorkloads)
 					}
 
 					clientBuilder := utiltesting.NewClientBuilder().

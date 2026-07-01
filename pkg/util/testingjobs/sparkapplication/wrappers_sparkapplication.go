@@ -103,6 +103,12 @@ func (w *SparkApplicationWrapper) Annotation(key, value string) *SparkApplicatio
 	return w
 }
 
+// NodeSelector sets the global nodeSelector on the SparkApplication.
+func (w *SparkApplicationWrapper) NodeSelector(s map[string]string) *SparkApplicationWrapper {
+	w.Spec.NodeSelector = s
+	return w
+}
+
 // DriverCoreRequest sets the driver core request.
 func (w *SparkApplicationWrapper) DriverCoreRequest(q string) *SparkApplicationWrapper {
 	w.Spec.Driver.CoreRequest = new(q)
