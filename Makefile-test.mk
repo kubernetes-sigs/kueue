@@ -89,6 +89,8 @@ else
 UNIT_TEST_PACKAGES := $(shell $(GO_CMD) list $(GO_TEST_TARGET)/... | grep -v '/test/')
 endif
 
+OPTIONAL_SHARD_SUFFIX = $(if $(UNIT_TOTAL_SHARDS),-shard-$(UNIT_SHARD_INDEX))
+
 ##@ Tests
 
 # Periodic builds are tested with full ray image
@@ -102,6 +104,7 @@ endif
 # Workaround until upstream Ray fixes protobuf 7.35+ compatibility (ray-project/ray#64362).
 FULLRAY_EXCLUDE := $(if $(filter "raymini",$(USE_RAY_FOR_TESTS)), && !requires:fullray)
 
+.PHONY: test
 test: gotestsum ## Run tests. Set UNIT_TOTAL_SHARDS and UNIT_SHARD_INDEX to run a specific shard.
 	mkdir -p $(ARTIFACTS)
 	TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) $(GOTESTSUM) --junitfile $(ARTIFACTS)/junit$(if $(UNIT_TOTAL_SHARDS),-shard-$(UNIT_SHARD_INDEX)).xml -- $(GOFLAGS) $(GO_TEST_FLAGS) $(UNIT_TEST_PACKAGES) -coverpkg=$(GO_TEST_TARGET)/... -coverprofile $(ARTIFACTS)/cover$(if $(UNIT_TOTAL_SHARDS),-shard-$(UNIT_SHARD_INDEX)).out
