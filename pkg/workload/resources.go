@@ -38,7 +38,7 @@ import (
 
 var (
 	PodSetsPath          = field.NewPath("spec").Child("podSets")
-	ErrNamespaceMismatch = errors.New("Workload namespace doesn't match ClusterQueue selector")
+	ErrNamespaceMismatch = errors.New("workload namespace doesn't match ClusterQueue selector")
 )
 
 const (
