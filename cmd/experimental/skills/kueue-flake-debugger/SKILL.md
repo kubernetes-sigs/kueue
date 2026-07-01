@@ -103,13 +103,34 @@ around the failed line. Read at least 100 lines before the failed line to unders
 
 Summarize your findings.
 
-### Step 7 - reason about the failure
+### Step 7 - (optional, for flakes) compare with a recent successful run
+
+If the failure has flake signatures — `Timed out after Xs`, intermittent failures, `gomega.Eventually` or `Consistently` near the failure point — and steps 1–6 haven't pinpointed the root cause, escalate by downloading a recent successful run of the same job and comparing it against the failed run.
+
+Skip this step for deterministic failures, panics, or tests newly introduced in the failing PR — comparison adds nothing when there is no historical baseline or when the failure mode is itself the bug.
+
+**Reorganize the layout first.** The reference docs below expect the failed run under `build-logs/failed/`, while steps 1–6 wrote to `build-logs/build-log.txt`. Move it once:
+
+```sh
+mkdir -p build-logs/failed
+mv build-logs/build-log.txt build-logs/failed/build-log.txt
+```
+
+**Find and download a successful run.** See [references/gathering-artifacts.md](references/gathering-artifacts.md) for the `prow.k8s.io/job-history` query and the download layout under `build-logs/success/`.
+
+**Compare the two runs along STEP timings, controller events, and resource lifecycle.** See [references/comparing-runs.md](references/comparing-runs.md) for the procedure and the side-by-side findings table format.
+
+Then return here for steps 8 and 9.
+
+### Step 8 - reason about the failure
 
 Now, think about the possible reason for the failure. Combine the findings from
 all the previous steps.
 
-### Step 8 - recommendations and final summary
+### Step 9 - recommendations and final summary
 
 Suggest recommendations to fix.
 
 In the final summary when you are making a statement, you must back that statement up with evidence and citations. The citations could be a log file, a source code file, documentation etc. When citing file you should include it in human readable way, to make verification of your claims quick and easy, for e.g. filepath:linenumber. For every point, when evidence available, provide a link (clickable when rendered in markdown) to the log file supporting the claim.
+
+For a structured analysis write-up — including a plain-English explanation, a side-by-side comparison table, the original test author's intent, PRs/issues inspected, and alternatives considered — follow [ANALYSIS_TEMPLATE.md](ANALYSIS_TEMPLATE.md).
