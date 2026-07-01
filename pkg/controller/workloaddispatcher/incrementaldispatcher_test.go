@@ -61,7 +61,7 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 	}{
 		"workload not found": {
 			workload: nil,
-			wantErr:  apierrors.NewNotFound(schema.GroupResource{Group: kueue.GroupVersion.Group, Resource: "workloads"}, workloadName),
+			wantErr:  apierrors.NewNotFound(schema.GroupResource{Group: kueue.SchemeGroupVersion.Group, Resource: "workloads"}, workloadName),
 		},
 		"workload deleted": {
 			workload: baseWorkload.Clone().DeletionTimestamp(now).Finalizers("kubernetes").Obj(),
@@ -127,7 +127,7 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 				tc.workload.Status.AdmissionChecks = []kueue.AdmissionCheckState{*tc.mkAcState}
 				ac := utiltestingapi.MakeAdmissionCheck(string(tc.mkAcState.Name)).
 					ControllerName(kueue.MultiKueueControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", string(tc.mkAcState.Name)).
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", string(tc.mkAcState.Name)).
 					Obj()
 
 				objs = append(objs, ac)

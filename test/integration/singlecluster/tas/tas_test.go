@@ -4011,7 +4011,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ac = utiltestingapi.MakeAdmissionCheck("provisioning").
 					ControllerName(kueue.ProvisioningRequestControllerName).
-					Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", prc.Name).
+					Parameters(kueue.SchemeGroupVersion.Group, "ProvisioningRequestConfig", prc.Name).
 					Obj()
 				util.MustCreate(ctx, k8sClient, ac)
 				util.SetAdmissionCheckActive(ctx, k8sClient, ac, metav1.ConditionTrue)

@@ -186,8 +186,8 @@ func newClientWithWatch(ctx context.Context, config *clientConfig, options clien
 	}
 
 	cachedKinds := sets.New(
-		kueue.GroupVersion.WithKind("ClusterQueue").GroupKind(),
-		kueue.GroupVersion.WithKind("LocalQueue").GroupKind(),
+		kueue.SchemeGroupVersion.WithKind("ClusterQueue").GroupKind(),
+		kueue.SchemeGroupVersion.WithKind("LocalQueue").GroupKind(),
 	)
 
 	indexOpts := []CacheIndexOption{
@@ -270,7 +270,7 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 
 	rc.setClient(remoteClient)
 
-	err = rc.startWatcher(watchCtx, kueue.GroupVersion.WithKind("Workload").GroupKind().String(), &workloadKueueWatcher{})
+	err = rc.startWatcher(watchCtx, kueue.SchemeGroupVersion.WithKind("Workload").GroupKind().String(), &workloadKueueWatcher{})
 	if err != nil {
 		return rc.increaseFailedConnAttempt(), err
 	}
