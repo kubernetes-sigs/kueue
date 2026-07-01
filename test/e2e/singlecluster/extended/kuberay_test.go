@@ -137,7 +137,12 @@ var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:k
 		cq = utiltestingapi.MakeClusterQueue(clusterQueueName).
 			ResourceGroup(
 				*utiltestingapi.MakeFlavorQuotas(rf.Name).
-					Resource(corev1.ResourceCPU, "3").
+					// Head + workers, plus 500m for the autoscaler sidecar that
+					// BuildPodSets accounts for on in-tree-autoscaling clusters,
+					// with enough headroom for the multi-step scale-up test to
+					// reach 5 running workers (head 1 + sidecar 500m + submitter
+					// 400m + 5x400m workers = 3.9 CPU).
+					Resource(corev1.ResourceCPU, "4").
 					Resource(corev1.ResourceMemory, "2Gi").Obj()).
 			Obj()
 		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
