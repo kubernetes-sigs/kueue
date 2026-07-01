@@ -24,8 +24,7 @@
   - [Single Static Label](#single-static-label)
   - [Numbered Static Labels](#numbered-static-labels)
   - [Configurable with Override Name](#configurable-with-override-name)
-  - [Hard Source Kind Priority](#hard-source-kind-priority)
-  - [Soft Source Kind Priority](#soft-source-kind-priority)
+  - [Source Kind Priority](#source-kind-priority)
   - [Skip incompatible Metrics/Labels/Entries](#skip-incompatible-metricslabelsentries)
 <!-- /toc -->
 
@@ -541,12 +540,14 @@ use partial matching of label sets, as some values could have been overridden.
 
 This makes it significantly harder to perform updates triggered by Lower Priority
 Objects, if the exact set of labels of the related Higher Priority Objects is not
-known.
-
-Conversely, it makes it significantly harder to create new metrics using custom
+known. Conversely, it makes it significantly harder to create new metrics using custom
 labels depending on the proposed ordering of the priorities list, especially if
 it were made to be configurable.
 
+Another issue is that this variant also abstracts away the label conflicts we
+encounter, silencing them instead of vocalizing. Introducing any ways of
+disambiguating what the conflicts are specifically would still require adding
+the `sourceKinds` field, defeating the major advantage of this proposal.
 
 ### Skip incompatible Metrics/Labels/Entries
 
