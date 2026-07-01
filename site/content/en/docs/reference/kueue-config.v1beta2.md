@@ -1357,6 +1357,16 @@ Values are from tls package constants (https://golang.org/pkg/crypto/tls/#pkg-co
 The default would be to not set this value and inherit golang settings.</p>
 </td>
 </tr>
+<tr><td><code>curvePreferences</code><br/>
+<code>[]int32</code>
+</td>
+<td>
+   <p>curvePreferences is the list of allowed TLS key exchange mechanisms (curves)
+for the server, specified as numeric IANA TLS Supported Group IDs.
+See https://pkg.go.dev/crypto/tls#CurveID for values supported by the current Go version.
+If omitted, Go defaults are used.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
