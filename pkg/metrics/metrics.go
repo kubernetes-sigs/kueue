@@ -89,6 +89,10 @@ var (
 	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",status="status label (varies by metric)",replica_role="one of `leader`, `follower`, or `standalone`"
 	PendingWorkloads *prometheus.GaugeVec
 
+	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",status="status label (varies by metric)",replica_role="one of `leader`, `follower`, or `standalone`"
+	PendingSchedulingHashes *prometheus.GaugeVec
+
 	// +metricsdoc:group=localqueue
 	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",status="status label (varies by metric)",replica_role="one of `leader`, `follower`, or `standalone`"
 	LocalQueuePendingWorkloads *prometheus.GaugeVec
@@ -382,6 +386,18 @@ The label 'result' can have the following values:
 		}, append([]string{"cluster_queue", "status", "replica_role"}, extraLabels...),
 	)
 	trackGaugeVec(PendingWorkloads, gaugeCleanupScopeClusterQueue)
+
+	PendingSchedulingHashes = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "pending_scheduling_hashes",
+			Help: `The number of unique pending scheduling equivalence hashes, per 'cluster_queue' and 'status'.
+'status' can have the following values:
+- "active" means that the workloads are in the admission queue.
+- "inadmissible" means there was a failed admission attempt for these workloads and they won't be retried until cluster conditions, which could make this workload admissible, change`,
+		}, append([]string{"cluster_queue", "status", "replica_role"}, extraLabels...),
+	)
+	trackGaugeVec(PendingSchedulingHashes, gaugeCleanupScopeClusterQueue)
 
 	LocalQueuePendingWorkloads = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -1026,6 +1042,17 @@ func ReportPendingWorkloads(cqName kueue.ClusterQueueReference, active, inadmiss
 	PendingWorkloads.WithLabelValues(inadmissibleLabels...).Set(float64(inadmissible))
 }
 
+func ReportPendingSchedulingHashes(cqName kueue.ClusterQueueReference, active, inadmissible int, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	if !features.Enabled(features.SchedulingEquivalenceHashing) {
+		return
+	}
+	role := roletracker.GetRole(tracker)
+	activeLabels := append([]string{string(cqName), PendingStatusActive, role}, customLabelValues...)
+	inadmissibleLabels := append([]string{string(cqName), PendingStatusInadmissible, role}, customLabelValues...)
+	PendingSchedulingHashes.WithLabelValues(activeLabels...).Set(float64(active))
+	PendingSchedulingHashes.WithLabelValues(inadmissibleLabels...).Set(float64(inadmissible))
+}
+
 // ReportWorkloadEvictionLatency records latency from eviction (WorkloadEvicted True) until the workload returns to Pending (quota released).
 func ReportWorkloadEvictionLatency(cqName kueue.ClusterQueueReference, reason string, latency time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	labels := append([]string{string(cqName), reason, roletracker.GetRole(tracker)}, customLabelValues...)
@@ -1392,6 +1419,7 @@ func Register() {
 		admissionAttemptDuration,
 		AdmissionCyclePreemptionSkips,
 		PendingWorkloads,
+		PendingSchedulingHashes,
 		FinishedWorkloads,
 		QuotaReservedWorkloadsTotal,
 		FinishedWorkloadsTotal,

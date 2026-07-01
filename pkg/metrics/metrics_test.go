@@ -26,6 +26,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	"sigs.k8s.io/kueue/pkg/version"
@@ -69,6 +70,37 @@ func TestReportAndCleanupClusterQueuePendingResources(t *testing.T) {
 	expectFilteredMetricsCount(t, ClusterQueueResourcePending, 1, "cluster_queue", cqName)
 	ClearClusterQueueMetrics(cqName)
 	expectFilteredMetricsCount(t, ClusterQueueResourcePending, 0, "cluster_queue", cqName)
+}
+
+func TestReportAndCleanupPendingSchedulingHashes(t *testing.T) {
+	const cqName = "cq-pending-hashes"
+
+	features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
+
+	ReportPendingSchedulingHashes(cqName, 3, 1, nil, nil)
+
+	expectFilteredMetricsCount(t, PendingSchedulingHashes, 2, "cluster_queue", cqName)
+	gotActive := testutil.ToFloat64(PendingSchedulingHashes.WithLabelValues(cqName, PendingStatusActive, roletracker.RoleStandalone))
+	if gotActive != 3 {
+		t.Fatalf("PendingSchedulingHashes active = %v, want 3", gotActive)
+	}
+	gotInadmissible := testutil.ToFloat64(PendingSchedulingHashes.WithLabelValues(cqName, PendingStatusInadmissible, roletracker.RoleStandalone))
+	if gotInadmissible != 1 {
+		t.Fatalf("PendingSchedulingHashes inadmissible = %v, want 1", gotInadmissible)
+	}
+
+	ClearClusterQueueMetrics(cqName)
+	expectFilteredMetricsCount(t, PendingSchedulingHashes, 0, "cluster_queue", cqName)
+}
+
+func TestReportPendingSchedulingHashesFeatureGateDisabled(t *testing.T) {
+	const cqName = "cq-pending-hashes-gated"
+
+	features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, false)
+
+	ReportPendingSchedulingHashes(cqName, 3, 1, nil, nil)
+
+	expectFilteredMetricsCount(t, PendingSchedulingHashes, 0, "cluster_queue", cqName)
 }
 
 func TestReportAndCleanupClusterQueueMetrics(t *testing.T) {

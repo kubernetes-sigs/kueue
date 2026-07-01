@@ -1527,6 +1527,70 @@ func TestPushOrUpdateRespectsInadmissibleHashes(t *testing.T) {
 	}
 }
 
+func TestPendingSchedulingHashes(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+	now := time.Now()
+	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
+
+	makeInfo := func(name, hash string) *workload.Info {
+		info := workload.NewInfo(utiltestingapi.MakeWorkload(name, defaultNamespace).
+			Creation(now).
+			Request(corev1.ResourceCPU, "1").
+			Obj())
+		info.SchedulingHash = hash
+		return info
+	}
+
+	cq.PushOrUpdate(makeInfo("active-a", "hash-a"))
+	cq.PushOrUpdate(makeInfo("active-b", "hash-b"))
+	cq.PushOrUpdate(makeInfo("active-unknown", workload.SchedulingHashUnknown))
+	cq.PushOrUpdate(makeInfo("active-empty", ""))
+
+	if popped := cq.Pop(); popped == nil {
+		t.Fatal("expected one workload to be inflight")
+	}
+
+	inadmissibleDuplicate := makeInfo("inadmissible-b", "hash-b")
+	cq.insertInadmissible(workloadKey(inadmissibleDuplicate), inadmissibleDuplicate)
+	inadmissibleC := makeInfo("inadmissible-c", "hash-c")
+	cq.insertInadmissible(workloadKey(inadmissibleC), inadmissibleC)
+	inadmissibleUnknown := makeInfo("inadmissible-unknown", workload.SchedulingHashUnknown)
+	cq.insertInadmissible(workloadKey(inadmissibleUnknown), inadmissibleUnknown)
+
+	active, inadmissible := cq.PendingSchedulingHashes()
+	if active != 2 {
+		t.Errorf("PendingSchedulingHashes() active = %d, want 2", active)
+	}
+	if inadmissible != 2 {
+		t.Errorf("PendingSchedulingHashes() inadmissible = %d, want 2", inadmissible)
+	}
+}
+
+func TestPendingSchedulingHashesFeatureGateDisabled(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, false)
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+	now := time.Now()
+	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
+
+	info := workload.NewInfo(utiltestingapi.MakeWorkload("active", defaultNamespace).
+		Creation(now).
+		Request(corev1.ResourceCPU, "1").
+		Obj())
+	info.SchedulingHash = "hash-a"
+	cq.PushOrUpdate(info)
+
+	active, inadmissible := cq.PendingSchedulingHashes()
+	if active != 0 {
+		t.Errorf("PendingSchedulingHashes() active = %d, want 0", active)
+	}
+	if inadmissible != 0 {
+		t.Errorf("PendingSchedulingHashes() inadmissible = %d, want 0", inadmissible)
+	}
+}
+
 func TestQueueInadmissibleWorkloadsClearsHashes(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()))

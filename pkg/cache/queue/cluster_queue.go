@@ -608,6 +608,37 @@ func (c *ClusterQueue) Pending() (int, int) {
 	return c.pendingActive(), c.pendingInadmissible()
 }
 
+// PendingSchedulingHashes returns the number of unique known scheduling hashes
+// for active and inadmissible pending workloads.
+func (c *ClusterQueue) PendingSchedulingHashes() (int, int) {
+	if !features.Enabled(features.SchedulingEquivalenceHashing) {
+		return 0, 0
+	}
+	c.rwm.RLock()
+	defer c.rwm.RUnlock()
+	return c.pendingSchedulingHashes()
+}
+
+func (c *ClusterQueue) pendingSchedulingHashes() (int, int) {
+	activeHashes := sets.New[string]()
+	inadmissibleHashes := sets.New[string]()
+	add := func(hashes sets.Set[string], wInfo *workload.Info) {
+		if wInfo.SchedulingHash != "" && wInfo.SchedulingHash != workload.SchedulingHashUnknown {
+			hashes.Insert(wInfo.SchedulingHash)
+		}
+	}
+	for _, wInfo := range c.heap.List() {
+		add(activeHashes, wInfo)
+	}
+	if c.inflight != nil {
+		add(activeHashes, c.inflight)
+	}
+	for _, wInfo := range c.inadmissibleWorkloads {
+		add(inadmissibleHashes, wInfo)
+	}
+	return activeHashes.Len(), inadmissibleHashes.Len()
+}
+
 // pendingActive returns the number of active pending workloads,
 // workloads that are in the admission queue.
 func (c *ClusterQueue) pendingActive() int {
