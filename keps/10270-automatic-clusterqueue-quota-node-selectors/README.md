@@ -299,7 +299,7 @@ spec:
 
 - **Separation of concerns**: `NodeQuotaPolicy` owns the computation logic; ClusterQueue and Cohort own only the quota value. This mirrors the kubelet pattern where `node.Status.Allocatable` is computed externally and written into the Node object — the Node schema does not embed the computation.
 - **Headroom and Allocatable**: `node.Status.Allocatable` already equals total node capacity minus kubelet's `kube-reserved` and `system-reserved`, so those system reservations are implicitly handled. The `headroom` field is for DaemonSets and other non-Kueue pods that consume node resources beyond what kubelet reserves.
-- **Cohort + CQ NodeQuotaPolicy overlap**: A Cohort and a CQ within it may each be targeted by a `NodeQuotaPolicy` only if their respective ResourceFlavors' effective node sets (after label intersection) are **disjoint**. Overlapping node sets cause double-counting. Beta will add validation warnings for overlapping selectors.
+- **Cohort + CQ NodeQuotaPolicy overlap**: A Cohort and a CQ within it may each be targeted by a `NodeQuotaPolicy` only if their respective ResourceFlavors' effective node sets (after label intersection) are **disjoint**; overlapping node sets double-count physical capacity. In Alpha this cannot arise between two policies that target different ResourceFlavors, because flavors are already expected to select disjoint nodes — so there is effectively no new overlap surface. The surface appears in Beta, where `flavorPolicy.nodeLabels` can sub-select within a shared flavor. Detection is reactive, not a webhook check: on overlap the controller sets `Ready=False` with reason `OverlappingNodeSet` on the affected policies and withholds the quota write (keeping the last-known-good value) rather than silently over-provisioning.
 - **Node readiness filtering**: By default only Nodes with condition `Ready=True` are counted. The `includeNotReady` field in `FlavorNodeQuotaPolicy` can override this.
 - **Rate limiting**: The controller aggregates node events and re-computes quotas at a bounded frequency (e.g., every 15 seconds) to avoid excessive API writes to ClusterQueue or Cohort.
 - **Feature gate**: This feature is gated behind `AutomaticQuotaFromNodes` (disabled by default in Alpha).
@@ -309,7 +309,7 @@ spec:
 
 - **Stale quota if Node watch is delayed**: Kueue already relies on informer caches for correctness. Risk is no different from existing Workload/Pod watches.
 - **Resource churn causing frequent quota updates**: Mitigation: batch node events with a bounded reconciliation interval (e.g., 15 seconds). Only write to the target object when the computed quota actually changes.
-- **Conflicting selectors across ClusterQueues or between Cohort and CQ**: Overlapping node sets lead to over-committed quotas, same as manually overlapping quotas today. Beta will add validation warnings.
+- **Conflicting selectors across ClusterQueues or between Cohort and CQ**: Overlapping effective node sets lead to over-committed quotas, same as manually overlapping quotas today. The controller detects this at reconcile and sets `Ready=False`/`OverlappingNodeSet` on the affected policies while withholding the write, instead of silently over-provisioning (Beta; the Alpha node set is the whole flavor, which is already expected to be disjoint).
 - **Concurrent writes**: If an administrator manually edits `nominalQuota` on a CQ that is managed by a `NodeQuotaPolicy`, the controller will overwrite it on the next reconcile. This is the same behavior as HPA overwriting `spec.replicas`. Administrators should be aware that managed fields are authoritative in `NodeQuotaPolicy`, not in the CQ.
 - **Security**: The controller needs `get`, `list`, `watch` on Nodes and `patch` on ClusterQueues and Cohorts. Node watching is already granted to Kueue for TAS. Patch on ClusterQueue/Cohort is already granted for existing controllers. No additional RBAC changes are needed.
 
@@ -559,14 +559,22 @@ The Kueue scheduler continues to read `nominalQuota` from the CQ or Cohort spec 
 
 #### Validation Rules (Alpha)
 
-Enforced by the `NodeQuotaPolicy` admission webhook:
+Static, single-object checks are enforced by the `NodeQuotaPolicy` admission webhook:
 
-- `targetRef.kind` must be `ClusterQueue` or `Cohort`.
-- `flavorPolicies` must not contain duplicate `flavorName` entries.
-- The referenced ResourceFlavor (via `flavorName`) must define at least one `nodeLabel`; otherwise the webhook returns a validation error since there is no node selector to work with.
-- Within `headroom`, at most one of `percentage` or `fixed` may be set (enforced by CEL rule on the struct).
-- `nodeLabels` (Beta field) must be empty in Alpha; the webhook rejects it if the `AutomaticQuotaFromNodes` feature gate is not at Beta or later.
-- Only one `NodeQuotaPolicy` may target a given `(kind, name)` pair. The webhook rejects creation of a second policy that conflicts with an existing one.
+- `targetRef.kind` must be `ClusterQueue` or `Cohort` (enum).
+- `flavorPolicies` must not contain duplicate `flavorName` entries (already enforced by the `+listMapKey=flavorName` list-map semantics).
+- Within each `resources[]` rule, at most one of `nominalQuota`, `fixedHeadroom`, or `percentageHeadroom` may be set (CEL rule on the struct).
+- `nodeLabels` (Beta field) must be empty in Alpha; the webhook rejects it unless the `AutomaticQuotaFromNodes` feature gate is at Beta or later.
+
+Cross-object and cluster-state-dependent checks are **not** done in the webhook — they depend on other objects (ResourceFlavors, the target's spec, other policies) or live Node state, which a webhook cannot gate soundly, since the referenced object may be created or change moments later. (This mirrors how a ClusterQueue referencing a missing flavor is handled by the controller as `Active=False`/`FlavorNotFound`, not rejected at admission.) Instead the controller detects them at reconcile and reports them on `NodeQuotaPolicy.status.conditions`:
+
+- **`FlavorNotFound`** — a referenced `flavorName` has no matching ResourceFlavor. *Fatal*: withhold writes, set `Ready=False`, and re-reconcile when the flavor appears.
+- **`FlavorNotInTarget`** — the flavor exists but is not used by the target's `resourceGroups`. *Non-fatal*: per the intersection rule these pairs are a no-op; write the valid flavors and report the dangling one.
+- **`ResourceNotCovered`** — a `resources[]` rule names a resource the target does not cover. *Non-fatal*: skip that resource, write the covered ones, and report.
+- **`DuplicateTarget`** — another `NodeQuotaPolicy` already targets the same `(kind, name)`. The later policy sets `Ready=False` and withholds writes. (Handled here rather than in the webhook, which would otherwise have to list all policies.)
+- **`OverlappingNodeSet`** — (Beta) another policy's effective node set overlaps this one's for the same flavor; see [Notes/Constraints/Caveats](#notesconstraintscaveats).
+
+In short: *fatal* reasons (the policy cannot compute a value) withhold all of the policy's writes; *non-fatal* reasons (a dangling or no-op entry) still apply the valid `(flavor, resource)` pairs and surface the offending entry in the condition message.
 
 #### Status Reporting
 
@@ -661,7 +669,7 @@ If a key appears in both `RF.nodeLabels` and `NQP flavorPolicy.nodeLabels` with 
 
 - `nodeLabels` in `FlavorNodeQuotaPolicy` requires the `AutomaticQuotaFromNodes` feature gate at Beta or later.
 - A warning condition is emitted on `NodeQuotaPolicy` when the intersection of `RF.nodeLabels` and `flavorPolicy.nodeLabels` produces an empty node set.
-- Beta adds conflict detection: if two `NodeQuotaPolicy` objects targeting different CQs or Cohorts within the same Cohort tree have overlapping effective node sets for the same flavor, a warning condition is emitted on both policies (double-counting risk).
+- Beta adds conflict detection: if two `NodeQuotaPolicy` objects targeting different CQs or Cohorts within the same Cohort tree have overlapping effective node sets for the same flavor, the controller sets `Ready=False` with reason `OverlappingNodeSet` on both policies and withholds their writes (double-counting risk).
 
 ### Controller Design
 
@@ -810,7 +818,7 @@ Existing unit tests for `resourceNode.available()` and `potentialAvailable()` sh
 - Feature gate default enabled.
 - `flavorPolicy.nodeLabels` field active for fine-grained intersection-based node selection.
 - Intersection semantics implemented, tested, and documented.
-- Conflict detection warnings for overlapping node sets across policies in the same Cohort tree.
+- Conflict detection for overlapping node sets across policies in the same Cohort tree (`OverlappingNodeSet` condition with the write withheld).
 - Metrics:
   - `kueue_node_quota_policy_computed_quota` (gauge): current `nominalQuota` per policy/flavor/resource.
   - `kueue_node_quota_policy_reconcile_duration_seconds` (histogram): reconcile latency per policy.
