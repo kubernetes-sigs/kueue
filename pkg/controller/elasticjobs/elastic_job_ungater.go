@@ -170,7 +170,7 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 		if !ungated {
 			r.expectationsStore.ObservedUID(log, req.NamespacedName, pod.UID)
 		} else {
-			utilpod.RecordPodSchedulingGateRemovalSeconds(r.clock, kueue.ElasticJobSchedulingGate, wl, false)
+			utilpod.RecordPodSchedulingGateRemovalSeconds(r.clock, kueue.ElasticJobSchedulingGate, active, false)
 		}
 		return nil
 	})

@@ -670,6 +670,7 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl", corev1.NamespaceDefault).Finalizers(kueue.ResourceInUseFinalizerName).
 					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					ControllerReference(rayClusterGVK, "ray", "ray-uid").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission(cqName).
@@ -711,6 +712,9 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 			}
 			if err := utiltesting.AsIndexer(clientBuilder).IndexField(ctx, &corev1.Pod{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexPodWorkloadSliceName); err != nil {
 				t.Fatalf("Could not setup WorkloadSliceNameKey index: %v", err)
+			}
+			if err := utiltesting.AsIndexer(clientBuilder).IndexField(ctx, &kueue.Workload{}, coreindexer.OwnerReferenceIndexKey(rayClusterGVK), coreindexer.WorkloadOwnerIndexFunc(rayClusterGVK)); err != nil {
+				t.Fatalf("Could not setup workload owner index: %v", err)
 			}
 
 			kClient := clientBuilder.Build()
