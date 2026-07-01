@@ -44,6 +44,10 @@ write_command_timing_env() {
   local timing_env=$1
 
   cat >"${timing_env}" <<'EOF'
+__make_timing_original_bash_env="${MAKE_TIMING_ORIGINAL_BASH_ENV:-}"
+unset BASH_ENV
+unset MAKE_TIMING_ORIGINAL_BASH_ENV
+
 __make_timing_command_preview() {
   local command=$1
 
@@ -118,9 +122,9 @@ __make_timing_exit_trap() {
   return "${status}"
 }
 
-if [[ -n "${MAKE_TIMING_ORIGINAL_BASH_ENV:-}" ]]; then
+if [[ -n "${__make_timing_original_bash_env}" ]]; then
   # shellcheck disable=SC1090
-  source "${MAKE_TIMING_ORIGINAL_BASH_ENV}"
+  source "${__make_timing_original_bash_env}"
 fi
 
 trap __make_timing_exit_trap EXIT
@@ -147,14 +151,16 @@ start_time=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 
 command_timing_env=""
 if is_truthy "${MAKE_TIMING_COMMANDS:-1}"; then
+  original_bash_env="${BASH_ENV:-}"
   command_timing_env=$(mktemp "${TMPDIR:-/tmp}/make-timing.XXXXXX")
   write_command_timing_env "${command_timing_env}"
-  export MAKE_TIMING_ORIGINAL_BASH_ENV="${BASH_ENV:-}"
-  export BASH_ENV="${command_timing_env}"
+  MAKE_TIMING_ORIGINAL_BASH_ENV="${original_bash_env}" BASH_ENV="${command_timing_env}" \
+    /usr/bin/env bash -o pipefail "$@"
+  status=$?
+else
+  /usr/bin/env bash -o pipefail "$@"
+  status=$?
 fi
-
-/usr/bin/env bash -o pipefail "$@"
-status=$?
 
 if [[ -n "${command_timing_env}" ]]; then
   rm -f "${command_timing_env}"
