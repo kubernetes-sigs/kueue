@@ -758,12 +758,13 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 
 	ginkgo.When("StatefulSet scaling to zero with quota release", func() {
 		// Regression test for https://github.com/kubernetes-sigs/kueue/issues/12232
+		const numReplicas = int32(2)
 		ginkgo.It("should set the workload OnHold on scale-to-zero and clear it on scale-up", func() {
 			statefulSet := statefulsettesting.MakeStatefulSet("sts", ns.Name).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				TerminationGracePeriod(1).
-				Replicas(3).
+				Replicas(numReplicas).
 				Queue(lq.Name).
 				Obj()
 			ginkgo.By("Create StatefulSet", func() {
@@ -776,7 +777,7 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdStatefulSet := &appsv1.StatefulSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
-					g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
+					g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(numReplicas))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -804,11 +805,21 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
+			ginkgo.By("Wait for StatefulSet scale-down to complete", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdStatefulSet := &appsv1.StatefulSet{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).
+						To(gomega.Succeed())
+
+					g.Expect(createdStatefulSet.Status.Replicas).To(gomega.Equal(int32(0)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
 			ginkgo.By("Scale up replicas", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdStatefulSet := &appsv1.StatefulSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
-					createdStatefulSet.Spec.Replicas = ptr.To[int32](3)
+					createdStatefulSet.Spec.Replicas = ptr.To(numReplicas)
 					g.Expect(k8sClient.Update(ctx, createdStatefulSet)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -829,7 +840,7 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdStatefulSet := &appsv1.StatefulSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
-					g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
+					g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(numReplicas))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
