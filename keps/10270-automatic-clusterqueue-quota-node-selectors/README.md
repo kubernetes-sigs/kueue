@@ -142,9 +142,8 @@ spec:
     name: team-alpha-cq
   flavorPolicies:
   - flavorName: team-alpha-nodes   # ResourceFlavor nodeLabels: {team: alpha}
-    headroom:
-      percentage: 5                # reserve 5% for DaemonSets
-    resourceOverrides:
+    headroomPercentage: 5          # reserve 5% for DaemonSets
+    resources:
     - name: example.com/token      # not reported by nodes — fixed manual value
       nominalQuota: "100"
 
@@ -298,7 +297,7 @@ spec:
 ### Notes/Constraints/Caveats
 
 - **Separation of concerns**: `NodeQuotaPolicy` owns the computation logic; ClusterQueue and Cohort own only the quota value. This mirrors the kubelet pattern where `node.Status.Allocatable` is computed externally and written into the Node object — the Node schema does not embed the computation.
-- **Headroom and Allocatable**: `node.Status.Allocatable` already equals total node capacity minus kubelet's `kube-reserved` and `system-reserved`, so those system reservations are implicitly handled. The `headroom` field is for DaemonSets and other non-Kueue pods that consume node resources beyond what kubelet reserves.
+- **Headroom and Allocatable**: `node.Status.Allocatable` already equals total node capacity minus kubelet's `kube-reserved` and `system-reserved`, so those system reservations are implicitly handled. Headroom (`headroomPercentage`, or per-resource `fixedHeadroom`/`percentageHeadroom`) is for DaemonSets and other non-Kueue pods that consume node resources beyond what kubelet reserves.
 - **Cohort + CQ NodeQuotaPolicy overlap**: A Cohort and a CQ within it may each be targeted by a `NodeQuotaPolicy` only if their respective ResourceFlavors' effective node sets (after label intersection) are **disjoint**; overlapping node sets double-count physical capacity. In Alpha this cannot arise between two policies that target different ResourceFlavors, because flavors are already expected to select disjoint nodes — so there is effectively no new overlap surface. The surface appears in Beta, where `flavorPolicy.nodeLabels` can sub-select within a shared flavor. Detection is reactive, not a webhook check: on overlap the controller sets `Ready=False` with reason `OverlappingNodeSet` on the affected policies and withholds the quota write (keeping the last-known-good value) rather than silently over-provisioning.
 - **Node readiness filtering**: By default only Nodes with condition `Ready=True` are counted. The `includeNotReady` field in `FlavorNodeQuotaPolicy` can override this.
 - **Rate limiting**: The controller aggregates node events and re-computes quotas at a bounded frequency (e.g., every 15 seconds) to avoid excessive API writes to ClusterQueue or Cohort.
@@ -307,10 +306,10 @@ spec:
 
 ### Risks and Mitigations
 
-- **Stale quota if Node watch is delayed**: Kueue already relies on informer caches for correctness. Risk is no different from existing Workload/Pod watches.
+- **Stale quota**: two latency sources contribute. Informer cache lag is involuntary and sub-second — the same as existing Workload/Pod watches. The intentional enqueue debounce (the batch window) is new to this controller and adds to it, so worst-case staleness is roughly informer lag + debounce window + write/scheduler-refresh. The risk is asymmetric: on scale-up the quota lags *below* real capacity, so Kueue under-admits (safe/conservative); on scale-down it lags *above*, so it can transiently over-admit until the controller writes the lower value, which then converges. For the target use case (predictable, slow-changing node pools) a bounded few-second lag is acceptable, and the window is tunable; the controller may also debounce increases while reacting faster to decreases if the scale-down window proves too loose.
 - **Resource churn causing frequent quota updates**: Mitigation: batch node events with a bounded reconciliation interval (e.g., 15 seconds). Only write to the target object when the computed quota actually changes.
 - **Conflicting selectors across ClusterQueues or between Cohort and CQ**: Overlapping effective node sets lead to over-committed quotas, same as manually overlapping quotas today. The controller detects this at reconcile and sets `Ready=False`/`OverlappingNodeSet` on the affected policies while withholding the write, instead of silently over-provisioning (Beta; the Alpha node set is the whole flavor, which is already expected to be disjoint).
-- **Concurrent writes**: If an administrator manually edits `nominalQuota` on a CQ that is managed by a `NodeQuotaPolicy`, the controller will overwrite it on the next reconcile. This is the same behavior as HPA overwriting `spec.replicas`. Administrators should be aware that managed fields are authoritative in `NodeQuotaPolicy`, not in the CQ.
+- **Concurrent writes**: The controller writes via server-side apply with `ForceOwnership` under field manager `kueue.x-k8s.io/node-quota-policy`. This scopes the write to just the `nominalQuota` fields it manages (it does not disturb `borrowingLimit`, other flavors, or labels) while remaining authoritative: if an administrator manually edits a managed `nominalQuota`, the force-apply reclaims it and overwrites on the next reconcile (same behavior as HPA overwriting `spec.replicas`). This is in `Apply` mode; in `Recommend` mode the controller does not write the target at all (see Quota vending / external source of truth).
 - **Security**: The controller needs `get`, `list`, `watch` on Nodes and `patch` on ClusterQueues and Cohorts. Node watching is already granted to Kueue for TAS. Patch on ClusterQueue/Cohort is already granted for existing controllers. No additional RBAC changes are needed.
 
 ## Design Details
@@ -688,12 +687,13 @@ The controller maintains an in-memory reverse index:
 effectiveLabelSet → set of NodeQuotaPolicy names that use this label set
 ```
 
-When a Node event arrives, the controller determines which label sets match the node, looks up the affected `NodeQuotaPolicy` names, and enqueues them for reconciliation.
+When a Node event arrives, the controller determines which label sets match the node, looks up the affected `NodeQuotaPolicy` names, and enqueues them for reconciliation. Node events are predicate-filtered so that only changes to `Allocatable`, labels, or readiness trigger work (not routine heartbeats), and enqueueing is coalesced via `AddAfter(req, batchPeriod)` with the workqueue deduplicating by key — so a burst of Node changes collapses into a single reconcile per policy. This is the same pattern TAS uses (`constants.UpdatesBatchPeriod`) and avoids waiting inside `Reconcile`, which would block a worker.
 
 #### Reconciliation Loop
 
 ```
 Trigger: NodeQuotaPolicy / Node / ResourceFlavor / ClusterQueue / Cohort event
+         (Node events are coalesced at enqueue time — see Node Watcher)
          ↓
 1.  Load NodeQuotaPolicy spec (targetRef + flavorPolicies).
 2.  For each FlavorNodeQuotaPolicy:
@@ -702,33 +702,57 @@ Trigger: NodeQuotaPolicy / Node / ResourceFlavor / ClusterQueue / Cohort event
     c. List all Nodes matching the effective label set.
     d. Filter: exclude non-Ready nodes unless includeNotReady=true.
     e. Sum node.Status.Allocatable for each resource.
-    f. Apply headroom (percentage or fixed subtraction, floor at zero).
-    g. Apply resourceOverrides: replace computed value for overridden resources.
+    f. Apply per-resource rules: pin nominalQuota where set, else subtract
+       fixedHeadroom / percentageHeadroom (falling back to the flavor-wide
+       headroomPercentage), flooring at zero.
 3.  Compare computed quota map against NodeQuotaPolicy.status.computedQuotas.
     If unchanged, stop (no write to target object).
-4.  Debounce: coalesce rapid node events within a ~15-second window before
-    writing to avoid excessive API calls.
-5.  Patch target ClusterQueue or Cohort spec via server-side apply:
-    - Write nominalQuota for each (flavor, resource) pair in flavorPolicies.
-    - Only touch fields owned by this NodeQuotaPolicy (field manager:
-      "kueue.x-k8s.io/node-quota-policy").
-6.  Update NodeQuotaPolicy.status.computedQuotas and conditions.
-7.  If any nominalQuota decreased, the Kueue scheduler cache is invalidated
-    and a scheduling cycle runs to evaluate potential preemptions.
+4.  Pre-check target invariants: the computed nominalQuota for each
+    (flavor, resource) must be >= any existing lendingLimit on the target
+    (webhook-enforced). On violation, withhold the write and set Ready=False
+    (reason LendingLimitExceedsComputedQuota) instead of emitting a patch the
+    target's webhook would reject.
+5.  If mode is Recommend, stop here (values are recorded in status only). If mode
+    is Apply, patch the target ClusterQueue or Cohort spec via server-side apply:
+    - Write nominalQuota for each (flavor, resource) pair.
+    - Apply with field manager "kueue.x-k8s.io/node-quota-policy" and
+      ForceOwnership. The field manager scopes the write to just these
+      nominalQuota fields (leaving borrowingLimit, other flavors, labels
+      untouched); ForceOwnership makes it authoritative, so a manual edit to a
+      managed field is reclaimed on the next reconcile.
+6.  Update NodeQuotaPolicy.status (computedQuotas, conditions) and the
+    NodeQuotaManaged condition on the target.
+7.  If any nominalQuota decreased, the Kueue scheduler cache is updated. The
+    lower quota constrains future admission only; already-admitted workloads are
+    not proactively evicted (an over-quota ClusterQueue simply admits nothing new
+    until usage drops below the new quota).
 ```
 
 ### Interaction with Existing Features
 
 | Feature | Interaction |
 |---|---|
-| Borrowing/Lending | Works unchanged. The controller-written `nominalQuota` is the value used by all borrowing/lending calculations. `borrowingLimit` and `lendingLimit` remain relative to the effective quota. |
+| Borrowing/Lending | The controller writes only `nominalQuota`; `borrowingLimit` and `lendingLimit` are absolute, admin-set values it does not modify. Borrowing/lending math then uses the new `nominalQuota` together with those unchanged limits. Caveat: `lendingLimit ≤ nominalQuota` is webhook-enforced, so a computed decrease below an existing `lendingLimit` would be rejected — the controller pre-checks this and instead sets `Ready=False`/`LendingLimitExceedsComputedQuota`, withholding the write (see Reconciliation Loop). `borrowingLimit` has no such bound. |
 | Hierarchical Cohorts | SubtreeQuota accumulation uses the `nominalQuota` written by the controller at both Cohort and CQ levels. No changes needed in `resource_node.go`. |
-| Preemption | If `nominalQuota` decreases (nodes removed), this may trigger preemption of workloads exceeding the new quota. Consistent with existing behavior when an admin manually reduces `nominalQuota`. |
+| Quota decrease | If `nominalQuota` decreases (nodes removed), the scheduler cache is updated and the lower quota constrains **future** admission only; already-admitted workloads are **not** proactively evicted (an over-quota ClusterQueue simply admits nothing new until usage drops). This matches existing behavior when an admin manually reduces `nominalQuota`. Kueue preemption is admission-driven — triggered by an incoming workload, not by a quota change. |
 | Fair Sharing | Share calculations use the `nominalQuota` as written. No changes needed. |
-| ProvisioningRequest | These features target different scenarios. `NodeQuotaPolicy` reflects **current** physical capacity for predictable node pools. ProvisioningRequest is for **reactive** autoscaling. Using both simultaneously for the same resource is not recommended. Once nodes provisioned by ProvisioningRequest come online, the `NodeQuotaPolicy` controller naturally picks them up on the next reconcile. |
+| ProvisioningRequest | Do not use both for the same resource. ProvisioningRequest is an AdmissionCheck that runs only *after* a workload reserves quota, so it needs `nominalQuota` set to the provisionable max; `NodeQuotaPolicy` instead pins `nominalQuota` to current physical capacity, so a workload exceeding current capacity never reserves quota, never reaches the provisioning check, and the nodes are never created — a deadlock. Use static `nominalQuota` with ProvisioningRequest (reactive autoscaling) and `NodeQuotaPolicy` for fixed/predictable pools. This interaction must be documented for users (see Graduation Criteria). |
 | TAS (Topology Aware Scheduling) | TAS already watches Nodes via `rfReconciler`. The `NodeQuotaPolicyReconciler` reuses the same shared Node informer to avoid duplicate watches. |
 | Cohort quota | A `NodeQuotaPolicy` may target a Cohort directly. Cohort `nominalQuota` represents a shared pool on top of CQ quotas. A CQ and its parent Cohort may each be managed by separate `NodeQuotaPolicy` objects as long as their effective node sets do not overlap. |
-| Manual edits to managed nominalQuota | If an administrator manually patches `nominalQuota` on a CQ managed by a `NodeQuotaPolicy`, the controller will overwrite it at the next reconcile cycle. This is intentional and mirrors HPA behavior. |
+| Manual edits to managed nominalQuota | In `Apply` mode, if an administrator manually patches a managed `nominalQuota`, the controller reclaims and overwrites it on the next reconcile (force server-side apply, scoped to the `nominalQuota` fields it manages). Intentional, mirrors HPA. In `Recommend` mode the controller does not write the target, so manual edits stand. |
+
+**Quota vending / external source of truth.** Large organizations often own the
+desired quota state in an external system (a database, or GitOps/Terraform) and
+vend capacity to teams from there. For them, a controller that authoritatively
+writes `nominalQuota` would fight that system — drift on every plan, a re-write
+after every apply. The `mode` field addresses this: in `Recommend` mode the
+controller computes and records the proposed values in `status.computedQuotas`
+(and sets the `NodeQuotaManaged` condition) but does **not** modify the target, so
+the external system can diff the proposal against the live `nominalQuota` and
+actuate through its own pipeline; in `Apply` mode (the default) the controller
+writes directly. This mirrors VPA's recommendation-only (`updateMode: Off`) vs.
+auto modes. Exposing the proposed values and letting consumers diff against the
+live object is preferred over persisting a diff artifact that can go stale.
 
 ### RBAC Requirements
 
@@ -759,20 +783,26 @@ Existing unit tests for `resourceNode.available()` and `potentialAvailable()` sh
 
 - `pkg/controller/core/nodequotapolicy_controller.go`:
   - Quota computation from `ResourceFlavor.nodeLabels` (Alpha).
-  - Headroom: percentage and fixed subtraction, floor-at-zero.
+  - Headroom: flavor-wide `headroomPercentage` and per-resource `fixedHeadroom`/`percentageHeadroom`, floor-at-zero.
   - Node readiness filtering (`includeNotReady=false` default).
-  - `resourceOverrides` take precedence over node-derived values.
-  - Debouncing: rapid node events coalesced before write.
+  - Per-resource `nominalQuota` rules pin the value, bypassing node-derived computation.
+  - Enqueue coalescing: rapid node events collapse into one reconcile per policy.
   - No-op when computed quota equals current `nominalQuota`.
   - Status update: `computedQuotas` and `Ready` condition set correctly.
-  - Conflict detection: two `NodeQuotaPolicy` objects for the same target rejected by webhook.
+  - Conflict detection: a second `NodeQuotaPolicy` for the same target sets the reactive `DuplicateTarget` condition (not a webhook rejection).
+  - `LendingLimitExceedsComputedQuota`: a computed decrease below an existing `lendingLimit` withholds the write and sets `Ready=False`.
+  - `Recommend` mode records `computedQuotas` without patching the target.
   - (Beta) Label intersection across `ResourceFlavor` and `flavorPolicy.nodeLabels`.
   - (Beta) Empty intersection emits warning condition, writes `quantity: "0"`.
-- API validation webhook:
-  - `flavorName` references a `ResourceFlavor` with at least one `nodeLabel`.
-  - `headroom` CEL rule: `percentage` and `fixed` mutually exclusive.
-  - Duplicate `flavorName` entries rejected.
-  - Second `NodeQuotaPolicy` targeting same CQ rejected.
+- API validation webhook (static checks only):
+  - `targetRef.kind` enum accepted/rejected.
+  - Per-resource rule CEL: at most one of `nominalQuota`/`fixedHeadroom`/`percentageHeadroom` set.
+  - Duplicate `flavorName` entries rejected (list-map key).
+  - `nodeLabels` (Beta field) rejected in Alpha.
+- Reactive controller conditions (not webhook):
+  - `FlavorNotFound` / `FlavorNotInTarget` / `ResourceNotCovered` set with the documented fatal/non-fatal behavior.
+  - `DuplicateTarget` when a second policy targets the same `(kind, name)`.
+  - (Beta) `OverlappingNodeSet` for overlapping effective node sets.
 
 #### Integration Tests
 
@@ -782,8 +812,8 @@ Existing unit tests for `resourceNode.available()` and `potentialAvailable()` sh
 - `NodeQuotaPolicy` targeting a `Cohort` correctly reflects shared node capacity; CQs with `nominalQuota: 0` borrow from it.
 - Adding/removing Nodes updates the `nominalQuota` in the target CQ/Cohort.
 - Workload admission respects the controller-written `nominalQuota`.
-- `nominalQuota` decrease triggers preemption of over-quota workloads.
-- `resourceOverrides` correctly bypass node-derived values for named resources.
+- `nominalQuota` decrease constrains future admission and does not evict already-admitted workloads.
+- Per-resource `nominalQuota` rules correctly bypass node-derived values for named resources.
 - Interaction with `borrowingLimit` and `lendingLimit`.
 - Controller does not write when computed quota is unchanged (no spurious updates).
 
@@ -808,10 +838,10 @@ Existing unit tests for `resourceNode.available()` and `potentialAvailable()` sh
 - `NodeQuotaPolicy` CRD implemented with full Go types, CRD manifest, and admission webhook.
 - `NodeQuotaPolicyReconciler` implemented, sharing the Node informer with TAS.
 - Server-side apply patch writes `nominalQuota` to target ClusterQueue or Cohort.
-- `resourceOverrides` supported for resources not reported by nodes.
-- `NodeQuotaPolicy.status` reports `computedQuotas` and `Ready` condition.
+- Per-resource `resources` rules supported (fixed `nominalQuota` for resources not reported by nodes, plus fixed/percentage headroom).
+- `NodeQuotaPolicy.status` reports `computedQuotas` and `Ready` condition; the target carries a `NodeQuotaManaged` condition.
 - Unit and integration tests covering core Alpha functionality.
-- Documentation of the new CRD and controller behavior.
+- Documentation of the new CRD and controller behavior, including the `mode` (Apply/Recommend) semantics and the interactions with ProvisioningRequest (do not combine on one resource) and borrowing/lending.
 
 #### Beta
 
@@ -884,7 +914,7 @@ Pros:
 - Simple to implement in Alpha.
 
 Cons:
-- The CQ has `nominalQuota: "0"` between creation and the first controller reconcile, during which all workloads are rejected. This window is typically short (seconds) but non-zero.
+- The CQ has `nominalQuota: "0"` between creation and the first controller reconcile. During this window workloads targeting it are not admitted — they wait as inadmissible and are requeued, then admitted once the first quota is written. The window is typically short (seconds) but non-zero.
 - Reading the CQ in isolation, `nominalQuota: "0"` gives no indication that the field is controller-managed, which can confuse operators.
 
 ---
@@ -918,7 +948,6 @@ spec:
 Pros:
 - Cleanest semantics: `nil` unambiguously means "controller-managed".
 - Consistent with `spec.replicas *int32` in Deployment (used by HPA).
-- Eliminates the admission gap where `nominalQuota: "0"` briefly blocks workloads.
 - Allows future tooling to distinguish managed vs. manual fields without requiring an annotation.
 
 Cons:
