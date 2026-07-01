@@ -21,7 +21,7 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
-	schedulingv1alpha2 "k8s.io/api/scheduling/v1alpha2"
+	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -41,7 +41,7 @@ func nativePodGroupsAvailability(restMapper apimeta.RESTMapper) (enabled bool, r
 	if !features.Enabled(features.WASPodGroups) {
 		return false, "feature gate disabled"
 	}
-	if _, err := restMapper.RESTMapping(schedulingv1alpha2.SchemeGroupVersion.WithKind("PodGroup").GroupKind(), schedulingv1alpha2.SchemeGroupVersion.Version); err != nil {
+	if _, err := restMapper.RESTMapping(schedulingv1alpha3.SchemeGroupVersion.WithKind("PodGroup").GroupKind(), schedulingv1alpha3.SchemeGroupVersion.Version); err != nil {
 		return false, fmt.Sprintf("REST mapping unavailable: %v", err)
 	}
 	return true, "native PodGroups supported"
@@ -78,7 +78,7 @@ func (p *Pod) ensureNativePodGroup(ctx context.Context, c client.Client, wl *kue
 	}
 
 	podGroupName := nativePodGroupNameForPod(&p.pod)
-	podGroup := &schedulingv1alpha2.PodGroup{}
+	podGroup := &schedulingv1alpha3.PodGroup{}
 	key := client.ObjectKey{Namespace: p.pod.Namespace, Name: podGroupName}
 	if err := c.Get(ctx, key, podGroup); err == nil {
 		if podGroup.Labels[constants.ManagedByKueueLabelKey] != constants.ManagedByKueueLabelValue {
@@ -102,7 +102,7 @@ func (p *Pod) ensureNativePodGroup(ctx context.Context, c client.Client, wl *kue
 		return err
 	}
 
-	podGroup = &schedulingv1alpha2.PodGroup{
+	podGroup = &schedulingv1alpha3.PodGroup{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      podGroupName,
 			Namespace: p.pod.Namespace,
@@ -110,9 +110,9 @@ func (p *Pod) ensureNativePodGroup(ctx context.Context, c client.Client, wl *kue
 				constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
 			},
 		},
-		Spec: schedulingv1alpha2.PodGroupSpec{
-			SchedulingPolicy: schedulingv1alpha2.PodGroupSchedulingPolicy{
-				Gang: &schedulingv1alpha2.GangSchedulingPolicy{MinCount: int32(groupTotalCount)},
+		Spec: schedulingv1alpha3.PodGroupSpec{
+			SchedulingPolicy: schedulingv1alpha3.PodGroupSchedulingPolicy{
+				Gang: &schedulingv1alpha3.GangSchedulingPolicy{MinCount: int32(groupTotalCount)},
 			},
 		},
 	}

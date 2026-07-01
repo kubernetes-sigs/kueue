@@ -21,7 +21,7 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
-	schedulingv1alpha2 "k8s.io/api/scheduling/v1alpha2"
+	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -254,7 +254,7 @@ func TestNativePodGroupsAvailability(t *testing.T) {
 		"feature gate enabled and API available": {
 			featureGates: map[featuregate.Feature]bool{features.WASPodGroups: true},
 			mapperGVKs: []schema.GroupVersionKind{
-				schedulingv1alpha2.SchemeGroupVersion.WithKind("PodGroup"),
+				schedulingv1alpha3.SchemeGroupVersion.WithKind("PodGroup"),
 			},
 			wantEnabled: true,
 			wantReason:  "native PodGroups supported",
@@ -283,7 +283,7 @@ func TestNativePodGroupsAvailability(t *testing.T) {
 func TestEnsureNativePodGroupOwnershipConflict(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 
-	existingPodGroup := &schedulingv1alpha2.PodGroup{
+	existingPodGroup := &schedulingv1alpha3.PodGroup{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-group",
 			Namespace: metav1.NamespaceDefault,
@@ -300,7 +300,7 @@ func TestEnsureNativePodGroupOwnershipConflict(t *testing.T) {
 		},
 	}
 
-	kClient := utiltesting.NewClientBuilder().WithObjects(existingPodGroup).Build()
+	kClient := utiltesting.NewClientBuilder(schedulingv1alpha3.AddToScheme).WithObjects(existingPodGroup).Build()
 	recorder := &utiltesting.EventRecorder{}
 
 	p := &Pod{

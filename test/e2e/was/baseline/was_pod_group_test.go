@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package was
+package baseline
 
 import (
 	"fmt"
@@ -22,7 +22,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	schedulingv1alpha2 "k8s.io/api/scheduling/v1alpha2"
+	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 
@@ -33,7 +33,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("WAS PodGroups", ginkgo.Label("area:singlecluster", "feature:was", "feature:pod"), func() {
+var _ = ginkgo.Describe("WAS PodGroups", ginkgo.Label("area:was", "feature:was", "feature:pod"), func() {
 	var (
 		ns         *corev1.Namespace
 		rf         *kueue.ResourceFlavor
@@ -114,7 +114,7 @@ var _ = ginkgo.Describe("WAS PodGroups", ginkgo.Label("area:singlecluster", "fea
 
 			ginkgo.By("Verifying a native scheduling.k8s.io PodGroup is created")
 			pgKey := types.NamespacedName{Namespace: ns.Name, Name: groupName}
-			podGroup := &schedulingv1alpha2.PodGroup{}
+			podGroup := &schedulingv1alpha3.PodGroup{}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, pgKey, podGroup)).To(gomega.Succeed())
 				g.Expect(podGroup.Labels).To(gomega.HaveKeyWithValue(
@@ -225,7 +225,7 @@ var _ = ginkgo.Describe("WAS PodGroups", ginkgo.Label("area:singlecluster", "fea
 			ginkgo.By("Verifying the native PodGroup has the correct minCount")
 			pgKey := types.NamespacedName{Namespace: ns.Name, Name: groupName}
 			gomega.Eventually(func(g gomega.Gomega) {
-				podGroup := &schedulingv1alpha2.PodGroup{}
+				podGroup := &schedulingv1alpha3.PodGroup{}
 				g.Expect(k8sClient.Get(ctx, pgKey, podGroup)).To(gomega.Succeed())
 				g.Expect(podGroup.Spec.SchedulingPolicy.Gang).NotTo(gomega.BeNil())
 				g.Expect(podGroup.Spec.SchedulingPolicy.Gang.MinCount).To(gomega.Equal(int32(numPods)))

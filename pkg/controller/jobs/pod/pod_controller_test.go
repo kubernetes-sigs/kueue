@@ -28,7 +28,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
-	schedulingv1alpha2 "k8s.io/api/scheduling/v1alpha2"
+	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -220,7 +220,7 @@ func TestEnsureNativePodGroup(t *testing.T) {
 			},
 			workload: utiltestingapi.MakeWorkload("test-group", metav1.NamespaceDefault).Obj(),
 			initObjects: []client.Object{
-				&schedulingv1alpha2.PodGroup{ObjectMeta: metav1.ObjectMeta{Name: "test-group", Namespace: metav1.NamespaceDefault}},
+				&schedulingv1alpha3.PodGroup{ObjectMeta: metav1.ObjectMeta{Name: "test-group", Namespace: metav1.NamespaceDefault}},
 			},
 			wantCount:  1,
 			wantReason: podconstants.ReasonNativePodGroupReused,
@@ -230,7 +230,7 @@ func TestEnsureNativePodGroup(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			clientBuilder := utiltesting.NewClientBuilder()
+			clientBuilder := utiltesting.NewClientBuilder(schedulingv1alpha3.AddToScheme)
 			kClient := clientBuilder.WithObjects(tc.initObjects...).Build()
 			recorder := &utiltesting.EventRecorder{}
 
@@ -239,7 +239,7 @@ func TestEnsureNativePodGroup(t *testing.T) {
 				t.Fatalf("unexpected error (-want,+got):\n%s", diff)
 			}
 
-			podGroups := &schedulingv1alpha2.PodGroupList{}
+			podGroups := &schedulingv1alpha3.PodGroupList{}
 			if err := kClient.List(ctx, podGroups, client.InNamespace(metav1.NamespaceDefault)); err != nil {
 				t.Fatalf("listing PodGroups: %v", err)
 			}
