@@ -24,7 +24,8 @@
   - [Single Static Label](#single-static-label)
   - [Numbered Static Labels](#numbered-static-labels)
   - [Configurable with Override Name](#configurable-with-override-name)
-  - [Source Kind Priority](#source-kind-priority)
+  - [Hard Source Kind Priority](#hard-source-kind-priority)
+  - [Soft Source Kind Priority](#soft-source-kind-priority)
   - [Skip incompatible Metrics/Labels/Entries](#skip-incompatible-metricslabelsentries)
 <!-- /toc -->
 
@@ -32,7 +33,7 @@
 
 Allow cluster admins to configure Kueue to promote specific Kubernetes
 labels or annotations from ClusterQueue, LocalQueue, Cohort, and Workload objects
-into Prometheus metric labels (with a mandatory `<sourcekind>_custom_` prefix,
+into Prometheus metric labels (with a mandatory `custom_` or `<sourcekind>_custom_` prefix,
 where `<sourcekind>` denotes the kind of object that will carry the value of the custom label),
 enabling filtering and aggregation by organizational metadata.
 
@@ -73,11 +74,14 @@ that label will be **omitted** by the metric and will not be added
 as an additional dimension to it.
 
 Each label will be instantiated per `SourceKind` declared.
-To distinguish between them, their names will be adorned with the `<sourcekind>_custom_` prefix.
+For any metric that sources label values from multiple `SourceKinds`,
+any label that covers multiple of such `SourceKinds` will prefix each
+source-kind-specific instance of the label with `<sourcekind>_custom_`.
+Otherwise, the label will be prefixed with just `custom_` for every `SourceKind`.
 
-At startup, Kueue validates the configuration and initializes ClusterQueue, LocalQueue,
-and Cohort metric vectors with the additional label dimensions. When
-reporting metrics, the corresponding Kubernetes label or annotation
+At startup, Kueue validates the configuration and initializes metric vectors
+for ClusterQueue, LocalQueue, and Cohort with the additional label dimensions.
+When reporting metrics, the corresponding Kubernetes label or annotation
 values are included in the label set.
 
 ### User Stories
@@ -553,7 +557,7 @@ the `sourceKinds` field, defeating the major advantage of this proposal.
 
 Define label names with only the `custom_` prefix.
 
-Metrics for which the `sourceKind` list defines a set of sources introducing a label value source conflict:
+Metrics for which the `sourceKinds` list defines a set of sources introducing a label value source conflict:
 * [A] can be omitted entirely,
 * [B] can ignore labels that are misconfigured,
 * [C] can ignore entries where multiple sources declare the value for the same label,
