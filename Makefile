@@ -77,8 +77,10 @@ IMAGE_PUSH_RETRY = $(PROJECT_DIR)/hack/testing/retry.sh --attempts 7 --delay 2 -
 
 MAKE_TIMING ?= $(if $(filter 1 true TRUE yes YES on ON,$(CI)),1,0)
 MAKE_TIMING_MIN_SECONDS ?= 1
+MAKE_TIMING_COMMANDS ?= 1
 export MAKE_TIMING
 export MAKE_TIMING_MIN_SECONDS
+export MAKE_TIMING_COMMANDS
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # This is a requirement for 'setup-envtest.sh' in the test target.
