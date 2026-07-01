@@ -537,7 +537,23 @@ func init() {
 
 #### ClusterQueue and Cohort API Changes
 
-**No changes** to `ClusterQueueSpec`, `CohortSpec`, `FlavorQuotas`, or `ResourceQuota` in Alpha. The `nominalQuota` field is written by the `NodeQuotaPolicyReconciler` via a server-side apply patch, exactly as an HPA controller patches `spec.replicas` on a Deployment.
+**No spec changes** to `ClusterQueueSpec`, `CohortSpec`, `FlavorQuotas`, or `ResourceQuota` in Alpha. The `nominalQuota` field is written by the `NodeQuotaPolicyReconciler` via a server-side apply patch, exactly as an HPA controller patches `spec.replicas` on a Deployment.
+
+The only API addition is to `CohortStatus`, which gains a `conditions` list so the controller can surface a target-side `NodeQuotaManaged` condition (see [Status Reporting](#status-reporting)). `ClusterQueueStatus` already has `conditions`, so no ClusterQueue change is needed:
+
+```go
+// CohortStatus gains a conditions list (ClusterQueueStatus already has one).
+type CohortStatus struct {
+    // ... existing fields ...
+
+    // conditions hold the latest available observations of the Cohort's state.
+    // +optional
+    // +listType=map
+    // +listMapKey=type
+    // +kubebuilder:validation:MaxItems=8
+    Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+```
 
 The Kueue scheduler continues to read `nominalQuota` from the CQ or Cohort spec as today. No scheduler changes are required.
 
