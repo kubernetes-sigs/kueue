@@ -632,7 +632,8 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
 		} else if err := workload.ValidateAdmissibility(ctx, s.client, &w, e.clusterQueueSnapshot.NamespaceSelector); err != nil {
 			e.inadmissibleMsg = err.Error()
-			if errors.Is(err, workload.ErrAPI) {
+			if errors.Is(err, workload.ErrInternal) {
+				log.Error(err, "Failed to validate workload admissibility")
 				e.skipStatusUpdate = true
 			} else {
 				e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured

@@ -40,7 +40,7 @@ import (
 var (
 	PodSetsPath          = field.NewPath("spec").Child("podSets")
 	ErrNamespaceMismatch = errors.New("workload namespace doesn't match ClusterQueue selector")
-	ErrAPI               = errors.New("api lookup failure")
+	ErrInternal          = errors.New("internal lookup failure")
 )
 
 const (
@@ -214,7 +214,7 @@ func ValidateAdmissibility(
 		if apierrors.IsNotFound(err) {
 			return fmt.Errorf("workload namespace %q does not exist: %w", wi.Obj.Namespace, err)
 		}
-		return fmt.Errorf("%w: %w", ErrAPI, err)
+		return fmt.Errorf("%w: %w", ErrInternal, err)
 	}
 	if cqNamespaceSelector != nil && !cqNamespaceSelector.Matches(labels.Set(ns.Labels)) {
 		return ErrNamespaceMismatch
@@ -226,7 +226,7 @@ func ValidateAdmissibility(
 
 	if errs := ValidateLimitRange(ctx, c, wi); len(errs) > 0 {
 		if hasInternalError(errs) {
-			return fmt.Errorf("%w: %w", ErrAPI, errs.ToAggregate())
+			return fmt.Errorf("%w: %w", ErrInternal, errs.ToAggregate())
 		}
 		return fmt.Errorf("%s: %w", ErrLimitRangeConstraintsUnsatisfiedResources, errs.ToAggregate())
 	}
