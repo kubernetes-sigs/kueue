@@ -58,8 +58,15 @@ vulnerability-reporting:
   bug-bounty-available: true
   bug-bounty-url: 'https://hackerone.com/kubernetes'
   in-scope:
-    - Privilege escalation or workload admission bypass in the Kueue
-      controller-manager and its admission/validating webhooks
+    - Privilege escalation or RBAC bypass allowing viewing or editing of
+      restricted information managed by Kueue (for example, viewing restricted
+      information via KueueViz)
+    - Workload quota bypass at admission time or post-admission (for example,
+      admitting a workload within quota and later increasing its resource usage
+      beyond what was admitted)
+    - Quota hijacking, or otherwise consuming resources that were not granted,
+      without admin access, even when other tenants' quotas and workloads are
+      not affected
     - Tenant isolation breakout across ClusterQueues, LocalQueues, and Cohorts
       (e.g. quota borrowing or preemption affecting workloads of another tenant)
     - Improper RBAC defaults in the shipped manifests and Helm chart that grant
