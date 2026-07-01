@@ -589,6 +589,19 @@ status:
     lastUpdated: "2026-04-30T10:00:00Z"
 ```
 
+The two timestamps in this status have distinct semantics:
+
+- **`conditions[Ready].lastTransitionTime`** changes only when the `Ready`
+  condition's `status` transitions (e.g. `True`↔`False`). The controller sets it
+  via the standard `apimeta.SetStatusCondition` helper, so a quota recompute that
+  leaves `Ready=True`, or a `reason`/`message`-only update, does **not** move it.
+- **`computedQuotas[].lastUpdated`** records when that entry's `quantity` last
+  changed, and is bumped only on an actual value change (never on a no-op reconcile).
+
+Status carries current observed state only — the computed values plus `nodeCount`
+(how many Nodes contributed). The per-reconcile narrative (e.g. "evaluated 47
+Nodes, 3 filtered as NotReady") belongs in controller logs/events, not in status.
+
 Administrators can inspect computed values without reading the CQ:
 
 ```bash
