@@ -101,7 +101,7 @@ __make_timing_debug_trap() {
   local next_command=${BASH_COMMAND}
 
   if [[ "${__make_timing_in_trap}" -eq 1 ]]; then
-    return "${status}"
+    return 0
   fi
 
   __make_timing_in_trap=1
@@ -110,7 +110,9 @@ __make_timing_debug_trap() {
   __make_timing_last_start_epoch=$(date +%s)
   __make_timing_last_start_time=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
   __make_timing_in_trap=0
-  return "${status}"
+  # Keep the trap non-interfering. Returning the previous command status can
+  # trip errexit before constructs like `cmd || fallback` handle the failure.
+  return 0
 }
 
 __make_timing_exit_trap() {
