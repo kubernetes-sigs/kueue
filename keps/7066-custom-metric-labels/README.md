@@ -24,7 +24,8 @@
   - [Single Static Label](#single-static-label)
   - [Numbered Static Labels](#numbered-static-labels)
   - [Configurable with Override Name](#configurable-with-override-name)
-  - [Source Kind Priority](#source-kind-priority)
+  - [Hard Source Kind Priority](#hard-source-kind-priority)
+  - [Soft Source Kind Priority](#soft-source-kind-priority)
   - [Skip incompatible Metrics/Labels/Entries](#skip-incompatible-metricslabelsentries)
 <!-- /toc -->
 
@@ -492,7 +493,7 @@ Allowing arbitrary Prometheus names risks collisions with built-in labels.
 Generating the `custom_` prefix automatically from the Kubernetes label
 key is simpler and prevents collisions by construction.
 
-### Source Kind Priority
+### Hard Source Kind Priority
 
 Define label names with only the `custom_` prefix.
 
@@ -507,13 +508,45 @@ In metrics where multiple source kinds could potentially contribute values,
 the value from the highest priority source kind will be used.
 For example, if a custom label is defined for both ClusterQueue and Workload,
 then the metrics which gather label values from both CQ and WL,
-will always get the value from the CQ (the value will be an empty string,
+will **always get the value from the CQ** (the value will be an empty string,
 if the label is not defined on the CQ).
 
 Allowing this makes it impossible for the users to
 introduce labels that have the same names and configs
 on different source kinds, while being allowed to have
 different values for said labels.
+
+### Soft Source Kind Priority
+
+Define label names with only the `custom_` prefix.
+Drop the added `sourceKinds` field.
+
+All label values will be derived at Report time for all metrics.
+
+If two distinct sources contribute the value for the same label, record the
+value based on priority. This means that if a higher priority source does not
+have a specific label, the value will be retrieved from the lower priority
+source.
+
+This variant allows us to simplify the API by removing the `sourceKinds` field,
+but suffers the same downsides as the
+[Hard Source Kind Priority](#hard-source-kind-priority) variant.
+
+The order could be hard-coded or provided by the user as a separate config
+parameter.
+
+In addition, this variant complicates the update logic for label sets on objects.
+Depending on the combination of sources for a metric, we could become unable to
+use partial matching of label sets, as some values could have been overridden.
+
+This makes it significantly harder to perform updates triggered by Lower Priority
+Objects, if the exact set of labels of the related Higher Priority Objects is not
+known.
+
+Conversely, it makes it significantly harder to create new metrics using custom
+labels depending on the proposed ordering of the priorities list, especially if
+it were made to be configurable.
+
 
 ### Skip incompatible Metrics/Labels/Entries
 
