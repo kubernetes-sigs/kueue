@@ -23,6 +23,16 @@ Please do not remove items from the checklist
   - [ ] Ensure there are no unstaged changes in your directory (the script adds everything)
   - [ ] Run `./hack/releasing/prepare_pull.sh --target release $VERSION`
   - [ ] Wait for this PR to merge <!-- PREPARE_PULL_RELEASE --> <!-- example #211 -->
+- [ ] For major or minor releases, set up versioned docs for the new release branch:
+  - [ ] In the [Netlify dashboard](https://app.netlify.com) → Domains: add `v$MAJ-$MIN.kueue.sigs.k8s.io`
+        as a domain alias for the `release-$MAJ.$MIN` branch deploy.
+  - [ ] File a DNS CNAME PR at [kubernetes/k8s.io](https://github.com/kubernetes/k8s.io):
+        `v$MAJ-$MIN.kueue.sigs.k8s.io CNAME release-$MAJ-$MIN--<netlify-site-name>.netlify.app`
+        <!-- K8S_IO_DOCS_DNS_PULL --> <!-- example kubernetes/k8s.io#9999 -->
+  - [ ] Update the `[[params.versions]]` dropdown on active release branches (N-1, N-2) to include
+        the new version. The `prepare-release-branch` script updated only the new branch and `main`.
+  - [ ] If the oldest entry was dropped from the version dropdown (printed by `prepare_pull.sh`),
+        disable or archive the corresponding Netlify branch deploy for that version.
 - [ ] An OWNER creates a signed tag
   - [ ] pull the release branch after PR from previous step merged
   - [ ] run

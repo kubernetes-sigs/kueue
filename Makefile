@@ -396,6 +396,11 @@ prepare-release-branch: yq kustomize ## Prepare the release branch with the rele
 	$(YQ) e '.kueuePriorityBooster.image.tag = "$(RELEASE_BRANCH)"' -i cmd/experimental/kueue-priority-booster/charts/kueue-priority-booster/values.yaml
 	$(SED) -r 's/[0-9]+\.[0-9]+\.[0-9]+/$(APP_VERSION)/g' -i cmd/experimental/kueue-priority-booster/README.md
 
+	# Versioned docs: update [[params.versions]] dropdown, archived_version, and githubbranch in site/hugo.toml.
+	python3 hack/releasing/update-docs-versions.py site/hugo.toml \
+	  v$(shell echo $(APP_VERSION) | cut -d. -f1-2) \
+	  $(RELEASE_BRANCH)
+
 	$(MAKE) generate-helm-docs
 
 .PHONY: update-security-insights
