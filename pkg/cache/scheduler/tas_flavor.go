@@ -146,11 +146,11 @@ func (c *TASFlavorCache) snapshot(
 	for domainID, usage := range tasDomainUsages {
 		snapshot.addTASUsage(domainID, usage)
 	}
-	for nodeName, usage := range c.nonTasUsageCache.usagePerNode() {
+	c.nonTasUsageCache.forEachNodeUsage(func(nodeName string, usage resources.Requests) {
 		if domainID, ok := nodeToDomain[nodeName]; ok {
 			snapshot.addNonTASUsage(domainID, usage)
 		}
-	}
+	})
 	return snapshot
 }
 
