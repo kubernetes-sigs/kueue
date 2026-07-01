@@ -685,6 +685,140 @@ func TestNodeSelectors(t *testing.T) {
 
 			wantFinal: baseJob.DeepCopy(),
 		},
+		"K8sJobMode with nil SubmitterPodTemplate persists admission constraints": {
+			job: func() *rayv1.RayJob {
+				j := testingrayutil.MakeJob("job", "ns").
+					WithSubmissionMode(rayv1.K8sJobMode).
+					Obj()
+				j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.NodeSelector = map[string]string{}
+				j.Spec.RayClusterSpec.WorkerGroupSpecs = baseJob.Spec.RayClusterSpec.WorkerGroupSpecs
+				return j
+			}(),
+			runInfo: []podset.PodSetInfo{
+				{
+					NodeSelector: map[string]string{
+						"newKey": "newValue",
+					},
+				},
+				{
+					NodeSelector: map[string]string{
+						"key-wg1": "value-wg1",
+					},
+				},
+				{
+					NodeSelector: map[string]string{},
+				},
+				{
+					NodeSelector: map[string]string{
+						"submitter-key": "submitter-value",
+					},
+				},
+			},
+			restoreInfo: []podset.PodSetInfo{
+				{
+					NodeSelector: map[string]string{},
+				},
+				{
+					NodeSelector: map[string]string{
+						"key-wg1": "value-wg1",
+					},
+				},
+				{
+					NodeSelector: map[string]string{
+						"key-wg2": "value-wg2",
+					},
+				},
+				{
+					NodeSelector: map[string]string{},
+				},
+			},
+			wantAfterRun: func() *rayv1.RayJob {
+				j := testingrayutil.MakeJob("job", "ns").
+					Suspend(false).
+					WithSubmissionMode(rayv1.K8sJobMode).
+					Obj()
+				headImage := j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Image
+				j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.NodeSelector = map[string]string{
+					"newKey": "newValue",
+				}
+				j.Spec.RayClusterSpec.WorkerGroupSpecs = []rayv1.WorkerGroupSpec{
+					{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								NodeSelector: map[string]string{
+									"key-wg1": "value-wg1",
+								},
+							},
+						},
+					},
+					{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								NodeSelector: map[string]string{
+									"key-wg2": "value-wg2",
+								},
+							},
+						},
+					},
+				}
+				j.Spec.SubmitterPodTemplate = &corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:  "ray-job-submitter",
+								Image: headImage,
+								Resources: corev1.ResourceRequirements{
+									Limits: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("1"),
+										corev1.ResourceMemory: resource.MustParse("1Gi"),
+									},
+									Requests: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("500m"),
+										corev1.ResourceMemory: resource.MustParse("200Mi"),
+									},
+								},
+							},
+						},
+						RestartPolicy: corev1.RestartPolicyNever,
+						NodeSelector: map[string]string{
+							"submitter-key": "submitter-value",
+						},
+					},
+				}
+				return j
+			}(),
+			wantFinal: func() *rayv1.RayJob {
+				j := testingrayutil.MakeJob("job", "ns").
+					WithSubmissionMode(rayv1.K8sJobMode).
+					Obj()
+				headImage := j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Image
+				j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.NodeSelector = map[string]string{}
+				j.Spec.RayClusterSpec.WorkerGroupSpecs = baseJob.Spec.RayClusterSpec.WorkerGroupSpecs
+				j.Spec.SubmitterPodTemplate = &corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:  "ray-job-submitter",
+								Image: headImage,
+								Resources: corev1.ResourceRequirements{
+									Limits: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("1"),
+										corev1.ResourceMemory: resource.MustParse("1Gi"),
+									},
+									Requests: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("500m"),
+										corev1.ResourceMemory: resource.MustParse("200Mi"),
+									},
+								},
+							},
+						},
+						RestartPolicy: corev1.RestartPolicyNever,
+						NodeSelector:  map[string]string{},
+					},
+				}
+				return j
+			}(),
+		},
 		"invalid runInfo": {
 			job: baseJob.DeepCopy(),
 			runInfo: []podset.PodSetInfo{
