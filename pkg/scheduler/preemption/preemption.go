@@ -657,18 +657,23 @@ func queueUnderNominalInResourcesNeedingPreemption(preemptionCtx *preemptionCtx)
 	return true
 }
 
-// queueWithinNominalInResourcesNeedingPreemption checks whether the
-// preemptor CQ's usage is at or below nominal quota (usage <= nominal)
-// for all flavor-resources needing preemption.
-// The difference from queueUnderNominalInResourcesNeedingPreemption is
-// that this treats usage exactly equal to nominal as "within nominal."
+// queueWithinNominalInResourcesNeedingPreemption checks whether the preemptor
+// or any ancestor cohort is within subtree nominal quota for all contested
+// flavor-resources. This allows fair-sharing preemption to bypass DRS when a
+// CQ borrows from its parent cohort's pool while that cohort is not borrowing
+// upward.
 func queueWithinNominalInResourcesNeedingPreemption(preemptionCtx *preemptionCtx) bool {
-	for fr := range preemptionCtx.frsNeedPreemption {
-		if preemptionCtx.preemptorCQ.Borrowing(fr) {
-			return false
+	frs := preemptionCtx.frsNeedPreemption
+	cq := preemptionCtx.preemptorCQ
+	if schdcache.IsWithinNominalInResources(cq, frs) {
+		return true
+	}
+	for ancestor := range cq.PathParentToRoot() {
+		if schdcache.IsWithinNominalInResources(ancestor, frs) {
+			return true
 		}
 	}
-	return true
+	return false
 }
 
 // buildCQPath constructs a path like "/parent/.../cq" for a given ClusterQueue snapshot.
