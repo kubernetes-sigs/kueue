@@ -24,6 +24,8 @@
   - [Single Static Label](#single-static-label)
   - [Numbered Static Labels](#numbered-static-labels)
   - [Configurable with Override Name](#configurable-with-override-name)
+  - [Source Kind Priority](#source-kind-priority)
+  - [Skip incompatible Metrics/Labels/Entries](#skip-incompatible-metricslabelsentries)
 <!-- /toc -->
 
 ## Summary
@@ -489,3 +491,55 @@ customMetricTags:
 Allowing arbitrary Prometheus names risks collisions with built-in labels.
 Generating the `custom_` prefix automatically from the Kubernetes label
 key is simpler and prevents collisions by construction.
+
+### Source Kind Priority
+
+Define label names with only the `custom_` prefix.
+
+Establish the priority of the supported source kinds as:
+Cohort > ClusterQueue > LocalQueue > Workload.
+Alternatively, source kind priority could also be:
+* a configurable parameter,
+* defined as the explicit order in which the `sourceKinds` are listed
+in the label definition (with the first entry having the highest priority).
+
+In metrics where multiple source kinds could potentially contribute values,
+the value from the highest priority source kind will be used.
+For example, if a custom label is defined for both ClusterQueue and Workload,
+then the metrics which gather label values from both CQ and WL,
+will always get the value from the CQ (the value will be an empty string,
+if the label is not defined on the CQ).
+
+Allowing this makes it impossible for the users to
+introduce labels that have the same names and configs
+on different source kinds, while being allowed to have
+different values for said labels.
+
+### Skip incompatible Metrics/Labels/Entries
+
+Define label names with only the `custom_` prefix.
+
+Metrics for which the `sourceKind` list defines a set of sources introducing a label value source conflict:
+* [A] can be omitted entirely,
+* [B] can ignore labels that are misconfigured,
+* [C] can ignore entries where multiple sources declare the value for the same label,
+* [D] can set the value of a label with multiple sources as "CORRUPTED",
+* [E] could be wiped out entirely when a conflict is detected.
+
+The main downside of [A] is that when updating existing metrics to use multiple
+sources, the change will make existing configs invalid (not backwards
+compatible).
+
+The main downside of [B] is the potential to cause confusion among the users
+by removing some of the labels they explicitly defined.
+
+Options [C] - [E] are more complex to implement as they assume that the value of
+a label can have a different source depending on circumstances.
+
+This would require adding independent tracking of the source of the value when
+cached, to be able to determine how to handle it upon the deletion/update of one
+or more entries (e.g., how to identify which entries match a given ClusterQueue
+when some label values may have been sourced from a Workload).
+
+In addition, these options would result in metrics missing data or providing
+confusing results, which would make them harder to debug and use.
