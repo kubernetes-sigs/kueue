@@ -566,6 +566,35 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 		util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
 		util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 1)
 	})
+
+	ginkgo.It("Should persist admission constraints on default submitter pod template", framework.SlowSpec, func() {
+		ginkgo.By("creating localQueue")
+		localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		util.MustCreate(ctx, k8sClient, localQueue)
+
+		ginkgo.By("creating a K8sJobMode RayJob with nil SubmitterPodTemplate")
+		job := testingrayjob.MakeJob("submitter-job", ns.Name).Queue(localQueue.Name).
+			WithSubmissionMode(rayv1.K8sJobMode).
+			RequestHead(corev1.ResourceCPU, "3").
+			RequestWorkerGroup(corev1.ResourceCPU, "4").
+			Obj()
+		gomega.Expect(job.Spec.SubmitterPodTemplate).Should(gomega.BeNil(), "precondition: SubmitterPodTemplate must be nil to exercise the default-template path")
+		util.MustCreate(ctx, k8sClient, job)
+		setInitStatus(job.Name, job.Namespace)
+
+		ginkgo.By("awaiting for the job to be admitted and unsuspended")
+		createdJob := &rayv1.RayJob{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: job.Name, Namespace: job.Namespace}, createdJob)).
+				Should(gomega.Succeed())
+			g.Expect(createdJob.Spec.Suspend).Should(gomega.BeFalse())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("checking the submitter pod template is populated with node selectors")
+		gomega.Expect(createdJob.Spec.SubmitterPodTemplate).ShouldNot(gomega.BeNil(),
+			"SubmitterPodTemplate must be non-nil after admission; without the fix it remains nil and placement constraints are lost")
+		gomega.Expect(createdJob.Spec.SubmitterPodTemplate.Spec.NodeSelector).Should(gomega.HaveKey(instanceKey))
+	})
 })
 
 var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
