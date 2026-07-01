@@ -707,12 +707,6 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				)
 			}
 		}
-		// Return early if the status was updated and either:
-		// 1. The observability feature gate is disabled (legacy behavior).
-		// 2. The workload actually transitioned to Admitted.
-		if updated && (!features.Enabled(features.UnadmittedWorkloadsObservability) || isAdmitted) {
-			return ctrl.Result{}, nil
-		}
 	}
 
 	if workload.HasQuotaReservation(&wl) {
