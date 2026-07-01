@@ -33,7 +33,9 @@ func NewPenaltyMap() *AfsEntryPenalties {
 }
 
 func (m *AfsEntryPenalties) Push(lqKey utilqueue.LocalQueueReference, penalty corev1.ResourceList) {
-	m.penalties.Add(lqKey, resource.MergeResourceListKeepSum(m.Peek(lqKey), penalty))
+	m.penalties.GetAndUpdate(lqKey, func(existing corev1.ResourceList) corev1.ResourceList {
+		return resource.MergeResourceListKeepSum(existing, penalty)
+	})
 }
 
 func (m *AfsEntryPenalties) Sub(lqKey utilqueue.LocalQueueReference, penalty corev1.ResourceList) {

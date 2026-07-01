@@ -100,6 +100,12 @@ func (dwc *SyncMap[K, V]) Add(k K, v V) {
 	dwc.m[k] = v
 }
 
+func (dwc *SyncMap[K, V]) GetAndUpdate(k K, f func(existing V) V) {
+	dwc.lock.Lock()
+	defer dwc.lock.Unlock()
+	dwc.m[k] = f(dwc.m[k])
+}
+
 func (dwc *SyncMap[K, V]) Get(k K) (V, bool) {
 	dwc.lock.RLock()
 	defer dwc.lock.RUnlock()
