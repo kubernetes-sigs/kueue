@@ -126,7 +126,13 @@ var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:k
 		cq = utiltestingapi.MakeClusterQueue(clusterQueueName).
 			ResourceGroup(
 				*utiltestingapi.MakeFlavorQuotas(rf.Name).
-					Resource(corev1.ResourceCPU, "3").Obj()).
+					// Head + workers, plus 500m for the autoscaler sidecar that
+					// BuildPodSets accounts for on in-tree-autoscaling clusters,
+					// with enough headroom for the multi-step scale-up test to
+					// reach 5 running workers (head 1 + sidecar 500m + submitter
+					// 400m + 5x400m workers = 3.9 CPU).
+					Resource(corev1.ResourceCPU, "4").
+					Resource(corev1.ResourceMemory, "2Gi").Obj()).
 			Obj()
 		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 
@@ -221,8 +227,7 @@ var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:k
 		})
 	})
 
-	// ginkgo.Serial prevents concurrent ray-head containers from competing for CPU, causing liveness probe failures and crash-loops
-	ginkgo.It("Should run a rayjob with InTreeAutoscaling", ginkgo.Serial, ginkgo.Label("shard:kuberay-b"), func() {
+	ginkgo.It("Should run a rayjob with InTreeAutoscaling", ginkgo.Label("shard:kuberay-b"), func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
 		// Create ConfigMap with Python script
@@ -665,7 +670,87 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 		})
 	})
 
-	ginkgo.It("Should run a RayService if admitted", ginkgo.Label("shard:kuberay-a"), func() {
+	ginkgo.It("Should account for the autoscaler sidecar in the head PodSet quota when in-tree autoscaling is enabled", ginkgo.Label("shard:kuberay-b"), func() {
+		kuberayTestImage := util.GetKuberayTestImage()
+
+		raycluster := testingraycluster.MakeCluster("raycluster-autoscaling", ns.Name).
+			Suspend(true).
+			Queue(localQueueName).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			WithEnableAutoscaling(new(true)).
+			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
+			RayStartParam(rayv1.HeadNode, "object-store-memory", objectStoreMemory).
+			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "400m").
+			RayStartParam(rayv1.WorkerNode, "object-store-memory", objectStoreMemory).
+			Image(rayv1.HeadNode, kuberayTestImage, []string{}).
+			Image(rayv1.WorkerNode, kuberayTestImage, []string{}).
+			Obj()
+
+		ginkgo.By("Creating the RayCluster", func() {
+			gomega.Expect(k8sClient.Create(ctx, raycluster)).Should(gomega.Succeed())
+		})
+
+		// Elastic (workload-slice) jobs name their Workload with a generation
+		// suffix, so look it up by listing the namespace rather than computing
+		// the name.
+		createdWorkload := &kueue.Workload{}
+		ginkgo.By("Checking the workload is created and admitted", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				workloadList := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				active := util.FindNonFinishedWorkloads(workloadList.Items)
+				g.Expect(active).To(gomega.HaveLen(1), "expected exactly one non-finished workload")
+				g.Expect(workload.IsAdmitted(&active[0])).To(gomega.BeTrue(), "workload should be admitted")
+				*createdWorkload = active[0]
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		// Kueue's view: the head PodSet must include the autoscaler sidecar that
+		// KubeRay injects, otherwise its resources are not counted against quota.
+		var kueueAutoscalerRequests corev1.ResourceList
+		ginkgo.By("Checking the head PodSet includes the autoscaler sidecar container", func() {
+			var headPodSet *kueue.PodSet
+			for i := range createdWorkload.Spec.PodSets {
+				if createdWorkload.Spec.PodSets[i].Name == "head" {
+					headPodSet = &createdWorkload.Spec.PodSets[i]
+					break
+				}
+			}
+			gomega.Expect(headPodSet).NotTo(gomega.BeNil(), "workload should have a head PodSet")
+
+			var autoscaler *corev1.Container
+			for i := range headPodSet.Template.Spec.Containers {
+				if headPodSet.Template.Spec.Containers[i].Name == "autoscaler" {
+					autoscaler = &headPodSet.Template.Spec.Containers[i]
+					break
+				}
+			}
+			gomega.Expect(autoscaler).NotTo(gomega.BeNil(), "head PodSet should include the autoscaler sidecar container")
+			kueueAutoscalerRequests = autoscaler.Resources.Requests
+		})
+
+		// Drift check: the resources Kueue accounted for must match the autoscaler
+		// container that KubeRay actually injects into the head Pod.
+		ginkgo.By("Checking the accounted autoscaler resources match the real head Pod", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				headPod := getRayHeadPod(g)
+				var autoscaler *corev1.Container
+				for i := range headPod.Spec.Containers {
+					if headPod.Spec.Containers[i].Name == "autoscaler" {
+						autoscaler = &headPod.Spec.Containers[i]
+						break
+					}
+				}
+				g.Expect(autoscaler).NotTo(gomega.BeNil(), "KubeRay should inject an autoscaler container into the head Pod")
+				g.Expect(kueueAutoscalerRequests.Cpu().Cmp(*autoscaler.Resources.Requests.Cpu())).To(gomega.Equal(0),
+					"Kueue's accounted autoscaler CPU should match the head Pod's")
+				g.Expect(kueueAutoscalerRequests.Memory().Cmp(*autoscaler.Resources.Requests.Memory())).To(gomega.Equal(0),
+					"Kueue's accounted autoscaler memory should match the head Pod's")
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("Should run a RayService if admitted", ginkgo.Label("shard:kuberay-a", "requires:fullray"), func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
 		// Create ConfigMap with a simple Ray Serve application
@@ -799,8 +884,7 @@ app = HelloWorld.bind()`,
 		})
 	})
 
-	// ginkgo.Serial prevents concurrent ray-head containers from competing for CPU, causing liveness probe failures and crash-loops
-	ginkgo.It("Should run a rayservice with InTreeAutoscaling", ginkgo.Serial, ginkgo.Label("shard:kuberay-b"), func() {
+	ginkgo.It("Should run a rayservice with InTreeAutoscaling", ginkgo.Label("shard:kuberay-b", "requires:fullray"), func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
 		// Create ConfigMap with a Ray Serve application that supports a delay parameter

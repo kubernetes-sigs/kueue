@@ -55,6 +55,8 @@ import (
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -152,7 +154,9 @@ func (g *wlGroup) bestMatchByCondition(conditionType string) (*metav1.Condition,
 // The controller object is deleted first to handle cases where GC has already removed
 // the remote workload.
 func (g *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error {
-	if err := g.jobAdapter.DeleteRemoteObject(ctx, g.localClient, g.remoteClients[cluster].client, g.controllerKey); err != nil {
+	remoteClient := g.remoteClients[cluster].getClient()
+	origin := g.remoteClients[cluster].origin
+	if err := jobframework.DeleteRemoteObjectIfOwned(ctx, g.localClient, remoteClient, g.jobAdapter, g.controllerKey, origin); err != nil {
 		return fmt.Errorf("deleting remote controller object: %w", err)
 	}
 
@@ -162,12 +166,12 @@ func (g *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error
 	}
 
 	if controllerutil.RemoveFinalizer(remWl, kueue.ResourceInUseFinalizerName) {
-		if err := g.remoteClients[cluster].client.Update(ctx, remWl); err != nil {
+		if err := remoteClient.Update(ctx, remWl); err != nil {
 			return fmt.Errorf("removing remote workloads finalizer: %w", err)
 		}
 	}
 
-	err := g.remoteClients[cluster].client.Delete(ctx, remWl)
+	err := remoteClient.Delete(ctx, remWl)
 	if client.IgnoreNotFound(err) != nil {
 		return fmt.Errorf("deleting remote workload: %w", err)
 	}
@@ -261,11 +265,11 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 }
 
 func (w *wlReconciler) updateACS(ctx context.Context, wl *kueue.Workload, acs *kueue.AdmissionCheckState, status kueue.CheckState, message string) error {
-	return workload.PatchStatus(ctx, w.client, wl, kueue.MultiKueueControllerName, func(wl *kueue.Workload) (bool, error) {
+	return workloadpatching.PatchStatus(ctx, w.client, wl, kueue.MultiKueueControllerName, func(wl *kueue.Workload) (bool, error) {
 		acs.State = status
 		acs.Message = message
 		acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
-		return workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *acs, w.clock), nil
+		return workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *acs, w.clock), nil
 	})
 }
 
@@ -334,7 +338,7 @@ func (w *wlReconciler) readGroup(ctx context.Context, local *kueue.Workload, acN
 
 	for remote, rClient := range rClients {
 		wl := &kueue.Workload{}
-		err := rClient.client.Get(ctx, client.ObjectKeyFromObject(local), wl)
+		err := rClient.getClient().Get(ctx, client.ObjectKeyFromObject(local), wl)
 		if client.IgnoreNotFound(err) != nil {
 			return nil, err
 		}
@@ -379,9 +383,15 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		// it should not be problematic, but the "From remote xxxx:" could be lost ....
 
 		if group.jobAdapter != nil {
+			remoteCl := group.remoteClients[remote].getClient()
+			if _, err := jobframework.ValidateRemoteObjectOwnership(ctx, remoteCl, group.controllerKey, group.jobAdapter.GVK(), w.origin); err != nil {
+				log.Error(err, "validating remote controller object", "workerCluster", remote)
+				return reconcile.Result{}, err
+			}
+
 			// The deferred flag is irrelevant here: the remote workload is
 			// Finished, so determineStatusUpdate always syncs (never defers).
-			if _, err := group.jobAdapter.SyncJob(ctx, w.client, group.remoteClients[remote].client, group.controllerKey, group.local.Name, w.origin); err != nil {
+			if _, err := group.jobAdapter.SyncJob(ctx, w.client, remoteCl, group.controllerKey, group.local.Name, w.origin); err != nil {
 				log.V(2).Error(err, "copying remote controller status", "workerCluster", remote)
 				// we should retry this
 				return reconcile.Result{}, err
@@ -397,14 +407,19 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	// 4. Handle workload eviction
 	remoteEvictCond, evictedRemote := group.bestMatchByCondition(kueue.WorkloadEvicted)
 	if remoteEvictCond != nil {
-		remoteCl := group.remoteClients[evictedRemote].client
+		remoteCl := group.remoteClients[evictedRemote].getClient()
 		remoteWl := group.remotes[evictedRemote]
 
 		log = log.WithValues("remote", evictedRemote, "remoteWorkload", klog.KObj(remoteWl))
 		ctx = ctrl.LoggerInto(ctx, log)
 
 		// workload evicted on manager cluster
-		if workload.IsEvicted(group.local) {
+		if workloadevict.IsEvicted(group.local) {
+			if _, err := jobframework.ValidateRemoteObjectOwnership(ctx, remoteCl, group.controllerKey, group.jobAdapter.GVK(), w.origin); err != nil {
+				log.Error(err, "validating remote controller object", "cluster", evictedRemote)
+				return reconcile.Result{}, err
+			}
+
 			deferred, err := group.jobAdapter.SyncJob(ctx, w.client, remoteCl, group.controllerKey, group.local.Name, w.origin)
 			if err != nil {
 				log.Error(err, "Syncing remote controller object")
@@ -423,11 +438,11 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		if acs.State == kueue.CheckStateReady {
 			// workload evicted on worker cluster
 			log.V(3).Info("Workload was evicted in the remote cluster", "cluster", evictedRemote)
-			if err := workload.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
+			if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
 				acs.Message = fmt.Sprintf("Workload evicted on worker cluster: %q, resetting for re-admission. Previously: %q", *group.local.Status.ClusterName, acs.State)
 				acs.State = kueue.CheckStateRetry
 				acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
-				return workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *acs, w.clock), nil
+				return workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *acs, w.clock), nil
 			}); err != nil {
 				log.Error(err, "Failed to patch workload status")
 				return reconcile.Result{}, err
@@ -472,7 +487,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 					remWl.Spec.PreemptionGates = remotePreemptionGates
 				}
 
-				if err := remClient.client.Update(ctx, remWl); err != nil {
+				if err := remClient.getClient().Update(ctx, remWl); err != nil {
 					return reconcile.Result{}, fmt.Errorf("failed to update remote workload: %w", err)
 				}
 				continue
@@ -500,7 +515,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			}
 		}
 
-		remoteCl := group.remoteClients[reservingRemote].client
+		remoteCl := group.remoteClients[reservingRemote].getClient()
 		remoteWl := group.remotes[reservingRemote]
 
 		log = log.WithValues("remote", reservingRemote, "remoteWorkload", klog.KObj(remoteWl))
@@ -508,7 +523,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 		evictedCond := apimeta.FindStatusCondition(group.local.Status.Conditions, kueue.WorkloadEvicted)
 		if workload.HasQuotaReservation(group.local) && evictedCond != nil && evictedCond.Status == metav1.ConditionTrue {
-			err := workload.PatchAdmissionStatus(ctx, remoteCl, remoteWl, w.clock, func(remoteWl *kueue.Workload) (bool, error) {
+			err := workloadpatching.PatchAdmissionStatus(ctx, remoteCl, remoteWl, w.clock, func(remoteWl *kueue.Workload) (bool, error) {
 				return workload.SetDeactivationTarget(
 					remoteWl,
 					kueue.WorkloadEvictedOnManagerCluster,
@@ -518,6 +533,11 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			if err != nil {
 				log.Error(err, "Failed to patch workload status")
 			}
+			return reconcile.Result{}, err
+		}
+
+		if _, err := jobframework.ValidateRemoteObjectOwnership(ctx, remoteCl, group.controllerKey, group.jobAdapter.GVK(), w.origin); err != nil {
+			log.Error(err, "validating remote controller object", "cluster", reservingRemote)
 			return reconcile.Result{}, err
 		}
 
@@ -559,7 +579,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			remWl := group.remotes[*remWlName]
 			remClient := group.remoteClients[*remWlName]
 			workload.OpenPreemptionGate(remWl, constants.MultiKueuePreemptionGate, metav1.NewTime(w.clock.Now()))
-			if err := remClient.client.Status().Update(ctx, remWl); err != nil {
+			if err := remClient.getClient().Status().Update(ctx, remWl); err != nil {
 				return reconcile.Result{}, fmt.Errorf("failed to update remote workload: %w", err)
 			}
 		}
@@ -582,6 +602,9 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 }
 
 func isRemoteSpecOutOfSync(local, remote kueue.WorkloadSpec) bool {
+	// Preemption gates should be treated independently on the remotes and manager,
+	// so any differences should not be considered as out-of-sync.
+	local.PreemptionGates = nil
 	remote.PreemptionGates = nil
 	return !equality.Semantic.DeepEqual(local, remote)
 }
@@ -721,7 +744,7 @@ func (w *wlReconciler) syncToSingleCluster(ctx context.Context, log klog.Logger,
 		if clusterName == targetCluster {
 			if remoteWl == nil {
 				clone := cloneForCreate(group.local, group.remoteClients[clusterName].origin, false)
-				if err := group.remoteClients[clusterName].client.Create(ctx, clone); err != nil {
+				if err := group.remoteClients[clusterName].getClient().Create(ctx, clone); err != nil {
 					log.V(2).Error(err, "creating remote workload", "cluster", clusterName)
 					errs = append(errs, err)
 				}
@@ -786,7 +809,7 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 		log.V(3).Info("Using cluster from component workloads", "cluster", assignedWorkerCluster)
 		if _, ok := group.remotes[assignedWorkerCluster]; ok {
 			if !slices.Contains(group.local.Status.NominatedClusterNames, assignedWorkerCluster) {
-				if err := workload.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
+				if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
 					wl.Status.NominatedClusterNames = []string{assignedWorkerCluster}
 					return true, nil
 				}); err != nil {
@@ -818,7 +841,7 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 		}
 
 		if !nominatedClusterSetsEqual(group.local.Status.NominatedClusterNames, nominatedWorkers) {
-			if err := workload.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
+			if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
 				wl.Status.NominatedClusterNames = nominatedWorkers
 				return true, nil
 			}); err != nil {
@@ -845,7 +868,7 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 		if slices.Contains(nominatedWorkers, rem) {
 			if remoteWl == nil {
 				clone := cloneForCreate(group.local, group.remoteClients[rem].origin, true)
-				if err := group.remoteClients[rem].client.Create(ctx, clone); err != nil {
+				if err := group.remoteClients[rem].getClient().Create(ctx, clone); err != nil {
 					log.V(2).Error(err, "creating remote object", "remote", rem)
 					errs = append(errs, err)
 				}
@@ -1032,7 +1055,7 @@ func (w *wlReconciler) syncReservingRemoteState(ctx context.Context, group *wlGr
 		return nil
 	}
 
-	if err := workload.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
+	if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
 		if needsTopologyUpdate {
 			updateDelayedTopologyRequest(wl, group.remotes[reservingRemote])
 		}
@@ -1044,7 +1067,7 @@ func (w *wlReconciler) syncReservingRemoteState(ctx context.Context, group *wlGr
 			// update the transition time since is used to detect the lost worker state.
 			acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
 
-			workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *acs, w.clock)
+			workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *acs, w.clock)
 			// Set the cluster name to the reserving remote and clear the nominated clusters.
 			// Only set ClusterName if not already set, as it is immutable once set.
 			if wl.Status.ClusterName == nil {
@@ -1162,6 +1185,9 @@ func cloneForCreate(orig *kueue.Workload, origin string, preemptionGated bool) *
 	orig.Spec.DeepCopyInto(&remoteWl.Spec)
 
 	if features.Enabled(features.MultiKueueOrchestratedPreemption) && preemptionGated {
+		// Preemption gates should be treated independently on the remotes and manager,
+		// so we avoid copying them over to the remote.
+		remoteWl.Spec.PreemptionGates = nil
 		workload.EnsurePreemptionGateOnSpec(remoteWl, constants.MultiKueuePreemptionGate)
 	}
 

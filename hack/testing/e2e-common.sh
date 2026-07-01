@@ -484,7 +484,6 @@ function patch_kind_config_for_was {
     cp "$1" "$patched_config"
 
     $YQ -i '.featureGates.GenericWorkload = true' "$patched_config"
-    $YQ -i '.featureGates.GangScheduling = true' "$patched_config"
     $YQ -i '(.nodes[] | select(.role == "control-plane")).kubeadmConfigPatches[0] = "kind: ClusterConfiguration
 apiVersion: kubeadm.k8s.io/v1beta4
 scheduler:
@@ -551,7 +550,9 @@ function cluster_create {
 
     local log_file="$ARTIFACTS/$cluster-create.log"
     local create_cmd="$KIND create cluster --name \"$cluster\" --image \"$E2E_KIND_VERSION\" --config \"$kind_config\" --kubeconfig=\"$kubeconfig\" --wait 5m -v 5 > \"$log_file\" 2>&1"
-    local continue_if="grep -q 'port is already allocated' \"$log_file\""
+    # Retry only known-transient failures so real bugs still fail fast (#11586, #12307).
+    local retriable_errors="port is already allocated|error execution phase wait-control-plane"
+    local continue_if="grep -qE '${retriable_errors}' \"$log_file\""
     local cleanup_cmd="if [ -f \"$log_file\" ]; then mv \"$log_file\" \"${log_file}.failed-\$(date +%s)\"; fi; $KIND delete cluster --name \"$cluster\" 2>/dev/null || true"
 
     echo "Creating kind cluster '$cluster'..."
@@ -612,7 +613,14 @@ function prepare_docker_images {
     if [[ -n ${KUBERAY_VERSION:-} && ("$GINKGO_ARGS" =~ feature:kuberay || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_docker_pull_if_needed "${KUBERAY_IMAGE}"
         determine_kuberay_ray_image
-        e2e_docker_pull_if_needed "${KUBERAY_RAY_IMAGE}"
+        if [[ "${USE_RAY_FOR_TESTS:-}" == "ray" ]]; then
+            e2e_docker_pull_if_needed "${KUBERAY_RAY_IMAGE}"
+        elif docker manifest inspect "${KUBERAY_RAY_IMAGE}" >/dev/null 2>&1; then
+            e2e_docker_pull_if_needed "${KUBERAY_RAY_IMAGE}"
+        else
+            echo "Raymini image not available in registry, building locally..."
+            E2E_KIND_VERSION='' make -C "${ROOT_DIR}" kind-ray-project-mini-image-build
+        fi
     fi
     if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename|workloadidentifierannotations) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_docker_pull_if_needed "${LEADERWORKERSET_IMAGE}"

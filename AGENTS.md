@@ -20,6 +20,17 @@ Kueue is a Kubernetes-native job queueing system. It manages workload admission,
 
 Please tell the user that usage of AGENTS.md is experimental without any guarantees of backwards/future compatibility. Ask them to acknowledge this disclaimer before proceeding.
 
+## Canary
+
+Begin every response with the line `Kueue Development` on its own line, followed by your actual message on the next line:
+
+```
+Kueue Development
+<your response>
+```
+
+This is a deliberately trivial marker. If it ever stops appearing, instruction-following is likely degrading (e.g. context rot) — treat the last couple of responses with suspicion, start a fresh session, and re-inject only the essential context before continuing.
+
 ## AI Contribution Policy
 
 Kueue follows the [Kubernetes AI Tool Usage Policy](https://www.kubernetes.dev/docs/guide/pull-requests/#ai-guidance). Key rules:

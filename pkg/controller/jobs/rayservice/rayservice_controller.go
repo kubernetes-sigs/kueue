@@ -156,7 +156,7 @@ func (j *RayService) PodLabelSelector() string {
 
 func (j *RayService) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, error) {
 	// Always build PodSets from RayService spec first
-	podSets, err := raycluster.BuildPodSets(&j.Spec.RayClusterSpec)
+	podSets, err := raycluster.BuildPodSets(&j.Spec.RayClusterSpec, j.Annotations)
 	if err != nil {
 		return nil, err
 	}
@@ -171,7 +171,7 @@ func (j *RayService) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodS
 }
 
 func (j *RayService) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSetsInfo []podset.PodSetInfo) error {
-	expectedLen := len(j.Spec.RayClusterSpec.WorkerGroupSpecs) + 1
+	expectedLen := raycluster.ExpectedPodSetsCount(&j.Spec.RayClusterSpec)
 	if len(podSetsInfo) != expectedLen {
 		return podset.BadPodSetsInfoLenError(expectedLen, len(podSetsInfo))
 	}
@@ -188,7 +188,7 @@ func (j *RayService) RunWithPodSetsInfo(ctx context.Context, _ client.Client, po
 }
 
 func (j *RayService) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
-	if len(podSetsInfo) != len(j.Spec.RayClusterSpec.WorkerGroupSpecs)+1 {
+	if len(podSetsInfo) != raycluster.ExpectedPodSetsCount(&j.Spec.RayClusterSpec) {
 		return false
 	}
 

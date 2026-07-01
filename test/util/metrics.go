@@ -17,6 +17,7 @@ limitations under the License.
 package util
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
@@ -377,4 +378,10 @@ func ExpectClusterQueueInfoMetric(cqName, parentCohort, rootCohort string, count
 	ginkgo.GinkgoHelper()
 	lvs := append([]string{cqName, parentCohort, rootCohort, roletracker.RoleStandalone}, customLabels...)
 	expectGaugeMetric(metrics.ClusterQueueInfo, lvs, gomega.Equal(count))
+}
+
+func ExpectPodSchedulingGateRemovalSecondsMetricLessOrEqual(name string, cqName kueue.ClusterQueueReference, isGroup bool, count int) {
+	ginkgo.GinkgoHelper()
+	matcher := gomega.Equal(count)
+	expectHistogramMetric(metrics.PodSchedulingGateRemovalSeconds, matcher, name, string(cqName), strconv.FormatBool(isGroup))
 }

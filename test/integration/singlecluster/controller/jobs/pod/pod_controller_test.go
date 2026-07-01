@@ -48,6 +48,8 @@ import (
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -137,6 +139,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 
 		ginkgo.When("Using single pod", func() {
 			ginkgo.It("Should reconcile the single pod with the queue name", framework.SlowSpec, func() {
+				const cqName = "cluster-queue"
+
 				pod := testingpod.MakePod(podName, ns.Name).
 					Queue("test-queue").
 					Annotation("provreq.kueue.x-k8s.io/ValidUntilSeconds", "0").
@@ -169,6 +173,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
+				util.ExpectPodSchedulingGateRemovalSecondsMetricLessOrEqual(podconstants.SchedulingGateName, cqName, false, 0)
+
 				gomega.Expect(createdWorkload.Spec.PodSets).To(gomega.HaveLen(1))
 
 				gomega.Expect(createdWorkload.Spec.QueueName).To(gomega.Equal(kueue.LocalQueueName("test-queue")),
@@ -179,7 +185,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 
 				ginkgo.By("checking the pod is unsuspended when workload is assigned")
 
-				clusterQueue := utiltestingapi.MakeClusterQueue("cluster-queue").
+				clusterQueue := utiltestingapi.MakeClusterQueue(cqName).
 					ResourceGroup(
 						*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj(),
 					).Obj()
@@ -208,6 +214,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 					},
 					wlConditionCmpOpts...,
 				))
+
+				util.ExpectPodSchedulingGateRemovalSecondsMetricLessOrEqual(podconstants.SchedulingGateName, cqName, false, 1)
 
 				ginkgo.By("checking the workload is finished and the pod finalizer is removed when pod is succeeded")
 				util.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pod)
@@ -525,7 +533,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 						gomega.Eventually(func(g gomega.Gomega) {
 							var newWL kueue.Workload
 							g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdWorkload), &newWL)).To(gomega.Succeed())
-							workload.SetAdmissionCheckState(&newWL.Status.AdmissionChecks, kueue.AdmissionCheckState{
+							workloadpatching.SetAdmissionCheckState(&newWL.Status.AdmissionChecks, kueue.AdmissionCheckState{
 								Name:  "check",
 								State: kueue.CheckStateReady,
 								PodSetUpdates: []kueue.PodSetUpdate{
@@ -867,8 +875,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 					createdWorkload := &kueue.Workload{}
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-						g.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, createdWorkload, util.RealClock, func(wl *kueue.Workload) (bool, error) {
-							return workload.SetEvictedCondition(wl, util.RealClock.Now(), "ByTest", "by test"), nil
+						g.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, createdWorkload, util.RealClock, func(wl *kueue.Workload) (bool, error) {
+							return workloadevict.SetEvictedCondition(wl, util.RealClock.Now(), "ByTest", "by test"), nil
 						})).Should(gomega.Succeed())
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -1460,8 +1468,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				ginkgo.By("setting evicted condition to true", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
-						g.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, wl, util.RealClock, func(wl *kueue.Workload) (bool, error) {
-							return workload.SetEvictedCondition(wl, util.RealClock.Now(), kueue.WorkloadEvictedByPreemption, "By test"), nil
+						g.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, wl, util.RealClock, func(wl *kueue.Workload) (bool, error) {
+							return workloadevict.SetEvictedCondition(wl, util.RealClock.Now(), kueue.WorkloadEvictedByPreemption, "By test"), nil
 						})).Should(gomega.Succeed())
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})

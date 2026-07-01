@@ -76,12 +76,12 @@ SPARKOPERATOR_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" githu
 NETWORK_INSTALL_RETRY = $(PROJECT_DIR)/hack/testing/retry.sh --attempts 7 --delay 2 --exponential --stream -- env
 
 .PHONY: golangci-lint
-golangci-lint: ## Download golangci-lint locally if necessary.
+golangci-lint: gomod-download-tools ## Download golangci-lint locally if necessary.
 	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 
 .PHONY: golangci-lint-kal
 golangci-lint-kal: golangci-lint ## Build golangci-lint-kal from custom configuration.
-	cd hack/testing/kal-linter; $(GOLANGCI_LINT) custom; mv bin/golangci-lint-kube-api-linter $(BIN_DIR)
+	cd hack/testing/kal-linter; $(NETWORK_INSTALL_RETRY) $(GOLANGCI_LINT) custom; mv bin/golangci-lint-kube-api-linter $(BIN_DIR)
 
 .PHONY: controller-gen
 controller-gen: gomod-download-tools ## Download controller-gen locally if necessary.
@@ -89,31 +89,31 @@ controller-gen: gomod-download-tools ## Download controller-gen locally if neces
 	$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION)
 
 .PHONY: kustomize
-kustomize: ## Download kustomize locally if necessary.
+kustomize: gomod-download-tools ## Download kustomize locally if necessary.
 	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install sigs.k8s.io/kustomize/kustomize/v5@$(KUSTOMIZE_VERSION)
 
 .PHONY: envtest
-envtest: ## Download envtest-setup locally if necessary.
+envtest: gomod-download-tools ## Download envtest-setup locally if necessary.
 	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install sigs.k8s.io/controller-runtime/tools/setup-envtest@$(ENVTEST_VERSION)
 
 .PHONY: ginkgo
-ginkgo: ## Download ginkgo locally if necessary.
+ginkgo: gomod-download-tools ## Download ginkgo locally if necessary.
 	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install github.com/onsi/ginkgo/v2/ginkgo@$(GINKGO_VERSION)
 
 .PHONY: gotestsum
-gotestsum: ## Download gotestsum locally if necessary.
+gotestsum: gomod-download-tools ## Download gotestsum locally if necessary.
 	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install gotest.tools/gotestsum@$(GOTESTSUM_VERSION)
 
 .PHONY: kind
-kind: ## Download kind locally if necessary.
+kind: gomod-download-tools ## Download kind locally if necessary.
 	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install sigs.k8s.io/kind@$(KIND_VERSION)
 
 .PHONY: yq
-yq: ## Download yq locally if necessary.
+yq: gomod-download-tools ## Download yq locally if necessary.
 	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install github.com/mikefarah/yq/v4@$(YQ_VERSION)
 
 .PHONY: helm
-helm: ## Download helm locally if necessary.
+helm: gomod-download-tools ## Download helm locally if necessary.
 	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install helm.sh/helm/v4/cmd/helm@$(HELM_VERSION)
 
 .PHONY: helm-unittest-plugin
@@ -123,23 +123,23 @@ helm-unittest-plugin: helm ## Download helm-unittest locally if necessary.
 	fi
 
 .PHONY: genref
-genref: ## Download genref locally if necessary.
+genref: gomod-download-tools ## Download genref locally if necessary.
 	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) $(GO_CMD) install github.com/kubernetes-sigs/reference-docs/genref@$(GENREF_VERSION)
 
 .PHONY: hugo
-hugo: ## Download hugo locally if necessary.
+hugo: gomod-download-tools ## Download hugo locally if necessary.
 	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) CGO_ENABLED=1 $(GO_CMD) install -tags extended github.com/gohugoio/hugo@$(HUGO_VERSION)
 
 .PHONY: mdtoc
-mdtoc: ## Download mdtoc locally if necessary.
+mdtoc: gomod-download-tools ## Download mdtoc locally if necessary.
 	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) CGO_ENABLED=1 $(GO_CMD) install sigs.k8s.io/mdtoc@$(MDTOC_VERSION)
 
 .PHONY: helm-docs
-helm-docs: ## Download helm-docs locally if necessary.
+helm-docs: gomod-download-tools ## Download helm-docs locally if necessary.
 	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) CGO_ENABLED=1 $(GO_CMD) install github.com/norwoodj/helm-docs/cmd/helm-docs@$(HELM_DOCS_VERSION)
 
 .PHONY: mockgen
-mockgen: ## Download mockgen locally if necessary.
+mockgen: gomod-download-tools ## Download mockgen locally if necessary.
 	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) CGO_ENABLED=1 $(GO_CMD) install go.uber.org/mock/mockgen@$(MOCKGEN_VERSION)
 
 ##@ External CRDs

@@ -44,6 +44,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
@@ -211,15 +212,14 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	if afs.Enabled(r.admissionFSConfig) {
-		initNeeded := r.initializeAfsIfNeeded(&queueObj)
 		lqKey := utilqueue.Key(&queueObj)
-		entry, found := r.queues.AfsConsumedResources.Get(lqKey)
-		if !found {
-			log.V(3).Info("AFS cache entry deleted concurrently, skipping reconciliation")
-			return ctrl.Result{}, nil
-		}
+		hadCache, entry := r.initializeAfsIfNeeded(&queueObj)
 		sinceLastUpdate := r.clock.Now().Sub(entry.LastUpdate)
-		if interval := r.admissionFSConfig.UsageSamplingInterval.Duration; !initNeeded && sinceLastUpdate < interval && !r.queues.AfsEntryPenalties.HasPendingFor(lqKey) {
+		// Enforce the sampling interval when the cache already existed
+		// before this reconcile. Without this, self-triggered status
+		// updates cause sub-millisecond reconciles where the decay math
+		// truncates CPU consumed resources to zero.
+		if interval := r.admissionFSConfig.UsageSamplingInterval.Duration; hadCache && sinceLastUpdate < interval && !r.queues.AfsEntryPenalties.HasPendingFor(lqKey) {
 			return ctrl.Result{RequeueAfter: interval - sinceLastUpdate}, nil
 		}
 		if err := r.reconcileConsumedUsage(ctx, &queueObj); err != nil {
@@ -335,17 +335,14 @@ func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue
 	return true
 }
 
-func (r *LocalQueueReconciler) initializeAfsIfNeeded(lq *kueue.LocalQueue) bool {
+func (r *LocalQueueReconciler) initializeAfsIfNeeded(lq *kueue.LocalQueue) (hadCache bool, entry queueafs.ConsumedResourcesEntry) {
 	if lq.Status.FairSharing == nil {
 		lq.Status.FairSharing = &kueue.LocalQueueFairSharingStatus{}
 	}
 
 	lqKey := utilqueue.Key(lq)
 	hasStatus := lq.Status.FairSharing.AdmissionFairSharingStatus != nil
-	_, hasCache := r.queues.AfsConsumedResources.Get(lqKey)
-	if hasStatus && hasCache {
-		return false
-	}
+	entry, hadCache = r.queues.AfsConsumedResources.Get(lqKey)
 
 	now := r.clock.Now()
 
@@ -355,12 +352,13 @@ func (r *LocalQueueReconciler) initializeAfsIfNeeded(lq *kueue.LocalQueue) bool 
 		}
 	}
 
-	if !hasCache {
+	if !hadCache {
 		currentUsage := r.getCurrentUsageForLocalQueue(lq.Spec.ClusterQueue, lqKey)
 		r.queues.AfsConsumedResources.Set(lqKey, currentUsage, now)
+		entry = queueafs.ConsumedResourcesEntry{Resources: currentUsage, LastUpdate: now}
 	}
 
-	return true
+	return hadCache, entry
 }
 
 func (r *LocalQueueReconciler) getCurrentUsageForLocalQueue(cqName kueue.ClusterQueueReference, lqKey utilqueue.LocalQueueReference) corev1.ResourceList {
@@ -408,10 +406,32 @@ func (r *LocalQueueReconciler) reconcileConsumedUsage(ctx context.Context, lq *k
 	return nil
 }
 
+func (r *LocalQueueReconciler) reportAfsUsage(lq *kueue.LocalQueue, consumedResources corev1.ResourceList) {
+	if !afs.Enabled(r.admissionFSConfig) {
+		return
+	}
+	if !r.lqMetrics.ShouldExposeLocalQueueMetrics(lq.GetLabels()) {
+		return
+	}
+	lqKey := utilqueue.Key(lq)
+	penalty := r.queues.AfsEntryPenalties.Peek(lqKey)
+	metrics.ReportLocalQueueAdmissionFairSharingUsage(
+		localQueueReferenceFromLocalQueue(lq),
+		lq.Spec.ClusterQueue,
+		afs.CalculateUsage(consumedResources, penalty, afs.LQWeightAsFloat64(lq), r.admissionFSConfig.ResourceWeights),
+		r.customLabels.LQGet(lqKey),
+		r.roleTracker,
+	)
+}
+
 func (r *LocalQueueReconciler) updateAdmissionFsStatus(ctx context.Context, lq *kueue.LocalQueue, consumedResources corev1.ResourceList, lastUpdate time.Time) error {
 	lq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources = consumedResources
 	lq.Status.FairSharing.AdmissionFairSharingStatus.LastUpdate = metav1.NewTime(lastUpdate)
-	return r.client.Status().Update(ctx, lq)
+	if err := r.client.Status().Update(ctx, lq); err != nil {
+		return err
+	}
+	r.reportAfsUsage(lq, consumedResources)
+	return nil
 }
 
 func localQueueReferenceFromLocalQueue(lq *kueue.LocalQueue) metrics.LocalQueueReference {
@@ -442,6 +462,9 @@ func (r *LocalQueueReconciler) resyncLocalQueueGaugeMetrics(lq *kueue.LocalQueue
 
 	if !r.lqMetrics.ShouldExposeLocalQueueMetrics(lq.GetLabels()) {
 		return
+	}
+	if entry, found := r.queues.AfsConsumedResources.Get(lqKey); found {
+		r.reportAfsUsage(lq, entry.Resources)
 	}
 	condition := meta.FindStatusCondition(lq.Status.Conditions, kueue.LocalQueueActive)
 	if condition == nil {

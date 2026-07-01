@@ -12,7 +12,7 @@ Check the concepts section for a [MultiKueue overview](/docs/concepts/multikueue
 
 ## Setup MultiKueue with E2E Test Cluster
 
-The [e2e test development mode](/docs/contribution_guidelines/testing/#dev-mode-keep-the-cluster) can be used to maintain a MultiKueue cluster setup and run end-to-end tests
+The [e2e test development mode](/community/contribution_guidelines/testing/#dev-mode-keep-the-cluster) can be used to maintain a MultiKueue cluster setup and run end-to-end tests
 against it without recreating and tearing it down each time.
 
 For example:
@@ -26,7 +26,7 @@ To use a staging Kueue image without building (no `kind-image-build` needed), pa
 E2E_MODE=dev IMAGE_TAG=us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:main make test-multikueue-e2e-baseline
 ```
 
-For using a released version (with matching manifests) and for more information about the DEV mode, refer to the [testing documentation](/docs/contribution_guidelines/testing/#dev-mode-keep-the-cluster).
+For using a released version (with matching manifests) and for more information about the DEV mode, refer to the [testing documentation](/community/contribution_guidelines/testing/#dev-mode-keep-the-cluster).
 
 ## Setup MultiKueue with TAS
 
@@ -119,13 +119,9 @@ done
 
 ### Step 3: Configure Manager for Kind
 
-Enable the feature gate for insecure kubeconfigs and configure integrations:
+Configure integrations:
 
 ```bash
-# Enable feature gate (required for Kind clusters with insecure-skip-tls-verify)
-kubectl --context kind-manager patch deployment kueue-controller-manager -n kueue-system --type='json' \
-  -p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--feature-gates=MultiKueueAllowInsecureKubeconfigs=true"}]'
-
 # Configure to use only batch/job integration
 cat > /tmp/kueue-integrations-patch.yaml <<'EOF'
 data:
@@ -145,14 +141,14 @@ data:
       groupKindConcurrency:
         Job.batch: 5
         Pod: 5
-        Workload.kueue.x-k8s.io: 5
-        LocalQueue.kueue.x-k8s.io: 1
+        Workload.kueue.x-k8s.io: 10
+        LocalQueue.kueue.x-k8s.io: 5
         Cohort.kueue.x-k8s.io: 1
-        ClusterQueue.kueue.x-k8s.io: 1
+        ClusterQueue.kueue.x-k8s.io: 5
         ResourceFlavor.kueue.x-k8s.io: 1
     clientConnection:
-      qps: 50
-      burst: 100
+      qps: 300
+      burst: 500
     integrations:
       frameworks:
       - "batch/job"
@@ -225,13 +221,16 @@ EOF
   # be plaintext in kubeconfig
   TOKEN=$(kubectl --context "kind-${cluster}" get secret multikueue-sa-token -n kueue-system -o jsonpath='{.data.token}' | base64 --decode)
 
+  # Extract the Certificate Authority
+  CA_DATA=$(kubectl --context "kind-${cluster}" config view --minify --raw -o jsonpath='{.clusters[0].cluster.certificate-authority-data}')
+
   # Create kubeconfig
   cat > ${cluster}.kubeconfig <<EOF
 apiVersion: v1
 kind: Config
 clusters:
 - cluster:
-    insecure-skip-tls-verify: true
+    certificate-authority-data: ${CA_DATA}
     server: https://${cluster}-control-plane:6443
   name: ${cluster}
 contexts:

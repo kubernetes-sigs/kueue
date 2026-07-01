@@ -1,13 +1,9 @@
-# 1. ConfigMap containing Kueue resource definitions
+# 1. ConfigMap containing Kueue resource definitions.
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-kueue-resources
   namespace: {{ .Release.Namespace }}
-  annotations:
-    "helm.sh/hook": post-install,post-upgrade
-    "helm.sh/hook-weight": "-5"
-    "helm.sh/hook-delete-policy": before-hook-creation
 data:
   resources.yaml: |-
 {{- if .Values.kueuePopulator.config.topology }}
@@ -66,42 +62,32 @@ data:
 {{- end }}
 {{- end }}
 ---
-# 2. Service Account for the Job
+# 2. Service Account shared by the create (post-install) and delete (pre-delete) Jobs.
+# Regular release resource: present for both hooks and removed by Helm on uninstall.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: {{ .Release.Name }}-kueue-hook-sa
   namespace: {{ .Release.Namespace }}
-  annotations:
-    "helm.sh/hook": post-install,post-upgrade
-    "helm.sh/hook-delete-policy": before-hook-creation
-
 ---
-# 3. ClusterRole with required permissions
+# 3. ClusterRole with permissions to create AND delete the Kueue resources.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: {{ .Release.Name }}-kueue-hook-clusterrole
-  annotations:
-    "helm.sh/hook": post-install,post-upgrade
-    "helm.sh/hook-delete-policy": before-hook-creation
 rules:
 - apiGroups: ["kueue.x-k8s.io"]
   resources: ["topologies", "resourceflavors", "clusterqueues", "localqueues"]
-  verbs: ["create", "get", "list", "patch", "update"]
+  verbs: ["create", "get", "list", "patch", "update", "delete"]
 - apiGroups: [""] # Core API group
   resources: ["configmaps", "endpoints"]
   verbs: ["get"]
-
 ---
-# 4. A ClusterRoleBinding to grant the permissions cluster-wide
+# 4. A ClusterRoleBinding to grant the permissions cluster-wide.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   name: {{ .Release.Name }}-kueue-hook-crb
-  annotations:
-    "helm.sh/hook": post-install,post-upgrade
-    "helm.sh/hook-delete-policy": before-hook-creation
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -111,7 +97,7 @@ subjects:
   name: {{ .Release.Name }}-kueue-hook-sa
   namespace: {{ .Release.Namespace }}
 ---
-# 5. The Job that waits and applies the resources
+# 5. The Job that applies the resources after install/upgrade.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -119,7 +105,6 @@ metadata:
   namespace: {{ .Release.Namespace }}
   annotations:
     "helm.sh/hook": post-install,post-upgrade
-    "helm.sh/hook-weight": "5"
     "helm.sh/hook-delete-policy": hook-succeeded,before-hook-creation
 spec:
   template:
@@ -133,6 +118,41 @@ spec:
         - apply
         - -f
         - /etc/config/resources.yaml
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/config
+      restartPolicy: Never
+      volumes:
+      - name: config-volume
+        configMap:
+          name: {{ .Release.Name }}-kueue-resources
+  backoffLimit: 5
+---
+# 6. The Job that deletes the resources before the release is removed, so the
+# cluster-scoped Kueue objects created by the create Job above do not leak on
+# `helm uninstall`. It reuses the ConfigMap and ServiceAccount, which are still
+# present at pre-delete time.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: "{{ .Release.Name }}-delete-kueue-resources-job"
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "helm.sh/hook": pre-delete
+    "helm.sh/hook-delete-policy": hook-succeeded,before-hook-creation
+spec:
+  template:
+    spec:
+      serviceAccountName: {{ .Release.Name }}-kueue-hook-sa
+      containers:
+      - name: kubectl-delete
+        image: {{ include "kueue-populator.kubectlImage" . }}
+        command:
+        - kubectl
+        - delete
+        - -f
+        - /etc/config/resources.yaml
+        - --ignore-not-found=true
         volumeMounts:
         - name: config-volume
           mountPath: /etc/config

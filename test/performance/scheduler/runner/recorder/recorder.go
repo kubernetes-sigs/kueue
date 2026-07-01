@@ -31,6 +31,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	"sigs.k8s.io/kueue/test/performance/scheduler/runner/generator"
 )
 
@@ -458,7 +459,7 @@ func (r *Recorder) RecordWorkloadState(wl *kueue.Workload) {
 		UID:       wl.UID,
 		ClassName: wl.Labels[generator.ClassLabel],
 		Admitted:  workload.IsAdmitted(wl),
-		Evicted:   workload.IsEvicted(wl),
+		Evicted:   workloadevict.IsEvicted(wl),
 		Finished:  workload.IsFinished(wl),
 	}
 	select {

@@ -25,7 +25,7 @@ stage: beta
 # The most recent milestone for which work toward delivery of this KEP has been
 # done. This can be the current (upcoming) milestone, if it is being actively
 # worked on.
-latest-milestone: "v0.17"
+latest-milestone: "v0.19"
 
 # The milestone at which this feature was, or is targeted to be, at each stage.
 milestone:
@@ -50,6 +50,7 @@ feature-gates:
   - name: TASMultiLayerTopology
   - name: TASRespectNodeAffinityPreferred
   - name: TASHandleOverlappingFlavors
+  - name: TASRecomputeAssignmentWithinSchedulingCycle
 disable-supported: true
 
 # The following PRR answers are required at beta release

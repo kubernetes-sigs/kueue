@@ -891,3 +891,30 @@ func (w *ResourceSliceWrapper) CounterConsumption(counterSet, counterName, value
 func (w *ResourceSliceWrapper) Obj() *resourcev1.ResourceSlice {
 	return &w.ResourceSlice
 }
+
+// DeviceClassWrapper wraps a resourcev1.DeviceClass.
+type DeviceClassWrapper struct {
+	resourcev1.DeviceClass
+}
+
+// MakeDeviceClass creates a DeviceClassWrapper with basic metadata.
+func MakeDeviceClass(name string) *DeviceClassWrapper {
+	return &DeviceClassWrapper{
+		resourcev1.DeviceClass{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: name,
+			},
+		},
+	}
+}
+
+// ExtendedResourceName sets the extended resource name on the DeviceClass.
+func (d *DeviceClassWrapper) ExtendedResourceName(name string) *DeviceClassWrapper {
+	d.Spec.ExtendedResourceName = new(name)
+	return d
+}
+
+// Obj returns the inner DeviceClass.
+func (d *DeviceClassWrapper) Obj() *resourcev1.DeviceClass {
+	return &d.DeviceClass
+}

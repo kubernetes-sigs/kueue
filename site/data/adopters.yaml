@@ -1,0 +1,156 @@
+- name: CyberAgent, Inc.
+  url: https://www.cyberagent.co.jp/en/
+  type: End User
+  description: On-premise ML Platform
+  integrations:
+  - batch/job
+  - kubeflow.org/mpijob
+  contact: '@tenzen-y'
+  contact_url: https://github.com/tenzen-y
+- name: DaoCloud, Inc.
+  url: https://www.daocloud.io/en/
+  type: End User
+  description: Part of the AI Platform for managing all kinds of Jobs.
+  integrations:
+  - batch/job
+  - RayJob
+  - '...'
+  contact: '@kerthcet'
+  contact_url: https://github.com/kerthcet
+- name: WattIQ, Inc.
+  url: https://wattiq.io
+  type: End User
+  description: SaaS/IoT product
+  integrations:
+  - batch/job
+  - RayJob
+  contact: '@madsenwattiq'
+  contact_url: https://github.com/madsenwattiq
+- name: Horizon, Inc.
+  url: https://horizon.cc/
+  type: End User
+  description: AI training platform
+  integrations:
+  - batch/job
+  - '...'
+  contact: '@GhangZh'
+  contact_url: https://github.com/GhangZh
+- name: FAR AI
+  url: https://far.ai/
+  type: End User
+  description: AI alignment research nonprofit
+  integrations:
+  - batch/job
+  contact: '@rhaps0dy'
+  contact_url: https://github.com/rhaps0dy
+- name: Shopee, Inc.
+  url: https://shopee.com/
+  type: End User
+  description: Training/batch inference/data processes in AI platform test env
+  integrations:
+  - Customized job
+  - RayJob
+  - '...'
+  contact: '@denkensk'
+  contact_url: https://github.com/denkensk
+- name: Mondoo, Inc.
+  url: https://mondoo.com
+  type: End User
+  description: Helps power Mondoo's hosted security scanner
+  integrations:
+  - batch/job
+  contact: '@jaym'
+  contact_url: https://github.com/jaym
+- name: Google Cloud
+  url: https://cloud.google.com/
+  type: Provider
+  description: Part of [kit for training ML workloads on TPUs][gcmldemo]
+  integrations:
+  - JobSet
+  contact: '@mrozacki'
+  contact_url: https://github.com/mrozacki
+- name: Onna Technologies, Inc
+  url: https://onna.com
+  type: End User
+  description: Unstructured Data Management Platform
+  integrations:
+  - batch/job
+  contact: '@gitcarbs'
+  contact_url: https://github.com/gitcarbs
+- name: IBM Research
+  url: https://research.ibm.com
+  type: End User
+  description: Part of [MLBatch][mlbatch] stack for running AI/ML workloads
+  integrations:
+  - AppWrapper
+  - PyTorchJob
+  - RayJob
+  contact: dgrove-oss
+  contact_url: https://github.com/dgrove-oss
+- name: Innovatrics
+  url: https://www.innovatrics.com/
+  type: End User
+  description: On-premise ML Platform
+  integrations:
+  - batch/job
+  - pod
+  contact: '@mmolisch'
+  contact_url: https://github.com/mmolisch
+- name: Red Hat, Inc.
+  url: https://www.redhat.com/en
+  type: End User
+  description: Cloud/On-premise ML Platform
+  integrations:
+  - Ray Cluster
+  - RayJob
+  - Pytorch Job
+  - TensorFlow Job
+  - '...'
+  contact: '@varshaprasad96'
+  contact_url: https://github.com/varshaprasad96
+- name: Octue
+  url: https://octue.com
+  type: End User
+  description: '[Scientific data service framework][octue-sdk]'
+  integrations:
+  - batch/job
+  contact: '@cortadocodes'
+  contact_url: https://github.com/cortadocodes
+- name: LY Corporation
+  url: https://www.lycorp.co.jp/en/
+  type: End User
+  description: On-premise AI Platform
+  integrations:
+  - batch/job
+  - TensorFlow Job
+  - Ray Cluster
+  - pod
+  - '...'
+  contact: '@everpeace'
+  contact_url: https://github.com/everpeace
+- name: Preferred Networks, Inc.
+  url: https://www.preferred.jp/en
+  type: End User
+  description: Cloud/On-premise ML Platform
+  integrations:
+  - batch/job
+  - pod
+  - '...'
+  contact: '@wafrelka'
+  contact_url: https://github.com/wafrelka
+- name: Wayve
+  url: https://wayve.ai/
+  type: End User
+  description: Part of the AI Platform powering Wayve AI Driver
+  integrations:
+  - RayJob
+  - pod
+  contact: '@mukund-wayve'
+  contact_url: https://github.com/mukund-wayve
+- name: Krea AI
+  url: https://www.krea.ai
+  type: End User
+  description: Large-scale pretraining and high quality video generation. (See <a href="https://www.krea.ai/blog/krea-2-technical-report" target="_blank">Krea 2 Technical Report</a>)
+  integrations: []
+  contact: '@krea-ai'
+  contact_url: https://twitter.com/krea_ai

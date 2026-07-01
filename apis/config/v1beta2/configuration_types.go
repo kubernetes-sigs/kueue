@@ -335,6 +335,21 @@ type MultiKueue struct {
 	// ClusterProfile defines configuration for using the ClusterProfile API.
 	// +optional
 	ClusterProfile *ClusterProfile `json:"clusterProfile,omitempty"`
+
+	// IncrementalDispatcherConfig contains the configuration for the incremental dispatcher.
+	// This field is only valid when DispatcherName is set to the incremental dispatcher.
+	// Note: This field is going to be ignored when the MultiKueueIncrementalDispatcherConfig feature gate is disabled.
+	// +optional
+	IncrementalDispatcherConfig *IncrementalDispatcherConfig `json:"incrementalDispatcherConfig,omitempty"`
+}
+
+// IncrementalDispatcherConfig holds configuration for the MultiKueue Incremental Dispatcher.
+type IncrementalDispatcherConfig struct {
+	// StepSize defines the number of worker clusters the Incremental Dispatcher
+	// will query simultaneously.
+	// Minimum value is 1. If not set, it defaults to 3.
+	// +optional
+	StepSize *int32 `json:"stepSize,omitempty"`
 }
 
 // MultiKueueExternalFramework defines a framework that is not built-in.
@@ -447,16 +462,27 @@ type TLSOptions struct {
 
 // ClusterProfile defines configuration for using the ClusterProfile API in MultiKueue.
 type ClusterProfile struct {
+	// AccessProviders defines a list of providers to obtain access to worker clusters
+	// using the ClusterProfile API.
+	// +optional
+	AccessProviders []ClusterProfileAccessProvider `json:"accessProviders,omitempty"`
+
 	// CredentialsProviders defines a list of providers to obtain credentials of worker clusters
 	// using the ClusterProfile API.
+	//
+	// Deprecated: Use AccessProviders instead. AccessProviders and CredentialsProviders
+	// are mutually exclusive.
+	//
+	// +optional
+	// +deprecated
 	CredentialsProviders []ClusterProfileCredentialsProvider `json:"credentialsProviders,omitempty"`
 }
 
-// ClusterProfileCredentialsProvider defines a credentials provider in the ClusterProfile API.
-type ClusterProfileCredentialsProvider struct {
+// ClusterProfileAccessProvider defines an access provider in the ClusterProfile API.
+type ClusterProfileAccessProvider struct {
 	// Name is the name of the provider.
 	Name string `json:"name"`
-	//  ExecConfig is the exec configuration to obtain credentials.
+	// ExecConfig is the exec configuration to obtain credentials.
 	ExecConfig clientcmdapi.ExecConfig `json:"execConfig"`
 }
 

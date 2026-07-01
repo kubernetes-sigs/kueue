@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilstatefulset "sigs.k8s.io/kueue/pkg/util/statefulset"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -128,7 +129,7 @@ func (r *Reconciler) finalizePod(ctx context.Context, sts *appsv1.StatefulSet, p
 			log.V(3).Info(
 				"Finalizing pod in group",
 				"pod", klog.KObj(pod),
-				"group", podcontroller.GetPodGroupName(pod),
+				"group", utilpod.GetPodGroupName(pod),
 			)
 			return true, nil
 		}
@@ -214,11 +215,21 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 	}
 
 	var shouldUpdate bool
+	// Initialize retry-idempotent flags early so that a partial failure in a
+	// previous reconcile (e.g. owner-ref update succeeded but status patch
+	// failed) does not leave the workload stuck.
+	shouldReleaseReservation := replicas == 0 && workload.HasActiveQuotaReservation(wl) && !workload.IsFinished(wl) && workload.IsActive(wl)
+	shouldClearOnHold := replicas > 0 && workload.IsOnHold(wl)
 
 	switch {
 	case hasOwnerReference && replicas == 0:
-		shouldUpdate = true
-		err = controllerutil.RemoveOwnerReference(sts, wl, r.client.Scheme())
+		// Keep the owner reference when scaling to zero so that the workload
+		// is not considered orphaned by the workload controller. The workload
+		// will be put on hold instead.
+	case !hasOwnerReference && replicas == 0:
+		// Owner reference was already removed in a previous reconcile (before
+		// OnHold was introduced), but quota reservation release may have
+		// failed. Retry the release if still active.
 	case !hasOwnerReference && replicas > 0:
 		shouldUpdate = true
 		err = controllerutil.SetOwnerReference(sts, wl, r.client.Scheme())
@@ -242,11 +253,56 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 		shouldUpdate = gateUpdated || shouldUpdate
 	}
 
-	if !shouldUpdate {
+	if shouldUpdate {
+		if err := r.client.Update(ctx, wl); err != nil {
+			return err
+		}
+	}
+
+	if shouldReleaseReservation {
+		return r.releaseScaleDownReservation(ctx, wl)
+	}
+
+	if shouldClearOnHold {
+		return r.clearOnHold(ctx, wl)
+	}
+
+	return nil
+}
+
+func (r *Reconciler) clearOnHold(ctx context.Context, wl *kueue.Workload) error {
+	if !workload.IsOnHold(wl) {
+		return nil
+	}
+	return clientutil.PatchStatus(ctx, r.client, wl, func() (bool, error) {
+		// Change the QuotaReserved reason from "OnHold" to "Pending"
+		// so the workload becomes admissible again and can be requeued.
+		changed := workload.UnsetQuotaReservationWithCondition(
+			wl,
+			"Pending",
+			"Workload no longer on hold; waiting for quota reservation",
+			metav1.Now().Time,
+		)
+		return changed, nil
+	}, clientutil.WithRetryOnConflict())
+}
+
+func (r *Reconciler) releaseScaleDownReservation(ctx context.Context, wl *kueue.Workload) error {
+	if wl == nil || workload.IsFinished(wl) || !workload.HasActiveQuotaReservation(wl) {
 		return nil
 	}
 
-	return r.client.Update(ctx, wl)
+	return clientutil.PatchStatus(ctx, r.client, wl, func() (bool, error) {
+		// Set QuotaReserved=False with reason "OnHold" to both release the
+		// quota reservation and prevent the workload from being requeued.
+		changed := workload.UnsetQuotaReservationWithCondition(
+			wl,
+			kueue.WorkloadOnHold,
+			"StatefulSet scaled to zero; workload on hold",
+			metav1.Now().Time,
+		)
+		return changed, nil
+	}, clientutil.WithRetryOnConflict())
 }
 
 func (r *Reconciler) createPrebuiltWorkload(ctx context.Context, sts *appsv1.StatefulSet) error {

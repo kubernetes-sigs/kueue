@@ -1,3 +1,17 @@
+## 2.32.0
+
+`-fd` generate RSpec-style documentation output.  Thank @woodie !
+--sleep-on-failure pauses a failed spec before teardown. Thanks @qinqon !
+
+## 2.31.0
+
+Add a bunch of Claude Skills via the marketplace:
+
+```
+/plugin marketplace add onsi/ginkgo
+/plugin install ginkgo@ginkgo
+```
+
 ## 2.30.0
 
 ### Features
