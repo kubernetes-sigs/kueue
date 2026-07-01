@@ -1534,4 +1534,95 @@ var _ = ginkgo.Describe("Workload controller with resource retention", func() {
 			})
 		})
 	})
+
+	ginkgo.Context("with UnadmittedWorkloadsObservability feature gate enabled, namespace selector validation", func() {
+		var (
+			clusterQueue *kueue.ClusterQueue
+			localQueue   *kueue.LocalQueue
+			flavor       *kueue.ResourceFlavor
+			ns           *corev1.Namespace
+		)
+
+		startManager := func() {
+			fwk.StartManager(ctx, cfg, managerSetup)
+		}
+
+		stopManager := func() {
+			fwk.StopManager(ctx)
+		}
+
+		ginkgo.BeforeEach(func() {
+			startManager()
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
+			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-ns-selector-")
+			flavor = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()
+			gomega.Expect(k8sClient.Create(ctx, flavor)).Should(gomega.Succeed())
+			clusterQueue = utiltestingapi.MakeClusterQueue("cq-ns-selector").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavorOnDemand).
+					Resource(corev1.ResourceCPU, "1").Obj()).
+				NamespaceSelector(&metav1.LabelSelector{
+					MatchLabels: map[string]string{"foo": "bar"},
+				}).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+			localQueue = utiltestingapi.MakeLocalQueue("q-ns-selector", ns.Name).ClusterQueue("cq-ns-selector").Obj()
+			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+			stopManager()
+		})
+
+		ginkgo.It("should set Misconfigured on namespace mismatch and clear it when mismatch resolved", func() {
+			wl := utiltestingapi.MakeWorkload("wl-ns-mismatch", ns.Name).Queue("q-ns-selector").Request(corev1.ResourceCPU, "1").Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			wlKey := client.ObjectKeyFromObject(wl)
+			var updatedWl kueue.Workload
+
+			ginkgo.By("verifying that QuotaReserved is False with Reason Misconfigured", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
+					cond := apimeta.FindStatusCondition(updatedWl.Status.Conditions, kueue.WorkloadQuotaReserved)
+					g.Expect(cond).NotTo(gomega.BeNil())
+					g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+					g.Expect(cond.Reason).To(gomega.Equal(string(kueue.WorkloadQuotaReservedReasonMisconfigured)))
+					g.Expect(cond.Message).To(gomega.Equal("workload namespace doesn't match ClusterQueue selector"))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("updating the Namespace to match ClusterQueue's selector", func() {
+				var fetchedNs corev1.Namespace
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(ns), &fetchedNs)).To(gomega.Succeed())
+				fetchedNs.Labels = map[string]string{"foo": "bar"}
+				gomega.Expect(k8sClient.Update(ctx, &fetchedNs)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("triggering reconciliation of the workload", func() {
+				// We can update a dummy annotation on the workload to trigger reconcile
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
+					if updatedWl.Annotations == nil {
+						updatedWl.Annotations = make(map[string]string)
+					}
+					updatedWl.Annotations["trigger-reconcile"] = "true"
+					g.Expect(k8sClient.Update(ctx, &updatedWl)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying that QuotaReserved transitions to PendingEvaluation", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
+					cond := apimeta.FindStatusCondition(updatedWl.Status.Conditions, kueue.WorkloadQuotaReserved)
+					g.Expect(cond).NotTo(gomega.BeNil())
+					g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+					g.Expect(cond.Reason).To(gomega.Equal(string(kueue.WorkloadQuotaReservedReasonPendingEvaluation)))
+					g.Expect(cond.Message).To(gomega.Equal("Workload is pending evaluation in the scheduling queue"))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+	})
 })
