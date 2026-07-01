@@ -377,3 +377,95 @@ pi is approximately 3.1410376000000002
 
 That looks like pi! 🎉️🥧️
 If you are interested in running this same example with YAML outside of Python, see [Run an MPIJob](/docs/tasks/run/kubeflow/mpijobs/).
+
+### Kubeflow Trainer Job
+
+For this example, we will use [Kubeflow Trainer](https://www.kubeflow.org/docs/components/trainer/)
+to submit a `TrainJob` (the Kubeflow Trainer v2 API), and specifically the
+[Kubeflow SDK](https://github.com/kubeflow/sdk) to do this easily. Unlike the previous
+examples, the SDK builds and submits the resource for us, so we don't construct the CRD by
+hand. Given our Python environment created in the [setup](#before-you-begin), we can install
+the SDK directly to it as follows:
+
+```bash
+pip install kubeflow
+```
+
+This example assumes Kubeflow Trainer v2 is installed, the built-in `torch-distributed`
+`ClusterTrainingRuntime` is available, and Kueue is configured to manage TrainJobs. For these
+prerequisites (installing Kubeflow Trainer, the runtime, and enabling the TrainJob
+integration in Kueue), follow the [Run A TrainJob](/docs/tasks/run/trainjobs/) guide. You'll
+also need the queues created:
+
+```bash
+kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/kueue/main/site/static/examples/admin/single-clusterqueue-setup.yaml
+```
+
+Write the following script to `sample-trainjob.py`:
+
+{{< include file="examples/python/sample-trainjob.py" lang="python" >}}
+
+The Kueue integration is the `Labels` option, which sets the `kueue.x-k8s.io/queue-name`
+label on the TrainJob so Kueue can admit it to the right local queue (the same label the
+other examples set on their job metadata).
+
+Now try running the example:
+
+```bash
+python sample-trainjob.py
+```
+```console
+⭐️ Submitting TrainJob to runtime torch-distributed...
+⭐️ Created TrainJob md3b82e943a5
+Use:
+"kubectl get queue" to see queue assignment
+"kubectl get trainjobs" to see TrainJobs
+```
+
+You'll be able to see the TrainJob admitted to the local queue:
+
+```bash
+kubectl get queue
+```
+```console
+NAME         CLUSTERQUEUE    PENDING WORKLOADS   ADMITTED WORKLOADS
+user-queue   cluster-queue   0                   1
+```
+
+Once admitted, Kueue unsuspends the TrainJob and it starts running:
+
+```bash
+kubectl get trainjobs
+```
+```console
+NAME           STATE       AGE
+md3b82e943a5   Suspended   15s
+```
+
+The `STATE` column shows the type of the TrainJob's latest status condition rather than a
+live phase, so a running TrainJob reads `Suspended` and only becomes `Complete` once
+training finishes.
+
+A TrainJob runs on top of a JobSet, so its training pods carry the
+`jobset.sigs.k8s.io/jobset-name` label set to the TrainJob name. You can follow the
+training output:
+
+```bash
+kubectl logs -l jobset.sigs.k8s.io/jobset-name=md3b82e943a5 --tail=-1
+```
+```console
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+Distributed Training with WORLD_SIZE: 1, RANK: 0, LOCAL_RANK: 0.
+Train Epoch: 0 [0/60000]	Loss: 2.310645
+Train Epoch: 0 [1000/60000]	Loss: 1.935180
+Train Epoch: 0 [2000/60000]	Loss: 2.096165
+...
+Train Epoch: 2 [58000/60000]	Loss: 0.372064
+Train Epoch: 2 [59000/60000]	Loss: 0.226857
+Training is finished
+```
+
+You can further customize the job, and ask questions on the
+[Kubeflow Trainer issues board](https://github.com/kubeflow/trainer/issues).
+Finally, for instructions for how to do this with YAML outside of Python, see
+[Run A TrainJob](/docs/tasks/run/trainjobs/).
