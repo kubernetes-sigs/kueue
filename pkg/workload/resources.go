@@ -18,10 +18,13 @@ package workload
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -35,11 +38,16 @@ import (
 )
 
 var (
-	PodSetsPath = field.NewPath("spec").Child("podSets")
+	PodSetsPath          = field.NewPath("spec").Child("podSets")
+	ErrNamespaceMismatch = errors.New("workload namespace doesn't match ClusterQueue selector")
+	ErrInternal          = errors.New("internal lookup failure")
 )
 
 const (
 	RequestsMustNotExceedLimitMessage = "requests must not exceed its limits"
+
+	ErrInvalidWLResources                        = "resources validation failed"
+	ErrLimitRangeConstraintsUnsatisfiedResources = "resources didn't satisfy LimitRange constraints"
 )
 
 // We do not verify Pod's RuntimeClass legality here as this will be performed in admission controller.
@@ -181,4 +189,47 @@ func ValidateLimitRange(ctx context.Context, c client.Client, wi *Info) field.Er
 		allErrs = append(allErrs, summary.ValidatePodSpec(&ps.Template.Spec, PodSetsPath.Index(i).Child("template").Child("spec"))...)
 	}
 	return allErrs
+}
+
+func hasInternalError(errs field.ErrorList) bool {
+	for _, e := range errs {
+		if e.Type == field.ErrorTypeInternal {
+			return true
+		}
+	}
+	return false
+}
+
+// ValidateAdmissibility checks if the workload's namespace matches the ClusterQueue's
+// namespace selector, and if its resource requests are valid and satisfy LimitRanges.
+// Returns the admissibility error if any.
+func ValidateAdmissibility(
+	ctx context.Context,
+	c client.Client,
+	wi *Info,
+	cqNamespaceSelector labels.Selector,
+) error {
+	var ns corev1.Namespace
+	if err := c.Get(ctx, types.NamespacedName{Name: wi.Obj.Namespace}, &ns); err != nil {
+		if apierrors.IsNotFound(err) {
+			return fmt.Errorf("workload namespace %q does not exist: %w", wi.Obj.Namespace, err)
+		}
+		return fmt.Errorf("%w: %w", ErrInternal, err)
+	}
+	if cqNamespaceSelector != nil && !cqNamespaceSelector.Matches(labels.Set(ns.Labels)) {
+		return ErrNamespaceMismatch
+	}
+
+	if errs := ValidateResources(wi); len(errs) > 0 {
+		return fmt.Errorf("%s: %w", ErrInvalidWLResources, errs.ToAggregate())
+	}
+
+	if errs := ValidateLimitRange(ctx, c, wi); len(errs) > 0 {
+		if hasInternalError(errs) {
+			return fmt.Errorf("%w: %w", ErrInternal, errs.ToAggregate())
+		}
+		return fmt.Errorf("%s: %w", ErrLimitRangeConstraintsUnsatisfiedResources, errs.ToAggregate())
+	}
+
+	return nil
 }
