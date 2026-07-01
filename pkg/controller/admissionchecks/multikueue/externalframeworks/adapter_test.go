@@ -149,6 +149,172 @@ func TestAdapter_IsJobManagedByKueue(t *testing.T) {
 	}
 }
 
+func TestCloneUnstructuredForCreation(t *testing.T) {
+	gvk := schema.GroupVersionKind{Group: "test.example.com", Version: "v1", Kind: "TestJob"}
+
+	cases := map[string]struct {
+		metadata map[string]any
+		spec     any
+		want     *unstructured.Unstructured
+	}{
+		"strips ownerReferences, uid, resourceVersion, finalizers and managedFields": {
+			metadata: map[string]any{
+				"name":            "job1",
+				"namespace":       "ns1",
+				"uid":             "local-uid",
+				"resourceVersion": "123",
+				"labels":          map[string]any{"app": "foo"},
+				"annotations":     map[string]any{"k": "v"},
+				"ownerReferences": []any{map[string]any{"name": "owner", "uid": "owner-uid"}},
+				"finalizers":      []any{"some/finalizer"},
+				"managedFields":   []any{map[string]any{"manager": "kueue"}},
+			},
+			spec: map[string]any{"replicas": int64(3)},
+			want: &unstructured.Unstructured{Object: map[string]any{
+				"apiVersion": "test.example.com/v1",
+				"kind":       "TestJob",
+				"metadata": map[string]any{
+					"name":        "job1",
+					"namespace":   "ns1",
+					"labels":      map[string]any{"app": "foo"},
+					"annotations": map[string]any{"k": "v"},
+				},
+				"spec": map[string]any{"replicas": int64(3)},
+			}},
+		},
+		"keeps only name, namespace and spec when no labels or annotations": {
+			metadata: map[string]any{
+				"name":            "job1",
+				"namespace":       "ns1",
+				"ownerReferences": []any{map[string]any{"name": "owner", "uid": "owner-uid"}},
+			},
+			spec: map[string]any{"replicas": int64(1)},
+			want: &unstructured.Unstructured{Object: map[string]any{
+				"apiVersion": "test.example.com/v1",
+				"kind":       "TestJob",
+				"metadata": map[string]any{
+					"name":      "job1",
+					"namespace": "ns1",
+				},
+				"spec": map[string]any{"replicas": int64(1)},
+			}},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			obj := &unstructured.Unstructured{Object: map[string]any{
+				"metadata": tc.metadata,
+				"spec":     tc.spec,
+				"status":   map[string]any{"phase": "Running"},
+			}}
+			obj.SetGroupVersionKind(gvk)
+
+			got, err := cloneUnstructuredForCreation(obj)
+			if err != nil {
+				t.Fatalf("cloneUnstructuredForCreation() error: %v", err)
+			}
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("cloneUnstructuredForCreation() (-want,+got):\n%s", diff)
+			}
+
+			// The returned spec must be an independent copy of the source.
+			if err := unstructured.SetNestedField(got.Object, int64(99), "spec", "replicas"); err != nil {
+				t.Fatalf("SetNestedField: %v", err)
+			}
+			if replicas, _, _ := unstructured.NestedInt64(obj.Object, "spec", "replicas"); replicas == 99 {
+				t.Errorf("mutating the clone's spec must not affect the source object")
+			}
+		})
+	}
+}
+
+func TestAdapter_CreateRemoteObject(t *testing.T) {
+	gvk := schema.GroupVersionKind{
+		Group:   "test.example.com",
+		Version: "v1",
+		Kind:    "TestJob",
+	}
+	adapter := &Adapter{gvk: gvk}
+
+	localObj := &unstructured.Unstructured{Object: map[string]any{
+		"metadata": map[string]any{
+			"name":            "test-job",
+			"namespace":       "default",
+			"uid":             "local-uid",
+			"resourceVersion": "999",
+			"labels":          map[string]any{"app": "foo"},
+			"annotations":     map[string]any{"key": "value"},
+			"ownerReferences": []any{
+				map[string]any{
+					"apiVersion": "batch/v1",
+					"kind":       "Job",
+					"name":       "owner",
+					"uid":        "owner-uid",
+				},
+			},
+			"finalizers": []any{"some/finalizer"},
+		},
+		"spec": map[string]any{
+			"managedBy": kueue.MultiKueueControllerName,
+			"replicas":  int64(3),
+		},
+		"status": map[string]any{
+			"phase": "Running",
+		},
+	}}
+	localObj.SetGroupVersionKind(gvk)
+
+	remoteClient := fake.NewClientBuilder().Build()
+
+	if err := adapter.createRemoteObject(t.Context(), remoteClient, localObj, "test-workload", "origin1"); err != nil {
+		t.Fatalf("createRemoteObject() error = %v", err)
+	}
+
+	created := &unstructured.Unstructured{}
+	created.SetGroupVersionKind(gvk)
+	key := types.NamespacedName{Name: "test-job", Namespace: "default"}
+	if err := remoteClient.Get(t.Context(), key, created); err != nil {
+		t.Fatalf("Get created remote object error = %v", err)
+	}
+
+	// ownerReferences must be dropped, else the remote GC would delete the object.
+	if refs := created.GetOwnerReferences(); len(refs) != 0 {
+		t.Errorf("remote object should have no ownerReferences, got %v", refs)
+	}
+	if uid := created.GetUID(); uid != "" {
+		t.Errorf("remote object should have no uid carried over, got %q", uid)
+	}
+	if finalizers := created.GetFinalizers(); len(finalizers) != 0 {
+		t.Errorf("remote object should have no finalizers, got %v", finalizers)
+	}
+	if _, exists, _ := unstructured.NestedMap(created.Object, "status"); exists {
+		t.Errorf("remote object should not carry over local status")
+	}
+
+	if got := created.GetAnnotations(); got["key"] != "value" {
+		t.Errorf("annotations should be preserved, got %v", got)
+	}
+	labels := created.GetLabels()
+	if labels["app"] != "foo" {
+		t.Errorf("labels should be preserved, got %v", labels)
+	}
+	if labels[kueue.MultiKueueOriginLabel] != "origin1" {
+		t.Errorf("MultiKueue origin label should be set, got %v", labels)
+	}
+	// The prebuilt name lands in a label or annotation per WorkloadIdentifierAnnotations.
+	if labels[constants.PrebuiltWorkloadLabel] != "test-workload" &&
+		created.GetAnnotations()[constants.PrebuiltWorkloadAnnotation] != "test-workload" {
+		t.Errorf("prebuilt workload name should be set, labels=%v annotations=%v", labels, created.GetAnnotations())
+	}
+	if _, exists, _ := unstructured.NestedString(created.Object, "spec", "managedBy"); exists {
+		t.Errorf("spec.managedBy should be removed")
+	}
+	if replicas, _, _ := unstructured.NestedInt64(created.Object, "spec", "replicas"); replicas != 3 {
+		t.Errorf("spec.replicas should be preserved, got %d", replicas)
+	}
+}
+
 func TestAdapter_RemoveManagedByField(t *testing.T) {
 	adapter := &Adapter{
 		gvk: schema.GroupVersionKind{
