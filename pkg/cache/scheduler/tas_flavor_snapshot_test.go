@@ -17,6 +17,7 @@ limitations under the License.
 package scheduler
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -425,6 +426,46 @@ func TestHasLevel(t *testing.T) {
 			got := s.HasLevel(tc.podSetTopologyRequest)
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("unexpected HasLevel result (-want,+got): %s", diff)
+			}
+		})
+	}
+}
+
+func TestHasAnyDomain(t *testing.T) {
+	levels := []string{"level-1"}
+
+	testCases := map[string]struct {
+		nodeLabels []map[string]string
+		want       bool
+	}{
+		"no nodes - empty flavor (cordoned/NotReady/absent)": {
+			nodeLabels: nil,
+			want:       false,
+		},
+		"one node": {
+			nodeLabels: []map[string]string{{"level-1": "a"}},
+			want:       true,
+		},
+		"multiple nodes": {
+			nodeLabels: []map[string]string{{"level-1": "a"}, {"level-1": "b"}},
+			want:       true,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
+			s := newTASFlavorSnapshot(log, "dummy", levels)
+			for i, labels := range tc.nodeLabels {
+				n := node.MakeNode(fmt.Sprintf("node-%d", i))
+				for k, v := range labels {
+					n = n.Label(k, v)
+				}
+				s.addNode(newNodeInfo(n.Obj()))
+			}
+			s.initialize()
+			got := s.HasAnyDomain()
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("unexpected HasAnyDomain result (-want,+got): %s", diff)
 			}
 		})
 	}

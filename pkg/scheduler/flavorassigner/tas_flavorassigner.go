@@ -171,10 +171,16 @@ func onlyTASFlavor(
 
 func checkPodSetAndFlavorMatchForTAS(cq *schdcache.ClusterQueueSnapshot, ps *kueue.PodSet, flavor *kueue.ResourceFlavor, rg *schdcache.ResourceGroup) *string {
 	if isTASRequested(ps, cq) {
+		flavorRef := kueue.ResourceFlavorReference(flavor.Name)
 		if isTASImplied(ps, cq) {
 			// If this is a TAS-only CQ, then we don't need to check the flavor because
 			// all flavors in the ClusterQueue are TAS flavors, and all Workloads submitted
 			// to this ClusterQueue are expected to use TAS, and it's a match.
+			// We still reject flavors with no schedulable domains to avoid selecting them on
+			// quota and then failing topology assignment, which would force a requeue.
+			if s := cq.TASFlavors[flavorRef]; s != nil {
+				return emptyTASFlavorMessage(cq, s, flavorRef)
+			}
 			return nil
 		}
 		// PodSet explicitly requires TAS, so we need to check if the flavor supports it.
@@ -187,7 +193,7 @@ func checkPodSetAndFlavorMatchForTAS(cq *schdcache.ClusterQueueSnapshot, ps *kue
 			}
 			return new(fmt.Sprintf("Flavor %q does not support TopologyAwareScheduling", flavor.Name))
 		}
-		s := cq.TASFlavors[kueue.ResourceFlavorReference(flavor.Name)]
+		s := cq.TASFlavors[flavorRef]
 		if s == nil {
 			// Skip Flavors if they don't have TAS information. This should generally
 			// not happen, but possible in race-situation when the ResourceFlavor
@@ -198,6 +204,9 @@ func checkPodSetAndFlavorMatchForTAS(cq *schdcache.ClusterQueueSnapshot, ps *kue
 			// Skip flavors which don't have the requested level
 			return new(fmt.Sprintf("Flavor %q does not contain the requested level", flavor.Name))
 		}
+		if msg := emptyTASFlavorMessage(cq, s, flavorRef); msg != nil {
+			return msg
+		}
 		// PodSet requires TAS and the flavor supports it, so it's a match.
 		return nil
 	}
@@ -206,6 +215,19 @@ func checkPodSetAndFlavorMatchForTAS(cq *schdcache.ClusterQueueSnapshot, ps *kue
 		return new(fmt.Sprintf("Flavor %q supports only TopologyAwareScheduling", flavor.Name))
 	}
 	// PodSet doesn't require TAS and the flavor doesn't support it, so it's a match.
+	return nil
+}
+
+// emptyTASFlavorMessage returns a rejection message when the TAS flavor currently has no
+// schedulable topology domains and TAS placement is not deferred to ProvisioningRequest or
+// MultiKueue. Such a flavor would be selected on quota and then fail topology assignment,
+// forcing a requeue.
+func emptyTASFlavorMessage(cq *schdcache.ClusterQueueSnapshot, s *schdcache.TASFlavorSnapshot, flavorRef kueue.ResourceFlavorReference) *string {
+	if !s.HasAnyDomain() &&
+		!cq.HasProvRequestAdmissionCheck(flavorRef) &&
+		!cq.HasMultiKueueAdmissionCheck() {
+		return new(fmt.Sprintf("Flavor %q has no schedulable topology domains", flavorRef))
+	}
 	return nil
 }
 
