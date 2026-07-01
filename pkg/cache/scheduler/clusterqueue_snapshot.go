@@ -163,6 +163,21 @@ func (c *ClusterQueueSnapshot) BorrowingWith(fr resources.FlavorResource, val re
 	return c.QuotaFor(fr).Nominal.Cmp(c.ResourceNode.Usage[fr].Add(val)) < 0
 }
 
+// UsageRemainsAtOrAboveNominalForFlavorResources reports whether subtracting remove from the
+// ClusterQueue's current usage leaves usage at or above nominal quota for every flavor in frs.
+func (c *ClusterQueueSnapshot) UsageRemainsAtOrAboveNominalForFlavorResources(
+	remove resources.FlavorResourceQuantities,
+	frs sets.Set[resources.FlavorResource],
+) bool {
+	for fr := range frs {
+		usedAfter := c.ResourceNode.Usage[fr] - remove[fr]
+		if usedAfter < c.QuotaFor(fr).Nominal {
+			return false
+		}
+	}
+	return true
+}
+
 // Available returns the current capacity available, before preempting
 // any workloads. Includes local capacity and capacity borrowed from
 // Cohort. When the ClusterQueue/Cohort is in debt, Available

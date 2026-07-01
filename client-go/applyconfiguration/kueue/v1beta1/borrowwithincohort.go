@@ -36,6 +36,11 @@ type BorrowWithinCohortApplyConfiguration struct {
 	// - `LowerPriority`: allow preemption, in other ClusterQueues
 	// within the cohort, for a borrowing workload, but only if
 	// the preempted workloads are of lower priority.
+	// - `LowerPriorityBorrowersOnly`: like `LowerPriority`, but a workload in
+	// another ClusterQueue is a valid target only if that ClusterQueue is
+	// borrowing for the contested resources and removing the target workload
+	// would not reduce that ClusterQueue's usage below its nominal quota
+	// for those resources.
 	Policy *kueuev1beta1.BorrowWithinCohortPolicy `json:"policy,omitempty"`
 	// maxPriorityThreshold allows to restrict the set of workloads which
 	// might be preempted by a borrowing workload, to only workloads with
