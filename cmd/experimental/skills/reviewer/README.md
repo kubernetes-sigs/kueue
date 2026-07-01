@@ -26,7 +26,7 @@ Each skill is independent and can be applied in parallel with the others. When r
 | [code-eval](code-eval/SKILL.md) | runs code evaluation and produces a scored report |
 | [architectural-decisions](architectural-decisions/SKILL.md) | domain — unjustified complexity, duplicated logic across types/adapters, scope creep, or misplaced code (see ToC inside) |
 | [buggy-behavior](buggy-behavior/SKILL.md) | domain — logic errors, broken edge cases, feature-gate bugs, deletions that break backwards compatibility during rolling upgrades (see ToC inside) |
-| [code-style](code-style/SKILL.md) | domain — imprecise names, convention drift, reinvented helpers, wrong log verbosity, misaligned test names, typos (see ToC inside) |
+| [code-style](code-style/SKILL.md) | domain — imprecise names, convention drift, reinvented helpers, wrong log verbosity, misaligned test names, typos, structured errors (see ToC inside) |
 | [comments](comments/SKILL.md) | domain — over-commenting, what-not-why narration, inaccurate comments, missing TODOs on compatibility shims (see ToC inside) |
 | [security](security/SKILL.md) | domain — input-validation gaps, injection, DoS, nil-safety crashes, authz relaxation, info disclosure, supply-chain weakening, webhook safety regressions (see ToC inside) |
 | [imprecise-names](code-style/imprecise-names/SKILL.md) | identifier whose name does not describe exactly what it contains (code-style) |
@@ -35,6 +35,7 @@ Each skill is independent and can be applied in parallel with the others. When r
 | [wrong-log-verbosity](code-style/wrong-log-verbosity/SKILL.md) | per-reconcile-cycle log lines emitted at `V(2)` (code-style) |
 | [misaligned-test-names](code-style/misaligned-test-names/SKILL.md) | test function names that do not reflect the function or behavior under test (code-style) |
 | [code-style-typos](code-style/code-style-typos/SKILL.md) | typos in identifiers, strings, or any text introduced by the diff (code-style) |
+| [structured-errors](code-style/structured-errors/SKILL.md) | error checking done via string comparison on `err.Error()` instead of structured/typed errors (code-style) |
 | [illogical-structure](architectural-decisions/illogical-structure/SKILL.md) | code a future maintainer will struggle to follow, modify, or extend (architectural-decisions) |
 | [nonsensical-decisions](architectural-decisions/nonsensical-decisions/SKILL.md) | unnecessary indirection, mismatched abstractions, confusing data flow (architectural-decisions) |
 | [avoidable-complexity](architectural-decisions/avoidable-complexity/SKILL.md) | solutions more elaborate than the problem requires (architectural-decisions) |
@@ -91,6 +92,7 @@ Each skill is independent and can be applied in parallel with the others. When r
 @code-style/wrong-log-verbosity/SKILL.md
 @code-style/misaligned-test-names/SKILL.md
 @code-style/code-style-typos/SKILL.md
+@code-style/structured-errors/SKILL.md
 @architectural-decisions/illogical-structure/SKILL.md
 @architectural-decisions/nonsensical-decisions/SKILL.md
 @architectural-decisions/avoidable-complexity/SKILL.md
