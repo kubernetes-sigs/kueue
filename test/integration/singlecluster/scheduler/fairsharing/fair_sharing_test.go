@@ -1425,6 +1425,52 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing", "featur
 			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, wlHighA)
 		})
 	})
+
+	ginkgo.When("Self-triggered reconciles do not truncate CPU", func() {
+		ginkgo.It("should maintain non-zero CPU ConsumedResources across sampling intervals", func() {
+			ginkgo.By("Creating a ClusterQueue and LocalQueue with AFS enabled")
+			cq := utiltestingapi.MakeClusterQueue("cq-afs-cpu").
+				Cohort("cohort").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "4").Obj(),
+				).Obj()
+			util.MustCreate(ctx, k8sClient, cq)
+			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
+			cqs = append(cqs, cq)
+
+			lq := utiltestingapi.MakeLocalQueue("lq-afs-cpu", ns.Name).ClusterQueue(cq.Name).Obj()
+			util.MustCreate(ctx, k8sClient, lq)
+			util.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
+			lqs = append(lqs, lq)
+
+			ginkgo.By("Admitting a workload with 500m CPU")
+			wl := createWorkload("lq-afs-cpu", "500m")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+
+			ginkgo.By("Waiting for ConsumedResources CPU to become non-zero")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var lqObj kueue.LocalQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), &lqObj)).To(gomega.Succeed())
+				g.Expect(lqObj.Status.FairSharing).NotTo(gomega.BeNil())
+				g.Expect(lqObj.Status.FairSharing.AdmissionFairSharingStatus).NotTo(gomega.BeNil())
+				consumed := lqObj.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources
+				g.Expect(consumed).To(gomega.HaveKey(corev1.ResourceCPU))
+				cpu := consumed[corev1.ResourceCPU]
+				g.Expect(cpu.Cmp(resource.MustParse("0"))).To(gomega.BeNumerically(">", 0),
+					"ConsumedResources CPU should be > 0, got %v", cpu.String())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verifying CPU stays non-zero across multiple sampling intervals")
+			gomega.Consistently(func(g gomega.Gomega) {
+				var lqObj kueue.LocalQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), &lqObj)).To(gomega.Succeed())
+				cpu := lqObj.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources[corev1.ResourceCPU]
+				g.Expect(cpu.Cmp(resource.MustParse("0"))).To(gomega.BeNumerically(">", 0),
+					"ConsumedResources CPU should remain > 0, got %v", cpu.String())
+			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+		})
+	})
 })
 
 var _ = ginkgo.Describe("Scheduler with AdmissionFairSharing = nil", ginkgo.Label("feature:fairsharing"), func() {
