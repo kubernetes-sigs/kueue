@@ -26,6 +26,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
 var (
@@ -97,13 +98,18 @@ func (p *podSetTopologyRequestBuilder) Build() (*kueue.PodSetTopologyRequest, er
 			return nil, fmt.Errorf("%w: got %d", errTopologyConstraintsLayerCount, len(constraints))
 		}
 		psTopologyReq.PodsetSliceRequiredTopologyConstraints = constraints
-	} else if sliceRequiredTopologyFound && sliceSizeFound {
+	} else if sliceRequiredTopologyFound {
+		if !sliceSizeFound {
+			return nil, fmt.Errorf("%s annotation requires %s annotation to be set", kueue.PodSetSliceRequiredTopologyAnnotation, kueue.PodSetSliceSizeAnnotation)
+		}
 		sliceSizeIntValue, err := strconv.ParseInt(sliceSizeValue, 10, 32)
 		if err != nil {
 			return nil, err
 		}
+		sliceSizeInt32 := int32(sliceSizeIntValue)
 		psTopologyReq.PodSetSliceRequiredTopology = &sliceRequiredTopologyValue
-		psTopologyReq.PodSetSliceSize = new(int32(sliceSizeIntValue))
+		psTopologyReq.PodSetSliceSize = &sliceSizeInt32
+		psTopologyReq.PodsetSliceRequiredTopologyConstraints = utiltas.PodSetSliceRequiredTopologyConstraints(&psTopologyReq)
 	}
 
 	psTopologyReq.PodIndexLabel = p.podIndexLabel
