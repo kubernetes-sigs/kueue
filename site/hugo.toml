@@ -103,21 +103,36 @@ ignoreFiles = []
 
   # Flag used in the "version-banner" partial to decide whether to display a
   # banner on every page indicating that this is an archived version of the docs.
-  archived_version = false
+  archived_version = true
 
   # A link to latest version of the docs. Used in the "version-banner" partial to
   # point people to the main doc site.
-  url_latest_version = "https://sigs.k8s.io/kueue/docs"
+  url_latest_version = "https://kueue.sigs.k8s.io"
 
   # A variable used in various docs to determine URLs for config files etc.
   # To find occurrences, search the repo for 'params "githubbranch"'.
-  githubbranch = "main"
+  githubbranch = "release-0.18"
 
   # These entries appear in the drop-down menu at the top of the website.
-  # [[params.versions]]
-  #   version = "main"
-  #   githubbranch = "main"
-  #   url = "https://kueue.sigs.k8s.io"
+  [[params.versions]]
+    version = "main"
+    githubbranch = "main"
+    url = "https://kueue.sigs.k8s.io"
+
+  [[params.versions]]
+    version = "v0.18"
+    githubbranch = "release-0.18"
+    url = "https://v0-18.kueue.sigs.k8s.io"
+
+  [[params.versions]]
+    version = "v0.17"
+    githubbranch = "release-0.17"
+    url = "https://v0-17.kueue.sigs.k8s.io"
+
+  [[params.versions]]
+    version = "v0.16"
+    githubbranch = "release-0.16"
+    url = "https://v0-16.kueue.sigs.k8s.io"
 
   # User interface configuration
   [params.ui]
