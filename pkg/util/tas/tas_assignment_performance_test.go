@@ -31,10 +31,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
-const (
-	targetNodeCount = 40_000
-)
-
 // Generate n hex numbers of given length,
 // ensuring they're distinct (and otherwise quasi-random).
 // For the health of tests, this function behaves deterministically.
@@ -148,6 +144,20 @@ func (config nodeBasedNaming) generate(nodes int) []string {
 	return res
 }
 
+type gkeNodePoolBasedNaming struct {
+	pools int
+}
+
+func (n gkeNodePoolBasedNaming) generate(nodes int) []string {
+	res := make([]string, nodes)
+	for i := range nodes {
+		poolID := i % n.pools
+		nodeID := i / n.pools
+		res[i] = fmt.Sprintf("gke-cluster-pool-%04d-%08x-%04x", poolID, poolID, nodeID)
+	}
+	return res
+}
+
 func internalSinglePodsOn(nodes []string) *TopologyAssignment {
 	res := &TopologyAssignment{
 		Levels:  []string{corev1.LabelHostname},
@@ -171,13 +181,13 @@ func jsonBytes(v any) []byte {
 }
 
 func isTooLarge(ta *kueue.TopologyAssignment) bool {
-	return len(jsonBytes(ta)) > 1_500_000
+	return len(jsonBytes(ta)) > maxTopologyAssignmentJSONBytes
 }
 
-func approxMaxNodesFor(naming namingScheme) int {
+func approxMaxNodesFor(tc performanceTestCase) int {
 	step := 1_000 // We search with a reduced resolution, to speed up the test
 	ceiling := 300_000
-	nodeNames := naming.generate(ceiling)
+	nodeNames := tc.naming.generate(ceiling)
 	found := sort.Search(ceiling/step, func(n int) bool {
 		// Here we rely on "well-prefixing"; see the comment on "nodeNaming".
 		return isTooLarge(V1Beta2From(internalSinglePodsOn(nodeNames[:n*step])))
@@ -186,8 +196,19 @@ func approxMaxNodesFor(naming namingScheme) int {
 }
 
 type performanceTestCase struct {
-	name   string
-	naming namingScheme
+	name               string
+	naming             namingScheme
+	targetNodeCount    int
+	sortNodeNames      bool
+	skipApproxMaxNodes bool
+}
+
+func (tc performanceTestCase) generateNodeNames(nodes int) []string {
+	nodeNames := tc.naming.generate(nodes)
+	if tc.sortNodeNames {
+		slices.Sort(nodeNames)
+	}
+	return nodeNames
 }
 
 var performanceTestCases = []performanceTestCase{
@@ -202,6 +223,7 @@ var performanceTestCases = []performanceTestCase{
 
 			fixedPrefixAndSuffixLength: 20,
 		},
+		targetNodeCount: 40_000,
 	},
 	{
 		name: "pool-and-node-based naming (10 node pools)",
@@ -214,6 +236,7 @@ var performanceTestCases = []performanceTestCase{
 			poolIDLength:               22,
 			fixedPrefixAndSuffixLength: 20,
 		},
+		targetNodeCount: 40_000,
 	},
 	{
 		name: "region-and-IP-based naming (100 regions)",
@@ -226,6 +249,7 @@ var performanceTestCases = []performanceTestCase{
 
 			fixedPrefixAndSuffixLength: 20,
 		},
+		targetNodeCount: 40_000,
 	},
 	{
 		name: "region-and-IP-based naming (1 region)",
@@ -234,6 +258,7 @@ var performanceTestCases = []performanceTestCase{
 			regionIDLength:             14,
 			fixedPrefixAndSuffixLength: 20,
 		},
+		targetNodeCount: 40_000,
 	},
 	{
 		name: "node-only-based naming",
@@ -241,15 +266,31 @@ var performanceTestCases = []performanceTestCase{
 			nodeIDLength:               8, // reached in VKE
 			fixedPrefixAndSuffixLength: 20,
 		},
+		targetNodeCount: 40_000,
+	},
+	{
+		name: "GKE node-pool naming (1000 node pools)",
+		naming: gkeNodePoolBasedNaming{
+			pools: 1000,
+		},
+		targetNodeCount:    150_000,
+		sortNodeNames:      true,
+		skipApproxMaxNodes: true,
 	},
 }
 
 func TestByteSizeLimit(t *testing.T) {
 	for _, tc := range performanceTestCases {
 		t.Run(tc.name, func(t *testing.T) {
-			nodesLimit := approxMaxNodesFor(tc.naming)
-			if nodesLimit < targetNodeCount {
-				t.Errorf("Nodes limit for naming %q is too low: got approx. %d, want >= %d", tc.name, nodesLimit, targetNodeCount)
+			ta := V1Beta2From(internalSinglePodsOn(tc.generateNodeNames(tc.targetNodeCount)))
+			assertTopologyAssignmentSize(t, ta, tc.targetNodeCount)
+
+			if tc.skipApproxMaxNodes {
+				return
+			}
+			nodesLimit := approxMaxNodesFor(tc)
+			if nodesLimit < tc.targetNodeCount {
+				t.Errorf("Nodes limit for naming %q is too low: got approx. %d, want >= %d", tc.name, nodesLimit, tc.targetNodeCount)
 			} else {
 				t.Logf("Nodes limit for naming %q is approx. %d", tc.name, nodesLimit)
 			}
@@ -257,19 +298,36 @@ func TestByteSizeLimit(t *testing.T) {
 	}
 }
 
+func assertTopologyAssignmentSize(t *testing.T, ta *kueue.TopologyAssignment, wantDomains int) {
+	t.Helper()
+	if got := len(ta.Slices); got > maxTopologyAssignmentSlices {
+		t.Errorf("unexpected slice count: got %d, want <= %d", got, maxTopologyAssignmentSlices)
+	}
+	for i, slice := range ta.Slices {
+		if slice.DomainCount > maxDomainsPerTopologyAssignmentSlice {
+			t.Errorf("slice %d has too many domains: got %d, want <= %d", i, slice.DomainCount, maxDomainsPerTopologyAssignmentSlice)
+		}
+	}
+	if got := TotalDomainCount(ta); got != wantDomains {
+		t.Errorf("unexpected total domain count: got %d, want %d", got, wantDomains)
+	}
+	if bytes := len(jsonBytes(ta)); bytes > maxTopologyAssignmentJSONBytes {
+		t.Errorf("topology assignment is too large: got %d bytes, want <= %d", bytes, maxTopologyAssignmentJSONBytes)
+	}
+}
+
 func BenchmarkV1Beta2From(b *testing.B) {
 	for _, tc := range performanceTestCases {
-		nodeNames := tc.naming.generate(targetNodeCount)
+		nodeNames := tc.naming.generate(tc.targetNodeCount)
 
-		// For our current strategy (just extract single common prefix & suffix),
-		// having node names sorted is an adverse scenario for benchmarking.
-		// (This is because longer common prefix & suffix will "hold" for longer).
-		// If we ever wish to test other approaches, we may want to also have
-		// a variant of this benchmark when node names get shuffled quasi-randomly.
+		// For our current strategy (split into hostname prefix runs),
+		// having node names sorted matches scheduler-created hostname-only assignments.
+		// (This is because assignments are sorted by level values before encoding;
+		// for multi-level assignments, hostnames are only sorted within higher levels).
 		slices.Sort(nodeNames)
 		ta := internalSinglePodsOn(nodeNames)
 
-		desc := fmt.Sprintf("Naming scheme %q, %d nodes", tc.name, targetNodeCount)
+		desc := fmt.Sprintf("Naming scheme %q, %d nodes", tc.name, tc.targetNodeCount)
 		b.Run(desc, func(b *testing.B) {
 			for b.Loop() {
 				var _ = V1Beta2From(ta)

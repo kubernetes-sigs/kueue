@@ -17,7 +17,9 @@ limitations under the License.
 package tas
 
 import (
+	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -26,6 +28,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 type testCase struct {
@@ -616,6 +619,332 @@ func TestV1Beta2FromInternal_forNil(t *testing.T) {
 	if got != nil {
 		t.Errorf("unexpected result for nil: %+v", got)
 	}
+}
+
+func TestCompactTopologyAssignmentEncodingWithHostnamePrefixRuns(t *testing.T) {
+	internal := &TopologyAssignment{
+		Levels: []string{corev1.LabelHostname},
+		Domains: []TopologyDomainAssignment{
+			{Values: []string{"gke-c-pool-a-hash1-aa"}, Count: 3},
+			{Values: []string{"gke-c-pool-a-hash1-bb"}, Count: 3},
+			{Values: []string{"gke-c-pool-b-hash2-cc"}, Count: 4},
+			{Values: []string{"gke-c-pool-b-hash2-dd"}, Count: 5},
+		},
+	}
+	want := &kueue.TopologyAssignment{
+		Levels: []string{corev1.LabelHostname},
+		Slices: []kueue.TopologyAssignmentSlice{
+			{
+				DomainCount: 2,
+				PodCounts: kueue.TopologyAssignmentSlicePodCounts{
+					Universal: ptr.To[int32](3),
+				},
+				ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
+					{
+						Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
+							Prefix: new("gke-c-pool-a-hash1-"),
+							Roots:  []string{"aa", "bb"},
+						},
+					},
+				},
+			},
+			{
+				DomainCount: 2,
+				PodCounts: kueue.TopologyAssignmentSlicePodCounts{
+					Individual: []int32{4, 5},
+				},
+				ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
+					{
+						Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
+							Prefix: new("gke-c-pool-b-hash2-"),
+							Roots:  []string{"cc", "dd"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	got := compactTopologyAssignmentEncodingWithHostnamePrefixRuns(internal)
+	if diff := cmp.Diff(want, got, cmpopts.EquateEmpty()); diff != "" {
+		t.Errorf("unexpected result (-want,+got):\n%s", diff)
+	}
+}
+
+func TestCompactTopologyAssignmentEncodingWithHostnamePrefixRuns_withoutHostnameLevel(t *testing.T) {
+	internal := &TopologyAssignment{
+		Levels: []string{"cloud.example.com/rack"},
+		Domains: []TopologyDomainAssignment{
+			{Values: []string{"rack-a"}, Count: 1},
+			{Values: []string{"rack-b"}, Count: 2},
+		},
+	}
+
+	got := compactTopologyAssignmentEncodingWithHostnamePrefixRuns(internal)
+	if gotSlices := len(got.Slices); gotSlices != 1 {
+		t.Fatalf("unexpected number of slices: got %d, want 1", gotSlices)
+	}
+	if diff := cmp.Diff(internal, InternalFrom(got), cmpopts.EquateEmpty()); diff != "" {
+		t.Errorf("unexpected round trip (-want,+got):\n%s", diff)
+	}
+}
+
+func TestV1Beta2FromInternal_usesSingleSliceWhenItFits(t *testing.T) {
+	internal := &TopologyAssignment{
+		Levels: []string{corev1.LabelHostname},
+		Domains: []TopologyDomainAssignment{
+			{Values: []string{"gke-c-pool-a-hash1-aa"}, Count: 3},
+			{Values: []string{"gke-c-pool-a-hash1-bb"}, Count: 3},
+			{Values: []string{"gke-c-pool-b-hash2-cc"}, Count: 4},
+			{Values: []string{"gke-c-pool-b-hash2-dd"}, Count: 5},
+		},
+	}
+
+	got := V1Beta2From(internal)
+	if len(got.Slices) != 1 {
+		t.Fatalf("unexpected number of slices: got %d, want 1", len(got.Slices))
+	}
+	if diff := cmp.Diff(internal, InternalFrom(got), cmpopts.EquateEmpty()); diff != "" {
+		t.Errorf("unexpected round trip (-want,+got):\n%s", diff)
+	}
+}
+
+func TestV1Beta2FromInternal_preservesHostnameDomainOrder(t *testing.T) {
+	internal := &TopologyAssignment{
+		Levels: []string{corev1.LabelHostname},
+		Domains: []TopologyDomainAssignment{
+			{Values: []string{"gke-c-pool-a-hash1-aa"}, Count: 1},
+			{Values: []string{"gke-c-pool-b-hash2-cc"}, Count: 2},
+			{Values: []string{"gke-c-pool-a-hash1-bb"}, Count: 3},
+			{Values: []string{"gke-c-pool-b-hash2-dd"}, Count: 4},
+		},
+	}
+
+	got := InternalFrom(V1Beta2From(internal))
+	if diff := cmp.Diff(internal.Domains, got.Domains); diff != "" {
+		t.Fatalf("V1Beta2From must preserve domain order (-want,+got):\n%s", diff)
+	}
+}
+
+func TestV1Beta2FromInternal_largeHostnameAssignment(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASAssignmentsEncodingByHostnamePrefix, true)
+	const domainCount = maxDomainsPerTopologyAssignmentSlice + 1
+
+	internal := &TopologyAssignment{
+		Levels:  []string{corev1.LabelHostname},
+		Domains: make([]TopologyDomainAssignment, domainCount),
+	}
+	for i := range domainCount {
+		internal.Domains[i] = TopologyDomainAssignment{
+			Values: []string{fmt.Sprintf("gke-c-pool-a-hash1-%06d", i)},
+			Count:  1,
+		}
+	}
+
+	got := V1Beta2From(internal)
+	if len(got.Slices) != 2 {
+		t.Fatalf("unexpected number of slices: got %d, want 2", len(got.Slices))
+	}
+	for i, slice := range got.Slices {
+		if slice.DomainCount > maxDomainsPerTopologyAssignmentSlice {
+			t.Errorf("slice %d has too many domains: got %d, want <= %d", i, slice.DomainCount, maxDomainsPerTopologyAssignmentSlice)
+		}
+	}
+	if got := TotalDomainCount(got); got != domainCount {
+		t.Errorf("unexpected total domain count: got %d, want %d", got, domainCount)
+	}
+}
+
+func TestV1Beta2FromInternal_featureGateDisabledUsesSingleSliceEncoding(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASAssignmentsEncodingByHostnamePrefix, false)
+	internal := byteBudgetFallbackAssignment()
+
+	got := V1Beta2From(internal)
+	if gotSlices := len(got.Slices); gotSlices != 1 {
+		t.Fatalf("unexpected number of slices: got %d, want 1", gotSlices)
+	}
+	if diff := cmp.Diff(internal, InternalFrom(got), cmpopts.EquateEmpty()); diff != "" {
+		t.Errorf("unexpected round trip (-want,+got):\n%s", diff)
+	}
+}
+
+func TestV1Beta2FromInternal_usesPrefixRunsWhenSingleSliceExceedsByteBudget(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASAssignmentsEncodingByHostnamePrefix, true)
+	internal := byteBudgetFallbackAssignment()
+
+	got := V1Beta2From(internal)
+	if gotSlices := len(got.Slices); gotSlices != 2 {
+		t.Fatalf("unexpected number of slices: got %d, want 2", gotSlices)
+	}
+	if diff := cmp.Diff(internal, InternalFrom(got), cmpopts.EquateEmpty()); diff != "" {
+		t.Errorf("unexpected round trip (-want,+got):\n%s", diff)
+	}
+}
+
+func TestReusableHostnamePrefixKeys(t *testing.T) {
+	tests := map[string]struct {
+		domains []TopologyDomainAssignment
+		want    []string
+	}{
+		"longest reusable prefixes": {
+			domains: []TopologyDomainAssignment{
+				{Values: []string{"gke-c-pool-a-hash1-aa"}},
+				{Values: []string{"gke-c-pool-a-hash1-bb"}},
+				{Values: []string{"gke-c-pool-b-hash2-cc"}},
+				{Values: []string{"gke-c-pool-b-hash2-dd"}},
+			},
+			want: []string{
+				"gke-c-pool-a-hash1-",
+				"gke-c-pool-a-hash1-",
+				"gke-c-pool-b-hash2-",
+				"gke-c-pool-b-hash2-",
+			},
+		},
+		"no reusable prefix": {
+			domains: []TopologyDomainAssignment{
+				{Values: []string{"node-a"}},
+				{Values: []string{"host-b"}},
+			},
+			want: []string{"", ""},
+		},
+		"no delimiter": {
+			domains: []TopologyDomainAssignment{
+				{Values: []string{"nodea"}},
+				{Values: []string{"hostb"}},
+			},
+			want: nil,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := reusableHostnamePrefixKeys([]string{corev1.LabelHostname}, tc.domains)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("unexpected prefix keys (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestReusableHostnamePrefixKeys_backsOffToFitSliceLimit(t *testing.T) {
+	domains := make([]TopologyDomainAssignment, maxTopologyAssignmentSlices+1)
+	want := make([]string, len(domains))
+	for i := range domains {
+		group := "x"
+		if i%2 == 1 {
+			group = "y"
+		}
+		domains[i].Values = []string{fmt.Sprintf("a-%s-%04d", group, i)}
+		want[i] = "a-"
+	}
+
+	got := reusableHostnamePrefixKeys([]string{corev1.LabelHostname}, domains)
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("unexpected prefix keys after backoff (-want,+got):\n%s", diff)
+	}
+}
+
+func TestReusableHostnamePrefixKeys_returnsNilWhenNoDepthFitsSliceLimit(t *testing.T) {
+	domains := make([]TopologyDomainAssignment, maxTopologyAssignmentSlices+1)
+	for i := range domains {
+		prefix := "a-x"
+		if i%2 == 1 {
+			prefix = "b-y"
+		}
+		domains[i].Values = []string{fmt.Sprintf("%s-%04d", prefix, i)}
+	}
+
+	if got := reusableHostnamePrefixKeys([]string{corev1.LabelHostname}, domains); got != nil {
+		t.Errorf("expected no usable prefix depth, got %v", got)
+	}
+}
+
+func TestCompactDomainRuns(t *testing.T) {
+	domains := make([]TopologyDomainAssignment, 4)
+	for i := range domains {
+		domains[i] = TopologyDomainAssignment{
+			Values: []string{fmt.Sprintf("node-%04d", i)},
+			Count:  1,
+		}
+	}
+
+	tests := map[string]struct {
+		domains    []TopologyDomainAssignment
+		prefixKeys []string
+		want       []int
+	}{
+		"empty": {
+			want: nil,
+		},
+		"no prefix keys": {
+			domains: domains,
+			want:    []int{4},
+		},
+		"groups consecutive domains": {
+			domains:    domains,
+			prefixKeys: []string{"prefix-a-", "prefix-a-", "prefix-b-", "prefix-a-"},
+			want:       []int{2, 1, 1},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			runs := compactDomainRuns(tc.domains, tc.prefixKeys)
+			got := make([]int, len(runs))
+			for i := range runs {
+				got[i] = len(runs[i])
+			}
+			if diff := cmp.Diff(tc.want, got, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("unexpected run lengths (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestChunkCount(t *testing.T) {
+	tests := map[string]struct {
+		length    int
+		chunkSize int
+		want      int
+	}{
+		"empty":         {length: 0, chunkSize: 100, want: 0},
+		"partial chunk": {length: 1, chunkSize: 100, want: 1},
+		"exact chunk":   {length: 100, chunkSize: 100, want: 1},
+		"two chunks":    {length: 101, chunkSize: 100, want: 2},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got := chunkCount(tc.length, tc.chunkSize); got != tc.want {
+				t.Errorf("unexpected chunk count: got %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+func byteBudgetFallbackAssignment() *TopologyAssignment {
+	const (
+		domainCount      = 24_000
+		domainsPerPrefix = domainCount / 2
+	)
+	fixed := strings.Repeat("x", 40)
+	internal := &TopologyAssignment{
+		Levels:  []string{corev1.LabelHostname},
+		Domains: make([]TopologyDomainAssignment, domainCount),
+	}
+	for i := range domainCount {
+		prefix := "a"
+		nodeID := i
+		if i >= domainsPerPrefix {
+			prefix = "b"
+			nodeID -= domainsPerPrefix
+		}
+		internal.Domains[i] = TopologyDomainAssignment{
+			Values: []string{fmt.Sprintf("%s-%s-%020d", prefix, fixed, nodeID)},
+			Count:  1,
+		}
+	}
+	return internal
 }
 
 func TestInternalFromV1Beta2(t *testing.T) {
