@@ -608,6 +608,30 @@ Administrators can inspect computed values without reading the CQ:
 kubectl get nqp gpu-team-auto-quota -o jsonpath='{.status.computedQuotas}'
 ```
 
+**Target-side visibility (ClusterQueue / Cohort).** So operators can see — on the
+managed object itself — that its quota is controller-managed and by which policy,
+the controller also writes a lightweight `NodeQuotaManaged` condition onto the
+target ClusterQueue or Cohort:
+
+```yaml
+# kubectl get clusterqueue gpu-team-cq -o yaml
+status:
+  conditions:
+  - type: NodeQuotaManaged
+    status: "True"
+    reason: NodeQuotaPolicyApplied
+    message: "nominalQuota managed by NodeQuotaPolicy gpu-team-auto-quota; last changed 2026-04-30T10:00:00Z"
+    lastTransitionTime: "2026-04-30T10:00:00Z"
+```
+
+This is deliberately a pointer, not a mirror: the condition names the managing
+policy and last-change time, while the detailed per-(flavor, resource) values stay
+on `NodeQuotaPolicy.status.computedQuotas` (no duplication, and no extra status
+churn on the target). Two complementary signals come for free: the SSA
+`managedFields` on the target already record that `nominalQuota` is owned by the
+`kueue.x-k8s.io/node-quota-policy` field manager, and a printer column on
+`NodeQuotaPolicy` surfaces the policy→target mapping.
+
 ### Beta: Fine-Grained Node Label Intersection
 
 #### API Changes (Beta)
