@@ -493,7 +493,9 @@ type ComputedFlavorQuota struct {
     // nodeCount is the number of matching Nodes that contributed to the sum.
     NodeCount int32 `json:"nodeCount"`
 
-    // lastUpdated is the timestamp of the most recent successful write.
+    // lastUpdated is the time at which quantity last changed, not the last
+    // reconcile time. It is only bumped when the computed value actually
+    // changes, so it does not advance on no-op reconciles.
     LastUpdated metav1.Time `json:"lastUpdated"`
 }
 
