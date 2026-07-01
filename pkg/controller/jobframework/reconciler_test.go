@@ -1113,3 +1113,158 @@ func TestReconcileGenericJobWithWaitForPodsReady(t *testing.T) {
 		})
 	}
 }
+
+func TestReconcileElasticJobInjectsPodSetInfoOnAdmission(t *testing.T) {
+	const (
+		testJobName  = "elastic-job"
+		testNS       = metav1.NamespaceDefault
+		workloadName = "elastic-job-wl"
+		otherGate    = "example.com/other-gate"
+	)
+	var (
+		testLocalQueueName = kueue.LocalQueueName("test-lq")
+		testGVK            = batchv1.SchemeGroupVersion.WithKind("Job")
+		req                = types.NamespacedName{Name: testJobName, Namespace: testNS}
+	)
+
+	baseJob := testingjob.MakeJob(testJobName, testNS).
+		UID(testJobName).
+		Queue(testLocalQueueName).
+		SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue)
+	basePodSets := []kueue.PodSet{
+		*utiltestingapi.MakePodSet("main", 1).Obj(),
+	}
+	basePodSets[0].Template.Spec.SchedulingGates = []corev1.PodSchedulingGate{
+		{Name: otherGate},
+		{Name: kueue.ElasticJobSchedulingGate},
+	}
+	runningPodSet := utiltestingapi.MakePodSet("main", 1).Obj()
+	runningPodSet.Template.Annotations = map[string]string{
+		kueue.WorkloadAnnotation:          workloadName,
+		kueue.WorkloadSliceNameAnnotation: workloadName,
+	}
+	runningPodSet.Template.Labels = map[string]string{
+		kueueconstants.PodSetLabel: "main",
+	}
+	runningPodSet.Template.Spec.SchedulingGates = []corev1.PodSchedulingGate{
+		{Name: otherGate},
+		{Name: kueue.ElasticJobSchedulingGate},
+	}
+	runningPodSets := []kueue.PodSet{
+		*runningPodSet,
+	}
+	stalePodSet := runningPodSet.DeepCopy()
+	stalePodSet.Template.Annotations[kueue.WorkloadAnnotation] = "old-workload-slice"
+	stalePodSets := []kueue.PodSet{
+		*stalePodSet,
+	}
+	admittedAt := metav1.NewTime(time.Now().Truncate(time.Hour))
+
+	baseWl := utiltestingapi.MakeWorkload(workloadName, testNS).
+		ResourceVersion("1").
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		Label(constants.JobUIDLabel, testJobName).
+		ControllerReference(testGVK, testJobName, testJobName).
+		Queue(testLocalQueueName).
+		Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+		Annotation(kueue.WorkloadSliceNameAnnotation, workloadName).
+		PodSets(basePodSets...).
+		Priority(0).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").PodSets(
+			kueue.PodSetAssignment{Name: "main"},
+		).Obj(), admittedAt.Time).
+		AdmittedAt(true, admittedAt.Time)
+
+	testCases := map[string]struct {
+		jobPodSets   []kueue.PodSet
+		wantRunCalls int
+		admitted     bool
+	}{
+		"admitted with missing PodSetInfo starts the job": {
+			jobPodSets:   basePodSets,
+			wantRunCalls: 1,
+			admitted:     true,
+		},
+		"admitted with current PodSetInfo does not start the job again": {
+			jobPodSets:   runningPodSets,
+			wantRunCalls: 0,
+			admitted:     true,
+		},
+		"admitted replacement with stale workload annotation does not start the job again": {
+			jobPodSets:   stalePodSets,
+			wantRunCalls: 0,
+			admitted:     true,
+		},
+		"not admitted does not start the job": {
+			jobPodSets:   basePodSets,
+			wantRunCalls: 0,
+			admitted:     false,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices: true,
+				features.AssignQueueLabelsForPods:     false,
+				features.TopologyAwareScheduling:      true,
+			})
+
+			ctx, _ := utiltesting.ContextWithLog(t)
+			mockctrl := gomock.NewController(t)
+
+			job := baseJob.Clone().Obj()
+			wl := baseWl.Clone().Obj()
+			if !tc.admitted {
+				// Flip Admitted to False to simulate not-admitted state.
+				wl.Status.Conditions = []metav1.Condition{{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionFalse,
+					LastTransitionTime: admittedAt,
+					Reason:             "Pending",
+				}}
+			}
+			mgj := mocks.NewMockGenericJob(mockctrl)
+			mgj.EXPECT().Object().Return(job).AnyTimes()
+			mgj.EXPECT().GVK().Return(testGVK).AnyTimes()
+			mgj.EXPECT().IsSuspended().Return(false).AnyTimes()
+			mgj.EXPECT().IsActive().Return(true).AnyTimes()
+			mgj.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
+			mgj.EXPECT().PodSets(gomock.Any(), gomock.Any()).Return(tc.jobPodSets, nil).AnyTimes()
+			if tc.wantRunCalls > 0 {
+				mgj.EXPECT().RestorePodSetsInfo(gomock.Any()).
+					DoAndReturn(func(infos []podset.PodSetInfo) bool {
+						if diff := cmp.Diff(GetPodSetsInfoFromWorkload(wl), infos); diff != "" {
+							t.Errorf("RestorePodSetsInfo() mismatch (-want, +got):\n%s", diff)
+						}
+						return true
+					}).Times(tc.wantRunCalls)
+				mgj.EXPECT().RunWithPodSetsInfo(gomock.Any(), gomock.Any(), gomock.Any()).
+					DoAndReturn(func(_ context.Context, _ client.Client, _ []podset.PodSetInfo) error {
+						return nil
+					}).Times(tc.wantRunCalls)
+			}
+
+			cl := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme).
+				WithObjects(utiltesting.MakeNamespace(testNS)).
+				WithObjects(job, wl).
+				WithIndex(&kueue.Workload{}, indexer.OwnerReferenceIndexKey(testGVK), indexer.WorkloadOwnerIndexFunc(testGVK)).
+				Build()
+
+			recorder := &utiltesting.EventRecorder{}
+			rec := NewReconciler(cl, recorder)
+			_, err := rec.ReconcileGenericJob(ctx, controllerruntime.Request{NamespacedName: req}, mgj)
+			if err != nil {
+				t.Fatalf("Reconcile returned error: %v", err)
+			}
+
+			// Patching the template of an already-running elastic job must not
+			// emit a spurious "Started" event; nothing is actually started.
+			for _, ev := range recorder.RecordedEvents {
+				if ev.Reason == ReasonStarted {
+					t.Errorf("unexpected %q event recorded for already-running elastic job", ReasonStarted)
+				}
+			}
+		})
+	}
+}

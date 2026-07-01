@@ -27,6 +27,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/validate/content"
@@ -578,7 +579,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		// start the job if the workload has been admitted, and the job is still suspended
 		if workload.IsAdmitted(wl) {
 			log.V(2).Info("Job admitted, unsuspending")
-			err := r.startJob(ctx, job, object, wl)
+			err := r.startJob(ctx, job, object, wl, true)
 			if err != nil {
 				log.Error(err, "Unsuspending job")
 				if podset.IsPermanent(err) {
@@ -621,10 +622,75 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
+	// workload is admitted. For elastic (workload-slice-enabled) jobs, ensure
+	// the parent's PodTemplate carries the admitted PodSetInfo so that future
+	// pods (e.g. autoscaler-created) inherit flavor info without relying on
+	// per-pod injection by the ElasticJobUngater. Existing gated pods that
+	// predate this patch are still handled per-pod by the ungater; Merge is
+	// idempotent for pods that already have the info.
+	if WorkloadSliceEnabled(job) {
+		if err := r.ensureElasticPodSetInfoInjected(ctx, job, object, wl, log); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
+
 	// workload is admitted and job is running, nothing to do.
-	// For elastic jobs, pod ungating is handled by the ElasticJobUngater controller.
 	log.V(3).Info("Job running with admitted workload, nothing to do")
 	return ctrl.Result{}, nil
+}
+
+// ensureElasticPodSetInfoInjected patches the parent job's PodTemplate with the
+// admitted PodSetInfo when it differs from the current workload assignment.
+func (r *JobReconciler) ensureElasticPodSetInfoInjected(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload, log logr.Logger) error {
+	jobPodSets, err := JobPodSets(ctx, job, r.client)
+	if err != nil {
+		return fmt.Errorf("getting PodSets for elastic job: %w", err)
+	}
+	runningPodSets := expectedRunningPodSets(ctx, r.client, wl)
+	if runningPodSets != nil && podSetInfoFieldsEqual(jobPodSets, runningPodSets) {
+		return nil
+	}
+
+	log.V(2).Info("Injecting PodSet info into elastic job template after admission")
+	// The job is already running; suppress the spurious "Started" event since
+	// this only patches the owner template with the admitted PodSetInfo.
+	if err := r.startJob(ctx, job, object, wl, false); err != nil {
+		log.Error(err, "Starting elastic job after admission")
+		if podset.IsPermanent(err) {
+			errUpdateStatus := workload.Finish(ctx, r.client, wl, FailedToStartFinishedReason, err.Error(), r.clock)
+			if errUpdateStatus != nil {
+				log.Error(errUpdateStatus, "Updating workload status on elastic start failure", "err", err)
+			}
+			return errUpdateStatus
+		}
+		return err
+	}
+	return nil
+}
+
+func podSetInfoFieldsEqual(a, b []kueue.PodSet) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		aAnnotations := maps.Clone(a[i].Template.Annotations)
+		bAnnotations := maps.Clone(b[i].Template.Annotations)
+		// The Workload annotation identifies the current slice and changes on
+		// scale-up; it isn't part of the stable PodSetInfo injected into the job.
+		delete(aAnnotations, kueue.WorkloadAnnotation)
+		delete(bAnnotations, kueue.WorkloadAnnotation)
+
+		if a[i].Name != b[i].Name ||
+			!apiequality.Semantic.DeepEqual(aAnnotations, bAnnotations) ||
+			!apiequality.Semantic.DeepEqual(a[i].Template.Labels, b[i].Template.Labels) ||
+			!apiequality.Semantic.DeepEqual(a[i].Template.Spec.NodeSelector, b[i].Template.Spec.NodeSelector) ||
+			!apiequality.Semantic.DeepEqual(a[i].Template.Spec.Tolerations, b[i].Template.Spec.Tolerations) ||
+			!apiequality.Semantic.DeepEqual(a[i].Template.Spec.SchedulingGates, b[i].Template.Spec.SchedulingGates) {
+			return false
+		}
+	}
+	return true
 }
 
 // loadJob retrieves and loads the specified job resource into memory.
@@ -1214,7 +1280,7 @@ func expectedRunningPodSets(ctx context.Context, c client.Client, wl *kueue.Work
 	if !workload.HasQuotaReservation(wl) {
 		return nil
 	}
-	info, err := getPodSetsInfoFromStatus(ctx, c, wl)
+	info, err := GetPodSetsInfoFromStatus(ctx, c, wl)
 	if err != nil {
 		return nil
 	}
@@ -1299,9 +1365,12 @@ func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job Generi
 	return wl, nil
 }
 
-// startJob will unsuspend the job, and also inject the node affinity.
-func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload) error {
-	info, err := getPodSetsInfoFromStatus(ctx, r.client, wl)
+// startJob unsuspends the job and applies its admitted PodSetInfo.
+// recordStartedEvent controls whether the "Started" event is emitted; it is set
+// to false when reusing this path to patch the template of an already-running
+// elastic job, where nothing is actually being started.
+func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload, recordStartedEvent bool) error {
+	info, err := GetPodSetsInfoFromStatus(ctx, r.client, wl)
 	if err != nil {
 		return err
 	}
@@ -1330,11 +1399,18 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 		}
 	} else {
 		if err := clientutil.Patch(ctx, r.client, object, func() (bool, error) {
+			if WorkloadSliceEnabled(job) {
+				// Reset admission-specific values from a prior slice before merging the
+				// current one. The canonical PodSetInfo intentionally retains the elastic gate.
+				job.RestorePodSetsInfo(GetPodSetsInfoFromWorkload(wl))
+			}
 			return true, job.RunWithPodSetsInfo(ctx, r.client, info)
 		}); err != nil {
 			return err
 		}
-		r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonStarted, "Started", msg)
+		if recordStartedEvent {
+			r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonStarted, "Started", msg)
+		}
 	}
 
 	return nil
@@ -1480,6 +1556,14 @@ func prepareWorkloadSlice(ctx context.Context, clnt client.Client, job GenericJo
 	case 1:
 		// Scale-up event - link to old slice and carry origin name.
 		oldSlice := workloadSlices[0]
+		desiredCounts := workload.ExtractPodSetCountsFromWorkload(wl)
+		oldCounts := workload.ExtractPodSetCountsFromWorkload(&oldSlice)
+		if desiredCounts.HasSamePodSetKeys(oldCounts) {
+			// The old slice retains the user-authored PodSet templates. The job's
+			// templates may contain runtime data from its current admission.
+			wl.Spec.PodSets = oldSlice.DeepCopy().Spec.PodSets
+			workload.ApplyPodSetCounts(wl, desiredCounts)
+		}
 		metav1.SetMetaDataAnnotation(&wl.ObjectMeta, workloadslicing.WorkloadSliceReplacementFor, string(workload.Key(&oldSlice)))
 		originName := oldSlice.Annotations[kueue.WorkloadSliceNameAnnotation]
 		if originName == "" {
@@ -1555,9 +1639,11 @@ func extractPriorityFromPodSets(podSets []kueue.PodSet) string {
 	return ""
 }
 
-// getPodSetsInfoFromStatus extracts podSetsInfo from workload status, based on
-// admission, and admission checks.
-func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Workload) ([]podset.PodSetInfo, error) {
+// GetPodSetsInfoFromStatus extracts podSetsInfo from workload status, based on
+// admission, and admission checks. The returned slice parallels
+// w.Status.Admission.PodSetAssignments: infos[i] corresponds to
+// PodSetAssignments[i] and w.Spec.PodSets[i].
+func GetPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Workload) ([]podset.PodSetInfo, error) {
 	if len(w.Status.Admission.PodSetAssignments) == 0 {
 		return nil, nil
 	}

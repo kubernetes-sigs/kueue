@@ -257,6 +257,12 @@ func (p *PodWrapper) NodeSelector(k, v string) *PodWrapper {
 	return p
 }
 
+// Toleration appends a Toleration to the PodSpec.
+func (p *PodWrapper) Toleration(t corev1.Toleration) *PodWrapper {
+	p.Spec.Tolerations = append(p.Spec.Tolerations, t)
+	return p
+}
+
 func (p *PodWrapper) RequiredDuringSchedulingIgnoredDuringExecution(nodeSelectorTerms []corev1.NodeSelectorTerm) *PodWrapper {
 	if p.Spec.Affinity == nil {
 		p.Spec.Affinity = &corev1.Affinity{}
