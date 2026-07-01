@@ -395,53 +395,59 @@ type FlavorNodeQuotaPolicy struct {
     // +kubebuilder:validation:MaxProperties=8
     NodeLabels map[string]string `json:"nodeLabels,omitempty"`
 
-    // headroom reserves capacity from the computed total for DaemonSets and
-    // other non-Kueue pods. node.Status.Allocatable already accounts for
-    // kubelet kube-reserved and system-reserved; headroom is additional.
-    // At most one of percentage or fixed may be set.
+    // headroomPercentage optionally reserves a percentage of the computed total
+    // across all resources of this flavor, for DaemonSets and other non-Kueue
+    // pods. Being dimensionless, it applies uniformly to every resource.
+    // node.Status.Allocatable already accounts for kubelet kube-reserved and
+    // system-reserved; this is additional. A per-resource rule in `resources`
+    // overrides this default for that resource.
     // +optional
-    Headroom *QuotaHeadroom `json:"headroom,omitempty"`
+    // +kubebuilder:validation:Minimum=0
+    // +kubebuilder:validation:Maximum=100
+    HeadroomPercentage *int32 `json:"headroomPercentage,omitempty"`
 
     // includeNotReady controls whether Nodes without the Ready=True condition
     // contribute to quota computation. Defaults to false (only Ready nodes).
     // +optional
     IncludeNotReady *bool `json:"includeNotReady,omitempty"`
 
-    // resourceOverrides pins specific resources to a fixed nominalQuota,
-    // bypassing node-based computation for those resources. Use this for
-    // custom resources that are not reported in node.Status.Allocatable
-    // (e.g., example.com/token). Takes precedence over node-derived values.
+    // resources defines per-resource quota rules: pin a fixed nominalQuota, or
+    // apply a fixed/percentage headroom that overrides headroomPercentage for
+    // that resource. Resources not listed here are computed from node
+    // Allocatable (minus headroomPercentage, if set).
     // +optional
     // +listType=map
     // +listMapKey=name
     // +kubebuilder:validation:MaxItems=64
-    ResourceOverrides []ResourceQuotaOverride `json:"resourceOverrides,omitempty"`
+    Resources []ResourceQuotaRule `json:"resources,omitempty"`
 }
 
-// ResourceQuotaOverride pins a specific resource to a fixed nominalQuota,
-// bypassing node-based computation for that resource.
-type ResourceQuotaOverride struct {
-    // name is the Kubernetes resource name (e.g., example.com/token).
+// ResourceQuotaRule sets the quota policy for one resource within a flavor.
+// Exactly one of nominalQuota, fixedHeadroom, or percentageHeadroom may be set.
+// +kubebuilder:validation:XValidation:rule="[has(self.nominalQuota), has(self.fixedHeadroom), has(self.percentageHeadroom)].filter(x, x).size() <= 1",message="at most one of nominalQuota, fixedHeadroom, or percentageHeadroom may be set"
+type ResourceQuotaRule struct {
+    // name is the Kubernetes resource name (e.g., nvidia.com/gpu, cpu, memory,
+    // or a custom resource such as example.com/token).
     // +required
     Name corev1.ResourceName `json:"name"`
 
-    // nominalQuota is the fixed quota value for this resource.
-    // +required
-    NominalQuota resource.Quantity `json:"nominalQuota"`
-}
+    // nominalQuota pins this resource to a fixed value, bypassing node-based
+    // computation. Use for resources not reported in node.Status.Allocatable
+    // (e.g., example.com/token). Mutually exclusive with the headroom fields.
+    // +optional
+    NominalQuota *resource.Quantity `json:"nominalQuota,omitempty"`
 
-// QuotaHeadroom configures how much capacity to reserve from the computed total.
-// +kubebuilder:validation:XValidation:rule="!(has(self.percentage) && has(self.fixed))",message="at most one of percentage or fixed may be set"
-type QuotaHeadroom struct {
-    // percentage of total Allocatable to subtract (0–100).
+    // fixedHeadroom subtracts a fixed, correctly-dimensioned quantity from this
+    // resource's node-derived total (floored at zero).
+    // +optional
+    FixedHeadroom *resource.Quantity `json:"fixedHeadroom,omitempty"`
+
+    // percentageHeadroom subtracts a percentage from this resource's node-derived
+    // total, overriding the flavor-wide headroomPercentage for this resource.
     // +optional
     // +kubebuilder:validation:Minimum=0
     // +kubebuilder:validation:Maximum=100
-    Percentage *int32 `json:"percentage,omitempty"`
-
-    // fixed is a fixed quantity to subtract from the computed total.
-    // +optional
-    Fixed *resource.Quantity `json:"fixed,omitempty"`
+    PercentageHeadroom *int32 `json:"percentageHeadroom,omitempty"`
 }
 
 // NodeQuotaPolicyStatus records the results of the most recent reconciliation.
