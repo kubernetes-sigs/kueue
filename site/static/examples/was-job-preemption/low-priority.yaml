@@ -1,0 +1,7 @@
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: low-priority
+value: 1
+globalDefault: false
+description: "Low priority class with value 1"

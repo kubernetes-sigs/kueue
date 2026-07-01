@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
@@ -58,6 +59,7 @@ func TestAPIs(t *testing.T) {
 }
 
 var _ = ginkgo.BeforeSuite(func() {
+	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WASPodGroups, true)
 	fwk = &framework.Framework{
 		WebhookPath: util.WebhookPath,
 	}
