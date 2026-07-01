@@ -538,7 +538,10 @@ func (s *Scheduler) waitForPodsReadyIfBlocked(ctx context.Context, log logr.Logg
 	log.V(5).Info("Waiting for all admitted workloads to be in the PodsReady condition")
 	wl := e.Obj.DeepCopy()
 	if err := workloadpatching.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
-		reason := workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonWaitingForPodsReady, kueue.WorkloadWaiting)
+		reason := workload.UnadmittedWorkloadReasonWithFallback(
+			kueue.WorkloadQuotaReservedReasonWaitingForPodsReady,
+			kueue.WorkloadWaiting, //nolint:staticcheck // SA1019: fallback
+		)
 		return workload.UnsetQuotaReservationWithCondition(wl, reason, "waiting for all admitted workloads to be in PodsReady condition", s.clock.Now()), nil
 	}, workloadpatching.WithLooseOnApply(), workloadpatching.WithRetryOnConflict()); err != nil {
 		log.Error(err, "Could not update Workload status")

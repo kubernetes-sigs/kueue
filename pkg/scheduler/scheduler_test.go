@@ -1009,7 +1009,7 @@ func TestSchedule(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonMisconfigured,
-						Message:            "Workload namespace doesn't match ClusterQueue selector",
+						Message:            "workload namespace doesn't match ClusterQueue selector",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{

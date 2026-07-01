@@ -1056,11 +1056,15 @@ const (
 	WorkloadOnHold = "OnHold"
 
 	// WorkloadPending indicates that the workload is pending evaluation or scheduling.
-	// Also used as the legacy fallback reason for WorkloadQuotaReservedReasonPendingEvaluation
-	// when the UnadmittedWorkloadsObservability feature gate is disabled.
+	//
+	// Deprecated: Use the more granular WorkloadQuotaReservedReason* reasons (e.g.,
+	// WorkloadQuotaReservedReasonWaitingForQuota, WorkloadQuotaReservedReasonPendingEvaluation)
+	// instead when the UnadmittedWorkloadsObservability feature gate is enabled.
+	// See KEP-10852 for details.
 	WorkloadPending = "Pending"
 
 	// WorkloadWaiting indicates that the workload is waiting for pods to be ready.
+	//
 	// Deprecated: Use WorkloadQuotaReservedReasonWaitingForPodsReady instead when the
 	// UnadmittedWorkloadsObservability feature gate is enabled.
 	WorkloadWaiting = "Waiting"
