@@ -125,6 +125,13 @@ func WithLocalQueueMetrics(value *metrics.LocalQueueMetricsConfig) Option {
 	}
 }
 
+// WithSchedulingSimulator sets the scheduling simulator.
+func WithSchedulingSimulator(sim *SchedulingSimulator) Option {
+	return func(c *Cache) {
+		c.schedulingSimulator = sim
+	}
+}
+
 // Cache keeps track of the Workloads that got admitted through ClusterQueues.
 type Cache struct {
 	sync.RWMutex
@@ -148,6 +155,8 @@ type Cache struct {
 	roleTracker  *roletracker.RoleTracker
 	customLabels *metrics.CustomLabels
 	lqMetrics    *metrics.LocalQueueMetricsConfig
+
+	schedulingSimulator *SchedulingSimulator
 }
 
 func New(client client.Client, options ...Option) *Cache {
@@ -157,11 +166,11 @@ func New(client client.Client, options ...Option) *Cache {
 		admissionChecks:        make(map[kueue.AdmissionCheckReference]AdmissionCheck),
 		workloadAssignedQueues: make(map[workload.Reference]kueue.ClusterQueueReference),
 		hm:                     hierarchy.NewManager(newCohort),
-		tasCache:               NewTASCache(client),
 	}
 	for _, option := range options {
 		option(cache)
 	}
+	cache.tasCache = NewTASCache(client, cache.schedulingSimulator)
 	cache.podsReadyCond.L = &cache.RWMutex
 	return cache
 }
