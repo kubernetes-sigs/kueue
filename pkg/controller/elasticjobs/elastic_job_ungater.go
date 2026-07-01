@@ -134,6 +134,10 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 		return reconcile.Result{}, err
 	}
 	if active == nil {
+		// Anomaly: the event was queued for an admitted, non-finished elastic slice
+		// (see shouldUngate), yet the chain has no active slice now — e.g. it just
+		// finished, or the root lost its controller owner between events.
+		log.V(2).Info("no active elastic slice resolved for the chain; skipping ungating", "workload", klog.KObj(root))
 		return reconcile.Result{}, nil
 	}
 
