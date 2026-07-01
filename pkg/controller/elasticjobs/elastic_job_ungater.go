@@ -41,6 +41,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/podset"
 	utilclient "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
@@ -126,6 +128,33 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 		return reconcile.Result{}, nil
 	}
 
+	// Elastic jobs bypass startJob, so inject the same PodSetInfo here before
+	// ungating.
+	infos, err := jobframework.GetPodSetsInfoFromStatus(ctx, r.client, wl)
+	if err != nil {
+		return reconcile.Result{}, fmt.Errorf("building PodSet info for elastic ungater: %w", err)
+	}
+	infoByPodSet := make(map[kueue.PodSetReference]podset.PodSetInfo, len(infos))
+	flavorsByPodSet := make(map[kueue.PodSetReference]map[corev1.ResourceName]kueue.ResourceFlavorReference, len(infos))
+	for i := range infos {
+		infoByPodSet[infos[i].Name] = infos[i]
+		flavorsByPodSet[infos[i].Name] = wl.Status.Admission.PodSetAssignments[i].Flavors
+	}
+	var singleInfo *podset.PodSetInfo
+	if len(infos) == 1 {
+		singleInfo = &infos[0]
+	}
+	infoFor := func(pod *corev1.Pod) (podset.PodSetInfo, bool) {
+		if name, found := pod.Labels[constants.PodSetLabel]; found {
+			info, ok := infoByPodSet[kueue.PodSetReference(name)]
+			return info, ok
+		}
+		if singleInfo != nil {
+			return *singleInfo, true
+		}
+		return podset.PodSetInfo{}, false
+	}
+
 	log.V(2).Info("identified elastic pods to ungate", "count", len(pods))
 	uids := make([]types.UID, len(pods))
 	for i := range pods {
@@ -138,10 +167,22 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 		var ungated bool
 		e := utilclient.Patch(ctx, r.client, pod, func() (bool, error) {
 			ungated = utilpod.Ungate(pod, kueue.ElasticJobSchedulingGate)
-			if ungated {
-				log.V(3).Info("ungating elastic pod", "pod", klog.KObj(pod))
+			if !ungated {
+				return false, nil
 			}
-			return ungated, nil
+			if info, ok := infoFor(pod); ok {
+				if mergeErr := podset.Merge(&pod.ObjectMeta, &pod.Spec, info); mergeErr != nil {
+					log.Error(mergeErr, "failed merging PodSet info after ungating; pod released without flavor injection",
+						"pod", klog.KObj(pod))
+				} else {
+					log.V(3).Info("ungating elastic pod with assigned flavor info",
+						"pod", klog.KObj(pod), "flavors", flavorsByPodSet[info.Name])
+				}
+			} else {
+				log.V(0).Info("ungating elastic pod without flavor info; no matching PodSet",
+					"pod", klog.KObj(pod))
+			}
+			return true, nil
 		})
 		if e != nil {
 			r.expectationsStore.ObservedUID(log, req.NamespacedName, pod.UID)

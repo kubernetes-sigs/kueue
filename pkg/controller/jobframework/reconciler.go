@@ -1214,7 +1214,7 @@ func expectedRunningPodSets(ctx context.Context, c client.Client, wl *kueue.Work
 	if !workload.HasQuotaReservation(wl) {
 		return nil
 	}
-	info, err := getPodSetsInfoFromStatus(ctx, c, wl)
+	info, err := GetPodSetsInfoFromStatus(ctx, c, wl)
 	if err != nil {
 		return nil
 	}
@@ -1301,7 +1301,7 @@ func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job Generi
 
 // startJob will unsuspend the job, and also inject the node affinity.
 func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload) error {
-	info, err := getPodSetsInfoFromStatus(ctx, r.client, wl)
+	info, err := GetPodSetsInfoFromStatus(ctx, r.client, wl)
 	if err != nil {
 		return err
 	}
@@ -1555,9 +1555,11 @@ func extractPriorityFromPodSets(podSets []kueue.PodSet) string {
 	return ""
 }
 
-// getPodSetsInfoFromStatus extracts podSetsInfo from workload status, based on
-// admission, and admission checks.
-func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Workload) ([]podset.PodSetInfo, error) {
+// GetPodSetsInfoFromStatus extracts podSetsInfo from workload status, based on
+// admission, and admission checks. The returned slice parallels
+// w.Status.Admission.PodSetAssignments: infos[i] corresponds to
+// PodSetAssignments[i] and w.Spec.PodSets[i].
+func GetPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Workload) ([]podset.PodSetInfo, error) {
 	if len(w.Status.Admission.PodSetAssignments) == 0 {
 		return nil, nil
 	}
