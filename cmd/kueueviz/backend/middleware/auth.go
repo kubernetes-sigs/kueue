@@ -88,36 +88,11 @@ func (a *Authenticator) Middleware() gin.HandlerFunc {
 			return
 		}
 
-		key := hashToken(token)
-
-		now := a.clock.Now()
-		if cached, ok := a.cache.Get(key, now); ok {
-			if cached.authenticated {
-				c.Set("username", cached.username)
-				c.Set("token", token)
-				c.Next()
-				return
-			}
-			abortUnauthorized(c, "invalid token")
-			return
-		}
-
-		authenticated, username, err := a.reviewToken(c.Request.Context(), token)
+		authenticated, username, err := a.authenticate(c.Request.Context(), token)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "authentication service unavailable"})
 			return
 		}
-
-		ttl := a.config.NegativeCacheTTL
-		if authenticated {
-			ttl = a.config.CacheTTL
-		}
-		a.cache.Set(key, cacheEntry{
-			authenticated: authenticated,
-			username:      username,
-			expiresAt:     now.Add(ttl),
-		})
-
 		if !authenticated {
 			abortUnauthorized(c, "invalid token")
 			return
@@ -129,18 +104,18 @@ func (a *Authenticator) Middleware() gin.HandlerFunc {
 	}
 }
 
-// ValidateToken checks whether token is still valid using the cache and, if
-// the cache entry has expired, by issuing a fresh TokenReview against the
-// Kubernetes API. It returns true only when the token is authenticated.
-func (a *Authenticator) ValidateToken(ctx context.Context, token string) (bool, error) {
+// authenticate hashes the token, checks the shared TTL cache, and falls back
+// to a live TokenReview when the cache entry is absent or expired. The result
+// is written back to the cache before returning.
+func (a *Authenticator) authenticate(ctx context.Context, token string) (bool, string, error) {
 	key := hashToken(token)
 	now := a.clock.Now()
 	if cached, ok := a.cache.Get(key, now); ok {
-		return cached.authenticated, nil
+		return cached.authenticated, cached.username, nil
 	}
 	authenticated, username, err := a.reviewToken(ctx, token)
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
 	ttl := a.config.NegativeCacheTTL
 	if authenticated {
@@ -151,7 +126,16 @@ func (a *Authenticator) ValidateToken(ctx context.Context, token string) (bool, 
 		username:      username,
 		expiresAt:     now.Add(ttl),
 	})
-	return authenticated, nil
+	return authenticated, username, nil
+}
+
+// ValidateToken performs a live TokenReview against the Kubernetes API,
+// intentionally bypassing the shared cache so that WebSocket re-checks always
+// reflect the current revocation state of the token. The result is NOT written
+// back to the shared cache to avoid extending a revoked session.
+func (a *Authenticator) ValidateToken(ctx context.Context, token string) (bool, error) {
+	authenticated, _, err := a.reviewToken(ctx, token)
+	return authenticated, err
 }
 
 func (a *Authenticator) reviewToken(ctx context.Context, token string) (bool, string, error) {

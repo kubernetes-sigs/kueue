@@ -205,13 +205,19 @@ func (h *Handlers) handleInformerUpdates(ctx context.Context, conn *websocket.Co
 		case <-ctx.Done():
 			return
 		case <-authTickerC:
-			ok, err := h.validator.ValidateToken(ctx, token)
+			// Use a short timeout so a slow or unavailable API server cannot
+			// block this goroutine indefinitely.
+			validateCtx, validateCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ok, err := h.validator.ValidateToken(validateCtx, token)
+			validateCancel()
 			if err != nil {
 				slog.Warn("Token re-validation failed; closing WebSocket", "error", err)
 			} else if !ok {
 				slog.Info("Bearer token is no longer valid; closing WebSocket")
 			}
 			if err != nil || !ok {
+				// Set a write deadline so the close-frame write cannot block indefinitely.
+				_ = conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 				_ = conn.WriteMessage(
 					websocket.CloseMessage,
 					websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "token expired or revoked"),
