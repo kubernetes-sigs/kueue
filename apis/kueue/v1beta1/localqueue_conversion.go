@@ -17,6 +17,8 @@ limitations under the License.
 package v1beta1
 
 import (
+	"unsafe"
+
 	conversionapi "k8s.io/apimachinery/pkg/conversion"
 	"sigs.k8s.io/controller-runtime/pkg/conversion"
 
@@ -58,4 +60,15 @@ func Convert_v1beta1_LocalQueueStatus_To_v1beta2_LocalQueueStatus(in *LocalQueue
 		}
 	}
 	return autoConvert_v1beta1_LocalQueueStatus_To_v1beta2_LocalQueueStatus(in, out, s)
+}
+
+func Convert_v1beta1_FairSharingStatus_To_v1beta2_LocalQueueFairSharingStatus(in *FairSharingStatus, out *v1beta2.LocalQueueFairSharingStatus, s conversionapi.Scope) error {
+	out.AdmissionFairSharingStatus = (*v1beta2.LocalQueueAdmissionFairSharingStatus)(unsafe.Pointer(in.AdmissionFairSharingStatus))
+	return nil
+}
+
+func Convert_v1beta2_LocalQueueFairSharingStatus_To_v1beta1_FairSharingStatus(in *v1beta2.LocalQueueFairSharingStatus, out *FairSharingStatus, s conversionapi.Scope) error {
+	out.WeightedShare = 0
+	out.AdmissionFairSharingStatus = (*AdmissionFairSharingStatus)(unsafe.Pointer(in.AdmissionFairSharingStatus))
+	return nil
 }
