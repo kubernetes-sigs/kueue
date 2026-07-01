@@ -589,6 +589,7 @@ type entry struct {
 	preemptionTargets    []*preemption.Target
 	clusterQueueSnapshot *schdcache.ClusterQueueSnapshot
 	quotaReservedReason  string
+	skipStatusUpdate     bool
 }
 
 func (e *entry) assignmentUsage(log logr.Logger) workload.Usage {
@@ -631,9 +632,13 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
 		} else if err := workload.ValidateAdmissibility(ctx, s.client, &w, e.clusterQueueSnapshot.NamespaceSelector); err != nil {
 			e.inadmissibleMsg = err.Error()
-			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
-			if errors.Is(err, workload.ErrNamespaceMismatch) {
-				e.requeueReason = qcache.RequeueReasonNamespaceMismatch
+			if errors.Is(err, workload.ErrAPI) {
+				e.skipStatusUpdate = true
+			} else {
+				e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
+				if errors.Is(err, workload.ErrNamespaceMismatch) {
+					e.requeueReason = qcache.RequeueReasonNamespaceMismatch
+				}
 			}
 		} else {
 			assignment, targets := s.getAssignments(log, &e.Info, snap)
@@ -1017,6 +1022,10 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 	log.V(2).
 		Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)), "queue", klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName)), "requeueReason", e.requeueReason, "added", added, "status", e.status)
 	if e.status == notNominated || e.status == skipped || e.status == preemptionGated {
+		if e.skipStatusUpdate {
+			log.V(3).Info("Skipping Workload status update", "workload", klog.KObj(e.Obj), "reason", e.inadmissibleMsg)
+			return
+		}
 		wl := e.Obj.DeepCopy()
 		condReason := workload.UnadmittedWorkloadReasonWithFallback(e.quotaReservedReason, "Pending")
 		if err := workloadpatching.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {

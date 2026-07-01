@@ -23,6 +23,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -39,6 +40,7 @@ import (
 var (
 	PodSetsPath          = field.NewPath("spec").Child("podSets")
 	ErrNamespaceMismatch = errors.New("workload namespace doesn't match ClusterQueue selector")
+	ErrAPI               = errors.New("api lookup failure")
 )
 
 const (
@@ -189,6 +191,15 @@ func ValidateLimitRange(ctx context.Context, c client.Client, wi *Info) field.Er
 	return allErrs
 }
 
+func hasInternalError(errs field.ErrorList) bool {
+	for _, e := range errs {
+		if e.Type == field.ErrorTypeInternal {
+			return true
+		}
+	}
+	return false
+}
+
 // ValidateAdmissibility checks if the workload's namespace matches the ClusterQueue's
 // namespace selector, and if its resource requests are valid and satisfy LimitRanges.
 // Returns the admissibility error if any.
@@ -200,7 +211,10 @@ func ValidateAdmissibility(
 ) error {
 	var ns corev1.Namespace
 	if err := c.Get(ctx, types.NamespacedName{Name: wi.Obj.Namespace}, &ns); err != nil {
-		return fmt.Errorf("could not obtain workload namespace: %w", err)
+		if apierrors.IsNotFound(err) {
+			return fmt.Errorf("workload namespace %q does not exist: %w", wi.Obj.Namespace, err)
+		}
+		return fmt.Errorf("%w: %w", ErrAPI, err)
 	}
 	if cqNamespaceSelector != nil && !cqNamespaceSelector.Matches(labels.Set(ns.Labels)) {
 		return ErrNamespaceMismatch
@@ -211,6 +225,9 @@ func ValidateAdmissibility(
 	}
 
 	if errs := ValidateLimitRange(ctx, c, wi); len(errs) > 0 {
+		if hasInternalError(errs) {
+			return fmt.Errorf("%w: %w", ErrAPI, errs.ToAggregate())
+		}
 		return fmt.Errorf("%s: %w", ErrLimitRangeConstraintsUnsatisfiedResources, errs.ToAggregate())
 	}
 
