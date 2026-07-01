@@ -44,7 +44,7 @@ type benchTopology struct {
 
 func buildBenchNodes(t benchTopology) []corev1.Node {
 	nodes := make([]corev1.Node, 0, t.nodes)
-	for i := 0; i < t.nodes; i++ {
+	for i := range t.nodes {
 		rack := i / t.nodesPerRack
 		block := rack / t.racksPerBlock
 		host := fmt.Sprintf("node-%d", i)
