@@ -352,6 +352,17 @@ type NodeQuotaPolicySpec struct {
     // +required
     TargetRef NodeQuotaPolicyTargetRef `json:"targetRef"`
 
+    // mode controls whether the controller actuates the computed quota.
+    // In "Apply" (the default) the controller writes the computed nominalQuota
+    // to the target object. In "Recommend" the controller only records the
+    // computed values in status.computedQuotas and does not modify the target,
+    // so an external system of record (e.g. GitOps/Terraform) can consume the
+    // proposal and apply it through its own pipeline.
+    // +optional
+    // +kubebuilder:validation:Enum=Apply;Recommend
+    // +kubebuilder:default=Apply
+    Mode NodeQuotaPolicyMode `json:"mode,omitempty"`
+
     // flavorPolicies defines per-flavor quota computation rules. Each entry
     // corresponds to one flavor in the target object's resourceGroups.
     // The controller only writes nominalQuota for (flavor, resource) pairs
@@ -363,6 +374,17 @@ type NodeQuotaPolicySpec struct {
     // +required
     FlavorPolicies []FlavorNodeQuotaPolicy `json:"flavorPolicies"`
 }
+
+// NodeQuotaPolicyMode controls whether the controller actuates the computed quota.
+type NodeQuotaPolicyMode string
+
+const (
+    // NodeQuotaPolicyModeApply writes the computed nominalQuota to the target.
+    NodeQuotaPolicyModeApply NodeQuotaPolicyMode = "Apply"
+    // NodeQuotaPolicyModeRecommend records the computed values in status only,
+    // leaving the target object untouched for an external system to actuate.
+    NodeQuotaPolicyModeRecommend NodeQuotaPolicyMode = "Recommend"
+)
 
 // NodeQuotaPolicyTargetRef identifies the object whose nominalQuota is managed.
 type NodeQuotaPolicyTargetRef struct {
