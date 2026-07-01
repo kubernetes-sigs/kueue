@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -698,6 +699,20 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 	})
 })
 
+// ungatedPodNames is a helper that returns the names of the pods in nsName
+// that no longer carry the elastic-job scheduling gate.
+func ungatedPodNames(g gomega.Gomega, nsName string) sets.Set[string] {
+	pods := &corev1.PodList{}
+	g.Expect(k8sClient.List(ctx, pods, client.InNamespace(nsName))).Should(gomega.Succeed())
+	ungated := sets.New[string]()
+	for i := range pods.Items {
+		if !utilpod.HasGate(&pods.Items[i], kueue.ElasticJobSchedulingGate) {
+			ungated.Insert(pods.Items[i].Name)
+		}
+	}
+	return ungated
+}
+
 var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices support", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns             *corev1.Namespace
@@ -1000,27 +1015,14 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 			util.MustCreate(ctx, k8sClient, pod)
 		}
 
-		countUngated := func(g gomega.Gomega) int {
-			pods := &corev1.PodList{}
-			g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).Should(gomega.Succeed())
-			g.Expect(pods.Items).Should(gomega.HaveLen(totalWorkerPods))
-			ungated := 0
-			for i := range pods.Items {
-				if !utilpod.HasGate(&pods.Items[i], kueue.ElasticJobSchedulingGate) {
-					ungated++
-				}
-			}
-			return ungated
-		}
-
 		ginkgo.By("the ungater ungates exactly the granted count and leaves the surplus gated")
 		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(countUngated(g)).Should(gomega.Equal(grantedWorkerCount))
+			g.Expect(sets.List(ungatedPodNames(g, ns.Name))).Should(gomega.HaveLen(grantedWorkerCount))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("the cap is stable: the ungater never exceeds the granted quota")
 		gomega.Consistently(func(g gomega.Gomega) {
-			g.Expect(countUngated(g)).Should(gomega.Equal(grantedWorkerCount))
+			g.Expect(sets.List(ungatedPodNames(g, ns.Name))).Should(gomega.HaveLen(grantedWorkerCount))
 		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 	})
 
@@ -1141,15 +1143,7 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 
 		ginkgo.By("the cap holds: both granted workers are ungated and no surplus is")
 		gomega.Consistently(func(g gomega.Gomega) {
-			pods := &corev1.PodList{}
-			g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).Should(gomega.Succeed())
-			ungated := 0
-			for i := range pods.Items {
-				if !utilpod.HasGate(&pods.Items[i], kueue.ElasticJobSchedulingGate) {
-					ungated++
-				}
-			}
-			g.Expect(ungated).Should(gomega.Equal(2))
+			g.Expect(sets.List(ungatedPodNames(g, ns.Name))).Should(gomega.HaveLen(2))
 		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 	})
 })
