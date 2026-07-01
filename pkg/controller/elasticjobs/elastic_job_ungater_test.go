@@ -713,7 +713,12 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 			if err := utiltesting.AsIndexer(clientBuilder).IndexField(ctx, &corev1.Pod{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexPodWorkloadSliceName); err != nil {
 				t.Fatalf("Could not setup WorkloadSliceNameKey index: %v", err)
 			}
-			if err := utiltesting.AsIndexer(clientBuilder).IndexField(ctx, &kueue.Workload{}, coreindexer.OwnerReferenceIndexKey(rayClusterGVK), coreindexer.WorkloadOwnerIndexFunc(rayClusterGVK)); err != nil {
+			if err := utiltesting.AsIndexer(clientBuilder).IndexField(
+				ctx,
+				&kueue.Workload{},
+				coreindexer.OwnerReferenceIndexKey(rayClusterGVK),
+				coreindexer.WorkloadOwnerIndexFunc(rayClusterGVK),
+			); err != nil {
 				t.Fatalf("Could not setup workload owner index: %v", err)
 			}
 
