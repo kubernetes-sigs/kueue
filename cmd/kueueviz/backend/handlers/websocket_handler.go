@@ -20,7 +20,6 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
-	"net/http"
 	"time"
 
 	"github.com/bep/debounce"
@@ -33,9 +32,6 @@ import (
 
 // WebSocket upgrader
 var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
-		return true
-	},
 	Subprotocols: []string{middleware.WebSocketBaseProtocol},
 }
 
