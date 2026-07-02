@@ -46,11 +46,8 @@ import (
 
 var (
 	statusComparer = cmp.Comparer(func(a, b Status) bool {
-		if a.err != nil && b.err != nil {
-			return errors.Is(a.err, b.err) || errors.Is(b.err, a.err)
-		}
 		if a.err != nil || b.err != nil {
-			return false
+			return errors.Is(a.err, b.err) || errors.Is(b.err, a.err)
 		}
 		return cmp.Equal(a.reasons, b.reasons, cmpopts.SortSlices(func(x, y string) bool {
 			return x < y
@@ -4352,16 +4349,8 @@ func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 			if len(tasReqs) != 0 {
 				t.Errorf("expected no TAS requests, got: %+v", tasReqs)
 			}
-			if tc.wantErr != nil && !errors.Is(tc.assignment.PodSets[0].Status.err, tc.wantErr) {
+			if tc.wantErr != nil && !errors.Is(tc.assignment.PodSets[0].Status.err, tc.wantErr) && !errors.Is(tc.wantErr, tc.assignment.PodSets[0].Status.err) {
 				t.Errorf("got error %v, want error %v", tc.assignment.PodSets[0].Status.err, tc.wantErr)
-			}
-			// For MultipleTASFlavorsAssignedError, also verify Flavors match
-			if wantMFE, ok := tc.wantErr.(*MultipleTASFlavorsAssignedError); ok {
-				if actualMFE, ok := tc.assignment.PodSets[0].Status.err.(*MultipleTASFlavorsAssignedError); ok {
-					if diff := cmp.Diff(wantMFE.Flavors, actualMFE.Flavors); diff != "" {
-						t.Errorf("Flavors mismatch (-want +got):\n%s", diff)
-					}
-				}
 			}
 			// When TAS request build fails, the assignment should be unfit so the workload is not admitted.
 			if got := tc.assignment.RepresentativeMode(); got != NoFit {
@@ -4598,16 +4587,8 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 				if len(tasReqs) != 0 {
 					t.Errorf("expected no TAS requests, got: %+v", tasReqs)
 				}
-				if !errors.Is(tc.assignment.PodSets[0].Status.err, tc.wantErr) {
+				if !errors.Is(tc.assignment.PodSets[0].Status.err, tc.wantErr) && !errors.Is(tc.wantErr, tc.assignment.PodSets[0].Status.err) {
 					t.Errorf("got error %v, want error %v", tc.assignment.PodSets[0].Status.err, tc.wantErr)
-				}
-				// For MultipleTASFlavorsAssignedError, also verify Flavors match
-				if wantMFE, ok := tc.wantErr.(*MultipleTASFlavorsAssignedError); ok {
-					if actualMFE, ok := tc.assignment.PodSets[0].Status.err.(*MultipleTASFlavorsAssignedError); ok {
-						if diff := cmp.Diff(wantMFE.Flavors, actualMFE.Flavors); diff != "" {
-							t.Errorf("Flavors mismatch (-want +got):\n%s", diff)
-						}
-					}
 				}
 				if got := tc.assignment.RepresentativeMode(); got != NoFit {
 					t.Errorf("RepresentativeMode() = %v, want NoFit (workload must not be admitted when elastic job validation fails)", got)

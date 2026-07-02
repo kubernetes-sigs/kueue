@@ -19,6 +19,7 @@ package flavorassigner
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -36,7 +37,7 @@ var (
 // MultipleTASFlavorsAssignedError indicates that a PodSet ended up with more
 // than one TAS flavor assigned across its resources, which TAS cannot handle.
 // The offending flavors are kept as a field rather than only in the message so
-// callers can inspect them without parsing the error text.
+// callers can inspect them with errors.As instead of parsing the error text.
 type MultipleTASFlavorsAssignedError struct {
 	Flavors []kueue.ResourceFlavorReference
 }
@@ -49,9 +50,21 @@ func (e *MultipleTASFlavorsAssignedError) Error() string {
 	return fmt.Sprintf("more than one TAS flavor assigned: %s", strings.Join(names, ", "))
 }
 
-// Is reports whether target is any MultipleTASFlavorsAssignedError (regardless of Flavors).
-// Callers must compare Flavors separately if exact error matching is required.
+// Is reports equality for MultipleTASFlavorsAssignedError based on the
+// offending flavor set, so callers can use errors.Is for semantic matching.
 func (e *MultipleTASFlavorsAssignedError) Is(target error) bool {
-	_, ok := target.(*MultipleTASFlavorsAssignedError)
-	return ok
+	other, ok := target.(*MultipleTASFlavorsAssignedError)
+	if !ok {
+		return false
+	}
+	if e == nil || other == nil {
+		return e == other
+	}
+
+	eFlavors := append([]kueue.ResourceFlavorReference(nil), e.Flavors...)
+	otherFlavors := append([]kueue.ResourceFlavorReference(nil), other.Flavors...)
+	slices.Sort(eFlavors)
+	slices.Sort(otherFlavors)
+
+	return slices.Equal(eFlavors, otherFlavors)
 }
