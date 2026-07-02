@@ -28,6 +28,8 @@ COPY --from=builder /app/build ./build
 
 EXPOSE 8080
 
+USER node
+
 # Serve the built files directly.
 # env.js is expected to be mounted via ConfigMap at /app/build/env.js
 # when running in Kubernetes.
