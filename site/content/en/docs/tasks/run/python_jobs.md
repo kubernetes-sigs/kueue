@@ -12,19 +12,17 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
 ## Before you begin
 
 Check [administer cluster quotas](/docs/tasks/manage/administer_cluster_quotas) for details on the initial cluster setup.
-You'll also need kubernetes python installed. We recommend a virtual environment.
+You'll also need [uv](https://docs.astral.sh/uv/) installed. Each example script includes
+[inline script metadata (PEP 723)](https://peps.python.org/pep-0723/) so `uv run` will
+automatically create an isolated environment and install the required dependencies.
 
 ```bash
-python -m venv env
-source env/bin/activate
-pip install kubernetes requests
+# Install uv (if not already installed)
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-Note that the following versions were used for developing these examples:
-
- - **Python**: 3.9.12
- - **kubernetes**: 26.1.0
- - **requests**: 2.31.0
+No manual `pip install` or virtual environment setup is needed — just run the scripts
+with `uv run`.
 
 You can either follow the [install instructions](https://github.com/kubernetes-sigs/kueue#installation) for Kueue, or use the install example, below.
 
@@ -49,7 +47,7 @@ script to your local machine as `install-kueue-queues.py`.
 And then run as follows:
 
 ```bash
-python install-kueue-queues.py 
+uv run install-kueue-queues.py 
 ```
 
 ```console
@@ -60,7 +58,7 @@ python install-kueue-queues.py
 You can also target a specific version:
 
 ```bash
-python install-kueue-queues.py --version {{< param "version" >}}
+uv run install-kueue-queues.py --version {{< param "version" >}}
 ```
 
 ### Sample Job
@@ -72,7 +70,7 @@ For the next example, let's start with a cluster with Kueue installed, and first
 And run as follows:
 
 ```bash
-python sample-job.py
+uv run sample-job.py
 ```
 ```console
 📦️ Container image selected is registry.k8s.io/e2e-test-images/agnhost:2.53...
@@ -85,7 +83,7 @@ Use:
 or try changing the name (`generateName`) of the job:
 
 ```bash
-python sample-job.py --job-name sleep-job-
+uv run sample-job.py --job-name sleep-job-
 ```
 
 ```console
@@ -111,15 +109,15 @@ with the results. Write the following to a script called `sample-queue-control.p
 To make the output more interesting, we can run a few random jobs first:
 
 ```bash
-python sample-job.py
-python sample-job.py
-python sample-job.py --job-name tacos
+uv run sample-job.py
+uv run sample-job.py
+uv run sample-job.py --job-name tacos
 ```
 
 And then run the script to see your queue and sample job that you submit previously.
 
 ```bash
-python sample-queue-control.py
+uv run sample-queue-control.py
 ```
 ```console
 ⛑️  Local Queues
@@ -165,9 +163,8 @@ API documentation for more calls.
 For this example, we will be using the [Flux Operator](https://github.com/flux-framework/flux-operator)
 to submit a job, and specifically using the [Python SDK](https://github.com/flux-framework/flux-operator/tree/main/sdk/python/v1alpha1) to do this easily. Given our Python environment created in the [setup](#before-you-begin), we can install this Python SDK directly to it as follows:
 
-```bash
-pip install fluxoperator
-```
+The `fluxoperator` dependency is declared in the script's inline metadata and will be
+automatically installed by `uv run`.
 
 We will also need to [install the Flux operator](https://flux-framework.org/flux-operator/getting_started/user-guide.html#quick-install). 
 
@@ -182,7 +179,7 @@ Write the following script to `sample-flux-operator-job.py`:
 Now try running the example:
 
 ```bash
-python sample-flux-operator-job.py
+uv run sample-flux-operator-job.py
 ```
 ```console
 📦️ Container image selected is ghcr.io/flux-framework/flux-restful-api...
@@ -264,7 +261,7 @@ broker.info[0]: goodbye: goodbye->exit 0.06917ms
 If you submit and ask for four tasks, you'll see "hello world" four times:
 
 ```bash
-python sample-flux-operator-job.py --tasks 4
+uv run sample-flux-operator-job.py --tasks 4
 ```
 ```console
 ...
