@@ -412,7 +412,7 @@ func TestValidateWorkload(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
-			gotErr := ValidateWorkload(tc.workload)
+			gotErr := ValidateWorkload(tc.workload, nil)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
 				t.Errorf("ValidateWorkload() mismatch (-want +got):\n%s", diff)
 			}
@@ -493,6 +493,90 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("status", "reclaimablePods").Key("ps1").Child("count"), nil, ""),
 				field.Required(field.NewPath("status", "reclaimablePods").Key("ps2"), ""),
+			},
+		},
+		"elastic workload: unchanged reclaimable pod count is tolerated while its podSet scales down below it": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 8).Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "ps1"}).
+						Obj(), now,
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{Name: "ps1", Count: 4},
+				).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 3).Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "ps1"}).
+						Obj(), now,
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{Name: "ps1", Count: 4},
+				).
+				Obj(),
+			wantErr: nil,
+		},
+		"elastic workload: reclaimable pod count can decrease after its podSet scaled down below it": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 3).Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "ps1"}).
+						Obj(), now,
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{Name: "ps1", Count: 4},
+				).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 3).Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "ps1"}).
+						Obj(), now,
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{Name: "ps1", Count: 3},
+				).
+				Obj(),
+			wantErr: nil,
+		},
+		"non-elastic workload: stale reclaimable pod count is still rejected when its podSet scales down": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 8).Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "ps1"}).
+						Obj(), now,
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{Name: "ps1", Count: 4},
+				).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 3).Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "ps1"}).
+						Obj(), now,
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{Name: "ps1", Count: 4},
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("status", "reclaimablePods").Key("ps1").Child("count"), nil, ""),
 			},
 		},
 		"reclaimable pod count can go to 0 if the job is suspended": {
