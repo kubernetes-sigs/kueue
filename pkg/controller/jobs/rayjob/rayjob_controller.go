@@ -301,7 +301,7 @@ func getSubmitterTemplate(rayJob *RayJob) *corev1.PodTemplateSpec {
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{
 				{
-					Name: "ray-job-submitter",
+					Name: rayutils.SubmitterContainerName,
 					// Use the image of the Ray head to be defensive against version mismatch issues
 					Image:     rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Image,
 					Resources: defaultSubmitterResources(),
@@ -350,7 +350,7 @@ func (j *RayJob) addSidecarSubmitterToHeadPodSet(podSets []kueue.PodSet) {
 	for i := range podSets {
 		if podSets[i].Name == headGroupPodSetName {
 			podSets[i].Template.Spec.Containers = append(podSets[i].Template.Spec.Containers, corev1.Container{
-				Name:      "ray-job-submitter",
+				Name:      rayutils.SubmitterContainerName,
 				Resources: defaultSubmitterResources(),
 			})
 			return
