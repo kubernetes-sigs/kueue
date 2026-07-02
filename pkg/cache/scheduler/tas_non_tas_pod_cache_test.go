@@ -42,10 +42,18 @@ func verifyNodeUsageConsistency(t *testing.T, cache *nonTasUsageCache) {
 		expected[pv.node].Add(pv.usage)
 		expected[pv.node][corev1.ResourcePods]++
 	}
-	got := cache.usagePerNode()
+	got := collectNodeUsage(cache)
 	if diff := cmp.Diff(expected, got); diff != "" {
 		t.Errorf("nodeUsage inconsistent with podUsage (-recomputed +nodeUsage):\n%s", diff)
 	}
+}
+
+func collectNodeUsage(cache *nonTasUsageCache) map[string]resources.Requests {
+	usage := map[string]resources.Requests{}
+	cache.forEachNodeUsage(func(node string, reqs resources.Requests) {
+		usage[node] = reqs.Clone()
+	})
+	return usage
 }
 
 func makePod(name, namespace, node string, cpu string) *corev1.Pod {
@@ -178,8 +186,8 @@ func TestNonTasUsageCacheIncrementalUpdates(t *testing.T) {
 			if wantUsage == nil {
 				wantUsage = map[string]resources.Requests{}
 			}
-			if diff := cmp.Diff(wantUsage, cache.usagePerNode()); diff != "" {
-				t.Errorf("usagePerNode() mismatch (-want +got):\n%s", diff)
+			if diff := cmp.Diff(wantUsage, collectNodeUsage(cache)); diff != "" {
+				t.Errorf("collectNodeUsage() mismatch (-want +got):\n%s", diff)
 			}
 
 			// Explicitly verify the internal nodeUsage map has no leftover
