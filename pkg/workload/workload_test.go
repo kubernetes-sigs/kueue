@@ -977,6 +977,41 @@ func TestReclaimablePodsAreEqual(t *testing.T) {
 	}
 }
 
+func TestLimitReclaimablePodsToPodSetSizes(t *testing.T) {
+	wl := utiltestingapi.MakeWorkload("wl", "ns").
+		PodSets(
+			*utiltestingapi.MakePodSet("ps1", 3).Obj(),
+			*utiltestingapi.MakePodSet("ps2", 5).Obj(),
+		).
+		Obj()
+	cases := map[string]struct {
+		reclaimablePods []kueue.ReclaimablePod
+		want            []kueue.ReclaimablePod
+	}{
+		"empty": {},
+		"within podSet sizes": {
+			reclaimablePods: []kueue.ReclaimablePod{{Name: "ps1", Count: 3}, {Name: "ps2", Count: 1}},
+			want:            []kueue.ReclaimablePod{{Name: "ps1", Count: 3}, {Name: "ps2", Count: 1}},
+		},
+		"count exceeding its podSet size is lowered": {
+			reclaimablePods: []kueue.ReclaimablePod{{Name: "ps1", Count: 4}, {Name: "ps2", Count: 6}},
+			want:            []kueue.ReclaimablePod{{Name: "ps1", Count: 3}, {Name: "ps2", Count: 5}},
+		},
+		"unknown podSet is left as is": {
+			reclaimablePods: []kueue.ReclaimablePod{{Name: "ps3", Count: 10}},
+			want:            []kueue.ReclaimablePod{{Name: "ps3", Count: 10}},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := LimitReclaimablePodsToPodSetSizes(wl, tc.reclaimablePods)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("Unexpected reclaimable pods (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestAssignmentClusterQueueState(t *testing.T) {
 	cases := map[string]struct {
 		state              *AssignmentClusterQueueState
