@@ -454,6 +454,50 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 				gomega.Expect(wl.Spec.PodSets).Should(gomega.BeComparableTo(wlRead.Spec.PodSets))
 			})
 		})
+
+		ginkgo.It("The pod-level limits should be used as pod-level request values", func() {
+			ginkgo.By("Create workload with only a pod-level limit (no pod-level request) and then create the LocalQueue", func() {
+				wl = utiltestingapi.MakeWorkload("pod-level-limit", ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							PodLevelLimit(corev1.ResourceCPU, "2").
+							Obj(),
+					).
+					Obj()
+				util.MustCreate(ctx, k8sClient, wl)
+				util.MustCreate(ctx, k8sClient, localQueue)
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					read := kueue.Workload{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).Should(gomega.Succeed())
+					g.Expect(workload.HasQuotaReservation(&read)).Should(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Check queue resource consumption reflects the pod-level limit used as request", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
+					g.Expect(updatedCQ.Status).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
+						PendingWorkloads:   0,
+						ReservingWorkloads: 1,
+						FlavorsReservation: []kueue.FlavorUsage{{
+							Name: kueue.ResourceFlavorReference(onDemandFlavor.Name),
+							Resources: []kueue.ResourceUsage{{
+								Name:  corev1.ResourceCPU,
+								Total: resource.MustParse("2"),
+							}},
+						}},
+					}, ignoreCqCondition, ignoreInClusterQueueStatus))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Check podSets spec is not mutated by synthesized pod-level requests", func() {
+				wlRead := kueue.Workload{}
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &wlRead)).To(gomega.Succeed())
+				gomega.Expect(wlRead.Spec.PodSets).Should(gomega.BeComparableTo(wl.Spec.PodSets))
+			})
+		})
 	})
 
 	ginkgo.When("Resource transformations are applied", func() {
@@ -741,6 +785,64 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 							Resources: []kueue.ResourceUsage{{
 								Name:  corev1.ResourceCPU,
 								Total: resource.MustParse("5"),
+							}},
+						}},
+					}, ignoreCqCondition, ignoreInClusterQueueStatus))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("Should sync the pod-level resource requests with the pod-level limit", framework.SlowSpec, func() {
+			// Workloads carry only a pod-level limit (no explicit pod-level request).
+			// The pod-level limit differs from the container LimitRange default request,
+			// so the ClusterQueue reservation verifies which value was used.
+			ginkgo.By("Create and wait for the first workload admission", func() {
+				wl = utiltestingapi.MakeWorkload("pod-level-one", ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							PodLevelLimit(corev1.ResourceCPU, "4").
+							Obj(),
+					).
+					Obj()
+				util.MustCreate(ctx, k8sClient, wl)
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					read := kueue.Workload{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).Should(gomega.Succeed())
+					g.Expect(workload.HasQuotaReservation(&read)).Should(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			var wl2 *kueue.Workload
+			ginkgo.By("Create a second workload with the same pod-level limit; it should stay pending", func() {
+				wl2 = utiltestingapi.MakeWorkload("pod-level-two", ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							PodLevelLimit(corev1.ResourceCPU, "4").
+							Obj(),
+					).
+					Obj()
+				util.MustCreate(ctx, k8sClient, wl2)
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
+				util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
+				util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 1)
+			})
+
+			ginkgo.By("Check queue resource consumption reflects the pod-level limit used as request", func() {
+				// 4 CPU from the first workload's pod-level limit (synced to request);
+				// 1 CPU remaining, not enough for the second workload.
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
+					g.Expect(updatedCQ.Status).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
+						PendingWorkloads:   1,
+						ReservingWorkloads: 1,
+						FlavorsReservation: []kueue.FlavorUsage{{
+							Name: kueue.ResourceFlavorReference(onDemandFlavor.Name),
+							Resources: []kueue.ResourceUsage{{
+								Name:  corev1.ResourceCPU,
+								Total: resource.MustParse("4"),
 							}},
 						}},
 					}, ignoreCqCondition, ignoreInClusterQueueStatus))
