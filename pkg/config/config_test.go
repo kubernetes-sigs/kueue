@@ -1198,6 +1198,7 @@ webhook:
 					WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
 					WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
 				},
+				WaitForPodsReady: defaultWaitForPodsReady,
 				ClientConnection: &configapi.ClientConnection{
 					QPS:   ptr.To(configapi.DefaultClientConnectionQPS),
 					Burst: ptr.To(configapi.DefaultClientConnectionBurst),
