@@ -12,12 +12,14 @@ aliases:
     - olekzabl
     - kshalot
     - sohankunkerkar
+    - amy
   dependency-approvers:
     - mbobrovskyi
     - pbundyra
     - sohankunkerkar
   test-approvers:
     - mbobrovskyi
+    - olekzabl
     - pbundyra
     - sohankunkerkar
   agent-approvers:

@@ -25,8 +25,10 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -36,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -46,6 +49,7 @@ import (
 func TestBuildPodSets(t *testing.T) {
 	testCases := map[string]struct {
 		rayClusterSpec *rayv1.RayClusterSpec
+		annotations    map[string]string
 		wantPodSets    []kueue.PodSet
 		wantErr        bool
 	}{
@@ -199,11 +203,203 @@ func TestBuildPodSets(t *testing.T) {
 					Obj(),
 			},
 		},
+		"spec with gcs fault tolerance": {
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				GcsFaultToleranceOptions: &rayv1.GcsFaultToleranceOptions{
+					RedisAddress: "redis:6379",
+				},
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Labels: map[string]string{"ray.io/cluster": "raycluster"},
+						},
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{
+								Name:  "head",
+								Image: "rayproject/ray:2.0.0",
+								Resources: corev1.ResourceRequirements{
+									Requests: corev1.ResourceList{
+										corev1.ResourceCPU: resource.MustParse("1"),
+									},
+								},
+							}},
+						},
+					},
+				},
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName: "workers",
+						Replicas:  ptr.To[int32](1),
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker"}},
+							},
+						},
+					},
+				},
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+					Labels(map[string]string{"ray.io/cluster": "raycluster"}).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{{
+							Name:  "head",
+							Image: "rayproject/ray:2.0.0",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("1"),
+									corev1.ResourceMemory: resource.MustParse("256Mi"),
+								},
+							},
+						}},
+					}).
+					Obj(),
+				*utiltestingapi.MakePodSet("workers", 1).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "worker"}},
+					}).
+					Obj(),
+			},
+		},
+		"spec with gcs fault tolerance annotation": {
+			annotations: map[string]string{rayutils.RayFTEnabledAnnotationKey: "true"},
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Labels: map[string]string{"ray.io/cluster": "raycluster"},
+						},
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{
+								Name:  "head",
+								Image: "rayproject/ray:2.0.0",
+							}},
+						},
+					},
+				},
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+					Labels(map[string]string{"ray.io/cluster": "raycluster"}).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{{
+							Name:  "head",
+							Image: "rayproject/ray:2.0.0",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("200m"),
+									corev1.ResourceMemory: resource.MustParse("256Mi"),
+								},
+							},
+						}},
+					}).
+					Obj(),
+			},
+		},
+		"spec with gcs fault tolerance and missing head container": {
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				GcsFaultToleranceOptions: &rayv1.GcsFaultToleranceOptions{
+					RedisAddress: "redis:6379",
+				},
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{},
+				},
+			},
+			wantErr: true,
+		},
+		"autoscaler sidecar added to head podSet with default resources when in-tree autoscaling is enabled": {
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				EnableInTreeAutoscaling: new(true),
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{Name: "head"}},
+						},
+					},
+				},
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName: "workers",
+						Replicas:  ptr.To[int32](1),
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker"}},
+							},
+						},
+					},
+				},
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{
+							{Name: "head"},
+							{
+								Name: "autoscaler",
+								Resources: corev1.ResourceRequirements{
+									Requests: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("500m"),
+										corev1.ResourceMemory: resource.MustParse("512Mi"),
+									},
+									Limits: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("500m"),
+										corev1.ResourceMemory: resource.MustParse("512Mi"),
+									},
+								},
+							},
+						},
+					}).
+					Obj(),
+				*utiltestingapi.MakePodSet("workers", 1).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "worker"}},
+					}).
+					Obj(),
+			},
+		},
+		"autoscaler sidecar uses AutoscalerOptions.Resources override when set": {
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				EnableInTreeAutoscaling: new(true),
+				AutoscalerOptions: &rayv1.AutoscalerOptions{
+					Resources: &corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("250m"),
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
+					},
+				},
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{Name: "head"}},
+						},
+					},
+				},
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{
+							{Name: "head"},
+							{
+								Name: "autoscaler",
+								Resources: corev1.ResourceRequirements{
+									Requests: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("250m"),
+										corev1.ResourceMemory: resource.MustParse("256Mi"),
+									},
+								},
+							},
+						},
+					}).
+					Obj(),
+			},
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			gotPodSets, err := BuildPodSets(tc.rayClusterSpec)
+			gotPodSets, err := BuildPodSets(tc.rayClusterSpec, tc.annotations)
 
 			if tc.wantErr {
 				if err == nil {
@@ -824,7 +1020,7 @@ func TestValidateCreateRayClusterSpec(t *testing.T) {
 				},
 			},
 			wantErrors: field.ErrorList{
-				field.TooMany(field.NewPath("spec", "workerGroupSpecs"), 10, 9),
+				field.TooMany(field.NewPath("spec", "workerGroupSpecs"), 11, jobframework.MaxPodSets),
 			},
 		},
 		"worker group named 'head'": {
@@ -865,7 +1061,7 @@ func TestValidateCreateRayClusterSpec(t *testing.T) {
 			},
 			wantErrors: field.ErrorList{
 				field.Invalid(field.NewPath("spec", "enableInTreeAutoscaling"), new(true), "a kueue managed job should only use autoscaling when workload slicing is enabled"),
-				field.TooMany(field.NewPath("spec", "workerGroupSpecs"), 10, 9),
+				field.TooMany(field.NewPath("spec", "workerGroupSpecs"), 11, jobframework.MaxPodSets),
 				field.Forbidden(field.NewPath("spec", "workerGroupSpecs").Index(0).Child("groupName"), fmt.Sprintf("%q is reserved for the head group", headGroupPodSetName)),
 			},
 		},

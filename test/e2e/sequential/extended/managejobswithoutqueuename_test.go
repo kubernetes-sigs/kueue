@@ -147,15 +147,16 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 							testingjobset.ReplicatedJobRequirements{
 								Name:        "replicated-job-1",
 								Replicas:    2,
-								Parallelism: 2,
-								Completions: 2,
+								Parallelism: 1,
+								Completions: 1,
 								Image:       util.GetAgnHostImage(),
 								Args:        util.BehaviorExitFast,
 							},
 						).
 						SetTypeMeta().
 						Suspend(false).
-						RequestAndLimit("replicated-job-1", corev1.ResourceCPU, "200m").
+						RequestAndLimit("replicated-job-1", corev1.ResourceCPU, "300m").
+						RequestAndLimit("replicated-job-1", corev1.ResourceMemory, "300Mi").
 						Obj(),
 				}).
 				Suspend(false).
@@ -210,8 +211,8 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 							testingjobset.ReplicatedJobRequirements{
 								Name:        "replicated-job-1",
 								Replicas:    2,
-								Parallelism: 2,
-								Completions: 2,
+								Parallelism: 1,
+								Completions: 1,
 								Image:       util.GetAgnHostImage(),
 								Args:        util.BehaviorExitFast,
 								Labels: map[string]string{
@@ -221,7 +222,8 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 						).
 						SetTypeMeta().
 						Suspend(false).
-						RequestAndLimit("replicated-job-1", corev1.ResourceCPU, "200m").
+						RequestAndLimit("replicated-job-1", corev1.ResourceCPU, "300m").
+						RequestAndLimit("replicated-job-1", corev1.ResourceMemory, "300Mi").
 						Queue(localQueue.Name).
 						Obj(),
 				}).
@@ -283,7 +285,8 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 				).
 				SetTypeMeta().
 				Suspend(false).
-				RequestAndLimit("replicated-job-1", corev1.ResourceCPU, "200m").
+				RequestAndLimit("replicated-job-1", corev1.ResourceCPU, "300m").
+				RequestAndLimit("replicated-job-1", corev1.ResourceMemory, "300Mi").
 				Obj()
 
 			ginkgo.By("Creating an unsuspended JobSet without a queue-name", func() {
@@ -768,15 +771,16 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName without JobSet integration",
 							testingjobset.ReplicatedJobRequirements{
 								Name:        "replicated-job-1",
 								Replicas:    2,
-								Parallelism: 2,
-								Completions: 2,
+								Parallelism: 1,
+								Completions: 1,
 								Image:       util.GetAgnHostImage(),
 								Args:        util.BehaviorExitFast,
 							},
 						).
 						SetTypeMeta().
 						Suspend(false).
-						RequestAndLimit("replicated-job-1", corev1.ResourceCPU, "200m").
+						RequestAndLimit("replicated-job-1", corev1.ResourceCPU, "300m").
+						RequestAndLimit("replicated-job-1", corev1.ResourceMemory, "300Mi").
 						Obj(),
 				}).
 				Suspend(false).

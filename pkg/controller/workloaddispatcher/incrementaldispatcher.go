@@ -26,6 +26,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -34,15 +35,19 @@ import (
 	kueueconfig "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 const (
-	incrementalDispatcherRoundTimeout = 5 * time.Minute
+	IncrementalDispatcherControllerName = "multikueue_incremental_dispatcher"
+	incrementalDispatcherRoundTimeout   = 5 * time.Minute
+	DefaultStepSize                     = 3
 )
 
 var ErrNoMoreWorkers = errors.New("no more workers to nominate")
@@ -53,12 +58,11 @@ type IncrementalDispatcherReconciler struct {
 	clock           clock.Clock
 	roundStartTimes *utilmaps.SyncMap[types.NamespacedName, time.Time]
 	roleTracker     *roletracker.RoleTracker
+	cfg             *kueueconfig.IncrementalDispatcherConfig
 }
 
 var realClock = clock.RealClock{}
 var _ reconcile.Reconciler = (*IncrementalDispatcherReconciler)(nil)
-
-const IncrementalDispatcherControllerName = "multikueue_incremental_dispatcher"
 
 func (r *IncrementalDispatcherReconciler) SetupWithManager(mgr ctrl.Manager, cfg *kueueconfig.Configuration) error {
 	return ctrl.NewControllerManagedBy(mgr).
@@ -68,15 +72,22 @@ func (r *IncrementalDispatcherReconciler) SetupWithManager(mgr ctrl.Manager, cfg
 		Complete(core.WithLeadingManager(mgr, r, &kueue.Workload{}, cfg))
 }
 
-func NewIncrementalDispatcherReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelper, roleTracker *roletracker.RoleTracker) *IncrementalDispatcherReconciler {
+func NewIncrementalDispatcherReconciler(
+	c client.Client,
+	helper *admissioncheck.MultiKueueStoreHelper,
+	roleTracker *roletracker.RoleTracker,
+	cfg *kueueconfig.IncrementalDispatcherConfig,
+) *IncrementalDispatcherReconciler {
 	return &IncrementalDispatcherReconciler{
 		client:          c,
 		helper:          helper,
 		clock:           realClock,
 		roundStartTimes: utilmaps.NewSyncMap[types.NamespacedName, time.Time](0),
 		roleTracker:     roleTracker,
+		cfg:             cfg,
 	}
 }
+
 func (r *IncrementalDispatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 	wl := &kueue.Workload{}
@@ -133,7 +144,7 @@ func (r *IncrementalDispatcherReconciler) nominateWorkers(ctx context.Context, w
 		return reconcile.Result{RequeueAfter: remainingWaitTime}, nil
 	}
 
-	nextNominatedWorkers, err := getNextNominatedWorkers(log, wl, remoteClusters)
+	nextNominatedWorkers, err := getNextNominatedWorkers(log, wl, remoteClusters, r.stepSize())
 	log.V(5).Info("revoke outdated nomination and nominate new worker clusters", "revokedWorkerClusters", wl.Status.NominatedClusterNames, "nominatedWorkerClusters", nextNominatedWorkers)
 	if err != nil {
 		log.Error(err, "Failed to nominate next worker clusters")
@@ -141,7 +152,7 @@ func (r *IncrementalDispatcherReconciler) nominateWorkers(ctx context.Context, w
 	}
 
 	nominatedWorkers := append(wl.Status.NominatedClusterNames, nextNominatedWorkers...)
-	if err = workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+	if err = workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 		wl.Status.NominatedClusterNames = nominatedWorkers
 		return true, nil
 	}); err != nil {
@@ -154,9 +165,7 @@ func (r *IncrementalDispatcherReconciler) nominateWorkers(ctx context.Context, w
 	return reconcile.Result{}, nil
 }
 
-// getNextNominatedWorkers returns the next set of nominated workers for incremental dispatching.
-// It nominates up to 3 remotes that have not yet been nominated, in sorted order.
-func getNextNominatedWorkers(log logr.Logger, wl *kueue.Workload, remoteClusters sets.Set[string]) ([]string, error) {
+func getNextNominatedWorkers(log logr.Logger, wl *kueue.Workload, remoteClusters sets.Set[string], batchSize int) ([]string, error) {
 	alreadyNominated := sets.New(wl.Status.NominatedClusterNames...)
 
 	workers := make([]string, 0, len(remoteClusters))
@@ -172,11 +181,19 @@ func getNextNominatedWorkers(log logr.Logger, wl *kueue.Workload, remoteClusters
 	if len(workers) == 0 {
 		return nil, ErrNoMoreWorkers
 	}
-	batchSize := 3
 	if len(workers) < batchSize {
 		return workers, nil
 	}
 	return workers[:batchSize], nil
+}
+
+func (r *IncrementalDispatcherReconciler) stepSize() int {
+	if utilfeature.DefaultFeatureGate.Enabled(features.MultiKueueIncrementalDispatcherConfig) &&
+		r.cfg != nil && r.cfg.StepSize != nil {
+		return int(*r.cfg.StepSize)
+	}
+
+	return DefaultStepSize
 }
 
 func (r *IncrementalDispatcherReconciler) setRoundStartTime(key types.NamespacedName, t time.Time) {

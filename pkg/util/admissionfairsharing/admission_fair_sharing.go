@@ -17,7 +17,9 @@ limitations under the License.
 package admissionfairsharing
 
 import (
+	"maps"
 	"math"
+	"slices"
 
 	corev1 "k8s.io/api/core/v1"
 
@@ -51,6 +53,29 @@ func CalculateEntryPenalty(totalRequests corev1.ResourceList, afs *config.Admiss
 	)
 
 	return resource.MulByFloat(totalRequests, alpha)
+}
+
+func LQWeightAsFloat64(lq *kueue.LocalQueue) float64 {
+	if lq.Spec.FairSharing != nil && lq.Spec.FairSharing.Weight != nil {
+		return lq.Spec.FairSharing.Weight.AsApproximateFloat64()
+	}
+	return 1
+}
+
+// CalculateUsage computes fair-sharing usage from consumed resources and penalties.
+// Keys are iterated in sorted order for deterministic results.
+func CalculateUsage(consumed, penalty corev1.ResourceList, lqWeight float64, resWeights map[corev1.ResourceName]float64) float64 {
+	allResources := resource.MergeResourceListKeepSum(consumed, penalty)
+	var usage float64
+	for _, resName := range slices.Sorted(maps.Keys(allResources)) {
+		resVal := allResources[resName]
+		weight, found := resWeights[resName]
+		if !found {
+			weight = 1
+		}
+		usage += weight * resVal.AsApproximateFloat64()
+	}
+	return usage / lqWeight
 }
 
 func Enabled(afsConfig *config.AdmissionFairSharing) bool {

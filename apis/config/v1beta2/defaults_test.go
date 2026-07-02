@@ -28,12 +28,14 @@ import (
 )
 
 const (
-	overwriteNamespace              = "kueue-tenant-a"
-	overwriteWebhookPort            = 9444
-	overwriteWebhookCertDir         = "/tmp/test"
-	overwriteMetricBindAddress      = ":38081"
-	overwriteHealthProbeBindAddress = ":38080"
-	overwriteLeaderElectionID       = "foo.kueue.x-k8s.io"
+	overwriteNamespace                           = "kueue-tenant-a"
+	overwriteWebhookPort                         = 9444
+	overwriteWebhookCertDir                      = "/tmp/test"
+	overwriteMetricBindAddress                   = ":38081"
+	overwriteHealthProbeBindAddress              = ":38080"
+	overwriteLeaderElectionID                    = "foo.kueue.x-k8s.io"
+	expectedDefaultClientConnectionQPS   float32 = 300.0
+	expectedDefaultClientConnectionBurst int32   = 500
 )
 
 func TestSetDefaults_Configuration(t *testing.T) {
@@ -61,8 +63,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 		},
 	}
 	defaultClientConnection := &ClientConnection{
-		QPS:   new(DefaultClientConnectionQPS),
-		Burst: new(DefaultClientConnectionBurst),
+		QPS:   new(expectedDefaultClientConnectionQPS),
+		Burst: new(expectedDefaultClientConnectionBurst),
 	}
 	defaultIntegrations := &Integrations{
 		Frameworks: []string{defaultJobFrameworkName},
@@ -582,6 +584,9 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Origin:            new("multikueue-manager1"),
 					WorkerLostTimeout: &metav1.Duration{Duration: time.Minute},
 					DispatcherName:    new(MultiKueueDispatcherModeIncremental),
+					IncrementalDispatcherConfig: &IncrementalDispatcherConfig{
+						StepSize: new(int32(3)),
+					},
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,

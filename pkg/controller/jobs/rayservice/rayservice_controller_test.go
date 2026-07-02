@@ -23,6 +23,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
@@ -34,6 +35,27 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
+
+// headSpecWithAutoscaler returns the head PodSpec with the autoscaler sidecar
+// container appended, matching what BuildPodSets adds when in-tree autoscaling
+// is enabled (KubeRay's default 500m CPU / 512Mi memory).
+func headSpecWithAutoscaler(rayService *RayService) corev1.PodSpec {
+	spec := rayService.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.DeepCopy()
+	spec.Containers = append(spec.Containers, corev1.Container{
+		Name: "autoscaler",
+		Resources: corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("500m"),
+				corev1.ResourceMemory: resource.MustParse("512Mi"),
+			},
+			Limits: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("500m"),
+				corev1.ResourceMemory: resource.MustParse("512Mi"),
+			},
+		},
+	})
+	return *spec
+}
 
 func TestPodSets(t *testing.T) {
 	testCases := map[string]struct {
@@ -176,6 +198,64 @@ func TestPodSets(t *testing.T) {
 			},
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
+		"with gcs fault tolerance": {
+			rayService: (*RayService)(&rayv1.RayService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "rayservice",
+					Namespace: "ns",
+				},
+				Spec: rayv1.RayServiceSpec{
+					RayClusterSpec: rayv1.RayClusterSpec{
+						GcsFaultToleranceOptions: &rayv1.GcsFaultToleranceOptions{
+							RedisAddress: "redis:6379",
+						},
+						HeadGroupSpec: rayv1.HeadGroupSpec{
+							Template: corev1.PodTemplateSpec{
+								ObjectMeta: metav1.ObjectMeta{
+									Labels: map[string]string{"ray.io/cluster": "rayservice"},
+								},
+								Spec: corev1.PodSpec{Containers: []corev1.Container{{
+									Name:  "head_c",
+									Image: "rayproject/ray:2.0.0",
+								}}},
+							},
+						},
+						WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+							{
+								GroupName: "group1",
+								Replicas:  ptr.To[int32](1),
+								Template: corev1.PodTemplateSpec{
+									Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
+								},
+							},
+						},
+					},
+				},
+			}),
+			wantPodSets: func(rayService *RayService) []kueue.PodSet {
+				return []kueue.PodSet{
+					*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+						PodSpec(corev1.PodSpec{
+							Containers: []corev1.Container{{
+								Name:  "head_c",
+								Image: "rayproject/ray:2.0.0",
+								Resources: corev1.ResourceRequirements{
+									Requests: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("200m"),
+										corev1.ResourceMemory: resource.MustParse("256Mi"),
+									},
+								},
+							}},
+						}).
+						Labels(rayService.Spec.RayClusterSpec.HeadGroupSpec.Template.Labels).
+						Obj(),
+					*utiltestingapi.MakePodSet("group1", 1).
+						PodSpec(*rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
+						Obj(),
+				}
+			},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+		},
 		"with workload slicing and autoscaling enabled, update from RayCluster": {
 			rayService: (*RayService)(&rayv1.RayService{
 				ObjectMeta: metav1.ObjectMeta{
@@ -235,7 +315,7 @@ func TestPodSets(t *testing.T) {
 			wantPodSets: func(rayService *RayService) []kueue.PodSet {
 				return []kueue.PodSet{
 					*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
-						PodSpec(*rayService.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.DeepCopy()).
+						PodSpec(headSpecWithAutoscaler(rayService)).
 						Obj(),
 					*utiltestingapi.MakePodSet("group1", 5). // Updated from RayCluster
 											PodSpec(*rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
@@ -348,7 +428,7 @@ func TestPodSets(t *testing.T) {
 			wantPodSets: func(rayService *RayService) []kueue.PodSet {
 				return []kueue.PodSet{
 					*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
-						PodSpec(*rayService.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.DeepCopy()).
+						PodSpec(headSpecWithAutoscaler(rayService)).
 						Obj(),
 					*utiltestingapi.MakePodSet("group1", 3). // Fallback to spec count
 											PodSpec(*rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
@@ -398,7 +478,7 @@ func TestPodSets(t *testing.T) {
 			wantPodSets: func(rayService *RayService) []kueue.PodSet {
 				return []kueue.PodSet{
 					*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
-						PodSpec(*rayService.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.DeepCopy()).
+						PodSpec(headSpecWithAutoscaler(rayService)).
 						Obj(),
 					*utiltestingapi.MakePodSet("group1", 2). // Uses spec count
 											PodSpec(*rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).

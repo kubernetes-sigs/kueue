@@ -400,6 +400,9 @@ type FailureInfo struct {
 
 	// Reason indicates the reason why computing the TAS assignment failed.
 	Reason string
+
+	// Flavor indicates the resource flavor associated with the failure.
+	Flavor kueue.ResourceFlavorReference
 }
 
 type TASAssignmentsResult map[kueue.PodSetReference]tasPodSetAssignmentResult
@@ -407,7 +410,11 @@ type TASAssignmentsResult map[kueue.PodSetReference]tasPodSetAssignmentResult
 func (r TASAssignmentsResult) Failure() *FailureInfo {
 	for psName, psAssignment := range r {
 		if psAssignment.FailureReason != "" {
-			return &FailureInfo{PodSetName: psName, Reason: psAssignment.FailureReason}
+			return &FailureInfo{
+				PodSetName: psName,
+				Reason:     psAssignment.FailureReason,
+				Flavor:     psAssignment.Flavor,
+			}
 		}
 	}
 	return nil
@@ -416,6 +423,7 @@ func (r TASAssignmentsResult) Failure() *FailureInfo {
 type tasPodSetAssignmentResult struct {
 	TopologyAssignment *utiltas.TopologyAssignment
 	FailureReason      string
+	Flavor             kueue.ResourceFlavorReference
 }
 
 type FlavorTASRequests []TASPodSetRequests
@@ -910,7 +918,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	}
 	state.sliceSizeAtLevel = sliceSizeAtLevel
 
-	if features.Enabled(features.TASMultiLayerTopology) && len(sliceSizeAtLevel) > 0 {
+	if len(sliceSizeAtLevel) > 0 {
 		state.multiLayerConstraints = workersTasPodSetRequests.PodSet.TopologyRequest.PodsetSliceRequiredTopologyConstraints
 	}
 
@@ -1063,16 +1071,13 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 //  3. Fills all intermediate levels between the previous and current layer with
 //     this layer's size, ensuring that intermediate levels also distribute in
 //     multiples of the inner layer's size.
-//
-// TODO: once TASMultiLayerTopology graduates to beta, use this function to unify logic for both
-// 1-layer (kueue.x-k8s.io/podset-slice-size) and multi-layer topology constraints.
 func (s *TASFlavorSnapshot) buildSliceSizeAtLevel(
 	workersTasPodSetRequests TASPodSetRequests,
 	sliceSize int32,
 	sliceLevelIdx int,
 ) (map[int]int32, string) {
 	sliceSizeAtLevel := make(map[int]int32)
-	if !features.Enabled(features.TASMultiLayerTopology) || workersTasPodSetRequests.PodSet.TopologyRequest == nil {
+	if workersTasPodSetRequests.PodSet.TopologyRequest == nil {
 		return sliceSizeAtLevel, ""
 	}
 
@@ -1129,7 +1134,7 @@ func (s *TASFlavorSnapshot) HasLevel(r *kueue.PodSetTopologyRequest) bool {
 	}
 
 	// Also check multi-level topology constraints.
-	if features.Enabled(features.TASMultiLayerTopology) && r != nil {
+	if r != nil {
 		for _, layer := range r.PodsetSliceRequiredTopologyConstraints {
 			if _, found := s.resolveLevelIdx(layer.Topology); !found {
 				return false

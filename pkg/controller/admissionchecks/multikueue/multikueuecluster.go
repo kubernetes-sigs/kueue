@@ -24,6 +24,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -45,6 +46,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
@@ -132,9 +134,10 @@ type remoteClient struct {
 	failedConnAttempts   uint
 	retryConnNextAttempt metav1.Time
 
-	// Held during setConfig. Without it, one stuck remote would stall every
-	// other cluster's reconcile via clustersReconciler.lock. See #11297.
-	setConfigLock sync.Mutex
+	// Held during updateConfigAndRefreshWatchers. Without it, one stuck remote
+	// would stall every other cluster's reconcile via clustersReconciler.lock.
+	// See #11297.
+	updateConfigLock sync.Mutex
 
 	clock clock.Clock
 
@@ -230,10 +233,10 @@ func (rc *remoteClient) increaseFailedConnAttempt() *time.Duration {
 	return &d
 }
 
-// setConfig - will try to recreate the k8s client and restart watching if the new config is different than
+// updateConfigAndRefreshWatchers - will try to recreate the k8s client and restart watching if the new config is different than
 // the one currently used, a reconnect was requested, or the client was marked as disconnected.
 // If the encountered error is not permanent the duration after which a retry should be done is returned.
-func (rc *remoteClient) setConfig(watchCtx context.Context, config *clientConfig) (*time.Duration, error) {
+func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context, config *clientConfig) (*time.Duration, error) {
 	configChanged := !equality.Semantic.DeepEqual(config, rc.config)
 	connecting := rc.connecting.Load()
 	disconnected := rc.disconnected.Load()
@@ -265,7 +268,7 @@ func (rc *remoteClient) setConfig(watchCtx context.Context, config *clientConfig
 		return rc.increaseFailedConnAttempt(), err
 	}
 
-	rc.client = remoteClient
+	rc.setClient(remoteClient)
 
 	err = rc.startWatcher(watchCtx, kueue.GroupVersion.WithKind("Workload").GroupKind().String(), &workloadKueueWatcher{})
 	if err != nil {
@@ -315,7 +318,7 @@ func (cw *cancelOnStopWatcher) Stop() {
 // establishWatch opens a MultiKueue remote watch, bounded by the given
 // timeout. On timeout the in-flight Watch is canceled and
 // errWatchEstablishTimeout is returned so the caller falls back to the
-// standard failedConnAttempts / retryAfter backoff in setConfig.
+// standard failedConnAttempts / retryAfter backoff in updateConfigAndRefreshWatchers.
 func establishWatch(ctx context.Context, c client.WithWatch, obj client.ObjectList, origin string, timeout time.Duration) (watch.Interface, error) {
 	type result struct {
 		w   watch.Interface
@@ -442,8 +445,13 @@ func (rc *remoteClient) startQueueWatchers(ctx context.Context) error {
 func (rc *remoteClient) queueEventsForCQ(ctx context.Context, remoteCQ *kueue.ClusterQueue) {
 	log := ctrl.LoggerFrom(ctx).WithValues("remoteCQ", remoteCQ.Name)
 
+	remoteCl := rc.getClient()
+	if remoteCl == nil {
+		log.V(2).Info("Skipping queueing events for ClusterQueue; remote client is nil (cluster reconnecting or disconnected)")
+		return
+	}
 	lqList := kueue.LocalQueueList{}
-	err := rc.client.List(ctx, &lqList, client.MatchingFields{indexer.QueueClusterQueueKey: remoteCQ.Name})
+	err := remoteCl.List(ctx, &lqList, client.MatchingFields{indexer.QueueClusterQueueKey: remoteCQ.Name})
 	if err != nil {
 		log.Error(err, "Failed to list remote LocalQueues from cache")
 		return
@@ -479,6 +487,22 @@ func (rc *remoteClient) getRetryConnNextAttempt() metav1.Time {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
 	return rc.retryConnNextAttempt
+}
+
+// getClient reads rc.client under the read lock so callers never observe a torn
+// value while setClient swaps it on a reconnect. See #12557.
+func (rc *remoteClient) getClient() SelectivelyCachingClient {
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	return rc.client
+}
+
+// setClient swaps rc.client under the write lock so a concurrent getClient()
+// never observes a torn value during a reconnect. See #12557.
+func (rc *remoteClient) setClient(c SelectivelyCachingClient) {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+	rc.client = c
 }
 
 func (rc *remoteClient) StopWatchers() {
@@ -529,8 +553,14 @@ func (rc *remoteClient) runGC(ctx context.Context) {
 		return
 	}
 
+	remoteCl := rc.getClient()
+	if remoteCl == nil {
+		log.V(2).Info("Skipping garbage collection; remote client is nil (cluster reconnecting or disconnected)")
+		return
+	}
+
 	wls := &kueue.WorkloadList{}
-	err := rc.client.List(ctx, wls, client.MatchingLabels{kueue.MultiKueueOriginLabel: rc.origin})
+	err := remoteCl.List(ctx, wls, client.MatchingLabels{kueue.MultiKueueOriginLabel: rc.origin})
 	if err != nil {
 		log.Error(err, "Listing remote workloads")
 		return
@@ -558,14 +588,15 @@ func (rc *remoteClient) runGC(ctx context.Context) {
 				wlLog.V(2).Info("No adapter found", "adapterKey", adapterKey, "ownerKey", ownerKey)
 			} else {
 				wlLog.V(5).Info("MultiKueueGC deleting workload owner", "ownerKey", ownerKey, "ownerKind", controller)
-				err := adapter.DeleteRemoteObject(ctx, rc.localClient, rc.client, types.NamespacedName{Name: controller.Name, Namespace: remoteWl.Namespace})
+				wlKey := types.NamespacedName{Name: controller.Name, Namespace: remoteWl.Namespace}
+				err := jobframework.DeleteRemoteObjectIfOwned(ctx, rc.localClient, remoteCl, adapter, wlKey, rc.origin)
 				if client.IgnoreNotFound(err) != nil {
 					wlLog.Error(err, "Deleting remote workload's owner", "ownerKey", ownerKey)
 				}
 			}
 		}
 		wlLog.V(5).Info("MultiKueueGC deleting remote workload")
-		if err := rc.client.Delete(ctx, &remoteWl); client.IgnoreNotFound(err) != nil {
+		if err := remoteCl.Delete(ctx, &remoteWl); client.IgnoreNotFound(err) != nil {
 			wlLog.Error(err, "Deleting remote workload")
 		}
 	}
@@ -573,9 +604,16 @@ func (rc *remoteClient) runGC(ctx context.Context) {
 
 // clustersReconciler implements the reconciler for all MultiKueueClusters.
 // Its main task being to maintain the list of remote clients associated to each MultiKueueCluster.
+// defaultKubeConfigPathPrefix is the hardcoded directory under which
+// kubeconfig files must reside when the MultiKueueKubeConfigPathValidation feature
+// gate is enabled (the default).
+const defaultKubeConfigPathPrefix = "/etc/multikueue/kubeconfigs"
+
 type clustersReconciler struct {
-	localClient     client.Client
-	configNamespace string
+	localClient          client.Client
+	configNamespace      string
+	kubeConfigPathPrefix string
+	recorder             events.EventRecorder
 
 	lock sync.RWMutex
 	// The list of remote remoteClients, indexed by the cluster name.
@@ -675,13 +713,13 @@ func (c *clustersReconciler) findOrCreateRemoteClient(clusterName, origin string
 func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterName string, config *clientConfig, origin string) (*time.Duration, error) {
 	client := c.findOrCreateRemoteClient(clusterName, origin)
 
-	client.setConfigLock.Lock()
-	defer client.setConfigLock.Unlock()
+	client.updateConfigLock.Lock()
+	defer client.updateConfigLock.Unlock()
 
 	clientLog := ctrl.LoggerFrom(c.rootContext).WithValues("clusterName", clusterName)
 	clientCtx := ctrl.LoggerInto(c.rootContext, clientLog)
 
-	if retryAfter, err := client.setConfig(clientCtx, config); err != nil {
+	if retryAfter, err := client.updateConfigAndRefreshWatchers(clientCtx, config); err != nil {
 		ctrl.LoggerFrom(ctx).Error(err, "failed to set kubeConfig in the remote client")
 		return retryAfter, err
 	} else if retryAfter != nil {
@@ -709,6 +747,15 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile MultiKueueCluster")
+
+	// Warn about deprecated Path usage when the validation feature gate is off.
+	if cluster.Spec.ClusterSource.KubeConfig != nil &&
+		cluster.Spec.ClusterSource.KubeConfig.LocationType == kueue.PathLocationType &&
+		!features.Enabled(features.MultiKueueKubeConfigPathValidation) {
+		c.recorder.Eventf(cluster, nil, corev1.EventTypeWarning, "DeprecatedPathUsage", "DeprecatedPathUsage",
+			"Using locationType=Path without MultiKueueKubeConfigPathValidation feature gate is deprecated and will be removed in a future release. "+
+				"Enable the MultiKueueKubeConfigPathValidation feature gate and place kubeconfig files under /etc/multikueue/kubeconfigs/.")
+	}
 
 	if err != nil || !cluster.DeletionTimestamp.IsZero() {
 		c.stopAndRemoveCluster(req.Name)
@@ -745,7 +792,6 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 }
 
 func (c *clustersReconciler) loadClientConfig(ctx context.Context, cluster *kueue.MultiKueueCluster) (*clientConfig, string, error) {
-	log := ctrl.LoggerFrom(ctx)
 	if cluster.Spec.ClusterSource.ClusterProfileRef != nil {
 		if !features.Enabled(features.MultiKueueClusterProfile) {
 			return nil, "MultiKueueClusterProfileFeatureDisabled", errors.New("MultiKueueClusterProfile feature gate is disabled")
@@ -769,10 +815,6 @@ func (c *clustersReconciler) loadClientConfig(ctx context.Context, cluster *kueu
 		return nil, "BadKubeConfig", err
 	}
 
-	if features.Enabled(features.MultiKueueAllowInsecureKubeconfigs) {
-		log.V(3).Info("Feature MultiKueueAllowInsecureKubeconfigs is enabled, skipping kubeconfig validation")
-		return &clientConfig{Kubeconfig: kubeConfig}, "", nil
-	}
 	if err := validateKubeconfig(kubeConfig); err != nil {
 		return nil, "InsecureKubeConfig", err
 	}
@@ -905,8 +947,70 @@ func (c *clustersReconciler) getKubeConfigFromSecret(ctx context.Context, secret
 	return kconfigBytes, nil
 }
 
-func (c *clustersReconciler) getKubeConfigFromPath(path string) ([]byte, error) {
-	return os.ReadFile(path)
+// errPathNotAllowed is returned when the resolved kubeconfig path escapes the
+// configured allowed prefix directory.
+var errPathNotAllowed = errors.New("kubeconfig path is not under the allowed prefix")
+
+// validateKubeConfigPath resolves symlinks and ensures the resulting absolute
+// path is located under allowedPrefix when the MultiKueueKubeConfigPathValidation
+// feature gate is enabled (the default). When the gate is disabled, any
+// path is accepted (legacy unsafe behavior).
+func validateKubeConfigPath(ctx context.Context, rawPath, allowedPrefix string) (string, error) {
+	if !features.Enabled(features.MultiKueueKubeConfigPathValidation) {
+		// Legacy unsafe behavior: accept any path.
+		log := ctrl.LoggerFrom(ctx)
+		log.V(2).Info("Legacy unsafe behavior detected: this will be deprecated in the future.")
+		return rawPath, nil
+	}
+	if rawPath == "" {
+		return "", errors.New("kubeconfig path must not be empty")
+	}
+
+	cleaned := filepath.Clean(rawPath)
+
+	// Reject paths where any component is exactly ".." after cleaning.
+	if slices.Contains(strings.Split(cleaned, string(filepath.Separator)), "..") {
+		return "", fmt.Errorf("%w: path contains \"..\"", errPathNotAllowed)
+	}
+
+	// Require an absolute path.
+	if !filepath.IsAbs(cleaned) {
+		return "", fmt.Errorf("%w: path must be absolute", errPathNotAllowed)
+	}
+
+	// Resolve symlinks and get the absolute path of the allowed prefix.
+	// If the prefix directory does not exist, no kubeconfig can be under it.
+	resolvedPrefix, err := filepath.EvalSymlinks(allowedPrefix)
+	if err != nil {
+		return "", fmt.Errorf("%w: %q is not under %q", errPathNotAllowed, cleaned, filepath.Clean(allowedPrefix))
+	}
+	allowedAbs, err := filepath.Abs(resolvedPrefix)
+	if err != nil {
+		return "", fmt.Errorf("cannot resolve allowed prefix: %w", err)
+	}
+
+	// Resolve symlinks so an attacker cannot use a symlink to escape.
+	resolved, err := filepath.EvalSymlinks(cleaned)
+	if err != nil {
+		return "", fmt.Errorf("cannot resolve kubeconfig path symlinks: %w", err)
+	}
+
+	// Ensure the prefix directory boundary is respected.
+	// Add a trailing separator so "/etc/kueue" does not match "/etc/kueue-other".
+	prefixWithSep := allowedAbs + string(filepath.Separator)
+	if !strings.HasPrefix(resolved+string(filepath.Separator), prefixWithSep) {
+		return "", fmt.Errorf("%w: %q is not under %q", errPathNotAllowed, resolved, allowedAbs)
+	}
+
+	return resolved, nil
+}
+
+func (c *clustersReconciler) getKubeConfigFromPath(rawPath string) ([]byte, error) {
+	validated, err := validateKubeConfigPath(c.rootContext, rawPath, c.kubeConfigPathPrefix)
+	if err != nil {
+		return nil, err
+	}
+	return os.ReadFile(validated)
 }
 
 func (c *clustersReconciler) updateStatus(ctx context.Context, cluster *kueue.MultiKueueCluster, active bool, reason, message string) error {
@@ -971,10 +1075,13 @@ func newClustersReconciler(
 	adapters map[string]jobframework.MultiKueueAdapter,
 	cpAccessProvider clusterProfileAccessProvider,
 	roleTracker *roletracker.RoleTracker,
+	recorder events.EventRecorder,
 ) *clustersReconciler {
 	return &clustersReconciler{
 		localClient:                  c,
 		configNamespace:              namespace,
+		kubeConfigPathPrefix:         defaultKubeConfigPathPrefix,
+		recorder:                     recorder,
 		remoteClients:                make(map[string]*remoteClient),
 		wlUpdateCh:                   make(chan event.GenericEvent, eventChBufferSize),
 		watchEndedCh:                 make(chan event.GenericEvent, eventChBufferSize),
@@ -1047,8 +1154,9 @@ func (c *clustersReconciler) Create(e event.CreateEvent) bool {
 		log := c.logger().WithValues("multiKueueCluster", klog.KObj(cluster))
 		log.V(5).Info("MultiKueueCluster create event")
 		if cluster.Spec.ClusterSource.KubeConfig != nil && cluster.Spec.ClusterSource.KubeConfig.LocationType == kueue.PathLocationType {
-			err := c.fsWatcher.AddOrUpdate(cluster.Name, cluster.Spec.ClusterSource.KubeConfig.Location)
-			if err != nil {
+			if validated, err := validateKubeConfigPath(c.rootContext, cluster.Spec.ClusterSource.KubeConfig.Location, c.kubeConfigPathPrefix); err != nil {
+				log.Error(err, "Rejecting FS watch for invalid path")
+			} else if err := c.fsWatcher.AddOrUpdate(cluster.Name, validated); err != nil {
 				log.Error(err, "AddOrUpdate FS watch")
 			}
 		}
@@ -1075,8 +1183,9 @@ func (c *clustersReconciler) Update(e event.UpdateEvent) bool {
 	}
 
 	if clusterNewHasKubeConfigPath {
-		err := c.fsWatcher.AddOrUpdate(clusterNew.Name, clusterNew.Spec.ClusterSource.KubeConfig.Location)
-		if err != nil {
+		if validated, err := validateKubeConfigPath(c.rootContext, clusterNew.Spec.ClusterSource.KubeConfig.Location, c.kubeConfigPathPrefix); err != nil {
+			log.Error(err, "Rejecting FS watch for invalid path")
+		} else if err := c.fsWatcher.AddOrUpdate(clusterNew.Name, validated); err != nil {
 			log.Error(err, "AddOrUpdate FS watch")
 		}
 	}

@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"reflect"
 	"sync"
 	"testing"
@@ -66,6 +67,280 @@ var cmpDump = cmp.Options{
 	cmpopts.SortSlices(func(a, b string) bool { return a < b }),
 }
 
+// scheduleTestCase is the shared case definition for the core scheduling tests
+// (TestSchedule, TestScheduleForFairSharing, TestScheduleConcurrentAdmission). Each
+// test sets only the fields it needs; unused fields keep their zero value.
+type scheduleTestCase struct {
+	// Features
+	featureGates map[featuregate.Feature]bool
+
+	enableFairSharing bool
+
+	workloads      []kueue.Workload
+	objects        []client.Object
+	admissionError error
+
+	// additional*Queues can hold any extra queues needed by the tc
+	additionalClusterQueues []kueue.ClusterQueue
+	additionalLocalQueues   []kueue.LocalQueue
+
+	cohorts []kueue.Cohort
+
+	// wantAssignments is a summary of all the admissions in the cache after this cycle.
+	wantAssignments map[workload.Reference]kueue.Admission
+	// wantWorkloads is the subset of workloads that got admitted in this cycle.
+	wantWorkloads []kueue.Workload
+	// workload version to compensate for the difference between use of Apply and Merge patch in FakeClient
+	wantWorkloadUseMergePatch []kueue.Workload
+	// wantLeft is the workload keys that are left in the queues after this cycle.
+	wantLeft map[kueue.ClusterQueueReference][]workload.Reference
+	// wantInadmissibleLeft is the workload keys that are left in the inadmissible state after this cycle.
+	wantInadmissibleLeft map[kueue.ClusterQueueReference][]workload.Reference
+	// wantEvents ignored if empty, the Message is ignored (it contains the duration)
+	wantEvents []utiltesting.EventRecord
+	// eventCmpOpts are the cmp options to compare recorded events.
+	eventCmpOpts cmp.Options
+
+	wantSkippedPreemptions map[string]int
+}
+
+// scheduleTestConfig carries the per-suite fixtures and knobs shared by the core
+// scheduling run procedure.
+type scheduleTestConfig struct {
+	queues          []kueue.LocalQueue
+	clusterQueues   []kueue.ClusterQueue
+	resourceFlavors []*kueue.ResourceFlavor
+	fakeClock       *testingclock.FakeClock
+
+	// schedulingTimeout overrides the scheduling context timeout. Defaults to queueingTimeout.
+	schedulingTimeout time.Duration
+	// unorderedWorkloads tolerates non-deterministic ordering of the resulting workload
+	// list, as needed by concurrent admission where sibling order is not deterministic.
+	unorderedWorkloads bool
+}
+
+// runScheduleTestCases runs the shared "build client → schedule → assert" procedure for
+// the core scheduling tests, including the WorkloadRequestUseMergePatch on/off double run.
+func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string]scheduleTestCase) {
+	t.Helper()
+
+	scenarios := []map[featuregate.Feature]bool{
+		{
+			features.WorkloadRequestUseMergePatch:     false,
+			features.UnadmittedWorkloadsObservability: false,
+		},
+		{
+			features.WorkloadRequestUseMergePatch:     false,
+			features.UnadmittedWorkloadsObservability: true,
+		},
+		{
+			features.WorkloadRequestUseMergePatch:     true,
+			features.UnadmittedWorkloadsObservability: false,
+		},
+		{
+			features.WorkloadRequestUseMergePatch:     true,
+			features.UnadmittedWorkloadsObservability: true,
+		},
+	}
+
+	for name, tc := range cases {
+		for _, scenario := range scenarios {
+			t.Run(
+				fmt.Sprintf("%s WorkloadRequestUseMergePatch:%t observability:%t", name, scenario[features.WorkloadRequestUseMergePatch], scenario[features.UnadmittedWorkloadsObservability]),
+				func(t *testing.T) {
+					features.SetFeatureGatesDuringTest(t, scenario)
+					metrics.AdmissionCyclePreemptionSkips.Reset()
+					fg := map[featuregate.Feature]bool{}
+					maps.Copy(fg, tc.featureGates)
+					features.SetFeatureGatesDuringTest(t, fg)
+
+					ctx, log := utiltesting.ContextWithLog(t)
+
+					var wantWorkloads []kueue.Workload
+					if tc.wantWorkloads != nil {
+						wantWorkloads = make([]kueue.Workload, len(tc.wantWorkloads))
+						for i := range tc.wantWorkloads {
+							wantWorkloads[i] = *tc.wantWorkloads[i].DeepCopy()
+						}
+						if !scenario[features.UnadmittedWorkloadsObservability] {
+							utiltesting.AdjustWorkloadsForDisabledObservabilityInScheduler(wantWorkloads)
+						}
+					}
+
+					var wantWorkloadUseMergePatch []kueue.Workload
+					if tc.wantWorkloadUseMergePatch != nil {
+						wantWorkloadUseMergePatch = make([]kueue.Workload, len(tc.wantWorkloadUseMergePatch))
+						for i := range tc.wantWorkloadUseMergePatch {
+							wantWorkloadUseMergePatch[i] = *tc.wantWorkloadUseMergePatch[i].DeepCopy()
+						}
+						if !scenario[features.UnadmittedWorkloadsObservability] {
+							utiltesting.AdjustWorkloadsForDisabledObservabilityInScheduler(wantWorkloadUseMergePatch)
+						}
+					}
+
+					allQueues := append(cfg.queues, tc.additionalLocalQueues...)
+					allClusterQueues := append(cfg.clusterQueues, tc.additionalClusterQueues...)
+
+					clientBuilder := utiltesting.NewClientBuilder().
+						WithLists(&kueue.WorkloadList{Items: tc.workloads}, &kueue.LocalQueueList{Items: allQueues}).
+						WithObjects(append(
+							[]client.Object{
+								utiltesting.MakeNamespaceWrapper("default").Obj(),
+								utiltesting.MakeNamespaceWrapper("eng-alpha").Label("dep", "eng").Obj(),
+								utiltesting.MakeNamespaceWrapper("eng-beta").Label("dep", "eng").Obj(),
+								utiltesting.MakeNamespaceWrapper("eng-gamma").Label("dep", "eng").Obj(),
+								utiltesting.MakeNamespaceWrapper("sales").Label("dep", "sales").Obj(),
+								utiltesting.MakeNamespaceWrapper("lend").Label("dep", "lend").Obj(),
+							}, tc.objects...,
+						)...).
+						WithStatusSubresource(&kueue.Workload{}).
+						WithInterceptorFuncs(interceptor.Funcs{
+							SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+								if _, ok := obj.(*kueue.Workload); ok && subResourceName == "status" && tc.admissionError != nil {
+									return tc.admissionError
+								}
+								return utiltesting.TreatSSAAsStrategicMerge(ctx, client, subResourceName, obj, patch, opts...)
+							},
+						})
+
+					cl := clientBuilder.Build()
+					recorder := &utiltesting.EventRecorder{}
+					cqCache := schdcache.New(cl)
+					qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+					// Workloads are loaded into queues or clusterQueues as we add them.
+					for _, q := range allQueues {
+						if err := qManager.AddLocalQueue(ctx, &q); err != nil {
+							t.Fatalf("Inserting queue %s/%s in manager: %v", q.Namespace, q.Name, err)
+						}
+					}
+					for i := range cfg.resourceFlavors {
+						cqCache.AddOrUpdateResourceFlavor(log, cfg.resourceFlavors[i])
+					}
+					for _, cq := range allClusterQueues {
+						if err := cqCache.AddClusterQueue(ctx, &cq); err != nil {
+							t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
+						}
+						if err := qManager.AddClusterQueue(ctx, &cq); err != nil {
+							t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
+						}
+						if err := cl.Create(ctx, &cq); err != nil {
+							t.Errorf("couldn't create the cluster queue: %v", err)
+						}
+					}
+
+					for _, cohort := range tc.cohorts {
+						if err := cqCache.AddOrUpdateCohort(&cohort); err != nil {
+							t.Fatalf("Inserting Cohort %s in cache: %v", cohort.Name, err)
+						}
+					}
+
+					var fairSharing *config.FairSharing
+					if tc.enableFairSharing {
+						fairSharing = &config.FairSharing{}
+					}
+					scheduler := New(qManager, cqCache, cl, recorder,
+						WithFairSharing(fairSharing), WithClock(t, cfg.fakeClock), WithPreemptionExpectations(preemptexpectations.New()))
+					wg := sync.WaitGroup{}
+					scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
+						func() { wg.Add(1) },
+						func() { wg.Done() },
+					))
+
+					schedulingTimeout := cfg.schedulingTimeout
+					if schedulingTimeout == 0 {
+						schedulingTimeout = queueingTimeout
+					}
+					ctx, cancel := context.WithTimeout(ctx, schedulingTimeout)
+					go qManager.CleanUpOnContext(ctx)
+					defer cancel()
+
+					scheduler.schedule(ctx)
+					wg.Wait()
+
+					// Verify assignments in cache.
+					gotAssignments := make(map[workload.Reference]kueue.Admission)
+					snapshot, err := cqCache.Snapshot(ctx)
+					if err != nil {
+						t.Fatalf("unexpected error while building snapshot: %v", err)
+					}
+					for cqName, c := range snapshot.ClusterQueues() {
+						for name, w := range c.Workloads {
+							switch {
+							case !workload.HasQuotaReservation(w.Obj):
+								t.Errorf("Workload %s is not admitted by a clusterQueue, but it is found as member of clusterQueue %s in the cache", name, cqName)
+							case w.Obj.Status.Admission.ClusterQueue != cqName:
+								t.Errorf("Workload %s is admitted by clusterQueue %s, but it is found as member of clusterQueue %s in the cache", name, w.Obj.Status.Admission.ClusterQueue, cqName)
+							default:
+								gotAssignments[name] = *w.Obj.Status.Admission
+							}
+						}
+					}
+
+					gotWorkloads := &kueue.WorkloadList{}
+					err = cl.List(ctx, gotWorkloads)
+					if err != nil {
+						t.Fatalf("Unexpected list workloads error: %v", err)
+					}
+
+					workloadCmpOpts := cmp.Options{
+						cmpopts.EquateEmpty(),
+						cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime"),
+						cmpopts.IgnoreFields(kueue.Workload{}, "ObjectMeta.ResourceVersion", "ObjectMeta.CreationTimestamp"),
+						cmpopts.SortSlices(func(a, b metav1.Condition) bool { return a.Type < b.Type }),
+					}
+					if cfg.unorderedWorkloads {
+						workloadCmpOpts = append(workloadCmpOpts, cmpopts.SortSlices(func(a, b kueue.Workload) bool { return a.Name < b.Name }))
+					}
+
+					if features.Enabled(features.WorkloadRequestUseMergePatch) && wantWorkloadUseMergePatch != nil {
+						if diff := cmp.Diff(wantWorkloadUseMergePatch, gotWorkloads.Items, workloadCmpOpts); diff != "" {
+							t.Errorf("Unexpected workloads (-want,+got):\n%s", diff)
+						}
+					} else {
+						if diff := cmp.Diff(wantWorkloads, gotWorkloads.Items, workloadCmpOpts); diff != "" {
+							t.Errorf("Unexpected workloads (-want,+got):\n%s", diff)
+						}
+					}
+
+					if len(gotAssignments) == 0 {
+						gotAssignments = nil
+					}
+					if diff := cmp.Diff(tc.wantAssignments, gotAssignments); diff != "" {
+						t.Errorf("Unexpected assigned clusterQueues in cache (-want,+got):\n%s", diff)
+					}
+
+					qDump := qManager.Dump()
+					if diff := cmp.Diff(tc.wantLeft, qDump, cmpDump...); diff != "" {
+						t.Errorf("Unexpected elements left in the queue (-want,+got):\n%s", diff)
+					}
+					qDumpInadmissible := qManager.DumpInadmissible()
+					if diff := cmp.Diff(tc.wantInadmissibleLeft, qDumpInadmissible, cmpDump...); diff != "" {
+						t.Errorf("Unexpected elements left in inadmissible workloads (-want,+got):\n%s", diff)
+					}
+
+					if len(tc.wantEvents) > 0 {
+						if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, tc.eventCmpOpts...); diff != "" {
+							t.Errorf("unexpected events (-want/+got):\n%s", diff)
+						}
+					}
+
+					for cqName, want := range tc.wantSkippedPreemptions {
+						lvs := []string{cqName, roletracker.RoleStandalone}
+						val, err := testutil.GetGaugeMetricValue(metrics.AdmissionCyclePreemptionSkips.WithLabelValues(lvs...))
+						if err != nil {
+							t.Fatalf("Couldn't get value for metric admission_cycle_preemption_skips for %q: %v", cqName, err)
+						}
+						got := int(val)
+						if want != got {
+							t.Errorf("Counted %d skips for %q, want %d", got, cqName, want)
+						}
+					}
+				},
+			)
+		}
+	}
+}
+
 func TestSchedule(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	fakeClock := testingclock.NewFakeClock(now)
@@ -76,6 +351,18 @@ func TestSchedule(t *testing.T) {
 		utiltestingapi.MakeResourceFlavor("on-demand").Obj(),
 		utiltestingapi.MakeResourceFlavor("spot").Obj(),
 		utiltestingapi.MakeResourceFlavor("model-a").Obj(),
+		utiltestingapi.MakeResourceFlavor("spot-tainted").
+			Taint(corev1.Taint{
+				Key:    "key",
+				Value:  "val",
+				Effect: corev1.TaintEffectNoSchedule,
+			}).Obj(),
+		utiltestingapi.MakeResourceFlavor("spot-tainted-2").
+			Taint(corev1.Taint{
+				Key:    "key",
+				Value:  "val2",
+				Effect: corev1.TaintEffectNoSchedule,
+			}).Obj(),
 	}
 	clusterQueues := []kueue.ClusterQueue{
 		*utiltestingapi.MakeClusterQueue("sales").
@@ -172,37 +459,7 @@ func TestSchedule(t *testing.T) {
 		*utiltestingapi.MakeLocalQueue("lend-a-queue", "lend").ClusterQueue("lend-a").Obj(),
 		*utiltestingapi.MakeLocalQueue("lend-b-queue", "lend").ClusterQueue("lend-b").Obj(),
 	}
-	cases := map[string]struct {
-		// Features
-		featureGates map[featuregate.Feature]bool
-
-		workloads      []kueue.Workload
-		objects        []client.Object
-		admissionError error
-
-		// additional*Queues can hold any extra queues needed by the tc
-		additionalClusterQueues []kueue.ClusterQueue
-		additionalLocalQueues   []kueue.LocalQueue
-
-		cohorts []kueue.Cohort
-
-		// wantAssignments is a summary of all the admissions in the cache after this cycle.
-		wantAssignments map[workload.Reference]kueue.Admission
-		// wantWorkloads is the subset of workloads that got admitted in this cycle.
-		wantWorkloads []kueue.Workload
-		// workload version to compensate for the difference between use of Apply and Merge patch in FakeClient
-		wantWorkloadUseMergePatch []kueue.Workload
-		// wantLeft is the workload keys that are left in the queues after this cycle.
-		wantLeft map[kueue.ClusterQueueReference][]workload.Reference
-		// wantInadmissibleLeft is the workload keys that are left in the inadmissible state after this cycle.
-		wantInadmissibleLeft map[kueue.ClusterQueueReference][]workload.Reference
-		// wantEvents ignored if empty, the Message is ignored (it contains the duration)
-		wantEvents []utiltesting.EventRecord
-		// eventCmpOpts are the cmp options to compare recorded events.
-		eventCmpOpts cmp.Options
-
-		wantSkippedPreemptions map[string]int
-	}{
+	cases := map[string]scheduleTestCase{
 		"use second flavor when the first has no preemption candidates; WhenCanPreempt: MayStopSearch": {
 			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: true},
 			additionalClusterQueues: []kueue.ClusterQueue{
@@ -386,6 +643,187 @@ func TestSchedule(t *testing.T) {
 			wantEvents:   nil,
 			eventCmpOpts: ignoreEventMessageCmpOpts,
 		},
+		"flavors with mixed misconfiguration and insufficient quota": {
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("custom-cq").
+					QueueingStrategy(kueue.StrictFIFO).
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("spot-tainted").
+							Resource(corev1.ResourceCPU, "20", "20").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("on-demand").
+							Resource(corev1.ResourceCPU, "15", "15").Obj(),
+					).Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("custom-q", "sales").ClusterQueue("custom-cq").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("existing-on-demand-job", "sales").
+					Queue("custom-q").
+					Request(corev1.ResourceCPU, "10").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("custom-cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "10").
+							Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("new-job", "sales").
+					Queue("custom-q").
+					Request(corev1.ResourceCPU, "10").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("existing-on-demand-job", "sales").
+					Queue("custom-q").
+					Request(corev1.ResourceCPU, "10").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("custom-cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "10").
+							Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("new-job", "sales").
+					Queue("custom-q").
+					Request(corev1.ResourceCPU, "10").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor on-demand, 5 more needed, untolerated taint {key val NoSchedule <nil>} in flavor spot-tainted",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("10"),
+						},
+					}).
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"sales/existing-on-demand-job": {
+					ClusterQueue: "custom-cq",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						utiltestingapi.MakePodSetAssignment("main").
+							Assignment(corev1.ResourceCPU, "on-demand", "10000m").
+							Count(1).
+							Obj(),
+					},
+				},
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"custom-cq": {"sales/new-job"},
+			},
+		},
+		"flavors with mixed taint mismatch and exceeding limits": {
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("custom-cq2").
+					QueueingStrategy(kueue.StrictFIFO).
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("spot-tainted").
+							Resource(corev1.ResourceCPU, "20", "20").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("on-demand").
+							Resource(corev1.ResourceCPU, "5", "5").Obj(),
+					).Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("custom-q2", "sales").ClusterQueue("custom-cq2").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("new-job2", "sales").
+					Queue("custom-q2").
+					Request(corev1.ResourceCPU, "10").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("new-job2", "sales").
+					Queue("custom-q2").
+					Request(corev1.ResourceCPU, "10").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
+						Message:            "couldn't assign flavors to pod set main: insufficient quota for cpu in flavor on-demand, previously considered podsets requests (0) + current podset request (10) > maximum capacity (5), untolerated taint {key val NoSchedule <nil>} in flavor spot-tainted",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("10"),
+						},
+					}).
+					Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"custom-cq2": {"sales/new-job2"},
+			},
+		},
+		"flavors are structurally incompatible": {
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("custom-cq3").
+					QueueingStrategy(kueue.StrictFIFO).
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("spot-tainted").
+							Resource(corev1.ResourceCPU, "20", "20").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("spot-tainted-2").
+							Resource(corev1.ResourceCPU, "5", "5").Obj(),
+					).Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("custom-q3", "sales").ClusterQueue("custom-cq3").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("new-job3", "sales").
+					Queue("custom-q3").
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("new-job3", "sales").
+					Queue("custom-q3").
+					Request(corev1.ResourceCPU, "1").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonNoMatchingFlavor,
+						Message:            "couldn't assign flavors to pod set main: untolerated taint {key val NoSchedule <nil>} in flavor spot-tainted, untolerated taint {key val2 NoSchedule <nil>} in flavor spot-tainted-2",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("1"),
+						},
+					}).
+					Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"custom-cq3": {"sales/new-job3"},
+			},
+		},
 		"workload fits in single clusterQueue, with check state pending": {
 			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: true},
 			workloads: []kueue.Workload{
@@ -425,7 +863,13 @@ func TestSchedule(t *testing.T) {
 						Message:            "Quota reserved in ClusterQueue sales",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					Obj(),
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonUnsatisfiedAdmissionChecks,
+						Message:            "The workload has not all checks ready",
+						LastTransitionTime: metav1.NewTime(now),
+					}).Obj(),
 			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"sales/foo": {
@@ -511,8 +955,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
 						Message:            "couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor default, 1 more needed",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -557,8 +1008,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
-						Message:            "Workload namespace doesn't match ClusterQueue selector",
+						Reason:             kueue.WorkloadQuotaReservedReasonMisconfigured,
+						Message:            "workload namespace doesn't match ClusterQueue selector",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -892,8 +1350,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
 						Message:            "Workload no longer fits after processing another workload",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -1047,8 +1512,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
 						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor on-demand, 50 more needed, insufficient unused quota for cpu in flavor spot, 1 more needed",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -1152,8 +1624,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
 						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor default, 1 more needed",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -1269,8 +1748,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
 						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor on-demand, 1 more needed",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -1539,8 +2025,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
 						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor on-demand, 20 more needed, insufficient unused quota for cpu in flavor spot, 20 more needed. Pending the preemption of 2 workload(s)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -1634,8 +2127,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
 						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor on-demand, 1 more needed",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -1677,8 +2177,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
 						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor on-demand, 1 more needed. Pending the preemption of 1 workload(s)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -1719,8 +2226,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonNoMatchingFlavor,
 						Message:            "couldn't assign flavors to pod set main: resource example.com/gpu unavailable in ClusterQueue",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -1976,8 +2490,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
 						Message:            "couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor on-demand, 41 more needed, insufficient unused quota for cpu in flavor spot, 50 more needed",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -2118,8 +2639,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
 						Message:            "couldn't assign flavors to pod set one: insufficient unused quota for example.com/gpu in flavor model-a, 10 more needed. Pending the preemption of 1 workload(s)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -2200,8 +2728,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
 						Message:            "couldn't assign flavors to pod set one: insufficient unused quota for example.com/gpu in flavor model-a, 10 more needed. Pending the preemption of 1 workload(s)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -2376,8 +2911,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
 						Message:            "couldn't assign flavors to pod set three: insufficient quota for cpu in flavor default, previously considered podsets requests (50) + current podset request (15) > maximum capacity (50)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(
@@ -2659,8 +3201,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
 						Message:            "Workload no longer fits after processing another workload",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -2761,8 +3310,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
 						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor default, 2 more needed",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -3013,8 +3569,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
 						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor on-demand, 2 more needed. Pending the preemption of 2 workload(s)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -3161,8 +3724,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
 						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor on-demand, 1 more needed",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -3300,8 +3870,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
 						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor default, 2 more needed. Pending the preemption of 1 workload(s)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -3345,8 +3922,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
 						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor default, 2 more needed. Pending the preemption of 1 workload(s)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -3496,8 +4080,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
 						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor default, 1 more needed. Pending the preemption of 1 workload(s)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -3645,8 +4236,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
 						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor default, 2 more needed. Pending the preemption of 1 workload(s)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -3673,8 +4271,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
 						Message:            "Workload no longer fits after processing another workload",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -3724,8 +4329,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
 						Message:            "couldn't assign flavors to pod set one: insufficient quota for cpu in flavor default, previously considered podsets requests (0) + current podset request (100) > maximum capacity (50)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -3758,8 +4370,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonMisconfigured,
 						Message:            "resources didn't satisfy LimitRange constraints: spec.podSets[0].template.spec.containers[0]: Invalid value: [\"cpu\"]: requests must not be above the limitRange max",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -3782,7 +4401,7 @@ func TestSchedule(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("sales", "new", "Pending", corev1.EventTypeWarning).
 					Message(fmt.Sprintf("%s: %s",
-						errLimitRangeConstraintsUnsatisfiedResources,
+						workload.ErrLimitRangeConstraintsUnsatisfiedResources,
 						field.Invalid(
 							workload.PodSetsPath.Index(0).Child("template").Child("spec").Child("containers").Index(0),
 							[]corev1.ResourceName{corev1.ResourceCPU},
@@ -3812,8 +4431,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonMisconfigured,
 						Message:            "resources validation failed: spec.podSets[0].template.spec.containers[0]: Invalid value: [\"cpu\"]: requests must not exceed its limits",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -3830,7 +4456,7 @@ func TestSchedule(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("sales", "new", "Pending", corev1.EventTypeWarning).
 					Message(fmt.Sprintf("%s: %s",
-						errInvalidWLResources,
+						workload.ErrInvalidWLResources,
 						field.Invalid(
 							workload.PodSetsPath.Index(0).Child("template").Child("spec").Child("containers").Index(0),
 							[]corev1.ResourceName{corev1.ResourceCPU}, workload.RequestsMustNotExceedLimitMessage,
@@ -3909,8 +4535,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
 						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for gpu in flavor on-demand, 1 more needed, insufficient unused quota for gpu in flavor spot, 1 more needed. Pending the preemption of 1 workload(s)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -4050,8 +4683,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
 						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for gpu in flavor on-demand, 1 more needed, insufficient unused quota for gpu in flavor spot, 6 more needed. Pending the preemption of 1 workload(s)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -4183,8 +4823,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
 						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for gpu in flavor on-demand, 1 more needed, insufficient unused quota for gpu in flavor spot, 5 more needed. Pending the preemption of 1 workload(s)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -4327,8 +4974,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
 						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for gpu in flavor on-demand, 5 more needed",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -4347,8 +5001,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
 						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for gpu in flavor on-demand, 5 more needed. Pending the preemption of 1 workload(s)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -4463,8 +5124,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
 						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for gpu in flavor on-demand, 1 more needed",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -4574,8 +5242,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
 						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for gpu in flavor on-demand, 1 more needed",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -4592,8 +5267,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
 						Message:            "Workload no longer fits after processing another workload",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -4671,8 +5353,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
 						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for gpu in flavor on-demand, 1 more needed",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -4689,8 +5378,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
 						Message:            "Workload no longer fits after processing another workload",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -4778,8 +5474,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
 						Message:            "Workload no longer fits after processing another workload",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -5113,7 +5816,13 @@ func TestSchedule(t *testing.T) {
 						Message:            "Quota reserved in ClusterQueue eng-beta",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					Obj(),
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonUnsatisfiedAdmissionChecks,
+						Message:            "The workload has not all checks ready",
+						LastTransitionTime: metav1.NewTime(now),
+					}).Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("eng-beta", "pending-check", "QuotaReserved", corev1.EventTypeNormal).
@@ -5346,8 +6055,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
 						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor default, 2 more needed. Pending the preemption of 1 workload(s)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Obj(),
@@ -5433,8 +6149,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
 						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor on-demand, 5 more needed. Pending the preemption of 1 workload(s)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -5634,7 +6357,7 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             "AdmissionGated",
 						Message:            "Workload requires preemption, but it's gated",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
@@ -5643,6 +6366,13 @@ func TestSchedule(t *testing.T) {
 						Status:             metav1.ConditionTrue,
 						Reason:             kueue.PreemptionGated,
 						Message:            "Workload requires preemption, but it's gated",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -5758,8 +6488,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
 						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for example.com/gpu in flavor model-a, 20 more needed",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -5812,8 +6549,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
 						Message:            "couldn't assign flavors to pod set ps2: insufficient quota for cpu in flavor default, previously considered podsets requests (1k) + current podset request (9223372036854775) > maximum capacity (10k)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -5863,8 +6607,15 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
 						Message:            "couldn't assign flavors to pod set ps1: insufficient quota for cpu in flavor default, previously considered podsets requests (0) + current podset request (9223372036854775807m) > maximum capacity (10)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -5884,164 +6635,12 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 	}
-	for name, tc := range cases {
-		for _, enabled := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
-				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
-				metrics.AdmissionCyclePreemptionSkips.Reset()
-				features.SetFeatureGatesDuringTest(t, tc.featureGates)
-
-				ctx, log := utiltesting.ContextWithLog(t)
-
-				allQueues := append(queues, tc.additionalLocalQueues...)
-				allClusterQueues := append(clusterQueues, tc.additionalClusterQueues...)
-
-				clientBuilder := utiltesting.NewClientBuilder().
-					WithLists(&kueue.WorkloadList{Items: tc.workloads}, &kueue.LocalQueueList{Items: allQueues}).
-					WithObjects(append(
-						[]client.Object{
-							utiltesting.MakeNamespaceWrapper("default").Obj(),
-							utiltesting.MakeNamespaceWrapper("eng-alpha").Label("dep", "eng").Obj(),
-							utiltesting.MakeNamespaceWrapper("eng-beta").Label("dep", "eng").Obj(),
-							utiltesting.MakeNamespaceWrapper("eng-gamma").Label("dep", "eng").Obj(),
-							utiltesting.MakeNamespaceWrapper("sales").Label("dep", "sales").Obj(),
-							utiltesting.MakeNamespaceWrapper("lend").Label("dep", "lend").Obj(),
-						}, tc.objects...,
-					)...).
-					WithStatusSubresource(&kueue.Workload{}).
-					WithInterceptorFuncs(interceptor.Funcs{
-						SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-							if _, ok := obj.(*kueue.Workload); ok && subResourceName == "status" && tc.admissionError != nil {
-								return tc.admissionError
-							}
-							return utiltesting.TreatSSAAsStrategicMerge(ctx, client, subResourceName, obj, patch, opts...)
-						},
-					})
-
-				cl := clientBuilder.Build()
-				recorder := &utiltesting.EventRecorder{}
-				cqCache := schdcache.New(cl)
-				qManager := qcache.NewManagerForUnitTests(cl, cqCache)
-				// Workloads are loaded into queues or clusterQueues as we add them.
-				for _, q := range allQueues {
-					if err := qManager.AddLocalQueue(ctx, &q); err != nil {
-						t.Fatalf("Inserting queue %s/%s in manager: %v", q.Namespace, q.Name, err)
-					}
-				}
-				for i := range resourceFlavors {
-					cqCache.AddOrUpdateResourceFlavor(log, resourceFlavors[i])
-				}
-				for _, cq := range allClusterQueues {
-					if err := cqCache.AddClusterQueue(ctx, &cq); err != nil {
-						t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
-					}
-					if err := qManager.AddClusterQueue(ctx, &cq); err != nil {
-						t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
-					}
-					if err := cl.Create(ctx, &cq); err != nil {
-						t.Errorf("couldn't create the cluster queue: %v", err)
-					}
-				}
-
-				for _, cohort := range tc.cohorts {
-					if err := cqCache.AddOrUpdateCohort(&cohort); err != nil {
-						t.Fatalf("Inserting Cohort %s in cache: %v", cohort.Name, err)
-					}
-				}
-
-				scheduler := New(qManager, cqCache, cl, recorder,
-					WithClock(t, fakeClock), WithPreemptionExpectations(preemptexpectations.New()))
-				wg := sync.WaitGroup{}
-				scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
-					func() { wg.Add(1) },
-					func() { wg.Done() },
-				))
-
-				ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
-				go qManager.CleanUpOnContext(ctx)
-				defer cancel()
-
-				scheduler.schedule(ctx)
-				wg.Wait()
-
-				// Verify assignments in cache.
-				gotAssignments := make(map[workload.Reference]kueue.Admission)
-				snapshot, err := cqCache.Snapshot(ctx)
-				if err != nil {
-					t.Fatalf("unexpected error while building snapshot: %v", err)
-				}
-				for cqName, c := range snapshot.ClusterQueues() {
-					for name, w := range c.Workloads {
-						switch {
-						case !workload.HasQuotaReservation(w.Obj):
-							t.Errorf("Workload %s is not admitted by a clusterQueue, but it is found as member of clusterQueue %s in the cache", name, cqName)
-						case w.Obj.Status.Admission.ClusterQueue != cqName:
-							t.Errorf("Workload %s is admitted by clusterQueue %s, but it is found as member of clusterQueue %s in the cache", name, w.Obj.Status.Admission.ClusterQueue, cqName)
-						default:
-							gotAssignments[name] = *w.Obj.Status.Admission
-						}
-					}
-				}
-
-				gotWorkloads := &kueue.WorkloadList{}
-				err = cl.List(ctx, gotWorkloads)
-				if err != nil {
-					t.Fatalf("Unexpected list workloads error: %v", err)
-				}
-
-				defaultWorkloadCmpOpts := cmp.Options{
-					cmpopts.EquateEmpty(),
-					cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime"),
-					cmpopts.IgnoreFields(kueue.Workload{}, "ObjectMeta.ResourceVersion", "ObjectMeta.CreationTimestamp"),
-					cmpopts.SortSlices(func(a, b metav1.Condition) bool { return a.Type < b.Type }),
-				}
-
-				if features.Enabled(features.WorkloadRequestUseMergePatch) && tc.wantWorkloadUseMergePatch != nil {
-					if diff := cmp.Diff(tc.wantWorkloadUseMergePatch, gotWorkloads.Items, defaultWorkloadCmpOpts); diff != "" {
-						t.Errorf("Unexpected workloads (-want,+got):\n%s", diff)
-					}
-				} else {
-					if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads.Items, defaultWorkloadCmpOpts); diff != "" {
-						t.Errorf("Unexpected workloads (-want,+got):\n%s", diff)
-					}
-				}
-
-				if len(gotAssignments) == 0 {
-					gotAssignments = nil
-				}
-				if diff := cmp.Diff(tc.wantAssignments, gotAssignments); diff != "" {
-					t.Errorf("Unexpected assigned clusterQueues in cache (-want,+got):\n%s", diff)
-				}
-
-				qDump := qManager.Dump()
-				if diff := cmp.Diff(tc.wantLeft, qDump, cmpDump...); diff != "" {
-					t.Errorf("Unexpected elements left in the queue (-want,+got):\n%s", diff)
-				}
-				qDumpInadmissible := qManager.DumpInadmissible()
-				if diff := cmp.Diff(tc.wantInadmissibleLeft, qDumpInadmissible, cmpDump...); diff != "" {
-					t.Errorf("Unexpected elements left in inadmissible workloads (-want,+got):\n%s", diff)
-				}
-
-				if len(tc.wantEvents) > 0 {
-					if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, tc.eventCmpOpts...); diff != "" {
-						t.Errorf("unexpected events (-want/+got):\n%s", diff)
-					}
-				}
-
-				for cqName, want := range tc.wantSkippedPreemptions {
-					lvs := []string{cqName, roletracker.RoleStandalone}
-					val, err := testutil.GetGaugeMetricValue(metrics.AdmissionCyclePreemptionSkips.WithLabelValues(lvs...))
-					if err != nil {
-						t.Fatalf("Couldn't get value for metric admission_cycle_preemption_skips for %q: %v", cqName, err)
-					}
-					got := int(val)
-					if want != got {
-						t.Errorf("Counted %d skips for %q, want %d", got, cqName, want)
-					}
-				}
-			})
-		}
-	}
+	runScheduleTestCases(t, scheduleTestConfig{
+		queues:          queues,
+		clusterQueues:   clusterQueues,
+		resourceFlavors: resourceFlavors,
+		fakeClock:       fakeClock,
+	}, cases)
 }
 
 func TestEntryOrdering(t *testing.T) {
@@ -6456,8 +7055,15 @@ func TestLastSchedulingContext(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
 						Message:            "couldn't assign flavors to pod set main: insufficient quota for cpu in flavor spot, previously considered podsets requests (0) + current podset request (20) > maximum capacity (10), insufficient unused quota for cpu in flavor on-demand, 20 more needed",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -6835,8 +7441,15 @@ func TestLastSchedulingContext(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
 						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor on-demand, 20 more needed, insufficient unused quota for cpu in flavor spot, 20 more needed. Pending the preemption of 1 workload(s)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -7017,8 +7630,15 @@ func TestLastSchedulingContext(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
 						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor on-demand, 6 more needed, insufficient unused quota for cpu in flavor spot, 6 more needed. Pending the preemption of 1 workload(s)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -7054,129 +7674,159 @@ func TestLastSchedulingContext(t *testing.T) {
 		},
 	}
 
+	scenarios := []map[featuregate.Feature]bool{
+		{
+			features.WorkloadRequestUseMergePatch:     false,
+			features.UnadmittedWorkloadsObservability: false,
+		},
+		{
+			features.WorkloadRequestUseMergePatch:     false,
+			features.UnadmittedWorkloadsObservability: true,
+		},
+		{
+			features.WorkloadRequestUseMergePatch:     true,
+			features.UnadmittedWorkloadsObservability: false,
+		},
+		{
+			features.WorkloadRequestUseMergePatch:     true,
+			features.UnadmittedWorkloadsObservability: true,
+		},
+	}
+
 	for _, tc := range cases {
-		for _, enabled := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", tc.name, enabled), func(t *testing.T) {
-				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
-				ctx, log := utiltesting.ContextWithLog(t)
+		for _, scenario := range scenarios {
+			t.Run(
+				fmt.Sprintf("%s WorkloadRequestUseMergePatch:%t observability:%t", tc.name, scenario[features.WorkloadRequestUseMergePatch], scenario[features.UnadmittedWorkloadsObservability]),
+				func(t *testing.T) {
+					features.SetFeatureGatesDuringTest(t, scenario)
+					ctx, log := utiltesting.ContextWithLog(t)
 
-				testWls := make([]kueue.Workload, 0, len(tc.workloads))
-				for _, wl := range tc.workloads {
-					testWls = append(testWls, *wl.DeepCopy())
-				}
-				clientBuilder := utiltesting.NewClientBuilder().
-					WithLists(
-						&kueue.WorkloadList{Items: testWls},
-						&kueue.ClusterQueueList{Items: tc.cqs},
-						&kueue.LocalQueueList{Items: queues},
-					).
-					WithObjects(
-						utiltesting.MakeNamespace("default"),
-					).
-					WithStatusSubresource(&kueue.Workload{}).
-					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
-
-				cl := clientBuilder.Build()
-				recorder := &utiltesting.EventRecorder{}
-				cqCache := schdcache.New(cl)
-				qManager, watcher := qcache.NewManagerForUnitTestsWithRequeuer(cl, cqCache)
-				// Workloads are loaded into queues or clusterQueues as we add them.
-				for _, q := range queues {
-					if err := qManager.AddLocalQueue(ctx, &q); err != nil {
-						t.Fatalf("Inserting queue %s/%s in manager: %v", q.Namespace, q.Name, err)
+					testWls := make([]kueue.Workload, 0, len(tc.workloads))
+					for _, wl := range tc.workloads {
+						testWls = append(testWls, *wl.DeepCopy())
 					}
-				}
-				for i := range resourceFlavors {
-					cqCache.AddOrUpdateResourceFlavor(log, resourceFlavors[i])
-				}
-				for _, cq := range tc.cqs {
-					if err := cqCache.AddClusterQueue(ctx, &cq); err != nil {
-						t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
+
+					wantWorkloads := make([]kueue.Workload, len(tc.wantWorkloads))
+					for i := range tc.wantWorkloads {
+						wantWorkloads[i] = *tc.wantWorkloads[i].DeepCopy()
 					}
-					if err := qManager.AddClusterQueue(ctx, &cq); err != nil {
-						t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
+					if !scenario[features.UnadmittedWorkloadsObservability] {
+						utiltesting.AdjustWorkloadsForDisabledObservabilityInScheduler(wantWorkloads)
 					}
-				}
-				scheduler := New(qManager, cqCache, cl, recorder, WithClock(t, fakeClock), WithPreemptionExpectations(preemptexpectations.New()))
+					clientBuilder := utiltesting.NewClientBuilder().
+						WithLists(
+							&kueue.WorkloadList{Items: testWls},
+							&kueue.ClusterQueueList{Items: tc.cqs},
+							&kueue.LocalQueueList{Items: queues},
+						).
+						WithObjects(
+							utiltesting.MakeNamespace("default"),
+						).
+						WithStatusSubresource(&kueue.Workload{}).
+						WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 
-				wg := sync.WaitGroup{}
-				scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
-					func() { wg.Add(1) },
-					func() { wg.Done() },
-				))
-
-				ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
-				go qManager.CleanUpOnContext(ctx)
-				defer cancel()
-
-				scheduler.schedule(ctx)
-				wg.Wait()
-
-				gotWorkloads := &kueue.WorkloadList{}
-				err := cl.List(ctx, gotWorkloads)
-				if err != nil {
-					t.Fatalf("Unexpected list workloads error: %v", err)
-				}
-
-				defaultWorkloadCmpOpts := cmp.Options{
-					cmpopts.EquateEmpty(),
-					cmpopts.IgnoreFields(kueue.Workload{}, "ObjectMeta.ResourceVersion"),
-					cmpopts.SortSlices(func(a, b metav1.Condition) bool { return a.Type < b.Type }),
-				}
-
-				if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads.Items, defaultWorkloadCmpOpts); diff != "" {
-					t.Errorf("Unexpected scheduled workloads (-want,+got):\n%s", diff)
-				}
-
-				for _, workloadReference := range tc.deleteWorkloads {
-					var wl kueue.Workload
-					err := cl.Get(ctx, workloadReference, &wl)
-					if err != nil {
-						t.Errorf("Unable to get workload: %v", err)
-					}
-					err = cl.Delete(ctx, &wl)
-					if err != nil {
-						t.Errorf("Delete workload failed: %v", err)
-					}
-					err = cqCache.DeleteWorkload(log, workload.Key(&wl))
-					if err != nil {
-						t.Errorf("Delete workload failed: %v", err)
-					}
-					qManager.QueueAssociatedInadmissibleWorkloadsAfter(ctx, workload.Key(&wl), nil)
-				}
-				watcher.ProcessRequeues(ctx)
-
-				scheduler.schedule(ctx)
-				wg.Wait()
-
-				if features.Enabled(features.WorkloadRequestUseMergePatch) {
-					// Schedule again to ensure all workloads are admitted, as with MergePatch we enforce stricter patching.
-					scheduler.schedule(ctx)
-					wg.Wait()
-				}
-
-				// Verify assignments in cache.
-				gotAssignments := make(map[workload.Reference]kueue.Admission)
-				snapshot, err := cqCache.Snapshot(ctx)
-				if err != nil {
-					t.Fatalf("unexpected error while building snapshot: %v", err)
-				}
-				for cqName, c := range snapshot.ClusterQueues() {
-					for name, w := range c.Workloads {
-						switch {
-						case !workload.IsAdmitted(w.Obj):
-							t.Errorf("Workload %s is not admitted by a clusterQueue, but it is found as member of clusterQueue %s in the cache", name, cqName)
-						case w.Obj.Status.Admission.ClusterQueue != cqName:
-							t.Errorf("Workload %s is admitted by clusterQueue %s, but it is found as member of clusterQueue %s in the cache", name, w.Obj.Status.Admission.ClusterQueue, cqName)
-						default:
-							gotAssignments[name] = *w.Obj.Status.Admission
+					cl := clientBuilder.Build()
+					recorder := &utiltesting.EventRecorder{}
+					cqCache := schdcache.New(cl)
+					qManager, watcher := qcache.NewManagerForUnitTestsWithRequeuer(cl, cqCache)
+					// Workloads are loaded into queues or clusterQueues as we add them.
+					for _, q := range queues {
+						if err := qManager.AddLocalQueue(ctx, &q); err != nil {
+							t.Fatalf("Inserting queue %s/%s in manager: %v", q.Namespace, q.Name, err)
 						}
 					}
-				}
-				if diff := cmp.Diff(tc.wantAdmissionsOnSecondSchedule, gotAssignments); diff != "" {
-					t.Errorf("Unexpected assigned clusterQueues in cache (-want,+got):\n%s", diff)
-				}
-			})
+					for i := range resourceFlavors {
+						cqCache.AddOrUpdateResourceFlavor(log, resourceFlavors[i])
+					}
+					for _, cq := range tc.cqs {
+						if err := cqCache.AddClusterQueue(ctx, &cq); err != nil {
+							t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
+						}
+						if err := qManager.AddClusterQueue(ctx, &cq); err != nil {
+							t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
+						}
+					}
+					scheduler := New(qManager, cqCache, cl, recorder, WithClock(t, fakeClock), WithPreemptionExpectations(preemptexpectations.New()))
+
+					wg := sync.WaitGroup{}
+					scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
+						func() { wg.Add(1) },
+						func() { wg.Done() },
+					))
+
+					ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
+					go qManager.CleanUpOnContext(ctx)
+					defer cancel()
+
+					scheduler.schedule(ctx)
+					wg.Wait()
+
+					gotWorkloads := &kueue.WorkloadList{}
+					err := cl.List(ctx, gotWorkloads)
+					if err != nil {
+						t.Fatalf("Unexpected list workloads error: %v", err)
+					}
+
+					defaultWorkloadCmpOpts := cmp.Options{
+						cmpopts.EquateEmpty(),
+						cmpopts.IgnoreFields(kueue.Workload{}, "ObjectMeta.ResourceVersion"),
+						cmpopts.SortSlices(func(a, b metav1.Condition) bool { return a.Type < b.Type }),
+					}
+
+					if diff := cmp.Diff(wantWorkloads, gotWorkloads.Items, defaultWorkloadCmpOpts); diff != "" {
+						t.Errorf("Unexpected scheduled workloads (-want,+got):\n%s", diff)
+					}
+
+					for _, workloadReference := range tc.deleteWorkloads {
+						var wl kueue.Workload
+						err := cl.Get(ctx, workloadReference, &wl)
+						if err != nil {
+							t.Errorf("Unable to get workload: %v", err)
+						}
+						err = cl.Delete(ctx, &wl)
+						if err != nil {
+							t.Errorf("Delete workload failed: %v", err)
+						}
+						err = cqCache.DeleteWorkload(log, workload.Key(&wl))
+						if err != nil {
+							t.Errorf("Delete workload failed: %v", err)
+						}
+						qManager.QueueAssociatedInadmissibleWorkloadsAfter(ctx, workload.Key(&wl), nil)
+					}
+					watcher.ProcessRequeues(ctx)
+
+					scheduler.schedule(ctx)
+					wg.Wait()
+
+					if features.Enabled(features.WorkloadRequestUseMergePatch) {
+						// Schedule again to ensure all workloads are admitted, as with MergePatch we enforce stricter patching.
+						scheduler.schedule(ctx)
+						wg.Wait()
+					}
+
+					// Verify assignments in cache.
+					gotAssignments := make(map[workload.Reference]kueue.Admission)
+					snapshot, err := cqCache.Snapshot(ctx)
+					if err != nil {
+						t.Fatalf("unexpected error while building snapshot: %v", err)
+					}
+					for cqName, c := range snapshot.ClusterQueues() {
+						for name, w := range c.Workloads {
+							switch {
+							case !workload.IsAdmitted(w.Obj):
+								t.Errorf("Workload %s is not admitted by a clusterQueue, but it is found as member of clusterQueue %s in the cache", name, cqName)
+							case w.Obj.Status.Admission.ClusterQueue != cqName:
+								t.Errorf("Workload %s is admitted by clusterQueue %s, but it is found as member of clusterQueue %s in the cache", name, w.Obj.Status.Admission.ClusterQueue, cqName)
+							default:
+								gotAssignments[name] = *w.Obj.Status.Admission
+							}
+						}
+					}
+					if diff := cmp.Diff(tc.wantAdmissionsOnSecondSchedule, gotAssignments); diff != "" {
+						t.Errorf("Unexpected assigned clusterQueues in cache (-want,+got):\n%s", diff)
+					}
+				},
+			)
 		}
 	}
 }
@@ -7197,15 +7847,22 @@ func TestRequeueAndUpdate(t *testing.T) {
 		{
 			name: "workload didn't fit",
 			e: entry{
-				inadmissibleMsg: "didn't fit",
+				inadmissibleMsg:     "didn't fit",
+				quotaReservedReason: kueue.WorkloadQuotaReservedReasonWaitingForQuota,
 			},
 			wantStatus: kueue.WorkloadStatus{
 				Conditions: []metav1.Condition{
 					{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
+						Reason:  kueue.WorkloadQuotaReservedReasonWaitingForQuota,
 						Message: "didn't fit",
+					},
+					{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+						Message: "The workload has no reservation",
 					},
 				},
 				ResourceRequests: []kueue.PodSetRequest{{Name: kueue.DefaultPodSetName}},
@@ -7238,16 +7895,23 @@ func TestRequeueAndUpdate(t *testing.T) {
 		{
 			name: "skipped with summary",
 			e: entry{
-				status:          skipped,
-				inadmissibleMsg: "cohort used in this cycle",
+				status:              skipped,
+				inadmissibleMsg:     "cohort used in this cycle",
+				quotaReservedReason: kueue.WorkloadQuotaReservedReasonWaitingForQuota,
 			},
 			wantStatus: kueue.WorkloadStatus{
 				Conditions: []metav1.Condition{
 					{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
+						Reason:  kueue.WorkloadQuotaReservedReasonWaitingForQuota,
 						Message: "cohort used in this cycle",
+					},
+					{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+						Message: "The workload has no reservation",
 					},
 				},
 				ResourceRequests: []kueue.PodSetRequest{{Name: kueue.DefaultPodSetName}},
@@ -7260,15 +7924,16 @@ func TestRequeueAndUpdate(t *testing.T) {
 		{
 			name: "preemption gated",
 			e: entry{
-				status:          preemptionGated,
-				inadmissibleMsg: "preemption gated",
+				status:              preemptionGated,
+				inadmissibleMsg:     "preemption gated",
+				quotaReservedReason: kueue.WorkloadAdmissionGated,
 			},
 			wantStatus: kueue.WorkloadStatus{
 				Conditions: []metav1.Condition{
 					{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
+						Reason:  kueue.WorkloadAdmissionGated,
 						Message: "preemption gated",
 					},
 					{
@@ -7276,6 +7941,12 @@ func TestRequeueAndUpdate(t *testing.T) {
 						Status:  metav1.ConditionTrue,
 						Reason:  "PreemptionGated",
 						Message: "preemption gated",
+					},
+					{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+						Message: "The workload has no reservation",
 					},
 				},
 				ResourceRequests: []kueue.PodSetRequest{{Name: kueue.DefaultPodSetName}},
@@ -7288,68 +7959,77 @@ func TestRequeueAndUpdate(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			ctx, _ := utiltesting.ContextWithLog(t)
+		for _, unadmittedWorkloadsObservabilityEnabled := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/observability_%t", tc.name, unadmittedWorkloadsObservabilityEnabled), func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, unadmittedWorkloadsObservabilityEnabled)
+				ctx, _ := utiltesting.ContextWithLog(t)
 
-			updates := 0
-			objs := []client.Object{w1, q1, utiltesting.MakeNamespace("ns1")}
-			cl := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
-				SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-					updates++
-					return utiltesting.TreatSSAAsStrategicMerge(ctx, client, subResourceName, obj, patch, opts...)
-				},
-			}).WithObjects(objs...).WithStatusSubresource(objs...).Build()
-			recorder := &utiltesting.EventRecorder{}
-			cqCache := schdcache.New(cl)
-			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
-			scheduler := New(qManager, cqCache, cl, recorder, WithPreemptionExpectations(preemptexpectations.New()))
-			if err := qManager.AddLocalQueue(ctx, q1); err != nil {
-				t.Fatalf("Inserting queue %s/%s in manager: %v", q1.Namespace, q1.Name, err)
-			}
-			if err := qManager.AddClusterQueue(ctx, cq); err != nil {
-				t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
-			}
-			if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
-				t.Fatalf("Inserting clusterQueue %s to cache: %v", cq.Name, err)
-			}
-			if !cqCache.ClusterQueueActive(kueue.ClusterQueueReference(cq.Name)) {
-				t.Fatalf("Status of ClusterQueue %s should be active", cq.Name)
-			}
+				updates := 0
+				objs := []client.Object{w1, q1, utiltesting.MakeNamespace("ns1")}
+				cl := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
+					SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+						updates++
+						return utiltesting.TreatSSAAsStrategicMerge(ctx, client, subResourceName, obj, patch, opts...)
+					},
+				}).WithObjects(objs...).WithStatusSubresource(objs...).Build()
+				recorder := &utiltesting.EventRecorder{}
+				cqCache := schdcache.New(cl)
+				qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+				scheduler := New(qManager, cqCache, cl, recorder, WithPreemptionExpectations(preemptexpectations.New()))
+				if err := qManager.AddLocalQueue(ctx, q1); err != nil {
+					t.Fatalf("Inserting queue %s/%s in manager: %v", q1.Namespace, q1.Name, err)
+				}
+				if err := qManager.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
+				}
+				if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatalf("Inserting clusterQueue %s to cache: %v", cq.Name, err)
+				}
+				if !cqCache.ClusterQueueActive(kueue.ClusterQueueReference(cq.Name)) {
+					t.Fatalf("Status of ClusterQueue %s should be active", cq.Name)
+				}
 
-			wInfos := qManager.Heads(ctx)
-			if len(wInfos) != 1 {
-				t.Fatalf("Failed getting heads in cluster queue")
-			}
-			tc.e.Info = wInfos[0]
-			scheduler.requeueAndUpdate(ctx, tc.e)
+				wInfos := qManager.Heads(ctx)
+				if len(wInfos) != 1 {
+					t.Fatalf("Failed getting heads in cluster queue")
+				}
+				tc.e.Info = wInfos[0]
+				scheduler.requeueAndUpdate(ctx, tc.e)
 
-			qDump := qManager.Dump()
-			if diff := cmp.Diff(tc.wantWorkloads, qDump, cmpDump...); diff != "" {
-				t.Errorf("Unexpected elements in the cluster queue (-want,+got):\n%s", diff)
-			}
+				qDump := qManager.Dump()
+				if diff := cmp.Diff(tc.wantWorkloads, qDump, cmpDump...); diff != "" {
+					t.Errorf("Unexpected elements in the cluster queue (-want,+got):\n%s", diff)
+				}
 
-			inadmissibleDump := qManager.DumpInadmissible()
-			if diff := cmp.Diff(tc.wantInadmissible, inadmissibleDump, cmpDump...); diff != "" {
-				t.Errorf("Unexpected elements in the inadmissible stage of the cluster queue (-want,+got):\n%s", diff)
-			}
+				inadmissibleDump := qManager.DumpInadmissible()
+				if diff := cmp.Diff(tc.wantInadmissible, inadmissibleDump, cmpDump...); diff != "" {
+					t.Errorf("Unexpected elements in the inadmissible stage of the cluster queue (-want,+got):\n%s", diff)
+				}
 
-			var updatedWl kueue.Workload
-			if err := cl.Get(ctx, client.ObjectKeyFromObject(w1), &updatedWl); err != nil {
-				t.Fatalf("Failed obtaining updated object: %v", err)
-			}
-			if diff := cmp.Diff(tc.wantStatus, updatedWl.Status,
-				cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
-				cmpopts.SortSlices(func(a, b metav1.Condition) bool {
-					return a.Type < b.Type
-				})); diff != "" {
-				t.Errorf("Unexpected status after updating (-want,+got):\n%s", diff)
-			}
-			// Make sure a second call doesn't make unnecessary updates.
-			scheduler.requeueAndUpdate(ctx, tc.e)
-			if updates != tc.wantStatusUpdates {
-				t.Errorf("Observed %d status updates, want %d", updates, tc.wantStatusUpdates)
-			}
-		})
+				var updatedWl kueue.Workload
+				if err := cl.Get(ctx, client.ObjectKeyFromObject(w1), &updatedWl); err != nil {
+					t.Fatalf("Failed obtaining updated object: %v", err)
+				}
+
+				wantStatus := *tc.wantStatus.DeepCopy()
+				if !unadmittedWorkloadsObservabilityEnabled {
+					wantStatus.Conditions = utiltesting.AdjustConditionsForDisabledObservabilityInScheduler(wantStatus.Conditions)
+				}
+
+				if diff := cmp.Diff(wantStatus, updatedWl.Status,
+					cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
+					cmpopts.SortSlices(func(a, b metav1.Condition) bool {
+						return a.Type < b.Type
+					})); diff != "" {
+					t.Errorf("Unexpected status after updating (-want,+got):\n%s", diff)
+				}
+				// Make sure a second call doesn't make unnecessary updates.
+				scheduler.requeueAndUpdate(ctx, tc.e)
+				if updates != tc.wantStatusUpdates {
+					t.Errorf("Observed %d status updates, want %d", updates, tc.wantStatusUpdates)
+				}
+			})
+		}
 	}
 }
 
@@ -7837,8 +8517,15 @@ func TestSchedulerWhenWorkloadModifiedConcurrently(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
 						Message:            "couldn't assign flavors to pod set main: insufficient quota for cpu in flavor rf, previously considered podsets requests (0) + current podset request (2) > maximum capacity (1)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					ResourceRequests(kueue.PodSetRequest{
@@ -7854,85 +8541,116 @@ func TestSchedulerWhenWorkloadModifiedConcurrently(t *testing.T) {
 			},
 		},
 	}
+
+	scenarios := []map[featuregate.Feature]bool{
+		{
+			features.WorkloadRequestUseMergePatch:     false,
+			features.UnadmittedWorkloadsObservability: false,
+		},
+		{
+			features.WorkloadRequestUseMergePatch:     false,
+			features.UnadmittedWorkloadsObservability: true,
+		},
+		{
+			features.WorkloadRequestUseMergePatch:     true,
+			features.UnadmittedWorkloadsObservability: false,
+		},
+		{
+			features.WorkloadRequestUseMergePatch:     true,
+			features.UnadmittedWorkloadsObservability: true,
+		},
+	}
+
 	for name, tc := range testCases {
-		for _, enabled := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s when the WorkloadRequestUseMergePatch feature is %t", name, enabled), func(t *testing.T) {
-				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
-				ctx, log := utiltesting.ContextWithLog(t)
-				var patched bool
-				clientBuilder := utiltesting.NewClientBuilder().
-					WithObjects(ns.DeepCopy(), rf.DeepCopy(), cq.DeepCopy(), lq.DeepCopy(), tc.workload).
-					WithStatusSubresource(&kueue.Workload{}).
-					WithInterceptorFuncs(interceptor.Funcs{
-						SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-							if _, ok := obj.(*kueue.Workload); ok && subResourceName == "status" && !patched {
-								patched = true
-								// Simulate concurrent modification by another controller
-								wlCopy := tc.workload.DeepCopy()
-								if wlCopy.Labels == nil {
-									wlCopy.Labels = make(map[string]string, 1)
+		for _, scenario := range scenarios {
+			t.Run(
+				fmt.Sprintf("%s WorkloadRequestUseMergePatch:%t observability:%t", name, scenario[features.WorkloadRequestUseMergePatch], scenario[features.UnadmittedWorkloadsObservability]),
+				func(t *testing.T) {
+					features.SetFeatureGatesDuringTest(t, scenario)
+					ctx, log := utiltesting.ContextWithLog(t)
+					var patched bool
+					clientBuilder := utiltesting.NewClientBuilder().
+						WithObjects(ns.DeepCopy(), rf.DeepCopy(), cq.DeepCopy(), lq.DeepCopy(), tc.workload).
+						WithStatusSubresource(&kueue.Workload{}).
+						WithInterceptorFuncs(interceptor.Funcs{
+							SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+								if _, ok := obj.(*kueue.Workload); ok && subResourceName == "status" && !patched {
+									patched = true
+									// Simulate concurrent modification by another controller
+									wlCopy := tc.workload.DeepCopy()
+									if wlCopy.Labels == nil {
+										wlCopy.Labels = make(map[string]string, 1)
+									}
+									wlCopy.Labels["test.kueue.x-k8s.io/timestamp"] = time.Now().String()
+									if err := c.Update(ctx, wlCopy); err != nil {
+										return err
+									}
 								}
-								wlCopy.Labels["test.kueue.x-k8s.io/timestamp"] = time.Now().String()
-								if err := c.Update(ctx, wlCopy); err != nil {
-									return err
-								}
-							}
-							return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
-						},
-					})
-				cl := clientBuilder.Build()
-				recorder := &utiltesting.EventRecorder{}
+								return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
+							},
+						})
+					cl := clientBuilder.Build()
+					recorder := &utiltesting.EventRecorder{}
 
-				cqCache := schdcache.New(cl)
-				qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+					cqCache := schdcache.New(cl)
+					qManager := qcache.NewManagerForUnitTests(cl, cqCache)
 
-				cqCache.AddOrUpdateResourceFlavor(log, rf.DeepCopy())
-				if err := cqCache.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
-					t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
-				}
-				if err := qManager.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
-					t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
-				}
-				if err := qManager.AddLocalQueue(ctx, lq.DeepCopy()); err != nil {
-					t.Fatalf("Inserting queue %s/%s in manager: %v", lq.Namespace, lq.Name, err)
-				}
+					cqCache.AddOrUpdateResourceFlavor(log, rf.DeepCopy())
+					if err := cqCache.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
+						t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
+					}
+					if err := qManager.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
+						t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
+					}
+					if err := qManager.AddLocalQueue(ctx, lq.DeepCopy()); err != nil {
+						t.Fatalf("Inserting queue %s/%s in manager: %v", lq.Namespace, lq.Name, err)
+					}
 
-				scheduler := New(qManager, cqCache, cl, recorder, WithClock(t, testingclock.NewFakeClock(now)), WithPreemptionExpectations(preemptexpectations.New()))
+					scheduler := New(qManager, cqCache, cl, recorder, WithClock(t, testingclock.NewFakeClock(now)), WithPreemptionExpectations(preemptexpectations.New()))
 
-				wg := sync.WaitGroup{}
-				scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
-					func() { wg.Add(1) },
-					func() { wg.Done() },
-				))
+					wg := sync.WaitGroup{}
+					scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
+						func() { wg.Add(1) },
+						func() { wg.Done() },
+					))
 
-				ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
-				go qManager.CleanUpOnContext(ctx)
-				defer cancel()
+					ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
+					go qManager.CleanUpOnContext(ctx)
+					defer cancel()
 
-				scheduler.schedule(ctx)
-				wg.Wait()
+					scheduler.schedule(ctx)
+					wg.Wait()
 
-				gotWorkloads := &kueue.WorkloadList{}
-				err := cl.List(ctx, gotWorkloads)
-				if err != nil {
-					t.Fatalf("Unexpected list workloads error: %v", err)
-				}
+					gotWorkloads := &kueue.WorkloadList{}
+					err := cl.List(ctx, gotWorkloads)
+					if err != nil {
+						t.Fatalf("Unexpected list workloads error: %v", err)
+					}
 
-				opts := cmp.Options{
-					cmpopts.EquateEmpty(),
-					cmpopts.IgnoreFields(metav1.ObjectMeta{}, "Labels"),
-				}
+					wantWorkloads := make([]kueue.Workload, len(tc.wantWorkloads))
+					for i := range tc.wantWorkloads {
+						wantWorkloads[i] = *tc.wantWorkloads[i].DeepCopy()
+					}
+					if !scenario[features.UnadmittedWorkloadsObservability] {
+						utiltesting.AdjustWorkloadsForDisabledObservabilityInScheduler(wantWorkloads)
+					}
 
-				if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads.Items, opts); diff != "" {
-					t.Errorf("Unexpected scheduled workloads (-want,+got):\n%s", diff)
-				}
+					opts := cmp.Options{
+						cmpopts.EquateEmpty(),
+						cmpopts.IgnoreFields(metav1.ObjectMeta{}, "Labels"),
+					}
 
-				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents,
-					cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message"),
-				); diff != "" {
-					t.Errorf("Unexpected events (-want/+got):\n%s", diff)
-				}
-			})
+					if diff := cmp.Diff(wantWorkloads, gotWorkloads.Items, opts); diff != "" {
+						t.Errorf("Unexpected scheduled workloads (-want,+got):\n%s", diff)
+					}
+
+					if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents,
+						cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message"),
+					); diff != "" {
+						t.Errorf("Unexpected events (-want/+got):\n%s", diff)
+					}
+				},
+			)
 		}
 	}
 }

@@ -783,6 +783,12 @@ func (q *LocalQueueWrapper) Creation(t time.Time) *LocalQueueWrapper {
 	return q
 }
 
+// DeletionTimestamp sets the deletion timestamp of the LocalQueue.
+func (q *LocalQueueWrapper) DeletionTimestamp(t time.Time) *LocalQueueWrapper {
+	q.LocalQueue.DeletionTimestamp = new(metav1.NewTime(t).Rfc3339Copy())
+	return q
+}
+
 // Label sets the label on the LocalQueue.
 func (q *LocalQueueWrapper) Label(k, v string) *LocalQueueWrapper {
 	if q.Labels == nil {

@@ -8,15 +8,15 @@ controller:
   groupKindConcurrency:
     Job.batch: 5
     Pod: 5
-    Workload.kueue.x-k8s.io: 5
-    LocalQueue.kueue.x-k8s.io: 1
-    ClusterQueue.kueue.x-k8s.io: 1
+    Workload.kueue.x-k8s.io: 10
+    LocalQueue.kueue.x-k8s.io: 5
+    ClusterQueue.kueue.x-k8s.io: 5
     ResourceFlavor.kueue.x-k8s.io: 1
 fairSharing:
   preemptionStrategies: ["LessThanOrEqualToFinalShare", "LessThanInitialShare"]
 clientConnection:
-  qps: 50
-  burst: 100
+  qps: 300
+  burst: 500
 integrations:
   frameworks:
   - "batch/job"
@@ -43,7 +43,7 @@ featureGates:
   MultiKueueManagerQuotaAutomation: true
 tls:
   minVersion: "VersionTLS12"
-  # this is the default ciphersuite for golang 1.25
+  # this is the default ciphersuite for golang 1.26
   cipherSuites:
     - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
     - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256

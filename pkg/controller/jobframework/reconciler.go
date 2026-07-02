@@ -68,6 +68,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -403,7 +405,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// Update workload conditions if implemented JobWithCustomWorkloadConditions interface.
 	if jobCond, ok := job.(JobWithCustomWorkloadConditions); wl != nil && ok {
 		if conditions, updated := jobCond.CustomWorkloadConditions(wl); updated {
-			return reconcile.Result{}, workload.PatchStatus(
+			return reconcile.Result{}, workloadpatching.PatchStatus(
 				ctx, r.client, wl,
 				client.FieldOwner(fmt.Sprintf("%s-%s-controller", constants.KueueName, strings.ToLower(job.GVK().Kind))),
 				func(wl *kueue.Workload) (bool, error) {
@@ -525,7 +527,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			// update the metrics only when PodsReady condition status is true
 			if condition.Status == metav1.ConditionTrue {
 				cqName := wl.Status.Admission.ClusterQueue
-				priorityClassName := workload.PriorityClassName(wl)
+				priorityClassName := workloadpatching.PriorityClassName(wl)
 				queuedUntilReadyWaitTime := workload.QueuedWaitTime(wl, r.clock)
 				metrics.ReadyWaitTime(cqName, priorityClassName, queuedUntilReadyWaitTime, r.customLabels.CQGet(cqName), r.roleTracker)
 				admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
@@ -553,11 +555,16 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		if workload.HasQuotaReservation(wl) {
 			if !job.IsActive() {
 				log.V(6).Info("The job is no longer active, clear the workloads admission")
-				err := workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+				err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 					// The requeued condition status set to true only on EvictedByPreemption
 					setRequeued := (evCond.Reason == kueue.WorkloadEvictedByPreemption) || (evCond.Reason == kueue.WorkloadEvictedDueToNodeFailures)
 					updated := workload.SetRequeuedCondition(wl, evCond.Reason, evCond.Message, setRequeued)
-					if workload.UnsetQuotaReservationWithCondition(wl, "Pending", evCond.Message, r.clock.Now()) {
+					if workload.UnsetQuotaReservationWithCondition(
+						wl,
+						kueue.WorkloadPending, //nolint:staticcheck // SA1019: fallback
+						evCond.Message,
+						r.clock.Now(),
+					) {
 						updated = true
 					}
 					return updated, nil
@@ -731,7 +738,7 @@ func (r *JobReconciler) shouldSuspendChildJob(ctx context.Context, childJob Gene
 				// With workload slicing, during autoscaling-up, there will be two workloads at certain time for workload slice
 				// replacement. The old one was finished, the new one is going to be admitted. There is no admitted workload in
 				// this case, and we should not suspend the job. As a workaround, check evicted status instead.
-				return workload.IsEvicted(ancestorNotFinishedWorkload), nil
+				return workloadevict.IsEvicted(ancestorNotFinishedWorkload), nil
 			}
 			// For none workload slicing, suspend the job if workload not admitted
 			return !workload.IsAdmitted(ancestorNotFinishedWorkload), nil
@@ -741,7 +748,7 @@ func (r *JobReconciler) shouldSuspendChildJob(ctx context.Context, childJob Gene
 }
 
 func (r *JobReconciler) shouldHandleDeletionOfDeactivatedWorkload(wl *kueue.Workload) bool {
-	return r.workloadRetentionPolicy.AfterDeactivatedByKueue != nil && !workload.IsActive(wl) && workload.IsEvictedDueToDeactivationByKueue(wl)
+	return r.workloadRetentionPolicy.AfterDeactivatedByKueue != nil && !workload.IsActive(wl) && workloadevict.IsEvictedDueToDeactivationByKueue(wl)
 }
 
 func (r *JobReconciler) handleWorkloadAfterDeactivatedPolicy(ctx context.Context, job GenericJob, wl *kueue.Workload) (time.Duration, error) {
@@ -1119,7 +1126,7 @@ func PropagateAdmissionGatedByAnnotation(obj client.Object, wl *kueue.Workload) 
 // UpdateWorkloadPriority updates workload priority if object's kueue.x-k8s.io/priority-class label changed.
 func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object, wl *kueue.Workload, customPriorityClassFunc func() string) error {
 	jobPriorityClassName := WorkloadPriorityClassName(obj)
-	wlPriorityClassName := workload.PriorityClassName(wl)
+	wlPriorityClassName := workloadpatching.PriorityClassName(wl)
 
 	// This handles both: changing priority (old -> new) AND adding priority (none -> new)
 	if (workload.HasNoPriority(wl) || workload.IsWorkloadPriorityClass(wl)) && jobPriorityClassName != wlPriorityClassName {
@@ -1323,7 +1330,7 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 	}
 
 	if cj, implements := job.(ComposableJob); implements {
-		if err := cj.Run(ctx, r.client, info, r.record, msg); err != nil {
+		if err := cj.Run(ctx, r.client, wl, info, r.record, msg); err != nil {
 			return err
 		}
 	} else {

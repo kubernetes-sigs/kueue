@@ -685,6 +685,11 @@ func IsJobFinished(j *batchv1.Job) (batchv1.JobConditionType, bool) {
 		if (c.Type == batchv1.JobComplete || c.Type == batchv1.JobFailed) && c.Status == corev1.ConditionTrue {
 			return c.Type, true
 		}
+		// FailureTarget appears ~tens-of-seconds before JobFailed when activeDeadlineSeconds
+		// is exceeded; treat it as a failed terminal state to avoid stalling the reconciler.
+		if c.Type == batchv1.JobFailureTarget && c.Status == corev1.ConditionTrue {
+			return batchv1.JobFailed, true
+		}
 	}
 	return "", false
 }

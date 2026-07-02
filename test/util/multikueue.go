@@ -290,3 +290,49 @@ func ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx context.Context, k8sClient 
 	}, MediumTimeout, Interval).Should(gomega.Succeed())
 	return workerName
 }
+
+type ClusterInfo struct {
+	Name   string
+	Client client.Client
+	Ctx    context.Context
+}
+
+//revive:disable:context-as-argument
+
+func DefaultClusterInfosForTests(
+	ctx1 context.Context,
+	client1 client.Client,
+	ctx2 context.Context,
+	client2 client.Client,
+) []ClusterInfo {
+	return []ClusterInfo{
+		{
+			Name:   "worker1",
+			Client: client1,
+			Ctx:    ctx1,
+		},
+		{
+			Name:   "worker2",
+			Client: client2,
+			Ctx:    ctx2,
+		},
+	}
+}
+
+//revive:enable:context-as-argument
+
+func GetClientForSelectedWorkerCluster(g gomega.Gomega, managerWl *kueue.Workload, clusters ...ClusterInfo) ClusterInfo {
+	ginkgo.GinkgoHelper()
+
+	clusterName := managerWl.Status.ClusterName
+	g.Expect(clusterName).ToNot(gomega.BeNil())
+
+	for _, cluster := range clusters {
+		if cluster.Name == *clusterName {
+			return cluster
+		}
+	}
+
+	ginkgo.Fail("none of the supplied clusters was selected")
+	return ClusterInfo{}
+}

@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 )
 
 // Workload slicing refers to a specialized Kueue feature designed to support workload scaling up.
@@ -135,6 +136,25 @@ func FindNotFinishedWorkloads(ctx context.Context, clnt client.Client, jobObject
 	return slices.DeleteFunc(list.Items, func(w kueue.Workload) bool {
 		return workload.IsFinished(&w)
 	}), nil
+}
+
+// FindLatestActiveWorkload returns the newest non-finished workload slice owned
+// by the provided job object/gvk that holds a quota reservation, or nil if none
+// qualifies. This is the chain's "active" slice: its granted PodSet counts
+// define the admitted capacity. It builds on FindNotFinishedWorkloads, so the
+// returned slice respects the same ordering (newest last, with
+// WorkloadSliceReplacementFor as a tiebreaker on equal creation timestamps).
+func FindLatestActiveWorkload(ctx context.Context, clnt client.Client, jobObject client.Object, jobObjectGVK schema.GroupVersionKind) (*kueue.Workload, error) {
+	workloads, err := FindNotFinishedWorkloads(ctx, clnt, jobObject, jobObjectGVK)
+	if err != nil {
+		return nil, err
+	}
+	for i := range slices.Backward(workloads) {
+		if workload.HasQuotaReservation(&workloads[i]) {
+			return &workloads[i], nil
+		}
+	}
+	return nil, nil
 }
 
 // ScaledDown returns true if the new pod sets represent a scale-down operation.
@@ -258,7 +278,7 @@ func normalizeActiveSlices(
 	var latestWithQuotaReservation, pendingReplacement, latestNonEvicted *kueue.Workload
 	for i, _ := range slices.Backward(workloads) {
 		wl := &workloads[i]
-		if workload.IsEvicted(wl) {
+		if workloadevict.IsEvicted(wl) {
 			continue
 		}
 		if latestNonEvicted == nil {
@@ -275,7 +295,7 @@ func normalizeActiveSlices(
 		latestWithQuotaReservationKey := workload.Key(latestWithQuotaReservation)
 		for i, _ := range slices.Backward(workloads) {
 			wl := &workloads[i]
-			if workload.HasQuotaReservation(wl) || workload.IsEvicted(wl) {
+			if workload.HasQuotaReservation(wl) || workloadevict.IsEvicted(wl) {
 				continue
 			}
 			if replKey := ReplacementForKey(wl); replKey != nil && *replKey == latestWithQuotaReservationKey {
