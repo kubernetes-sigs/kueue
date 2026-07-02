@@ -136,7 +136,7 @@ func GenerateRoleHash(podSpec *corev1.PodSpec) (string, error) {
 }
 
 func SpecShape(podSpec *corev1.PodSpec) (result map[string]any) {
-	return map[string]any{
+	shape := map[string]any{
 		"initContainers":            ContainersShape(podSpec.InitContainers),
 		"containers":                ContainersShape(podSpec.Containers),
 		"nodeSelector":              podSpec.NodeSelector,
@@ -148,6 +148,12 @@ func SpecShape(podSpec *corev1.PodSpec) (result map[string]any) {
 		"overhead":                  podSpec.Overhead,
 		"resourceClaims":            podSpec.ResourceClaims,
 	}
+	// Pod-level resources (KEP-2837) only contribute to the shape when set, so that
+	// role hashes computed for pods without them stay stable across upgrades.
+	if podSpec.Resources != nil {
+		shape["resources"] = podSpec.Resources.Requests
+	}
+	return shape
 }
 
 func ContainersShape(containers []corev1.Container) (result []map[string]any) {
