@@ -584,5 +584,62 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 				)))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
+
+		ginkgo.It("Should write granular conditions and reasons when DRA claim resolution fails under the observability feature gate", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
+
+			ginkgo.By("Creating a ResourceSlice with MIG devices")
+			slice := utiltesting.MakeResourceSlice("pd-nomatch-observability-slice", "gpu.example.com").
+				Pool("node1-gpu0", 1, 1).
+				Device("gpu-0").Attribute("type", "gpu").
+				CounterConsumption("gpu-0-counter-set", "memory", "40320Mi").
+				Device("gpu-0-mig-1g5gb-0").Attribute("type", "mig").Attribute("profile", "1g.5gb").
+				CounterConsumption("gpu-0-counter-set", "memory", "4864Mi").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, slice)).To(gomega.Succeed())
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(k8sClient.Delete(ctx, slice)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("Creating RCT with non-matching CEL selectors")
+			rct := utiltesting.MakeResourceClaimTemplate("mig-nonexistent-obs", ns.Name).
+				DeviceRequest("gpu", "mig.example.com", 1).
+				WithCELSelectors("device.attributes['gpu.example.com'].profile == 'nonexistent'").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())
+
+			ginkgo.By("Creating workload")
+			wl := utiltestingapi.MakeWorkload("pd-nomatch-observability-wl", ns.Name).
+				Queue("pd-lq").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("mig", "mig-nonexistent-obs").
+					Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			ginkgo.By("Verifying workload is marked as inadmissible with granular reasons")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
+				g.Expect(updatedWl.Status.Conditions).Should(gomega.HaveLen(3))
+
+				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
+					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
+					gomega.HaveField("Status", metav1.ConditionFalse),
+					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonMisconfigured),
+				)))
+				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
+					gomega.HaveField("Type", kueue.WorkloadAdmitted),
+					gomega.HaveField("Status", metav1.ConditionFalse),
+					gomega.HaveField("Reason", "NoReservation"),
+				)))
+				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
+					gomega.HaveField("Type", kueue.WorkloadRequeued),
+					gomega.HaveField("Status", metav1.ConditionFalse),
+					gomega.HaveField("Reason", kueue.WorkloadInadmissible),
+				)))
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+		})
 	})
 })

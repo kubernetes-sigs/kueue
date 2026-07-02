@@ -477,6 +477,18 @@ func ExpectWorkloadsToBePending(ctx context.Context, k8sClient client.Client, wl
 	ExpectWorkloadsToBePendingByKeys(ctx, k8sClient, wlKeys...)
 }
 
+var pendingQuotaReservedReasons = sets.New(
+	"Pending",
+	"Waiting",
+	kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+	kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+	kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
+	kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+	kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
+	kueue.WorkloadQuotaReservedReasonWaitingForPodsReady,
+	kueue.WorkloadQuotaReservedReasonNoMatchingFlavor,
+)
+
 func ExpectWorkloadsToBePendingByKeys(ctx context.Context, k8sClient client.Client, wlKeys ...client.ObjectKey) {
 	ginkgo.GinkgoHelper()
 	wlKeys = uniqueKeys(wlKeys)
@@ -487,7 +499,7 @@ func ExpectWorkloadsToBePendingByKeys(ctx context.Context, k8sClient client.Clie
 			wl := &kueue.Workload{}
 			g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 			cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-			if cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == "Pending" {
+			if cond != nil && cond.Status == metav1.ConditionFalse && pendingQuotaReservedReasons.Has(cond.Reason) {
 				pending = append(pending, wlKey)
 			}
 			wlObjects[i] = wl
