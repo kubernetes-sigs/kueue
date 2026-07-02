@@ -717,6 +717,35 @@ func (s *SecretWrapper) Data(key string, value []byte) *SecretWrapper {
 	return s
 }
 
+type ServiceWrapper struct{ corev1.Service }
+
+func MakeService(name, ns string) *ServiceWrapper {
+	return &ServiceWrapper{
+		corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: ns,
+			},
+		},
+	}
+}
+
+func (s *ServiceWrapper) Obj() *corev1.Service {
+	return &s.Service
+}
+
+func (s *ServiceWrapper) Selector(selector map[string]string) *ServiceWrapper {
+	s.Spec.Selector = selector
+	return s
+}
+
+func (s *ServiceWrapper) Port(port int32) *ServiceWrapper {
+	s.Spec.Ports = append(s.Spec.Ports, corev1.ServicePort{
+		Port: port,
+	})
+	return s
+}
+
 type RoleWrapper struct{ rbacv1.Role }
 
 func MakeRole(name, ns string) *RoleWrapper {

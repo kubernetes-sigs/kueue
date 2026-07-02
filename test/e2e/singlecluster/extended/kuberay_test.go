@@ -27,11 +27,13 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -40,7 +42,9 @@ import (
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	workloadrayservice "sigs.k8s.io/kueue/pkg/controller/jobs/rayservice"
 	utilpodset "sigs.k8s.io/kueue/pkg/util/podset"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	testingrayservice "sigs.k8s.io/kueue/pkg/util/testingjobs/rayservice"
@@ -948,6 +952,97 @@ app = HelloWorld.bind()`,
 				body, err := io.ReadAll(resp.Body)
 				g.Expect(err).NotTo(gomega.HaveOccurred())
 				g.Expect(strings.TrimSpace(string(body))).To(gomega.ContainSubstring("Hello, World!"))
+			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("Should not suspend the redis-cleanup Job when RayService with GCS FT is deleted", ginkgo.Label("shard:kuberay-a", "requires:fullray"), func() {
+		kuberayTestImage := util.GetKuberayTestImage()
+
+		redisPod := testingpod.MakePod("redis", ns.Name).
+			Label("app", "redis").
+			Image("redis:6.2", nil).
+			Obj()
+		redisPod.Spec.Containers[0].Name = "redis"
+		redisPod.Spec.Containers[0].Ports = []corev1.ContainerPort{{ContainerPort: 6379}}
+
+		redisService := utiltesting.MakeService("redis-service", ns.Name).
+			Selector(map[string]string{"app": "redis"}).
+			Port(6379).
+			Obj()
+
+		ginkgo.By("Creating the Redis Pod and Service", func() {
+			gomega.Expect(k8sClient.Create(ctx, redisPod)).Should(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, redisService)).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Waiting for the Redis Pod to be running", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdPod := &corev1.Pod{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(redisPod), createdPod)).To(gomega.Succeed())
+				g.Expect(createdPod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		rayService := testingrayservice.MakeService("rayservice-ft", ns.Name).
+			Suspend(true).
+			Queue(localQueueName).
+			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
+			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "600m").
+			Image(rayv1.HeadNode, kuberayTestImage).
+			Image(rayv1.WorkerNode, kuberayTestImage).
+			RayStartParam(rayv1.HeadNode, "object-store-memory", objectStoreMemory).
+			Obj()
+
+		rayService.Spec.RayClusterSpec.GcsFaultToleranceOptions = &rayv1.GcsFaultToleranceOptions{
+			RedisAddress: fmt.Sprintf("redis-service.%s.svc.cluster.local:6379", ns.Name),
+		}
+
+		ginkgo.By("Creating the RayService", func() {
+			gomega.Expect(k8sClient.Create(ctx, rayService)).Should(gomega.Succeed())
+		})
+
+		wlLookupKey := types.NamespacedName{Name: workloadrayservice.GetWorkloadNameForRayService(rayService.Name, rayService.UID), Namespace: ns.Name}
+		createdWorkload := &kueue.Workload{}
+		ginkgo.By("Checking workload is created", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Checking workload is admitted", func() {
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, createdWorkload)
+		})
+
+		ginkgo.By("Checking the RayService is running", func() {
+			createdRayService := &rayv1.RayService{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayService), createdRayService)).To(gomega.Succeed())
+				g.Expect(createdRayService.Spec.RayClusterSpec.Suspend).To(gomega.Equal(new(false)))
+				g.Expect(apimeta.IsStatusConditionTrue(createdRayService.Status.Conditions, string(rayv1.RayServiceReady))).To(gomega.BeTrue())
+			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsg("RayService did not become ready", createdRayService))
+		})
+
+		ginkgo.By("Deleting the RayService to trigger KubeRay to create the redis-cleanup Job", func() {
+			gomega.Expect(k8sClient.Delete(ctx, rayService)).Should(gomega.Succeed())
+		})
+
+		redisCleanupJob := &batchv1.Job{}
+		ginkgo.By("Checking that the redis-cleanup Job is created and NOT suspended by Kueue", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				jobs := &batchv1.JobList{}
+				g.Expect(k8sClient.List(ctx, jobs, client.InNamespace(ns.Name), client.MatchingLabels{"ray.io/node-type": "redis-cleanup"})).To(gomega.Succeed())
+				g.Expect(jobs.Items).To(gomega.HaveLen(1), "Expected exactly one redis-cleanup Job")
+				*redisCleanupJob = jobs.Items[0]
+				g.Expect(ptr.Deref(redisCleanupJob.Spec.Suspend, false)).To(gomega.BeFalse())
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Checking that the RayService is eventually deleted automatically", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				err := k8sClient.Get(ctx, client.ObjectKeyFromObject(rayService), &rayv1.RayService{})
+				g.Expect(client.IgnoreNotFound(err)).NotTo(gomega.HaveOccurred())
+				g.Expect(err).To(gomega.HaveOccurred(), "Expected RayService to be deleted")
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
