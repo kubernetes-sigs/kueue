@@ -1,4 +1,11 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.9"
+# dependencies = [
+#     "kubernetes",
+#     "requests",
+# ]
+# ///
 
 from kubernetes import utils, config, client
 import tempfile
@@ -10,9 +17,6 @@ import argparse
 # This example will demonstrate installing Kueue and applying a YAML file (local) to install Kueue
 
 # Make sure your cluster is running!
-config.load_kube_config()
-crd_api = client.CustomObjectsApi()
-api_client = crd_api.api_client
 
 
 def get_parser():
@@ -34,6 +38,7 @@ def main():
 
     This will error if they are already installed.
     """
+    config.load_kube_config()
     parser = get_parser()
     args, _ = parser.parse_known_args()
     install_kueue(args.version)
@@ -55,6 +60,9 @@ def install_kueue(version):
     """
     Install Kueue of a particular version.
     """
+    crd_api = client.CustomObjectsApi()
+    api_client = crd_api.api_client
+
     print("⭐️ Installing Kueue...")
     url = get_install_url(version)
     with tempfile.NamedTemporaryFile(delete=True) as install_yaml:

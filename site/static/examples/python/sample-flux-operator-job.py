@@ -1,4 +1,11 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.9"
+# dependencies = [
+#     "kubernetes",
+#     "fluxoperator",
+# ]
+# ///
 
 import argparse
 from kubernetes import config, client
@@ -8,9 +15,6 @@ import fluxoperator.models as models
 # This example will demonstrate full steps to submit a Job via the Flux Operator.
 
 # Make sure your cluster is running!
-config.load_kube_config()
-crd_api = client.CustomObjectsApi()
-api_client = crd_api.api_client
 
 
 def get_parser():
@@ -90,6 +94,7 @@ def main():
     """
     Run an example job using the Flux Operator.
     """
+    config.load_kube_config()
     parser = get_parser()
     args, _ = parser.parse_known_args()
 
