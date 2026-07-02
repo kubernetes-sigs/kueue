@@ -431,6 +431,7 @@ type reconcileTestCase struct {
 	wantEvents                []utiltesting.EventRecord
 	wantResult                reconcile.Result
 	reconcilerOpts            []Option
+	beforeReconcile           func(context.Context, client.Client)
 }
 
 func TestUpdateSkipsRequeueForOnHoldWorkload(t *testing.T) {
@@ -1253,6 +1254,48 @@ func TestReconcile(t *testing.T) {
 				}).
 				Obj(),
 		},
+		"inadmissible workload due to broken ClusterQueue namespace selector (observability enabled)": {
+			featureGates: map[featuregate.Feature]bool{
+				features.UnadmittedWorkloadsObservability: true,
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			beforeReconcile: func(ctx context.Context, cl client.Client) {
+				cq := &kueue.ClusterQueue{}
+				if err := cl.Get(ctx, types.NamespacedName{Name: "cq"}, cq); err != nil {
+					panic(err)
+				}
+				cq.Spec.NamespaceSelector = &metav1.LabelSelector{
+					MatchExpressions: []metav1.LabelSelectorRequirement{
+						{
+							Key:      "invalid-operator",
+							Operator: "InvalOp",
+						},
+					},
+				}
+				if err := cl.Update(ctx, cq); err != nil {
+					panic(err)
+				}
+			},
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Message: "invalid namespace selector: \"InvalOp\" is not a valid label selector operator",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
+				Obj(),
+		},
 	}
 	runReconcileTestCases(t, cases, fakeClock)
 }
@@ -1409,6 +1452,10 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 						t.Fatalf("Failed to initialize DRA mapper: %v", err)
 					}
 					reconciler.draMapper = draMapper
+				}
+
+				if tc.beforeReconcile != nil {
+					tc.beforeReconcile(ctx, cl)
 				}
 
 				gotResult, gotError := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(testWl)})
