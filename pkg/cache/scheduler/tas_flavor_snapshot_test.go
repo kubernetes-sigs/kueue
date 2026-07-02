@@ -17,12 +17,14 @@ limitations under the License.
 package scheduler
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 
+	"k8s.io/utils/ptr"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -936,6 +938,94 @@ func TestTruncateAssignment(t *testing.T) {
 			got := tas.TruncateAssignment(tc.assignment, tc.newCount)
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("TruncateAssignment() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestGetSliceSizeWithSinglePodAsDefault(t *testing.T) {
+	tests := map[string]struct {
+		name     string
+		tr       *kueue.PodSetTopologyRequest
+		wantSize int32
+		wantErr  error
+	}{
+		"nil topology request returns 1": {
+			tr:       nil,
+			wantSize: 1,
+			wantErr:  nil,
+		},
+		"no slice requirement returns 1": {
+			tr:       &kueue.PodSetTopologyRequest{},
+			wantSize: 1,
+			wantErr:  nil,
+		},
+		"valid slice size from constraints": {
+			tr: &kueue.PodSetTopologyRequest{
+				PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{
+					{
+						Topology: "kubernetes.io/hostname",
+						Size:     5,
+					},
+				},
+			},
+			wantSize: 5,
+			wantErr:  nil,
+		},
+		"zero slice size from constraints is rejected": {
+			tr: &kueue.PodSetTopologyRequest{
+				PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{
+					{
+						Topology: "kubernetes.io/hostname",
+						Size:     0,
+					},
+				},
+			},
+			wantSize: 0,
+			wantErr:  errSliceSizeInvalid,
+		},
+		"valid explicit slice size": {
+			tr: &kueue.PodSetTopologyRequest{
+				PodSetSliceRequiredTopology: ptr.To("kubernetes.io/hostname"),
+				PodSetSliceSize:             ptr.To(int32(3)),
+			},
+			wantSize: 3,
+			wantErr:  nil,
+		},
+		"zero explicit slice size is rejected": {
+			tr: &kueue.PodSetTopologyRequest{
+				PodSetSliceRequiredTopology: ptr.To("kubernetes.io/hostname"),
+				PodSetSliceSize:             ptr.To(int32(0)),
+			},
+			wantSize: 0,
+			wantErr:  errSliceSizeInvalid,
+		},
+		"negative explicit slice size is rejected": {
+			tr: &kueue.PodSetTopologyRequest{
+				PodSetSliceRequiredTopology: ptr.To("kubernetes.io/hostname"),
+				PodSetSliceSize:             ptr.To(int32(-5)),
+			},
+			wantSize: 0,
+			wantErr:  errSliceSizeInvalid,
+		},
+		"slice topology requested but size not provided": {
+			tr: &kueue.PodSetTopologyRequest{
+				PodSetSliceRequiredTopology: ptr.To("kubernetes.io/hostname"),
+				PodSetSliceSize:             nil,
+			},
+			wantSize: 0,
+			wantErr:  errSliceSizeNotProvided,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			size, err := getSliceSizeWithSinglePodAsDefault(tc.tr)
+			if size != tc.wantSize {
+				t.Errorf("getSliceSizeWithSinglePodAsDefault() size got %d, want %d", size, tc.wantSize)
+			}
+			if !errors.Is(err, tc.wantErr) {
+				t.Errorf("getSliceSizeWithSinglePodAsDefault() error got %v, want %v", err, tc.wantErr)
 			}
 		})
 	}

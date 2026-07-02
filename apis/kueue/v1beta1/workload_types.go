@@ -148,6 +148,7 @@ type PodSetTopologyRequest struct {
 	// in `kueue.x-k8s.io/podset-slice-required-topology` annotation.
 	//
 	// +optional
+	// +kubebuilder:validation:Minimum=1
 	PodSetSliceSize *int32 `json:"podSetSliceSize,omitempty"`
 }
 

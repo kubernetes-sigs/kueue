@@ -44,6 +44,8 @@ import (
 
 var (
 	errCodeAssumptionsViolated = errors.New("code assumptions violated")
+	errSliceSizeInvalid        = errors.New("slice size must be greater than 0")
+	errSliceSizeNotProvided    = errors.New("slice topology requested, but slice size not provided")
 )
 
 // domain holds the static information about placement of a topology
@@ -882,9 +884,9 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	}
 
 	// If slice topology is not requested then we can assume that slice is a single pod
-	sliceSize, reason := getSliceSizeWithSinglePodAsDefault(workersTasPodSetRequests.PodSet.TopologyRequest)
-	if len(reason) > 0 {
-		return nil, reason
+	sliceSize, err := getSliceSizeWithSinglePodAsDefault(workersTasPodSetRequests.PodSet.TopologyRequest)
+	if err != nil {
+		return nil, fmt.Sprintf("failed to determine slice size: %w", err)
 	}
 	state.sliceSize = sliceSize
 
@@ -1215,24 +1217,32 @@ func slicesRequested(tr *kueue.PodSetTopologyRequest) bool {
 	return (tr.PodSetSliceRequiredTopology != nil && tr.PodSetSliceSize != nil) || len(tr.PodsetSliceRequiredTopologyConstraints) > 0
 }
 
-func getSliceSizeWithSinglePodAsDefault(podSetTopologyRequest *kueue.PodSetTopologyRequest) (int32, string) {
+func getSliceSizeWithSinglePodAsDefault(podSetTopologyRequest *kueue.PodSetTopologyRequest) (int32, error) {
 	if podSetTopologyRequest == nil {
-		return 1, ""
+		return 1, nil
 	}
 
 	if len(podSetTopologyRequest.PodsetSliceRequiredTopologyConstraints) > 0 {
-		return podSetTopologyRequest.PodsetSliceRequiredTopologyConstraints[0].Size, ""
+		size := podSetTopologyRequest.PodsetSliceRequiredTopologyConstraints[0].Size
+		if size <= 0 {
+			return 0, errSliceSizeInvalid
+		}
+		return size, nil
 	}
 
 	if podSetTopologyRequest.PodSetSliceRequiredTopology == nil {
-		return 1, ""
+		return 1, nil
 	}
 
 	if podSetTopologyRequest.PodSetSliceSize == nil {
-		return 0, "slice topology requested, but slice size not provided"
+		return 0, errSliceSizeNotProvided
 	}
 
-	return *podSetTopologyRequest.PodSetSliceSize, ""
+	sliceSize := *podSetTopologyRequest.PodSetSliceSize
+	if sliceSize <= 0 {
+		return 0, errSliceSizeInvalid
+	}
+	return sliceSize, nil
 }
 
 // findBestFitDomain finds an index of the first domain with the lowest
