@@ -1104,6 +1104,98 @@ func TestReconcile(t *testing.T) {
 			},
 			reconcilerOpts: []Option{},
 		},
+		"workload with legacy Pending reason should transition to PendingEvaluation (observability enabled)": {
+			featureGates: map[featuregate.Feature]bool{
+				features.UnadmittedWorkloadsObservability: true,
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadPending,
+					Message: "Workload is pending",
+				}).
+				Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+					Message: "Workload is pending evaluation in the scheduling queue",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
+				Obj(),
+		},
+		"workload with granular PendingEvaluation reason should preserve it when queue is active (observability enabled)": {
+			featureGates: map[featuregate.Feature]bool{
+				features.UnadmittedWorkloadsObservability: true,
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+					Message: "Workload is pending evaluation in the scheduling queue",
+				}).
+				Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+					Message: "Workload is pending evaluation in the scheduling queue",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
+				Obj(),
+		},
+		"workload with granular PendingEvaluation reason should transition to Inadmissible when queue is missing (observability disabled)": {
+			featureGates: map[featuregate.Feature]bool{
+				features.UnadmittedWorkloadsObservability: false,
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+					Message: "Workload is pending evaluation in the scheduling queue",
+				}).
+				Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "LocalQueue lq doesn't exist",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
+				Obj(),
+		},
 		"workload with AdmissionGatedBy annotation removed should clear the gate and emit event": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Queue("lq").
