@@ -1861,7 +1861,7 @@ func (r *WorkloadReconciler) resolveGranularUnadmittedQuotaReservedCondition(
 		if err != nil {
 			log := ctrl.LoggerFrom(ctx)
 			log.Error(err, "Invalid ClusterQueue NamespaceSelector", "clusterQueue", cq.Name)
-			selector = labels.Nothing()
+			return r.newQuotaReservedCondition(wl, kueue.WorkloadQuotaReservedReasonMisconfigured, fmt.Sprintf("invalid namespace selector: %v", err)), nil
 		}
 		wlInfo := workload.NewInfo(wl)
 		admissibilityErr = workload.ValidateAdmissibility(ctx, r.client, wlInfo, selector)
@@ -1889,10 +1889,6 @@ func (r *WorkloadReconciler) resolveGranularUnadmittedQuotaReservedCondition(
 		return r.newQuotaReservedCondition(wl, kueue.WorkloadQuotaReservedReasonMisconfigured, admissibilityErr.Error()), nil
 	case workload.HasAdmissionGate(wl):
 		return r.newQuotaReservedCondition(wl, kueue.WorkloadAdmissionGated, fmt.Sprintf("Admission is gated by: %s", wl.Annotations[constants.AdmissionGatedByAnnotation])), nil
-	case cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == kueue.WorkloadQuotaReservedReasonNoMatchingFlavor:
-		return r.newQuotaReservedCondition(wl, cond.Reason, cond.Message), nil
-	case cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == kueue.WorkloadQuotaReservedReasonWaitingForPodsReady:
-		return r.newQuotaReservedCondition(wl, cond.Reason, cond.Message), nil
 	case cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason != "" &&
 		cond.Reason != kueue.WorkloadQuotaReservedReasonSuspended &&
 		cond.Reason != kueue.WorkloadQuotaReservedReasonMisconfigured:
