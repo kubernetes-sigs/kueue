@@ -79,7 +79,7 @@ type PodSet struct {
 
 In case the workload proposed for the current scheduling cycle, does not fit, with or without preemption, in the current available quota and any of its PodSets allow partial admission, try to find to find a lower counts combination that fits the available quota with or without borrowing.
 
-The search should be optimized (binary search) and preserve the proportion of pods lost across the variable count PodSets.
+The search should be priority based assuming that PodSets are listed accordinly to priorities.
 
 The accepted number of pods in each PodSet are recorded in `workload.Status.Admission.PodSetAssignments[*].ResourceUsage.Count`
 
@@ -91,7 +91,8 @@ In order to evaluate the potential success of the preemption, the preemption pro
 
 If multiple PodSets within a workload have variable counts, Kueue will iterate over the PodSets in the order they are defined in the Workload spec, starting from the end, and will try to decrease their counts until a fit is found. If shrinking the last PodSet still results in a NoFit, Kueue will try to decrease the next PodSet while keeping the last one at its minimum count, and so on.
 
-When a workload finds a combination that fits the available quota, it tries to find the combination that can be reached with minimum pod loss by checking if any of the PodSets with count == min count can be increased up to the original count.
+As an optimisation we will introdce an increased step: when a workload finds a combination that fits the available quota, Kueue could try to find the combination that can be reached with minimum pod loss by checking if any of the PodSets with count == min count can be increased up to the original count. 
+The increased step is not nessesary for elastic workloads, but it the non-elastic workloads will benefit from it.
 
 Starting with the PodSets:
 
@@ -104,8 +105,6 @@ And only being able to admit 19 pods, it should end up with
 ```go
 []podSet { {Count: 1} , {Count: 4}, {Count: 14}}
 ```
-
-If the priority based partial admission is not sufficient, the "proportional" partial admission will be introduced.
 
 ### Jobframework
 
@@ -148,7 +147,7 @@ Additional research is needed into the potential usage of multiple variable coun
 
 The RayCluster with 'kueue.x-k8s.io/partial-preemption=true' annotation are eligible for partial preemption. The
 RayCluster.workerGroupSpec[i].minReplicas will be translated to the PodSet.MinCount for the Worker PodSet.
-There will be no update on RayCluster object. If the number of admitted pods less than requested count, the leftover pods should remain scheduling gated. In order to achive that the same mechanism as for elastic workloads will be applied – the podTemplate will be initially gated and then the correct amount of pods will be ungated.
+There will be no update on RayCluster object. If the number of admitted pods less than requested count, the leftover pods should remain scheduling gated. In order to achieve that the same mechanism as for elastic workloads will be applied – the podTemplate will be initially gated and then the correct amount of pods will be ungated.
 
 ### Test Plan
 
@@ -178,3 +177,4 @@ The `scheduler` and `controllers/job` should be extended to cover the new capabi
 
 ## Alternatives
 
+Using proportional algorithm instead of priority based one, i.e each PodSet should be shrinked proportionaly.
