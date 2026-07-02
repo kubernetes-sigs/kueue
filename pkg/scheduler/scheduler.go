@@ -399,7 +399,10 @@ func (s *Scheduler) processEntry(
 	usage, fits := s.updateAssignmentIfNeeded(log, e, snapshot, cq, preemptedWorkloads)
 	mode := e.assignment.RepresentativeMode()
 
-	if features.Enabled(features.TASFailedNodeReplacementFailFast) && workload.HasTopologyAssignmentWithUnhealthyNode(e.Obj) && mode != flavorassigner.Fit {
+	if features.Enabled(features.TASFailedNodeReplacementFailFast) && workload.HasTopologyAssignmentWithUnhealthyNode(e.Obj) &&
+		mode != flavorassigner.Fit &&
+		(!features.Enabled(features.TASReplaceMultipleFailedNodes) ||
+			len(e.Obj.Status.UnhealthyNodes) > workload.UnhealthyNodesEvictionThreshold(e.Obj)) {
 		s.handleFailedTASReplacement(ctx, log, e)
 		return
 	}
@@ -863,8 +866,21 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 		err := workloadpatching.PatchAdmissionStatus(ctx, s.client, newWorkload, s.clock, func(wl *kueue.Workload) (bool, error) {
 			s.prepareWorkload(log, wl, cq, admission)
 			if features.Enabled(features.TopologyAwareScheduling) && workload.HasUnhealthyNodes(e.Obj) {
-				log.V(5).Info("Clearing the topology assignment recovery field from the workload status after successful recovery")
-				wl.Status.UnhealthyNodes = nil
+				if features.Enabled(features.TASReplaceMultipleFailedNodes) && len(e.Obj.Status.UnhealthyNodes) > 1 {
+					// Only the head-of-queue unhealthy node is replaced by this
+					// admission; keep the remaining unhealthy nodes queued so the
+					// next scheduling cycle replaces them too. Clearing the whole
+					// list here would strip not-yet-replaced tail entries that no
+					// longer generate node events (e.g. deleted nodes), leaving
+					// them stuck in the TopologyAssignment forever.
+					log.V(5).Info("Dropping the replaced head node from the workload recovery field, keeping the remaining unhealthy nodes",
+						"replacedNode", e.Obj.Status.UnhealthyNodes[0].Name,
+						"remainingUnhealthyNodes", len(e.Obj.Status.UnhealthyNodes)-1)
+					wl.Status.UnhealthyNodes = e.Obj.Status.UnhealthyNodes[1:]
+				} else {
+					log.V(5).Info("Clearing the topology assignment recovery field from the workload status after successful recovery")
+					wl.Status.UnhealthyNodes = nil
+				}
 			}
 			return true, nil
 		}, workloadpatching.WithLooseOnApply(), workloadpatching.WithRetryOnConflict())
