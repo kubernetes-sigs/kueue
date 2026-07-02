@@ -2171,7 +2171,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				// deterministically past the threshold.
 				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASReplaceMultipleFailedNodes, true)
 
-				var wl1 *kueue.Workload
+				var wl *kueue.Workload
 
 				ginkgo.By("creating a 4-pod workload tolerating up to 2 unhealthy nodes", func() {
 					wl1 = utiltestingapi.MakeWorkload("wl-exceed", ns.Name).
