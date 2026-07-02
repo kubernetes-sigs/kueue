@@ -51,7 +51,10 @@ func newRouterWithReactor(t *testing.T, reactor k8stesting.ReactionFunc) (*gin.E
 
 	auth := NewAuthenticator(cs, AuthConfig{CacheTTL: time.Minute, NegativeCacheTTL: 5 * time.Second})
 	clock := &fakeClock{now: time.Now()}
+	// Propagate the fake clock into both Authenticator and its LRU cache so
+	// that Get, Set and evictExpired all use the same controllable time source.
 	auth.clock = clock
+	auth.cache.clock = clock
 
 	r := gin.New()
 	r.Use(auth.Middleware())
@@ -234,7 +237,7 @@ func TestAuthMiddlewareCacheExpiry(t *testing.T) {
 // capacity the least-recently-used entry is evicted, keeping memory bounded.
 func TestTokenReviewCacheLRUEviction(t *testing.T) {
 	const capacity = 3
-	c := newTokenReviewCache(capacity)
+	c := newTokenReviewCache(capacity, realClock{})
 	now := time.Now()
 	expires := now.Add(time.Hour)
 
@@ -268,7 +271,7 @@ func TestTokenReviewCacheLRUEviction(t *testing.T) {
 // the cache capacity never grows the internal map beyond the limit.
 func TestTokenReviewCacheCapacityBounded(t *testing.T) {
 	const capacity = 5
-	c := newTokenReviewCache(capacity)
+	c := newTokenReviewCache(capacity, realClock{})
 	expires := time.Now().Add(time.Hour)
 
 	for i := range 100 {
@@ -284,8 +287,8 @@ func TestTokenReviewCacheCapacityBounded(t *testing.T) {
 	}
 }
 
-// TestRateLimiterMiddleware verifies that requests exceeding the burst limit
-// receive 429 Too Many Requests.
+// TestRateLimiterMiddleware verifies that requests from the same IP exceeding
+// the burst limit receive 429 Too Many Requests.
 func TestRateLimiterMiddleware(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -293,19 +296,30 @@ func TestRateLimiterMiddleware(t *testing.T) {
 	r.Use(RateLimiter(rate.Limit(1), 1))
 	r.GET("/test", func(c *gin.Context) { c.Status(http.StatusOK) })
 
-	// First request should succeed (consumes the burst token).
+	// First request from IP 1.2.3.4 should succeed (consumes the burst token).
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req.Header.Set("X-Forwarded-For", "1.2.3.4")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
-		t.Fatalf("first request: status = %d, want 200", w.Code)
+		t.Fatalf("first request from 1.2.3.4: status = %d, want 200", w.Code)
 	}
 
-	// Immediate second request should be rate-limited.
+	// Immediate second request from the same IP should be rate-limited.
 	req2 := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req2.Header.Set("X-Forwarded-For", "1.2.3.4")
 	w2 := httptest.NewRecorder()
 	r.ServeHTTP(w2, req2)
 	if w2.Code != http.StatusTooManyRequests {
-		t.Fatalf("second request: status = %d, want 429", w2.Code)
+		t.Fatalf("second request from 1.2.3.4: status = %d, want 429", w2.Code)
+	}
+
+	// A request from a different IP should be unaffected by the first IP's usage.
+	req3 := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req3.Header.Set("X-Forwarded-For", "5.6.7.8")
+	w3 := httptest.NewRecorder()
+	r.ServeHTTP(w3, req3)
+	if w3.Code != http.StatusOK {
+		t.Fatalf("first request from 5.6.7.8: status = %d, want 200 (per-IP isolation broken)", w3.Code)
 	}
 }

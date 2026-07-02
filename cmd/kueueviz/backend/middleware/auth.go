@@ -83,11 +83,12 @@ func NewAuthenticator(clientset kubernetes.Interface, config AuthConfig) *Authen
 	if size <= 0 {
 		size = defaultCacheSize
 	}
+	clock := Clock(realClock{})
 	return &Authenticator{
 		clientset: clientset,
 		config:    config,
-		cache:     newTokenReviewCache(size),
-		clock:     realClock{},
+		cache:     newTokenReviewCache(size, clock),
+		clock:     clock,
 	}
 }
 
@@ -95,16 +96,39 @@ func (a *Authenticator) Stop() {
 	a.cache.Stop()
 }
 
-// RateLimiter returns a gin middleware that enforces a global token-bucket rate
-// limit. Requests that exceed the limit receive 429 Too Many Requests before
-// they reach the authentication logic, preventing TokenReview amplification.
+// RateLimiter returns a gin middleware that enforces a per-client-IP
+// token-bucket rate limit. Each source IP gets its own independent bucket so
+// an attacker flooding from one IP cannot drain the budget for legitimate
+// clients. Requests that exceed the per-IP limit receive 429 Too Many Requests
+// before they reach the authentication logic, preventing TokenReview
+// amplification.
 //
-//   - r: steady-state requests per second allowed through.
-//   - burst: maximum burst size (peak requests that can be served at once).
+//   - r: steady-state requests per second allowed per IP.
+//   - burst: maximum burst size (peak requests from a single IP at once).
 func RateLimiter(r rate.Limit, burst int) gin.HandlerFunc {
-	limiter := rate.NewLimiter(r, burst)
+	var (
+		mu       sync.Mutex
+		limiters = make(map[string]*rate.Limiter)
+	)
+	getLimiter := func(ip string) *rate.Limiter {
+		mu.Lock()
+		defer mu.Unlock()
+		if l, ok := limiters[ip]; ok {
+			return l
+		}
+		l := rate.NewLimiter(r, burst)
+		limiters[ip] = l
+		return l
+	}
 	return func(c *gin.Context) {
-		if !limiter.Allow() {
+		// Prefer X-Forwarded-For (set by trusted reverse proxies) over
+		// RemoteAddr so that clients behind a load balancer are keyed
+		// correctly rather than all sharing the proxy's IP.
+		ip := c.GetHeader("X-Forwarded-For")
+		if ip == "" {
+			ip = c.ClientIP()
+		}
+		if !getLimiter(ip).Allow() {
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "too many requests"})
 			return
 		}
@@ -233,14 +257,16 @@ type lruEntry struct {
 type tokenReviewCache struct {
 	mu       sync.Mutex
 	capacity int
+	clock    Clock
 	items    map[string]*list.Element // key → list element
 	order    *list.List               // front = most-recently-used
 	stopCh   chan struct{}
 }
 
-func newTokenReviewCache(capacity int) *tokenReviewCache {
+func newTokenReviewCache(capacity int, clock Clock) *tokenReviewCache {
 	c := &tokenReviewCache{
 		capacity: capacity,
+		clock:    clock,
 		items:    make(map[string]*list.Element, capacity),
 		order:    list.New(),
 		stopCh:   make(chan struct{}),
@@ -251,13 +277,15 @@ func newTokenReviewCache(capacity int) *tokenReviewCache {
 
 // evictExpired removes TTL-expired entries every minute so that stale entries
 // from legitimate users do not accumulate after their TTL elapses.
+// It uses the injected Clock so the sweep is consistent with Get/Set and
+// can be exercised in tests with a fake clock.
 func (c *tokenReviewCache) evictExpired() {
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ticker.C:
-			now := time.Now()
+			now := c.clock.Now()
 			c.mu.Lock()
 			for key, el := range c.items {
 				if !now.Before(el.Value.(*lruEntry).value.expiresAt) {
