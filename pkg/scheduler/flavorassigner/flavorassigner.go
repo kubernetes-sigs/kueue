@@ -755,9 +755,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 		finalConsidered := finalizeFlavorAssignmentAttempts(consideredFlavors)
 		atLeastOnePodsAssignmentFailed := false
 		for _, podSet := range podSets {
-			podSetFlavors := utilmaps.FilterKeys(groupFlavors, slices.Collect(maps.Keys(podSet.podSet.Requests)))
-
-			podSet.podSetAssignment.Flavors = podSetFlavors
+			podSet.podSetAssignment.Flavors = a.resolvePodSetFlavors(log, podSet, groupFlavors)
 			podSet.podSetAssignment.Status = groupStatus
 			podSet.podSetAssignment.FlavorAssignmentAttempts = finalConsidered
 
@@ -819,6 +817,50 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 		assignment.resolveNoFitReason(a.cq)
 	}
 	return assignment
+}
+
+// resolvePodSetFlavors returns the flavors podSet should be assigned, given the flavors
+// already resolved for its whole PodSet group (groupFlavors). Normally this is just
+// groupFlavors filtered down to the resources podSet itself requests. A PodSet requesting
+// none of the group's managed resources (e.g. an LWS leader) would otherwise end up with no
+// flavor and be rejected from TAS, so such a PodSet instead falls back to: the group's TAS
+// flavor(s) if it belongs to a topology group, or the ClusterQueue's sole flavor if the
+// ClusterQueue is unambiguous.
+func (a *FlavorAssigner) resolvePodSetFlavors(log logr.Logger, podSet indexedPodSet, groupFlavors ResourceAssignment) ResourceAssignment {
+	podSetFlavors := utilmaps.FilterKeys(groupFlavors, slices.Collect(maps.Keys(podSet.podSet.Requests)))
+	tr := a.wl.Obj.Spec.PodSets[podSet.originalIndex].TopologyRequest
+	if len(podSet.podSet.Requests) != 0 || tr == nil {
+		return podSetFlavors
+	}
+
+	if tr.PodSetGroupName != nil {
+		// A request-less PodSet in a topology group (e.g. an LWS leader) still needs a
+		// resolved TAS flavor so it can be placed; keep the group's TAS flavor(s) instead
+		// of filtering the group's resolution down to nothing.
+		podSetFlavors = tasFlavorsOnly(groupFlavors, a.cq.TASFlavors)
+		if len(podSetFlavors) > 0 {
+			log.V(3).Info("Inferred TAS flavor for request-less PodSet from topology group", "podSet", podSet.podSet.Name, "flavors", podSetFlavors)
+		}
+	}
+	if len(podSetFlavors) == 0 {
+		// No group (or no group peer resolved a TAS flavor either). If the whole
+		// ClusterQueue only offers a single flavor, there is no ambiguity about which
+		// one a request-less, TAS-requesting PodSet should use.
+		cqFlavors := schdcache.AllFlavors(a.cq.ResourceGroups)
+		if cqFlavors.Len() == 1 {
+			flavor, _ := cqFlavors.PopAny()
+			if a.cq.TASFlavors[flavor] != nil {
+				podSetFlavors = make(ResourceAssignment)
+				for _, rgIdx := range findRGIndicesByFlavor(a.cq, flavor) {
+					for resourceName := range a.cq.ResourceGroups[rgIdx].CoveredResources {
+						podSetFlavors[resourceName] = &FlavorAssignment{Name: flavor, Mode: Fit, TriedFlavorIdx: -1}
+					}
+				}
+				log.V(3).Info("Inferred TAS flavor for request-less PodSet from sole ClusterQueue flavor", "podSet", podSet.podSet.Name, "flavor", flavor)
+			}
+		}
+	}
+	return podSetFlavors
 }
 
 func (a *Assignment) resolveNoFitReason(cq *schdcache.ClusterQueueSnapshot) {

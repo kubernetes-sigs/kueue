@@ -36,6 +36,11 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
+var (
+	errNoTASFlavorAssigned          = errors.New("no TAS flavor assigned")
+	errMoreThanOneTASFlavorAssigned = errors.New("more than one TAS flavor assigned")
+)
+
 // WorkloadsTopologyRequests - returns the TopologyRequests of the workload
 func (a *Assignment) WorkloadsTopologyRequests(log logr.Logger, wl *workload.Info, cq *schdcache.ClusterQueueSnapshot) schdcache.WorkloadTASRequests {
 	tasRequests := make(schdcache.WorkloadTASRequests)
@@ -154,7 +159,7 @@ func onlyTASFlavor(
 	}
 
 	if flavors.Len() == 0 {
-		return nil, errors.New("no TAS flavor assigned")
+		return nil, errNoTASFlavorAssigned
 	}
 
 	if flavors.Len() == 1 {
@@ -166,7 +171,21 @@ func onlyTASFlavor(
 	for i, n := range list {
 		names[i] = string(n)
 	}
-	return nil, fmt.Errorf("more than one TAS flavor assigned: %s", strings.Join(names, ", "))
+	return nil, fmt.Errorf("%w: %s", errMoreThanOneTASFlavorAssigned, strings.Join(names, ", "))
+}
+
+// tasFlavorsOnly returns the subset of resourceAssignment whose flavor is a TAS flavor.
+func tasFlavorsOnly(
+	resourceAssignment ResourceAssignment,
+	tasFlavors map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot,
+) ResourceAssignment {
+	result := make(ResourceAssignment, len(resourceAssignment))
+	for resName, flavorAssignment := range resourceAssignment {
+		if tasFlavors[flavorAssignment.Name] != nil {
+			result[resName] = flavorAssignment
+		}
+	}
+	return result
 }
 
 func checkPodSetAndFlavorMatchForTAS(cq *schdcache.ClusterQueueSnapshot, ps *kueue.PodSet, flavor *kueue.ResourceFlavor, rg *schdcache.ResourceGroup) *string {
