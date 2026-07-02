@@ -584,5 +584,60 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 				)))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
+
+		ginkgo.It("Should write granular conditions and reasons when DRA claim resolution fails under the observability feature gate", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
+
+			ginkgo.By("Creating a ResourceSlice with MIG devices")
+			slice := utiltesting.MakeResourceSlice("pd-nomatch-observability-slice", "gpu.example.com").
+				Pool("node1-gpu0", 1, 1).
+				Device("gpu-0").Attribute("type", "gpu").
+				CounterConsumption("gpu-0-counter-set", "memory", "40320Mi").
+				Device("gpu-0-mig-1g5gb-0").Attribute("type", "mig").Attribute("profile", "1g.5gb").
+				CounterConsumption("gpu-0-counter-set", "memory", "4864Mi").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, slice)).To(gomega.Succeed())
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(k8sClient.Delete(ctx, slice)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("Creating RCT with non-matching CEL selectors")
+			rct := utiltesting.MakeResourceClaimTemplate("mig-nonexistent-obs", ns.Name).
+				DeviceRequest("gpu", "mig.example.com", 1).
+				WithCELSelectors("device.attributes['gpu.example.com'].profile == 'nonexistent'").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())
+
+			ginkgo.By("Creating workload")
+			wl := utiltestingapi.MakeWorkload("pd-nomatch-observability-wl", ns.Name).
+				Queue("pd-lq").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("mig", "mig-nonexistent-obs").
+					Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			ginkgo.By("Verifying workload is marked as inadmissible with granular reasons")
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, client.ObjectKeyFromObject(wl),
+				metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Message: "spec.podSets[0].template.spec.resourceClaims[0].devices.requests[0].exactly.selectors: Internal error: ResourceClaimTemplate mig-nonexistent-obs: insufficient matching devices for CEL selector in DeviceClass mig.example.com: 0 device(s) match in the cluster but 1 requested",
+				},
+				metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				},
+				metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "spec.podSets[0].template.spec.resourceClaims[0].devices.requests[0].exactly.selectors: Internal error: ResourceClaimTemplate mig-nonexistent-obs: insufficient matching devices for CEL selector in DeviceClass mig.example.com: 0 device(s) match in the cluster but 1 requested",
+				},
+			)
+		})
 	})
 })
