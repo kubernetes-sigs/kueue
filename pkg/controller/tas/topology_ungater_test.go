@@ -162,6 +162,111 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
+		"ungate single pod with sub group index label but no sub group count": {
+			// Regression test: a PodSet with SubGroupIndexLabel set but SubGroupCount
+			// nil (e.g. from an unvalidated user-supplied annotation) must not panic
+			// the controller; it should fall back to greedy domain assignment.
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "1").
+						PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+						SubGroupIndexLabel(new(jobset.JobIndexKey)).
+						Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultTestLevels).
+									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					Label(batchv1.JobCompletionIndexAnnotation, "0").
+					Label(jobset.JobIndexKey, "0").
+					TopologySchedulingGate().
+					Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertCountsOnly,
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					Label(batchv1.JobCompletionIndexAnnotation, "0").
+					Label(jobset.JobIndexKey, "0").
+					Obj(),
+			},
+			wantCounts: []counts{
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel: "b1",
+						tasRackLabel:  "r1",
+					},
+					Count: 1,
+				},
+			},
+		},
+		"ungate single pod with sub group index label but zero sub group count": {
+			// Regression test: a PodSet with SubGroupIndexLabel set but SubGroupCount
+			// zero (the literal divide-by-zero) must not panic the controller; it should
+			// fall back to greedy domain assignment.
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "1").
+						PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+						SubGroupIndexLabel(new(jobset.JobIndexKey)).
+						SubGroupCount(new(int32)).
+						Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultTestLevels).
+									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					Label(batchv1.JobCompletionIndexAnnotation, "0").
+					Label(jobset.JobIndexKey, "0").
+					TopologySchedulingGate().
+					Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertCountsOnly,
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					Label(batchv1.JobCompletionIndexAnnotation, "0").
+					Label(jobset.JobIndexKey, "0").
+					Obj(),
+			},
+			wantCounts: []counts{
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel: "b1",
+						tasRackLabel:  "r1",
+					},
+					Count: 1,
+				},
+			},
+		},
 		"ungate multiple pods in a single domain": {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).

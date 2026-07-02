@@ -58,6 +58,7 @@ import (
 var (
 	errPendingUngateOps      = errors.New("pending ungate operations")
 	errParseOffsetAnnotation = errors.New("failed to parse offset annotation")
+	errInvalidSubGroupCount  = errors.New("invalid subgroup count for podset with subgroup index label")
 )
 
 type topologyUngater struct {
@@ -429,9 +430,12 @@ func readRanksIfAvailable(log logr.Logger,
 	}
 	result, err := readRanksForLabels(psa, pods, psReq, offset, maxRank)
 	if err != nil {
-		if errors.Is(err, utilpod.ErrLabelNotFound) {
+		switch {
+		case errors.Is(err, utilpod.ErrLabelNotFound):
 			log.V(5).Info("pods missing index label for rank ordering", "error", err)
-		} else {
+		case errors.Is(err, errInvalidSubGroupCount):
+			log.V(3).Info("invalid subGroupCount, falling back to greedy assignment", "error", err)
+		default:
 			log.Error(err, "failed to read rank information from pods")
 		}
 		return nil, false
@@ -466,6 +470,9 @@ func readRanksForLabels(
 	podSetSize := int(*psa.Count)
 	singleJobSize := podSetSize
 	if psReq.SubGroupIndexLabel != nil {
+		if psReq.SubGroupCount == nil || *psReq.SubGroupCount <= 0 {
+			return nil, fmt.Errorf("%w %q: must be set and greater than 0", errInvalidSubGroupCount, *psReq.SubGroupIndexLabel)
+		}
 		singleJobSize = podSetSize / int(*psReq.SubGroupCount)
 	}
 
