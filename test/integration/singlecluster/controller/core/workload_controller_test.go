@@ -702,12 +702,13 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 			lq := utiltestingapi.MakeLocalQueue("missing-cq-q", ns.Name).ClusterQueue("non-existent-cq").Obj()
 			gomega.Expect(k8sClient.Create(ctx, lq)).To(gomega.Succeed())
 
-			// Wait for LocalQueue to be reconciled and registered in the Queue Manager
-			gomega.Eventually(func(g gomega.Gomega) {
-				var fetchedLq kueue.LocalQueue
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), &fetchedLq)).To(gomega.Succeed())
-				g.Expect(apimeta.FindStatusCondition(fetchedLq.Status.Conditions, kueue.LocalQueueActive)).NotTo(gomega.BeNil())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			ginkgo.By("Wait for LocalQueue to be reconciled and registered in the Queue Manager", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var fetchedLq kueue.LocalQueue
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), &fetchedLq)).To(gomega.Succeed())
+					g.Expect(apimeta.FindStatusCondition(fetchedLq.Status.Conditions, kueue.LocalQueueActive)).NotTo(gomega.BeNil())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
 
 			wl := utiltestingapi.MakeWorkload("wl-missing-cq", ns.Name).Queue("missing-cq-q").Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
