@@ -1113,7 +1113,7 @@ func TestReconcile(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadQuotaReserved,
 					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadPending,
+					Reason:  kueue.WorkloadPending, //nolint:staticcheck // SA1019: legacy reason
 					Message: "Workload is pending",
 				}).
 				Obj(),

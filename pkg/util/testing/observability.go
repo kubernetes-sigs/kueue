@@ -44,7 +44,7 @@ func AdjustConditionsForDisabledObservabilityInWorkloadController(conditions []m
 		if cond.Type == kueue.WorkloadQuotaReserved && cond.Status == metav1.ConditionFalse {
 			switch cond.Reason {
 			case kueue.WorkloadQuotaReservedReasonWaitingForPodsReady:
-				cond.Reason = kueue.WorkloadWaiting
+				cond.Reason = kueue.WorkloadWaiting //nolint:staticcheck // SA1019: legacy reason
 			case kueue.WorkloadAdmissionGated:
 				// Keep as is
 			case kueue.WorkloadQuotaReservedReasonMisconfigured,
@@ -52,7 +52,7 @@ func AdjustConditionsForDisabledObservabilityInWorkloadController(conditions []m
 				kueue.WorkloadInadmissible:
 				cond.Reason = kueue.WorkloadInadmissible
 			default:
-				cond.Reason = kueue.WorkloadPending
+				cond.Reason = kueue.WorkloadPending //nolint:staticcheck // SA1019: legacy reason
 			}
 		}
 		filtered = append(filtered, cond)
@@ -96,9 +96,9 @@ func AdjustConditionsForDisabledObservabilityInScheduler(conditions []metav1.Con
 		if cond.Type == kueue.WorkloadQuotaReserved && cond.Status == metav1.ConditionFalse {
 			switch cond.Reason {
 			case kueue.WorkloadQuotaReservedReasonWaitingForPodsReady:
-				cond.Reason = kueue.WorkloadWaiting
+				cond.Reason = kueue.WorkloadWaiting //nolint:staticcheck // SA1019: legacy reason
 			default:
-				cond.Reason = kueue.WorkloadPending
+				cond.Reason = kueue.WorkloadPending //nolint:staticcheck // SA1019: legacy reason
 			}
 		}
 		filtered = append(filtered, cond)

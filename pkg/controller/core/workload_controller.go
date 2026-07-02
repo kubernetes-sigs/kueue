@@ -1799,33 +1799,23 @@ func (r *WorkloadReconciler) syncQuotaReservedFalseCondition(
 	lqExists, lqActive bool,
 	cq *kueue.ClusterQueue,
 ) (bool, error) {
-	cond, err := r.resolveUnadmittedQuotaReservedCondition(ctx, wl, lqExists, lqActive, cq)
-	if err != nil {
-		return false, err
+	var cond *metav1.Condition
+	if features.Enabled(features.UnadmittedWorkloadsObservability) {
+		reason, message, err := r.resolveGranularUnadmittedQuotaReservedCondition(ctx, wl, lqExists, lqActive, cq)
+		if err != nil {
+			return false, err
+		}
+		if reason != "" {
+			cond = r.newQuotaReservedCondition(wl, reason, message)
+		}
+	} else {
+		cond = r.resolveLegacyUnadmittedQuotaReservedCondition(wl, lqExists, lqActive, cq)
 	}
+
 	if cond != nil {
 		return apimeta.SetStatusCondition(&wl.Status.Conditions, *cond), nil
 	}
 	return false, nil
-}
-
-func (r *WorkloadReconciler) resolveUnadmittedQuotaReservedCondition(
-	ctx context.Context,
-	wl *kueue.Workload,
-	lqExists, lqActive bool,
-	cq *kueue.ClusterQueue,
-) (*metav1.Condition, error) {
-	if features.Enabled(features.UnadmittedWorkloadsObservability) {
-		reason, message, err := r.resolveGranularUnadmittedQuotaReservedCondition(ctx, wl, lqExists, lqActive, cq)
-		if err != nil {
-			return nil, err
-		}
-		if reason == "" {
-			return nil, nil
-		}
-		return r.newQuotaReservedCondition(wl, reason, message), nil
-	}
-	return r.resolveLegacyUnadmittedQuotaReservedCondition(wl, lqExists, lqActive, cq), nil
 }
 
 func (r *WorkloadReconciler) resolveGranularUnadmittedQuotaReservedCondition(
@@ -1835,6 +1825,17 @@ func (r *WorkloadReconciler) resolveGranularUnadmittedQuotaReservedCondition(
 	cq *kueue.ClusterQueue,
 ) (string, string, error) {
 	cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+
+	switch {
+	case !workload.IsActive(wl):
+		return kueue.WorkloadDeactivated, "The workload is deactivated", nil
+	case workload.IsOnHold(wl):
+		return cond.Reason, cond.Message, nil
+	}
+
+	if reason, message := r.getQueueBlocker(wl, lqExists, lqActive, cq); reason != "" {
+		return reason, message, nil
+	}
 
 	var admissibilityErr error
 	if cq != nil {
@@ -1852,21 +1853,9 @@ func (r *WorkloadReconciler) resolveGranularUnadmittedQuotaReservedCondition(
 			return "", "", admissibilityErr
 		}
 	}
-
-	switch {
-	case !workload.IsActive(wl):
-		return kueue.WorkloadDeactivated, "The workload is deactivated", nil
-	case workload.IsOnHold(wl):
-		return cond.Reason, cond.Message, nil
-	}
-
-	if reason, message := r.getQueueBlocker(wl, lqExists, lqActive, cq); reason != "" {
-		return reason, message, nil
-	}
-
 	switch {
 	case admissibilityErr != nil:
-		return kueue.WorkloadQuotaReservedReasonMisconfigured, admissibilityErr.Error(), nil
+		return kueue.WorkloadQuotaReservedReasonMisconfigured, admissibilityErr.Error(), nil //nolint:nilerr // admissibility validation failure does not require retry
 	case workload.HasAdmissionGate(wl):
 		return kueue.WorkloadAdmissionGated, fmt.Sprintf("Admission is gated by: %s", wl.Annotations[constants.AdmissionGatedByAnnotation]), nil
 	case cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason != "" &&
