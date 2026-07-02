@@ -997,6 +997,80 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			wantResult: reconcile.Result{},
 		},
+		"workload that is deactivated should set QuotaReserved condition to Deactivated (observability enabled)": {
+			featureGates: map[featuregate.Feature]bool{
+				features.UnadmittedWorkloadsObservability: true,
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Active(false).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadDeactivated,
+					Message: "The workload is deactivated",
+				}).
+				SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Deactivated", Count: 1}).
+				Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Active(false).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadDeactivated,
+					Message: "The workload is deactivated",
+				}).
+				SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Deactivated", Count: 1}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadDeactivated,
+					Message: "The workload is deactivated",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
+				Obj(),
+		},
+		"workload that is reactivated should clear Deactivated condition and transition to PendingEvaluation (observability enabled)": {
+			featureGates: map[featuregate.Feature]bool{
+				features.UnadmittedWorkloadsObservability: true,
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Active(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadDeactivated,
+					Message: "The workload is deactivated",
+				}).
+				Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Active(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+					Message: "Workload is pending evaluation in the scheduling queue",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
+				Obj(),
+		},
 		"workload with AdmissionGatedBy annotation should set QuotaReserved condition to AdmissionGated": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Queue("lq").

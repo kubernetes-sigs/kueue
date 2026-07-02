@@ -1817,7 +1817,14 @@ func (r *WorkloadReconciler) resolveUnadmittedQuotaReservedCondition(
 	cq *kueue.ClusterQueue,
 ) (*metav1.Condition, error) {
 	if features.Enabled(features.UnadmittedWorkloadsObservability) {
-		return r.resolveGranularUnadmittedQuotaReservedCondition(ctx, wl, lqExists, lqActive, cqOk, cqActive, cq)
+		reason, message, err := r.resolveGranularUnadmittedQuotaReservedCondition(ctx, wl, lqExists, lqActive, cqOk, cqActive, cq)
+		if err != nil {
+			return nil, err
+		}
+		if reason == "" {
+			return nil, nil
+		}
+		return r.newQuotaReservedCondition(wl, reason, message), nil
 	}
 	return r.resolveLegacyUnadmittedQuotaReservedCondition(wl, lqExists, lqActive, cqOk, cqActive), nil
 }
@@ -1827,7 +1834,7 @@ func (r *WorkloadReconciler) resolveGranularUnadmittedQuotaReservedCondition(
 	wl *kueue.Workload,
 	lqExists, lqActive, cqOk, cqActive bool,
 	cq *kueue.ClusterQueue,
-) (*metav1.Condition, error) {
+) (string, string, error) {
 	cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
 
 	var admissibilityErr error
@@ -1838,45 +1845,46 @@ func (r *WorkloadReconciler) resolveGranularUnadmittedQuotaReservedCondition(
 		if err != nil {
 			log := ctrl.LoggerFrom(ctx)
 			log.Error(err, "Invalid ClusterQueue NamespaceSelector", "clusterQueue", cq.Name)
-			return r.newQuotaReservedCondition(wl, kueue.WorkloadQuotaReservedReasonMisconfigured, fmt.Sprintf("invalid namespace selector: %v", err)), nil
+			return kueue.WorkloadQuotaReservedReasonMisconfigured, fmt.Sprintf("invalid namespace selector: %v", err), nil
 		}
 		wlInfo := workload.NewInfo(wl)
 		admissibilityErr = workload.ValidateAdmissibility(ctx, r.client, wlInfo, selector)
 		if admissibilityErr != nil && errors.Is(admissibilityErr, workload.ErrInternal) {
-			return nil, admissibilityErr
+			return "", "", admissibilityErr
 		}
 	}
 
 	switch {
 	case !workload.IsActive(wl):
-		return r.newQuotaReservedCondition(wl, kueue.WorkloadDeactivated, "The workload is deactivated"), nil
+		return kueue.WorkloadDeactivated, "The workload is deactivated", nil
 	case workload.IsOnHold(wl):
-		return r.newQuotaReservedCondition(wl, cond.Reason, cond.Message), nil
+		return cond.Reason, cond.Message, nil
 	case !lqExists:
-		return r.newQuotaReservedCondition(wl, kueue.WorkloadQuotaReservedReasonMisconfigured, fmt.Sprintf("LocalQueue %s doesn't exist", wl.Spec.QueueName)), nil
+		return kueue.WorkloadQuotaReservedReasonMisconfigured, fmt.Sprintf("LocalQueue %s doesn't exist", wl.Spec.QueueName), nil
 	case !lqActive:
-		return r.newQuotaReservedCondition(wl, kueue.WorkloadQuotaReservedReasonSuspended, fmt.Sprintf("LocalQueue %s is inactive", wl.Spec.QueueName)), nil
+		return kueue.WorkloadQuotaReservedReasonSuspended, fmt.Sprintf("LocalQueue %s is inactive", wl.Spec.QueueName), nil
 	case !cqOk:
 		cqName, _ := r.queues.ClusterQueueForWorkload(wl)
-		return r.newQuotaReservedCondition(wl, kueue.WorkloadQuotaReservedReasonMisconfigured, fmt.Sprintf("ClusterQueue %s doesn't exist", cqName)), nil
+		return kueue.WorkloadQuotaReservedReasonMisconfigured, fmt.Sprintf("ClusterQueue %s doesn't exist", cqName), nil
 	case !cqActive:
 		cqName, _ := r.queues.ClusterQueueForWorkload(wl)
-		return r.newQuotaReservedCondition(wl, kueue.WorkloadQuotaReservedReasonSuspended, fmt.Sprintf("ClusterQueue %s is inactive", cqName)), nil
+		return kueue.WorkloadQuotaReservedReasonSuspended, fmt.Sprintf("ClusterQueue %s is inactive", cqName), nil
 	case admissibilityErr != nil:
-		return r.newQuotaReservedCondition(wl, kueue.WorkloadQuotaReservedReasonMisconfigured, admissibilityErr.Error()), nil
+		return kueue.WorkloadQuotaReservedReasonMisconfigured, admissibilityErr.Error(), nil
 	case workload.HasAdmissionGate(wl):
-		return r.newQuotaReservedCondition(wl, kueue.WorkloadAdmissionGated, fmt.Sprintf("Admission is gated by: %s", wl.Annotations[constants.AdmissionGatedByAnnotation])), nil
+		return kueue.WorkloadAdmissionGated, fmt.Sprintf("Admission is gated by: %s", wl.Annotations[constants.AdmissionGatedByAnnotation]), nil
 	case cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason != "" &&
 		cond.Reason != kueue.WorkloadQuotaReservedReasonSuspended &&
-		cond.Reason != kueue.WorkloadQuotaReservedReasonMisconfigured:
-		return r.newQuotaReservedCondition(wl, cond.Reason, cond.Message), nil
+		cond.Reason != kueue.WorkloadQuotaReservedReasonMisconfigured &&
+		cond.Reason != kueue.WorkloadDeactivated:
+		return cond.Reason, cond.Message, nil
 	default:
 		// Stamping the condition on creation is deferred to the next feature gate:
 		// UnadmittedWorkloadsObservabilityExplicitStatus.
 		if cond == nil {
-			return nil, nil
+			return "", "", nil
 		}
-		return r.newQuotaReservedCondition(wl, kueue.WorkloadQuotaReservedReasonPendingEvaluation, "Workload is pending evaluation in the scheduling queue"), nil
+		return kueue.WorkloadQuotaReservedReasonPendingEvaluation, "Workload is pending evaluation in the scheduling queue", nil
 	}
 }
 

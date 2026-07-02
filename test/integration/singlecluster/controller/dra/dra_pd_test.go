@@ -618,28 +618,26 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
 			ginkgo.By("Verifying workload is marked as inadmissible with granular reasons")
-			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedWl kueue.Workload
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
-				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
-				g.Expect(updatedWl.Status.Conditions).Should(gomega.HaveLen(3))
-
-				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
-					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
-					gomega.HaveField("Status", metav1.ConditionFalse),
-					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonMisconfigured),
-				)))
-				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
-					gomega.HaveField("Type", kueue.WorkloadAdmitted),
-					gomega.HaveField("Status", metav1.ConditionFalse),
-					gomega.HaveField("Reason", "NoReservation"),
-				)))
-				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
-					gomega.HaveField("Type", kueue.WorkloadRequeued),
-					gomega.HaveField("Status", metav1.ConditionFalse),
-					gomega.HaveField("Reason", kueue.WorkloadInadmissible),
-				)))
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, client.ObjectKeyFromObject(wl),
+				metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Message: "spec.podSets[0].template.spec.resourceClaims[0].devices.requests[0].exactly.selectors: Internal error: ResourceClaimTemplate mig-nonexistent-obs: insufficient matching devices for CEL selector in DeviceClass mig.example.com: 0 device(s) match in the cluster but 1 requested",
+				},
+				metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				},
+				metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "spec.podSets[0].template.spec.resourceClaims[0].devices.requests[0].exactly.selectors: Internal error: ResourceClaimTemplate mig-nonexistent-obs: insufficient matching devices for CEL selector in DeviceClass mig.example.com: 0 device(s) match in the cluster but 1 requested",
+				},
+			)
 		})
 	})
 })
