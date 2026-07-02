@@ -40,6 +40,7 @@ import (
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	workloadrayservice "sigs.k8s.io/kueue/pkg/controller/jobs/rayservice"
+	utilpodset "sigs.k8s.io/kueue/pkg/util/podset"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
@@ -65,6 +66,16 @@ func parsePodSetReplicaCount(annotationValue, groupName string) (int32, error) {
 		}
 	}
 	return 0, fmt.Errorf("group %q not found in annotation", groupName)
+}
+
+// findContainer returns the container with the given name, or nil if absent.
+func findContainer(containers []corev1.Container, name string) *corev1.Container {
+	for i := range containers {
+		if containers[i].Name == name {
+			return &containers[i]
+		}
+	}
+	return nil
 }
 
 const (
@@ -658,22 +669,10 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 				*createdWorkload = active[0]
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 
-			var headPodSet *kueue.PodSet
-			for i := range createdWorkload.Spec.PodSets {
-				if createdWorkload.Spec.PodSets[i].Name == "head" {
-					headPodSet = &createdWorkload.Spec.PodSets[i]
-					break
-				}
-			}
+			headPodSet := utilpodset.FindPodSetByName(createdWorkload.Spec.PodSets, kueue.NewPodSetReference("head"))
 			gomega.Expect(headPodSet).NotTo(gomega.BeNil(), "workload should have a head PodSet")
 
-			var submitter *corev1.Container
-			for i := range headPodSet.Template.Spec.Containers {
-				if headPodSet.Template.Spec.Containers[i].Name == "ray-job-submitter" {
-					submitter = &headPodSet.Template.Spec.Containers[i]
-					break
-				}
-			}
+			submitter := findContainer(headPodSet.Template.Spec.Containers, "ray-job-submitter")
 			gomega.Expect(submitter).NotTo(gomega.BeNil(), "head PodSet should include the submitter sidecar container")
 			kueueSubmitterRequests = submitter.Resources.Requests
 		})
@@ -683,13 +682,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 		ginkgo.By("Checking the accounted submitter resources match the real head Pod", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				headPod := getRayHeadPod(g)
-				var submitter *corev1.Container
-				for i := range headPod.Spec.Containers {
-					if headPod.Spec.Containers[i].Name == "ray-job-submitter" {
-						submitter = &headPod.Spec.Containers[i]
-						break
-					}
-				}
+				submitter := findContainer(headPod.Spec.Containers, "ray-job-submitter")
 				g.Expect(submitter).NotTo(gomega.BeNil(), "KubeRay should inject the submitter container into the head Pod")
 				g.Expect(kueueSubmitterRequests.Cpu().Cmp(*submitter.Resources.Requests.Cpu())).To(gomega.Equal(0),
 					"Kueue's accounted submitter CPU should match the head Pod's")
