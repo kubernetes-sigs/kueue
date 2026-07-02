@@ -33,6 +33,8 @@ COPY --from=builder /app/build ./build
 
 EXPOSE 8080
 
+USER node
+
 # Invoke serve via node directly to avoid relying on shebang resolution.
 # env.js is expected to be mounted via ConfigMap at /app/build/env.js
 # when running in Kubernetes.
