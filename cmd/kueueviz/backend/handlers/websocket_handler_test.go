@@ -300,6 +300,45 @@ func TestWebSocketHandleInformerUpdates(t *testing.T) {
 				}
 			},
 		},
+		"enforces websocket read limit": {
+			run: func(t *testing.T) {
+				gvk := schema.GroupVersionKind{Group: "group", Version: "v1", Kind: "Kind"}
+
+				informer := newMockInformer()
+				client := newMockClient(map[schema.GroupVersionKind]*mockInformer{gvk: informer})
+
+				dataFetcher := func(_ context.Context) (any, error) {
+					return map[string]string{"status": "ok"}, nil
+				}
+
+				conn, closeServer := newTestWebSocketConnection(t, &Handlers{client: client}, dataFetcher, gvk)
+				defer closeServer()
+				defer conn.Close()
+
+				readMessage(t, conn)
+
+				payload := make([]byte, 9000)
+
+				err := conn.WriteMessage(websocket.BinaryMessage, payload)
+				if err != nil {
+					t.Fatalf("failed to write 9KB message to server: %v", err)
+				}
+
+				if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+					t.Fatalf("set read deadline: %v", err)
+				}
+
+				_, _, err = conn.ReadMessage()
+
+				if err == nil {
+					t.Fatalf("expected read error due to limit, but got nil")
+				}
+
+				if !websocket.IsCloseError(err, websocket.CloseMessageTooBig) && !strings.Contains(err.Error(), "close 1009") {
+					t.Fatalf("expected CloseMessageTooBig (1009), got: %v", err)
+				}
+			},
+		},
 	}
 
 	for name, tc := range tests {
