@@ -128,14 +128,8 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 
 			ginkgo.By("Deleting finished Pods", func() {
 				for _, p := range group {
-					gomega.Expect(k8sClient.Delete(ctx, p)).To(gomega.Succeed())
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, p, true)
 				}
-				gomega.Eventually(func(g gomega.Gomega) {
-					for _, p := range group {
-						var pCopy corev1.Pod
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &pCopy)).To(utiltesting.BeNotFoundError())
-					}
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 				util.ExpectWorkloadsFinalizedOrGone(ctx, k8sClient, gKey)
 			})
 		})
@@ -162,14 +156,8 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 			})
 			ginkgo.By("Incomplete group can be deleted", func() {
 				for _, p := range group[:2] {
-					gomega.Expect(k8sClient.Delete(ctx, p)).To(gomega.Succeed())
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, p, true)
 				}
-				gomega.Eventually(func(g gomega.Gomega) {
-					for _, origPod := range group[:2] {
-						var p corev1.Pod
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(utiltesting.BeNotFoundError())
-					}
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 			ginkgo.By("Complete group runs successfully", func() {
 				for _, p := range group {
@@ -406,14 +394,8 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 			})
 			ginkgo.By("Deleting finished Pods", func() {
 				for _, p := range group {
-					gomega.Expect(k8sClient.Delete(ctx, p)).To(gomega.Succeed())
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, p, true)
 				}
-				gomega.Eventually(func(g gomega.Gomega) {
-					for _, p := range group {
-						var pCopy corev1.Pod
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &pCopy)).To(utiltesting.BeNotFoundError())
-					}
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 				util.ExpectWorkloadsFinalizedOrGone(ctx, k8sClient, gKey)
 			})
 		})
