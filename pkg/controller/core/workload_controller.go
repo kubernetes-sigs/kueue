@@ -669,20 +669,10 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			if !workload.HasQuotaReservation(wl) {
 				cqActive := cqOk && r.cache.ClusterQueueActive(cqName)
-				var cond *metav1.Condition
-				var err error
-				if features.Enabled(features.UnadmittedWorkloadsObservability) {
-					cond, err = r.resolveUnadmittedQuotaReservedCondition(ctx, wl, lqExists, lqActive, cqOk, cqActive, cq)
-				} else {
-					cond = r.resolveLegacyUnadmittedQuotaReservedCondition(wl, lqExists, lqActive, cqOk, cqActive)
-				}
-				if err != nil {
+				if changed, err := r.syncQuotaReservedFalseCondition(ctx, wl, lqExists, lqActive, cqOk, cqActive, cq); err != nil {
 					return false, err
-				}
-				if cond != nil {
-					if apimeta.SetStatusCondition(&wl.Status.Conditions, *cond) {
-						updated = true
-					}
+				} else if changed {
+					updated = true
 				}
 			}
 			if workload.SyncAdmittedCondition(wl, r.clock.Now()) {
@@ -1804,7 +1794,35 @@ func (h *deviceClassHandler) reconcileWorkloads(ctx context.Context, q workqueue
 	}
 }
 
+func (r *WorkloadReconciler) syncQuotaReservedFalseCondition(
+	ctx context.Context,
+	wl *kueue.Workload,
+	lqExists, lqActive, cqOk, cqActive bool,
+	cq *kueue.ClusterQueue,
+) (bool, error) {
+	cond, err := r.resolveUnadmittedQuotaReservedCondition(ctx, wl, lqExists, lqActive, cqOk, cqActive, cq)
+	if err != nil {
+		return false, err
+	}
+	if cond != nil {
+		return apimeta.SetStatusCondition(&wl.Status.Conditions, *cond), nil
+	}
+	return false, nil
+}
+
 func (r *WorkloadReconciler) resolveUnadmittedQuotaReservedCondition(
+	ctx context.Context,
+	wl *kueue.Workload,
+	lqExists, lqActive, cqOk, cqActive bool,
+	cq *kueue.ClusterQueue,
+) (*metav1.Condition, error) {
+	if features.Enabled(features.UnadmittedWorkloadsObservability) {
+		return r.resolveGranularUnadmittedQuotaReservedCondition(ctx, wl, lqExists, lqActive, cqOk, cqActive, cq)
+	}
+	return r.resolveLegacyUnadmittedQuotaReservedCondition(wl, lqExists, lqActive, cqOk, cqActive), nil
+}
+
+func (r *WorkloadReconciler) resolveGranularUnadmittedQuotaReservedCondition(
 	ctx context.Context,
 	wl *kueue.Workload,
 	lqExists, lqActive, cqOk, cqActive bool,
