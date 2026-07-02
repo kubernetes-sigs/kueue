@@ -24,13 +24,17 @@
   - [Single Static Label](#single-static-label)
   - [Numbered Static Labels](#numbered-static-labels)
   - [Configurable with Override Name](#configurable-with-override-name)
+  - [Hard Source Kind Priority](#hard-source-kind-priority)
+  - [Soft Source Kind Priority](#soft-source-kind-priority)
+  - [Skip incompatible Metrics/Labels/Entries](#skip-incompatible-metricslabelsentries)
 <!-- /toc -->
 
 ## Summary
 
 Allow cluster admins to configure Kueue to promote specific Kubernetes
-labels or annotations from ClusterQueue, LocalQueue, and Cohort objects
-into Prometheus metric labels (with a mandatory `custom_` prefix),
+labels or annotations from ClusterQueue, LocalQueue, Cohort, and Workload objects
+into Prometheus metric labels (with a mandatory `custom_` or `<sourcekind>_custom_` prefix,
+where `<sourcekind>` denotes the kind of object that will carry the value of the custom label),
 enabling filtering and aggregation by organizational metadata.
 
 ## Motivation
@@ -44,7 +48,7 @@ it easier to build dashboards and filter or aggregate metrics.
 ### Goals
 
 - Configure which Kubernetes labels or annotations on ClusterQueue,
-  LocalQueue, and Cohort objects become Prometheus metric labels.
+  LocalQueue, Cohort, and Workload (inherited from their corresponding GenericJobs) objects become Prometheus metric labels.
 - Keep the metrics documentation auto-generation working.
 - Validate configuration at startup.
 
@@ -55,34 +59,75 @@ it easier to build dashboards and filter or aggregate metrics.
 ## Proposal
 
 Add a `customLabels` list to the `metrics` config section. Each entry
-has a `name` (used as the Prometheus label suffix after prepending
-`custom_`), and optionally a `sourceLabelKey` or `sourceAnnotationKey`
+has a `name` (used as the Prometheus label suffix after prepending the appropriate prefix),
+and optionally a `sourceLabelKey` or `sourceAnnotationKey`
 to specify where to read the value from. If neither source field is
-set, `name` is used as the Kubernetes label key. At startup, Kueue
-validates the configuration and initializes ClusterQueue, LocalQueue,
-and Cohort metric vectors with the additional label dimensions. When
-reporting metrics, the corresponding Kubernetes label or annotation
+set, `name` is used as the Kubernetes label key. 
+
+Additionally, each label can have a list of `SourceKind` values defined,
+allowing users to specify what type of object the label should be sourced from.
+Available kinds include: `Workload`, `ClusterQueue`, `LocalQueue`, and `Cohort`.
+If `sourceKinds` is empty, the label will default to `Cohort`, `LocalQueue`, and `ClusterQueue`.
+
+If a metric uses only `sourceKinds` not listed for a specific label,
+that label will be **omitted** by the metric and will not be added
+as an additional dimension to it.
+
+Each label will be instantiated per `SourceKind` declared.
+For any metric that sources label values from multiple `SourceKinds`,
+any label that covers multiple of such `SourceKinds` will prefix each
+source-kind-specific instance of the label with `<sourcekind>_custom_`.
+Otherwise, the label will be prefixed with just `custom_` for every `SourceKind`.
+
+At startup, Kueue validates the configuration and initializes metric vectors
+for ClusterQueue, LocalQueue, and Cohort with the additional label dimensions.
+When reporting metrics, the corresponding Kubernetes label or annotation
 values are included in the label set.
 
 ### User Stories
 
 **Team aggregation.** A ClusterQueue labeled `team=platform` produces
-`custom_team="platform"` in metrics, enabling PromQL like
-`sum by (custom_team) (kueue_cluster_queue_resource_usage)`.
+`clusterqueue_custom_team="platform"` in metrics, enabling PromQL like
+`sum by (clusterqueue_custom_team) (kueue_cluster_queue_resource_usage)`.
 
 **Environment filtering.** A ClusterQueue labeled `env=prod` produces
-`custom_env="prod"`, allowing Grafana dashboards filtered by environment.
+`clusterqueue_custom_env="prod"`, allowing Grafana dashboards filtered by environment.
 
 **Cost center grouping.** A ClusterQueue labeled `cost-center=12345`
 is configured with `name: "cost_center"` and
 `sourceLabelKey: "cost-center"`, producing
-`custom_cost_center="12345"` in metrics.
+`clusterqueue_custom_cost_center="12345"` in metrics.
 
 **Annotation-based billing.** A ClusterQueue annotated with
 `billing.company.com/budget=ABC-123` is configured with
 `name: "budget_code"` and
 `sourceAnnotationKey: "billing.company.com/budget"`, producing
-`custom_budget_code="ABC-123"` in metrics.
+`clusterqueue_custom_budget_code="ABC-123"` in metrics.
+
+**Admitted Active Workloads grouping by priority class.**
+
+Custom labels configuration of:
+* `name: "team"`, `sourceKinds: ["clusterqueue"]`
+* `name: "priority_class"`, `sourceLabelKey: "kueue.x-k8s.io/priority-class"`, `sourceKinds: ["Workload"]`,
+resulting in the `kueue_admitted_active_workloads` metric with a breakdown of workload counts by priority class.
+
+Workloads with priority class High and Low, each admitted to the same ClusterQueue with `name=cq-1` and the labels `team=platform` produce:
+
+```
+kueue_admitted_active_workloads{
+  cluster_queue="cq-1",
+  ...
+  clusterqueue_custom_team="platform",
+  workload_custom_priority_class="high",
+} 1
+
+kueue_admitted_active_workloads{
+  cluster_queue="cq-1",
+  ...
+  clusterqueue_custom_team="platform",
+  workload_custom_priority_class="low",
+} 1
+```
 
 **Example configuration:**
 
@@ -96,16 +141,22 @@ metrics:
       sourceLabelKey: "cost-center"                       # reads from label "cost-center"
     - name: "budget_code"
       sourceAnnotationKey: "billing.company.com/budget"   # reads from annotation
+    - name: "priority_class"
+      sourceLabelKey: "kueue.x-k8s.io/priority-class"     # reads from label "kueue.x-k8s.io/priority-class"
+      sourceKinds: [
+        "Workload"
+      ]
 ```
 
 Resulting metric:
 
 ```
-kueue_cluster_queue_resource_usage{
-  cluster_queue="cq-1", cohort="c", ...,
-  custom_team="platform", custom_env="prod",
-  custom_cost_center="12345",
-  custom_budget_code="ABC-123"} 4.5
+kueue_admitted_active_workloads{
+  cluster_queue="cq-1", ...
+  clusterqueue_custom_team="platform", clusterqueue_custom_env="prod",
+  clusterqueue_custom_cost_center="12345",
+  clusterqueue_custom_budget_code="ABC-123",
+  workload_custom_priority_class="high"} 10
 ```
 
 ### Risks and Mitigations
@@ -118,8 +169,9 @@ creates a new series; the old one must be explicitly deleted (see
 stable metadata (team, environment, cost center) and avoid values that
 change frequently.
 
-**Name collisions.** The mandatory `custom_` prefix prevents collisions
-with current or future built-in labels.
+**Name collisions.** The mandatory `<sourcekind>_custom_` prefix prevents collisions
+with current or future built-in labels, as well as collisions between the same labels
+on different objects when gathering label values from multiple source kinds.
 
 **Stale metrics.** When a queue's label or annotation value changes,
 the old series persists until explicitly deleted. See
@@ -133,6 +185,15 @@ Extend `ControllerMetrics` in
 `apis/config/v1beta2/configuration_types.go`:
 
 ```go
+type SourceKind string
+
+const (
+	SourceKindCohort       SourceKind = "Cohort"
+	SourceKindLocalQueue   SourceKind = "LocalQueue"
+	SourceKindClusterQueue SourceKind = "ClusterQueue"
+	SourceKindWorkload     SourceKind = "Workload"
+)
+
 type ControllerMetricsCustomLabel struct {
     // Name is the Prometheus metric label name suffix.
     // Prepended with "custom_" to form the full Prometheus label name
@@ -150,6 +211,15 @@ type ControllerMetricsCustomLabel struct {
     // Mutually exclusive with SourceLabelKey.
     // +optional
     SourceAnnotationKey string `json:"sourceAnnotationKey,omitempty"`
+
+    // SourceKinds is a list of object kinds from which the label value should be sourced.
+    // If empty, the label will be enabled for: Cohort, LocalQueue, and ClusterQueue.
+    //
+    // +kubebuilder:default:={Cohort,LocalQueue,ClusterQueue}
+    // +kubebuilder:validation:Enum=Cohort;LocalQueue;ClusterQueue;Workload
+    // +kubebuilder:validation:UniqueItems=true
+    // +optional
+    SourceKinds []SourceKind `json:"sourceKinds,omitempty"`
 }
 
 type ControllerMetrics struct {
@@ -183,7 +253,7 @@ Each `customLabels` entry is validated at startup:
 
 Validation runs at startup regardless of whether the
 `CustomMetricLabels` feature gate is enabled, so configuration errors
-are caught early. When `customLabels` is configured but the feature
+are caught early. When `customLabels` are configured but the feature
 gate is disabled, the controller logs a warning indicating that the
 configuration will have no effect until the gate is enabled.
 
@@ -211,6 +281,12 @@ criteria:
 Truly global metrics that have no object key are excluded:
 `AdmissionAttemptsTotal`, `admissionAttemptDuration`, and `buildInfo`.
 
+Some metrics that make sense to be broken down by workload attributes
+will support grouping of data by labels sourced from the Workload objects themselves.
+For example, `kueue_admitted_active_workloads` will provide a grouping
+not only by ClusterQueue labels, but also by Workload labels
+specified with `sourceKinds: ["Workload", ...]`.
+
 The full set of affected metrics is determined by the metric definitions
 in `pkg/metrics/metrics.go` at the time of implementation.
 
@@ -224,6 +300,12 @@ in `pkg/metrics/metrics.go` at the time of implementation.
    should remain in source so the metricsdoc generator can parse them,
    but the vectors must be reassigned with the extended label set before
    registration in `Register()`.
+   Metrics are initialized only with labels that match their `sourceKinds`,
+   as configured on a metric-by-metric basis.
+   For example, metrics that do not support workload-sourced
+   labels will ignore any label with `sourceKinds: ["Workload"]`.
+   Metrics that support cohorts, on the other hand, will make use of
+   labels with `sourceKinds: ["Workload", "Cohort"]`.
 3. **Reporting**: All `Report*` functions currently use positional
    `WithLabelValues(...)` and accept primitive parameters (strings,
    ints), not queue objects. Custom label values must be threaded
@@ -237,12 +319,27 @@ in `pkg/metrics/metrics.go` at the time of implementation.
    (`CohortWeightedShare`), labels are read from the Cohort object.
    For `PreemptedWorkloadsTotal`, labels are read from the preempting
    ClusterQueue. Missing keys produce an empty string value.
+   For metrics aggregating workloads (e.g., counting the number of active, admitted workloads),
+   the data will have to be pre-aggregated and broken down by workload label values
+   in order to report the data at the appropriate granularity level.
 4. **Deletion cleanup**: Existing `Clear*Metrics` functions use
    `DeletePartialMatch` and will match custom label dimensions
    automatically when a queue is deleted. For Cohort, the
    `CohortWeightedShare` series must also be deleted when a Cohort is
    removed; the Cohort reconciler's delete path must call
    `DeletePartialMatch` for it.
+   Metrics that source label values from Workloads
+   will have an added layer of calculation handling.
+   On a higher level, ClusterQueue, LocalQueue, or Cohort deletions
+   will trigger the cleanup of all partially-matched series
+   via `DeletePartialMatch` (and `CohortWeightedShare`).
+   Each such series corresponds to a set of workloads,
+   whose non-workload-sourced label values match the deleted object.
+   On a lower level, when the update happens due to the removal of a workload,
+   the metric must find an exact match for the workload's entry, then subtract the workload.
+   This means that workload deletions will be treated as data-point updates
+   rather than deletions of entire series of data.
+   For gauges, this means decrementing the entry by an appropriate amount.
 5. **Value-change cleanup**: The controller keeps an in-memory map
    from object name to last-reported custom label values. On every
    reconciliation of a ClusterQueue, LocalQueue, or Cohort:
@@ -260,6 +357,17 @@ in `pkg/metrics/metrics.go` at the time of implementation.
    For cumulative metrics (counters and histograms), removing and
    re-creating a series resets it to zero. This is expected; `rate()`
    and `increase()` handle counter resets correctly.
+
+   Metrics supporting workload-sourced labels will be maintained
+   on the ClusterQueue, LocalQueue, or Cohort level.
+
+   For all workload labels specified in the config with `sourceKinds` containing `Workload`,
+   the values of these labels will be automatically copied
+   from the owning GenericJob object into the Workload when the Workload
+   is created. This means workload labels used by the mechanism will be assumed to be
+   immutable once the workload is created. Breaking this convention will
+   lead to workloads with updated label values being registered as "new entities"
+   from the metrics' perspective.
 
 ### Metrics Documentation Generator
 
@@ -317,6 +425,7 @@ committing the changes necessary to implement this enhancement.
 - `CustomMetricLabels` enabled with `LocalQueueMetrics` disabled:
   ClusterQueue metrics get custom labels, LocalQueue metrics are not
   registered.
+- Metrics implementing Workload-level aggregations provide correct data breakdowns.
 
 ### Graduation Criteria
 
@@ -347,6 +456,7 @@ committing the changes necessary to implement this enhancement.
 ## Implementation History
 
 - 2026-02-13: Initial KEP draft.
+- 2026-06-30: Added support for Workload-sourced labels.
 
 ## Drawbacks
 
@@ -385,3 +495,89 @@ customMetricTags:
 Allowing arbitrary Prometheus names risks collisions with built-in labels.
 Generating the `custom_` prefix automatically from the Kubernetes label
 key is simpler and prevents collisions by construction.
+
+### Hard Source Kind Priority
+
+Define label names with only the `custom_` prefix.
+
+Establish the priority of the supported source kinds as:
+Cohort > ClusterQueue > LocalQueue > Workload.
+Alternatively, source kind priority could also be:
+* a configurable parameter,
+* defined as the explicit order in which the `sourceKinds` are listed
+in the label definition (with the first entry having the highest priority).
+
+In metrics where multiple source kinds could potentially contribute values,
+the value from the highest priority source kind will be used.
+For example, if a custom label is defined for both ClusterQueue and Workload,
+then the metrics which gather label values from both CQ and WL,
+will **always get the value from the CQ** (the value will be an empty string,
+if the label is not defined on the CQ).
+
+Allowing this makes it impossible for the users to
+introduce labels that have the same names and configs
+on different source kinds, while being allowed to have
+different values for said labels.
+
+### Soft Source Kind Priority
+
+Define label names with only the `custom_` prefix.
+Drop the added `sourceKinds` field.
+
+All label values will be derived at Report time for all metrics.
+
+If two distinct sources contribute the value for the same label, record the
+value based on priority. This means that if a higher priority source does not
+have a specific label, the value will be retrieved from the lower priority
+source.
+
+This variant allows us to simplify the API by removing the `sourceKinds` field,
+but suffers the same downsides as the
+[Hard Source Kind Priority](#hard-source-kind-priority) variant.
+
+The order could be hard-coded or provided by the user as a separate config
+parameter.
+
+In addition, this variant complicates the update logic for label sets on objects.
+Depending on the combination of sources for a metric, we could become unable to
+use partial matching of label sets, as some values could have been overridden.
+
+This makes it significantly harder to perform updates triggered by Lower Priority
+Objects, if the exact set of labels of the related Higher Priority Objects is not
+known. Conversely, it makes it significantly harder to create new metrics using custom
+labels depending on the proposed ordering of the priorities list, especially if
+it were made to be configurable.
+
+Another issue is that this variant also abstracts away the label conflicts we
+encounter, silencing them instead of vocalizing. Introducing any ways of
+disambiguating what the conflicts are specifically would still require adding
+the `sourceKinds` field, defeating the major advantage of this proposal.
+
+### Skip incompatible Metrics/Labels/Entries
+
+Define label names with only the `custom_` prefix.
+
+Metrics for which the `sourceKinds` list defines a set of sources introducing a label value source conflict:
+* [A] can be omitted entirely,
+* [B] can ignore labels that are misconfigured,
+* [C] can ignore entries where multiple sources declare the value for the same label,
+* [D] can set the value of a label with multiple sources as "CORRUPTED",
+* [E] could be wiped out entirely when a conflict is detected.
+
+The main downside of [A] is that when updating existing metrics to use multiple
+sources, the change will make existing configs invalid (not backwards
+compatible).
+
+The main downside of [B] is the potential to cause confusion among the users
+by removing some of the labels they explicitly defined.
+
+Options [C] - [E] are more complex to implement as they assume that the value of
+a label can have a different source depending on circumstances.
+
+This would require adding independent tracking of the source of the value when
+cached, to be able to determine how to handle it upon the deletion/update of one
+or more entries (e.g., how to identify which entries match a given ClusterQueue
+when some label values may have been sourced from a Workload).
+
+In addition, these options would result in metrics missing data or providing
+confusing results, which would make them harder to debug and use.
