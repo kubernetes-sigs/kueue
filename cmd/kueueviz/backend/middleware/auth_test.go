@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
+	"golang.org/x/time/rate"
 )
 
 type fakeClock struct {
@@ -226,5 +227,85 @@ func TestAuthMiddlewareCacheExpiry(t *testing.T) {
 				t.Fatalf("after request 3: calls = %d, want 2", *callCount)
 			}
 		})
+	}
+}
+
+// TestTokenReviewCacheLRUEviction verifies that when the cache reaches its
+// capacity the least-recently-used entry is evicted, keeping memory bounded.
+func TestTokenReviewCacheLRUEviction(t *testing.T) {
+	const capacity = 3
+	c := newTokenReviewCache(capacity)
+	now := time.Now()
+	expires := now.Add(time.Hour)
+
+	// Fill cache to capacity with tokens t1, t2, t3.
+	for _, key := range []string{"t1", "t2", "t3"} {
+		c.Set(key, cacheEntry{authenticated: true, expiresAt: expires})
+	}
+
+	// Access t1 to make it most-recently-used (t2 becomes LRU).
+	if _, ok := c.Get("t1", now); !ok {
+		t.Fatal("expected t1 in cache")
+	}
+
+	// Insert t4 — should evict the LRU entry (t2).
+	c.Set("t4", cacheEntry{authenticated: true, expiresAt: expires})
+
+	if c.order.Len() != capacity {
+		t.Fatalf("cache length = %d, want %d", c.order.Len(), capacity)
+	}
+	if _, ok := c.Get("t2", now); ok {
+		t.Fatal("expected t2 to be evicted (LRU)")
+	}
+	for _, key := range []string{"t1", "t3", "t4"} {
+		if _, ok := c.Get(key, now); !ok {
+			t.Fatalf("expected %s in cache after LRU eviction", key)
+		}
+	}
+}
+
+// TestTokenReviewCacheCapacityBounded verifies that inserting more tokens than
+// the cache capacity never grows the internal map beyond the limit.
+func TestTokenReviewCacheCapacityBounded(t *testing.T) {
+	const capacity = 5
+	c := newTokenReviewCache(capacity)
+	expires := time.Now().Add(time.Hour)
+
+	for i := range 100 {
+		c.Set(fmt.Sprintf("token-%d", i), cacheEntry{authenticated: true, expiresAt: expires})
+	}
+
+	c.mu.Lock()
+	size := len(c.items)
+	c.mu.Unlock()
+
+	if size > capacity {
+		t.Fatalf("cache size = %d, want ≤ %d", size, capacity)
+	}
+}
+
+// TestRateLimiterMiddleware verifies that requests exceeding the burst limit
+// receive 429 Too Many Requests.
+func TestRateLimiterMiddleware(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	// Allow only 1 request per second, burst of 1.
+	r.Use(RateLimiter(rate.Limit(1), 1))
+	r.GET("/test", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	// First request should succeed (consumes the burst token).
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("first request: status = %d, want 200", w.Code)
+	}
+
+	// Immediate second request should be rate-limited.
+	req2 := httptest.NewRequest(http.MethodGet, "/test", nil)
+	w2 := httptest.NewRecorder()
+	r.ServeHTTP(w2, req2)
+	if w2.Code != http.StatusTooManyRequests {
+		t.Fatalf("second request: status = %d, want 429", w2.Code)
 	}
 }
