@@ -1093,21 +1093,21 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 
-				ginkgo.By("delete the topology so that it becomes uninitialized", func() {
-					gomega.Expect(k8sClient.Delete(ctx, topology)).Should(gomega.Succeed())
+				ginkgo.By("trigger topology deletion", func() {
+					gomega.Expect(util.DeleteObject(ctx, k8sClient, topology)).To(gomega.Succeed())
 				})
 
-				ginkgo.By("remove topology finalizer to force deletion", func() {
+				ginkgo.By("remove topology finalizers to allow deletion", func() {
 					var updatedTopology kueue.Topology
 					gomega.Eventually(func(g gomega.Gomega) {
-						g.Expect(client.IgnoreNotFound(k8sClient.Get(ctx, client.ObjectKeyFromObject(topology), &updatedTopology))).To(gomega.Succeed())
-						if len(updatedTopology.Finalizers) == 0 {
-							return
-						}
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(topology), &updatedTopology)).To(gomega.Succeed())
 						updatedTopology.Finalizers = nil
-						g.Expect(client.IgnoreNotFound(k8sClient.Update(ctx, &updatedTopology))).Should(gomega.Succeed())
+						g.Expect(k8sClient.Update(ctx, &updatedTopology)).To(gomega.Succeed())
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
-					util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+				})
+
+				ginkgo.By("wait for the topology to be fully deleted", func() {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, false)
 				})
 
 				ginkgo.By("delete the workload while the topology is deleted", func() {
