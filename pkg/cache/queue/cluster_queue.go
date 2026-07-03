@@ -22,6 +22,7 @@ import (
 	"maps"
 	"slices"
 	"sync"
+	"sync/atomic"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -80,29 +81,24 @@ var (
 // The workloadName field is accessed concurrently: Snapshot sorts a copy of
 // the pending workloads (via baseCompareFunc -> matches) without holding the
 // ClusterQueue's rwm lock, while RequeueIfNotPresent sets it during preemption.
-// It carries its own mutex so every read and write of the field is
-// synchronized regardless of the caller's locking.
+// It is a single field with only whole-value read/store/clear, so an
+// atomic.Pointer synchronizes every access regardless of the caller's locking
+// (nil means no sticky workload).
 type stickyWorkload struct {
-	mu           sync.RWMutex
-	workloadName workload.Reference
+	workloadName atomic.Pointer[workload.Reference]
 }
 
 func (s *stickyWorkload) matches(workload workload.Reference) bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.workloadName == workload
+	name := s.workloadName.Load()
+	return name != nil && *name == workload
 }
 
 func (s *stickyWorkload) clear() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.workloadName = ""
+	s.workloadName.Store(nil)
 }
 
 func (s *stickyWorkload) set(workload workload.Reference) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.workloadName = workload
+	s.workloadName.Store(&workload)
 }
 
 func logStickyWorkloadSelectionIfVerbose(log logr.Logger, wl *kueue.Workload) {
