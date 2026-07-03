@@ -154,7 +154,11 @@ func (c *TASFlavorCache) snapshot(
 	return snapshot
 }
 
-func (c *TASFlavorCache) addUsage(key workload.Reference, topologyRequests []workload.TopologyDomainRequests) {
+func (c *TASFlavorCache) addUsage(log logr.Logger, key workload.Reference, topologyRequests []workload.TopologyDomainRequests) {
+	if _, found := c.wlUsage[key]; found {
+		log.V(2).Info("Workload usage already exists in TAS flavor cache, self-healing by replacing it", "workload", key)
+		c.removeUsage(key)
+	}
 	c.wlUsage[key] = slices.Clone(topologyRequests)
 	c.updateUsage(topologyRequests, add)
 }
