@@ -144,13 +144,13 @@ func run() int {
 
 	// based on the default config
 	groupKindConcurrency := map[string]int{
-		kueue.GroupVersion.WithKind("Workload").GroupKind().String():       5,
-		kueue.GroupVersion.WithKind("LocalQueue").GroupKind().String():     1,
-		kueue.GroupVersion.WithKind("ClusterQueue").GroupKind().String():   1,
-		kueue.GroupVersion.WithKind("ResourceFlavor").GroupKind().String(): 1,
+		kueue.SchemeGroupVersion.WithKind("Workload").GroupKind().String():       5,
+		kueue.SchemeGroupVersion.WithKind("LocalQueue").GroupKind().String():     1,
+		kueue.SchemeGroupVersion.WithKind("ClusterQueue").GroupKind().String():   1,
+		kueue.SchemeGroupVersion.WithKind("ResourceFlavor").GroupKind().String(): 1,
 	}
 	if *enableTAS {
-		groupKindConcurrency[kueue.GroupVersion.WithKind("Topology").GroupKind().String()] = 1
+		groupKindConcurrency[kueue.SchemeGroupVersion.WithKind("Topology").GroupKind().String()] = 1
 	}
 
 	options := ctrl.Options{

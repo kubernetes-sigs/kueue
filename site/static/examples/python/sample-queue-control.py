@@ -1,4 +1,10 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.9"
+# dependencies = [
+#     "kubernetes",
+# ]
+# ///
 
 import argparse
 from kubernetes import config, client
@@ -7,9 +13,6 @@ from kubernetes import config, client
 # This will show how to interact with queues
 
 # Make sure your cluster is running!
-config.load_kube_config()
-crd_api = client.CustomObjectsApi()
-api_client = crd_api.api_client
 
 
 def get_parser():
@@ -29,6 +32,9 @@ def main():
     """
     Get a listing of jobs in the queue
     """
+    config.load_kube_config()
+    crd_api = client.CustomObjectsApi()
+
     parser = get_parser()
     args, _ = parser.parse_known_args()
 

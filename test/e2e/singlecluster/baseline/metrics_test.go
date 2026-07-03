@@ -22,7 +22,6 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
-	schedulingv1 "k8s.io/api/scheduling/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -343,7 +342,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 			localQueue1 *kueue.LocalQueue
 			localQueue2 *kueue.LocalQueue
 
-			highPriorityClass *schedulingv1.PriorityClass
+			highWorkloadPriorityClass *kueue.WorkloadPriorityClass
 
 			lowerJob1         *batchv1.Job
 			lowerWorkload1Key types.NamespacedName
@@ -406,8 +405,8 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 				Obj()
 			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue1, localQueue2)
 
-			highPriorityClass = utiltesting.MakePriorityClass("high-" + ns.Name).PriorityValue(100).Obj()
-			util.MustCreate(ctx, k8sClient, highPriorityClass)
+			highWorkloadPriorityClass = utiltestingapi.MakeWorkloadPriorityClass("high-" + ns.Name).PriorityValue(100).Obj()
+			util.MustCreate(ctx, k8sClient, highWorkloadPriorityClass)
 
 			lowerJob1 = testingjob.MakeJob("lower-job-1", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue1.Name)).
@@ -454,7 +453,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 			blockerJob = testingjob.MakeJob("blocker", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue2.Name)).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
-				PriorityClass(highPriorityClass.Name).
+				WorkloadPriorityClass(highWorkloadPriorityClass.Name).
 				RequestAndLimit(corev1.ResourceCPU, "3").
 				TerminationGracePeriod(1).
 				Obj()
@@ -476,7 +475,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 			higherJob1 = testingjob.MakeJob("high-large-1", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue1.Name)).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
-				PriorityClass(highPriorityClass.Name).
+				WorkloadPriorityClass(highWorkloadPriorityClass.Name).
 				RequestAndLimit(corev1.ResourceCPU, "4").
 				TerminationGracePeriod(1).
 				Obj()
@@ -485,7 +484,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 			higherJob2 = testingjob.MakeJob("high-large-2", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue2.Name)).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
-				PriorityClass(highPriorityClass.Name).
+				WorkloadPriorityClass(highWorkloadPriorityClass.Name).
 				RequestAndLimit(corev1.ResourceCPU, "4").
 				TerminationGracePeriod(1).
 				Obj()
@@ -499,7 +498,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, lowerJob1, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, lowerJob2, true)
 			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, highPriorityClass, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, highWorkloadPriorityClass, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue1, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue2, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue1, true)

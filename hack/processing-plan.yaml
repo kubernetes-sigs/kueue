@@ -419,6 +419,18 @@ files:
       - type: DELETE
         key: .spec.template.spec.containers.[].resources
         onFileCondition: '.kind == "Deployment" and .metadata.name | contains("kueueviz-frontend")'
+      - type: DELETE
+        key: .spec.template.spec.securityContext
+        onFileCondition: '.kind == "Deployment" and .metadata.name | contains("kueueviz-backend")'
+      - type: DELETE
+        key: .spec.template.spec.containers.[].securityContext
+        onFileCondition: '.kind == "Deployment" and .metadata.name | contains("kueueviz-backend")'
+      - type: DELETE
+        key: .spec.template.spec.securityContext
+        onFileCondition: '.kind == "Deployment" and .metadata.name | contains("kueueviz-frontend")'
+      - type: DELETE
+        key: .spec.template.spec.containers.[].securityContext
+        onFileCondition: '.kind == "Deployment" and .metadata.name | contains("kueueviz-frontend")'
     postOperations:
       - type: INSERT_TEXT
         key: .spec

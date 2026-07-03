@@ -565,6 +565,54 @@ func TestPodSets(t *testing.T) {
 			},
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
+		"with sidecar submission mode accounts for the injected submitter on the head podSet": {
+			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
+				WithSubmissionMode(rayv1.SidecarMode).
+				WithHeadGroupSpec(
+					rayv1.HeadGroupSpec{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
+						},
+					},
+				).
+				WithWorkerGroups(
+					rayv1.WorkerGroupSpec{
+						GroupName: "group1",
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
+						},
+					},
+				).
+				Obj()),
+			wantPodSets: func(rayJob *RayJob) []kueue.PodSet {
+				return []kueue.PodSet{
+					*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+						PodSpec(corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Name: "head_c"},
+								{
+									Name: "ray-job-submitter",
+									Resources: corev1.ResourceRequirements{
+										Limits: corev1.ResourceList{
+											corev1.ResourceCPU:    resource.MustParse("1"),
+											corev1.ResourceMemory: resource.MustParse("1Gi"),
+										},
+										Requests: corev1.ResourceList{
+											corev1.ResourceCPU:    resource.MustParse("500m"),
+											corev1.ResourceMemory: resource.MustParse("200Mi"),
+										},
+									},
+								},
+							},
+						}).
+						Obj(),
+					*utiltestingapi.MakePodSet("group1", 1).
+						PodSpec(*rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
+						Obj(),
+				}
+			},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {

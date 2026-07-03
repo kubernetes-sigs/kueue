@@ -11,19 +11,16 @@ description: 在启用了 Kueue 的环境里运行 Job
 ## 开始之前 {#before-you-begin}
 
 检查[管理集群配额](/zh-cn/docs/tasks/manage/administer_cluster_quotas)
-了解初始集群设置的详细信息。你还需要安装 kubernetes python。我们建议使用虚拟环境。
+了解初始集群设置的详细信息。你还需要安装 [uv](https://docs.astral.sh/uv/)。
+每个示例脚本包含[内联脚本元数据 (PEP 723)](https://peps.python.org/pep-0723/)，
+因此 `uv run` 会自动创建隔离环境并安装所需的依赖项。
 
 ```bash
-python -m venv env
-source env/bin/activate
-pip install kubernetes requests
+# 安装 uv（如果尚未安装）
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-请注意，以下版本用于开发这些示例：
-
- - **Python**: 3.9.12
- - **kubernetes**: 26.1.0
- - **requests**: 2.31.0
+无需手动 `pip install` 或虚拟环境设置 — 只需使用 `uv run` 运行脚本。
 
 你可以按照 [Kueue 安装说明](https://github.com/kubernetes-sigs/kueue#installation)安装 Kueue，或者使用下面的安装示例。
 
@@ -48,7 +45,7 @@ Kueue 的核心是一个控制器，用于管理[自定义资源](https://kubern
 然后运行如下：
 
 ```bash
-python install-kueue-queues.py 
+uv run install-kueue-queues.py 
 ```
 
 ```console
@@ -59,7 +56,7 @@ python install-kueue-queues.py
 你也可以指定版本：
 
 ```bash
-python install-kueue-queues.py --version {{< param "version" >}}
+uv run install-kueue-queues.py --version {{< param "version" >}}
 ```
 
 ### 示例作业 {#sample-job}
@@ -71,7 +68,7 @@ python install-kueue-queues.py --version {{< param "version" >}}
 然后运行如下：
 
 ```bash
-python sample-job.py
+uv run sample-job.py
 ```
 ```console
 📦️ Container image selected is registry.k8s.io/e2e-test-images/agnhost:2.53...
@@ -84,7 +81,7 @@ Use:
 或者尝试更改作业名称 (`generateName`)：
 
 ```bash
-python sample-job.py --job-name sleep-job-
+uv run sample-job.py --job-name sleep-job-
 ```
 
 ```console
@@ -109,15 +106,15 @@ Use:
 为了使输出更有趣，我们可以先运行几个随机作业：
 
 ```bash
-python sample-job.py
-python sample-job.py
-python sample-job.py --job-name tacos
+uv run sample-job.py
+uv run sample-job.py
+uv run sample-job.py --job-name tacos
 ```
 
 然后运行脚本来查看你之前提交的队列和作业。
 
 ```bash
-python sample-queue-control.py
+uv run sample-queue-control.py
 ```
 ```console
 ⛑️  Local Queues
@@ -164,9 +161,7 @@ API 文档了解更多调用。
 来轻松完成此操作。鉴于我们在[设置](#开始之前)中创建的 Python 环境，
 我们可以直接将其安装到其中，如下所示：
 
-```bash
-pip install fluxoperator
-```
+`fluxoperator` 依赖在脚本的内联元数据中声明，`uv run` 会自动安装。
 
 我们还需要[安装 Flux operator](https://flux-framework.org/flux-operator/getting_started/user-guide.html#quick-install)。
 
@@ -181,7 +176,7 @@ kubectl apply -f https://raw.githubusercontent.com/flux-framework/flux-operator/
 现在尝试运行示例：
 
 ```bash
-python sample-flux-operator-job.py
+uv run sample-flux-operator-job.py
 ```
 ```console
 📦️ Container image selected is ghcr.io/flux-framework/flux-restful-api...
@@ -263,7 +258,7 @@ broker.info[0]: goodbye: goodbye->exit 0.06917ms
 如果你提交并请求四个任务，你将看到 "hello world" 四次：
 
 ```bash
-python sample-flux-operator-job.py --tasks 4
+uv run sample-flux-operator-job.py --tasks 4
 ```
 ```console
 ...

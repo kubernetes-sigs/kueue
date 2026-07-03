@@ -25,15 +25,11 @@ import (
 )
 
 var (
-	// GroupVersion is group version used to register these objects.
-	GroupVersion = schema.GroupVersion{Group: "kueue.x-k8s.io", Version: "v1alpha1"}
-
-	// SchemeGroupVersion is alias to GroupVersion for client-go libraries.
-	// It is required by pkg/client/informers/externalversions/...
-	SchemeGroupVersion = GroupVersion
+	// SchemeGroupVersion is a group version used to register these objects.
+	SchemeGroupVersion = schema.GroupVersion{Group: "kueue.x-k8s.io", Version: "v1alpha1"}
 
 	// SchemeBuilder is used to add go types to the GroupVersionKind scheme
-	SchemeBuilder = &scheme.Builder{GroupVersion: GroupVersion}
+	SchemeBuilder = &scheme.Builder{GroupVersion: SchemeGroupVersion}
 
 	// AddToScheme adds the types in this group-version to the given scheme.
 	AddToScheme = SchemeBuilder.AddToScheme
@@ -41,5 +37,5 @@ var (
 
 // Resource is required by pkg/client/listers/...
 func Resource(resource string) schema.GroupResource {
-	return GroupVersion.WithResource(resource).GroupResource()
+	return SchemeGroupVersion.WithResource(resource).GroupResource()
 }

@@ -18,6 +18,8 @@ package leaderworkerset
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -36,7 +38,15 @@ var (
 
 const (
 	FrameworkName = "leaderworkerset.x-k8s.io/leaderworkerset"
+	// defaultLeaderWorkerSetReplicas mirrors the LeaderWorkerSet API default for
+	// spec.replicas (+kubebuilder:default=1), and is used when the field is unset.
+	defaultLeaderWorkerSetReplicas = 1
+	// maxLeaderWorkerSetReplicas is a sanity upper bound on spec.replicas that guards
+	// against unbounded per-replica Workload creation from an unreasonably large value.
+	maxLeaderWorkerSetReplicas = 1_000_000
 )
+
+var errInvalidLeaderWorkerSetReplicas = errors.New("invalid LeaderWorkerSet replicas")
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
@@ -66,6 +76,16 @@ func (lws *LeaderWorkerSet) GVK() schema.GroupVersionKind {
 }
 
 func SetupIndexes(context.Context, client.FieldIndexer) error {
+	return nil
+}
+
+func validateLeaderWorkerSetReplicaCount(replicas int32) error {
+	if replicas < 0 {
+		return fmt.Errorf("%w: must be >= 0, got %d", errInvalidLeaderWorkerSetReplicas, replicas)
+	}
+	if replicas > maxLeaderWorkerSetReplicas {
+		return fmt.Errorf("%w: must be <= %d, got %d", errInvalidLeaderWorkerSetReplicas, maxLeaderWorkerSetReplicas, replicas)
+	}
 	return nil
 }
 

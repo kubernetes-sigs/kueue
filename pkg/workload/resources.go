@@ -75,7 +75,7 @@ func handlePodOverhead(ctx context.Context, cl client.Client, wl *kueue.Workload
 func handlePodLimitRange(ctx context.Context, cl client.Client, wl *kueue.Workload) error {
 	// get the list of limit ranges
 	var limitRanges corev1.LimitRangeList
-	if err := cl.List(ctx, &limitRanges, &client.ListOptions{Namespace: wl.Namespace}, client.MatchingFields{indexer.LimitRangeHasContainerType: "true"}); err != nil {
+	if err := cl.List(ctx, &limitRanges, &client.ListOptions{Namespace: wl.Namespace}, client.MatchingFields{indexer.LimitRangeHasContainerOrPodType: "true"}); err != nil {
 		return err
 	}
 
@@ -83,22 +83,31 @@ func handlePodLimitRange(ctx context.Context, cl client.Client, wl *kueue.Worklo
 		return nil
 	}
 	summary := limitrange.Summarize(limitRanges.Items...)
-	containerLimits, found := summary[corev1.LimitTypeContainer]
-	if !found {
+	podLimits, foundPodLimits := summary[corev1.LimitTypePod]
+	containerLimits, foundContainerLimits := summary[corev1.LimitTypeContainer]
+	if !foundPodLimits && !foundContainerLimits {
 		return nil
 	}
 
 	for pi := range wl.Spec.PodSets {
 		pod := &wl.Spec.PodSets[pi].Template.Spec
-		for ci := range pod.InitContainers {
-			res := &pod.InitContainers[ci].Resources
-			res.Limits = resource.MergeResourceListKeepFirst(res.Limits, containerLimits.Default)
-			res.Requests = resource.MergeResourceListKeepFirst(res.Requests, containerLimits.DefaultRequest)
+		if foundContainerLimits {
+			for ci := range pod.InitContainers {
+				res := &pod.InitContainers[ci].Resources
+				res.Limits = resource.MergeResourceListKeepFirst(res.Limits, containerLimits.Default)
+				res.Requests = resource.MergeResourceListKeepFirst(res.Requests, containerLimits.DefaultRequest)
+			}
+			for ci := range pod.Containers {
+				res := &pod.Containers[ci].Resources
+				res.Limits = resource.MergeResourceListKeepFirst(res.Limits, containerLimits.Default)
+				res.Requests = resource.MergeResourceListKeepFirst(res.Requests, containerLimits.DefaultRequest)
+			}
 		}
-		for ci := range pod.Containers {
-			res := &pod.Containers[ci].Resources
-			res.Limits = resource.MergeResourceListKeepFirst(res.Limits, containerLimits.Default)
-			res.Requests = resource.MergeResourceListKeepFirst(res.Requests, containerLimits.DefaultRequest)
+		// Pod-level resources (KEP-2837) are an optional pointer, only set when the
+		// PodLevelResources feature is enabled and used.
+		if pod.Resources != nil && foundPodLimits {
+			pod.Resources.Limits = resource.MergeResourceListKeepFirst(pod.Resources.Limits, podLimits.Default)
+			pod.Resources.Requests = resource.MergeResourceListKeepFirst(pod.Resources.Requests, podLimits.DefaultRequest)
 		}
 	}
 	return nil
@@ -120,6 +129,11 @@ func UseLimitsAsMissingRequestsInPod(pod *corev1.PodSpec) {
 	for ci := range pod.Containers {
 		res := &pod.Containers[ci].Resources
 		res.Requests = resource.MergeResourceListKeepFirst(res.Requests, res.Limits)
+	}
+	// Pod-level resources (KEP-2837) are an optional pointer, only set when the
+	// PodLevelResources feature is enabled and used.
+	if pod.Resources != nil {
+		pod.Resources.Requests = resource.MergeResourceListKeepFirst(pod.Resources.Requests, pod.Resources.Limits)
 	}
 }
 
@@ -162,6 +176,17 @@ func ValidateResources(wi *Info) field.ErrorList {
 				allErrors = append(
 					allErrors,
 					field.Invalid(podSpecPath.Child("containers").Index(i), resNames, RequestsMustNotExceedLimitMessage),
+				)
+			}
+		}
+
+		// Pod-level resources (KEP-2837) are an optional pointer, only set when the
+		// PodLevelResources feature is enabled and used.
+		if podResources := ps.Template.Spec.Resources; podResources != nil {
+			if resNames := resources.NewRequests(podResources.Requests).GreaterKeys(resources.NewRequests(podResources.Limits)); len(resNames) > 0 {
+				allErrors = append(
+					allErrors,
+					field.Invalid(podSpecPath.Child("resources"), resNames, RequestsMustNotExceedLimitMessage),
 				)
 			}
 		}

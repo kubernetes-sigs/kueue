@@ -19,6 +19,7 @@ package core
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -32,6 +33,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -78,6 +80,27 @@ import (
 
 var (
 	realClock = clock.RealClock{}
+
+	// schedulerSetReasons contains the reasons for the QuotaReserved=False condition
+	// that are set by the scheduler and must be preserved by the controller during
+	// reconciliation until the next scheduler cycle.
+	//
+	// We explicitly DO NOT include:
+	// - WorkloadQuotaReservedReasonSuspended
+	// - WorkloadQuotaReservedReasonMisconfigured
+	// Even though the scheduler can emit them, they represent active blockages (e.g.
+	// inactive or missing queues) that the controller actively re-evaluates. If we
+	// preserved them, the controller would not be able to transition the workload
+	// back to PendingEvaluation once the blockages are resolved.
+	schedulerSetReasons = sets.New(
+		kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+		kueue.WorkloadQuotaReservedReasonNoMatchingFlavor,
+		kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
+		kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
+		kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+		kueue.WorkloadQuotaReservedReasonWaitingForPodsReady,
+		kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+	)
 )
 
 // hasInternalError reports whether the field error list contains an internal
@@ -642,10 +665,11 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	cqName, cqOk := r.queues.ClusterQueueForWorkload(&wl)
+	var cq *kueue.ClusterQueue
 	if cqOk {
 		// because we need to react to API cluster cq events, the list of checks from a cache can lead to race conditions
-		cq := kueue.ClusterQueue{}
-		if err := r.client.Get(ctx, types.NamespacedName{Name: string(cqName)}, &cq); err != nil {
+		cq = &kueue.ClusterQueue{}
+		if err := r.client.Get(ctx, types.NamespacedName{Name: string(cqName)}, cq); err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 		// If stopped cluster queue is started we need to set the WorkloadRequeued condition to true.
@@ -654,7 +678,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				return workload.SetRequeuedCondition(wl, kueue.WorkloadClusterQueueRestarted, "The ClusterQueue was restarted after being stopped", true), nil
 			}))
 		}
-		if updated, err := r.reconcileSyncAdmissionChecks(ctx, &wl, &cq); updated || err != nil {
+		if updated, err := r.reconcileSyncAdmissionChecks(ctx, &wl, cq); updated || err != nil {
 			return ctrl.Result{}, err
 		}
 	}
@@ -663,10 +687,20 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	// false before the workloads eviction.
 	if !workload.IsAdmitted(&wl) {
 		var updated bool
-		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-			updated = workload.SyncAdmittedCondition(wl, r.clock.Now())
+		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+			if !workload.HasQuotaReservation(wl) {
+				if changed, err := r.syncQuotaReservedFalseCondition(ctx, wl, lqExists, lqActive, cq); err != nil {
+					return false, err
+				} else if changed {
+					updated = true
+				}
+			}
+			if workload.SyncAdmittedCondition(wl, r.clock.Now()) {
+				updated = true
+			}
 			return updated, nil
-		}); err != nil {
+		})
+		if err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 		isAdmitted := workload.IsAdmitted(&wl)
@@ -737,41 +771,6 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			recheckAfter = max(podsReadyRecheckAfter, maxExecRecheckAfter)
 		}
 		return ctrl.Result{RequeueAfter: recheckAfter}, nil
-	}
-
-	switch {
-	case !lqExists:
-		log.V(3).Info("Workload is inadmissible because of missing LocalQueue", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)))
-		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-			reason := workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonMisconfigured, kueue.WorkloadInadmissible)
-			return workload.UnsetQuotaReservationWithCondition(wl, reason, fmt.Sprintf("LocalQueue %s doesn't exist", wl.Spec.QueueName), r.clock.Now()), nil
-		}); err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
-	case !lqActive:
-		log.V(3).Info("Workload is inadmissible because of stopped LocalQueue", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)))
-		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-			reason := workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonSuspended, kueue.WorkloadInadmissible)
-			return workload.UnsetQuotaReservationWithCondition(wl, reason, fmt.Sprintf("LocalQueue %s is inactive", wl.Spec.QueueName), r.clock.Now()), nil
-		}); err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
-	case !cqOk:
-		log.V(3).Info("Workload is inadmissible because of missing ClusterQueue", "clusterQueue", klog.KRef("", string(cqName)))
-		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-			reason := workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonMisconfigured, kueue.WorkloadInadmissible)
-			return workload.UnsetQuotaReservationWithCondition(wl, reason, fmt.Sprintf("ClusterQueue %s doesn't exist", cqName), r.clock.Now()), nil
-		}); err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
-	case !r.cache.ClusterQueueActive(cqName):
-		log.V(3).Info("Workload is inadmissible because ClusterQueue is inactive", "clusterQueue", klog.KRef("", string(cqName)))
-		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-			reason := workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonSuspended, kueue.WorkloadInadmissible)
-			return workload.UnsetQuotaReservationWithCondition(wl, reason, fmt.Sprintf("ClusterQueue %s is inactive", cqName), r.clock.Now()), nil
-		}); err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
 	}
 
 	return ctrl.Result{}, nil
@@ -1471,7 +1470,7 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 		WatchesRawSource(source.Channel(r.draReconcileChannel, deh)).
 		WithOptions(controller.Options{
 			NeedLeaderElection:      new(false),
-			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("Workload").GroupKind().String()],
+			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.SchemeGroupVersion.WithKind("Workload").GroupKind().String()],
 			LogConstructor:          roletracker.NewLogConstructor(r.roleTracker, "workload-reconciler"),
 		}).
 		Watches(&corev1.LimitRange{}, ruh).
@@ -1812,5 +1811,116 @@ func (h *deviceClassHandler) reconcileWorkloads(ctx context.Context, q workqueue
 				},
 			}, time.Second)
 		}
+	}
+}
+
+func (r *WorkloadReconciler) syncQuotaReservedFalseCondition(
+	ctx context.Context,
+	wl *kueue.Workload,
+	lqExists, lqActive bool,
+	cq *kueue.ClusterQueue,
+) (bool, error) {
+	var cond *metav1.Condition
+	if features.Enabled(features.UnadmittedWorkloadsObservability) {
+		reason, message, err := r.resolveGranularUnadmittedQuotaReservedCondition(ctx, wl, lqExists, lqActive, cq)
+		if err != nil {
+			return false, err
+		}
+		if reason != "" {
+			cond = r.newQuotaReservedCondition(wl, reason, message)
+		}
+	} else {
+		cond = r.resolveLegacyUnadmittedQuotaReservedCondition(wl, lqExists, lqActive, cq)
+	}
+
+	if cond != nil {
+		return apimeta.SetStatusCondition(&wl.Status.Conditions, *cond), nil
+	}
+	return false, nil
+}
+
+func (r *WorkloadReconciler) resolveGranularUnadmittedQuotaReservedCondition(
+	ctx context.Context,
+	wl *kueue.Workload,
+	lqExists, lqActive bool,
+	cq *kueue.ClusterQueue,
+) (string, string, error) {
+	cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+
+	switch {
+	case !workload.IsActive(wl):
+		return kueue.WorkloadDeactivated, "The workload is deactivated", nil
+	case workload.IsOnHold(wl):
+		return cond.Reason, cond.Message, nil
+	}
+
+	if reason, message := r.getQueueBlocker(wl, lqExists, lqActive, cq); reason != "" {
+		return reason, message, nil
+	}
+
+	var admissibilityErr error
+	if cq != nil {
+		var selector labels.Selector
+		var err error
+		selector, err = metav1.LabelSelectorAsSelector(cq.Spec.NamespaceSelector)
+		if err != nil {
+			log := ctrl.LoggerFrom(ctx)
+			log.Error(err, "Invalid ClusterQueue NamespaceSelector", "clusterQueue", cq.Name)
+			return kueue.WorkloadQuotaReservedReasonMisconfigured, fmt.Sprintf("invalid namespace selector: %v", err), nil
+		}
+		wlInfo := workload.NewInfo(wl)
+		admissibilityErr = workload.ValidateAdmissibility(ctx, r.client, wlInfo, selector)
+		if admissibilityErr != nil && errors.Is(admissibilityErr, workload.ErrInternal) {
+			return "", "", admissibilityErr
+		}
+	}
+	switch {
+	case admissibilityErr != nil:
+		return kueue.WorkloadQuotaReservedReasonMisconfigured, admissibilityErr.Error(), nil //nolint:nilerr // admissibility validation failure does not require retry
+	case workload.HasAdmissionGate(wl):
+		return kueue.WorkloadAdmissionGated, fmt.Sprintf("Admission is gated by: %s", wl.Annotations[constants.AdmissionGatedByAnnotation]), nil
+	case cond != nil && cond.Reason != "" && schedulerSetReasons.Has(cond.Reason):
+		// Preserve scheduler feedback reasons until the next scheduler cycle.
+		return cond.Reason, cond.Message, nil
+	default:
+		// Stamping the condition on creation is gated by UnadmittedWorkloadsExplicitStatus.
+		if cond == nil && !features.Enabled(features.UnadmittedWorkloadsExplicitStatus) {
+			return "", "", nil
+		}
+		return kueue.WorkloadQuotaReservedReasonPendingEvaluation, "Workload is pending evaluation in the scheduling queue", nil
+	}
+}
+
+func (r *WorkloadReconciler) resolveLegacyUnadmittedQuotaReservedCondition(wl *kueue.Workload, lqExists, lqActive bool, cq *kueue.ClusterQueue) *metav1.Condition {
+	if _, message := r.getQueueBlocker(wl, lqExists, lqActive, cq); message != "" {
+		return r.newQuotaReservedCondition(wl, kueue.WorkloadInadmissible, message)
+	}
+	return nil
+}
+
+func (r *WorkloadReconciler) newQuotaReservedCondition(wl *kueue.Workload, reason, message string) *metav1.Condition {
+	return &metav1.Condition{
+		Type:               kueue.WorkloadQuotaReserved,
+		Status:             metav1.ConditionFalse,
+		Reason:             reason,
+		Message:            api.TruncateConditionMessage(message),
+		LastTransitionTime: metav1.NewTime(r.clock.Now()),
+		ObservedGeneration: wl.Generation,
+	}
+}
+
+func (r *WorkloadReconciler) getQueueBlocker(wl *kueue.Workload, lqExists, lqActive bool, cq *kueue.ClusterQueue) (reason string, message string) {
+	switch {
+	case !lqExists:
+		return kueue.WorkloadQuotaReservedReasonMisconfigured, fmt.Sprintf("LocalQueue %s doesn't exist", wl.Spec.QueueName)
+	case !lqActive:
+		return kueue.WorkloadQuotaReservedReasonSuspended, fmt.Sprintf("LocalQueue %s is inactive", wl.Spec.QueueName)
+	case cq == nil:
+		cqName, _ := r.queues.ClusterQueueForWorkload(wl)
+		return kueue.WorkloadQuotaReservedReasonMisconfigured, fmt.Sprintf("ClusterQueue %s doesn't exist", cqName)
+	case !r.cache.ClusterQueueActive(kueue.ClusterQueueReference(cq.Name)):
+		return kueue.WorkloadQuotaReservedReasonSuspended, fmt.Sprintf("ClusterQueue %s is inactive", cq.Name)
+	default:
+		return "", ""
 	}
 }

@@ -54,6 +54,7 @@ func (h *Handlers) GenericWebSocketHandler(dataFetcher func(ctx context.Context)
 			return
 		}
 		defer conn.Close()
+		conn.SetReadLimit(8192)
 		slog.Debug("WebSocket connection established", "duration", time.Since(connStart))
 
 		ctx, cancel := context.WithCancel(c.Request.Context())

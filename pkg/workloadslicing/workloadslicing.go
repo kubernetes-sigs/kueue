@@ -138,6 +138,25 @@ func FindNotFinishedWorkloads(ctx context.Context, clnt client.Client, jobObject
 	}), nil
 }
 
+// FindLatestActiveWorkload returns the newest non-finished workload slice owned
+// by the provided job object/gvk that holds a quota reservation, or nil if none
+// qualifies. This is the chain's "active" slice: its granted PodSet counts
+// define the admitted capacity. It builds on FindNotFinishedWorkloads, so the
+// returned slice respects the same ordering (newest last, with
+// WorkloadSliceReplacementFor as a tiebreaker on equal creation timestamps).
+func FindLatestActiveWorkload(ctx context.Context, clnt client.Client, jobObject client.Object, jobObjectGVK schema.GroupVersionKind) (*kueue.Workload, error) {
+	workloads, err := FindNotFinishedWorkloads(ctx, clnt, jobObject, jobObjectGVK)
+	if err != nil {
+		return nil, err
+	}
+	for i := range slices.Backward(workloads) {
+		if workload.HasQuotaReservation(&workloads[i]) {
+			return &workloads[i], nil
+		}
+	}
+	return nil, nil
+}
+
 // ScaledDown returns true if the new pod sets represent a scale-down operation.
 // This is determined by checking whether at least one new pod set has fewer replicas
 // than its corresponding old pod set, and none of the old pod sets have fewer replicas
