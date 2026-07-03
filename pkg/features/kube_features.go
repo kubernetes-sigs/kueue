@@ -461,6 +461,7 @@ const (
 	// UnadmittedWorkloadsExplicitStatus gates the immediate, proactive
 	// initialization of both QuotaReserved and Admitted status conditions
 	// to False during a workload's first reconciliation.
+	// This feature gate requires UnadmittedWorkloadsObservability to be enabled to take effect.
 	UnadmittedWorkloadsExplicitStatus featuregate.Feature = "UnadmittedWorkloadsExplicitStatus"
 )
 
