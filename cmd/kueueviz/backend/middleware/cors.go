@@ -127,7 +127,7 @@ func ValidateWebSocketOrigin(origin, host string) bool {
 		if strings.EqualFold(u.Host, host) {
 			return true
 		}
-		
+
 		// In development mode, allow cross-port localhost connections (e.g. for E2E testing)
 		if gin.Mode() != gin.ReleaseMode && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1") {
 			return true
@@ -139,11 +139,33 @@ func ValidateWebSocketOrigin(origin, host string) bool {
 		return false
 	}
 
+	canonicalOrigin := canonicalizeOrigin(origin)
 	for _, allowed := range config.AllowOrigins {
-		if allowed == origin {
+		if canonicalizeOrigin(allowed) == canonicalOrigin {
 			return true
 		}
 	}
 
 	return false
+}
+
+func canonicalizeOrigin(o string) string {
+	u, err := url.Parse(o)
+	if err != nil {
+		return o
+	}
+
+	scheme := strings.ToLower(u.Scheme)
+	host := strings.ToLower(u.Hostname())
+	port := u.Port()
+
+	if (scheme == "http" && port == "80") || (scheme == "https" && port == "443") {
+		port = ""
+	}
+
+	if port != "" {
+		host = host + ":" + port
+	}
+
+	return fmt.Sprintf("%s://%s", scheme, host)
 }
