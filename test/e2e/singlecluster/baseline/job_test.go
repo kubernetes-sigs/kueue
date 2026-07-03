@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -841,6 +842,161 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 					g.Expect(k8sClient.Get(ctx, jobKey, createdJob)).Should(gomega.Succeed())
 					g.Expect(ptr.Deref(createdJob.Spec.Suspend, false)).Should(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+	})
+
+	ginkgo.When("Creating an elastic Job with a ResourceFlavor that has nodeLabels and tolerations", func() {
+		var (
+			onDemandRF   *kueue.ResourceFlavor
+			localQueue   *kueue.LocalQueue
+			clusterQueue *kueue.ClusterQueue
+		)
+
+		flavorToleration := corev1.Toleration{
+			Key:      "example.com/test-taint",
+			Operator: corev1.TolerationOpExists,
+			Effect:   corev1.TaintEffectNoSchedule,
+		}
+
+		ginkgo.BeforeEach(func() {
+			flavorName := "on-demand-" + ns.Name
+			cqName := "cluster-queue-" + ns.Name
+
+			onDemandRF = utiltestingapi.MakeResourceFlavor(flavorName).
+				NodeLabel("instance-type", "on-demand").
+				Toleration(flavorToleration).
+				Obj()
+			util.MustCreate(ctx, k8sClient, onDemandRF)
+
+			clusterQueue = utiltestingapi.MakeClusterQueue(cqName).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(flavorName).
+						Resource(corev1.ResourceCPU, "4").
+						Resource(corev1.ResourceMemory, "4Gi").
+						Obj(),
+				).
+				Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+
+			localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue(cqName).Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandRF, true)
+			util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+		})
+
+		ginkgo.It("should inject flavor nodeLabels and tolerations into the Job and pods at admission and after scale-up", func() {
+			expectedNodeSelector := map[string]string{"instance-type": "on-demand"}
+
+			elasticJob := testingjob.MakeJob("elastic-flavor-injection", ns.Name).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				RequestAndLimit(corev1.ResourceMemory, "20Mi").
+				Parallelism(2).
+				Completions(10).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				TerminationGracePeriod(1).
+				Obj()
+			util.MustCreate(ctx, k8sClient, elasticJob)
+
+			ginkgo.By("waiting for the workload to be admitted", func() {
+				workloads := util.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&workloads[0]), &workloads[0])).Should(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(&workloads[0])).Should(gomega.BeTrue())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying the Job template carries the flavor nodeSelector and toleration", func() {
+				util.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, client.ObjectKeyFromObject(elasticJob), expectedNodeSelector)
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(elasticJob), elasticJob)).Should(gomega.Succeed())
+					g.Expect(elasticJob.Spec.Template.Spec.Tolerations).Should(gomega.ContainElement(flavorToleration))
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying running pods carry the flavor nodeSelector and toleration", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					pods := &corev1.PodList{}
+					g.Expect(k8sClient.List(ctx, pods,
+						client.InNamespace(ns.Name),
+						client.MatchingLabels{"batch.kubernetes.io/job-name": elasticJob.Name},
+					)).Should(gomega.Succeed())
+
+					runningCount := 0
+					for i := range pods.Items {
+						if pods.Items[i].Status.Phase == corev1.PodRunning {
+							runningCount++
+							g.Expect(pods.Items[i].Spec.NodeSelector).Should(gomega.Equal(expectedNodeSelector))
+							g.Expect(pods.Items[i].Spec.Tolerations).Should(gomega.ContainElement(flavorToleration))
+						}
+					}
+					g.Expect(runningCount).Should(gomega.BeNumerically(">=", 2))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			var oldWorkload *kueue.Workload
+			ginkgo.By("recording the current workload before scaling", func() {
+				workloads := util.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)
+				oldWorkload = &workloads[0]
+			})
+
+			ginkgo.By("scaling up parallelism from 2 to 3", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(elasticJob), elasticJob)).Should(gomega.Succeed())
+					elasticJob.Spec.Parallelism = ptr.To[int32](3)
+					g.Expect(k8sClient.Update(ctx, elasticJob)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("waiting for the replacement workload slice to be admitted and old slice finished", func() {
+				newWorkload := util.ExpectNewWorkloadSlice(ctx, k8sClient, oldWorkload)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(newWorkload), newWorkload)).Should(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(newWorkload)).Should(gomega.BeTrue())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oldWorkload), oldWorkload)).Should(gomega.Succeed())
+					g.Expect(workload.IsFinished(oldWorkload)).Should(gomega.BeTrue())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying the Job template still carries the flavor nodeSelector and toleration after scale-up", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(elasticJob), elasticJob)).Should(gomega.Succeed())
+					g.Expect(elasticJob.Spec.Template.Spec.NodeSelector).Should(gomega.Equal(expectedNodeSelector))
+					g.Expect(elasticJob.Spec.Template.Spec.Tolerations).Should(gomega.ContainElement(flavorToleration))
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying all 3 pods carry the flavor nodeSelector and toleration after scale-up", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					pods := &corev1.PodList{}
+					g.Expect(k8sClient.List(ctx, pods,
+						client.InNamespace(ns.Name),
+						client.MatchingLabels{"batch.kubernetes.io/job-name": elasticJob.Name},
+					)).Should(gomega.Succeed())
+
+					runningCount := 0
+					for i := range pods.Items {
+						if pods.Items[i].Status.Phase == corev1.PodRunning {
+							runningCount++
+							g.Expect(pods.Items[i].Spec.NodeSelector).Should(gomega.Equal(expectedNodeSelector))
+							g.Expect(pods.Items[i].Spec.Tolerations).Should(gomega.ContainElement(flavorToleration))
+						}
+					}
+					g.Expect(runningCount).Should(gomega.BeNumerically(">=", 3))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 	})
