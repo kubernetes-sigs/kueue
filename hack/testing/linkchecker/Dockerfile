@@ -1,4 +1,4 @@
-FROM python:3.15.0b3-alpine@sha256:c1320e80e60b0229497c6fd1b0698a36f704a97dc3139c2e122b4b3f28e187d9
+FROM python:3.15.0b3-alpine@sha256:c46e1b5012956890f42c4492c55cafde3ce675796854127cf93e9216f9f28f1a
 
 RUN pip install --no-cache-dir linkchecker
 
