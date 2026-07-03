@@ -1339,9 +1339,6 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		if !r.cache.AddOrUpdateWorkload(log, wlCopy) {
 			log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 		}
-		if afs.Enabled(r.admissionFSConfig) && status == workload.StatusAdmitted && r.cache.ClusterQueueUsesAdmissionFairSharing(wlCopy.Status.Admission.ClusterQueue) {
-			r.updateAfsConsumedUsage(log, wlCopy)
-		}
 	case workload.FromQuotaReservedOrAdmittedToPending(prevStatus, status):
 		if cq, reason, latency, ok := workload.EvictionPendingLatency(e.ObjectOld, e.ObjectNew, r.clock.Now()); ok {
 			metrics.ReportWorkloadEvictionLatency(cq, reason, latency, r.customLabels.CQGet(cq), r.roleTracker)
@@ -1399,6 +1396,17 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		// Workload update in the cache is handled here; however, some fields are immutable
 		// and are not supposed to actually change anything.
 		r.cache.AddOrUpdateWorkload(log, wlCopy)
+	}
+	// The AFS entry penalty must be settled on every transition into Admitted
+	// (#12539). It is settled outside the switch so that no transition into
+	// Admitted is missed, and after it so that the cache already accounts for
+	// the workload usage read by updateAfsConsumedUsage. Deactivation wins
+	// over admission: a workload deactivated in the same event was removed
+	// from the cache by the first case and must not be charged.
+	if active && status == workload.StatusAdmitted && prevStatus != workload.StatusAdmitted &&
+		afs.Enabled(r.admissionFSConfig) &&
+		r.cache.ClusterQueueUsesAdmissionFairSharing(wlCopy.Status.Admission.ClusterQueue) {
+		r.updateAfsConsumedUsage(log, wlCopy)
 	}
 	r.queues.QueueSecondPassIfNeeded(ctx, wlCopy, 0)
 	return true

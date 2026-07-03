@@ -1160,6 +1160,65 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 		})
 	})
 
+	ginkgo.When("Using AdmissionFairSharing with AdmissionChecks", ginkgo.Label("feature:admissionfairsharing"), func() {
+		var (
+			check *kueue.AdmissionCheck
+			cq    *kueue.ClusterQueue
+			lq    *kueue.LocalQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			check = utiltestingapi.MakeAdmissionCheck("check1").ControllerName("ctrl").Obj()
+			util.MustCreate(ctx, k8sClient, check)
+			util.SetAdmissionCheckActive(ctx, k8sClient, check, metav1.ConditionTrue)
+
+			cq = utiltestingapi.MakeClusterQueue("cq-with-check").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).Resource(corev1.ResourceCPU, "8").Obj()).
+				AdmissionMode(kueue.UsageBasedAdmissionFairSharing).
+				AdmissionChecks(kueue.AdmissionCheckReference(check.Name)).
+				Obj()
+			util.MustCreate(ctx, k8sClient, cq)
+
+			lq = utiltestingapi.MakeLocalQueue("lq-a", ns.Name).
+				FairSharing(&kueue.FairSharing{Weight: new(resource.MustParse("1"))}).
+				ClusterQueue(cq.Name).Obj()
+			lqs = append(lqs, lq)
+			util.MustCreate(ctx, k8sClient, lq)
+		})
+
+		ginkgo.AfterEach(func() {
+			// Delete in dependency order so the in-use finalizers can be
+			// removed: workloads -> ClusterQueue -> AdmissionCheck.
+			for _, wl := range wls {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
+			}
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, check, true)
+		})
+
+		ginkgo.It("should subtract the entry penalty when the workload is admitted via an AdmissionCheck", func() {
+			lqKey := utilqueue.NewLocalQueueReference(ns.Name, kueue.LocalQueueName(lq.Name))
+
+			ginkgo.By("Creating a workload which reserves quota and waits for the admission check")
+			wl := createWorkload("lq-a", "4")
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, wl)
+
+			ginkgo.By("Verifying the entry penalty is pending while the workload is in QuotaReserved")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(qManager.AfsEntryPenalties.HasPendingFor(lqKey)).To(gomega.BeTrue(), "entry penalty should be pending for lq-a")
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Marking the admission check Ready so the workload transitions from QuotaReserved to Admitted")
+			util.SetWorkloadsAdmissionCheck(ctx, k8sClient, wl, kueue.AdmissionCheckReference(check.Name), kueue.CheckStateReady, true)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+
+			ginkgo.By("Verifying the entry penalty is subtracted after admission")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(qManager.AfsEntryPenalties.HasPendingFor(lqKey)).To(gomega.BeFalse(), "entry penalty should be subtracted for lq-a after admission via admission check")
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
 	ginkgo.When("Preemption is enabled in fairsharing and there are large values of quota and weights", func() {
 		var (
 			cqA *kueue.ClusterQueue
