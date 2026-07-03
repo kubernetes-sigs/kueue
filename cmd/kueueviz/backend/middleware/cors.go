@@ -123,8 +123,15 @@ func ValidateWebSocketOrigin(origin, host string) bool {
 
 	// Fast path for same-host (default gorilla/websocket behavior)
 	u, err := url.Parse(origin)
-	if err == nil && strings.EqualFold(u.Host, host) {
-		return true
+	if err == nil {
+		if strings.EqualFold(u.Host, host) {
+			return true
+		}
+		
+		// In development mode, allow cross-port localhost connections (e.g. for E2E testing)
+		if gin.Mode() != gin.ReleaseMode && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1") {
+			return true
+		}
 	}
 
 	config, err := ConfigureCORS()
@@ -133,7 +140,7 @@ func ValidateWebSocketOrigin(origin, host string) bool {
 	}
 
 	for _, allowed := range config.AllowOrigins {
-		if allowed == "*" || allowed == origin {
+		if allowed == origin {
 			return true
 		}
 	}
