@@ -1462,7 +1462,7 @@ func TestReconcile(t *testing.T) {
 				}).
 				Obj(),
 		},
-		"newly created workload (initial reconcile)": {
+		"newly created workload (initial reconcile, ExplicitStatus enabled)": {
 			featureGates: map[featuregate.Feature]bool{
 				features.UnadmittedWorkloadsObservability:  true,
 				features.UnadmittedWorkloadsExplicitStatus: true,
@@ -1488,7 +1488,7 @@ func TestReconcile(t *testing.T) {
 				}).
 				Obj(),
 		},
-		"newly created workload (initial reconcile) with ExplicitStatus disabled": {
+		"newly created workload (initial reconcile, ExplicitStatus disabled)": {
 			featureGates: map[featuregate.Feature]bool{
 				features.UnadmittedWorkloadsObservability:  true,
 				features.UnadmittedWorkloadsExplicitStatus: false,

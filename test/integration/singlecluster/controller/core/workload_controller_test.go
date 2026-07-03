@@ -866,7 +866,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 				metav1.Condition{
 					Type:    kueue.WorkloadAdmitted,
 					Status:  metav1.ConditionFalse,
-					Reason:  "NoReservation",
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
 					Message: "The workload has no reservation",
 				},
 			)

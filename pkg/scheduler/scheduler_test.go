@@ -126,47 +126,27 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 
 	scenarios := []map[featuregate.Feature]bool{
 		{
-			features.WorkloadRequestUseMergePatch:      false,
-			features.UnadmittedWorkloadsObservability:  false,
-			features.UnadmittedWorkloadsExplicitStatus: false,
+			features.WorkloadRequestUseMergePatch:     false,
+			features.UnadmittedWorkloadsObservability: false,
 		},
 		{
-			features.WorkloadRequestUseMergePatch:      false,
-			features.UnadmittedWorkloadsObservability:  true,
-			features.UnadmittedWorkloadsExplicitStatus: false,
+			features.WorkloadRequestUseMergePatch:     false,
+			features.UnadmittedWorkloadsObservability: true,
 		},
 		{
-			features.WorkloadRequestUseMergePatch:      false,
-			features.UnadmittedWorkloadsObservability:  true,
-			features.UnadmittedWorkloadsExplicitStatus: true,
+			features.WorkloadRequestUseMergePatch:     true,
+			features.UnadmittedWorkloadsObservability: false,
 		},
 		{
-			features.WorkloadRequestUseMergePatch:      true,
-			features.UnadmittedWorkloadsObservability:  false,
-			features.UnadmittedWorkloadsExplicitStatus: false,
-		},
-		{
-			features.WorkloadRequestUseMergePatch:      true,
-			features.UnadmittedWorkloadsObservability:  true,
-			features.UnadmittedWorkloadsExplicitStatus: false,
-		},
-		{
-			features.WorkloadRequestUseMergePatch:      true,
-			features.UnadmittedWorkloadsObservability:  true,
-			features.UnadmittedWorkloadsExplicitStatus: true,
+			features.WorkloadRequestUseMergePatch:     true,
+			features.UnadmittedWorkloadsObservability: true,
 		},
 	}
 
 	for name, tc := range cases {
 		for _, scenario := range scenarios {
 			t.Run(
-				fmt.Sprintf(
-					"%s WorkloadRequestUseMergePatch:%t observability:%t explicitStatus:%t",
-					name,
-					scenario[features.WorkloadRequestUseMergePatch],
-					scenario[features.UnadmittedWorkloadsObservability],
-					scenario[features.UnadmittedWorkloadsExplicitStatus],
-				),
+				fmt.Sprintf("%s WorkloadRequestUseMergePatch:%t observability:%t", name, scenario[features.WorkloadRequestUseMergePatch], scenario[features.UnadmittedWorkloadsObservability]),
 				func(t *testing.T) {
 					features.SetFeatureGatesDuringTest(t, scenario)
 					metrics.AdmissionCyclePreemptionSkips.Reset()
@@ -7696,41 +7676,27 @@ func TestLastSchedulingContext(t *testing.T) {
 
 	scenarios := []map[featuregate.Feature]bool{
 		{
-			features.WorkloadRequestUseMergePatch:      false,
-			features.UnadmittedWorkloadsObservability:  false,
-			features.UnadmittedWorkloadsExplicitStatus: false,
+			features.WorkloadRequestUseMergePatch:     false,
+			features.UnadmittedWorkloadsObservability: false,
 		},
 		{
-			features.WorkloadRequestUseMergePatch:      false,
-			features.UnadmittedWorkloadsObservability:  true,
-			features.UnadmittedWorkloadsExplicitStatus: false,
+			features.WorkloadRequestUseMergePatch:     false,
+			features.UnadmittedWorkloadsObservability: true,
 		},
 		{
-			features.WorkloadRequestUseMergePatch:      false,
-			features.UnadmittedWorkloadsObservability:  true,
-			features.UnadmittedWorkloadsExplicitStatus: true,
+			features.WorkloadRequestUseMergePatch:     true,
+			features.UnadmittedWorkloadsObservability: false,
 		},
 		{
-			features.WorkloadRequestUseMergePatch:      true,
-			features.UnadmittedWorkloadsObservability:  false,
-			features.UnadmittedWorkloadsExplicitStatus: false,
-		},
-		{
-			features.WorkloadRequestUseMergePatch:      true,
-			features.UnadmittedWorkloadsObservability:  true,
-			features.UnadmittedWorkloadsExplicitStatus: false,
-		},
-		{
-			features.WorkloadRequestUseMergePatch:      true,
-			features.UnadmittedWorkloadsObservability:  true,
-			features.UnadmittedWorkloadsExplicitStatus: true,
+			features.WorkloadRequestUseMergePatch:     true,
+			features.UnadmittedWorkloadsObservability: true,
 		},
 	}
 
 	for _, tc := range cases {
 		for _, scenario := range scenarios {
 			t.Run(
-				fmt.Sprintf("%s WorkloadRequestUseMergePatch:%t observability:%t explicitStatus:%t", tc.name, scenario[features.WorkloadRequestUseMergePatch], scenario[features.UnadmittedWorkloadsObservability], scenario[features.UnadmittedWorkloadsExplicitStatus]),
+				fmt.Sprintf("%s WorkloadRequestUseMergePatch:%t observability:%t", tc.name, scenario[features.WorkloadRequestUseMergePatch], scenario[features.UnadmittedWorkloadsObservability]),
 				func(t *testing.T) {
 					features.SetFeatureGatesDuringTest(t, scenario)
 					ctx, log := utiltesting.ContextWithLog(t)
@@ -8578,41 +8544,27 @@ func TestSchedulerWhenWorkloadModifiedConcurrently(t *testing.T) {
 
 	scenarios := []map[featuregate.Feature]bool{
 		{
-			features.WorkloadRequestUseMergePatch:      false,
-			features.UnadmittedWorkloadsObservability:  false,
-			features.UnadmittedWorkloadsExplicitStatus: false,
+			features.WorkloadRequestUseMergePatch:     false,
+			features.UnadmittedWorkloadsObservability: false,
 		},
 		{
-			features.WorkloadRequestUseMergePatch:      false,
-			features.UnadmittedWorkloadsObservability:  true,
-			features.UnadmittedWorkloadsExplicitStatus: false,
+			features.WorkloadRequestUseMergePatch:     false,
+			features.UnadmittedWorkloadsObservability: true,
 		},
 		{
-			features.WorkloadRequestUseMergePatch:      false,
-			features.UnadmittedWorkloadsObservability:  true,
-			features.UnadmittedWorkloadsExplicitStatus: true,
+			features.WorkloadRequestUseMergePatch:     true,
+			features.UnadmittedWorkloadsObservability: false,
 		},
 		{
-			features.WorkloadRequestUseMergePatch:      true,
-			features.UnadmittedWorkloadsObservability:  false,
-			features.UnadmittedWorkloadsExplicitStatus: false,
-		},
-		{
-			features.WorkloadRequestUseMergePatch:      true,
-			features.UnadmittedWorkloadsObservability:  true,
-			features.UnadmittedWorkloadsExplicitStatus: false,
-		},
-		{
-			features.WorkloadRequestUseMergePatch:      true,
-			features.UnadmittedWorkloadsObservability:  true,
-			features.UnadmittedWorkloadsExplicitStatus: true,
+			features.WorkloadRequestUseMergePatch:     true,
+			features.UnadmittedWorkloadsObservability: true,
 		},
 	}
 
 	for name, tc := range testCases {
 		for _, scenario := range scenarios {
 			t.Run(
-				fmt.Sprintf("%s WorkloadRequestUseMergePatch:%t observability:%t explicitStatus:%t", name, scenario[features.WorkloadRequestUseMergePatch], scenario[features.UnadmittedWorkloadsObservability], scenario[features.UnadmittedWorkloadsExplicitStatus]),
+				fmt.Sprintf("%s WorkloadRequestUseMergePatch:%t observability:%t", name, scenario[features.WorkloadRequestUseMergePatch], scenario[features.UnadmittedWorkloadsObservability]),
 				func(t *testing.T) {
 					features.SetFeatureGatesDuringTest(t, scenario)
 					ctx, log := utiltesting.ContextWithLog(t)
