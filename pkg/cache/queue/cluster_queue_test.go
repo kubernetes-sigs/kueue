@@ -478,6 +478,58 @@ func TestSnapshotStableWithConcurrentFSUpdates(t *testing.T) {
 	}
 }
 
+// TestSnapshotConcurrentWithRequeueNoDataRace guards against a data race on the
+// sticky workload: Snapshot sorts a copy of the pending workloads through the
+// comparator (which reads stickyWorkload.workloadName) without holding the
+// ClusterQueue lock, while RequeueIfNotPresent writes that field during a
+// BestEffortFIFO preemption requeue. Run with -race to detect regressions.
+func TestSnapshotConcurrentWithRequeueNoDataRace(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	cq, err := newClusterQueue(ctx, nil,
+		&kueue.ClusterQueue{
+			Spec: kueue.ClusterQueueSpec{
+				QueueingStrategy: kueue.BestEffortFIFO,
+			},
+		},
+		defaultOrdering,
+		nil, nil, nil)
+	if err != nil {
+		t.Fatalf("failed to create ClusterQueue: %v", err)
+	}
+
+	// At least two workloads so Snapshot's sort actually invokes the
+	// comparator that reads the sticky workload.
+	wls := []*kueue.Workload{
+		utiltestingapi.MakeWorkload("wl1", defaultNamespace).Obj(),
+		utiltestingapi.MakeWorkload("wl2", defaultNamespace).Obj(),
+		utiltestingapi.MakeWorkload("wl3", defaultNamespace).Obj(),
+	}
+	for _, wl := range wls {
+		cq.PushOrUpdate(workload.NewInfo(wl))
+	}
+
+	// Writer: continuously set the sticky workload via a preemption requeue.
+	stop := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				for _, wl := range wls {
+					cq.RequeueIfNotPresent(ctx, workload.NewInfo(wl), RequeueReasonPendingPreemption)
+				}
+			}
+		}
+	}()
+	defer close(stop)
+
+	// Reader: Snapshot reads the sticky workload through the comparator.
+	for range 1000 {
+		cq.Snapshot()
+	}
+}
+
 func TestPendingResources(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	now := time.Now()

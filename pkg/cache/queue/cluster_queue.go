@@ -76,19 +76,32 @@ var (
 // workloads from going back to the head of the queue.  A workload is
 // considered sticky until it is admitted, unschedulable, or deleted.
 // See Kueue#6929 and Kueue#7101 for motivation.
+//
+// The workloadName field is accessed concurrently: Snapshot sorts a copy of
+// the pending workloads (via baseCompareFunc -> matches) without holding the
+// ClusterQueue's rwm lock, while RequeueIfNotPresent sets it during preemption.
+// It carries its own mutex so every read and write of the field is
+// synchronized regardless of the caller's locking.
 type stickyWorkload struct {
+	mu           sync.RWMutex
 	workloadName workload.Reference
 }
 
 func (s *stickyWorkload) matches(workload workload.Reference) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return s.workloadName == workload
 }
 
 func (s *stickyWorkload) clear() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.workloadName = ""
 }
 
 func (s *stickyWorkload) set(workload workload.Reference) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.workloadName = workload
 }
 
