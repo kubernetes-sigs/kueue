@@ -40,6 +40,7 @@ import (
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
@@ -123,7 +124,7 @@ func (r *IncrementalDispatcherReconciler) Reconcile(ctx context.Context, req ctr
 		return reconcile.Result{}, err
 	}
 
-	if workload.IsFinished(wl) || !workload.HasQuotaReservation(wl) {
+	if workloadfinish.IsFinished(wl) || !workload.HasQuotaReservation(wl) {
 		log.V(3).Info("Workload is already finished or has no quota reserved, skip the reconciliation")
 		r.clearRoundStartTime(req.NamespacedName)
 		return reconcile.Result{}, nil

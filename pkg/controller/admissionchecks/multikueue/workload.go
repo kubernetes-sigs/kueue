@@ -56,6 +56,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
@@ -121,7 +122,7 @@ func WithClock(_ testing.TB, c clock.Clock) Option {
 
 // IsFinished returns true if the local workload is finished.
 func (g *wlGroup) IsFinished() bool {
-	return workload.IsFinished(g.local)
+	return workloadfinish.IsFinished(g.local)
 }
 
 // IsElasticWorkload returns true if the workload is considered elastic,
@@ -401,7 +402,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		}
 
 		// finish workload and copy the status to the local one
-		return reconcile.Result{}, workload.Finish(ctx, w.client, group.local, remoteFinishedCond.Reason, remoteFinishedCond.Message, w.clock)
+		return reconcile.Result{}, workloadfinish.Finish(ctx, w.client, group.local, remoteFinishedCond.Reason, remoteFinishedCond.Message, w.clock)
 	}
 
 	// 4. Handle workload eviction

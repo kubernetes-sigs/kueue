@@ -57,6 +57,7 @@ import (
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -4356,7 +4357,7 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 			g.Expect(workloads.Items).Should(gomega.HaveLen(2))
 			for i := range workloads.Items {
 				if workloads.Items[i].Name == testJobWorkload.Name {
-					g.Expect(workload.IsFinished(&workloads.Items[i])).Should(gomega.BeTrue())
+					g.Expect(workloadfinish.IsFinished(&workloads.Items[i])).Should(gomega.BeTrue())
 					continue
 				}
 				g.Expect(workload.IsAdmitted(&workloads.Items[i])).Should(gomega.BeTrue())
@@ -4487,7 +4488,7 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 			var foundFinishedRoot bool
 			for i := range workloads.Items {
 				wl := &workloads.Items[i]
-				if workload.IsFinished(wl) {
+				if workloadfinish.IsFinished(wl) {
 					g.Expect(wl.Name).Should(gomega.Equal(rootWorkloadName))
 					foundFinishedRoot = true
 					continue
@@ -4788,7 +4789,7 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 			g.Expect(k8sClient.List(ctx, wlList, client.InNamespace(testJob.Namespace))).Should(gomega.Succeed())
 			var activeWorkloads []string
 			for i := range wlList.Items {
-				if workload.HasQuotaReservation(&wlList.Items[i]) && !workload.IsFinished(&wlList.Items[i]) {
+				if workload.HasQuotaReservation(&wlList.Items[i]) && !workloadfinish.IsFinished(&wlList.Items[i]) {
 					activeWorkloads = append(activeWorkloads, wlList.Items[i].Name)
 				}
 			}
