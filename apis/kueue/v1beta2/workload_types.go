@@ -970,6 +970,10 @@ const (
 	// WorkloadDeactivationTarget means that the Workload should be deactivated.
 	// This condition is temporary, so it should be removed after deactivation.
 	WorkloadDeactivationTarget = "DeactivationTarget"
+
+	// WorkloadWaitingForReplacementPods means that Kueue doesn't observe all
+	// the Pods declared for the group.
+	WorkloadWaitingForReplacementPods = "WaitingForReplacementPods"
 )
 
 // Reasons for the WorkloadPreemptionBlocked condition.

@@ -891,7 +891,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 						g.Expect(createdWorkload.Status.Conditions).To(gomega.ContainElements(
 							gomega.BeComparableTo(metav1.Condition{
-								Type:    podcontroller.WorkloadWaitingForReplacementPods,
+								Type:    kueue.WorkloadWaitingForReplacementPods,
 								Status:  metav1.ConditionTrue,
 								Reason:  "ByTest",
 								Message: "by test",
@@ -946,7 +946,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 						g.Expect(createdWorkload.Status.Conditions).To(gomega.ContainElements(
 							gomega.BeComparableTo(metav1.Condition{
-								Type:    podcontroller.WorkloadWaitingForReplacementPods,
+								Type:    kueue.WorkloadWaitingForReplacementPods,
 								Status:  metav1.ConditionFalse,
 								Reason:  kueue.WorkloadPodsReady,
 								Message: "No pods need replacement",
@@ -1017,7 +1017,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 						g.Expect(createdWorkload.Status.Conditions).To(gomega.ContainElements(
 							gomega.BeComparableTo(metav1.Condition{
-								Type:    podcontroller.WorkloadWaitingForReplacementPods,
+								Type:    kueue.WorkloadWaitingForReplacementPods,
 								Status:  metav1.ConditionTrue,
 								Reason:  podcontroller.WorkloadPodsFailed,
 								Message: "Some Failed pods need replacement",
@@ -1042,7 +1042,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 						g.Expect(createdWorkload.Status.Conditions).To(gomega.ContainElements(
 							gomega.BeComparableTo(metav1.Condition{
-								Type:    podcontroller.WorkloadWaitingForReplacementPods,
+								Type:    kueue.WorkloadWaitingForReplacementPods,
 								Status:  metav1.ConditionFalse,
 								Reason:  kueue.WorkloadPodsReady,
 								Message: "No pods need replacement",
@@ -1062,7 +1062,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 						g.Expect(createdWorkload.Status.Conditions).To(gomega.ContainElements(
 							gomega.BeComparableTo(metav1.Condition{
-								Type:    podcontroller.WorkloadWaitingForReplacementPods,
+								Type:    kueue.WorkloadWaitingForReplacementPods,
 								Status:  metav1.ConditionTrue,
 								Reason:  podcontroller.WorkloadPodsFailed,
 								Message: "Some Failed pods need replacement",
@@ -1085,7 +1085,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 						g.Expect(createdWorkload.Status.Conditions).To(gomega.ContainElements(
 							gomega.BeComparableTo(metav1.Condition{
-								Type:    podcontroller.WorkloadWaitingForReplacementPods,
+								Type:    kueue.WorkloadWaitingForReplacementPods,
 								Status:  metav1.ConditionFalse,
 								Reason:  kueue.WorkloadPodsReady,
 								Message: "No pods need replacement",
@@ -1504,7 +1504,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 								Message: "The workload is admitted",
 							}, util.IgnoreConditionTimestampsAndObservedGeneration),
 							gomega.BeComparableTo(metav1.Condition{
-								Type:    podcontroller.WorkloadWaitingForReplacementPods,
+								Type:    kueue.WorkloadWaitingForReplacementPods,
 								Status:  metav1.ConditionTrue,
 								Reason:  kueue.WorkloadPreempted,
 								Message: "By test",
@@ -1529,7 +1529,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 						g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
 						g.Expect(wl.Status.Conditions).To(gomega.ContainElements(
 							gomega.BeComparableTo(metav1.Condition{
-								Type:    podcontroller.WorkloadWaitingForReplacementPods,
+								Type:    kueue.WorkloadWaitingForReplacementPods,
 								Status:  metav1.ConditionFalse,
 								Reason:  kueue.WorkloadPodsReady,
 								Message: "No pods need replacement",
@@ -2391,7 +2391,7 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 						Message: "The workload backoff was finished",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 					gomega.BeComparableTo(metav1.Condition{
-						Type:    podcontroller.WorkloadWaitingForReplacementPods,
+						Type:    kueue.WorkloadWaitingForReplacementPods,
 						Status:  metav1.ConditionTrue,
 						Reason:  "PodsReadyTimeout",
 						Message: fmt.Sprintf("Exceeded the PodsReady timeout %s", wlKey.String()),
@@ -2435,7 +2435,7 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 						Message: "The workload has no reservation",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 					gomega.BeComparableTo(metav1.Condition{
-						Type:    podcontroller.WorkloadWaitingForReplacementPods,
+						Type:    kueue.WorkloadWaitingForReplacementPods,
 						Status:  metav1.ConditionTrue,
 						Reason:  "DeactivatedDueToRequeuingLimitExceeded",
 						Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",

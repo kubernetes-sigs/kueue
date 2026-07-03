@@ -1334,7 +1334,8 @@ func IsActive(w *kueue.Workload) bool {
 
 // IsAdmissible returns true if the workload can be added to the queue.
 func IsAdmissible(w *kueue.Workload) bool {
-	return !HasAdmissionGate(w) && !IsFinished(w) && IsActive(w) && !HasQuotaReservation(w) && !IsOnHold(w)
+	return !HasAdmissionGate(w) && !IsFinished(w) && IsActive(w) && !HasQuotaReservation(w) && !IsOnHold(w) &&
+		!apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadWaitingForReplacementPods)
 }
 
 // HasAdmissionGate returns true if the workload has an admission gate annotation and the AdmissionGatedBy feature is on
