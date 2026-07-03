@@ -668,7 +668,10 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 	}
 	requiredReplacementDomain := s.requiredReplacementDomain(tr, existingAssignment)
 	trCopy := *tr
-	sliceSize, _ := getSliceSizeWithSinglePodAsDefault(tr.PodSet.TopologyRequest)
+	sliceSize, reason := getSliceSizeWithSinglePodAsDefault(tr.PodSet.TopologyRequest)
+	if reason != "" {
+		return nil, nil, reason
+	}
 	if slicesRequested(tr.PodSet.TopologyRequest) && requiredReplacementDomain != "" && (tr.Count%sliceSize != 0) {
 		trCopy.PodSet = tr.PodSet.DeepCopy()
 		// Find the innermost constraint whose size divides the number of replacement
@@ -741,7 +744,10 @@ func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta 
 		return ""
 	}
 
-	sliceSize, _ := getSliceSizeWithSinglePodAsDefault(tr.PodSet.TopologyRequest)
+	sliceSize, reason := getSliceSizeWithSinglePodAsDefault(tr.PodSet.TopologyRequest)
+	if reason != "" {
+		return ""
+	}
 	if slicesRequested(tr.PodSet.TopologyRequest) && (tr.Count%sliceSize != 0) {
 		// For multi-layer constraints, find the innermost broken constraint's domain.
 		// This ensures the replacement is confined to the tightest topology level
