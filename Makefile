@@ -220,7 +220,7 @@ image-local-build:
 
 # Build the multiplatform container image locally and push to repo.
 .PHONY: image-local-push
-image-local-push: IMAGE_BUILD_CMD := $(IMAGE_PUSH_RETRY) $(IMAGE_BUILD_CMD)
+image-local-push: export IMAGE_BUILD_CMD := $(IMAGE_PUSH_RETRY) $(IMAGE_BUILD_CMD)
 image-local-push: PUSH=--push
 image-local-push: image-local-build
 
@@ -470,7 +470,7 @@ kueue-populator-image-build:
 		IMAGE_BUILD_EXTRA_OPTS="$(IMAGE_BUILD_EXTRA_OPTS) -t $(IMAGE_REPO_KUEUE_POPULATOR):$(RELEASE_BRANCH)"
 
 .PHONY: kueue-populator-image-push
-kueue-populator-image-push: IMAGE_BUILD_CMD := $(IMAGE_PUSH_RETRY) $(IMAGE_BUILD_CMD)
+kueue-populator-image-push: export IMAGE_BUILD_CMD := $(IMAGE_PUSH_RETRY) $(IMAGE_BUILD_CMD)
 kueue-populator-image-push: PUSH=--push
 kueue-populator-image-push: kueue-populator-image-build
 
