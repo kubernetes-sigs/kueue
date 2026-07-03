@@ -111,7 +111,10 @@ func (*multiKueueAdapter) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedN
 		return nil, fmt.Errorf("no origin UID annotation found for leaderworkerset: %s", klog.KObj(lws))
 	}
 
-	replicas := ptr.Deref(lws.Spec.Replicas, 1)
+	replicas := ptr.Deref(lws.Spec.Replicas, defaultLeaderWorkerSetReplicas)
+	if err := validateLeaderWorkerSetReplicaCount(replicas); err != nil {
+		return nil, err
+	}
 	keys := make([]types.NamespacedName, replicas)
 	for i := range replicas {
 		keys[i] = types.NamespacedName{
@@ -127,7 +130,11 @@ func (*multiKueueAdapter) GetExpectedWorkloadCount(ctx context.Context, c client
 	if err := c.Get(ctx, key, lws); err != nil {
 		return 0, err
 	}
-	return int(ptr.Deref(lws.Spec.Replicas, 1)), nil
+	replicas := ptr.Deref(lws.Spec.Replicas, defaultLeaderWorkerSetReplicas)
+	if err := validateLeaderWorkerSetReplicaCount(replicas); err != nil {
+		return 0, err
+	}
+	return int(replicas), nil
 }
 
 func (*multiKueueAdapter) GetWorkloadIndex(wl *kueue.Workload) int {
