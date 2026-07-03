@@ -85,6 +85,7 @@ import (
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
@@ -1417,7 +1418,7 @@ func ExpectNewWorkloadSlice(ctx context.Context, k8sClient client.Client, oldWor
 func FindNonFinishedWorkloads(workloads []kueue.Workload) []kueue.Workload {
 	var active []kueue.Workload
 	for i := range workloads {
-		if !workload.IsFinished(&workloads[i]) {
+		if !workloadfinish.IsFinished(&workloads[i]) {
 			active = append(active, workloads[i])
 		}
 	}
@@ -1446,7 +1447,7 @@ func ExpectWorkloadSliceAdmittedBeforeOldFinished(watcher watch.Interface, oldWo
 			wl, isWorkload := evt.Object.(*kueue.Workload)
 			gomega.Expect(isWorkload).Should(gomega.BeTrue())
 
-			if wl.Name == oldWorkloadName && workload.IsFinished(wl) {
+			if wl.Name == oldWorkloadName && workloadfinish.IsFinished(wl) {
 				oldSliceFinished = true
 			}
 			if wl.Name != oldWorkloadName && workload.IsAdmitted(wl) {

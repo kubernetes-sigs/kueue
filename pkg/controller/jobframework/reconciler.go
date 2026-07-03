@@ -69,6 +69,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
@@ -427,7 +428,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		}
 	}
 
-	if wl != nil && workload.IsFinished(wl) {
+	if wl != nil && workloadfinish.IsFinished(wl) {
 		if err := r.finalizeJob(ctx, job); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -453,12 +454,12 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// 2. handle job is finished.
 	if message, success, finished := job.Finished(ctx); finished {
 		log.V(3).Info("The workload is already finished")
-		if wl != nil && !workload.IsFinished(wl) {
+		if wl != nil && !workloadfinish.IsFinished(wl) {
 			reason := kueue.WorkloadFinishedReasonSucceeded
 			if !success {
 				reason = kueue.WorkloadFinishedReasonFailed
 			}
-			err := workload.Finish(ctx, r.client, wl, reason, message, r.clock)
+			err := workloadfinish.Finish(ctx, r.client, wl, reason, message, r.clock)
 			if err != nil && !apierrors.IsNotFound(err) {
 				return ctrl.Result{}, err
 			}
@@ -588,7 +589,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 				log.Error(err, "Unsuspending job")
 				if podset.IsPermanent(err) {
 					// Mark the workload as finished with failure since the is no point to retry.
-					errUpdateStatus := workload.Finish(ctx, r.client, wl, FailedToStartFinishedReason, err.Error(), r.clock)
+					errUpdateStatus := workloadfinish.Finish(ctx, r.client, wl, FailedToStartFinishedReason, err.Error(), r.clock)
 					if errUpdateStatus != nil {
 						log.Error(errUpdateStatus, "Updating workload status, on start failure", "err", err)
 					}
@@ -1208,7 +1209,7 @@ func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, wl *ku
 		}
 		// mark the workload as finished
 		msg := "The prebuilt workload is out of sync with its user job"
-		return false, workload.Finish(ctx, r.client, wl, kueue.WorkloadFinishedReasonOutOfSync, msg, r.clock)
+		return false, workloadfinish.Finish(ctx, r.client, wl, kueue.WorkloadFinishedReasonOutOfSync, msg, r.clock)
 	}
 	return true, nil
 }

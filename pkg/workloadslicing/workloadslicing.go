@@ -39,6 +39,7 @@ import (
 	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 )
 
 // Workload slicing refers to a specialized Kueue feature designed to support workload scaling up.
@@ -134,7 +135,7 @@ func FindNotFinishedWorkloads(ctx context.Context, clnt client.Client, jobObject
 
 	// Filter out workloads with activated "Finished" condition.
 	return slices.DeleteFunc(list.Items, func(w kueue.Workload) bool {
-		return workload.IsFinished(&w)
+		return workloadfinish.IsFinished(&w)
 	}), nil
 }
 
@@ -327,7 +328,7 @@ func normalizeActiveSlices(
 			continue
 		}
 		log.V(2).Info("Finishing out-of-sync workload slice", "workload", workload.Key(wl))
-		if err := workload.Finish(ctx, clnt, wl, kueue.WorkloadFinishedReasonOutOfSync,
+		if err := workloadfinish.Finish(ctx, clnt, wl, kueue.WorkloadFinishedReasonOutOfSync,
 			"The workload slice is out of sync with its parent job", clk); err != nil {
 			return nil, err
 		}
