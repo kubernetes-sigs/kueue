@@ -2267,12 +2267,12 @@ func TestUpdateUnadmittedWorkload(t *testing.T) {
 			}
 
 			cqKey := tc.expectedStatus.ClusterQueueStatus()
-			if count, ok := manager.unadmittedCQCounts[cqKey]; !ok || count != 1 {
+			if count, ok := manager.unadmittedWorkloadsPerCQ[cqKey]; !ok || count != 1 {
 				t.Errorf("expected CQ status count to be 1, got count=%d, ok=%t", count, ok)
 			}
 
 			lqKey := tc.expectedStatus
-			if count, ok := manager.unadmittedLQCounts[lqKey]; !ok || count != 1 {
+			if count, ok := manager.unadmittedWorkloadsPerLQ[lqKey]; !ok || count != 1 {
 				t.Errorf("expected LQ status count to be 1, got count=%d, ok=%t", count, ok)
 			}
 
@@ -2287,10 +2287,10 @@ func TestUpdateUnadmittedWorkload(t *testing.T) {
 			if _, ok := manager.trackedUnadmittedWorkloadStatuses[wlKey]; ok {
 				t.Errorf("expected workload to be removed from unadmitted registry")
 			}
-			if count, ok := manager.unadmittedCQCounts[cqKey]; ok && count != 0 {
+			if count, ok := manager.unadmittedWorkloadsPerCQ[cqKey]; ok && count != 0 {
 				t.Errorf("expected CQ status count to be decremented to 0, got count=%d", count)
 			}
-			if count, ok := manager.unadmittedLQCounts[lqKey]; ok && count != 0 {
+			if count, ok := manager.unadmittedWorkloadsPerLQ[lqKey]; ok && count != 0 {
 				t.Errorf("expected LQ status count to be decremented to 0, got count=%d", count)
 			}
 		})
@@ -2318,11 +2318,52 @@ func TestUpdateUnadmittedWorkload_LQMetricsDisabled(t *testing.T) {
 
 	manager.UpdateUnadmittedWorkload(wl)
 
-	if len(manager.unadmittedCQCounts) == 0 {
+	if len(manager.unadmittedWorkloadsPerCQ) == 0 {
 		t.Errorf("expected CQ counts to be updated")
 	}
 
-	if len(manager.unadmittedLQCounts) != 0 {
-		t.Errorf("expected LQ counts to be empty when LQ metrics are disabled, got %v", manager.unadmittedLQCounts)
+	if len(manager.unadmittedWorkloadsPerLQ) != 0 {
+		t.Errorf("expected LQ counts to be empty when LQ metrics are disabled, got %v", manager.unadmittedWorkloadsPerLQ)
+	}
+}
+
+func TestDeleteLocalQueue_UnadmittedWorkloads(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, true)
+
+	ctx, log := utiltesting.ContextWithLog(t)
+	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()
+	wl := utiltestingapi.MakeWorkload("wl", "ns").Queue("lq").Obj()
+
+	kClient := utiltesting.NewFakeClient(wl)
+	manager := NewManagerForUnitTests(kClient, nil)
+
+	if err := manager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("failed to add ClusterQueue: %v", err)
+	}
+	if err := manager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("failed to add LocalQueue: %v", err)
+	}
+
+	manager.UpdateUnadmittedWorkload(wl)
+
+	// Verify it is tracked
+	wlKey := workload.Key(wl)
+	if _, ok := manager.trackedUnadmittedWorkloadStatuses[wlKey]; !ok {
+		t.Fatalf("expected workload to be tracked")
+	}
+
+	// Delete LQ
+	manager.DeleteLocalQueue(log, lq)
+
+	// Verify internal maps are cleared
+	if len(manager.unadmittedWorkloadsPerCQ) != 0 {
+		t.Errorf("expected CQ status counts to be empty, got %v", manager.unadmittedWorkloadsPerCQ)
+	}
+	if len(manager.unadmittedWorkloadsPerLQ) != 0 {
+		t.Errorf("expected LQ status counts to be empty, got %v", manager.unadmittedWorkloadsPerLQ)
+	}
+	if len(manager.trackedUnadmittedWorkloadStatuses) != 0 {
+		t.Errorf("expected tracked unadmitted workloads to be empty, got %v", manager.trackedUnadmittedWorkloadStatuses)
 	}
 }

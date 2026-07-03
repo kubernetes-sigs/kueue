@@ -160,8 +160,8 @@ type Manager struct {
 
 	// Tracks unadmitted workload statuses and counts.
 	trackedUnadmittedWorkloadStatuses map[workload.Reference]unadmittedWorkloadStatus
-	unadmittedCQCounts                map[unadmittedCQStatus]int
-	unadmittedLQCounts                map[unadmittedWorkloadStatus]int
+	unadmittedWorkloadsPerCQ          map[unadmittedCQStatus]int
+	unadmittedWorkloadsPerLQ          map[unadmittedWorkloadStatus]int
 
 	workloadOrdering workload.Ordering
 
@@ -229,8 +229,8 @@ func NewManager(client client.Client, checker StatusChecker, requeuer inadmissib
 		workloadAssignedQueues:            make(map[workload.Reference]queue.LocalQueueReference),
 		finishedWorkloads:                 make(map[workload.Reference]queue.LocalQueueReference),
 		trackedUnadmittedWorkloadStatuses: make(map[workload.Reference]unadmittedWorkloadStatus),
-		unadmittedCQCounts:                make(map[unadmittedCQStatus]int),
-		unadmittedLQCounts:                make(map[unadmittedWorkloadStatus]int),
+		unadmittedWorkloadsPerCQ:          make(map[unadmittedCQStatus]int),
+		unadmittedWorkloadsPerLQ:          make(map[unadmittedWorkloadStatus]int),
 		workloadOrdering: workload.Ordering{
 			PodsReadyRequeuingTimestamp: config.EvictionTimestamp,
 		},
@@ -628,12 +628,12 @@ func (m *Manager) DeleteLocalQueue(log logr.Logger, q *kueue.LocalQueue) {
 	if m.lqMetrics.IsEnabled() {
 		clearLQMetrics(key)
 	}
-	delete(m.localQueues, key)
 	if features.Enabled(features.UnadmittedWorkloadsObservability) {
 		for _, wInfo := range qImpl.items {
-			m.updateUnadmittedWorkloadWithoutLock(wInfo.Obj)
+			m.removeUnadmittedWorkloadWithoutLock(workload.Key(wInfo.Obj))
 		}
 	}
+	delete(m.localQueues, key)
 }
 
 func (m *Manager) PendingWorkloads(q *kueue.LocalQueue) (int32, error) {
@@ -822,11 +822,7 @@ func (m *Manager) deleteAndForgetWorkloadWithoutLock(log logr.Logger, wlKey work
 	delete(m.workloadAssignedQueues, wlKey)
 	m.deleteFinishedWorkloadWithoutLock(wlKey)
 	if features.Enabled(features.UnadmittedWorkloadsObservability) {
-		oldStatus, ok := m.trackedUnadmittedWorkloadStatuses[wlKey]
-		if ok {
-			m.decrementStatusCounts(oldStatus)
-			delete(m.trackedUnadmittedWorkloadStatuses, wlKey)
-		}
+		m.removeUnadmittedWorkloadWithoutLock(wlKey)
 	}
 }
 
@@ -1057,7 +1053,7 @@ func (m *Manager) resyncLocalQueueGaugeMetricsLocked(lq *LocalQueue) {
 }
 
 func (m *Manager) resyncUnadmittedWorkloadsMetricsLocked(cqName kueue.ClusterQueueReference) {
-	for status, count := range m.unadmittedCQCounts {
+	for status, count := range m.unadmittedWorkloadsPerCQ {
 		if status.ClusterQueue == cqName {
 			cqCustomLabels := m.customLabels.CQGet(cqName)
 			metrics.ReportUnadmittedWorkload(status.ClusterQueue, status.Reason, status.UnderlyingCause, cqCustomLabels, m.roleTracker, count)
@@ -1067,7 +1063,7 @@ func (m *Manager) resyncUnadmittedWorkloadsMetricsLocked(cqName kueue.ClusterQue
 
 func (m *Manager) resyncLocalQueueUnadmittedWorkloadsMetricsLocked(lqRef queue.LocalQueueReference) {
 	lqNamespace, lqName := queue.MustParseLocalQueueReference(lqRef)
-	for status, count := range m.unadmittedLQCounts {
+	for status, count := range m.unadmittedWorkloadsPerLQ {
 		if status.ClusterQueue != "" && status.LocalQueueNamespace == lqNamespace && status.LocalQueueName == lqName {
 			lqCustomLabels := m.customLabels.LQGet(lqRef)
 			lqRefKey := metrics.LocalQueueReference{Name: lqName, Namespace: lqNamespace}
@@ -1113,11 +1109,18 @@ func (m *Manager) AddWorkloadUpdateWatcher(watcher WorkloadUpdateWatcher) {
 	m.workloadUpdateWatchers = append(m.workloadUpdateWatchers, watcher)
 }
 
-func getUnadmittedWorkloadStatus(wl *kueue.Workload) (unadmittedWorkloadStatus, bool) {
-	admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
-	if (admittedCond != nil && admittedCond.Status == metav1.ConditionTrue) || workload.IsFinished(wl) || !wl.DeletionTimestamp.IsZero() {
-		return unadmittedWorkloadStatus{}, false
+func getUnadmittedWorkloadStatus(wl *kueue.Workload) *unadmittedWorkloadStatus {
+	if workload.IsAdmitted(wl) || workload.IsFinished(wl) || !wl.DeletionTimestamp.IsZero() {
+		klog.V(4).InfoS("Workload is not unadmitted",
+			"workload", klog.KObj(wl),
+			"isAdmitted", workload.IsAdmitted(wl),
+			"isFinished", workload.IsFinished(wl),
+			"isDeleting", !wl.DeletionTimestamp.IsZero(),
+		)
+		return nil
 	}
+
+	admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
 
 	var reason string
 	if admittedCond != nil {
@@ -1130,26 +1133,26 @@ func getUnadmittedWorkloadStatus(wl *kueue.Workload) (unadmittedWorkloadStatus, 
 	quotaReservedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
 	underlyingCause := resolveUnadmittedUnderlyingCause(reason, quotaReservedCond)
 
-	return unadmittedWorkloadStatus{
+	return &unadmittedWorkloadStatus{
 		LocalQueueName:      wl.Spec.QueueName,
 		LocalQueueNamespace: wl.Namespace,
 		Reason:              reason,
 		UnderlyingCause:     underlyingCause,
-	}, true
+	}
 }
 
 func resolveUnadmittedUnderlyingCause(reason string, quotaReservedCond *metav1.Condition) string {
-	if quotaReservedCond != nil && quotaReservedCond.Status == metav1.ConditionTrue {
-		switch reason {
-		case kueue.WorkloadAdmittedReasonUnsatisfiedAdmissionChecks:
-			return kueue.WorkloadUnadmittedCauseChecksNotReady
-		case kueue.WorkloadAdmittedReasonPendingDelayedTopologyRequests:
-			return kueue.WorkloadUnadmittedCausePendingTopology
-		default:
-			return reason
-		}
-	}
 	if quotaReservedCond != nil {
+		if quotaReservedCond.Status == metav1.ConditionTrue {
+			switch reason {
+			case kueue.WorkloadAdmittedReasonUnsatisfiedAdmissionChecks:
+				return kueue.WorkloadUnadmittedCauseChecksNotReady
+			case kueue.WorkloadAdmittedReasonPendingDelayedTopologyRequests:
+				return kueue.WorkloadUnadmittedCausePendingTopology
+			default:
+				return reason
+			}
+		}
 		return quotaReservedCond.Reason
 	}
 	// If the scheduler has not evaluated the workload yet, or if the UnadmittedWorkloadsExplicitStatus
@@ -1165,37 +1168,48 @@ func (m *Manager) UpdateUnadmittedWorkload(wl *kueue.Workload) {
 }
 
 func (m *Manager) updateUnadmittedWorkloadWithoutLock(wl *kueue.Workload) {
-	status, isUnadmitted := getUnadmittedWorkloadStatus(wl)
+	status := getUnadmittedWorkloadStatus(wl)
 	wlKey := workload.Key(wl)
 	oldStatus, ok := m.trackedUnadmittedWorkloadStatuses[wlKey]
 
-	if isUnadmitted {
+	if status != nil {
 		if cqName, cqOk := m.ClusterQueueForWorkloadWithoutLock(wl); cqOk {
 			status.ClusterQueue = cqName
+		} else {
+			klog.V(3).InfoS("Failed to resolve ClusterQueue for unadmitted workload", "workload", wlKey, "queue", wl.Spec.QueueName)
 		}
-		if ok && oldStatus == status {
+		if ok && oldStatus == *status {
+			klog.V(5).InfoS("Workload unadmitted status unchanged, skipping update", "workload", wlKey)
 			return
 		}
 	}
+
+	klog.V(4).InfoS("Updating unadmitted workload tracking", "workload", wlKey, "oldStatus", oldStatus, "newStatus", status)
 
 	if ok {
 		m.decrementStatusCounts(oldStatus)
 		delete(m.trackedUnadmittedWorkloadStatuses, wlKey)
 	}
-	if isUnadmitted {
-		m.trackedUnadmittedWorkloadStatuses[wlKey] = status
-		m.incrementStatusCounts(status)
+	if status != nil {
+		m.trackedUnadmittedWorkloadStatuses[wlKey] = *status
+		m.incrementStatusCounts(*status)
 	}
 }
 
 func (m *Manager) RemoveUnadmittedWorkload(wlKey workload.Reference) {
 	m.Lock()
 	defer m.Unlock()
+	m.removeUnadmittedWorkloadWithoutLock(wlKey)
+}
 
+func (m *Manager) removeUnadmittedWorkloadWithoutLock(wlKey workload.Reference) {
 	oldStatus, ok := m.trackedUnadmittedWorkloadStatuses[wlKey]
 	if ok {
+		klog.V(4).InfoS("Removing workload from unadmitted tracking", "workload", wlKey, "status", oldStatus)
 		m.decrementStatusCounts(oldStatus)
 		delete(m.trackedUnadmittedWorkloadStatuses, wlKey)
+	} else {
+		klog.V(4).InfoS("Workload to remove was not tracked as unadmitted", "workload", wlKey)
 	}
 }
 
@@ -1209,53 +1223,62 @@ func (m *Manager) decrementStatusCounts(status unadmittedWorkloadStatus) {
 
 func (m *Manager) updateUnadmittedWorkloadMetric(status unadmittedWorkloadStatus, diff int) {
 	cqKey := status.ClusterQueueStatus()
-	m.unadmittedCQCounts[cqKey] += diff
-	count := m.unadmittedCQCounts[cqKey]
+	m.unadmittedWorkloadsPerCQ[cqKey] += diff
+	count := m.unadmittedWorkloadsPerCQ[cqKey]
 
 	if count <= 0 {
-		delete(m.unadmittedCQCounts, cqKey)
+		delete(m.unadmittedWorkloadsPerCQ, cqKey)
 	}
 	if status.ClusterQueue != "" {
 		cqCustomLabels := m.customLabels.CQGet(status.ClusterQueue)
 		if count <= 0 {
+			klog.V(4).InfoS("Clearing CQ unadmitted workload metric", "clusterQueue", status.ClusterQueue, "status", cqKey)
 			metrics.ClearUnadmittedWorkloadLabelValues(
 				status.ClusterQueue, status.Reason, status.UnderlyingCause,
 				cqCustomLabels, m.roleTracker,
 			)
 		} else {
+			klog.V(4).InfoS("Reporting CQ unadmitted workload metric", "clusterQueue", status.ClusterQueue, "status", cqKey, "count", count)
 			metrics.ReportUnadmittedWorkload(
 				status.ClusterQueue, status.Reason, status.UnderlyingCause,
 				cqCustomLabels, m.roleTracker, count,
 			)
 		}
+	} else {
+		klog.V(4).InfoS("Skipping CQ unadmitted metric report due to empty ClusterQueue", "status", status)
 	}
 
 	if !m.lqMetrics.IsEnabled() {
 		return
 	}
-	m.unadmittedLQCounts[status] += diff
-	countLQ := m.unadmittedLQCounts[status]
+	m.unadmittedWorkloadsPerLQ[status] += diff
+	countLQ := m.unadmittedWorkloadsPerLQ[status]
 
 	if countLQ <= 0 {
-		delete(m.unadmittedLQCounts, status)
+		delete(m.unadmittedWorkloadsPerLQ, status)
 	}
 
 	lqRefKey := queue.NewLocalQueueReference(status.LocalQueueNamespace, status.LocalQueueName)
-	if _, qExists := m.localQueues[lqRefKey]; qExists && status.ClusterQueue != "" {
+	_, qExists := m.localQueues[lqRefKey]
+	if qExists && status.ClusterQueue != "" {
 		lqRef := metrics.LocalQueueReference{Name: status.LocalQueueName, Namespace: status.LocalQueueNamespace}
 		lqCustomLabels := m.customLabels.LQGet(lqRefKey)
 		if countLQ <= 0 {
+			klog.V(4).InfoS("Clearing LQ unadmitted workload metric", "localQueue", lqRefKey, "status", status)
 			metrics.ClearLocalQueueUnadmittedWorkloadLabelValues(
 				lqRef,
 				status.ClusterQueue, status.Reason, status.UnderlyingCause,
 				lqCustomLabels, m.roleTracker,
 			)
 		} else {
+			klog.V(4).InfoS("Reporting LQ unadmitted workload metric", "localQueue", lqRefKey, "status", status, "count", countLQ)
 			metrics.ReportLocalQueueUnadmittedWorkload(
 				lqRef,
 				status.ClusterQueue, status.Reason, status.UnderlyingCause,
 				lqCustomLabels, m.roleTracker, countLQ,
 			)
 		}
+	} else {
+		klog.V(4).InfoS("Skipping LQ unadmitted metric report", "status", status, "qExists", qExists)
 	}
 }

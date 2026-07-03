@@ -764,7 +764,7 @@ For a LocalQueue, the metric only reports a value of 1 for one of the statuses.`
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "unadmitted_workloads",
-			Help:      "The number of unadmitted workloads, per 'cluster_queue', 'reason', and 'underlying_cause'.",
+			Help:      "The number of unadmitted workloads, per 'cluster_queue', 'reason', and 'underlying_cause'. This metric is only emitted when UnadmittedWorkloadsObservability feature gate is enabled.",
 		}, append([]string{"cluster_queue", "reason", "underlying_cause", "replica_role"}, extraLabels...),
 	)
 	trackGaugeVec(UnadmittedWorkloads, gaugeCleanupScopeClusterQueue, gaugeCleanupScopeClusterQueueCache, gaugeCleanupScopeClusterQueueLabelChange)
@@ -773,7 +773,7 @@ For a LocalQueue, the metric only reports a value of 1 for one of the statuses.`
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "local_queue_unadmitted_workloads",
-			Help:      "The number of unadmitted workloads, per 'name', 'namespace', 'cluster_queue', 'reason', and 'underlying_cause'.",
+			Help:      "The number of unadmitted workloads, per 'name', 'namespace', 'cluster_queue', 'reason', and 'underlying_cause'. This metric is only emitted when UnadmittedWorkloadsObservability feature gate is enabled.",
 		}, append([]string{"name", "namespace", "cluster_queue", "reason", "underlying_cause", "replica_role"}, extraLabels...),
 	)
 	trackGaugeVec(LocalQueueUnadmittedWorkloads, gaugeCleanupScopeLocalQueue, gaugeCleanupScopeLocalQueueCache)
