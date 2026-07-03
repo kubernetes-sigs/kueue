@@ -310,9 +310,17 @@ kueueViz:
         cpu: 500m
         memory: 512Mi
     # -- KueueViz frontend pod securityContext
-    podSecurityContext: {}
+    podSecurityContext:
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault
     # -- KueueViz frontend container securityContext
-    containerSecurityContext: {}
+    containerSecurityContext:
+      readOnlyRootFilesystem: true
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
     # -- Environment variables for KueueViz frontend deployment
     env: []
     ingress:
