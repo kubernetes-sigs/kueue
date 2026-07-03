@@ -78,7 +78,14 @@ const useWebSocket = (url) => {
     };
 
     ws.onclose = (event) => {
-      console.log('WebSocket connection closed', 'code:', event.code);
+      console.log('WebSocket connection closed', 'code:', event.code, 'reason:', event.reason);
+      if (event.code !== 1000 && event.code !== 1001) {
+        if (event.code === 1008) {
+          setError('WebSocket connection closed: Token expired or revoked. Please log in again.');
+        } else {
+          setError(`WebSocket connection closed unexpectedly (code: ${event.code}). Please refresh the page.`);
+        }
+      }
     };
 
     return () => {
