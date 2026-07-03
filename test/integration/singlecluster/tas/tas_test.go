@@ -1080,12 +1080,11 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				var wl1, wl2 *kueue.Workload
 				ginkgo.By("creating a workload which requires block and can fit", func() {
 					wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
-						Queue(kueue.LocalQueueName(localQueue.Name)).
-						PodSets(*utiltestingapi.MakePodSet("main", 1).
-							Request(corev1.ResourceCPU, "4").
-							RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
-							Obj()).
-						Obj()
+						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "4").Obj()
+					wl1.Spec.PodSets[0].Count = 1
+					wl1.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
+						Required: ptr.To(utiltesting.DefaultBlockTopologyLevel),
+					}
 					util.MustCreate(ctx, k8sClient, wl1)
 				})
 
@@ -1135,12 +1134,11 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 					// Request the capacity that was freed by wl1.
 					wl2 = utiltestingapi.MakeWorkload("wl2", ns.Name).
-						Queue(kueue.LocalQueueName(localQueue.Name)).
-						PodSets(*utiltestingapi.MakePodSet("main", 1).
-							Request(corev1.ResourceCPU, "4").
-							RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
-							Obj()).
-						Obj()
+						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "4").Obj()
+					wl2.Spec.PodSets[0].Count = 1
+					wl2.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
+						Required: ptr.To(utiltesting.DefaultBlockTopologyLevel),
+					}
 					util.MustCreate(ctx, k8sClient, wl2)
 				})
 
