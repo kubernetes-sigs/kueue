@@ -21,6 +21,7 @@ import (
 	"context"
 	"slices"
 	"sync"
+	"sync/atomic"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -71,20 +72,28 @@ var (
 // workloads from going back to the head of the queue.  A workload is
 // considered sticky until it is admitted, unschedulable, or deleted.
 // See Kueue#6929 and Kueue#7101 for motivation.
+//
+// The workloadName field is accessed concurrently: Snapshot sorts a copy of
+// the pending workloads (via baseCompareFunc -> matches) without holding the
+// ClusterQueue's rwm lock, while RequeueIfNotPresent sets it during preemption.
+// It is a single field with only whole-value read/store/clear, so an
+// atomic.Pointer synchronizes every access regardless of the caller's locking
+// (nil means no sticky workload).
 type stickyWorkload struct {
-	workloadName workload.Reference
+	workloadName atomic.Pointer[workload.Reference]
 }
 
 func (s *stickyWorkload) matches(workload workload.Reference) bool {
-	return s.workloadName == workload
+	name := s.workloadName.Load()
+	return name != nil && *name == workload
 }
 
 func (s *stickyWorkload) clear() {
-	s.workloadName = ""
+	s.workloadName.Store(nil)
 }
 
 func (s *stickyWorkload) set(workload workload.Reference) {
-	s.workloadName = workload
+	s.workloadName.Store(&workload)
 }
 
 func logStickyWorkloadSelectionIfVerbose(log logr.Logger, wl *kueue.Workload) {
