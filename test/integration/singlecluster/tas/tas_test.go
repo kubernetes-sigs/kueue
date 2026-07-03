@@ -1071,11 +1071,12 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				var wl1, wl2 *kueue.Workload
 				ginkgo.By("creating a workload which requires block and can fit", func() {
 					wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
-						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "4").Obj()
-					wl1.Spec.PodSets[0].Count = 1
-					wl1.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
-						Required: ptr.To(utiltesting.DefaultBlockTopologyLevel),
-					}
+						Queue(kueue.LocalQueueName(localQueue.Name)).
+						PodSets(*utiltestingapi.MakePodSet("main", 1).
+							Request(corev1.ResourceCPU, "4").
+							RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+							Obj()).
+						Obj()
 					util.MustCreate(ctx, k8sClient, wl1)
 				})
 
@@ -1084,17 +1085,27 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 1)
 				})
 
+				ginkgo.By("wait for the finalizer to be added to the topology", func() {
+					var updatedTopology kueue.Topology
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(topology), &updatedTopology)).To(gomega.Succeed())
+						g.Expect(updatedTopology.Finalizers).Should(gomega.Equal([]string{kueue.ResourceInUseFinalizerName}))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
 				ginkgo.By("delete the topology so that it becomes uninitialized", func() {
 					gomega.Expect(k8sClient.Delete(ctx, topology)).Should(gomega.Succeed())
-					// Remove the finalizer to force deletion
+				})
+
+				ginkgo.By("remove topology finalizer to force deletion", func() {
+					var updatedTopology kueue.Topology
 					gomega.Eventually(func(g gomega.Gomega) {
-						err := k8sClient.Get(ctx, client.ObjectKeyFromObject(topology), topology)
-						if err != nil {
-							g.Expect(client.IgnoreNotFound(err)).Should(gomega.Succeed())
+						g.Expect(client.IgnoreNotFound(k8sClient.Get(ctx, client.ObjectKeyFromObject(topology), &updatedTopology))).To(gomega.Succeed())
+						if len(updatedTopology.Finalizers) == 0 {
 							return
 						}
-						topology.Finalizers = nil
-						g.Expect(client.IgnoreNotFound(k8sClient.Update(ctx, topology))).Should(gomega.Succeed())
+						updatedTopology.Finalizers = nil
+						g.Expect(client.IgnoreNotFound(k8sClient.Update(ctx, &updatedTopology))).Should(gomega.Succeed())
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 					util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
 				})
@@ -1115,11 +1126,12 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 					// Request the capacity that was freed by wl1.
 					wl2 = utiltestingapi.MakeWorkload("wl2", ns.Name).
-						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "4").Obj()
-					wl2.Spec.PodSets[0].Count = 1
-					wl2.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
-						Required: ptr.To(utiltesting.DefaultBlockTopologyLevel),
-					}
+						Queue(kueue.LocalQueueName(localQueue.Name)).
+						PodSets(*utiltestingapi.MakePodSet("main", 1).
+							Request(corev1.ResourceCPU, "4").
+							RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+							Obj()).
+						Obj()
 					util.MustCreate(ctx, k8sClient, wl2)
 				})
 
