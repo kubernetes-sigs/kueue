@@ -81,8 +81,16 @@ var (
 	realClock = clock.RealClock{}
 
 	// schedulerSetReasons contains the reasons for the QuotaReserved=False condition
-	// that are set by the scheduler. These reasons must be preserved by the controller
-	// during reconciliation until the next scheduler cycle.
+	// that are set by the scheduler and must be preserved by the controller during
+	// reconciliation until the next scheduler cycle.
+	//
+	// We explicitly DO NOT include:
+	// - WorkloadQuotaReservedReasonSuspended
+	// - WorkloadQuotaReservedReasonMisconfigured
+	// Even though the scheduler can emit them, they represent active blockages (e.g.
+	// inactive or missing queues) that the controller actively re-evaluates. If we
+	// preserved them, the controller would not be able to transition the workload
+	// back to PendingEvaluation once the blockages are resolved.
 	schedulerSetReasons = sets.New(
 		kueue.WorkloadQuotaReservedReasonWaitingForQuota,
 		kueue.WorkloadQuotaReservedReasonNoMatchingFlavor,
@@ -90,6 +98,7 @@ var (
 		kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
 		kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
 		kueue.WorkloadQuotaReservedReasonWaitingForPodsReady,
+		kueue.WorkloadQuotaReservedReasonPendingEvaluation,
 	)
 )
 
