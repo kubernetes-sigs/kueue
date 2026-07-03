@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"net/http"
 	"time"
 
 	"github.com/bep/debounce"
@@ -45,6 +46,9 @@ const (
 // WebSocket upgrader
 var upgrader = websocket.Upgrader{
 	Subprotocols: []string{middleware.WebSocketBaseProtocol},
+	CheckOrigin: func(r *http.Request) bool {
+		return middleware.ValidateWebSocketOrigin(r.Header.Get("Origin"), r.Host)
+	},
 }
 
 // GenericWebSocketHandler creates a WebSocket endpoint with informer-based real-time updates

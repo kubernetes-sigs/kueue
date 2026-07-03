@@ -114,3 +114,29 @@ func SetupCORS() (gin.HandlerFunc, error) {
 	}
 	return cors.New(config), nil
 }
+
+// ValidateWebSocketOrigin validates if the given WebSocket origin is allowed
+func ValidateWebSocketOrigin(origin, host string) bool {
+	if origin == "" {
+		return true // No origin header, typically allowed
+	}
+
+	// Fast path for same-host (default gorilla/websocket behavior)
+	u, err := url.Parse(origin)
+	if err == nil && strings.EqualFold(u.Host, host) {
+		return true
+	}
+
+	config, err := ConfigureCORS()
+	if err != nil {
+		return false
+	}
+
+	for _, allowed := range config.AllowOrigins {
+		if allowed == "*" || allowed == origin {
+			return true
+		}
+	}
+
+	return false
+}
