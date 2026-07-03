@@ -80,6 +80,18 @@ import (
 
 var (
 	realClock = clock.RealClock{}
+
+	// schedulerSetReasons contains the reasons for the QuotaReserved=False condition
+	// that are set by the scheduler. These reasons must be preserved by the controller
+	// during reconciliation until the next scheduler cycle.
+	schedulerSetReasons = sets.New(
+		kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+		kueue.WorkloadQuotaReservedReasonNoMatchingFlavor,
+		kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
+		kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
+		kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+		kueue.WorkloadQuotaReservedReasonWaitingForPodsReady,
+	)
 )
 
 // hasInternalError reports whether the field error list contains an internal
@@ -1858,14 +1870,8 @@ func (r *WorkloadReconciler) resolveGranularUnadmittedQuotaReservedCondition(
 		return kueue.WorkloadQuotaReservedReasonMisconfigured, admissibilityErr.Error(), nil //nolint:nilerr // admissibility validation failure does not require retry
 	case workload.HasAdmissionGate(wl):
 		return kueue.WorkloadAdmissionGated, fmt.Sprintf("Admission is gated by: %s", wl.Annotations[constants.AdmissionGatedByAnnotation]), nil
-	case cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason != "" &&
-		cond.Reason != kueue.WorkloadQuotaReservedReasonSuspended &&
-		cond.Reason != kueue.WorkloadQuotaReservedReasonMisconfigured &&
-		cond.Reason != kueue.WorkloadDeactivated &&
-		// Exclude legacy reasons so we can transition from them to more granular reasons
-		// when the UnadmittedWorkloadsObservability feature gate is enabled.
-		cond.Reason != kueue.WorkloadPending && //nolint:staticcheck // SA1019: legacy reason
-		cond.Reason != kueue.WorkloadWaiting: //nolint:staticcheck // SA1019: legacy reason
+	case cond != nil && cond.Reason != "" && schedulerSetReasons.Has(cond.Reason):
+		// Preserve scheduler feedback reasons until the next scheduler cycle.
 		return cond.Reason, cond.Message, nil
 	default:
 		// Stamping the condition on creation is gated by UnadmittedWorkloadsExplicitStatus.
