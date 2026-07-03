@@ -258,7 +258,7 @@ func (r *Reconciler) filterWorkloads(lws *leaderworkersetv1.LeaderWorkerSet, exi
 		toDelete = utilslices.ToRefMap(existingWorkloads, func(e *kueue.Workload) string {
 			return e.Name
 		})
-		replicas = ptr.Deref(lws.Spec.Replicas, 1)
+		replicas = ptr.Deref(lws.Spec.Replicas, defaultLeaderWorkerSetReplicas)
 	)
 
 	// During normal scale-down, status.Replicas lags behind spec.Replicas,
@@ -288,7 +288,7 @@ func isRollingUpdateWithSurge(lws *leaderworkersetv1.LeaderWorkerSet) bool {
 		return false
 	}
 	maxSurge := int32(lws.Spec.RolloutStrategy.RollingUpdateConfiguration.MaxSurge.IntValue())
-	return maxSurge > 0 && lws.Status.UpdatedReplicas < ptr.Deref(lws.Spec.Replicas, 1)
+	return maxSurge > 0 && lws.Status.UpdatedReplicas < ptr.Deref(lws.Spec.Replicas, defaultLeaderWorkerSetReplicas)
 }
 
 func (r *Reconciler) createWorkload(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, workloadName string, index int) error {
