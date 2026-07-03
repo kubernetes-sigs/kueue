@@ -70,6 +70,25 @@ __make_timing_last_start_epoch=""
 __make_timing_last_start_time=""
 __make_timing_in_trap=0
 
+__make_timing_now() {
+  local epoch_var=$1
+  local time_var=$2
+  local epoch
+  local timestamp
+
+  if printf -v epoch '%(%s)T' -1 2>/dev/null &&
+    TZ=UTC printf -v timestamp '%(%Y-%m-%dT%H:%M:%SZ)T' -1 2>/dev/null; then
+    printf -v "${epoch_var}" '%s' "${epoch}"
+    printf -v "${time_var}" '%s' "${timestamp}"
+    return 0
+  fi
+
+  epoch=$(date +%s)
+  timestamp=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+  printf -v "${epoch_var}" '%s' "${epoch}"
+  printf -v "${time_var}" '%s' "${timestamp}"
+}
+
 __make_timing_log_previous_command() {
   local status=$1
   local end_epoch
@@ -86,8 +105,7 @@ __make_timing_log_previous_command() {
       ;;
   esac
 
-  end_epoch=$(date +%s)
-  end_time=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+  __make_timing_now end_epoch end_time
   duration=$((end_epoch - __make_timing_last_start_epoch))
   if [[ "${status}" -ne 0 || "${duration}" -ge "${__make_timing_min_seconds}" ]]; then
     preview=$(__make_timing_command_preview "${__make_timing_last_command}")
@@ -107,8 +125,7 @@ __make_timing_debug_trap() {
   __make_timing_in_trap=1
   __make_timing_log_previous_command "${status}"
   __make_timing_last_command="${next_command}"
-  __make_timing_last_start_epoch=$(date +%s)
-  __make_timing_last_start_time=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+  __make_timing_now __make_timing_last_start_epoch __make_timing_last_start_time
   __make_timing_in_trap=0
   # Keep the trap non-interfering. Returning the previous command status can
   # trip errexit before constructs like `cmd || fallback` handle the failure.
@@ -124,14 +141,45 @@ __make_timing_exit_trap() {
   return "${status}"
 }
 
-if [[ -n "${__make_timing_original_bash_env}" ]]; then
-  # shellcheck disable=SC1090
-  source "${__make_timing_original_bash_env}"
-fi
+__make_timing_source_original_bash_env() {
+  local expanded_bash_env=${__make_timing_original_bash_env}
 
-trap __make_timing_exit_trap EXIT
-trap __make_timing_debug_trap DEBUG
+  if [[ -z "${expanded_bash_env}" ]]; then
+    return 0
+  fi
+
+  case "${expanded_bash_env}" in
+    ~)
+      expanded_bash_env=${HOME}
+      ;;
+    ~/*)
+      expanded_bash_env="${HOME}/${expanded_bash_env#\~/}"
+      ;;
+  esac
+  eval "expanded_bash_env=\"${expanded_bash_env}\""
+  # shellcheck disable=SC1090
+  source "${expanded_bash_env}"
+}
+
+__make_timing_install_traps() {
+  if [[ -n "$(trap -p EXIT)" || -n "$(trap -p DEBUG)" ]]; then
+    return 0
+  fi
+
+  trap __make_timing_exit_trap EXIT
+  trap __make_timing_debug_trap DEBUG
+}
+
+__make_timing_source_original_bash_env
+__make_timing_install_traps
 EOF
+}
+
+cleanup_command_timing_env() {
+  if [[ -n "${command_timing_env}" ]]; then
+    rm -f "${command_timing_env}"
+    command_timing_env=""
+  fi
 }
 
 if ! is_truthy "${MAKE_TIMING:-}"; then
@@ -152,9 +200,10 @@ start_epoch=$(date +%s)
 start_time=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 
 command_timing_env=""
-if is_truthy "${MAKE_TIMING_COMMANDS:-1}"; then
+if is_truthy "${MAKE_TIMING_COMMANDS:-0}"; then
   original_bash_env="${BASH_ENV:-}"
   command_timing_env=$(mktemp "${TMPDIR:-/tmp}/make-timing.XXXXXX")
+  trap cleanup_command_timing_env EXIT
   write_command_timing_env "${command_timing_env}"
   MAKE_TIMING_ORIGINAL_BASH_ENV="${original_bash_env}" BASH_ENV="${command_timing_env}" \
     /usr/bin/env bash -o pipefail "$@"
@@ -164,9 +213,8 @@ else
   status=$?
 fi
 
-if [[ -n "${command_timing_env}" ]]; then
-  rm -f "${command_timing_env}"
-fi
+cleanup_command_timing_env
+trap - EXIT
 
 end_epoch=$(date +%s)
 end_time=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
