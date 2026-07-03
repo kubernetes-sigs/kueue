@@ -484,6 +484,7 @@ function patch_kind_config_for_was {
     cp "$1" "$patched_config"
 
     $YQ -i '.featureGates.GenericWorkload = true' "$patched_config"
+    $YQ -i '.featureGates.WorkloadWithJob = true' "$patched_config"
     $YQ -i '(.nodes[] | select(.role == "control-plane")).kubeadmConfigPatches[0] = "kind: ClusterConfiguration
 apiVersion: kubeadm.k8s.io/v1beta4
 scheduler:
