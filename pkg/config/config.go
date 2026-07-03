@@ -206,7 +206,7 @@ func Encode(scheme *runtime.Scheme, cfg *configapi.Configuration) (string, error
 		return "", fmt.Errorf("unable to locate encoder -- %q is not a supported media type", mediaType)
 	}
 
-	encoder := codecs.EncoderForVersion(info.Serializer, configapi.GroupVersion)
+	encoder := codecs.EncoderForVersion(info.Serializer, configapi.SchemeGroupVersion)
 	buf := new(bytes.Buffer)
 	if err := encoder.Encode(cfg, buf); err != nil {
 		return "", err

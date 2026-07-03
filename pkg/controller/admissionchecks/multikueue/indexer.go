@@ -39,7 +39,7 @@ const (
 )
 
 var (
-	configGVK = kueue.GroupVersion.WithKind("MultiKueueConfig")
+	configGVK = kueue.SchemeGroupVersion.WithKind("MultiKueueConfig")
 )
 
 func kubeConfigLocationIndexerFunc(configNamespace string) func(obj client.Object) []string {

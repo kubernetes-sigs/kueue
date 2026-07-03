@@ -49,14 +49,14 @@ func TestReconcile(t *testing.T) {
 			checks: []kueue.AdmissionCheck{
 				*utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
 					Generation(1).
 					Obj(),
 			},
 			wantChecks: []kueue.AdmissionCheck{
 				*utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
 					Condition(metav1.Condition{
 						Type:               kueue.AdmissionCheckActive,
 						Status:             metav1.ConditionFalse,
@@ -85,7 +85,7 @@ func TestReconcile(t *testing.T) {
 			checks: []kueue.AdmissionCheck{
 				*utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
 					Generation(1).
 					Obj(),
 			},
@@ -95,7 +95,7 @@ func TestReconcile(t *testing.T) {
 			wantChecks: []kueue.AdmissionCheck{
 				*utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
 					Condition(metav1.Condition{
 						Type:               kueue.AdmissionCheckActive,
 						Status:             metav1.ConditionFalse,
@@ -111,7 +111,7 @@ func TestReconcile(t *testing.T) {
 			checks: []kueue.AdmissionCheck{
 				*utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
 					Generation(1).
 					Obj(),
 			},
@@ -126,7 +126,7 @@ func TestReconcile(t *testing.T) {
 			wantChecks: []kueue.AdmissionCheck{
 				*utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
 					Condition(metav1.Condition{
 						Type:               kueue.AdmissionCheckActive,
 						Status:             metav1.ConditionFalse,
@@ -142,7 +142,7 @@ func TestReconcile(t *testing.T) {
 			checks: []kueue.AdmissionCheck{
 				*utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
 					Generation(1).
 					Obj(),
 			},
@@ -160,7 +160,7 @@ func TestReconcile(t *testing.T) {
 			wantChecks: []kueue.AdmissionCheck{
 				*utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
 					Condition(metav1.Condition{
 						Type:               kueue.AdmissionCheckActive,
 						Status:             metav1.ConditionFalse,
@@ -176,7 +176,7 @@ func TestReconcile(t *testing.T) {
 			checks: []kueue.AdmissionCheck{
 				*utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
 					Generation(1).
 					Obj(),
 			},
@@ -194,7 +194,7 @@ func TestReconcile(t *testing.T) {
 			wantChecks: []kueue.AdmissionCheck{
 				*utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
 					Condition(metav1.Condition{
 						Type:               kueue.AdmissionCheckActive,
 						Status:             metav1.ConditionTrue,
@@ -210,7 +210,7 @@ func TestReconcile(t *testing.T) {
 			checks: []kueue.AdmissionCheck{
 				*utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
 					Generation(1).
 					Obj(),
 			},
@@ -225,7 +225,7 @@ func TestReconcile(t *testing.T) {
 			wantChecks: []kueue.AdmissionCheck{
 				*utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
 					Condition(metav1.Condition{
 						Type:               kueue.AdmissionCheckActive,
 						Status:             metav1.ConditionTrue,
