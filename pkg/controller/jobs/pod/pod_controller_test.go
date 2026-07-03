@@ -1718,7 +1718,7 @@ func TestReconciler(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
-						Type:    WorkloadWaitingForReplacementPods,
+						Type:    kueue.WorkloadWaitingForReplacementPods,
 						Status:  metav1.ConditionTrue,
 						Reason:  WorkloadPodsFailed,
 						Message: "Some Failed pods need replacement",
@@ -1737,7 +1737,7 @@ func TestReconciler(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
-						Type:    WorkloadWaitingForReplacementPods,
+						Type:    kueue.WorkloadWaitingForReplacementPods,
 						Status:  metav1.ConditionTrue,
 						Reason:  WorkloadPodsFailed,
 						Message: "Some Failed pods need replacement",
@@ -1862,7 +1862,7 @@ func TestReconciler(t *testing.T) {
 						Message: "Pods succeeded: 1/2. Pods failed: 1/2",
 					}).
 					Condition(metav1.Condition{
-						Type:    WorkloadWaitingForReplacementPods,
+						Type:    kueue.WorkloadWaitingForReplacementPods,
 						Status:  metav1.ConditionTrue,
 						Reason:  WorkloadPodsFailed,
 						Message: "Some Failed pods need replacement",
@@ -1887,7 +1887,7 @@ func TestReconciler(t *testing.T) {
 						Message: "Pods succeeded: 1/2. Pods failed: 1/2",
 					}).
 					Condition(metav1.Condition{
-						Type:    WorkloadWaitingForReplacementPods,
+						Type:    kueue.WorkloadWaitingForReplacementPods,
 						Status:  metav1.ConditionTrue,
 						Reason:  WorkloadPodsFailed,
 						Message: "Some Failed pods need replacement",
@@ -2067,7 +2067,7 @@ func TestReconciler(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
-						Type:    WorkloadWaitingForReplacementPods,
+						Type:    kueue.WorkloadWaitingForReplacementPods,
 						Status:  metav1.ConditionTrue,
 						Reason:  WorkloadPodsFailed,
 						Message: "Some Failed pods need replacement",
@@ -2087,7 +2087,7 @@ func TestReconciler(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
-						Type:    WorkloadWaitingForReplacementPods,
+						Type:    kueue.WorkloadWaitingForReplacementPods,
 						Status:  metav1.ConditionTrue,
 						Reason:  WorkloadPodsFailed,
 						Message: "Some Failed pods need replacement",
@@ -2385,7 +2385,7 @@ func TestReconciler(t *testing.T) {
 						Message:            "Preempted to accommodate a higher priority Workload",
 					}).
 					Condition(metav1.Condition{
-						Type:               WorkloadWaitingForReplacementPods,
+						Type:               kueue.WorkloadWaitingForReplacementPods,
 						Status:             metav1.ConditionTrue,
 						LastTransitionTime: metav1.NewTime(now),
 						Reason:             kueue.WorkloadEvictedByPreemption,
@@ -2412,7 +2412,7 @@ func TestReconciler(t *testing.T) {
 						Message:            "Preempted to accommodate a higher priority Workload",
 					}).
 					Condition(metav1.Condition{
-						Type:               WorkloadWaitingForReplacementPods,
+						Type:               kueue.WorkloadWaitingForReplacementPods,
 						Status:             metav1.ConditionTrue,
 						LastTransitionTime: metav1.NewTime(now),
 						Reason:             kueue.WorkloadEvictedByPreemption,
@@ -2465,7 +2465,7 @@ func TestReconciler(t *testing.T) {
 						Message:            "Preempted to accommodate a higher priority Workload",
 					}).
 					Condition(metav1.Condition{
-						Type:               WorkloadWaitingForReplacementPods,
+						Type:               kueue.WorkloadWaitingForReplacementPods,
 						Status:             metav1.ConditionTrue,
 						LastTransitionTime: metav1.NewTime(now),
 						Reason:             kueue.WorkloadEvictedByPreemption,
@@ -2513,7 +2513,7 @@ func TestReconciler(t *testing.T) {
 						Message:            "Preempted to accommodate a higher priority Workload",
 					}).
 					Condition(metav1.Condition{
-						Type:               WorkloadWaitingForReplacementPods,
+						Type:               kueue.WorkloadWaitingForReplacementPods,
 						Status:             metav1.ConditionTrue,
 						LastTransitionTime: metav1.NewTime(now),
 						Reason:             kueue.WorkloadEvictedByPreemption,
@@ -2666,7 +2666,7 @@ func TestReconciler(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
-						Type:    WorkloadWaitingForReplacementPods,
+						Type:    kueue.WorkloadWaitingForReplacementPods,
 						Status:  metav1.ConditionTrue,
 						Reason:  WorkloadPodsFailed,
 						Message: "Some Failed pods need replacement",
@@ -2686,7 +2686,7 @@ func TestReconciler(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
-						Type:    WorkloadWaitingForReplacementPods,
+						Type:    kueue.WorkloadWaitingForReplacementPods,
 						Status:  metav1.ConditionTrue,
 						Reason:  WorkloadPodsFailed,
 						Message: "Some Failed pods need replacement",
@@ -2732,7 +2732,7 @@ func TestReconciler(t *testing.T) {
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
-						Type:    WorkloadWaitingForReplacementPods,
+						Type:    kueue.WorkloadWaitingForReplacementPods,
 						Status:  metav1.ConditionTrue,
 						Reason:  WorkloadPodsFailed,
 						Message: "Some Failed pods need replacement",
@@ -2754,7 +2754,7 @@ func TestReconciler(t *testing.T) {
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
-						Type:    WorkloadWaitingForReplacementPods,
+						Type:    kueue.WorkloadWaitingForReplacementPods,
 						Status:  metav1.ConditionTrue,
 						Reason:  WorkloadPodsFailed,
 						Message: "Some Failed pods need replacement",
@@ -3000,7 +3000,7 @@ func TestReconciler(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
-						Type:    WorkloadWaitingForReplacementPods,
+						Type:    kueue.WorkloadWaitingForReplacementPods,
 						Status:  metav1.ConditionTrue,
 						Reason:  WorkloadPodsFailed,
 						Message: "Some Failed pods need replacement",
@@ -3025,7 +3025,7 @@ func TestReconciler(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
-						Type:    WorkloadWaitingForReplacementPods,
+						Type:    kueue.WorkloadWaitingForReplacementPods,
 						Status:  metav1.ConditionTrue,
 						Reason:  WorkloadPodsFailed,
 						Message: "Some Failed pods need replacement",
@@ -3126,7 +3126,7 @@ func TestReconciler(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
-						Type:    WorkloadWaitingForReplacementPods,
+						Type:    kueue.WorkloadWaitingForReplacementPods,
 						Status:  metav1.ConditionTrue,
 						Reason:  WorkloadPodsFailed,
 						Message: "Some Failed pods need replacement",
@@ -3152,7 +3152,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod3", "test-uid").
 					ReclaimablePods(kueue.ReclaimablePod{Name: "4ebdd4a6", Count: 1}).
 					Condition(metav1.Condition{
-						Type:    WorkloadWaitingForReplacementPods,
+						Type:    kueue.WorkloadWaitingForReplacementPods,
 						Status:  metav1.ConditionTrue,
 						Reason:  WorkloadPodsFailed,
 						Message: "Some Failed pods need replacement",
@@ -3245,7 +3245,7 @@ func TestReconciler(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
-						Type:    WorkloadWaitingForReplacementPods,
+						Type:    kueue.WorkloadWaitingForReplacementPods,
 						Status:  metav1.ConditionTrue,
 						Reason:  WorkloadPodsFailed,
 						Message: "Some Failed pods need replacement",
@@ -3270,7 +3270,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod3", "test-uid").
 					Condition(metav1.Condition{
-						Type:    WorkloadWaitingForReplacementPods,
+						Type:    kueue.WorkloadWaitingForReplacementPods,
 						Status:  metav1.ConditionTrue,
 						Reason:  WorkloadPodsFailed,
 						Message: "Some Failed pods need replacement",
@@ -3484,7 +3484,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
-						Type:    WorkloadWaitingForReplacementPods,
+						Type:    kueue.WorkloadWaitingForReplacementPods,
 						Status:  metav1.ConditionTrue,
 						Reason:  WorkloadPodsFailed,
 						Message: "Some Failed pods need replacement",
@@ -3506,7 +3506,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
-						Type:    WorkloadWaitingForReplacementPods,
+						Type:    kueue.WorkloadWaitingForReplacementPods,
 						Status:  metav1.ConditionTrue,
 						Reason:  WorkloadPodsFailed,
 						Message: "Some Failed pods need replacement",
@@ -3932,7 +3932,7 @@ func TestReconciler(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
-						Type:    WorkloadWaitingForReplacementPods,
+						Type:    kueue.WorkloadWaitingForReplacementPods,
 						Status:  metav1.ConditionTrue,
 						Reason:  WorkloadPodsFailed,
 						Message: "Some Failed pods need replacement",
@@ -3953,7 +3953,7 @@ func TestReconciler(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
-						Type:    WorkloadWaitingForReplacementPods,
+						Type:    kueue.WorkloadWaitingForReplacementPods,
 						Status:  metav1.ConditionTrue,
 						Reason:  WorkloadPodsFailed,
 						Message: "Some Failed pods need replacement",
@@ -4057,7 +4057,7 @@ func TestReconciler(t *testing.T) {
 						Message:            "Preempted to accommodate a higher priority Workload",
 					}).
 					Condition(metav1.Condition{
-						Type:               WorkloadWaitingForReplacementPods,
+						Type:               kueue.WorkloadWaitingForReplacementPods,
 						Status:             metav1.ConditionTrue,
 						LastTransitionTime: metav1.NewTime(now),
 						Reason:             kueue.WorkloadEvictedByPreemption,
@@ -4084,7 +4084,7 @@ func TestReconciler(t *testing.T) {
 						Message:            "Preempted to accommodate a higher priority Workload",
 					}).
 					Condition(metav1.Condition{
-						Type:               WorkloadWaitingForReplacementPods,
+						Type:               kueue.WorkloadWaitingForReplacementPods,
 						Status:             metav1.ConditionTrue,
 						LastTransitionTime: metav1.NewTime(now),
 						Reason:             kueue.WorkloadEvictedByPreemption,
@@ -4153,7 +4153,7 @@ func TestReconciler(t *testing.T) {
 						Message:            "Workload evicted due to a PodsReady timeout",
 					}).
 					Condition(metav1.Condition{
-						Type:    WorkloadWaitingForReplacementPods,
+						Type:    kueue.WorkloadWaitingForReplacementPods,
 						Status:  metav1.ConditionTrue,
 						Reason:  "PodsReadyTimeout",
 						Message: "Workload evicted due to a PodsReady timeout",
@@ -4177,7 +4177,7 @@ func TestReconciler(t *testing.T) {
 						Message:            "Workload evicted due to a PodsReady timeout",
 					}).
 					Condition(metav1.Condition{
-						Type:    WorkloadWaitingForReplacementPods,
+						Type:    kueue.WorkloadWaitingForReplacementPods,
 						Status:  metav1.ConditionTrue,
 						Reason:  "PodsReadyTimeout",
 						Message: "Workload evicted due to a PodsReady timeout",
@@ -4338,7 +4338,7 @@ func TestReconciler(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
-						Type:    WorkloadWaitingForReplacementPods,
+						Type:    kueue.WorkloadWaitingForReplacementPods,
 						Status:  metav1.ConditionTrue,
 						Reason:  WorkloadPodsFailed,
 						Message: "Some Failed pods need replacement",
@@ -4362,7 +4362,7 @@ func TestReconciler(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
-						Type:    WorkloadWaitingForReplacementPods,
+						Type:    kueue.WorkloadWaitingForReplacementPods,
 						Status:  metav1.ConditionTrue,
 						Reason:  WorkloadPodsFailed,
 						Message: "Some Failed pods need replacement",
@@ -4574,7 +4574,7 @@ func TestReconciler(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
-						Type:    WorkloadWaitingForReplacementPods,
+						Type:    kueue.WorkloadWaitingForReplacementPods,
 						Status:  metav1.ConditionTrue,
 						Reason:  WorkloadPodsFailed,
 						Message: "Some Failed pods need replacement",
@@ -4595,7 +4595,7 @@ func TestReconciler(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
-						Type:    WorkloadWaitingForReplacementPods,
+						Type:    kueue.WorkloadWaitingForReplacementPods,
 						Status:  metav1.ConditionTrue,
 						Reason:  WorkloadPodsFailed,
 						Message: "Some Failed pods need replacement",
@@ -5217,7 +5217,7 @@ func TestReconciler(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
-						Type:    WorkloadWaitingForReplacementPods,
+						Type:    kueue.WorkloadWaitingForReplacementPods,
 						Status:  metav1.ConditionTrue,
 						Reason:  WorkloadPodsFailed,
 						Message: "Some Failed pods need replacement",
@@ -5301,7 +5301,7 @@ func TestReconciler(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
-						Type:    WorkloadWaitingForReplacementPods,
+						Type:    kueue.WorkloadWaitingForReplacementPods,
 						Status:  metav1.ConditionTrue,
 						Reason:  WorkloadPodsFailed,
 						Message: "Some Failed pods need replacement",
@@ -5398,7 +5398,7 @@ func TestReconciler(t *testing.T) {
 						Message:            "Preempted to accommodate a higher priority Workload",
 					}).
 					Condition(metav1.Condition{
-						Type:               WorkloadWaitingForReplacementPods,
+						Type:               kueue.WorkloadWaitingForReplacementPods,
 						Status:             metav1.ConditionTrue,
 						LastTransitionTime: metav1.NewTime(now),
 						Reason:             kueue.WorkloadEvictedByPreemption,
@@ -5452,7 +5452,7 @@ func TestReconciler(t *testing.T) {
 						Message: "Exceeded the PodsReady timeout",
 					}).
 					Condition(metav1.Condition{
-						Type:    WorkloadWaitingForReplacementPods,
+						Type:    kueue.WorkloadWaitingForReplacementPods,
 						Status:  metav1.ConditionTrue,
 						Reason:  kueue.WorkloadEvictedByPreemption,
 						Message: "Preempted to accommodate a higher priority Workload",
@@ -5500,7 +5500,7 @@ func TestReconciler(t *testing.T) {
 						Message: "Exceeded the PodsReady timeout",
 					}).
 					Condition(metav1.Condition{
-						Type:    WorkloadWaitingForReplacementPods,
+						Type:    kueue.WorkloadWaitingForReplacementPods,
 						Status:  metav1.ConditionTrue,
 						Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
 						Message: "Exceeded the PodsReady timeout",
@@ -5553,7 +5553,7 @@ func TestReconciler(t *testing.T) {
 						Message:            "Preempted to accommodate a higher priority Workload",
 					}).
 					Condition(metav1.Condition{
-						Type:               WorkloadWaitingForReplacementPods,
+						Type:               kueue.WorkloadWaitingForReplacementPods,
 						Status:             metav1.ConditionTrue,
 						LastTransitionTime: metav1.NewTime(now),
 						Reason:             kueue.WorkloadEvictedByPreemption,
@@ -5603,7 +5603,7 @@ func TestReconciler(t *testing.T) {
 						Message:            "Preempted to accommodate a higher priority Workload",
 					}).
 					Condition(metav1.Condition{
-						Type:               WorkloadWaitingForReplacementPods,
+						Type:               kueue.WorkloadWaitingForReplacementPods,
 						Status:             metav1.ConditionTrue,
 						LastTransitionTime: metav1.NewTime(now),
 						Reason:             kueue.WorkloadEvictedByPreemption,
@@ -5650,7 +5650,7 @@ func TestReconciler(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
-						Type:    WorkloadWaitingForReplacementPods,
+						Type:    kueue.WorkloadWaitingForReplacementPods,
 						Status:  metav1.ConditionTrue,
 						Reason:  WorkloadPodsFailed,
 						Message: "Some Failed pods need replacement",
@@ -5692,7 +5692,7 @@ func TestReconciler(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
-						Type:    WorkloadWaitingForReplacementPods,
+						Type:    kueue.WorkloadWaitingForReplacementPods,
 						Status:  metav1.ConditionFalse,
 						Reason:  kueue.WorkloadPodsReady,
 						Message: "No pods need replacement",
