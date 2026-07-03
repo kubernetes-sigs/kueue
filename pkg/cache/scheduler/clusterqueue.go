@@ -572,20 +572,15 @@ func (c *clusterQueue) updateWorkloadTASUsage(log logr.Logger, wi *workload.Info
 	}
 	key := workload.Key(wi.Obj)
 	log = log.WithValues("workload", key)
-	if !c.isTASInitialized() {
-		log.V(2).Info("Delaying accounting of the TAS usage, because TAS cache is not initialized yet")
-		// TAS cache is not synced yet so we defer accounting for TAS usage.
-		return
-	}
 	for tasFlavor, tasUsage := range wi.TASUsage() {
 		tasFlvCache := c.tasCache.Get(tasFlavor)
 		switch {
 		case tasFlvCache == nil:
 			log.V(2).Info("TAS flavor used by workload not found in cache", "tasFlavor", tasFlavor)
 		case op == add:
-			tasFlvCache.addUsage(key, tasUsage)
+			tasFlvCache.addUsage(log, key, tasUsage)
 		case op == subtract:
-			tasFlvCache.removeUsage(key)
+			tasFlvCache.removeUsage(log, key)
 		}
 	}
 }
