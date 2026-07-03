@@ -605,7 +605,7 @@ func (c *clusterQueue) updateWorkloadTASUsage(log logr.Logger, wi *workload.Info
 		case op == add:
 			tasFlvCache.addUsage(log, key, tasUsage)
 		case op == subtract:
-			tasFlvCache.removeUsage(key)
+			tasFlvCache.removeUsage(log, key)
 		}
 	}
 }
