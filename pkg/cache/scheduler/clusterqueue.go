@@ -578,7 +578,7 @@ func (c *clusterQueue) updateWorkloadTASUsage(log logr.Logger, wi *workload.Info
 		case tasFlvCache == nil:
 			log.V(2).Info("TAS flavor used by workload not found in cache", "tasFlavor", tasFlavor)
 		case op == add:
-			tasFlvCache.addUsage(key, tasUsage)
+			tasFlvCache.addUsage(log, key, tasUsage)
 		case op == subtract:
 			tasFlvCache.removeUsage(key)
 		}

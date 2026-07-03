@@ -21,6 +21,7 @@ import (
 	"maps"
 	"testing"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -6391,11 +6392,12 @@ func TestFindTopologyAssignments(t *testing.T) {
 			}
 			tasFlavorCache := tasCache.NewTASFlavorCache(topologyInformation, flavorInformation)
 			if len(tc.priorOwnUsage) > 0 {
-				tasFlavorCache.addUsage("prior-wl", tc.priorOwnUsage)
+				tasFlavorCache.addUsage(log, "prior-wl", tc.priorOwnUsage)
 			}
 
 			if features.Enabled(features.TASHandleOverlappingFlavors) {
 				tc.aggregatedDomainUsages = aggregatedDomainUsagesForPriorFlavorUsage(
+					log,
 					topologyInformation,
 					flavorInformation,
 					tc.priorFlavorUsage,
@@ -6858,6 +6860,7 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 
 			if features.Enabled(features.TASHandleOverlappingFlavors) {
 				tc.aggregatedDomainUsages = aggregatedDomainUsagesForPriorFlavorUsage(
+					log,
 					topologyInfo,
 					flvInfo,
 					tc.priorFlavorUsage,
@@ -6900,6 +6903,7 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 // TODO: Once we commonize "TestFindTopologyAssignments" and "TestFindTopologyAssignmentsMultiLayerReplacement" into one,
 // we should remove this helper function.
 func aggregatedDomainUsagesForPriorFlavorUsage(
+	log logr.Logger,
 	topologyInfo topologyInformation,
 	flvInfo flavorInformation,
 	priorFlavorUsage []workload.TopologyDomainRequests,
@@ -6908,7 +6912,7 @@ func aggregatedDomainUsagesForPriorFlavorUsage(
 ) map[tas.TopologyDomainID]resources.Requests {
 	siblingCache := cache.NewTASFlavorCache(topologyInfo, flvInfo)
 	if len(priorFlavorUsage) > 0 {
-		siblingCache.addUsage("prior-wl", priorFlavorUsage)
+		siblingCache.addUsage(log, "prior-wl", priorFlavorUsage)
 	}
 
 	aggregatedDomainUsages := maps.Clone(initialAggregatedDomainUsages)
