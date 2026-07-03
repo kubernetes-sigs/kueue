@@ -1382,16 +1382,6 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}); err != nil {
 		return err
 	}
-	if err := s.AddGeneratedConversionFunc((*corev1.Pod)(nil), (*core.Pod)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_v1_Pod_To_core_Pod(a.(*corev1.Pod), b.(*core.Pod), scope)
-	}); err != nil {
-		return err
-	}
-	if err := s.AddGeneratedConversionFunc((*core.Pod)(nil), (*corev1.Pod)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_core_Pod_To_v1_Pod(a.(*core.Pod), b.(*corev1.Pod), scope)
-	}); err != nil {
-		return err
-	}
 	if err := s.AddGeneratedConversionFunc((*corev1.PodAffinity)(nil), (*core.PodAffinity)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_v1_PodAffinity_To_core_PodAffinity(a.(*corev1.PodAffinity), b.(*core.PodAffinity), scope)
 	}); err != nil {
@@ -1622,23 +1612,13 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}); err != nil {
 		return err
 	}
-	if err := s.AddGeneratedConversionFunc((*corev1.PodSpec)(nil), (*core.PodSpec)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_v1_PodSpec_To_core_PodSpec(a.(*corev1.PodSpec), b.(*core.PodSpec), scope)
+	if err := s.AddGeneratedConversionFunc((*corev1.PodStatusResult)(nil), (*core.PodStatusResult)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1_PodStatusResult_To_core_PodStatusResult(a.(*corev1.PodStatusResult), b.(*core.PodStatusResult), scope)
 	}); err != nil {
 		return err
 	}
-	if err := s.AddGeneratedConversionFunc((*core.PodSpec)(nil), (*corev1.PodSpec)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_core_PodSpec_To_v1_PodSpec(a.(*core.PodSpec), b.(*corev1.PodSpec), scope)
-	}); err != nil {
-		return err
-	}
-	if err := s.AddGeneratedConversionFunc((*corev1.PodStatus)(nil), (*core.PodStatus)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_v1_PodStatus_To_core_PodStatus(a.(*corev1.PodStatus), b.(*core.PodStatus), scope)
-	}); err != nil {
-		return err
-	}
-	if err := s.AddGeneratedConversionFunc((*core.PodStatus)(nil), (*corev1.PodStatus)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_core_PodStatus_To_v1_PodStatus(a.(*core.PodStatus), b.(*corev1.PodStatus), scope)
+	if err := s.AddGeneratedConversionFunc((*core.PodStatusResult)(nil), (*corev1.PodStatusResult)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_core_PodStatusResult_To_v1_PodStatusResult(a.(*core.PodStatusResult), b.(*corev1.PodStatusResult), scope)
 	}); err != nil {
 		return err
 	}
@@ -2462,8 +2442,23 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}); err != nil {
 		return err
 	}
+	if err := s.AddConversionFunc((*core.PodSpec)(nil), (*corev1.PodSpec)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_core_PodSpec_To_v1_PodSpec(a.(*core.PodSpec), b.(*corev1.PodSpec), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddConversionFunc((*core.PodStatus)(nil), (*corev1.PodStatus)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_core_PodStatus_To_v1_PodStatus(a.(*core.PodStatus), b.(*corev1.PodStatus), scope)
+	}); err != nil {
+		return err
+	}
 	if err := s.AddConversionFunc((*core.PodTemplateSpec)(nil), (*corev1.PodTemplateSpec)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_core_PodTemplateSpec_To_v1_PodTemplateSpec(a.(*core.PodTemplateSpec), b.(*corev1.PodTemplateSpec), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddConversionFunc((*core.Pod)(nil), (*corev1.Pod)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_core_Pod_To_v1_Pod(a.(*core.Pod), b.(*corev1.Pod), scope)
 	}); err != nil {
 		return err
 	}
@@ -2482,8 +2477,23 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}); err != nil {
 		return err
 	}
+	if err := s.AddConversionFunc((*corev1.PodSpec)(nil), (*core.PodSpec)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1_PodSpec_To_core_PodSpec(a.(*corev1.PodSpec), b.(*core.PodSpec), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddConversionFunc((*corev1.PodStatus)(nil), (*core.PodStatus)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1_PodStatus_To_core_PodStatus(a.(*corev1.PodStatus), b.(*core.PodStatus), scope)
+	}); err != nil {
+		return err
+	}
 	if err := s.AddConversionFunc((*corev1.PodTemplateSpec)(nil), (*core.PodTemplateSpec)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_v1_PodTemplateSpec_To_core_PodTemplateSpec(a.(*corev1.PodTemplateSpec), b.(*core.PodTemplateSpec), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddConversionFunc((*corev1.Pod)(nil), (*core.Pod)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1_Pod_To_core_Pod(a.(*corev1.Pod), b.(*core.Pod), scope)
 	}); err != nil {
 		return err
 	}
@@ -6216,11 +6226,6 @@ func autoConvert_v1_Pod_To_core_Pod(in *corev1.Pod, out *core.Pod, s conversion.
 	return nil
 }
 
-// Convert_v1_Pod_To_core_Pod is an autogenerated conversion function.
-func Convert_v1_Pod_To_core_Pod(in *corev1.Pod, out *core.Pod, s conversion.Scope) error {
-	return autoConvert_v1_Pod_To_core_Pod(in, out, s)
-}
-
 func autoConvert_core_Pod_To_v1_Pod(in *core.Pod, out *corev1.Pod, s conversion.Scope) error {
 	out.ObjectMeta = in.ObjectMeta
 	if err := Convert_core_PodSpec_To_v1_PodSpec(&in.Spec, &out.Spec, s); err != nil {
@@ -6230,11 +6235,6 @@ func autoConvert_core_Pod_To_v1_Pod(in *core.Pod, out *corev1.Pod, s conversion.
 		return err
 	}
 	return nil
-}
-
-// Convert_core_Pod_To_v1_Pod is an autogenerated conversion function.
-func Convert_core_Pod_To_v1_Pod(in *core.Pod, out *corev1.Pod, s conversion.Scope) error {
-	return autoConvert_core_Pod_To_v1_Pod(in, out, s)
 }
 
 func autoConvert_v1_PodAffinity_To_core_PodAffinity(in *corev1.PodAffinity, out *core.PodAffinity, s conversion.Scope) error {
@@ -6620,7 +6620,17 @@ func Convert_core_PodIP_To_v1_PodIP(in *core.PodIP, out *corev1.PodIP, s convers
 
 func autoConvert_v1_PodList_To_core_PodList(in *corev1.PodList, out *core.PodList, s conversion.Scope) error {
 	out.ListMeta = in.ListMeta
-	out.Items = *(*[]core.Pod)(unsafe.Pointer(&in.Items))
+	if in.Items != nil {
+		in, out := &in.Items, &out.Items
+		*out = make([]core.Pod, len(*in))
+		for i := range *in {
+			if err := Convert_v1_Pod_To_core_Pod(&(*in)[i], &(*out)[i], s); err != nil {
+				return err
+			}
+		}
+	} else {
+		out.Items = nil
+	}
 	return nil
 }
 
@@ -6631,7 +6641,17 @@ func Convert_v1_PodList_To_core_PodList(in *corev1.PodList, out *core.PodList, s
 
 func autoConvert_core_PodList_To_v1_PodList(in *core.PodList, out *corev1.PodList, s conversion.Scope) error {
 	out.ListMeta = in.ListMeta
-	out.Items = *(*[]corev1.Pod)(unsafe.Pointer(&in.Items))
+	if in.Items != nil {
+		in, out := &in.Items, &out.Items
+		*out = make([]corev1.Pod, len(*in))
+		for i := range *in {
+			if err := Convert_core_Pod_To_v1_Pod(&(*in)[i], &(*out)[i], s); err != nil {
+				return err
+			}
+		}
+	} else {
+		out.Items = nil
+	}
 	return nil
 }
 
@@ -6984,6 +7004,11 @@ func Convert_v1_PodSecurityContext_To_core_PodSecurityContext(in *corev1.PodSecu
 }
 
 func autoConvert_core_PodSecurityContext_To_v1_PodSecurityContext(in *core.PodSecurityContext, out *corev1.PodSecurityContext, s conversion.Scope) error {
+	// INFO: in.HostNetwork opted out of conversion generation
+	// INFO: in.HostPID opted out of conversion generation
+	// INFO: in.HostIPC opted out of conversion generation
+	// INFO: in.ShareProcessNamespace opted out of conversion generation
+	// INFO: in.HostUsers opted out of conversion generation
 	out.SELinuxOptions = (*corev1.SELinuxOptions)(unsafe.Pointer(in.SELinuxOptions))
 	out.WindowsOptions = (*corev1.WindowsSecurityContextOptions)(unsafe.Pointer(in.WindowsOptions))
 	out.RunAsUser = (*int64)(unsafe.Pointer(in.RunAsUser))
@@ -6992,8 +7017,8 @@ func autoConvert_core_PodSecurityContext_To_v1_PodSecurityContext(in *core.PodSe
 	out.SupplementalGroups = *(*[]int64)(unsafe.Pointer(&in.SupplementalGroups))
 	out.SupplementalGroupsPolicy = (*corev1.SupplementalGroupsPolicy)(unsafe.Pointer(in.SupplementalGroupsPolicy))
 	out.FSGroup = (*int64)(unsafe.Pointer(in.FSGroup))
-	out.Sysctls = *(*[]corev1.Sysctl)(unsafe.Pointer(&in.Sysctls))
 	out.FSGroupChangePolicy = (*corev1.PodFSGroupChangePolicy)(unsafe.Pointer(in.FSGroupChangePolicy))
+	out.Sysctls = *(*[]corev1.Sysctl)(unsafe.Pointer(&in.Sysctls))
 	out.SeccompProfile = (*corev1.SeccompProfile)(unsafe.Pointer(in.SeccompProfile))
 	out.AppArmorProfile = (*corev1.AppArmorProfile)(unsafe.Pointer(in.AppArmorProfile))
 	out.SELinuxChangePolicy = (*corev1.PodSELinuxChangePolicy)(unsafe.Pointer(in.SELinuxChangePolicy))
@@ -7026,7 +7051,17 @@ func Convert_core_PodSignature_To_v1_PodSignature(in *core.PodSignature, out *co
 }
 
 func autoConvert_v1_PodSpec_To_core_PodSpec(in *corev1.PodSpec, out *core.PodSpec, s conversion.Scope) error {
-	out.Volumes = *(*[]core.Volume)(unsafe.Pointer(&in.Volumes))
+	if in.Volumes != nil {
+		in, out := &in.Volumes, &out.Volumes
+		*out = make([]core.Volume, len(*in))
+		for i := range *in {
+			if err := Convert_v1_Volume_To_core_Volume(&(*in)[i], &(*out)[i], s); err != nil {
+				return err
+			}
+		}
+	} else {
+		out.Volumes = nil
+	}
 	out.InitContainers = *(*[]core.Container)(unsafe.Pointer(&in.InitContainers))
 	out.Containers = *(*[]core.Container)(unsafe.Pointer(&in.Containers))
 	out.EphemeralContainers = *(*[]core.EphemeralContainer)(unsafe.Pointer(&in.EphemeralContainers))
@@ -7036,14 +7071,22 @@ func autoConvert_v1_PodSpec_To_core_PodSpec(in *corev1.PodSpec, out *core.PodSpe
 	out.DNSPolicy = core.DNSPolicy(in.DNSPolicy)
 	out.NodeSelector = *(*map[string]string)(unsafe.Pointer(&in.NodeSelector))
 	out.ServiceAccountName = in.ServiceAccountName
-	out.DeprecatedServiceAccount = in.DeprecatedServiceAccount
+	// INFO: in.DeprecatedServiceAccount opted out of conversion generation
 	out.AutomountServiceAccountToken = (*bool)(unsafe.Pointer(in.AutomountServiceAccountToken))
 	out.NodeName = in.NodeName
-	out.HostNetwork = in.HostNetwork
-	out.HostPID = in.HostPID
-	out.HostIPC = in.HostIPC
-	out.ShareProcessNamespace = (*bool)(unsafe.Pointer(in.ShareProcessNamespace))
-	out.SecurityContext = (*core.PodSecurityContext)(unsafe.Pointer(in.SecurityContext))
+	// INFO: in.HostNetwork opted out of conversion generation
+	// INFO: in.HostPID opted out of conversion generation
+	// INFO: in.HostIPC opted out of conversion generation
+	// INFO: in.ShareProcessNamespace opted out of conversion generation
+	if in.SecurityContext != nil {
+		in, out := &in.SecurityContext, &out.SecurityContext
+		*out = new(core.PodSecurityContext)
+		if err := Convert_v1_PodSecurityContext_To_core_PodSecurityContext(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.SecurityContext = nil
+	}
 	out.ImagePullSecrets = *(*[]core.LocalObjectReference)(unsafe.Pointer(&in.ImagePullSecrets))
 	out.Hostname = in.Hostname
 	out.Subdomain = in.Subdomain
@@ -7062,7 +7105,7 @@ func autoConvert_v1_PodSpec_To_core_PodSpec(in *corev1.PodSpec, out *core.PodSpe
 	out.TopologySpreadConstraints = *(*[]core.TopologySpreadConstraint)(unsafe.Pointer(&in.TopologySpreadConstraints))
 	out.SetHostnameAsFQDN = (*bool)(unsafe.Pointer(in.SetHostnameAsFQDN))
 	out.OS = (*core.PodOS)(unsafe.Pointer(in.OS))
-	out.HostUsers = (*bool)(unsafe.Pointer(in.HostUsers))
+	// INFO: in.HostUsers opted out of conversion generation
 	out.SchedulingGates = *(*[]core.PodSchedulingGate)(unsafe.Pointer(&in.SchedulingGates))
 	out.ResourceClaims = *(*[]core.PodResourceClaim)(unsafe.Pointer(&in.ResourceClaims))
 	out.Resources = (*core.ResourceRequirements)(unsafe.Pointer(in.Resources))
@@ -7071,13 +7114,18 @@ func autoConvert_v1_PodSpec_To_core_PodSpec(in *corev1.PodSpec, out *core.PodSpe
 	return nil
 }
 
-// Convert_v1_PodSpec_To_core_PodSpec is an autogenerated conversion function.
-func Convert_v1_PodSpec_To_core_PodSpec(in *corev1.PodSpec, out *core.PodSpec, s conversion.Scope) error {
-	return autoConvert_v1_PodSpec_To_core_PodSpec(in, out, s)
-}
-
 func autoConvert_core_PodSpec_To_v1_PodSpec(in *core.PodSpec, out *corev1.PodSpec, s conversion.Scope) error {
-	out.Volumes = *(*[]corev1.Volume)(unsafe.Pointer(&in.Volumes))
+	if in.Volumes != nil {
+		in, out := &in.Volumes, &out.Volumes
+		*out = make([]corev1.Volume, len(*in))
+		for i := range *in {
+			if err := Convert_core_Volume_To_v1_Volume(&(*in)[i], &(*out)[i], s); err != nil {
+				return err
+			}
+		}
+	} else {
+		out.Volumes = nil
+	}
 	out.InitContainers = *(*[]corev1.Container)(unsafe.Pointer(&in.InitContainers))
 	out.Containers = *(*[]corev1.Container)(unsafe.Pointer(&in.Containers))
 	out.EphemeralContainers = *(*[]corev1.EphemeralContainer)(unsafe.Pointer(&in.EphemeralContainers))
@@ -7087,44 +7135,41 @@ func autoConvert_core_PodSpec_To_v1_PodSpec(in *core.PodSpec, out *corev1.PodSpe
 	out.DNSPolicy = corev1.DNSPolicy(in.DNSPolicy)
 	out.NodeSelector = *(*map[string]string)(unsafe.Pointer(&in.NodeSelector))
 	out.ServiceAccountName = in.ServiceAccountName
-	out.DeprecatedServiceAccount = in.DeprecatedServiceAccount
 	out.AutomountServiceAccountToken = (*bool)(unsafe.Pointer(in.AutomountServiceAccountToken))
 	out.NodeName = in.NodeName
-	out.HostNetwork = in.HostNetwork
-	out.HostPID = in.HostPID
-	out.HostIPC = in.HostIPC
-	out.ShareProcessNamespace = (*bool)(unsafe.Pointer(in.ShareProcessNamespace))
-	out.SecurityContext = (*corev1.PodSecurityContext)(unsafe.Pointer(in.SecurityContext))
+	if in.SecurityContext != nil {
+		in, out := &in.SecurityContext, &out.SecurityContext
+		*out = new(corev1.PodSecurityContext)
+		if err := Convert_core_PodSecurityContext_To_v1_PodSecurityContext(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.SecurityContext = nil
+	}
 	out.ImagePullSecrets = *(*[]corev1.LocalObjectReference)(unsafe.Pointer(&in.ImagePullSecrets))
 	out.Hostname = in.Hostname
 	out.Subdomain = in.Subdomain
+	out.SetHostnameAsFQDN = (*bool)(unsafe.Pointer(in.SetHostnameAsFQDN))
 	out.Affinity = (*corev1.Affinity)(unsafe.Pointer(in.Affinity))
 	out.SchedulerName = in.SchedulerName
 	out.Tolerations = *(*[]corev1.Toleration)(unsafe.Pointer(&in.Tolerations))
 	out.HostAliases = *(*[]corev1.HostAlias)(unsafe.Pointer(&in.HostAliases))
 	out.PriorityClassName = in.PriorityClassName
 	out.Priority = (*int32)(unsafe.Pointer(in.Priority))
+	out.PreemptionPolicy = (*corev1.PreemptionPolicy)(unsafe.Pointer(in.PreemptionPolicy))
 	out.DNSConfig = (*corev1.PodDNSConfig)(unsafe.Pointer(in.DNSConfig))
 	out.ReadinessGates = *(*[]corev1.PodReadinessGate)(unsafe.Pointer(&in.ReadinessGates))
 	out.RuntimeClassName = (*string)(unsafe.Pointer(in.RuntimeClassName))
-	out.EnableServiceLinks = (*bool)(unsafe.Pointer(in.EnableServiceLinks))
-	out.PreemptionPolicy = (*corev1.PreemptionPolicy)(unsafe.Pointer(in.PreemptionPolicy))
 	out.Overhead = *(*corev1.ResourceList)(unsafe.Pointer(&in.Overhead))
+	out.EnableServiceLinks = (*bool)(unsafe.Pointer(in.EnableServiceLinks))
 	out.TopologySpreadConstraints = *(*[]corev1.TopologySpreadConstraint)(unsafe.Pointer(&in.TopologySpreadConstraints))
-	out.SetHostnameAsFQDN = (*bool)(unsafe.Pointer(in.SetHostnameAsFQDN))
 	out.OS = (*corev1.PodOS)(unsafe.Pointer(in.OS))
-	out.HostUsers = (*bool)(unsafe.Pointer(in.HostUsers))
 	out.SchedulingGates = *(*[]corev1.PodSchedulingGate)(unsafe.Pointer(&in.SchedulingGates))
 	out.ResourceClaims = *(*[]corev1.PodResourceClaim)(unsafe.Pointer(&in.ResourceClaims))
 	out.Resources = (*corev1.ResourceRequirements)(unsafe.Pointer(in.Resources))
 	out.HostnameOverride = (*string)(unsafe.Pointer(in.HostnameOverride))
 	out.SchedulingGroup = (*corev1.PodSchedulingGroup)(unsafe.Pointer(in.SchedulingGroup))
 	return nil
-}
-
-// Convert_core_PodSpec_To_v1_PodSpec is an autogenerated conversion function.
-func Convert_core_PodSpec_To_v1_PodSpec(in *core.PodSpec, out *corev1.PodSpec, s conversion.Scope) error {
-	return autoConvert_core_PodSpec_To_v1_PodSpec(in, out, s)
 }
 
 func autoConvert_v1_PodStatus_To_core_PodStatus(in *corev1.PodStatus, out *core.PodStatus, s conversion.Scope) error {
@@ -7136,7 +7181,7 @@ func autoConvert_v1_PodStatus_To_core_PodStatus(in *corev1.PodStatus, out *core.
 	out.NominatedNodeName = in.NominatedNodeName
 	out.HostIP = in.HostIP
 	out.HostIPs = *(*[]core.HostIP)(unsafe.Pointer(&in.HostIPs))
-	out.PodIP = in.PodIP
+	// WARNING: in.PodIP requires manual conversion: does not exist in peer-type
 	out.PodIPs = *(*[]core.PodIP)(unsafe.Pointer(&in.PodIPs))
 	out.StartTime = (*metav1.Time)(unsafe.Pointer(in.StartTime))
 	out.InitContainerStatuses = *(*[]core.ContainerStatus)(unsafe.Pointer(&in.InitContainerStatuses))
@@ -7152,11 +7197,6 @@ func autoConvert_v1_PodStatus_To_core_PodStatus(in *corev1.PodStatus, out *core.
 	return nil
 }
 
-// Convert_v1_PodStatus_To_core_PodStatus is an autogenerated conversion function.
-func Convert_v1_PodStatus_To_core_PodStatus(in *corev1.PodStatus, out *core.PodStatus, s conversion.Scope) error {
-	return autoConvert_v1_PodStatus_To_core_PodStatus(in, out, s)
-}
-
 func autoConvert_core_PodStatus_To_v1_PodStatus(in *core.PodStatus, out *corev1.PodStatus, s conversion.Scope) error {
 	out.ObservedGeneration = in.ObservedGeneration
 	out.Phase = corev1.PodPhase(in.Phase)
@@ -7166,12 +7206,11 @@ func autoConvert_core_PodStatus_To_v1_PodStatus(in *core.PodStatus, out *corev1.
 	out.NominatedNodeName = in.NominatedNodeName
 	out.HostIP = in.HostIP
 	out.HostIPs = *(*[]corev1.HostIP)(unsafe.Pointer(&in.HostIPs))
-	out.PodIP = in.PodIP
 	out.PodIPs = *(*[]corev1.PodIP)(unsafe.Pointer(&in.PodIPs))
 	out.StartTime = (*metav1.Time)(unsafe.Pointer(in.StartTime))
+	out.QOSClass = corev1.PodQOSClass(in.QOSClass)
 	out.InitContainerStatuses = *(*[]corev1.ContainerStatus)(unsafe.Pointer(&in.InitContainerStatuses))
 	out.ContainerStatuses = *(*[]corev1.ContainerStatus)(unsafe.Pointer(&in.ContainerStatuses))
-	out.QOSClass = corev1.PodQOSClass(in.QOSClass)
 	out.EphemeralContainerStatuses = *(*[]corev1.ContainerStatus)(unsafe.Pointer(&in.EphemeralContainerStatuses))
 	out.Resize = corev1.PodResizeStatus(in.Resize)
 	out.ResourceClaimStatuses = *(*[]corev1.PodResourceClaimStatus)(unsafe.Pointer(&in.ResourceClaimStatuses))
@@ -7182,9 +7221,30 @@ func autoConvert_core_PodStatus_To_v1_PodStatus(in *core.PodStatus, out *corev1.
 	return nil
 }
 
-// Convert_core_PodStatus_To_v1_PodStatus is an autogenerated conversion function.
-func Convert_core_PodStatus_To_v1_PodStatus(in *core.PodStatus, out *corev1.PodStatus, s conversion.Scope) error {
-	return autoConvert_core_PodStatus_To_v1_PodStatus(in, out, s)
+func autoConvert_v1_PodStatusResult_To_core_PodStatusResult(in *corev1.PodStatusResult, out *core.PodStatusResult, s conversion.Scope) error {
+	out.ObjectMeta = in.ObjectMeta
+	if err := Convert_v1_PodStatus_To_core_PodStatus(&in.Status, &out.Status, s); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Convert_v1_PodStatusResult_To_core_PodStatusResult is an autogenerated conversion function.
+func Convert_v1_PodStatusResult_To_core_PodStatusResult(in *corev1.PodStatusResult, out *core.PodStatusResult, s conversion.Scope) error {
+	return autoConvert_v1_PodStatusResult_To_core_PodStatusResult(in, out, s)
+}
+
+func autoConvert_core_PodStatusResult_To_v1_PodStatusResult(in *core.PodStatusResult, out *corev1.PodStatusResult, s conversion.Scope) error {
+	out.ObjectMeta = in.ObjectMeta
+	if err := Convert_core_PodStatus_To_v1_PodStatus(&in.Status, &out.Status, s); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Convert_core_PodStatusResult_To_v1_PodStatusResult is an autogenerated conversion function.
+func Convert_core_PodStatusResult_To_v1_PodStatusResult(in *core.PodStatusResult, out *corev1.PodStatusResult, s conversion.Scope) error {
+	return autoConvert_core_PodStatusResult_To_v1_PodStatusResult(in, out, s)
 }
 
 func autoConvert_v1_PodTemplate_To_core_PodTemplate(in *corev1.PodTemplate, out *core.PodTemplate, s conversion.Scope) error {
@@ -7458,7 +7518,17 @@ func Convert_core_ProbeHandler_To_v1_ProbeHandler(in *core.ProbeHandler, out *co
 }
 
 func autoConvert_v1_ProjectedVolumeSource_To_core_ProjectedVolumeSource(in *corev1.ProjectedVolumeSource, out *core.ProjectedVolumeSource, s conversion.Scope) error {
-	out.Sources = *(*[]core.VolumeProjection)(unsafe.Pointer(&in.Sources))
+	if in.Sources != nil {
+		in, out := &in.Sources, &out.Sources
+		*out = make([]core.VolumeProjection, len(*in))
+		for i := range *in {
+			if err := Convert_v1_VolumeProjection_To_core_VolumeProjection(&(*in)[i], &(*out)[i], s); err != nil {
+				return err
+			}
+		}
+	} else {
+		out.Sources = nil
+	}
 	out.DefaultMode = (*int32)(unsafe.Pointer(in.DefaultMode))
 	return nil
 }
@@ -7469,7 +7539,17 @@ func Convert_v1_ProjectedVolumeSource_To_core_ProjectedVolumeSource(in *corev1.P
 }
 
 func autoConvert_core_ProjectedVolumeSource_To_v1_ProjectedVolumeSource(in *core.ProjectedVolumeSource, out *corev1.ProjectedVolumeSource, s conversion.Scope) error {
-	out.Sources = *(*[]corev1.VolumeProjection)(unsafe.Pointer(&in.Sources))
+	if in.Sources != nil {
+		in, out := &in.Sources, &out.Sources
+		*out = make([]corev1.VolumeProjection, len(*in))
+		for i := range *in {
+			if err := Convert_core_VolumeProjection_To_v1_VolumeProjection(&(*in)[i], &(*out)[i], s); err != nil {
+				return err
+			}
+		}
+	} else {
+		out.Sources = nil
+	}
 	out.DefaultMode = (*int32)(unsafe.Pointer(in.DefaultMode))
 	return nil
 }
@@ -8491,7 +8571,9 @@ func Convert_core_ServiceAccountList_To_v1_ServiceAccountList(in *core.ServiceAc
 
 func autoConvert_v1_ServiceAccountTokenProjection_To_core_ServiceAccountTokenProjection(in *corev1.ServiceAccountTokenProjection, out *core.ServiceAccountTokenProjection, s conversion.Scope) error {
 	out.Audience = in.Audience
-	out.ExpirationSeconds = (*int64)(unsafe.Pointer(in.ExpirationSeconds))
+	if err := metav1.Convert_Pointer_int64_To_int64(&in.ExpirationSeconds, &out.ExpirationSeconds, s); err != nil {
+		return err
+	}
 	out.Path = in.Path
 	return nil
 }
@@ -8503,7 +8585,9 @@ func Convert_v1_ServiceAccountTokenProjection_To_core_ServiceAccountTokenProject
 
 func autoConvert_core_ServiceAccountTokenProjection_To_v1_ServiceAccountTokenProjection(in *core.ServiceAccountTokenProjection, out *corev1.ServiceAccountTokenProjection, s conversion.Scope) error {
 	out.Audience = in.Audience
-	out.ExpirationSeconds = (*int64)(unsafe.Pointer(in.ExpirationSeconds))
+	if err := metav1.Convert_int64_To_Pointer_int64(&in.ExpirationSeconds, &out.ExpirationSeconds, s); err != nil {
+		return err
+	}
 	out.Path = in.Path
 	return nil
 }
@@ -9159,7 +9243,15 @@ func autoConvert_v1_VolumeProjection_To_core_VolumeProjection(in *corev1.VolumeP
 	out.Secret = (*core.SecretProjection)(unsafe.Pointer(in.Secret))
 	out.DownwardAPI = (*core.DownwardAPIProjection)(unsafe.Pointer(in.DownwardAPI))
 	out.ConfigMap = (*core.ConfigMapProjection)(unsafe.Pointer(in.ConfigMap))
-	out.ServiceAccountToken = (*core.ServiceAccountTokenProjection)(unsafe.Pointer(in.ServiceAccountToken))
+	if in.ServiceAccountToken != nil {
+		in, out := &in.ServiceAccountToken, &out.ServiceAccountToken
+		*out = new(core.ServiceAccountTokenProjection)
+		if err := Convert_v1_ServiceAccountTokenProjection_To_core_ServiceAccountTokenProjection(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.ServiceAccountToken = nil
+	}
 	out.ClusterTrustBundle = (*core.ClusterTrustBundleProjection)(unsafe.Pointer(in.ClusterTrustBundle))
 	out.PodCertificate = (*core.PodCertificateProjection)(unsafe.Pointer(in.PodCertificate))
 	return nil
@@ -9174,7 +9266,15 @@ func autoConvert_core_VolumeProjection_To_v1_VolumeProjection(in *core.VolumePro
 	out.Secret = (*corev1.SecretProjection)(unsafe.Pointer(in.Secret))
 	out.DownwardAPI = (*corev1.DownwardAPIProjection)(unsafe.Pointer(in.DownwardAPI))
 	out.ConfigMap = (*corev1.ConfigMapProjection)(unsafe.Pointer(in.ConfigMap))
-	out.ServiceAccountToken = (*corev1.ServiceAccountTokenProjection)(unsafe.Pointer(in.ServiceAccountToken))
+	if in.ServiceAccountToken != nil {
+		in, out := &in.ServiceAccountToken, &out.ServiceAccountToken
+		*out = new(corev1.ServiceAccountTokenProjection)
+		if err := Convert_core_ServiceAccountTokenProjection_To_v1_ServiceAccountTokenProjection(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.ServiceAccountToken = nil
+	}
 	out.ClusterTrustBundle = (*corev1.ClusterTrustBundleProjection)(unsafe.Pointer(in.ClusterTrustBundle))
 	out.PodCertificate = (*corev1.PodCertificateProjection)(unsafe.Pointer(in.PodCertificate))
 	return nil
@@ -9231,7 +9331,15 @@ func autoConvert_v1_VolumeSource_To_core_VolumeSource(in *corev1.VolumeSource, o
 	out.Quobyte = (*core.QuobyteVolumeSource)(unsafe.Pointer(in.Quobyte))
 	out.AzureDisk = (*core.AzureDiskVolumeSource)(unsafe.Pointer(in.AzureDisk))
 	out.PhotonPersistentDisk = (*core.PhotonPersistentDiskVolumeSource)(unsafe.Pointer(in.PhotonPersistentDisk))
-	out.Projected = (*core.ProjectedVolumeSource)(unsafe.Pointer(in.Projected))
+	if in.Projected != nil {
+		in, out := &in.Projected, &out.Projected
+		*out = new(core.ProjectedVolumeSource)
+		if err := Convert_v1_ProjectedVolumeSource_To_core_ProjectedVolumeSource(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.Projected = nil
+	}
 	out.PortworxVolume = (*core.PortworxVolumeSource)(unsafe.Pointer(in.PortworxVolume))
 	out.ScaleIO = (*core.ScaleIOVolumeSource)(unsafe.Pointer(in.ScaleIO))
 	out.StorageOS = (*core.StorageOSVolumeSource)(unsafe.Pointer(in.StorageOS))
@@ -9258,6 +9366,7 @@ func autoConvert_core_VolumeSource_To_v1_VolumeSource(in *core.VolumeSource, out
 	out.Glusterfs = (*corev1.GlusterfsVolumeSource)(unsafe.Pointer(in.Glusterfs))
 	out.PersistentVolumeClaim = (*corev1.PersistentVolumeClaimVolumeSource)(unsafe.Pointer(in.PersistentVolumeClaim))
 	out.RBD = (*corev1.RBDVolumeSource)(unsafe.Pointer(in.RBD))
+	out.Quobyte = (*corev1.QuobyteVolumeSource)(unsafe.Pointer(in.Quobyte))
 	out.FlexVolume = (*corev1.FlexVolumeSource)(unsafe.Pointer(in.FlexVolume))
 	out.Cinder = (*corev1.CinderVolumeSource)(unsafe.Pointer(in.Cinder))
 	out.CephFS = (*corev1.CephFSVolumeSource)(unsafe.Pointer(in.CephFS))
@@ -9267,10 +9376,17 @@ func autoConvert_core_VolumeSource_To_v1_VolumeSource(in *core.VolumeSource, out
 	out.AzureFile = (*corev1.AzureFileVolumeSource)(unsafe.Pointer(in.AzureFile))
 	out.ConfigMap = (*corev1.ConfigMapVolumeSource)(unsafe.Pointer(in.ConfigMap))
 	out.VsphereVolume = (*corev1.VsphereVirtualDiskVolumeSource)(unsafe.Pointer(in.VsphereVolume))
-	out.Quobyte = (*corev1.QuobyteVolumeSource)(unsafe.Pointer(in.Quobyte))
 	out.AzureDisk = (*corev1.AzureDiskVolumeSource)(unsafe.Pointer(in.AzureDisk))
 	out.PhotonPersistentDisk = (*corev1.PhotonPersistentDiskVolumeSource)(unsafe.Pointer(in.PhotonPersistentDisk))
-	out.Projected = (*corev1.ProjectedVolumeSource)(unsafe.Pointer(in.Projected))
+	if in.Projected != nil {
+		in, out := &in.Projected, &out.Projected
+		*out = new(corev1.ProjectedVolumeSource)
+		if err := Convert_core_ProjectedVolumeSource_To_v1_ProjectedVolumeSource(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.Projected = nil
+	}
 	out.PortworxVolume = (*corev1.PortworxVolumeSource)(unsafe.Pointer(in.PortworxVolume))
 	out.ScaleIO = (*corev1.ScaleIOVolumeSource)(unsafe.Pointer(in.ScaleIO))
 	out.StorageOS = (*corev1.StorageOSVolumeSource)(unsafe.Pointer(in.StorageOS))

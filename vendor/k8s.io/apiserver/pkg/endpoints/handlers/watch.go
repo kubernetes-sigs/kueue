@@ -17,7 +17,6 @@ limitations under the License.
 package handlers
 
 import (
-	"compress/gzip"
 	"context"
 	"fmt"
 	"io"
@@ -35,7 +34,6 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/apiserver/pkg/audit"
 	"k8s.io/apiserver/pkg/endpoints/handlers/negotiation"
-	"k8s.io/apiserver/pkg/endpoints/handlers/responsewriters"
 	"k8s.io/apiserver/pkg/endpoints/metrics"
 	apirequest "k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/features"
@@ -71,7 +69,7 @@ func (w *realTimeoutFactory) TimeoutCh() (<-chan time.Time, func() bool) {
 
 // serveWatchHandler returns a handle to serve a watch response.
 // TODO: the functionality in this method and in WatchServer.Serve is not cleanly decoupled.
-func serveWatchHandler(watcher watch.Interface, scope *RequestScope, mediaTypeOptions negotiation.MediaTypeOptions, req *http.Request, w http.ResponseWriter, timeout time.Duration, metricsScope string, isWatchListRequest bool, completeHook WatchListCompleteHook) (http.Handler, error) {
+func serveWatchHandler(watcher watch.Interface, scope *RequestScope, mediaTypeOptions negotiation.MediaTypeOptions, req *http.Request, w http.ResponseWriter, timeout time.Duration, metricsScope string, completeHook WatchListCompleteHook) (http.Handler, error) {
 	options, err := optionsForTransform(mediaTypeOptions, req)
 	if err != nil {
 		return nil, err
@@ -179,7 +177,6 @@ func serveWatchHandler(watcher watch.Interface, scope *RequestScope, mediaTypeOp
 		ServerShuttingDownCh: serverShuttingDownCh,
 
 		metricsScope:          metricsScope,
-		isWatchListRequest:    isWatchListRequest,
 		watchListCompleteHook: completeHook,
 	}
 
@@ -211,7 +208,6 @@ type WatchServer struct {
 	ServerShuttingDownCh <-chan struct{}
 
 	metricsScope          string
-	isWatchListRequest    bool
 	watchListCompleteHook WatchListCompleteHook
 }
 
@@ -240,116 +236,6 @@ func (c *watchEventMetricsRecorder) RecordEvent() {
 	c.sizeMetric.Observe(float64(c.byteCount.Swap(0)))
 }
 
-// watchGzipPool is a no-op until the first Get call (https://pkg.go.dev/sync#Pool.Get).
-var watchGzipPool = responsewriters.NewGzipWriterPoolOrDie()
-
-type watchStreamWriter interface {
-	io.WriteCloser
-	Flush() error
-}
-
-var _ watchStreamWriter = &plainResponseWriter{}
-
-type plainResponseWriter struct {
-	w       http.ResponseWriter
-	flusher http.Flusher
-}
-
-func (p *plainResponseWriter) Write(b []byte) (int, error) {
-	return p.w.Write(b)
-}
-
-func (p *plainResponseWriter) Flush() error {
-	p.flusher.Flush()
-	return nil
-}
-
-// Close is a no-op because http.ResponseWriter (p.w) doesn't implement io.Closer.
-func (p *plainResponseWriter) Close() error {
-	return nil
-}
-
-var _ watchStreamWriter = &gzipResponseWriter{}
-
-type gzipResponseWriter struct {
-	gw      *gzip.Writer
-	flusher http.Flusher
-}
-
-func (g *gzipResponseWriter) Write(b []byte) (int, error) {
-	return g.gw.Write(b)
-}
-
-// Flush pushes data through two buffers: gzip's internal buffer into the
-// http.ResponseWriter, then the http.ResponseWriter's buffer to the network.
-func (g *gzipResponseWriter) Flush() error {
-	if err := g.gw.Flush(); err != nil {
-		return err
-	}
-	g.flusher.Flush()
-	return nil
-}
-
-func (g *gzipResponseWriter) Close() error {
-	if g.gw == nil {
-		return nil
-	}
-	err := g.gw.Close()
-	g.gw.Reset(nil)
-	watchGzipPool.Put(g.gw)
-	// prevent double-close returning the writer to the pool twice
-	g.gw = nil
-	return err
-}
-
-var _ io.Writer = &watchResponseWriter{}
-
-type watchResponseWriter struct {
-	delegateRW         http.ResponseWriter
-	flusher            http.Flusher
-	contentEncoding    string
-	isWatchListRequest bool
-	writer             watchStreamWriter
-}
-
-func newWatchResponseWriter(delegateRW http.ResponseWriter, flusher http.Flusher, contentEncoding string, isWatchListRequest bool) *watchResponseWriter {
-	return &watchResponseWriter{
-		delegateRW:         delegateRW,
-		flusher:            flusher,
-		contentEncoding:    contentEncoding,
-		isWatchListRequest: isWatchListRequest,
-		writer:             &plainResponseWriter{w: delegateRW, flusher: flusher},
-	}
-}
-
-func (w *watchResponseWriter) BeginStream(mediaType string) {
-	w.delegateRW.Header().Set("Content-Type", mediaType)
-	w.delegateRW.Header().Set("Transfer-Encoding", "chunked")
-	if w.contentEncoding == "gzip" && w.isWatchListRequest {
-		w.delegateRW.Header().Set("Content-Encoding", "gzip")
-		w.delegateRW.Header().Add("Vary", "Accept-Encoding")
-		gw := watchGzipPool.Get().(*gzip.Writer)
-		gw.Reset(w.delegateRW)
-		w.writer = &gzipResponseWriter{gw: gw, flusher: w.flusher}
-	}
-	w.delegateRW.WriteHeader(http.StatusOK)
-	// Flush HTTP headers only
-	// gzip applies to the body, not headers.
-	w.flusher.Flush()
-}
-
-func (w *watchResponseWriter) Write(p []byte) (int, error) {
-	return w.writer.Write(p)
-}
-
-func (w *watchResponseWriter) Flush() error {
-	return w.writer.Flush()
-}
-
-func (w *watchResponseWriter) Close() error {
-	return w.writer.Close()
-}
-
 // HandleHTTP serves a series of encoded events via HTTP with Transfer-Encoding: chunked.
 // or over a websocket connection.
 func (s *WatchServer) HandleHTTP(w http.ResponseWriter, req *http.Request) {
@@ -376,15 +262,7 @@ func (s *WatchServer) HandleHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	contentEncoding := responsewriters.ContentEncodingSupported(req, features.WatchListCompression)
-	rw := newWatchResponseWriter(w, flusher, contentEncoding, s.isWatchListRequest)
-	defer func() {
-		if err := rw.Close(); err != nil {
-			utilruntime.HandleErrorWithContext(req.Context(), err, "Failed to close watch response writer")
-		}
-	}()
-
-	framer := s.Framer.NewFrameWriter(rw)
+	framer := s.Framer.NewFrameWriter(w)
 	if framer == nil {
 		// programmer error
 		err := fmt.Errorf("no stream framing support is available for media type %q", s.MediaType)
@@ -398,7 +276,10 @@ func (s *WatchServer) HandleHTTP(w http.ResponseWriter, req *http.Request) {
 	defer cleanup()
 
 	// begin the stream
-	rw.BeginStream(s.MediaType)
+	w.Header().Set("Content-Type", s.MediaType)
+	w.Header().Set("Transfer-Encoding", "chunked")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
 
 	gvr := s.Scope.Resource
 
@@ -443,10 +324,7 @@ func (s *WatchServer) HandleHTTP(w http.ResponseWriter, req *http.Request) {
 			recorder.RecordEvent()
 
 			if len(ch) == 0 {
-				if err := rw.Flush(); err != nil {
-					utilruntime.HandleErrorWithContext(req.Context(), err, "Failed to flush watch response")
-					return
-				}
+				flusher.Flush()
 			}
 			if isWatchListLatencyRecordingRequired {
 				// Record completion of initial listing phase for WatchList

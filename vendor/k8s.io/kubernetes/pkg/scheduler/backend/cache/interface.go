@@ -69,13 +69,8 @@ type Cache interface {
 	// AssumePod assumes a pod scheduled and aggregates the pod's information into its node.
 	AssumePod(logger klog.Logger, pod *v1.Pod) error
 
-	// ForgetPod forgets an assumed pod from the cache. It should be called when the pod
-	// still exists, as an undo operation for AssumePod.
+	// ForgetPod removes an assumed pod from cache.
 	ForgetPod(logger klog.Logger, pod *v1.Pod) error
-
-	// RemoveAssumedPod removes an assumed pod from the cache. It should be called when the assumed
-	// pod was removed from the cluster to correctly clean up internal state.
-	RemoveAssumedPod(logger klog.Logger, pod *v1.Pod) error
 
 	// AddPod confirms an assumed pod, or adds a newly assigned pod to the cache.
 	AddPod(logger klog.Logger, pod *v1.Pod) error
@@ -94,10 +89,12 @@ type Cache interface {
 	IsAssumedPod(pod *v1.Pod) (bool, error)
 
 	// AddNode adds overall information about node.
-	AddNode(logger klog.Logger, node *v1.Node)
+	// It returns a clone of added NodeInfo object.
+	AddNode(logger klog.Logger, node *v1.Node) *framework.NodeInfo
 
 	// UpdateNode updates overall information about node.
-	UpdateNode(logger klog.Logger, oldNode, newNode *v1.Node)
+	// It returns a clone of updated NodeInfo object.
+	UpdateNode(logger klog.Logger, oldNode, newNode *v1.Node) *framework.NodeInfo
 
 	// RemoveNode removes overall information about node.
 	RemoveNode(logger klog.Logger, node *v1.Node) error

@@ -81,13 +81,6 @@ type cacheImpl struct {
 	// apiDispatcher is used for the methods that are expected to send API calls.
 	// It's non-nil only if the SchedulerAsyncAPICalls feature gate is enabled.
 	apiDispatcher fwk.APIDispatcher
-
-	// pvcRefCountsDelta contains the delta of changes to PVCRefCounts since the last snapshot.
-	// Keys are in the format "namespace/name". This data struct serves as an optimization for avoiding
-	// burdensome PVC ref count aggregations during scheduler cycles. PVCRefCountsDelta holds the incoming
-	// deltas from events handlers while within the scheduler cycle, we only apply and reset the delta to
-	// avoid global re-calculation.
-	pvcRefCountsDelta map[string]int
 }
 
 type podState struct {
@@ -108,7 +101,6 @@ func newCache(ctx context.Context, period time.Duration, apiDispatcher fwk.APIDi
 		podGroupStates:         make(map[podGroupKey]*podGroupState),
 		genericWorkloadEnabled: genericWorkloadEnabled,
 		apiDispatcher:          apiDispatcher,
-		pvcRefCountsDelta:      make(map[string]int),
 	}
 }
 
@@ -218,6 +210,9 @@ func (cache *cacheImpl) UpdateSnapshot(logger klog.Logger, nodeSnapshot *Snapsho
 	// status from having pods with required anti-affinity to NOT having pods with required
 	// anti-affinity or the other way around.
 	updateNodesHavePodsWithRequiredAntiAffinity := false
+	// usedPVCSet must be re-created whenever the head node generation is greater than
+	// last snapshot generation.
+	updateUsedPVCSet := false
 
 	// Forget all assumed pods from a previous snapshot version.
 	// This is a safety check in case any pod wasn't forgotten in the previous scheduling cycle.
@@ -247,6 +242,18 @@ func (cache *cacheImpl) UpdateSnapshot(logger klog.Logger, nodeSnapshot *Snapsho
 			if (len(existing.PodsWithRequiredAntiAffinity) > 0) != (len(clone.PodsWithRequiredAntiAffinity) > 0) {
 				updateNodesHavePodsWithRequiredAntiAffinity = true
 			}
+			if !updateUsedPVCSet {
+				if len(existing.PVCRefCounts) != len(clone.PVCRefCounts) {
+					updateUsedPVCSet = true
+				} else {
+					for pvcKey := range clone.PVCRefCounts {
+						if _, found := existing.PVCRefCounts[pvcKey]; !found {
+							updateUsedPVCSet = true
+							break
+						}
+					}
+				}
+			}
 			// We need to preserve the original pointer of the NodeInfo struct since it
 			// is used in the NodeInfoList, which we may not update.
 			*existing = *clone
@@ -265,16 +272,7 @@ func (cache *cacheImpl) UpdateSnapshot(logger klog.Logger, nodeSnapshot *Snapsho
 		updateAllLists = true
 	}
 
-	// Apply the deltas for PVC reference count to the snapshot.
-	// This no-op if the snapshot is built afresh i.e. updateAllLists=true
-	if !updateAllLists {
-		if err := cache.applyPVCRefCountDelta(nodeSnapshot); err != nil {
-			logger.Error(err, "rebuilding node snapshot due to unexpected error from refreshing PVC ref counts")
-			updateAllLists = true
-		}
-	}
-
-	if updateAllLists || updateNodesHavePodsWithAffinity || updateNodesHavePodsWithRequiredAntiAffinity {
+	if updateAllLists || updateNodesHavePodsWithAffinity || updateNodesHavePodsWithRequiredAntiAffinity || updateUsedPVCSet {
 		cache.updateNodeInfoSnapshotList(logger, nodeSnapshot, updateAllLists)
 	}
 
@@ -320,8 +318,8 @@ func (cache *cacheImpl) updatePodGroupStateSnapshot(snapshot *Snapshot) {
 func (cache *cacheImpl) updateNodeInfoSnapshotList(logger klog.Logger, snapshot *Snapshot, updateAll bool) {
 	snapshot.havePodsWithAffinityNodeInfoList = make([]fwk.NodeInfo, 0, cache.nodeTree.numNodes)
 	snapshot.havePodsWithRequiredAntiAffinityNodeInfoList = make([]fwk.NodeInfo, 0, cache.nodeTree.numNodes)
+	snapshot.usedPVCSet = sets.New[string]()
 	if updateAll {
-		snapshot.usedPVCRefCounts = make(map[string]int)
 		// Take a snapshot of the nodes order in the tree
 		snapshot.nodeInfoList = make([]fwk.NodeInfo, 0, cache.nodeTree.numNodes)
 		nodesList, err := cache.nodeTree.list()
@@ -337,15 +335,13 @@ func (cache *cacheImpl) updateNodeInfoSnapshotList(logger klog.Logger, snapshot 
 				if len(nodeInfo.PodsWithRequiredAntiAffinity) > 0 {
 					snapshot.havePodsWithRequiredAntiAffinityNodeInfoList = append(snapshot.havePodsWithRequiredAntiAffinityNodeInfoList, nodeInfo)
 				}
-				for key, value := range nodeInfo.PVCRefCounts {
-					snapshot.usedPVCRefCounts[key] += value
+				for key := range nodeInfo.PVCRefCounts {
+					snapshot.usedPVCSet.Insert(key)
 				}
 			} else {
 				utilruntime.HandleErrorWithLogger(logger, nil, "Node exists in nodeTree but not in NodeInfoMap, this should not happen", "node", klog.KRef("", nodeName))
 			}
 		}
-		// reset the deltas if update all
-		cache.pvcRefCountsDelta = map[string]int{}
 	} else {
 		for _, nodeInfo := range snapshot.nodeInfoList {
 			if len(nodeInfo.GetPodsWithAffinity()) > 0 {
@@ -353,6 +349,9 @@ func (cache *cacheImpl) updateNodeInfoSnapshotList(logger klog.Logger, snapshot 
 			}
 			if len(nodeInfo.GetPodsWithRequiredAntiAffinity()) > 0 {
 				snapshot.havePodsWithRequiredAntiAffinityNodeInfoList = append(snapshot.havePodsWithRequiredAntiAffinityNodeInfoList, nodeInfo)
+			}
+			for key := range nodeInfo.GetPVCRefCounts() {
+				snapshot.usedPVCSet.Insert(key)
 			}
 		}
 	}
@@ -410,21 +409,6 @@ func (cache *cacheImpl) AssumePod(logger klog.Logger, pod *v1.Pod) error {
 	return cache.addPod(logger, pod, true)
 }
 
-// validateAssumedPod checks that the given pod is currently assumed.
-// Assumes that lock is already acquired.
-func (cache *cacheImpl) validateAssumedPod(pod *v1.Pod, key string, currState *podState) error {
-	if currState.pod.Spec.NodeName != pod.Spec.NodeName {
-		return fmt.Errorf("pod %v(%v) was assumed on %v but assigned to %v", key, klog.KObj(pod), pod.Spec.NodeName, currState.pod.Spec.NodeName)
-	}
-	if !cache.assumedPods.Has(key) {
-		return fmt.Errorf("pod %v(%v) is not assumed, so it cannot be removed or forgotten", key, klog.KObj(pod))
-	}
-	return nil
-}
-
-// ForgetPod forgets an assumed pod from the cache. It should be called when the pod
-// still exists, as an undo operation for AssumePod.
-// If the pod is a pod group member, it is moved from assumed to unscheduled pods of that pod group state in cache.
 func (cache *cacheImpl) ForgetPod(logger klog.Logger, pod *v1.Pod) error {
 	key, err := framework.GetPodKey(pod)
 	if err != nil {
@@ -439,34 +423,14 @@ func (cache *cacheImpl) ForgetPod(logger klog.Logger, pod *v1.Pod) error {
 		// Pod does not exist in the cache anymore.
 		return nil
 	}
-	if err := cache.validateAssumedPod(pod, key, currState); err != nil {
-		return err
+	if currState.pod.Spec.NodeName != pod.Spec.NodeName {
+		return fmt.Errorf("pod %v(%v) was assumed on %v but assigned to %v", key, klog.KObj(pod), pod.Spec.NodeName, currState.pod.Spec.NodeName)
 	}
-	return cache.removePod(logger, pod, true)
-}
-
-// RemoveAssumedPod removes an assumed pod from the cache. It should be called when the assumed
-// pod was removed from the cluster to correctly clean up internal state.
-// It differs from ForgetPod in how it handles pod group members, as it removes the pod from
-// the pod group state in the cache.
-func (cache *cacheImpl) RemoveAssumedPod(logger klog.Logger, pod *v1.Pod) error {
-	key, err := framework.GetPodKey(pod)
-	if err != nil {
-		return err
+	// Only assumed pod can be forgotten.
+	if cache.assumedPods.Has(key) {
+		return cache.removePod(logger, pod, true)
 	}
-
-	cache.mu.Lock()
-	defer cache.mu.Unlock()
-
-	currState, ok := cache.podStates[key]
-	if !ok {
-		// Pod does not exist in the cache anymore.
-		return nil
-	}
-	if err := cache.validateAssumedPod(pod, key, currState); err != nil {
-		return err
-	}
-	return cache.removePod(logger, pod, false)
+	return fmt.Errorf("pod %v(%v) wasn't assumed so cannot be forgotten", key, klog.KObj(pod))
 }
 
 // Assumes that lock is already acquired.
@@ -480,11 +444,6 @@ func (cache *cacheImpl) addPod(logger klog.Logger, pod *v1.Pod, assumePod bool) 
 		n = newNodeInfoListItem(framework.NewNodeInfo())
 		cache.nodes[pod.Spec.NodeName] = n
 	}
-
-	// new_delta = old_delta + (PVCRefCounts_after − PVCRefCounts_before)
-	cache.refreshPVCRefCountsDelta(n.info, -1)
-	defer cache.refreshPVCRefCountsDelta(n.info, 1)
-
 	n.info.AddPod(pod)
 	cache.moveNodeInfoToHead(logger, pod.Spec.NodeName)
 	ps := &podState{
@@ -528,10 +487,6 @@ func (cache *cacheImpl) removePod(logger klog.Logger, pod *v1.Pod, forgetPod boo
 	if !ok {
 		utilruntime.HandleErrorWithLogger(logger, nil, "Node not found when trying to remove pod", "node", klog.KRef("", pod.Spec.NodeName), "podKey", key, "pod", klog.KObj(pod))
 	} else {
-		// new_delta = old_delta + (PVCRefCounts_after − PVCRefCounts_before)
-		cache.refreshPVCRefCountsDelta(n.info, -1)
-		defer cache.refreshPVCRefCountsDelta(n.info, 1)
-
 		if err := n.info.RemovePod(logger, pod); err != nil {
 			return err
 		}
@@ -672,7 +627,7 @@ func (cache *cacheImpl) GetPod(pod *v1.Pod) (*v1.Pod, error) {
 	return podState.pod, nil
 }
 
-func (cache *cacheImpl) AddNode(logger klog.Logger, node *v1.Node) {
+func (cache *cacheImpl) AddNode(logger klog.Logger, node *v1.Node) *framework.NodeInfo {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 
@@ -688,9 +643,10 @@ func (cache *cacheImpl) AddNode(logger klog.Logger, node *v1.Node) {
 	cache.nodeTree.addNode(logger, node)
 	cache.addNodeImageStates(node, n.info)
 	n.info.SetNode(node)
+	return n.info.SnapshotConcrete()
 }
 
-func (cache *cacheImpl) UpdateNode(logger klog.Logger, oldNode, newNode *v1.Node) {
+func (cache *cacheImpl) UpdateNode(logger klog.Logger, oldNode, newNode *v1.Node) *framework.NodeInfo {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 	n, ok := cache.nodes[newNode.Name]
@@ -706,6 +662,7 @@ func (cache *cacheImpl) UpdateNode(logger klog.Logger, oldNode, newNode *v1.Node
 	cache.nodeTree.updateNode(logger, oldNode, newNode)
 	cache.addNodeImageStates(newNode, n.info)
 	n.info.SetNode(newNode)
+	return n.info.SnapshotConcrete()
 }
 
 // RemoveNode removes a node from the cache's tree.
@@ -722,10 +679,6 @@ func (cache *cacheImpl) RemoveNode(logger klog.Logger, node *v1.Node) error {
 	if !ok {
 		return fmt.Errorf("node %v is not found", node.Name)
 	}
-
-	// only subtract the PVCRefCount into the delta map
-	cache.refreshPVCRefCountsDelta(n.info, -1)
-
 	n.info.RemoveNode()
 	// We remove NodeInfo for this node only if there aren't any pods on this node.
 	// We can't do it unconditionally, because notifications about pods are delivered
@@ -957,31 +910,4 @@ func (cache *cacheImpl) BindPod(binding *v1.Binding) (<-chan error, error) {
 		return onFinish, err
 	}
 	return onFinish, nil
-}
-
-// refreshPVCRefCountsDelta accumulates the given node's PVC reference counts
-// into cache.pvcRefCountsDelta, which is later applied to the snapshot during
-// UpdateSnapshot. sign should be +1 to add the node's contribution or -1 to
-// remove it.
-func (cache *cacheImpl) refreshPVCRefCountsDelta(nodeInfo *framework.NodeInfo, sign int) {
-	for key, count := range nodeInfo.PVCRefCounts {
-		cache.pvcRefCountsDelta[key] += sign * count
-	}
-}
-
-// applyPVCRefCountDelta merges cache.pvcRefCountsDelta into the snapshot's
-// PVC ref counts, removes entries that reach zero, and clears the delta.
-func (cache *cacheImpl) applyPVCRefCountDelta(snapshot *Snapshot) error {
-	for key, delta := range cache.pvcRefCountsDelta {
-		snapshot.usedPVCRefCounts[key] += delta
-		if refCount := snapshot.usedPVCRefCounts[key]; refCount <= 0 {
-			if refCount < 0 {
-				delete(snapshot.usedPVCRefCounts, key)
-				return fmt.Errorf("PVC %s had negative ref count %v", key, refCount)
-			}
-			delete(snapshot.usedPVCRefCounts, key)
-		}
-	}
-	cache.pvcRefCountsDelta = map[string]int{}
-	return nil
 }

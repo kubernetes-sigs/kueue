@@ -64,7 +64,7 @@ func applyFeatureGates(config *v1.Plugins) {
 	if utilfeature.DefaultFeatureGate.Enabled(features.DynamicResourceAllocation) {
 		applyDynamicResources(config)
 	}
-	if utilfeature.DefaultFeatureGate.Enabled(features.GenericWorkload) {
+	if utilfeature.DefaultFeatureGate.Enabled(features.GangScheduling) {
 		applyGangScheduling(config)
 	}
 	if utilfeature.DefaultFeatureGate.Enabled(features.TopologyAwareWorkloadScheduling) {

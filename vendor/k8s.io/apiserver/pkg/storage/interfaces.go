@@ -34,14 +34,8 @@ import (
 // Feature is the name of each feature in storage that we check in feature_support_checker.
 type Feature = string
 
-// RequestWatchProgress is an etcd feature for progress notification requests.
-// Default: false.
+// RequestWatchProgress is an etcd feature that may use to check if it supported or not.
 var RequestWatchProgress Feature = "RequestWatchProgress"
-
-// RangeStream is an etcd feature (etcd 3.7+) for the streaming list RPC.
-// Default: true. MarkUnsupported flips it to false on an Unimplemented response,
-// reverting to true after a recheck interval.
-var RangeStream Feature = "RangeStream"
 
 // Versioner abstracts setting and retrieving metadata fields from database response
 // onto the object ot list. It is required to maintain storage invariants - updating an
@@ -340,12 +334,13 @@ type ListOptions struct {
 
 // DeleteOptions provides the options that may be provided for storage delete operations.
 type DeleteOptions struct {
-	// ExpectTransformOrDecodeError, if enabled, will return an error if the object can be
-	// transformed and decoded.
+	// IgnoreStoreReadError, if enabled, will ignore store read error
+	// such as transformation or decode failure and go ahead with the
+	// deletion of the object.
 	// NOTE: for normal deletion flow it should always be false, it may be
 	// enabled by the caller only to facilitate unsafe deletion of corrupt
 	// object which otherwise can not be deleted using the normal flow
-	ExpectTransformOrDecodeError bool
+	IgnoreStoreReadError bool
 }
 
 func ValidateListOptions(keyPrefix string, versioner Versioner, opts ListOptions) (withRev int64, continueKey string, err error) {

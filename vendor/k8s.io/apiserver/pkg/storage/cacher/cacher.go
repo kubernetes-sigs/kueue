@@ -44,7 +44,6 @@ import (
 	"k8s.io/apiserver/pkg/features"
 	"k8s.io/apiserver/pkg/storage"
 	"k8s.io/apiserver/pkg/storage/cacher/delegator"
-	"k8s.io/apiserver/pkg/storage/cacher/key"
 	"k8s.io/apiserver/pkg/storage/cacher/metrics"
 	"k8s.io/apiserver/pkg/storage/cacher/progress"
 	"k8s.io/apiserver/pkg/storage/cacher/store"
@@ -485,13 +484,10 @@ func NewCacherFromConfig(config Config) (*Cacher, error) {
 }
 
 func (c *Cacher) startCaching(stopChannel <-chan struct{}) {
-	startTime := time.Now()
 	c.watchCache.SetOnReplace(func() {
 		c.ready.setReady()
-		duration := time.Since(startTime)
-		klog.V(1).InfoS("cacher initialized", "group", c.groupResource.Group, "resource", c.groupResource.Resource, "duration", duration)
+		klog.V(1).InfoS("cacher initialized", "group", c.groupResource.Group, "resource", c.groupResource.Resource)
 		metrics.WatchCacheInitializations.WithLabelValues(c.groupResource.Group, c.groupResource.Resource).Inc()
-		metrics.WatchCacheInitializationDuration.WithLabelValues(c.groupResource.Group, c.groupResource.Resource).Observe(duration.Seconds())
 	})
 	var err error
 	defer func() {
@@ -502,7 +498,6 @@ func (c *Cacher) startCaching(stopChannel <-chan struct{}) {
 	err = c.reflector.ListAndWatch(stopChannel)
 	if err != nil {
 		klog.Errorf("cacher (%v): unexpected ListAndWatch error: %v; reinitializing...", c.groupResource.String(), err)
-		metrics.WatchCacheInitializationErrors.WithLabelValues(c.groupResource.Group, c.groupResource.Resource).Inc()
 	}
 }
 
@@ -526,9 +521,19 @@ func (c *Cacher) Watch(ctx context.Context, key string, opts storage.ListOptions
 		return nil, err
 	}
 
-	readyGeneration, downtime, err := c.ready.checkAndReadGeneration()
-	if err != nil {
-		return nil, errors.NewTooManyRequests(err.Error(), calculateRetryAfterForUnreadyCache(downtime))
+	var readyGeneration int
+	if utilfeature.DefaultFeatureGate.Enabled(features.ResilientWatchCacheInitialization) {
+		var err error
+		var downtime time.Duration
+		readyGeneration, downtime, err = c.ready.checkAndReadGeneration()
+		if err != nil {
+			return nil, errors.NewTooManyRequests(err.Error(), calculateRetryAfterForUnreadyCache(downtime))
+		}
+	} else {
+		readyGeneration, err = c.ready.waitAndReadGeneration(ctx)
+		if err != nil {
+			return nil, errors.NewServiceUnavailable(err.Error())
+		}
 	}
 
 	// determine the namespace and name scope of the watch, first from the request, secondarily from the field selector
@@ -755,10 +760,16 @@ func (c *Cacher) GetList(ctx context.Context, key string, opts storage.ListOptio
 		attribute.Stringer("type", c.groupResource))
 	defer span.End(500 * time.Millisecond)
 
-	if downtime, err := c.ready.check(); err != nil {
-		// If Cacher is not initialized, reject List requests
-		// as described in https://kep.k8s.io/4568
-		return errors.NewTooManyRequests(err.Error(), calculateRetryAfterForUnreadyCache(downtime))
+	if utilfeature.DefaultFeatureGate.Enabled(features.ResilientWatchCacheInitialization) {
+		if downtime, err := c.ready.check(); err != nil {
+			// If Cacher is not initialized, reject List requests
+			// as described in https://kep.k8s.io/4568
+			return errors.NewTooManyRequests(err.Error(), calculateRetryAfterForUnreadyCache(downtime))
+		}
+	} else {
+		if err := c.ready.wait(ctx); err != nil {
+			return errors.NewServiceUnavailable(err.Error())
+		}
 	}
 	span.AddEvent("Ready")
 
@@ -1171,12 +1182,12 @@ func (c *Cacher) Compact(resourceVersion string) error {
 	if err != nil {
 		return err
 	}
-	c.watchCache.storage.Compact(rv)
+	c.watchCache.Compact(rv)
 	return nil
 }
 
 func (c *Cacher) MarkConsistent(consistent bool) {
-	c.watchCache.storage.MarkConsistent(consistent)
+	c.watchCache.MarkConsistent(consistent)
 }
 
 // Stop implements the graceful termination.
@@ -1213,10 +1224,10 @@ func forgetWatcher(c *Cacher, w *cacheWatcher, index int, scope namespacedName, 
 	}
 }
 
-func filterWithAttrsAndPrefixFunction(prefix string, p storage.SelectionPredicate, groupResource schema.GroupResource) filterWithAttrsFunc {
+func filterWithAttrsAndPrefixFunction(key string, p storage.SelectionPredicate, groupResource schema.GroupResource) filterWithAttrsFunc {
 	isSharded := utilfeature.DefaultFeatureGate.Enabled(features.ShardedListAndWatch) && p.ShardSelector != nil && !p.ShardSelector.Empty()
 	filterFunc := func(objKey string, label labels.Set, field fields.Set, obj runtime.Object) bool {
-		if !key.HasPathPrefix(objKey, prefix) {
+		if !hasPathPrefix(objKey, key) {
 			return false
 		}
 		if isSharded {
@@ -1306,10 +1317,13 @@ func (c *Cacher) waitUntilWatchCacheFreshAndForceAllEvents(ctx context.Context, 
 		//
 		// In this very rare scenario, the worst case will be that this
 		// request will wait for 3 seconds before it fails.
-		consistentReadSupported := delegator.ConsistentReadSupported()
-		c.watchCache.RLock()
+		if etcdfeature.DefaultFeatureSupportChecker.Supports(storage.RequestWatchProgress) && c.watchCache.notFresh(requestedWatchRV) {
+			c.watchCache.waitingUntilFresh.Add()
+			defer c.watchCache.waitingUntilFresh.Remove()
+		}
+		err := c.watchCache.waitUntilFreshAndBlock(ctx, requestedWatchRV)
 		defer c.watchCache.RUnlock()
-		return c.watchCache.waitUntilFreshLocked(ctx, consistentReadSupported, requestedWatchRV)
+		return err
 	}
 	return nil
 }
@@ -1384,7 +1398,7 @@ func newErrWatcher(err error) *errWatcher {
 
 func (c *Cacher) ShouldDelegateExactRV(resourceVersion string, recursive bool) (delegator.Result, error) {
 	// Not Recursive is not supported unitl exact RV is implemented for WaitUntilFreshAndGet.
-	if !recursive || !c.watchCache.storage.SnapshottingEnabled() {
+	if !recursive || c.watchCache.snapshots == nil {
 		return delegator.Result{ShouldDelegate: true}, nil
 	}
 	listRV, err := c.versioner.ParseResourceVersion(resourceVersion)
@@ -1396,7 +1410,7 @@ func (c *Cacher) ShouldDelegateExactRV(resourceVersion string, recursive bool) (
 
 func (c *Cacher) ShouldDelegateContinue(continueToken string, recursive bool) (delegator.Result, error) {
 	// Not Recursive is not supported unitl exact RV is implemented for WaitUntilFreshAndGet.
-	if !recursive || !c.watchCache.storage.SnapshottingEnabled() {
+	if !recursive || c.watchCache.snapshots == nil {
 		return delegator.Result{ShouldDelegate: true}, nil
 	}
 	_, continueRV, err := storage.DecodeContinue(continueToken, c.resourcePrefix)
@@ -1418,7 +1432,7 @@ func (c *Cacher) shouldDelegateExactRV(rv uint64) (delegator.Result, error) {
 			ShouldDelegate: !delegator.ConsistentReadSupported(),
 		}, nil
 	}
-	canServe := c.watchCache.storage.CanServeExactRV(rv)
+	_, canServe := c.watchCache.snapshots.GetLessOrEqual(rv)
 	return delegator.Result{
 		ShouldDelegate: !canServe,
 	}, nil

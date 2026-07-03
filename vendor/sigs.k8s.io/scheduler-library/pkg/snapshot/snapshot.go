@@ -17,19 +17,17 @@ package snapshot
 import (
 	"context"
 	"fmt"
+	"iter"
+	"math"
+	"slices"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
-	upstreamsync "sigs.k8s.io/scheduler-library/pkg/upstream_sync"
+	"sigs.k8s.io/scheduler-library/pkg/upstreamsync"
 
 	"k8s.io/kubernetes/pkg/scheduler/backend/cache"
 	fwk "k8s.io/kubernetes/pkg/scheduler/framework"
 )
-
-type txMutation struct {
-	revertFn func()
-	active   bool
-}
 
 // ClusterSnapshot wraps a scheduler snapshot and its associated frameworks.
 // All ClusterSnapshot instances created from the same ClusterState share the
@@ -37,16 +35,47 @@ type txMutation struct {
 // updates that shared snapshot in-place, which invalidates any previously returned
 // ClusterSnapshot instance — callers must not use a prior snapshot after requesting a new one.
 type ClusterSnapshot struct {
-	sched             *upstreamsync.Scheduler
-	schedulerSnapshot *cache.Snapshot
-	txCompensations   []*txMutation
-	stateVersion      uint64
+	profiles                  *upstreamsync.ProfileMap
+	schedulerSnapshot         *cache.Snapshot
+	undoLog                   undoLog
+	transactionInProgress     bool
+	stateVersionForPreemption uint64
+}
+
+type undoLog struct {
+	undoOperations []func()
+	stateVersion   uint64
+}
+
+func (ul *undoLog) registerOperation(undoOperation func()) {
+	if undoOperation != nil {
+		ul.undoOperations = append(ul.undoOperations, undoOperation)
+		ul.stateVersion++
+	}
+}
+
+func (ul *undoLog) restoreState(stateVersion uint64) {
+	for ul.stateVersion != stateVersion {
+		ul.undo()
+	}
+}
+
+func (ul *undoLog) undo() {
+	ops := ul.undoOperations
+	ops, undoOp := ops[:len(ops)-1], ops[len(ops)-1]
+	ul.undoOperations = ops
+	undoOp()
+	ul.stateVersion--
+}
+
+func (ul *undoLog) commit() {
+	ul.undoOperations = nil
 }
 
 // New creates a new ClusterSnapshot stub wrapping the provided scheduler snapshot and frameworks.
-func New(s *cache.Snapshot, sched *upstreamsync.Scheduler) *ClusterSnapshot {
+func New(s *cache.Snapshot, profiles *upstreamsync.ProfileMap) *ClusterSnapshot {
 	return &ClusterSnapshot{
-		sched:             sched,
+		profiles:          profiles,
 		schedulerSnapshot: s,
 	}
 }
@@ -55,27 +84,28 @@ func New(s *cache.Snapshot, sched *upstreamsync.Scheduler) *ClusterSnapshot {
 // It rolls back operations if the function returns Revert or an error.
 // Only a single active transaction is supported at any given time;
 // attempting to start a nested transaction will return an error.
-func (s *ClusterSnapshot) Transaction(ctx context.Context, logger klog.Logger, transactionFn func() (TransactionResult, error)) error {
-	if s.txCompensations != nil {
+func (s *ClusterSnapshot) Transaction(ctx context.Context, transactionFn func() (TransactionResult, error)) error {
+	if s.transactionInProgress {
 		return fmt.Errorf("a transaction is already in progress")
 	}
-	s.txCompensations = []*txMutation{}
+
+	s.transactionInProgress = true
+	defer func() { s.transactionInProgress = false }()
+
+	initialStateVersion := s.undoLog.stateVersion
+	initialStateVersionForPreemption := s.stateVersionForPreemption
+	s.stateVersionForPreemption++
 
 	result, err := transactionFn()
 
 	if err != nil || result == Revert {
-		for i := len(s.txCompensations) - 1; i >= 0; i-- {
-			m := s.txCompensations[i]
-			if m.active {
-				m.revertFn()
-				m.active = false
-			}
-		}
-	} else if len(s.txCompensations) > 0 {
-		s.stateVersion++
+		s.undoLog.restoreState(initialStateVersion)
+		s.stateVersionForPreemption = initialStateVersionForPreemption
+	} else {
+		s.undoLog.commit()
+		// invalidate preemptions done within the transaction
+		s.stateVersionForPreemption++
 	}
-
-	s.txCompensations = nil
 
 	if err != nil {
 		return fmt.Errorf("transaction failed: %w", err)
@@ -83,37 +113,32 @@ func (s *ClusterSnapshot) Transaction(ctx context.Context, logger klog.Logger, t
 	return nil
 }
 
-func (s *ClusterSnapshot) registerMutation(revertFn func(), dryRun bool, currTx *[]func()) {
-	if dryRun {
-		if currTx != nil {
-			*currTx = append(*currTx, revertFn)
-		}
-	} else if s.txCompensations != nil {
-		s.txCompensations = append(s.txCompensations, &txMutation{
-			revertFn: revertFn,
-			active:   true,
-		})
-	}
-}
-
 // CanSchedulePod checks feasibility of a single pod on the specified nodes by running
 // PreFilter and Filter plugins. Returns the names of nodes on which the pod can be scheduled,
 // the framework.Diagnosis for rejected nodes, and any error.
-func (s *ClusterSnapshot) CanSchedulePod(ctx context.Context, logger klog.Logger, pod SchedulablePod) ([]string, *fwk.Diagnosis, error) {
-	framework, err := s.sched.FrameworkForPod(pod.Pod)
+func (s *ClusterSnapshot) CanSchedulePod(ctx context.Context, pod SchedulablePod) ([]string, *fwk.Diagnosis, error) {
+	if len(pod.CandidateNodeNames) == 0 {
+		return nil, nil, nil
+	}
+	framework, err := s.profiles.FrameworkForPod(pod.Pod)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get framework: %w", err)
 	}
 	state := fwk.NewCycleState()
 	podInfo, err := fwk.NewPodInfo(pod.Pod)
+	pendingPod := &upstreamsync.PendingPod{
+		PodInfo:    podInfo,
+		CycleState: state,
+	}
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create pod info: %w", err)
 	}
 
 	feasibleNodes := make([]string, 0)
 	var diagnosis fwk.Diagnosis
+	sched := upstreamsync.NewScheduler(s.schedulerSnapshot, 0, 0, math.MaxInt32)
 	findNodesThatFitPods := func() error {
-		nodes, diag, _, err := s.sched.FindNodesThatFitPod(ctx, framework, state, &fwk.QueuedPodInfo{PodInfo: podInfo})
+		nodes, diag, _, err := sched.FindAllNodesThatFitPod(ctx, framework, pendingPod)
 		diagnosis = diag
 		for _, node := range nodes {
 			feasibleNodes = append(feasibleNodes, node.Node().Name)
@@ -139,110 +164,78 @@ func schedulingResult(algRes *upstreamsync.AlgorithmResult) SchedulingResult {
 
 // SchedulePods schedules the given pods onto their candidate nodes using PreFilter and Filter plugins.
 // StopOnFailure controls whether the first unschedulable pod stops the loop. Note that
-// node-not-found errors always propagate immediately regardless of StopOnFailure, as they
+// All unexpected execution errors always propagate immediately regardless of StopOnFailure, as they
 // indicate a programming error rather than a scheduling failure.
-func (s *ClusterSnapshot) SchedulePods(ctx context.Context, logger klog.Logger, pods []SchedulablePod, opts SchedulePodsOptions) ([]SchedulingResult, error) {
-	if !opts.DryRun {
-		if s.txCompensations == nil {
-			s.stateVersion++
-		}
-	}
-
-	var currTx []func()
-	if opts.DryRun {
-		currTx = []func(){}
-		defer func() {
-			for i := len(currTx) - 1; i >= 0; i-- {
-				currTx[i]()
-			}
-		}()
-	}
-
-	result := make([]SchedulingResult, 0)
-	if len(pods) == 0 {
-		return result, nil
-	}
-
-	for _, p := range pods {
-		res, revertFn, err := scheduleOnePod(ctx, s.sched, s.schedulerSnapshot, p.Pod, p.CandidateNodeNames)
-		if err != nil {
-			return result, err
-		}
-
-		if !res.Status.IsSuccess() {
-			if opts.StopOnFailure {
-				return result, fmt.Errorf("simulation failed: %w", res.Status.AsError())
-			}
-			result = append(result, schedulingResult(res))
-			continue
-		}
-
-		result = append(result, schedulingResult(res))
-
-		s.registerMutation(revertFn, opts.DryRun, &currTx)
-	}
-
-	return result, nil
+func (s *ClusterSnapshot) SchedulePods(ctx context.Context, pods []*SchedulablePod, opts SchedulePodsOptions) ([]SchedulingResult, error) {
+	return s.schedulePods(ctx, slices.Values(pods), opts)
 }
 
 // SchedulePodsByTemplate attempts to schedule as many pods matching the template as possible.
 // It assumes candidate nodes are feasible and moves to the next node only if the pod is unschedulable on the current node.
-//
-// Note: Each simulated pod gets its own PodGroup. For SchedulePodsByTemplate where N pods are generated
-// from one template, they do not share a PodGroup. Consequently, PodTopologySpread and InterPodAffinity
-// will not see these pods as siblings during simulation. This is a known limitation that may affect
-// scoring accuracy, but is sufficient for filter-only feasibility.
-func (s *ClusterSnapshot) SchedulePodsByTemplate(ctx context.Context, logger klog.Logger, template *v1.PodTemplateSpec, candidateNodes []string, maxPods int, opts SchedulePodsByTemplateOptions) ([]SchedulingResult, error) {
-	if !opts.DryRun {
-		if s.txCompensations == nil {
-			s.stateVersion++
+func (s *ClusterSnapshot) SchedulePodsByTemplate(ctx context.Context, template *v1.PodTemplateSpec, candidateNodes []string, maxPods int, opts SchedulePodsByTemplateOptions) ([]SchedulingResult, error) {
+	if maxPods <= 0 || len(candidateNodes) == 0 {
+		return nil, nil
+	}
+
+	podIterator := func(yield func(*SchedulablePod) bool) {
+		schedulablePod := &SchedulablePod{
+			CandidateNodeNames: candidateNodes,
+		}
+		for i := 0; i < maxPods; i++ {
+			schedulablePod.Pod = createPodFromTemplate(template, i)
+			if !yield(schedulablePod) {
+				return
+			}
 		}
 	}
 
-	var currTx []func()
-	if opts.DryRun {
-		currTx = []func(){}
-		defer func() {
-			for i := len(currTx) - 1; i >= 0; i-- {
-				currTx[i]()
-			}
-		}()
+	scheduleOptions := SchedulePodsOptions{
+		CommonSchedulingOptions: opts.CommonSchedulingOptions,
+		StopOnFailure:           true,
 	}
+
+	return s.schedulePods(ctx, podIterator, scheduleOptions)
+}
+
+func (s *ClusterSnapshot) schedulePods(ctx context.Context, pods iter.Seq[*SchedulablePod], opts SchedulePodsOptions) (_ []SchedulingResult, err error) {
+	initialStateVersion := s.undoLog.stateVersion
+
+	defer func() {
+		if err != nil || opts.DryRun {
+			s.undoLog.restoreState(initialStateVersion)
+		}
+		if initialStateVersion != s.undoLog.stateVersion {
+			s.stateVersionForPreemption++
+		}
+		if !s.transactionInProgress {
+			s.undoLog.commit()
+		}
+	}()
 
 	result := make([]SchedulingResult, 0)
-	if maxPods <= 0 || len(candidateNodes) == 0 {
-		return result, nil
-	}
 
-	nodeIdx := 0
-	for i := range maxPods {
+	currentCycle := int64(0)
+	for pod := range pods {
+		sched := upstreamsync.NewScheduler(s.schedulerSnapshot, currentCycle, 0, 1)
 
-		pod := createPodFromTemplate(template, i)
-		scheduled := false
+		res, revertFn, err := scheduleOnePod(ctx, s.profiles, sched, s.schedulerSnapshot, pod.Pod, pod.CandidateNodeNames)
 
-		for nodeIdx < len(candidateNodes) {
-			res, revertFn, err := scheduleOnePod(ctx, s.sched, s.schedulerSnapshot, pod, []string{candidateNodes[nodeIdx]})
-			if err != nil {
-				return result, err
-			}
-
-			if res.Status.IsSuccess() {
-				result = append(result, schedulingResult(res))
-
-				s.registerMutation(revertFn, opts.DryRun, &currTx)
-
-				scheduled = true
-				break // Successfully scheduled, move to next pod using the same nodeIdx
-			}
-
-			// Unschedulable on this node, try next node
-			nodeIdx++
+		if err != nil {
+			return result, err
 		}
 
-		if !scheduled {
-			// No more nodes can fit this pod template, stop scheduling
-			break
+		if revertFn != nil {
+			s.undoLog.registerOperation(revertFn)
 		}
+		result = append(result, schedulingResult(res))
+
+		if !res.Status.IsSuccess() {
+			if opts.StopOnFailure {
+				return result, nil
+			}
+		}
+
+		currentCycle++
 	}
 
 	return result, nil
@@ -252,7 +245,7 @@ func (s *ClusterSnapshot) SchedulePodsByTemplate(ctx context.Context, logger klo
 // It supports transaction rollbacks if called inside a transaction.
 // If any pod fails to be preempted, all previously preempted pods in this call
 // are automatically restored and an error is returned.
-func (s *ClusterSnapshot) PreemptPods(ctx context.Context, sched *upstreamsync.Scheduler, pods []*v1.Pod) (*Unpreemption, error) {
+func (s *ClusterSnapshot) PreemptPods(ctx context.Context, pods []*v1.Pod) (_ *Unpreemption, err error) {
 	// Validate all pods before making any changes.
 	for _, pod := range pods {
 		if pod.Spec.NodeName == "" {
@@ -260,54 +253,45 @@ func (s *ClusterSnapshot) PreemptPods(ctx context.Context, sched *upstreamsync.S
 		}
 	}
 
-	var revertFns []func()
+	initialStateVersion := s.undoLog.stateVersion
+
+	defer func() {
+		if err != nil {
+			s.undoLog.restoreState(initialStateVersion)
+		}
+		if !s.transactionInProgress {
+			s.undoLog.commit()
+		}
+	}()
+
+	mutatingSnapshot := upstreamsync.NewMutatingSnapshot(s.schedulerSnapshot)
+
+	unpreemptFns := []func(){}
 
 	for _, pod := range pods {
-		nodeName := pod.Spec.NodeName
-
-		revertFn, err := removePodFromNode(ctx, s.schedulerSnapshot, pod, nodeName)
+		revertFn, err := removePodFromNode(ctx, mutatingSnapshot, pod)
 		if err != nil {
-			// Roll back all already-preempted pods.
-			for i := len(revertFns) - 1; i >= 0; i-- {
-				revertFns[i]()
-			}
 			return nil, fmt.Errorf("failed to unreserve and forget pod %s: %w", klog.KObj(pod), err)
 		}
-
-		revertFns = append(revertFns, revertFn)
+		s.undoLog.registerOperation(revertFn)
+		unpreemptFns = append(unpreemptFns, func() {
+			revertFn()
+			s.undoLog.registerOperation(func() {
+				_, _ = removePodFromNode(ctx, mutatingSnapshot, pod)
+			})
+		})
 	}
 
-	if s.txCompensations == nil {
-		s.stateVersion++
-		return nil, nil
-	}
-
-	revertAllFn := func() {
-		for i := len(revertFns) - 1; i >= 0; i-- {
-			revertFns[i]()
-		}
-	}
-
-	mutation := &txMutation{
-		revertFn: revertAllFn,
-		active:   true,
-	}
-	s.txCompensations = append(s.txCompensations, mutation)
-
-	unpreemptRevertFn := func() {
-		if mutation != nil {
-			mutation.active = true
-		}
-		for _, pod := range pods {
-			_, _ = removePodFromNode(ctx, s.schedulerSnapshot, pod, pod.Spec.NodeName)
+	unpreemptFn := func() {
+		for _, revertFn := range slices.Backward(unpreemptFns) {
+			revertFn()
 		}
 	}
 
 	return &Unpreemption{
-		RevertFn:     unpreemptRevertFn,
-		pods:         pods,
-		mutation:     mutation,
-		stateVersion: s.stateVersion,
+		pods:                   pods,
+		revertFn:               unpreemptFn,
+		validPreemptionVersion: s.stateVersionForPreemption,
 	}, nil
 }
 
@@ -316,25 +300,19 @@ func (s *ClusterSnapshot) Unpreempt(u *Unpreemption) ([]*v1.Pod, error) {
 	if u == nil {
 		return nil, fmt.Errorf("preemption handle is nil")
 	}
-	if s.txCompensations == nil {
-		return nil, fmt.Errorf("no active transaction")
-	}
-	if s.stateVersion != u.stateVersion {
+	if s.stateVersionForPreemption != u.validPreemptionVersion {
 		return nil, fmt.Errorf("preemption handle is invalid: snapshot has been permanently mutated since preemption")
 	}
-
-	if u.mutation == nil {
-		return nil, fmt.Errorf("mutation not found")
+	if u.reverted {
+		return nil, fmt.Errorf("preemption handle is invalid: already unpreempted")
 	}
 
-	if !u.mutation.active {
-		return nil, fmt.Errorf("preemption handle is invalid: mutation is already inactive")
+	u.revertFn()
+	u.reverted = true
+
+	if !s.transactionInProgress {
+		s.undoLog.commit()
 	}
-
-	u.mutation.active = false
-
-	// Run revertFn to restore pods to nodes
-	u.mutation.revertFn()
 
 	return u.pods, nil
 }

@@ -26,26 +26,24 @@ import (
 	"k8s.io/kube-scheduler/framework"
 	"k8s.io/kubernetes/pkg/scheduler/backend/cache"
 	fwk "k8s.io/kubernetes/pkg/scheduler/framework"
-	upstreamsync "sigs.k8s.io/scheduler-library/pkg/upstream_sync"
+	"sigs.k8s.io/scheduler-library/pkg/upstreamsync"
 )
 
 // addPodToNode adds a new pod to the specific node and returns the corresponding revert function
-func addPodToNode(ctx context.Context, schedulerSnapshot *cache.Snapshot, pod *v1.Pod, nodeName string) (func(), error) {
-	nodeInfo, err := schedulerSnapshot.Get(nodeName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get node info: %w", err)
-	}
-
-	podInfo, err := fwk.NewPodInfo(pod.DeepCopy())
+func addPodToNode(ctx context.Context, schedulerSnapshot *upstreamsync.MutatingSnapshot, pod *v1.Pod, nodeName string) (func(), error) {
+	clonedPod := pod.DeepCopy()
+	clonedPod.Spec.NodeName = nodeName
+	podInfo, err := fwk.NewPodInfo(clonedPod)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create pod info: %w", err)
-
+	}
+	err = schedulerSnapshot.AddPod(klog.FromContext(ctx), podInfo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to add pod to snapshot: %w", err)
 	}
 
-	nodeInfo.AddPodInfo(podInfo)
-
 	revertFn := func() {
-		if _, err := removePodFromNode(ctx, schedulerSnapshot, pod, nodeName); err != nil {
+		if _, err := removePodFromNode(ctx, schedulerSnapshot, podInfo.Pod); err != nil {
 			logger := klog.FromContext(ctx)
 			logger.Error(err, "revert addPodToNode failed")
 		}
@@ -55,19 +53,19 @@ func addPodToNode(ctx context.Context, schedulerSnapshot *cache.Snapshot, pod *v
 }
 
 // removePodFromNode removes a pod from a specific node and returns the corresponding revert function.
-func removePodFromNode(ctx context.Context, schedulerSnapshot *cache.Snapshot, pod *v1.Pod, nodeName string) (func(), error) {
-	logger := klog.FromContext(ctx)
-	nodeInfo, err := schedulerSnapshot.Get(nodeName)
+func removePodFromNode(ctx context.Context, schedulerSnapshot *upstreamsync.MutatingSnapshot, pod *v1.Pod) (func(), error) {
+	podInfo, err := fwk.NewPodInfo(pod.DeepCopy())
 	if err != nil {
-		return nil, fmt.Errorf("failed to get node info: %w", err)
+		return nil, fmt.Errorf("failed to create pod info: %w", err)
+	}
+	err = schedulerSnapshot.RemovePod(klog.FromContext(ctx), podInfo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to remove pod from snapshot: %w", err)
 	}
 
-	if err := nodeInfo.RemovePod(logger, pod); err != nil {
-		return nil, fmt.Errorf("failed to remove pod: %w", err)
-	}
-
+	logger := klog.FromContext(ctx)
 	revertFn := func() {
-		if _, err := addPodToNode(ctx, schedulerSnapshot, pod, nodeName); err != nil {
+		if _, err := addPodToNode(ctx, schedulerSnapshot, pod, pod.Spec.NodeName); err != nil {
 			logger.Error(err, "revert removePodFromNode failed")
 		}
 	}
@@ -116,8 +114,8 @@ func withPlacement(candidates []string, nodeInfoSnapshot *cache.Snapshot, fn fun
 }
 
 // ScheduleOnePod simulates a single scheduling cycle for a pod against the given candidate nodes.
-func scheduleOnePod(ctx context.Context, sched *upstreamsync.Scheduler, nodeInfoSnapshot *cache.Snapshot, pod *v1.Pod, candidateNodes []string) (*upstreamsync.AlgorithmResult, func(), error) {
-	framework, err := sched.FrameworkForPod(pod)
+func scheduleOnePod(ctx context.Context, profiles *upstreamsync.ProfileMap, sched *upstreamsync.Scheduler, nodeInfoSnapshot *cache.Snapshot, pod *v1.Pod, candidateNodes []string) (*upstreamsync.AlgorithmResult, func(), error) {
+	framework, err := profiles.FrameworkForPod(pod)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get framework for pod %s: %w", klog.KObj(pod), err)
 	}
@@ -133,18 +131,11 @@ func scheduleOnePod(ctx context.Context, sched *upstreamsync.Scheduler, nodeInfo
 	var revertFn func()
 
 	err = withPlacement(candidateNodes, nodeInfoSnapshot, func() error {
-		queuedPodInfo := &fwk.QueuedPodInfo{PodInfo: podInfo}
-		queuedPodGroupInfo := &fwk.QueuedPodGroupInfo{
-			PodGroupInfo: &fwk.PodGroupInfo{
-				Namespace:       pod.Namespace,
-				Name:            pod.Name + "-dummy-podgroup",
-				UnscheduledPods: []*v1.Pod{pod},
-			},
-			QueuedPodInfos: []*fwk.QueuedPodInfo{
-				queuedPodInfo,
-			},
+		pendingPod := &upstreamsync.PendingPod{
+			PodInfo:    podInfo,
+			CycleState: cycleState,
 		}
-		algRes, revertFn = sched.PodGroupPodSchedulingAlgorithm(ctx, framework, cycleState, queuedPodGroupInfo, queuedPodInfo, upstreamsync.RunWithoutPostFilters)
+		algRes, revertFn = sched.SchedulePod(ctx, framework, pendingPod)
 		return nil
 	})
 

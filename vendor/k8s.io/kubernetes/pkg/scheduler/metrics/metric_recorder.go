@@ -25,7 +25,6 @@ import (
 // MetricRecorder represents a metric recorder which takes action when the
 // metric Inc(), Dec() and Clear()
 type MetricRecorder interface {
-	Add(int)
 	Inc()
 	Dec()
 	Clear()
@@ -64,11 +63,6 @@ func NewGatedPodsRecorder() *PendingPodsRecorder {
 	return &PendingPodsRecorder{
 		recorder: GatedPods(),
 	}
-}
-
-// Add adds a value to the metric, in an atomic way
-func (r *PendingPodsRecorder) Add(val int) {
-	r.recorder.Add(float64(val))
 }
 
 // Inc increases a metric counter by 1, in an atomic way

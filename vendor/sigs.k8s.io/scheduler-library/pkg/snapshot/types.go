@@ -69,8 +69,8 @@ type SchedulingResult struct {
 }
 
 type Unpreemption struct {
-	RevertFn     func()
-	pods         []*v1.Pod
-	mutation     *txMutation
-	stateVersion uint64
+	pods                   []*v1.Pod
+	revertFn               func()
+	reverted               bool
+	validPreemptionVersion uint64
 }

@@ -32,7 +32,7 @@ import (
 // by listing EndpointSlices in the service's namespace whose `kubernetes.io/service-name`
 // label contains the service's name.
 type EndpointSlice struct {
-	metav1.TypeMeta `json:""`
+	metav1.TypeMeta `json:",inline"`
 
 	// Standard object's metadata.
 	// +optional
@@ -238,7 +238,7 @@ type EndpointPort struct {
 
 // EndpointSliceList represents a list of endpoint slices
 type EndpointSliceList struct {
-	metav1.TypeMeta `json:""`
+	metav1.TypeMeta `json:",inline"`
 
 	// Standard list metadata.
 	// +optional

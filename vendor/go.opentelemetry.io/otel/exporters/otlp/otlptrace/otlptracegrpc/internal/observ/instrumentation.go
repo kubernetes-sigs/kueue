@@ -18,8 +18,8 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc/internal/x"
 	"go.opentelemetry.io/otel/internal/global"
 	"go.opentelemetry.io/otel/metric"
-	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
-	"go.opentelemetry.io/otel/semconv/v1.41.0/otelconv"
+	semconv "go.opentelemetry.io/otel/semconv/v1.39.0"
+	"go.opentelemetry.io/otel/semconv/v1.39.0/otelconv"
 )
 
 const (
@@ -72,7 +72,6 @@ var (
 func get[T any](p *sync.Pool) *[]T { return p.Get().(*[]T) }
 
 func put[T any](p *sync.Pool, s *[]T) {
-	clear(*s)     // erase elements to allow GC to collect what they refer to.
 	*s = (*s)[:0] // Reset.
 	p.Put(s)
 }
@@ -209,12 +208,10 @@ func BaseAttrs(id int64, target string) []attribute.KeyValue {
 func (i *Instrumentation) ExportSpans(ctx context.Context, nSpans int) ExportOp {
 	start := time.Now()
 
-	if i.inflightSpans.Enabled(ctx) {
-		addOpt := get[metric.AddOption](addOptPool)
-		defer put(addOptPool, addOpt)
-		*addOpt = append(*addOpt, i.addOpt)
-		i.inflightSpans.Add(ctx, int64(nSpans), *addOpt...)
-	}
+	addOpt := get[metric.AddOption](addOptPool)
+	defer put(addOptPool, addOpt)
+	*addOpt = append(*addOpt, i.addOpt)
+	i.inflightSpans.Add(ctx, int64(nSpans), *addOpt...)
 
 	return ExportOp{
 		ctx:    ctx,
@@ -247,18 +244,14 @@ func (e ExportOp) End(err error, code codes.Code) {
 	defer put(addOptPool, addOpt)
 	*addOpt = append(*addOpt, e.inst.addOpt)
 
-	if e.inst.inflightSpans.Enabled(e.ctx) {
-		e.inst.inflightSpans.Add(e.ctx, -e.nSpans, *addOpt...)
-	}
+	e.inst.inflightSpans.Add(e.ctx, -e.nSpans, *addOpt...)
 
 	success := successful(e.nSpans, err)
 	// Record successfully exported spans, even if the value is 0 which are
 	// meaningful to distribution aggregations.
-	if e.inst.exportedSpans.Enabled(e.ctx) {
-		e.inst.exportedSpans.Add(e.ctx, success, *addOpt...)
-	}
+	e.inst.exportedSpans.Add(e.ctx, success, *addOpt...)
 
-	if err != nil && e.inst.exportedSpans.Enabled(e.ctx) {
+	if err != nil {
 		attrs := get[attribute.KeyValue](measureAttrsPool)
 		defer put(measureAttrsPool, attrs)
 		*attrs = append(*attrs, e.inst.attrs...)
@@ -273,14 +266,12 @@ func (e ExportOp) End(err error, code codes.Code) {
 		e.inst.exportedSpans.Add(e.ctx, e.nSpans-success, *addOpt...)
 	}
 
-	if e.inst.opDuration.Enabled(e.ctx) {
-		recOpt := get[metric.RecordOption](recordOptPool)
-		defer put(recordOptPool, recOpt)
-		*recOpt = append(*recOpt, e.inst.recordOption(err, code))
+	recOpt := get[metric.RecordOption](recordOptPool)
+	defer put(recordOptPool, recOpt)
+	*recOpt = append(*recOpt, e.inst.recordOption(err, code))
 
-		d := time.Since(e.start).Seconds()
-		e.inst.opDuration.Record(e.ctx, d, *recOpt...)
-	}
+	d := time.Since(e.start).Seconds()
+	e.inst.opDuration.Record(e.ctx, d, *recOpt...)
 }
 
 // recordOption returns a RecordOption with attributes representing the
@@ -340,10 +331,7 @@ var errPartialPool = &sync.Pool{
 // the provided non-nil err.
 func rejected(n int64, err error) int64 {
 	ps := errPartialPool.Get().(*internal.PartialSuccess)
-	defer func() {
-		*ps = internal.PartialSuccess{} // erase fields to allow GC to collect them.
-		errPartialPool.Put(ps)
-	}()
+	defer errPartialPool.Put(ps)
 	// Check for partial success.
 	if errors.As(err, ps) {
 		// Bound RejectedItems to [0, n]. This should not be needed,

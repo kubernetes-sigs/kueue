@@ -31,7 +31,7 @@ import (
 	"k8s.io/client-go/informers"
 	coreinformers "k8s.io/client-go/informers/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
-	schedulinglisters "k8s.io/client-go/listers/scheduling/v1alpha3"
+	schedulinglisters "k8s.io/client-go/listers/scheduling/v1alpha2"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	resourceslicetracker "k8s.io/dynamic-resource-allocation/resourceslice/tracker"
@@ -72,11 +72,11 @@ type Scheduler struct {
 
 	Extenders []fwk.Extender
 
-	// NextEntity should be a function that blocks until the next entity (pod or pod group)
+	// NextPod should be a function that blocks until the next pod
 	// is available. We don't use a channel for this, because scheduling
 	// a pod may take some amount of time and we don't want pods to get
 	// stale while they sit in a channel.
-	NextEntity func(logger klog.Logger) (framework.QueuedEntityInfo, error)
+	NextPod func(logger klog.Logger) (*framework.QueuedPodInfo, error)
 
 	// FailureHandler is called upon a scheduling failure.
 	FailureHandler FailureHandlerFn
@@ -121,6 +121,7 @@ type Scheduler struct {
 
 	nominatedNodeNameForExpectationEnabled bool
 	genericWorkloadEnabled                 bool
+	workloadAwarePreemptionEnabled         bool
 }
 
 func (sched *Scheduler) applyDefaultHandlers() {
@@ -144,7 +145,6 @@ type schedulerOptions struct {
 	frameworkCapturer          FrameworkCapturer
 	parallelism                int32
 	applyDefaultProfile        bool
-	nodeInfoSnapshot           *internalcache.Snapshot
 }
 
 // Option configures a Scheduler
@@ -259,13 +259,6 @@ func WithBuildFrameworkCapturer(fc FrameworkCapturer) Option {
 	}
 }
 
-// WithNodeInfoSnapshot sets the nodeInfoSnapshot for Scheduler.
-func WithNodeInfoSnapshot(snapshot *internalcache.Snapshot) Option {
-	return func(o *schedulerOptions) {
-		o.nodeInfoSnapshot = snapshot
-	}
-}
-
 var defaultSchedulerOptions = schedulerOptions{
 	clock:                             clock.RealClock{},
 	percentageOfNodesToScore:          schedulerapi.DefaultPercentageOfNodesToScore,
@@ -322,13 +315,10 @@ func New(ctx context.Context,
 	nodeLister := informerFactory.Core().V1().Nodes().Lister()
 	var podGroupLister schedulinglisters.PodGroupLister
 	if feature.DefaultFeatureGate.Enabled(features.GenericWorkload) {
-		podGroupLister = informerFactory.Scheduling().V1alpha3().PodGroups().Lister()
+		podGroupLister = informerFactory.Scheduling().V1alpha2().PodGroups().Lister()
 	}
 
-	snapshot := options.nodeInfoSnapshot
-	if snapshot == nil {
-		snapshot = internalcache.NewEmptySnapshot()
-	}
+	snapshot := internalcache.NewEmptySnapshot()
 	metricsRecorder := metrics.NewMetricsAsyncRecorder(1000, time.Second, stopEverything)
 	// waitingPods holds all the pods that are in the scheduler and waiting in the permit stage
 	waitingPods := frameworkruntime.NewWaitingPodsMap()
@@ -465,8 +455,9 @@ func New(ctx context.Context,
 		nominatedNodeNameForExpectationEnabled: feature.DefaultFeatureGate.Enabled(features.NominatedNodeNameForExpectation),
 		podGroupLister:                         podGroupLister,
 		genericWorkloadEnabled:                 feature.DefaultFeatureGate.Enabled(features.GenericWorkload),
+		workloadAwarePreemptionEnabled:         feature.DefaultFeatureGate.Enabled(features.WorkloadAwarePreemption),
 	}
-	sched.NextEntity = podQueue.Pop
+	sched.NextPod = podQueue.Pop
 	sched.applyDefaultHandlers()
 
 	if err = addAllEventHandlers(sched, informerFactory, dynInformerFactory, resourceClaimCache, resourceSliceTracker, draManager, unionedGVKs(queueingHintsPerProfile)); err != nil {
@@ -503,24 +494,46 @@ func buildQueueingHintMap(ctx context.Context, es []fwk.EnqueueExtensions) (inte
 		// cannot be moved by any regular cluster event.
 		// So, we can just ignore such EventsToRegister here.
 
+		registerNodeAdded := false
+		registerNodeTaintUpdated := false
 		for _, event := range events {
 			fn := event.QueueingHintFn
-			if fn == nil {
+			if fn == nil || !feature.DefaultFeatureGate.Enabled(features.SchedulerQueueingHints) {
 				fn = defaultQueueingHintFn
 			}
 
-			queueingHintFn := &internalqueue.QueueingHintFunction{
-				PluginName:     e.Name(),
-				QueueingHintFn: fn,
+			if event.Event.Resource == fwk.Node {
+				if event.Event.ActionType&fwk.Add != 0 {
+					registerNodeAdded = true
+				}
+				if event.Event.ActionType&fwk.UpdateNodeTaint != 0 {
+					registerNodeTaintUpdated = true
+				}
 			}
 
-			if event.Event.Resource == fwk.Pod {
-				for _, podEvent := range framework.UnrollPodEvent(event.Event) {
-					queueingHintMap[podEvent] = append(queueingHintMap[podEvent], queueingHintFn)
-				}
-			} else {
-				queueingHintMap[event.Event] = append(queueingHintMap[event.Event], queueingHintFn)
-			}
+			queueingHintMap[event.Event] = append(queueingHintMap[event.Event], &internalqueue.QueueingHintFunction{
+				PluginName:     e.Name(),
+				QueueingHintFn: fn,
+			})
+		}
+		if registerNodeAdded && !registerNodeTaintUpdated {
+			// Temporally fix for the issue https://github.com/kubernetes/kubernetes/issues/109437
+			// NodeAdded QueueingHint isn't always called because of preCheck.
+			// It's definitely not something expected for plugin developers,
+			// and registering UpdateNodeTaint event is the only mitigation for now.
+			//
+			// So, here registers UpdateNodeTaint event for plugins that has NodeAdded event, but don't have UpdateNodeTaint event.
+			// It has a bad impact for the requeuing efficiency though, a lot better than some Pods being stuch in the
+			// unschedulable pod pool.
+			// This behavior will be removed when we remove the preCheck feature.
+			// See: https://github.com/kubernetes/kubernetes/issues/110175
+			queueingHintMap[fwk.ClusterEvent{Resource: fwk.Node, ActionType: fwk.UpdateNodeTaint}] =
+				append(queueingHintMap[fwk.ClusterEvent{Resource: fwk.Node, ActionType: fwk.UpdateNodeTaint}],
+					&internalqueue.QueueingHintFunction{
+						PluginName:     e.Name(),
+						QueueingHintFn: defaultQueueingHintFn,
+					},
+				)
 		}
 	}
 	if returnErr != nil {

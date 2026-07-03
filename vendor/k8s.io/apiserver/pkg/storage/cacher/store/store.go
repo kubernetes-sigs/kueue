@@ -22,6 +22,8 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apiserver/pkg/features"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/client-go/tools/cache"
 )
 
@@ -68,18 +70,19 @@ type Indexer interface {
 	GetByKey(key string) (item interface{}, exists bool, err error)
 	Replace([]interface{}, string) error
 	ByIndex(indexName, indexedValue string) ([]interface{}, error)
-	Count(prefix, continueKey string) (count int)
-	Clone() Snapshot
-	OrderedListPrefix(prefix, continueKey string) ([]interface{}, error)
 }
 
-type Snapshot interface {
-	GetByKey(key string) (item interface{}, exists bool, err error)
-	OrderedListPrefix(prefix, continueKey string) ([]interface{}, error)
+type OrderedLister interface {
+	ListPrefix(prefix, continueKey string) []interface{}
+	Count(prefix, continueKey string) (count int)
+	Clone() OrderedLister
 }
 
 func NewIndexer(indexers *cache.Indexers) Indexer {
-	return newThreadedBtreeStoreIndexer(ElementIndexers(indexers), btreeDegree)
+	if utilfeature.DefaultFeatureGate.Enabled(features.BtreeWatchCache) {
+		return newThreadedBtreeStoreIndexer(ElementIndexers(indexers), btreeDegree)
+	}
+	return cache.NewIndexer(ElementKey, ElementIndexers(indexers))
 }
 
 // Computing a key of an object is generally non-trivial (it performs

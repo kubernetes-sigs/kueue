@@ -43,7 +43,7 @@ type threadedStoreIndexer struct {
 	indexer indexer
 }
 
-var _ Snapshot = (*threadedStoreIndexer)(nil)
+var _ OrderedLister = (*threadedStoreIndexer)(nil)
 
 func (si *threadedStoreIndexer) Count(prefix, continueKey string) (count int) {
 	si.lock.RLock()
@@ -51,10 +51,9 @@ func (si *threadedStoreIndexer) Count(prefix, continueKey string) (count int) {
 	return si.store.Count(prefix, continueKey)
 }
 
-func (si *threadedStoreIndexer) Clone() Snapshot {
-	// Clone should not be called concurrently.
-	si.lock.Lock()
-	defer si.lock.Unlock()
+func (si *threadedStoreIndexer) Clone() OrderedLister {
+	si.lock.RLock()
+	defer si.lock.RUnlock()
 	return si.store.Clone()
 }
 
@@ -100,10 +99,10 @@ func (si *threadedStoreIndexer) List() []interface{} {
 	return si.store.List()
 }
 
-func (si *threadedStoreIndexer) OrderedListPrefix(prefix, continueKey string) ([]interface{}, error) {
+func (si *threadedStoreIndexer) ListPrefix(prefix, continueKey string) []interface{} {
 	si.lock.RLock()
 	defer si.lock.RUnlock()
-	return si.store.OrderedListPrefix(prefix, continueKey)
+	return si.store.ListPrefix(prefix, continueKey)
 }
 
 func (si *threadedStoreIndexer) ListKeys() []string {
@@ -152,9 +151,7 @@ type btreeStore struct {
 	tree *btree.BTree[*Element]
 }
 
-// Clone should not be called concurrently.
-// Ref: https://github.com/kubernetes/kubernetes/blob/4a8f617f3ca/vendor/k8s.io/utils/third_party/forked/golang/btree/btree.go#L586-L588
-func (s *btreeStore) Clone() Snapshot {
+func (s *btreeStore) Clone() OrderedLister {
 	return &btreeStore{
 		tree: s.tree.Clone(),
 	}
@@ -256,7 +253,7 @@ func (s *btreeStore) getByKey(key string) (item interface{}, exists bool, err er
 	return item, exists, nil
 }
 
-func (s *btreeStore) OrderedListPrefix(prefix, continueKey string) ([]interface{}, error) {
+func (s *btreeStore) ListPrefix(prefix, continueKey string) []interface{} {
 	if continueKey == "" {
 		continueKey = prefix
 	}
@@ -268,7 +265,7 @@ func (s *btreeStore) OrderedListPrefix(prefix, continueKey string) ([]interface{
 		result = append(result, item)
 		return true
 	})
-	return result, nil
+	return result
 }
 
 func (s *btreeStore) Count(prefix, continueKey string) (count int) {
@@ -442,9 +439,8 @@ var _ Snapshotter = (*storeSnapshotter)(nil)
 
 type Snapshotter interface {
 	Reset()
-	GetLessOrEqual(rv uint64) (Snapshot, bool)
-	Latest() (Snapshot, bool)
-	Add(rv uint64, indexer Indexer)
+	GetLessOrEqual(rv uint64) (OrderedLister, bool)
+	Add(rv uint64, indexer OrderedLister)
 	RemoveLess(rv uint64)
 	Len() int
 }
@@ -456,7 +452,7 @@ type storeSnapshotter struct {
 
 type rvSnapshot struct {
 	resourceVersion uint64
-	snapshot        Snapshot
+	snapshot        OrderedLister
 }
 
 func (s *storeSnapshotter) Reset() {
@@ -465,7 +461,7 @@ func (s *storeSnapshotter) Reset() {
 	s.snapshots.Clear(false)
 }
 
-func (s *storeSnapshotter) GetLessOrEqual(rv uint64) (Snapshot, bool) {
+func (s *storeSnapshotter) GetLessOrEqual(rv uint64) (OrderedLister, bool) {
 	s.mux.RLock()
 	defer s.mux.RUnlock()
 
@@ -480,18 +476,7 @@ func (s *storeSnapshotter) GetLessOrEqual(rv uint64) (Snapshot, bool) {
 	return result.snapshot, true
 }
 
-func (s *storeSnapshotter) Latest() (Snapshot, bool) {
-	s.mux.RLock()
-	defer s.mux.RUnlock()
-
-	max, ok := s.snapshots.Max()
-	if !ok {
-		return nil, false
-	}
-	return max.snapshot, true
-}
-
-func (s *storeSnapshotter) Add(rv uint64, indexer Indexer) {
+func (s *storeSnapshotter) Add(rv uint64, indexer OrderedLister) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 	s.snapshots.ReplaceOrInsert(rvSnapshot{resourceVersion: rv, snapshot: indexer.Clone()})

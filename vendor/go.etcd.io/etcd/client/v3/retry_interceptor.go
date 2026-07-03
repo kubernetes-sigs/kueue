@@ -28,7 +28,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
-	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
 	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
@@ -43,8 +42,6 @@ func (c *Client) unaryClientInterceptor(optFuncs ...retryOption) grpc.UnaryClien
 	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		ctx = withVersion(ctx)
 		grpcOpts, retryOpts := filterCallOptions(opts)
-		var p peer.Peer
-		grpcOpts = append(grpcOpts, grpc.Peer(&p))
 		callOpts := reuseOrNewWithCallOptions(intOpts, retryOpts)
 		// short circuit for simplicity, and avoiding allocations.
 		if callOpts.max == 0 {
@@ -68,7 +65,6 @@ func (c *Client) unaryClientInterceptor(optFuncs ...retryOption) grpc.UnaryClien
 			c.GetLogger().Warn(
 				"retrying of unary invoker failed",
 				zap.String("target", cc.Target()),
-				zap.String("peer", p.String()),
 				zap.String("method", method),
 				zap.Uint("attempt", attempt),
 				zap.Error(lastErr),
@@ -150,11 +146,6 @@ func (c *Client) streamClientInterceptor(optFuncs ...retryOption) grpc.StreamCli
 // shouldRefreshToken checks whether there's a need to refresh the token based on the error and callOptions,
 // and returns a boolean value.
 func (c *Client) shouldRefreshToken(err error, callOpts *options) bool {
-	if c.Token != "" {
-		// do not try to refresh the token as it is set by user
-		return false
-	}
-
 	if errors.Is(rpctypes.Error(err), rpctypes.ErrUserEmpty) {
 		// refresh the token when username, password is present but the server returns ErrUserEmpty
 		// which is possible when the client token is cleared somehow
@@ -244,12 +235,12 @@ func (s *serverStreamingRetryingStream) RecvMsg(m any) error {
 		}
 		newStream, err := s.reestablishStreamAndResendBuffer(s.ctx)
 		if err != nil {
-			s.client.GetLogger().Error("failed reestablishStreamAndResendBuffer", zap.Error(err))
+			s.client.lg.Error("failed reestablishStreamAndResendBuffer", zap.Error(err))
 			return err // TODO(mwitkow): Maybe dial and transport errors should be retriable?
 		}
 		s.setStream(newStream)
 
-		s.client.GetLogger().Warn("retrying RecvMsg", zap.Error(lastErr))
+		s.client.lg.Warn("retrying RecvMsg", zap.Error(lastErr))
 		attemptRetry, lastErr = s.receiveMsgAndIndicateRetry(m)
 		if !attemptRetry {
 			return lastErr
@@ -282,7 +273,7 @@ func (s *serverStreamingRetryingStream) receiveMsgAndIndicateRetry(m any) (bool,
 	if s.client.shouldRefreshToken(err, s.callOpts) {
 		gtErr := s.client.refreshToken(s.ctx)
 		if gtErr != nil {
-			s.client.GetLogger().Warn("retry failed to fetch new auth token", zap.Error(gtErr))
+			s.client.lg.Warn("retry failed to fetch new auth token", zap.Error(gtErr))
 			return false, err // return the original error for simplicity
 		}
 		return true, err
@@ -348,7 +339,7 @@ func isSafeRetry(c *Client, err error, callOpts *options) bool {
 	case nonRepeatable:
 		return isSafeRetryMutableRPC(err)
 	default:
-		c.GetLogger().Warn("unrecognized retry policy", zap.String("retryPolicy", callOpts.retryPolicy.String()))
+		c.lg.Warn("unrecognized retry policy", zap.String("retryPolicy", callOpts.retryPolicy.String()))
 		return false
 	}
 }

@@ -141,8 +141,7 @@ type WorkloadSpec struct {
 	ControllerRef *TypedLocalObjectReference
 
 	// PodGroupTemplates is the list of templates that make up the Workload.
-	// The maximum number of templates is 8. Templates cannot be added or removed after the workload is created.
-	// Existing templates may still be updated where their individual fields allow it.
+	// The maximum number of templates is 8. This field is immutable.
 	//
 	// +required
 	// +listType=map
@@ -190,7 +189,6 @@ type PodGroupTemplate struct {
 
 	// SchedulingConstraints defines optional scheduling constraints (e.g. topology) for this PodGroupTemplate.
 	// This field is only available when the TopologyAwareWorkloadScheduling feature gate is enabled.
-	// This field is immutable.
 	//
 	// +optional
 	// +featureGate=TopologyAwareWorkloadScheduling
@@ -216,46 +214,50 @@ type PodGroupTemplate struct {
 	ResourceClaims []PodGroupResourceClaim
 
 	// DisruptionMode defines the mode in which a given PodGroup can be disrupted.
-	// One of Single, All.
-	// This field is immutable.
+	// One of Pod, PodGroup.
+	// This field is available only when the WorkloadAwarePreemption feature gate
+	// is enabled.
 	//
+	// +featureGate=WorkloadAwarePreemption
 	// +optional
 	DisruptionMode *DisruptionMode
 
 	// PriorityClassName indicates the priority that should be considered when scheduling
-	// a pod group created from this template.
-	// This field is immutable.
+	// a pod group created from this template. If no priority class is specified, admission
+	// control can set this to the global default priority class if it exists. Otherwise,
+	// pod groups created from this template will have the priority set to zero.
+	// This field is available only when the WorkloadAwarePreemption feature gate
+	// is enabled.
 	//
+	// +featureGate=WorkloadAwarePreemption
 	// +optional
 	PriorityClassName string
 
 	// Priority is the value of priority of pod groups created from this template. Various
-	// system components use this field to find the priority of the pod group.
+	// system components use this field to find the priority of the pod group. When
+	// Priority Admission Controller is enabled, it prevents users from setting this field.
+	// The admission controller populates this field from PriorityClassName.
 	// The higher the value, the higher the priority.
-	// This field is immutable.
+	// This field is available only when the WorkloadAwarePreemption feature gate
+	// is enabled.
 	//
+	// +featureGate=WorkloadAwarePreemption
 	// +optional
 	Priority *int32
 }
 
 // PodGroupSchedulingPolicy defines the scheduling configuration for a PodGroup.
-// Exactly one policy must be set. The policy is chosen at creation time by setting either the
-// Basic or Gang field. The PodGroup may not change policy after creation.
-// Fields within chosen policy may be updated after creation when their individual fields allow it.
-//
+// Exactly one policy must be set.
 // +union
 type PodGroupSchedulingPolicy struct {
 	// Basic specifies that the pods in this group should be scheduled using
-	// standard Kubernetes scheduling behavior. Setting this field at group creation time
-	// opts this group to basic scheduling; this field cannot be changed afterward.
+	// standard Kubernetes scheduling behavior.
 	//
 	// +optional
 	Basic *BasicSchedulingPolicy
 
 	// Gang specifies that the pods in this group should be scheduled using
-	// all-or-nothing semantics. Setting this field at group creation time
-	// opts this group to gang scheduling; this field cannot be set or unset afterward.
-	// The minCount field within Gang scheduling policy remains mutable after group creation.
+	// all-or-nothing semantics.
 	//
 	// +optional
 	Gang *GangSchedulingPolicy
@@ -274,15 +276,7 @@ type BasicSchedulingPolicy struct {
 type GangSchedulingPolicy struct {
 	// MinCount is the minimum number of pods that must be schedulable or scheduled
 	// at the same time for the scheduler to admit the entire group.
-	// It must be a positive integer. This field is mutable to support workload scaling.
-	//
-	// Note that the scheduler operates on an eventually consistent model. Updates
-	// to minCount may not be immediately reflected in scheduling decisions due to
-	// propagation delays. If minCount is updated while a scheduling cycle is in
-	// progress for that group, the new value may not take effect until the next
-	// cycle. Moreover, minCount is only enforced during scheduling, meaning that
-	// modifications to this field do not affect already-scheduled pods, applying
-	// only to those evaluated in future cycles.
+	// It must be a positive integer.
 	//
 	// +required
 	MinCount int32
@@ -333,31 +327,18 @@ type PodGroupResourceClaim struct {
 	ResourceClaimTemplateName *string
 }
 
-// DisruptionMode defines how individual entities within a group can be disrupted.
-// Exactly one mode can be set.
-//
-// +union
-type DisruptionMode struct {
-	// Single specifies that children can be disrupted independently from each other.
-	//
-	// +optional
-	Single *SingleDisruptionMode
+// DisruptionMode describes the mode in which a PodGroup can be disrupted (e.g. preempted).
+// +enum
+type DisruptionMode string
 
-	// All specifies that all children can only be disrupted together.
-	//
-	// +optional
-	All *AllDisruptionMode
-}
-
-// SingleDisruptionMode specifies that children can be disrupted independently.
-type SingleDisruptionMode struct {
-	// Intentionally empty now.
-}
-
-// AllDisruptionMode specifies that children can only be disrupted together.
-type AllDisruptionMode struct {
-	// Intentionally empty now.
-}
+const (
+	// DisruptionModePod means that individual pods can be disrupted or preempted independently.
+	// It doesn't depend on exact set of pods currently running in this PodGroup.
+	DisruptionModePod DisruptionMode = "Pod"
+	// DisruptionModePodGroup means that the whole PodGroup needs to be disrupted
+	// or preempted together.
+	DisruptionModePodGroup DisruptionMode = "PodGroup"
+)
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
@@ -408,6 +389,7 @@ type PodGroupSpec struct {
 
 	// SchedulingPolicy defines the scheduling policy for this instance of the PodGroup.
 	// Controllers are expected to fill this field by copying it from a PodGroupTemplate.
+	// This field is immutable.
 	//
 	// +required
 	SchedulingPolicy PodGroupSchedulingPolicy
@@ -440,9 +422,12 @@ type PodGroupSpec struct {
 
 	// DisruptionMode defines the mode in which a given PodGroup can be disrupted.
 	// Controllers are expected to fill this field by copying it from a PodGroupTemplate.
-	// One of Single, All. Defaults to Single if unset.
+	// One of Pod, PodGroup. Defaults to Pod if unset.
 	// This field is immutable.
+	// This field is available only when the WorkloadAwarePreemption feature gate
+	// is enabled.
 	//
+	// +featureGate=WorkloadAwarePreemption
 	// +optional
 	DisruptionMode *DisruptionMode
 
@@ -452,7 +437,10 @@ type PodGroupSpec struct {
 	// (i.e. if no priority class is specified, admission control can set this to the global default
 	// priority class if it exists. Otherwise, the pod group's priority will be zero).
 	// This field is immutable.
+	// This field is available only when the WorkloadAwarePreemption feature gate
+	// is enabled.
 	//
+	// +featureGate=WorkloadAwarePreemption
 	// +optional
 	PriorityClassName string
 
@@ -462,7 +450,10 @@ type PodGroupSpec struct {
 	// controller populates this field from PriorityClassName.
 	// The higher the value, the higher the priority.
 	// This field is immutable.
+	// This field is available only when the WorkloadAwarePreemption feature gate
+	// is enabled.
 	//
+	// +featureGate=WorkloadAwarePreemption
 	// +optional
 	Priority *int32
 }
@@ -472,13 +463,11 @@ type PodGroupStatus struct {
 	// Conditions represent the latest observations of the PodGroup's state.
 	//
 	// Known condition types:
-	// - "PodGroupInitiallyScheduled": Indicates whether the scheduling requirement has been satisfied.
-	//   Once this condition transitions to True, it serves as a terminal state and will never revert to False,
-	//   even if pods are subsequently evicted and group constraints are no longer met.
+	// - "PodGroupScheduled": Indicates whether the scheduling requirement has been satisfied.
 	// - "DisruptionTarget": Indicates whether the PodGroup is about to be terminated
 	//   due to disruption such as preemption.
 	//
-	// Known reasons for the PodGroupInitiallyScheduled condition:
+	// Known reasons for the PodGroupScheduled condition:
 	// - "Unschedulable": The PodGroup cannot be scheduled due to resource constraints,
 	//   affinity/anti-affinity rules, or insufficient capacity for the gang.
 	// - "SchedulerError": The PodGroup cannot be scheduled due to some internal error
@@ -507,8 +496,8 @@ type PodGroupStatus struct {
 
 // Well-known condition types for PodGroups.
 const (
-	// PodGroupInitiallyScheduled represents status of the scheduling process for this PodGroup till first success.
-	PodGroupInitiallyScheduled string = "PodGroupInitiallyScheduled"
+	// PodGroupScheduled represents status of the scheduling process for this PodGroup.
+	PodGroupScheduled string = "PodGroupScheduled"
 	// DisruptionTarget indicates the PodGroup is about to be terminated due to disruption
 	// such as preemption.
 	DisruptionTarget string = "DisruptionTarget"
@@ -516,10 +505,10 @@ const (
 
 // Well-known condition reasons for PodGroups.
 const (
-	// Unschedulable reason in the PodGroupInitiallyScheduled condition indicates that the PodGroup cannot be scheduled
+	// Unschedulable reason in the PodGroupScheduled condition indicates that the PodGroup cannot be scheduled
 	// due to resource constraints, affinity/anti-affinity rules, or insufficient capacity for the PodGroup.
 	PodGroupReasonUnschedulable string = "Unschedulable"
-	// SchedulerError reason in the PodGroupInitiallyScheduled condition means that some internal error happens
+	// SchedulerError reason in the PodGroupScheduled condition means that some internal error happens
 	// during scheduling, for example due to nodeAffinity parsing errors.
 	PodGroupReasonSchedulerError string = "SchedulerError"
 	// PreemptionByScheduler reason in the DisruptionTarget condition indicates the PodGroup was preempted

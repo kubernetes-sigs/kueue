@@ -52,10 +52,10 @@ type Snapshot struct {
 	// havePodsWithRequiredAntiAffinityNodeInfoList is the list of nodes with at least one pod declaring
 	// required anti-affinity terms.
 	havePodsWithRequiredAntiAffinityNodeInfoList []fwk.NodeInfo
-	// usedPVCRefCounts contains the number of nodes using each PVC across the cluster,
+	// usedPVCSet contains a set of PVC names that have one or more scheduled pods using them,
 	// keyed in the format "namespace/name".
-	usedPVCRefCounts map[string]int
-	generation       int64
+	usedPVCSet sets.Set[string]
+	generation int64
 	// assumedPods maps a pod key to an assumed pod object during a single pod group scheduling cycle.
 	// This map should be emptied before the next cycle starts.
 	assumedPods map[string]*v1.Pod
@@ -79,7 +79,7 @@ var _ fwk.SharedLister = &Snapshot{}
 func NewEmptySnapshot() *Snapshot {
 	return &Snapshot{
 		nodeInfoMap:            make(map[string]*framework.NodeInfo),
-		usedPVCRefCounts:       make(map[string]int),
+		usedPVCSet:             sets.New[string](),
 		assumedPods:            make(map[string]*v1.Pod),
 		podGroupStates:         make(map[podGroupKey]*podGroupStateSnapshot),
 		genericWorkloadEnabled: utilfeature.DefaultFeatureGate.Enabled(features.GenericWorkload),
@@ -107,7 +107,7 @@ func NewSnapshot(pods []*v1.Pod, nodes []*v1.Node) *Snapshot {
 	s.nodeInfoList = nodeInfoList
 	s.havePodsWithAffinityNodeInfoList = havePodsWithAffinityNodeInfoList
 	s.havePodsWithRequiredAntiAffinityNodeInfoList = havePodsWithRequiredAntiAffinityNodeInfoList
-	s.usedPVCRefCounts = createUsedPVCRefCounts(nodeInfoMap)
+	s.usedPVCSet = createUsedPVCSet(pods)
 	if s.genericWorkloadEnabled {
 		s.podGroupStates = createPodGroupStates(pods)
 	}
@@ -213,14 +213,23 @@ func createNodeInfoMap(pods []*v1.Pod, nodes []*v1.Node) map[string]*framework.N
 	return nodeNameToInfo
 }
 
-func createUsedPVCRefCounts(nodeInfoMap map[string]*framework.NodeInfo) map[string]int {
-	usedPVCRefCounts := make(map[string]int)
-	for _, nodeInfo := range nodeInfoMap {
-		for pvcKey, count := range nodeInfo.PVCRefCounts {
-			usedPVCRefCounts[pvcKey] += count
+func createUsedPVCSet(pods []*v1.Pod) sets.Set[string] {
+	usedPVCSet := sets.New[string]()
+	for _, pod := range pods {
+		if pod.Spec.NodeName == "" {
+			continue
+		}
+
+		for _, v := range pod.Spec.Volumes {
+			if v.PersistentVolumeClaim == nil {
+				continue
+			}
+
+			key := framework.GetNamespacedName(pod.Namespace, v.PersistentVolumeClaim.ClaimName)
+			usedPVCSet.Insert(key)
 		}
 	}
-	return usedPVCRefCounts
+	return usedPVCSet
 }
 
 // getNodeImageStates returns the given node's image states based on the given imageExistence map.
@@ -321,7 +330,7 @@ func (s *Snapshot) Get(nodeName string) (fwk.NodeInfo, error) {
 }
 
 func (s *Snapshot) IsPVCUsedByPods(key string) bool {
-	return s.usedPVCRefCounts[key] > 0
+	return s.usedPVCSet.Has(key)
 }
 
 // AssumePod assumes a given pod in the snapshot.

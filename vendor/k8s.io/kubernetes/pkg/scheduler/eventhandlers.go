@@ -23,6 +23,7 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -39,6 +40,7 @@ import (
 	"k8s.io/kubernetes/pkg/features"
 	"k8s.io/kubernetes/pkg/scheduler/backend/queue"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
+	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/helper"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeaffinity"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodename"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeports"
@@ -59,8 +61,8 @@ func (sched *Scheduler) addNodeToCache(obj interface{}) {
 	}
 
 	logger.V(3).Info("Add event for node", "node", klog.KObj(node))
-	sched.Cache.AddNode(logger, node)
-	sched.SchedulingQueue.MoveAllToActiveOrBackoffQueue(logger, evt, nil, node, nil)
+	nodeInfo := sched.Cache.AddNode(logger, node)
+	sched.SchedulingQueue.MoveAllToActiveOrBackoffQueue(logger, evt, nil, node, preCheckForNode(logger, nodeInfo))
 }
 
 func (sched *Scheduler) updateNodeInCache(oldObj, newObj interface{}) {
@@ -78,7 +80,7 @@ func (sched *Scheduler) updateNodeInCache(oldObj, newObj interface{}) {
 	}
 
 	logger.V(4).Info("Update event for node", "node", klog.KObj(newNode))
-	sched.Cache.UpdateNode(logger, oldNode, newNode)
+	nodeInfo := sched.Cache.UpdateNode(logger, oldNode, newNode)
 	events := framework.NodeSchedulingPropertiesChange(newNode, oldNode)
 
 	// Save the time it takes to update the node in the cache.
@@ -87,7 +89,7 @@ func (sched *Scheduler) updateNodeInCache(oldObj, newObj interface{}) {
 	// Only requeue unschedulable pods if the node became more schedulable.
 	for _, evt := range events {
 		startMoving := time.Now()
-		sched.SchedulingQueue.MoveAllToActiveOrBackoffQueue(logger, evt, oldNode, newNode, nil)
+		sched.SchedulingQueue.MoveAllToActiveOrBackoffQueue(logger, evt, oldNode, newNode, preCheckForNode(logger, nodeInfo))
 		movingDuration := metrics.SinceInSeconds(startMoving)
 
 		metrics.EventHandlingLatency.WithLabelValues(evt.Label()).Observe(updatingDuration + movingDuration)
@@ -212,7 +214,7 @@ func (sched *Scheduler) addPodToSchedulingQueue(pod *v1.Pod) {
 	logger.V(3).Info("Add event for unscheduled pod", "pod", klog.KObj(pod))
 	sched.Cache.AddPodGroupMember(pod)
 	sched.SchedulingQueue.Add(klog.NewContext(context.Background(), logger), pod)
-	if utilfeature.DefaultFeatureGate.Enabled(features.GenericWorkload) {
+	if utilfeature.DefaultFeatureGate.Enabled(features.GangScheduling) {
 		sched.SchedulingQueue.MoveAllToActiveOrBackoffQueue(logger, framework.EventUnscheduledPodAdd, nil, pod, nil)
 	}
 }
@@ -262,8 +264,8 @@ func (sched *Scheduler) handleAssumedPodDeletion(pod *v1.Pod) {
 	if !fwk.RejectWaitingPod(pod.UID) {
 		// 2. If the pod is no longer waiting (e.g., it's in PreBind or Bind), we can't quickly reject it.
 		//    We must explicitly remove it from the cache here to free up its assumed resources.
-		if err := sched.Cache.RemoveAssumedPod(logger, pod); err != nil {
-			utilruntime.HandleErrorWithLogger(logger, err, "Scheduler cache RemoveAssumedPod failed", "pod", klog.KObj(pod))
+		if err := sched.Cache.ForgetPod(logger, pod); err != nil {
+			utilruntime.HandleErrorWithLogger(logger, err, "Scheduler cache ForgetPod failed", "pod", klog.KObj(pod))
 		}
 	}
 
@@ -284,8 +286,7 @@ func (sched *Scheduler) updatePodInSchedulingQueue(oldPod, newPod *v1.Pod) {
 	}
 
 	defer metrics.EventHandlingLatency.ObserveSince(start, framework.EventUnscheduledPodUpdate.Label())()
-	// Target pod is not being updated here (target pod gets updated through sched.SchedulingQueue.Update call), hence isTargetPod is set to false.
-	for _, evt := range framework.PodSchedulingPropertiesChange(newPod, oldPod, false) {
+	for _, evt := range framework.PodSchedulingPropertiesChange(newPod, oldPod) {
 		if evt.Label() != framework.EventUnscheduledPodUpdate.Label() {
 			defer metrics.EventHandlingLatency.ObserveSince(start, evt.Label())()
 		}
@@ -332,7 +333,7 @@ func (sched *Scheduler) deletePodFromSchedulingQueue(pod *v1.Pod, inBinding bool
 	logger := sched.logger
 
 	logger.V(3).Info("Delete event for unscheduled pod", "pod", klog.KObj(pod))
-	sched.SchedulingQueue.Delete(logger, pod)
+	sched.SchedulingQueue.Delete(pod)
 	if inBinding {
 		// In the case of a binding, the rest can be skipped because it is not really a pod removal operation, but a binding.
 		// Any necessary notifications will be sent by the binding process, unless it was an unlikely external binding.
@@ -340,6 +341,7 @@ func (sched *Scheduler) deletePodFromSchedulingQueue(pod *v1.Pod, inBinding bool
 		// once the https://github.com/kubernetes/kubernetes/issues/134859 is fixed.
 		return
 	}
+	sched.Cache.RemovePodGroupMember(pod)
 	isAssumed, err := sched.Cache.IsAssumedPod(pod)
 	if err != nil {
 		utilruntime.HandleErrorWithLogger(logger, err, "Failed to check whether pod is assumed", "pod", klog.KObj(pod))
@@ -348,11 +350,7 @@ func (sched *Scheduler) deletePodFromSchedulingQueue(pod *v1.Pod, inBinding bool
 		// Assumed pod is deleted. We should handle that differently,
 		// because we can't delete such pod from any structure directly.
 		sched.handleAssumedPodDeletion(pod)
-		return
-	}
-	// If the pod is not assumed, we must clean pod group state explicitly here.
-	sched.Cache.RemovePodGroupMember(pod)
-	if pod.Status.NominatedNodeName != "" {
+	} else if pod.Status.NominatedNodeName != "" {
 		// When a pod that had nominated node is deleted, it can unblock scheduling of other pods,
 		// because the lower or equal priority pods treat such a pod as if it was assigned.
 		// Note that a nominated pod can fall into `handleAssumedPodDeletion` case as well,
@@ -378,7 +376,20 @@ func (sched *Scheduler) addAssignedPodToCache(pod *v1.Pod) {
 		utilruntime.HandleErrorWithLogger(logger, err, "Scheduler cache AddPod failed", "pod", klog.KObj(pod))
 	}
 
-	sched.SchedulingQueue.MoveAllToActiveOrBackoffQueue(logger, framework.EventAssignedPodAdd, nil, pod, nil)
+	// SchedulingQueue.AssignedPodAdded has a problem:
+	// It internally pre-filters Pods to move to activeQ,
+	// while taking only in-tree plugins into consideration.
+	// Consequently, if custom plugins that subscribes Pod/Add events reject Pods,
+	// those Pods will never be requeued to activeQ by an assigned Pod related events,
+	// and they may be stuck in unschedulableQ.
+	//
+	// Here we use MoveAllToActiveOrBackoffQueue only when QueueingHint is enabled.
+	// (We cannot switch to MoveAllToActiveOrBackoffQueue right away because of throughput concern.)
+	if utilfeature.DefaultFeatureGate.Enabled(features.SchedulerQueueingHints) {
+		sched.SchedulingQueue.MoveAllToActiveOrBackoffQueue(logger, framework.EventAssignedPodAdd, nil, pod, nil)
+	} else {
+		sched.SchedulingQueue.AssignedPodAdded(logger, pod)
+	}
 }
 
 func (sched *Scheduler) updateAssignedPodInCache(oldPod, newPod *v1.Pod) {
@@ -398,15 +409,27 @@ func (sched *Scheduler) updateAssignedPodInCache(oldPod, newPod *v1.Pod) {
 		utilruntime.HandleErrorWithLogger(logger, err, "Scheduler cache UpdatePod failed", "pod", klog.KObj(oldPod))
 	}
 
-	// This pod is assigned, so it cannot be a target pod.
-	events := framework.PodSchedulingPropertiesChange(newPod, oldPod, false)
+	events := framework.PodSchedulingPropertiesChange(newPod, oldPod)
 
 	// Save the time it takes to update the pod in the cache.
 	updatingDuration := metrics.SinceInSeconds(start)
 
 	for _, evt := range events {
 		startMoving := time.Now()
-		sched.SchedulingQueue.MoveAllToActiveOrBackoffQueue(logger, evt, oldPod, newPod, nil)
+		// SchedulingQueue.AssignedPodUpdated has a problem:
+		// It internally pre-filters Pods to move to activeQ,
+		// while taking only in-tree plugins into consideration.
+		// Consequently, if custom plugins that subscribes Pod/Update events reject Pods,
+		// those Pods will never be requeued to activeQ by an assigned Pod related events,
+		// and they may be stuck in unschedulableQ.
+		//
+		// Here we use MoveAllToActiveOrBackoffQueue only when QueueingHint is enabled.
+		// (We cannot switch to MoveAllToActiveOrBackoffQueue right away because of throughput concern.)
+		if utilfeature.DefaultFeatureGate.Enabled(features.SchedulerQueueingHints) {
+			sched.SchedulingQueue.MoveAllToActiveOrBackoffQueue(logger, evt, oldPod, newPod, nil)
+		} else {
+			sched.SchedulingQueue.AssignedPodUpdated(logger, oldPod, newPod, evt)
+		}
 		movingDuration := metrics.SinceInSeconds(startMoving)
 		metrics.EventHandlingLatency.WithLabelValues(evt.Label()).Observe(updatingDuration + movingDuration)
 	}
@@ -498,6 +521,23 @@ func addAllEventHandlers(
 			evt := fwk.ClusterEvent{Resource: resource, ActionType: fwk.Add}
 			funcs.AddFunc = func(obj interface{}) {
 				defer metrics.EventHandlingLatency.ObserveSince(time.Now(), evt.Label())()
+				if resource == fwk.StorageClass && !utilfeature.DefaultFeatureGate.Enabled(features.SchedulerQueueingHints) {
+					sc, ok := obj.(*storagev1.StorageClass)
+					if !ok {
+						utilruntime.HandleErrorWithLogger(logger, nil, "Cannot convert to *storagev1.StorageClass", "obj", obj)
+						return
+					}
+
+					// CheckVolumeBindingPred fails if pod has unbound immediate PVCs. If these
+					// PVCs have specified StorageClass name, creating StorageClass objects
+					// with late binding will cause predicates to pass, so we need to move pods
+					// to active queue.
+					// We don't need to invalidate cached results because results will not be
+					// cached for pod that has unbound immediate PVCs.
+					if sc.VolumeBindingMode == nil || *sc.VolumeBindingMode != storagev1.VolumeBindingWaitForFirstConsumer {
+						return
+					}
+				}
 				sched.SchedulingQueue.MoveAllToActiveOrBackoffQueue(logger, evt, nil, obj, nil)
 			}
 		}
@@ -626,7 +666,7 @@ func addAllEventHandlers(
 			handlers = append(handlers, handlerRegistration)
 		case fwk.PodGroup:
 			if utilfeature.DefaultFeatureGate.Enabled(features.GenericWorkload) {
-				if handlerRegistration, err = informerFactory.Scheduling().V1alpha3().PodGroups().Informer().AddEventHandler(
+				if handlerRegistration, err = informerFactory.Scheduling().V1alpha2().PodGroups().Informer().AddEventHandler(
 					buildEvtResHandler(at, fwk.PodGroup),
 				); err != nil {
 					return err
@@ -663,6 +703,29 @@ func addAllEventHandlers(
 	}
 	sched.registeredHandlers = handlers
 	return nil
+}
+
+func preCheckForNode(logger klog.Logger, nodeInfo *framework.NodeInfo) queue.PreEnqueueCheck {
+	if utilfeature.DefaultFeatureGate.Enabled(features.SchedulerQueueingHints) {
+		// QHint is initially created from the motivation of replacing this preCheck.
+		// It assumes that the scheduler only has in-tree plugins, which is problematic for our extensibility.
+		// Here, we skip preCheck if QHint is enabled, and we eventually remove it after QHint is graduated.
+		return nil
+	}
+
+	// Note: the following checks doesn't take preemption into considerations, in very rare
+	// cases (e.g., node resizing), "pod" may still fail a check but preemption helps. We deliberately
+	// chose to ignore those cases as unschedulable pods will be re-queued eventually.
+	return func(pod *v1.Pod) bool {
+		admissionResults := AdmissionCheck(pod, nodeInfo, false)
+		if len(admissionResults) != 0 {
+			return false
+		}
+		_, isUntolerated := corev1helpers.FindMatchingUntoleratedTaint(logger, nodeInfo.Node().Spec.Taints, pod.Spec.Tolerations,
+			helper.DoNotScheduleTaintsFilterFunc(),
+			utilfeature.DefaultFeatureGate.Enabled(features.TaintTolerationComparisonOperators))
+		return !isUntolerated
+	}
 }
 
 // AdmissionCheck calls the filtering logic of noderesources/nodeport/nodeAffinity/nodename

@@ -183,8 +183,7 @@ func (m *topologyToMatchedTermCountList) appendWithAntiAffinityTerms(terms []fwk
 	}
 }
 
-// podMatchesAllAffinityTerms returns true if the given terms list is not empty and given pod matches all the given terms.
-// Useful for checking affinity. For anti-affinity, use podMatchesAnyAffinityTerms.
+// returns true IFF the given pod matches all the given terms.
 func podMatchesAllAffinityTerms(terms []fwk.AffinityTerm, pod *v1.Pod) bool {
 	if len(terms) == 0 {
 		return false
@@ -197,17 +196,6 @@ func podMatchesAllAffinityTerms(terms []fwk.AffinityTerm, pod *v1.Pod) bool {
 		}
 	}
 	return true
-}
-
-// podMatchesAnyAffinityTerms returns true if the given pod matches any of the given terms.
-// Useful for checking anti-affinity.
-func podMatchesAnyAffinityTerms(terms []fwk.AffinityTerm, pod *v1.Pod) bool {
-	for _, t := range terms {
-		if t.Matches(pod, nil) {
-			return true
-		}
-	}
-	return false
 }
 
 // calculates the following for each existing pod on each node:

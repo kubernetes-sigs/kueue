@@ -178,8 +178,8 @@ func (j *JobSet) checkRuntimePatchesImmutability(ctx context.Context, oldObj, ne
 	// after the update (i.e. block only when it stays fully unsuspended).
 	// This lets external controllers (e.g. Kueue) update RuntimePatches and
 	// toggle spec.suspend in a single API request.
-	oldSuspended := ptr.Equal(oldObj.Spec.Suspend, new(true))
-	newSuspended := ptr.Equal(newObj.Spec.Suspend, new(true))
+	oldSuspended := ptr.Equal(oldObj.Spec.Suspend, ptr.To(true))
+	newSuspended := ptr.Equal(newObj.Spec.Suspend, ptr.To(true))
 	if changed {
 		if !oldSuspended && !newSuspended {
 			allErrs = append(allErrs, field.Forbidden(runtimePatchesPath, "RuntimePatches can only be modified when the TrainJob is suspended before or after the update"))
@@ -236,15 +236,15 @@ func (j *JobSet) IdentifyPodNetwork(info *runtime.Info, trainJob *trainer.TrainJ
 		subDomain = *jobSetNet.Subdomain
 	}
 	for rJobIdx, rJob := range spec.ReplicatedJobs {
+		// TODO: Support multiple replicas for replicated Jobs.
+		// REF: https://github.com/kubeflow/trainer/issues/2318
 		podCount := info.TemplateSpec.PodSets[rJobIdx].Count
-		rJobReplicas := ptr.Deref(rJob.Replicas, constants.DefaultJobReplicas)
+		rJobReplicas := constants.DefaultJobReplicas
 		info.TemplateSpec.PodSets[rJobIdx].Endpoints = func(yield func(string) bool) {
-			for replicaIdx := 0; replicaIdx < int(rJobReplicas); replicaIdx++ {
-				for podIdx := range ptr.Deref(podCount, 1) {
-					endpoint := fmt.Sprintf("%s-%s-%d-%d.%s", trainJob.Name, *rJob.Name, replicaIdx, podIdx, subDomain)
-					if !yield(endpoint) {
-						return
-					}
+			for podIdx := range ptr.Deref(podCount, 1) {
+				endpoint := fmt.Sprintf("%s-%s-%d-%d.%s", trainJob.Name, *rJob.Name, rJobReplicas-1, podIdx, subDomain)
+				if !yield(endpoint) {
+					return
 				}
 			}
 		}
@@ -276,14 +276,6 @@ func (j *JobSet) Build(ctx context.Context, info *runtime.Info, trainJob *traine
 		return nil, nil
 	}
 
-	if len(jobSetSpec.ReplicatedJobs) < len(info.TemplateSpec.PodSets) {
-		return nil, fmt.Errorf(
-			"runtime template has %d replicatedJobs but runtime info has %d podSets",
-			len(jobSetSpec.ReplicatedJobs),
-			len(info.TemplateSpec.PodSets),
-		)
-	}
-
 	for psIdx, ps := range info.TemplateSpec.PodSets {
 		if ps.Count != nil {
 			jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Parallelism = ps.Count
@@ -307,30 +299,6 @@ func (j *JobSet) Build(ctx context.Context, info *runtime.Info, trainJob *traine
 			)
 			apply.UpsertVolumeMounts(
 				&jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.Containers[containerIdx].VolumeMounts,
-				container.VolumeMounts...,
-			)
-		}
-		initContainers := jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.InitContainers
-		for containerIdx, container := range ps.InitContainers {
-			if containerIdx >= len(initContainers) {
-				return nil, fmt.Errorf("podSet %q initContainer %q does not have a matching initContainer in the runtime template", ps.Name, container.Name)
-			}
-			if len(container.Command) > 0 {
-				jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.InitContainers[containerIdx].Command = container.Command
-			}
-			if container.Image != "" {
-				jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.InitContainers[containerIdx].Image = &container.Image
-			}
-			apply.UpsertEnvVars(
-				&jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.InitContainers[containerIdx].Env,
-				container.Env...,
-			)
-			apply.UpsertPort(
-				&jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.InitContainers[containerIdx].Ports,
-				container.Ports...,
-			)
-			apply.UpsertVolumeMounts(
-				&jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.InitContainers[containerIdx].VolumeMounts,
 				container.VolumeMounts...,
 			)
 		}

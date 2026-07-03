@@ -23,7 +23,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/spf13/pflag"
@@ -62,6 +61,8 @@ type EtcdOptions struct {
 
 	// Set EnableWatchCache to false to disable all watch caches
 	EnableWatchCache bool
+	// Set DefaultWatchCacheSize to zero to disable watch caches for those resources that have no explicit cache size set
+	DefaultWatchCacheSize int
 	// WatchCacheSizes represents override to a given resource
 	WatchCacheSizes []string
 
@@ -81,6 +82,7 @@ func NewEtcdOptions(backendConfig *storagebackend.Config) *EtcdOptions {
 		DeleteCollectionWorkers: 1,
 		EnableGarbageCollection: true,
 		EnableWatchCache:        true,
+		DefaultWatchCacheSize:   100,
 	}
 	options.StorageConfig.CountMetricPollPeriod = time.Minute
 	return options
@@ -147,12 +149,11 @@ func (s *EtcdOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.BoolVar(&s.EnableWatchCache, "watch-cache", s.EnableWatchCache,
 		"Enable watch caching in the apiserver")
 
-	defaultWatchCacheSize := 100
-	fs.IntVar(&defaultWatchCacheSize, "default-watch-cache-size", defaultWatchCacheSize,
+	fs.IntVar(&s.DefaultWatchCacheSize, "default-watch-cache-size", s.DefaultWatchCacheSize,
 		"Default watch cache size. If zero, watch cache will be disabled for resources that do not have a default watch size set.")
 
 	fs.MarkDeprecated("default-watch-cache-size",
-		"Watch caches are sized automatically. This flag is no-op and it will be removed in a future version.")
+		"watch caches are sized automatically and this flag will be removed in a future version")
 
 	fs.StringSliceVar(&s.WatchCacheSizes, "watch-cache-sizes", s.WatchCacheSizes, ""+
 		"Watch cache size settings for some resources (pods, nodes, etc.), comma separated. "+
@@ -239,100 +240,32 @@ func (s *EtcdOptions) ApplyWithStorageFactoryTo(factory serverstorage.StorageFac
 		return err
 	}
 
-	monitorCache, err := newMonitorCache(factory, c.DrainedNotify())
-	if err != nil {
-		return err
-	}
-	metrics.SetStorageMonitorGetter(monitorCache.get)
+	metrics.SetStorageMonitorGetter(monitorGetter(factory))
 
 	c.RESTOptionsGetter = s.CreateRESTOptionsGetter(factory, c.ResourceTransformers)
 	return nil
 }
 
-type monitorCache struct {
-	mu          sync.RWMutex
-	initialized bool
-	closed      bool
-	monitors    []metrics.Monitor
-	factory     serverstorage.StorageFactory
-	stopCh      <-chan struct{}
-}
-
-var createMonitor = storagefactory.CreateMonitor
-
-func newMonitorCache(factory serverstorage.StorageFactory, stopCh <-chan struct{}) (*monitorCache, error) {
-	if stopCh == nil {
-		return nil, fmt.Errorf("stopCh is required for monitor cache cleanup")
-	}
-	cache := &monitorCache{
-		factory: factory,
-		stopCh:  stopCh,
-	}
-	return cache, nil
-}
-
-func (c *monitorCache) get() ([]metrics.Monitor, error) {
-	// Fast path: check if already initialized with read lock
-	c.mu.RLock()
-	if c.closed {
-		c.mu.RUnlock()
-		return nil, fmt.Errorf("monitor cache is closed")
-	}
-	if c.initialized {
-		result := c.monitors
-		c.mu.RUnlock()
-		return result, nil
-	}
-	c.mu.RUnlock()
-
-	// Slow path: initialize with write lock
-	return c.initialize()
-}
-
-func (c *monitorCache) initialize() ([]metrics.Monitor, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.closed {
-		return nil, fmt.Errorf("monitor cache is closed")
-	}
-	if c.initialized {
-		return c.monitors, nil
-	}
-
-	var monitors []metrics.Monitor
-	for _, cfg := range c.factory.Configs() {
-		m, err := createMonitor(cfg)
-		if err != nil {
-			for _, already := range monitors {
-				already.Close() //nolint:errcheck
+func monitorGetter(factory serverstorage.StorageFactory) func() (monitors []metrics.Monitor, err error) {
+	return func() (monitors []metrics.Monitor, err error) {
+		defer func() {
+			if err != nil {
+				for _, m := range monitors {
+					m.Close()
+				}
 			}
-			return nil, err
+		}()
+
+		var m metrics.Monitor
+		for _, cfg := range factory.Configs() {
+			m, err = storagefactory.CreateMonitor(cfg)
+			if err != nil {
+				return nil, err
+			}
+			monitors = append(monitors, m)
 		}
-		monitors = append(monitors, m)
+		return monitors, nil
 	}
-	c.monitors = monitors
-	c.initialized = true
-
-	go func() {
-		<-c.stopCh
-		c.close()
-	}()
-
-	return c.monitors, nil
-}
-
-func (c *monitorCache) close() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.closed {
-		return
-	}
-	c.closed = true
-	for _, m := range c.monitors {
-		m.Close() //nolint:errcheck
-	}
-	c.monitors = nil
 }
 
 func (s *EtcdOptions) CreateRESTOptionsGetter(factory serverstorage.StorageFactory, resourceTransformers storagevalue.ResourceTransformers) generic.RESTOptionsGetter {

@@ -30,7 +30,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
-	"k8s.io/apimachinery/pkg/runtime/serializer/cbor"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/version"
 	apidiscoveryv2conversion "k8s.io/apiserver/pkg/apis/apidiscovery/v2"
@@ -175,11 +174,7 @@ func NewResourceManager(path string) ResourceManager {
 	// Register conversion for apidiscovery
 	utilruntime.Must(apidiscoveryv2conversion.RegisterConversions(scheme))
 
-	var opts []serializer.CodecFactoryOptionsMutator
-	if utilfeature.DefaultFeatureGate.Enabled(genericfeatures.CBORServingAndStorage) {
-		opts = append(opts, serializer.WithSerializer(cbor.NewSerializerInfo))
-	}
-	codecs := serializer.NewCodecFactory(scheme, opts...)
+	codecs := serializer.NewCodecFactory(scheme)
 	rdm := &resourceDiscoveryManager{
 		serializer:        codecs,
 		versionPriorities: make(map[groupVersionKey]priorityInfo),

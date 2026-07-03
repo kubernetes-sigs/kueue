@@ -96,7 +96,8 @@ func newWaitingPod(pod *v1.Pod, pluginsMaxWaitTime map[string]time.Duration) *wa
 	// lock here so that time.AfterFunc can only execute after newWaitingPod finishes.
 	wp.mu.Lock()
 	defer wp.mu.Unlock()
-	for plugin, waitTime := range pluginsMaxWaitTime {
+	for k, v := range pluginsMaxWaitTime {
+		plugin, waitTime := k, v
 		wp.pendingPlugins[plugin] = time.AfterFunc(waitTime, func() {
 			msg := fmt.Sprintf("rejected due to timeout after waiting %v at plugin %v",
 				waitTime, plugin)

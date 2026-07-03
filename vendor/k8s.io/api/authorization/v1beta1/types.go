@@ -32,9 +32,8 @@ import (
 // +k8s:prerelease-lifecycle-gen:replacement=authorization.k8s.io,v1,SubjectAccessReview
 
 // SubjectAccessReview checks whether or not a user or group can perform an action.
-// +k8s:supportsSubresource="/status"
 type SubjectAccessReview struct {
-	metav1.TypeMeta `json:""`
+	metav1.TypeMeta `json:",inline"`
 	// metadata is the standard list metadata.
 	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
 	// +optional
@@ -59,9 +58,8 @@ type SubjectAccessReview struct {
 // SelfSubjectAccessReview checks whether or the current user can perform an action.  Not filling in a
 // spec.namespace means "in all namespaces".  Self is a special case, because users should always be able
 // to check whether they can perform an action
-// +k8s:supportsSubresource="/status"
 type SelfSubjectAccessReview struct {
-	metav1.TypeMeta `json:""`
+	metav1.TypeMeta `json:",inline"`
 	// metadata is the standard list metadata.
 	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
 	// +optional
@@ -85,9 +83,8 @@ type SelfSubjectAccessReview struct {
 // LocalSubjectAccessReview checks whether or not a user or group can perform an action in a given namespace.
 // Having a namespace scoped resource makes it much easier to grant namespace scoped policy that includes permissions
 // checking.
-// +k8s:supportsSubresource="/status"
 type LocalSubjectAccessReview struct {
-	metav1.TypeMeta `json:""`
+	metav1.TypeMeta `json:",inline"`
 	// metadata is the standard list metadata.
 	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
 	// +optional
@@ -151,13 +148,9 @@ type NonResourceAttributes struct {
 type SubjectAccessReviewSpec struct {
 	// resourceAttributes describes information for a resource access request
 	// +optional
-	// +k8s:alpha(since: "1.37")=+k8s:optional
-	// +k8s:alpha(since: "1.37")=+k8s:unionMember
 	ResourceAttributes *ResourceAttributes `json:"resourceAttributes,omitempty" protobuf:"bytes,1,opt,name=resourceAttributes"`
 	// nonResourceAttributes describes information for a non-resource access request
 	// +optional
-	// +k8s:alpha(since: "1.37")=+k8s:optional
-	// +k8s:alpha(since: "1.37")=+k8s:unionMember
 	NonResourceAttributes *NonResourceAttributes `json:"nonResourceAttributes,omitempty" protobuf:"bytes,2,opt,name=nonResourceAttributes"`
 
 	// user is the user you're testing for.
@@ -191,13 +184,9 @@ func (t ExtraValue) String() string {
 type SelfSubjectAccessReviewSpec struct {
 	// resourceAttributes describes information for a resource access request
 	// +optional
-	// +k8s:alpha(since: "1.37")=+k8s:optional
-	// +k8s:alpha(since: "1.37")=+k8s:unionMember
 	ResourceAttributes *ResourceAttributes `json:"resourceAttributes,omitempty" protobuf:"bytes,1,opt,name=resourceAttributes"`
 	// nonResourceAttributes describes information for a non-resource access request
 	// +optional
-	// +k8s:alpha(since: "1.37")=+k8s:optional
-	// +k8s:alpha(since: "1.37")=+k8s:unionMember
 	NonResourceAttributes *NonResourceAttributes `json:"nonResourceAttributes,omitempty" protobuf:"bytes,2,opt,name=nonResourceAttributes"`
 }
 
@@ -235,9 +224,8 @@ type SubjectAccessReviewStatus struct {
 // or to quickly let an end user reason about their permissions. It should NOT Be used by external systems to
 // drive authorization decisions as this raises confused deputy, cache lifetime/revocation, and correctness concerns.
 // SubjectAccessReview, and LocalAccessReview are the correct way to defer authorization decisions to the API server.
-// +k8s:supportsSubresource="/status"
 type SelfSubjectRulesReview struct {
-	metav1.TypeMeta `json:""`
+	metav1.TypeMeta `json:",inline"`
 	// metadata is the standard list metadata.
 	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
 	// +optional
