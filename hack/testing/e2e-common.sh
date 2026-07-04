@@ -257,6 +257,11 @@ fi
 if [[ -n ${KUBERAY_VERSION:-} && ("$GINKGO_ARGS" =~ feature:kuberay || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     export KUBERAY_MANIFEST="${ROOT_DIR}/dep-crds/ray-operator/default/"
     export KUBERAY_IMAGE=quay.io/kuberay/operator:${KUBERAY_VERSION}
+    # Redis backend for the GCS fault-tolerance e2e test.
+    if [ -z "${E2E_TEST_REDIS_IMAGE:-}" ]; then
+        E2E_TEST_REDIS_IMAGE=$(grep '^FROM' "${ROOT_DIR}/hack/testing/redis/Dockerfile" | awk '{print $2}')
+        export E2E_TEST_REDIS_IMAGE=${E2E_TEST_REDIS_IMAGE%%@*}
+    fi
 fi
 
 if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename|workloadidentifierannotations) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
@@ -612,6 +617,7 @@ function prepare_docker_images {
     fi
     if [[ -n ${KUBERAY_VERSION:-} && ("$GINKGO_ARGS" =~ feature:kuberay || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_docker_pull_if_needed "${KUBERAY_IMAGE}"
+        e2e_docker_pull_if_needed "${E2E_TEST_REDIS_IMAGE}"
         determine_kuberay_ray_image
         if [[ "${USE_RAY_FOR_TESTS:-}" == "ray" ]]; then
             e2e_docker_pull_if_needed "${KUBERAY_RAY_IMAGE}"
@@ -1160,6 +1166,7 @@ function install_kuberay {
 
     cluster_kind_load_image "$name" "${KUBERAY_RAY_IMAGE}"
     cluster_kind_load_image "$name" "${KUBERAY_IMAGE}"
+    cluster_kind_load_image "$name" "${E2E_TEST_REDIS_IMAGE}"
     # In E2E_MODE=dev we keep and reuse the kind cluster between runs.
     #
     # "kubectl create -k" is used instead of apply (https://github.com/ray-project/kuberay/issues/504),
