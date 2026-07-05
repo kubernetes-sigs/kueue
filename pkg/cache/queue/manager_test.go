@@ -19,6 +19,7 @@ package queue
 import (
 	"context"
 	"errors"
+	"maps"
 	"runtime"
 	"strings"
 	"sync"
@@ -2159,5 +2160,85 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 				t.Errorf("Unexpected ready workloads returned (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// TestRebroadcastAtTime verifies the timer deduplication and minimum-grace
+// clamping of RebroadcastAtTime, and that a fired timer notifies the
+// inadmissible-workload requeuer and clears its dedup entry.
+func TestRebroadcastAtTime(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	now := time.Now()
+	fakeClock := testingclock.NewFakeClock(now)
+	cl := utiltesting.NewFakeClient()
+	manager, requeuer := NewManagerForUnitTestsWithRequeuer(cl, nil, WithClock(fakeClock))
+
+	for _, cq := range []*kueue.ClusterQueue{
+		utiltestingapi.MakeClusterQueue("cq1").Cohort("rebroadcast-cohort").Obj(),
+		utiltestingapi.MakeClusterQueue("cq2").Cohort("rebroadcast-cohort").Obj(),
+		utiltestingapi.MakeClusterQueue("standalone").Obj(),
+	} {
+		if err := manager.AddClusterQueue(ctx, cq); err != nil {
+			t.Fatalf("Failed adding clusterQueue %s: %v", cq.Name, err)
+		}
+	}
+
+	pending := func() map[rebroadcastKey]time.Time {
+		manager.RLock()
+		defer manager.RUnlock()
+		return maps.Clone(manager.pendingRebroadcasts)
+	}
+	cohortKey := rebroadcastKey{cohort: "rebroadcast-cohort"}
+	standaloneKey := rebroadcastKey{clusterQueue: "standalone"}
+
+	manager.RebroadcastAtTime(now.Add(5*time.Second), "cq1")
+	want := map[rebroadcastKey]time.Time{cohortKey: now.Add(5*time.Second + rebroadcastMinGrace)}
+	if diff := cmp.Diff(want, pending()); diff != "" {
+		t.Errorf("Unexpected pending rebroadcasts after first arm (-want,+got):\n%s", diff)
+	}
+
+	// A later request for the same Cohort tree is deduplicated, including
+	// via a sibling ClusterQueue sharing the root Cohort.
+	manager.RebroadcastAtTime(now.Add(8*time.Second), "cq1")
+	manager.RebroadcastAtTime(now.Add(8*time.Second), "cq2")
+	if diff := cmp.Diff(want, pending()); diff != "" {
+		t.Errorf("Unexpected pending rebroadcasts after duplicate arms (-want,+got):\n%s", diff)
+	}
+
+	// An earlier request re-arms.
+	manager.RebroadcastAtTime(now.Add(2*time.Second), "cq2")
+	want[cohortKey] = now.Add(2*time.Second + rebroadcastMinGrace)
+	if diff := cmp.Diff(want, pending()); diff != "" {
+		t.Errorf("Unexpected pending rebroadcasts after earlier re-arm (-want,+got):\n%s", diff)
+	}
+
+	// An unknown ClusterQueue arms nothing.
+	manager.RebroadcastAtTime(now.Add(2*time.Second), "unknown")
+	if diff := cmp.Diff(want, pending()); diff != "" {
+		t.Errorf("Unexpected pending rebroadcasts after unknown ClusterQueue (-want,+got):\n%s", diff)
+	}
+
+	// A request for a time in the past is clamped to the minimum grace, so
+	// the timer always fires after the arming scheduling cycle completes.
+	manager.RebroadcastAtTime(now.Add(-time.Hour), "standalone")
+	want[standaloneKey] = now.Add(rebroadcastMinGrace)
+	if diff := cmp.Diff(want, pending()); diff != "" {
+		t.Errorf("Unexpected pending rebroadcasts after past-time arm (-want,+got):\n%s", diff)
+	}
+
+	// Fire all timers and wait for the callbacks (which may run in timer
+	// goroutines) to notify the requeuer and clear the dedup entries.
+	fakeClock.Step(10*time.Second + 2*rebroadcastMinGrace)
+	waitDeadline := time.Now().Add(headsTimeout)
+	for {
+		notifiedCQs, notifiedCohorts := requeuer.notified()
+		if len(pending()) == 0 && notifiedCQs.Has("standalone") && notifiedCohorts.Has("rebroadcast-cohort") {
+			break
+		}
+		if time.Now().After(waitDeadline) {
+			t.Fatalf("Timed out waiting for rebroadcast timers to fire; pending=%v, notifiedCQs=%v, notifiedCohorts=%v",
+				pending(), notifiedCQs.UnsortedList(), notifiedCohorts.UnsortedList())
+		}
+		time.Sleep(time.Millisecond)
 	}
 }

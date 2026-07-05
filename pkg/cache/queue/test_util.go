@@ -18,6 +18,7 @@ package queue
 
 import (
 	"context"
+	"sync"
 
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -27,17 +28,25 @@ import (
 
 // testInadmissibleWorkloadRequeuer buffers requeue events
 // to be processed synchronously, for use in unit tests.
+// Notifications may arrive from timer goroutines (e.g. via
+// Manager.RebroadcastAtTime), so the buffered sets are mutex-guarded.
 type testInadmissibleWorkloadRequeuer struct {
 	manager *Manager
+
+	sync.Mutex
 	cqs     sets.Set[kueue.ClusterQueueReference]
 	cohorts sets.Set[kueue.CohortReference]
 }
 
 func (r *testInadmissibleWorkloadRequeuer) notifyClusterQueue(cqName kueue.ClusterQueueReference) {
+	r.Lock()
+	defer r.Unlock()
 	r.cqs.Insert(cqName)
 }
 
 func (r *testInadmissibleWorkloadRequeuer) notifyCohort(cohortName kueue.CohortReference) {
+	r.Lock()
+	defer r.Unlock()
 	r.cohorts.Insert(cohortName)
 }
 
@@ -45,19 +54,31 @@ func (r *testInadmissibleWorkloadRequeuer) setManager(manager *Manager) {
 	r.manager = manager
 }
 
+// notified returns a snapshot of the buffered, unprocessed notifications.
+func (r *testInadmissibleWorkloadRequeuer) notified() (sets.Set[kueue.ClusterQueueReference], sets.Set[kueue.CohortReference]) {
+	r.Lock()
+	defer r.Unlock()
+	return r.cqs.Clone(), r.cohorts.Clone()
+}
+
 // ProcessRequeues requeues all the inadmissible workloads
 // belonging to Cohorts/Queues which were notified.
 // Returns the total number of workloads moved.
 func (w *testInadmissibleWorkloadRequeuer) ProcessRequeues(ctx context.Context) int {
-	total := 0
-	for cqName := range w.cqs {
-		total += requeueWorkloadsCQ(ctx, w.manager, cqName)
-	}
-	for cohortName := range w.cohorts {
-		total += requeueWorkloadsCohort(ctx, w.manager, cohortName)
-	}
+	w.Lock()
+	cqs := w.cqs.UnsortedList()
+	cohorts := w.cohorts.UnsortedList()
 	w.cqs.Clear()
 	w.cohorts.Clear()
+	w.Unlock()
+
+	total := 0
+	for _, cqName := range cqs {
+		total += requeueWorkloadsCQ(ctx, w.manager, cqName)
+	}
+	for _, cohortName := range cohorts {
+		total += requeueWorkloadsCohort(ctx, w.manager, cohortName)
+	}
 	return total
 }
 

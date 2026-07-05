@@ -21,7 +21,6 @@ import (
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/klog/v2"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -77,25 +76,9 @@ type HierarchicalPreemptionCtx struct {
 	// gate is enabled), excludes cross-ClusterQueue candidates that are
 	// still within their protection window at time Now.
 	ReclaimProtection *config.PreemptionProtectionPolicy
-
-	// earliestProtectionExpiry tracks the earliest protection expiry among
-	// candidates skipped due to preemption protection.
-	earliestProtectionExpiry time.Time
-}
-
-// noteProtectionExpiry records the protection expiry of a skipped candidate,
-// keeping the earliest one for the protection-expiry retry mechanism.
-func (ctx *HierarchicalPreemptionCtx) noteProtectionExpiry(expiry time.Time) {
-	if ctx.earliestProtectionExpiry.IsZero() || expiry.Before(ctx.earliestProtectionExpiry) {
-		ctx.earliestProtectionExpiry = expiry
-	}
-}
-
-// EarliestProtectionExpiry returns the earliest protection expiry among
-// candidates skipped due to preemption protection, or the zero time if no
-// candidate was skipped.
-func (ctx *HierarchicalPreemptionCtx) EarliestProtectionExpiry() time.Time {
-	return ctx.earliestProtectionExpiry
+	// ProtectionSkips records candidates skipped due to preemption
+	// protection; it is shared with the caller's target-selection cycle.
+	ProtectionSkips *preemptioncommon.ProtectionSkipTracker
 }
 
 func IsBorrowingWithinCohortForbidden(cq *schdcache.ClusterQueueSnapshot) (bool, *int32) {
@@ -117,15 +100,6 @@ func classifyPreemptionVariant(ctx *HierarchicalPreemptionCtx, wl *workload.Info
 	if wl.ClusterQueue == ctx.Cq.Name {
 		preemptionPolicy = ctx.Cq.Preemption.WithinClusterQueue
 	} else {
-		if preemptioncommon.WithinProtectionWindow(wl.Obj, ctx.ReclaimProtection, ctx.Now) {
-			expiry := preemptioncommon.ProtectionExpiry(wl.Obj, ctx.ReclaimProtection)
-			ctx.noteProtectionExpiry(expiry)
-			ctx.Log.V(4).Info("Skipping preemption candidate within its protection window",
-				"workload", klog.KObj(wl.Obj),
-				"reason", "ReclaimWithinCohort",
-				"remainingProtection", expiry.Sub(ctx.Now))
-			return Never
-		}
 		preemptionPolicy = ctx.Cq.Preemption.ReclaimWithinCohort
 	}
 
@@ -133,6 +107,21 @@ func classifyPreemptionVariant(ctx *HierarchicalPreemptionCtx, wl *workload.Info
 		return Never
 	}
 
+	variant := preemptionVariantForCandidate(ctx, wl, haveHierarchicalAdvantage)
+	// Preemption protection is evaluated last, once every other criterion
+	// has passed, so a skip means protection is the sole reason the
+	// candidate cannot be preempted (which is what arms the expiry retry).
+	// The variant is known at this point, so the skip is logged with the
+	// true preemption reason. Within-CQ candidates are never protected.
+	if variant != WithinCQ && ctx.ProtectionSkips.Skip(ctx.Log, wl.Obj, ctx.ReclaimProtection, variant.PreemptionReason(), ctx.Now) {
+		return Never
+	}
+	return variant
+}
+
+// preemptionVariantForCandidate determines the preemption variant of a
+// candidate that already satisfies the preemption policy.
+func preemptionVariantForCandidate(ctx *HierarchicalPreemptionCtx, wl *workload.Info, haveHierarchicalAdvantage bool) preemptionVariant {
 	if wl.ClusterQueue == ctx.Cq.Name {
 		return WithinCQ
 	}

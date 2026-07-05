@@ -22,6 +22,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -46,12 +47,13 @@ const (
 	// protectionDuration is the minAdmitDuration used by scenarios that wait
 	// out the protection window. The envtest suite runs on a real clock, so
 	// it is kept short.
-	protectionDuration = 4 * time.Second
-	// protectionAssertionWindow is how long tests assert that the protected
-	// state holds (victim admitted, preemptor pending). It ends safely inside
-	// protectionDuration to tolerate the delay between the victim's admission
-	// and the start of the assertion.
-	protectionAssertionWindow = 2 * time.Second
+	protectionDuration = 5 * time.Second
+	// protectionExpiryMargin is subtracted from the protection expiry when
+	// asserting that the protected state holds: protected-state assertions
+	// run from the victim's actual Admitted condition transition time until
+	// expiry minus this margin, so the assertion never races the eviction
+	// that becomes legal at expiry.
+	protectionExpiryMargin = time.Second
 	// independenceProtectionDuration is used by the rule-independence
 	// scenarios: it is far longer than util.Timeout, so observing a
 	// preemption within util.Timeout proves the configured rule did not
@@ -59,11 +61,6 @@ const (
 	independenceProtectionDuration = 30 * time.Second
 )
 
-// Note: a dedicated capacity-reservation scenario (CanAlwaysReclaim treating a
-// ClusterQueue with reclaimWithinCohort=Any as unable to always reclaim while
-// a reclaim protection window is configured, so the scheduler reserves the
-// contested capacity for the waiting reclaimer) is covered by unit tests in
-// pkg/scheduler/preemption/policy_test.go and is not duplicated here.
 var _ = ginkgo.Describe("Preemption Protection", ginkgo.Label("feature:preemptionprotection"), func() {
 	var (
 		defaultFlavor *kueue.ResourceFlavor
@@ -157,10 +154,31 @@ var _ = ginkgo.Describe("Preemption Protection", ginkgo.Label("feature:preemptio
 		return wl
 	}
 
-	// expectProtectedFromPreemption asserts, for protectionAssertionWindow,
-	// that the victim remains admitted (and not evicted) while the preemptor
-	// does not even get a quota reservation.
-	expectProtectedFromPreemption := func(victim, preemptor *kueue.Workload) {
+	// protectedStateAssertionWindow derives, from the victim's actual
+	// Admitted condition transition time, how long the protected state can
+	// safely be asserted: until the protection expiry minus
+	// protectionExpiryMargin. The scheduler evaluates the window from the
+	// same condition timestamp, so this never races the eviction that
+	// becomes legal at expiry.
+	protectedStateAssertionWindow := func(victim *kueue.Workload) time.Duration {
+		ginkgo.GinkgoHelper()
+		updatedVictim := &kueue.Workload{}
+		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(victim), updatedVictim)).To(gomega.Succeed())
+		admittedCond := meta.FindStatusCondition(updatedVictim.Status.Conditions, kueue.WorkloadAdmitted)
+		gomega.Expect(admittedCond).NotTo(gomega.BeNil(), "the victim must be admitted before asserting its protected state")
+		gomega.Expect(admittedCond.Status).To(gomega.Equal(metav1.ConditionTrue), "the victim must be admitted before asserting its protected state")
+		remaining := time.Until(admittedCond.LastTransitionTime.Time.Add(protectionDuration - protectionExpiryMargin))
+		gomega.Expect(remaining).To(gomega.BeNumerically(">", 0),
+			"the victim's protection window (started %s) already or nearly expired before the assertion could start; the environment is too slow for protectionDuration=%s",
+			admittedCond.LastTransitionTime.Time, protectionDuration)
+		return remaining
+	}
+
+	// expectProtectedFromPreemption asserts, until shortly before the
+	// victim's protection window expires, that the victim remains admitted
+	// (and not evicted) while none of the pending workloads even get a
+	// quota reservation.
+	expectProtectedFromPreemption := func(victim *kueue.Workload, pending ...*kueue.Workload) {
 		ginkgo.GinkgoHelper()
 		gomega.Consistently(func(g gomega.Gomega) {
 			updatedVictim := &kueue.Workload{}
@@ -168,10 +186,12 @@ var _ = ginkgo.Describe("Preemption Protection", ginkgo.Label("feature:preemptio
 			g.Expect(workload.IsAdmitted(updatedVictim)).To(gomega.BeTrue(), "the victim should remain admitted within the protection window")
 			g.Expect(workloadevict.IsEvicted(updatedVictim)).To(gomega.BeFalse(), "the victim should not be evicted within the protection window")
 
-			updatedPreemptor := &kueue.Workload{}
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(preemptor), updatedPreemptor)).To(gomega.Succeed())
-			g.Expect(workload.HasQuotaReservation(updatedPreemptor)).To(gomega.BeFalse(), "the preemptor should stay pending within the protection window")
-		}, protectionAssertionWindow, util.Interval).Should(gomega.Succeed())
+			for _, wl := range pending {
+				updatedPending := &kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), updatedPending)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(updatedPending)).To(gomega.BeFalse(), "workload %s should stay pending within the protection window", wl.Name)
+			}
+		}, protectedStateAssertionWindow(victim), util.Interval).Should(gomega.Succeed())
 	}
 
 	cqPath := func(cq *kueue.ClusterQueue) string {
@@ -336,6 +356,78 @@ var _ = ginkgo.Describe("Preemption Protection", ginkgo.Label("feature:preemptio
 
 			ginkgo.By("Checking that the reclaimer is admitted")
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, preemptor)
+		})
+	})
+
+	ginkgo.Context("with classical preemption, reclaimWithinCohort.minAdmitDuration and a competing borrower", func() {
+		var (
+			cqOwner      *kueue.ClusterQueue
+			cqVictim     *kueue.ClusterQueue
+			cqCompetitor *kueue.ClusterQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			startManagerAndCreateBase(&config.Configuration{
+				PreemptionProtection: &config.PreemptionProtection{
+					ReclaimWithinCohort: &config.PreemptionProtectionPolicy{
+						MinAdmitDuration: &metav1.Duration{Duration: protectionDuration},
+					},
+				},
+			})
+
+			// StrictFIFO makes the pending reclaimer requeue straight into
+			// the heap, so it is re-attempted in every scheduling cycle —
+			// including every cycle that considers the competitor — and
+			// re-reserves the contested capacity each time
+			// (reserveCapacityForUnreclaimablePreempt with CanAlwaysReclaim
+			// false due to the configured reclaim protection).
+			cqOwner = createQueue(utiltestingapi.MakeClusterQueue("capres-owner").
+				Cohort("capres-cohort").
+				QueueingStrategy(kueue.StrictFIFO).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "6").Obj()).
+				Preemption(kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				}).
+				Obj())
+			cqVictim = createQueue(utiltestingapi.MakeClusterQueue("capres-victim").
+				Cohort("capres-cohort").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "0").Obj()).
+				Obj())
+			cqCompetitor = createQueue(utiltestingapi.MakeClusterQueue("capres-competitor").
+				Cohort("capres-cohort").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "0").Obj()).
+				Obj())
+		})
+
+		// Covers KEP test plan item 8: while an owner's reclaim is blocked
+		// only by protection, the scheduler reserves the contested capacity
+		// (CanAlwaysReclaim returns false when reclaim protection is
+		// configured), so a new workload in another borrowing ClusterQueue
+		// is not admitted onto it even though it would fit.
+		ginkgo.It("should not admit a competing borrower onto capacity reserved for a protection-blocked reclaimer", func() {
+			ginkgo.By("Admitting a borrowing workload that consumes part of the owner's nominal quota")
+			victim := createWorkload("victim", cqVictim.Name, midPriority, "4")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, victim)
+
+			ginkgo.By("Creating a reclaimer that is blocked only by the victim's protection window")
+			reclaimer := createWorkload("reclaimer", cqOwner.Name, highPriority, "4")
+
+			ginkgo.By("Creating a competitor that would fit on the currently unused capacity")
+			competitor := createWorkload("competitor", cqCompetitor.Name, midPriority, "2")
+
+			ginkgo.By("Checking that neither the reclaimer nor the competitor is admitted within the protection window")
+			expectProtectedFromPreemption(victim, reclaimer, competitor)
+
+			ginkgo.By("Checking that the victim is reclaimed after the protection window expires")
+			util.ExpectPreemptedCondition(ctx, k8sClient, kueue.InCohortReclamationReason, metav1.ConditionTrue,
+				victim, reclaimer, string(reclaimer.UID), "UNKNOWN", cqPath(cqOwner), cqPath(cqVictim))
+			util.FinishEvictionForWorkloads(ctx, k8sClient, victim)
+
+			ginkgo.By("Checking that the reclaimer is admitted")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, reclaimer)
+
+			ginkgo.By("Checking that the competitor is admitted onto the remaining capacity")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, competitor)
 		})
 	})
 

@@ -182,6 +182,12 @@ type Manager struct {
 
 	requeuer inadmissibleRequeuer
 
+	// pendingRebroadcasts tracks, per rebroadcast target (root Cohort or
+	// standalone ClusterQueue), the earliest time an already-armed
+	// rebroadcast timer fires, so RebroadcastAtTime can skip arming
+	// redundant timers. Guarded by the Manager's lock.
+	pendingRebroadcasts map[rebroadcastKey]time.Time
+
 	// preemptionExpectations track the preemptions initated by scheduler,
 	// but for which scheduler does not yet observed the Evicted condition.
 	// Once the Evicted condition is observed by scheduler the expectation
@@ -211,6 +217,7 @@ func NewManager(client client.Client, checker StatusChecker, requeuer inadmissib
 		AfsEntryPenalties:      queueafs.NewPenaltyMap(),
 		AfsConsumedResources:   queueafs.NewAfsConsumedResources(),
 		requeuer:               requeuer,
+		pendingRebroadcasts:    make(map[rebroadcastKey]time.Time),
 	}
 	for _, option := range options {
 		option(m)
@@ -923,15 +930,84 @@ func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload
 	return false
 }
 
-// RebroadcastAtTime schedules a retry, at time t, of the inadmissible
-// workloads of the given ClusterQueues (and of all ClusterQueues in their
-// Cohort trees), moving them back to the active workload heaps and waking
-// the scheduler. It is used to retry pending preemptors once a
+// rebroadcastMinGrace is the minimum delay before a rebroadcast timer armed
+// by RebroadcastAtTime fires. The scheduler arms the timer mid-cycle (from
+// GetTargets), while the pending preemptor is only moved to the inadmissible
+// set at the end of the cycle (requeueAndUpdate). Without the grace, a timer
+// for an imminent (or already past) expiry could fire against a still-empty
+// inadmissible set — a lost wakeup with no second timer behind it. The grace
+// guarantees the timer fires after the arming cycle's requeue completed.
+const rebroadcastMinGrace = time.Second
+
+// rebroadcastKey identifies the target of an armed rebroadcast timer: a root
+// Cohort or a standalone ClusterQueue (matching how NotifyRetryInadmissible
+// fans a ClusterQueue notification out to its whole Cohort tree).
+type rebroadcastKey struct {
+	cohort       kueue.CohortReference
+	clusterQueue kueue.ClusterQueueReference
+}
+
+// rebroadcastKeyLocked resolves the rebroadcast target for a ClusterQueue.
+// It returns false for unknown ClusterQueues and Cohort trees with cycles,
+// which NotifyRetryInadmissible would ignore anyway.
+// The Manager's lock must be held.
+func (m *Manager) rebroadcastKeyLocked(cqName kueue.ClusterQueueReference) (rebroadcastKey, bool) {
+	cq := m.hm.ClusterQueue(cqName)
+	switch {
+	case cq == nil:
+		return rebroadcastKey{}, false
+	case !cq.HasParent():
+		return rebroadcastKey{clusterQueue: cq.name}, true
+	case hierarchy.HasCycle(cq.Parent()):
+		return rebroadcastKey{}, false
+	default:
+		return rebroadcastKey{cohort: cq.Parent().getRootUnsafe().GetName()}, true
+	}
+}
+
+// RebroadcastAtTime schedules a retry, shortly after time t, of the
+// inadmissible workloads of the given ClusterQueues (and of all ClusterQueues
+// in their Cohort trees), moving them back to the active workload heaps and
+// waking the scheduler. It is used to retry pending preemptors once a
 // preemption-protection window expires, since protection expiry is a purely
 // time-based event that produces no cluster event.
+// A ClusterQueue is skipped when a timer for its Cohort tree is already armed
+// to fire at or before the requested time, so repeated scheduling cycles
+// against the same protected candidates don't accumulate timers.
 func (m *Manager) RebroadcastAtTime(t time.Time, cqNames ...kueue.ClusterQueueReference) {
-	m.clock.AfterFunc(t.Sub(m.clock.Now()), func() {
-		NotifyRetryInadmissible(m, sets.New(cqNames...))
+	m.Lock()
+	defer m.Unlock()
+	delay := max(t.Sub(m.clock.Now()), 0) + rebroadcastMinGrace
+	fireAt := m.clock.Now().Add(delay)
+	var keys []rebroadcastKey
+	toNotify := sets.New[kueue.ClusterQueueReference]()
+	for _, cqName := range cqNames {
+		key, ok := m.rebroadcastKeyLocked(cqName)
+		if !ok {
+			continue
+		}
+		if armed, ok := m.pendingRebroadcasts[key]; ok && !armed.After(fireAt) {
+			continue
+		}
+		m.pendingRebroadcasts[key] = fireAt
+		keys = append(keys, key)
+		toNotify.Insert(cqName)
+	}
+	if len(toNotify) == 0 {
+		return
+	}
+	m.clock.AfterFunc(delay, func() {
+		m.Lock()
+		for _, key := range keys {
+			delete(m.pendingRebroadcasts, key)
+		}
+		m.Unlock()
+		NotifyRetryInadmissible(m, toNotify)
+		// Wake the scheduler directly as well: the pending preemptor may be
+		// heap-resident (e.g. in a StrictFIFO ClusterQueue) rather than in
+		// the inadmissible set, in which case NotifyRetryInadmissible moves
+		// nothing and would not broadcast.
+		m.Broadcast()
 	})
 }
 

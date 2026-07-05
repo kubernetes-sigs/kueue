@@ -45,6 +45,9 @@ func (p *PreemptionOracle) SimulatePreemption(
 	fr resources.FlavorResource,
 	quantity resources.Amount,
 ) (preemptioncommon.PreemptionPossibility, int) {
+	// The oracle calls the unexported getTargets directly, so simulations
+	// never arm the protection-expiry retry (that happens only in the
+	// exported GetTargets); the tracker only collects skips for this run.
 	candidates := p.preemptor.getTargets(&preemptionCtx{
 		clock:                 p.preemptor.clock,
 		now:                   p.preemptor.clock.Now(),
@@ -55,6 +58,7 @@ func (p *PreemptionOracle) SimulatePreemption(
 		frsNeedPreemption:     sets.New(fr),
 		fairSharingProtection: p.preemptor.fairSharingProtectionRule(),
 		reclaimProtection:     p.preemptor.reclaimProtectionRule(),
+		protectionSkips:       &preemptioncommon.ProtectionSkipTracker{},
 		workloadUsage:         workload.Usage{Quota: resources.FlavorResourceQuantities{fr: quantity}},
 	})
 
