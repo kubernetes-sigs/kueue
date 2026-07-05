@@ -353,20 +353,22 @@ func (r *LocalQueueReconciler) initializeAfsIfNeeded(lq *kueue.LocalQueue) (hadC
 	}
 
 	if !hadCache {
-		currentUsage := r.getCurrentUsageForLocalQueue(lq.Spec.ClusterQueue, lqKey)
-		r.queues.AfsConsumedResources.Set(lqKey, currentUsage, now)
-		entry = queueafs.ConsumedResourcesEntry{Resources: currentUsage, LastUpdate: now}
+		// Seed only from persisted state, never from live admitted usage: counting a
+		// concurrently-admitted Workload here would double it against its still-pending
+		// entry penalty, inflating the LocalQueue and inverting preemption ordering
+		// (#12783). Stamping LastUpdate to now keeps the first sampling tick at ~zero
+		// elapsed so it folds no live usage, leaving the seed independent of any
+		// in-flight admission; the EMA converges over later ticks. An empty seed is
+		// correct for a fresh LocalQueue: its entry penalty accounts for early admissions.
+		seeded := corev1.ResourceList{}
+		if hasStatus {
+			seeded = lq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources.DeepCopy()
+		}
+		r.queues.AfsConsumedResources.Set(lqKey, seeded, now)
+		entry = queueafs.ConsumedResourcesEntry{Resources: seeded, LastUpdate: now}
 	}
 
 	return hadCache, entry
-}
-
-func (r *LocalQueueReconciler) getCurrentUsageForLocalQueue(cqName kueue.ClusterQueueReference, lqKey utilqueue.LocalQueueReference) corev1.ResourceList {
-	cacheLq, err := r.cache.GetCacheLocalQueue(cqName, lqKey)
-	if err != nil {
-		return corev1.ResourceList{}
-	}
-	return cacheLq.GetAdmittedUsage()
 }
 
 func (r *LocalQueueReconciler) reconcileConsumedUsage(ctx context.Context, lq *kueue.LocalQueue) error {

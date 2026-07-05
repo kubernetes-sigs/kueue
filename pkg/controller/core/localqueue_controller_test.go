@@ -529,7 +529,10 @@ func TestLocalQueueReconcile(t *testing.T) {
 				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
 			},
 		},
-		"local queue with uninitialized cache captures current usage": {
+		"local queue with uninitialized cache and no prior status seeds empty usage": {
+			// The admitted workload must not be counted at full weight here:
+			// its entry penalty is added by the workload reconciler, and a
+			// full-usage seed would double-count the admission (#12783).
 			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				Active(metav1.ConditionTrue).
 				Obj(),
@@ -561,7 +564,61 @@ func TestLocalQueueReconcile(t *testing.T) {
 						AdmissionFairSharingStatus: &kueue.LocalQueueAdmissionFairSharingStatus{
 							LastUpdate: metav1.NewTime(clock.Now()),
 							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-								corev1.ResourceCPU: resource.MustParse("4"),
+								corev1.ResourceCPU: resource.MustParse("0"),
+							},
+						},
+					}).
+				Obj(),
+			afsConfig: &config.AdmissionFairSharing{
+				UsageHalfLifeTime:     metav1.Duration{Duration: 5 * time.Minute},
+				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
+			},
+		},
+		"local queue with uninitialized cache seeds from persisted status usage": {
+			// Restart recovery: the persisted status EMA (8 CPU) is restored
+			// verbatim; the first tick after seeding folds no live usage, so the
+			// rebuilt entry stays 8 CPU and converges toward current usage (4 CPU) over ticks.
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				Obj(),
+			localQueue: utiltestingapi.MakeLocalQueue("lq", "default").
+				ClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				FairSharing(&kueue.FairSharing{
+					Weight: new(resource.MustParse("1")),
+				}).
+				FairSharingStatus(
+					&kueue.LocalQueueFairSharingStatus{
+						AdmissionFairSharingStatus: &kueue.LocalQueueAdmissionFairSharingStatus{
+							LastUpdate: metav1.NewTime(clock.Now().Add(-5 * time.Minute)),
+							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
+								corev1.ResourceCPU: resource.MustParse("8"),
+							},
+						},
+					}).
+				Obj(),
+			runningWls: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "default").
+					Queue("lq").
+					Request(corev1.ResourceCPU, "4").
+					SimpleReserveQuota("cq", "rf", clock.Now()).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("lq", "default").
+				ClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				ReservingWorkloads(1).
+				AdmittedWorkloads(1).
+				FairSharing(&kueue.FairSharing{
+					Weight: new(resource.MustParse("1")),
+				}).
+				FairSharingStatus(
+					&kueue.LocalQueueFairSharingStatus{
+						AdmissionFairSharingStatus: &kueue.LocalQueueAdmissionFairSharingStatus{
+							LastUpdate: metav1.NewTime(clock.Now()),
+							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
+								corev1.ResourceCPU: resource.MustParse("8"),
 							},
 						},
 					}).
