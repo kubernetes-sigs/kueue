@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/go-logr/logr"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -920,6 +921,18 @@ func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload
 		m.secondPassQueue.deleteByKey(wlKey)
 	}
 	return false
+}
+
+// RebroadcastAtTime schedules a retry, at time t, of the inadmissible
+// workloads of the given ClusterQueues (and of all ClusterQueues in their
+// Cohort trees), moving them back to the active workload heaps and waking
+// the scheduler. It is used to retry pending preemptors once a
+// preemption-protection window expires, since protection expiry is a purely
+// time-based event that produces no cluster event.
+func (m *Manager) RebroadcastAtTime(t time.Time, cqNames ...kueue.ClusterQueueReference) {
+	m.clock.AfterFunc(t.Sub(m.clock.Now()), func() {
+		NotifyRetryInadmissible(m, sets.New(cqNames...))
+	})
 }
 
 func (m *Manager) queueSecondPass(ctx context.Context, w *kueue.Workload, iteration int) {

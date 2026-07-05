@@ -23,6 +23,7 @@ import (
 	"slices"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -67,6 +68,14 @@ type Preemptor struct {
 	enableFairSharing bool
 	fsStrategies      []fairsharing.Strategy
 
+	preemptionProtection *config.PreemptionProtection
+	// retryAfter, when set, schedules a retry of the pending preemptor's
+	// ClusterQueue at the given time. It is invoked from GetTargets when
+	// target selection produced no targets but skipped candidates due to
+	// preemption protection, so that the preemptor is retried once the
+	// earliest protection window expires.
+	retryAfter func(time.Time, kueue.ClusterQueueReference)
+
 	enabledAfs             bool
 	roleTracker            *roletracker.RoleTracker
 	customLabels           *metrics.CustomLabels
@@ -74,7 +83,10 @@ type Preemptor struct {
 }
 
 type preemptionCtx struct {
-	clock             clock.Clock
+	clock clock.Clock
+	// now is the time at which preemption protection windows are
+	// evaluated, taken once per target-selection cycle.
+	now               time.Time
 	log               logr.Logger
 	preemptor         workload.Info
 	preemptorCQ       *schdcache.ClusterQueueSnapshot
@@ -82,6 +94,35 @@ type preemptionCtx struct {
 	workloadUsage     workload.Usage
 	tasRequests       schdcache.WorkloadTASRequests
 	frsNeedPreemption sets.Set[resources.FlavorResource]
+
+	// fairSharingProtection and reclaimProtection are the resolved
+	// preemption-protection rules (nil when not configured).
+	fairSharingProtection *config.PreemptionProtectionPolicy
+	reclaimProtection     *config.PreemptionProtectionPolicy
+	// earliestProtectionExpiry tracks the earliest protection expiry among
+	// candidates skipped due to preemption protection during target
+	// selection, used to retry the preemptor once protection expires.
+	earliestProtectionExpiry time.Time
+}
+
+// noteProtectionExpiry records the protection expiry of a skipped candidate,
+// keeping the earliest one for the protection-expiry retry mechanism.
+func (ctx *preemptionCtx) noteProtectionExpiry(expiry time.Time) {
+	if ctx.earliestProtectionExpiry.IsZero() || expiry.Before(ctx.earliestProtectionExpiry) {
+		ctx.earliestProtectionExpiry = expiry
+	}
+}
+
+// skipProtectedCandidate records a candidate skipped due to preemption
+// protection: it tracks the earliest protection expiry (for the retry
+// mechanism) and logs the skip at V(4).
+func (ctx *preemptionCtx) skipProtectedCandidate(wl *workload.Info, rule *config.PreemptionProtectionPolicy, reason string) {
+	expiry := preemptioncommon.ProtectionExpiry(wl.Obj, rule)
+	ctx.noteProtectionExpiry(expiry)
+	ctx.log.V(4).Info("Skipping preemption candidate within its protection window",
+		"workload", klog.KObj(wl.Obj),
+		"reason", reason,
+		"remainingProtection", expiry.Sub(ctx.now))
 }
 
 func New(
@@ -89,6 +130,7 @@ func New(
 	workloadOrdering workload.Ordering,
 	recorder events.EventRecorder,
 	fs *config.FairSharing,
+	pp *config.PreemptionProtection,
 	enabledAfs bool,
 	clock clock.Clock,
 	tracker *roletracker.RoleTracker,
@@ -102,12 +144,39 @@ func New(
 		workloadOrdering:       workloadOrdering,
 		enableFairSharing:      fairsharing.Enabled(fs),
 		fsStrategies:           parseStrategies(fs),
+		preemptionProtection:   pp,
 		enabledAfs:             enabledAfs,
 		roleTracker:            tracker,
 		customLabels:           customLabels,
 		preemptionExpectations: preemptionExpectations,
 	}
 	return p
+}
+
+// SetRetryAfter sets the callback used to schedule a retry of a pending
+// preemptor's ClusterQueue once the earliest preemption-protection window
+// among skipped candidates expires. It is only invoked from GetTargets when
+// the final target list is empty; oracle simulations never schedule retries.
+func (p *Preemptor) SetRetryAfter(retryAfter func(time.Time, kueue.ClusterQueueReference)) {
+	p.retryAfter = retryAfter
+}
+
+// fairSharingProtectionRule returns the configured fair-sharing
+// preemption-protection rule, or nil when not configured.
+func (p *Preemptor) fairSharingProtectionRule() *config.PreemptionProtectionPolicy {
+	if p.preemptionProtection == nil {
+		return nil
+	}
+	return p.preemptionProtection.FairSharing
+}
+
+// reclaimProtectionRule returns the configured reclaim-within-cohort
+// preemption-protection rule, or nil when not configured.
+func (p *Preemptor) reclaimProtectionRule() *config.PreemptionProtectionPolicy {
+	if p.preemptionProtection == nil {
+		return nil
+	}
+	return p.preemptionProtection.ReclaimWithinCohort
 }
 
 type Target struct {
@@ -132,19 +201,35 @@ func (p *Preemptor) GetTargets(log logr.Logger, wl workload.Info, assignment fla
 	if features.Enabled(features.TopologyAwareScheduling) {
 		tasRequests = assignment.WorkloadsTopologyRequests(log, &wl, cq)
 	}
-	return p.getTargets(&preemptionCtx{
-		clock:             p.clock,
-		log:               log,
-		preemptor:         wl,
-		preemptorCQ:       cq,
-		snapshot:          snapshot,
-		tasRequests:       tasRequests,
-		frsNeedPreemption: flavorResourcesNeedPreemption(assignment),
+	preemptionCtx := &preemptionCtx{
+		clock:                 p.clock,
+		now:                   p.clock.Now(),
+		log:                   log,
+		preemptor:             wl,
+		preemptorCQ:           cq,
+		snapshot:              snapshot,
+		tasRequests:           tasRequests,
+		frsNeedPreemption:     flavorResourcesNeedPreemption(assignment),
+		fairSharingProtection: p.fairSharingProtectionRule(),
+		reclaimProtection:     p.reclaimProtectionRule(),
 		workloadUsage: workload.Usage{
 			Quota: assignment.TotalRequestsFor(log, &wl),
 			TAS:   wl.TASUsage(),
 		},
-	})
+	}
+	targets := p.getTargets(preemptionCtx)
+	// If target selection failed while some candidates were skipped only
+	// because they are within their protection window, schedule a retry of
+	// the pending workload's ClusterQueue once the earliest protection
+	// window expires. Protection expiry produces no cluster event, so
+	// without this the preemptor could wait for an unrelated event.
+	if len(targets) == 0 && p.retryAfter != nil && !preemptionCtx.earliestProtectionExpiry.IsZero() {
+		log.V(4).Info("No preemption targets due to protected candidates; scheduling retry at protection expiry",
+			"clusterQueue", wl.ClusterQueue,
+			"retryTime", preemptionCtx.earliestProtectionExpiry)
+		p.retryAfter(preemptionCtx.earliestProtectionExpiry, wl.ClusterQueue)
+	}
+	return targets
 }
 
 func (p *Preemptor) getTargets(preemptionCtx *preemptionCtx) []*Target {
@@ -282,8 +367,15 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) []*Target
 		FrsNeedPreemption: preemptionCtx.frsNeedPreemption,
 		Requests:          preemptionCtx.workloadUsage.Quota,
 		WorkloadOrdering:  p.workloadOrdering,
+		Now:               preemptionCtx.now,
+		ReclaimProtection: preemptionCtx.reclaimProtection,
 	}
 	candidatesGenerator := classical.NewCandidateIterator(hierarchicalReclaimCtx, p.enabledAfs, preemptionCtx.frsNeedPreemption, preemptionCtx.snapshot, p.clock, preemptioncommon.CandidatesOrdering)
+	// Candidates are classified when the iterator is constructed; propagate
+	// the earliest protection expiry among protection-skipped candidates.
+	if expiry := hierarchicalReclaimCtx.EarliestProtectionExpiry(); !expiry.IsZero() {
+		preemptionCtx.noteProtectionExpiry(expiry)
+	}
 	var attemptPossibleOpts []preemptionAttemptOpts
 	borrowWithinCohortForbidden, _ := classical.IsBorrowingWithinCohortForbidden(preemptionCtx.preemptorCQ)
 	// We have three types of candidates:
@@ -405,6 +497,10 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 
 		if preemptorWithinNominal {
 			candWl := candCQ.PopWorkload()
+			if preemptioncommon.WithinProtectionWindow(candWl.Obj, preemptionCtx.reclaimProtection, preemptionCtx.now) {
+				preemptionCtx.skipProtectedCandidate(candWl, preemptionCtx.reclaimProtection, kueue.InCohortReclamationReason)
+				continue
+			}
 			preemptionCtx.snapshot.RemoveWorkload(candWl)
 			targets = append(targets, &Target{
 				WorkloadInfo: candWl,
@@ -420,6 +516,13 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 		preemptorNewShare, targetOldShare := candCQ.ComputeShares()
 		for candCQ.HasWorkload() {
 			candWl := candCQ.PopWorkload()
+			if preemptioncommon.WithinProtectionWindow(candWl.Obj, preemptionCtx.fairSharingProtection, preemptionCtx.now) {
+				// Protected candidates are skipped entirely; they must not
+				// become retryCandidates for the second strategy, which
+				// would face the same protection.
+				preemptionCtx.skipProtectedCandidate(candWl, preemptionCtx.fairSharingProtection, kueue.InCohortFairSharingReason)
+				continue
+			}
 			targetNewShare := candCQ.ComputeTargetShareAfterRemoval(candWl)
 			passed := strategy(preemptorNewShare, targetOldShare, targetNewShare)
 			if logV := preemptionCtx.log.V(4); logV.Enabled() {
@@ -460,6 +563,10 @@ func runSecondFsStrategy(retryCandidates []*workload.Info, preemptionCtx *preemp
 		passed := fairsharing.LessThanInitialShare(preemptorNewShare, targetOldShare, fairsharing.TargetNewShare{})
 		// The criteria doesn't depend on the preempted workload, so just preempt the first candidate.
 		candWl := candCQ.PopWorkload()
+		if preemptioncommon.WithinProtectionWindow(candWl.Obj, preemptionCtx.fairSharingProtection, preemptionCtx.now) {
+			preemptionCtx.skipProtectedCandidate(candWl, preemptionCtx.fairSharingProtection, kueue.InCohortFairSharingReason)
+			continue
+		}
 		if logV := preemptionCtx.log.V(4); logV.Enabled() {
 			logV.Info("Evaluating FairSharing strategy",
 				"preemptorNewShare", schdcache.DRS(preemptorNewShare).PreciseWeightedShare(),

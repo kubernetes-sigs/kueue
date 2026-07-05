@@ -83,6 +83,7 @@ type Scheduler struct {
 	workloadOrdering        workload.Ordering
 	fairSharing             *config.FairSharing
 	admissionFairSharing    *config.AdmissionFairSharing
+	preemptionProtection    *config.PreemptionProtection
 	quotaCheckStrategy      config.QuotaCheckStrategy
 	clock                   clock.Clock
 	roleTracker             *roletracker.RoleTracker
@@ -97,6 +98,7 @@ type options struct {
 	podsReadyRequeuingTimestamp config.RequeuingTimestamp
 	fairSharing                 *config.FairSharing
 	admissionFairSharing        *config.AdmissionFairSharing
+	preemptionProtection        *config.PreemptionProtection
 	quotaCheckStrategy          config.QuotaCheckStrategy
 	clock                       clock.Clock
 	roleTracker                 *roletracker.RoleTracker
@@ -131,6 +133,15 @@ func WithFairSharing(fs *config.FairSharing) Option {
 func WithAdmissionFairSharing(afs *config.AdmissionFairSharing) Option {
 	return func(o *options) {
 		o.admissionFairSharing = afs
+	}
+}
+
+// WithPreemptionProtection sets the preemption-protection configuration,
+// which guarantees admitted workloads a minimum runtime before they become
+// eligible for cross-ClusterQueue preemption.
+func WithPreemptionProtection(pp *config.PreemptionProtection) Option {
+	return func(o *options) {
+		o.preemptionProtection = pp
 	}
 }
 
@@ -175,27 +186,36 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 	wo := workload.Ordering{
 		PodsReadyRequeuingTimestamp: options.podsReadyRequeuingTimestamp,
 	}
+	preemptor := preemption.New(
+		cl,
+		wo,
+		recorder,
+		options.fairSharing,
+		options.preemptionProtection,
+		afs.Enabled(options.admissionFairSharing),
+		options.clock,
+		options.roleTracker,
+		options.preemptionExpectations,
+		options.customLabels,
+	)
+	// Retry pending preemptors once the earliest preemption-protection
+	// window among skipped candidates expires; protection expiry produces
+	// no cluster event that would otherwise trigger a retry.
+	preemptor.SetRetryAfter(func(t time.Time, cqName kueue.ClusterQueueReference) {
+		queues.RebroadcastAtTime(t, cqName)
+	})
 	s := &Scheduler{
-		fairSharing: options.fairSharing,
-		queues:      queues,
-		cache:       cache,
-		client:      cl,
-		recorder:    recorder,
-		preemptor: preemption.New(
-			cl,
-			wo,
-			recorder,
-			options.fairSharing,
-			afs.Enabled(options.admissionFairSharing),
-			options.clock,
-			options.roleTracker,
-			options.preemptionExpectations,
-			options.customLabels,
-		),
+		fairSharing:             options.fairSharing,
+		queues:                  queues,
+		cache:                   cache,
+		client:                  cl,
+		recorder:                recorder,
+		preemptor:               preemptor,
 		admissionRoutineWrapper: routine.DefaultWrapper,
 		workloadOrdering:        wo,
 		clock:                   options.clock,
 		admissionFairSharing:    options.admissionFairSharing,
+		preemptionProtection:    options.preemptionProtection,
 		quotaCheckStrategy:      options.quotaCheckStrategy,
 		roleTracker:             options.roleTracker,
 		customLabels:            options.customLabels,
@@ -498,7 +518,7 @@ func (s *Scheduler) handleFailedTASReplacement(ctx context.Context, log logr.Log
 // workloads in another Cohort cannot admit before us.
 func (s *Scheduler) reserveCapacityForUnreclaimablePreempt(log logr.Logger, e *entry, cq *schdcache.ClusterQueueSnapshot) {
 	log.V(2).Info("Workload requires preemption, but there are no candidate workloads allowed for preemption", "preemption", cq.Preemption)
-	if !preemption.CanAlwaysReclaim(cq) {
+	if !preemption.CanAlwaysReclaim(cq, s.preemptionProtection) {
 		cq.AddUsage(resourcesToReserve(log, e, cq))
 	}
 }

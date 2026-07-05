@@ -46,13 +46,16 @@ func (p *PreemptionOracle) SimulatePreemption(
 	quantity resources.Amount,
 ) (preemptioncommon.PreemptionPossibility, int) {
 	candidates := p.preemptor.getTargets(&preemptionCtx{
-		clock:             p.preemptor.clock,
-		log:               log,
-		preemptor:         wl,
-		preemptorCQ:       p.snapshot.ClusterQueue(wl.ClusterQueue),
-		snapshot:          p.snapshot,
-		frsNeedPreemption: sets.New(fr),
-		workloadUsage:     workload.Usage{Quota: resources.FlavorResourceQuantities{fr: quantity}},
+		clock:                 p.preemptor.clock,
+		now:                   p.preemptor.clock.Now(),
+		log:                   log,
+		preemptor:             wl,
+		preemptorCQ:           p.snapshot.ClusterQueue(wl.ClusterQueue),
+		snapshot:              p.snapshot,
+		frsNeedPreemption:     sets.New(fr),
+		fairSharingProtection: p.preemptor.fairSharingProtectionRule(),
+		reclaimProtection:     p.preemptor.reclaimProtectionRule(),
+		workloadUsage:         workload.Usage{Quota: resources.FlavorResourceQuantities{fr: quantity}},
 	})
 
 	if len(candidates) == 0 {

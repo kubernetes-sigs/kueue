@@ -17,9 +17,13 @@ limitations under the License.
 package classical
 
 import (
+	"time"
+
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/klog/v2"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -66,6 +70,32 @@ type HierarchicalPreemptionCtx struct {
 	FrsNeedPreemption sets.Set[resources.FlavorResource]
 	Requests          resources.FlavorResourceQuantities
 	WorkloadOrdering  workload.Ordering
+	// Now is the time at which preemption protection windows are
+	// evaluated, taken once per scheduling attempt.
+	Now time.Time
+	// ReclaimProtection, when set (and the PreemptionProtection feature
+	// gate is enabled), excludes cross-ClusterQueue candidates that are
+	// still within their protection window at time Now.
+	ReclaimProtection *config.PreemptionProtectionPolicy
+
+	// earliestProtectionExpiry tracks the earliest protection expiry among
+	// candidates skipped due to preemption protection.
+	earliestProtectionExpiry time.Time
+}
+
+// noteProtectionExpiry records the protection expiry of a skipped candidate,
+// keeping the earliest one for the protection-expiry retry mechanism.
+func (ctx *HierarchicalPreemptionCtx) noteProtectionExpiry(expiry time.Time) {
+	if ctx.earliestProtectionExpiry.IsZero() || expiry.Before(ctx.earliestProtectionExpiry) {
+		ctx.earliestProtectionExpiry = expiry
+	}
+}
+
+// EarliestProtectionExpiry returns the earliest protection expiry among
+// candidates skipped due to preemption protection, or the zero time if no
+// candidate was skipped.
+func (ctx *HierarchicalPreemptionCtx) EarliestProtectionExpiry() time.Time {
+	return ctx.earliestProtectionExpiry
 }
 
 func IsBorrowingWithinCohortForbidden(cq *schdcache.ClusterQueueSnapshot) (bool, *int32) {
@@ -87,6 +117,15 @@ func classifyPreemptionVariant(ctx *HierarchicalPreemptionCtx, wl *workload.Info
 	if wl.ClusterQueue == ctx.Cq.Name {
 		preemptionPolicy = ctx.Cq.Preemption.WithinClusterQueue
 	} else {
+		if preemptioncommon.WithinProtectionWindow(wl.Obj, ctx.ReclaimProtection, ctx.Now) {
+			expiry := preemptioncommon.ProtectionExpiry(wl.Obj, ctx.ReclaimProtection)
+			ctx.noteProtectionExpiry(expiry)
+			ctx.Log.V(4).Info("Skipping preemption candidate within its protection window",
+				"workload", klog.KObj(wl.Obj),
+				"reason", "ReclaimWithinCohort",
+				"remainingProtection", expiry.Sub(ctx.Now))
+			return Never
+		}
 		preemptionPolicy = ctx.Cq.Preemption.ReclaimWithinCohort
 	}
 

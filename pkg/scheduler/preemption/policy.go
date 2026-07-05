@@ -17,13 +17,23 @@ limitations under the License.
 package preemption
 
 import (
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 // CanAlwaysReclaim indicates that the CQ is guaranteed to
 // be able to reclaim the capacity of workloads borrowing
 // its capacity.
-func CanAlwaysReclaim(cq *schdcache.ClusterQueueSnapshot) bool {
-	return cq.Preemption.ReclaimWithinCohort == kueue.PreemptionPolicyAny
+// When a reclaim preemption-protection duration is configured (and the
+// PreemptionProtection feature gate is enabled), candidates may be
+// temporarily protected from reclaim, so the guarantee no longer holds.
+func CanAlwaysReclaim(cq *schdcache.ClusterQueueSnapshot, pp *config.PreemptionProtection) bool {
+	if cq.Preemption.ReclaimWithinCohort != kueue.PreemptionPolicyAny {
+		return false
+	}
+	reclaimProtectionConfigured := features.Enabled(features.PreemptionProtection) &&
+		pp != nil && pp.ReclaimWithinCohort != nil && pp.ReclaimWithinCohort.MinAdmitDuration != nil
+	return !reclaimProtectionConfigured
 }

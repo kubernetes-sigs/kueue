@@ -24,14 +24,17 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/component-base/featuregate"
 	clocktesting "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
@@ -92,16 +95,40 @@ func TestFairPreemptions(t *testing.T) {
 			Obj(),
 	}
 	unitWl := *utiltestingapi.MakeWorkload("unit", "").Request(corev1.ResourceCPU, "1")
+	protectionDuration := 10 * time.Minute
+	fsProtection := &config.PreemptionProtection{
+		FairSharing: &config.PreemptionProtectionPolicy{
+			MinAdmitDuration: &metav1.Duration{Duration: protectionDuration},
+		},
+	}
+	reclaimProtection := &config.PreemptionProtection{
+		ReclaimWithinCohort: &config.PreemptionProtectionPolicy{
+			MinAdmitDuration: &metav1.Duration{Duration: protectionDuration},
+		},
+	}
+	bothProtections := &config.PreemptionProtection{
+		FairSharing: &config.PreemptionProtectionPolicy{
+			MinAdmitDuration: &metav1.Duration{Duration: protectionDuration},
+		},
+		ReclaimWithinCohort: &config.PreemptionProtectionPolicy{
+			MinAdmitDuration: &metav1.Duration{Duration: protectionDuration},
+		},
+	}
 	cases := map[string]struct {
-		clusterQueues    []*kueue.ClusterQueue
-		cohorts          []*kueue.Cohort
-		flavors          []*kueue.ResourceFlavor
-		assignmentFlavor kueue.ResourceFlavorReference
-		strategies       []config.PreemptionStrategy
-		admitted         []kueue.Workload
-		incoming         *kueue.Workload
-		targetCQ         kueue.ClusterQueueReference
-		wantPreempted    sets.Set[string]
+		clusterQueues        []*kueue.ClusterQueue
+		cohorts              []*kueue.Cohort
+		flavors              []*kueue.ResourceFlavor
+		assignmentFlavor     kueue.ResourceFlavorReference
+		strategies           []config.PreemptionStrategy
+		featureGates         map[featuregate.Feature]bool
+		preemptionProtection *config.PreemptionProtection
+		// clockAdvance shifts the preemptor's fake clock forward relative
+		// to the workloads' admission times.
+		clockAdvance  time.Duration
+		admitted      []kueue.Workload
+		incoming      *kueue.Workload
+		targetCQ      kueue.ClusterQueueReference
+		wantPreempted sets.Set[string]
 	}{
 		"reclaim nominal from user using the most": {
 			clusterQueues: baseCQs,
@@ -941,9 +968,184 @@ func TestFairPreemptions(t *testing.T) {
 			targetCQ:      "a",
 			wantPreempted: sets.New(targetKeyReason("/b_prem1", kueue.InCohortReclamationReason)),
 		},
+		"fair sharing does not preempt candidates within protection window": {
+			clusterQueues:        baseCQs,
+			featureGates:         map[featuregate.Feature]bool{features.PreemptionProtection: true},
+			preemptionProtection: fsProtection,
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a3").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("b1").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("b2").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("b3").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("b4").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("b5").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("c1").SimpleReserveQuota("c", "default", now).Obj(),
+			},
+			incoming: unitWl.Clone().Name("a_incoming").Obj(),
+			targetCQ: "a",
+		},
+		"fair sharing preempts the next candidate when the first is protected": {
+			clusterQueues:        baseCQs,
+			featureGates:         map[featuregate.Feature]bool{features.PreemptionProtection: true},
+			preemptionProtection: fsProtection,
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a3").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("b1").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("b2").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now.Add(-time.Hour)).Obj(),
+				*unitWl.Clone().Name("b3").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now.Add(-time.Hour)).Obj(),
+				*unitWl.Clone().Name("b4").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now.Add(-time.Hour)).Obj(),
+				*unitWl.Clone().Name("b5").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now.Add(-time.Hour)).Obj(),
+				*unitWl.Clone().Name("c1").SimpleReserveQuota("c", "default", now).Obj(),
+			},
+			incoming:      unitWl.Clone().Name("a_incoming").Obj(),
+			targetCQ:      "a",
+			wantPreempted: sets.New(targetKeyReason("/b2", kueue.InCohortFairSharingReason)),
+		},
+		"fair sharing preempts after the protection window elapses": {
+			clusterQueues:        baseCQs,
+			featureGates:         map[featuregate.Feature]bool{features.PreemptionProtection: true},
+			preemptionProtection: fsProtection,
+			clockAdvance:         protectionDuration + 5*time.Minute,
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a3").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("b1").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("b2").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("b3").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("b4").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("b5").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("c1").SimpleReserveQuota("c", "default", now).Obj(),
+			},
+			incoming:      unitWl.Clone().Name("a_incoming").Obj(),
+			targetCQ:      "a",
+			wantPreempted: sets.New(targetKeyReason("/b1", kueue.InCohortFairSharingReason)),
+		},
+		"fair sharing preempts when runtime equals the protection duration exactly": {
+			clusterQueues:        baseCQs,
+			featureGates:         map[featuregate.Feature]bool{features.PreemptionProtection: true},
+			preemptionProtection: fsProtection,
+			clockAdvance:         protectionDuration,
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a3").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("b1").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("b2").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("b3").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("b4").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("b5").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("c1").SimpleReserveQuota("c", "default", now).Obj(),
+			},
+			incoming:      unitWl.Clone().Name("a_incoming").Obj(),
+			targetCQ:      "a",
+			wantPreempted: sets.New(targetKeyReason("/b1", kueue.InCohortFairSharingReason)),
+		},
+		"fair sharing is not affected by the reclaimWithinCohort protection rule": {
+			clusterQueues:        baseCQs,
+			featureGates:         map[featuregate.Feature]bool{features.PreemptionProtection: true},
+			preemptionProtection: reclaimProtection,
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a3").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("b1").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("b2").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("b3").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("b4").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("b5").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("c1").SimpleReserveQuota("c", "default", now).Obj(),
+			},
+			incoming:      unitWl.Clone().Name("a_incoming").Obj(),
+			targetCQ:      "a",
+			wantPreempted: sets.New(targetKeyReason("/b1", kueue.InCohortFairSharingReason)),
+		},
+		"reclaim within nominal does not preempt candidates within protection window": {
+			clusterQueues:        baseCQs,
+			featureGates:         map[featuregate.Feature]bool{features.PreemptionProtection: true},
+			preemptionProtection: reclaimProtection,
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a3").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("b1").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("b2").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("b3").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("b4").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("b5").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("c1").SimpleReserveQuota("c", "default", now).Obj(),
+			},
+			incoming: unitWl.Clone().Name("c_incoming").Obj(),
+			targetCQ: "c",
+		},
+		"reclaim within nominal ignores protection when the feature gate is disabled": {
+			clusterQueues:        baseCQs,
+			featureGates:         map[featuregate.Feature]bool{features.PreemptionProtection: false},
+			preemptionProtection: reclaimProtection,
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a3").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("b1").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("b2").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("b3").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("b4").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("b5").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("c1").SimpleReserveQuota("c", "default", now).Obj(),
+			},
+			incoming:      unitWl.Clone().Name("c_incoming").Obj(),
+			targetCQ:      "c",
+			wantPreempted: sets.New(targetKeyReason("/b1", kueue.InCohortReclamationReason)),
+		},
+		"reclaim within nominal is not affected by the fairSharing protection rule": {
+			clusterQueues:        baseCQs,
+			featureGates:         map[featuregate.Feature]bool{features.PreemptionProtection: true},
+			preemptionProtection: fsProtection,
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a3").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("b1").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("b2").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("b3").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("b4").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("b5").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("c1").SimpleReserveQuota("c", "default", now).Obj(),
+			},
+			incoming:      unitWl.Clone().Name("c_incoming").Obj(),
+			targetCQ:      "c",
+			wantPreempted: sets.New(targetKeyReason("/b1", kueue.InCohortReclamationReason)),
+		},
+		"within-ClusterQueue preemption is unaffected by preemption protection": {
+			clusterQueues:        baseCQs,
+			featureGates:         map[featuregate.Feature]bool{features.PreemptionProtection: true},
+			preemptionProtection: bothProtections,
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1_low").Priority(-1).SimpleReserveQuota("a", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("a2_low").Priority(-1).SimpleReserveQuota("a", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("a3").SimpleReserveQuota("a", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("a4").SimpleReserveQuota("a", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("b1").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("b2").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("b3").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("b4").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+				*unitWl.Clone().Name("b5").SimpleReserveQuota("b", "default", now).AdmittedAt(true, now).Obj(),
+			},
+			incoming: utiltestingapi.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "2").Obj(),
+			targetCQ: "a",
+			wantPreempted: sets.New(
+				targetKeyReason("/a1_low", kueue.InClusterQueueReason),
+				targetKeyReason("/a2_low", kueue.InClusterQueueReason),
+			),
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, log := utiltesting.ContextWithLog(t)
 			// Set name as UID so that candidates sorting is predictable.
 			for i := range tc.admitted {
@@ -974,7 +1176,7 @@ func TestFairPreemptions(t *testing.T) {
 			recorder := &utiltesting.EventRecorder{}
 			preemptor := New(cl, workload.Ordering{}, recorder, &config.FairSharing{
 				PreemptionStrategies: tc.strategies,
-			}, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
+			}, tc.preemptionProtection, false, clocktesting.NewFakeClock(now.Add(tc.clockAdvance)), nil, preemptexpectations.New(), nil)
 
 			beforeSnapshot, err := cqCache.Snapshot(ctx)
 			if err != nil {
