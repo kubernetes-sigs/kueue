@@ -136,8 +136,12 @@ workloads are not killed moments after starting when the owner's demand
 increases.
 
 By configuring a cluster-wide reclaim protection duration of 10 minutes,
-borrowing workloads get at least 10 minutes to make progress before they can
-be reclaimed. This is deliberately shorter than the fair sharing protection
+borrowing workloads get at least 10 minutes before they can be reclaimed.
+Because the window is measured from admission — before pods are scheduled
+and container images are pulled — this is enough time for image pulls to
+complete and for the workload to initialize and start doing useful work,
+rather than being reclaimed while still starting up. This is deliberately
+shorter than the fair sharing protection
 in Story 1: borrowed resources should be returned to the owner's nominal
 quota promptly, while usage negotiated purely by fairness can afford a longer
 protection budget.
