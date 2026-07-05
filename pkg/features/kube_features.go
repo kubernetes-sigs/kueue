@@ -463,6 +463,14 @@ const (
 	// to False during a workload's first reconciliation.
 	// This feature gate requires UnadmittedWorkloadsObservability to be enabled to take effect.
 	UnadmittedWorkloadsExplicitStatus featuregate.Feature = "UnadmittedWorkloadsExplicitStatus"
+
+	// owner: @michael-pryor
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/9876-cross-cq-guaranteed-runtime
+	//
+	// Enable guaranteed minimum runtime protection for admitted workloads
+	// before they become eligible for cross-ClusterQueue preemption
+	// (fair sharing rebalancing and reclaim).
+	PreemptionProtection featuregate.Feature = "PreemptionProtection"
 )
 
 func init() {
@@ -715,6 +723,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	UnadmittedWorkloadsExplicitStatus: {
 		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Beta},
+	},
+
+	PreemptionProtection: {
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 
