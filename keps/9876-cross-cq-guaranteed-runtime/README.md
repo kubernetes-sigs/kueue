@@ -526,18 +526,15 @@ necessary to implement this enhancement.
 3. Nominal quota reclaim candidates are protected (classical path)
 4. Reclaim while borrowing (`InCohortReclaimWhileBorrowing`) candidates are
    protected (classical path)
-5. One rule set, the other `nil`: only the configured preemption type is
-   filtered
-6. Both rules `nil` or feature gate disabled: existing behavior preserved
-7. Controller restart: protection timing is preserved across restart
-8. Within-CQ preemption is unaffected by either rule
-9. Two-phase admission: a workload whose AdmissionCheck delayed `Admitted`
+5. Only the configured preemption type is filtered: with a single rule set,
+   the other cross-CQ type and within-CQ preemption are unaffected
+6. Two-phase admission: a workload whose AdmissionCheck delayed `Admitted`
    is protected for the full duration counted from `Admitted`
-10. A pending reclaimer is retried once the candidates' protection windows
-    expire, without requiring an unrelated cluster event
-11. While an owner's reclaim is blocked only by protection, a new workload
-    in another borrowing CQ is not admitted onto the contested capacity in
-    the same scheduling cycle
+7. A pending reclaimer is retried once the candidates' protection windows
+   expire, without requiring an unrelated cluster event
+8. While an owner's reclaim is blocked only by protection, a new workload
+   in another borrowing CQ is not admitted onto the contested capacity in
+   the same scheduling cycle
 
 ### Graduation Criteria
 
