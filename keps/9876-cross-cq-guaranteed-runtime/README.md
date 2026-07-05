@@ -83,7 +83,8 @@ for reclaim (where the owner has a legitimate entitlement).
 - Within-ClusterQueue time-based preemption (addressed by KEP-8522; see
   [Alternatives](#rely-on-within-clusterqueue-time-based-preemption-alone))
 - Per-ClusterQueue overrides for either duration (see
-  [Future Extensibility](#future-extensibility))
+  [Per-ClusterQueue configuration](#per-clusterqueue-configuration) in
+  Alternatives)
 - Per-workload minimum runtime overrides
 - Workload priority that decays over time based on runtime
 - Precise CPU/GPU time accounting
@@ -470,15 +471,6 @@ for that mechanism is desired, it has a natural home here as
 `preemptionProtection.withinClusterQueue`, reusing
 `PreemptionProtectionPolicy` (possibly extended with an
 `opportunisticMinAdmitDuration`).
-
-**Per-ClusterQueue overrides**: a per-CQ override could later take precedence
-over the global value. Note that a per-CQ *reclaim* protection set by the
-borrower effectively taxes the lender, so such an extension must include a
-lender-side guard — analogous to how `lendingLimit` bounds what
-`borrowingLimit` can take — letting quota owners cap how long borrowers may
-be protected against reclaim of their resources. This is deferred until
-there is a concrete need; the global knobs keep the initial system easy to
-reason about.
 
 **Per-rule refinements**: because each rule is a struct, refinements such as
 resource-dependent protection (for example, reducing the guaranteed runtime
