@@ -12,6 +12,7 @@
   - [Notes/Constraints/Caveats](#notesconstraintscaveats)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
+  - [Cross-CQ Preemption Types](#cross-cq-preemption-types)
   - [API Changes](#api-changes)
   - [Admission Time](#admission-time)
   - [Preemption Eligibility](#preemption-eligibility)
@@ -50,27 +51,11 @@ fair sharing rebalancing and of quota reclamation.
 
 ## Motivation
 
-Cross-ClusterQueue preemption in Kueue happens for reasons with
-fundamentally different semantics:
-
-- **Fair sharing rebalancing** (`InCohortFairSharing`): when Fair Sharing is
-  enabled, Kueue rebalances surplus resources across ClusterQueues within a
-  cohort hierarchy by preempting workloads from ClusterQueues that consume
-  more than their fair share. Neither side has a stronger entitlement — this
-  is a fairness negotiation over shared surplus.
-
-- **Nominal quota reclaim** (`InCohortReclamation`): a ClusterQueue reclaims
-  resources it owns (its nominal quota) from other ClusterQueues that
-  borrowed them. The owner has a clear entitlement. This applies in
-  classical preemption mode and, via the `FairSharingPreemptWithinNominal`
-  feature gate (enabled by default since v0.17), in fair sharing mode.
-
-- **Reclaim while borrowing** (`InCohortReclaimWhileBorrowing`): a
-  ClusterQueue that itself needs to borrow preempts workloads from other
-  borrowing ClusterQueues via the `borrowWithinCohort` policy (classical
-  preemption mode).
-
-In all cases, a workload that was just admitted may be preempted before it
+Cross-ClusterQueue preemption in Kueue happens for several reasons — fair
+sharing rebalancing across a cohort, reclaim of nominal quota by its owner,
+and reclaim while borrowing (see
+[Cross-CQ Preemption Types](#cross-cq-preemption-types) for their exact
+semantics). In all cases, a workload that was just admitted may be preempted before it
 has had enough time to make meaningful progress — for example, before
 reaching a useful checkpoint or completing a meaningful unit of work.
 
@@ -213,6 +198,28 @@ entirely is discussed in
 [Alternatives](#exempt-candidates-admitted-while-the-preemptor-was-pending).
 
 ## Design Details
+
+### Cross-CQ Preemption Types
+
+The preemption types this KEP protects against have fundamentally different
+semantics:
+
+- **Fair sharing rebalancing** (`InCohortFairSharing`): when Fair Sharing is
+  enabled, Kueue rebalances surplus resources across ClusterQueues within a
+  cohort hierarchy by preempting workloads from ClusterQueues that consume
+  more than their fair share. Neither side has a stronger entitlement — this
+  is a fairness negotiation over shared surplus.
+
+- **Nominal quota reclaim** (`InCohortReclamation`): a ClusterQueue reclaims
+  resources it owns (its nominal quota) from other ClusterQueues that
+  borrowed them. The owner has a clear entitlement. This applies in
+  classical preemption mode and, via the `FairSharingPreemptWithinNominal`
+  feature gate (enabled by default since v0.17), in fair sharing mode.
+
+- **Reclaim while borrowing** (`InCohortReclaimWhileBorrowing`): a
+  ClusterQueue that itself needs to borrow preempts workloads from other
+  borrowing ClusterQueues via the `borrowWithinCohort` policy (classical
+  preemption mode).
 
 ### API Changes
 
@@ -573,7 +580,8 @@ necessary to implement this enhancement.
   `Admitted` condition, dropped the 1-minute validation floor, single
   `PreemptionProtection` feature gate, documented within-CQ extensibility;
   added starvation mitigations (`CanAlwaysReclaim` interaction, expiry
-  retry), evicted-candidate exclusion, and Alpha observability
+  retry), evicted-candidate exclusion, and Alpha observability; moved the
+  preemption-type background from Motivation into Design Details
 
 ## Drawbacks
 
