@@ -57,7 +57,7 @@ and reclaim while borrowing (see
 [Cross-CQ Preemption Types](#cross-cq-preemption-types) for their exact
 semantics). In all cases, a workload that was just admitted may be preempted before it
 has had enough time to make meaningful progress — for example, before
-reaching a useful checkpoint or completing a meaningful unit of work.
+reaching a checkpoint.
 
 Administrators need a way to guarantee a minimum runtime so that preemption
 only targets workloads that have already had a reasonable opportunity to make
