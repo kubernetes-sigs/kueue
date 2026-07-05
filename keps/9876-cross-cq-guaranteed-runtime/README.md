@@ -31,15 +31,15 @@
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
-  - [Scatter Fields Across Existing Configuration Blocks](#scatter-fields-across-existing-configuration-blocks)
-  - [List-Based preemptionProtection API](#list-based-preemptionprotection-api)
-  - [Per-ClusterQueue Configuration](#per-clusterqueue-configuration)
-  - [Exempt Candidates Admitted While the Preemptor Was Pending](#exempt-candidates-admitted-while-the-preemptor-was-pending)
-  - [Count Cumulative Runtime Across Admissions](#count-cumulative-runtime-across-admissions)
+  - [Scatter fields across existing Configuration blocks](#scatter-fields-across-existing-configuration-blocks)
+  - [List-based preemptionProtection API](#list-based-preemptionprotection-api)
+  - [Per-ClusterQueue configuration](#per-clusterqueue-configuration)
+  - [Exempt candidates admitted while the preemptor was pending](#exempt-candidates-admitted-while-the-preemptor-was-pending)
+  - [Count cumulative runtime across admissions](#count-cumulative-runtime-across-admissions)
   - [Rely on gracefulTerminationPeriod or terminationGracePeriodSeconds](#rely-on-gracefulterminationperiod-or-terminationgraceperiodseconds)
-  - [Per-Workload Overrides](#per-workload-overrides)
-  - [Separate Duration for Each Reclaim Type](#separate-duration-for-each-reclaim-type)
-  - [Rely on Within-ClusterQueue Time-Based Preemption Alone](#rely-on-within-clusterqueue-time-based-preemption-alone)
+  - [Per-workload overrides](#per-workload-overrides)
+  - [Separate duration for each reclaim type](#separate-duration-for-each-reclaim-type)
+  - [Rely on within-ClusterQueue time-based preemption alone](#rely-on-within-clusterqueue-time-based-preemption-alone)
 <!-- /toc -->
 
 ## Summary
@@ -593,7 +593,7 @@ necessary to implement this enhancement.
 
 ## Alternatives
 
-### Scatter Fields Across Existing Configuration Blocks
+### Scatter fields across existing Configuration blocks
 
 Two earlier shapes were considered: the original proposal
 (`fairSharing.minAdmitDuration` inside the existing `FairSharing` block plus
@@ -610,7 +610,7 @@ Both were rejected in favor of one grouped block because:
 - the group provides a clear place for future extensions such as
   within-ClusterQueue protection.
 
-### List-Based preemptionProtection API
+### List-based preemptionProtection API
 
 A list-based API mapping rules to preemption reason enums was considered:
 
@@ -628,7 +628,7 @@ becomes positional, and the schema cannot express per-reason refinements as
 naturally as named structs. The struct-based grouping keeps the same
 extensibility with simpler validation.
 
-### Per-ClusterQueue Configuration
+### Per-ClusterQueue configuration
 
 Instead of global rules in the Configuration, each ClusterQueue could define
 its own protection (for example under `spec.preemption`). This was deferred:
@@ -647,7 +647,7 @@ its own protection (for example under `spec.preemption`). This was deferred:
 If per-CQ needs materialize, an override can be added under the same
 `preemptionProtection` concept with the global value as the default.
 
-### Exempt Candidates Admitted While the Preemptor Was Pending
+### Exempt candidates admitted while the preemptor was pending
 
 To eliminate reclaim starvation entirely, protection could be denied to any
 candidate admitted after the preemptor started waiting: late borrowers would
@@ -660,7 +660,7 @@ it at admission time. The capacity-reservation interaction and expiry retry
 with simpler, more predictable semantics. This can be revisited at Beta with
 adoption feedback.
 
-### Count Cumulative Runtime Across Admissions
+### Count cumulative runtime across admissions
 
 Kueue already tracks `status.accumulatedPastExecutionTimeSeconds` across
 admission cycles, so protection could be based on total runtime rather than
@@ -681,7 +681,7 @@ whereas protection simply defers the decision. Kueue has no
 become ready and is unrelated to preemption timing. These mechanisms are
 complementary.
 
-### Per-Workload Overrides
+### Per-workload overrides
 
 A per-workload `minAdmitDuration` override (for example via an annotation)
 was considered but deferred. Letting users set their own protection invites
@@ -689,7 +689,7 @@ gaming the system with arbitrarily long windows; mitigating that requires
 administrator-defined bounds or external policy engines, adding significant
 complexity. This may be revisited if demand arises.
 
-### Separate Duration for Each Reclaim Type
+### Separate duration for each reclaim type
 
 A third rule could split `InCohortReclamation` from
 `InCohortReclaimWhileBorrowing`. However, the distinction is an
@@ -700,7 +700,7 @@ reason about than two. Grouping both reclaim types under
 fundamental distinction: fairness negotiation versus reclaim of owned
 quota.
 
-### Rely on Within-ClusterQueue Time-Based Preemption Alone
+### Rely on within-ClusterQueue time-based preemption alone
 
 KEP-8522 introduces minimum-runtime semantics for within-ClusterQueue
 same-priority preemption. It is explicitly scoped to `withinClusterQueue`
