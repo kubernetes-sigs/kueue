@@ -470,18 +470,12 @@ controllerManager:
     value: \"3\"
 apiServer:
   extraArgs:
-<<<<<<< HEAD
-    enable-aggregator-routing: \"true\"
-    runtime-config: \"scheduling.k8s.io/v1alpha2=true\"
-    v: \"3\"
-=======
   - name: enable-aggregator-routing
     value: \"true\"
   - name: runtime-config
     value: \"scheduling.k8s.io/v1alpha3=true\"
   - name: v
     value: \"3\"
->>>>>>> bump kubeadm from v1beta3 to v1beta4
 "' "$patched_config"
     # v1beta3 variant for k8s <=1.35, where kind ignores the v1beta4 patch above (#12022).
     $YQ -i '(.nodes[] | select(.role == "control-plane")).kubeadmConfigPatches += ["kind: ClusterConfiguration
