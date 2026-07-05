@@ -1416,7 +1416,26 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing", "featur
 			util.ExpectReservingActiveWorkloadsMetric(cq1, 2)
 
 			ginkgo.By("Checking that LQs' resource usage is updated")
-			util.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqA), ">", 12_000)
+			gomega.Eventually(func(g gomega.Gomega) {
+				var lqAObj, lqBObj kueue.LocalQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lqA), &lqAObj)).To(gomega.Succeed())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lqB), &lqBObj)).To(gomega.Succeed())
+				g.Expect(lqAObj.Status.FairSharing).NotTo(gomega.BeNil())
+				g.Expect(lqBObj.Status.FairSharing).NotTo(gomega.BeNil())
+				g.Expect(lqAObj.Status.FairSharing.AdmissionFairSharingStatus).NotTo(gomega.BeNil())
+				g.Expect(lqBObj.Status.FairSharing.AdmissionFairSharingStatus).NotTo(gomega.BeNil())
+
+				lqAConsumed := lqAObj.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources
+				lqBConsumed := lqBObj.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources
+				g.Expect(lqAConsumed).To(gomega.HaveKey(corev1.ResourceCPU))
+				g.Expect(lqBConsumed).To(gomega.HaveKey(corev1.ResourceCPU))
+
+				lqAUsage := lqAConsumed[corev1.ResourceCPU]
+				lqBUsage := lqBConsumed[corev1.ResourceCPU]
+				g.Expect(lqAUsage.MilliValue()).To(gomega.BeNumerically(">", lqBUsage.MilliValue()),
+					"expected lq-a usage (%v) > lq-b usage (%v) before creating reclaiming workload",
+					lqAUsage.String(), lqBUsage.String())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Creating a workload in CQ2 that reclaims the quota")
 			_ = createWorkload("lq-c", "10")
