@@ -74,6 +74,7 @@ var (
 	visibilityServerBindPortPath          = field.NewPath("visibilityServer", "bindPort")
 	customLabelsPath                      = field.NewPath("metrics", "customLabels")
 	resourceQuotaCheckStrategyPath        = field.NewPath("resources", "quotaCheckStrategy")
+	preemptionProtectionPath              = field.NewPath("preemptionProtection")
 )
 
 // Validate checks the configuration for invalid values.
@@ -84,6 +85,7 @@ func Validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorLis
 	allErrs = append(allErrs, validateMultiKueue(c)...)
 	allErrs = append(allErrs, validateFairSharing(c)...)
 	allErrs = append(allErrs, validateAdmissionFairSharing(c)...)
+	allErrs = append(allErrs, validatePreemptionProtection(c)...)
 	allErrs = append(allErrs, validateInternalCertManagement(c)...)
 	allErrs = append(allErrs, validateResourceTransformations(c)...)
 	allErrs = append(allErrs, validateDeviceClassMappings(c)...)
@@ -438,6 +440,29 @@ func validateAdmissionFairSharing(c *configapi.Configuration) field.ErrorList {
 			allErrs = append(allErrs, field.Invalid(afsResourceWeightsPath.Key(string(resName)),
 				afs.ResourceWeights, apimachineryvalidation.IsNegativeErrorMsg))
 		}
+	}
+	return allErrs
+}
+
+func validatePreemptionProtection(c *configapi.Configuration) field.ErrorList {
+	pp := c.PreemptionProtection
+	if pp == nil {
+		return nil
+	}
+	var allErrs field.ErrorList
+	allErrs = append(allErrs, validatePreemptionProtectionPolicy(pp.FairSharing, preemptionProtectionPath.Child("fairSharing"))...)
+	allErrs = append(allErrs, validatePreemptionProtectionPolicy(pp.ReclaimWithinCohort, preemptionProtectionPath.Child("reclaimWithinCohort"))...)
+	return allErrs
+}
+
+func validatePreemptionProtectionPolicy(policy *configapi.PreemptionProtectionPolicy, path *field.Path) field.ErrorList {
+	if policy == nil || policy.MinAdmitDuration == nil {
+		return nil
+	}
+	var allErrs field.ErrorList
+	if policy.MinAdmitDuration.Duration <= 0 {
+		allErrs = append(allErrs, field.Invalid(path.Child("minAdmitDuration"),
+			policy.MinAdmitDuration.Duration.String(), "must be greater than 0"))
 	}
 	return allErrs
 }

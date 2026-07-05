@@ -130,6 +130,16 @@ integrations (including K8S job).</p>
    <p>admissionFairSharing indicates configuration of FairSharing with the <code>AdmissionTime</code> mode on</p>
 </td>
 </tr>
+<tr><td><code>preemptionProtection</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-PreemptionProtection"><code>PreemptionProtection</code></a>
+</td>
+<td>
+   <p>preemptionProtection groups rules that protect admitted workloads
+from preemption until they have run for a minimum duration.
+It has no effect unless the PreemptionProtection feature gate is
+enabled.</p>
+</td>
+</tr>
 <tr><td><code>resources</code> <B>[Required]</B><br/>
 <a href="#config-kueue-x-k8s-io-v1beta2-Resources"><code>Resources</code></a>
 </td>
@@ -1103,6 +1113,77 @@ the expected format is <code>kind.version.group</code>.</p>
 <td>
    <p>Workloads configures retention for Workloads.
 A nil value disables automatic deletion of Workloads.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `PreemptionProtection`     {#config-kueue-x-k8s-io-v1beta2-PreemptionProtection}
+    
+
+**Appears in:**
+
+- [Configuration](#config-kueue-x-k8s-io-v1beta2-Configuration)
+
+
+<p>PreemptionProtection groups preemption-protection rules by the type of
+preemption they protect against.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>fairSharing</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-PreemptionProtectionPolicy"><code>PreemptionProtectionPolicy</code></a>
+</td>
+<td>
+   <p>fairSharing protects workloads from fair sharing rebalancing
+preemption (InCohortFairSharing). It only has an effect when
+fair sharing is enabled.</p>
+</td>
+</tr>
+<tr><td><code>reclaimWithinCohort</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-PreemptionProtectionPolicy"><code>PreemptionProtectionPolicy</code></a>
+</td>
+<td>
+   <p>reclaimWithinCohort protects workloads from cross-ClusterQueue
+reclaim preemption (InCohortReclamation and
+InCohortReclaimWhileBorrowing). It applies in classical preemption
+mode and, via the FairSharingPreemptWithinNominal feature gate
+(enabled by default), in fair sharing mode.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `PreemptionProtectionPolicy`     {#config-kueue-x-k8s-io-v1beta2-PreemptionProtectionPolicy}
+    
+
+**Appears in:**
+
+- [PreemptionProtection](#config-kueue-x-k8s-io-v1beta2-PreemptionProtection)
+
+
+<p>PreemptionProtectionPolicy defines a single preemption-protection rule.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>minAdmitDuration</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
+</td>
+<td>
+   <p>minAdmitDuration is the minimum time a workload must have been
+admitted (Admitted condition set to True) before it becomes
+eligible for this type of preemption. A workload whose runtime
+since admission is less than minAdmitDuration is skipped as a
+preemption candidate. When nil, no minimum is enforced.
+If set, it must be greater than zero.</p>
 </td>
 </tr>
 </tbody>

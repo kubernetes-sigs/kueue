@@ -824,6 +824,95 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"nil preemptionProtection is valid": {
+			cfg: &configapi.Configuration{
+				Integrations:         defaultIntegrations,
+				PreemptionProtection: nil,
+			},
+		},
+		"preemptionProtection with nil rules is valid": {
+			cfg: &configapi.Configuration{
+				Integrations:         defaultIntegrations,
+				PreemptionProtection: &configapi.PreemptionProtection{},
+			},
+		},
+		"preemptionProtection rules with nil minAdmitDuration are valid": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				PreemptionProtection: &configapi.PreemptionProtection{
+					FairSharing:         &configapi.PreemptionProtectionPolicy{},
+					ReclaimWithinCohort: &configapi.PreemptionProtectionPolicy{},
+				},
+			},
+		},
+		"valid preemptionProtection configuration": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				PreemptionProtection: &configapi.PreemptionProtection{
+					FairSharing: &configapi.PreemptionProtectionPolicy{
+						MinAdmitDuration: &metav1.Duration{Duration: time.Hour},
+					},
+					ReclaimWithinCohort: &configapi.PreemptionProtectionPolicy{
+						MinAdmitDuration: &metav1.Duration{Duration: 10 * time.Minute},
+					},
+				},
+			},
+		},
+		"invalid zero preemptionProtection.fairSharing.minAdmitDuration": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				PreemptionProtection: &configapi.PreemptionProtection{
+					FairSharing: &configapi.PreemptionProtectionPolicy{
+						MinAdmitDuration: &metav1.Duration{},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "preemptionProtection.fairSharing.minAdmitDuration",
+				},
+			},
+		},
+		"invalid negative preemptionProtection.reclaimWithinCohort.minAdmitDuration": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				PreemptionProtection: &configapi.PreemptionProtection{
+					ReclaimWithinCohort: &configapi.PreemptionProtectionPolicy{
+						MinAdmitDuration: &metav1.Duration{Duration: -time.Minute},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "preemptionProtection.reclaimWithinCohort.minAdmitDuration",
+				},
+			},
+		},
+		"both preemptionProtection rules validated independently": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				PreemptionProtection: &configapi.PreemptionProtection{
+					FairSharing: &configapi.PreemptionProtectionPolicy{
+						MinAdmitDuration: &metav1.Duration{Duration: -time.Second},
+					},
+					ReclaimWithinCohort: &configapi.PreemptionProtectionPolicy{
+						MinAdmitDuration: &metav1.Duration{},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "preemptionProtection.fairSharing.minAdmitDuration",
+				},
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "preemptionProtection.reclaimWithinCohort.minAdmitDuration",
+				},
+			},
+		},
 		"invalid .internalCertManagement.webhookSecretName": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,

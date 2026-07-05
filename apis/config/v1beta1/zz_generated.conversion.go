@@ -426,6 +426,7 @@ func autoConvert_v1beta2_Configuration_To_v1beta1_Configuration(in *v1beta2.Conf
 		out.FairSharing = nil
 	}
 	out.AdmissionFairSharing = (*AdmissionFairSharing)(unsafe.Pointer(in.AdmissionFairSharing))
+	// WARNING: in.PreemptionProtection requires manual conversion: does not exist in peer-type
 	if in.Resources != nil {
 		in, out := &in.Resources, &out.Resources
 		*out = new(Resources)

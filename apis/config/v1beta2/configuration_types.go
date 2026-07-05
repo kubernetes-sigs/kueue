@@ -95,6 +95,13 @@ type Configuration struct {
 	// admissionFairSharing indicates configuration of FairSharing with the `AdmissionTime` mode on
 	AdmissionFairSharing *AdmissionFairSharing `json:"admissionFairSharing,omitempty"`
 
+	// preemptionProtection groups rules that protect admitted workloads
+	// from preemption until they have run for a minimum duration.
+	// It has no effect unless the PreemptionProtection feature gate is
+	// enabled.
+	// +optional
+	PreemptionProtection *PreemptionProtection `json:"preemptionProtection,omitempty"`
+
 	// Resources provides additional configuration options for handling the resources.
 	Resources *Resources `json:"resources,omitempty"`
 
@@ -701,6 +708,36 @@ type AdmissionFairSharing struct {
 	// resource usage and order Workloads.
 	// Defaults to 1.
 	ResourceWeights map[corev1.ResourceName]float64 `json:"resourceWeights,omitempty"`
+}
+
+// PreemptionProtection groups preemption-protection rules by the type of
+// preemption they protect against.
+type PreemptionProtection struct {
+	// fairSharing protects workloads from fair sharing rebalancing
+	// preemption (InCohortFairSharing). It only has an effect when
+	// fair sharing is enabled.
+	// +optional
+	FairSharing *PreemptionProtectionPolicy `json:"fairSharing,omitempty"`
+
+	// reclaimWithinCohort protects workloads from cross-ClusterQueue
+	// reclaim preemption (InCohortReclamation and
+	// InCohortReclaimWhileBorrowing). It applies in classical preemption
+	// mode and, via the FairSharingPreemptWithinNominal feature gate
+	// (enabled by default), in fair sharing mode.
+	// +optional
+	ReclaimWithinCohort *PreemptionProtectionPolicy `json:"reclaimWithinCohort,omitempty"`
+}
+
+// PreemptionProtectionPolicy defines a single preemption-protection rule.
+type PreemptionProtectionPolicy struct {
+	// minAdmitDuration is the minimum time a workload must have been
+	// admitted (Admitted condition set to True) before it becomes
+	// eligible for this type of preemption. A workload whose runtime
+	// since admission is less than minAdmitDuration is skipped as a
+	// preemption candidate. When nil, no minimum is enforced.
+	// If set, it must be greater than zero.
+	// +optional
+	MinAdmitDuration *metav1.Duration `json:"minAdmitDuration,omitempty"`
 }
 
 // ObjectRetentionPolicies holds retention settings for different object types.
