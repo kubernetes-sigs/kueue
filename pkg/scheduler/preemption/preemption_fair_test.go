@@ -942,7 +942,7 @@ func TestFairPreemptions(t *testing.T) {
 			targetCQ:      "a",
 			wantPreempted: sets.New(targetKeyReason("/b_prem1", kueue.InCohortReclamationReason)),
 		},
-		// Hierarchical topology (#9466) + multi-flavor DRS (nominal-first pattern):
+		// Hierarchical nominal bypass (#9466) + sibling protection (pajakd review):
 		//
 		//                    ROOT (premium 20/20, quota=10)
 		//                   /            \
@@ -953,14 +953,14 @@ func TestFairPreemptions(t *testing.T) {
 		//  cq1-0..2         cq2-0..2          hog-00..13
 		//  cq1_cheap1..5
 		//
-		// cq-1: 3 premium (borrowed) + 5 cheap (borrowed) → high aggregate DRS.
-		// cohort-1: premium usage 6 < 10 → within subtree nominal on contested premium.
-		// cq-1: NOT within CQ nominal on premium (0 nominal).
+		// Preemption is required: ROOT premium is saturated; incoming 4 on cq-1.
+		// cohort-1 is within nominal on contested premium (protection cohort).
+		// cq-1: high aggregate DRS from cheap; NOT within CQ nominal on premium.
 		//
-		// Incoming: 4 premium CPU on cq-1.
-		// Without ancestor bypass: DRS strategy path applies (InCohortFairSharing from hogger).
-		// With ancestor bypass (cohort-1 within nominal on premium): InCohortReclamation from hogger.
-		"reclaim from sibling when parent within nominal despite high DRS on other flavor": {
+		// Per-candidate subtree check:
+		//   - cq-2 (inside cohort-1): DRS only — must NOT appear in targets.
+		//   - cq-hogger (outside cohort-1): bypass → InCohortReclamation from hog-00..03.
+		"sibling under same within-nominal cohort uses DRS not bypass": {
 			flavors: []*kueue.ResourceFlavor{
 				utiltestingapi.MakeResourceFlavor("premium").Obj(),
 				utiltestingapi.MakeResourceFlavor("cheap").Obj(),
