@@ -212,8 +212,4 @@ type LocalQueueList struct {
 	Items           []LocalQueue `json:"items"`
 }
 
-func init() {
-	SchemeBuilder.Register(&LocalQueue{}, &LocalQueueList{})
-}
-
 func (*LocalQueue) Hub() {}
