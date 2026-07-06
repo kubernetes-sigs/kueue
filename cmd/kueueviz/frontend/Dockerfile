@@ -21,7 +21,7 @@ FROM node:25-slim AS runtime
 
 WORKDIR /app
 
-RUN npm install -g serve
+RUN npm install -g "serve@$(node -p "require('./package-lock.json').packages['node_modules/serve'].version")"
 
 # Copy only the built files from builder
 COPY --from=builder /app/build ./build
