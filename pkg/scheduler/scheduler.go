@@ -60,6 +60,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
@@ -1115,13 +1116,13 @@ func (s *Scheduler) recordWorkloadAdmissionEvents(log logr.Logger, newWorkload, 
 //  5. The function reports metrics for the aggregation of workload slices for the old queue.
 func (s *Scheduler) replaceWorkloadSlice(ctx context.Context, oldQueue kueue.ClusterQueueReference, newSlice, oldSlice *kueue.Workload) error {
 	log := ctrl.LoggerFrom(ctx)
-	if workload.IsFinished(oldSlice) {
+	if workloadfinish.IsFinished(oldSlice) {
 		log.V(3).Info("Workload slice already finished", "old-slice", klog.KObj(oldSlice), "new-slice", klog.KObj(newSlice))
 		return nil
 	}
 	reason := kueue.WorkloadSliceReplaced
 	message := fmt.Sprintf("Replaced to accommodate a workload (UID: %s, JobUID: %s) due to workload slice aggregation", newSlice.UID, newSlice.Labels[controllerconstants.JobUIDLabel])
-	if err := workload.Finish(ctx, s.client, oldSlice, reason, message, s.clock); err != nil {
+	if err := workloadfinish.Finish(ctx, s.client, oldSlice, reason, message, s.clock); err != nil {
 		return fmt.Errorf("failed to replace workload slice: %w", err)
 	}
 

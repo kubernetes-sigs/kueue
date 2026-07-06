@@ -51,6 +51,7 @@ import (
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -263,7 +264,7 @@ func (r *elasticJobUngater) Update(e event.TypedUpdateEvent[*kueue.Workload]) bo
 
 func shouldUngate(wl *kueue.Workload) bool {
 	return workloadslicing.IsElasticWorkload(wl) &&
-		!workload.IsFinished(wl) &&
+		!workloadfinish.IsFinished(wl) &&
 		(workload.IsAdmitted(wl) || workload.HasQuotaReservation(wl))
 }
 

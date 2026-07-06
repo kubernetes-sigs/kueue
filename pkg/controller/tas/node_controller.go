@@ -60,6 +60,7 @@ import (
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
@@ -335,7 +336,7 @@ func (r *nodeReconciler) getWorkloadsFromPodsOnNode(
 			logger.V(4).Info("Failed to get workload", "workload", wlKey, "error", err)
 			continue
 		}
-		if !workload.IsFinished(&wl) && !workloadevict.IsEvicted(&wl) {
+		if !workloadfinish.IsFinished(&wl) && !workloadevict.IsEvicted(&wl) {
 			latePodWorkloads.Insert(wlKey)
 		}
 	}

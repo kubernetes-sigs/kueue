@@ -48,6 +48,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 )
 
 func TestEnabled(t *testing.T) {
@@ -1137,7 +1138,7 @@ func TestNormalizeActiveSlices(t *testing.T) {
 					t.Fatalf("failed to get workload %s: %v", tc.workloads[i].Name, err)
 				}
 				kept := wl.Name == tc.want.survivor || wl.Name == tc.want.keptAdmitted
-				if !kept && !workload.IsFinished(wl) {
+				if !kept && !workloadfinish.IsFinished(wl) {
 					t.Errorf("workload %q should be finished but is not", wl.Name)
 				}
 			}

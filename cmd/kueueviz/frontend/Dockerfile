@@ -18,7 +18,8 @@ RUN npm run build
 # Install `serve` into a self-contained prefix on BUILDPLATFORM. `serve` is
 # pure JavaScript, so its node_modules tree can be copied verbatim into the
 # target-arch runtime image without re-running npm there.
-RUN npm install --prefix /opt/serve serve
+RUN npm install --prefix /opt/serve \
+  "serve@$(node -p "require('./package-lock.json').packages['node_modules/serve'].version")"
 
 # Runtime stage uses TARGETPLATFORM so the produced image carries correct
 # arch metadata for the multi-arch manifest. It contains no RUN steps, so
