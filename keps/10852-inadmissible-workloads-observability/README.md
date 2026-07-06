@@ -285,6 +285,9 @@ const (
 	// WorkloadPendingEvaluation indicates that the workload is pending evaluation in the scheduling queue.
 	WorkloadPendingEvaluation = "PendingEvaluation"
 
+	// WorkloadOnHold indicates that the workload's quota reservation is intentionally released.
+	WorkloadOnHold = "OnHold"
+
 	// WorkloadAdmittedReasonNoReservation indicates that the workload has no reservation.
 	WorkloadAdmittedReasonNoReservation = "NoReservation"
 
@@ -314,11 +317,12 @@ is not evaluated or reported.
 | Precedence | Reason Token | Description / Scenario | Location in Memory |
 | :--- | :--- | :--- | :--- |
 | **1** | `Deactivated` | Workload is explicitly deactivated (`spec.active: false`). | None |
-| **2** | `Misconfigured` | Workload points to a non-existent queue or has invalid DRA configs. | None |
-| **3** | `NoMatchingFlavor` | Workload requests a flavor that does not exist or whose taints it does not tolerate. | `ClusterQueue.inadmissibleWorkloads` |
-| **4** | `Suspended` | Administrative hold (the queue's StopPolicy is active). | None |
-| **5** | `AdmissionGated` | Gated state (AdmissionGatedBy annotation). | None |
-| **6** | `WaitingForPodsReady` | Scheduling hold (waiting for previously admitted workloads to reach PodsReady under `waitForPodsReady` configuration). | blocks and waits |
+| **2** | `OnHold` | Workload's quota reservation is intentionally released (e.g. StatefulSet scale-to-zero). | None |
+| **3** | `Misconfigured` | Workload points to a non-existent queue or has invalid DRA configs. | None |
+| **4** | `NoMatchingFlavor` | Workload requests a flavor that does not exist or whose taints it does not tolerate. | `ClusterQueue.inadmissibleWorkloads` |
+| **5** | `Suspended` | Administrative hold (the queue's StopPolicy is active). | None |
+| **6** | `AdmissionGated` | Gated state (AdmissionGatedBy annotation). | None |
+| **7** | `WaitingForPodsReady` | Scheduling hold (waiting for previously admitted workloads to reach PodsReady under `waitForPodsReady` configuration). | blocks and waits |
 
 #### 2. Nominated Flavor Reasons
 These blockers apply to the nominated flavor assignment selected by the
