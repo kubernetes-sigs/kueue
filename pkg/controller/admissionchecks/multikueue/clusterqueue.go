@@ -189,8 +189,8 @@ func (r *cqReconciler) aggregateWorkerQuotas(ctx context.Context, cq *kueue.Clus
 			ctrl.LoggerFrom(ctx).V(3).Info("Worker cluster client not found, skipping it in quota aggregation", "workerCluster", workerName)
 			continue
 		}
-		if rc.connecting.Load() {
-			ctrl.LoggerFrom(ctx).V(3).Info("Worker cluster client still connecting, skipping it in quota aggregation", "workerCluster", workerName)
+		if !rc.connected.Load() {
+			ctrl.LoggerFrom(ctx).V(3).Info("Worker cluster client not connected, skipping it in quota aggregation", "workerCluster", workerName)
 			continue
 		}
 		remoteLQList := &kueue.LocalQueueList{}

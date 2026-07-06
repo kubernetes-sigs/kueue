@@ -99,7 +99,7 @@ func newTestClient(ctx context.Context, kubeconfig []byte, restConfig *rest.Conf
 
 func setReconnectState(rc *remoteClient, a uint) *remoteClient {
 	rc.failedConnAttempts = a
-	rc.connecting.Store(true)
+	rc.connected.Store(false)
 	return rc
 }
 
@@ -910,7 +910,7 @@ func TestDisconnectedClientReconnectsWithSameConfig(t *testing.T) {
 
 	rc := newTestClient(ctx, []byte(kubeconfig), nil, nil)
 	rc.builderOverride = reconciler.builderOverride
-	rc.disconnected.Store(true)
+	rc.connected.Store(false)
 	reconciler.remoteClients["worker1"] = rc
 	defer rc.StopWatchers()
 
@@ -921,11 +921,8 @@ func TestDisconnectedClientReconnectsWithSameConfig(t *testing.T) {
 	if buildCalls != 1 {
 		t.Fatalf("builder invocations: want 1, got %d", buildCalls)
 	}
-	if rc.connecting.Load() {
-		t.Error("connecting should be cleared after successful reconnect")
-	}
-	if rc.disconnected.Load() {
-		t.Error("disconnected should be cleared after successful reconnect")
+	if connected := rc.connected.Load(); !connected {
+		t.Errorf("expected state to be connected")
 	}
 }
 
@@ -1038,7 +1035,7 @@ func TestRemoteClientGC(t *testing.T) {
 			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
 			w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
 			w1remoteClient.client = worker1Client
-			w1remoteClient.connecting.Store(false)
+			w1remoteClient.connected.Store(true)
 
 			w1remoteClient.runGC(ctx)
 
@@ -1551,7 +1548,7 @@ func hammerSetConfigWithReader(t *testing.T, reader func(ctx context.Context, rc
 	rc.adapters = map[string]jobframework.MultiKueueAdapter{}
 
 	// Seed an initial client so the first read has a client to observe.
-	rc.connecting.Store(true)
+	rc.connected.Store(false)
 	if _, err := rc.updateConfigAndRefreshWatchers(ctx, rc.config); err != nil {
 		t.Fatalf("seeding initial client: %v", err)
 	}

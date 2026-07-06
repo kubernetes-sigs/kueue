@@ -284,7 +284,7 @@ func (w *wlReconciler) remoteClientsForAC(ctx context.Context, acName kueue.Admi
 	}
 	availableClients = make(map[string]*remoteClient, len(cfg.Spec.Clusters))
 	for _, clusterName := range cfg.Spec.Clusters {
-		if client, found := w.clusters.controllerFor(clusterName); found && !client.connecting.Load() && !client.disconnected.Load() {
+		if client, found := w.clusters.controllerFor(clusterName); found && client.connected.Load() {
 			availableClients[clusterName] = client
 		} else {
 			unavailableClusters = append(unavailableClusters, clusterName)
