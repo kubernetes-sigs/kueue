@@ -242,6 +242,71 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 		})
 	})
 
+	ginkgo.When("Fair sharing deep admission is enabled", func() {
+		var (
+			cqA      *kueue.ClusterQueue
+			cqB      *kueue.ClusterQueue
+			cqShared *kueue.ClusterQueue
+		)
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.FairSharingDeepAdmission, true)
+
+			// cq-a and cq-b have no nominal quota of their own; both borrow from
+			// the shared pool, so admission ordering is decided purely by DRS.
+			cqA = createQueue(utiltestingapi.MakeClusterQueue("a").
+				Cohort("all").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "0").Obj(),
+				).Obj())
+			cqB = createQueue(utiltestingapi.MakeClusterQueue("b").
+				Cohort("all").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "0").Obj(),
+				).Obj())
+			cqShared = createQueue(utiltestingapi.MakeClusterQueue("shared").
+				Cohort("all").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "8").Obj(),
+				).Obj())
+		})
+
+		// Exercises the real queue-manager pop path, multi-inflight accounting,
+		// the multi-entry fair-sharing iterator, and the subtree-scoped interrupt
+		// end-to-end: a burst of freed capacity from the over-share cq-a must flow
+		// entirely to the under-share cq-b (draining across cycles) until weighted
+		// shares equalize, without any cross-CQ fair-share preemption.
+		ginkgo.It("drains a burst of freed capacity to the under-share ClusterQueue without fair-share preemption", framework.SlowSpec, func() {
+			ginkgo.By("Saturating cq-a with the whole shared pool")
+			for range 8 {
+				createWorkload("a", "1")
+			}
+			util.ExpectReservingActiveWorkloadsMetric(cqA, 8)
+			util.ExpectReservingActiveWorkloadsMetric(cqB, 0)
+
+			ginkgo.By("Creating a standing backlog in cq-b and cq-a")
+			util.WaitForNextSecondAfterCreation(wls[len(wls)-1])
+			for range 8 {
+				createWorkload("b", "1")
+			}
+			for range 4 {
+				createWorkload("a", "1")
+			}
+			util.ExpectReservingActiveWorkloadsMetric(cqB, 0)
+
+			ginkgo.By("Freeing a burst of capacity in cq-a")
+			util.FinishRunningWorkloadsInCQ(ctx, k8sClient, cqA, 4)
+
+			ginkgo.By("The freed capacity flows entirely to the under-share cq-b until shares equalize")
+			util.ExpectReservingActiveWorkloadsMetric(cqA, 4)
+			util.ExpectReservingActiveWorkloadsMetric(cqB, 4)
+
+			ginkgo.By("No cross-CQ fair-share preemptions were issued")
+			util.ExpectPreemptedWorkloadsTotalMetric(cqA.Name, "InCohortFairSharing", 0)
+			util.ExpectPreemptedWorkloadsTotalMetric(cqB.Name, "InCohortFairSharing", 0)
+			util.ExpectPreemptedWorkloadsTotalMetric(cqShared.Name, "InCohortFairSharing", 0)
+		})
+	})
+
 	ginkgo.When("Preemption is enabled", func() {
 		var (
 			cqA *kueue.ClusterQueue

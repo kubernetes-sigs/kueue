@@ -1649,6 +1649,88 @@ func TestHeads(t *testing.T) {
 	}
 }
 
+// TestHeadsFairSharingDeepAdmission verifies that heads() pops up to
+// FairSharingDeepAdmissionDepth workloads per ClusterQueue when Fair Sharing is
+// enabled and the FairSharingDeepAdmission gate is on, and exactly one per CQ
+// otherwise.
+func TestHeadsFairSharingDeepAdmission(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	clusterQueues := []*kueue.ClusterQueue{
+		utiltestingapi.MakeClusterQueue("active-fooCq").Obj(),
+		utiltestingapi.MakeClusterQueue("active-barCq").Obj(),
+	}
+	queues := []*kueue.LocalQueue{
+		utiltestingapi.MakeLocalQueue("foo", "").ClusterQueue("active-fooCq").Obj(),
+		utiltestingapi.MakeLocalQueue("bar", "").ClusterQueue("active-barCq").Obj(),
+	}
+	// fooCq has three pending workloads, barCq has a single one.
+	workloads := []*kueue.Workload{
+		utiltestingapi.MakeWorkload("a1", "").Creation(now).Queue("foo").Obj(),
+		utiltestingapi.MakeWorkload("a2", "").Creation(now.Add(time.Minute)).Queue("foo").Obj(),
+		utiltestingapi.MakeWorkload("a3", "").Creation(now.Add(2*time.Minute)).Queue("foo").Obj(),
+		utiltestingapi.MakeWorkload("b1", "").Creation(now).Queue("bar").Obj(),
+	}
+	cases := map[string]struct {
+		fairSharingEnabled bool
+		gateEnabled        bool
+		wantWorkloads      sets.Set[string]
+	}{
+		"deep admission on: two heads from fooCq, one from barCq": {
+			fairSharingEnabled: true,
+			gateEnabled:        true,
+			wantWorkloads:      sets.New("a1", "a2", "b1"),
+		},
+		"gate off: one head per CQ": {
+			fairSharingEnabled: true,
+			gateEnabled:        false,
+			wantWorkloads:      sets.New("a1", "b1"),
+		},
+		"fair sharing off: one head per CQ": {
+			fairSharingEnabled: false,
+			gateEnabled:        true,
+			wantWorkloads:      sets.New("a1", "b1"),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.FairSharingDeepAdmission, tc.gateEnabled)
+			ctx, log := utiltesting.ContextWithLog(t)
+			ctx, cancel := context.WithTimeout(ctx, headsTimeout)
+			defer cancel()
+			fakeC := &fakeStatusChecker{}
+			queueOptions := []Option{
+				WithPreemptionExpectations(preemptexpectations.New()),
+				WithFairSharing(tc.fairSharingEnabled),
+			}
+			manager := NewManagerForUnitTests(utiltesting.NewFakeClient(), fakeC, queueOptions...)
+			for _, cq := range clusterQueues {
+				if err := manager.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatalf("Failed adding clusterQueue %s to manager: %v", cq.Name, err)
+				}
+			}
+			for _, q := range queues {
+				if err := manager.AddLocalQueue(ctx, q); err != nil {
+					t.Fatalf("Failed adding queue %s: %s", q.Name, err)
+				}
+			}
+			go manager.CleanUpOnContext(ctx)
+			for _, wl := range workloads {
+				if err := manager.AddOrUpdateWorkload(log, wl); err != nil {
+					t.Errorf("Failed to add or update workload: %v", err)
+				}
+			}
+
+			wlNames := sets.New[string]()
+			for _, h := range manager.Heads(ctx) {
+				wlNames.Insert(h.Obj.Name)
+			}
+			if diff := cmp.Diff(tc.wantWorkloads, wlNames); diff != "" {
+				t.Errorf("Heads returned wrong heads (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 var (
 	ignoreTypeMeta = cmpopts.IgnoreTypes(metav1.TypeMeta{})
 	// ignoreSchedulingHash is used in tests that compare workload.Info structs

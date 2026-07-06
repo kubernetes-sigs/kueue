@@ -37,9 +37,11 @@ import (
 // consideration by scheduling when FairSharing is enabled. See
 // runTournament for description of algorithm.
 type fairSharingIterator struct {
-	// cqToEntry tracks ClusterQueues which still have workloads
-	// to schedule, and the corresponding workload entry.
-	cqToEntry     map[*schdcache.ClusterQueueSnapshot]*entry
+	// cqToEntry tracks ClusterQueues which still have workloads to schedule,
+	// and their pending entries in popped (heap) order. With Fair Sharing deep
+	// admission a CQ may have more than one entry; the tournament always
+	// considers each CQ's front entry and pop() advances that front.
+	cqToEntry     map[*schdcache.ClusterQueueSnapshot][]*entry
 	entryComparer entryComparer
 	log           logr.Logger
 }
@@ -47,7 +49,7 @@ type fairSharingIterator struct {
 func makeFairSharingIterator(ctx context.Context, entries []entry, workloadOrdering workload.Ordering) *fairSharingIterator {
 	log := ctrl.LoggerFrom(ctx)
 	f := fairSharingIterator{
-		cqToEntry: make(map[*schdcache.ClusterQueueSnapshot]*entry, len(entries)),
+		cqToEntry: make(map[*schdcache.ClusterQueueSnapshot][]*entry, len(entries)),
 		entryComparer: entryComparer{
 			log:              log,
 			workloadOrdering: workloadOrdering,
@@ -55,7 +57,8 @@ func makeFairSharingIterator(ctx context.Context, entries []entry, workloadOrder
 		log: log,
 	}
 	for i := range entries {
-		f.cqToEntry[entries[i].clusterQueueSnapshot] = &entries[i]
+		cq := entries[i].clusterQueueSnapshot
+		f.cqToEntry[cq] = append(f.cqToEntry[cq], &entries[i])
 	}
 	return &f
 }
@@ -67,37 +70,61 @@ func (f *fairSharingIterator) hasNext() bool {
 func (f *fairSharingIterator) pop() *entry {
 	cq := f.getCq()
 
-	// CQ has no Cohort. We simply return its workload.
+	// CQ has no Cohort. We simply return its front workload.
 	if !cq.HasParent() {
-		entry := f.cqToEntry[cq]
+		e := f.cqToEntry[cq][0]
 		f.log.V(3).Info("Returning workload from ClusterQueue without Cohort",
 			"clusterQueue", klog.KRef("", string(cq.GetName())),
-			"workload", klog.KObj(entry.Obj))
-		delete(f.cqToEntry, cq)
-		return entry
+			"workload", klog.KObj(e.Obj))
+		f.advance(cq)
+		return e
 	}
 
 	// CQ is part of a Cohort. We run a tournament, to select the
-	// most fair workload at each level.
+	// most fair workload at each level. Only each CQ's front entry
+	// participates in a given round.
 	root := cq.Parent().Root()
 	log := f.log.WithValues("rootCohort", klog.KRef("", string(root.GetName())))
 
+	front := f.frontEntries()
+
 	log.V(5).Info("Computing DominantResourceShare for tournament")
-	f.entryComparer.computeDRS(root, f.cqToEntry)
+	f.entryComparer.computeDRS(root, front)
 
 	log.V(3).Info("Running tournament to decide next workload to consider in scheduling cycle")
-	entry := runTournament(root, f.entryComparer, f.cqToEntry)
+	e := runTournament(root, f.entryComparer, front)
 
 	log = log.WithValues(
-		"cohort", klog.KRef("", string(entry.clusterQueueSnapshot.Parent().GetName())),
-		"clusterQueue", klog.KRef("", string(entry.clusterQueueSnapshot.GetName())),
-		"winningWorkload", klog.KObj(entry.Obj))
+		"cohort", klog.KRef("", string(e.clusterQueueSnapshot.Parent().GetName())),
+		"clusterQueue", klog.KRef("", string(e.clusterQueueSnapshot.GetName())),
+		"winningWorkload", klog.KObj(e.Obj))
 
 	log.V(3).Info("Determined tournament winner")
 	f.entryComparer.logDrsValuesWhenVerbose(log)
 
-	delete(f.cqToEntry, entry.clusterQueueSnapshot)
-	return entry
+	f.advance(e.clusterQueueSnapshot)
+	return e
+}
+
+// frontEntries returns the current front entry of every ClusterQueue still
+// holding pending entries, keyed by CQ. This is the set considered in one
+// tournament round.
+func (f *fairSharingIterator) frontEntries() map[*schdcache.ClusterQueueSnapshot]*entry {
+	front := make(map[*schdcache.ClusterQueueSnapshot]*entry, len(f.cqToEntry))
+	for cq, entries := range f.cqToEntry {
+		front[cq] = entries[0]
+	}
+	return front
+}
+
+// advance drops the front entry of the given CQ, removing the CQ entirely
+// once it has no more entries to consider.
+func (f *fairSharingIterator) advance(cq *schdcache.ClusterQueueSnapshot) {
+	if entries := f.cqToEntry[cq]; len(entries) > 1 {
+		f.cqToEntry[cq] = entries[1:]
+		return
+	}
+	delete(f.cqToEntry, cq)
 }
 
 // getCq returns a CQ with a workload pending scheduling. This

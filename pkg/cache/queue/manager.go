@@ -55,6 +55,12 @@ var (
 	errWorkloadIsInadmissible           = errors.New("workload is inadmissible and can't be added to a LocalQueue")
 )
 
+// FairSharingDeepAdmissionDepth is the fixed number of heads popped per
+// ClusterQueue per scheduling cycle when Fair Sharing deep admission is active.
+// The scheduler interrupts the cycle once a single root-cohort subtree admits
+// this many workloads, so both values must stay in sync.
+const FairSharingDeepAdmissionDepth = 2
+
 // Option configures the manager.
 type Option func(*Manager)
 
@@ -68,6 +74,15 @@ func WithClock(c clock.WithDelayedExecution) Option {
 func WithAdmissionFairSharing(cfg *config.AdmissionFairSharing) Option {
 	return func(m *Manager) {
 		m.admissionFairSharingConfig = cfg
+	}
+}
+
+// WithFairSharing records whether Fair Sharing is enabled. When it is (and the
+// FairSharingDeepAdmission feature gate is on), heads() pops up to
+// FairSharingDeepAdmissionDepth workloads per ClusterQueue per cycle.
+func WithFairSharing(enabled bool) Option {
+	return func(m *Manager) {
+		m.fairSharingEnabled = enabled
 	}
 }
 
@@ -165,6 +180,7 @@ type Manager struct {
 	topologyUpdateWatchers []TopologyUpdateWatcher
 
 	admissionFairSharingConfig *config.AdmissionFairSharing
+	fairSharingEnabled         bool
 	secondPassQueue            *secondPassQueue
 
 	AfsEntryPenalties      *queueafs.AfsEntryPenalties
@@ -829,26 +845,35 @@ func (m *Manager) Heads(ctx context.Context) []workload.Info {
 
 func (m *Manager) heads() []workload.Info {
 	workloads := m.secondPassQueue.takeAllReady()
+	// With Fair Sharing deep admission, look a fixed depth into each CQ so the
+	// DRS tournament can keep serving a low-DRS owner before an over-share
+	// sibling borrows freed capacity (see issue #9345). Otherwise pop one head.
+	depth := 1
+	if m.fairSharingEnabled && features.Enabled(features.FairSharingDeepAdmission) {
+		depth = FairSharingDeepAdmissionDepth
+	}
 	for cqName, cq := range m.hm.ClusterQueues() {
 		// Cache might be nil in tests, if cache is nil, we'll skip the check.
 		if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(cqName) {
 			continue
 		}
-		wl := cq.Pop()
-		reportCQPendingWorkloads(m, cq)
-		if wl == nil {
-			continue
+		for i := 0; i < depth; i++ {
+			wl := cq.Pop()
+			reportCQPendingWorkloads(m, cq)
+			if wl == nil {
+				break
+			}
+			wlKey := workload.Key(wl.Obj)
+			wlCopy := *wl
+			wlCopy.ClusterQueue = cqName
+			workloads = append(workloads, wlCopy)
+
+			qKey := m.workloadAssignedQueues[wlKey]
+			q := m.localQueues[qKey]
+			delete(q.items, wlKey)
+
+			reportLQPendingWorkloads(m, q)
 		}
-		wlKey := workload.Key(wl.Obj)
-		wlCopy := *wl
-		wlCopy.ClusterQueue = cqName
-		workloads = append(workloads, wlCopy)
-
-		qKey := m.workloadAssignedQueues[wlKey]
-		q := m.localQueues[qKey]
-		delete(q.items, wlKey)
-
-		reportLQPendingWorkloads(m, q)
 	}
 	return workloads
 }

@@ -334,8 +334,23 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	phaseStartTime = s.clock.Now()
 	preemptedWorkloads := make(preemption.PreemptedWorkloads)
 	skippedPreemptions := make(map[kueue.ClusterQueueReference]int)
+	// Fair Sharing deep admission: bound how much a single root-cohort subtree
+	// admits per cycle. Once a subtree reaches the deep-admission depth we
+	// interrupt the cycle so freed capacity keeps flowing to the low-DRS owner
+	// across cycles instead of an over-share sibling borrowing it (issue #9345).
+	deepAdmission := fairsharing.Enabled(s.fairSharing) && features.Enabled(features.FairSharingDeepAdmission)
+	admittedPerSubtree := make(map[string]int)
 	for iterator.hasNext() {
-		s.processEntry(ctx, iterator.pop(), snapshot, preemptedWorkloads, skippedPreemptions)
+		e := iterator.pop()
+		s.processEntry(ctx, e, snapshot, preemptedWorkloads, skippedPreemptions)
+		if deepAdmission && e.status == assumed {
+			key := topLevelSubtreeKey(e.clusterQueueSnapshot)
+			admittedPerSubtree[key]++
+			if admittedPerSubtree[key] >= qcache.FairSharingDeepAdmissionDepth {
+				log.V(3).Info("Interrupting scheduling cycle after subtree reached deep-admission depth", "subtree", key)
+				break
+			}
+		}
 	}
 
 	// 6. Requeue the heads that were not scheduled.
@@ -933,6 +948,30 @@ func (s *Scheduler) assumeWorkload(log logr.Logger, e *entry, cq *schdcache.Clus
 type entryIterator interface {
 	pop() *entry
 	hasNext() bool
+}
+
+// topLevelSubtreeKey returns a key identifying the root cohort's child subtree
+// that contains cq - the top-level contender for cohort capacity. For a CQ that
+// is a direct child of the root cohort (including a CQ with no cohort at all)
+// the key is the CQ itself; for a CQ nested under sub-cohorts it is the ancestor
+// cohort that is a direct child of the root. This makes the deep-admission
+// interrupt bound each top-level subtree (not just each leaf CQ), preventing an
+// over-share sibling subtree from borrowing freed capacity within a cycle. It
+// reduces to a per-CQ key for flat cohorts.
+func topLevelSubtreeKey(cq *schdcache.ClusterQueueSnapshot) string {
+	if cq.HasParent() {
+		var topChild *schdcache.CohortSnapshot
+		for ancestor := range cq.PathParentToRoot() {
+			if !ancestor.HasParent() {
+				break
+			}
+			topChild = ancestor
+		}
+		if topChild != nil {
+			return "cohort/" + string(topChild.GetName())
+		}
+	}
+	return "cq/" + string(cq.GetName())
 }
 
 func makeIterator(ctx context.Context, entries []entry, workloadOrdering workload.Ordering, enableFairSharing bool) entryIterator {

@@ -333,6 +333,7 @@ func main() {
 	}
 	if cfg.FairSharing != nil {
 		cacheOptions = append(cacheOptions, schdcache.WithFairSharing(fairsharing.Enabled(cfg.FairSharing)))
+		queueOptions = append(queueOptions, qcache.WithFairSharing(fairsharing.Enabled(cfg.FairSharing)))
 	}
 	if cfg.AdmissionFairSharing != nil {
 		queueOptions = append(queueOptions, qcache.WithAdmissionFairSharing(cfg.AdmissionFairSharing))

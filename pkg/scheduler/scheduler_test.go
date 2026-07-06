@@ -206,7 +206,7 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 					cl := clientBuilder.Build()
 					recorder := &utiltesting.EventRecorder{}
 					cqCache := schdcache.New(cl)
-					qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+					qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithFairSharing(tc.enableFairSharing))
 					// Workloads are loaded into queues or clusterQueues as we add them.
 					for _, q := range allQueues {
 						if err := qManager.AddLocalQueue(ctx, &q); err != nil {
