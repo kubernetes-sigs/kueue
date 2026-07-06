@@ -1483,22 +1483,72 @@ func RegisterLQMetrics() {
 	)
 }
 
-func ReportUnadmittedWorkload(cqName kueue.ClusterQueueReference, reason, underlyingCause string, customLabelValues []string, tracker *roletracker.RoleTracker, count int) {
-	labels := append([]string{string(cqName), reason, underlyingCause, roletracker.GetRole(tracker)}, customLabelValues...)
+func ReportUnadmittedWorkload(
+	cqName kueue.ClusterQueueReference,
+	reason, underlyingCause string,
+	customLabelValues []string,
+	tracker *roletracker.RoleTracker,
+	count int,
+) {
+	labels := append(
+		[]string{string(cqName), reason, underlyingCause, roletracker.GetRole(tracker)},
+		customLabelValues...,
+	)
 	UnadmittedWorkloads.WithLabelValues(labels...).Set(float64(count))
 }
 
-func ClearUnadmittedWorkloadLabelValues(cqName kueue.ClusterQueueReference, reason, underlyingCause string, customLabelValues []string, tracker *roletracker.RoleTracker) {
-	labels := append([]string{string(cqName), reason, underlyingCause, roletracker.GetRole(tracker)}, customLabelValues...)
+func ClearUnadmittedWorkloadLabelValues(
+	cqName kueue.ClusterQueueReference,
+	reason, underlyingCause string,
+	customLabelValues []string,
+	tracker *roletracker.RoleTracker,
+) {
+	labels := append(
+		[]string{string(cqName), reason, underlyingCause, roletracker.GetRole(tracker)},
+		customLabelValues...,
+	)
 	UnadmittedWorkloads.DeleteLabelValues(labels...)
 }
 
-func ReportLocalQueueUnadmittedWorkload(lq LocalQueueReference, cqName kueue.ClusterQueueReference, reason, underlyingCause string, customLabelValues []string, tracker *roletracker.RoleTracker, count int) {
-	labels := append([]string{string(lq.Name), lq.Namespace, string(cqName), reason, underlyingCause, roletracker.GetRole(tracker)}, customLabelValues...)
+func ReportLocalQueueUnadmittedWorkload(
+	lq LocalQueueReference,
+	cqName kueue.ClusterQueueReference,
+	reason, underlyingCause string,
+	customLabelValues []string,
+	tracker *roletracker.RoleTracker,
+	count int,
+) {
+	labels := append(
+		[]string{
+			string(lq.Name),
+			lq.Namespace,
+			string(cqName),
+			reason,
+			underlyingCause,
+			roletracker.GetRole(tracker),
+		},
+		customLabelValues...,
+	)
 	LocalQueueUnadmittedWorkloads.WithLabelValues(labels...).Set(float64(count))
 }
 
-func ClearLocalQueueUnadmittedWorkloadLabelValues(lq LocalQueueReference, cqName kueue.ClusterQueueReference, reason, underlyingCause string, customLabelValues []string, tracker *roletracker.RoleTracker) {
-	labels := append([]string{string(lq.Name), lq.Namespace, string(cqName), reason, underlyingCause, roletracker.GetRole(tracker)}, customLabelValues...)
+func ClearLocalQueueUnadmittedWorkloadLabelValues(
+	lq LocalQueueReference,
+	cqName kueue.ClusterQueueReference,
+	reason, underlyingCause string,
+	customLabelValues []string,
+	tracker *roletracker.RoleTracker,
+) {
+	labels := append(
+		[]string{
+			string(lq.Name),
+			lq.Namespace,
+			string(cqName),
+			reason,
+			underlyingCause,
+			roletracker.GetRole(tracker),
+		},
+		customLabelValues...,
+	)
 	LocalQueueUnadmittedWorkloads.DeleteLabelValues(labels...)
 }
