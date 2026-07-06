@@ -192,16 +192,6 @@ E2E_MODE=dev IMAGE_TAG=us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue
 
 This is useful to reproduce issues on a specific released version (e.g. for on-call debugging). For installing a released version into a real cluster (not e2e), see [Install a released version](/docs/getting-started/installation/#install-a-released-version).
 
-### Legacy: interactive attach mode
-
-Run `E2E_RUN_ONLY_ENV=true make kind-image-build test-multikueue-e2e-baseline` and wait for the `Do you want to cleanup? [Y/n] ` to appear (CI-style behavior).
-
-The cluster is ready, and now you can run tests from another terminal:
-```shell
-<your_kueue_path>/bin/ginkgo --json-report ./ginkgo.report -focus "MultiKueue when Creating a multikueue admission check Should run a jobSet on worker if admitted" -r
-```
-or from VSCode.
-
 ## Running subset of integration or e2e tests
 
 ### Use label filters for integration tests
