@@ -1212,8 +1212,4 @@ type WorkloadList struct {
 	Items           []Workload `json:"items"`
 }
 
-func init() {
-	SchemeBuilder.Register(&Workload{}, &WorkloadList{})
-}
-
 func (*Workload) Hub() {}

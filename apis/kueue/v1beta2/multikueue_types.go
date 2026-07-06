@@ -205,8 +205,4 @@ type MultiKueueConfigList struct {
 	Items           []MultiKueueConfig `json:"items"`
 }
 
-func init() {
-	SchemeBuilder.Register(&MultiKueueConfig{}, &MultiKueueConfigList{}, &MultiKueueCluster{}, &MultiKueueClusterList{})
-}
-
 func (*MultiKueueCluster) Hub() {}

@@ -56,7 +56,6 @@ E2E_K8S_FULL_VERSION ?= $(filter $(E2E_K8S_VERSION).%,$(E2E_K8S_VERSIONS))
 # Default to E2E_K8S_VERSION.0 if no match is found
 E2E_K8S_FULL_VERSION := $(or $(E2E_K8S_FULL_VERSION),$(E2E_K8S_VERSION).0)
 E2E_KIND_VERSION ?= kindest/node:v$(E2E_K8S_FULL_VERSION)
-E2E_RUN_ONLY_ENV ?= false
 E2E_USE_HELM ?= false
 E2E_MODE ?= ci
 E2E_SKIP_REINSTALL ?= false
@@ -373,7 +372,6 @@ run-test-e2e-baseline-%:
 		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="singlecluster/baseline" \
 		E2E_CONFIG_FOLDER="baseline" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
 		./hack/testing/e2e-test.sh
 
@@ -389,7 +387,6 @@ run-test-e2e-extended-%:
 		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="singlecluster/extended" \
 		E2E_CONFIG_FOLDER="extended" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
 		./hack/testing/e2e-test.sh
 
@@ -403,7 +400,6 @@ run-test-multikueue-e2e-baseline-%:
 		E2E_TARGET_FOLDER="multikueue/baseline" \
 		E2E_CONFIG_FOLDER="multikueue/baseline" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
 		./hack/testing/e2e-multikueue-test.sh
 
@@ -419,7 +415,6 @@ run-test-multikueue-e2e-extended-%:
 		E2E_TARGET_FOLDER="multikueue/extended" \
 		E2E_CONFIG_FOLDER=$(E2E_CONFIG_FOLDER) \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
 		./hack/testing/e2e-multikueue-test.sh
 
@@ -434,7 +429,6 @@ run-test-tas-e2e-baseline-%:
 		KIND_CLUSTER_FILE="kind-cluster-tas.yaml" E2E_TARGET_FOLDER="tas/baseline" \
 		E2E_CONFIG_FOLDER="baseline" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
 		./hack/testing/e2e-test.sh
 
@@ -450,7 +444,6 @@ run-test-tas-e2e-extended-%:
 		KIND_CLUSTER_FILE="kind-cluster-tas.yaml" E2E_TARGET_FOLDER="tas/extended" \
 		E2E_CONFIG_FOLDER="extended" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
 		./hack/testing/e2e-test.sh
 
@@ -465,7 +458,6 @@ run-test-e2e-sequential-baseline-%:
 	KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="sequential/baseline" \
 	E2E_CONFIG_FOLDER="baseline" \
 	TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-	E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 	E2E_USE_HELM=$(E2E_USE_HELM) \
 	./hack/testing/e2e-test.sh
 
@@ -480,7 +472,6 @@ run-test-e2e-sequential-extended-%:
 	KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="sequential/extended" \
 	E2E_CONFIG_FOLDER="extended" \
 	TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-	E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 	E2E_USE_HELM=$(E2E_USE_HELM) \
 	./hack/testing/e2e-test.sh
 
@@ -496,7 +487,6 @@ run-test-e2e-certmanager-%:
 		CERTMANAGER_VERSION=$(CERTMANAGER_VERSION) \
 		PROMETHEUS_OPERATOR_VERSION=$(PROMETHEUS_OPERATOR_VERSION) \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
 		./hack/testing/e2e-test.sh
 
@@ -511,7 +501,6 @@ run-test-e2e-upgrade-%:
 		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="upgrade" \
 		KUEUE_UPGRADE_FROM_VERSION=$(KUEUE_UPGRADE_FROM_VERSION) \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		./hack/testing/e2e-test.sh
 
 run-test-e2e-certmanager-upgrade-%: K8S_VERSION = $(@:run-test-e2e-certmanager-upgrade-%=%)
@@ -526,7 +515,6 @@ run-test-e2e-certmanager-upgrade-%:
 		KUEUE_UPGRADE_FROM_VERSION=$(KUEUE_UPGRADE_FROM_VERSION) \
 		CERTMANAGER_VERSION=$(CERTMANAGER_VERSION) \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		./hack/testing/e2e-test.sh
 
 run-test-e2e-dra-%: K8S_VERSION = $(@:run-test-e2e-dra-%=%)
@@ -540,7 +528,6 @@ run-test-e2e-dra-%:
 		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="dra/whole-device" \
 		DRA_EXAMPLE_DRIVER_VERSION=$(DRA_EXAMPLE_DRIVER_VERSION) \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		./hack/testing/e2e-test.sh
 
 run-test-e2e-multikueue-dra-%: K8S_VERSION = $(@:run-test-e2e-multikueue-dra-%=%)
@@ -554,7 +541,6 @@ run-test-e2e-multikueue-dra-%:
 		DRA_EXAMPLE_DRIVER_VERSION=$(DRA_EXAMPLE_DRIVER_VERSION) \
 		E2E_TARGET_FOLDER="multikueue/dra" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		./hack/testing/e2e-multikueue-test.sh
 
 .PHONY: test-e2e-dra-counter
@@ -572,7 +558,6 @@ run-test-e2e-dra-counter-%:
 		DRA_EXAMPLE_DRIVER_VERSION=$(DRA_EXAMPLE_DRIVER_VERSION) \
 		DRA_GPU_PARTITIONS=4 \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		./hack/testing/e2e-test.sh
 
 run-test-e2e-multikueue-sequential-%: K8S_VERSION = $(@:run-test-e2e-multikueue-sequential-%=%)
@@ -588,7 +573,6 @@ run-test-e2e-multikueue-sequential-%:
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		CLUSTERPROFILE_VERSION=$(CLUSTERPROFILE_VERSION) \
 		CLUSTERPROFILE_PLUGIN_IMAGE_VERSION=$(CLUSTERPROFILE_PLUGIN_IMAGE_VERSION) \
-		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
 		./hack/testing/e2e-multikueue-test.sh
 
@@ -621,7 +605,6 @@ run-test-e2e-k8s-main-was:
 		PROMETHEUS_OPERATOR_VERSION=$(PROMETHEUS_OPERATOR_VERSION) \
 		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="singlecluster" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
 		WAS_ENABLED=true \
 		./hack/testing/e2e-test.sh
