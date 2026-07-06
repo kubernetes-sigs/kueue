@@ -389,6 +389,12 @@
     lockToDefault: true
     preRelease: GA
     version: "0.18"
+- name: SkipReassignmentForPodOwnedWorkloads
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
 - name: SparkApplicationIntegration
   versionedSpecs:
   - default: false
