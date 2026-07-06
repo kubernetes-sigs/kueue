@@ -624,6 +624,27 @@ func (m *Manager) ClusterQueueForWorkloadWithoutLock(wl *kueue.Workload) (kueue.
 	return q.ClusterQueue, ok
 }
 
+func (m *Manager) GetNoFitReason(wl *kueue.Workload) (string, bool) {
+	m.RLock()
+	defer m.RUnlock()
+	wlKey := workload.Key(wl)
+	qKey, ok := m.workloadAssignedQueues[wlKey]
+	if !ok {
+		return "", false
+	}
+	q := m.localQueues[qKey]
+	if q == nil {
+		return "", false
+	}
+	cq := m.hm.ClusterQueue(q.ClusterQueue)
+	if cq == nil {
+		return "", false
+	}
+	wInfo := workload.NewInfo(wl, m.workloadInfoOptions...)
+	reason, ok := cq.GetNoFitReason(wlKey, wInfo.SchedulingHash)
+	return reason, ok
+}
+
 // AddOrUpdateWorkload adds or updates workload to the corresponding queue.
 // Returns whether the queue existed.
 func (m *Manager) AddOrUpdateWorkload(log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) error {
@@ -673,7 +694,7 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workl
 // RequeueWorkload requeues the workload ensuring that the queue and the
 // workload still exist in the client cache and not admitted. It won't
 // requeue if the workload is already in the queue (possible if the workload was updated).
-func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reason RequeueReason) bool {
+func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reason RequeueReason, statusReason string) bool {
 	m.Lock()
 	defer m.Unlock()
 
@@ -706,7 +727,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 		return false
 	}
 
-	added := cq.RequeueIfNotPresent(ctx, info, reason)
+	added := cq.RequeueIfNotPresent(ctx, info, reason, statusReason)
 	reportCQPendingWorkloads(m, cq)
 	reportLQPendingWorkloads(m, q)
 	if added {

@@ -1879,6 +1879,15 @@ func (r *WorkloadReconciler) resolveGranularUnadmittedQuotaReservedCondition(
 		return kueue.WorkloadQuotaReservedReasonMisconfigured, admissibilityErr.Error(), nil //nolint:nilerr // admissibility validation failure does not require retry
 	case workload.HasAdmissionGate(wl):
 		return kueue.WorkloadAdmissionGated, fmt.Sprintf("Admission is gated by: %s", wl.Annotations[constants.AdmissionGatedByAnnotation]), nil
+	}
+
+	if features.Enabled(features.SchedulingEquivalenceHashing) && isPendingSchedulingOrStale(cond) {
+		if reason, ok := r.queues.GetNoFitReason(wl); ok {
+			return reason, "Bypassed scheduling evaluation because an equivalent workload recently failed", nil
+		}
+	}
+
+	switch {
 	case cond != nil && cond.Reason != "" && schedulerSetReasons.Has(cond.Reason):
 		// Preserve scheduler feedback reasons until the next scheduler cycle.
 		return cond.Reason, cond.Message, nil
@@ -1922,5 +1931,36 @@ func (r *WorkloadReconciler) getQueueBlocker(wl *kueue.Workload, lqExists, lqAct
 		return kueue.WorkloadQuotaReservedReasonSuspended, fmt.Sprintf("ClusterQueue %s is inactive", cq.Name)
 	default:
 		return "", ""
+	}
+}
+
+// isPendingSchedulingOrStale returns true if the workload is pending scheduling
+// or has a status reason that doesn't contain scheduler diagnostics.
+func isPendingSchedulingOrStale(cond *metav1.Condition) bool {
+	// A workload with no condition or no reason set is fresh and has never
+	// been evaluated by the scheduler.
+	if cond == nil || cond.Reason == "" {
+		return true
+	}
+	// We only query the equivalence cache for workloads that are pending scheduling
+	// or transitioning back to the queue (stale states).
+	// We explicitly exclude:
+	// - Statically blocked states (Misconfigured, AdmissionGated): We want to keep
+	//   these blocking reasons visible instead of hiding them behind a bypassed message.
+	// - Scheduler diagnostics (WaitingForQuota, etc.): We want to preserve the
+	//   detailed resource breakdown messages set by the scheduler.
+	//
+	// This leaves only:
+	// - PendingEvaluation / Pending (legacy): The workload is actively in the queue waiting for scheduler.
+	// - Deactivated / Suspended: The workload was blocked but is now transitioning
+	//   back to active scheduling (the previous block is resolved, so we check the cache).
+	switch cond.Reason {
+	case kueue.WorkloadDeactivated,
+		kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+		kueue.WorkloadQuotaReservedReasonSuspended,
+		kueue.WorkloadPending: //nolint:staticcheck // SA1019: legacy reason
+		return true
+	default:
+		return false
 	}
 }
