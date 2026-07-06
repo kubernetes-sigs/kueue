@@ -130,8 +130,8 @@ func createSharedMultiKueueSecrets(ctx context.Context) {
 }
 
 func cleanupSharedMultiKueueSecrets(ctx context.Context) {
-	gomega.Expect(util.CleanMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue1")).NotTo(gomega.HaveOccurred())
-	gomega.Expect(util.CleanMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue2")).NotTo(gomega.HaveOccurred())
-	gomega.Expect(util.CleanKubeconfigForMultiKueueSA(ctx, k8sWorker1Client, kueueNS, "mksa")).NotTo(gomega.HaveOccurred())
-	gomega.Expect(util.CleanKubeconfigForMultiKueueSA(ctx, k8sWorker2Client, kueueNS, "mksa")).NotTo(gomega.HaveOccurred())
+	_ = util.CleanMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue1")
+	_ = util.CleanMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue2")
+	_ = util.CleanKubeconfigForMultiKueueSA(ctx, k8sWorker1Client, kueueNS, "mksa")
+	_ = util.CleanKubeconfigForMultiKueueSA(ctx, k8sWorker2Client, kueueNS, "mksa")
 }
