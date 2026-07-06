@@ -68,7 +68,7 @@ spec:
 Kueue controls the `spec.suspend` field of the RayService. When a RayService is admitted by Kueue, Kueue will unsuspend it by setting `spec.suspend` to `false`, regardless of its previous value.
 
 ### d. Limitations
-- Limited Worker Groups: Because a Kueue workload can have a maximum of 10 PodSets, the maximum number of `spec.rayClusterConfig.workerGroupSpecs` is 9
+- Limited Worker Groups: Because a Kueue workload can have a maximum of 40 PodSets, the maximum number of `spec.rayClusterConfig.workerGroupSpecs` is 39
 
 ## Example RayService
 

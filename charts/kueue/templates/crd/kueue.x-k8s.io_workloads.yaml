@@ -123,7 +123,7 @@ spec:
                   description: |-
                     podSets is a list of sets of homogeneous pods, each described by a Pod spec
                     and a count.
-                    There must be at least one element and at most 10.
+                    There must be at least one element and at most 40.
                     podSets cannot be changed.
                   items:
                     properties:
@@ -8345,7 +8345,7 @@ spec:
                     x-kubernetes-validations:
                       - message: minCount should be positive and less or equal to count
                         rule: 'has(self.minCount) ? self.minCount <= self.count : true'
-                  maxItems: 10
+                  maxItems: 40
                   minItems: 1
                   type: array
                   x-kubernetes-list-map-keys:
@@ -8560,7 +8560,7 @@ spec:
                         required:
                           - name
                         type: object
-                      maxItems: 10
+                      maxItems: 40
                       type: array
                       x-kubernetes-list-map-keys:
                         - name
@@ -8673,7 +8673,7 @@ spec:
                           required:
                             - name
                           type: object
-                        maxItems: 10
+                        maxItems: 40
                         type: array
                         x-kubernetes-list-type: atomic
                       requeueAfterSeconds:
@@ -8825,7 +8825,7 @@ spec:
                       - count
                       - name
                     type: object
-                  maxItems: 10
+                  maxItems: 40
                   type: array
                   x-kubernetes-list-map-keys:
                     - name
@@ -8881,7 +8881,7 @@ spec:
                     required:
                       - name
                     type: object
-                  maxItems: 10
+                  maxItems: 40
                   type: array
                   x-kubernetes-list-map-keys:
                     - name
@@ -9027,7 +9027,7 @@ spec:
                   description: |-
                     podSets is a list of sets of homogeneous pods, each described by a Pod spec
                     and a count.
-                    There must be at least one element and at most 10.
+                    There must be at least one element and at most 40.
                     podSets cannot be changed.
                   items:
                     properties:
@@ -17281,7 +17281,7 @@ spec:
                     x-kubernetes-validations:
                       - message: minCount should be positive and less or equal to count
                         rule: 'has(self.minCount) ? self.minCount <= self.count : true'
-                  maxItems: 10
+                  maxItems: 40
                   minItems: 1
                   type: array
                   x-kubernetes-list-map-keys:
@@ -17569,7 +17569,7 @@ spec:
                               - message: valuesPerLevel must have the same length as the number of levels in this TopologyAssignment
                                 rule: self.slices.all(x, size(x.valuesPerLevel) == size(self.levels))
                         type: object
-                      maxItems: 10
+                      maxItems: 40
                       type: array
                       x-kubernetes-list-map-keys:
                         - name
@@ -17681,7 +17681,7 @@ spec:
                           required:
                             - name
                           type: object
-                        maxItems: 10
+                        maxItems: 40
                         type: array
                         x-kubernetes-list-type: atomic
                       requeueAfterSeconds:
@@ -17868,7 +17868,7 @@ spec:
                       - count
                       - name
                     type: object
-                  maxItems: 10
+                  maxItems: 40
                   type: array
                   x-kubernetes-list-map-keys:
                     - name
@@ -17924,7 +17924,7 @@ spec:
                     required:
                       - name
                     type: object
-                  maxItems: 10
+                  maxItems: 40
                   type: array
                   x-kubernetes-list-map-keys:
                     - name

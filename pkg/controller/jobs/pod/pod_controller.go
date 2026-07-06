@@ -65,8 +65,11 @@ import (
 const (
 	FrameworkName                  = "pod"
 	ConditionTypeTerminationTarget = "TerminationTarget"
-	errMsgIncorrectGroupRoleCount  = "pod group can't include more than 10 roles"
 )
+
+// errMsgIncorrectGroupRoleCount is derived from jobframework.MaxPodSets so the
+// message stays in sync with the limit.
+var errMsgIncorrectGroupRoleCount = fmt.Sprintf("pod group can't include more than %d roles", jobframework.MaxPodSets)
 
 // Event reasons used by the pod controller
 const (

@@ -18,5 +18,5 @@ package jobframework
 
 const (
 	// MaxPodSets is the maximum number of PodSets allowed in a Workload.
-	MaxPodSets = 10
+	MaxPodSets = 40
 )

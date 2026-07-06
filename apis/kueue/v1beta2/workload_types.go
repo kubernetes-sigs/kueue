@@ -28,12 +28,12 @@ import (
 type WorkloadSpec struct {
 	// podSets is a list of sets of homogeneous pods, each described by a Pod spec
 	// and a count.
-	// There must be at least one element and at most 10.
+	// There must be at least one element and at most 40.
 	// podSets cannot be changed.
 	//
 	// +listType=map
 	// +listMapKey=name
-	// +kubebuilder:validation:MaxItems=10
+	// +kubebuilder:validation:MaxItems=40
 	// +kubebuilder:validation:MinItems=1
 	// +optional
 	PodSets []PodSet `json:"podSets"`
@@ -272,7 +272,7 @@ type Admission struct {
 	// podSetAssignments hold the admission results for each of the .spec.podSets entries.
 	// +listType=map
 	// +listMapKey=name
-	// +kubebuilder:validation:MaxItems=10
+	// +kubebuilder:validation:MaxItems=40
 	// +optional
 	PodSetAssignments []PodSetAssignment `json:"podSetAssignments"`
 }
@@ -649,7 +649,7 @@ type WorkloadStatus struct {
 	// +optional
 	// +listType=map
 	// +listMapKey=name
-	// +kubebuilder:validation:MaxItems=10
+	// +kubebuilder:validation:MaxItems=40
 	ReclaimablePods []ReclaimablePod `json:"reclaimablePods,omitempty"`
 
 	// admissionChecks list all the admission checks required by the workload and the current status
@@ -669,7 +669,7 @@ type WorkloadStatus struct {
 	// +optional
 	// +listType=map
 	// +listMapKey=name
-	// +kubebuilder:validation:MaxItems=10
+	// +kubebuilder:validation:MaxItems=40
 	ResourceRequests []PodSetRequest `json:"resourceRequests,omitempty"`
 
 	// accumulatedPastExecutionTimeSeconds holds the total time, in seconds, the workload spent
@@ -834,7 +834,7 @@ type AdmissionCheckState struct {
 	// podSetUpdates contains a list of pod set modifications suggested by AdmissionChecks.
 	// +optional
 	// +listType=atomic
-	// +kubebuilder:validation:MaxItems=10
+	// +kubebuilder:validation:MaxItems=40
 	PodSetUpdates []PodSetUpdate `json:"podSetUpdates,omitempty"`
 }
 

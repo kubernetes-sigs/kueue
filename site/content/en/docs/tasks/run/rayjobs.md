@@ -71,7 +71,7 @@ Kueue controls the `spec.suspend` field of the RayJob. When a RayJob is admitted
 
 - A Kueue managed RayJob cannot use an existing RayCluster.
 - The RayCluster should be deleted at the end of the job execution, `spec.ShutdownAfterJobFinishes` should be `true`.
-- Because a Kueue workload can have a maximum of 10 PodSets, the maximum number of `spec.rayClusterSpec.workerGroupSpecs` is 9.
+- Because a Kueue workload can have a maximum of 40 PodSets, the maximum number of `spec.rayClusterSpec.workerGroupSpecs` is 39.
 
 ## Example RayJob
 

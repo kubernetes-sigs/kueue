@@ -68,7 +68,7 @@ Note that a RayCluster will hold resource quotas while it exists. For optimal re
 Kueue controls the `spec.suspend` field of the RayCluster. When a RayCluster is admitted by Kueue, Kueue will unsuspend it by setting `spec.suspend` to `false`, regardless of its previous value.
 
 ### d. Limitations
-- Limited Worker Groups: Because a Kueue workload can have a maximum of 10 PodSets, the maximum number of `spec.workerGroupSpecs` is 9
+- Limited Worker Groups: Because a Kueue workload can have a maximum of 40 PodSets, the maximum number of `spec.workerGroupSpecs` is 39
 - In-Tree Autoscaling Constraints: Autoscaling is only supported for [elastic](/docs/concepts/elastic_workload) RayCluster objects. To enable in-tree autoscaling:
 
   1. Activate the `ElasticJobsViaWorkloadSlices` feature gate.

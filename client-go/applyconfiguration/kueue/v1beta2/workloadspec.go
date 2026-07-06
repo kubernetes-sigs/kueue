@@ -29,7 +29,7 @@ import (
 type WorkloadSpecApplyConfiguration struct {
 	// podSets is a list of sets of homogeneous pods, each described by a Pod spec
 	// and a count.
-	// There must be at least one element and at most 10.
+	// There must be at least one element and at most 40.
 	// podSets cannot be changed.
 	PodSets []PodSetApplyConfiguration `json:"podSets,omitempty"`
 	// queueName is the name of the LocalQueue the Workload is associated with.
