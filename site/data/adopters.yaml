@@ -154,3 +154,11 @@
   integrations: []
   contact: '@krea-ai'
   contact_url: https://twitter.com/krea_ai
+- name: Parasail
+  url: https://www.parasail.io/
+  type: End User
+  description: Inference cloud for AI-native startups
+  integrations:
+  - pod
+  contact: '@yakticus'
+  contact_url: https://github.com/yakticus
