@@ -127,7 +127,11 @@ func TestValidateDefault(t *testing.T) {
 
 func TestValidateCreate(t *testing.T) {
 	worker := rayv1.WorkerGroupSpec{}
-	bigWorkerGroup := []rayv1.WorkerGroupSpec{worker, worker, worker, worker, worker, worker, worker, worker, worker, worker}
+	// head + jobframework.MaxPodSets worker groups exceeds the per-Workload podSet limit.
+	bigWorkerGroup := make([]rayv1.WorkerGroupSpec, jobframework.MaxPodSets)
+	for i := range bigWorkerGroup {
+		bigWorkerGroup[i] = worker
+	}
 
 	testcases := map[string]struct {
 		job          *rayv1.RayCluster
@@ -160,7 +164,7 @@ func TestValidateCreate(t *testing.T) {
 				WithWorkerGroups(bigWorkerGroup...).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.TooMany(field.NewPath("spec", "workerGroupSpecs"), 11, jobframework.MaxPodSets),
+				field.TooMany(field.NewPath("spec", "workerGroupSpecs"), jobframework.MaxPodSets+1, jobframework.MaxPodSets),
 			}.ToAggregate(),
 		},
 		"worker group uses head name": {

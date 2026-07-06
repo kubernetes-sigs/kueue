@@ -950,6 +950,17 @@ func TestRestorePodSetsInfo(t *testing.T) {
 }
 
 func TestValidateCreateRayClusterSpec(t *testing.T) {
+	// A RayCluster contributes one podSet for the head plus one per worker
+	// group, so jobframework.MaxPodSets worker groups (head + MaxPodSets)
+	// exceeds the per-Workload podSet limit.
+	tooManyWorkerGroups := make([]rayv1.WorkerGroupSpec, jobframework.MaxPodSets)
+	for i := range tooManyWorkerGroups {
+		tooManyWorkerGroups[i] = rayv1.WorkerGroupSpec{GroupName: fmt.Sprintf("workers%d", i+1)}
+	}
+	tooManyWorkerGroupsWithHead := make([]rayv1.WorkerGroupSpec, jobframework.MaxPodSets)
+	copy(tooManyWorkerGroupsWithHead, tooManyWorkerGroups)
+	tooManyWorkerGroupsWithHead[0] = rayv1.WorkerGroupSpec{GroupName: "head"}
+
 	testCases := map[string]struct {
 		object         client.Object
 		rayClusterSpec *rayv1.RayClusterSpec
@@ -1006,21 +1017,10 @@ func TestValidateCreateRayClusterSpec(t *testing.T) {
 				HeadGroupSpec: rayv1.HeadGroupSpec{
 					Template: corev1.PodTemplateSpec{},
 				},
-				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
-					{GroupName: "workers1"},
-					{GroupName: "workers2"},
-					{GroupName: "workers3"},
-					{GroupName: "workers4"},
-					{GroupName: "workers5"},
-					{GroupName: "workers6"},
-					{GroupName: "workers7"},
-					{GroupName: "workers8"},
-					{GroupName: "workers9"},
-					{GroupName: "workers10"}, // 10 worker groups is too many
-				},
+				WorkerGroupSpecs: tooManyWorkerGroups,
 			},
 			wantErrors: field.ErrorList{
-				field.TooMany(field.NewPath("spec", "workerGroupSpecs"), 11, jobframework.MaxPodSets),
+				field.TooMany(field.NewPath("spec", "workerGroupSpecs"), jobframework.MaxPodSets+1, jobframework.MaxPodSets),
 			},
 		},
 		"worker group named 'head'": {
@@ -1046,22 +1046,11 @@ func TestValidateCreateRayClusterSpec(t *testing.T) {
 				HeadGroupSpec: rayv1.HeadGroupSpec{
 					Template: corev1.PodTemplateSpec{},
 				},
-				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
-					{GroupName: "head"},
-					{GroupName: "workers2"},
-					{GroupName: "workers3"},
-					{GroupName: "workers4"},
-					{GroupName: "workers5"},
-					{GroupName: "workers6"},
-					{GroupName: "workers7"},
-					{GroupName: "workers8"},
-					{GroupName: "workers9"},
-					{GroupName: "workers10"},
-				},
+				WorkerGroupSpecs: tooManyWorkerGroupsWithHead,
 			},
 			wantErrors: field.ErrorList{
 				field.Invalid(field.NewPath("spec", "enableInTreeAutoscaling"), new(true), "a kueue managed job should only use autoscaling when workload slicing is enabled"),
-				field.TooMany(field.NewPath("spec", "workerGroupSpecs"), 11, jobframework.MaxPodSets),
+				field.TooMany(field.NewPath("spec", "workerGroupSpecs"), jobframework.MaxPodSets+1, jobframework.MaxPodSets),
 				field.Forbidden(field.NewPath("spec", "workerGroupSpecs").Index(0).Child("groupName"), fmt.Sprintf("%q is reserved for the head group", headGroupPodSetName)),
 			},
 		},
