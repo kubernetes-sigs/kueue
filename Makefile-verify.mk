@@ -16,7 +16,8 @@
 
 GO_FMT ?= gofmt
 CONTAINER_ENGINE ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
-SKILLSAW_IMAGE ?= ghcr.io/stbenjam/skillsaw:0.16.0
+SKILLSAW_VERSION := $(shell grep '^FROM' "${TESTING_DIR}/skillsaw/Dockerfile" | cut -d: -f2 | cut -d@ -f1)
+SKILLSAW_IMAGE := "ghcr.io/stbenjam/skillsaw:${SKILLSAW_VERSION}"
 VERIFY_NPROCS ?= 8
 # Output sync mode for parallel verification. Set to empty to disable.
 # Requires GNU Make 4.0+. Values: target, line, recurse, or empty.

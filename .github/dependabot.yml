@@ -61,6 +61,7 @@ updates:
       - "/hack/testing/ray-mini"
       - "/hack/testing/secretreader"
       - "/hack/testing/shellcheck"
+      - "/hack/testing/skillsaw"
       - "/hack/testing/spark"
     schedule:
       interval: "weekly"
