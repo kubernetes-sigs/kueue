@@ -560,7 +560,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 		})
 
 		ginkgo.It("Should deduplicate env variables", func() {
-			highPriorityClass := utiltesting.MakePriorityClass("high-" + ns.Name).PriorityValue(100).Obj()
+			highPriorityClass := utiltestingapi.MakeWorkloadPriorityClass("high-" + ns.Name).PriorityValue(100).Obj()
 			util.MustCreate(ctx, k8sClient, highPriorityClass)
 			ginkgo.DeferCleanup(func() {
 				gomega.Expect(k8sClient.Delete(ctx, highPriorityClass)).To(gomega.Succeed())
@@ -606,7 +606,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Parallelism(1).
-				PriorityClass(highPriorityClass.Name).
+				WorkloadPriorityClass(highPriorityClass.Name).
 				Request(corev1.ResourceCPU, "1").
 				NodeSelector("instance-type", "on-demand").
 				TerminationGracePeriod(1).
