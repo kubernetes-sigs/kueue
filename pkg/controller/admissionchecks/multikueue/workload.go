@@ -103,13 +103,14 @@ type wlReconciler struct {
 var _ reconcile.Reconciler = (*wlReconciler)(nil)
 
 type wlGroup struct {
-	local         *kueue.Workload
-	localClient   client.Client
-	remotes       map[string]*kueue.Workload
-	remoteClients map[string]*remoteClient
-	acName        kueue.AdmissionCheckReference
-	jobAdapter    jobframework.MultiKueueAdapter
-	controllerKey types.NamespacedName
+	local               *kueue.Workload
+	localClient         client.Client
+	remotes             map[string]*kueue.Workload
+	remoteClients       map[string]*remoteClient
+	acName              kueue.AdmissionCheckReference
+	jobAdapter          jobframework.MultiKueueAdapter
+	controllerKey       types.NamespacedName
+	unavailableClusters []string
 }
 
 type Option func(reconciler *wlReconciler)
@@ -258,6 +259,8 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 				return reconcile.Result{}, err
 			}
 		}
+		// Remote workloads on unavailable clusters will be cleaned up by
+		// the per-cluster GC once the cluster reconnects.
 		w.deletedWlCache.Delete(req.String())
 		return reconcile.Result{}, nil
 	}
@@ -274,26 +277,20 @@ func (w *wlReconciler) updateACS(ctx context.Context, wl *kueue.Workload, acs *k
 	})
 }
 
-func (w *wlReconciler) remoteClientsForAC(ctx context.Context, acName kueue.AdmissionCheckReference) (map[string]*remoteClient, error) {
+func (w *wlReconciler) remoteClientsForAC(ctx context.Context, acName kueue.AdmissionCheckReference) (availableClients map[string]*remoteClient, unavailableClusters []string, err error) {
 	cfg, err := w.helper.ConfigForAdmissionCheck(ctx, acName)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	clients := make(map[string]*remoteClient, len(cfg.Spec.Clusters))
+	availableClients = make(map[string]*remoteClient, len(cfg.Spec.Clusters))
 	for _, clusterName := range cfg.Spec.Clusters {
-		if client, found := w.clusters.controllerFor(clusterName); found {
-			// Skip the client if its reconnect is ongoing or it is disconnected.
-			if !client.connecting.Load() && !client.disconnected.Load() {
-				clients[clusterName] = client
-			}
+		if client, found := w.clusters.controllerFor(clusterName); found && !client.connecting.Load() && !client.disconnected.Load() {
+			availableClients[clusterName] = client
+		} else {
+			unavailableClusters = append(unavailableClusters, clusterName)
 		}
 	}
-	// Return an empty map (rather than an error) when all configured clusters
-	// are disconnected or reconnecting. This allows readGroup to construct an
-	// empty group, so reconcileGroup can apply the workerLostTimeout delay via
-	// the existing "reserving remote lost" branch instead of failing with
-	// ErrNoActiveClusters and retrying via controller-runtime backoff.
-	return clients, nil
+	return availableClients, unavailableClusters, nil
 }
 
 func (w *wlReconciler) adapter(local *kueue.Workload) (jobframework.MultiKueueAdapter, *metav1.OwnerReference) {
@@ -322,19 +319,20 @@ func (w *wlReconciler) adapter(local *kueue.Workload) (jobframework.MultiKueueAd
 }
 
 func (w *wlReconciler) readGroup(ctx context.Context, local *kueue.Workload, acName kueue.AdmissionCheckReference, adapter jobframework.MultiKueueAdapter, controllerName string) (*wlGroup, error) {
-	rClients, err := w.remoteClientsForAC(ctx, acName)
+	rClients, unavailable, err := w.remoteClientsForAC(ctx, acName)
 	if err != nil {
 		return nil, fmt.Errorf("admission check %q: %w", acName, err)
 	}
 
 	grp := wlGroup{
-		local:         local,
-		localClient:   w.client,
-		remotes:       make(map[string]*kueue.Workload, len(rClients)),
-		remoteClients: rClients,
-		acName:        acName,
-		jobAdapter:    adapter,
-		controllerKey: types.NamespacedName{Name: controllerName, Namespace: local.Namespace},
+		local:               local,
+		localClient:         w.client,
+		remotes:             make(map[string]*kueue.Workload, len(rClients)),
+		remoteClients:       rClients,
+		acName:              acName,
+		jobAdapter:          adapter,
+		controllerKey:       types.NamespacedName{Name: controllerName, Namespace: local.Namespace},
+		unavailableClusters: unavailable,
 	}
 
 	for remote, rClient := range rClients {
@@ -374,6 +372,10 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 				errs = append(errs, err)
 				log.V(2).Error(err, "Deleting remote workload", "workerCluster", rem)
 			}
+		}
+		if len(group.unavailableClusters) > 0 {
+			log.V(3).Info("Retrying remote workload cleanup, some clusters are unavailable", "unavailableClusters", group.unavailableClusters, "retryAfter", w.workerLostTimeout)
+			return reconcile.Result{RequeueAfter: w.workerLostTimeout}, errors.Join(errs...)
 		}
 		return reconcile.Result{}, errors.Join(errs...)
 	}
