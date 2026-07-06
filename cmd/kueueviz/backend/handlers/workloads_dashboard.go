@@ -92,8 +92,8 @@ func (h *Handlers) fetchWorkloadsDashboardData(ctx context.Context, namespace st
 	// Index pods by namespace first to keep the All namespaces view from matching
 	// pods across namespaces while still listing pods once per workload namespace.
 	workloadNamespaces := make(map[string]struct{})
-	for _, workload := range wql.Items {
-		workloadNamespaces[workload.Namespace] = struct{}{}
+	for i := range wql.Items {
+		workloadNamespaces[wql.Items[i].Namespace] = struct{}{}
 	}
 	podsByNamespace := make(map[string]map[string][]map[string]any, len(workloadNamespaces))
 	for namespace := range workloadNamespaces {
