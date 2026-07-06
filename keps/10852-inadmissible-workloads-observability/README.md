@@ -476,9 +476,7 @@ A set of metrics is introduced to track unadmitted workloads when the
     `AdmissionGated`).
 
 If a workload has successfully obtained a quota reservation (`QuotaReserved` is `True`),
-the `underlying_cause` label is populated as follows:
-- For `UnsatisfiedAdmissionChecks`: Set to `ChecksNotReady`.
-- For `PendingDelayedTopologyRequests`: Set to `PendingTopology`.
+the `underlying_cause` label is left empty (`""`), which indicates that the value in the `reason` label is the root cause for the workload not being admitted.
 
 **Handling of Missing or Unset Status Conditions**
 
@@ -502,8 +500,8 @@ of these mapping combinations are detailed below:
 | :--- | :--- | :--- | :--- | :--- |
 | `NoReservation` | `False (WaitingForQuota)` | `NoReservation` | `WaitingForQuota` | Workload is waiting for queue capacity. |
 | `NoReservation` | `False (Misconfigured)` | `NoReservation` | `Misconfigured` | Workload has structural/configuration errors. |
-| `UnsatisfiedAdmissionChecks` | `True (N/A)` | `UnsatisfiedAdmissionChecks` | `ChecksNotReady` | Quota is reserved, but blocked by pending admission checks. |
-| `PendingDelayedTopologyRequests` | `True (N/A)` | `PendingDelayedTopologyRequests` | `PendingTopology` | Quota is reserved, but blocked by delayed topology paths. |
+| `UnsatisfiedAdmissionChecks` | `True (N/A)` | `UnsatisfiedAdmissionChecks` | `""` | Quota is reserved, but blocked by pending admission checks. |
+| `PendingDelayedTopologyRequests` | `True (N/A)` | `PendingDelayedTopologyRequests` | `""` | Quota is reserved, but blocked by delayed topology paths. |
 
 
 ### Troubleshooting & End-User Inspection
