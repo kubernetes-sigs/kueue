@@ -1,5 +1,3 @@
-name: Kueue Release Utility Operations ChatOps Controller
-
 on:
   issue_comment:
     types: [created]
