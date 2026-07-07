@@ -613,6 +613,76 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 					Obj(),
 			},
 		},
+		// Workaround for Kubernetes 1.36.0/1.36.1 (kubernetes/kubernetes#139281):
+		// when local is suspended and remote is unsuspended+not-finished,
+		// the adapter must patch JobSuspended=True on the local Job so that
+		// further spec updates (e.g. nodeSelector injection) are not blocked.
+		"WorkaroundEnabled_PatchesJobSuspendedCondition": {
+			fields: fields{
+				featureGates: map[featuregate.Feature]bool{features.MultiKueueJobSuspendedWorkaroundDisabled: false},
+			},
+			args: args{
+				// local: suspended (default), no JobSuspended condition yet.
+				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().Obj()).Build(),
+				// remote: unsuspended and not finished.
+				remoteClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().Suspend(false).Active(1).Obj()).Build(),
+				key:          client.ObjectKeyFromObject(newJob().Obj()),
+			},
+			want: want{
+				deferred: true,
+				localJob: newJob().
+					ResourceVersion("2").
+					Condition(batchv1.JobCondition{
+						Type:    batchv1.JobSuspended,
+						Status:  corev1.ConditionTrue,
+						Reason:  "MultiKueueAdapter",
+						Message: "Set by MultiKueue adapter",
+					}).
+					Obj(),
+			},
+		},
+		// When JobSuspended=True is already set, no additional patch should occur.
+		"WorkaroundEnabled_AlreadyHasJobSuspendedCondition": {
+			fields: fields{
+				featureGates: map[featuregate.Feature]bool{features.MultiKueueJobSuspendedWorkaroundDisabled: false},
+			},
+			args: args{
+				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
+					Condition(batchv1.JobCondition{
+						Type:   batchv1.JobSuspended,
+						Status: corev1.ConditionTrue,
+					}).
+					Obj()).Build(),
+				remoteClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().Suspend(false).Active(1).Obj()).Build(),
+				key:          client.ObjectKeyFromObject(newJob().Obj()),
+			},
+			want: want{
+				deferred: true,
+				localJob: newJob().
+					Condition(batchv1.JobCondition{
+						Type:   batchv1.JobSuspended,
+						Status: corev1.ConditionTrue,
+					}).
+					Obj(),
+			},
+		},
+		// When MultiKueueJobSuspendedWorkaroundDisabled is enabled (Kubernetes 1.36.2+),
+		// the adapter must NOT patch JobSuspended=True.
+		"WorkaroundDisabled_SkipsJobSuspendedPatch": {
+			fields: fields{
+				featureGates: map[featuregate.Feature]bool{features.MultiKueueJobSuspendedWorkaroundDisabled: true},
+			},
+			args: args{
+				localClient:  fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().Obj()).Build(),
+				remoteClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().Suspend(false).Active(1).Obj()).Build(),
+				key:          client.ObjectKeyFromObject(newJob().Obj()),
+			},
+			want: want{
+				deferred: true,
+				localJob: newJob().Obj(), // no conditions patched
+			},
+		},
+
 		// Regression test for #11115: when an elastic sync is needed AND the local
 		// Job is still suspended (remote unsuspended and not finished), SyncJob must
 		// still report deferred=true — the deferred flag must not be dropped on the
@@ -700,7 +770,10 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 				if err := tt.args.localClient.Get(ctx, client.ObjectKeyFromObject(tt.want.localJob), got); err != nil {
 					t.Errorf("SyncJob() unexpected assertion error retrieving local job: %v", err)
 				}
-				if diff := cmp.Diff(tt.want.localJob, got, cmpopts.EquateEmpty(), cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion")); diff != "" {
+				if diff := cmp.Diff(tt.want.localJob, got,
+					cmpopts.EquateEmpty(),
+					cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
+					cmpopts.IgnoreFields(batchv1.JobCondition{}, "LastTransitionTime", "LastProbeTime")); diff != "" {
 					t.Errorf("SyncJob() localJob (-want,+got):\n%s", diff)
 				}
 			}
