@@ -1577,7 +1577,7 @@ func TestReconcile(t *testing.T) {
 				}
 				qManager.Heads(ctx) // Pop from active heap
 				wInfo := workload.NewInfo(wl)
-				qManager.RequeueWorkload(ctx, wInfo, qcache.RequeueReasonNoFit, kueue.WorkloadQuotaReservedReasonWaitingForQuota)
+				qManager.RequeueWorkload(ctx, wInfo, qcache.RequeueReasonNoFit, qcache.QuotaReservedReasonWaitingForQuota)
 			},
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Queue("lq").
@@ -1615,7 +1615,7 @@ func TestReconcile(t *testing.T) {
 				}
 				qManager.Heads(ctx) // Pop from active heap
 				wInfo := workload.NewInfo(wl)
-				qManager.RequeueWorkload(ctx, wInfo, qcache.RequeueReasonNoFit, kueue.WorkloadQuotaReservedReasonWaitingForQuota)
+				qManager.RequeueWorkload(ctx, wInfo, qcache.RequeueReasonNoFit, qcache.QuotaReservedReasonWaitingForQuota)
 			},
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Queue("lq").
@@ -1647,7 +1647,7 @@ func TestReconcile(t *testing.T) {
 				}
 				qManager.Heads(ctx) // Pop from active heap
 				wInfo := workload.NewInfo(wl)
-				qManager.RequeueWorkload(ctx, wInfo, qcache.RequeueReasonNoFit, kueue.WorkloadQuotaReservedReasonWaitingForQuota)
+				qManager.RequeueWorkload(ctx, wInfo, qcache.RequeueReasonNoFit, qcache.QuotaReservedReasonWaitingForQuota)
 			},
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Queue("lq").
@@ -1685,7 +1685,7 @@ func TestReconcile(t *testing.T) {
 				}
 				qManager.Heads(ctx) // Pop from active heap
 				wInfo := workload.NewInfo(wl)
-				qManager.RequeueWorkload(ctx, wInfo, qcache.RequeueReasonNoFit, kueue.WorkloadQuotaReservedReasonWaitingForQuota)
+				qManager.RequeueWorkload(ctx, wInfo, qcache.RequeueReasonNoFit, qcache.QuotaReservedReasonWaitingForQuota)
 			},
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Queue("lq").
