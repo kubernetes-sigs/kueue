@@ -1534,22 +1534,22 @@ func TestRecordInadmissibleHash(t *testing.T) {
 
 func TestPushOrUpdateRespectsInadmissibleHashes(t *testing.T) {
 	cases := map[string]struct {
-		noFitSchedulingHashes []string
-		pushHash              string
-		wantActive            int
-		wantInadmissible      int
+		inadmissibleHashes []string
+		pushHash           string
+		wantActive         int
+		wantInadmissible   int
 	}{
 		"workload with blocked hash goes to inadmissible": {
-			noFitSchedulingHashes: []string{"blocked"},
-			pushHash:              "blocked",
-			wantActive:            0,
-			wantInadmissible:      1,
+			inadmissibleHashes: []string{"blocked"},
+			pushHash:           "blocked",
+			wantActive:         0,
+			wantInadmissible:   1,
 		},
 		"workload with non-blocked hash goes to heap": {
-			noFitSchedulingHashes: []string{"blocked"},
-			pushHash:              "allowed",
-			wantActive:            1,
-			wantInadmissible:      0,
+			inadmissibleHashes: []string{"blocked"},
+			pushHash:           "allowed",
+			wantActive:         1,
+			wantInadmissible:   0,
 		},
 	}
 	for name, tc := range cases {
@@ -1558,8 +1558,8 @@ func TestPushOrUpdateRespectsInadmissibleHashes(t *testing.T) {
 			cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()))
 			cq.queueingStrategy = kueue.BestEffortFIFO
 
-			for _, h := range tc.noFitSchedulingHashes {
-				cq.noFitSchedulingHashReasons[h] = "dummy-reason"
+			for _, h := range tc.inadmissibleHashes {
+				cq.hashToBulkMoveReason[h] = "dummy-reason"
 			}
 
 			wl := utiltestingapi.MakeWorkload("wl", defaultNamespace).
@@ -1592,7 +1592,7 @@ func TestQueueInadmissibleWorkloadsClearsHashes(t *testing.T) {
 	cq.PushOrUpdate(info)
 	cq.handleInadmissibleHash("test-hash", "dummy-reason")
 
-	if _, has := cq.noFitSchedulingHashReasons["test-hash"]; !has {
+	if _, has := cq.hashToBulkMoveReason["test-hash"]; !has {
 		t.Fatal("hash should be recorded before clearing")
 	}
 
@@ -1600,8 +1600,8 @@ func TestQueueInadmissibleWorkloadsClearsHashes(t *testing.T) {
 		wl, utiltesting.MakeNamespace(defaultNamespace),
 	))
 
-	if _, has := cq.noFitSchedulingHashReasons["test-hash"]; has {
-		t.Error("noFitSchedulingHashReasons should be cleared after queueInadmissibleWorkloads")
+	if _, has := cq.hashToBulkMoveReason["test-hash"]; has {
+		t.Error("hashToBulkMoveReason should be cleared after queueInadmissibleWorkloads")
 	}
 
 	active, inadmissible := cq.Pending()
@@ -1656,9 +1656,9 @@ func TestRequeueHashTriggerByReason(t *testing.T) {
 			info.SchedulingHash = "test-hash-abc"
 			cq.RequeueIfNotPresent(ctx, info, tc.reason, "WaitingForQuota")
 
-			_, gotHash := cq.noFitSchedulingHashReasons["test-hash-abc"]
+			_, gotHash := cq.hashToBulkMoveReason["test-hash-abc"]
 			if gotHash != tc.wantHash {
-				t.Errorf("noFitSchedulingHashReasons.Has(hash) = %v, want %v", gotHash, tc.wantHash)
+				t.Errorf("hashToBulkMoveReason.Has(hash) = %v, want %v", gotHash, tc.wantHash)
 			}
 		})
 	}
@@ -1731,7 +1731,7 @@ func TestGetNoFitReason(t *testing.T) {
 				cq.rwm.Unlock()
 			}
 
-			reason, ok := cq.GetNoFitReason(wlKey, info.SchedulingHash)
+			reason, ok := cq.GetNoFitReason(wlKey)
 			if ok != tc.wantOk {
 				t.Errorf("GetNoFitReason() ok = %v, want %v", ok, tc.wantOk)
 			}

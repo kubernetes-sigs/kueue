@@ -117,9 +117,10 @@ type ClusterQueue struct {
 	// inadmissibleWorkloads are workloads that have been tried at least once and couldn't be admitted.
 	inadmissibleWorkloads inadmissibleWorkloads
 
-	// noFitSchedulingHashReasons tracks scheduling equivalence classes and their reasons.
+	// hashToBulkMoveReason tracks scheduling equivalence classes and the reason
+	// why workloads with that hash were bulk-moved to inadmissibleWorkloads.
 	// Cleared when queueInadmissibleWorkloads runs.
-	noFitSchedulingHashReasons map[string]string
+	hashToBulkMoveReason map[string]string
 
 	finishedWorkloads sets.Set[workload.Reference]
 
@@ -246,19 +247,19 @@ func newClusterQueueImpl(ctx context.Context, client client.Client, wo workload.
 		options.afsEntryPenalties, options.afsConsumedResources,
 	)
 	return &ClusterQueue{
-		heap:                       *heap.New(workloadKey, lessFunc),
-		inadmissibleWorkloads:      make(inadmissibleWorkloads),
-		noFitSchedulingHashReasons: make(map[string]string),
-		finishedWorkloads:          sets.New[workload.Reference](),
-		queueInadmissibleCycle:     -1,
-		compareFunc:                compareFunc,
-		snapshotSort:               snapshotSort,
-		rwm:                        sync.RWMutex{},
-		clock:                      clock,
-		afsEntryPenalties:          options.afsEntryPenalties,
-		localQueuesInClusterQueue:  make(map[utilqueue.LocalQueueReference]bool),
-		sw:                         &sw,
-		pendingResourcesTotal:      make(map[corev1.ResourceName]int64),
+		heap:                      *heap.New(workloadKey, lessFunc),
+		inadmissibleWorkloads:     make(inadmissibleWorkloads),
+		hashToBulkMoveReason:      make(map[string]string),
+		finishedWorkloads:         sets.New[workload.Reference](),
+		queueInadmissibleCycle:    -1,
+		compareFunc:               compareFunc,
+		snapshotSort:              snapshotSort,
+		rwm:                       sync.RWMutex{},
+		clock:                     clock,
+		afsEntryPenalties:         options.afsEntryPenalties,
+		localQueuesInClusterQueue: make(map[utilqueue.LocalQueueReference]bool),
+		sw:                        &sw,
+		pendingResourcesTotal:     make(map[corev1.ResourceName]int64),
 	}
 }
 
@@ -377,10 +378,10 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 		c.insertInadmissible(key, wInfo)
 		return
 	}
-	// Skip to inadmissible if the workload's equivalence class is already known to be NoFit
+	// Skip to inadmissible if the workload's equivalence class was already bulk-moved to inadmissible
 	// (only for BestEffortFIFO; StrictFIFO preserves strict ordering).
 	if c.queueingStrategy == kueue.BestEffortFIFO && c.heap.GetByKey(key) == nil && wInfo.SchedulingHash != workload.SchedulingHashUnknown {
-		if _, has := c.noFitSchedulingHashReasons[wInfo.SchedulingHash]; has {
+		if _, has := c.hashToBulkMoveReason[wInfo.SchedulingHash]; has {
 			c.insertInadmissible(key, wInfo)
 			return
 		}
@@ -410,13 +411,14 @@ func draRequestsChanged(oldInfo, newInfo *workload.Info) bool {
 	return !equality.Semantic.DeepEqual(oldInfo.TotalRequests, newInfo.TotalRequests)
 }
 
-func (c *ClusterQueue) GetNoFitReason(wlKey workload.Reference, hash string) (string, bool) {
+func (c *ClusterQueue) GetNoFitReason(wl workload.Reference) (string, bool) {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
-	if !c.inadmissibleWorkloads.hasKey(wlKey) {
+	wlInfo := c.inadmissibleWorkloads.get(wl)
+	if wlInfo == nil {
 		return "", false
 	}
-	reason, ok := c.noFitSchedulingHashReasons[hash]
+	reason, ok := c.hashToBulkMoveReason[wlInfo.SchedulingHash]
 	return reason, ok
 }
 
@@ -512,6 +514,13 @@ func (c *ClusterQueue) DeleteFromLocalQueue(log logr.Logger, q *LocalQueue, role
 	reportCQFinishedWorkloads(c, roleTracker, cl)
 }
 
+func resolveQuotaReservedReason(statusReason string) string {
+	if statusReason == "" {
+		return kueue.WorkloadQuotaReservedReasonPendingEvaluation
+	}
+	return statusReason
+}
+
 // requeueIfNotPresent inserts a workload that cannot be admitted into
 // ClusterQueue, unless it is already in the queue. If immediate is true
 // or if there was a call to QueueInadmissibleWorkloads after a call to Pop,
@@ -565,11 +574,7 @@ func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info
 
 	if features.Enabled(features.SchedulingEquivalenceHashing) && wInfo.SchedulingHash != workload.SchedulingHashUnknown &&
 		(reason == RequeueReasonNoFit || reason == RequeueReasonPreemptionNoCandidates) {
-		quotaReservedReason := statusReason
-		if quotaReservedReason == "" {
-			quotaReservedReason = kueue.WorkloadQuotaReservedReasonPendingEvaluation
-		}
-		if moved := c.handleInadmissibleHash(wInfo.SchedulingHash, quotaReservedReason); moved > 0 {
+		if moved := c.handleInadmissibleHash(wInfo.SchedulingHash, resolveQuotaReservedReason(statusReason)); moved > 0 {
 			log.V(2).Info("Bulk-moved equivalent workloads to inadmissible", "hash", wInfo.SchedulingHash, "movedCount", moved)
 		}
 	}
@@ -591,7 +596,7 @@ func (c *ClusterQueue) handleInadmissibleHash(hash string, reason string) int {
 	if c.queueingStrategy != kueue.BestEffortFIFO {
 		return 0
 	}
-	c.noFitSchedulingHashReasons[hash] = reason
+	c.hashToBulkMoveReason[hash] = reason
 	moved := 0
 	for _, wInfo := range c.heap.List() {
 		if wInfo.SchedulingHash == hash {

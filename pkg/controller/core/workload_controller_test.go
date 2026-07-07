@@ -1541,6 +1541,32 @@ func TestReconcile(t *testing.T) {
 				}).
 				Obj(),
 		},
+		"reconcile bypassed workload when SchedulingEquivalenceHashing is enabled and UnadmittedWorkloadsExplicitStatus is disabled (no status stamped on creation)": {
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulingEquivalenceHashing:      true,
+				features.UnadmittedWorkloadsObservability:  true,
+				features.UnadmittedWorkloadsExplicitStatus: false,
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			beforeReconcile: func(ctx context.Context, cl client.Client, qManager *qcache.Manager) {
+				wl := &kueue.Workload{}
+				if err := cl.Get(ctx, types.NamespacedName{Name: "wl", Namespace: "ns"}, wl); err != nil {
+					panic(err)
+				}
+				qManager.Heads(ctx) // Pop from active heap
+				wInfo := workload.NewInfo(wl)
+				qManager.RequeueWorkload(ctx, wInfo, qcache.RequeueReasonNoFit, kueue.WorkloadQuotaReservedReasonWaitingForQuota)
+			},
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+		},
 		"reconcile bypassed workload when SchedulingEquivalenceHashing is enabled (keep detailed scheduler message)": {
 			featureGates: map[featuregate.Feature]bool{
 				features.SchedulingEquivalenceHashing:      true,

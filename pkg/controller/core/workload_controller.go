@@ -1881,7 +1881,7 @@ func (r *WorkloadReconciler) resolveGranularUnadmittedQuotaReservedCondition(
 		return kueue.WorkloadAdmissionGated, fmt.Sprintf("Admission is gated by: %s", wl.Annotations[constants.AdmissionGatedByAnnotation]), nil
 	}
 
-	if features.Enabled(features.SchedulingEquivalenceHashing) && isPendingSchedulingOrStale(cond) {
+	if shouldCheckEquivalenceHash(cond) {
 		if reason, ok := r.queues.GetNoFitReason(wl); ok {
 			return reason, "Bypassed scheduling evaluation because an equivalent workload recently failed", nil
 		}
@@ -1934,12 +1934,18 @@ func (r *WorkloadReconciler) getQueueBlocker(wl *kueue.Workload, lqExists, lqAct
 	}
 }
 
-// isPendingSchedulingOrStale returns true if the workload is pending scheduling
-// or has a status reason that doesn't contain scheduler diagnostics.
-func isPendingSchedulingOrStale(cond *metav1.Condition) bool {
-	// A workload with no condition or no reason set is fresh and has never
-	// been evaluated by the scheduler.
-	if cond == nil || cond.Reason == "" {
+// shouldCheckEquivalenceHash returns true if the workload is eligible to be
+// checked against the scheduling equivalence cache.
+func shouldCheckEquivalenceHash(cond *metav1.Condition) bool {
+	if !features.Enabled(features.SchedulingEquivalenceHashing) {
+		return false
+	}
+	// For newly created workloads (cond == nil), checking the equivalence cache
+	// on creation is gated by UnadmittedWorkloadsExplicitStatus.
+	if cond == nil {
+		return features.Enabled(features.UnadmittedWorkloadsExplicitStatus)
+	}
+	if cond.Reason == "" {
 		return true
 	}
 	// We only query the equivalence cache for workloads that are pending scheduling

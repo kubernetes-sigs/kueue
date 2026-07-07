@@ -627,21 +627,16 @@ func (m *Manager) ClusterQueueForWorkloadWithoutLock(wl *kueue.Workload) (kueue.
 func (m *Manager) GetNoFitReason(wl *kueue.Workload) (string, bool) {
 	m.RLock()
 	defer m.RUnlock()
-	wlKey := workload.Key(wl)
-	qKey, ok := m.workloadAssignedQueues[wlKey]
+	cqName, ok := m.ClusterQueueForWorkload(wl)
 	if !ok {
 		return "", false
 	}
-	q := m.localQueues[qKey]
-	if q == nil {
-		return "", false
-	}
-	cq := m.hm.ClusterQueue(q.ClusterQueue)
+	cq := m.hm.ClusterQueue(cqName)
 	if cq == nil {
 		return "", false
 	}
-	wInfo := workload.NewInfo(wl, m.workloadInfoOptions...)
-	reason, ok := cq.GetNoFitReason(wlKey, wInfo.SchedulingHash)
+	wlKey := workload.Key(wl)
+	reason, ok := cq.GetNoFitReason(wlKey)
 	return reason, ok
 }
 
