@@ -1,0 +1,156 @@
+name: ChatOps Release Controller
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  authorize:
+    name: Authorize and Parse Command
+    runs-on: ubuntu-latest
+    outputs:
+      authorized: ${{ steps.auth.outputs.authorized }}
+      command: ${{ steps.parse.outputs.command }}
+      version: ${{ steps.parse.outputs.version }}
+      branch: ${{ steps.parse.outputs.branch }}
+    # Only evaluate comments starting with a slash
+    if: ${{ startsWith(github.event.comment.body, '/') }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify Actor Authorization
+        id: auth
+        run: |
+          ACTOR="${{ github.actor }}"
+          TEAM_FILE=".github/release-team/release-team.json"
+          
+          if [ ! -f "$TEAM_FILE" ]; then
+            echo "Error: Allowed actors list file $TEAM_FILE not found."
+            exit 1
+          fi
+
+          if jq -e --arg actor "$ACTOR" '. | index($actor)' "$TEAM_FILE" > /dev/null; then
+            echo "authorized=true" >> $GITHUB_OUTPUT
+          else
+            echo "Error: Actor $ACTOR is not authorized."
+            exit 1
+          fi
+
+      - name: Parse Command and Version
+        id: parse
+        run: |
+          BODY="${{ github.event.comment.body }}"
+          
+          # Match: /create-branch vX.Y.0
+          if [[ "$BODY" =~ ^/create-branch\ (v[0-9]+\.[0-9]+\.0)$ ]]; then
+            VERSION="${BASH_REMATCH[1]}"
+            echo "command=create-branch" >> $GITHUB_OUTPUT
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+          
+          # Match: /release vX.Y.Z
+          elif [[ "$BODY" =~ ^/release\ (v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            VERSION="${BASH_REMATCH[1]}"
+            echo "command=release" >> $GITHUB_OUTPUT
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            # Derive the correct release-X.Y branch name from the version string
+            if [[ "$VERSION" =~ ^v([0-9]+)\.([0-9]+)\.[0-9]+ ]]; then
+              echo "branch=release-${BASH_REMATCH[1]}.${BASH_REMATCH[2]}" >> $GITHUB_OUTPUT
+            fi
+          
+          # Match: /publish-release vX.Y.Z
+          elif [[ "$BODY" =~ ^/publish-release\ (v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            VERSION="${BASH_REMATCH[1]}"
+            echo "command=publish" >> $GITHUB_OUTPUT
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+          else
+            echo "Error: Unsupported or invalid command format."
+            exit 1
+          fi
+
+  execute:
+    name: Execute Release Task
+    runs-on: ubuntu-latest
+    needs: authorize
+    if: ${{ needs.authorize.outputs.authorized == 'true' }}
+    permissions:
+      contents: write
+      issues: write # Needed to create milestones in Step 12
+    steps:
+      # Securely check out the target branch (or main if creating a new branch)
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.authorize.outputs.branch || 'main' }}
+          fetch-depth: 0
+
+      # Set local identity config to prevent git author identification errors
+      - name: Configure Git User
+        run: |
+          git config --global user.name "kueue-release-bot"
+          git config --global user.email "kueue-release-bot@kubernetes.io"
+
+      # Securely import GPG keys for signed tag creation (Step 5)
+      - name: Import GPG Key
+        if: ${{ needs.authorize.outputs.command == 'release' }}
+        uses: crazy-max/ghaction-import-gpg@v6
+        with:
+          gpg_private_key: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+          git_user_signingkey: true
+          git_commit_gpgsign: true
+
+      # --- Release Team: CREATE RELEASE BRANCH ---
+      - name: Handle /create-branch
+        if: ${{ needs.authorize.outputs.command == 'create-branch' }}
+        run: |
+          VERSION="${{ needs.authorize.outputs.version }}"
+          if [[ "$VERSION" =~ ^v([0-9]+)\.([0-9]+)\.0 ]]; then
+            BRANCH="release-${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+            git checkout -b "$BRANCH" main
+            git push origin "$BRANCH"
+          fi
+
+      # --- Release Team: TAG CUTTING & DRAFT RELEASE & NEXT MINOR RELEASE PREPARATION ---
+      - name: Handle /release
+        if: ${{ needs.authorize.outputs.command == 'release' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # A. Generate Release Notes to a file to prevent shell escaping errors
+          gh release notes --generate-notes --tag ${{ needs.authorize.outputs.version }} --target ${{ needs.authorize.outputs.branch }} > notes.txt
+          
+          # B. Create and Sign the Tag
+          git tag -s "${{ needs.authorize.outputs.version }}" -F notes.txt
+          git push origin "${{ needs.authorize.outputs.version }}"
+          
+          # C. Compile Artifacts and Create draft release
+          make release-artifacts IMAGE_REGISTRY=registry.k8s.io/kueue GIT_TAG=${{ needs.authorize.outputs.version }}
+          gh release create "${{ needs.authorize.outputs.version }}" --draft \
+            --title "${{ needs.authorize.outputs.version }}" \
+            --notes-file notes.txt \
+            release-artifacts/*
+
+          # D. Step 12 Automation: Tag next development version & create milestones
+          if [[ "${{ needs.authorize.outputs.version }}" =~ ^v([0-9]+)\.([0-9]+)\.0$ ]]; then
+            MAJ="${BASH_REMATCH[1]}"
+            MIN="${BASH_REMATCH[2]}"
+            NEXT_MIN=$((MIN + 1))
+            DEVEL="v${MAJ}.${NEXT_MIN}.0-devel"
+            
+            echo "Preparing repository for the next development cycle: $DEVEL"
+            git checkout main
+            git tag "$DEVEL" main
+            git push origin "$DEVEL"
+            
+            # Create next minor milestone
+            gh milestone create --title "v${MAJ}.${NEXT_MIN}.0"
+          fi
+
+      # --- Release Team: PUBLISH THE DRAFT RELEASE ---
+      - name: Handle /publish-release
+        if: ${{ needs.authorize.outputs.command == 'publish' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release edit "${{ needs.authorize.outputs.version }}" --draft=false
