@@ -646,6 +646,46 @@ func TestNewInfo(t *testing.T) {
 				},
 			},
 		},
+		"transformMilliValues": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(
+					*utiltestingapi.MakePodSet("", 1).
+						Request(corev1.ResourceCPU, "100m").
+						Request(corev1.ResourceMemory, "100M").
+						Obj(),
+				).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
+				{
+					Input:    corev1.ResourceCPU,
+					Strategy: ptr.To(config.Replace),
+					Outputs: corev1.ResourceList{
+						"example.com/cpu-credits": resource.MustParse("3000"),
+					},
+				},
+				{
+					Input:    corev1.ResourceMemory,
+					Strategy: ptr.To(config.Replace),
+					Outputs: corev1.ResourceList{
+						"example.com/memory-credits": resource.MustParse("3m"),
+					},
+				},
+			})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name: "",
+						Requests: resources.Requests{
+							// 100m * 3000 = 300
+							corev1.ResourceName("example.com/cpu-credits"): 300,
+							// 100M * 3m = 300k
+							corev1.ResourceName("example.com/memory-credits"): 300 * 1000,
+						},
+						Count: 1,
+					},
+				},
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

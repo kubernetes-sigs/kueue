@@ -27,9 +27,11 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"gopkg.in/inf.v0"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	resourcehelpers "k8s.io/component-helpers/resource"
@@ -528,13 +530,12 @@ func applyResourceTransformations(input corev1.ResourceList, transforms map[core
 			// the value of the resource specified in MultiplyBy.
 			if mapping.MultiplyBy != "" {
 				if q, ok := input[mapping.MultiplyBy]; ok {
-					inputQuantity.Mul(q.Value())
+					inputQuantity = multiplyResourceQuantities(inputQuantity, q)
 				}
 			}
 
 			for outputName, baseFactor := range mapping.Outputs {
-				outputQuantity := baseFactor.DeepCopy()
-				outputQuantity.Mul(inputQuantity.Value())
+				outputQuantity := multiplyResourceQuantities(inputQuantity, baseFactor)
 				if accumulated, ok := output[outputName]; ok {
 					outputQuantity.Add(accumulated)
 				}
@@ -548,6 +549,14 @@ func applyResourceTransformations(input corev1.ResourceList, transforms map[core
 		}
 	}
 	return output
+}
+
+func multiplyResourceQuantities(value, mul resource.Quantity) resource.Quantity {
+	value = value.DeepCopy()
+	mul = mul.DeepCopy()
+	product := inf.Dec{}
+	product.Mul(value.AsDec(), mul.AsDec())
+	return *resource.NewDecimalQuantity(product, value.Format)
 }
 
 func CanBePartiallyAdmitted(wl *kueue.Workload) bool {
