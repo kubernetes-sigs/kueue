@@ -254,15 +254,16 @@ func (r *WorkloadReconciler) logger() logr.Logger {
 // +kubebuilder:rbac:groups=resource.k8s.io,resources=resourceslices,verbs=get;list;watch
 
 func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
+	log := ctrl.LoggerFrom(ctx)
 	var wl kueue.Workload
 	var getErr error
 	wlKey := workload.NewReference(req.Namespace, req.Name)
 	defer func() {
 		if features.Enabled(features.UnadmittedWorkloadsObservability) {
 			if getErr == nil && retErr == nil {
-				r.queues.UpdateUnadmittedWorkload(ctx, &wl)
+				r.queues.UpdateUnadmittedWorkload(log, &wl)
 			} else if apierrors.IsNotFound(getErr) {
-				r.queues.RemoveUnadmittedWorkload(ctx, wlKey)
+				r.queues.RemoveUnadmittedWorkload(log, wlKey)
 			}
 		}
 	}()
@@ -273,7 +274,6 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 		return ctrl.Result{}, client.IgnoreNotFound(getErr)
 	}
 
-	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile Workload")
 
 	if isOrphanedWorkload(&wl) {

@@ -150,7 +150,7 @@ func TestAddLocalQueue_DRAReconcileChannelGuaranteedDelivery(t *testing.T) {
 // TestAddClusterQueueOrphans verifies that when a ClusterQueue is recreated,
 // it adopts the existing workloads.
 func TestAddClusterQueueOrphans(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
+	ctx, log := utiltesting.ContextWithLog(t)
 	now := time.Now()
 	queues := []*kueue.LocalQueue{
 		utiltestingapi.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj(),
@@ -185,7 +185,7 @@ func TestAddClusterQueueOrphans(t *testing.T) {
 	}
 
 	// Recreating the ClusterQueue.
-	manager.DeleteClusterQueue(ctx, cq)
+	manager.DeleteClusterQueue(log, cq)
 	wantActiveWorkloads = nil
 	if diff := cmp.Diff(wantActiveWorkloads, manager.Dump(), cmpDump...); diff != "" {
 		t.Errorf("Unexpected active workloads after deleting ClusterQueue (-want,+got):\n%s", diff)
@@ -2163,7 +2163,7 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 }
 
 func TestUpdateUnadmittedWorkload(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
+	ctx, log := utiltesting.ContextWithLog(t)
 	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
 	lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()
 
@@ -2254,7 +2254,7 @@ func TestUpdateUnadmittedWorkload(t *testing.T) {
 				t.Fatalf("failed to add LocalQueue: %v", err)
 			}
 
-			manager.UpdateUnadmittedWorkload(ctx, tc.workload)
+			manager.UpdateUnadmittedWorkload(log, tc.workload)
 
 			wlKey := workload.Key(tc.workload)
 			status, ok := manager.unadmittedWorkloads.statuses[wlKey]
@@ -2282,7 +2282,7 @@ func TestUpdateUnadmittedWorkload(t *testing.T) {
 					Status: metav1.ConditionTrue,
 				},
 			}
-			manager.UpdateUnadmittedWorkload(ctx, tc.workload)
+			manager.UpdateUnadmittedWorkload(log, tc.workload)
 
 			if _, ok := manager.unadmittedWorkloads.statuses[wlKey]; ok {
 				t.Errorf("expected workload to be removed from unadmitted registry")
@@ -2301,7 +2301,7 @@ func TestUpdateUnadmittedWorkload_LQMetricsDisabled(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, true)
 	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, false)
 
-	ctx, _ := utiltesting.ContextWithLog(t)
+	ctx, log := utiltesting.ContextWithLog(t)
 	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
 	lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()
 	wl := utiltestingapi.MakeWorkload("wl", "ns").Queue("lq").Obj()
@@ -2316,7 +2316,7 @@ func TestUpdateUnadmittedWorkload_LQMetricsDisabled(t *testing.T) {
 		t.Fatalf("failed to add LocalQueue: %v", err)
 	}
 
-	manager.UpdateUnadmittedWorkload(ctx, wl)
+	manager.UpdateUnadmittedWorkload(log, wl)
 
 	if len(manager.unadmittedWorkloads.perCQ) == 0 {
 		t.Errorf("expected CQ counts to be updated")
@@ -2345,7 +2345,7 @@ func TestDeleteLocalQueue_UnadmittedWorkloads(t *testing.T) {
 		t.Fatalf("failed to add LocalQueue: %v", err)
 	}
 
-	manager.UpdateUnadmittedWorkload(ctx, wl)
+	manager.UpdateUnadmittedWorkload(log, wl)
 
 	// Verify it is tracked
 	wlKey := workload.Key(wl)
