@@ -48,12 +48,12 @@ type Event struct {
 	Message   string
 }
 
-// errCreateFailedForTest simulates a transient API error (or a TOCTOU race
-// where a conflicting object is created between Get and Create) when
-// injected via the fake client's interceptor.
-var errCreateFailedForTest = errors.New("create failed")
-
 func TestKueuePopulatorReconciler(t *testing.T) {
+	// errCreateFailedForTest simulates a transient API error (or a TOCTOU race
+	// where a conflicting object is created between Get and Create) when
+	// injected via the fake client's interceptor.
+	errCreateFailedForTest := errors.New("create failed")
+
 	cases := map[string]struct {
 		clusterQueues       []*kueue.ClusterQueue
 		namespaces          []*corev1.Namespace
