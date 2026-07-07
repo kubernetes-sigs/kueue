@@ -317,7 +317,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		err = r.ignoreUnretryableError(log, err)
 	}()
 
-	shouldFinalize, err := r.loadJob(ctx, &req.NamespacedName, job)
+	shouldFinalize, jobNotFound, err := r.loadJob(ctx, &req.NamespacedName, job)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -329,7 +329,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	}
 
 	if shouldFinalize {
-		if err := r.finalize(ctx, req.NamespacedName, job); err != nil {
+		if err := r.finalize(ctx, req.NamespacedName, job, jobNotFound); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
@@ -705,37 +705,60 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	return ctrl.Result{}, nil
 }
 
-// loadJob retrieves and loads the specified job resource into memory.
-// Returns true if the job should be finalized and an error if loading fails.
-func (r *JobReconciler) loadJob(ctx context.Context, key *types.NamespacedName, job GenericJob) (bool, error) {
+// loadJob loads a job from the Kubernetes cluster and determines
+// if it is deleted or should be treated as absent.
+func (r *JobReconciler) loadJob(ctx context.Context, key *types.NamespacedName, job GenericJob) (bool, bool, error) {
 	if cJob, isComposable := job.(ComposableJob); isComposable {
 		return cJob.Load(ctx, r.client, key)
 	}
 	obj := job.Object()
 	if err := r.client.Get(ctx, *key, obj); err != nil {
 		if client.IgnoreNotFound(err) != nil {
-			return false, err
+			return false, false, err
 		}
-		return true, nil
+		return true, true, nil
 	}
-	return !obj.GetDeletionTimestamp().IsZero(), nil
+	return !obj.GetDeletionTimestamp().IsZero(), false, nil
 }
 
 // finalize removes finalizers from workloads and the job itself,
 // ensuring proper cleanup during object deletion.
-func (r *JobReconciler) finalize(ctx context.Context, key types.NamespacedName, job GenericJob) error {
-	// Remove workloads finalizer
-	if err := r.finalizeWorkloads(ctx, key, job); client.IgnoreNotFound(err) != nil {
-		return err
-	}
-
-	// Remove job finalizer
-	if !job.Object().GetDeletionTimestamp().IsZero() {
-		if err := r.finalizeJob(ctx, job); client.IgnoreNotFound(err) != nil {
+func (r *JobReconciler) finalize(ctx context.Context, key types.NamespacedName, job GenericJob, jobNotFound bool) error {
+	if !jobNotFound {
+		// Remove job finalizer for job with finalizer.
+		if err := client.IgnoreNotFound(r.finalizeJob(ctx, job)); err != nil {
 			return err
 		}
+		// Also finalize workloads that are themselves being deleted. This handles the
+		// foreground-deletion deadlock: the GC sets deletionTimestamp on the workload
+		// (because blockOwnerDeletion=true in SetControllerReference) and waits for the
+		// workload to be gone before removing the foregroundDeletion finalizer from the
+		// job, but without this we would wait for the job to be gone before finalizing
+		// the workload.
+		return r.finalizeWorkloadsBeingDeleted(ctx, key, job)
 	}
 
+	// Remove the workload finalizer only if the Job was deleted.
+	return r.finalizeWorkloads(ctx, key, job)
+}
+
+// finalizeWorkloadsBeingDeleted removes the kueue finalizer from workloads that already
+// have a deletionTimestamp — i.e. workloads that the Kubernetes GC is actively trying
+// to delete as blocking dependents of the owner job.
+func (r *JobReconciler) finalizeWorkloadsBeingDeleted(ctx context.Context, key types.NamespacedName, job GenericJob) error {
+	workloads, err := r.getWorkloads(ctx, key, job)
+	if err != nil {
+		return err
+	}
+	for i := range workloads {
+		wl := &workloads[i]
+		if !wl.DeletionTimestamp.IsZero() {
+			err := workload.FinalizeOrphanedWorkload(ctx, r.client, r.clock, wl, controllerutil.HasControllerReference(wl))
+			if client.IgnoreNotFound(err) != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 
@@ -769,7 +792,8 @@ func (r *JobReconciler) finalizeWorkloads(ctx context.Context, key types.Namespa
 	}
 	for i := range workloads {
 		wl := &workloads[i]
-		if err := workload.FinalizeOrphanedWorkload(ctx, r.client, r.clock, wl, controllerutil.HasControllerReference(wl)); err != nil {
+		err := workload.FinalizeOrphanedWorkload(ctx, r.client, r.clock, wl, controllerutil.HasControllerReference(wl))
+		if client.IgnoreNotFound(err) != nil {
 			return err
 		}
 	}
