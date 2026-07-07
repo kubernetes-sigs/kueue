@@ -354,7 +354,7 @@ func (r *ClusterQueueReconciler) Delete(e event.TypedDeleteEvent[*kueue.ClusterQ
 	log.V(2).Info("ClusterQueue delete event", "clusterQueue", klog.KObj(e.Object))
 	r.cache.ClearCohortMetrics(log, e.Object.Spec.CohortName)
 	r.cache.DeleteClusterQueue(e.Object)
-	r.qManager.DeleteClusterQueue(e.Object)
+	r.qManager.DeleteClusterQueue(ctrl.LoggerInto(context.Background(), log), e.Object)
 
 	metrics.ClearClusterQueueResourceMetrics(e.Object.Name)
 	if features.Enabled(features.CustomMetricLabels) {

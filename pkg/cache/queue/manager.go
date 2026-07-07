@@ -346,7 +346,7 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 			cqImpl.addLocalQueue(queue.Key(&q))
 			if features.Enabled(features.UnadmittedWorkloadsObservability) {
 				for _, wInfo := range qImpl.items {
-					m.updateUnadmittedWorkloadWithoutLock(wInfo.Obj)
+					m.updateUnadmittedWorkloadWithoutLock(ctx, wInfo.Obj)
 				}
 			}
 		}
@@ -443,7 +443,7 @@ func (m *Manager) RebuildClusterQueue(cq *kueue.ClusterQueue, lqName string) err
 	return nil
 }
 
-func (m *Manager) DeleteClusterQueue(cq *kueue.ClusterQueue) {
+func (m *Manager) DeleteClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) {
 	m.Lock()
 	defer m.Unlock()
 	cqImpl := m.hm.ClusterQueue(kueue.ClusterQueueReference(cq.Name))
@@ -457,7 +457,7 @@ func (m *Manager) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 		for _, lq := range m.localQueues {
 			if lq.ClusterQueue == cqName {
 				for _, wInfo := range lq.items {
-					m.updateUnadmittedWorkloadWithoutLock(wInfo.Obj)
+					m.updateUnadmittedWorkloadWithoutLock(ctx, wInfo.Obj)
 				}
 			}
 		}
@@ -502,7 +502,7 @@ func (m *Manager) addLocalQueueLocked(ctx context.Context, q *kueue.LocalQueue) 
 		m.assignWorkload(workload.Key(&w), qImpl.Key)
 
 		if features.Enabled(features.UnadmittedWorkloadsObservability) {
-			m.updateUnadmittedWorkloadWithoutLock(&w)
+			m.updateUnadmittedWorkloadWithoutLock(ctx, &w)
 		}
 
 		if workload.IsFinished(&w) {
@@ -576,8 +576,9 @@ func (m *Manager) UpdateLocalQueue(log logr.Logger, q *kueue.LocalQueue) error {
 	}
 	qImpl.update(q)
 	if cqChanged && features.Enabled(features.UnadmittedWorkloadsObservability) {
+		ctx := ctrl.LoggerInto(context.Background(), log)
 		for _, wInfo := range qImpl.items {
-			m.updateUnadmittedWorkloadWithoutLock(wInfo.Obj)
+			m.updateUnadmittedWorkloadWithoutLock(ctx, wInfo.Obj)
 		}
 	}
 	return nil
@@ -600,8 +601,9 @@ func (m *Manager) DeleteLocalQueue(log logr.Logger, q *kueue.LocalQueue) {
 		clearLQMetrics(key)
 	}
 	if features.Enabled(features.UnadmittedWorkloadsObservability) {
+		ctx := ctrl.LoggerInto(context.Background(), log)
 		for _, wInfo := range qImpl.items {
-			m.removeUnadmittedWorkloadWithoutLock(workload.Key(wInfo.Obj))
+			m.removeUnadmittedWorkloadWithoutLock(ctx, workload.Key(wInfo.Obj))
 		}
 	}
 	delete(m.localQueues, key)
@@ -789,7 +791,7 @@ func (m *Manager) deleteAndForgetWorkloadWithoutLock(log logr.Logger, wlKey work
 	delete(m.workloadAssignedQueues, wlKey)
 	m.deleteFinishedWorkloadWithoutLock(wlKey)
 	if features.Enabled(features.UnadmittedWorkloadsObservability) {
-		m.removeUnadmittedWorkloadWithoutLock(wlKey)
+		m.removeUnadmittedWorkloadWithoutLock(ctrl.LoggerInto(context.Background(), log), wlKey)
 	}
 }
 
@@ -1061,22 +1063,31 @@ func (m *Manager) AddWorkloadUpdateWatcher(watcher WorkloadUpdateWatcher) {
 	m.workloadUpdateWatchers = append(m.workloadUpdateWatchers, watcher)
 }
 
-func (m *Manager) UpdateUnadmittedWorkload(wl *kueue.Workload) {
-	m.Lock()
-	defer m.Unlock()
-	m.updateUnadmittedWorkloadWithoutLock(wl)
+func (m *Manager) UpdateUnadmittedWorkload(ctx context.Context, wl *kueue.Workload) {
+	cqName, _ := m.ClusterQueueForWorkload(wl)
+	m.unadmittedWorkloads.update(ctx, wl, cqName, m.LocalQueueExists, m)
 }
 
-func (m *Manager) updateUnadmittedWorkloadWithoutLock(wl *kueue.Workload) {
-	m.unadmittedWorkloads.update(wl, m)
+func (m *Manager) updateUnadmittedWorkloadWithoutLock(ctx context.Context, wl *kueue.Workload) {
+	cqName, _ := m.ClusterQueueForWorkloadWithoutLock(wl)
+	m.unadmittedWorkloads.update(ctx, wl, cqName, m.LocalQueueExistsWithoutLock, m)
 }
 
-func (m *Manager) RemoveUnadmittedWorkload(wlKey workload.Reference) {
-	m.Lock()
-	defer m.Unlock()
-	m.removeUnadmittedWorkloadWithoutLock(wlKey)
+func (m *Manager) RemoveUnadmittedWorkload(ctx context.Context, wlKey workload.Reference) {
+	m.unadmittedWorkloads.remove(ctx, wlKey, m.LocalQueueExists, m)
 }
 
-func (m *Manager) removeUnadmittedWorkloadWithoutLock(wlKey workload.Reference) {
-	m.unadmittedWorkloads.remove(wlKey, m)
+func (m *Manager) removeUnadmittedWorkloadWithoutLock(ctx context.Context, wlKey workload.Reference) {
+	m.unadmittedWorkloads.remove(ctx, wlKey, m.LocalQueueExistsWithoutLock, m)
+}
+
+func (m *Manager) LocalQueueExists(lqRef queue.LocalQueueReference) bool {
+	m.RLock()
+	defer m.RUnlock()
+	return m.LocalQueueExistsWithoutLock(lqRef)
+}
+
+func (m *Manager) LocalQueueExistsWithoutLock(lqRef queue.LocalQueueReference) bool {
+	_, ok := m.localQueues[lqRef]
+	return ok
 }
