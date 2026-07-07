@@ -19,7 +19,6 @@ package middleware
 import (
 	"encoding/base64"
 	"fmt"
-	utilcache "k8s.io/apimachinery/pkg/util/cache"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -29,6 +28,7 @@ import (
 	"golang.org/x/time/rate"
 	authenticationv1 "k8s.io/api/authentication/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	utilcache "k8s.io/apimachinery/pkg/util/cache"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 )
