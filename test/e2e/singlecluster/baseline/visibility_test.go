@@ -541,7 +541,7 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 					},
 				}
 				for _, jobCase := range jobCases {
-					job := testingjob.MakeJob(jobCase.JobName, nsA.Name).
+					job := testingjob.MakeJob(jobCase.JobName, jobCase.nsName).
 						Queue(kueue.LocalQueueName(jobCase.LocalQueueName)).
 						Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 						RequestAndLimit(corev1.ResourceCPU, "1").
