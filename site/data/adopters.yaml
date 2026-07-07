@@ -5,8 +5,8 @@
   integrations:
   - batch/job
   - kubeflow.org/mpijob
-  contact: '@tenzen-y'
-  contact_url: https://github.com/tenzen-y
+  contact: ''
+  contact_url: ''
 - name: DaoCloud, Inc.
   url: https://www.daocloud.io/en/
   type: End User
