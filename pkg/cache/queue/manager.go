@@ -1073,7 +1073,7 @@ func (m *Manager) UpdateUnadmittedWorkload(log logr.Logger, wl *kueue.Workload) 
 }
 
 func (m *Manager) updateUnadmittedWorkloadWithoutLock(log logr.Logger, wl *kueue.Workload) {
-	cqName, _ := m.ClusterQueueForWorkloadWithoutLock(wl)
+	cqName, _ := m.ClusterQueueNameForWorkloadWithoutLock(wl)
 	m.unadmittedWorkloads.update(log, wl, cqName, m.LocalQueueExistsWithoutLock, m)
 }
 

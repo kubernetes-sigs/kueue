@@ -22,7 +22,7 @@ import (
 	"github.com/go-logr/logr"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	"k8s.io/klog/v2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -80,6 +80,7 @@ func (u *unadmittedWorkloads) update(
 	u.rwm.Lock()
 	defer u.rwm.Unlock()
 
+	log = log.WithValues("workload", klog.KObj(wl))
 	status := getUnadmittedWorkloadStatus(log, wl)
 	wlKey := workload.Key(wl)
 	oldStatus, ok := u.statuses[wlKey]
@@ -88,15 +89,15 @@ func (u *unadmittedWorkloads) update(
 		if cqName != "" {
 			status.ClusterQueue = cqName
 		} else {
-			log.V(3).Info("Failed to resolve ClusterQueue for unadmitted workload", "workload", wlKey, "queue", wl.Spec.QueueName)
+			log.V(3).Info("Failed to resolve ClusterQueue for unadmitted workload", "queue", wl.Spec.QueueName)
 		}
 		if ok && oldStatus == *status {
-			log.V(5).Info("Workload unadmitted status unchanged, skipping update", "workload", wlKey)
+			log.V(5).Info("Workload unadmitted status unchanged, skipping update")
 			return
 		}
 	}
 
-	log.V(4).Info("Updating unadmitted workload tracking", "workload", wlKey, "oldStatus", oldStatus, "newStatus", status)
+	log.V(4).Info("Updating unadmitted workload tracking", "oldStatus", oldStatus, "newStatus", status)
 
 	if ok {
 		u.decrementStatusCounts(log, oldStatus, qExists, m)
@@ -270,7 +271,6 @@ func (u *unadmittedWorkloads) resyncLQMetrics(lqRef queue.LocalQueueReference, m
 func getUnadmittedWorkloadStatus(log logr.Logger, wl *kueue.Workload) *unadmittedWorkloadStatus {
 	if workload.IsAdmitted(wl) || workloadfinish.IsFinished(wl) || !wl.DeletionTimestamp.IsZero() {
 		log.V(4).Info("Workload is not unadmitted",
-			"workload", client.ObjectKeyFromObject(wl),
 			"isAdmitted", workload.IsAdmitted(wl),
 			"isFinished", workloadfinish.IsFinished(wl),
 			"isDeleting", !wl.DeletionTimestamp.IsZero(),
