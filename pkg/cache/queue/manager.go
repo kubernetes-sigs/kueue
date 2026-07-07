@@ -689,7 +689,10 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workl
 // RequeueWorkload requeues the workload ensuring that the queue and the
 // workload still exist in the client cache and not admitted. It won't
 // requeue if the workload is already in the queue (possible if the workload was updated).
-func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reason RequeueReason, statusReason string) bool {
+// The quotaReservedReason parameter represents the WorkloadQuotaReserved condition reason
+// computed by the scheduler during this cycle. It must be passed explicitly because info.Obj
+// has not yet been patched with the updated condition when RequeueWorkload is called.
+func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reason RequeueReason, quotaReservedReason string) bool {
 	m.Lock()
 	defer m.Unlock()
 
@@ -722,7 +725,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 		return false
 	}
 
-	added := cq.RequeueIfNotPresent(ctx, info, reason, statusReason)
+	added := cq.RequeueIfNotPresent(ctx, info, reason, quotaReservedReason)
 	reportCQPendingWorkloads(m, cq)
 	reportLQPendingWorkloads(m, q)
 	if added {

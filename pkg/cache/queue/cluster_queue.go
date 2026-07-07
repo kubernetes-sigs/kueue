@@ -514,6 +514,12 @@ func (c *ClusterQueue) DeleteFromLocalQueue(log logr.Logger, q *LocalQueue, role
 	reportCQFinishedWorkloads(c, roleTracker, cl)
 }
 
+// resolveQuotaReservedReason returns statusReason if set, or defaults to
+// WorkloadQuotaReservedReasonPendingEvaluation when empty.
+// We do not feature-gate the fallback here because this function only computes
+// the reason string stored in the ClusterQueue's in-memory hashToBulkMoveReason map.
+// Whether status conditions are actually written to the Workload API object is
+// governed by the workload controller (shouldCheckEquivalenceHash).
 func resolveQuotaReservedReason(statusReason string) string {
 	if statusReason == "" {
 		return kueue.WorkloadQuotaReservedReasonPendingEvaluation
@@ -529,7 +535,7 @@ func resolveQuotaReservedReason(statusReason string) string {
 // When SchedulingEquivalenceHashing is enabled and the reason is NoFit or
 // PreemptionNoCandidates, equivalent workloads in the heap are bulk-moved
 // to inadmissible.
-func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info, immediate bool, reason RequeueReason, statusReason string) bool {
+func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info, immediate bool, reason RequeueReason, quotaReservedReason string) bool {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	key := workload.Key(wInfo.Obj)
@@ -574,7 +580,7 @@ func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info
 
 	if features.Enabled(features.SchedulingEquivalenceHashing) && wInfo.SchedulingHash != workload.SchedulingHashUnknown &&
 		(reason == RequeueReasonNoFit || reason == RequeueReasonPreemptionNoCandidates) {
-		if moved := c.handleInadmissibleHash(wInfo.SchedulingHash, resolveQuotaReservedReason(statusReason)); moved > 0 {
+		if moved := c.handleInadmissibleHash(wInfo.SchedulingHash, resolveQuotaReservedReason(quotaReservedReason)); moved > 0 {
 			log.V(2).Info("Bulk-moved equivalent workloads to inadmissible", "hash", wInfo.SchedulingHash, "movedCount", moved)
 		}
 	}
@@ -880,8 +886,9 @@ func (c *ClusterQueue) Active() bool {
 // in the latter case the implementation may choose to keep the workload in "inadmissible workloads"
 // where it doesn't compete with other workloads, until cluster events free up quota.
 // The workload should not be reinserted if it's already in the ClusterQueue.
+// quotaReservedReason represents the WorkloadQuotaReserved condition reason computed by the scheduler.
 // Returns true if the workload was inserted.
-func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.Info, reason RequeueReason, statusReason string) bool {
+func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.Info, reason RequeueReason, quotaReservedReason string) bool {
 	// when preemptions are in-progress, we keep attempting to
 	// schedule the same workload for BestEffortFIFO queues. See
 	// documentation of stickyWorkload for more details
@@ -902,7 +909,7 @@ func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.
 			reason == RequeueReasonPendingMigration ||
 			reason == RequeueReasonPreemptionFailed
 	}
-	return c.requeueIfNotPresent(log, wInfo, immediate, reason, statusReason)
+	return c.requeueIfNotPresent(log, wInfo, immediate, reason, quotaReservedReason)
 }
 
 // baseCompareFunc orders workloads by sticky status, priority, timestamp, and UID.
