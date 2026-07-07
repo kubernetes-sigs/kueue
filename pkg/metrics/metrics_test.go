@@ -222,23 +222,23 @@ func TestReportAndCleanupClusterQueueUsage(t *testing.T) {
 	expectFilteredMetricsCount(t, ClusterQueueResourceUsage, 0, "cluster_queue", "queue", "flavor", "flavor", "resource", "res2")
 }
 
-func TestMultiKueueWorkloadDispatched(t *testing.T) {
+func TestReportMultiKueueWorkloadDispatched(t *testing.T) {
 	leaderTracker := roletracker.NewFakeRoleTracker(roletracker.RoleLeader)
 
-	MultiKueueWorkloadDispatched("dispatch-worker1", leaderTracker)
-	MultiKueueWorkloadDispatched("dispatch-worker1", leaderTracker)
-	MultiKueueWorkloadDispatched("dispatch-worker2", leaderTracker)
+	ReportMultiKueueWorkloadDispatched("dispatch-cq1", "dispatch-worker1", leaderTracker)
+	ReportMultiKueueWorkloadDispatched("dispatch-cq1", "dispatch-worker1", leaderTracker)
+	ReportMultiKueueWorkloadDispatched("dispatch-cq1", "dispatch-worker2", leaderTracker)
 
-	if got := testutil.ToFloat64(MultiKueueWorkloadsDispatchedTotal.WithLabelValues("dispatch-worker1", roletracker.RoleLeader)); got != 2 {
+	if got := testutil.ToFloat64(MultiKueueWorkloadsDispatchedTotal.WithLabelValues("dispatch-cq1", "dispatch-worker1", roletracker.RoleLeader)); got != 2 {
 		t.Errorf("expected 2 dispatched workloads for dispatch-worker1, got %v", got)
 	}
-	if got := testutil.ToFloat64(MultiKueueWorkloadsDispatchedTotal.WithLabelValues("dispatch-worker2", roletracker.RoleLeader)); got != 1 {
+	if got := testutil.ToFloat64(MultiKueueWorkloadsDispatchedTotal.WithLabelValues("dispatch-cq1", "dispatch-worker2", roletracker.RoleLeader)); got != 1 {
 		t.Errorf("expected 1 dispatched workload for dispatch-worker2, got %v", got)
 	}
 
 	// A nil tracker must be reported as standalone and not panic.
-	MultiKueueWorkloadDispatched("dispatch-worker3", nil)
-	if got := testutil.ToFloat64(MultiKueueWorkloadsDispatchedTotal.WithLabelValues("dispatch-worker3", roletracker.RoleStandalone)); got != 1 {
+	ReportMultiKueueWorkloadDispatched("dispatch-cq2", "dispatch-worker3", nil)
+	if got := testutil.ToFloat64(MultiKueueWorkloadsDispatchedTotal.WithLabelValues("dispatch-cq2", "dispatch-worker3", roletracker.RoleStandalone)); got != 1 {
 		t.Errorf("expected 1 dispatched workload for dispatch-worker3 with standalone role, got %v", got)
 	}
 }

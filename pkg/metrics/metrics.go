@@ -76,7 +76,7 @@ var (
 	admissionAttemptDuration *prometheus.HistogramVec
 
 	// +metricsdoc:group=health
-	// +metricsdoc:labels=cluster="the name of the worker cluster",replica_role="one of `leader`, `follower`, or `standalone`"
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",cluster="the name of the worker cluster",replica_role="one of `leader`, `follower`, or `standalone`"
 	MultiKueueWorkloadsDispatchedTotal *prometheus.CounterVec
 
 	// +metricsdoc:group=clusterqueue
@@ -356,10 +356,10 @@ The label 'result' can have the following values:
 
 	MultiKueueWorkloadsDispatchedTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Subsystem: constants.KueueName,
-			Name:      "multikueue_workloads_dispatched_total",
-			Help:      `The total number of remote workloads created by the MultiKueue manager on a worker cluster, per 'cluster'.`,
-		}, []string{"cluster", "replica_role"},
+			Subsystem: constants.MultiKueueName,
+			Name:      "workloads_dispatched_total",
+			Help:      `The total number of remote workloads created by the MultiKueue manager on a worker cluster, per 'cluster_queue' and 'cluster'.`,
+		}, []string{"cluster_queue", "cluster", "replica_role"},
 	)
 
 	AdmissionCyclePreemptionSkips = prometheus.NewGaugeVec(
@@ -939,8 +939,8 @@ func AdmissionAttempt(result AdmissionResult, duration time.Duration, tracker *r
 	admissionAttemptDuration.WithLabelValues(string(result), role).Observe(duration.Seconds())
 }
 
-func MultiKueueWorkloadDispatched(cluster string, tracker *roletracker.RoleTracker) {
-	MultiKueueWorkloadsDispatchedTotal.WithLabelValues(cluster, roletracker.GetRole(tracker)).Inc()
+func ReportMultiKueueWorkloadDispatched(cqName kueue.ClusterQueueReference, cluster string, tracker *roletracker.RoleTracker) {
+	MultiKueueWorkloadsDispatchedTotal.WithLabelValues(string(cqName), cluster, roletracker.GetRole(tracker)).Inc()
 }
 
 func RecordWorkloadCreationLatency(jobKind string, latency time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
