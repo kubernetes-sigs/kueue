@@ -135,7 +135,7 @@ func (h *Handlers) sendData(ctx context.Context, conn *websocket.Conn, dataFetch
 // re-verifies the bearer token against the Kubernetes TokenReview API.
 // This bounds the window in which a revoked or expired token can still
 // receive cluster data.
-const tokenRevalidationInterval = 30 * time.Second
+var tokenRevalidationInterval = 30 * time.Second
 
 // handleInformerUpdates uses Kubernetes informers to stream real-time changes
 // Supports watching multiple resource types by registering handlers for all provided GVKs
