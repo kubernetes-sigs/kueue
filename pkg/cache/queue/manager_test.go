@@ -185,7 +185,7 @@ func TestAddClusterQueueOrphans(t *testing.T) {
 	}
 
 	// Recreating the ClusterQueue.
-	manager.DeleteClusterQueue(cq)
+	manager.DeleteClusterQueue(ctx, cq)
 	wantActiveWorkloads = nil
 	if diff := cmp.Diff(wantActiveWorkloads, manager.Dump(), cmpDump...); diff != "" {
 		t.Errorf("Unexpected active workloads after deleting ClusterQueue (-want,+got):\n%s", diff)
@@ -2254,7 +2254,7 @@ func TestUpdateUnadmittedWorkload(t *testing.T) {
 				t.Fatalf("failed to add LocalQueue: %v", err)
 			}
 
-			manager.UpdateUnadmittedWorkload(tc.workload)
+			manager.UpdateUnadmittedWorkload(ctx, tc.workload)
 
 			wlKey := workload.Key(tc.workload)
 			status, ok := manager.unadmittedWorkloads.statuses[wlKey]
@@ -2282,7 +2282,7 @@ func TestUpdateUnadmittedWorkload(t *testing.T) {
 					Status: metav1.ConditionTrue,
 				},
 			}
-			manager.UpdateUnadmittedWorkload(tc.workload)
+			manager.UpdateUnadmittedWorkload(ctx, tc.workload)
 
 			if _, ok := manager.unadmittedWorkloads.statuses[wlKey]; ok {
 				t.Errorf("expected workload to be removed from unadmitted registry")
@@ -2316,7 +2316,7 @@ func TestUpdateUnadmittedWorkload_LQMetricsDisabled(t *testing.T) {
 		t.Fatalf("failed to add LocalQueue: %v", err)
 	}
 
-	manager.UpdateUnadmittedWorkload(wl)
+	manager.UpdateUnadmittedWorkload(ctx, wl)
 
 	if len(manager.unadmittedWorkloads.perCQ) == 0 {
 		t.Errorf("expected CQ counts to be updated")
@@ -2345,7 +2345,7 @@ func TestDeleteLocalQueue_UnadmittedWorkloads(t *testing.T) {
 		t.Fatalf("failed to add LocalQueue: %v", err)
 	}
 
-	manager.UpdateUnadmittedWorkload(wl)
+	manager.UpdateUnadmittedWorkload(ctx, wl)
 
 	// Verify it is tracked
 	wlKey := workload.Key(wl)

@@ -260,9 +260,9 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 	defer func() {
 		if features.Enabled(features.UnadmittedWorkloadsObservability) {
 			if getErr == nil && retErr == nil {
-				r.queues.UpdateUnadmittedWorkload(&wl)
+				r.queues.UpdateUnadmittedWorkload(ctx, &wl)
 			} else if apierrors.IsNotFound(getErr) {
-				r.queues.RemoveUnadmittedWorkload(wlKey)
+				r.queues.RemoveUnadmittedWorkload(ctx, wlKey)
 			}
 		}
 	}()
