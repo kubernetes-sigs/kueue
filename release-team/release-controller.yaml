@@ -1,4 +1,0 @@
-# Deprecated: This controller has been split into three separate self-contained workflows:
-# - release-team/create-branch.yaml
-# - release-team/release.yaml
-# - release-team/publish-release.yaml
