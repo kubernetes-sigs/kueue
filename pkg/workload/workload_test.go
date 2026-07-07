@@ -483,6 +483,47 @@ func TestNewInfo(t *testing.T) {
 				},
 			},
 		},
+		"admitted with stale reclaim exceeding scaled-down podSet count": {
+			workload: *utiltestingapi.MakeWorkload("", "").
+				PodSets(
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+						Request(corev1.ResourceCPU, "10m").
+						Request(corev1.ResourceMemory, "10Ki").
+						Obj(),
+				).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "f1", "50m").
+							Assignment(corev1.ResourceMemory, "f1", "50Ki").
+							Count(5).
+							Obj()).
+						Obj(), now,
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{
+						Name:  kueue.DefaultPodSetName,
+						Count: 5,
+					},
+				).
+				Obj(),
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name: kueue.DefaultPodSetName,
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU:    "f1",
+							corev1.ResourceMemory: "f1",
+						},
+						Requests: resources.Requests{
+							corev1.ResourceCPU:    0,
+							corev1.ResourceMemory: 0,
+						},
+						Count: 0,
+					},
+				},
+			},
+		},
 		"partially admitted": {
 			workload: *utiltestingapi.MakeWorkload("", "").
 				PodSets(
