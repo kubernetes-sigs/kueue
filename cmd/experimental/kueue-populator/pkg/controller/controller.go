@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -25,9 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
-	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/client-go/tools/record"
-
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -139,7 +138,7 @@ func (r *KueuePopulatorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 	}
 
-	var errs []error
+	var errs error
 	for i := range cqs.Items {
 		cq := &cqs.Items[i]
 		if !cq.DeletionTimestamp.IsZero() {
@@ -147,11 +146,11 @@ func (r *KueuePopulatorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 		if err := r.ensureLocalQueueExists(ctx, cq, &ns); err != nil {
 			log.Error(err, "Failed to ensure LocalQueue exists in namespace", "clusterQueue", klog.KObj(cq), "namespace", klog.KObj(&ns))
-			errs = append(errs, err)
+			errs = errors.Join(errs, err)
 		}
 	}
 
-	return ctrl.Result{}, utilerrors.NewAggregate(errs)
+	return ctrl.Result{}, errs
 }
 
 func (r *KueuePopulatorReconciler) SetupWithManager(mgr ctrl.Manager) error {
