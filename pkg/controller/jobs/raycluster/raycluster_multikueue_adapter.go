@@ -18,14 +18,20 @@ package raycluster
 
 import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/ray"
 	"sigs.k8s.io/kueue/pkg/util/api"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
-var _ jobframework.MultiKueueAdapter = ray.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy)
+var _ jobframework.MultiKueueAdapter = ray.NewMKAdapter(
+	copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy,
+	ray.WithElasticReplicaSync(elasticReplicaSync()),
+)
 
 func copyJobStatus(dst, src *rayv1.RayCluster) {
 	dst.Status = src.Status
@@ -36,6 +42,66 @@ func copyJobSpec(dst, src *rayv1.RayCluster) {
 		ObjectMeta: api.CloneObjectMetaForCreation(&src.ObjectMeta),
 		Spec:       *src.Spec.DeepCopy(),
 	}
+	// An elastic RayCluster over MultiKueue is scaled by the manager: the
+	// manager's worker replica counts are the source of truth and are propagated
+	// to this remote copy on each sync. The remote must therefore not run the
+	// in-tree Ray autoscaler, which would otherwise fight the manager by editing
+	// worker replicas on the worker cluster.
+	if workloadslicing.Enabled(src) {
+		dst.Spec.EnableInTreeAutoscaling = nil
+	}
+}
+
+// elasticReplicaSync wires the RayCluster-specific hooks used by the shared Ray
+// MultiKueue adapter to propagate manager-driven worker replica changes.
+func elasticReplicaSync() *ray.ElasticReplicaSync[*rayv1.RayCluster, rayv1.RayCluster] {
+	return &ray.ElasticReplicaSync[*rayv1.RayCluster, rayv1.RayCluster]{
+		SyncReplicas:          syncWorkerReplicas,
+		WorkerReplicas:        workerReplicaCounts,
+		WorkloadNameExtraPart: func(rc *rayv1.RayCluster) string { return GetWorkloadNameExtraPart(rc) },
+	}
+}
+
+// workerReplicaCounts returns the effective worker pod count per worker group,
+// matching how BuildPodSets derives PodSet counts (replicas scaled by NumOfHosts).
+func workerReplicaCounts(rc *rayv1.RayCluster) map[kueue.PodSetReference]int32 {
+	counts := make(map[kueue.PodSetReference]int32, len(rc.Spec.WorkerGroupSpecs))
+	for i := range rc.Spec.WorkerGroupSpecs {
+		wgs := &rc.Spec.WorkerGroupSpecs[i]
+		count := int32(1)
+		if wgs.Replicas != nil {
+			count = *wgs.Replicas
+		}
+		if wgs.NumOfHosts > 1 {
+			count *= wgs.NumOfHosts
+		}
+		counts[kueue.NewPodSetReference(wgs.GroupName)] = count
+	}
+	return counts
+}
+
+// syncWorkerReplicas copies each worker group's Replicas from src into dst,
+// matching groups by name, and returns whether dst changed.
+func syncWorkerReplicas(dst, src *rayv1.RayCluster) bool {
+	srcReplicas := make(map[string]*int32, len(src.Spec.WorkerGroupSpecs))
+	for i := range src.Spec.WorkerGroupSpecs {
+		srcReplicas[src.Spec.WorkerGroupSpecs[i].GroupName] = src.Spec.WorkerGroupSpecs[i].Replicas
+	}
+	changed := false
+	for i := range dst.Spec.WorkerGroupSpecs {
+		wgs := &dst.Spec.WorkerGroupSpecs[i]
+		want, ok := srcReplicas[wgs.GroupName]
+		if !ok || ptr.Equal(wgs.Replicas, want) {
+			continue
+		}
+		if want == nil {
+			wgs.Replicas = nil
+		} else {
+			wgs.Replicas = ptr.To(*want)
+		}
+		changed = true
+	}
+	return changed
 }
 
 func getEmptyList() client.ObjectList {
