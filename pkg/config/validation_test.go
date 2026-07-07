@@ -1214,6 +1214,22 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"UnadmittedWorkloadsExplicitStatus requires UnadmittedWorkloadsObservability": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.UnadmittedWorkloadsExplicitStatus: true,
+				features.UnadmittedWorkloadsObservability:  false,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "UnadmittedWorkloadsExplicitStatus requires UnadmittedWorkloadsObservability to be enabled",
+				},
+			},
+		},
 		"KueueDRAIntegrationPartitionableDevices requires KueueDRAIntegration": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
@@ -1602,6 +1618,23 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 					Type:   field.ErrorTypeInvalid,
 					Field:  "featureGates",
 					Detail: "KueueDRAIntegrationExtendedResource requires KueueDRAIntegration to be enabled",
+				},
+			},
+		},
+		"UnadmittedWorkloadsExplicitStatus requires UnadmittedWorkloadsObservability": {
+			featureGateMap: map[string]bool{
+				string(features.UnadmittedWorkloadsExplicitStatus): true,
+				string(features.UnadmittedWorkloadsObservability):  false,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.UnadmittedWorkloadsExplicitStatus: false,
+				features.UnadmittedWorkloadsObservability:  true,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "UnadmittedWorkloadsExplicitStatus requires UnadmittedWorkloadsObservability to be enabled",
 				},
 			},
 		},

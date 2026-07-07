@@ -94,6 +94,7 @@ func Validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorLis
 	allErrs = append(allErrs, validateCustomLabels(c)...)
 	allErrs = append(allErrs, validateQuotaCheckStrategy(c)...)
 	allErrs = append(allErrs, validateDRAFeatureGateDependencies()...)
+	allErrs = append(allErrs, validateFeatureGateDependency(features.UnadmittedWorkloadsExplicitStatus, features.UnadmittedWorkloadsObservability)...)
 	return allErrs
 }
 
@@ -649,6 +650,7 @@ func LoadAndValidateFeatureGates(featureGateCLI string, featureGateMap map[strin
 	allErrs = append(allErrs, validateFeatureGateDependency(features.TASReplaceNodeOnNodeTaints, features.TopologyAwareScheduling)...)
 	allErrs = append(allErrs, validateFeatureGateDependency(features.TASMultiLayerTopology, features.TopologyAwareScheduling)...)
 	allErrs = append(allErrs, validateFeatureGateDependency(features.TASRespectNodeAffinityPreferred, features.TopologyAwareScheduling)...)
+	allErrs = append(allErrs, validateFeatureGateDependency(features.UnadmittedWorkloadsExplicitStatus, features.UnadmittedWorkloadsObservability)...)
 
 	if features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) {
 		if !features.Enabled(features.ElasticJobsViaWorkloadSlices) {

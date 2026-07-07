@@ -80,6 +80,27 @@ import (
 
 var (
 	realClock = clock.RealClock{}
+
+	// schedulerSetReasons contains the reasons for the QuotaReserved=False condition
+	// that are set by the scheduler and must be preserved by the controller during
+	// reconciliation until the next scheduler cycle.
+	//
+	// We explicitly DO NOT include:
+	// - WorkloadQuotaReservedReasonSuspended
+	// - WorkloadQuotaReservedReasonMisconfigured
+	// Even though the scheduler can emit them, they represent active blockages (e.g.
+	// inactive or missing queues) that the controller actively re-evaluates. If we
+	// preserved them, the controller would not be able to transition the workload
+	// back to PendingEvaluation once the blockages are resolved.
+	schedulerSetReasons = sets.New(
+		kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+		kueue.WorkloadQuotaReservedReasonNoMatchingFlavor,
+		kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
+		kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
+		kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+		kueue.WorkloadQuotaReservedReasonWaitingForPodsReady,
+		kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+	)
 )
 
 // hasInternalError reports whether the field error list contains an internal
@@ -1449,7 +1470,7 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 		WatchesRawSource(source.Channel(r.draReconcileChannel, deh)).
 		WithOptions(controller.Options{
 			NeedLeaderElection:      new(false),
-			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("Workload").GroupKind().String()],
+			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.SchemeGroupVersion.WithKind("Workload").GroupKind().String()],
 			LogConstructor:          roletracker.NewLogConstructor(r.roleTracker, "workload-reconciler"),
 		}).
 		Watches(&corev1.LimitRange{}, ruh).
@@ -1858,19 +1879,12 @@ func (r *WorkloadReconciler) resolveGranularUnadmittedQuotaReservedCondition(
 		return kueue.WorkloadQuotaReservedReasonMisconfigured, admissibilityErr.Error(), nil //nolint:nilerr // admissibility validation failure does not require retry
 	case workload.HasAdmissionGate(wl):
 		return kueue.WorkloadAdmissionGated, fmt.Sprintf("Admission is gated by: %s", wl.Annotations[constants.AdmissionGatedByAnnotation]), nil
-	case cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason != "" &&
-		cond.Reason != kueue.WorkloadQuotaReservedReasonSuspended &&
-		cond.Reason != kueue.WorkloadQuotaReservedReasonMisconfigured &&
-		cond.Reason != kueue.WorkloadDeactivated &&
-		// Exclude legacy reasons so we can transition from them to more granular reasons
-		// when the UnadmittedWorkloadsObservability feature gate is enabled.
-		cond.Reason != kueue.WorkloadPending && //nolint:staticcheck // SA1019: legacy reason
-		cond.Reason != kueue.WorkloadWaiting: //nolint:staticcheck // SA1019: legacy reason
+	case cond != nil && cond.Reason != "" && schedulerSetReasons.Has(cond.Reason):
+		// Preserve scheduler feedback reasons until the next scheduler cycle.
 		return cond.Reason, cond.Message, nil
 	default:
-		// Stamping the condition on creation is deferred to the next feature gate:
-		// UnadmittedWorkloadsObservabilityExplicitStatus.
-		if cond == nil {
+		// Stamping the condition on creation is gated by UnadmittedWorkloadsExplicitStatus.
+		if cond == nil && !features.Enabled(features.UnadmittedWorkloadsExplicitStatus) {
 			return "", "", nil
 		}
 		return kueue.WorkloadQuotaReservedReasonPendingEvaluation, "Workload is pending evaluation in the scheduling queue", nil

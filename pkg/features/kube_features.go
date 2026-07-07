@@ -455,6 +455,15 @@ const (
 	// Enable re-computing the assignment within the same scheduling cycle when a TAS workload doesn't fit.
 	TASRecomputeAssignmentWithinSchedulingCycle featuregate.Feature = "TASRecomputeAssignmentWithinSchedulingCycle"
 
+	// owner: @j-skiba
+	// kep: https://github.com/kubernetes-sigs/kueue/issues/10852
+	//
+	// UnadmittedWorkloadsExplicitStatus gates the immediate, proactive
+	// initialization of both QuotaReserved and Admitted status conditions
+	// to False during a workload's first reconciliation.
+	// This feature gate requires UnadmittedWorkloadsObservability to be enabled to take effect.
+	UnadmittedWorkloadsExplicitStatus featuregate.Feature = "UnadmittedWorkloadsExplicitStatus"
+
 	// owner: @kevin85421
 	//
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/12820
@@ -713,6 +722,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	TASRecomputeAssignmentWithinSchedulingCycle: {
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	UnadmittedWorkloadsExplicitStatus: {
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Beta},
 	},
 
 	DeferRayServiceFinalizationForRedisCleanup: {

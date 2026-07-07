@@ -130,8 +130,10 @@ func createSharedMultiKueueSecrets(ctx context.Context) {
 }
 
 func cleanupSharedMultiKueueSecrets(ctx context.Context) {
-	gomega.Expect(util.CleanMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue1")).NotTo(gomega.HaveOccurred())
-	gomega.Expect(util.CleanMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue2")).NotTo(gomega.HaveOccurred())
-	gomega.Expect(util.CleanKubeconfigForMultiKueueSA(ctx, k8sWorker1Client, kueueNS, "mksa")).NotTo(gomega.HaveOccurred())
-	gomega.Expect(util.CleanKubeconfigForMultiKueueSA(ctx, k8sWorker2Client, kueueNS, "mksa")).NotTo(gomega.HaveOccurred())
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(util.CleanMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue1")).To(gomega.Succeed())
+		g.Expect(util.CleanMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue2")).To(gomega.Succeed())
+		g.Expect(util.CleanKubeconfigForMultiKueueSA(ctx, k8sWorker1Client, kueueNS, "mksa")).To(gomega.Succeed())
+		g.Expect(util.CleanKubeconfigForMultiKueueSA(ctx, k8sWorker2Client, kueueNS, "mksa")).To(gomega.Succeed())
+	}, util.Timeout, util.Interval).Should(gomega.Succeed())
 }

@@ -52,6 +52,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 )
 
@@ -129,7 +130,7 @@ func (r *variantReconciler) setupWithManager(mgr ctrl.Manager, cfg *configapi.Co
 		)).
 		WithOptions(controller.Options{
 			NeedLeaderElection:      new(false),
-			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("Workload").GroupKind().String()],
+			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.SchemeGroupVersion.WithKind("Workload").GroupKind().String()],
 		}).
 		WithLogConstructor(roletracker.NewLogConstructor(r.roleTracker, ConcurrentAdmissionController)).
 		Complete(r)
@@ -633,7 +634,7 @@ func (r *variantReconciler) syncFinished(ctx context.Context, parent *kueue.Work
 	finishCond := apimeta.FindStatusCondition(parent.Status.Conditions, kueue.WorkloadFinished)
 	for i := range variants {
 		v := &variants[i]
-		if err := workload.Finish(ctx, r.client, v, finishCond.Reason, finishCond.Message, r.clock); err != nil && !apierrors.IsNotFound(err) {
+		if err := workloadfinish.Finish(ctx, r.client, v, finishCond.Reason, finishCond.Message, r.clock); err != nil && !apierrors.IsNotFound(err) {
 			return err
 		}
 	}
@@ -650,7 +651,7 @@ func (r *variantReconciler) syncPodsReadyCond(parent, variant *kueue.Workload) b
 
 func (r *variantReconciler) syncAdmissionStatus(ctx context.Context, parent *kueue.Workload, variants []kueue.Workload) error {
 	log := ctrl.LoggerFrom(ctx)
-	if workload.IsFinished(parent) {
+	if workloadfinish.IsFinished(parent) {
 		return r.syncFinished(ctx, parent, variants)
 	}
 

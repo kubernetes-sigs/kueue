@@ -55,6 +55,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 )
 
@@ -130,7 +131,7 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile Workload")
 
-	isFinished := workload.IsFinished(wl)
+	isFinished := workloadfinish.IsFinished(wl)
 	isEvicted := workloadevict.IsEvicted(wl)
 	if !workload.HasQuotaReservation(wl) && !isFinished && !isEvicted {
 		return reconcile.Result{}, nil
@@ -580,7 +581,7 @@ func (c *Controller) syncCheckStates(
 						checkState.Message = apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed).Message
 					}
 				case isCapacityRevoked(pr):
-					if workload.IsActive(wl) && !workload.IsFinished(wl) {
+					if workload.IsActive(wl) && !workloadfinish.IsFinished(wl) {
 						// We mark the admission check as rejected to trigger workload deactivation.
 						// This is needed to prevent replacement pods being stuck in the pending phase indefinitely
 						// as the nodes are already deleted by Cluster Autoscaler.

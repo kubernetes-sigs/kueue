@@ -186,8 +186,8 @@ func newClientWithWatch(ctx context.Context, config *clientConfig, options clien
 	}
 
 	cachedKinds := sets.New(
-		kueue.GroupVersion.WithKind("ClusterQueue").GroupKind(),
-		kueue.GroupVersion.WithKind("LocalQueue").GroupKind(),
+		kueue.SchemeGroupVersion.WithKind("ClusterQueue").GroupKind(),
+		kueue.SchemeGroupVersion.WithKind("LocalQueue").GroupKind(),
 	)
 
 	indexOpts := []CacheIndexOption{
@@ -270,8 +270,15 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 
 	rc.setClient(remoteClient)
 
-	err = rc.startWatcher(watchCtx, kueue.GroupVersion.WithKind("Workload").GroupKind().String(), &workloadKueueWatcher{})
+	// Mark as connected before starting watchers to avoid a race condition.
+	// If a watcher queues an event and wlReconciler processes it before connecting=false,
+	// the workload will be treated as unavailable and requeued after 15m.
+	rc.connecting.Store(false)
+	rc.disconnected.Store(false)
+
+	err = rc.startWatcher(watchCtx, kueue.SchemeGroupVersion.WithKind("Workload").GroupKind().String(), &workloadKueueWatcher{})
 	if err != nil {
+		rc.disconnect()
 		return rc.increaseFailedConnAttempt(), err
 	}
 
@@ -286,18 +293,18 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 			// not being able to setup a watcher is not ideal but we can function with only the wl watcher.
 			ctrl.LoggerFrom(watchCtx).Error(err, "Unable to start the watcher", "kind", kind)
 			// however let's not accept this for now.
+			rc.disconnect()
 			return rc.increaseFailedConnAttempt(), err
 		}
 	}
 	if features.Enabled(features.MultiKueueManagerQuotaAutomation) {
 		err = rc.startQueueWatchers(watchCtx)
 		if err != nil {
+			rc.disconnect()
 			return rc.increaseFailedConnAttempt(), err
 		}
 	}
 
-	rc.connecting.Store(false)
-	rc.disconnected.Store(false)
 	rc.resetFailedConnAttempt()
 	return nil, nil
 }

@@ -263,7 +263,7 @@ func (r *ResourceFlavorReconciler) SetupWithManager(mgr ctrl.Manager, cfg *confi
 		)).
 		WithOptions(controller.Options{
 			NeedLeaderElection:      new(false),
-			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("ResourceFlavor").GroupKind().String()],
+			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.SchemeGroupVersion.WithKind("ResourceFlavor").GroupKind().String()],
 			LogConstructor:          roletracker.NewLogConstructor(r.roleTracker, "resourceflavor-reconciler"),
 		}).
 		WatchesRawSource(source.Channel(r.cqUpdateCh, &h)).

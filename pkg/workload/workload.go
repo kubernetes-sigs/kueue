@@ -60,6 +60,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/util/wait"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 )
 
@@ -81,7 +82,7 @@ func NewReference(namespace, name string) Reference {
 }
 
 func Status(w *kueue.Workload) string {
-	if IsFinished(w) {
+	if workloadfinish.IsFinished(w) {
 		return StatusFinished
 	}
 	if IsAdmitted(w) {
@@ -864,7 +865,7 @@ func resetActiveCondition(conds *[]metav1.Condition, gen int64, condType, reason
 // NeedsSecondPass checks if the second pass of scheduling is needed for the
 // workload.
 func NeedsSecondPass(w *kueue.Workload) bool {
-	if IsFinished(w) || workloadevict.IsEvicted(w) || !HasQuotaReservation(w) || IsOnHold(w) {
+	if workloadfinish.IsFinished(w) || workloadevict.IsEvicted(w) || !HasQuotaReservation(w) || IsOnHold(w) {
 		return false
 	}
 	return needsSecondPassForDelayedAssignment(w) || needsSecondPassAfterNodeFailure(w)
@@ -913,18 +914,6 @@ func SetDeactivationTarget(w *kueue.Workload, reason string, message string) boo
 		Status:             metav1.ConditionTrue,
 		Reason:             reason,
 		Message:            message,
-		ObservedGeneration: w.Generation,
-	}
-	return apimeta.SetStatusCondition(&w.Status.Conditions, condition)
-}
-
-func SetFinishedCondition(w *kueue.Workload, now time.Time, reason string, message string) bool {
-	condition := metav1.Condition{
-		Type:               kueue.WorkloadFinished,
-		Status:             metav1.ConditionTrue,
-		LastTransitionTime: metav1.NewTime(now),
-		Reason:             reason,
-		Message:            api.TruncateConditionMessage(message),
 		ObservedGeneration: w.Generation,
 	}
 	return apimeta.SetStatusCondition(&w.Status.Conditions, condition)
@@ -1154,11 +1143,6 @@ func IsAdmitted(w *kueue.Workload) bool {
 	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadAdmitted)
 }
 
-// IsFinished returns true if the workload is finished.
-func IsFinished(w *kueue.Workload) bool {
-	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadFinished)
-}
-
 // IsActive returns true if the workload is active.
 func IsActive(w *kueue.Workload) bool {
 	return ptr.Deref(w.Spec.Active, true)
@@ -1166,7 +1150,7 @@ func IsActive(w *kueue.Workload) bool {
 
 // IsAdmissible returns true if the workload can be added to the queue.
 func IsAdmissible(w *kueue.Workload) bool {
-	return !HasAdmissionGate(w) && !IsFinished(w) && IsActive(w) && !HasQuotaReservation(w) && !IsOnHold(w)
+	return !HasAdmissionGate(w) && !workloadfinish.IsFinished(w) && IsActive(w) && !HasQuotaReservation(w) && !IsOnHold(w)
 }
 
 // HasAdmissionGate returns true if the workload has an admission gate annotation and the AdmissionGatedBy feature is on
@@ -1186,7 +1170,7 @@ func HasAdmissionGate(w *kueue.Workload) bool {
 // reservation that should be tracked for ClusterQueue usage. This requires the
 // workload to be active, not finished, and holding a quota reservation.
 func HasActiveQuotaReservation(w *kueue.Workload) bool {
-	return HasQuotaReservation(w) && !IsFinished(w) && IsActive(w)
+	return HasQuotaReservation(w) && !workloadfinish.IsFinished(w) && IsActive(w)
 }
 
 // IsOnHold returns true when the workload's quota reservation is intentionally
@@ -1326,7 +1310,7 @@ func FinalizeOrphanedWorkload(ctx context.Context, c client.Client, clk clock.Cl
 	// Only Finish workloads that are not currently being deleted.
 	if features.Enabled(features.FinishOrphanedWorkloads) && wl.DeletionTimestamp.IsZero() && canFinish {
 		log.V(2).Info("Workload is orphaned; finishing to release quota")
-		if err := Finish(ctx, c, wl, kueue.WorkloadFinishedReasonOwnerNotFound,
+		if err := workloadfinish.Finish(ctx, c, wl, kueue.WorkloadFinishedReasonOwnerNotFound,
 			"The workload's owner no longer exists", clk); err != nil {
 			if client.IgnoreNotFound(err) != nil {
 				log.Error(err, "Failed to finish Workload")
@@ -1428,19 +1412,6 @@ func findAdmissionFlavors(admission kueue.Admission) sets.Set[kueue.ResourceFlav
 		}
 	}
 	return assignedFlavors
-}
-
-func Finish(ctx context.Context, c client.Client, wl *kueue.Workload, reason, msg string, clock clock.Clock) error {
-	if IsFinished(wl) {
-		return nil
-	}
-	err := workloadpatching.PatchAdmissionStatus(ctx, c, wl, clock, func(wl *kueue.Workload) (bool, error) {
-		return SetFinishedCondition(wl, clock.Now(), reason, msg), nil
-	})
-	if err != nil {
-		return err
-	}
-	return nil
 }
 
 func IsWorkloadPriorityClass(wl *kueue.Workload) bool {
