@@ -67,6 +67,20 @@ const (
 	RequeueReasonPreemptionNoCandidates RequeueReason = "PreemptionNoCandidates"
 )
 
+// QuotaReservedReason represents the reason for the WorkloadQuotaReserved condition
+// computed by the scheduler or queue manager during evaluation.
+type QuotaReservedReason string
+
+const (
+	QuotaReservedReasonGeneric                      QuotaReservedReason = ""
+	QuotaReservedReasonPendingEvaluation            QuotaReservedReason = kueue.WorkloadQuotaReservedReasonPendingEvaluation
+	QuotaReservedReasonWaitingForQuota              QuotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForQuota
+	QuotaReservedReasonWaitingForPreemptedWorkloads QuotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
+	QuotaReservedReasonSuspended                    QuotaReservedReason = kueue.WorkloadQuotaReservedReasonSuspended
+	QuotaReservedReasonMisconfigured                QuotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
+	QuotaReservedReasonAdmissionGated               QuotaReservedReason = kueue.WorkloadAdmissionGated
+)
+
 var (
 	realClock = clock.RealClock{}
 )
@@ -120,7 +134,7 @@ type ClusterQueue struct {
 	// hashToBulkMoveReason tracks scheduling equivalence classes and the reason
 	// why workloads with that hash were bulk-moved to inadmissibleWorkloads.
 	// Cleared when queueInadmissibleWorkloads runs.
-	hashToBulkMoveReason map[string]string
+	hashToBulkMoveReason map[string]QuotaReservedReason
 
 	finishedWorkloads sets.Set[workload.Reference]
 
@@ -249,7 +263,7 @@ func newClusterQueueImpl(ctx context.Context, client client.Client, wo workload.
 	return &ClusterQueue{
 		heap:                      *heap.New(workloadKey, lessFunc),
 		inadmissibleWorkloads:     make(inadmissibleWorkloads),
-		hashToBulkMoveReason:      make(map[string]string),
+		hashToBulkMoveReason:      make(map[string]QuotaReservedReason),
 		finishedWorkloads:         sets.New[workload.Reference](),
 		queueInadmissibleCycle:    -1,
 		compareFunc:               compareFunc,
@@ -419,7 +433,7 @@ func (c *ClusterQueue) GetNoFitReason(wl workload.Reference) (string, bool) {
 		return "", false
 	}
 	reason, ok := c.hashToBulkMoveReason[wlInfo.SchedulingHash]
-	return reason, ok
+	return string(reason), ok
 }
 
 func (c *ClusterQueue) RebuildLocalQueue(lqName string) {
@@ -520,11 +534,11 @@ func (c *ClusterQueue) DeleteFromLocalQueue(log logr.Logger, q *LocalQueue, role
 // the reason string stored in the ClusterQueue's in-memory hashToBulkMoveReason map.
 // Whether status conditions are actually written to the Workload API object is
 // governed by the workload controller (shouldCheckEquivalenceHash).
-func resolveQuotaReservedReason(statusReason string) string {
-	if statusReason == "" {
-		return kueue.WorkloadQuotaReservedReasonPendingEvaluation
+func resolveQuotaReservedReason(reason QuotaReservedReason) QuotaReservedReason {
+	if reason == "" {
+		return QuotaReservedReasonPendingEvaluation
 	}
-	return statusReason
+	return reason
 }
 
 // requeueIfNotPresent inserts a workload that cannot be admitted into
@@ -535,7 +549,7 @@ func resolveQuotaReservedReason(statusReason string) string {
 // When SchedulingEquivalenceHashing is enabled and the reason is NoFit or
 // PreemptionNoCandidates, equivalent workloads in the heap are bulk-moved
 // to inadmissible.
-func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info, immediate bool, reason RequeueReason, quotaReservedReason string) bool {
+func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info, immediate bool, reason RequeueReason, quotaReservedReason QuotaReservedReason) bool {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	key := workload.Key(wInfo.Obj)
@@ -598,7 +612,7 @@ func (c *ClusterQueue) forgetInflightByKey(key workload.Reference) {
 // scheduling hash to inadmissibleWorkloads. Returns the number moved.
 // Only applies to BestEffortFIFO queues; in StrictFIFO the head workload
 // stays in the heap and must not cause equivalent workloads to be skipped.
-func (c *ClusterQueue) handleInadmissibleHash(hash string, reason string) int {
+func (c *ClusterQueue) handleInadmissibleHash(hash string, reason QuotaReservedReason) int {
 	if c.queueingStrategy != kueue.BestEffortFIFO {
 		return 0
 	}
@@ -888,7 +902,7 @@ func (c *ClusterQueue) Active() bool {
 // The workload should not be reinserted if it's already in the ClusterQueue.
 // quotaReservedReason represents the WorkloadQuotaReserved condition reason computed by the scheduler.
 // Returns true if the workload was inserted.
-func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.Info, reason RequeueReason, quotaReservedReason string) bool {
+func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.Info, reason RequeueReason, quotaReservedReason QuotaReservedReason) bool {
 	// when preemptions are in-progress, we keep attempting to
 	// schedule the same workload for BestEffortFIFO queues. See
 	// documentation of stickyWorkload for more details

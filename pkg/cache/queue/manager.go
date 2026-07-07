@@ -385,7 +385,7 @@ func (m *Manager) IsConcurrentAdmissionParentWithoutLock(wl *kueue.Workload) boo
 	if !features.Enabled(features.ConcurrentAdmission) {
 		return false
 	}
-	cqName, _ := m.ClusterQueueForWorkloadWithoutLock(wl)
+	cqName, _ := m.ClusterQueueNameForWorkloadWithoutLock(wl)
 	return m.ConcurrentAdmissionEnabledWithoutLock(cqName) && !concurrentadmission.IsVariant(wl)
 }
 
@@ -612,10 +612,10 @@ func (m *Manager) QueueForWorkloadExists(wl *kueue.Workload) bool {
 func (m *Manager) ClusterQueueForWorkload(wl *kueue.Workload) (kueue.ClusterQueueReference, bool) {
 	m.RLock()
 	defer m.RUnlock()
-	return m.ClusterQueueForWorkloadWithoutLock(wl)
+	return m.ClusterQueueNameForWorkloadWithoutLock(wl)
 }
 
-func (m *Manager) ClusterQueueForWorkloadWithoutLock(wl *kueue.Workload) (kueue.ClusterQueueReference, bool) {
+func (m *Manager) ClusterQueueNameForWorkloadWithoutLock(wl *kueue.Workload) (kueue.ClusterQueueReference, bool) {
 	q, ok := m.localQueues[queue.KeyFromWorkload(wl)]
 	if !ok {
 		return "", false
@@ -624,20 +624,25 @@ func (m *Manager) ClusterQueueForWorkloadWithoutLock(wl *kueue.Workload) (kueue.
 	return q.ClusterQueue, ok
 }
 
+// ClusterQueueForWorkloadWithoutLock returns the ClusterQueue where the
+// workload should be queued, or nil if it doesn't exist.
+func (m *Manager) ClusterQueueForWorkloadWithoutLock(wl *kueue.Workload) *ClusterQueue {
+	q, ok := m.localQueues[queue.KeyFromWorkload(wl)]
+	if !ok {
+		return nil
+	}
+	return m.hm.ClusterQueue(q.ClusterQueue)
+}
+
 func (m *Manager) GetNoFitReason(wl *kueue.Workload) (string, bool) {
 	m.RLock()
 	defer m.RUnlock()
-	cqName, ok := m.ClusterQueueForWorkloadWithoutLock(wl)
-	if !ok {
-		return "", false
-	}
-	cq := m.hm.ClusterQueue(cqName)
+	cq := m.ClusterQueueForWorkloadWithoutLock(wl)
 	if cq == nil {
 		return "", false
 	}
 	wlKey := workload.Key(wl)
-	reason, ok := cq.GetNoFitReason(wlKey)
-	return reason, ok
+	return cq.GetNoFitReason(wlKey)
 }
 
 // AddOrUpdateWorkload adds or updates workload to the corresponding queue.
@@ -692,7 +697,7 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workl
 // The quotaReservedReason parameter represents the WorkloadQuotaReserved condition reason
 // computed by the scheduler during this cycle. It must be passed explicitly because info.Obj
 // has not yet been patched with the updated condition when RequeueWorkload is called.
-func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reason RequeueReason, quotaReservedReason string) bool {
+func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reason RequeueReason, quotaReservedReason QuotaReservedReason) bool {
 	m.Lock()
 	defer m.Unlock()
 

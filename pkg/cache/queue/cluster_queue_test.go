@@ -1722,7 +1722,7 @@ func TestGetNoFitReason(t *testing.T) {
 			info := workload.NewInfo(wl)
 			info.SchedulingHash = "test-hash"
 
-			cq.RequeueIfNotPresent(ctx, info, tc.requeueReason, tc.conditionReason)
+			cq.RequeueIfNotPresent(ctx, info, tc.requeueReason, QuotaReservedReason(tc.conditionReason))
 
 			wlKey := workload.Key(wl)
 			if tc.deleteFromInadmissible {
