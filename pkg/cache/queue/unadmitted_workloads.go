@@ -57,7 +57,7 @@ func (s unadmittedWorkloadStatus) ClusterQueueStatus() unadmittedCQStatus {
 // unadmittedWorkloads encapsulates internal state for tracking unadmitted workloads
 // and their metric counts per ClusterQueue and LocalQueue.
 type unadmittedWorkloads struct {
-	sync.RWMutex
+	rwm      sync.RWMutex
 	statuses map[workload.Reference]unadmittedWorkloadStatus
 	perCQ    map[unadmittedCQStatus]int
 	perLQ    map[unadmittedWorkloadStatus]int
@@ -78,8 +78,8 @@ func (u *unadmittedWorkloads) update(
 	qExists func(queue.LocalQueueReference) bool,
 	m *Manager,
 ) {
-	u.Lock()
-	defer u.Unlock()
+	u.rwm.Lock()
+	defer u.rwm.Unlock()
 
 	log := ctrl.LoggerFrom(ctx)
 	status := getUnadmittedWorkloadStatus(ctx, wl)
@@ -116,8 +116,8 @@ func (u *unadmittedWorkloads) remove(
 	qExists func(queue.LocalQueueReference) bool,
 	m *Manager,
 ) {
-	u.Lock()
-	defer u.Unlock()
+	u.rwm.Lock()
+	defer u.rwm.Unlock()
 
 	oldStatus, ok := u.statuses[wlKey]
 	log := ctrl.LoggerFrom(ctx)
@@ -231,8 +231,8 @@ func (u *unadmittedWorkloads) updateUnadmittedWorkloadMetric(
 }
 
 func (u *unadmittedWorkloads) resyncCQMetrics(cqName kueue.ClusterQueueReference, m *Manager) {
-	u.RLock()
-	defer u.RUnlock()
+	u.rwm.RLock()
+	defer u.rwm.RUnlock()
 
 	for status, count := range u.perCQ {
 		if status.ClusterQueue == cqName {
@@ -250,8 +250,8 @@ func (u *unadmittedWorkloads) resyncCQMetrics(cqName kueue.ClusterQueueReference
 }
 
 func (u *unadmittedWorkloads) resyncLQMetrics(lqRef queue.LocalQueueReference, m *Manager) {
-	u.RLock()
-	defer u.RUnlock()
+	u.rwm.RLock()
+	defer u.rwm.RUnlock()
 
 	lqNamespace, lqName := queue.MustParseLocalQueueReference(lqRef)
 	for status, count := range u.perLQ {
