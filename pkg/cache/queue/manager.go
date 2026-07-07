@@ -627,7 +627,7 @@ func (m *Manager) ClusterQueueForWorkloadWithoutLock(wl *kueue.Workload) (kueue.
 func (m *Manager) GetNoFitReason(wl *kueue.Workload) (string, bool) {
 	m.RLock()
 	defer m.RUnlock()
-	cqName, ok := m.ClusterQueueForWorkload(wl)
+	cqName, ok := m.ClusterQueueForWorkloadWithoutLock(wl)
 	if !ok {
 		return "", false
 	}
