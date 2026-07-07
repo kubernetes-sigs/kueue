@@ -146,8 +146,12 @@ func (j *RayService) Suspend() {
 
 // If GCS fault tolerance is enabled, a Redis cleanup K8s Job may be created to clean up the RayCluster's Redis namespace.
 // Defer the finalization of the RayService's Workload until the cleanup Job completes, to avoid the Redis cleanup Job hanging.
+//
+// TODO(#12820): this is gated by DeferRayServiceFinalizationForRedisCleanup as a temporary workaround. Remove the gate
+// once the generic FinishOrphanedWorkloads owner-deletion check lands.
 func (j *RayService) Skip(context.Context) bool {
-	return !j.DeletionTimestamp.IsZero() &&
+	return features.Enabled(features.DeferRayServiceFinalizationForRedisCleanup) &&
+		!j.DeletionTimestamp.IsZero() &&
 		rayutils.IsGCSFaultToleranceEnabled(&j.Spec.RayClusterSpec, j.Annotations)
 }
 
