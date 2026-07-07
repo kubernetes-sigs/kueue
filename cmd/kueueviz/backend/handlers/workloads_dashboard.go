@@ -86,33 +86,42 @@ func (h *Handlers) fetchWorkloadsDashboardData(ctx context.Context, namespace st
 		return nil, fmt.Errorf("error fetching workloads in namespace %s: %w", namespace, err)
 	}
 
-	workloadsByUID := make(map[types.UID]string)
-	var processedWorkloads []workloadResult
+	workloadsByUID := make(map[types.UID]string, len(wql.Items))
+	processedWorkloads := make([]workloadResult, 0, len(wql.Items))
 
-	for _, workload := range wql.Items {
-		namespace := workload.Namespace
-		workloadName := workload.Name
-		workloadUID := workload.UID
-		jobUID := workload.Labels["kueue.x-k8s.io/job-uid"]
-
+	// Index pods by namespace first to keep the All namespaces view from matching
+	// pods across namespaces while still listing pods once per workload namespace.
+	workloadNamespaces := make(map[string]struct{})
+	for i := range wql.Items {
+		workloadNamespaces[wql.Items[i].Namespace] = struct{}{}
+	}
+	podsByNamespace := make(map[string]map[string][]map[string]any, len(workloadNamespaces))
+	for namespace := range workloadNamespaces {
 		pl := &corev1.PodList{}
 		err = h.client.List(ctx, pl, ctrlclient.InNamespace(namespace))
 		if err != nil {
 			return nil, fmt.Errorf("error fetching pods in namespace %s: %w", namespace, err)
 		}
 
-		var workloadPods []map[string]any
+		podsByControllerUID := make(map[string][]map[string]any)
 		for _, pod := range pl.Items {
 			podLabels := pod.GetLabels()
 			controllerUID := podLabels["controller-uid"]
-			if controllerUID == jobUID {
-				podDetails := map[string]any{
-					"name":   pod.GetName(),
-					"status": pod.Status,
-				}
-				workloadPods = append(workloadPods, podDetails)
+			podDetails := map[string]any{
+				"name":   pod.GetName(),
+				"status": pod.Status,
 			}
+			podsByControllerUID[controllerUID] = append(podsByControllerUID[controllerUID], podDetails)
 		}
+		podsByNamespace[namespace] = podsByControllerUID
+	}
+
+	for _, workload := range wql.Items {
+		namespace := workload.Namespace
+		workloadName := workload.Name
+		workloadUID := workload.UID
+		jobUID := workload.Labels["kueue.x-k8s.io/job-uid"]
+		workloadPods := podsByNamespace[namespace][jobUID]
 
 		cond := meta.FindStatusCondition(workload.Status.Conditions, kueueapi.WorkloadPreempted)
 
