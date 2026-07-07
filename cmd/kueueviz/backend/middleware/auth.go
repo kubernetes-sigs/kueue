@@ -17,7 +17,6 @@ limitations under the License.
 package middleware
 
 import (
-	"container/list"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -32,6 +31,7 @@ import (
 	"golang.org/x/time/rate"
 	authenticationv1 "k8s.io/api/authentication/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	utilcache "k8s.io/apimachinery/pkg/util/cache"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -48,10 +48,6 @@ const (
 	defaultCacheSize = 1024
 )
 
-type Clock interface {
-	Now() time.Time
-}
-
 type realClock struct{}
 
 func (realClock) Now() time.Time { return time.Now() }
@@ -59,7 +55,6 @@ func (realClock) Now() time.Time { return time.Now() }
 type cacheEntry struct {
 	authenticated bool
 	username      string
-	expiresAt     time.Time
 }
 
 type AuthConfig struct {
@@ -74,8 +69,8 @@ type AuthConfig struct {
 type Authenticator struct {
 	clientset kubernetes.Interface
 	config    AuthConfig
-	cache     *tokenReviewCache
-	clock     Clock
+	cache     *utilcache.LRUExpireCache
+	clock     utilcache.Clock
 }
 
 func NewAuthenticator(clientset kubernetes.Interface, config AuthConfig) *Authenticator {
@@ -83,17 +78,17 @@ func NewAuthenticator(clientset kubernetes.Interface, config AuthConfig) *Authen
 	if size <= 0 {
 		size = defaultCacheSize
 	}
-	clock := Clock(realClock{})
+	clock := utilcache.Clock(realClock{})
 	return &Authenticator{
 		clientset: clientset,
 		config:    config,
-		cache:     newTokenReviewCache(size, clock),
+		cache:     utilcache.NewLRUExpireCacheWithClock(size, clock),
 		clock:     clock,
 	}
 }
 
 func (a *Authenticator) Stop() {
-	a.cache.Stop()
+	// The utilcache.LRUExpireCache does not require stopping a goroutine.
 }
 
 // RateLimiter returns a gin middleware that enforces a per-client-IP
@@ -165,8 +160,8 @@ func (a *Authenticator) Middleware() gin.HandlerFunc {
 // is written back to the cache before returning.
 func (a *Authenticator) authenticate(ctx context.Context, token string) (bool, string, error) {
 	key := hashToken(token)
-	now := a.clock.Now()
-	if cached, ok := a.cache.Get(key, now); ok {
+	if cachedRaw, ok := a.cache.Get(key); ok {
+		cached := cachedRaw.(cacheEntry)
 		return cached.authenticated, cached.username, nil
 	}
 	authenticated, username, err := a.reviewToken(ctx, token)
@@ -177,11 +172,10 @@ func (a *Authenticator) authenticate(ctx context.Context, token string) (bool, s
 	if authenticated {
 		ttl = a.config.CacheTTL
 	}
-	a.cache.Set(key, cacheEntry{
+	a.cache.Add(key, cacheEntry{
 		authenticated: authenticated,
 		username:      username,
-		expiresAt:     now.Add(ttl),
-	})
+	}, ttl)
 	return authenticated, username, nil
 }
 
@@ -237,113 +231,4 @@ func extractToken(r *http.Request) string {
 func hashToken(token string) string {
 	h := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(h[:])
-}
-
-// ---------------------------------------------------------------------------
-// tokenReviewCache — fixed-capacity LRU cache with TTL expiry
-//
-// The cache is backed by a doubly-linked list (container/list) and a map so
-// both Get and Set are O(1). When the capacity is reached the
-// least-recently-used entry is evicted, capping memory regardless of how many
-// unique tokens an attacker injects.
-// ---------------------------------------------------------------------------
-
-type lruEntry struct {
-	key   string
-	value cacheEntry
-}
-
-// tokenReviewCache is a bounded, TTL-based LRU cache for TokenReview results.
-type tokenReviewCache struct {
-	mu       sync.Mutex
-	capacity int
-	clock    Clock
-	items    map[string]*list.Element // key → list element
-	order    *list.List               // front = most-recently-used
-	stopCh   chan struct{}
-}
-
-func newTokenReviewCache(capacity int, clock Clock) *tokenReviewCache {
-	c := &tokenReviewCache{
-		capacity: capacity,
-		clock:    clock,
-		items:    make(map[string]*list.Element, capacity),
-		order:    list.New(),
-		stopCh:   make(chan struct{}),
-	}
-	go c.evictExpired()
-	return c
-}
-
-// evictExpired removes TTL-expired entries every minute so that stale entries
-// from legitimate users do not accumulate after their TTL elapses.
-// It uses the injected Clock so the sweep is consistent with Get/Set and
-// can be exercised in tests with a fake clock.
-func (c *tokenReviewCache) evictExpired() {
-	ticker := time.NewTicker(time.Minute)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ticker.C:
-			now := c.clock.Now()
-			c.mu.Lock()
-			for key, el := range c.items {
-				if !now.Before(el.Value.(*lruEntry).value.expiresAt) {
-					c.order.Remove(el)
-					delete(c.items, key)
-				}
-			}
-			c.mu.Unlock()
-		case <-c.stopCh:
-			return
-		}
-	}
-}
-
-func (c *tokenReviewCache) Stop() {
-	close(c.stopCh)
-}
-
-// Get returns the cached entry for key if it exists and has not expired.
-// A hit moves the entry to the front of the LRU list.
-func (c *tokenReviewCache) Get(key string, now time.Time) (cacheEntry, bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	el, ok := c.items[key]
-	if !ok {
-		return cacheEntry{}, false
-	}
-	entry := el.Value.(*lruEntry).value
-	if !now.Before(entry.expiresAt) {
-		// Entry has expired — evict eagerly.
-		c.order.Remove(el)
-		delete(c.items, key)
-		return cacheEntry{}, false
-	}
-	// Move to front (most-recently-used).
-	c.order.MoveToFront(el)
-	return entry, true
-}
-
-// Set inserts or updates the entry for key. If the cache is at capacity the
-// least-recently-used entry is evicted first.
-func (c *tokenReviewCache) Set(key string, entry cacheEntry) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if el, ok := c.items[key]; ok {
-		// Update existing entry and move to front.
-		el.Value.(*lruEntry).value = entry
-		c.order.MoveToFront(el)
-		return
-	}
-	// Evict LRU entry if at capacity.
-	if c.order.Len() >= c.capacity {
-		lru := c.order.Back()
-		if lru != nil {
-			c.order.Remove(lru)
-			delete(c.items, lru.Value.(*lruEntry).key)
-		}
-	}
-	el := c.order.PushFront(&lruEntry{key: key, value: entry})
-	c.items[key] = el
 }

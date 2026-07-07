@@ -19,6 +19,7 @@ package middleware
 import (
 	"encoding/base64"
 	"fmt"
+	utilcache "k8s.io/apimachinery/pkg/util/cache"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -49,12 +50,13 @@ func newRouterWithReactor(t *testing.T, reactor k8stesting.ReactionFunc) (*gin.E
 		return reactor(action)
 	})
 
-	auth := NewAuthenticator(cs, AuthConfig{CacheTTL: time.Minute, NegativeCacheTTL: 5 * time.Second})
 	clock := &fakeClock{now: time.Now()}
-	// Propagate the fake clock into both Authenticator and its LRU cache so
-	// that Get, Set and evictExpired all use the same controllable time source.
-	auth.clock = clock
-	auth.cache.clock = clock
+	auth := &Authenticator{
+		clientset: cs,
+		config:    AuthConfig{CacheTTL: time.Minute, NegativeCacheTTL: 5 * time.Second, CacheSize: 100},
+		cache:     utilcache.NewLRUExpireCacheWithClock(100, clock),
+		clock:     clock,
+	}
 
 	r := gin.New()
 	r.Use(auth.Middleware())
@@ -230,60 +232,6 @@ func TestAuthMiddlewareCacheExpiry(t *testing.T) {
 				t.Fatalf("after request 3: calls = %d, want 2", *callCount)
 			}
 		})
-	}
-}
-
-// TestTokenReviewCacheLRUEviction verifies that when the cache reaches its
-// capacity the least-recently-used entry is evicted, keeping memory bounded.
-func TestTokenReviewCacheLRUEviction(t *testing.T) {
-	const capacity = 3
-	c := newTokenReviewCache(capacity, realClock{})
-	now := time.Now()
-	expires := now.Add(time.Hour)
-
-	// Fill cache to capacity with tokens t1, t2, t3.
-	for _, key := range []string{"t1", "t2", "t3"} {
-		c.Set(key, cacheEntry{authenticated: true, expiresAt: expires})
-	}
-
-	// Access t1 to make it most-recently-used (t2 becomes LRU).
-	if _, ok := c.Get("t1", now); !ok {
-		t.Fatal("expected t1 in cache")
-	}
-
-	// Insert t4 — should evict the LRU entry (t2).
-	c.Set("t4", cacheEntry{authenticated: true, expiresAt: expires})
-
-	if c.order.Len() != capacity {
-		t.Fatalf("cache length = %d, want %d", c.order.Len(), capacity)
-	}
-	if _, ok := c.Get("t2", now); ok {
-		t.Fatal("expected t2 to be evicted (LRU)")
-	}
-	for _, key := range []string{"t1", "t3", "t4"} {
-		if _, ok := c.Get(key, now); !ok {
-			t.Fatalf("expected %s in cache after LRU eviction", key)
-		}
-	}
-}
-
-// TestTokenReviewCacheCapacityBounded verifies that inserting more tokens than
-// the cache capacity never grows the internal map beyond the limit.
-func TestTokenReviewCacheCapacityBounded(t *testing.T) {
-	const capacity = 5
-	c := newTokenReviewCache(capacity, realClock{})
-	expires := time.Now().Add(time.Hour)
-
-	for i := range 100 {
-		c.Set(fmt.Sprintf("token-%d", i), cacheEntry{authenticated: true, expiresAt: expires})
-	}
-
-	c.mu.Lock()
-	size := len(c.items)
-	c.mu.Unlock()
-
-	if size > capacity {
-		t.Fatalf("cache size = %d, want ≤ %d", size, capacity)
 	}
 }
 
