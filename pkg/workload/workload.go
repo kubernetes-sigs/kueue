@@ -579,7 +579,9 @@ func podSetsCountsAfterReclaim(wl *kueue.Workload) map[kueue.PodSetReference]int
 	reclaimCounts := reclaimableCounts(wl)
 	for podSetName := range totalCounts {
 		if rc, found := reclaimCounts[podSetName]; found {
-			totalCounts[podSetName] -= rc
+			// The reclaimable count can transiently exceed the podSet count after an
+			// elastic scale-down (see kueue#12670); never let usage go negative.
+			totalCounts[podSetName] -= min(rc, totalCounts[podSetName])
 		}
 	}
 	return totalCounts
