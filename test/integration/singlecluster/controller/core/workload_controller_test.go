@@ -1199,16 +1199,25 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", func()
 
 			ginkgo.By("reactivating the workload and making the LocalQueue active again (should transition back to WaitingForQuota)")
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, wl2Key, &updatedWl)).To(gomega.Succeed())
-				updatedWl.Spec.Active = new(true)
-				g.Expect(k8sClient.Update(ctx, &updatedWl)).To(gomega.Succeed())
+				var fetchedLq kueue.LocalQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), &fetchedLq)).To(gomega.Succeed())
+				fetchedLq.Spec.StopPolicy = ptr.To(kueue.None)
+				g.Expect(k8sClient.Update(ctx, &fetchedLq)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				var fetchedLq kueue.LocalQueue
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), &fetchedLq)).To(gomega.Succeed())
-				fetchedLq.Spec.StopPolicy = ptr.To(kueue.None)
-				g.Expect(k8sClient.Update(ctx, &fetchedLq)).To(gomega.Succeed())
+				cond := apimeta.FindStatusCondition(fetchedLq.Status.Conditions, kueue.LocalQueueActive)
+				g.Expect(cond).NotTo(gomega.BeNil())
+				g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionTrue))
+				g.Expect(cond.Reason).To(gomega.Equal("Ready"))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wl2Key, &updatedWl)).To(gomega.Succeed())
+				updatedWl.Spec.Active = new(true)
+				g.Expect(k8sClient.Update(ctx, &updatedWl)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
