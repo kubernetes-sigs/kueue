@@ -25,6 +25,7 @@ tags, and then generate with `hack/update-toc.sh`.
   - [User Stories](#user-stories)
     - [Story 1](#story-1)
     - [Story 2](#story-2)
+    - [Story 3](#story-3)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
   - [Configuration API Change](#configuration-api-change)
@@ -49,8 +50,9 @@ tags, and then generate with `hack/update-toc.sh`.
 ## Summary
 
 This KEP proposes adding configurable TLS security profiles to Kueue's API servers (webhooks, metrics, controller, and visibility).
-This enhancement will allow administrators to explicitly configure the minimum TLS version and cipher suites
-for all TLS-enabled servers in Kueue, improving security posture, compliance, and compatibility with organizational security policies.
+This enhancement will allow administrators to explicitly configure the minimum TLS version, cipher suites,
+and TLS key exchange curve preferences for all TLS-enabled servers in Kueue, improving security posture,
+compliance, and compatibility with organizational security policies.
 
 ## Motivation
 
@@ -62,6 +64,7 @@ FIPS 140-2, SOC 2).
 The lack of configurable TLS settings creates several challenges:
 - Organizations cannot enforce minimum TLS version requirements (e.g., TLS 1.2 or 1.3 only)
 - Administrators cannot disable weak or deprecated cipher suites
+- Administrators cannot restrict TLS key exchange to specific curves required by compliance policies
 - Compliance audits may flag the use of default TLS configurations as a security concern
 - Integration with security scanning tools that require specific TLS configurations is difficult
 
@@ -72,6 +75,7 @@ while maintaining backward compatibility through sensible defaults.
 
 - Provide configuration options for minimum TLS version across all Kueue API servers
 - Enable administrators to specify allowed cipher suites for TLS connections
+- Enable administrators to specify allowed TLS key exchange curves
 - Apply TLS settings uniformly across webhook, metrics, controller, and visibility servers
 - Maintain backward compatibility with existing deployments through sensible defaults
 - Document TLS configuration best practices and security implications
@@ -92,6 +96,7 @@ The configuration will be part of the controller configuration and will allow ad
 
 1. Minimum TLS version (1.2 or 1.3)
 2. Allowed cipher suites (based on Go's crypto/tls package)
+3. Allowed TLS key exchange curves (specified as numeric IANA TLS Supported Group IDs)
 
 These settings will be applied uniformly across all Kueue servers (webhooks, metrics, controller, and visibility) to ensure
 consistent security posture across the entire Kueue deployment.
@@ -109,6 +114,12 @@ I want to configure Kueue to enforce these requirements across all its API endpo
 As a security engineer, I need to disable weak cipher suites and enforce strong cryptographic algorithms across all
 services in my cluster. I want to configure Kueue's TLS settings to align with our organization's security baseline,
 which requires specific cipher suites approved by our security team.
+
+#### Story 3
+
+As a platform administrator, I need to restrict TLS key exchange to specific elliptic curves (e.g., X25519, P-256)
+to comply with organizational cryptographic policies. I want to configure Kueue's curve preferences so that only
+approved key exchange mechanisms are used across all its endpoints.
 
 ### Risks and Mitigations
 
@@ -157,6 +168,13 @@ type TLSOptions struct {
 	// Default: nil (uses Go's default cipher suite selection)
 	// +optional
 	TLSCipherSuites []string `json:"tlsCipherSuites,omitempty"`
+
+	// curvePreferences is the list of allowed TLS key exchange mechanisms (curves)
+	// for the server, specified as numeric IANA TLS Supported Group IDs.
+	// See https://pkg.go.dev/crypto/tls#CurveID for values supported by the current Go version.
+	// Default: nil (uses Go's default curve selection)
+	// +optional
+	CurvePreferences []int32 `json:"curvePreferences,omitempty"`
 }
 
 // ControllerManager is added to the Configuration struct
@@ -201,6 +219,11 @@ To maintain backward compatibility and provide secure defaults:
   - For TLS 1.3, cipher suites are not configurable (Go uses the built-in secure set)
   - Valid cipher suite values are defined in Go's crypto/tls package constants
 
+- **CurvePreferences**: nil (uses Go's default curve selection)
+  - Values are numeric IANA TLS Supported Group IDs (e.g., 29 for X25519, 23 for P-256, 24 for P-384)
+  - See https://pkg.go.dev/crypto/tls#CurveID for values supported by the current Go version
+  - The order of the list is ignored; Go selects from the set using an internal preference order
+
 ### Implementation Approach
 
 The implementation will follow these steps:
@@ -241,6 +264,8 @@ We will cover validation in the unit tests.
 - Valid TLSVersions
 - Valid CipherSuite
 - CipherSuites only allowed when TLS 1.2 is specified.
+- Valid CurvePreferences (numeric IANA IDs)
+- Invalid CurvePreferences (out-of-range, duplicates, unsupported by Go version)
 
 #### E2E tests
 
@@ -264,6 +289,7 @@ When the feature gate is enabled, TLS options can be set for the golang servers.
 
 - 2025-12: KEP proposed based on issues #8190 and OCPKUEUE-450
 - 2026-01: KEP approved
+- 2026-05: CurvePreferences support added (issue #10698), following upstream Kubernetes --tls-curve-preferences flag (k/k PR #137115)
 
 ## Drawbacks
 

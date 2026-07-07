@@ -1090,6 +1090,34 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"valid TLS with curve preferences": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ControllerManager: configapi.ControllerManager{
+					TLS: &configapi.TLSOptions{
+						MinVersion:       "VersionTLS12",
+						CurvePreferences: []int32{23, 29}, // P256, X25519
+					},
+				},
+			},
+		},
+		"invalid TLS with invalid curve preferences": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ControllerManager: configapi.ControllerManager{
+					TLS: &configapi.TLSOptions{
+						MinVersion:       "VersionTLS12",
+						CurvePreferences: []int32{0},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "tls",
+				},
+			},
+		},
 		"invalid .visibilityServer.bindAddress": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,

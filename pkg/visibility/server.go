@@ -143,6 +143,7 @@ func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, cf
 	if tlsOpts != nil && config.SecureServing != nil {
 		config.SecureServing.MinTLSVersion = tlsOpts.MinVersion
 		config.SecureServing.CipherSuites = tlsOpts.CipherSuites
+		config.SecureServing.CurvePreferences = tlsOpts.CurvePreferences
 	}
 
 	return nil
