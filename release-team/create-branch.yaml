@@ -1,0 +1,52 @@
+name: ChatOps Create Branch
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  create-branch:
+    name: Create Release Branch
+    runs-on: ubuntu-latest
+    # Only evaluate comments that match the slash command format exactly
+    if: ${{ startsWith(github.event.comment.body, '/create-branch ') }}
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify Actor Authorization
+        run: |
+          ACTOR="${{ github.actor }}"
+          TEAM_FILE="release-team/release-team.json"
+          if [ ! -f "$TEAM_FILE" ]; then
+            echo "Error: Allowed actors list file $TEAM_FILE not found."
+            exit 1
+          fi
+          if ! jq -e --arg actor "$ACTOR" '. | index($actor)' "$TEAM_FILE" > /dev/null; then
+            echo "Error: Actor $ACTOR is not authorized."
+            exit 1
+          fi
+
+      - name: Create and Push Branch
+        run: |
+          BODY="${{ github.event.comment.body }}"
+          if [[ "$BODY" =~ ^/create-branch\ (v[0-9]+\.[0-9]+\.0)$ ]]; then
+            VERSION="${BASH_REMATCH[1]}"
+            if [[ "$VERSION" =~ ^v([0-9]+)\.([0-9]+)\.0 ]]; then
+              BRANCH="release-${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+              
+              # Configure git identity
+              git config --global user.name "kueue-release-bot"
+              git config --global user.email "kueue-release-bot@kubernetes.io"
+              
+              git checkout -b "$BRANCH" main
+              git push origin "$BRANCH"
+            fi
+          else
+            echo "Error: Invalid version format. Must be vX.Y.0"
+            exit 1
+          fi

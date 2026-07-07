@@ -19,18 +19,23 @@
 * **Permissions:** Upstream Owner. This step cannot be automated because it requires human judgment to verify the release plan and milestones.
 
 ### Step 2: Generate and Publish Release Notes
-* **Role:** `Kueue Contributor`
-* **How to run:** PR-Based Workflow.
-* **Process:** Execute the existing release notes sync script locally on your fork and submit the changes as a standard pull request:
-  ```bash
-  ./hack/releasing/sync-notes.sh $VERSION
-  ```
-* **Permissions:** Standard Contributor (No upstream write access needed; submitted via a PR from your fork).
+* **Role:** `Release Team` or `Kueue Contributor`
+* **How to run:** ChatOps (Recommended) or PR-Based Workflow.
+* **Process:**
+  * **Option A (ChatOps):**
+    1. Comment `/sync-release-notes vX.Y.Z` on the release issue to generate the release notes and update the issue body.
+    2. Comment `/create-release-pr vX.Y.Z` to create and push the release notes PR.
+  * **Option B (Manual):**
+    Execute the release notes sync script locally on your fork and submit the changes as a standard pull request:
+    ```bash
+    ./hack/releasing/sync-notes.sh $VERSION
+    ```
+* **Permissions:** Release Team Member (for ChatOps, requires matching username in `release-team/release-team.json`) or Standard Contributor (for Manual).
 
 ### Step 3: Create Release Branch (Only for Major releases)
 * **Role:** `Release Team`
 * **How to run:** ChatOps Command: `/create-branch vX.Y.0` on the release issue. ChatOps Script.
-* **Permissions:** Release Team Member (Requires matching username in `.github/release-team.json`). No local write access or GPG keys are needed.
+* **Permissions:** Release Team Member (Requires matching username in `release-team/release-team.json`). No local write access or GPG keys are needed.
 
 ### Step 4: Prepare Version-Bumping PR for Release Branch
 * **Role:** `Kueue Contributor`
@@ -44,7 +49,7 @@
 ### Step 5: Tag Cutting & Draft Release (Core GHA Automation)
 * **Role:** `Release Team`
 * **How to run:** ChatOps Command: `/release vX.Y.Z` on the release issue. ChatOps Script.
-* **Permissions:** Release Team Member (Requires matching username in `.github/release-team.json`). Pushing tags and draft creation are securely executed by the `GITHUB_TOKEN`.
+* **Permissions:** Release Team Member (Requires matching username in `release-team/release-team.json`). Pushing tags and draft creation are securely executed by the `GITHUB_TOKEN`.
 
 ### Step 6: Promote Images to Production
 * **Role:** `Kueue Contributor`

@@ -1,0 +1,101 @@
+name: ChatOps Release
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  release:
+    name: Tag & Cut Draft Release
+    runs-on: ubuntu-latest
+    # Only evaluate comments that match the slash command format exactly
+    if: ${{ startsWith(github.event.comment.body, '/release ') }}
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify Actor Authorization
+        run: |
+          ACTOR="${{ github.actor }}"
+          TEAM_FILE="release-team/release-team.json"
+          if [ ! -f "$TEAM_FILE" ]; then
+            echo "Error: Allowed actors list file $TEAM_FILE not found."
+            exit 1
+          fi
+          if ! jq -e --arg actor "$ACTOR" '. | index($actor)' "$TEAM_FILE" > /dev/null; then
+            echo "Error: Actor $ACTOR is not authorized."
+            exit 1
+          fi
+
+      - name: Parse Version & Branch
+        id: parse
+        run: |
+          BODY="${{ github.event.comment.body }}"
+          if [[ "$BODY" =~ ^/release\ (v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            VERSION="${BASH_REMATCH[1]}"
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            if [[ "$VERSION" =~ ^v([0-9]+)\.([0-9]+)\.[0-9]+ ]]; then
+              echo "branch=release-${BASH_REMATCH[1]}.${BASH_REMATCH[2]}" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "Error: Invalid version format. Must be vX.Y.Z"
+            exit 1
+          fi
+
+      - name: Configure Git User
+        run: |
+          git config --global user.name "kueue-release-bot"
+          git config --global user.email "kueue-release-bot@kubernetes.io"
+
+      - name: Import GPG Key
+        uses: crazy-max/ghaction-import-gpg@v6
+        with:
+          gpg_private_key: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+          git_user_signingkey: true
+          git_commit_gpgsign: true
+
+      - name: Run Tag and Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.parse.outputs.version }}"
+          BRANCH="${{ steps.parse.outputs.branch }}"
+          
+          # Checkout release branch
+          git checkout "$BRANCH"
+          
+          # A. Generate Release Notes
+          gh release notes --generate-notes --tag "$VERSION" --target "$BRANCH" > notes.txt
+          
+          # B. Create and Sign the Tag
+          git tag -s "$VERSION" -F notes.txt
+          git push origin "$VERSION"
+          
+          # C. Compile Artifacts and Create draft release
+          make release-artifacts IMAGE_REGISTRY=registry.k8s.io/kueue GIT_TAG="$VERSION"
+          gh release create "$VERSION" --draft \
+            --title "$VERSION" \
+            --notes-file notes.txt \
+            release-artifacts/*
+
+          # D. Step 12 Automation: Tag next development version & create milestones
+          if [[ "$VERSION" =~ ^v([0-9]+)\.([0-9]+)\.0$ ]]; then
+            MAJ="${BASH_REMATCH[1]}"
+            MIN="${BASH_REMATCH[2]}"
+            NEXT_MIN=$((MIN + 1))
+            DEVEL="v${MAJ}.${NEXT_MIN}.0-devel"
+            
+            echo "Preparing repository for the next development cycle: $DEVEL"
+            git checkout main
+            git tag "$DEVEL" main
+            git push origin "$DEVEL"
+            
+            # Create next minor milestone
+            gh milestone create --title "v${MAJ}.${NEXT_MIN}.0"
+          fi
