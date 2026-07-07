@@ -1027,6 +1027,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
@@ -1061,8 +1062,61 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl3), &w3)).Should(gomega.Succeed())
 				w3Cond := apimeta.FindStatusCondition(w3.Status.Conditions, kueue.WorkloadQuotaReserved)
 				g.Expect(w3Cond).ToNot(gomega.BeNil())
+				g.Expect(w3Cond.Reason).To(gomega.Equal(kueue.WorkloadQuotaReservedReasonWaitingForQuota))
 				g.Expect(w3Cond.Message).To(gomega.Equal("Bypassed scheduling evaluation because an equivalent workload recently failed"))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("Should preserve existing detailed scheduler condition when equivalent workload fails scheduling", func() {
+			ginkgo.By("Creating the first workload that consumes all quota")
+			wl1 := utiltestingapi.MakeWorkload("admitted-wl", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl1)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+
+			ginkgo.By("Creating a workload with an already-populated detailed WorkloadQuotaReserved condition")
+			detailedMsg := "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor default, 1 more needed"
+			wlPreserved := utiltestingapi.MakeWorkload("preserved-wl", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Request(corev1.ResourceCPU, "1").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+					Message: detailedMsg,
+				}).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wlPreserved)
+
+			ginkgo.By("Creating wl2 and waiting for it to be evaluated and moved to inadmissible")
+			wl2 := utiltestingapi.MakeWorkload("pending-wl2", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl2)
+			util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 2)
+
+			ginkgo.By("Triggering a reconcile on the preserved workload and verifying its detailed condition is not overwritten")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var w kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlPreserved), &w)).Should(gomega.Succeed())
+				if w.Annotations == nil {
+					w.Annotations = make(map[string]string)
+				}
+				w.Annotations["trigger"] = "reconcile"
+				g.Expect(k8sClient.Update(ctx, &w)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Consistently(func(g gomega.Gomega) {
+				var w kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlPreserved), &w)).Should(gomega.Succeed())
+				cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadQuotaReserved)
+				g.Expect(cond).ToNot(gomega.BeNil())
+				g.Expect(cond.Reason).To(gomega.Equal(kueue.WorkloadQuotaReservedReasonWaitingForQuota))
+				g.Expect(cond.Message).To(gomega.Equal(detailedMsg))
+			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })
