@@ -1,4 +1,4 @@
-name: ChatOps Sync Release Notes
+name: Kueue Release Utility Operations ChatOps Controller
 
 on:
   issue_comment:
