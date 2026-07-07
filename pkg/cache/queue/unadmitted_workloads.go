@@ -17,12 +17,11 @@ limitations under the License.
 package queue
 
 import (
-	"context"
 	"sync"
 
+	"github.com/go-logr/logr"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -72,7 +71,7 @@ func newUnadmittedWorkloads() *unadmittedWorkloads {
 }
 
 func (u *unadmittedWorkloads) update(
-	ctx context.Context,
+	log logr.Logger,
 	wl *kueue.Workload,
 	cqName kueue.ClusterQueueReference,
 	qExists func(queue.LocalQueueReference) bool,
@@ -81,8 +80,7 @@ func (u *unadmittedWorkloads) update(
 	u.rwm.Lock()
 	defer u.rwm.Unlock()
 
-	log := ctrl.LoggerFrom(ctx)
-	status := getUnadmittedWorkloadStatus(ctx, wl)
+	status := getUnadmittedWorkloadStatus(log, wl)
 	wlKey := workload.Key(wl)
 	oldStatus, ok := u.statuses[wlKey]
 
@@ -101,17 +99,17 @@ func (u *unadmittedWorkloads) update(
 	log.V(4).Info("Updating unadmitted workload tracking", "workload", wlKey, "oldStatus", oldStatus, "newStatus", status)
 
 	if ok {
-		u.decrementStatusCounts(ctx, oldStatus, qExists, m)
+		u.decrementStatusCounts(log, oldStatus, qExists, m)
 		delete(u.statuses, wlKey)
 	}
 	if status != nil {
 		u.statuses[wlKey] = *status
-		u.incrementStatusCounts(ctx, *status, qExists, m)
+		u.incrementStatusCounts(log, *status, qExists, m)
 	}
 }
 
 func (u *unadmittedWorkloads) remove(
-	ctx context.Context,
+	log logr.Logger,
 	wlKey workload.Reference,
 	qExists func(queue.LocalQueueReference) bool,
 	m *Manager,
@@ -120,10 +118,9 @@ func (u *unadmittedWorkloads) remove(
 	defer u.rwm.Unlock()
 
 	oldStatus, ok := u.statuses[wlKey]
-	log := ctrl.LoggerFrom(ctx)
 	if ok {
 		log.V(4).Info("Removing workload from unadmitted tracking", "workload", wlKey, "status", oldStatus)
-		u.decrementStatusCounts(ctx, oldStatus, qExists, m)
+		u.decrementStatusCounts(log, oldStatus, qExists, m)
 		delete(u.statuses, wlKey)
 	} else {
 		log.V(4).Info("Workload to remove was not tracked as unadmitted", "workload", wlKey)
@@ -131,31 +128,30 @@ func (u *unadmittedWorkloads) remove(
 }
 
 func (u *unadmittedWorkloads) incrementStatusCounts(
-	ctx context.Context,
+	log logr.Logger,
 	status unadmittedWorkloadStatus,
 	qExists func(queue.LocalQueueReference) bool,
 	m *Manager,
 ) {
-	u.updateUnadmittedWorkloadMetric(ctx, status, 1, qExists, m)
+	u.updateUnadmittedWorkloadMetric(log, status, 1, qExists, m)
 }
 
 func (u *unadmittedWorkloads) decrementStatusCounts(
-	ctx context.Context,
+	log logr.Logger,
 	status unadmittedWorkloadStatus,
 	qExists func(queue.LocalQueueReference) bool,
 	m *Manager,
 ) {
-	u.updateUnadmittedWorkloadMetric(ctx, status, -1, qExists, m)
+	u.updateUnadmittedWorkloadMetric(log, status, -1, qExists, m)
 }
 
 func (u *unadmittedWorkloads) updateUnadmittedWorkloadMetric(
-	ctx context.Context,
+	log logr.Logger,
 	status unadmittedWorkloadStatus,
 	diff int,
 	qExists func(queue.LocalQueueReference) bool,
 	m *Manager,
 ) {
-	log := ctrl.LoggerFrom(ctx)
 	cqKey := status.ClusterQueueStatus()
 	u.perCQ[cqKey] += diff
 	count := u.perCQ[cqKey]
@@ -271,9 +267,9 @@ func (u *unadmittedWorkloads) resyncLQMetrics(lqRef queue.LocalQueueReference, m
 	}
 }
 
-func getUnadmittedWorkloadStatus(ctx context.Context, wl *kueue.Workload) *unadmittedWorkloadStatus {
+func getUnadmittedWorkloadStatus(log logr.Logger, wl *kueue.Workload) *unadmittedWorkloadStatus {
 	if workload.IsAdmitted(wl) || workloadfinish.IsFinished(wl) || !wl.DeletionTimestamp.IsZero() {
-		ctrl.LoggerFrom(ctx).V(4).Info("Workload is not unadmitted",
+		log.V(4).Info("Workload is not unadmitted",
 			"workload", client.ObjectKeyFromObject(wl),
 			"isAdmitted", workload.IsAdmitted(wl),
 			"isFinished", workloadfinish.IsFinished(wl),
