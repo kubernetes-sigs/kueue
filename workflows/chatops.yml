@@ -9,7 +9,7 @@ jobs:
     name: Sync Release Notes
     runs-on: ubuntu-latest
     # Only evaluate comments that match the slash command format exactly
-    if: ${{ startsWith(github.event.comment.body, '/sync-release-notes ') }}
+    if: ${{ startsWith(github.event.comment.body, '/sync-release-notes') }}
     permissions:
       contents: read
       issues: write
@@ -35,7 +35,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version-file: 'go.mod'
 
       - name: Install release-notes tool
         run: |
@@ -48,15 +48,21 @@ jobs:
           UPSTREAM_REMOTE: origin
         run: |
           BODY="${{ github.event.comment.body }}"
-          if [[ "$BODY" =~ ^/sync-release-notes\ (v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
-            VERSION="${BASH_REMATCH[1]}"
-            
-            # Configure git identity
-            git config --global user.name "kueue-release-bot"
-            git config --global user.email "kueue-release-bot@kubernetes.io"
-            
-            yes y | ./hack/releasing/sync-notes.sh "$VERSION"
+          if [[ "$BODY" =~ ^/sync-release-notes[[:space:]]*$ ]]; then
+            TITLE="${{ github.event.issue.title }}"
+            if [[ "$TITLE" =~ ^Release\ (v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+              VERSION="${BASH_REMATCH[1]}"
+              
+              # Configure git identity
+              git config --global user.name "kueue-release-bot"
+              git config --global user.email "kueue-release-bot@kubernetes.io"
+              
+              yes y | ./hack/releasing/sync-notes.sh "$VERSION"
+            else
+              echo "Error: Issue title '$TITLE' does not match 'Release vX.Y.Z'"
+              exit 1
+            fi
           else
-            echo "Error: Invalid version format. Must be vX.Y.Z"
+            echo "Error: Invalid command format. Use /sync-release-notes without arguments."
             exit 1
           fi
