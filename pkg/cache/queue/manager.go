@@ -24,9 +24,8 @@ import (
 
 	"github.com/go-logr/logr"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -158,9 +157,7 @@ type Manager struct {
 	finishedWorkloads      map[workload.Reference]queue.LocalQueueReference
 
 	// Tracks unadmitted workload statuses and counts.
-	trackedUnadmittedWorkloadStatuses map[workload.Reference]unadmittedWorkloadStatus
-	unadmittedWorkloadsPerCQ          map[unadmittedCQStatus]int
-	unadmittedWorkloadsPerLQ          map[unadmittedWorkloadStatus]int
+	unadmittedWorkloads *unadmittedWorkloads
 
 	workloadOrdering workload.Ordering
 
@@ -194,42 +191,18 @@ type Manager struct {
 	preemptionExpectations *expectations.Store
 }
 
-type unadmittedWorkloadStatus struct {
-	ClusterQueue        kueue.ClusterQueueReference
-	LocalQueueName      kueue.LocalQueueName
-	LocalQueueNamespace string
-	Reason              string
-	UnderlyingCause     string
-}
-
-type unadmittedCQStatus struct {
-	ClusterQueue    kueue.ClusterQueueReference
-	Reason          string
-	UnderlyingCause string
-}
-
-func (s unadmittedWorkloadStatus) ClusterQueueStatus() unadmittedCQStatus {
-	return unadmittedCQStatus{
-		ClusterQueue:    s.ClusterQueue,
-		Reason:          s.Reason,
-		UnderlyingCause: s.UnderlyingCause,
-	}
-}
-
 // NewManager is a factory for cache.queue.Manager. For tests,
 // NewManagerForUnitTests or NewManagerForIntegrationTests should be
 // used.
 func NewManager(client client.Client, checker StatusChecker, requeuer inadmissibleRequeuer, options ...Option) *Manager {
 	m := &Manager{
-		clock:                             realClock,
-		client:                            client,
-		statusChecker:                     checker,
-		localQueues:                       make(map[queue.LocalQueueReference]*LocalQueue),
-		workloadAssignedQueues:            make(map[workload.Reference]queue.LocalQueueReference),
-		finishedWorkloads:                 make(map[workload.Reference]queue.LocalQueueReference),
-		trackedUnadmittedWorkloadStatuses: make(map[workload.Reference]unadmittedWorkloadStatus),
-		unadmittedWorkloadsPerCQ:          make(map[unadmittedCQStatus]int),
-		unadmittedWorkloadsPerLQ:          make(map[unadmittedWorkloadStatus]int),
+		clock:                  realClock,
+		client:                 client,
+		statusChecker:          checker,
+		localQueues:            make(map[queue.LocalQueueReference]*LocalQueue),
+		workloadAssignedQueues: make(map[workload.Reference]queue.LocalQueueReference),
+		finishedWorkloads:      make(map[workload.Reference]queue.LocalQueueReference),
+		unadmittedWorkloads:    newUnadmittedWorkloads(),
 		workloadOrdering: workload.Ordering{
 			PodsReadyRequeuingTimestamp: config.EvictionTimestamp,
 		},
@@ -541,7 +514,7 @@ func (m *Manager) addLocalQueueLocked(ctx context.Context, q *kueue.LocalQueue) 
 			continue
 		}
 
-		log := ctrl.LoggerFrom(ctx).WithValues("workload", client.ObjectKeyFromObject(&w))
+		log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(&w))
 		if dra.NeedsDRAReconcile(&w, m.draBackedResources) {
 			// Collect DRA workloads to send outside the lock; DeepCopy keeps a
 			// stable pointer since the range variable is reused each iteration.
@@ -573,7 +546,7 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 	}
 
 	for _, wl := range draWorkloads {
-		log := ctrl.LoggerFrom(ctx).WithValues("workload", client.ObjectKeyFromObject(wl))
+		log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(wl))
 		m.draReconcileChannel <- event.TypedGenericEvent[*kueue.Workload]{Object: wl}
 		log.V(4).Info("Sent DRA workload to reconcile channel due to LocalQueue creation")
 	}
@@ -1052,26 +1025,11 @@ func (m *Manager) resyncLocalQueueGaugeMetricsLocked(lq *LocalQueue) {
 }
 
 func (m *Manager) resyncUnadmittedWorkloadsMetricsLocked(cqName kueue.ClusterQueueReference) {
-	for status, count := range m.unadmittedWorkloadsPerCQ {
-		if status.ClusterQueue == cqName {
-			cqCustomLabels := m.customLabels.CQGet(cqName)
-			metrics.ReportUnadmittedWorkload(status.ClusterQueue, status.Reason, status.UnderlyingCause, cqCustomLabels, m.roleTracker, count)
-		}
-	}
+	m.unadmittedWorkloads.resyncCQMetrics(cqName, m)
 }
 
 func (m *Manager) resyncLocalQueueUnadmittedWorkloadsMetricsLocked(lqRef queue.LocalQueueReference) {
-	lqNamespace, lqName := queue.MustParseLocalQueueReference(lqRef)
-	for status, count := range m.unadmittedWorkloadsPerLQ {
-		if status.ClusterQueue != "" && status.LocalQueueNamespace == lqNamespace && status.LocalQueueName == lqName {
-			lqCustomLabels := m.customLabels.LQGet(lqRef)
-			lqRefKey := metrics.LocalQueueReference{Name: lqName, Namespace: lqNamespace}
-			metrics.ReportLocalQueueUnadmittedWorkload(
-				lqRefKey,
-				status.ClusterQueue, status.Reason, status.UnderlyingCause, lqCustomLabels, m.roleTracker, count,
-			)
-		}
-	}
+	m.unadmittedWorkloads.resyncLQMetrics(lqRef, m)
 }
 
 func (m *Manager) ResyncLocalQueueGaugeMetrics(lqRef queue.LocalQueueReference) {
@@ -1108,58 +1066,6 @@ func (m *Manager) AddWorkloadUpdateWatcher(watcher WorkloadUpdateWatcher) {
 	m.workloadUpdateWatchers = append(m.workloadUpdateWatchers, watcher)
 }
 
-func getUnadmittedWorkloadStatus(wl *kueue.Workload) *unadmittedWorkloadStatus {
-	if workload.IsAdmitted(wl) || workloadfinish.IsFinished(wl) || !wl.DeletionTimestamp.IsZero() {
-		ctrl.Log.WithName("queue-manager").V(4).Info("Workload is not unadmitted",
-			"workload", client.ObjectKeyFromObject(wl),
-			"isAdmitted", workload.IsAdmitted(wl),
-			"isFinished", workloadfinish.IsFinished(wl),
-			"isDeleting", !wl.DeletionTimestamp.IsZero(),
-		)
-		return nil
-	}
-
-	admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
-
-	var reason string
-	if admittedCond != nil {
-		reason = admittedCond.Reason
-	} else {
-		// If the UnadmittedWorkloadsExplicitStatus feature gate is disabled, a newly
-		// created workload has no status conditions. Fall back to NoReservation.
-		reason = kueue.WorkloadAdmittedReasonNoReservation
-	}
-	quotaReservedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-	underlyingCause := resolveUnadmittedUnderlyingCause(reason, quotaReservedCond)
-
-	return &unadmittedWorkloadStatus{
-		LocalQueueName:      wl.Spec.QueueName,
-		LocalQueueNamespace: wl.Namespace,
-		Reason:              reason,
-		UnderlyingCause:     underlyingCause,
-	}
-}
-
-func resolveUnadmittedUnderlyingCause(reason string, quotaReservedCond *metav1.Condition) string {
-	if quotaReservedCond == nil {
-		// If the scheduler has not evaluated the workload yet, or if the UnadmittedWorkloadsExplicitStatus
-		// feature gate is disabled (meaning conditions are not populated), the QuotaReserved condition
-		// will be missing. We assume the workload is pending evaluation.
-		return kueue.WorkloadQuotaReservedReasonPendingEvaluation
-	}
-	if quotaReservedCond.Status == metav1.ConditionTrue {
-		switch reason {
-		case kueue.WorkloadAdmittedReasonUnsatisfiedAdmissionChecks:
-			return kueue.WorkloadUnadmittedCauseChecksNotReady
-		case kueue.WorkloadAdmittedReasonPendingDelayedTopologyRequests:
-			return kueue.WorkloadUnadmittedCausePendingTopology
-		default:
-			return reason
-		}
-	}
-	return quotaReservedCond.Reason
-}
-
 func (m *Manager) UpdateUnadmittedWorkload(wl *kueue.Workload) {
 	m.Lock()
 	defer m.Unlock()
@@ -1167,33 +1073,7 @@ func (m *Manager) UpdateUnadmittedWorkload(wl *kueue.Workload) {
 }
 
 func (m *Manager) updateUnadmittedWorkloadWithoutLock(wl *kueue.Workload) {
-	log := ctrl.Log.WithName("queue-manager")
-	status := getUnadmittedWorkloadStatus(wl)
-	wlKey := workload.Key(wl)
-	oldStatus, ok := m.trackedUnadmittedWorkloadStatuses[wlKey]
-
-	if status != nil {
-		if cqName, cqOk := m.ClusterQueueForWorkloadWithoutLock(wl); cqOk {
-			status.ClusterQueue = cqName
-		} else {
-			log.V(3).Info("Failed to resolve ClusterQueue for unadmitted workload", "workload", wlKey, "queue", wl.Spec.QueueName)
-		}
-		if ok && oldStatus == *status {
-			log.V(5).Info("Workload unadmitted status unchanged, skipping update", "workload", wlKey)
-			return
-		}
-	}
-
-	log.V(4).Info("Updating unadmitted workload tracking", "workload", wlKey, "oldStatus", oldStatus, "newStatus", status)
-
-	if ok {
-		m.decrementStatusCounts(oldStatus)
-		delete(m.trackedUnadmittedWorkloadStatuses, wlKey)
-	}
-	if status != nil {
-		m.trackedUnadmittedWorkloadStatuses[wlKey] = *status
-		m.incrementStatusCounts(*status)
-	}
+	m.unadmittedWorkloads.update(wl, m)
 }
 
 func (m *Manager) RemoveUnadmittedWorkload(wlKey workload.Reference) {
@@ -1203,84 +1083,5 @@ func (m *Manager) RemoveUnadmittedWorkload(wlKey workload.Reference) {
 }
 
 func (m *Manager) removeUnadmittedWorkloadWithoutLock(wlKey workload.Reference) {
-	oldStatus, ok := m.trackedUnadmittedWorkloadStatuses[wlKey]
-	log := ctrl.Log.WithName("queue-manager")
-	if ok {
-		log.V(4).Info("Removing workload from unadmitted tracking", "workload", wlKey, "status", oldStatus)
-		m.decrementStatusCounts(oldStatus)
-		delete(m.trackedUnadmittedWorkloadStatuses, wlKey)
-	} else {
-		log.V(4).Info("Workload to remove was not tracked as unadmitted", "workload", wlKey)
-	}
-}
-
-func (m *Manager) incrementStatusCounts(status unadmittedWorkloadStatus) {
-	m.updateUnadmittedWorkloadMetric(status, 1)
-}
-
-func (m *Manager) decrementStatusCounts(status unadmittedWorkloadStatus) {
-	m.updateUnadmittedWorkloadMetric(status, -1)
-}
-
-func (m *Manager) updateUnadmittedWorkloadMetric(status unadmittedWorkloadStatus, diff int) {
-	log := ctrl.Log.WithName("queue-manager")
-	cqKey := status.ClusterQueueStatus()
-	m.unadmittedWorkloadsPerCQ[cqKey] += diff
-	count := m.unadmittedWorkloadsPerCQ[cqKey]
-
-	if count <= 0 {
-		delete(m.unadmittedWorkloadsPerCQ, cqKey)
-	}
-	if status.ClusterQueue != "" {
-		cqCustomLabels := m.customLabels.CQGet(status.ClusterQueue)
-		if count <= 0 {
-			log.V(4).Info("Clearing CQ unadmitted workload metric", "clusterQueue", status.ClusterQueue, "status", cqKey)
-			metrics.ClearUnadmittedWorkloadLabelValues(
-				status.ClusterQueue, status.Reason, status.UnderlyingCause,
-				cqCustomLabels, m.roleTracker,
-			)
-		} else {
-			log.V(4).Info("Reporting CQ unadmitted workload metric", "clusterQueue", status.ClusterQueue, "status", cqKey, "count", count)
-			metrics.ReportUnadmittedWorkload(
-				status.ClusterQueue, status.Reason, status.UnderlyingCause,
-				cqCustomLabels, m.roleTracker, count,
-			)
-		}
-	} else {
-		log.V(4).Info("Skipping CQ unadmitted metric report due to empty ClusterQueue", "status", status)
-	}
-
-	if !m.lqMetrics.IsEnabled() {
-		return
-	}
-	m.unadmittedWorkloadsPerLQ[status] += diff
-	countLQ := m.unadmittedWorkloadsPerLQ[status]
-
-	if countLQ <= 0 {
-		delete(m.unadmittedWorkloadsPerLQ, status)
-	}
-
-	lqRefKey := queue.NewLocalQueueReference(status.LocalQueueNamespace, status.LocalQueueName)
-	_, qExists := m.localQueues[lqRefKey]
-	if qExists && status.ClusterQueue != "" {
-		lqRef := metrics.LocalQueueReference{Name: status.LocalQueueName, Namespace: status.LocalQueueNamespace}
-		lqCustomLabels := m.customLabels.LQGet(lqRefKey)
-		if countLQ <= 0 {
-			log.V(4).Info("Clearing LQ unadmitted workload metric", "localQueue", lqRefKey, "status", status)
-			metrics.ClearLocalQueueUnadmittedWorkloadLabelValues(
-				lqRef,
-				status.ClusterQueue, status.Reason, status.UnderlyingCause,
-				lqCustomLabels, m.roleTracker,
-			)
-		} else {
-			log.V(4).Info("Reporting LQ unadmitted workload metric", "localQueue", lqRefKey, "status", status, "count", countLQ)
-			metrics.ReportLocalQueueUnadmittedWorkload(
-				lqRef,
-				status.ClusterQueue, status.Reason, status.UnderlyingCause,
-				lqCustomLabels, m.roleTracker, countLQ,
-			)
-		}
-	} else {
-		log.V(4).Info("Skipping LQ unadmitted metric report", "status", status, "qExists", qExists)
-	}
+	m.unadmittedWorkloads.remove(wlKey, m)
 }

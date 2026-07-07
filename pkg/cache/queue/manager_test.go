@@ -2216,7 +2216,7 @@ func TestUpdateUnadmittedWorkload(t *testing.T) {
 				LocalQueueName:      "lq",
 				LocalQueueNamespace: "ns",
 				Reason:              kueue.WorkloadAdmittedReasonUnsatisfiedAdmissionChecks,
-				UnderlyingCause:     kueue.WorkloadUnadmittedCauseChecksNotReady,
+				UnderlyingCause:     "",
 			},
 		},
 		"workload unadmitted due to pending delayed topology requests": {
@@ -2237,7 +2237,7 @@ func TestUpdateUnadmittedWorkload(t *testing.T) {
 				LocalQueueName:      "lq",
 				LocalQueueNamespace: "ns",
 				Reason:              kueue.WorkloadAdmittedReasonPendingDelayedTopologyRequests,
-				UnderlyingCause:     kueue.WorkloadUnadmittedCausePendingTopology,
+				UnderlyingCause:     "",
 			},
 		},
 	}
@@ -2257,7 +2257,7 @@ func TestUpdateUnadmittedWorkload(t *testing.T) {
 			manager.UpdateUnadmittedWorkload(tc.workload)
 
 			wlKey := workload.Key(tc.workload)
-			status, ok := manager.trackedUnadmittedWorkloadStatuses[wlKey]
+			status, ok := manager.unadmittedWorkloads.statuses[wlKey]
 			if !ok {
 				t.Fatalf("expected workload to be tracked in unadmitted registry")
 			}
@@ -2267,12 +2267,12 @@ func TestUpdateUnadmittedWorkload(t *testing.T) {
 			}
 
 			cqKey := tc.expectedStatus.ClusterQueueStatus()
-			if count, ok := manager.unadmittedWorkloadsPerCQ[cqKey]; !ok || count != 1 {
+			if count, ok := manager.unadmittedWorkloads.perCQ[cqKey]; !ok || count != 1 {
 				t.Errorf("expected CQ status count to be 1, got count=%d, ok=%t", count, ok)
 			}
 
 			lqKey := tc.expectedStatus
-			if count, ok := manager.unadmittedWorkloadsPerLQ[lqKey]; !ok || count != 1 {
+			if count, ok := manager.unadmittedWorkloads.perLQ[lqKey]; !ok || count != 1 {
 				t.Errorf("expected LQ status count to be 1, got count=%d, ok=%t", count, ok)
 			}
 
@@ -2284,13 +2284,13 @@ func TestUpdateUnadmittedWorkload(t *testing.T) {
 			}
 			manager.UpdateUnadmittedWorkload(tc.workload)
 
-			if _, ok := manager.trackedUnadmittedWorkloadStatuses[wlKey]; ok {
+			if _, ok := manager.unadmittedWorkloads.statuses[wlKey]; ok {
 				t.Errorf("expected workload to be removed from unadmitted registry")
 			}
-			if count, ok := manager.unadmittedWorkloadsPerCQ[cqKey]; ok && count != 0 {
+			if count, ok := manager.unadmittedWorkloads.perCQ[cqKey]; ok && count != 0 {
 				t.Errorf("expected CQ status count to be decremented to 0, got count=%d", count)
 			}
-			if count, ok := manager.unadmittedWorkloadsPerLQ[lqKey]; ok && count != 0 {
+			if count, ok := manager.unadmittedWorkloads.perLQ[lqKey]; ok && count != 0 {
 				t.Errorf("expected LQ status count to be decremented to 0, got count=%d", count)
 			}
 		})
@@ -2318,12 +2318,12 @@ func TestUpdateUnadmittedWorkload_LQMetricsDisabled(t *testing.T) {
 
 	manager.UpdateUnadmittedWorkload(wl)
 
-	if len(manager.unadmittedWorkloadsPerCQ) == 0 {
+	if len(manager.unadmittedWorkloads.perCQ) == 0 {
 		t.Errorf("expected CQ counts to be updated")
 	}
 
-	if len(manager.unadmittedWorkloadsPerLQ) != 0 {
-		t.Errorf("expected LQ counts to be empty when LQ metrics are disabled, got %v", manager.unadmittedWorkloadsPerLQ)
+	if len(manager.unadmittedWorkloads.perLQ) != 0 {
+		t.Errorf("expected LQ counts to be empty when LQ metrics are disabled, got %v", manager.unadmittedWorkloads.perLQ)
 	}
 }
 
@@ -2349,7 +2349,7 @@ func TestDeleteLocalQueue_UnadmittedWorkloads(t *testing.T) {
 
 	// Verify it is tracked
 	wlKey := workload.Key(wl)
-	if _, ok := manager.trackedUnadmittedWorkloadStatuses[wlKey]; !ok {
+	if _, ok := manager.unadmittedWorkloads.statuses[wlKey]; !ok {
 		t.Fatalf("expected workload to be tracked")
 	}
 
@@ -2357,13 +2357,13 @@ func TestDeleteLocalQueue_UnadmittedWorkloads(t *testing.T) {
 	manager.DeleteLocalQueue(log, lq)
 
 	// Verify internal maps are cleared
-	if len(manager.unadmittedWorkloadsPerCQ) != 0 {
-		t.Errorf("expected CQ status counts to be empty, got %v", manager.unadmittedWorkloadsPerCQ)
+	if len(manager.unadmittedWorkloads.perCQ) != 0 {
+		t.Errorf("expected CQ status counts to be empty, got %v", manager.unadmittedWorkloads.perCQ)
 	}
-	if len(manager.unadmittedWorkloadsPerLQ) != 0 {
-		t.Errorf("expected LQ status counts to be empty, got %v", manager.unadmittedWorkloadsPerLQ)
+	if len(manager.unadmittedWorkloads.perLQ) != 0 {
+		t.Errorf("expected LQ status counts to be empty, got %v", manager.unadmittedWorkloads.perLQ)
 	}
-	if len(manager.trackedUnadmittedWorkloadStatuses) != 0 {
-		t.Errorf("expected tracked unadmitted workloads to be empty, got %v", manager.trackedUnadmittedWorkloadStatuses)
+	if len(manager.unadmittedWorkloads.statuses) != 0 {
+		t.Errorf("expected tracked unadmitted workloads to be empty, got %v", manager.unadmittedWorkloads.statuses)
 	}
 }
