@@ -2297,6 +2297,34 @@ func TestUpdateUnadmittedWorkload(t *testing.T) {
 	}
 }
 
+func TestUpdateUnadmittedWorkload_IgnoreVariantWorkload(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()
+
+	wl := utiltestingapi.MakeWorkload("wl-variant", "ns").
+		Queue("lq").
+		ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent-wl", "").
+		Obj()
+
+	kClient := utiltesting.NewFakeClient(wl)
+	manager := NewManagerForUnitTests(kClient, nil)
+
+	if err := manager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("failed to add ClusterQueue: %v", err)
+	}
+	if err := manager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("failed to add LocalQueue: %v", err)
+	}
+
+	manager.UpdateUnadmittedWorkload(log, wl)
+
+	wlKey := workload.Key(wl)
+	if _, ok := manager.unadmittedWorkloads.statuses[wlKey]; ok {
+		t.Errorf("expected variant workload to be ignored by unadmitted tracking")
+	}
+}
+
 func TestUpdateUnadmittedWorkload_LQMetricsDisabled(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, true)
 	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, false)

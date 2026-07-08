@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 )
 
@@ -268,6 +269,11 @@ func (u *unadmittedWorkloads) resyncLQMetrics(lqRef queue.LocalQueueReference, m
 }
 
 func getUnadmittedWorkloadStatus(log logr.Logger, wl *kueue.Workload) *unadmittedWorkloadStatus {
+	if concurrentadmission.IsVariant(wl) {
+		log.V(5).Info("Ignoring variant workload for unadmitted metrics tracking", "workload", klog.KObj(wl))
+		return nil
+	}
+
 	if workload.IsAdmitted(wl) || workloadfinish.IsFinished(wl) || !wl.DeletionTimestamp.IsZero() {
 		log.V(4).Info("Workload is not unadmitted",
 			"isAdmitted", workload.IsAdmitted(wl),
