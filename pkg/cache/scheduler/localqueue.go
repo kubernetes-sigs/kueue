@@ -67,6 +67,9 @@ func (q *LocalQueue) updateAdmittedUsage(usage resources.FlavorResourceQuantitie
 }
 
 func (q *LocalQueue) reportActiveWorkloads(tracker *roletracker.RoleTracker) {
+	q.RLock()
+	defer q.RUnlock()
+
 	namespace, name := queue.MustParseLocalQueueReference(q.key)
 	lqRef := metrics.LocalQueueReference{
 		Name:      name,
@@ -77,6 +80,9 @@ func (q *LocalQueue) reportActiveWorkloads(tracker *roletracker.RoleTracker) {
 }
 
 func (q *LocalQueue) reportResourceMetrics(cqQuotas map[resources.FlavorResource]ResourceQuota, tracker *roletracker.RoleTracker) {
+	q.RLock()
+	defer q.RUnlock()
+
 	namespace, name := queue.MustParseLocalQueueReference(q.key)
 	lqRef := metrics.LocalQueueReference{Name: name, Namespace: namespace}
 	for fr := range cqQuotas {

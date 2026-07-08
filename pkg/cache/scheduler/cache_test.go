@@ -36,8 +36,11 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
+	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -4011,4 +4014,64 @@ func TestAncestors(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLocalQueueCustomMetricLabelsRace(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	defer metrics.InitMetricVectors(nil)
+	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
+	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
+
+	customLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{{Name: "team"}})
+	cache := New(
+		utiltesting.NewFakeClient(),
+		WithCustomLabels(customLabels),
+		WithLocalQueueMetrics(&metrics.LocalQueueMetricsConfig{
+			Enabled:       true,
+			QueueSelector: labels.Everything(),
+		}),
+	)
+
+	if err := cache.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").Obj()); err != nil {
+		t.Fatalf("Failed to add cluster queue: %v", err)
+	}
+
+	oldLQ := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Label("team", "alpha").Obj()
+	if err := cache.AddLocalQueue(oldLQ); err != nil {
+		t.Fatalf("Failed to add local queue: %v", err)
+	}
+
+	lqRef := queue.NewLocalQueueReference("ns", kueue.LocalQueueName("lq"))
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		<-start
+		prev := oldLQ
+		for i := 0; i < 10000; i++ {
+			next := prev.DeepCopy()
+			next.Labels = map[string]string{"team": "alpha"}
+			if i%2 == 0 {
+				next.Labels["team"] = "beta"
+			}
+			if err := cache.UpdateLocalQueue(prev, next); err != nil {
+				t.Errorf("Failed to update local queue: %v", err)
+				return
+			}
+			prev = next
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		<-start
+		for i := 0; i < 10000; i++ {
+			cache.ResyncLocalQueueGaugeMetrics(kueue.ClusterQueueReference("cq"), lqRef)
+		}
+	}()
+
+	close(start)
+	wg.Wait()
 }
