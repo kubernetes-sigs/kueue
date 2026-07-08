@@ -539,6 +539,11 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 					return ctrl.Result{}, client.IgnoreNotFound(err)
 				}
 
+				if !workload.IsAdmissible(&wl) {
+					log.V(3).Info("Workload is inadmissible after backoff, waiting for condition change", "workload", klog.KObj(&wl))
+					return ctrl.Result{}, nil
+				}
+
 				if err := r.queues.AddOrUpdateWorkload(log, wl.DeepCopy()); err != nil {
 					log.V(2).Info("failed to put the workload back into queue", "error", err)
 					return ctrl.Result{}, err
