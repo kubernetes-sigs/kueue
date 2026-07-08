@@ -268,18 +268,10 @@ func validateAdmission(obj *kueue.Workload, path *field.Path) field.ErrorList {
 	return allErrs
 }
 
-// validateReclaimablePods verifies that reclaimable counts reference existing
-// podSets and do not exceed their counts. oldObj is nil on create.
-//
-// For elastic workloads a podSet can shrink while status still holds a
-// reclaimable count computed for the previous, larger size. PodSets and
-// reclaimablePods are written by separate requests (spec vs. status
-// subresource), so the stale entry is unavoidable at the moment of the
-// scale-down and would otherwise fail that update — and every later one —
-// wedging the job's reconciler (see kueue#12670). To let such workloads
-// converge, an entry carried over unchanged from oldObj is not re-checked
-// against the new podSet count; any request that actually modifies the entry
-// remains subject to the full check.
+// validateReclaimablePods checks that each reclaimable count refers to a real
+// podSet and doesn't exceed that podSet's size. For elastic workloads it allows
+// a count that is temporarily over the limit after a scale down, so the job can
+// converge instead of getting stuck (see kueue#12670).
 func validateReclaimablePods(obj, oldObj *kueue.Workload, basePath *field.Path) field.ErrorList {
 	if len(obj.Status.ReclaimablePods) == 0 {
 		return nil
@@ -292,12 +284,10 @@ func validateReclaimablePods(obj, oldObj *kueue.Workload, basePath *field.Path) 
 		knowPodSetNames[i] = name
 	}
 
-	// Scaling an elastic Job down shrinks its podSet in one request but lowers
-	// the reclaimable count in a separate, later one, so the old count can
-	// briefly exceed the new podSet. Rejecting that would wedge the reconciler
-	// (kueue#12670). Tolerate the stale count until a later reconcile brings it
-	// back in range. We know it's stale, not a bad new value, because it's
-	// unchanged from the previous state.
+	// isPreexistingStaleCount reports whether this reclaimable entry is unchanged
+	// from the previous state. A count that exceeds its podSet's size but hasn't
+	// changed is a stale value left by an elastic scale down, so we let it converge
+	// instead of rejecting it (kueue#12670). A new or changed count is still checked.
 	isPreexistingStaleCount := func(rp *kueue.ReclaimablePod) bool {
 		if oldObj == nil || !workloadslicing.Enabled(obj) {
 			return false

@@ -533,6 +533,36 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
+		"elastic workload: changed reclaimable pod count above the podSet count is rejected": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 8).Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "ps1"}).
+						Obj(), now,
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{Name: "ps1", Count: 4},
+				).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 3).Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "ps1"}).
+						Obj(), now,
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{Name: "ps1", Count: 5},
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("status", "reclaimablePods").Key("ps1").Child("count"), nil, ""),
+			},
+		},
 		"elastic workload: reclaimable pod count can decrease after its podSet scaled down below it": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -560,6 +590,88 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				).
 				Obj(),
 			wantErr: nil,
+		},
+		"elastic workload: reclaimable pod count cannot decrease without a podSet scale-down": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 8).Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "ps1"}).
+						Obj(), now,
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{Name: "ps1", Count: 4},
+				).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 8).Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "ps1"}).
+						Obj(), now,
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{Name: "ps1", Count: 2},
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("status", "reclaimablePods").Key("ps1").Child("count"), nil, ""),
+			},
+		},
+		"elastic workload: reclaimable pod entry can be removed after its podSet scaled down below it": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 8).Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "ps1"}).
+						Obj(), now,
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{Name: "ps1", Count: 4},
+				).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 1).Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "ps1"}).
+						Obj(), now,
+				).
+				Obj(),
+			wantErr: nil,
+		},
+		"elastic workload: reclaimable pod entry cannot be removed without a podSet scale-down": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 8).Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "ps1"}).
+						Obj(), now,
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{Name: "ps1", Count: 4},
+				).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 8).Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "ps1"}).
+						Obj(), now,
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Required(field.NewPath("status", "reclaimablePods").Key("ps1"), ""),
+			},
 		},
 		"non-elastic workload: stale reclaimable pod count is still rejected when its podSet scales down": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
