@@ -1,0 +1,72 @@
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  sync-notes:
+    name: Sync Release Notes
+    runs-on: ubuntu-latest
+    if: ${{ startsWith(github.event.comment.body, '/sync-release-notes') }}
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Verify Actor Authorization
+        env:
+          ACTOR: ${{ github.actor }}
+        run: |
+          TEAM_FILE="release-team.json"
+          if [ ! -f "$TEAM_FILE" ]; then
+            echo "Error: Allowed actors list file $TEAM_FILE not found."
+            exit 1
+          fi
+          if ! jq -e --arg actor "$ACTOR" '. | index($actor)' "$TEAM_FILE" > /dev/null; then
+            echo "Error: Actor $ACTOR is not authorized."
+            exit 1
+          fi
+
+      - name: Validate Command and Issue Title
+        id: validate
+        env:
+          BODY: ${{ github.event.comment.body }}
+          TITLE: ${{ github.event.issue.title }}
+        run: |
+          if [[ ! "$BODY" =~ ^/sync-release-notes[[:space:]]*$ ]]; then
+            echo "Error: Invalid command format. Use /sync-release-notes without arguments."
+            exit 1
+          fi
+
+          if [[ ! "$TITLE" =~ ^Release\ (v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            echo "Error: Issue title '$TITLE' does not match 'Release vX.Y.Z'"
+            exit 1
+          fi
+
+          VERSION="${BASH_REMATCH[1]}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Install release-notes tool
+        run: |
+          go install k8s.io/release/cmd/release-notes@v0.20.1
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
+      - name: Run Sync Notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPSTREAM_REMOTE: origin
+          VERSION: ${{ steps.validate.outputs.version }}
+        run: |
+          # Configure git identity
+          git config --global user.name "kueue-release-bot"
+          git config --global user.email "kueue-release-bot@kubernetes.io"
+          
+          yes y | ./hack/releasing/sync-notes.sh "$VERSION"
