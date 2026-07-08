@@ -79,7 +79,8 @@ type PodSet struct {
 
 In case the workload proposed for the current scheduling cycle, does not fit, with or without preemption, in the current available quota and any of its PodSets allow partial admission, try to find to find a lower counts combination that fits the available quota with or without borrowing.
 
-The search should be priority based assuming that PodSets are listed accordinly to priorities.
+The search could be priority based or proportianaly. It's a job-level setting, that is set by adding 'kueue.x-k8s.io/partial-admission-policy=priority-based' or 'kueue.x-k8s.io/partial-admission-policy=proportional' annotation. If the value is not set, the proportional policy is used. 
+The priority based policy assume that the PodSets are listed in descending order of priorities.
 
 The accepted number of pods in each PodSet are recorded in `workload.Status.Admission.PodSetAssignments[*].ResourceUsage.Count`
 
@@ -145,7 +146,7 @@ Additional research is needed into the potential usage of multiple variable coun
 
 ### RayJob/RayService/RayCluster controller
 
-The RayCluster with 'kueue.x-k8s.io/partial-preemption=true' annotation are eligible for partial preemption. The
+The RayCluster with 'kueue.x-k8s.io/partial-admission=true' annotation are eligible for partial admission. The
 RayCluster.workerGroupSpec[i].minReplicas will be translated to the PodSet.MinCount for the Worker PodSet.
 There will be no update on RayCluster object. If the number of admitted pods less than requested count, the leftover pods should remain scheduling gated. In order to achieve that the same mechanism as for elastic workloads will be applied – the podTemplate will be initially gated and then the correct amount of pods will be ungated.
 
@@ -176,5 +177,3 @@ The `scheduler` and `controllers/job` should be extended to cover the new capabi
 
 
 ## Alternatives
-
-Using proportional algorithm instead of priority based one, i.e each PodSet should be shrinked proportionaly.
