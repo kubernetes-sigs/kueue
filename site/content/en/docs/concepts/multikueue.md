@@ -103,10 +103,12 @@ This approach ensures the fastest possible admission by allowing all clusters to
 
 ### Incremental:
 This mode introduces a gradual dispatching strategy where clusters are nominated in rounds.
-Initially, all worker clusters are sorted in dictionary order, and a subset of up to 3 clusters is selected from the sorted list.
+Initially, all worker clusters are sorted in dictionary order, and a batch of clusters (by default, up to 3) is selected from the sorted list.
 The Workload is copied only to these nominated clusters.
 If none of the nominated clusters admit the Workload within a fixed duration (5 minutes),
-an additional up to 3 clusters are incrementally added in subsequent rounds, following the same dictionary order.
+additional batches of clusters are incrementally added in subsequent rounds, following the same dictionary order.
+
+The default maximum batch size is 3. This can be configured by enabling the `MultiKueueIncrementalDispatcherConfig` feature gate and setting `.multiKueue.incrementalDispatcherConfig.stepSize` in the Kueue configuration.
 
 ### External (Custom implementation):
 In this mode, the selection of worker clusters is delegated to an external controller.
