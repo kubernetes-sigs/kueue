@@ -6,7 +6,6 @@ jobs:
   sync-notes:
     name: Sync Release Notes
     runs-on: ubuntu-latest
-    # Only evaluate comments that match the slash command format exactly
     if: ${{ startsWith(github.event.comment.body, '/sync-release-notes') }}
     permissions:
       contents: read
@@ -30,6 +29,24 @@ jobs:
             exit 1
           fi
 
+      - name: Validate Command and Issue Title
+        id: validate
+        run: |
+          BODY="${{ github.event.comment.body }}"
+          if [[ ! "$BODY" =~ ^/sync-release-notes[[:space:]]*$ ]]; then
+            echo "Error: Invalid command format. Use /sync-release-notes without arguments."
+            exit 1
+          fi
+
+          TITLE="${{ github.event.issue.title }}"
+          if [[ ! "$TITLE" =~ ^Release\ (v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            echo "Error: Issue title '$TITLE' does not match 'Release vX.Y.Z'"
+            exit 1
+          fi
+
+          VERSION="${BASH_REMATCH[1]}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -44,23 +61,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           UPSTREAM_REMOTE: origin
+          VERSION: ${{ steps.validate.outputs.version }}
         run: |
-          BODY="${{ github.event.comment.body }}"
-          if [[ "$BODY" =~ ^/sync-release-notes[[:space:]]*$ ]]; then
-            TITLE="${{ github.event.issue.title }}"
-            if [[ "$TITLE" =~ ^Release\ (v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
-              VERSION="${BASH_REMATCH[1]}"
-              
-              # Configure git identity
-              git config --global user.name "kueue-release-bot"
-              git config --global user.email "kueue-release-bot@kubernetes.io"
-              
-              yes y | ./hack/releasing/sync-notes.sh "$VERSION"
-            else
-              echo "Error: Issue title '$TITLE' does not match 'Release vX.Y.Z'"
-              exit 1
-            fi
-          else
-            echo "Error: Invalid command format. Use /sync-release-notes without arguments."
-            exit 1
-          fi
+          # Configure git identity
+          git config --global user.name "kueue-release-bot"
+          git config --global user.email "kueue-release-bot@kubernetes.io"
+          
+          yes y | ./hack/releasing/sync-notes.sh "$VERSION"
