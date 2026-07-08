@@ -134,7 +134,7 @@ type ClusterQueue struct {
 	// hashToBulkMoveReason tracks scheduling equivalence classes and the reason
 	// why workloads with that hash were bulk-moved to inadmissibleWorkloads.
 	// Cleared when queueInadmissibleWorkloads runs.
-	hashToBulkMoveReason map[string]QuotaReservedReason
+	hashToBulkMoveReason map[workload.EquivalenceHash]QuotaReservedReason
 
 	finishedWorkloads sets.Set[workload.Reference]
 
@@ -263,7 +263,7 @@ func newClusterQueueImpl(ctx context.Context, client client.Client, wo workload.
 	return &ClusterQueue{
 		heap:                      *heap.New(workloadKey, lessFunc),
 		inadmissibleWorkloads:     make(inadmissibleWorkloads),
-		hashToBulkMoveReason:      make(map[string]QuotaReservedReason),
+		hashToBulkMoveReason:      make(map[workload.EquivalenceHash]QuotaReservedReason),
 		finishedWorkloads:         sets.New[workload.Reference](),
 		queueInadmissibleCycle:    -1,
 		compareFunc:               compareFunc,
@@ -612,7 +612,7 @@ func (c *ClusterQueue) forgetInflightByKey(key workload.Reference) {
 // scheduling hash to inadmissibleWorkloads. Returns the number moved.
 // Only applies to BestEffortFIFO queues; in StrictFIFO the head workload
 // stays in the heap and must not cause equivalent workloads to be skipped.
-func (c *ClusterQueue) handleInadmissibleHash(hash string, reason QuotaReservedReason) int {
+func (c *ClusterQueue) handleInadmissibleHash(hash workload.EquivalenceHash, reason QuotaReservedReason) int {
 	if c.queueingStrategy != kueue.BestEffortFIFO {
 		return 0
 	}
