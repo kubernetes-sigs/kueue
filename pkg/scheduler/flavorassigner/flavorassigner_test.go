@@ -46,11 +46,8 @@ import (
 
 var (
 	statusComparer = cmp.Comparer(func(a, b Status) bool {
-		if a.err != nil && b.err != nil {
-			return errors.Is(a.err, b.err) || strings.HasPrefix(a.err.Error(), b.err.Error()) || strings.HasPrefix(b.err.Error(), a.err.Error())
-		}
 		if a.err != nil || b.err != nil {
-			return false
+			return errors.Is(a.err, b.err) || errors.Is(b.err, a.err)
 		}
 		return cmp.Equal(a.reasons, b.reasons, cmpopts.SortSlices(func(x, y string) bool {
 			return x < y
@@ -3481,7 +3478,7 @@ func TestAssignFlavors(t *testing.T) {
 						},
 						Count: 1,
 						Status: Status{
-							err: errors.New("more than one TAS flavor assigned"),
+							err: &MultipleTASFlavorsAssignedError{Flavors: []kueue.ResourceFlavorReference{"tas-a", "tas-b"}},
 						},
 					},
 				},
@@ -4259,7 +4256,7 @@ func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 		cq         schdcache.ClusterQueueSnapshot
 		assignment Assignment
 		workload   workload.Info
-		wantErr    string
+		wantErr    error
 	}{
 		"workload requires Topology, but there is no TAS cache information": {
 			cq: schdcache.ClusterQueueSnapshot{
@@ -4285,7 +4282,7 @@ func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 					},
 				},
 			}),
-			wantErr: "workload requires Topology, but there is no TAS cache information",
+			wantErr: ErrNoTASCacheInformation,
 		},
 		"workload requires Topology, but there is no TAS flavor assigned": {
 			cq: schdcache.ClusterQueueSnapshot{
@@ -4311,7 +4308,7 @@ func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 					},
 				},
 			}),
-			wantErr: "no TAS flavor assigned",
+			wantErr: ErrNoTASFlavorAssigned,
 		},
 		"more than one TAS flavor assigned (onlyTASFlavor fails); RepresentativeMode must be NoFit": {
 			cq: schdcache.ClusterQueueSnapshot{
@@ -4342,7 +4339,7 @@ func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 					},
 				},
 			}),
-			wantErr: "more than one TAS flavor assigned: flavor-a, flavor-b",
+			wantErr: &MultipleTASFlavorsAssignedError{Flavors: []kueue.ResourceFlavorReference{"flavor-a", "flavor-b"}},
 		},
 	}
 
@@ -4352,12 +4349,8 @@ func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 			if len(tasReqs) != 0 {
 				t.Errorf("expected no TAS requests, got: %+v", tasReqs)
 			}
-			errMsg := ""
-			if tc.assignment.PodSets[0].Status.err != nil {
-				errMsg = tc.assignment.PodSets[0].Status.err.Error()
-			}
-			if tc.wantErr != "" && errMsg != tc.wantErr {
-				t.Errorf("Error mismatch (-want +got):\n%s", cmp.Diff(tc.wantErr, errMsg))
+			if tc.wantErr != nil && !errors.Is(tc.assignment.PodSets[0].Status.err, tc.wantErr) && !errors.Is(tc.wantErr, tc.assignment.PodSets[0].Status.err) {
+				t.Errorf("got error %v, want error %v", tc.assignment.PodSets[0].Status.err, tc.wantErr)
 			}
 			// When TAS request build fails, the assignment should be unfit so the workload is not admitted.
 			if got := tc.assignment.RepresentativeMode(); got != NoFit {
@@ -4378,7 +4371,7 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 		cq         schdcache.ClusterQueueSnapshot
 		assignment Assignment
 		workload   workload.Info
-		wantErr    string
+		wantErr    error
 	}{
 		"required topology is rejected with ElasticJobsViaWorkloadSlices": {
 			cq: schdcache.ClusterQueueSnapshot{
@@ -4420,7 +4413,7 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 					},
 				},
 			}),
-			wantErr: "required topology is not supported with ElasticJobsViaWorkloadSlices",
+			wantErr: ErrElasticRequiredTopologyNotSupported,
 		},
 		"preferred topology is rejected with ElasticJobsViaWorkloadSlices": {
 			cq: schdcache.ClusterQueueSnapshot{
@@ -4462,7 +4455,7 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 					},
 				},
 			}),
-			wantErr: "preferred topology is not supported with ElasticJobsViaWorkloadSlices",
+			wantErr: ErrElasticPreferredTopologyNotSupported,
 		},
 		"preferred topology is rejected for new elastic workload": {
 			cq: schdcache.ClusterQueueSnapshot{
@@ -4493,7 +4486,7 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 					},
 				},
 			}),
-			wantErr: "preferred topology is not supported with ElasticJobsViaWorkloadSlices",
+			wantErr: ErrElasticPreferredTopologyNotSupported,
 		},
 		"unconstrained topology is accepted with ElasticJobsViaWorkloadSlices": {
 			cq: schdcache.ClusterQueueSnapshot{
@@ -4590,14 +4583,12 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			tasReqs := tc.assignment.WorkloadsTopologyRequests(testr.New(t), &tc.workload, &tc.cq)
-			if tc.wantErr != "" {
+			if tc.wantErr != nil {
 				if len(tasReqs) != 0 {
 					t.Errorf("expected no TAS requests, got: %+v", tasReqs)
 				}
-				if tc.assignment.PodSets[0].Status.err == nil {
-					t.Errorf("expected error %q, got nil", tc.wantErr)
-				} else if diff := cmp.Diff(tc.wantErr, tc.assignment.PodSets[0].Status.err.Error()); diff != "" {
-					t.Errorf("Error mismatch (-want +got):\n%s", diff)
+				if !errors.Is(tc.assignment.PodSets[0].Status.err, tc.wantErr) && !errors.Is(tc.wantErr, tc.assignment.PodSets[0].Status.err) {
+					t.Errorf("got error %v, want error %v", tc.assignment.PodSets[0].Status.err, tc.wantErr)
 				}
 				if got := tc.assignment.RepresentativeMode(); got != NoFit {
 					t.Errorf("RepresentativeMode() = %v, want NoFit (workload must not be admitted when elastic job validation fails)", got)
