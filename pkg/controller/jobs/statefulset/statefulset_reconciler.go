@@ -276,11 +276,15 @@ func (r *Reconciler) clearOnHold(ctx context.Context, wl *kueue.Workload) error 
 		return nil
 	}
 	return clientutil.PatchStatus(ctx, r.client, wl, func() (bool, error) {
-		// Change the QuotaReserved reason from "OnHold" to "Pending"
+		// Change the QuotaReserved reason from "OnHold" to "PendingEvaluation" / "Pending"
 		// so the workload becomes admissible again and can be requeued.
+		reason := workload.UnadmittedWorkloadReasonWithFallback(
+			kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+			kueue.WorkloadPending, //nolint:staticcheck // SA1019: fallback
+		)
 		changed := workload.UnsetQuotaReservationWithCondition(
 			wl,
-			"Pending",
+			reason,
 			"Workload no longer on hold; waiting for quota reservation",
 			metav1.Now().Time,
 		)
