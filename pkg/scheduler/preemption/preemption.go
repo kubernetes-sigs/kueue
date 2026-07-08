@@ -481,7 +481,10 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 			candWl := candCQ.PopWorkload()
 			// The candidate would be reclaimed unconditionally at this
 			// point, so preemption protection is the sole remaining check.
-			if preemptionCtx.protectionSkips.Skip(preemptionCtx.log, candWl.Obj, preemptionCtx.reclaimProtection, kueue.InCohortReclamationReason, preemptionCtx.now) {
+			if preemptionCtx.protectionSkips.Skip(candWl.Obj, preemptionCtx.reclaimProtection, preemptionCtx.now) {
+				preemptionCtx.log.V(4).Info("Skipping preemption candidate within its protection window",
+					"workload", klog.KObj(candWl.Obj),
+					"reason", kueue.InCohortReclamationReason)
 				continue
 			}
 			preemptionCtx.snapshot.RemoveWorkload(candWl)
@@ -518,7 +521,10 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 				// Candidates that fail the strategy still become
 				// retryCandidates regardless of protection: the second
 				// strategy re-evaluates protection for them.
-				if preemptionCtx.protectionSkips.Skip(preemptionCtx.log, candWl.Obj, preemptionCtx.fairSharingProtection, kueue.InCohortFairSharingReason, preemptionCtx.now) {
+				if preemptionCtx.protectionSkips.Skip(candWl.Obj, preemptionCtx.fairSharingProtection, preemptionCtx.now) {
+					preemptionCtx.log.V(4).Info("Skipping preemption candidate within its protection window",
+						"workload", klog.KObj(candWl.Obj),
+						"reason", kueue.InCohortFairSharingReason)
 					continue
 				}
 				preemptionCtx.snapshot.RemoveWorkload(candWl)
@@ -565,7 +571,10 @@ func runSecondFsStrategy(retryCandidates []*workload.Info, preemptionCtx *preemp
 			// Unlike the share-based criteria, protection is per-candidate:
 			// try the next candidate from the same ClusterQueue instead of
 			// dropping the queue.
-			if preemptionCtx.protectionSkips.Skip(preemptionCtx.log, candWl.Obj, preemptionCtx.fairSharingProtection, kueue.InCohortFairSharingReason, preemptionCtx.now) {
+			if preemptionCtx.protectionSkips.Skip(candWl.Obj, preemptionCtx.fairSharingProtection, preemptionCtx.now) {
+				preemptionCtx.log.V(4).Info("Skipping preemption candidate within its protection window",
+					"workload", klog.KObj(candWl.Obj),
+					"reason", kueue.InCohortFairSharingReason)
 				continue
 			}
 			preemptionCtx.snapshot.RemoveWorkload(candWl)

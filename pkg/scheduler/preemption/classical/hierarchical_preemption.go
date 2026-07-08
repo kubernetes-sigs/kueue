@@ -21,6 +21,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/klog/v2"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -111,9 +112,11 @@ func classifyPreemptionVariant(ctx *HierarchicalPreemptionCtx, wl *workload.Info
 	// Preemption protection is evaluated last, once every other criterion
 	// has passed, so a skip means protection is the sole reason the
 	// candidate cannot be preempted (which is what arms the expiry retry).
-	// The variant is known at this point, so the skip is logged with the
-	// true preemption reason. Within-CQ candidates are never protected.
-	if variant != WithinCQ && ctx.ProtectionSkips.Skip(ctx.Log, wl.Obj, ctx.ReclaimProtection, variant.PreemptionReason(), ctx.Now) {
+	// Within-CQ candidates are never protected.
+	if variant != WithinCQ && ctx.ProtectionSkips.Skip(wl.Obj, ctx.ReclaimProtection, ctx.Now) {
+		ctx.Log.V(4).Info("Skipping preemption candidate within its protection window",
+			"workload", klog.KObj(wl.Obj),
+			"reason", variant.PreemptionReason())
 		return Never
 	}
 	return variant

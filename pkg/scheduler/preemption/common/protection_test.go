@@ -25,7 +25,6 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
@@ -136,8 +135,8 @@ func TestWithinProtectionWindow(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.PreemptionProtection, tc.gateEnabled)
-			if got := WithinProtectionWindow(tc.candidate, tc.rule, now); got != tc.want {
-				t.Errorf("WithinProtectionWindow() = %v, want %v", got, tc.want)
+			if got := withinProtectionWindow(tc.candidate, tc.rule, now); got != tc.want {
+				t.Errorf("withinProtectionWindow() = %v, want %v", got, tc.want)
 			}
 		})
 	}
@@ -207,7 +206,6 @@ func TestProtectionSkipTracker(t *testing.T) {
 		MinAdmitDuration: &metav1.Duration{Duration: minAdmitDuration},
 	}
 	features.SetFeatureGateDuringTest(t, features.PreemptionProtection, true)
-	_, log := utiltesting.ContextWithLog(t)
 
 	protectedWl := func(name string, admittedAt time.Time) *kueue.Workload {
 		return utiltestingapi.MakeWorkload(name, metav1.NamespaceDefault).
@@ -226,7 +224,7 @@ func TestProtectionSkipTracker(t *testing.T) {
 	}
 
 	// An unprotected candidate is not skipped and records nothing.
-	if tracker.Skip(log, protectedWl("old", now.Add(-time.Hour)), rule, kueue.InCohortReclamationReason, now) {
+	if tracker.Skip(protectedWl("old", now.Add(-time.Hour)), rule, now) {
 		t.Errorf("Skip() = true for a candidate beyond its protection window, want false")
 	}
 	if !tracker.EarliestExpiry().IsZero() {
@@ -234,13 +232,13 @@ func TestProtectionSkipTracker(t *testing.T) {
 	}
 
 	// Protected candidates are skipped and the earliest expiry is kept.
-	if !tracker.Skip(log, protectedWl("newer", now.Add(-time.Minute)), rule, kueue.InCohortReclamationReason, now) {
+	if !tracker.Skip(protectedWl("newer", now.Add(-time.Minute)), rule, now) {
 		t.Errorf("Skip() = false for a protected candidate, want true")
 	}
-	if !tracker.Skip(log, protectedWl("older", now.Add(-3*time.Minute)), rule, kueue.InCohortReclamationReason, now) {
+	if !tracker.Skip(protectedWl("older", now.Add(-3*time.Minute)), rule, now) {
 		t.Errorf("Skip() = false for a protected candidate, want true")
 	}
-	if !tracker.Skip(log, protectedWl("middle", now.Add(-2*time.Minute)), rule, kueue.InCohortReclamationReason, now) {
+	if !tracker.Skip(protectedWl("middle", now.Add(-2*time.Minute)), rule, now) {
 		t.Errorf("Skip() = false for a protected candidate, want true")
 	}
 	wantEarliest := now.Add(-3 * time.Minute).Add(minAdmitDuration)
@@ -250,7 +248,7 @@ func TestProtectionSkipTracker(t *testing.T) {
 
 	// A nil tracker still filters protected candidates, but records nothing.
 	var nilTracker *ProtectionSkipTracker
-	if !nilTracker.Skip(log, protectedWl("wl", now.Add(-time.Minute)), rule, kueue.InCohortReclamationReason, now) {
+	if !nilTracker.Skip(protectedWl("wl", now.Add(-time.Minute)), rule, now) {
 		t.Errorf("Skip() = false on a nil tracker for a protected candidate, want true")
 	}
 	if !nilTracker.EarliestExpiry().IsZero() {
