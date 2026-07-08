@@ -265,6 +265,39 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 		},
+		// A change confined to NumOfHosts still alters the effective per-group pod
+		// count that needElasticSync compares, so it must be propagated. Here the
+		// effective count decreases (4 -> 2), which avoids the scale-up stale guard,
+		// isolating the NumOfHosts propagation with Replicas held equal.
+		"elastic NumOfHosts change propagates to the remote worker group": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.WorkloadIdentifierAnnotations: false},
+			managersRayClusters: []rayv1.RayCluster{
+				*elasticBuilder.Clone().ScaleFirstWorkerGroup(2).WithNumOfHosts("workers-group-0", 1).Obj(),
+			},
+			workerRayClusters: []rayv1.RayCluster{
+				*elasticBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					ScaleFirstWorkerGroup(2).
+					WithNumOfHosts("workers-group-0", 2).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "raycluster1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
+			},
+			wantManagersRayClusters: []rayv1.RayCluster{
+				*elasticBuilder.Clone().ScaleFirstWorkerGroup(2).WithNumOfHosts("workers-group-0", 1).Obj(),
+			},
+			wantWorkerRayClusters: []rayv1.RayCluster{
+				*elasticBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					ScaleFirstWorkerGroup(2).
+					WithNumOfHosts("workers-group-0", 1).
+					Obj(),
+			},
+		},
 		"elastic scale-up with the current slice name propagates replicas and updates the workload label": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.WorkloadIdentifierAnnotations: false},
 			managersRayClusters: []rayv1.RayCluster{

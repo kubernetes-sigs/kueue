@@ -80,26 +80,40 @@ func workerReplicaCounts(rc *rayv1.RayCluster) map[kueue.PodSetReference]int32 {
 	return counts
 }
 
-// syncWorkerReplicas copies each worker group's Replicas from src into dst,
-// matching groups by name, and returns whether dst changed.
+// syncWorkerReplicas copies each worker group's Replicas and NumOfHosts from
+// src into dst, matching groups by name, and returns whether dst changed. Both
+// fields feed the effective per-group pod count that needElasticSync compares
+// (see workerReplicaCounts), so both must be propagated to keep the remote in
+// sync when either changes.
 func syncWorkerReplicas(dst, src *rayv1.RayCluster) bool {
-	srcReplicas := make(map[string]*int32, len(src.Spec.WorkerGroupSpecs))
+	type groupSize struct {
+		replicas   *int32
+		numOfHosts int32
+	}
+	srcSizes := make(map[string]groupSize, len(src.Spec.WorkerGroupSpecs))
 	for i := range src.Spec.WorkerGroupSpecs {
-		srcReplicas[src.Spec.WorkerGroupSpecs[i].GroupName] = src.Spec.WorkerGroupSpecs[i].Replicas
+		wgs := &src.Spec.WorkerGroupSpecs[i]
+		srcSizes[wgs.GroupName] = groupSize{replicas: wgs.Replicas, numOfHosts: wgs.NumOfHosts}
 	}
 	changed := false
 	for i := range dst.Spec.WorkerGroupSpecs {
 		wgs := &dst.Spec.WorkerGroupSpecs[i]
-		want, ok := srcReplicas[wgs.GroupName]
-		if !ok || ptr.Equal(wgs.Replicas, want) {
+		want, ok := srcSizes[wgs.GroupName]
+		if !ok {
 			continue
 		}
-		if want == nil {
-			wgs.Replicas = nil
-		} else {
-			wgs.Replicas = ptr.To(*want)
+		if !ptr.Equal(wgs.Replicas, want.replicas) {
+			if want.replicas == nil {
+				wgs.Replicas = nil
+			} else {
+				wgs.Replicas = ptr.To(*want.replicas)
+			}
+			changed = true
 		}
-		changed = true
+		if wgs.NumOfHosts != want.numOfHosts {
+			wgs.NumOfHosts = want.numOfHosts
+			changed = true
+		}
 	}
 	return changed
 }
