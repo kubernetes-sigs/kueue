@@ -22,25 +22,10 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 )
-
-// compareAllErrors checks that every error in wantErrs is present in got.
-func compareAllErrors(wantErrs []error, got error) bool {
-	if len(wantErrs) == 0 && got == nil {
-		return true
-	}
-	if len(wantErrs) == 0 || got == nil {
-		return false
-	}
-	for _, want := range wantErrs {
-		if !errors.Is(got, want) {
-			return false
-		}
-	}
-	return true
-}
 
 func TestParseTLSOptions(t *testing.T) {
 	tests := []struct {
@@ -390,24 +375,20 @@ func TestConvertTLSMinVersion(t *testing.T) {
 }
 
 func TestConvertCurvePreferences(t *testing.T) {
-	tests := []struct {
-		name     string
+	tests := map[string]struct {
 		input    []int32
 		expected []tls.CurveID
-		wantErr  []error
+		wantErr  error
 	}{
-		{
-			name:     "empty input",
+		"empty input": {
 			input:    []int32{},
 			expected: nil,
 		},
-		{
-			name:     "nil input",
+		"nil input": {
 			input:    nil,
 			expected: nil,
 		},
-		{
-			name:  "valid curve preferences",
+		"valid curve preferences": {
 			input: []int32{23, 24, 29}, // P256, P384, X25519
 			expected: []tls.CurveID{
 				tls.CurveP256,
@@ -415,32 +396,25 @@ func TestConvertCurvePreferences(t *testing.T) {
 				tls.X25519,
 			},
 		},
-		{
-			name:    "out of range curve ID",
+		"out of range curve ID": {
 			input:   []int32{0},
-			wantErr: []error{ErrInvalidCurvePreferences},
+			wantErr: ErrInvalidCurvePreferences,
 		},
-		{
-			name:    "duplicate curve IDs",
+		"duplicate curve IDs": {
 			input:   []int32{23, 23},
-			wantErr: []error{ErrInvalidCurvePreferences},
+			wantErr: ErrInvalidCurvePreferences,
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
 			got, err := convertCurvePreferences(tt.input)
-			if !compareAllErrors(tt.wantErr, err) {
-				t.Errorf("convertCurvePreferences() error = %v, wantErr %v", err, tt.wantErr)
-				return
+			if diff := cmp.Diff(tt.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Unexpected error (-want, +got):\n%s", diff)
 			}
 
-			if err != nil {
-				return
-			}
-
-			if !cmp.Equal(got, tt.expected) {
-				t.Errorf("convertCurvePreferences() diff: %s", cmp.Diff(tt.expected, got))
+			if diff := cmp.Diff(tt.expected, got); diff != "" {
+				t.Errorf("Unexpected convertCurvePreferences() result (-want, +got):\n%s", diff)
 			}
 		})
 	}
@@ -576,8 +550,8 @@ func TestBuildTLSOptions(t *testing.T) {
 				t.Errorf("CipherSuites diff: %s", cmp.Diff(tt.wantCiphers, cfg.CipherSuites))
 			}
 
-			if !cmp.Equal(cfg.CurvePreferences, tt.wantCurves) {
-				t.Errorf("CurvePreferences diff: %s", cmp.Diff(tt.wantCurves, cfg.CurvePreferences))
+			if diff := cmp.Diff(tt.wantCurves, cfg.CurvePreferences); diff != "" {
+				t.Errorf("Unexpected CurvePreferences (-want, +got):\n%s", diff)
 			}
 		})
 	}
