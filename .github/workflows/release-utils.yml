@@ -54,7 +54,7 @@ jobs:
 
       - name: Install release-notes tool
         run: |
-          go install k8s.io/release/cmd/release-notes@latest
+          go install k8s.io/release/cmd/release-notes@v0.17.0
           echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
 
       - name: Run Sync Notes
