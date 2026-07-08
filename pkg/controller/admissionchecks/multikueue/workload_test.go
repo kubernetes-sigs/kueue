@@ -1851,7 +1851,7 @@ func TestWlReconcile(t *testing.T) {
 
 				w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
 				w1remoteClient.client = worker1Client
-				w1remoteClient.connecting.Store(false)
+				w1remoteClient.connected.Store(true)
 				cRec.remoteClients["worker1"] = w1remoteClient
 
 				var worker2Client SelectivelyCachingClient
@@ -1883,7 +1883,7 @@ func TestWlReconcile(t *testing.T) {
 					w2remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
 					w2remoteClient.client = worker2Client
 					if !tc.worker2Reconnecting {
-						w2remoteClient.connecting.Store(false)
+						w2remoteClient.connected.Store(true)
 					}
 					cRec.remoteClients["worker2"] = w2remoteClient
 				}
@@ -2030,7 +2030,7 @@ func TestOrphanedRemoteWorkloadCleanedAfterReconnect(t *testing.T) {
 		WithStatusSubresource(&kueue.Workload{}).
 		WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
 		Build())
-	w1remoteClient.connecting.Store(false)
+	w1remoteClient.connected.Store(true)
 	cRec.remoteClients["worker1"] = w1remoteClient
 
 	worker2Client := NewNeverCachingClient(getClientBuilder(ctx).
@@ -2040,7 +2040,7 @@ func TestOrphanedRemoteWorkloadCleanedAfterReconnect(t *testing.T) {
 		Build())
 	w2remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
 	w2remoteClient.client = worker2Client
-	w2remoteClient.connecting.Store(true)
+	w2remoteClient.connected.Store(false)
 	cRec.remoteClients["worker2"] = w2remoteClient
 
 	helper, _ := admissioncheck.NewMultiKueueStoreHelper(managerClient)
@@ -2076,7 +2076,7 @@ func TestOrphanedRemoteWorkloadCleanedAfterReconnect(t *testing.T) {
 	}
 
 	// Step 2: worker2 finishes reconnecting — reconcile should clean up the orphaned workload.
-	w2remoteClient.connecting.Store(false)
+	w2remoteClient.connected.Store(true)
 
 	result, err = reconciler.Reconcile(ctx, req)
 	if err != nil {
