@@ -96,7 +96,7 @@ footer {
       }
     }
 
-    @include media-breakpoint-down(md) {
+    @include media-breakpoint-down(lg) {
       font-size: .875rem;
       align-items: flex-start;
       .dropdown {
@@ -119,11 +119,22 @@ footer {
 .td-sidebar {
   padding-bottom: 0.5rem;
 
+  @media (min-width: 768px) {
+    padding-top: 7rem !important;
+  }
+
   .td-sidebar__inner {
     padding-top: 30px;
 
     @include media-breakpoint-down(md) {
       padding-top: 10px;
+    }
+
+    @media (min-width: 768px) {
+      @supports (position: sticky) {
+        top: 7rem !important;
+        height: calc(100vh - 8rem) !important;
+      }
     }
   }
 }
@@ -132,16 +143,24 @@ footer {
 // on desktop so the scrollbar and links never overlap the full-width footer.
 @media (min-width: 768px) {
   .td-sidebar-nav {
-    max-height: calc(100vh - 14.5rem) !important;
+    max-height: calc(100vh - 12.5rem) !important;
   }
 }
 
 .td-sidebar-toc {
   @supports (position: sticky) {
       position: sticky;
-      top: 60px;
-      height: calc(100vh - 120px);
+      top: 7rem !important;
+      height: calc(100vh - 8rem) !important;
       overflow-y: auto;
+  }
+}
+
+// Main content container top offset adjustment to clear horizontal navbar
+@media (min-width: 768px) {
+  .td-404 main,
+  .td-main main {
+    padding-top: 7rem !important;
   }
 }
 
