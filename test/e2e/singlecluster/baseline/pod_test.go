@@ -228,7 +228,7 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 					g.Expect(createdWorkload.Status.Conditions).To(gomega.ContainElements(
 						gomega.BeComparableTo(metav1.Condition{
-							Type:    pod.WorkloadWaitingForReplacementPods,
+							Type:    kueue.WorkloadWaitingForReplacementPods,
 							Status:  metav1.ConditionTrue,
 							Reason:  pod.WorkloadPodsFailed,
 							Message: "Some Failed pods need replacement",
@@ -272,7 +272,7 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 					g.Expect(createdWorkload.Status.Conditions).To(gomega.ContainElements(
 						gomega.BeComparableTo(metav1.Condition{
-							Type:    pod.WorkloadWaitingForReplacementPods,
+							Type:    kueue.WorkloadWaitingForReplacementPods,
 							Status:  metav1.ConditionFalse,
 							Reason:  kueue.WorkloadPodsReady,
 							Message: "No pods need replacement",
