@@ -116,8 +116,7 @@ type remoteClient struct {
 	origin       string
 	adapters     map[string]jobframework.MultiKueueAdapter
 
-	connecting           atomic.Bool
-	disconnected         atomic.Bool
+	connected            atomic.Bool
 	failedConnAttempts   uint
 	retryConnNextAttempt metav1.Time
 
@@ -148,7 +147,7 @@ func newRemoteClient(localClient client.Client, wlUpdateCh, watchEndedCh chan<- 
 		adapters:     adapters,
 		clock:        clock.RealClock{},
 	}
-	rc.connecting.Store(true)
+	rc.connected.Store(false)
 	return rc
 }
 
@@ -196,9 +195,8 @@ func (rc *remoteClient) increaseFailedConnAttempt() *time.Duration {
 // If the encountered error is not permanent the duration after which a retry should be done is returned.
 func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context, config *clientConfig) (*time.Duration, error) {
 	configChanged := !equality.Semantic.DeepEqual(config, rc.config)
-	connecting := rc.connecting.Load()
-	disconnected := rc.disconnected.Load()
-	if !configChanged && !connecting && !disconnected {
+	connected := rc.connected.Load()
+	if !configChanged && connected {
 		return nil, nil
 	}
 
@@ -209,7 +207,7 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 		rc.resetFailedConnAttempt()
 	}
 
-	if connecting {
+	if !connected {
 		if untilNextAttempt := rc.retryConnNextAttempt.Sub(rc.clock.Now()); untilNextAttempt > 0 {
 			return &untilNextAttempt, nil
 		}
@@ -229,10 +227,9 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 	watchCtx, rc.watchCancel = context.WithCancel(watchCtx)
 
 	// Mark as connected before starting watchers to avoid a race condition.
-	// If a watcher queues an event and wlReconciler processes it before connecting=false,
+	// If a watcher queues an event and wlReconciler processes it before connected=true,
 	// the workload will be treated as unavailable and requeued after 15m.
-	rc.connecting.Store(false)
-	rc.disconnected.Store(false)
+	rc.connected.Store(true)
 
 	err = rc.startWatcher(watchCtx, kueue.GroupVersion.WithKind("Workload").GroupKind().String(), &workloadKueueWatcher{})
 	if err != nil {
@@ -346,9 +343,9 @@ func (rc *remoteClient) startWatcher(ctx context.Context, kind string, w jobfram
 		log.V(2).Info("Watch ended", "ctxErr", ctx.Err())
 		// If the context is not yet Done , queue a reconcile to attempt reconnection
 		if ctx.Err() == nil {
-			oldConnecting := rc.connecting.Swap(true)
+			wasConnected := rc.connected.Swap(false)
 			// reconnect if this is the first watch failing.
-			if !oldConnecting {
+			if wasConnected {
 				log.V(2).Info("Queue reconcile for reconnect", "cluster", rc.clusterName)
 				rc.queueWatchEndedEvent(ctx)
 			}
@@ -385,8 +382,7 @@ func (rc *remoteClient) StopWatchers() {
 // is now unreachable, and apply the workerLostTimeout delay before requeuing.
 func (rc *remoteClient) disconnect() {
 	rc.StopWatchers()
-	rc.connecting.Store(true)
-	rc.disconnected.Store(true)
+	rc.connected.Store(false)
 }
 
 func (rc *remoteClient) queueWorkloadEvent(ctx context.Context, wlKey types.NamespacedName) {
@@ -413,7 +409,7 @@ func (rc *remoteClient) queueWatchEndedEvent(ctx context.Context) {
 func (rc *remoteClient) runGC(ctx context.Context) {
 	log := ctrl.LoggerFrom(ctx)
 
-	if rc.connecting.Load() || rc.disconnected.Load() {
+	if !rc.connected.Load() {
 		log.V(5).Info("Skip disconnected client")
 		return
 	}
