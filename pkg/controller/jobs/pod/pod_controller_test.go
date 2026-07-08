@@ -195,11 +195,11 @@ func TestConstructComposableWorkloadPodGroupRoleLimit(t *testing.T) {
 		wantErr   string
 	}{
 		"allows maximum pod group roles": {
-			roleCount: 10,
+			roleCount: jobframework.MaxPodSets,
 		},
 		"rejects more than maximum pod group roles": {
-			roleCount: 11,
-			wantErr:   "pod group can't include more than 10 roles",
+			roleCount: jobframework.MaxPodSets + 1,
+			wantErr:   errMsgIncorrectGroupRoleCount,
 		},
 	}
 
