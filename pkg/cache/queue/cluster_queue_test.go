@@ -1459,15 +1459,15 @@ func TestFsAdmission(t *testing.T) {
 
 func TestRecordInadmissibleHash(t *testing.T) {
 	cases := map[string]struct {
-		hashToRecord     string
-		heapWorkloads    map[string]string // name -> schedulingHash
+		hashToRecord     workload.EquivalenceHash
+		heapWorkloads    map[string]workload.EquivalenceHash // name -> schedulingHash
 		wantMoved        int
 		wantActive       int
 		wantInadmissible int
 	}{
 		"bulk-moves matching workloads": {
 			hashToRecord: "gpu-class",
-			heapWorkloads: map[string]string{
+			heapWorkloads: map[string]workload.EquivalenceHash{
 				"gpu-1": "gpu-class",
 				"gpu-2": "gpu-class",
 				"gpu-3": "gpu-class",
@@ -1480,7 +1480,7 @@ func TestRecordInadmissibleHash(t *testing.T) {
 		},
 		"no-op for empty hash": {
 			hashToRecord: "",
-			heapWorkloads: map[string]string{
+			heapWorkloads: map[string]workload.EquivalenceHash{
 				"wl-1": "some-hash",
 			},
 			wantMoved:        0,
@@ -1489,7 +1489,7 @@ func TestRecordInadmissibleHash(t *testing.T) {
 		},
 		"no-op when no workloads match": {
 			hashToRecord: "nonexistent",
-			heapWorkloads: map[string]string{
+			heapWorkloads: map[string]workload.EquivalenceHash{
 				"wl-1": "hash-a",
 				"wl-2": "hash-b",
 			},
@@ -1534,19 +1534,19 @@ func TestRecordInadmissibleHash(t *testing.T) {
 
 func TestPushOrUpdateRespectsInadmissibleHashes(t *testing.T) {
 	cases := map[string]struct {
-		inadmissibleHashes []string
-		pushHash           string
+		inadmissibleHashes []workload.EquivalenceHash
+		pushHash           workload.EquivalenceHash
 		wantActive         int
 		wantInadmissible   int
 	}{
 		"workload with blocked hash goes to inadmissible": {
-			inadmissibleHashes: []string{"blocked"},
+			inadmissibleHashes: []workload.EquivalenceHash{"blocked"},
 			pushHash:           "blocked",
 			wantActive:         0,
 			wantInadmissible:   1,
 		},
 		"workload with non-blocked hash goes to heap": {
-			inadmissibleHashes: []string{"blocked"},
+			inadmissibleHashes: []workload.EquivalenceHash{"blocked"},
 			pushHash:           "allowed",
 			wantActive:         1,
 			wantInadmissible:   0,
