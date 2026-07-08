@@ -101,28 +101,25 @@ func (a *Authenticator) Stop() {
 //   - r: steady-state requests per second allowed per IP.
 //   - burst: maximum burst size (peak requests from a single IP at once).
 func RateLimiter(r rate.Limit, burst int) gin.HandlerFunc {
-	var (
-		mu       sync.Mutex
-		limiters = make(map[string]*rate.Limiter)
-	)
+	// A bounded, TTL-based cache mapping IP addresses to *rate.Limiter.
+	// This prevents memory exhaustion from spoofed or highly distributed IP addresses.
+	limiters := utilcache.NewLRUExpireCache(10000)
+	var mu sync.Mutex
+
 	getLimiter := func(ip string) *rate.Limiter {
 		mu.Lock()
 		defer mu.Unlock()
-		if l, ok := limiters[ip]; ok {
-			return l
+		if l, ok := limiters.Get(ip); ok {
+			return l.(*rate.Limiter)
 		}
 		l := rate.NewLimiter(r, burst)
-		limiters[ip] = l
+		limiters.Add(ip, l, 10*time.Minute)
 		return l
 	}
 	return func(c *gin.Context) {
-		// Prefer X-Forwarded-For (set by trusted reverse proxies) over
-		// RemoteAddr so that clients behind a load balancer are keyed
-		// correctly rather than all sharing the proxy's IP.
-		ip := c.GetHeader("X-Forwarded-For")
-		if ip == "" {
-			ip = c.ClientIP()
-		}
+		// Rely on gin's ClientIP() which automatically handles X-Forwarded-For
+		// and securely validates it against trusted proxies.
+		ip := c.ClientIP()
 		if !getLimiter(ip).Allow() {
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "too many requests"})
 			return
