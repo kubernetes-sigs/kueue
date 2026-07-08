@@ -97,6 +97,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.5"
+- name: GangSchedulingPlacement
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.19"
 - name: HierarchicalCohorts
   versionedSpecs:
   - default: true
@@ -345,6 +351,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.17"
+- name: SchedulerLibraryIntegration
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.19"
 - name: SchedulerLongRequeueInterval
   versionedSpecs:
   - default: false

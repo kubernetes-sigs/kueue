@@ -455,6 +455,19 @@ const (
 	// Enable re-computing the assignment within the same scheduling cycle when a TAS workload doesn't fit.
 	TASRecomputeAssignmentWithinSchedulingCycle featuregate.Feature = "TASRecomputeAssignmentWithinSchedulingCycle"
 
+	// owner: @kshalot
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/8871
+	//
+	// Enable scheduler-library integration for placement feasibility checks.
+	SchedulerLibraryIntegration featuregate.Feature = "SchedulerLibraryIntegration"
+
+	// owner: @sohankunkerkar
+	//
+	// Enable placement-level gang scheduling that verifies all PodSets can be
+	// placed on cluster nodes before admitting a workload.
+	// Requires SchedulerLibraryIntegration to be enabled.
+	GangSchedulingPlacement featuregate.Feature = "GangSchedulingPlacement"
+
 	// owner: @j-skiba
 	// kep: https://github.com/kubernetes-sigs/kueue/issues/10852
 	//
@@ -715,6 +728,12 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	UnadmittedWorkloadsExplicitStatus: {
 		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Beta},
+	},
+	SchedulerLibraryIntegration: {
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	GangSchedulingPlacement: {
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 

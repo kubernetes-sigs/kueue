@@ -146,7 +146,7 @@ func (a *Assignment) podSetAssignmentByName(psName kueue.PodSetReference) *PodSe
 	return nil
 }
 
-func (a *Assignment) updateMode(psName kueue.PodSetReference, mode FlavorAssignmentMode) {
+func (a *Assignment) UpdateMode(psName kueue.PodSetReference, mode FlavorAssignmentMode) {
 	if psAssignment := a.podSetAssignmentByName(psName); psAssignment != nil {
 		psAssignment.updateMode(mode)
 		a.representativeMode = new(mode)
@@ -156,7 +156,7 @@ func (a *Assignment) updateMode(psName kueue.PodSetReference, mode FlavorAssignm
 func (a *Assignment) updateModeForTASRequests(tasRequests schdcache.WorkloadTASRequests, mode FlavorAssignmentMode) {
 	for _, reqs := range tasRequests {
 		for _, req := range reqs {
-			a.updateMode(req.PodSet.Name, mode)
+			a.UpdateMode(req.PodSet.Name, mode)
 		}
 	}
 }
@@ -789,7 +789,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 				psAssignment := assignment.podSetAssignmentByName(failure.PodSetName)
 				psAssignment.reason(failure.Reason)
 				// update the mode for all flavors and the representative mode
-				assignment.updateMode(failure.PodSetName, Preempt)
+				assignment.UpdateMode(failure.PodSetName, Preempt)
 			} else {
 				// All PodSets fit, we just update the TopologyAssignments
 				assignment.UpdateForTASResult(log, a.cq, a.wl, result)
@@ -806,7 +806,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 					psAssignment.markFlavorAttempt(failure.Flavor, NoFit, kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed)
 				}
 				// update the mode for all flavors and the representative mode
-				assignment.updateMode(failure.PodSetName, NoFit)
+				assignment.UpdateMode(failure.PodSetName, NoFit)
 			} else {
 				// Update TAS-related assignments to Preempt because preemptions might be needed
 				// in resources in which total unused quota is sufficient (Fit), but the
