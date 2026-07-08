@@ -45,10 +45,10 @@ const (
 
 // WebSocket upgrader
 var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
-		return true
-	},
 	Subprotocols: []string{middleware.WebSocketBaseProtocol},
+	CheckOrigin: func(r *http.Request) bool {
+		return middleware.ValidateWebSocketOrigin(r.Header.Get("Origin"), r.Host)
+	},
 }
 
 // GenericWebSocketHandler creates a WebSocket endpoint with informer-based real-time updates
