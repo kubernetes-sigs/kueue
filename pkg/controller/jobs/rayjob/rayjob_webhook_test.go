@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayutil "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
@@ -126,12 +127,7 @@ func TestDefault(t *testing.T) {
 }
 
 func TestValidateCreate(t *testing.T) {
-	worker := rayv1.WorkerGroupSpec{}
-	// head + jobframework.MaxPodSets worker groups exceeds the per-Workload podSet limit.
-	bigWorkerGroup := make([]rayv1.WorkerGroupSpec, jobframework.MaxPodSets)
-	for i := range bigWorkerGroup {
-		bigWorkerGroup[i] = worker
-	}
+	bigWorkerGroup := testingraycluster.MakeWorkerGroups(jobframework.MaxPodSets)
 
 	testcases := map[string]struct {
 		job          *rayv1.RayJob

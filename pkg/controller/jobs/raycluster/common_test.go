@@ -950,15 +950,8 @@ func TestRestorePodSetsInfo(t *testing.T) {
 }
 
 func TestValidateCreateRayClusterSpec(t *testing.T) {
-	// A RayCluster contributes one podSet for the head plus one per worker
-	// group, so jobframework.MaxPodSets worker groups (head + MaxPodSets)
-	// exceeds the per-Workload podSet limit.
-	tooManyWorkerGroups := make([]rayv1.WorkerGroupSpec, jobframework.MaxPodSets)
-	for i := range tooManyWorkerGroups {
-		tooManyWorkerGroups[i] = rayv1.WorkerGroupSpec{GroupName: fmt.Sprintf("workers%d", i+1)}
-	}
-	tooManyWorkerGroupsWithHead := make([]rayv1.WorkerGroupSpec, jobframework.MaxPodSets)
-	copy(tooManyWorkerGroupsWithHead, tooManyWorkerGroups)
+	tooManyWorkerGroups := testingrayutil.MakeWorkerGroups(jobframework.MaxPodSets)
+	tooManyWorkerGroupsWithHead := testingrayutil.MakeWorkerGroups(jobframework.MaxPodSets)
 	tooManyWorkerGroupsWithHead[0] = rayv1.WorkerGroupSpec{GroupName: "head"}
 
 	testCases := map[string]struct {

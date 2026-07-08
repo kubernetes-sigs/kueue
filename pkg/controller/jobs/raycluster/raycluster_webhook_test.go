@@ -126,12 +126,7 @@ func TestValidateDefault(t *testing.T) {
 }
 
 func TestValidateCreate(t *testing.T) {
-	worker := rayv1.WorkerGroupSpec{}
-	// head + jobframework.MaxPodSets worker groups exceeds the per-Workload podSet limit.
-	bigWorkerGroup := make([]rayv1.WorkerGroupSpec, jobframework.MaxPodSets)
-	for i := range bigWorkerGroup {
-		bigWorkerGroup[i] = worker
-	}
+	bigWorkerGroup := testingrayutil.MakeWorkerGroups(jobframework.MaxPodSets)
 
 	testcases := map[string]struct {
 		job          *rayv1.RayCluster

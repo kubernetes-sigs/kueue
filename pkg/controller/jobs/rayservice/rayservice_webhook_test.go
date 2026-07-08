@@ -17,7 +17,6 @@ limitations under the License.
 package rayservice
 
 import (
-	"fmt"
 	"testing"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
@@ -26,14 +25,11 @@ import (
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 )
 
 func TestValidateCreate(t *testing.T) {
-	// head + jobframework.MaxPodSets worker groups exceeds the per-Workload podSet limit.
-	tooManyWorkerGroups := make([]rayv1.WorkerGroupSpec, jobframework.MaxPodSets)
-	for i := range tooManyWorkerGroups {
-		tooManyWorkerGroups[i] = rayv1.WorkerGroupSpec{GroupName: fmt.Sprintf("w%d", i+1)}
-	}
+	tooManyWorkerGroups := testingraycluster.MakeWorkerGroups(jobframework.MaxPodSets)
 
 	testCases := map[string]struct {
 		service   *rayv1.RayService
