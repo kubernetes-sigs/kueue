@@ -114,6 +114,10 @@ func GetSparkTestImage() string {
 	return getCachedDockerImage(&sparkTestImageOnce, &sparkTestImage, "E2E_TEST_SPARK_IMAGE", "spark")
 }
 
+func GetRedisTestImage() string {
+	return getCachedDockerImage(&redisTestImageOnce, &redisTestImage, "E2E_TEST_REDIS_IMAGE", "redis")
+}
+
 // getCachedDockerImage resolves a test image exactly once via the supplied sync.Once,
 // caching the result in *cache. It returns the value of envVar if set, otherwise the
 // image parsed from hack/testing/<dir>/Dockerfile.
