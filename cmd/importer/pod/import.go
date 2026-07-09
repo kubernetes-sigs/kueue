@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -37,11 +38,30 @@ import (
 	"sigs.k8s.io/kueue/cmd/importer/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 var realClock = clock.RealClock{}
+
+type resourceNotCoveredError struct {
+	Resource     corev1.ResourceName
+	ClusterQueue string
+}
+
+func (e *resourceNotCoveredError) Error() string {
+	return fmt.Sprintf("resource %q is not covered by ClusterQueue %q", e.Resource, e.ClusterQueue)
+}
+
+func (e *resourceNotCoveredError) Is(target error) bool {
+	t, ok := target.(*resourceNotCoveredError)
+	if !ok {
+		return false
+	}
+	return e.Resource == t.Resource && e.ClusterQueue == t.ClusterQueue
+}
 
 func Import(ctx context.Context, c client.Client, importCache *cache.ImportCache, jobs uint) error {
 	ch := make(chan corev1.Pod)
@@ -60,6 +80,46 @@ func Import(ctx context.Context, c client.Client, importCache *cache.ImportCache
 			return skip, err
 		}
 
+		cq, ok := importCache.ClusterQueues[string(lq.Spec.ClusterQueue)]
+		if !ok {
+			return false, fmt.Errorf("cluster queue not found in cache: %s: %w", lq.Spec.ClusterQueue, cache.ErrCQNotFound)
+		}
+		if err := validateKnownClusterQueueFlavors(cq, importCache.ResourceFlavors); err != nil {
+			return false, err
+		}
+
+		// Workload construction derives queue, name, and some spec fields from Pod labels.
+		// Build it from a copy that includes importer-added labels, while leaving the
+		// real Pod untouched until validation succeeds and those labels can be persisted.
+		podForWorkload := preparePodForWorkload(p, lq.Name, importCache.AddLabels)
+
+		kp := pod.FromObject(podForWorkload)
+		// Note: the recorder is not used for single pods, we can just pass nil for now.
+		wl, err := kp.ConstructComposableWorkload(ctx, c, nil, nil, nil)
+		if err != nil {
+			return false, fmt.Errorf("construct workload: %w", err)
+		}
+		if prebuiltWorkloadName := jobframework.PrebuiltWorkloadNameFor(podForWorkload); prebuiltWorkloadName != "" {
+			wl.Name = prebuiltWorkloadName
+		}
+		// Keep the resolved queue authoritative even if the real Pod has not been labeled
+		// yet or still carries a conflicting queue label that will be rejected below.
+		wl.Spec.QueueName = kueue.LocalQueueName(lq.Name)
+		// Generic label copying is disabled in this importer path, so preserve the
+		// importer-added labels on the created Workload metadata explicitly.
+		maps.Copy(wl.Labels, importCache.AddLabels)
+
+		info := workload.NewInfo(wl)
+		if len(info.TotalRequests) == 0 {
+			return false, fmt.Errorf("workload has no total requests: %w", cache.ErrPodInvalid)
+		}
+		var flavors map[corev1.ResourceName]kueue.ResourceFlavorReference
+		if flavors, err = flavorAssignmentsForRequests(cq, info.TotalRequests[0].Requests); err != nil {
+			return false, err
+		}
+
+		// Validate and persist importer-managed labels against the real Pod state only
+		// after the workload construction inputs have passed import validation.
 		oldLq, found := p.Labels[controllerconstants.QueueLabel]
 		if !found {
 			if err := addLabels(ctx, c, p, lq.Name, importCache.AddLabels); err != nil {
@@ -69,13 +129,6 @@ func Import(ctx context.Context, c client.Client, importCache *cache.ImportCache
 			return false, fmt.Errorf("another local queue name is set %q expecting %q", oldLq, lq.Name)
 		}
 
-		kp := pod.FromObject(p)
-		// Note: the recorder is not used for single pods, we can just pass nil for now.
-		wl, err := kp.ConstructComposableWorkload(ctx, c, nil, nil)
-		if err != nil {
-			return false, fmt.Errorf("construct workload: %w", err)
-		}
-
 		maps.Copy(wl.Labels, importCache.AddLabels)
 
 		if pc, found := importCache.PriorityClasses[p.Spec.PriorityClassName]; found {
@@ -83,16 +136,11 @@ func Import(ctx context.Context, c client.Client, importCache *cache.ImportCache
 			wl.Spec.Priority = &pc.Value
 		}
 
-		cq, ok := importCache.ClusterQueues[string(lq.Spec.ClusterQueue)]
-		if !ok {
-			return false, fmt.Errorf("cluster queue not found in cache: %s: %w", lq.Spec.ClusterQueue, cache.ErrCQNotFound)
-		}
-
 		if err := createWorkload(ctx, c, wl); err != nil {
 			return false, fmt.Errorf("creating workload: %w", err)
 		}
 
-		if err := admitWorkload(ctx, c, wl, cq); err != nil {
+		if err := admitWorkload(ctx, c, wl, cq, flavors); err != nil {
 			return false, err
 		}
 		log.V(2).Info("Successfully imported", "pod", klog.KObj(p), "workload", klog.KObj(wl))
@@ -181,7 +229,6 @@ func admitWorkload(ctx context.Context, c client.Client, wl *kueue.Workload, cq 
 	update := func(wl *kueue.Workload) (bool, error) {
 		// make its admission and update its status
 		info := workload.NewInfo(wl)
-
 		admission := kueue.Admission{
 			ClusterQueue: kueue.ClusterQueueReference(cq.Name),
 			PodSetAssignments: []kueue.PodSetAssignment{
@@ -192,12 +239,6 @@ func admitWorkload(ctx context.Context, c client.Client, wl *kueue.Workload, cq 
 					Count:         ptr.To[int32](1),
 				},
 			},
-		}
-		flv := cq.Spec.ResourceGroups[0].Flavors[0].Name
-		if info.TotalRequests[0].Requests != nil {
-			info.TotalRequests[0].Requests.ForEach(func(name corev1.ResourceName, val int64) {
-				admission.PodSetAssignments[0].Flavors[name] = flv
-			})
 		}
 
 		wl.Status.Admission = &admission
@@ -237,4 +278,58 @@ func admitWorkload(ctx context.Context, c client.Client, wl *kueue.Workload, cq 
 	}
 
 	return nil
+}
+
+func preparePodForWorkload(p *corev1.Pod, queue string, addLabels map[string]string) *corev1.Pod {
+	podForWorkload := p.DeepCopy()
+	if podForWorkload.Labels == nil {
+		podForWorkload.Labels = make(map[string]string)
+	}
+	maps.Copy(podForWorkload.Labels, addLabels)
+	if _, found := podForWorkload.Labels[controllerconstants.QueueLabel]; !found {
+		podForWorkload.Labels[controllerconstants.QueueLabel] = queue
+	}
+	return podForWorkload
+}
+
+// resourceFlavorForResource returns the first flavor from the first resource group
+// that covers the requested resource. It skips groups with no flavors and returns
+// an empty string when no matching group exists.
+func resourceFlavorForResource(cq *kueue.ClusterQueue, resource corev1.ResourceName) kueue.ResourceFlavorReference {
+	for _, rg := range cq.Spec.ResourceGroups {
+		if len(rg.Flavors) == 0 {
+			continue
+		}
+
+		if slices.Contains(rg.CoveredResources, resource) {
+			return rg.Flavors[0].Name
+		}
+	}
+	return ""
+}
+
+func flavorAssignmentsForRequests(cq *kueue.ClusterQueue, requests resources.Requests) (map[corev1.ResourceName]kueue.ResourceFlavorReference, error) {
+	flavors := make(map[corev1.ResourceName]kueue.ResourceFlavorReference)
+
+	resourceNames := make([]corev1.ResourceName, 0, requests.Len())
+	requestQuantities := make(map[corev1.ResourceName]int64, requests.Len())
+	requests.ForEach(func(name corev1.ResourceName, quantity int64) {
+		requestQuantities[name] = quantity
+		resourceNames = append(resourceNames, name)
+	})
+	slices.Sort(resourceNames)
+
+	for _, name := range resourceNames {
+		if requestQuantities[name] == 0 {
+			continue
+		}
+
+		flv := resourceFlavorForResource(cq, name)
+		if flv == "" {
+			return nil, &resourceNotCoveredError{Resource: name, ClusterQueue: cq.Name}
+		}
+		flavors[name] = flv
+	}
+
+	return flavors, nil
 }
