@@ -34,6 +34,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
+	utilmath "sigs.k8s.io/kueue/pkg/util/math"
 	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
 )
 
@@ -109,7 +110,11 @@ func countDevicesPerClass(claimSpec *resourcev1.ResourceClaimSpec) (resources.Re
 		if dc == "" {
 			continue
 		}
-		out[dc] += q
+		// Device counts are user-controlled and effectively unbounded (the
+		// apiserver accepts up to MaxInt64), so accumulate with a saturating add
+		// (matching the scheduler's Amount arithmetic) rather than letting the
+		// sum wrap to a negative count.
+		out[dc] = utilmath.SaturatingAdd(out[dc], q)
 	}
 	return out, nil
 }
