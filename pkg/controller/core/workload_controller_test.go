@@ -52,6 +52,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -486,6 +487,101 @@ func TestUpdateSkipsRequeueForOnHoldWorkload(t *testing.T) {
 
 	if heads := qManager.Heads(headsCtx); len(heads) != 0 {
 		t.Fatalf("expected no second-pass workloads, got %d", len(heads))
+	}
+}
+
+func TestUpdateSettlesAfsEntryPenalty(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	lqKey := utilqueue.NewLocalQueueReference("ns", "lq")
+
+	makeWl := func() *utiltestingapi.WorkloadWrapper {
+		return utiltestingapi.MakeWorkload("wl", "ns").
+			Queue("lq").
+			Active(true).
+			Request(corev1.ResourceCPU, "4")
+	}
+	pending := makeWl().Obj()
+	quotaReserved := makeWl().
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+		Obj()
+	admitted := makeWl().
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+		AdmittedAt(true, now).
+		Obj()
+	deactivatedAdmitted := makeWl().
+		Active(false).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+		AdmittedAt(true, now).
+		Obj()
+
+	cases := map[string]struct {
+		oldWl       *kueue.Workload
+		newWl       *kueue.Workload
+		wantSettled bool
+	}{
+		"Pending to Admitted settles the entry penalty": {
+			oldWl:       pending,
+			newWl:       admitted,
+			wantSettled: true,
+		},
+		"QuotaReserved to Admitted settles the entry penalty": {
+			oldWl:       quotaReserved,
+			newWl:       admitted,
+			wantSettled: true,
+		},
+		"Pending to QuotaReserved does not settle the entry penalty": {
+			oldWl:       pending,
+			newWl:       quotaReserved,
+			wantSettled: false,
+		},
+		"Admitted to Admitted does not settle the entry penalty again": {
+			oldWl:       admitted,
+			newWl:       admitted,
+			wantSettled: false,
+		},
+		"deactivation in the same event does not settle the entry penalty": {
+			oldWl:       quotaReserved,
+			newWl:       deactivatedAdmitted,
+			wantSettled: false,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			afsConfig := &configapi.AdmissionFairSharing{
+				UsageHalfLifeTime:     metav1.Duration{Duration: time.Minute},
+				UsageSamplingInterval: metav1.Duration{Duration: time.Second},
+			}
+			cl := utiltesting.NewClientBuilder().Build()
+			recorder := &utiltesting.EventRecorder{}
+			cqCache := schdcache.New(cl, schdcache.WithAdmissionFairSharing(afsConfig))
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithAdmissionFairSharing(afsConfig))
+			reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder, WithAdmissionFairSharing(afsConfig))
+
+			ctx, _ := utiltesting.ContextWithLog(t)
+			cq := utiltestingapi.MakeClusterQueue("cq").
+				AdmissionMode(kueue.UsageBasedAdmissionFairSharing).
+				Active(metav1.ConditionTrue).
+				Obj()
+			setupClusterQueue(ctx, t, cl, qManager, cqCache, cq, false)
+			lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()
+			setupLocalQueue(ctx, t, cl, qManager, lq, false)
+			if err := cqCache.AddLocalQueue(lq); err != nil {
+				t.Fatalf("couldn't add the local queue to the scheduler cache: %v", err)
+			}
+
+			// Seed the penalty with the same amount the settlement recomputes,
+			// mirroring the push done by the scheduler at assume time.
+			qManager.AfsEntryPenalties.Push(lqKey, afs.CalculateEntryPenalty(workload.NewInfo(tc.newWl).SumTotalRequests(), afsConfig))
+
+			reconciler.Update(event.TypedUpdateEvent[*kueue.Workload]{
+				ObjectOld: tc.oldWl.DeepCopy(),
+				ObjectNew: tc.newWl.DeepCopy(),
+			})
+
+			if hasPending := qManager.AfsEntryPenalties.HasPendingFor(lqKey); hasPending == tc.wantSettled {
+				t.Errorf("HasPendingFor() = %v, want settled = %v", hasPending, tc.wantSettled)
+			}
+		})
 	}
 }
 
