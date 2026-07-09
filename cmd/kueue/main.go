@@ -347,7 +347,7 @@ func main() {
 		cacheOptions = append(cacheOptions, schdcache.WithAdmissionFairSharing(cfg.AdmissionFairSharing))
 	}
 	if features.Enabled(features.SchedulerLibraryIntegration) {
-		sim, err := schdcache.NewSchedulingSimulator(ctx)
+		sim, err := schdcache.NewSchedulingSimulator(ctx, mgr.GetConfig())
 		if err != nil {
 			setupLog.Error(err, "Failed to initialize scheduling simulator")
 			os.Exit(1)

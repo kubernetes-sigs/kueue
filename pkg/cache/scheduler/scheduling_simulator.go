@@ -4,20 +4,23 @@ import (
 	"context"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/informers"
+	"k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/rest"
 	schedulerconfig "k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultbinder"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeaffinity"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/queuesort"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/tainttoleration"
 	"sigs.k8s.io/scheduler-library/pkg/simulator"
-	"sigs.k8s.io/scheduler-library/pkg/snapshot"
+	"sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 )
 
 type SchedulingSimulator struct {
 	sim *simulator.SchedulingSimulator
 }
 
-func NewSchedulingSimulator(ctx context.Context) (*SchedulingSimulator, error) {
+func NewSchedulingSimulator(ctx context.Context, restConfig *rest.Config) (*SchedulingSimulator, error) {
 	cfg := &schedulerconfig.KubeSchedulerConfiguration{
 		Profiles: []schedulerconfig.KubeSchedulerProfile{
 			{
@@ -45,7 +48,15 @@ func NewSchedulingSimulator(ctx context.Context) (*SchedulingSimulator, error) {
 		},
 	}
 
-	sim, err := simulator.NewSchedulingSimulator(ctx, cfg, nil)
+	roClient, err := simulator.NewReadonlyClient(restConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	fakeClient := fake.NewSimpleClientset()
+	informerFactory := informers.NewSharedInformerFactory(fakeClient, 0)
+
+	sim, err := simulator.NewSchedulingSimulator(ctx, cfg, roClient, informerFactory)
 	if err != nil {
 		return nil, err
 	}

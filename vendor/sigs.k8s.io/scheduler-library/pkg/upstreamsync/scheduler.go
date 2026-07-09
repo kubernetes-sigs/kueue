@@ -657,7 +657,7 @@ func prioritizeNodes(
 
 					// MaxExtenderPriority may diverge from the max priority used in the scheduler and defined by MaxNodeScore,
 					// therefore we need to scale the score returned by extenders to the score range used by the scheduler.
-					finalscore := score * weight * (fwk.MaxNodeScore / extenderv1.MaxExtenderPriority)
+					finalscore := score * weight * (fwk.MaxScore / extenderv1.MaxExtenderPriority)
 
 					if allNodeExtendersScores[nodename] == nil {
 						allNodeExtendersScores[nodename] = &fwk.NodePluginScores{

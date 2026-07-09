@@ -41,7 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
-	"sigs.k8s.io/scheduler-library/pkg/snapshot"
+	"sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 )
 
 var (
@@ -1752,10 +1752,11 @@ func (s *TASFlavorSnapshot) fillInCounts(requirements *topologyAssignmentPodRequ
 			ObjectMeta: requirements.podTemplate.ObjectMeta,
 			Spec:       requirements.podTemplate.Spec,
 		}
-		feasibleNodeNames, _, err := s.schedulingSnapshot.CanSchedulePod(context.Background(), s.log, snapshot.SchedulablePod{
-			Pod:                dummyPod,
-			CandidateNodeNames: candidateNodeNames,
-		})
+		placement, err := s.schedulingSnapshot.MakePlacement(candidateNodeNames)
+		if err != nil {
+			return err
+		}
+		feasibleNodeNames, _, err := s.schedulingSnapshot.CanSchedulePod(context.Background(), dummyPod, placement)
 		if err != nil {
 			return err
 		}

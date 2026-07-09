@@ -17,8 +17,8 @@ package state
 import (
 	"fmt"
 
-	"sigs.k8s.io/scheduler-library/pkg/snapshot"
 	"sigs.k8s.io/scheduler-library/pkg/upstreamsync"
+	"sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/scheduler/backend/cache"

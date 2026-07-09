@@ -19,9 +19,9 @@ import (
 	"fmt"
 
 	"sigs.k8s.io/scheduler-library/pkg/framework"
-	"sigs.k8s.io/scheduler-library/pkg/snapshot"
 	"sigs.k8s.io/scheduler-library/pkg/state"
 	"sigs.k8s.io/scheduler-library/pkg/upstreamsync"
+	"sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
 	v1 "k8s.io/api/core/v1"
 

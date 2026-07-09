@@ -45,7 +45,7 @@ require (
 	sigs.k8s.io/controller-runtime v0.24.1
 	sigs.k8s.io/jobset v0.12.0
 	sigs.k8s.io/lws v0.9.0
-	sigs.k8s.io/scheduler-library v0.0.0-00010101000000-000000000000
+	sigs.k8s.io/scheduler-library v0.1.0-alpha1
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.0
 	sigs.k8s.io/yaml v1.6.0
 )
@@ -178,5 +178,3 @@ require (
 	sigs.k8s.io/scheduler-plugins v0.34.4-devel-sg // indirect
 	volcano.sh/apis v1.14.0 // indirect
 )
-
-replace sigs.k8s.io/scheduler-library => github.com/vshkrabkov/scheduler-library v0.0.0-20260703125232-07f5ed6d0c51
