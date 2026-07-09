@@ -2538,16 +2538,8 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler when waitForP
 
 			wlKey := types.NamespacedName{Name: podGroupName, Namespace: pod.Namespace}
 
-			ginkgo.By("Checking that workload was created and admitted", func() {
-				util.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, wlKey)
-			})
-
-			ginkgo.By("Terminating a pod", func() {
-				util.SetPodsPhaseByKeys(ctx, k8sClient, corev1.PodFailed, client.ObjectKeyFromObject(pod))
-			})
-
 			ginkgo.By("Checking that workload was evicted due to pods ready timeout", func() {
-				util.ExpectWorkloadsToBeEvictedByKeys(ctx, k8sClient, wlKey)
+				util.AwaitWorkloadEvictionByPodsReadyTimeout(ctx, k8sClient, wlKey, 0)
 			})
 
 			ginkgo.By("Waiting for BackoffFinished", func() {
@@ -2600,16 +2592,8 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler when waitForP
 
 			wlKey := types.NamespacedName{Name: podGroupName, Namespace: pod.Namespace}
 
-			ginkgo.By("Checking that workload was created and admitted", func() {
-				util.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, wlKey)
-			})
-
-			ginkgo.By("Terminating a pod", func() {
-				util.SetPodsPhaseByKeys(ctx, k8sClient, corev1.PodFailed, client.ObjectKeyFromObject(pod))
-			})
-
 			ginkgo.By("Checking that workload was evicted due to pods ready timeout", func() {
-				util.ExpectWorkloadsToBeEvictedByKeys(ctx, k8sClient, wlKey)
+				util.AwaitWorkloadEvictionByPodsReadyTimeout(ctx, k8sClient, wlKey, 0)
 			})
 
 			ginkgo.By("Waiting for BackoffFinished", func() {
