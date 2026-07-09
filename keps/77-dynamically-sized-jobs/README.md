@@ -27,7 +27,6 @@
     - [Pod Identification Across Slices](#pod-identification-across-slices)
     - [Scale Up](#scale-up)
     - [Scale Down](#scale-down)
-  - [Limitations and Incompatibilities](#limitations-and-incompatibilities)
     - [PartialAdmission](#partialadmission)
 - [Phases for MVP (alpha)](#phases-for-mvp-alpha)
   - [Phase 1 - batchv1/Job WorkloadSlices Support in Single-Cluster Configuration.](#phase-1---batchv1job-workloadslices-support-in-single-cluster-configuration)
@@ -330,33 +329,15 @@ pods), allowing scale-down to 2 replicas could result in only 1 active pod.
 
 See [KEP-2724: Topology Aware Scheduling](../2724-topology-aware-scheduling#support-for-elastic-workloads) for TAS details.
 
-### Limitations and Incompatibilities
-
 This section captures all known limitations and incompatibilities introduced by, or resulting from, enabling the ElasticJobs feature.
+
 
 #### PartialAdmission
 
-A given Job instance cannot have both `PartialAdmission` and `ElasticJob` enabled. This is a **per-Job limitation**, not a global feature-level conflict. It is entirely valid to have both features enabled in the system, just not simultaneously on the same Job.
+Originally, `PartialAdmission` was not allowed for elastic jobs because both features modify `job.spec.parallelism`, leading to conflicts between partial admission adjustments and horizontal scaling updates (scale-up/scale-down).
 
-**Rationale**
+To resolve this conflict, when a job is configured for elastic scaling, `PartialAdmission` will not modify `job.spec.parallelism`. Instead, it will only update `Workload.PodSet.Count` during partial admission. Using these updated count values, Kueue will remove scheduling gates from the appropriate number of pods to begin scheduling.
 
-* `PartialAdmission` depends on the static nature of a workload. Specifically, it assumes, reasonably, given the current model, that workloads are immutable in terms of `podSets[].count`. Based on this assumption, it adjusts the Job’s spec to reflect the minimum allowed parallelism at scheduling time. This value is fixed and will not change, even if the ClusterQueue’s capacity increases later.
-
-* In practice, `PartialAdmission` takes ownership of `job.spec.parallelism`, and Kueue enforces this immutability through the admission webhook. For example:
-
-  ```text
-  admission webhook "vjob.kb.io" denied the request: spec.parallelism: Forbidden: cannot change when partial admission is enabled and the job is not suspended
-  ```
-
-**Validation**
-
-To avoid delayed or implicit validation errors, any Kueue-integrated Job that supports `ElasticJobs` should include admission validation logic to reject the following annotation combination:
-
-```yaml
-annotations:
-  kueue.x-k8s.io/dynamically-sized-job: "true"
-  kueue.x-k8s.io/job-min-parallelism: "1"
-```
 
 ## Phases for MVP (alpha)
 
