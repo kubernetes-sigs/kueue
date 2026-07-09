@@ -4014,13 +4014,11 @@ func TestLocalQueueCustomMetricLabelsRace(t *testing.T) {
 	lqRef := queue.NewLocalQueueReference("ns", kueue.LocalQueueName("lq"))
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	wg.Add(2)
 
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		<-start
 		prev := oldLQ
-		for i := 0; i < 10000; i++ {
+		for i := range 10000 {
 			next := prev.DeepCopy()
 			next.Labels = map[string]string{"team": "alpha"}
 			if i%2 == 0 {
@@ -4032,15 +4030,14 @@ func TestLocalQueueCustomMetricLabelsRace(t *testing.T) {
 			}
 			prev = next
 		}
-	}()
+	})
 
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		<-start
-		for i := 0; i < 10000; i++ {
+		for range 10000 {
 			cache.ResyncLocalQueueGaugeMetrics(kueue.ClusterQueueReference("cq"), lqRef)
 		}
-	}()
+	})
 
 	close(start)
 	wg.Wait()
