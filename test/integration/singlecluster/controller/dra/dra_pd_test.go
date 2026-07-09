@@ -72,52 +72,25 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 		)
 
 		ginkgo.BeforeEach(func() {
-			ns = &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "dra-pd-",
-				},
-			}
+			ns = utiltesting.MakeNamespaceWithGenerateName("dra-pd-")
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
-			migDeviceClass = &resourcev1.DeviceClass{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "mig.example.com",
-				},
-				Spec: resourcev1.DeviceClassSpec{
-					Selectors: []resourcev1.DeviceSelector{
-						{CEL: &resourcev1.CELDeviceSelector{Expression: "device.attributes['gpu.example.com'].type == 'mig'"}},
-					},
-				},
-			}
+			migDeviceClass = utiltesting.MakeDeviceClass("mig.example.com").
+				CELSelector("device.attributes['gpu.example.com'].type == 'mig'").
+				Obj()
 			gomega.Expect(k8sClient.Create(ctx, migDeviceClass)).To(gomega.Succeed())
 
-			resourceFlavor = utiltestingapi.MakeResourceFlavor("").Obj()
-			resourceFlavor.GenerateName = "rf-pd-"
+			resourceFlavor = utiltestingapi.MakeResourceFlavor("").GeneratedName("rf-pd-").Obj()
 			gomega.Expect(k8sClient.Create(ctx, resourceFlavor)).To(gomega.Succeed())
 
-			clusterQueue = &kueue.ClusterQueue{
-				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "pd-cq-",
-				},
-				Spec: kueue.ClusterQueueSpec{
-					NamespaceSelector: &metav1.LabelSelector{},
-					ResourceGroups: []kueue.ResourceGroup{
-						{
-							CoveredResources: []corev1.ResourceName{"cpu", "memory", "gpu.memory"},
-							Flavors: []kueue.FlavorQuotas{
-								{
-									Name: kueue.ResourceFlavorReference(resourceFlavor.Name),
-									Resources: []kueue.ResourceQuota{
-										{Name: "cpu", NominalQuota: resource.MustParse("8")},
-										{Name: "memory", NominalQuota: resource.MustParse("16Gi")},
-										{Name: "gpu.memory", NominalQuota: resource.MustParse("160Gi")},
-									},
-								},
-							},
-						},
-					},
-				},
-			}
+			clusterQueue = utiltestingapi.MakeClusterQueue("").GeneratedName("pd-cq-").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).
+						Resource("cpu", "8").
+						Resource("memory", "16Gi").
+						Resource("gpu.memory", "160Gi").
+						Obj(),
+				).Obj()
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
 
@@ -341,11 +314,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 			})
 
 			ginkgo.By("Creating a DeviceClass for whole GPUs")
-			dc := &resourcev1.DeviceClass{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "gpu.example.com",
-				},
-			}
+			dc := utiltesting.MakeDeviceClass("gpu.example.com").Obj()
 			gomega.Expect(k8sClient.Create(ctx, dc)).To(gomega.Succeed())
 			ginkgo.DeferCleanup(func() {
 				gomega.Expect(k8sClient.Delete(ctx, dc)).To(gomega.Succeed())
@@ -505,11 +474,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 			})
 
 			ginkgo.By("Creating a DeviceClass for whole GPUs")
-			dc := &resourcev1.DeviceClass{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "gpu.example.com",
-				},
-			}
+			dc := utiltesting.MakeDeviceClass("gpu.example.com").Obj()
 			gomega.Expect(k8sClient.Create(ctx, dc)).To(gomega.Succeed())
 			ginkgo.DeferCleanup(func() {
 				gomega.Expect(k8sClient.Delete(ctx, dc)).To(gomega.Succeed())
@@ -550,14 +515,9 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegrationExtendedResource, true)
 
 			ginkgo.By("Creating a DeviceClass with extendedResourceName and counters mapping")
-			dc := &resourcev1.DeviceClass{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "gpu-er-counter.example.com",
-				},
-				Spec: resourcev1.DeviceClassSpec{
-					ExtendedResourceName: new("example.com/gpu-counter"),
-				},
-			}
+			dc := utiltesting.MakeDeviceClass("gpu-er-counter.example.com").
+				ExtendedResourceName("example.com/gpu-counter").
+				Obj()
 			gomega.Expect(k8sClient.Create(ctx, dc)).To(gomega.Succeed())
 			ginkgo.DeferCleanup(func() {
 				gomega.Expect(k8sClient.Delete(ctx, dc)).To(gomega.Succeed())

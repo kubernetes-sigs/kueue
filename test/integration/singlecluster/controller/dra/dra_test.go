@@ -63,45 +63,21 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 		)
 		ginkgo.BeforeEach(func() {
 			resourceSlices = nil
-			ns = &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "dra-",
-				},
-			}
+			ns = utiltesting.MakeNamespaceWithGenerateName("dra-")
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
-			deviceClass = &resourcev1.DeviceClass{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "foo.example.com",
-				},
-			}
+			deviceClass = utiltesting.MakeDeviceClass("foo.example.com").Obj()
 			gomega.Expect(k8sClient.Create(ctx, deviceClass)).To(gomega.Succeed())
 
-			resourceFlavor = utiltestingapi.MakeResourceFlavor("").Obj()
-			resourceFlavor.GenerateName = "rf-"
+			resourceFlavor = utiltestingapi.MakeResourceFlavor("").GeneratedName("rf-").Obj()
 			gomega.Expect(k8sClient.Create(ctx, resourceFlavor)).To(gomega.Succeed())
 
-			clusterQueue = &kueue.ClusterQueue{
-				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "test-cq-",
-				},
-				Spec: kueue.ClusterQueueSpec{
-					NamespaceSelector: &metav1.LabelSelector{},
-					ResourceGroups: []kueue.ResourceGroup{
-						{
-							CoveredResources: []corev1.ResourceName{"foo"},
-							Flavors: []kueue.FlavorQuotas{
-								{
-									Name: kueue.ResourceFlavorReference(resourceFlavor.Name),
-									Resources: []kueue.ResourceQuota{
-										{Name: "foo", NominalQuota: resource.MustParse("10")},
-									},
-								},
-							},
-						},
-					},
-				},
-			}
+			clusterQueue = utiltestingapi.MakeClusterQueue("").GeneratedName("test-cq-").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).
+						Resource("foo", "10").
+						Obj(),
+				).Obj()
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
 			localQueue = utiltestingapi.MakeLocalQueue("test-lq", ns.Name).
@@ -861,48 +837,23 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 		})
 
 		ginkgo.BeforeEach(func() {
-			ns = &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "dra-ext-",
-				},
-			}
+			ns = utiltesting.MakeNamespaceWithGenerateName("dra-ext-")
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
-			deviceClass = &resourcev1.DeviceClass{
-				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "gpu-ext-",
-				},
-				Spec: resourcev1.DeviceClassSpec{
-					ExtendedResourceName: ptr.To(extendedResourceName),
-				},
-			}
+			deviceClass = utiltesting.MakeDeviceClass("").GeneratedName("gpu-ext-").
+				ExtendedResourceName(extendedResourceName).
+				Obj()
 			gomega.Expect(k8sClient.Create(ctx, deviceClass)).To(gomega.Succeed())
 
-			resourceFlavor = utiltestingapi.MakeResourceFlavor("").Obj()
-			resourceFlavor.GenerateName = "rf-ext-"
+			resourceFlavor = utiltestingapi.MakeResourceFlavor("").GeneratedName("rf-ext-").Obj()
 			gomega.Expect(k8sClient.Create(ctx, resourceFlavor)).To(gomega.Succeed())
 
-			clusterQueue = &kueue.ClusterQueue{
-				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "ext-cq-",
-				},
-				Spec: kueue.ClusterQueueSpec{
-					NamespaceSelector: &metav1.LabelSelector{},
-					ResourceGroups: []kueue.ResourceGroup{
-						{
-							CoveredResources: []corev1.ResourceName{corev1.ResourceName(extendedResourceName)},
-							Flavors: []kueue.FlavorQuotas{
-								{
-									Name: kueue.ResourceFlavorReference(resourceFlavor.Name),
-									Resources: []kueue.ResourceQuota{
-										{Name: corev1.ResourceName(extendedResourceName), NominalQuota: resource.MustParse("4")},
-									},
-								},
-							},
-						},
-					},
-				},
-			}
+			clusterQueue = utiltestingapi.MakeClusterQueue("").GeneratedName("ext-cq-").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).
+						Resource(corev1.ResourceName(extendedResourceName), "4").
+						Obj(),
+				).Obj()
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
 
@@ -959,12 +910,9 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegration, true)
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegrationExtendedResource, true)
 
-			deviceClass = &resourcev1.DeviceClass{
-				ObjectMeta: metav1.ObjectMeta{Name: "gpu.example.com"},
-				Spec: resourcev1.DeviceClassSpec{
-					ExtendedResourceName: ptr.To(extendedResourceName),
-				},
-			}
+			deviceClass = utiltesting.MakeDeviceClass("gpu.example.com").
+				ExtendedResourceName(extendedResourceName).
+				Obj()
 			gomega.Expect(k8sClient.Create(ctx, deviceClass)).To(gomega.Succeed())
 
 			fwk.StopManager(ctx)
@@ -983,31 +931,18 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 		})
 
 		ginkgo.BeforeEach(func() {
-			ns = &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{GenerateName: "dra-unified-"},
-			}
+			ns = utiltesting.MakeNamespaceWithGenerateName("dra-unified-")
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
-			resourceFlavor = utiltestingapi.MakeResourceFlavor("").Obj()
-			resourceFlavor.GenerateName = "rf-unified-"
+			resourceFlavor = utiltestingapi.MakeResourceFlavor("").GeneratedName("rf-unified-").Obj()
 			gomega.Expect(k8sClient.Create(ctx, resourceFlavor)).To(gomega.Succeed())
 
-			clusterQueue = &kueue.ClusterQueue{
-				ObjectMeta: metav1.ObjectMeta{GenerateName: "unified-cq-"},
-				Spec: kueue.ClusterQueueSpec{
-					NamespaceSelector: &metav1.LabelSelector{},
-					ResourceGroups: []kueue.ResourceGroup{{
-						CoveredResources: []corev1.ResourceName{logicalName},
-						Flavors: []kueue.FlavorQuotas{{
-							Name: kueue.ResourceFlavorReference(resourceFlavor.Name),
-							Resources: []kueue.ResourceQuota{{
-								Name:         logicalName,
-								NominalQuota: resource.MustParse("8"),
-							}},
-						}},
-					}},
-				},
-			}
+			clusterQueue = utiltestingapi.MakeClusterQueue("").GeneratedName("unified-cq-").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).
+						Resource(logicalName, "8").
+						Obj(),
+				).Obj()
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
 
@@ -1065,38 +1000,18 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 		})
 
 		ginkgo.BeforeEach(func() {
-			ns = &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "dra-gate-off-",
-				},
-			}
+			ns = utiltesting.MakeNamespaceWithGenerateName("dra-gate-off-")
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
-			resourceFlavor = utiltestingapi.MakeResourceFlavor("").Obj()
-			resourceFlavor.GenerateName = "rf-gate-off-"
+			resourceFlavor = utiltestingapi.MakeResourceFlavor("").GeneratedName("rf-gate-off-").Obj()
 			gomega.Expect(k8sClient.Create(ctx, resourceFlavor)).To(gomega.Succeed())
 
-			clusterQueue = &kueue.ClusterQueue{
-				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "gate-off-cq-",
-				},
-				Spec: kueue.ClusterQueueSpec{
-					NamespaceSelector: &metav1.LabelSelector{},
-					ResourceGroups: []kueue.ResourceGroup{
-						{
-							CoveredResources: []corev1.ResourceName{extendedResourceName},
-							Flavors: []kueue.FlavorQuotas{
-								{
-									Name: kueue.ResourceFlavorReference(resourceFlavor.Name),
-									Resources: []kueue.ResourceQuota{
-										{Name: extendedResourceName, NominalQuota: resource.MustParse("4")},
-									},
-								},
-							},
-						},
-					},
-				},
-			}
+			clusterQueue = utiltestingapi.MakeClusterQueue("").GeneratedName("gate-off-cq-").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).
+						Resource(extendedResourceName, "4").
+						Obj(),
+				).Obj()
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
 
@@ -1143,39 +1058,19 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegration, false)
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRARejectWorkloadsWhenDRADisabled, true)
-			ns = &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "dra-reject-",
-				},
-			}
+			ns = utiltesting.MakeNamespaceWithGenerateName("dra-reject-")
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
-			resourceFlavor = utiltestingapi.MakeResourceFlavor("").Obj()
-			resourceFlavor.GenerateName = "rf-reject-"
+			resourceFlavor = utiltestingapi.MakeResourceFlavor("").GeneratedName("rf-reject-").Obj()
 			gomega.Expect(k8sClient.Create(ctx, resourceFlavor)).To(gomega.Succeed())
 
-			clusterQueue = &kueue.ClusterQueue{
-				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "reject-cq-",
-				},
-				Spec: kueue.ClusterQueueSpec{
-					NamespaceSelector: &metav1.LabelSelector{},
-					ResourceGroups: []kueue.ResourceGroup{
-						{
-							CoveredResources: []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory},
-							Flavors: []kueue.FlavorQuotas{
-								{
-									Name: kueue.ResourceFlavorReference(resourceFlavor.Name),
-									Resources: []kueue.ResourceQuota{
-										{Name: corev1.ResourceCPU, NominalQuota: resource.MustParse("4")},
-										{Name: corev1.ResourceMemory, NominalQuota: resource.MustParse("4Gi")},
-									},
-								},
-							},
-						},
-					},
-				},
-			}
+			clusterQueue = utiltestingapi.MakeClusterQueue("").GeneratedName("reject-cq-").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).
+						Resource(corev1.ResourceCPU, "4").
+						Resource(corev1.ResourceMemory, "4Gi").
+						Obj(),
+				).Obj()
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
 
@@ -1283,31 +1178,18 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 		})
 
 		ginkgo.BeforeEach(func() {
-			ns = &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{GenerateName: "dra-dc-tracking-"},
-			}
+			ns = utiltesting.MakeNamespaceWithGenerateName("dra-dc-tracking-")
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
-			resourceFlavor = utiltestingapi.MakeResourceFlavor("").Obj()
-			resourceFlavor.GenerateName = "rf-dc-tracking-"
+			resourceFlavor = utiltestingapi.MakeResourceFlavor("").GeneratedName("rf-dc-tracking-").Obj()
 			gomega.Expect(k8sClient.Create(ctx, resourceFlavor)).To(gomega.Succeed())
 
-			clusterQueue = &kueue.ClusterQueue{
-				ObjectMeta: metav1.ObjectMeta{GenerateName: "dc-tracking-cq-"},
-				Spec: kueue.ClusterQueueSpec{
-					NamespaceSelector: &metav1.LabelSelector{},
-					ResourceGroups: []kueue.ResourceGroup{{
-						CoveredResources: []corev1.ResourceName{logicalName},
-						Flavors: []kueue.FlavorQuotas{{
-							Name: kueue.ResourceFlavorReference(resourceFlavor.Name),
-							Resources: []kueue.ResourceQuota{{
-								Name:         logicalName,
-								NominalQuota: resource.MustParse("8"),
-							}},
-						}},
-					}},
-				},
-			}
+			clusterQueue = utiltestingapi.MakeClusterQueue("").GeneratedName("dc-tracking-cq-").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).
+						Resource(logicalName, "8").
+						Obj(),
+				).Obj()
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
 
@@ -1334,12 +1216,9 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
 
 			ginkgo.By("Creating DeviceClass with extendedResourceName")
-			deviceClass := &resourcev1.DeviceClass{
-				ObjectMeta: metav1.ObjectMeta{Name: deviceClassName},
-				Spec: resourcev1.DeviceClassSpec{
-					ExtendedResourceName: ptr.To(extendedResourceName),
-				},
-			}
+			deviceClass := utiltesting.MakeDeviceClass(deviceClassName).
+				ExtendedResourceName(extendedResourceName).
+				Obj()
 			gomega.Expect(k8sClient.Create(ctx, deviceClass)).To(gomega.Succeed())
 			defer func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
@@ -1360,12 +1239,9 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 
 		ginkgo.It("Should not admit new workload after DeviceClass is deleted", func() {
 			ginkgo.By("Creating DeviceClass")
-			deviceClass := &resourcev1.DeviceClass{
-				ObjectMeta: metav1.ObjectMeta{Name: deviceClassName},
-				Spec: resourcev1.DeviceClassSpec{
-					ExtendedResourceName: ptr.To(extendedResourceName),
-				},
-			}
+			deviceClass := utiltesting.MakeDeviceClass(deviceClassName).
+				ExtendedResourceName(extendedResourceName).
+				Obj()
 			gomega.Expect(k8sClient.Create(ctx, deviceClass)).To(gomega.Succeed())
 
 			ginkgo.By("Creating first workload and verifying admission")
@@ -1398,12 +1274,9 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 
 		ginkgo.It("Should requeue inadmissible workload when DeviceClass is deleted", func() {
 			ginkgo.By("Creating DeviceClass")
-			deviceClass := &resourcev1.DeviceClass{
-				ObjectMeta: metav1.ObjectMeta{Name: deviceClassName},
-				Spec: resourcev1.DeviceClassSpec{
-					ExtendedResourceName: ptr.To(extendedResourceName),
-				},
-			}
+			deviceClass := utiltesting.MakeDeviceClass(deviceClassName).
+				ExtendedResourceName(extendedResourceName).
+				Obj()
 			gomega.Expect(k8sClient.Create(ctx, deviceClass)).To(gomega.Succeed())
 
 			ginkgo.By("Creating first workload to fill quota")
@@ -1444,12 +1317,9 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 
 		ginkgo.It("Should clear stale DRA TotalRequests when admitted workload is requeued after DeviceClass deletion", func() {
 			ginkgo.By("Creating DeviceClass")
-			deviceClass := &resourcev1.DeviceClass{
-				ObjectMeta: metav1.ObjectMeta{Name: deviceClassName},
-				Spec: resourcev1.DeviceClassSpec{
-					ExtendedResourceName: ptr.To(extendedResourceName),
-				},
-			}
+			deviceClass := utiltesting.MakeDeviceClass(deviceClassName).
+				ExtendedResourceName(extendedResourceName).
+				Obj()
 			gomega.Expect(k8sClient.Create(ctx, deviceClass)).To(gomega.Succeed())
 
 			ginkgo.By("Creating workload and verifying it is admitted with DRA-translated quota key")
@@ -1490,12 +1360,9 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			const newExtendedResourceName = "example.com/tpu"
 
 			ginkgo.By("Creating DeviceClass with extendedResourceName for gpu")
-			deviceClass := &resourcev1.DeviceClass{
-				ObjectMeta: metav1.ObjectMeta{Name: deviceClassName},
-				Spec: resourcev1.DeviceClassSpec{
-					ExtendedResourceName: ptr.To(extendedResourceName),
-				},
-			}
+			deviceClass := utiltesting.MakeDeviceClass(deviceClassName).
+				ExtendedResourceName(extendedResourceName).
+				Obj()
 			gomega.Expect(k8sClient.Create(ctx, deviceClass)).To(gomega.Succeed())
 			defer func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
@@ -1534,12 +1401,9 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			const newExtendedResourceName = "example.com/other-accelerator"
 
 			ginkgo.By("Creating DeviceClass with extendedResourceName for gpu")
-			deviceClass := &resourcev1.DeviceClass{
-				ObjectMeta: metav1.ObjectMeta{Name: deviceClassName},
-				Spec: resourcev1.DeviceClassSpec{
-					ExtendedResourceName: ptr.To(extendedResourceName),
-				},
-			}
+			deviceClass := utiltesting.MakeDeviceClass(deviceClassName).
+				ExtendedResourceName(extendedResourceName).
+				Obj()
 			gomega.Expect(k8sClient.Create(ctx, deviceClass)).To(gomega.Succeed())
 			defer func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
@@ -1588,10 +1452,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 
 		ginkgo.It("Should requeue inadmissible workload when DeviceClass extendedResourceName is added", func() {
 			ginkgo.By("Creating DeviceClass without extendedResourceName")
-			deviceClass := &resourcev1.DeviceClass{
-				ObjectMeta: metav1.ObjectMeta{Name: deviceClassName},
-				Spec:       resourcev1.DeviceClassSpec{},
-			}
+			deviceClass := utiltesting.MakeDeviceClass(deviceClassName).Obj()
 			gomega.Expect(k8sClient.Create(ctx, deviceClass)).To(gomega.Succeed())
 			defer func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)

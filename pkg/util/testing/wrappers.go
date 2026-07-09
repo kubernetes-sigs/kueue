@@ -914,6 +914,21 @@ func (d *DeviceClassWrapper) ExtendedResourceName(name string) *DeviceClassWrapp
 	return d
 }
 
+// GeneratedName sets the generate name on the DeviceClass and clears the name.
+func (d *DeviceClassWrapper) GeneratedName(name string) *DeviceClassWrapper {
+	d.GenerateName = name
+	d.Name = ""
+	return d
+}
+
+// CELSelector adds a CEL device selector to the DeviceClass.
+func (d *DeviceClassWrapper) CELSelector(expression string) *DeviceClassWrapper {
+	d.Spec.Selectors = append(d.Spec.Selectors, resourcev1.DeviceSelector{
+		CEL: &resourcev1.CELDeviceSelector{Expression: expression},
+	})
+	return d
+}
+
 // Obj returns the inner DeviceClass.
 func (d *DeviceClassWrapper) Obj() *resourcev1.DeviceClass {
 	return &d.DeviceClass
