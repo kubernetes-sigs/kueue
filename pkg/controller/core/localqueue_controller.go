@@ -289,6 +289,8 @@ func (r *LocalQueueReconciler) Delete(e event.TypedDeleteEvent[*kueue.LocalQueue
 func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue]) bool {
 	log := r.logger().WithValues("localQueue", klog.KObj(e.ObjectNew))
 	log.V(2).Info("Queue update event")
+	oldMetricsExposed := r.lqMetrics.ShouldExposeLocalQueueMetrics(e.ObjectOld.GetLabels())
+	newMetricsExposed := r.lqMetrics.ShouldExposeLocalQueueMetrics(e.ObjectNew.GetLabels())
 
 	if features.Enabled(features.CustomMetricLabels) {
 		r.customLabels.LQStoreAndClear(utilqueue.Key(e.ObjectNew),
@@ -298,9 +300,9 @@ func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue
 			})
 	}
 
-	if r.lqMetrics.ShouldExposeLocalQueueMetrics(e.ObjectNew.GetLabels()) {
+	if newMetricsExposed {
 		updateLocalQueueResourceMetrics(e.ObjectNew, r.roleTracker, r.customLabels)
-	} else if r.lqMetrics.ShouldExposeLocalQueueMetrics(e.ObjectOld.GetLabels()) {
+	} else if oldMetricsExposed {
 		clearLocalQueueMetrics(e.ObjectOld)
 	}
 
@@ -315,6 +317,9 @@ func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue
 		}
 		if err := r.cache.UpdateLocalQueue(e.ObjectOld, e.ObjectNew); err != nil {
 			log.Error(err, "Failed to update localQueue in the cache")
+		}
+		if newMetricsExposed && !oldMetricsExposed {
+			r.resyncLocalQueueGaugeMetrics(e.ObjectNew)
 		}
 		return true
 	}
@@ -440,6 +445,27 @@ func clearLocalQueueMetrics(lq *kueue.LocalQueue) {
 	metrics.ClearLocalQueueMetrics(lqRef)
 	metrics.ClearLocalQueueCacheMetrics(lqRef)
 	metrics.ClearLocalQueueResourceMetrics(lqRef)
+}
+
+func (r *LocalQueueReconciler) resyncLocalQueueGaugeMetrics(lq *kueue.LocalQueue) {
+	lqKey := utilqueue.Key(lq)
+	clearLocalQueueMetrics(lq)
+	r.queues.ResyncGaugeMetrics()
+	r.cache.ResyncGaugeMetrics()
+
+	if !r.lqMetrics.ShouldExposeLocalQueueMetrics(lq.GetLabels()) {
+		return
+	}
+	condition := meta.FindStatusCondition(lq.Status.Conditions, kueue.LocalQueueActive)
+	if condition == nil {
+		return
+	}
+	metrics.ReportLocalQueueStatus(
+		localQueueReferenceFromLocalQueue(lq),
+		condition.Status,
+		r.customLabels.LQGet(lqKey),
+		r.roleTracker,
+	)
 }
 
 func (r *LocalQueueReconciler) Generic(e event.TypedGenericEvent[*kueue.LocalQueue]) bool {
