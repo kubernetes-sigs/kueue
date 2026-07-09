@@ -48,7 +48,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	schedulerMetrics "k8s.io/kubernetes/pkg/scheduler/metrics"
 	configapiv1beta1 "sigs.k8s.io/kueue/apis/config/v1beta1"
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -241,13 +240,6 @@ func main() {
 		setupLog.Info("metrics.customLabels is configured but CustomMetricLabels feature gate is disabled; custom labels will have no effect")
 	}
 	metrics.Register()
-
-	if features.Enabled(features.SchedulerLibraryIntegration) {
-		// Make sure that the scheduler metrics are registered, as the `scheduler-library` only registers them when
-		// calling `NewClusterState`.
-		// TODO: Remove once the code uses `NewClusterState` or metrics management is revamped in `scheduler-library`.
-		schedulerMetrics.Register()
-	}
 
 	kubeConfig := ctrl.GetConfigOrDie()
 	if kubeConfig.UserAgent == "" {
