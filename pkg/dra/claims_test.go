@@ -526,6 +526,32 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 		},
 		{
+			name: "Exactly and FirstAvailable are nil returns error",
+			extraObjects: []runtime.Object{
+				&resourcev1.ResourceClaimTemplate{
+					ObjectMeta: metav1.ObjectMeta{Name: "claim-tmpl-empty", Namespace: "ns1"},
+					Spec: resourcev1.ResourceClaimTemplateSpec{
+						Spec: resourcev1.ResourceClaimSpec{
+							Devices: resourcev1.DeviceClaim{
+								Requests: []resourcev1.DeviceRequest{
+									{Name: "req"},
+								},
+							},
+						},
+					},
+				},
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-empty", ResourceClaimTemplateName: new("claim-tmpl-empty")},
+				}
+			},
+			lookup: defaultLookup,
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(0), "", ""),
+			},
+		},
+		{
 			name: "AdminAccess returns error",
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-admin", "ns1").
