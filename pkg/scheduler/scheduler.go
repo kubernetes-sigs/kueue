@@ -32,11 +32,14 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/scheduler-library/pkg/simulator"
+	schedulerlibsnapshot "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -87,6 +90,12 @@ type Scheduler struct {
 	clock                   clock.Clock
 	roleTracker             *roletracker.RoleTracker
 	customLabels            *metrics.CustomLabels
+	placementSimulator      *simulator.SchedulingSimulator
+	restConfig              *rest.Config
+
+	// Per-cycle placement state, set during schedule() and cleared after.
+	placementSnapshot  *schedulerlibsnapshot.ClusterSnapshot
+	placementNodeNames []string
 
 	// schedulingCycle identifies the number of scheduling
 	// attempts since the last restart.
@@ -102,6 +111,7 @@ type options struct {
 	roleTracker                 *roletracker.RoleTracker
 	preemptionExpectations      *expectations.Store
 	customLabels                *metrics.CustomLabels
+	restConfig                  *rest.Config
 }
 
 // Option configures the reconciler.
@@ -167,6 +177,13 @@ func WithQuotaCheckStrategy(qcs config.QuotaCheckStrategy) Option {
 	}
 }
 
+// WithRESTConfig sets the REST config for scheduler-library integration.
+func WithRESTConfig(cfg *rest.Config) Option {
+	return func(o *options) {
+		o.restConfig = cfg
+	}
+}
+
 func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recorder events.EventRecorder, opts ...Option) *Scheduler {
 	options := defaultOptions
 	for _, opt := range opts {
@@ -199,6 +216,7 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 		quotaCheckStrategy:      options.quotaCheckStrategy,
 		roleTracker:             options.roleTracker,
 		customLabels:            options.customLabels,
+		restConfig:              options.restConfig,
 	}
 	return s
 }
@@ -207,6 +225,14 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 func (s *Scheduler) Start(ctx context.Context) error {
 	log := ctrl.LoggerFrom(ctx).WithName("scheduler")
 	ctx = ctrl.LoggerInto(ctx, log)
+	if placementEnabled() && s.restConfig != nil {
+		sim, err := initPlacementSimulator(ctx, s.restConfig)
+		if err != nil {
+			log.Error(err, "Failed to initialize placement simulator, placement checks disabled")
+		} else {
+			s.placementSimulator = sim
+		}
+	}
 	go wait.UntilWithBackoff(ctx, s.schedule)
 	return nil
 }
@@ -318,6 +344,19 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	logSnapshotIfVerbose(log, snapshot)
 	log.V(2).Info("Snapshot taken", "duration", s.clock.Since(phaseStartTime))
 
+	// 2b. Build placement snapshot for gang scheduling (if enabled).
+	if s.placementSimulator != nil {
+		var err error
+		s.placementSnapshot, s.placementNodeNames, err = s.buildPlacementSnapshot(ctx)
+		if err != nil {
+			log.Error(err, "Failed to build placement snapshot, skipping placement checks")
+		}
+		defer func() {
+			s.placementSnapshot = nil
+			s.placementNodeNames = nil
+		}()
+	}
+
 	// 3. Calculate requirements (resource flavors, borrowing) for admitting workloads.
 	phaseStartTime = s.clock.Now()
 	entries, inadmissibleEntries := s.nominate(ctx, headWorkloads, snapshot)
@@ -397,7 +436,7 @@ func (s *Scheduler) processEntry(
 	// independently, making them likely to choose conflicting topology domains.
 	// Recompute when needed so CQs considered later in the cycle don't repeatedly
 	// lose to earlier CQs and starve for prolonged periods.
-	usage, fits := s.updateAssignmentIfNeeded(log, e, snapshot, cq, preemptedWorkloads)
+	usage, fits := s.updateAssignmentIfNeeded(ctx, log, e, snapshot, cq, preemptedWorkloads)
 	mode := e.assignment.RepresentativeMode()
 
 	if features.Enabled(features.TASFailedNodeReplacementFailFast) && workload.HasTopologyAssignmentWithUnhealthyNode(e.Obj) && mode != flavorassigner.Fit {
@@ -643,7 +682,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 				}
 			}
 		} else {
-			assignment, targets := s.getAssignments(log, &e.Info, snap)
+			assignment, targets := s.getAssignments(ctx, log, &e.Info, snap)
 			e.recordAssignment(assignment, targets)
 			entries = append(entries, e)
 			continue
@@ -653,7 +692,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 	return entries, inadmissibleEntries
 }
 
-func (s *Scheduler) updateAssignmentIfNeeded(log logr.Logger,
+func (s *Scheduler) updateAssignmentIfNeeded(ctx context.Context, log logr.Logger,
 	e *entry,
 	snapshot *schdcache.Snapshot,
 	cq *schdcache.ClusterQueueSnapshot,
@@ -666,7 +705,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(log logr.Logger,
 		// reach all flavors from the nomination.
 		e.LastAssignment = nil
 		e.NominationMapping = e.readResourceToFlavorMapping()
-		newAssignment, newTargets := s.getAssignments(log, &e.Info, snapshot)
+		newAssignment, newTargets := s.getAssignments(ctx, log, &e.Info, snapshot)
 		e.recordAssignment(newAssignment, newTargets)
 		usage = e.assignmentUsage(log)
 		fitsCheck = fits(snapshot, cq, &usage, preemptedWorkloads, newTargets)
@@ -730,10 +769,11 @@ type partialAssignment struct {
 	preemptionTargets []*preemption.Target
 }
 
-func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *schdcache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
+func (s *Scheduler) getAssignments(ctx context.Context, log logr.Logger, wl *workload.Info, snap *schdcache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
 	assignment, targets := s.getInitialAssignments(log, wl, snap)
 	cq := snap.ClusterQueue(wl.ClusterQueue)
 	updateAssignmentForTAS(log, snap, cq, wl, &assignment, targets)
+	s.updateAssignmentForPlacement(ctx, log, wl, &assignment, snap.ResourceFlavors)
 	return assignment, targets
 }
 
