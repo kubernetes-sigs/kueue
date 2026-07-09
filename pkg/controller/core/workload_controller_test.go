@@ -32,6 +32,7 @@ import (
 	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -46,6 +47,7 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
@@ -2116,4 +2118,86 @@ func setupDRACache(objs []client.Object) *dra.ExtendedResourceCache {
 		}
 	}
 	return draCache
+}
+
+func TestUpdateAfsConsumedUsage(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	afsConfig := &configapi.AdmissionFairSharing{
+		UsageHalfLifeTime:     metav1.Duration{Duration: 5 * time.Minute},
+		UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
+	}
+
+	// With halfLifeTime == samplingInterval the entry penalty is half of the
+	// request, so the 4 CPU workload settles a 2 CPU penalty.
+	cases := map[string]struct {
+		initialEntry        *queueafs.ConsumedResourcesEntry
+		wantCPUMilli        int64
+		wantStatusAccounted bool
+	}{
+		"creates a penalty-only entry on a cache miss": {
+			// StatusAccounted must start false so the LocalQueue seed can still
+			// merge the persisted history into this entry.
+			wantCPUMilli:        2_000,
+			wantStatusAccounted: false,
+		},
+		"folds into an existing entry and preserves StatusAccounted": {
+			initialEntry: &queueafs.ConsumedResourcesEntry{
+				Resources:       corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")},
+				LastUpdate:      now,
+				StatusAccounted: true,
+			},
+			wantCPUMilli:        10_000,
+			wantStatusAccounted: true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			fakeClock := testingclock.NewFakeClock(now)
+			cl := utiltesting.NewClientBuilder().Build()
+			cqCache := schdcache.New(cl)
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithClock(fakeClock), qcache.WithAdmissionFairSharing(afsConfig))
+			reconciler := NewWorkloadReconciler(cl, qManager, cqCache, &utiltesting.EventRecorder{}, WithAdmissionFairSharing(afsConfig))
+			reconciler.clock = fakeClock
+
+			ctx, log := utiltesting.ContextWithLog(t)
+			cq := utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).Obj()
+			setupClusterQueue(ctx, t, cl, qManager, cqCache, cq, false)
+			lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()
+			setupLocalQueue(ctx, t, cl, qManager, lq, false)
+			if err := cqCache.AddLocalQueue(lq); err != nil {
+				t.Fatalf("couldn't add the local queue to the scheduler cache: %v", err)
+			}
+
+			wl := utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Request(corev1.ResourceCPU, "4").
+				SimpleReserveQuota("cq", "rf", now).
+				AdmittedAt(true, now).
+				Obj()
+
+			lqKey := utilqueue.KeyFromWorkload(wl)
+			if tc.initialEntry != nil {
+				qManager.AfsConsumedResources.Update(lqKey, func(queueafs.ConsumedResourcesEntry, bool) queueafs.ConsumedResourcesEntry {
+					return *tc.initialEntry
+				})
+			}
+
+			reconciler.updateAfsConsumedUsage(log, wl)
+
+			gotEntry, found := qManager.AfsConsumedResources.Get(lqKey)
+			if !found {
+				t.Fatal("expected an AfsConsumedResources entry after settlement")
+			}
+			gotCPU := gotEntry.Resources[corev1.ResourceCPU]
+			if gotCPU.MilliValue() != tc.wantCPUMilli {
+				t.Errorf("unexpected consumed CPU: want %dm, got %dm", tc.wantCPUMilli, gotCPU.MilliValue())
+			}
+			if !gotEntry.LastUpdate.Equal(now) {
+				t.Errorf("unexpected LastUpdate: want %v, got %v", now, gotEntry.LastUpdate)
+			}
+			if gotEntry.StatusAccounted != tc.wantStatusAccounted {
+				t.Errorf("unexpected StatusAccounted: want %t, got %t", tc.wantStatusAccounted, gotEntry.StatusAccounted)
+			}
+		})
+	}
 }
