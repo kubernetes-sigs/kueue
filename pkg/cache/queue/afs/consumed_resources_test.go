@@ -27,47 +27,59 @@ import (
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 )
 
-func TestSetIfAbsent(t *testing.T) {
+func TestUpdate(t *testing.T) {
 	lqKey := utilqueue.NewLocalQueueReference("default", "lq")
-	seedTime := time.Now()
-	settleTime := seedTime.Add(-time.Millisecond)
+	settleTime := time.Now()
+	seedTime := settleTime.Add(time.Millisecond)
 
 	seeded := corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")}
 	settled := corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}
 
+	seedFn := func(entry ConsumedResourcesEntry, found bool) ConsumedResourcesEntry {
+		if !found {
+			return ConsumedResourcesEntry{Resources: seeded, LastUpdate: seedTime, StatusAccounted: true}
+		}
+		return entry
+	}
+	writerFn := func(entry ConsumedResourcesEntry, found bool) ConsumedResourcesEntry {
+		return ConsumedResourcesEntry{Resources: settled, LastUpdate: settleTime, StatusAccounted: entry.StatusAccounted}
+	}
+
 	cases := map[string]struct {
-		existing    *ConsumedResourcesEntry
-		wantEntry   ConsumedResourcesEntry
-		wantExisted bool
+		existing  *ConsumedResourcesEntry
+		fn        func(ConsumedResourcesEntry, bool) ConsumedResourcesEntry
+		wantEntry ConsumedResourcesEntry
 	}{
-		"stores the seeded value when no entry exists": {
-			wantEntry:   ConsumedResourcesEntry{Resources: seeded, LastUpdate: seedTime},
-			wantExisted: false,
+		"passes found=false and a zero entry when absent, stores the result": {
+			fn:        seedFn,
+			wantEntry: ConsumedResourcesEntry{Resources: seeded, LastUpdate: seedTime, StatusAccounted: true},
 		},
-		"does not overwrite an entry created concurrently": {
-			existing:    &ConsumedResourcesEntry{Resources: settled, LastUpdate: settleTime},
-			wantEntry:   ConsumedResourcesEntry{Resources: settled, LastUpdate: settleTime},
-			wantExisted: true,
+		"passes the current entry when present": {
+			existing:  &ConsumedResourcesEntry{Resources: settled, LastUpdate: settleTime},
+			fn:        seedFn,
+			wantEntry: ConsumedResourcesEntry{Resources: settled, LastUpdate: settleTime},
+		},
+		"a writer-style update preserves StatusAccounted": {
+			existing:  &ConsumedResourcesEntry{Resources: seeded, LastUpdate: seedTime, StatusAccounted: true},
+			fn:        writerFn,
+			wantEntry: ConsumedResourcesEntry{Resources: settled, LastUpdate: settleTime, StatusAccounted: true},
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			consumed := NewAfsConsumedResources()
 			if tc.existing != nil {
-				consumed.Set(lqKey, tc.existing.Resources, tc.existing.LastUpdate)
+				consumed.Update(lqKey, func(ConsumedResourcesEntry, bool) ConsumedResourcesEntry { return *tc.existing })
 			}
 
-			gotEntry, gotExisted := consumed.SetIfAbsent(lqKey, seeded, seedTime)
+			got := consumed.Update(lqKey, tc.fn)
 
-			if gotExisted != tc.wantExisted {
-				t.Errorf("SetIfAbsent() existed = %t, want %t", gotExisted, tc.wantExisted)
-			}
-			if diff := cmp.Diff(tc.wantEntry, gotEntry); diff != "" {
-				t.Errorf("SetIfAbsent() returned entry (-want,+got):\n%s", diff)
+			if diff := cmp.Diff(tc.wantEntry, got); diff != "" {
+				t.Errorf("Update() returned entry (-want,+got):\n%s", diff)
 			}
 			stored, found := consumed.Get(lqKey)
 			if !found {
-				t.Fatal("Get() found no entry after SetIfAbsent()")
+				t.Fatal("Get() found no entry after Update()")
 			}
 			if diff := cmp.Diff(tc.wantEntry, stored); diff != "" {
 				t.Errorf("stored entry (-want,+got):\n%s", diff)

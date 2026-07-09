@@ -25,10 +25,15 @@ import (
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 )
 
-// ConsumedResourcesEntry stores the consumed resources for a LocalQueue with timestamp
+// ConsumedResourcesEntry stores the consumed resources for a LocalQueue with timestamp.
+// StatusAccounted records whether the LocalQueue's persisted fair-sharing status has
+// been folded into this entry: once history is merged, the entry's existence alone no
+// longer tells whether that happened, so it must be tracked explicitly. Every writer
+// must carry the flag forward (use Update), or the history would be merged repeatedly.
 type ConsumedResourcesEntry struct {
-	Resources  corev1.ResourceList
-	LastUpdate time.Time
+	Resources       corev1.ResourceList
+	LastUpdate      time.Time
+	StatusAccounted bool
 }
 
 // AfsConsumedResources manages the fair sharing consumed resources cache
@@ -43,7 +48,8 @@ func NewAfsConsumedResources() *AfsConsumedResources {
 	}
 }
 
-// Set updates the consumed resources for a LocalQueue
+// Set unconditionally replaces the entry for a LocalQueue, resetting
+// StatusAccounted. Controllers should use Update instead.
 func (a *AfsConsumedResources) Set(lqKey utilqueue.LocalQueueReference, resources corev1.ResourceList, lastUpdate time.Time) {
 	a.resources.Add(lqKey, ConsumedResourcesEntry{
 		Resources:  resources,
@@ -51,15 +57,14 @@ func (a *AfsConsumedResources) Set(lqKey utilqueue.LocalQueueReference, resource
 	})
 }
 
-// SetIfAbsent stores the consumed resources for a LocalQueue only when no
-// entry exists yet, and returns the entry present in the cache afterwards.
-// The check and the store happen under a single lock, so an entry created
-// concurrently (e.g. by workload settlement) is never overwritten.
-func (a *AfsConsumedResources) SetIfAbsent(lqKey utilqueue.LocalQueueReference, resources corev1.ResourceList, lastUpdate time.Time) (ConsumedResourcesEntry, bool) {
-	return a.resources.GetOrAdd(lqKey, ConsumedResourcesEntry{
-		Resources:  resources,
-		LastUpdate: lastUpdate,
-	})
+// Update atomically rewrites the entry for a LocalQueue with the result of fn.
+// fn receives the current entry (zero-valued if absent) and whether it was
+// present. It runs under the map's write lock, so it must be pure computation:
+// it must not call back into the scheduler cache (lock ordering).
+// All controller writers should go through Update so concurrent read-modify-writes
+// cannot overwrite each other and StatusAccounted is preserved by construction.
+func (a *AfsConsumedResources) Update(lqKey utilqueue.LocalQueueReference, fn func(entry ConsumedResourcesEntry, found bool) ConsumedResourcesEntry) ConsumedResourcesEntry {
+	return a.resources.Update(lqKey, fn)
 }
 
 // Get retrieves the consumed resources for a LocalQueue

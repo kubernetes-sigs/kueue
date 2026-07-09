@@ -55,6 +55,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
@@ -1418,28 +1419,40 @@ func (r *WorkloadReconciler) updateAfsConsumedUsage(log logr.Logger, wl *kueue.W
 	penalty := afs.CalculateEntryPenalty(workload.NewInfo(wl).SumTotalRequests(), r.admissionFSConfig)
 	now := r.clock.Now()
 
-	oldEntry, found := r.queues.AfsConsumedResources.Get(lqKey)
-	if !found {
-		oldEntry.LastUpdate = now
-	}
-
 	cacheLq, err := r.cache.GetCacheLocalQueue(wl.Status.Admission.ClusterQueue, lqKey)
 	if err != nil {
 		log.V(2).Info("Failed to get cache LocalQueue", "error", err)
 		return
 	}
-
-	oldUsage := oldEntry.Resources
+	// Read live usage before taking the entry lock: the scheduler snapshot reads
+	// AfsConsumedResources while holding the scheduler-cache lock, so the Update
+	// closure must not call back into the cache.
 	newUsage := cacheLq.GetAdmittedUsage()
-	elapsed := now.Sub(oldEntry.LastUpdate).Seconds()
-	newConsumed := afs.CalculateDecayedConsumed(oldUsage, newUsage, elapsed, r.admissionFSConfig.UsageHalfLifeTime.Seconds())
-	newConsumed = resource.MergeResourceListKeepSum(newConsumed, penalty)
 
-	r.queues.AfsConsumedResources.Set(lqKey, newConsumed, now)
+	updated := r.queues.AfsConsumedResources.Update(lqKey, func(old queueafs.ConsumedResourcesEntry, found bool) queueafs.ConsumedResourcesEntry {
+		lastUpdate := old.LastUpdate
+		if !found {
+			lastUpdate = now
+		}
+		// A concurrent writer can stamp a LastUpdate later than now; clamp the
+		// elapsed time so alpha stays within [0, 1], and keep the stored
+		// timestamp monotonic so the next decay does not over-elapse.
+		elapsed := max(0, now.Sub(lastUpdate).Seconds())
+		storedLastUpdate := now
+		if lastUpdate.After(now) {
+			storedLastUpdate = lastUpdate
+		}
+		newConsumed := afs.CalculateDecayedConsumed(old.Resources, newUsage, elapsed, r.admissionFSConfig.UsageHalfLifeTime.Seconds())
+		return queueafs.ConsumedResourcesEntry{
+			Resources:       resource.MergeResourceListKeepSum(newConsumed, penalty),
+			LastUpdate:      storedLastUpdate,
+			StatusAccounted: old.StatusAccounted,
+		}
+	})
 	r.queues.AfsEntryPenalties.Sub(lqKey, penalty)
 	log.V(3).Info("Entry penalty subtracted from localQueue", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)), "penalty", penalty, "remaining", r.queues.AfsEntryPenalties.Peek(lqKey))
 
-	log.V(2).Info("Updated AFS consumed usage", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)), "consumed", newConsumed)
+	log.V(2).Info("Updated AFS consumed usage", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)), "consumed", updated.Resources)
 }
 
 func (r *WorkloadReconciler) notifyWatchers(oldWl, newWl *kueue.Workload) {
