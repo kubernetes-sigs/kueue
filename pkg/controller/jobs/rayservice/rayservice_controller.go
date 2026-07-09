@@ -126,7 +126,8 @@ var _ jobframework.GenericJob = (*RayService)(nil)
 var _ jobframework.JobWithCustomAnnotations = (*RayService)(nil)
 var _ jobframework.JobWithManagedBy = (*RayService)(nil)
 var _ jobframework.ElasticWorkloadNameProvider = (*RayService)(nil)
-var _ jobframework.JobWithSkip = (*RayService)(nil)
+
+//var _ jobframework.JobWithSkip = (*RayService)(nil)
 
 func (j *RayService) Object() client.Object {
 	return (*rayv1.RayService)(j)
