@@ -24,6 +24,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
@@ -31,6 +32,8 @@ import (
 	"sigs.k8s.io/kueue/cmd/importer/cache"
 	"sigs.k8s.io/kueue/cmd/importer/mapping"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
+	controllerpod "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
@@ -77,6 +80,61 @@ func TestImportNamespace(t *testing.T) {
 		ResourceGroup(
 			*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "1", "0").Obj())
 
+	baseGpuPodWrapper := testingpod.MakePod("pod-gpu", testingNamespace).
+		UID("pod-gpu").
+		Label(testingQueueLabel, "q1").
+		Image("img", nil).
+		Request(corev1.ResourceCPU, "1").
+		Request(corev1.ResourceName("nvidia.com/gpu"), "1")
+	baseGpuManagedPodWrapper := baseGpuPodWrapper.Clone().
+		Label(controllerconstants.QueueLabel, "lq1").
+		ManagedByKueueLabel()
+
+	baseGpuWlWrapper := utiltestingapi.MakeWorkload(controllerpod.GetWorkloadNameForPod("pod-gpu", types.UID("pod-gpu")), testingNamespace).
+		ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod-gpu", "pod-gpu").
+		Label(controllerconstants.JobUIDLabel, "pod-gpu").
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		Queue("lq1").
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			Image("img").
+			Request(corev1.ResourceCPU, "1").
+			Request(corev1.ResourceName("nvidia.com/gpu"), "1").
+			PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
+			Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq1").
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+				Assignment(corev1.ResourceCPU, "cpu-flavor", "1").
+				Assignment(corev1.ResourceName("nvidia.com/gpu"), "gpu-flavor", "1").
+				Obj()).
+			Obj(), now).
+		Condition(metav1.Condition{
+			Type:    kueue.WorkloadQuotaReserved,
+			Status:  metav1.ConditionTrue,
+			Reason:  "Imported",
+			Message: "Imported into ClusterQueue cq1",
+		}).
+		Condition(metav1.Condition{
+			Type:    kueue.WorkloadAdmitted,
+			Status:  metav1.ConditionTrue,
+			Reason:  "Imported",
+			Message: "Imported into ClusterQueue cq1",
+		})
+
+	cpuOnlyClusterQueue :=
+		*utiltestingapi.MakeClusterQueue("cq1").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("cpu-flavor").
+					Resource(corev1.ResourceCPU, "10", "0").
+					Obj(),
+			)
+
+	cpuAndGpuClusterQueue :=
+		cpuOnlyClusterQueue.Clone().ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("gpu-flavor").
+				Resource(corev1.ResourceName("nvidia.com/gpu"), "10", "0").
+				Obj(),
+		)
+
 	podCmpOpts := cmp.Options{
 		cmpopts.EquateEmpty(),
 		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
@@ -88,47 +146,36 @@ func TestImportNamespace(t *testing.T) {
 		cmpopts.IgnoreFields(metav1.Condition{}, "ObservedGeneration", "LastTransitionTime"),
 	}
 
+	baseMapping := mapping.Rules{{
+		Match:        mapping.Match{Labels: map[string]string{testingQueueLabel: "q1"}},
+		ToLocalQueue: "lq1",
+	}}
+
 	cases := map[string]struct {
 		pods          []corev1.Pod
-		clusterQueues []kueue.ClusterQueue
-		localQueues   []kueue.LocalQueue
-		mapping       mapping.Rules
+		clusterQueue  kueue.ClusterQueue
+		localQueue    kueue.LocalQueue
 		addLabels     map[string]string
-
+		flavors       []kueue.ResourceFlavor
 		wantPods      []corev1.Pod
 		wantWorkloads []kueue.Workload
 		wantError     error
 	}{
-
 		"create one": {
 			pods: []corev1.Pod{
 				*basePodWrapper.DeepCopy(),
 			},
-			mapping: mapping.Rules{
-				mapping.Rule{
-					Match: mapping.Match{
-						PriorityClassName: "",
-						Labels: map[string]string{
-							testingQueueLabel: "q1",
-						},
-					},
-					ToLocalQueue: "lq1",
-				},
+			localQueue:   *baseLocalQueue.Obj(),
+			clusterQueue: *baseClusterQueue.Obj(),
+			flavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("f1").Obj(),
 			},
-			localQueues: []kueue.LocalQueue{
-				*baseLocalQueue.Obj(),
-			},
-			clusterQueues: []kueue.ClusterQueue{
-				*baseClusterQueue.Obj(),
-			},
-
 			wantPods: []corev1.Pod{
 				*basePodWrapper.Clone().
 					Label(controllerconstants.QueueLabel, "lq1").
 					ManagedByKueueLabel().
 					Obj(),
 			},
-
 			wantWorkloads: []kueue.Workload{
 				*baseWlWrapper.DeepCopy(),
 			},
@@ -137,27 +184,14 @@ func TestImportNamespace(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.DeepCopy(),
 			},
-			mapping: mapping.Rules{
-				mapping.Rule{
-					Match: mapping.Match{
-						PriorityClassName: "",
-						Labels: map[string]string{
-							testingQueueLabel: "q1",
-						},
-					},
-					ToLocalQueue: "lq1",
-				},
-			},
-			localQueues: []kueue.LocalQueue{
-				*baseLocalQueue.Obj(),
-			},
-			clusterQueues: []kueue.ClusterQueue{
-				*baseClusterQueue.Obj(),
+			localQueue:   *baseLocalQueue.Obj(),
+			clusterQueue: *baseClusterQueue.Obj(),
+			flavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("f1").Obj(),
 			},
 			addLabels: map[string]string{
 				"new.lbl": "val",
 			},
-
 			wantPods: []corev1.Pod{
 				*basePodWrapper.Clone().
 					Label(controllerconstants.QueueLabel, "lq1").
@@ -165,10 +199,39 @@ func TestImportNamespace(t *testing.T) {
 					Label("new.lbl", "val").
 					Obj(),
 			},
-
 			wantWorkloads: []kueue.Workload{
 				*baseWlWrapper.Clone().
 					Label("new.lbl", "val").
+					Obj(),
+			},
+		},
+		"create one, add labels visible during workload construction": {
+			pods: []corev1.Pod{
+				*basePodWrapper.DeepCopy(),
+			},
+			localQueue:   *baseLocalQueue.Obj(),
+			clusterQueue: *baseClusterQueue.Obj(),
+			flavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("f1").Obj(),
+			},
+			addLabels: map[string]string{
+				controllerconstants.MaxExecTimeSecondsLabel: "3600",
+				controllerconstants.PrebuiltWorkloadLabel:   "prebuilt-wl",
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.Clone().
+					Label(controllerconstants.QueueLabel, "lq1").
+					ManagedByKueueLabel().
+					Label(controllerconstants.MaxExecTimeSecondsLabel, "3600").
+					Label(controllerconstants.PrebuiltWorkloadLabel, "prebuilt-wl").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWlWrapper.Clone().
+					Name("prebuilt-wl").
+					Label(controllerconstants.MaxExecTimeSecondsLabel, "3600").
+					Label(controllerconstants.PrebuiltWorkloadLabel, "prebuilt-wl").
+					MaximumExecutionTimeSeconds(3600).
 					Obj(),
 			},
 		},
@@ -176,53 +239,100 @@ func TestImportNamespace(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.DeepCopy(),
 			},
-			mapping: mapping.Rules{
-				mapping.Rule{
-					Match: mapping.Match{
-						PriorityClassName: "",
-						Labels: map[string]string{
-							testingQueueLabel: "q1",
-						},
-					},
-					ToLocalQueue: "lq1",
-				},
-			},
-			localQueues: []kueue.LocalQueue{
-				*baseLocalQueue.Obj(),
-			},
-			clusterQueues: nil, // intentionally omit cluster queues to trigger ErrCQNotFound
-
+			localQueue:   *baseLocalQueue.Obj(),
+			clusterQueue: kueue.ClusterQueue{}, // use a zero-value ClusterQueue; LocalQueue still points to cq1, so lookup triggers ErrCQNotFound
 			wantPods: []corev1.Pod{
-				*basePodWrapper.Clone().
-					Label(controllerconstants.QueueLabel, "lq1").
-					ManagedByKueueLabel().
-					Obj(),
+				*basePodWrapper.DeepCopy(),
 			},
 			wantError: cache.ErrCQNotFound,
+		},
+		"imports a pod requesting cpu and gpu and assigns each resource to its matching resource-group flavor": {
+			pods: []corev1.Pod{
+				*baseGpuPodWrapper.DeepCopy(),
+			},
+			localQueue:   *baseLocalQueue.Obj(),
+			clusterQueue: *cpuAndGpuClusterQueue.Obj(),
+			flavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("cpu-flavor").Obj(),
+				*utiltestingapi.MakeResourceFlavor("gpu-flavor").Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*baseGpuManagedPodWrapper.DeepCopy(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseGpuWlWrapper.DeepCopy(),
+			},
+		},
+		"returns an error without mutating pod or creating workload when a requested resource is not covered by the cluster queue": {
+			pods: []corev1.Pod{
+				*baseGpuPodWrapper.DeepCopy(),
+			},
+			localQueue:   *baseLocalQueue.Obj(),
+			clusterQueue: *cpuOnlyClusterQueue.Obj(),
+			flavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("cpu-flavor").Obj(),
+			},
+			wantError: &resourceNotCoveredError{Resource: corev1.ResourceName("nvidia.com/gpu"), ClusterQueue: "cq1"},
+			wantPods: []corev1.Pod{
+				*baseGpuPodWrapper.DeepCopy(),
+			},
+			wantWorkloads: []kueue.Workload{},
+		},
+		"returns an error without mutating pod or creating workload when cluster queue references a missing resource flavor": {
+			pods: []corev1.Pod{
+				*basePodWrapper.DeepCopy(),
+			},
+			localQueue:   *baseLocalQueue.Obj(),
+			clusterQueue: *baseClusterQueue.Obj(),
+			flavors:      []kueue.ResourceFlavor{},
+			wantError:    cache.ErrCQInvalid,
+			wantPods: []corev1.Pod{
+				*basePodWrapper.DeepCopy(),
+			},
+			wantWorkloads: []kueue.Workload{},
+		},
+		"returns an error without mutating pod or creating workload when cluster queue has no resource groups": {
+			pods: []corev1.Pod{
+				*basePodWrapper.DeepCopy(),
+			},
+			localQueue:   *baseLocalQueue.Obj(),
+			clusterQueue: *utiltestingapi.MakeClusterQueue("cq1").Obj(),
+			flavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("f1").Obj(),
+			},
+			wantError: &resourceNotCoveredError{Resource: corev1.ResourceCPU, ClusterQueue: "cq1"},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.DeepCopy(),
+			},
+			wantWorkloads: []kueue.Workload{},
 		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			podsList := corev1.PodList{Items: tc.pods}
-			cqList := kueue.ClusterQueueList{Items: tc.clusterQueues}
-			lqList := kueue.LocalQueueList{Items: tc.localQueues}
+			cqList := kueue.ClusterQueueList{Items: []kueue.ClusterQueue{tc.clusterQueue}}
+			lqList := kueue.LocalQueueList{Items: []kueue.LocalQueue{tc.localQueue}}
+			rfList := kueue.ResourceFlavorList{Items: tc.flavors}
 
 			builder := utiltesting.NewClientBuilder().
 				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).WithStatusSubresource(&kueue.Workload{}).
-				WithLists(&podsList, &cqList, &lqList)
+				WithLists(&podsList, &cqList, &lqList, &rfList)
 
 			client := builder.Build()
 			ctx, _ := utiltesting.ContextWithLog(t)
 
-			mpc, _ := cache.Load(ctx, client, []string{testingNamespace}, tc.mapping, tc.addLabels)
-			gotErr := Import(ctx, client, mpc, 8)
+			mpc, err := cache.Load(ctx, client, []string{testingNamespace}, baseMapping, tc.addLabels)
+			if err != nil {
+				t.Fatalf("Unexpected cache load error: %s", err)
+			}
 
+			gotErr := Import(ctx, client, mpc, 8)
 			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Unexpected error (-want/+got)\n%s", diff)
 			}
 
-			err := client.List(ctx, &podsList)
+			err = client.List(ctx, &podsList)
 			if err != nil {
 				t.Errorf("Unexpected list pod error: %s", err)
 			}
@@ -237,6 +347,124 @@ func TestImportNamespace(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantWorkloads, wlList.Items, wlCmpOpts...); diff != "" {
 				t.Errorf("Unexpected workloads (-want/+got)\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestResourceFlavorForResource(t *testing.T) {
+	cases := map[string]struct {
+		clusterQueue *kueue.ClusterQueue
+		resource     corev1.ResourceName
+		wantFlavor   kueue.ResourceFlavorReference
+	}{
+		"returns the flavor from the matching resource group": {
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("cpu-flavor").
+						Resource(corev1.ResourceCPU, "10", "0").
+						Resource(corev1.ResourceMemory, "10Gi", "0").
+						Obj(),
+				).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("gpu-flavor").
+						Resource(corev1.ResourceName("nvidia.com/gpu"), "10", "0").
+						Obj(),
+				).Obj(),
+			resource:   corev1.ResourceName("nvidia.com/gpu"),
+			wantFlavor: "gpu-flavor",
+		},
+		"returns the first flavor from the matching resource group": {
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("on-demand").
+						Resource(corev1.ResourceName("nvidia.com/gpu"), "10", "0").
+						Obj(),
+					*utiltestingapi.MakeFlavorQuotas("spot").
+						Resource(corev1.ResourceName("nvidia.com/gpu"), "10", "0").
+						Obj(),
+				).Obj(),
+			resource:   corev1.ResourceName("nvidia.com/gpu"),
+			wantFlavor: "on-demand",
+		},
+		"returns an empty string when the resource is not covered by any resource group": {
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("cpu-flavor").
+						Resource(corev1.ResourceCPU, "10", "0").
+						Obj(),
+				).Obj(),
+			resource:   corev1.ResourceName("nvidia.com/gpu"),
+			wantFlavor: "",
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			gotFlavor := resourceFlavorForResource(tc.clusterQueue, tc.resource)
+
+			if gotFlavor != tc.wantFlavor {
+				t.Fatalf("Unexpected flavor, got %q want %q", gotFlavor, tc.wantFlavor)
+			}
+		})
+	}
+}
+
+func TestFlavorAssignmentsForRequests(t *testing.T) {
+	cq := utiltestingapi.MakeClusterQueue("cq").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("cpu-flavor").
+				Resource(corev1.ResourceCPU, "10", "0").
+				Obj(),
+		).Obj()
+
+	cases := map[string]struct {
+		requests  resources.Requests
+		want      map[corev1.ResourceName]kueue.ResourceFlavorReference
+		wantError error
+	}{
+		"assigns covered non-zero resources": {
+			requests: resources.MapRequests{
+				corev1.ResourceCPU: 1000,
+			},
+			want: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+				corev1.ResourceCPU: "cpu-flavor",
+			},
+		},
+		"ignores uncovered zero-quantity resources": {
+			requests: resources.MapRequests{
+				corev1.ResourceCPU:                    1000,
+				corev1.ResourceName("nvidia.com/gpu"): 0,
+			},
+			want: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+				corev1.ResourceCPU: "cpu-flavor",
+			},
+		},
+		"fails for uncovered non-zero resources": {
+			requests: resources.MapRequests{
+				corev1.ResourceName("nvidia.com/gpu"): 1,
+			},
+			wantError: &resourceNotCoveredError{Resource: corev1.ResourceName("nvidia.com/gpu"), ClusterQueue: "cq"},
+		},
+		"fails with the lexicographically first uncovered non-zero resource": {
+			requests: resources.MapRequests{
+				corev1.ResourceName("z.example.com/resource"): 1,
+				corev1.ResourceName("a.example.com/resource"): 1,
+			},
+			wantError: &resourceNotCoveredError{Resource: corev1.ResourceName("a.example.com/resource"), ClusterQueue: "cq"},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, gotErr := flavorAssignmentsForRequests(cq, tc.requests)
+
+			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {
+				t.Fatalf("Unexpected error (-want/+got)\n%s", diff)
+			}
+
+			if diff := cmp.Diff(tc.want, got, cmpopts.EquateEmpty()); diff != "" {
+				t.Fatalf("Unexpected flavors (-want/+got)\n%s", diff)
 			}
 		})
 	}

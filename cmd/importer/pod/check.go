@@ -26,7 +26,10 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/cmd/importer/cache"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func Check(ctx context.Context, c client.Client, importCache *cache.ImportCache, jobs uint) error {
@@ -49,17 +52,24 @@ func Check(ctx context.Context, c client.Client, importCache *cache.ImportCache,
 		if len(cq.Spec.ResourceGroups) == 0 {
 			return false, fmt.Errorf("%q has no resource groups: %w", cq.Name, cache.ErrCQInvalid)
 		}
-
-		if len(cq.Spec.ResourceGroups[0].Flavors) == 0 {
-			return false, fmt.Errorf("%q has no resource groups flavors: %w", cq.Name, cache.ErrCQInvalid)
+		if err := validateKnownClusterQueueFlavors(cq, importCache.ResourceFlavors); err != nil {
+			return false, err
 		}
 
-		rfName := cq.Spec.ResourceGroups[0].Flavors[0].Name
-		rf, rfFound := importCache.ResourceFlavors[rfName]
-		if !rfFound {
-			return false, fmt.Errorf("%q flavor %q: %w", cq.Name, rfName, cache.ErrCQInvalid)
+		kp := pod.FromObject(p)
+		wl, err := kp.ConstructComposableWorkload(ctx, c, nil, nil, nil)
+		if err != nil {
+			return false, fmt.Errorf("construct workload: %w", err)
 		}
 
+		info := workload.NewInfo(wl)
+		if len(info.TotalRequests) == 0 {
+			return false, fmt.Errorf("workload has no total requests: %w", cache.ErrPodInvalid)
+		}
+
+		if _, err := flavorAssignmentsForRequests(cq, info.TotalRequests[0].Requests); err != nil {
+			return false, err
+		}
 		var pv int32
 		if pc, found := importCache.PriorityClasses[p.Spec.PriorityClassName]; found {
 			pv = pc.Value
@@ -67,7 +77,7 @@ func Check(ctx context.Context, c client.Client, importCache *cache.ImportCache,
 			return false, fmt.Errorf("%q: %w", p.Spec.PriorityClassName, cache.ErrPCNotFound)
 		}
 
-		log.V(2).Info("Successfully checked", "clusterQueue", klog.KObj(cq), "resourceFlavor", klog.KObj(rf), "priority", pv)
+		log.V(2).Info("Successfully checked", "clusterQueue", klog.KObj(cq), "priority", pv)
 		return false, nil
 	})
 
@@ -77,4 +87,15 @@ func Check(ctx context.Context, c client.Client, importCache *cache.ImportCache,
 		log.Info("Validation failed for Pods", "err", e, "occurrences", len(pods), "observedFirstIn", pods[0])
 	}
 	return errors.Join(summary.Errors...)
+}
+
+func validateKnownClusterQueueFlavors(cq *kueue.ClusterQueue, known map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) error {
+	for _, rg := range cq.Spec.ResourceGroups {
+		for _, flavor := range rg.Flavors {
+			if _, found := known[flavor.Name]; !found {
+				return fmt.Errorf("%q flavor %q: %w", cq.Name, flavor.Name, cache.ErrCQInvalid)
+			}
+		}
+	}
+	return nil
 }

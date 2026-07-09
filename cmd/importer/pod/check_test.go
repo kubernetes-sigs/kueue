@@ -43,6 +43,18 @@ func TestCheckNamespace(t *testing.T) {
 	baseLocalQueue := utiltestingapi.MakeLocalQueue("lq1", testingNamespace).ClusterQueue("cq1")
 	baseClusterQueue := utiltestingapi.MakeClusterQueue("cq1")
 
+	baseMapping := mapping.Rules{
+		mapping.Rule{
+			Match: mapping.Match{
+				PriorityClassName: "",
+				Labels: map[string]string{
+					testingQueueLabel: "q1",
+				},
+			},
+			ToLocalQueue: "lq1",
+		},
+	}
+
 	cases := map[string]struct {
 		pods          []corev1.Pod
 		clusterQueues []kueue.ClusterQueue
@@ -63,34 +75,14 @@ func TestCheckNamespace(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.DeepCopy(),
 			},
-			mapping: mapping.Rules{
-				mapping.Rule{
-					Match: mapping.Match{
-						PriorityClassName: "",
-						Labels: map[string]string{
-							testingQueueLabel: "q1",
-						},
-					},
-					ToLocalQueue: "lq1",
-				},
-			},
+			mapping:   baseMapping,
 			wantError: cache.ErrLQNotFound,
 		},
 		"no cluster queue": {
 			pods: []corev1.Pod{
 				*basePodWrapper.DeepCopy(),
 			},
-			mapping: mapping.Rules{
-				mapping.Rule{
-					Match: mapping.Match{
-						PriorityClassName: "",
-						Labels: map[string]string{
-							testingQueueLabel: "q1",
-						},
-					},
-					ToLocalQueue: "lq1",
-				},
-			},
+			mapping: baseMapping,
 			localQueues: []kueue.LocalQueue{
 				*baseLocalQueue.Obj(),
 			},
@@ -100,17 +92,7 @@ func TestCheckNamespace(t *testing.T) {
 			pods: []corev1.Pod{
 				*basePodWrapper.DeepCopy(),
 			},
-			mapping: mapping.Rules{
-				mapping.Rule{
-					Match: mapping.Match{
-						PriorityClassName: "",
-						Labels: map[string]string{
-							testingQueueLabel: "q1",
-						},
-					},
-					ToLocalQueue: "lq1",
-				},
-			},
+			mapping: baseMapping,
 			localQueues: []kueue.LocalQueue{
 				*baseLocalQueue.Obj(),
 			},
@@ -119,21 +101,63 @@ func TestCheckNamespace(t *testing.T) {
 			},
 			wantError: cache.ErrCQInvalid,
 		},
+		"known ResourceFlavor assignment with uncovered request fails assignment": {
+			pods: []corev1.Pod{
+				*basePodWrapper.Clone().Request(corev1.ResourceName("nvidia.com/gpu"), "1").Obj(),
+			},
+			mapping: baseMapping,
+			localQueues: []kueue.LocalQueue{
+				*baseLocalQueue.Obj(),
+			},
+			clusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("cq1").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("rf1").Resource(corev1.ResourceCPU, "1").Obj()).
+					Obj(),
+			},
+			flavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("rf1").Obj(),
+			},
+			wantError: &resourceNotCoveredError{Resource: corev1.ResourceName("nvidia.com/gpu"), ClusterQueue: "cq1"},
+		},
+		"request-less pod still validates cluster queue flavors": {
+			pods: []corev1.Pod{
+				*basePodWrapper.DeepCopy(),
+			},
+			mapping: baseMapping,
+			localQueues: []kueue.LocalQueue{
+				*baseLocalQueue.Obj(),
+			},
+			clusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("cq1").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("missing-rf").Resource(corev1.ResourceCPU, "1").Obj()).
+					Obj(),
+			},
+			flavors:   []kueue.ResourceFlavor{},
+			wantError: cache.ErrCQInvalid,
+		},
+		"resource request not covered by cq": {
+			pods: []corev1.Pod{
+				*basePodWrapper.Clone().Request(corev1.ResourceEphemeralStorage, "1Gi").Obj(),
+			},
+			mapping: baseMapping,
+			localQueues: []kueue.LocalQueue{
+				*baseLocalQueue.Obj(),
+			},
+			clusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("cq1").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("rf1").Resource(corev1.ResourceCPU, "1").Obj()).
+					Obj(),
+			},
+			flavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("rf1").Obj(),
+			},
+			wantError: &resourceNotCoveredError{Resource: corev1.ResourceEphemeralStorage, ClusterQueue: "cq1"},
+		},
 		"all found": {
 			pods: []corev1.Pod{
 				*basePodWrapper.DeepCopy(),
 			},
-			mapping: mapping.Rules{
-				mapping.Rule{
-					Match: mapping.Match{
-						PriorityClassName: "",
-						Labels: map[string]string{
-							testingQueueLabel: "q1",
-						},
-					},
-					ToLocalQueue: "lq1",
-				},
-			},
+			mapping: baseMapping,
 			localQueues: []kueue.LocalQueue{
 				*baseLocalQueue.Obj(),
 			},
@@ -159,9 +183,12 @@ func TestCheckNamespace(t *testing.T) {
 			client := builder.Build()
 			ctx, _ := utiltesting.ContextWithLog(t)
 
-			mpc, _ := cache.Load(ctx, client, []string{testingNamespace}, tc.mapping, nil)
-			gotErr := Check(ctx, client, mpc, 8)
+			mpc, err := cache.Load(ctx, client, []string{testingNamespace}, tc.mapping, nil)
+			if err != nil {
+				t.Fatalf("Unexpected cache load error: %s", err)
+			}
 
+			gotErr := Check(ctx, client, mpc, 8)
 			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Unexpected error (-want/+got)\n%s", diff)
 			}
