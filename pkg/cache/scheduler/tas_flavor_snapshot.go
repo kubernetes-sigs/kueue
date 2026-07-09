@@ -668,14 +668,17 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 	}
 	requiredReplacementDomain := s.requiredReplacementDomain(tr, existingAssignment)
 	trCopy := *tr
-	sliceSize, _ := getSliceSizeWithSinglePodAsDefault(tr.PodSet.TopologyRequest)
+	sliceSize, reason := getSliceSizeWithSinglePodAsDefault(tr.PodSet.TopologyRequest)
+	if reason != "" {
+		return nil, nil, reason
+	}
 	if slicesRequested(tr.PodSet.TopologyRequest) && requiredReplacementDomain != "" && (tr.Count%sliceSize != 0) {
 		trCopy.PodSet = tr.PodSet.DeepCopy()
 		// Find the innermost constraint whose size divides the number of replacement
 		// pods to preserve leaf-level grouping
 		effectiveSliceSize := int32(1)
 		var effectiveSliceTopology *string
-		constraints := tr.PodSet.TopologyRequest.PodsetSliceRequiredTopologyConstraints
+		constraints := utiltas.PodSetSliceRequiredTopologyConstraints(tr.PodSet.TopologyRequest)
 		for _, v := range slices.Backward(constraints) {
 			if tr.Count%v.Size == 0 {
 				effectiveSliceSize = v.Size
@@ -741,12 +744,15 @@ func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta 
 		return ""
 	}
 
-	sliceSize, _ := getSliceSizeWithSinglePodAsDefault(tr.PodSet.TopologyRequest)
+	sliceSize, reason := getSliceSizeWithSinglePodAsDefault(tr.PodSet.TopologyRequest)
+	if reason != "" {
+		return ""
+	}
 	if slicesRequested(tr.PodSet.TopologyRequest) && (tr.Count%sliceSize != 0) {
 		// For multi-layer constraints, find the innermost broken constraint's domain.
 		// This ensures the replacement is confined to the tightest topology level
 		// that needs repair, preserving intermediate grouping invariants.
-		constraints := tr.PodSet.TopologyRequest.PodsetSliceRequiredTopologyConstraints
+		constraints := utiltas.PodSetSliceRequiredTopologyConstraints(tr.PodSet.TopologyRequest)
 		if len(constraints) > 1 {
 			for _, v := range slices.Backward(constraints) {
 				if tr.Count%v.Size != 0 {
@@ -919,7 +925,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	state.sliceSizeAtLevel = sliceSizeAtLevel
 
 	if len(sliceSizeAtLevel) > 0 {
-		state.multiLayerConstraints = workersTasPodSetRequests.PodSet.TopologyRequest.PodsetSliceRequiredTopologyConstraints
+		state.multiLayerConstraints = utiltas.PodSetSliceRequiredTopologyConstraints(workersTasPodSetRequests.PodSet.TopologyRequest)
 	}
 
 	requirements.tolerations = append(info.Tolerations, s.tolerations...)
@@ -1087,7 +1093,7 @@ func (s *TASFlavorSnapshot) buildSliceSizeAtLevel(
 	// Skip the first (outermost) constraint layer — it is already represented
 	// by sliceSize / sliceLevelIdx which the caller resolved from the annotation.
 	// Process only the inner layers that introduce additional grouping.
-	innerLayers := workersTasPodSetRequests.PodSet.TopologyRequest.PodsetSliceRequiredTopologyConstraints
+	innerLayers := utiltas.PodSetSliceRequiredTopologyConstraints(workersTasPodSetRequests.PodSet.TopologyRequest)
 	if len(innerLayers) > 1 {
 		innerLayers = innerLayers[1:]
 	} else {
@@ -1135,7 +1141,7 @@ func (s *TASFlavorSnapshot) HasLevel(r *kueue.PodSetTopologyRequest) bool {
 
 	// Also check multi-level topology constraints.
 	if r != nil {
-		for _, layer := range r.PodsetSliceRequiredTopologyConstraints {
+		for _, layer := range utiltas.PodSetSliceRequiredTopologyConstraints(r) {
 			if _, found := s.resolveLevelIdx(layer.Topology); !found {
 				return false
 			}
@@ -1145,16 +1151,11 @@ func (s *TASFlavorSnapshot) HasLevel(r *kueue.PodSetTopologyRequest) bool {
 	return true
 }
 
-func (s *TASFlavorSnapshot) sliceLevelKeyWithDefault(topologyRequest *kueue.PodSetTopologyRequest, defaultSliceLevelKey string) string {
-	if topologyRequest != nil {
-		if topologyRequest.PodSetSliceRequiredTopology != nil {
-			return *topologyRequest.PodSetSliceRequiredTopology
-		}
-		if len(topologyRequest.PodsetSliceRequiredTopologyConstraints) > 0 {
-			return topologyRequest.PodsetSliceRequiredTopologyConstraints[0].Topology
-		}
+func (s *TASFlavorSnapshot) sliceLevelKeyWithDefault(tr *kueue.PodSetTopologyRequest, defaultKey string) string {
+	if constraints := utiltas.PodSetSliceRequiredTopologyConstraints(tr); len(constraints) > 0 {
+		return constraints[0].Topology
 	}
-	return defaultSliceLevelKey
+	return defaultKey
 }
 
 func (s *TASFlavorSnapshot) resolveLevelIdx(levelKey string) (int, bool) {
@@ -1205,34 +1206,23 @@ func isSliceTopologyOnlyRequest(tr *kueue.PodSetTopologyRequest) bool {
 	if tr == nil || tr.Required != nil || tr.Preferred != nil {
 		return false
 	}
-	return tr.PodSetSliceRequiredTopology != nil || len(tr.PodsetSliceRequiredTopologyConstraints) > 0
+	return len(utiltas.PodSetSliceRequiredTopologyConstraints(tr)) > 0
 }
 
 func slicesRequested(tr *kueue.PodSetTopologyRequest) bool {
-	if tr == nil {
-		return false
-	}
-	return (tr.PodSetSliceRequiredTopology != nil && tr.PodSetSliceSize != nil) || len(tr.PodsetSliceRequiredTopologyConstraints) > 0
+	return len(utiltas.PodSetSliceRequiredTopologyConstraints(tr)) > 0
 }
 
-func getSliceSizeWithSinglePodAsDefault(podSetTopologyRequest *kueue.PodSetTopologyRequest) (int32, string) {
-	if podSetTopologyRequest == nil {
+func getSliceSizeWithSinglePodAsDefault(tr *kueue.PodSetTopologyRequest) (int32, string) {
+	constraints := utiltas.PodSetSliceRequiredTopologyConstraints(tr)
+	if len(constraints) == 0 {
 		return 1, ""
 	}
-
-	if len(podSetTopologyRequest.PodsetSliceRequiredTopologyConstraints) > 0 {
-		return podSetTopologyRequest.PodsetSliceRequiredTopologyConstraints[0].Size, ""
-	}
-
-	if podSetTopologyRequest.PodSetSliceRequiredTopology == nil {
-		return 1, ""
-	}
-
-	if podSetTopologyRequest.PodSetSliceSize == nil {
+	size := constraints[0].Size
+	if size <= 0 {
 		return 0, "slice topology requested, but slice size not provided"
 	}
-
-	return *podSetTopologyRequest.PodSetSliceSize, ""
+	return size, ""
 }
 
 // findBestFitDomain finds an index of the first domain with the lowest
