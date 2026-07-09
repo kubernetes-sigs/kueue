@@ -344,7 +344,6 @@ func (r *LocalQueueReconciler) initializeAfsIfNeeded(lq *kueue.LocalQueue) (hadC
 
 	lqKey := utilqueue.Key(lq)
 	hasStatus := lq.Status.FairSharing.AdmissionFairSharingStatus != nil
-	entry, hadCache = r.queues.AfsConsumedResources.Get(lqKey)
 
 	now := r.clock.Now()
 
@@ -354,21 +353,38 @@ func (r *LocalQueueReconciler) initializeAfsIfNeeded(lq *kueue.LocalQueue) (hadC
 		}
 	}
 
-	if !hadCache {
-		currentUsage := r.getCurrentUsageForLocalQueue(lq.Spec.ClusterQueue, lqKey)
-		r.queues.AfsConsumedResources.Set(lqKey, currentUsage, now)
-		entry = queueafs.ConsumedResourcesEntry{Resources: currentUsage, LastUpdate: now}
+	// Seed only from persisted state, never from live admitted usage: a live
+	// snapshot can include a concurrently-admitted Workload that its still-pending
+	// entry penalty already prices, double-counting it (#12783). An empty seed is
+	// correct for a fresh LocalQueue: entry penalties cover its early admissions.
+	// LastUpdate=now keeps the first sampling tick at ~zero elapsed, so it folds
+	// no live usage and the seed stays independent of in-flight admissions.
+	// If settlement created the entry first (post-restart admission), the persisted
+	// history is merged into it exactly once per process, tracked by StatusAccounted.
+	// The merge can slightly over-count: a second settlement before this reconcile
+	// folds alpha(elapsed) of live usage, which after a restart overlaps the persisted
+	// status; bounded by the short pre-reconcile window and decaying within a half-life.
+	seeded := corev1.ResourceList{}
+	if hasStatus {
+		seeded = lq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources.DeepCopy()
 	}
+	entry = r.queues.AfsConsumedResources.Update(lqKey, func(old queueafs.ConsumedResourcesEntry, found bool) queueafs.ConsumedResourcesEntry {
+		hadCache = found
+		switch {
+		case !found:
+			return queueafs.ConsumedResourcesEntry{Resources: seeded, LastUpdate: now, StatusAccounted: true}
+		case !old.StatusAccounted:
+			return queueafs.ConsumedResourcesEntry{
+				Resources:       resource.MergeResourceListKeepSum(old.Resources, seeded),
+				LastUpdate:      old.LastUpdate,
+				StatusAccounted: true,
+			}
+		default:
+			return old
+		}
+	})
 
 	return hadCache, entry
-}
-
-func (r *LocalQueueReconciler) getCurrentUsageForLocalQueue(cqName kueue.ClusterQueueReference, lqKey utilqueue.LocalQueueReference) corev1.ResourceList {
-	cacheLq, err := r.cache.GetCacheLocalQueue(cqName, lqKey)
-	if err != nil {
-		return corev1.ResourceList{}
-	}
-	return cacheLq.GetAdmittedUsage()
 }
 
 func (r *LocalQueueReconciler) reconcileConsumedUsage(ctx context.Context, lq *kueue.LocalQueue) error {
@@ -382,7 +398,9 @@ func (r *LocalQueueReconciler) reconcileConsumedUsage(ctx context.Context, lq *k
 			log.V(2).Info("Failed to reset LocalQueue status", "namespace", lq.Namespace, "name", lq.Name, "error", err)
 			return err
 		}
-		r.queues.AfsConsumedResources.Set(lqKey, corev1.ResourceList{}, now)
+		r.queues.AfsConsumedResources.Update(lqKey, func(old queueafs.ConsumedResourcesEntry, found bool) queueafs.ConsumedResourcesEntry {
+			return queueafs.ConsumedResourcesEntry{Resources: corev1.ResourceList{}, LastUpdate: now, StatusAccounted: old.StatusAccounted || !found}
+		})
 		log.V(2).Info("Reset AFS consumed resources cache", "namespace", lq.Namespace, "name", lq.Name)
 		return nil
 	}
@@ -403,8 +421,30 @@ func (r *LocalQueueReconciler) reconcileConsumedUsage(ctx context.Context, lq *k
 		log.V(2).Info("Failed to update LocalQueue status", "namespace", lq.Namespace, "name", lq.Name, "error", err)
 		return err
 	}
-	r.queues.AfsConsumedResources.Set(lqKey, newConsumed, now)
-	log.V(2).Info("Updated AFS consumed resources cache", "namespace", lq.Namespace, "name", lq.Name, "consumedResources", newConsumed)
+	// Recompute inside the lock rather than storing newConsumed: a settlement can
+	// land between the Get above and this write (the status update is an API call),
+	// and its folded penalty must not be overwritten. The persisted status may lag
+	// the stored value by one interval in that case; the next tick converges it.
+	stored := r.queues.AfsConsumedResources.Update(lqKey, func(old queueafs.ConsumedResourcesEntry, found bool) queueafs.ConsumedResourcesEntry {
+		if !found {
+			return queueafs.ConsumedResourcesEntry{Resources: newConsumed, LastUpdate: now, StatusAccounted: true}
+		}
+		// A settlement during the status update above can stamp a LastUpdate
+		// later than now; clamp the elapsed time so alpha stays within [0, 1],
+		// and keep the stored timestamp monotonic so the next decay does not
+		// over-elapse.
+		elapsed := max(0, now.Sub(old.LastUpdate).Seconds())
+		storedLastUpdate := now
+		if old.LastUpdate.After(now) {
+			storedLastUpdate = old.LastUpdate
+		}
+		return queueafs.ConsumedResourcesEntry{
+			Resources:       afs.CalculateDecayedConsumed(old.Resources, newUsage, elapsed, halfLifeTime),
+			LastUpdate:      storedLastUpdate,
+			StatusAccounted: old.StatusAccounted,
+		}
+	})
+	log.V(2).Info("Updated AFS consumed resources cache", "namespace", lq.Namespace, "name", lq.Name, "consumedResources", stored.Resources)
 	return nil
 }
 
