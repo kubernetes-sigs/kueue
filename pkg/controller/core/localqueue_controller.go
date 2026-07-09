@@ -284,6 +284,8 @@ func (r *LocalQueueReconciler) Delete(e event.TypedDeleteEvent[*kueue.LocalQueue
 func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue]) bool {
 	log := r.logger().WithValues("localQueue", klog.KObj(e.ObjectNew))
 	log.V(2).Info("Queue update event")
+	oldMetricsExposed := r.lqMetrics.ShouldExposeLocalQueueMetrics(e.ObjectOld.GetLabels())
+	newMetricsExposed := r.lqMetrics.ShouldExposeLocalQueueMetrics(e.ObjectNew.GetLabels())
 
 	var customLabelsChanged bool
 	if features.Enabled(features.CustomMetricLabels) {
@@ -323,13 +325,13 @@ func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue
 	}
 
 	// Clear after manager update to avoid race with concurrent metric reports.
-	if r.lqMetrics.ShouldExposeLocalQueueMetrics(e.ObjectNew.GetLabels()) && !customLabelsChanged {
+	if newMetricsExposed && !customLabelsChanged {
 		r.updateLocalQueueResourceMetrics(log, e.ObjectNew)
-	} else if r.lqMetrics.ShouldExposeLocalQueueMetrics(e.ObjectOld.GetLabels()) {
+	} else if oldMetricsExposed {
 		clearLocalQueueMetrics(e.ObjectOld)
 	}
 
-	if customLabelsChanged && !stoppingQueue {
+	if newMetricsExposed && (customLabelsChanged || !oldMetricsExposed) && !stoppingQueue {
 		r.resyncLocalQueueGaugeMetrics(e.ObjectNew)
 	}
 
