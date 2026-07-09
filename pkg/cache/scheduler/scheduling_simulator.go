@@ -25,6 +25,8 @@ func NewSchedulingSimulator(ctx context.Context, restConfig *rest.Config) (*Sche
 		Profiles: []schedulerconfig.KubeSchedulerProfile{
 			{
 				SchedulerName: "default-scheduler",
+				// List of plugins available in the Kubernetes scheduler by default:
+				// https://kubernetes.io/docs/reference/scheduling/config/#scheduling-plugins
 				Plugins: &schedulerconfig.Plugins{
 					QueueSort: schedulerconfig.PluginSet{
 						Enabled: []schedulerconfig.Plugin{{Name: queuesort.Name}},
