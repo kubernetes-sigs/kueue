@@ -11,6 +11,18 @@ steps:
     env:
       - DOCKER_BUILDX_CMD=/buildx-entrypoint
       - GOTOOLCHAIN=auto
+
+  - name: 'gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:v20260127-c1affcc8de'
+    id: 'attest-staging-images'
+    entrypoint: sh
+    args:
+      - '-c'
+      - 'make attest-images'
+    env:
+      - 'IMAGE_REGISTRY=us-central1-docker.pkg.dev/k8s-staging-images/kueue'
+      - 'GIT_TAG=$_GIT_TAG'
+      - 'COMMIT_SHA=$COMMIT_SHA'
+      - 'BUILD_ID=$BUILD_ID'
 substitutions:
   # _GIT_TAG will be filled with a git-based tag for the image, of the form vYYYYMMDD-hash, and
   # can be used as a substitution

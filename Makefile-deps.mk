@@ -31,6 +31,7 @@ MDTOC_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' si
 HELM_DOCS_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/norwoodj/helm-docs)
 MOCKGEN_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' go.uber.org/mock)
 CLUSTERPROFILE_VERSION=$(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/cluster-inventory-api)
+COSIGN_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/sigstore/cosign/v2)
 
 # Versions for external controllers
 JOBSET_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.io/jobset)
@@ -47,6 +48,7 @@ DRA_EXAMPLE_DRIVER_VERSION = $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f "{{.V
 GOLANGCI_LINT = $(BIN_DIR)/golangci-lint
 GOLANGCI_LINT_KAL = $(BIN_DIR)/golangci-lint-kube-api-linter
 CONTROLLER_GEN = $(BIN_DIR)/controller-gen
+COSIGN = $(BIN_DIR)/cosign
 KUSTOMIZE = $(BIN_DIR)/kustomize
 GINKGO = $(BIN_DIR)/ginkgo
 GOTESTSUM = $(BIN_DIR)/gotestsum
@@ -141,6 +143,11 @@ helm-docs: gomod-download-tools ## Download helm-docs locally if necessary.
 .PHONY: mockgen
 mockgen: gomod-download-tools ## Download mockgen locally if necessary.
 	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) CGO_ENABLED=1 $(GO_CMD) install go.uber.org/mock/mockgen@$(MOCKGEN_VERSION)
+
+.PHONY: cosign
+cosign: ## Download cosign locally if necessary.
+	@echo "→ Downloading cosign locally if necessary..."
+	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) $(GO_CMD) install -mod=mod github.com/sigstore/cosign/v2/cmd/cosign@$(COSIGN_VERSION)
 
 ##@ External CRDs
 
