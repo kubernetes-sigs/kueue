@@ -120,10 +120,14 @@ func PodSetSliceRequiredTopologyConstraints(tr *kueue.PodSetTopologyRequest) []k
 	if len(tr.PodsetSliceRequiredTopologyConstraints) > 0 {
 		return tr.PodsetSliceRequiredTopologyConstraints
 	}
-	if tr.PodSetSliceRequiredTopology != nil && tr.PodSetSliceSize != nil {
-		return []kueue.PodsetSliceRequiredTopologyConstraint{
-			{Topology: *tr.PodSetSliceRequiredTopology, Size: *tr.PodSetSliceSize},
-		}
+	if tr.PodSetSliceRequiredTopology == nil {
+		return nil
 	}
-	return nil
+	size := int32(0)
+	if tr.PodSetSliceSize != nil {
+		size = *tr.PodSetSliceSize
+	}
+	return []kueue.PodsetSliceRequiredTopologyConstraint{
+		{Topology: *tr.PodSetSliceRequiredTopology, Size: size},
+	}
 }
