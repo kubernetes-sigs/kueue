@@ -22,6 +22,7 @@ import (
 
 const (
 	KueueName                    = "kueue"
+	MultiKueueName               = "multikueue"
 	JobControllerName            = KueueName + "-job-controller"
 	WorkloadControllerName       = KueueName + "-workload-controller"
 	PodTerminationControllerName = KueueName + "-pod-termination-controller"

@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
@@ -740,6 +741,15 @@ func (w *wlReconciler) enqueueComponentWorkloads(ctx context.Context, wl *kueue.
 	}
 }
 
+// admittedClusterQueue returns the ClusterQueue which reserved quota for the
+// workload, or an empty reference if quota is not reserved.
+func admittedClusterQueue(wl *kueue.Workload) kueue.ClusterQueueReference {
+	if wl.Status.Admission == nil {
+		return ""
+	}
+	return wl.Status.Admission.ClusterQueue
+}
+
 func (w *wlReconciler) syncToSingleCluster(ctx context.Context, log klog.Logger, group *wlGroup, targetCluster string) (reconcile.Result, error) {
 	var errs []error
 
@@ -750,6 +760,8 @@ func (w *wlReconciler) syncToSingleCluster(ctx context.Context, log klog.Logger,
 				if err := group.remoteClients[clusterName].getClient().Create(ctx, clone); err != nil {
 					log.V(2).Error(err, "creating remote workload", "cluster", clusterName)
 					errs = append(errs, err)
+				} else {
+					metrics.ReportMultiKueueWorkloadDispatched(admittedClusterQueue(group.local), clusterName, w.roleTracker)
 				}
 			}
 			continue
@@ -874,6 +886,8 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 				if err := group.remoteClients[rem].getClient().Create(ctx, clone); err != nil {
 					log.V(2).Error(err, "creating remote object", "remote", rem)
 					errs = append(errs, err)
+				} else {
+					metrics.ReportMultiKueueWorkloadDispatched(admittedClusterQueue(group.local), rem, w.roleTracker)
 				}
 			}
 		} else if remoteWl != nil {
