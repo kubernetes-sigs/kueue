@@ -270,7 +270,7 @@ const (
 	// owner: @kannon92
 	//
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/8190
-	// Enables TLSOptions for TLS MinVersion and CipherSuites for kueue servers
+	// Enables TLSOptions for TLS MinVersion, CipherSuites, and CurvePreferences for kueue servers
 	TLSOptions featuregate.Feature = "TLSOptions"
 
 	// owner: @mykysha

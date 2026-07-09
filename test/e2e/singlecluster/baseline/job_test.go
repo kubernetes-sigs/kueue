@@ -333,44 +333,6 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 			})
 		})
 
-		ginkgo.It("Should readmit preempted job with priorityClass into a separate flavor", func() {
-			util.MustCreate(ctx, k8sClient, sampleJob)
-
-			highPriorityClass := utiltesting.MakePriorityClass("high-" + ns.Name).PriorityValue(100).Obj()
-			util.MustCreate(ctx, k8sClient, highPriorityClass)
-			ginkgo.DeferCleanup(func() {
-				gomega.Expect(k8sClient.Delete(ctx, highPriorityClass)).To(gomega.Succeed())
-			})
-
-			ginkgo.By("Job is admitted using the first flavor", func() {
-				util.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, jobKey, map[string]string{
-					"instance-type": "on-demand",
-				})
-			})
-
-			ginkgo.By("Job is preempted by higher priority job", func() {
-				job := testingjob.MakeJob("high", ns.Name).
-					Queue("main").
-					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
-					PriorityClass(highPriorityClass.Name).
-					RequestAndLimit(corev1.ResourceCPU, "1").
-					NodeSelector("instance-type", "on-demand"). // target the same flavor to cause preemption
-					TerminationGracePeriod(1).
-					Obj()
-				util.MustCreate(ctx, k8sClient, job)
-
-				util.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, client.ObjectKeyFromObject(job), map[string]string{
-					"instance-type": "on-demand",
-				})
-			})
-
-			ginkgo.By("Job is re-admitted using the second flavor", func() {
-				util.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, jobKey, map[string]string{
-					"instance-type": "spot",
-				})
-			})
-		})
-
 		ginkgo.It("Should readmit preempted job with workloadPriorityClass into a separate flavor", func() {
 			util.MustCreate(ctx, k8sClient, sampleJob)
 

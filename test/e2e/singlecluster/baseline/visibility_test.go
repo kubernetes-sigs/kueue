@@ -24,7 +24,6 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
-	schedulingv1 "k8s.io/api/scheduling/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -54,9 +53,9 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 		nsB               *corev1.Namespace
 		blockingJob       *batchv1.Job
 		sampleJob2        *batchv1.Job
-		highPriorityClass *schedulingv1.PriorityClass
-		midPriorityClass  *schedulingv1.PriorityClass
-		lowPriorityClass  *schedulingv1.PriorityClass
+		highPriorityClass *kueue.WorkloadPriorityClass
+		midPriorityClass  *kueue.WorkloadPriorityClass
+		lowPriorityClass  *kueue.WorkloadPriorityClass
 		defaultFlavor     string
 	)
 
@@ -94,13 +93,13 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 			localQueueB = utiltestingapi.MakeLocalQueue("b", nsA.Name).ClusterQueue(clusterQueue.Name).Obj()
 			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueueA, localQueueB)
 
-			highPriorityClass = utiltesting.MakePriorityClass("high-" + nsA.Name).PriorityValue(100).Obj()
+			highPriorityClass = utiltestingapi.MakeWorkloadPriorityClass("high-" + nsA.Name).PriorityValue(100).Obj()
 			util.MustCreate(ctx, k8sClient, highPriorityClass)
 
-			midPriorityClass = utiltesting.MakePriorityClass("mid-" + nsA.Name).PriorityValue(75).Obj()
+			midPriorityClass = utiltestingapi.MakeWorkloadPriorityClass("mid-" + nsA.Name).PriorityValue(75).Obj()
 			util.MustCreate(ctx, k8sClient, midPriorityClass)
 
-			lowPriorityClass = utiltesting.MakePriorityClass("low-" + nsA.Name).PriorityValue(50).Obj()
+			lowPriorityClass = utiltestingapi.MakeWorkloadPriorityClass("low-" + nsA.Name).PriorityValue(50).Obj()
 			util.MustCreate(ctx, k8sClient, lowPriorityClass)
 
 			ginkgo.By("Schedule a job that when admitted workload blocks the queue", func() {
@@ -110,7 +109,7 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 					RequestAndLimit(corev1.ResourceCPU, "1").
 					TerminationGracePeriod(1).
 					BackoffLimit(0).
-					PriorityClass(highPriorityClass.Name).
+					WorkloadPriorityClass(highPriorityClass.Name).
 					Obj()
 				util.MustCreate(ctx, k8sClient, blockingJob)
 			})
@@ -150,7 +149,7 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 					Queue(kueue.LocalQueueName(localQueueA.Name)).
 					Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 					RequestAndLimit(corev1.ResourceCPU, "1").
-					PriorityClass(lowPriorityClass.Name).
+					WorkloadPriorityClass(lowPriorityClass.Name).
 					Obj()
 				util.MustCreate(ctx, k8sClient, sampleJob2)
 			})
@@ -198,7 +197,7 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 					Queue(kueue.LocalQueueName(localQueueA.Name)).
 					Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 					RequestAndLimit(corev1.ResourceCPU, "1").
-					PriorityClass(lowPriorityClass.Name).
+					WorkloadPriorityClass(lowPriorityClass.Name).
 					Obj()
 				util.MustCreate(ctx, k8sClient, sampleJob2)
 			})
@@ -260,7 +259,7 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 						Queue(kueue.LocalQueueName(jobCase.LocalQueueName)).
 						Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 						RequestAndLimit(corev1.ResourceCPU, "1").
-						PriorityClass(jobCase.JobPrioClassName).
+						WorkloadPriorityClass(jobCase.JobPrioClassName).
 						Obj()
 					util.MustCreate(ctx, k8sClient, job)
 				}
@@ -321,7 +320,7 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 					Queue(kueue.LocalQueueName(localQueueA.Name)).
 					Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 					RequestAndLimit(corev1.ResourceCPU, "1").
-					PriorityClass(lowPriorityClass.Name).
+					WorkloadPriorityClass(lowPriorityClass.Name).
 					Obj()
 				util.MustCreate(ctx, k8sClient, sampleJob2)
 			})
@@ -383,7 +382,7 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 						Queue(kueue.LocalQueueName(jobCase.LocalQueueName)).
 						Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 						RequestAndLimit(corev1.ResourceCPU, "1").
-						PriorityClass(jobCase.JobPrioClassName).
+						WorkloadPriorityClass(jobCase.JobPrioClassName).
 						Obj()
 					util.MustCreate(ctx, k8sClient, job)
 				}
@@ -467,7 +466,7 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 						Queue(localQueueName).
 						Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 						RequestAndLimit(corev1.ResourceCPU, "2").
-						PriorityClass(jobCase.priority).
+						WorkloadPriorityClass(jobCase.priority).
 						TerminationGracePeriod(1).
 						Obj()
 					util.MustCreate(ctx, k8sClient, job)
@@ -546,7 +545,7 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 						Queue(kueue.LocalQueueName(jobCase.LocalQueueName)).
 						Image(util.GetAgnHostImage(), util.BehaviorExitFast).
 						RequestAndLimit(corev1.ResourceCPU, "1").
-						PriorityClass(jobCase.JobPrioClassName).
+						WorkloadPriorityClass(jobCase.JobPrioClassName).
 						Obj()
 					util.MustCreate(ctx, k8sClient, job)
 				}

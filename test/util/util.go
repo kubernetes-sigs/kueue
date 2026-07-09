@@ -933,16 +933,21 @@ func AwaitAndVerifyCreatedWorkload(ctx context.Context, client client.Client, wl
 	return createdWorkload
 }
 
-func SetPodsPhase(ctx context.Context, k8sClient client.Client, phase corev1.PodPhase, pods ...*corev1.Pod) {
+func SetPodsPhaseByKeys(ctx context.Context, k8sClient client.Client, phase corev1.PodPhase, keys ...client.ObjectKey) {
 	ginkgo.GinkgoHelper()
-	for _, p := range pods {
+	for _, key := range keys {
 		updatedPod := corev1.Pod{}
 		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &updatedPod)).To(gomega.Succeed())
+			g.Expect(k8sClient.Get(ctx, key, &updatedPod)).To(gomega.Succeed())
 			updatedPod.Status.Phase = phase
 			g.Expect(k8sClient.Status().Update(ctx, &updatedPod)).To(gomega.Succeed())
 		}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to set pod phase", &updatedPod))
 	}
+}
+
+func SetPodsPhase(ctx context.Context, k8sClient client.Client, phase corev1.PodPhase, pods ...*corev1.Pod) {
+	ginkgo.GinkgoHelper()
+	SetPodsPhaseByKeys(ctx, k8sClient, phase, podKeys(pods)...)
 }
 
 func BindPodWithNode(ctx context.Context, k8sClient client.Client, nodeName string, pods ...*corev1.Pod) {
@@ -1513,6 +1518,14 @@ func workloadKeys(wls []*kueue.Workload) []client.ObjectKey {
 		wlKeys = append(wlKeys, client.ObjectKeyFromObject(wl))
 	}
 	return wlKeys
+}
+
+func podKeys(pods []*corev1.Pod) []client.ObjectKey {
+	keys := make([]client.ObjectKey, 0, len(pods))
+	for _, p := range pods {
+		keys = append(keys, client.ObjectKeyFromObject(p))
+	}
+	return keys
 }
 
 func uniqueKeys(keys []client.ObjectKey) []client.ObjectKey {

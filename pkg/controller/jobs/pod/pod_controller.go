@@ -65,8 +65,11 @@ import (
 const (
 	FrameworkName                  = "pod"
 	ConditionTypeTerminationTarget = "TerminationTarget"
-	errMsgIncorrectGroupRoleCount  = "pod group can't include more than 10 roles"
 )
+
+// errMsgIncorrectGroupRoleCount is derived from jobframework.MaxPodSets so the
+// message stays in sync with the limit.
+var errMsgIncorrectGroupRoleCount = fmt.Sprintf("pod group can't include more than %d roles", jobframework.MaxPodSets)
 
 // Event reasons used by the pod controller
 const (
@@ -75,10 +78,6 @@ const (
 )
 
 const (
-	// WorkloadWaitingForReplacementPods is True when Kueue doesn't observe all
-	// the Pods declared for the group.
-	WorkloadWaitingForReplacementPods = "WaitingForReplacementPods"
-
 	// WorkloadPodsFailed means that at least one Pod are not runnable or not succeeded.
 	WorkloadPodsFailed = "PodsFailed"
 )
@@ -712,8 +711,13 @@ func (p *Pod) Load(ctx context.Context, c client.Client, key *types.NamespacedNa
 	return !p.isFound, nil
 }
 
+// fastAdmission determines if the pod is configured for fast admission based on specific annotations.
+func (p *Pod) fastAdmission() bool {
+	return p.pod.GetAnnotations()[podconstants.GroupFastAdmissionAnnotationKey] == podconstants.GroupFastAdmissionAnnotationValue
+}
+
 func (p *Pod) constructGroupPodSets() ([]kueue.PodSet, error) {
-	if _, useFastAdmission := p.pod.GetAnnotations()[podconstants.GroupFastAdmissionAnnotationKey]; useFastAdmission {
+	if p.fastAdmission() {
 		tc, err := p.groupTotalCount()
 		if err != nil {
 			return nil, err
@@ -827,9 +831,8 @@ func (p *Pod) validatePodGroupMetadata(r events.EventRecorder, activePods []core
 	}
 
 	originalQueue := jobframework.QueueName(p)
-	_, useFastAdmission := p.pod.GetAnnotations()[podconstants.GroupFastAdmissionAnnotationKey]
 
-	if !useFastAdmission && len(activePods) < groupTotalCount {
+	if !p.fastAdmission() && len(activePods) < groupTotalCount {
 		errMsg := fmt.Sprintf("'%s' group has fewer runnable pods than expected", utilpod.GetPodGroupName(&p.pod))
 		r.Eventf(p.Object(), nil, corev1.EventTypeWarning, jobframework.ReasonErrWorkloadCompose, "ErrWorkloadCompose", errMsg)
 		return jobframework.UnretryableError(errMsg)
@@ -1242,9 +1245,7 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r even
 			return nil, nil, fmt.Errorf("failed to calculate pod role hash: %w", errors.Join(roleHashErrors...))
 		}
 
-		if absentCount := int(ps.Count) - len(roleActivePods); absentCount > 0 {
-			absentPods += absentCount
-		}
+		absentPods += p.countAbsentPods(ps, len(roleActivePods))
 
 		if excessCount := len(roleActivePods) - int(ps.Count); excessCount > 0 {
 			sortActivePods(roleActivePods)
@@ -1291,6 +1292,16 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r even
 		return nil, nil, err
 	}
 	return workload, []*kueue.Workload{}, nil
+}
+
+func (p *Pod) countAbsentPods(ps kueue.PodSet, activePods int) int {
+	if p.fastAdmission() {
+		if ps.Count > 0 && activePods == 0 {
+			return 1
+		}
+		return 0
+	}
+	return max(0, int(ps.Count)-activePods)
 }
 
 func (p *Pod) equivalentToWorkload(wl *kueue.Workload, jobPodSets []kueue.PodSet) bool {
@@ -1384,7 +1395,7 @@ func (p *Pod) waitingForReplacementPodsCondition(wl *kueue.Workload) (*metav1.Co
 		return nil, false
 	}
 
-	replCond := apimeta.FindStatusCondition(wl.Status.Conditions, WorkloadWaitingForReplacementPods)
+	replCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadWaitingForReplacementPods)
 	replCondStatus := p.absentPods > 0
 
 	// Nothing to change.
@@ -1396,7 +1407,7 @@ func (p *Pod) waitingForReplacementPodsCondition(wl *kueue.Workload) (*metav1.Co
 
 	if replCond == nil {
 		replCond = &metav1.Condition{
-			Type: WorkloadWaitingForReplacementPods,
+			Type: kueue.WorkloadWaitingForReplacementPods,
 		}
 		updated = true
 	} else {

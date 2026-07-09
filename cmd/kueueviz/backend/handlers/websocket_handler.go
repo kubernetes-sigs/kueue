@@ -31,12 +31,24 @@ import (
 	"kueueviz/middleware"
 )
 
+const (
+	// writeDeadlineExtension defines the duration added to the current time to establish
+	// an absolute write deadline on the underlying net.Conn before sending a WebSocket message.
+	// This ensures that the server does not block indefinitely when attempting to write
+	// to a slow or unresponsive client.
+	writeDeadlineExtension = 5 * time.Second
+
+	// debounceDelay is the duration to wait before triggering an update to the WebSocket client.
+	// This prevents overwhelming the client and server during rapid informer events (e.g. pod churn).
+	debounceDelay = 200 * time.Millisecond
+)
+
 // WebSocket upgrader
 var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
-		return true
-	},
 	Subprotocols: []string{middleware.WebSocketBaseProtocol},
+	CheckOrigin: func(r *http.Request) bool {
+		return middleware.ValidateWebSocketOrigin(r.Header.Get("Origin"), r.Host)
+	},
 }
 
 // GenericWebSocketHandler creates a WebSocket endpoint with informer-based real-time updates
@@ -101,7 +113,7 @@ func (h *Handlers) sendData(ctx context.Context, conn *websocket.Conn, dataFetch
 	}
 	slog.Debug("Data marshaled into JSON", "duration", time.Since(marshalStart))
 
-	if err := conn.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+	if err := conn.SetWriteDeadline(time.Now().Add(writeDeadlineExtension)); err != nil {
 		return err
 	}
 
@@ -122,7 +134,7 @@ func (h *Handlers) handleInformerUpdates(ctx context.Context, conn *websocket.Co
 	updateChan := make(chan struct{}, 1)
 
 	// Debounce rapid informer events (e.g. pod churn) into a single update
-	debounced := debounce.New(200 * time.Millisecond)
+	debounced := debounce.New(debounceDelay)
 	triggerUpdate := func() {
 		debounced(func() {
 			select {

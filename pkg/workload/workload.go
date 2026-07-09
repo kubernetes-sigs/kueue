@@ -71,11 +71,17 @@ const (
 	StatusFinished      = "finished"
 
 	// SchedulingHashUnknown indicates the scheduling hash could not be computed.
-	SchedulingHashUnknown = "unknown"
+	SchedulingHashUnknown EquivalenceHash = "unknown"
 )
 
 // Reference is the full reference to Workload formed as <namespace>/< kueue.WorkloadName >.
 type Reference string
+
+// EquivalenceHash represents a scheduling equivalence class key used to track
+// EquivalenceHash is a hash of a workload's scheduling-relevant shape.
+// Workloads with the same hash have identical scheduling properties
+// and will receive the same FlavorAssigner result given the same cluster state.
+type EquivalenceHash string
 
 func NewReference(namespace, name string) Reference {
 	return Reference(namespace + "/" + name)
@@ -227,7 +233,7 @@ type Info struct {
 	// SchedulingHash identifies the workload's scheduling equivalence class.
 	// Workloads with the same hash have identical scheduling-relevant shape
 	// and will receive the same FlavorAssigner result given the same cluster state.
-	SchedulingHash string
+	SchedulingHash EquivalenceHash
 
 	// NominationMapping is the mapping of PodSets resources and their flavors
 	// based on the nomination phase.
@@ -338,7 +344,7 @@ func (i *Info) rebuildTotalRequests(opts ...InfoOption) {
 // computeSchedulingHash returns a deterministic hash of the workload's
 // scheduling-relevant shape: effective workload priority, pod spec (via
 // SpecShape), effective count, minCount, and topologyRequest per PodSet.
-func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []PodSetResources) string {
+func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []PodSetResources) EquivalenceHash {
 	if !features.Enabled(features.SchedulingEquivalenceHashing) {
 		return SchedulingHashUnknown
 	}
@@ -378,7 +384,7 @@ func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []
 	if logV := log.V(5); logV.Enabled() {
 		logV.Info("Computed scheduling hash", "workload", klog.KObj(wl), "hash", hash, "shapeJSON", string(shapeJSON))
 	}
-	return hash
+	return EquivalenceHash(hash)
 }
 
 func (i *Info) CanBePartiallyAdmitted() bool {
@@ -1150,7 +1156,8 @@ func IsActive(w *kueue.Workload) bool {
 
 // IsAdmissible returns true if the workload can be added to the queue.
 func IsAdmissible(w *kueue.Workload) bool {
-	return !HasAdmissionGate(w) && !workloadfinish.IsFinished(w) && IsActive(w) && !HasQuotaReservation(w) && !IsOnHold(w)
+	return !HasAdmissionGate(w) && !workloadfinish.IsFinished(w) && IsActive(w) && !HasQuotaReservation(w) && !IsOnHold(w) &&
+		!apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadWaitingForReplacementPods)
 }
 
 // HasAdmissionGate returns true if the workload has an admission gate annotation and the AdmissionGatedBy feature is on

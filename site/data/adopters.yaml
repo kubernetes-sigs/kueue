@@ -5,8 +5,8 @@
   integrations:
   - batch/job
   - kubeflow.org/mpijob
-  contact: '@tenzen-y'
-  contact_url: https://github.com/tenzen-y
+  contact: ''
+  contact_url: ''
 - name: DaoCloud, Inc.
   url: https://www.daocloud.io/en/
   type: End User
@@ -154,3 +154,11 @@
   integrations: []
   contact: '@krea-ai'
   contact_url: https://twitter.com/krea_ai
+- name: Parasail
+  url: https://www.parasail.io/
+  type: End User
+  description: Inference cloud for AI-native startups
+  integrations:
+  - pod
+  contact: '@yakticus'
+  contact_url: https://github.com/yakticus

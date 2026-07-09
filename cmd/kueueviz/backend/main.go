@@ -24,6 +24,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/go-logr/logr"
 	"kueueviz/config"
@@ -56,9 +57,25 @@ func main() {
 		os.Exit(1)
 	}
 
+	// The timeouts below are configured to prevent Denial-of-Service (DoS) attacks,
+	// such as Slowloris, where attackers can exhaust the server's resources by
+	// keeping many connections open indefinitely, leading to a Denial of Service
+	// (DoS) for legitimate users.
 	srv := &http.Server{
 		Addr:    serverConfig.GetServerAddress(),
 		Handler: r.Handler(),
+		// ReadHeaderTimeout is the amount of time allowed to read request headers.
+		// Set to 32s to align with Kubernetes and controller-runtime standards.
+		ReadHeaderTimeout: 32 * time.Second,
+		// ReadTimeout is the maximum duration for reading the entire request, including the body.
+		// Set to 120s to bound standard REST APIs (e.g., /api/*, /healthz). Websockets (e.g., /ws/*) are unaffected.
+		ReadTimeout: 120 * time.Second,
+		// WriteTimeout is the maximum duration before timing out writes of the response.
+		// Set to 120s to bound standard REST APIs (e.g., /api/*, /healthz). Websockets (e.g., /ws/*) are unaffected.
+		WriteTimeout: 120 * time.Second,
+		// IdleTimeout is the maximum amount of time to wait for the next request when keep-alives are enabled.
+		// Set to 90s to align with Kubernetes and controller-runtime standards.
+		IdleTimeout: 90 * time.Second,
 	}
 
 	h := handlers.New(handlers.NewClientFromManager(manager))

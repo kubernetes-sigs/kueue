@@ -458,6 +458,13 @@ type TLSOptions struct {
 	// The default would be to not set this value and inherit golang settings.
 	// +optional
 	CipherSuites []string `json:"cipherSuites,omitempty"`
+
+	// curvePreferences is the list of allowed TLS key exchange mechanisms (curves)
+	// for the server, specified as numeric IANA TLS Supported Group IDs.
+	// See https://pkg.go.dev/crypto/tls#CurveID for values supported by the current Go version.
+	// If omitted, Go defaults are used.
+	// +optional
+	CurvePreferences []int32 `json:"curvePreferences,omitempty"`
 }
 
 // ClusterProfile defines configuration for using the ClusterProfile API in MultiKueue.
