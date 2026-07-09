@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -218,6 +219,7 @@ func TestAssignFlavors(t *testing.T) {
 		preemptWorkloadSlice       *workload.Info
 		featureGates               map[featuregate.Feature]bool
 		topologies                 []*kueue.Topology
+		nodes                      []corev1.Node
 	}{
 		"single flavor, fits": {
 			wlPods: []kueue.PodSet{
@@ -3444,6 +3446,10 @@ func TestAssignFlavors(t *testing.T) {
 				utiltestingapi.MakeTopology("tas-topo-a").Levels(corev1.LabelHostname).Obj(),
 				utiltestingapi.MakeTopology("tas-topo-b").Levels(corev1.LabelHostname).Obj(),
 			},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("node-a").Label(corev1.LabelHostname, "node-a").Ready().Obj(),
+				*testingnode.MakeNode("node-b").Label(corev1.LabelHostname, "node-b").Ready().Obj(),
+			},
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 					Request(corev1.ResourceCPU, "1").
@@ -3486,6 +3492,80 @@ func TestAssignFlavors(t *testing.T) {
 					{Flavor: "tas-a", Resource: corev1.ResourceCPU}:    resources.NewAmount(1_000),
 					{Flavor: "tas-b", Resource: corev1.ResourceMemory}: resources.NewAmount(utiltesting.Mi),
 				}},
+			},
+		},
+		"explicit TAS skips flavor with no schedulable topology domains": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: true,
+			},
+			topologies: []*kueue.Topology{
+				utiltestingapi.MakeTopology("tas-topo-a").Levels(corev1.LabelHostname).Obj(),
+			},
+			// No nodes are synced, so the TAS flavor has no schedulable topology domains.
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "1").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-a").
+						Resource(corev1.ResourceCPU, "10").
+						Obj(),
+				).
+				Obj(),
+			wantRepMode: NoFit,
+			wantAssignment: Assignment{
+				NoFitReason: "NoMatchingFlavor",
+				PodSets: []PodSetAssignment{
+					{
+						Name: kueue.DefaultPodSetName,
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("1"),
+						},
+						Count:  1,
+						Status: *NewStatus(`Flavor "tas-a" has no schedulable topology domains`),
+					},
+				},
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{}},
+			},
+		},
+		"implied TAS on TAS-only ClusterQueue skips flavor with no schedulable topology domains": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: true,
+			},
+			topologies: []*kueue.Topology{
+				utiltestingapi.MakeTopology("tas-topo-a").Levels(corev1.LabelHostname).Obj(),
+			},
+			// No nodes are synced, so the TAS flavor has no schedulable topology domains.
+			// The PodSet does not explicitly request TAS, so TAS is implied by the TAS-only CQ.
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-a").
+						Resource(corev1.ResourceCPU, "10").
+						Obj(),
+				).
+				Obj(),
+			wantRepMode: NoFit,
+			wantAssignment: Assignment{
+				NoFitReason: "NoMatchingFlavor",
+				PodSets: []PodSetAssignment{
+					{
+						Name: kueue.DefaultPodSetName,
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("1"),
+						},
+						Count:  1,
+						Status: *NewStatus(`Flavor "tas-a" has no schedulable topology domains`),
+					},
+				},
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{}},
 			},
 		},
 		"multi-podset, one fits and another fails, fitting podset attempts skipped in resolveNoFitReason": {
@@ -3607,6 +3687,9 @@ func TestAssignFlavors(t *testing.T) {
 					for _, topology := range tc.topologies {
 						cache.AddOrUpdateTopology(log, topology)
 					}
+				}
+				for i := range tc.nodes {
+					cache.TASCache().SyncNode(&tc.nodes[i])
 				}
 
 				if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort(tc.clusterQueue.Spec.CohortName).Obj()); err != nil {
@@ -5222,6 +5305,7 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 		siblingCQUsage     map[kueue.ClusterQueueReference]resources.FlavorResourceQuantities
 		replaceWl          *workload.Info
 		topologies         []*kueue.Topology
+		nodes              []corev1.Node
 		allowedFlavors     []kueue.ResourceFlavorReference
 		featureGates       map[featuregate.Feature]bool
 		simulationResult   map[resources.FlavorResource]simulationResultForFlavor
@@ -5390,6 +5474,13 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 			topologies: []*kueue.Topology{
 				utiltestingapi.MakeTopology("topology-tas").Levels("rack").Obj(),
 			},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("node-tas").
+					Label("rack", "rack-1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m")}).
+					Ready().
+					Obj(),
+			},
 			podSet: *utiltestingapi.MakePodSet("main", 1).
 				Request(corev1.ResourceCPU, "1").
 				RequiredTopologyRequest("rack").
@@ -5409,6 +5500,13 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 			cq:              tasCQ,
 			topologies: []*kueue.Topology{
 				utiltestingapi.MakeTopology("topology-tas").Levels("rack").Obj(),
+			},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("node-tas").
+					Label("rack", "rack-1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m")}).
+					Ready().
+					Obj(),
 			},
 			podSet: *utiltestingapi.MakePodSet("main", 1).
 				Request(corev1.ResourceCPU, "3").
@@ -5430,6 +5528,13 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 			cq:              tasCQ,
 			topologies: []*kueue.Topology{
 				utiltestingapi.MakeTopology("topology-tas").Levels("rack").Obj(),
+			},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("node-tas").
+					Label("rack", "rack-1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m")}).
+					Ready().
+					Obj(),
 			},
 			podSet: *utiltestingapi.MakePodSet("main", 1).
 				Request(corev1.ResourceCPU, "1").
@@ -5605,6 +5710,9 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 			}
 			for _, topology := range tc.topologies {
 				cache.AddOrUpdateTopology(log, topology)
+			}
+			for i := range tc.nodes {
+				cache.TASCache().SyncNode(&tc.nodes[i])
 			}
 			snapshot, err := cache.Snapshot(ctx)
 			if err != nil {

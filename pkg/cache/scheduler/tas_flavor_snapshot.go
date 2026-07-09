@@ -1145,6 +1145,11 @@ func (s *TASFlavorSnapshot) HasLevel(r *kueue.PodSetTopologyRequest) bool {
 	return true
 }
 
+// HasAnyDomain returns true if the flavor currently has at least one topology domain available for scheduling.
+func (s *TASFlavorSnapshot) HasAnyDomain() bool {
+	return len(s.domains) > 0
+}
+
 func (s *TASFlavorSnapshot) sliceLevelKeyWithDefault(topologyRequest *kueue.PodSetTopologyRequest, defaultSliceLevelKey string) string {
 	if topologyRequest != nil {
 		if topologyRequest.PodSetSliceRequiredTopology != nil {
