@@ -35,6 +35,7 @@ var (
 	ErrLQNotFound = errors.New("localqueue not found")
 	ErrCQNotFound = errors.New("clusterqueue not found")
 	ErrCQInvalid  = errors.New("clusterqueue invalid")
+	ErrPodInvalid = errors.New("pod invalid")
 	ErrPCNotFound = errors.New("priorityclass not found")
 )
 
