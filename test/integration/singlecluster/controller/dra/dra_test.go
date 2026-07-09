@@ -1487,4 +1487,138 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
+
+	ginkgo.When("DRA resources in a cohort", func() {
+		var (
+			ns             *corev1.Namespace
+			resourceFlavor *kueue.ResourceFlavor
+			prodCQ         *kueue.ClusterQueue
+			devCQ          *kueue.ClusterQueue
+			prodLQ         *kueue.LocalQueue
+			devLQ          *kueue.LocalQueue
+			deviceClass    *resourcev1.DeviceClass
+		)
+
+		ginkgo.BeforeEach(func() {
+			ns = utiltesting.MakeNamespaceWithGenerateName("dra-borrow-")
+			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+
+			deviceClass = utiltesting.MakeDeviceClass("foo.example.com").Obj()
+			gomega.Expect(k8sClient.Create(ctx, deviceClass)).To(gomega.Succeed())
+
+			resourceFlavor = utiltestingapi.MakeResourceFlavor("").GeneratedName("rf-borrow-").Obj()
+			gomega.Expect(k8sClient.Create(ctx, resourceFlavor)).To(gomega.Succeed())
+
+			prodCQ = utiltestingapi.MakeClusterQueue("").GeneratedName("prod-cq-").
+				Cohort("dra-cohort").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).
+						Resource("foo", "5").
+						Obj(),
+				).Obj()
+			gomega.Expect(k8sClient.Create(ctx, prodCQ)).To(gomega.Succeed())
+
+			devCQ = utiltestingapi.MakeClusterQueue("").GeneratedName("dev-cq-").
+				Cohort("dra-cohort").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).
+						Resource("foo", "5").
+						Obj(),
+				).Obj()
+			gomega.Expect(k8sClient.Create(ctx, devCQ)).To(gomega.Succeed())
+
+			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, prodCQ, devCQ)
+
+			prodLQ = utiltestingapi.MakeLocalQueue("prod-lq", ns.Name).
+				ClusterQueue(prodCQ.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, prodLQ)).To(gomega.Succeed())
+
+			devLQ = utiltestingapi.MakeLocalQueue("dev-lq", ns.Name).
+				ClusterQueue(devCQ.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, devLQ)).To(gomega.Succeed())
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, prodCQ, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, devCQ, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
+		})
+
+		ginkgo.It("Should borrow DRA quota from another ClusterQueue in the cohort", func() {
+			rct := utiltesting.MakeResourceClaimTemplate("borrow-template", ns.Name).
+				DeviceRequest("gpu", "foo.example.com", 1).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())
+
+			ginkgo.By("Creating a workload that exceeds prod-cq nominal quota (needs borrowing)")
+			wl := utiltestingapi.MakeWorkload("borrow-wl", ns.Name).
+				Queue("prod-lq").
+				PodSets(*utiltestingapi.MakePodSet("main", 7).
+					ResourceClaimTemplate("gpu", "borrow-template").
+					Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			ginkgo.By("Verifying workload is admitted and borrows from dev-cq")
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodCQ.Name, wl)
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedCQ kueue.ClusterQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodCQ), &updatedCQ)).To(gomega.Succeed())
+				found := false
+				for _, flavorUsage := range updatedCQ.Status.FlavorsUsage {
+					for _, ru := range flavorUsage.Resources {
+						if ru.Name == "foo" {
+							found = true
+							g.Expect(ru.Total.Value()).To(gomega.Equal(int64(7)))
+							g.Expect(ru.Borrowed.Value()).To(gomega.Equal(int64(2)))
+						}
+					}
+				}
+				g.Expect(found).To(gomega.BeTrue(), "resource foo not found in FlavorsUsage")
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("Should not admit DRA workload when cohort capacity is exhausted", func() {
+			rct := utiltesting.MakeResourceClaimTemplate("exhaust-template", ns.Name).
+				DeviceRequest("gpu", "foo.example.com", 1).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())
+
+			ginkgo.By("Filling prod-cq quota")
+			prodWl := utiltestingapi.MakeWorkload("prod-full", ns.Name).
+				Queue("prod-lq").
+				PodSets(*utiltestingapi.MakePodSet("main", 5).
+					ResourceClaimTemplate("gpu", "exhaust-template").
+					Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, prodWl)).To(gomega.Succeed())
+
+			ginkgo.By("Filling dev-cq quota")
+			devWl := utiltestingapi.MakeWorkload("dev-full", ns.Name).
+				Queue("dev-lq").
+				PodSets(*utiltestingapi.MakePodSet("main", 5).
+					ResourceClaimTemplate("gpu", "exhaust-template").
+					Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, devWl)).To(gomega.Succeed())
+
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodCQ.Name, prodWl)
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, devCQ.Name, devWl)
+
+			ginkgo.By("Creating a workload that exceeds total cohort capacity")
+			overflowWl := utiltestingapi.MakeWorkload("overflow-wl", ns.Name).
+				Queue("prod-lq").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					ResourceClaimTemplate("gpu", "exhaust-template").
+					Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, overflowWl)).To(gomega.Succeed())
+
+			ginkgo.By("Verifying overflow workload stays pending")
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, overflowWl)
+		})
+	})
 })
