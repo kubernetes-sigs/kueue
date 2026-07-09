@@ -106,7 +106,7 @@ func syncWorkerReplicas(dst, src *rayv1.RayCluster) bool {
 			if want.replicas == nil {
 				wgs.Replicas = nil
 			} else {
-				wgs.Replicas = ptr.To(*want.replicas)
+				wgs.Replicas = new(*want.replicas)
 			}
 			changed = true
 		}
