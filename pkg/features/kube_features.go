@@ -393,6 +393,17 @@ const (
 	//
 	// Enable re-computing the assignment within the same scheduling cycle when a TAS workload doesn't fit.
 	TASRecomputeAssignmentWithinSchedulingCycle featuregate.Feature = "TASRecomputeAssignmentWithinSchedulingCycle"
+
+	// owner: @kevin85421
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/12820
+	// Defers finalizing a deleting GCS fault-tolerant RayService's Workload until
+	// KubeRay's Redis cleanup Job completes, so the cleanup Job is not gated forever
+	// and can purge the RayCluster's Redis metadata namespace.
+	//
+	// TODO(#12820): temporary workaround in the RayService integration. Remove once
+	// the generic FinishOrphanedWorkloads owner-deletion check lands.
+	DeferRayServiceFinalizationForRedisCleanup featuregate.Feature = "DeferRayServiceFinalizationForRedisCleanup"
 )
 
 func init() {
@@ -600,6 +611,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.16"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	TASRecomputeAssignmentWithinSchedulingCycle: {
+		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	DeferRayServiceFinalizationForRedisCleanup: {
 		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
 	},
 }

@@ -108,4 +108,7 @@ var (
 
 	agnHostImageOnce sync.Once
 	agnHostImage     string
+
+	redisTestImageOnce sync.Once
+	redisTestImage     string
 )
