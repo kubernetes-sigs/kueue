@@ -342,7 +342,6 @@ func (r *LocalQueueReconciler) initializeAfsIfNeeded(lq *kueue.LocalQueue) (hadC
 
 	lqKey := utilqueue.Key(lq)
 	hasStatus := lq.Status.FairSharing.AdmissionFairSharingStatus != nil
-	entry, hadCache = r.queues.AfsConsumedResources.Get(lqKey)
 
 	now := r.clock.Now()
 
@@ -352,21 +351,20 @@ func (r *LocalQueueReconciler) initializeAfsIfNeeded(lq *kueue.LocalQueue) (hadC
 		}
 	}
 
-	if !hadCache {
-		// Seed only from persisted state, never from live admitted usage: counting a
-		// concurrently-admitted Workload here would double it against its still-pending
-		// entry penalty, inflating the LocalQueue and inverting preemption ordering
-		// (#12783). Stamping LastUpdate to now keeps the first sampling tick at ~zero
-		// elapsed so it folds no live usage, leaving the seed independent of any
-		// in-flight admission; the EMA converges over later ticks. An empty seed is
-		// correct for a fresh LocalQueue: its entry penalty accounts for early admissions.
-		seeded := corev1.ResourceList{}
-		if hasStatus {
-			seeded = lq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources.DeepCopy()
-		}
-		r.queues.AfsConsumedResources.Set(lqKey, seeded, now)
-		entry = queueafs.ConsumedResourcesEntry{Resources: seeded, LastUpdate: now}
+	// Seed only from persisted state, never from live admitted usage: a live
+	// snapshot can include a concurrently-admitted Workload that its still-pending
+	// entry penalty already prices, double-counting it (#12783). An empty seed is
+	// correct for a fresh LocalQueue: entry penalties cover its early admissions.
+	// LastUpdate=now keeps the first sampling tick at ~zero elapsed, so it folds
+	// no live usage and the seed stays independent of in-flight admissions.
+	// SetIfAbsent lets a concurrently settled entry win over the seed; settlement's
+	// own read-modify-write may still replace a fresh seed (bounded history loss,
+	// never a double count).
+	seeded := corev1.ResourceList{}
+	if hasStatus {
+		seeded = lq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources.DeepCopy()
 	}
+	entry, hadCache = r.queues.AfsConsumedResources.SetIfAbsent(lqKey, seeded, now)
 
 	return hadCache, entry
 }

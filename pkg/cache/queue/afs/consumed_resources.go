@@ -51,6 +51,17 @@ func (a *AfsConsumedResources) Set(lqKey utilqueue.LocalQueueReference, resource
 	})
 }
 
+// SetIfAbsent stores the consumed resources for a LocalQueue only when no
+// entry exists yet, and returns the entry present in the cache afterwards.
+// The check and the store happen under a single lock, so an entry created
+// concurrently (e.g. by workload settlement) is never overwritten.
+func (a *AfsConsumedResources) SetIfAbsent(lqKey utilqueue.LocalQueueReference, resources corev1.ResourceList, lastUpdate time.Time) (ConsumedResourcesEntry, bool) {
+	return a.resources.GetOrAdd(lqKey, ConsumedResourcesEntry{
+		Resources:  resources,
+		LastUpdate: lastUpdate,
+	})
+}
+
 // Get retrieves the consumed resources for a LocalQueue
 func (a *AfsConsumedResources) Get(lqKey utilqueue.LocalQueueReference) (ConsumedResourcesEntry, bool) {
 	return a.resources.Get(lqKey)

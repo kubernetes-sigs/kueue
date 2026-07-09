@@ -132,3 +132,15 @@ func (dwc *SyncMap[K, V]) Swap(k K, v V) (V, bool) {
 	dwc.m[k] = v
 	return old, existed
 }
+
+// GetOrAdd returns the existing value for k if present. Otherwise, it stores
+// and returns v. The bool reports whether the value was already present.
+func (dwc *SyncMap[K, V]) GetOrAdd(k K, v V) (V, bool) {
+	dwc.lock.Lock()
+	defer dwc.lock.Unlock()
+	if old, existed := dwc.m[k]; existed {
+		return old, true
+	}
+	dwc.m[k] = v
+	return v, false
+}
