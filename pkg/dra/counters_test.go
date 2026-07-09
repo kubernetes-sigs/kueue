@@ -17,6 +17,7 @@ limitations under the License.
 package dra
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -158,6 +159,18 @@ func TestComputeCounterCharges(t *testing.T) {
 			},
 			count: 1,
 			want:  nil,
+		},
+		{
+			name:          "count multiplication saturates instead of overflowing int64",
+			cc:            defaultCC,
+			quotaResource: "gpu.memory",
+			matched: []resourcev1.Device{
+				makeDevice("big-counter-0", "big", "8000000000000000000"),
+			},
+			count: 2,
+			want: corev1.ResourceList{
+				"gpu.memory": *resource.NewQuantity(math.MaxInt64, resource.DecimalSI),
+			},
 		},
 	}
 

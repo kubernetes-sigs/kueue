@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	utilmath "sigs.k8s.io/kueue/pkg/util/math"
 )
 
 func GetCounterResourcesForWorkload(
@@ -303,7 +304,9 @@ func computeCounterCharges(
 
 	if count > 1 {
 		intVal := maxValue.Value()
-		maxValue = *resource.NewQuantity(intVal*count, maxValue.Format)
+		// Saturate rather than let intVal*count wrap to a negative quantity,
+		// consistent with countDevicesPerClass after #12897.
+		maxValue = *resource.NewQuantity(utilmath.SaturatingMul(intVal, count), maxValue.Format)
 	}
 	return corev1.ResourceList{quotaResource: maxValue}
 }
