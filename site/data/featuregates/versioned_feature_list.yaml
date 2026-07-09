@@ -45,6 +45,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.17"
+- name: DeferRayServiceFinalizationForRedisCleanup
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
 - name: ElasticJobsViaWorkloadSlices
   versionedSpecs:
   - default: false

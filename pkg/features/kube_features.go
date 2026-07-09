@@ -463,6 +463,17 @@ const (
 	// to False during a workload's first reconciliation.
 	// This feature gate requires UnadmittedWorkloadsObservability to be enabled to take effect.
 	UnadmittedWorkloadsExplicitStatus featuregate.Feature = "UnadmittedWorkloadsExplicitStatus"
+
+	// owner: @kevin85421
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/12820
+	// Defers finalizing a deleting GCS fault-tolerant RayService's Workload until
+	// KubeRay's Redis cleanup Job completes, so the cleanup Job is not gated forever
+	// and can purge the RayCluster's Redis metadata namespace.
+	//
+	// TODO(#12820): temporary workaround in the RayService integration. Remove once
+	// the generic FinishOrphanedWorkloads owner-deletion check lands.
+	DeferRayServiceFinalizationForRedisCleanup featuregate.Feature = "DeferRayServiceFinalizationForRedisCleanup"
 )
 
 func init() {
@@ -715,6 +726,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	UnadmittedWorkloadsExplicitStatus: {
 		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Beta},
+	},
+
+	DeferRayServiceFinalizationForRedisCleanup: {
+		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 
