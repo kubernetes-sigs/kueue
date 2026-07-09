@@ -47,7 +47,7 @@
     version: "0.17"
 - name: DeferRayServiceFinalizationForRedisCleanup
   versionedSpecs:
-  - default: true
+  - default: false
     lockToDefault: false
     preRelease: Beta
     version: "0.19"

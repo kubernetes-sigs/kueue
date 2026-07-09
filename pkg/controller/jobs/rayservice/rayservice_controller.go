@@ -149,11 +149,11 @@ func (j *RayService) Suspend() {
 //
 // TODO(#12820): this is gated by DeferRayServiceFinalizationForRedisCleanup as a temporary workaround. Remove the gate
 // once the generic FinishOrphanedWorkloads owner-deletion check lands.
-func (j *RayService) Skip(context.Context) bool {
-	return features.Enabled(features.DeferRayServiceFinalizationForRedisCleanup) &&
-		!j.DeletionTimestamp.IsZero() &&
-		rayutils.IsGCSFaultToleranceEnabled(&j.Spec.RayClusterSpec, j.Annotations)
-}
+//func (j *RayService) Skip(context.Context) bool {
+//	return features.Enabled(features.DeferRayServiceFinalizationForRedisCleanup) &&
+//		!j.DeletionTimestamp.IsZero() &&
+//		rayutils.IsGCSFaultToleranceEnabled(&j.Spec.RayClusterSpec, j.Annotations)
+//}
 
 func (j *RayService) GVK() schema.GroupVersionKind {
 	return gvk
