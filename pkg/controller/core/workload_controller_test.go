@@ -1579,6 +1579,8 @@ func TestUpdateAfsConsumedUsage(t *testing.T) {
 		initialEntry        *queueafs.ConsumedResourcesEntry
 		wantCPUMilli        int64
 		wantStatusAccounted bool
+		// wantLastUpdate defaults to now when zero.
+		wantLastUpdate time.Time
 	}{
 		"creates a penalty-only entry on a cache miss": {
 			// StatusAccounted must start false so the LocalQueue seed can still
@@ -1594,6 +1596,21 @@ func TestUpdateAfsConsumedUsage(t *testing.T) {
 			},
 			wantCPUMilli:        10_000,
 			wantStatusAccounted: true,
+		},
+		"clamps a future LastUpdate and keeps the timestamp monotonic": {
+			// A concurrent writer stamped a LastUpdate later than now. The
+			// elapsed time must clamp to 0 so alpha stays within [0, 1]: the old
+			// usage is kept verbatim and only the 2 CPU penalty folds in (8+2=10),
+			// instead of the negative-elapsed path inflating it. The stored
+			// timestamp stays monotonic at the later value rather than rewinding.
+			initialEntry: &queueafs.ConsumedResourcesEntry{
+				Resources:       corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")},
+				LastUpdate:      now.Add(5 * time.Minute),
+				StatusAccounted: true,
+			},
+			wantCPUMilli:        10_000,
+			wantStatusAccounted: true,
+			wantLastUpdate:      now.Add(5 * time.Minute),
 		},
 	}
 	for name, tc := range cases {
@@ -1638,8 +1655,12 @@ func TestUpdateAfsConsumedUsage(t *testing.T) {
 			if gotCPU.MilliValue() != tc.wantCPUMilli {
 				t.Errorf("unexpected consumed CPU: want %dm, got %dm", tc.wantCPUMilli, gotCPU.MilliValue())
 			}
-			if !gotEntry.LastUpdate.Equal(now) {
-				t.Errorf("unexpected LastUpdate: want %v, got %v", now, gotEntry.LastUpdate)
+			wantLastUpdate := tc.wantLastUpdate
+			if wantLastUpdate.IsZero() {
+				wantLastUpdate = now
+			}
+			if !gotEntry.LastUpdate.Equal(wantLastUpdate) {
+				t.Errorf("unexpected LastUpdate: want %v, got %v", wantLastUpdate, gotEntry.LastUpdate)
 			}
 			if gotEntry.StatusAccounted != tc.wantStatusAccounted {
 				t.Errorf("unexpected StatusAccounted: want %t, got %t", tc.wantStatusAccounted, gotEntry.StatusAccounted)
