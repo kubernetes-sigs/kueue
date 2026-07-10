@@ -1426,6 +1426,89 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing", "featur
 		})
 	})
 
+	ginkgo.When("Restarting the manager", func() {
+		var (
+			cq *kueue.ClusterQueue
+			lq *kueue.LocalQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			cq = utiltestingapi.MakeClusterQueue("cq-restart").
+				Cohort("all").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).Resource(corev1.ResourceCPU, "16").Obj()).
+				AdmissionMode(kueue.UsageBasedAdmissionFairSharing).
+				Obj()
+			util.MustCreate(ctx, k8sClient, cq)
+			cqs = append(cqs, cq)
+
+			lq = utiltestingapi.MakeLocalQueue("lq-restart", ns.Name).
+				FairSharing(&kueue.FairSharing{Weight: ptr.To(resource.MustParse("1"))}).
+				ClusterQueue(cq.Name).Obj()
+			util.MustCreate(ctx, k8sClient, lq)
+			lqs = append(lqs, lq)
+			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
+		})
+
+		ginkgo.It("should retain the LocalQueue's historical usage across a restart", func() {
+			ginkgo.By("Accumulating usage on the LocalQueue")
+			wl1 := createWorkload("lq-restart", "8")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+			util.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lq), ">", 7_000)
+
+			ginkgo.By("Finishing the workload and stopping the manager")
+			util.FinishWorkloads(ctx, k8sClient, wl1)
+			fwk.StopManager(ctx)
+
+			ginkgo.By("Reading the persisted usage frozen by the shutdown")
+			frozenLq := &kueue.LocalQueue{}
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), frozenLq)).To(gomega.Succeed())
+			gomega.Expect(frozenLq.Status.FairSharing).NotTo(gomega.BeNil())
+			gomega.Expect(frozenLq.Status.FairSharing.AdmissionFairSharingStatus).NotTo(gomega.BeNil())
+			frozenUsage := frozenLq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources[corev1.ResourceCPU]
+			gomega.Expect(frozenUsage.MilliValue()).To(gomega.BeNumerically(">", 2_000),
+				"persisted usage decayed too much before the manager stopped")
+
+			// The long half-life freezes the accounting for the assertion
+			// window, and the finished workload is gone from live usage: a
+			// status written after the restart can only stay near the frozen
+			// value if the seed recovered the persisted history.
+			ginkgo.By("Restarting the manager with a long half-life")
+			restartTime := time.Now()
+			fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(
+				&config.AdmissionFairSharing{
+					UsageSamplingInterval: metav1.Duration{Duration: time.Second},
+					UsageHalfLifeTime:     metav1.Duration{Duration: time.Hour},
+				},
+			))
+
+			ginkgo.By("Admitting a new workload right after the restart")
+			wl2 := createWorkload("lq-restart", "1")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl2)
+
+			ginkgo.By("Checking that a status written after the restart retains the historical usage")
+			gomega.Eventually(func(g gomega.Gomega) {
+				updatedLq := &kueue.LocalQueue{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), updatedLq)).To(gomega.Succeed())
+				afsStatus := updatedLq.Status.FairSharing.AdmissionFairSharingStatus
+				g.Expect(afsStatus).NotTo(gomega.BeNil())
+				// LastUpdate is second-granular, so writes within restartTime's
+				// own second are rejected here; the 1s ticks converge right after.
+				g.Expect(afsStatus.LastUpdate.Time).To(gomega.BeTemporally(">", restartTime),
+					"the status was not written by the restarted manager yet")
+				usage := afsStatus.ConsumedResources[corev1.ResourceCPU]
+				g.Expect(usage.MilliValue()).To(gomega.BeNumerically(">", frozenUsage.MilliValue()*7/10))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Checking that the recovered usage is retained rather than overwritten later")
+			gomega.Consistently(func(g gomega.Gomega) {
+				updatedLq := &kueue.LocalQueue{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), updatedLq)).To(gomega.Succeed())
+				usage := updatedLq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources[corev1.ResourceCPU]
+				g.Expect(usage.MilliValue()).To(gomega.BeNumerically(">", frozenUsage.MilliValue()*7/10))
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+		})
+	})
+
 	ginkgo.When("Self-triggered reconciles do not truncate CPU", func() {
 		ginkgo.It("should maintain non-zero CPU ConsumedResources across sampling intervals", func() {
 			ginkgo.By("Creating a ClusterQueue and LocalQueue with AFS enabled")
