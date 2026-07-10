@@ -31,7 +31,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/api/resource"
+	apiresource "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/events"
@@ -556,12 +556,12 @@ func applyResourceTransformations(input corev1.ResourceList, transforms map[core
 	return output
 }
 
-func multiplyResourceQuantities(value, mul resource.Quantity) resource.Quantity {
+func multiplyResourceQuantities(value, mul apiresource.Quantity) apiresource.Quantity {
 	value = value.DeepCopy()
 	mul = mul.DeepCopy()
 	product := inf.Dec{}
 	product.Mul(value.AsDec(), mul.AsDec())
-	return *resource.NewDecimalQuantity(product, value.Format)
+	return *apiresource.NewDecimalQuantity(product, value.Format)
 }
 
 func CanBePartiallyAdmitted(wl *kueue.Workload) bool {
