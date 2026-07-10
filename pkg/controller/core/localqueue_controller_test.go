@@ -60,6 +60,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 		runningWls               []kueue.Workload
 		wantRequeueAfter         *time.Duration
 		initialConsumedResources queueafs.ConsumedResourcesEntry
+		pendingEntryPenalty      corev1.ResourceList
 		wantConsumedResources    *queueafs.ConsumedResourcesEntry
 	}{
 		"local queue with Hold StopPolicy": {
@@ -169,6 +170,63 @@ func TestLocalQueueReconcile(t *testing.T) {
 				UsageHalfLifeTime:     metav1.Duration{Duration: 5 * time.Minute},
 				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
 			},
+		},
+		"clamps a future LastUpdate stamped by a concurrent settlement": {
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				Obj(),
+			localQueue: utiltestingapi.MakeLocalQueue("test-queue", "default").
+				ClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				FairSharing(&kueue.FairSharing{
+					Weight: new(resource.MustParse("1")),
+				}).
+				Obj(),
+			initialConsumedResources: queueafs.ConsumedResourcesEntry{
+				Resources: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("8"),
+				},
+				// A concurrent settlement stamped a LastUpdate later than now.
+				LastUpdate:      now.Add(5 * time.Minute),
+				StatusAccounted: true,
+			},
+			// A pending penalty lets the tick run despite the not-yet-stale
+			// (future) LastUpdate, exercising the clamp instead of an early requeue.
+			pendingEntryPenalty: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("test-queue", "default").
+				ClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				FairSharing(&kueue.FairSharing{
+					Weight: new(resource.MustParse("1")),
+				}).
+				FairSharingStatus(
+					&kueue.LocalQueueFairSharingStatus{
+						AdmissionFairSharingStatus: &kueue.LocalQueueAdmissionFairSharingStatus{
+							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
+								// elapsed clamps to 0, so the persisted status keeps
+								// the usage verbatim instead of inflating it via the
+								// negative-elapsed path.
+								corev1.ResourceCPU: resource.MustParse("8"),
+							},
+						},
+					}).
+				Obj(),
+			wantConsumedResources: &queueafs.ConsumedResourcesEntry{
+				Resources: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("8"),
+				},
+				// Monotonic: the stored timestamp keeps the later value.
+				LastUpdate:      now.Add(5 * time.Minute),
+				StatusAccounted: true,
+			},
+			afsConfig: &config.AdmissionFairSharing{
+				UsageHalfLifeTime:     metav1.Duration{Duration: 5 * time.Minute},
+				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
+			},
+			// The full interval pins that the tick ran; the sampling-interval
+			// guard short-circuit would return interval minus the (negative)
+			// sinceLastUpdate instead.
+			wantRequeueAfter: ptr.To(5 * time.Minute),
 		},
 		"local queue decaying usage sums the previous state and running workloads": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
@@ -838,6 +896,11 @@ func TestLocalQueueReconcile(t *testing.T) {
 				qManager.AfsConsumedResources.Update(lqKey, func(queueafs.ConsumedResourcesEntry, bool) queueafs.ConsumedResourcesEntry {
 					return tc.initialConsumedResources
 				})
+			}
+			if tc.pendingEntryPenalty != nil {
+				// A pending entry penalty bypasses the sampling-interval guard so
+				// the tick runs even when the cached LastUpdate is not yet stale.
+				qManager.AfsEntryPenalties.Push(utilqueue.Key(tc.localQueue), tc.pendingEntryPenalty)
 			}
 			reconciler := NewLocalQueueReconciler(cl, qManager, cqCache,
 				WithClock(clock),
