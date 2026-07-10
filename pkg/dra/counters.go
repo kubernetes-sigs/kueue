@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -159,7 +160,7 @@ func processCounterCharge(
 		)}
 	}
 
-	charges := computeCounterCharges(counterConfig, quotaResource, matched, count)
+	charges := computeCounterCharges(log, counterConfig, quotaResource, matched, count)
 	if len(charges) > 0 {
 		return charges, nil
 	}
@@ -278,6 +279,7 @@ func groupSlicesByPool(slices []resourcev1.ResourceSlice, driver string) map[str
 }
 
 func computeCounterCharges(
+	log logr.Logger,
 	counterConfig *deviceClassCounterConfig,
 	quotaResource corev1.ResourceName,
 	matched []resourcev1.Device,
@@ -305,11 +307,22 @@ func computeCounterCharges(
 
 	// A driver-published counter value is an unvalidated resource.Quantity: the
 	// apiserver accepts any parseable value, including negatives and magnitudes
-	// beyond int64 (maxValue.Value() would then truncate to garbage before the
-	// saturating multiply could clamp it). Clamp with SafeValue and drop
-	// negatives so the charge stays in [0, MaxInt64] for every count, including
-	// count == 1.
-	intVal := max(utilmath.SafeValue(maxValue), 0)
+	// beyond int64 (maxValue.Value() would then truncate or wrap before the
+	// saturating multiply could clamp it). SafeValue keeps the magnitude within
+	// [MinInt64, MaxInt64], and a negative value is then forced to 0 so the
+	// charge stays in [0, MaxInt64] for every count, including count == 1. The
+	// negative check uses maxValue.Sign() so it reflects the driver's value
+	// directly, independent of how Value() maps out-of-range magnitudes (Value()
+	// can even return 0 for MinInt64). A driver publishing a negative counter is
+	// misbehaving and should never happen, so log it at V(0), visible even at the
+	// most restrictive log level, matching how kueue surfaces other "unexpected
+	// negative" values (see the negative pod-count log in the scheduler cache).
+	intVal := utilmath.SafeValue(maxValue)
+	if maxValue.Sign() < 0 {
+		log.V(0).Info("Unexpected negative device counter value from driver, clamping to 0",
+			"driver", counterConfig.driver, "counter", counterConfig.counterName, "value", maxValue.String())
+		intVal = 0
+	}
 	if count > 1 {
 		// Saturate rather than let intVal*count wrap to a negative quantity,
 		// consistent with countDevicesPerClass after #12897.
