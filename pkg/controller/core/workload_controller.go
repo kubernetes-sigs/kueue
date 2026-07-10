@@ -1434,9 +1434,9 @@ func (r *WorkloadReconciler) updateAfsConsumedUsage(log logr.Logger, wl *kueue.W
 		if !found {
 			lastUpdate = now
 		}
-		// A concurrent writer can stamp a LastUpdate later than now; clamp the
-		// elapsed time so alpha stays within [0, 1], and keep the stored
-		// timestamp monotonic so the next decay does not over-elapse.
+		// Clamp elapsed and keep the stored timestamp monotonic against a
+		// concurrent writer stamping a future LastUpdate; see the canonical note
+		// in reconcileConsumedUsage (localqueue_controller.go).
 		elapsed := max(0, now.Sub(lastUpdate).Seconds())
 		storedLastUpdate := now
 		if lastUpdate.After(now) {

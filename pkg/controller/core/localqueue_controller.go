@@ -415,7 +415,14 @@ func (r *LocalQueueReconciler) reconcileConsumedUsage(ctx context.Context, lq *k
 
 	oldUsage := entry.Resources
 	newUsage := cacheLq.GetAdmittedUsage()
-	elapsed := now.Sub(entry.LastUpdate).Seconds()
+	// A concurrent settlement can stamp an entry's LastUpdate later than now.
+	// A negative elapsed would drive the decay alpha outside [0, 1] and inflate
+	// consumed usage, so every elapsed derived from a stored LastUpdate is
+	// clamped to a non-negative value (here, the in-lock recompute below, and
+	// updateAfsConsumedUsage). Those cache writes also keep the stored timestamp
+	// monotonic so the next decay does not over-elapse; this pre-lock path
+	// persists LastUpdate=now to the status, so it only needs the clamp.
+	elapsed := max(0, now.Sub(entry.LastUpdate).Seconds())
 	newConsumed := afs.CalculateDecayedConsumed(oldUsage, newUsage, elapsed, halfLifeTime)
 
 	if err := r.updateAdmissionFsStatus(ctx, lq, newConsumed, now); err != nil {
@@ -430,10 +437,8 @@ func (r *LocalQueueReconciler) reconcileConsumedUsage(ctx context.Context, lq *k
 		if !found {
 			return queueafs.ConsumedResourcesEntry{Resources: newConsumed, LastUpdate: now, StatusAccounted: true}
 		}
-		// A settlement during the status update above can stamp a LastUpdate
-		// later than now; clamp the elapsed time so alpha stays within [0, 1],
-		// and keep the stored timestamp monotonic so the next decay does not
-		// over-elapse.
+		// Clamp elapsed and keep the stored timestamp monotonic; see the
+		// canonical note above.
 		elapsed := max(0, now.Sub(old.LastUpdate).Seconds())
 		storedLastUpdate := now
 		if old.LastUpdate.After(now) {
