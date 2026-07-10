@@ -19,6 +19,8 @@ package math
 import (
 	stdmath "math"
 	"testing"
+
+	"k8s.io/apimachinery/pkg/api/resource"
 )
 
 func TestSaturatingMul(t *testing.T) {
@@ -49,6 +51,28 @@ func TestSaturatingMul(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if got := SaturatingMul(tc.a, tc.b); got != tc.want {
 				t.Errorf("SaturatingMul(%d, %d) = %d, want %d", tc.a, tc.b, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSafeValue(t *testing.T) {
+	cases := map[string]struct {
+		q    resource.Quantity
+		want int64
+	}{
+		"zero":            {q: resource.MustParse("0"), want: 0},
+		"small positive":  {q: resource.MustParse("5"), want: 5},
+		"negative":        {q: resource.MustParse("-5"), want: -5},
+		"max int64":       {q: resource.MustParse("9223372036854775807"), want: stdmath.MaxInt64},
+		"above int64":     {q: resource.MustParse("9223372036854775808"), want: stdmath.MaxInt64},
+		"far above int64": {q: resource.MustParse("1e19"), want: stdmath.MaxInt64},
+		"below min int64": {q: resource.MustParse("-9223372036854775809"), want: stdmath.MinInt64},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := SafeValue(tc.q); got != tc.want {
+				t.Errorf("SafeValue(%s) = %d, want %d", tc.q.String(), got, tc.want)
 			}
 		})
 	}
