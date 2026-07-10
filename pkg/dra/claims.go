@@ -75,6 +75,11 @@ func countDevicesPerClass(claimSpec *resourcev1.ResourceClaimSpec) (resources.Re
 			return nil, allErrs
 		}
 
+		if req.Exactly == nil {
+			allErrs = append(allErrs, field.Invalid(devicesRequestsPath.Index(i), nil, "Exactly must be set if FirstAvailable is nil"))
+			return nil, allErrs
+		}
+
 		selectorsPath := devicesRequestsPath.Index(i).Child("exactly", "selectors")
 		if err := validateCELSelectors(req.Exactly.Selectors, selectorsPath); err != nil {
 			allErrs = append(allErrs, field.Invalid(selectorsPath, nil, err.Error()))
