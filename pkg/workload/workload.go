@@ -584,7 +584,9 @@ func podSetsCountsAfterReclaim(wl *kueue.Workload) map[kueue.PodSetReference]int
 	reclaimCounts := reclaimableCounts(wl)
 	for podSetName := range totalCounts {
 		if rc, found := reclaimCounts[podSetName]; found {
-			totalCounts[podSetName] -= rc
+			// The reclaimable count can transiently exceed the podSet count after an
+			// elastic scale-down (see kueue#12670); never let usage go negative.
+			totalCounts[podSetName] -= min(rc, totalCounts[podSetName])
 		}
 	}
 	return totalCounts
@@ -1131,6 +1133,24 @@ func UpdateReclaimablePods(ctx context.Context, c client.Client, wl *kueue.Workl
 		wl.Status.ReclaimablePods = reclaimablePods
 		return true, nil
 	})
+}
+
+// LimitReclaimablePodsToPodSetSizes returns a copy of reclaimablePods with every
+// count lowered, if needed, to the matching PodSet's count in wl.
+//
+// A job can report a reclaimable count derived from monotonic state (e.g. a
+// batch/Job's Status.Succeeded), which after an elastic scale-down can exceed
+// the shrunk PodSet's count; persisting such a value would violate the
+// webhook invariant reclaimablePods[i].count <= podSets[i].count.
+func LimitReclaimablePodsToPodSetSizes(wl *kueue.Workload, reclaimablePods []kueue.ReclaimablePod) []kueue.ReclaimablePod {
+	sizes := ExtractPodSetCountsFromWorkload(wl)
+	limited := slices.Clone(reclaimablePods)
+	for i := range limited {
+		if size, found := sizes[limited[i].Name]; found {
+			limited[i].Count = min(limited[i].Count, size)
+		}
+	}
+	return limited
 }
 
 // ReclaimablePodsAreEqual checks if two Reclaimable pods are semantically equal
