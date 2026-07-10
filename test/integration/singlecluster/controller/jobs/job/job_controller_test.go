@@ -4412,8 +4412,8 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 		ginkgo.By("scaling the job down below the succeeded count")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJob), testJob)).Should(gomega.Succeed())
-			testJob.Spec.Parallelism = new(int32(3))
-			testJob.Spec.Completions = new(int32(3))
+			testJob.Spec.Parallelism = ptr.To(int32(3))
+			testJob.Spec.Completions = ptr.To(int32(3))
 			g.Expect(k8sClient.Update(ctx, testJob)).Should(gomega.Succeed())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
