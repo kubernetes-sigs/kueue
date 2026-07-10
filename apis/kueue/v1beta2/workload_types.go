@@ -28,12 +28,12 @@ import (
 type WorkloadSpec struct {
 	// podSets is a list of sets of homogeneous pods, each described by a Pod spec
 	// and a count.
-	// There must be at least one element and at most 10.
+	// There must be at least one element and at most 18.
 	// podSets cannot be changed.
 	//
 	// +listType=map
 	// +listMapKey=name
-	// +kubebuilder:validation:MaxItems=10
+	// +kubebuilder:validation:MaxItems=18
 	// +kubebuilder:validation:MinItems=1
 	// +optional
 	PodSets []PodSet `json:"podSets"`
@@ -272,7 +272,7 @@ type Admission struct {
 	// podSetAssignments hold the admission results for each of the .spec.podSets entries.
 	// +listType=map
 	// +listMapKey=name
-	// +kubebuilder:validation:MaxItems=10
+	// +kubebuilder:validation:MaxItems=18
 	// +optional
 	PodSetAssignments []PodSetAssignment `json:"podSetAssignments"`
 }
@@ -649,7 +649,7 @@ type WorkloadStatus struct {
 	// +optional
 	// +listType=map
 	// +listMapKey=name
-	// +kubebuilder:validation:MaxItems=10
+	// +kubebuilder:validation:MaxItems=18
 	ReclaimablePods []ReclaimablePod `json:"reclaimablePods,omitempty"`
 
 	// admissionChecks list all the admission checks required by the workload and the current status
@@ -669,7 +669,7 @@ type WorkloadStatus struct {
 	// +optional
 	// +listType=map
 	// +listMapKey=name
-	// +kubebuilder:validation:MaxItems=10
+	// +kubebuilder:validation:MaxItems=18
 	ResourceRequests []PodSetRequest `json:"resourceRequests,omitempty"`
 
 	// accumulatedPastExecutionTimeSeconds holds the total time, in seconds, the workload spent
@@ -834,7 +834,7 @@ type AdmissionCheckState struct {
 	// podSetUpdates contains a list of pod set modifications suggested by AdmissionChecks.
 	// +optional
 	// +listType=atomic
-	// +kubebuilder:validation:MaxItems=10
+	// +kubebuilder:validation:MaxItems=18
 	PodSetUpdates []PodSetUpdate `json:"podSetUpdates,omitempty"`
 }
 
@@ -1016,6 +1016,10 @@ const (
 	// WorkloadDeactivationTarget means that the Workload should be deactivated.
 	// This condition is temporary, so it should be removed after deactivation.
 	WorkloadDeactivationTarget = "DeactivationTarget"
+
+	// WorkloadWaitingForReplacementPods means that Kueue doesn't observe all
+	// the Pods declared for the group.
+	WorkloadWaitingForReplacementPods = "WaitingForReplacementPods"
 )
 
 // Reasons for the WorkloadPreemptionBlocked condition.
@@ -1048,6 +1052,26 @@ const (
 	// WorkloadInadmissible means that the Workload can't reserve quota
 	// due to LocalQueue or ClusterQueue doesn't exist or inactive.
 	WorkloadInadmissible = "Inadmissible"
+
+	// WorkloadOnHold is the QuotaReserved=False reason used when a Workload's
+	// quota reservation is intentionally released and the workload should not be
+	// requeued. It is currently used by StatefulSet scale-to-zero, and other
+	// integrations may reuse the same reason in the future.
+	WorkloadOnHold = "OnHold"
+
+	// WorkloadPending indicates that the workload is pending evaluation or scheduling.
+	//
+	// Deprecated: Use the more granular WorkloadQuotaReservedReason* reasons (e.g.,
+	// WorkloadQuotaReservedReasonWaitingForQuota, WorkloadQuotaReservedReasonPendingEvaluation)
+	// instead when the UnadmittedWorkloadsObservability feature gate is enabled.
+	// See KEP-10852 for details.
+	WorkloadPending = "Pending"
+
+	// WorkloadWaiting indicates that the workload is waiting for pods to be ready.
+	//
+	// Deprecated: Use WorkloadQuotaReservedReasonWaitingForPodsReady instead when the
+	// UnadmittedWorkloadsObservability feature gate is enabled.
+	WorkloadWaiting = "Waiting"
 
 	// WorkloadAdmissionGated indicates that the workload is inadmissible
 	// due to an AdmissionGatedBy annotation.
@@ -1190,10 +1214,6 @@ type WorkloadList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []Workload `json:"items"`
-}
-
-func init() {
-	SchemeBuilder.Register(&Workload{}, &WorkloadList{})
 }
 
 func (*Workload) Hub() {}

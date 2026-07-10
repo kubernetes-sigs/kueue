@@ -20,26 +20,29 @@ limitations under the License.
 package v1alpha1
 
 import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"sigs.k8s.io/controller-runtime/pkg/scheme"
 )
 
 var (
-	// GroupVersion is group version used to register these objects.
-	GroupVersion = schema.GroupVersion{Group: "kueue.x-k8s.io", Version: "v1alpha1"}
-
-	// SchemeGroupVersion is alias to GroupVersion for client-go libraries.
-	// It is required by pkg/client/informers/externalversions/...
-	SchemeGroupVersion = GroupVersion
+	// SchemeGroupVersion is a group version used to register these objects.
+	SchemeGroupVersion = schema.GroupVersion{Group: "kueue.x-k8s.io", Version: "v1alpha1"}
 
 	// SchemeBuilder is used to add go types to the GroupVersionKind scheme
-	SchemeBuilder = &scheme.Builder{GroupVersion: GroupVersion}
+	SchemeBuilder = runtime.NewSchemeBuilder(addKnownTypes)
 
 	// AddToScheme adds the types in this group-version to the given scheme.
 	AddToScheme = SchemeBuilder.AddToScheme
 )
 
+func addKnownTypes(scheme *runtime.Scheme) error {
+	scheme.AddKnownTypes(SchemeGroupVersion /* Add types, e.g. &Configuration{} */)
+	metav1.AddToGroupVersion(scheme, SchemeGroupVersion)
+	return nil
+}
+
 // Resource is required by pkg/client/listers/...
 func Resource(resource string) schema.GroupResource {
-	return GroupVersion.WithResource(resource).GroupResource()
+	return SchemeGroupVersion.WithResource(resource).GroupResource()
 }

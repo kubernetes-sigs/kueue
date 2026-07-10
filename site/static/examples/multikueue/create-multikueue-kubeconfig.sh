@@ -325,6 +325,8 @@ CURRENT_CLUSTER_ADDR=$(kubectl config view -o jsonpath="{.clusters[?(@.name == \
 
 # Create the Kubeconfig file
 echo "Writing kubeconfig in ${KUBECONFIG_OUT}"
+touch "${KUBECONFIG_OUT}"
+chmod 0600 "${KUBECONFIG_OUT}"
 cat > "${KUBECONFIG_OUT}" <<EOF
 apiVersion: v1
 clusters:

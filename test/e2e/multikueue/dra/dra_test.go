@@ -78,7 +78,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 
 		multiKueueAc = utiltestingapi.MakeAdmissionCheck("ac1").
 			ControllerName(kueue.MultiKueueControllerName).
-			Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", multiKueueConfig.Name).
+			Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", multiKueueConfig.Name).
 			Obj()
 		util.CreateAdmissionChecksAndWaitForActive(ctx, k8sManagerClient, multiKueueAc)
 
@@ -414,27 +414,27 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 				Namespace: managerNs.Name,
 			}
 
-			var assignedWorkerCluster client.Client
-			var assignedClusterName string
-
+			var selectedWorker util.ClusterInfo
 			ginkgo.By("Waiting for workload to be admitted")
 			gomega.Eventually(func(g gomega.Gomega) {
 				managerWl := &kueue.Workload{}
 				g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
-				g.Expect(managerWl.Status.ClusterName).NotTo(gomega.BeNil())
-
-				assignedClusterName = *managerWl.Status.ClusterName
-				if assignedClusterName == workerCluster1.Name {
-					assignedWorkerCluster = k8sWorker1Client
-				} else {
-					assignedWorkerCluster = k8sWorker2Client
-				}
+				selectedWorker = util.GetClientForSelectedWorkerCluster(
+					g,
+					managerWl,
+					util.DefaultClusterInfosForTests(
+						ctx,
+						k8sWorker1Client,
+						ctx,
+						k8sWorker2Client,
+					)...,
+				)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			ginkgo.By(fmt.Sprintf("Verifying workload on %s has 2 GPU resource usage (1 per pod)", assignedClusterName))
+			ginkgo.By(fmt.Sprintf("Verifying workload on %s has 2 GPU resource usage (1 per pod)", selectedWorker.Name))
 			workerWl := &kueue.Workload{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(assignedWorkerCluster.Get(ctx, wlLookupKey, workerWl)).To(gomega.Succeed())
+				g.Expect(selectedWorker.Client.Get(selectedWorker.Ctx, wlLookupKey, workerWl)).To(gomega.Succeed())
 				g.Expect(workload.HasQuotaReservation(workerWl)).To(gomega.BeTrue())
 				g.Expect(workerWl.Status.Admission).NotTo(gomega.BeNil())
 
@@ -445,7 +445,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 
 			ginkgo.By("Finishing the job's pods")
 			listOpts := util.GetListOptsFromLabel(fmt.Sprintf("batch.kubernetes.io/job-name=%s", job.Name))
-			if assignedClusterName == workerCluster1.Name {
+			if selectedWorker.Name == workerCluster1.Name {
 				util.WaitForActivePodsAndTerminate(ctx, k8sWorker1Client, worker1RestClient, worker1Cfg, job.Namespace, 2, 0, listOpts)
 			} else {
 				util.WaitForActivePodsAndTerminate(ctx, k8sWorker2Client, worker2RestClient, worker2Cfg, job.Namespace, 2, 0, listOpts)

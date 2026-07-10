@@ -24,9 +24,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 )
 
 func TestValidateCreate(t *testing.T) {
+	tooManyWorkerGroups := testingraycluster.MakeWorkerGroups(jobframework.MaxPodSets)
+
 	testCases := map[string]struct {
 		service   *rayv1.RayService
 		manageAll bool
@@ -84,18 +88,7 @@ func TestValidateCreate(t *testing.T) {
 								},
 							},
 						},
-						WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
-							{GroupName: "w1"},
-							{GroupName: "w2"},
-							{GroupName: "w3"},
-							{GroupName: "w4"},
-							{GroupName: "w5"},
-							{GroupName: "w6"},
-							{GroupName: "w7"},
-							{GroupName: "w8"},
-							{GroupName: "w9"},
-							{GroupName: "w10"}, // 10th worker group - too many
-						},
+						WorkerGroupSpecs: tooManyWorkerGroups,
 					},
 				},
 			},

@@ -565,6 +565,54 @@ func TestPodSets(t *testing.T) {
 			},
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
+		"with sidecar submission mode accounts for the injected submitter on the head podSet": {
+			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
+				WithSubmissionMode(rayv1.SidecarMode).
+				WithHeadGroupSpec(
+					rayv1.HeadGroupSpec{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
+						},
+					},
+				).
+				WithWorkerGroups(
+					rayv1.WorkerGroupSpec{
+						GroupName: "group1",
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
+						},
+					},
+				).
+				Obj()),
+			wantPodSets: func(rayJob *RayJob) []kueue.PodSet {
+				return []kueue.PodSet{
+					*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+						PodSpec(corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Name: "head_c"},
+								{
+									Name: "ray-job-submitter",
+									Resources: corev1.ResourceRequirements{
+										Limits: corev1.ResourceList{
+											corev1.ResourceCPU:    resource.MustParse("1"),
+											corev1.ResourceMemory: resource.MustParse("1Gi"),
+										},
+										Requests: corev1.ResourceList{
+											corev1.ResourceCPU:    resource.MustParse("500m"),
+											corev1.ResourceMemory: resource.MustParse("200Mi"),
+										},
+									},
+								},
+							},
+						}).
+						Obj(),
+					*utiltestingapi.MakePodSet("group1", 1).
+						PodSpec(*rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
+						Obj(),
+				}
+			},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
@@ -684,6 +732,140 @@ func TestNodeSelectors(t *testing.T) {
 				Obj(),
 
 			wantFinal: baseJob.DeepCopy(),
+		},
+		"K8sJobMode with nil SubmitterPodTemplate persists admission constraints": {
+			job: func() *rayv1.RayJob {
+				j := testingrayutil.MakeJob("job", "ns").
+					WithSubmissionMode(rayv1.K8sJobMode).
+					Obj()
+				j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.NodeSelector = map[string]string{}
+				j.Spec.RayClusterSpec.WorkerGroupSpecs = baseJob.Spec.RayClusterSpec.WorkerGroupSpecs
+				return j
+			}(),
+			runInfo: []podset.PodSetInfo{
+				{
+					NodeSelector: map[string]string{
+						"newKey": "newValue",
+					},
+				},
+				{
+					NodeSelector: map[string]string{
+						"key-wg1": "value-wg1",
+					},
+				},
+				{
+					NodeSelector: map[string]string{},
+				},
+				{
+					NodeSelector: map[string]string{
+						"submitter-key": "submitter-value",
+					},
+				},
+			},
+			restoreInfo: []podset.PodSetInfo{
+				{
+					NodeSelector: map[string]string{},
+				},
+				{
+					NodeSelector: map[string]string{
+						"key-wg1": "value-wg1",
+					},
+				},
+				{
+					NodeSelector: map[string]string{
+						"key-wg2": "value-wg2",
+					},
+				},
+				{
+					NodeSelector: map[string]string{},
+				},
+			},
+			wantAfterRun: func() *rayv1.RayJob {
+				j := testingrayutil.MakeJob("job", "ns").
+					Suspend(false).
+					WithSubmissionMode(rayv1.K8sJobMode).
+					Obj()
+				headImage := j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Image
+				j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.NodeSelector = map[string]string{
+					"newKey": "newValue",
+				}
+				j.Spec.RayClusterSpec.WorkerGroupSpecs = []rayv1.WorkerGroupSpec{
+					{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								NodeSelector: map[string]string{
+									"key-wg1": "value-wg1",
+								},
+							},
+						},
+					},
+					{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								NodeSelector: map[string]string{
+									"key-wg2": "value-wg2",
+								},
+							},
+						},
+					},
+				}
+				j.Spec.SubmitterPodTemplate = &corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:  "ray-job-submitter",
+								Image: headImage,
+								Resources: corev1.ResourceRequirements{
+									Limits: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("1"),
+										corev1.ResourceMemory: resource.MustParse("1Gi"),
+									},
+									Requests: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("500m"),
+										corev1.ResourceMemory: resource.MustParse("200Mi"),
+									},
+								},
+							},
+						},
+						RestartPolicy: corev1.RestartPolicyNever,
+						NodeSelector: map[string]string{
+							"submitter-key": "submitter-value",
+						},
+					},
+				}
+				return j
+			}(),
+			wantFinal: func() *rayv1.RayJob {
+				j := testingrayutil.MakeJob("job", "ns").
+					WithSubmissionMode(rayv1.K8sJobMode).
+					Obj()
+				headImage := j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Image
+				j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.NodeSelector = map[string]string{}
+				j.Spec.RayClusterSpec.WorkerGroupSpecs = baseJob.Spec.RayClusterSpec.WorkerGroupSpecs
+				j.Spec.SubmitterPodTemplate = &corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:  "ray-job-submitter",
+								Image: headImage,
+								Resources: corev1.ResourceRequirements{
+									Limits: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("1"),
+										corev1.ResourceMemory: resource.MustParse("1Gi"),
+									},
+									Requests: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("500m"),
+										corev1.ResourceMemory: resource.MustParse("200Mi"),
+									},
+								},
+							},
+						},
+						RestartPolicy: corev1.RestartPolicyNever,
+						NodeSelector:  map[string]string{},
+					},
+				}
+				return j
+			}(),
 		},
 		"invalid runInfo": {
 			job: baseJob.DeepCopy(),

@@ -33,6 +33,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	gocmp "github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	sparkv1beta2 "github.com/kubeflow/spark-operator/v2/api/v1beta2"
@@ -83,6 +84,8 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
@@ -455,7 +458,7 @@ func ExpectWorkloadsToHaveQuotaReservationByKey(ctx context.Context, k8sClient c
 }
 
 func FilterEvictedWorkloads(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) []*kueue.Workload {
-	return filterWorkloads(ctx, k8sClient, workload.IsEvicted, wls...)
+	return filterWorkloads(ctx, k8sClient, workloadevict.IsEvicted, wls...)
 }
 
 func filterWorkloads(ctx context.Context, k8sClient client.Client, filter func(*kueue.Workload) bool, wls ...*kueue.Workload) []*kueue.Workload {
@@ -476,6 +479,18 @@ func ExpectWorkloadsToBePending(ctx context.Context, k8sClient client.Client, wl
 	ExpectWorkloadsToBePendingByKeys(ctx, k8sClient, wlKeys...)
 }
 
+var pendingQuotaReservedReasons = sets.New(
+	kueue.WorkloadPending, //nolint:staticcheck // SA1019: legacy reason
+	kueue.WorkloadWaiting, //nolint:staticcheck // SA1019: legacy reason
+	kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+	kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+	kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
+	kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+	kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
+	kueue.WorkloadQuotaReservedReasonWaitingForPodsReady,
+	kueue.WorkloadQuotaReservedReasonNoMatchingFlavor,
+)
+
 func ExpectWorkloadsToBePendingByKeys(ctx context.Context, k8sClient client.Client, wlKeys ...client.ObjectKey) {
 	ginkgo.GinkgoHelper()
 	wlKeys = uniqueKeys(wlKeys)
@@ -486,7 +501,7 @@ func ExpectWorkloadsToBePendingByKeys(ctx context.Context, k8sClient client.Clie
 			wl := &kueue.Workload{}
 			g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 			cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-			if cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == "Pending" {
+			if cond != nil && cond.Status == metav1.ConditionFalse && pendingQuotaReservedReasons.Has(cond.Reason) {
 				pending = append(pending, wlKey)
 			}
 			wlObjects[i] = wl
@@ -707,7 +722,7 @@ func ExpectWorkloadsToBeWaiting(ctx context.Context, k8sClient client.Client, wl
 			wl := &kueue.Workload{}
 			g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 			cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-			if cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == "Waiting" {
+			if cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == kueue.WorkloadWaiting { //nolint:staticcheck // SA1019: legacy reason
 				waiting = append(waiting, wlKey)
 			}
 			wlObjects[i] = wl
@@ -841,7 +856,7 @@ func ExpectWorkloadsToBeEvictedByKeys(ctx context.Context, k8sClient client.Clie
 		for i, wlKey := range wlKeys {
 			wl := &kueue.Workload{}
 			g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
-			if workload.IsEvicted(wl) {
+			if workloadevict.IsEvicted(wl) {
 				evicted = append(evicted, wlKey)
 			}
 			wlObjects[i] = wl
@@ -862,7 +877,7 @@ func FinishEvictionForWorkloads(ctx context.Context, k8sClient client.Client, wl
 			if workload.HasQuotaReservation(wl) {
 				g.Expect(
 					workloadpatching.PatchAdmissionStatus(ctx, k8sClient, wl, RealClock, func(wl *kueue.Workload) (bool, error) {
-						return workload.UnsetQuotaReservationWithCondition(wl, "Pending", "By test", time.Now()), nil
+						return workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadPending, "By test", time.Now()), nil //nolint:staticcheck // SA1019: legacy reason
 					}),
 				).Should(gomega.Succeed(), fmt.Sprintf("Unable to unset quota reservation for %q", key))
 			}
@@ -918,16 +933,21 @@ func AwaitAndVerifyCreatedWorkload(ctx context.Context, client client.Client, wl
 	return createdWorkload
 }
 
-func SetPodsPhase(ctx context.Context, k8sClient client.Client, phase corev1.PodPhase, pods ...*corev1.Pod) {
+func SetPodsPhaseByKeys(ctx context.Context, k8sClient client.Client, phase corev1.PodPhase, keys ...client.ObjectKey) {
 	ginkgo.GinkgoHelper()
-	for _, p := range pods {
+	for _, key := range keys {
 		updatedPod := corev1.Pod{}
 		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &updatedPod)).To(gomega.Succeed())
+			g.Expect(k8sClient.Get(ctx, key, &updatedPod)).To(gomega.Succeed())
 			updatedPod.Status.Phase = phase
 			g.Expect(k8sClient.Status().Update(ctx, &updatedPod)).To(gomega.Succeed())
 		}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to set pod phase", &updatedPod))
 	}
+}
+
+func SetPodsPhase(ctx context.Context, k8sClient client.Client, phase corev1.PodPhase, pods ...*corev1.Pod) {
+	ginkgo.GinkgoHelper()
+	SetPodsPhaseByKeys(ctx, k8sClient, phase, podKeys(pods)...)
 }
 
 func BindPodWithNode(ctx context.Context, k8sClient client.Client, nodeName string, pods ...*corev1.Pod) {
@@ -1403,7 +1423,7 @@ func ExpectNewWorkloadSlice(ctx context.Context, k8sClient client.Client, oldWor
 func FindNonFinishedWorkloads(workloads []kueue.Workload) []kueue.Workload {
 	var active []kueue.Workload
 	for i := range workloads {
-		if !workload.IsFinished(&workloads[i]) {
+		if !workloadfinish.IsFinished(&workloads[i]) {
 			active = append(active, workloads[i])
 		}
 	}
@@ -1432,7 +1452,7 @@ func ExpectWorkloadSliceAdmittedBeforeOldFinished(watcher watch.Interface, oldWo
 			wl, isWorkload := evt.Object.(*kueue.Workload)
 			gomega.Expect(isWorkload).Should(gomega.BeTrue())
 
-			if wl.Name == oldWorkloadName && workload.IsFinished(wl) {
+			if wl.Name == oldWorkloadName && workloadfinish.IsFinished(wl) {
 				oldSliceFinished = true
 			}
 			if wl.Name != oldWorkloadName && workload.IsAdmitted(wl) {
@@ -1498,6 +1518,14 @@ func workloadKeys(wls []*kueue.Workload) []client.ObjectKey {
 		wlKeys = append(wlKeys, client.ObjectKeyFromObject(wl))
 	}
 	return wlKeys
+}
+
+func podKeys(pods []*corev1.Pod) []client.ObjectKey {
+	keys := make([]client.ObjectKey, 0, len(pods))
+	for _, p := range pods {
+		keys = append(keys, client.ObjectKeyFromObject(p))
+	}
+	return keys
 }
 
 func uniqueKeys(keys []client.ObjectKey) []client.ObjectKey {
@@ -1671,4 +1699,26 @@ func WaitForDRAExampleDriverAvailability(ctx context.Context, k8sClient client.C
 		g.Expect(daemonset.Status.DesiredNumberScheduled).To(gomega.Equal(daemonset.Status.NumberAvailable))
 	}, VeryLongTimeout, Interval).Should(gomega.Succeed())
 	ginkgo.GinkgoLogr.Info("DaemonSet is available in the cluster", "daemonset", dsKey, "cluster", clusterName, "waitingTime", time.Since(waitForAvailableStart))
+}
+
+func ExpectWorkloadToHaveConditions(
+	ctx context.Context,
+	k8sClient client.Client,
+	wlKey client.ObjectKey,
+	wantConditions ...metav1.Condition,
+) {
+	ginkgo.GinkgoHelper()
+	wl := &kueue.Workload{}
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+		for _, wantCond := range wantConditions {
+			cond := apimeta.FindStatusCondition(wl.Status.Conditions, wantCond.Type)
+			g.Expect(cond).NotTo(gomega.BeNil())
+			opts := []gocmp.Option{IgnoreConditionTimestampsAndObservedGeneration}
+			if wantCond.Message == "" {
+				opts = append(opts, IgnoreConditionMessage)
+			}
+			g.Expect(*cond).To(gomega.BeComparableTo(wantCond, opts...))
+		}
+	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Workload conditions did not match expectations", wl))
 }

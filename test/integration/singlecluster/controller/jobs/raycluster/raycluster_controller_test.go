@@ -46,6 +46,7 @@ import (
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
@@ -702,7 +703,7 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 		clusterQueue   *kueue.ClusterQueue
 		localQueue     *kueue.LocalQueue
 	)
-	cpuNominalQuota := 5
+	cpuNominalQuota := 6
 
 	ginkgo.BeforeAll(func() {
 		gomega.Expect(utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{string(features.ElasticJobsViaWorkloadSlices): true})).Should(gomega.Succeed())
@@ -719,7 +720,7 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 		util.MustCreate(ctx, k8sClient, resourceFlavor)
 
 		clusterQueue = utiltestingapi.MakeClusterQueue("default").
-			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).Resource(corev1.ResourceCPU, strconv.Itoa(cpuNominalQuota)).Obj()).
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).Resource(corev1.ResourceCPU, strconv.Itoa(cpuNominalQuota)).Resource(corev1.ResourceMemory, "5Gi").Obj()).
 			Preemption(kueue.ClusterQueuePreemption{
 				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 			}).
@@ -776,8 +777,8 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 			cq := &kueue.ClusterQueue{}
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
 			g.Expect(len(cq.Status.FlavorsUsage)).Should(gomega.BeEquivalentTo(1))
-			g.Expect(len(cq.Status.FlavorsUsage[0].Resources)).Should(gomega.BeEquivalentTo(1))
-			g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("3")))
+			g.Expect(len(cq.Status.FlavorsUsage[0].Resources)).Should(gomega.BeEquivalentTo(2))
+			g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("3500m")))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("reducing the worker replicas to 1 to emulate scale-down operation")
@@ -792,8 +793,8 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 			cq := &kueue.ClusterQueue{}
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
 			g.Expect(len(cq.Status.FlavorsUsage)).Should(gomega.BeEquivalentTo(1))
-			g.Expect(len(cq.Status.FlavorsUsage[0].Resources)).Should(gomega.BeEquivalentTo(1))
-			g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("2")))
+			g.Expect(len(cq.Status.FlavorsUsage[0].Resources)).Should(gomega.BeEquivalentTo(2))
+			g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("2500m")))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("assert the raycluster's workload is updated and still admitted")
@@ -824,9 +825,9 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 			cq := &kueue.ClusterQueue{}
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
 			g.Expect(len(cq.Status.FlavorsUsage)).Should(gomega.BeEquivalentTo(1))
-			g.Expect(len(cq.Status.FlavorsUsage[0].Resources)).Should(gomega.BeEquivalentTo(1))
-			// 1 core for the head node, and 1 for each of the 2 workers
-			g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("3")))
+			g.Expect(len(cq.Status.FlavorsUsage[0].Resources)).Should(gomega.BeEquivalentTo(2))
+			// 1 core for the head node, 500m for the autoscaler sidecar, and 1 for each of the 2 workers
+			g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("3500m")))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("old workload is finished and new workload is admitted")
@@ -838,7 +839,7 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 			nameBeforeScaleUp := testRayClusterWorkload.Name
 
 			for i := range workloads.Items {
-				if workload.IsFinished(&workloads.Items[i]) {
+				if workloadfinish.IsFinished(&workloads.Items[i]) {
 					g.Expect(workloads.Items[i].Name).Should(gomega.Equal(nameBeforeScaleUp))
 
 					// The original workload had 1 head node, and a single worker group with a single worker
@@ -859,7 +860,7 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 		ginkgo.By("the new workload has the correct podSets count")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(workload.IsAdmitted(testRayClusterWorkload)).Should(gomega.BeTrue())
-			g.Expect(workload.IsFinished(testRayClusterWorkload)).Should(gomega.BeFalse())
+			g.Expect(workloadfinish.IsFinished(testRayClusterWorkload)).Should(gomega.BeFalse())
 
 			g.Expect(testRayClusterWorkload.Spec.PodSets).Should(gomega.HaveLen(2))
 			g.Expect(testRayClusterWorkload.Spec.PodSets[0].Count).Should(gomega.Equal(int32(1)))

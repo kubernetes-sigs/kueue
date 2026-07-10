@@ -68,6 +68,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
@@ -426,7 +428,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		}
 	}
 
-	if wl != nil && workload.IsFinished(wl) {
+	if wl != nil && workloadfinish.IsFinished(wl) {
 		if err := r.finalizeJob(ctx, job); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -452,12 +454,12 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// 2. handle job is finished.
 	if message, success, finished := job.Finished(ctx); finished {
 		log.V(3).Info("The workload is already finished")
-		if wl != nil && !workload.IsFinished(wl) {
+		if wl != nil && !workloadfinish.IsFinished(wl) {
 			reason := kueue.WorkloadFinishedReasonSucceeded
 			if !success {
 				reason = kueue.WorkloadFinishedReasonFailed
 			}
-			err := workload.Finish(ctx, r.client, wl, reason, message, r.clock)
+			err := workloadfinish.Finish(ctx, r.client, wl, reason, message, r.clock)
 			if err != nil && !apierrors.IsNotFound(err) {
 				return ctrl.Result{}, err
 			}
@@ -479,8 +481,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		err := r.handleJobWithNoWorkload(ctx, job, object)
 		if err != nil {
 			if apierrors.IsAlreadyExists(err) {
-				log.V(3).Info("Handling job with no workload found an existing workload")
-				return ctrl.Result{RequeueAfter: time.Nanosecond}, nil
+				return ctrl.Result{}, err
 			}
 			if IsUnretryableError(err) {
 				log.V(3).Info("Handling job with no workload", "unretryableError", err)
@@ -558,7 +559,12 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 					// The requeued condition status set to true only on EvictedByPreemption
 					setRequeued := (evCond.Reason == kueue.WorkloadEvictedByPreemption) || (evCond.Reason == kueue.WorkloadEvictedDueToNodeFailures)
 					updated := workload.SetRequeuedCondition(wl, evCond.Reason, evCond.Message, setRequeued)
-					if workload.UnsetQuotaReservationWithCondition(wl, "Pending", evCond.Message, r.clock.Now()) {
+					if workload.UnsetQuotaReservationWithCondition(
+						wl,
+						kueue.WorkloadPending, //nolint:staticcheck // SA1019: fallback
+						evCond.Message,
+						r.clock.Now(),
+					) {
 						updated = true
 					}
 					return updated, nil
@@ -582,7 +588,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 				log.Error(err, "Unsuspending job")
 				if podset.IsPermanent(err) {
 					// Mark the workload as finished with failure since the is no point to retry.
-					errUpdateStatus := workload.Finish(ctx, r.client, wl, FailedToStartFinishedReason, err.Error(), r.clock)
+					errUpdateStatus := workloadfinish.Finish(ctx, r.client, wl, FailedToStartFinishedReason, err.Error(), r.clock)
 					if errUpdateStatus != nil {
 						log.Error(errUpdateStatus, "Updating workload status, on start failure", "err", err)
 					}
@@ -732,7 +738,7 @@ func (r *JobReconciler) shouldSuspendChildJob(ctx context.Context, childJob Gene
 				// With workload slicing, during autoscaling-up, there will be two workloads at certain time for workload slice
 				// replacement. The old one was finished, the new one is going to be admitted. There is no admitted workload in
 				// this case, and we should not suspend the job. As a workaround, check evicted status instead.
-				return workload.IsEvicted(ancestorNotFinishedWorkload), nil
+				return workloadevict.IsEvicted(ancestorNotFinishedWorkload), nil
 			}
 			// For none workload slicing, suspend the job if workload not admitted
 			return !workload.IsAdmitted(ancestorNotFinishedWorkload), nil
@@ -742,7 +748,7 @@ func (r *JobReconciler) shouldSuspendChildJob(ctx context.Context, childJob Gene
 }
 
 func (r *JobReconciler) shouldHandleDeletionOfDeactivatedWorkload(wl *kueue.Workload) bool {
-	return r.workloadRetentionPolicy.AfterDeactivatedByKueue != nil && !workload.IsActive(wl) && workload.IsEvictedDueToDeactivationByKueue(wl)
+	return r.workloadRetentionPolicy.AfterDeactivatedByKueue != nil && !workload.IsActive(wl) && workloadevict.IsEvictedDueToDeactivationByKueue(wl)
 }
 
 func (r *JobReconciler) handleWorkloadAfterDeactivatedPolicy(ctx context.Context, job GenericJob, wl *kueue.Workload) (time.Duration, error) {
@@ -1202,7 +1208,7 @@ func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, wl *ku
 		}
 		// mark the workload as finished
 		msg := "The prebuilt workload is out of sync with its user job"
-		return false, workload.Finish(ctx, r.client, wl, kueue.WorkloadFinishedReasonOutOfSync, msg, r.clock)
+		return false, workloadfinish.Finish(ctx, r.client, wl, kueue.WorkloadFinishedReasonOutOfSync, msg, r.clock)
 	}
 	return true, nil
 }

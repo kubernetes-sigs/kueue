@@ -56,7 +56,6 @@ E2E_K8S_FULL_VERSION ?= $(filter $(E2E_K8S_VERSION).%,$(E2E_K8S_VERSIONS))
 # Default to E2E_K8S_VERSION.0 if no match is found
 E2E_K8S_FULL_VERSION := $(or $(E2E_K8S_FULL_VERSION),$(E2E_K8S_VERSION).0)
 E2E_KIND_VERSION ?= kindest/node:v$(E2E_K8S_FULL_VERSION)
-E2E_RUN_ONLY_ENV ?= false
 E2E_USE_HELM ?= false
 E2E_MODE ?= ci
 E2E_SKIP_REINSTALL ?= false
@@ -78,22 +77,37 @@ E2E_GINKGO_ARGS = $(GINKGO_ARGS) $(if $(filter-out 1,$(E2E_NPROCS)),-procs=$(E2E
 # For restricting to a specific directory
 GO_TEST_TARGET ?= .
 
+# Unit test sharding: set UNIT_TOTAL_SHARDS to split packages across parallel CI jobs.
+# UNIT_SHARD_INDEX selects which shard this job runs (0-based).
+# When UNIT_TOTAL_SHARDS is not set, all packages run in a single job (existing behaviour).
+ifdef UNIT_TOTAL_SHARDS
+UNIT_TEST_PACKAGES := $(shell ./hack/testing/shard-unit-tests.sh $(UNIT_SHARD_INDEX) $(UNIT_TOTAL_SHARDS))
+ifeq ($(UNIT_TEST_PACKAGES),)
+$(error Aborting: shard-unit-tests.sh returned no packages. Check UNIT_SHARD_INDEX / UNIT_TOTAL_SHARDS.)
+endif
+else
+UNIT_TEST_PACKAGES := $(shell $(GO_CMD) list $(GO_TEST_TARGET)/... | grep -v '/test/')
+endif
+
+OPTIONAL_SHARD_SUFFIX = $(if $(UNIT_TOTAL_SHARDS),-shard-$(UNIT_SHARD_INDEX))
+
 ##@ Tests
 
 # Periodic builds are tested with full ray image
 ifeq ($(JOB_TYPE),periodic)
     export USE_RAY_FOR_TESTS="ray"
 else
-	export USE_RAY_FOR_TESTS="ray"
-# Use full ray temporarily for presubmit jobs until we figure out the issue with raymini
-# See: https://github.com/kubernetes-sigs/kueue/issues/12579
-# export USE_RAY_FOR_TESTS="raymini"
+	export USE_RAY_FOR_TESTS="raymini"
 endif
 
+# When using raymini, exclude tests that require the full ray image (e.g. RayService).
+# Workaround until upstream Ray fixes protobuf 7.35+ compatibility (ray-project/ray#64362).
+FULLRAY_EXCLUDE := $(if $(filter "raymini",$(USE_RAY_FOR_TESTS)), && !requires:fullray)
+
 .PHONY: test
-test: gotestsum ## Run tests.
+test: gotestsum ## Run tests. Set UNIT_TOTAL_SHARDS and UNIT_SHARD_INDEX to run a specific shard.
 	mkdir -p $(ARTIFACTS)
-	TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) $(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GOFLAGS) $(GO_TEST_FLAGS) $(shell $(GO_CMD) list $(GO_TEST_TARGET)/... | grep -v '/test/') -coverpkg=$(GO_TEST_TARGET)/... -coverprofile $(ARTIFACTS)/cover.out
+	TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) $(GOTESTSUM) --junitfile $(ARTIFACTS)/junit$(OPTIONAL_SHARD_SUFFIX).xml -- $(GOFLAGS) $(GO_TEST_FLAGS) $(UNIT_TEST_PACKAGES) -coverpkg=$(GO_TEST_TARGET)/... -coverprofile $(ARTIFACTS)/cover$(OPTIONAL_SHARD_SUFFIX).out
 
 ## Label Taxonomy:
 ##   Controllers: controller:workload, controller:localqueue, controller:clusterqueue, controller:admissioncheck, controller:resourceflavor, controller:provisioning
@@ -185,7 +199,7 @@ test-multikueue-e2e-extended-shard-0: setup-e2e-env run-test-multikueue-e2e-exte
 
 .PHONY: test-multikueue-e2e-extended-shard-1
 test-multikueue-e2e-extended-shard-1: E2E_NPROCS := 5
-test-multikueue-e2e-extended-shard-1: GINKGO_ARGS=--label-filter=feature:kuberay
+test-multikueue-e2e-extended-shard-1: GINKGO_ARGS=--label-filter='feature:kuberay$(FULLRAY_EXCLUDE)'
 test-multikueue-e2e-extended-shard-1: E2E_CONFIG_FOLDER=multikueue/extended-shard-1
 test-multikueue-e2e-extended-shard-1: setup-e2e-env run-test-multikueue-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
@@ -236,7 +250,7 @@ test-e2e-extended: run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%) #
 
 .PHONY: test-e2e-extended-shard-0
 test-e2e-extended-shard-0: E2E_NPROCS := 4
-test-e2e-extended-shard-0: GINKGO_ARGS=--label-filter='feature:kuberay && shard:kuberay-a'
+test-e2e-extended-shard-0: GINKGO_ARGS=--label-filter='feature:kuberay && shard:kuberay-a$(FULLRAY_EXCLUDE)'
 test-e2e-extended-shard-0: setup-e2e-env run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-e2e-extended-shard-1
@@ -246,7 +260,7 @@ test-e2e-extended-shard-1: setup-e2e-env run-test-e2e-extended-$(E2E_KIND_VERSIO
 
 .PHONY: test-e2e-extended-shard-2
 test-e2e-extended-shard-2: E2E_NPROCS := 2
-test-e2e-extended-shard-2: GINKGO_ARGS=--label-filter='feature:kuberay && shard:kuberay-b'
+test-e2e-extended-shard-2: GINKGO_ARGS=--label-filter='feature:kuberay && shard:kuberay-b$(FULLRAY_EXCLUDE)'
 test-e2e-extended-shard-2: setup-e2e-env run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 ## Label Taxonomy:
@@ -358,7 +372,6 @@ run-test-e2e-baseline-%:
 		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="singlecluster/baseline" \
 		E2E_CONFIG_FOLDER="baseline" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
 		./hack/testing/e2e-test.sh
 
@@ -374,7 +387,6 @@ run-test-e2e-extended-%:
 		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="singlecluster/extended" \
 		E2E_CONFIG_FOLDER="extended" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
 		./hack/testing/e2e-test.sh
 
@@ -388,7 +400,6 @@ run-test-multikueue-e2e-baseline-%:
 		E2E_TARGET_FOLDER="multikueue/baseline" \
 		E2E_CONFIG_FOLDER="multikueue/baseline" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
 		./hack/testing/e2e-multikueue-test.sh
 
@@ -404,7 +415,6 @@ run-test-multikueue-e2e-extended-%:
 		E2E_TARGET_FOLDER="multikueue/extended" \
 		E2E_CONFIG_FOLDER=$(E2E_CONFIG_FOLDER) \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
 		./hack/testing/e2e-multikueue-test.sh
 
@@ -419,7 +429,6 @@ run-test-tas-e2e-baseline-%:
 		KIND_CLUSTER_FILE="kind-cluster-tas.yaml" E2E_TARGET_FOLDER="tas/baseline" \
 		E2E_CONFIG_FOLDER="baseline" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
 		./hack/testing/e2e-test.sh
 
@@ -435,7 +444,6 @@ run-test-tas-e2e-extended-%:
 		KIND_CLUSTER_FILE="kind-cluster-tas.yaml" E2E_TARGET_FOLDER="tas/extended" \
 		E2E_CONFIG_FOLDER="extended" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
 		./hack/testing/e2e-test.sh
 
@@ -450,7 +458,6 @@ run-test-e2e-sequential-baseline-%:
 	KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="sequential/baseline" \
 	E2E_CONFIG_FOLDER="baseline" \
 	TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-	E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 	E2E_USE_HELM=$(E2E_USE_HELM) \
 	./hack/testing/e2e-test.sh
 
@@ -465,7 +472,6 @@ run-test-e2e-sequential-extended-%:
 	KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="sequential/extended" \
 	E2E_CONFIG_FOLDER="extended" \
 	TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-	E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 	E2E_USE_HELM=$(E2E_USE_HELM) \
 	./hack/testing/e2e-test.sh
 
@@ -481,7 +487,6 @@ run-test-e2e-certmanager-%:
 		CERTMANAGER_VERSION=$(CERTMANAGER_VERSION) \
 		PROMETHEUS_OPERATOR_VERSION=$(PROMETHEUS_OPERATOR_VERSION) \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
 		./hack/testing/e2e-test.sh
 
@@ -496,7 +501,6 @@ run-test-e2e-upgrade-%:
 		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="upgrade" \
 		KUEUE_UPGRADE_FROM_VERSION=$(KUEUE_UPGRADE_FROM_VERSION) \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		./hack/testing/e2e-test.sh
 
 run-test-e2e-certmanager-upgrade-%: K8S_VERSION = $(@:run-test-e2e-certmanager-upgrade-%=%)
@@ -511,7 +515,6 @@ run-test-e2e-certmanager-upgrade-%:
 		KUEUE_UPGRADE_FROM_VERSION=$(KUEUE_UPGRADE_FROM_VERSION) \
 		CERTMANAGER_VERSION=$(CERTMANAGER_VERSION) \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		./hack/testing/e2e-test.sh
 
 run-test-e2e-dra-%: K8S_VERSION = $(@:run-test-e2e-dra-%=%)
@@ -525,7 +528,6 @@ run-test-e2e-dra-%:
 		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="dra/whole-device" \
 		DRA_EXAMPLE_DRIVER_VERSION=$(DRA_EXAMPLE_DRIVER_VERSION) \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		./hack/testing/e2e-test.sh
 
 run-test-e2e-multikueue-dra-%: K8S_VERSION = $(@:run-test-e2e-multikueue-dra-%=%)
@@ -539,7 +541,6 @@ run-test-e2e-multikueue-dra-%:
 		DRA_EXAMPLE_DRIVER_VERSION=$(DRA_EXAMPLE_DRIVER_VERSION) \
 		E2E_TARGET_FOLDER="multikueue/dra" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		./hack/testing/e2e-multikueue-test.sh
 
 .PHONY: test-e2e-dra-counter
@@ -557,7 +558,6 @@ run-test-e2e-dra-counter-%:
 		DRA_EXAMPLE_DRIVER_VERSION=$(DRA_EXAMPLE_DRIVER_VERSION) \
 		DRA_GPU_PARTITIONS=4 \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		./hack/testing/e2e-test.sh
 
 run-test-e2e-multikueue-sequential-%: K8S_VERSION = $(@:run-test-e2e-multikueue-sequential-%=%)
@@ -573,7 +573,6 @@ run-test-e2e-multikueue-sequential-%:
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		CLUSTERPROFILE_VERSION=$(CLUSTERPROFILE_VERSION) \
 		CLUSTERPROFILE_PLUGIN_IMAGE_VERSION=$(CLUSTERPROFILE_PLUGIN_IMAGE_VERSION) \
-		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
 		./hack/testing/e2e-multikueue-test.sh
 
@@ -606,7 +605,6 @@ run-test-e2e-k8s-main-was:
 		PROMETHEUS_OPERATOR_VERSION=$(PROMETHEUS_OPERATOR_VERSION) \
 		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="singlecluster" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
 		WAS_ENABLED=true \
 		./hack/testing/e2e-test.sh
@@ -773,4 +771,4 @@ test-e2e-kueueviz: setup-e2e-env ## Run end-to-end tests for kueueviz without ru
 
 .PHONY: verify-ci-build-times
 verify-ci-build-times: ## Verify that CI build times are below threshold.
-	python3 ./hack/tools/prow-runtimes/prow_runtimes.py --kueue-presubmits --limit 5 --only-success --only-merge-pool --threshold-stat=second_longest --threshold 18m
+	python3 ./hack/tools/prow-runtimes/prow_runtimes.py --kueue-presubmits --limit 5 --only-success --only-merge-pool --threshold-stat=second_longest --threshold 14m

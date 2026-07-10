@@ -17,6 +17,7 @@ limitations under the License.
 package dra
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -158,6 +159,56 @@ func TestComputeCounterCharges(t *testing.T) {
 			},
 			count: 1,
 			want:  nil,
+		},
+		{
+			name:          "count multiplication saturates instead of overflowing int64",
+			cc:            defaultCC,
+			quotaResource: "gpu.memory",
+			matched: []resourcev1.Device{
+				makeDevice("big-counter-0", "big", "8000000000000000000"),
+			},
+			count: 2,
+			want: corev1.ResourceList{
+				"gpu.memory": *resource.NewQuantity(math.MaxInt64, resource.DecimalSI),
+			},
+		},
+		{
+			// 1e19 > MaxInt64; Value() truncates it to 0, so without SafeValue
+			// this device would silently charge nothing.
+			name:          "counter that Value() would truncate is clamped before multiply",
+			cc:            defaultCC,
+			quotaResource: "gpu.memory",
+			matched: []resourcev1.Device{
+				makeDevice("truncating-0", "big", "10000000000000000000"),
+			},
+			count: 2,
+			want: corev1.ResourceList{
+				"gpu.memory": *resource.NewQuantity(math.MaxInt64, resource.DecimalSI),
+			},
+		},
+		{
+			name:          "counter above int64 is clamped at count=1",
+			cc:            defaultCC,
+			quotaResource: "gpu.memory",
+			matched: []resourcev1.Device{
+				makeDevice("overmax-0", "big", "9223372036854775808"),
+			},
+			count: 1,
+			want: corev1.ResourceList{
+				"gpu.memory": *resource.NewQuantity(math.MaxInt64, resource.DecimalSI),
+			},
+		},
+		{
+			name:          "negative counter is clamped to zero",
+			cc:            defaultCC,
+			quotaResource: "gpu.memory",
+			matched: []resourcev1.Device{
+				makeDevice("negative-0", "big", "-5"),
+			},
+			count: 2,
+			want: corev1.ResourceList{
+				"gpu.memory": *resource.NewQuantity(0, resource.DecimalSI),
+			},
 		},
 	}
 

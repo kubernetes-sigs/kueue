@@ -75,6 +75,10 @@ var (
 	// +metricsdoc:labels=result="possible values are `success` or `inadmissible`",replica_role="one of `leader`, `follower`, or `standalone`"
 	admissionAttemptDuration *prometheus.HistogramVec
 
+	// +metricsdoc:group=health
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",cluster="the name of the worker cluster",replica_role="one of `leader`, `follower`, or `standalone`"
+	MultiKueueWorkloadsDispatchedTotal *prometheus.CounterVec
+
 	// +metricsdoc:group=clusterqueue
 	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",replica_role="one of `leader`, `follower`, or `standalone`"
 	AdmissionCyclePreemptionSkips *prometheus.GaugeVec
@@ -348,6 +352,14 @@ The label 'result' can have the following values:
 - 'success' means that at least one workload was admitted.,
 - 'inadmissible' means that no workload was admitted.`,
 		}, []string{"result", "replica_role"},
+	)
+
+	MultiKueueWorkloadsDispatchedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Subsystem: constants.MultiKueueName,
+			Name:      "workloads_dispatched_total",
+			Help:      `The total number of remote workloads created by the MultiKueue manager on a worker cluster, per 'cluster_queue' and 'cluster'.`,
+		}, []string{"cluster_queue", "cluster", "replica_role"},
 	)
 
 	AdmissionCyclePreemptionSkips = prometheus.NewGaugeVec(
@@ -927,6 +939,10 @@ func AdmissionAttempt(result AdmissionResult, duration time.Duration, tracker *r
 	admissionAttemptDuration.WithLabelValues(string(result), role).Observe(duration.Seconds())
 }
 
+func ReportMultiKueueWorkloadDispatched(cqName kueue.ClusterQueueReference, cluster string, tracker *roletracker.RoleTracker) {
+	MultiKueueWorkloadsDispatchedTotal.WithLabelValues(string(cqName), cluster, roletracker.GetRole(tracker)).Inc()
+}
+
 func RecordWorkloadCreationLatency(jobKind string, latency time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	labels := append([]string{jobKind, roletracker.GetRole(tracker)}, customLabelValues...)
 	WorkloadCreationLatency.WithLabelValues(labels...).Observe(latency.Seconds())
@@ -1390,6 +1406,7 @@ func Register() {
 		buildInfo,
 		AdmissionAttemptsTotal,
 		admissionAttemptDuration,
+		MultiKueueWorkloadsDispatchedTotal,
 		AdmissionCyclePreemptionSkips,
 		PendingWorkloads,
 		FinishedWorkloads,

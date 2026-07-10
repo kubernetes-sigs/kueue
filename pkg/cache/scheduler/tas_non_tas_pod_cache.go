@@ -82,14 +82,15 @@ func (n *nonTasUsageCache) delete(key client.ObjectKey, log logr.Logger) {
 	delete(n.podUsage, key)
 }
 
-func (n *nonTasUsageCache) usagePerNode() map[string]resources.Requests {
+// forEachNodeUsage invokes fn for each node's usage while holding the read lock.
+// usage is the live cache entry, not a copy: fn must only read it, and must not
+// mutate or retain it beyond the call. Clone it if a longer-lived copy is needed.
+func (n *nonTasUsageCache) forEachNodeUsage(fn func(node string, usage resources.Requests)) {
 	n.lock.RLock()
 	defer n.lock.RUnlock()
-	usage := make(map[string]resources.Requests, len(n.nodeUsage))
 	for node, reqs := range n.nodeUsage {
-		usage[node] = reqs.Clone()
+		fn(node, reqs)
 	}
-	return usage
 }
 
 // addNodeUsage increments the pre-aggregated per-node usage.

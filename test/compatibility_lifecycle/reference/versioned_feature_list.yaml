@@ -27,6 +27,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.17"
+- name: CleanupProvisioningRequestsOnEviction
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
 - name: ConcurrentAdmission
   versionedSpecs:
   - default: false
@@ -39,6 +45,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.17"
+- name: DeferRayServiceFinalizationForRedisCleanup
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
 - name: ElasticJobsViaWorkloadSlices
   versionedSpecs:
   - default: false
@@ -485,6 +497,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.14"
+- name: UnadmittedWorkloadsExplicitStatus
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
 - name: UnadmittedWorkloadsObservability
   versionedSpecs:
   - default: false

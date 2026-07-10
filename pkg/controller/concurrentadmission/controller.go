@@ -28,6 +28,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/events"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -43,18 +44,22 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 )
 
 const (
 	ConcurrentAdmissionController  = "concurrent-admission-controller"
 	ReasonCreatedVariant           = "CreatedVariant"
+	ReasonDeletedVariant           = "DeletedVariant"
 	ReasonActivatedVariant         = "ActivatedVariant"
 	ReasonDeactivatedVariant       = "DeactivatedVariant"
 	ReasonPreemptionUngatedVariant = "PreemptionUngatedVariant"
@@ -111,17 +116,74 @@ func (r *variantReconciler) setupWithManager(mgr ctrl.Manager, cfg *configapi.Co
 			}),
 			r,
 		)).
+		WatchesRawSource(source.TypedKind(
+			mgr.GetCache(),
+			&kueue.ClusterQueue{},
+			handler.TypedFuncs[*kueue.ClusterQueue, reconcile.Request]{
+				UpdateFunc: func(ctx context.Context, e event.TypedUpdateEvent[*kueue.ClusterQueue], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+					for _, req := range r.parentsForClusterQueue(ctx, e.ObjectNew) {
+						q.AddAfter(req, constants.UpdatesBatchPeriod)
+					}
+				},
+			},
+			clusterQueueFlavorsChanged(),
+		)).
 		WithOptions(controller.Options{
 			NeedLeaderElection:      new(false),
-			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("Workload").GroupKind().String()],
+			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.SchemeGroupVersion.WithKind("Workload").GroupKind().String()],
 		}).
 		WithLogConstructor(roletracker.NewLogConstructor(r.roleTracker, ConcurrentAdmissionController)).
 		Complete(r)
 }
 
-// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch
+func clusterQueueFlavorsChanged() predicate.TypedPredicate[*kueue.ClusterQueue] {
+	return predicate.TypedFuncs[*kueue.ClusterQueue]{
+		CreateFunc:  func(event.TypedCreateEvent[*kueue.ClusterQueue]) bool { return false },
+		DeleteFunc:  func(event.TypedDeleteEvent[*kueue.ClusterQueue]) bool { return false },
+		GenericFunc: func(event.TypedGenericEvent[*kueue.ClusterQueue]) bool { return false },
+		UpdateFunc: func(e event.TypedUpdateEvent[*kueue.ClusterQueue]) bool {
+			return !slices.EqualFunc(e.ObjectOld.Spec.ResourceGroups, e.ObjectNew.Spec.ResourceGroups,
+				func(a, b kueue.ResourceGroup) bool {
+					return slices.EqualFunc(a.Flavors, b.Flavors,
+						func(x, y kueue.FlavorQuotas) bool {
+							return x.Name == y.Name
+						})
+				})
+		},
+	}
+}
+
+func (r *variantReconciler) parentsForClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) []reconcile.Request {
+	log := ctrl.LoggerFrom(ctx).WithValues("clusterQueue", klog.KObj(cq))
+	lqList := &kueue.LocalQueueList{}
+	if err := r.client.List(ctx, lqList, client.MatchingFields{indexer.QueueClusterQueueKey: cq.Name}); err != nil {
+		log.Error(err, "Failed to list LocalQueues for ClusterQueue")
+		return nil
+	}
+	var requests []reconcile.Request
+	for i := range lqList.Items {
+		lq := &lqList.Items[i]
+		wlList := &kueue.WorkloadList{}
+		if err := r.client.List(ctx, wlList,
+			client.InNamespace(lq.Namespace),
+			client.MatchingFields{indexer.WorkloadQueueKey: lq.Name},
+			client.MatchingLabels{controllerconsts.ConcurrentAdmissionParentLabelKey: "true"},
+		); err != nil {
+			log.Error(err, "Failed to list parent Workloads for LocalQueue", "localQueue", klog.KObj(lq))
+			continue
+		}
+		for j := range wlList.Items {
+			requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&wlList.Items[j])})
+		}
+	}
+	return requests
+}
+
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=clusterqueues,verbs=get;list;watch
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=localqueues,verbs=get;list;watch
 
 func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
@@ -146,14 +208,14 @@ func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	// TODO: If ConcurrentAdmission is no longer enabled for this CQ, delete parent and variants.
 
-	if len(variants) < len(flavorOrder) {
-		log.V(3).Info("Too few variants, creating new ones", "desired", len(flavorOrder), "actual", len(variants))
-		if err := r.createVariants(ctx, parent, variants, cq.Spec.ResourceGroups[0].Flavors); err != nil {
-			return ctrl.Result{}, err
-		}
+	log.V(3).Info("Reconciling variants against ClusterQueue flavors", "desired", len(flavorOrder), "actual", len(variants))
+	if err := r.createVariants(ctx, parent, variants, cq.Spec.ResourceGroups[0].Flavors); err != nil {
+		return ctrl.Result{}, err
 	}
-	if len(variants) == len(flavorOrder) {
-		log.V(3).Info("Desired number of variants, no action needed", "desired", len(flavorOrder), "actual", len(variants))
+	variants, err = r.deleteStaleVariants(ctx, parent, variants, flavorOrder)
+	if err != nil {
+		log.Error(err, "Failed to delete stale variants")
+		return ctrl.Result{}, err
 	}
 
 	log.V(3).Info("Syncing variants if needed")
@@ -258,6 +320,10 @@ func (r *variantReconciler) createVariants(ctx context.Context, parent *kueue.Wo
 			return err
 		}
 		if err := r.client.Create(ctx, variant); err != nil {
+			if apierrors.IsAlreadyExists(err) {
+				log.V(3).Info("Variant already exists", "variant", klog.KObj(variant))
+				continue
+			}
 			log.V(3).Info("Failed to create variant", "variant", klog.KObj(variant), "error", err)
 			return err
 		}
@@ -265,6 +331,26 @@ func (r *variantReconciler) createVariants(ctx context.Context, parent *kueue.Wo
 		r.recorder.Eventf(parent, nil, corev1.EventTypeNormal, ReasonCreatedVariant, ReasonCreatedVariant, "Variant Workload %q created", klog.KObj(variant))
 	}
 	return nil
+}
+
+func (r *variantReconciler) deleteStaleVariants(ctx context.Context, parent *kueue.Workload, variants []kueue.Workload, flavorOrder map[kueue.ResourceFlavorReference]int) ([]kueue.Workload, error) {
+	log := ctrl.LoggerFrom(ctx)
+	freshVariants := make([]kueue.Workload, 0, len(variants))
+	for i := range variants {
+		v := &variants[i]
+		flavor := concurrentadmission.GetVariantFlavor(v)
+		if _, ok := flavorOrder[flavor]; ok {
+			freshVariants = append(freshVariants, *v)
+			continue
+		}
+		log.V(2).Info("Deleting variant whose flavor is no longer in the ClusterQueue", "variant", klog.KObj(v), "flavor", flavor)
+		if _, err := workload.Delete(ctx, r.client, v); err != nil && !apierrors.IsNotFound(err) {
+			return nil, fmt.Errorf("deleting stale variant %s: %w", klog.KObj(v), err)
+		}
+		r.recorder.Eventf(parent, nil, corev1.EventTypeNormal, ReasonDeletedVariant, ReasonDeletedVariant,
+			"Variant Workload %q deleted; flavor %q no longer in ClusterQueue", klog.KObj(v), flavor)
+	}
+	return freshVariants, nil
 }
 
 func generateVariant(parent *kueue.Workload, flavor kueue.ResourceFlavorReference) *kueue.Workload {
@@ -280,9 +366,9 @@ func generateVariant(parent *kueue.Workload, flavor kueue.ResourceFlavorReferenc
 		Status: parent.Status,
 	}
 	variant.Spec.PreemptionGates = slices.Clone(variant.Spec.PreemptionGates)
-	workload.EnsurePreemptionGateOnSpec(variant, constants.ConcurrentAdmissionPreemptionGate)
-	delete(variant.Labels, constants.ConcurrentAdmissionParentLabelKey)
-	metav1.SetMetaDataAnnotation(&variant.ObjectMeta, constants.WorkloadAllowedResourceFlavorAnnotation, string(flavor))
+	workload.EnsurePreemptionGateOnSpec(variant, controllerconsts.ConcurrentAdmissionPreemptionGate)
+	delete(variant.Labels, controllerconsts.ConcurrentAdmissionParentLabelKey)
+	metav1.SetMetaDataAnnotation(&variant.ObjectMeta, controllerconsts.WorkloadAllowedResourceFlavorAnnotation, string(flavor))
 	return variant
 }
 
@@ -315,10 +401,10 @@ func (r *variantReconciler) syncVariantEvictionStatus(ctx context.Context, paren
 		evCond := apimeta.FindStatusCondition(v.Status.Conditions, kueue.WorkloadEvicted)
 		if evCond != nil && evCond.Status == metav1.ConditionTrue && workload.HasQuotaReservation(v) {
 			if workload.HasQuotaReservation(parent) {
-				if !workload.IsEvicted(parent) {
+				if !workloadevict.IsEvicted(parent) {
 					log.V(2).Info("Evicting parent", "parent", klog.KObj(parent))
 					err := workloadpatching.PatchAdmissionStatus(ctx, r.client, parent, r.clock, func(w *kueue.Workload) (bool, error) {
-						return workload.SetEvictedCondition(w, r.clock.Now(), "VariantEvicted", "Admitted variant was evicted"), nil
+						return workloadevict.SetEvictedCondition(w, r.clock.Now(), "VariantEvicted", "Admitted variant was evicted"), nil
 					})
 					if err != nil {
 						return false, fmt.Errorf("evicting parent: %w", err)
@@ -344,7 +430,12 @@ func (r *variantReconciler) clearWorkloadAdmission(ctx context.Context, wl *kueu
 		setRequeued := (evCond.Reason == kueue.WorkloadEvictedByPreemption) ||
 			(evCond.Reason == kueue.WorkloadEvictedDueToNodeFailures)
 		updated := workload.SetRequeuedCondition(w, evCond.Reason, evCond.Message, setRequeued)
-		if workload.UnsetQuotaReservationWithCondition(w, "Pending", evCond.Message, r.clock.Now()) {
+		if workload.UnsetQuotaReservationWithCondition(
+			w,
+			kueue.WorkloadPending, //nolint:staticcheck // SA1019: fallback
+			evCond.Message,
+			r.clock.Now(),
+		) {
 			updated = true
 		}
 		return updated, nil
@@ -543,7 +634,7 @@ func (r *variantReconciler) syncFinished(ctx context.Context, parent *kueue.Work
 	finishCond := apimeta.FindStatusCondition(parent.Status.Conditions, kueue.WorkloadFinished)
 	for i := range variants {
 		v := &variants[i]
-		if err := workload.Finish(ctx, r.client, v, finishCond.Reason, finishCond.Message, r.clock); err != nil && !apierrors.IsNotFound(err) {
+		if err := workloadfinish.Finish(ctx, r.client, v, finishCond.Reason, finishCond.Message, r.clock); err != nil && !apierrors.IsNotFound(err) {
 			return err
 		}
 	}
@@ -560,7 +651,7 @@ func (r *variantReconciler) syncPodsReadyCond(parent, variant *kueue.Workload) b
 
 func (r *variantReconciler) syncAdmissionStatus(ctx context.Context, parent *kueue.Workload, variants []kueue.Workload) error {
 	log := ctrl.LoggerFrom(ctx)
-	if workload.IsFinished(parent) {
+	if workloadfinish.IsFinished(parent) {
 		return r.syncFinished(ctx, parent, variants)
 	}
 
@@ -569,7 +660,7 @@ func (r *variantReconciler) syncAdmissionStatus(ctx context.Context, parent *kue
 	case admittedVariant == nil && workload.IsAdmitted(parent):
 		log.V(2).Info("Parent admitted and no Variant is admitted, evicting parent", "parent", klog.KObj(parent))
 		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, parent, r.clock, func(wl *kueue.Workload) (bool, error) {
-			return workload.SetEvictedCondition(wl, r.clock.Now(), "ConcurrentAdmission", "No variant is running"), nil
+			return workloadevict.SetEvictedCondition(wl, r.clock.Now(), "ConcurrentAdmission", "No variant is running"), nil
 		})
 		if err != nil {
 			return fmt.Errorf("clearing admission: %w", err)
@@ -671,7 +762,7 @@ func (r *variantReconciler) selectVariantToOpenPreemptionGate(ctx context.Contex
 
 func firstCandidateVariant(log logr.Logger, admissibleVariants []*kueue.Workload) *kueue.Workload {
 	for _, wl := range admissibleVariants {
-		if workload.HasOpenPreemptionGate(wl, constants.ConcurrentAdmissionPreemptionGate) {
+		if workload.HasOpenPreemptionGate(wl, controllerconsts.ConcurrentAdmissionPreemptionGate) {
 			continue
 		}
 		wlLog := log.WithValues("candidateVariant", klog.KObj(wl), "flavor", concurrentadmission.GetVariantFlavor(wl))
@@ -688,7 +779,7 @@ func firstCandidateVariant(log logr.Logger, admissibleVariants []*kueue.Workload
 func latestOpenGateTime(log logr.Logger, admissibleVariants []*kueue.Workload) *metav1.Time {
 	var lastUngateTime *metav1.Time
 	for _, wl := range admissibleVariants {
-		openGate := workload.FindPreemptionGate(wl, constants.ConcurrentAdmissionPreemptionGate)
+		openGate := workload.FindPreemptionGate(wl, controllerconsts.ConcurrentAdmissionPreemptionGate)
 		if openGate == nil || openGate.Position != kueue.PreemptionGatePositionOpen {
 			continue
 		}
@@ -715,7 +806,7 @@ func (r *variantReconciler) openPreemptionGate(ctx context.Context, variant *kue
 	log.V(2).Info("Opening preemption gate for variant", "variant", klog.KObj(variant), "flavor", concurrentadmission.GetVariantFlavor(variant))
 	var opened bool
 	if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, variant, r.clock, func(wl *kueue.Workload) (bool, error) {
-		opened = workload.OpenPreemptionGate(wl, constants.ConcurrentAdmissionPreemptionGate, metav1.NewTime(r.clock.Now()))
+		opened = workload.OpenPreemptionGate(wl, controllerconsts.ConcurrentAdmissionPreemptionGate, metav1.NewTime(r.clock.Now()))
 		return opened, nil
 	}, workloadpatching.WithRetryOnConflict()); err != nil {
 		return fmt.Errorf("opening preemption gate on variant %s: %w", klog.KObj(variant), err)

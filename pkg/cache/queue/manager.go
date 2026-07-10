@@ -45,6 +45,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 )
 
 var (
@@ -240,7 +241,7 @@ func (m *Manager) AddFinishedWorkload(wl *kueue.Workload) {
 func (m *Manager) addFinishedWorkloadWithoutLock(wl *kueue.Workload) {
 	wlKey := workload.Key(wl)
 
-	if !workload.IsFinished(wl) {
+	if !workloadfinish.IsFinished(wl) {
 		return
 	}
 
@@ -384,7 +385,7 @@ func (m *Manager) IsConcurrentAdmissionParentWithoutLock(wl *kueue.Workload) boo
 	if !features.Enabled(features.ConcurrentAdmission) {
 		return false
 	}
-	cqName, _ := m.ClusterQueueForWorkloadWithoutLock(wl)
+	cqName, _ := m.ClusterQueueNameForWorkloadWithoutLock(wl)
 	return m.ConcurrentAdmissionEnabledWithoutLock(cqName) && !concurrentadmission.IsVariant(wl)
 }
 
@@ -483,7 +484,7 @@ func (m *Manager) addLocalQueueLocked(ctx context.Context, q *kueue.LocalQueue) 
 	for _, w := range workloads.Items {
 		m.assignWorkload(workload.Key(&w), qImpl.Key)
 
-		if workload.IsFinished(&w) {
+		if workloadfinish.IsFinished(&w) {
 			m.addFinishedWorkloadWithoutLock(&w)
 		}
 
@@ -611,16 +612,37 @@ func (m *Manager) QueueForWorkloadExists(wl *kueue.Workload) bool {
 func (m *Manager) ClusterQueueForWorkload(wl *kueue.Workload) (kueue.ClusterQueueReference, bool) {
 	m.RLock()
 	defer m.RUnlock()
-	return m.ClusterQueueForWorkloadWithoutLock(wl)
+	return m.ClusterQueueNameForWorkloadWithoutLock(wl)
 }
 
-func (m *Manager) ClusterQueueForWorkloadWithoutLock(wl *kueue.Workload) (kueue.ClusterQueueReference, bool) {
+func (m *Manager) ClusterQueueNameForWorkloadWithoutLock(wl *kueue.Workload) (kueue.ClusterQueueReference, bool) {
 	q, ok := m.localQueues[queue.KeyFromWorkload(wl)]
 	if !ok {
 		return "", false
 	}
 	ok = m.hm.ClusterQueue(q.ClusterQueue) != nil
 	return q.ClusterQueue, ok
+}
+
+// ClusterQueueForWorkloadWithoutLock returns the ClusterQueue where the
+// workload should be queued, or nil if it doesn't exist.
+func (m *Manager) ClusterQueueForWorkloadWithoutLock(wl *kueue.Workload) *ClusterQueue {
+	q, ok := m.localQueues[queue.KeyFromWorkload(wl)]
+	if !ok {
+		return nil
+	}
+	return m.hm.ClusterQueue(q.ClusterQueue)
+}
+
+func (m *Manager) GetNoFitReason(wl *kueue.Workload) (string, bool) {
+	m.RLock()
+	defer m.RUnlock()
+	cq := m.ClusterQueueForWorkloadWithoutLock(wl)
+	if cq == nil {
+		return "", false
+	}
+	wlKey := workload.Key(wl)
+	return cq.GetNoFitReason(wlKey)
 }
 
 // AddOrUpdateWorkload adds or updates workload to the corresponding queue.
@@ -672,7 +694,10 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workl
 // RequeueWorkload requeues the workload ensuring that the queue and the
 // workload still exist in the client cache and not admitted. It won't
 // requeue if the workload is already in the queue (possible if the workload was updated).
-func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reason RequeueReason) bool {
+// The quotaReservedReason parameter represents the WorkloadQuotaReserved condition reason
+// computed by the scheduler during this cycle. It must be passed explicitly because info.Obj
+// has not yet been patched with the updated condition when RequeueWorkload is called.
+func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reason RequeueReason, quotaReservedReason QuotaReservedReason) bool {
 	m.Lock()
 	defer m.Unlock()
 
@@ -705,7 +730,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 		return false
 	}
 
-	added := cq.RequeueIfNotPresent(ctx, info, reason)
+	added := cq.RequeueIfNotPresent(ctx, info, reason, quotaReservedReason)
 	reportCQPendingWorkloads(m, cq)
 	reportLQPendingWorkloads(m, q)
 	if added {

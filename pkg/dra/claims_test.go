@@ -18,6 +18,7 @@ package dra
 
 import (
 	"errors"
+	"math"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -696,6 +697,45 @@ func Test_GetResourceRequests(t *testing.T) {
 				if diff := cmp.Diff(tc.want, got, cmpopts.EquateEmpty()); diff != "" {
 					t.Errorf("GetResourceRequestsForResourceClaimTemplates() result mismatch (-want +got):\n%s", diff)
 				}
+			}
+		})
+	}
+}
+
+func exactReq(name, deviceClass string, count int64) resourcev1.DeviceRequest {
+	return resourcev1.DeviceRequest{
+		Name: name,
+		Exactly: &resourcev1.ExactDeviceRequest{
+			DeviceClassName: deviceClass,
+			AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
+			Count:           count,
+		},
+	}
+}
+
+func Test_countDevicesPerClass_overflow(t *testing.T) {
+	cases := map[string]struct {
+		requests  []resourcev1.DeviceRequest
+		wantCount int64
+	}{
+		"normal sum across requests": {
+			requests:  []resourcev1.DeviceRequest{exactReq("r0", "gpu", 2), exactReq("r1", "gpu", 3)},
+			wantCount: 5,
+		},
+		"sum saturates at MaxInt64 instead of wrapping negative": {
+			requests:  []resourcev1.DeviceRequest{exactReq("r0", "gpu", math.MaxInt64), exactReq("r1", "gpu", math.MaxInt64)},
+			wantCount: math.MaxInt64,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			spec := &resourcev1.ResourceClaimSpec{Devices: resourcev1.DeviceClaim{Requests: tc.requests}}
+			out, errs := countDevicesPerClass(spec)
+			if len(errs) != 0 {
+				t.Fatalf("unexpected errors: %v", errs)
+			}
+			if got := out["gpu"]; got != tc.wantCount {
+				t.Errorf("count = %d, want %d", got, tc.wantCount)
 			}
 		})
 	}

@@ -106,7 +106,7 @@ var _ = ginkgo.Describe("MultiKueue with ProvisioningRequest", ginkgo.Label("are
 
 		multiKueueAC = utiltestingapi.MakeAdmissionCheck("mk-ac").
 			ControllerName(kueue.MultiKueueControllerName).
-			Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", managerMultiKueueConfig.Name).
+			Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", managerMultiKueueConfig.Name).
 			Obj()
 		util.CreateAdmissionChecksAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC)
 
@@ -132,7 +132,7 @@ var _ = ginkgo.Describe("MultiKueue with ProvisioningRequest", ginkgo.Label("are
 
 		worker1ProvReqAC = utiltestingapi.MakeAdmissionCheck("prov-ac").
 			ControllerName(kueue.ProvisioningRequestControllerName).
-			Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", worker1ProvReqConfig.Name).
+			Parameters(kueue.SchemeGroupVersion.Group, "ProvisioningRequestConfig", worker1ProvReqConfig.Name).
 			Obj()
 		util.CreateAdmissionChecksAndWaitForActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1ProvReqAC)
 
@@ -158,7 +158,7 @@ var _ = ginkgo.Describe("MultiKueue with ProvisioningRequest", ginkgo.Label("are
 
 		worker2ProvReqAC = utiltestingapi.MakeAdmissionCheck("prov-ac").
 			ControllerName(kueue.ProvisioningRequestControllerName).
-			Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", worker2ProvReqConfig.Name).
+			Parameters(kueue.SchemeGroupVersion.Group, "ProvisioningRequestConfig", worker2ProvReqConfig.Name).
 			Obj()
 		util.CreateAdmissionChecksAndWaitForActive(worker2TestCluster.ctx, worker2TestCluster.client, worker2ProvReqAC)
 

@@ -32,6 +32,7 @@ import (
 
 	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -45,7 +46,7 @@ var ns *corev1.Namespace
 
 const (
 	workloadName    = "workload-test"
-	podSetsMaxItems = 10
+	podSetsMaxItems = jobframework.MaxPodSets
 )
 
 var _ = ginkgo.Describe("Workload defaulting webhook", func() {
@@ -133,7 +134,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 		},
 			ginkgo.Entry("podSets count less than 1", 0, 1, true),
 			ginkgo.Entry("podSets count at the maximum", podSetsMaxItems, 1, false),
-			ginkgo.Entry("podSets count more than 10", podSetsMaxItems+1, 1, true),
+			ginkgo.Entry("podSets count more than the maximum", podSetsMaxItems+1, 1, true),
 			ginkgo.Entry("valid podSet, count can be 0", 3, 0, false),
 			ginkgo.Entry("valid podSet", 3, 3, false),
 		)

@@ -1090,6 +1090,34 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"valid TLS with curve preferences": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ControllerManager: configapi.ControllerManager{
+					TLS: &configapi.TLSOptions{
+						MinVersion:       "VersionTLS12",
+						CurvePreferences: []int32{23, 29}, // P256, X25519
+					},
+				},
+			},
+		},
+		"invalid TLS with invalid curve preferences": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ControllerManager: configapi.ControllerManager{
+					TLS: &configapi.TLSOptions{
+						MinVersion:       "VersionTLS12",
+						CurvePreferences: []int32{0},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "tls",
+				},
+			},
+		},
 		"invalid .visibilityServer.bindAddress": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
@@ -1211,6 +1239,22 @@ func TestValidate(t *testing.T) {
 					Type:   field.ErrorTypeInvalid,
 					Field:  "featureGates",
 					Detail: "KueueDRAIntegrationExtendedResource requires KueueDRAIntegration to be enabled",
+				},
+			},
+		},
+		"UnadmittedWorkloadsExplicitStatus requires UnadmittedWorkloadsObservability": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.UnadmittedWorkloadsExplicitStatus: true,
+				features.UnadmittedWorkloadsObservability:  false,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "UnadmittedWorkloadsExplicitStatus requires UnadmittedWorkloadsObservability to be enabled",
 				},
 			},
 		},
@@ -1602,6 +1646,23 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 					Type:   field.ErrorTypeInvalid,
 					Field:  "featureGates",
 					Detail: "KueueDRAIntegrationExtendedResource requires KueueDRAIntegration to be enabled",
+				},
+			},
+		},
+		"UnadmittedWorkloadsExplicitStatus requires UnadmittedWorkloadsObservability": {
+			featureGateMap: map[string]bool{
+				string(features.UnadmittedWorkloadsExplicitStatus): true,
+				string(features.UnadmittedWorkloadsObservability):  false,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.UnadmittedWorkloadsExplicitStatus: false,
+				features.UnadmittedWorkloadsObservability:  true,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "UnadmittedWorkloadsExplicitStatus requires UnadmittedWorkloadsObservability to be enabled",
 				},
 			},
 		},

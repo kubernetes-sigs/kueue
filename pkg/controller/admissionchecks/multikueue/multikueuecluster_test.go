@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -98,7 +99,7 @@ func newTestClient(ctx context.Context, kubeconfig []byte, restConfig *rest.Conf
 
 func setReconnectState(rc *remoteClient, a uint) *remoteClient {
 	rc.failedConnAttempts = a
-	rc.connecting.Store(true)
+	rc.connected.Store(false)
 	return rc
 }
 
@@ -909,7 +910,7 @@ func TestDisconnectedClientReconnectsWithSameConfig(t *testing.T) {
 
 	rc := newTestClient(ctx, []byte(kubeconfig), nil, nil)
 	rc.builderOverride = reconciler.builderOverride
-	rc.disconnected.Store(true)
+	rc.connected.Store(false)
 	reconciler.remoteClients["worker1"] = rc
 	defer rc.StopWatchers()
 
@@ -920,11 +921,8 @@ func TestDisconnectedClientReconnectsWithSameConfig(t *testing.T) {
 	if buildCalls != 1 {
 		t.Fatalf("builder invocations: want 1, got %d", buildCalls)
 	}
-	if rc.connecting.Load() {
-		t.Error("connecting should be cleared after successful reconnect")
-	}
-	if rc.disconnected.Load() {
-		t.Error("disconnected should be cleared after successful reconnect")
+	if connected := rc.connected.Load(); !connected {
+		t.Errorf("expected state to be connected")
 	}
 }
 
@@ -1037,7 +1035,7 @@ func TestRemoteClientGC(t *testing.T) {
 			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
 			w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
 			w1remoteClient.client = worker1Client
-			w1remoteClient.connecting.Store(false)
+			w1remoteClient.connected.Store(true)
 
 			w1remoteClient.runGC(ctx)
 
@@ -1535,4 +1533,69 @@ func TestValidateKubeConfigPath(t *testing.T) {
 			}
 		})
 	}
+}
+
+// hammerSetConfigWithReader runs reader concurrently with updateConfigAndRefreshWatchers
+// swapping rc.client, as a regression harness for the #12557 data race. Only meaningful
+// under `go test -race`.
+func hammerSetConfigWithReader(t *testing.T, reader func(ctx context.Context, rc *remoteClient)) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	rc := newTestClient(ctx, []byte(testKubeconfig("worker1")), nil, nil)
+	rc.origin = defaultOrigin
+	rc.adapters = map[string]jobframework.MultiKueueAdapter{}
+
+	// Seed an initial client so the first read has a client to observe.
+	rc.connected.Store(false)
+	if _, err := rc.updateConfigAndRefreshWatchers(ctx, rc.config); err != nil {
+		t.Fatalf("seeding initial client: %v", err)
+	}
+
+	const iterations = 200
+	var writerDone atomic.Bool
+	var wg sync.WaitGroup
+
+	// Writer: swap rc.client each iteration; fail if the update errors (swaps would stop).
+	var writerErr error
+	wg.Go(func() {
+		defer writerDone.Store(true)
+		for i := range iterations {
+			cfg := &clientConfig{Kubeconfig: []byte(testKubeconfig(fmt.Sprintf("worker-%d", i)))}
+			if _, err := rc.updateConfigAndRefreshWatchers(ctx, cfg); err != nil {
+				writerErr = err
+				return
+			}
+		}
+	})
+
+	wg.Go(func() {
+		for !writerDone.Load() {
+			reader(ctx, rc)
+		}
+	})
+
+	wg.Wait()
+	if writerErr != nil {
+		t.Fatalf("writer updateConfigAndRefreshWatchers: %v", writerErr)
+	}
+}
+
+func TestRemoteClientConcurrentSetConfigAndGC(t *testing.T) {
+	hammerSetConfigWithReader(t, func(ctx context.Context, rc *remoteClient) {
+		rc.runGC(ctx)
+	})
+}
+
+func TestRemoteClientConcurrentSetConfigAndReaders(t *testing.T) {
+	wlKey := client.ObjectKey{Namespace: metav1.NamespaceDefault, Name: "wl"}
+	hammerSetConfigWithReader(t, func(ctx context.Context, rc *remoteClient) {
+		remoteCl := rc.getClient()
+		if remoteCl == nil {
+			return
+		}
+		_ = remoteCl.Get(ctx, wlKey, &kueue.Workload{}) // workload.go-style read
+		_ = remoteCl.List(ctx, &kueue.LocalQueueList{}) // clusterqueue.go-style read
+	})
 }

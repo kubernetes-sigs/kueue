@@ -30,6 +30,7 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -134,6 +135,14 @@ func TestReconcile(t *testing.T) {
 		Obj()
 	retainFirstAdmissionLQ := utiltestingapi.MakeLocalQueue("lq-hold", "default").ClusterQueue("cq-hold").Obj()
 
+	spotOnlyCQ := utiltestingapi.MakeClusterQueue("cq-spot-only").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("spot").Obj(),
+		).
+		ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).
+		Obj()
+	spotOnlyLQ := utiltestingapi.MakeLocalQueue("lq-spot-only", "default").ClusterQueue("cq-spot-only").Obj()
+
 	testCases := map[string]struct {
 		parentWorkload       *kueue.Workload
 		variantWorkloads     []kueue.Workload
@@ -169,13 +178,13 @@ func TestReconcile(t *testing.T) {
 					Queue("lq").
 					AllowedFlavors("spot").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", ""). // UID is ignored in cmp
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", ""). // UID is ignored in cmp
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-on-demand-480a3", "default").
 					Queue("lq").
 					AllowedFlavors("on-demand").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
@@ -203,7 +212,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq").
 					AllowedFlavors("spot").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", ""). // UID is ignored in cmp
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", ""). // UID is ignored in cmp
 					Obj(),
 			},
 			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
@@ -215,13 +224,13 @@ func TestReconcile(t *testing.T) {
 					Queue("lq").
 					AllowedFlavors("spot").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", ""). // UID is ignored in cmp
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", ""). // UID is ignored in cmp
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-on-demand-480a3", "default").
 					Queue("lq").
 					AllowedFlavors("on-demand").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
@@ -232,6 +241,177 @@ func TestReconcile(t *testing.T) {
 					Message:   "Variant Workload \"default/wl-variant-on-demand-480a3\" created",
 				},
 			},
+		},
+		"flavor removed from ClusterQueue; variant is deleted": {
+			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Obj(),
+			variantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
+					Queue("lq").
+					AllowedFlavors("on-demand").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq").
+					AllowedFlavors("spot").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+				// "stale" is not part of the "cq" ClusterQueue's resource group anymore.
+				*utiltestingapi.MakeWorkload("wl-variant-stale", "default").
+					Queue("lq").
+					AllowedFlavors("stale").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+			},
+			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Obj(),
+			wantVariantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
+					Queue("lq").
+					AllowedFlavors("on-demand").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq").
+					AllowedFlavors("spot").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl-12345"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    ReasonDeletedVariant,
+					Message:   "Variant Workload \"default/wl-variant-stale\" deleted; flavor \"stale\" no longer in ClusterQueue",
+				},
+			},
+		},
+		"admitted variant's flavor removed; variant deleted and parent evicted": {
+			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq-spot-only").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
+				SimpleReserveQuota("cq-spot-only", "on-demand", metav1.Now().Time).
+				AdmittedAt(true, metav1.Now().Time).
+				Obj(),
+			variantWorkloads: []kueue.Workload{
+				// The admitted variant runs on "on-demand", which cq-spot-only no longer offers.
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
+					Queue("lq-spot-only").
+					AllowedFlavors("on-demand").
+					Request(corev1.ResourceCPU, "1").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					SimpleReserveQuota("cq-spot-only", "on-demand", metav1.Now().Time).
+					AdmittedAt(true, metav1.Now().Time).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq-spot-only").
+					AllowedFlavors("spot").
+					Request(corev1.ResourceCPU, "1").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+			},
+			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq-spot-only").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
+				SimpleReserveQuota("cq-spot-only", "on-demand", metav1.Now().Time).
+				AdmittedAt(true, metav1.Now().Time).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  "ConcurrentAdmission",
+					Message: "No variant is running",
+				}).
+				Obj(),
+			wantVariantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq-spot-only").
+					AllowedFlavors("spot").
+					Request(corev1.ResourceCPU, "1").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl-12345"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    ReasonDeletedVariant,
+					Message:   "Variant Workload \"default/wl-variant-on-demand\" deleted; flavor \"on-demand\" no longer in ClusterQueue",
+				},
+			},
+		},
+		"deleting the variant holding the open preemption gate opens the next one's gate": {
+			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq-spot-only").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Obj(),
+			variantWorkloads: []kueue.Workload{
+				// on-demand holds an open gate whose preemption timeout has NOT elapsed
+				// (opened at fakeNow), so the spot gate would normally stay closed.
+				// cq-spot-only no longer offers on-demand, so this variant is deleted.
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
+					Queue("lq-spot-only").
+					AllowedFlavors("on-demand").
+					Request(corev1.ResourceCPU, "1").
+					PreemptionGates(caGate()).
+					PreemptionGateStates(caGateState(kueue.PreemptionGatePositionOpen, fakeNow)).
+					Condition(blockedOnPreemptionCondition(fakeNow)).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq-spot-only").
+					AllowedFlavors("spot").
+					Request(corev1.ResourceCPU, "1").
+					PreemptionGates(caGate()).
+					Condition(blockedOnPreemptionCondition(fakeNow)).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+			},
+			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq-spot-only").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Obj(),
+			wantVariantWorkloads: []kueue.Workload{
+				// on-demand deleted; spot's gate is opened even though on-demand's gate
+				// had not yet timed out, because the gate holder is gone.
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq-spot-only").
+					AllowedFlavors("spot").
+					Request(corev1.ResourceCPU, "1").
+					PreemptionGates(caGate()).
+					PreemptionGateStates(caGateState(kueue.PreemptionGatePositionOpen, fakeNow)).
+					Condition(blockedOnPreemptionCondition(fakeNow)).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl-12345"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    ReasonDeletedVariant,
+					Message:   "Variant Workload \"default/wl-variant-on-demand\" deleted; flavor \"on-demand\" no longer in ClusterQueue",
+				},
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl-variant-spot"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    ReasonPreemptionUngatedVariant,
+					Message:   "Opened preemption gate for variant workload \"default/wl-variant-spot\"",
+				},
+			},
+			wantResult: reconcile.Result{RequeueAfter: preemptionTimeout},
 		},
 		"ungates the next-preferred variant once the open gate's preemption timeout elapses": {
 			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
@@ -248,7 +428,7 @@ func TestReconcile(t *testing.T) {
 					PreemptionGates(caGate()).
 					PreemptionGateStates(caGateState(kueue.PreemptionGatePositionOpen, fakeNow.Add(-preemptionTimeout))).
 					Condition(blockedOnPreemptionCondition(metav1.Now().Time)).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
 					Queue("lq").
@@ -256,7 +436,7 @@ func TestReconcile(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					PreemptionGates(caGate()).
 					Condition(blockedOnPreemptionCondition(metav1.Now().Time)).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 			},
 			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
@@ -271,7 +451,7 @@ func TestReconcile(t *testing.T) {
 					PreemptionGates(caGate()).
 					PreemptionGateStates(caGateState(kueue.PreemptionGatePositionOpen, fakeNow.Add(-preemptionTimeout))).
 					Condition(blockedOnPreemptionCondition(metav1.Now().Time)).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
 					Queue("lq").
@@ -280,7 +460,7 @@ func TestReconcile(t *testing.T) {
 					PreemptionGates(caGate()).
 					PreemptionGateStates(caGateState(kueue.PreemptionGatePositionOpen, metav1.Now().Time)).
 					Condition(blockedOnPreemptionCondition(metav1.Now().Time)).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
@@ -305,7 +485,7 @@ func TestReconcile(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					PreemptionGates(caGate()).
 					Condition(blockedOnPreemptionCondition(fakeNow)).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
 					Queue("lq").
@@ -313,7 +493,7 @@ func TestReconcile(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					PreemptionGates(caGate()).
 					PreemptionGateStates(caGateState(kueue.PreemptionGatePositionClosed, fakeNow)).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 			},
 			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
@@ -328,7 +508,7 @@ func TestReconcile(t *testing.T) {
 					PreemptionGates(caGate()).
 					PreemptionGateStates(caGateState(kueue.PreemptionGatePositionOpen, fakeNow)).
 					Condition(blockedOnPreemptionCondition(fakeNow)).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
 					Queue("lq").
@@ -336,7 +516,7 @@ func TestReconcile(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					PreemptionGates(caGate()).
 					PreemptionGateStates(caGateState(kueue.PreemptionGatePositionClosed, fakeNow)).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
@@ -361,7 +541,7 @@ func TestReconcile(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					PreemptionGates(caGate()).
 					PreemptionGateStates(caGateState(kueue.PreemptionGatePositionClosed, fakeNow)).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
 					Queue("lq").
@@ -369,7 +549,7 @@ func TestReconcile(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					PreemptionGates(caGate()).
 					PreemptionGateStates(caGateState(kueue.PreemptionGatePositionClosed, fakeNow)).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 			},
 			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
@@ -383,7 +563,7 @@ func TestReconcile(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					PreemptionGates(caGate()).
 					PreemptionGateStates(caGateState(kueue.PreemptionGatePositionClosed, fakeNow)).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
 					Queue("lq").
@@ -391,7 +571,7 @@ func TestReconcile(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					PreemptionGates(caGate()).
 					PreemptionGateStates(caGateState(kueue.PreemptionGatePositionClosed, fakeNow)).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 			},
 		},
@@ -407,7 +587,7 @@ func TestReconcile(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					PreemptionGates(caGate()).
 					Condition(blockedOnPreemptionCondition(fakeNow)).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
 					Queue("lq").
@@ -415,7 +595,7 @@ func TestReconcile(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					PreemptionGates(caGate()).
 					Condition(blockedOnPreemptionCondition(fakeNow)).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 			},
 			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
@@ -430,7 +610,7 @@ func TestReconcile(t *testing.T) {
 					PreemptionGates(caGate()).
 					PreemptionGateStates(caGateState(kueue.PreemptionGatePositionOpen, fakeNow)).
 					Condition(blockedOnPreemptionCondition(fakeNow)).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
 					Queue("lq").
@@ -438,7 +618,7 @@ func TestReconcile(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					PreemptionGates(caGate()).
 					Condition(blockedOnPreemptionCondition(fakeNow)).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
@@ -463,7 +643,7 @@ func TestReconcile(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					PreemptionGates(caGate()).
 					PreemptionGateStates(caGateState(kueue.PreemptionGatePositionOpen, fakeNow.Add(-time.Minute))).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
 					Queue("lq").
@@ -471,7 +651,7 @@ func TestReconcile(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					PreemptionGates(caGate()).
 					Condition(blockedOnPreemptionCondition(fakeNow)).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 			},
 			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
@@ -485,7 +665,7 @@ func TestReconcile(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					PreemptionGates(caGate()).
 					PreemptionGateStates(caGateState(kueue.PreemptionGatePositionOpen, fakeNow.Add(-time.Minute))).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
 					Queue("lq").
@@ -493,7 +673,7 @@ func TestReconcile(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					PreemptionGates(caGate()).
 					Condition(blockedOnPreemptionCondition(fakeNow)).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 			},
 			wantResult: reconcile.Result{RequeueAfter: preemptionTimeout - time.Minute},
@@ -510,7 +690,7 @@ func TestReconcile(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					PreemptionGates(caGate()).
 					PreemptionGateStates(caGateState(kueue.PreemptionGatePositionOpen, fakeNow.Add(-4*time.Minute))).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
 					Queue("lq-migration-no-constraint").
@@ -518,7 +698,7 @@ func TestReconcile(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					PreemptionGates(caGate()).
 					PreemptionGateStates(caGateState(kueue.PreemptionGatePositionOpen, fakeNow.Add(-time.Minute))).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
 					Queue("lq-migration-no-constraint").
@@ -526,7 +706,7 @@ func TestReconcile(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					PreemptionGates(caGate()).
 					Condition(blockedOnPreemptionCondition(fakeNow)).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 			},
 			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
@@ -540,7 +720,7 @@ func TestReconcile(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					PreemptionGates(caGate()).
 					PreemptionGateStates(caGateState(kueue.PreemptionGatePositionOpen, fakeNow.Add(-4*time.Minute))).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
 					Queue("lq-migration-no-constraint").
@@ -548,7 +728,7 @@ func TestReconcile(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					PreemptionGates(caGate()).
 					PreemptionGateStates(caGateState(kueue.PreemptionGatePositionOpen, fakeNow.Add(-time.Minute))).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
 					Queue("lq-migration-no-constraint").
@@ -556,7 +736,7 @@ func TestReconcile(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					PreemptionGates(caGate()).
 					Condition(blockedOnPreemptionCondition(fakeNow)).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 			},
 			wantResult: reconcile.Result{RequeueAfter: preemptionTimeout - time.Minute},
@@ -577,13 +757,13 @@ func TestReconcile(t *testing.T) {
 					Queue("lq").
 					AllowedFlavors("spot").
 					PreemptionGates(otherGate, caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-on-demand-480a3", "default").
 					Queue("lq").
 					AllowedFlavors("on-demand").
 					PreemptionGates(otherGate, caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
@@ -611,7 +791,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq").
 					AllowedFlavors("spot").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					SimpleReserveQuota("cq", "spot", metav1.Now().Time).
 					AdmittedAt(true, metav1.Now().Time).
@@ -620,7 +800,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq").
 					AllowedFlavors("on-demand").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 			},
 			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
@@ -653,7 +833,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq").
 					AllowedFlavors("spot").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					SimpleReserveQuota("cq", "spot", metav1.Now().Time).
 					AdmittedAt(true, metav1.Now().Time).
@@ -662,7 +842,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq").
 					AllowedFlavors("on-demand").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 			},
 		},
@@ -679,14 +859,14 @@ func TestReconcile(t *testing.T) {
 					Queue("lq").
 					AllowedFlavors("spot").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
 					Queue("lq").
 					AllowedFlavors("on-demand").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 			},
@@ -708,14 +888,14 @@ func TestReconcile(t *testing.T) {
 					Queue("lq").
 					AllowedFlavors("spot").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
 					Queue("lq").
 					AllowedFlavors("on-demand").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 			},
@@ -733,7 +913,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq").
 					AllowedFlavors("spot").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					SimpleReserveQuota("cq", "spot", metav1.Now().Time).
 					AdmittedAt(true, metav1.Now().Time).
@@ -749,7 +929,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq").
 					AllowedFlavors("on-demand").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Active(false).
 					Obj(),
@@ -772,7 +952,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq").
 					AllowedFlavors("spot").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					SimpleReserveQuota("cq", "spot", metav1.Now().Time).
 					AdmittedAt(true, metav1.Now().Time).
@@ -788,7 +968,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq").
 					AllowedFlavors("on-demand").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Active(false).
 					Obj(),
@@ -805,7 +985,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq").
 					AllowedFlavors("spot").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					SimpleReserveQuota("cq", "spot", metav1.Now().Time).
 					AdmittedAt(true, metav1.Now().Time).
@@ -821,7 +1001,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq").
 					AllowedFlavors("on-demand").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Active(false).
 					Obj(),
@@ -836,7 +1016,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq").
 					AllowedFlavors("spot").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					SimpleReserveQuota("cq", "spot", metav1.Now().Time).
 					AdmittedAt(true, metav1.Now().Time).
@@ -870,7 +1050,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq").
 					AllowedFlavors("on-demand").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Active(true).
 					Obj(),
@@ -895,21 +1075,21 @@ func TestReconcile(t *testing.T) {
 					Queue("lq-migration").
 					AllowedFlavors("reservation").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
 					Queue("lq-migration").
 					AllowedFlavors("on-demand").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
 					Queue("lq-migration").
 					AllowedFlavors("spot").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					SimpleReserveQuota("cq-migration", "spot", metav1.Now().Time).
 					AdmittedAt(true, metav1.Now().Time).
@@ -946,14 +1126,14 @@ func TestReconcile(t *testing.T) {
 					Queue("lq-migration").
 					AllowedFlavors("reservation").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
 					Queue("lq-migration").
 					AllowedFlavors("on-demand").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Active(false).
 					Obj(),
@@ -961,7 +1141,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq-migration").
 					AllowedFlavors("spot").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					SimpleReserveQuota("cq-migration", "spot", metav1.Now().Time).
 					AdmittedAt(true, metav1.Now().Time).
@@ -987,14 +1167,14 @@ func TestReconcile(t *testing.T) {
 					Queue("lq-migration").
 					AllowedFlavors("reservation").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
 					Queue("lq-migration").
 					AllowedFlavors("on-demand").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					SimpleReserveQuota("cq-migration", "on-demand", metav1.Now().Time).
 					AdmittedAt(true, metav1.Now().Time).
@@ -1003,7 +1183,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq-migration").
 					AllowedFlavors("spot").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 			},
@@ -1038,14 +1218,14 @@ func TestReconcile(t *testing.T) {
 					Queue("lq-migration").
 					AllowedFlavors("reservation").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
 					Queue("lq-migration").
 					AllowedFlavors("on-demand").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					SimpleReserveQuota("cq-migration", "on-demand", metav1.Now().Time).
 					AdmittedAt(true, metav1.Now().Time).
@@ -1054,7 +1234,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq-migration").
 					AllowedFlavors("spot").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Active(false).
 					Obj(),
@@ -1079,7 +1259,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq-migration").
 					AllowedFlavors("reservation").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					SimpleReserveQuota("cq-migration", "reservation", metav1.Now().Time).
 					AdmittedAt(true, metav1.Now().Time).
@@ -1088,14 +1268,14 @@ func TestReconcile(t *testing.T) {
 					Queue("lq-migration").
 					AllowedFlavors("on-demand").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
 					Queue("lq-migration").
 					AllowedFlavors("spot").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 			},
@@ -1130,7 +1310,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq-migration").
 					AllowedFlavors("reservation").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					SimpleReserveQuota("cq-migration", "reservation", metav1.Now().Time).
 					AdmittedAt(true, metav1.Now().Time).
@@ -1139,7 +1319,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq-migration").
 					AllowedFlavors("on-demand").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Active(false).
 					Obj(),
@@ -1147,7 +1327,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq-migration").
 					AllowedFlavors("spot").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Active(false).
 					Obj(),
@@ -1178,21 +1358,21 @@ func TestReconcile(t *testing.T) {
 					Queue("lq-migration-no-constraint").
 					AllowedFlavors("reservation").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
 					Queue("lq-migration-no-constraint").
 					AllowedFlavors("on-demand").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
 					Queue("lq-migration-no-constraint").
 					AllowedFlavors("spot").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					SimpleReserveQuota("cq-migration-no-constraint", "spot", metav1.Now().Time).
 					AdmittedAt(true, metav1.Now().Time).
@@ -1229,21 +1409,21 @@ func TestReconcile(t *testing.T) {
 					Queue("lq-migration-no-constraint").
 					AllowedFlavors("reservation").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
 					Queue("lq-migration-no-constraint").
 					AllowedFlavors("on-demand").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
 					Queue("lq-migration-no-constraint").
 					AllowedFlavors("spot").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					SimpleReserveQuota("cq-migration-no-constraint", "spot", metav1.Now().Time).
 					AdmittedAt(true, metav1.Now().Time).
@@ -1261,14 +1441,14 @@ func TestReconcile(t *testing.T) {
 					Queue("lq-migration-no-constraint").
 					AllowedFlavors("reservation").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
 					Queue("lq-migration-no-constraint").
 					AllowedFlavors("on-demand").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					SimpleReserveQuota("cq-migration-no-constraint", "on-demand", metav1.Now().Time).
 					AdmittedAt(true, metav1.Now().Time).
@@ -1277,7 +1457,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq-migration-no-constraint").
 					AllowedFlavors("spot").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 			},
@@ -1312,14 +1492,14 @@ func TestReconcile(t *testing.T) {
 					Queue("lq-migration-no-constraint").
 					AllowedFlavors("reservation").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
 					Queue("lq-migration-no-constraint").
 					AllowedFlavors("on-demand").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					SimpleReserveQuota("cq-migration-no-constraint", "on-demand", metav1.Now().Time).
 					AdmittedAt(true, metav1.Now().Time).
@@ -1328,7 +1508,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq-migration-no-constraint").
 					AllowedFlavors("spot").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Active(false).
 					Obj(),
@@ -1353,7 +1533,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq-migration-no-constraint").
 					AllowedFlavors("reservation").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					SimpleReserveQuota("cq-migration-no-constraint", "reservation", metav1.Now().Time).
 					AdmittedAt(true, metav1.Now().Time).
@@ -1362,14 +1542,14 @@ func TestReconcile(t *testing.T) {
 					Queue("lq-migration-no-constraint").
 					AllowedFlavors("on-demand").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
 					Queue("lq-migration-no-constraint").
 					AllowedFlavors("spot").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 			},
@@ -1404,7 +1584,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq-migration-no-constraint").
 					AllowedFlavors("reservation").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					SimpleReserveQuota("cq-migration-no-constraint", "reservation", metav1.Now().Time).
 					AdmittedAt(true, metav1.Now().Time).
@@ -1413,7 +1593,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq-migration-no-constraint").
 					AllowedFlavors("on-demand").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Active(false).
 					Obj(),
@@ -1421,7 +1601,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq-migration-no-constraint").
 					AllowedFlavors("spot").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Active(false).
 					Obj(),
@@ -1452,21 +1632,21 @@ func TestReconcile(t *testing.T) {
 					Queue("lq-hold").
 					AllowedFlavors("reservation").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
 					Queue("lq-hold").
 					AllowedFlavors("on-demand").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
 					Queue("lq-hold").
 					AllowedFlavors("spot").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					SimpleReserveQuota("cq-hold", "spot", metav1.Now().Time).
 					AdmittedAt(true, metav1.Now().Time).
@@ -1503,7 +1683,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq-hold").
 					AllowedFlavors("reservation").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Active(false).
 					Obj(),
@@ -1511,7 +1691,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq-hold").
 					AllowedFlavors("on-demand").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Active(false).
 					Obj(),
@@ -1519,7 +1699,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq-hold").
 					AllowedFlavors("spot").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					SimpleReserveQuota("cq-hold", "spot", metav1.Now().Time).
 					AdmittedAt(true, metav1.Now().Time).
@@ -1557,14 +1737,14 @@ func TestReconcile(t *testing.T) {
 					Queue("lq").
 					AllowedFlavors("on-demand").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
 					Queue("lq").
 					AllowedFlavors("spot").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 			},
@@ -1584,7 +1764,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq").
 					AllowedFlavors("on-demand").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadFinished,
@@ -1597,7 +1777,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq").
 					AllowedFlavors("spot").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadFinished,
@@ -1620,14 +1800,14 @@ func TestReconcile(t *testing.T) {
 					Queue("lq").
 					AllowedFlavors("spot").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
 					Queue("lq").
 					AllowedFlavors("on-demand").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 			},
@@ -1642,7 +1822,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq").
 					AllowedFlavors("spot").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Active(false).
 					Obj(),
@@ -1650,7 +1830,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq").
 					AllowedFlavors("on-demand").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Active(false).
 					Obj(),
@@ -1689,7 +1869,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq").
 					AllowedFlavors("spot").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					SimpleReserveQuota("cq", "spot", metav1.Now().Time).
 					AdmittedAt(true, metav1.Now().Time).
@@ -1704,7 +1884,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq").
 					AllowedFlavors("on-demand").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 			},
@@ -1726,7 +1906,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq").
 					AllowedFlavors("spot").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					SimpleReserveQuota("cq", "spot", metav1.Now().Time).
 					AdmittedAt(true, metav1.Now().Time).
@@ -1741,7 +1921,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq").
 					AllowedFlavors("on-demand").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 			},
@@ -1765,7 +1945,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq").
 					AllowedFlavors("spot").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					SimpleReserveQuota("cq", "spot", metav1.Now().Time).
 					AdmittedAt(true, metav1.Now().Time).
@@ -1780,7 +1960,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq").
 					AllowedFlavors("on-demand").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 			},
@@ -1802,7 +1982,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq").
 					AllowedFlavors("spot").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					SimpleReserveQuota("cq", "spot", metav1.Now().Time).
 					AdmittedAt(true, metav1.Now().Time).
@@ -1817,7 +1997,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq").
 					AllowedFlavors("on-demand").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 			},
@@ -1839,7 +2019,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq").
 					AllowedFlavors("spot").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					SimpleReserveQuota("cq", "spot", metav1.Now().Time).
 					AdmittedAt(true, metav1.Now().Time).
@@ -1854,7 +2034,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq").
 					AllowedFlavors("on-demand").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 			},
@@ -1895,7 +2075,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq").
 					AllowedFlavors("spot").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					SimpleReserveQuota("cq", "spot", metav1.Now().Time).
 					AdmittedAt(true, metav1.Now().Time).
@@ -1910,7 +2090,7 @@ func TestReconcile(t *testing.T) {
 					Queue("lq").
 					AllowedFlavors("on-demand").
 					PreemptionGates(caGate()).
-					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl-12345", "").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 			},
@@ -1935,8 +2115,8 @@ func TestReconcile(t *testing.T) {
 			qManager := qcache.NewManagerForUnitTests(cl, nil, qcache.WithPreemptionExpectations(preemptionExpectations))
 			roleTracker := roletracker.NewFakeRoleTracker(roletracker.RoleLeader)
 
-			cqs := []*kueue.ClusterQueue{defaultCQ.DeepCopy(), migrationCQ.DeepCopy(), migrationCQNoConstraint.DeepCopy(), retainFirstAdmissionCQ.DeepCopy()}
-			lqs := []*kueue.LocalQueue{defaultLQ.DeepCopy(), migrationLQ.DeepCopy(), migrationLQNoConstraint.DeepCopy(), retainFirstAdmissionLQ.DeepCopy()}
+			cqs := []*kueue.ClusterQueue{defaultCQ.DeepCopy(), migrationCQ.DeepCopy(), migrationCQNoConstraint.DeepCopy(), retainFirstAdmissionCQ.DeepCopy(), spotOnlyCQ.DeepCopy()}
+			lqs := []*kueue.LocalQueue{defaultLQ.DeepCopy(), migrationLQ.DeepCopy(), migrationLQNoConstraint.DeepCopy(), retainFirstAdmissionLQ.DeepCopy(), spotOnlyLQ.DeepCopy()}
 
 			for _, cq := range cqs {
 				if err := cl.Create(t.Context(), cq); err != nil {
@@ -2023,5 +2203,186 @@ func TestReconcile(t *testing.T) {
 				t.Errorf("Unexpected events (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestClusterQueueFlavorsChanged(t *testing.T) {
+	base := utiltestingapi.MakeClusterQueue("cq").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
+			*utiltestingapi.MakeFlavorQuotas("spot").Resource(corev1.ResourceCPU, "5").Obj(),
+		).Obj()
+
+	flavorAdded := base.DeepCopy()
+	flavorAdded.Spec.ResourceGroups[0].Flavors = append(flavorAdded.Spec.ResourceGroups[0].Flavors,
+		*utiltestingapi.MakeFlavorQuotas("reservation").Obj())
+
+	flavorRemoved := base.DeepCopy()
+	flavorRemoved.Spec.ResourceGroups[0].Flavors = flavorRemoved.Spec.ResourceGroups[0].Flavors[:1]
+
+	flavorsReordered := base.DeepCopy()
+	rg := &flavorsReordered.Spec.ResourceGroups[0]
+	rg.Flavors[0], rg.Flavors[1] = rg.Flavors[1], rg.Flavors[0]
+
+	quotaOnly := base.DeepCopy()
+	quotaOnly.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("99")
+
+	statusOnly := base.DeepCopy()
+	statusOnly.Status.PendingWorkloads = 5
+
+	pred := clusterQueueFlavorsChanged()
+
+	updateCases := map[string]struct {
+		old  *kueue.ClusterQueue
+		new  *kueue.ClusterQueue
+		want bool
+	}{
+		"flavor added":        {old: base, new: flavorAdded, want: true},
+		"flavor removed":      {old: base, new: flavorRemoved, want: true},
+		"flavors reordered":   {old: base, new: flavorsReordered, want: true},
+		"flavors unchanged":   {old: base, new: base.DeepCopy(), want: false},
+		"only quota changed":  {old: base, new: quotaOnly, want: false},
+		"only status changed": {old: base, new: statusOnly, want: false},
+	}
+	for name, tc := range updateCases {
+		t.Run(name, func(t *testing.T) {
+			got := pred.Update(event.TypedUpdateEvent[*kueue.ClusterQueue]{ObjectOld: tc.old, ObjectNew: tc.new})
+			if got != tc.want {
+				t.Errorf("Update() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+
+	ignoredEventCases := map[string]bool{
+		"Create":  pred.Create(event.TypedCreateEvent[*kueue.ClusterQueue]{Object: base}),
+		"Delete":  pred.Delete(event.TypedDeleteEvent[*kueue.ClusterQueue]{Object: base}),
+		"Generic": pred.Generic(event.TypedGenericEvent[*kueue.ClusterQueue]{Object: base}),
+	}
+	for name, got := range ignoredEventCases {
+		t.Run(name, func(t *testing.T) {
+			if got {
+				t.Errorf("%s() = true, want false", name)
+			}
+		})
+	}
+}
+
+func TestParentsForClusterQueue(t *testing.T) {
+	parentWl := func(name, ns, lq string) *kueue.Workload {
+		return utiltestingapi.MakeWorkload(name, ns).
+			Queue(kueue.LocalQueueName(lq)).
+			Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+			Obj()
+	}
+	variantWl := func(name, ns, lq, flavor string) *kueue.Workload {
+		return utiltestingapi.MakeWorkload(name, ns).
+			Queue(kueue.LocalQueueName(lq)).
+			AllowedFlavors(kueue.ResourceFlavorReference(flavor)).
+			ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent", "").
+			Obj()
+	}
+	req := func(name, ns string) reconcile.Request {
+		return reconcile.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: name}}
+	}
+
+	testCases := map[string]struct {
+		clusterQueue string
+		localQueues  []*kueue.LocalQueue
+		workloads    []*kueue.Workload
+		want         []reconcile.Request
+	}{
+		"multiple parents under one ClusterQueue": {
+			clusterQueue: "cq",
+			localQueues:  []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq", "default").ClusterQueue("cq").Obj()},
+			workloads: []*kueue.Workload{
+				parentWl("parent-a", "default", "lq"),
+				parentWl("parent-b", "default", "lq"),
+			},
+			want: []reconcile.Request{req("parent-a", "default"), req("parent-b", "default")},
+		},
+		"parents across namespaces feeding the same ClusterQueue": {
+			clusterQueue: "cq",
+			localQueues: []*kueue.LocalQueue{
+				utiltestingapi.MakeLocalQueue("lq", "ns-a").ClusterQueue("cq").Obj(),
+				utiltestingapi.MakeLocalQueue("lq", "ns-b").ClusterQueue("cq").Obj(),
+			},
+			workloads: []*kueue.Workload{
+				parentWl("parent-a", "ns-a", "lq"),
+				parentWl("parent-b", "ns-b", "lq"),
+			},
+			want: []reconcile.Request{req("parent-a", "ns-a"), req("parent-b", "ns-b")},
+		},
+		"non-parent workloads are excluded": {
+			clusterQueue: "cq",
+			localQueues:  []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq", "default").ClusterQueue("cq").Obj()},
+			workloads: []*kueue.Workload{
+				parentWl("parent", "default", "lq"),
+				variantWl("variant", "default", "lq", "spot"),
+				utiltestingapi.MakeWorkload("plain", "default").Queue("lq").Obj(),
+			},
+			want: []reconcile.Request{req("parent", "default")},
+		},
+		"workloads of other ClusterQueues are excluded": {
+			clusterQueue: "cq",
+			localQueues: []*kueue.LocalQueue{
+				utiltestingapi.MakeLocalQueue("lq", "default").ClusterQueue("cq").Obj(),
+				utiltestingapi.MakeLocalQueue("lq-other", "default").ClusterQueue("cq-other").Obj(),
+			},
+			workloads: []*kueue.Workload{
+				parentWl("parent", "default", "lq"),
+				parentWl("parent-other", "default", "lq-other"),
+			},
+			want: []reconcile.Request{req("parent", "default")},
+		},
+		"no parents returns nothing": {
+			clusterQueue: "cq",
+			localQueues:  []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq", "default").ClusterQueue("cq").Obj()},
+			workloads:    []*kueue.Workload{utiltestingapi.MakeWorkload("plain", "default").Queue("lq").Obj()},
+			want:         nil,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			var objects []client.Object
+			for _, lq := range tc.localQueues {
+				objects = append(objects, lq)
+			}
+			for _, wl := range tc.workloads {
+				objects = append(objects, wl)
+			}
+			cl := utiltesting.NewClientBuilder().WithObjects(objects...).Build()
+			r := &variantReconciler{client: cl}
+
+			got := r.parentsForClusterQueue(t.Context(), utiltestingapi.MakeClusterQueue(tc.clusterQueue).Obj())
+			if diff := cmp.Diff(tc.want, got, cmpopts.SortSlices(func(a, b reconcile.Request) bool {
+				return a.String() < b.String()
+			})); diff != "" {
+				t.Errorf("parentsForClusterQueue() unexpected requests (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestCreateVariantsAlreadyExists checks that createVariants treats an
+// already-existing Variant as a no-op instead of a reconcile error.
+func TestCreateVariantsAlreadyExists(t *testing.T) {
+	parent := utiltestingapi.MakeWorkload("parent-wl", "default").
+		Queue("lq").
+		Request(corev1.ResourceCPU, "1").
+		Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+		Obj()
+	existing := generateVariant(parent, "spot")
+	cl := utiltesting.NewClientBuilder().WithObjects(parent, existing).Build()
+	r := &variantReconciler{client: cl, recorder: &utiltesting.EventRecorder{}}
+
+	// Empty variants slice so hasVariantWithFlavor is false and Create is attempted.
+	err := r.createVariants(t.Context(), parent, nil, []kueue.FlavorQuotas{*utiltestingapi.MakeFlavorQuotas("spot").Obj()})
+	if err != nil {
+		t.Fatalf("createVariants() with a pre-existing variant should be a no-op, got error: %v", err)
+	}
+
+	if err := cl.Get(t.Context(), client.ObjectKeyFromObject(existing), &kueue.Workload{}); err != nil {
+		t.Fatalf("pre-existing variant should still exist: %v", err)
 	}
 }

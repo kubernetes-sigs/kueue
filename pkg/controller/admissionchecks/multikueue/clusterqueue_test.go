@@ -70,7 +70,7 @@ func TestCQReconcile(t *testing.T) {
 			acs: []*kueue.AdmissionCheck{
 				utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
 					Obj(),
 			},
 			configs: []*kueue.MultiKueueConfig{
@@ -117,7 +117,7 @@ func TestCQReconcile(t *testing.T) {
 			acs: []*kueue.AdmissionCheck{
 				utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
 					Obj(),
 			},
 			configs: []*kueue.MultiKueueConfig{
@@ -168,7 +168,7 @@ func TestCQReconcile(t *testing.T) {
 			acs: []*kueue.AdmissionCheck{
 				utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
 					Obj(),
 			},
 			configs: []*kueue.MultiKueueConfig{
@@ -223,7 +223,7 @@ func TestCQReconcile(t *testing.T) {
 			acs: []*kueue.AdmissionCheck{
 				utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
 					Obj(),
 			},
 			configs: []*kueue.MultiKueueConfig{
@@ -278,7 +278,7 @@ func TestCQReconcile(t *testing.T) {
 			acs: []*kueue.AdmissionCheck{
 				utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
 					Obj(),
 			},
 			configs: []*kueue.MultiKueueConfig{
@@ -326,7 +326,7 @@ func TestCQReconcile(t *testing.T) {
 			acs: []*kueue.AdmissionCheck{
 				utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
 					Obj(),
 			},
 			configs: []*kueue.MultiKueueConfig{
@@ -359,7 +359,7 @@ func TestCQReconcile(t *testing.T) {
 			acs: []*kueue.AdmissionCheck{
 				utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
 					Obj(),
 			},
 			configs: []*kueue.MultiKueueConfig{
@@ -384,7 +384,7 @@ func TestCQReconcile(t *testing.T) {
 			acs: []*kueue.AdmissionCheck{
 				utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
 					Obj(),
 			},
 			configs: []*kueue.MultiKueueConfig{
@@ -426,7 +426,7 @@ func TestCQReconcile(t *testing.T) {
 			acs: []*kueue.AdmissionCheck{
 				utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config-not-found").
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config-not-found").
 					Obj(),
 			},
 			wantQuotaAutomated: false,
@@ -464,7 +464,7 @@ func TestCQReconcile(t *testing.T) {
 					Build())
 				rc := newRemoteClient(c, nil, nil, nil, defaultOrigin, worker, adapters)
 				rc.client = workerClient
-				rc.connecting.Store(wState.inactive)
+				rc.connected.Store(!wState.inactive)
 				cRec.remoteClients[worker] = rc
 			}
 
@@ -533,7 +533,7 @@ func TestCQReconciler_EventHandlers(t *testing.T) {
 	cq := utiltestingapi.MakeClusterQueue("cq1").AdmissionChecks("ac1").Obj()
 	ac := utiltestingapi.MakeAdmissionCheck("ac1").
 		ControllerName(kueue.MultiKueueControllerName).
-		Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+		Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
 		Obj()
 	cfg := utiltestingapi.MakeMultiKueueConfig("config1").Clusters("cluster1").Obj()
 	cluster := utiltestingapi.MakeMultiKueueCluster("cluster1").Obj()
@@ -585,7 +585,7 @@ func TestCQReconciler_EventHandlers(t *testing.T) {
 			handler: func(mockQ *mockQueue) {
 				newAC := utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config2").
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config2").
 					Generation(1).
 					Obj()
 				(&acHandler{reconciler: r}).Update(ctx, event.UpdateEvent{ObjectOld: ac, ObjectNew: newAC}, mockQ)

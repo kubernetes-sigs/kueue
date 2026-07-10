@@ -12,19 +12,17 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
 ## Before you begin
 
 Check [administer cluster quotas](/docs/tasks/manage/administer_cluster_quotas) for details on the initial cluster setup.
-You'll also need kubernetes python installed. We recommend a virtual environment.
+You'll also need [uv](https://docs.astral.sh/uv/) installed. Each example script includes
+[inline script metadata (PEP 723)](https://peps.python.org/pep-0723/) so `uv run` will
+automatically create an isolated environment and install the required dependencies.
 
 ```bash
-python -m venv env
-source env/bin/activate
-pip install kubernetes requests
+# Install uv (if not already installed)
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-Note that the following versions were used for developing these examples:
-
- - **Python**: 3.9.12
- - **kubernetes**: 26.1.0
- - **requests**: 2.31.0
+No manual `pip install` or virtual environment setup is needed — just run the scripts
+with `uv run`.
 
 You can either follow the [install instructions](https://github.com/kubernetes-sigs/kueue#installation) for Kueue, or use the install example, below.
 
@@ -49,7 +47,7 @@ script to your local machine as `install-kueue-queues.py`.
 And then run as follows:
 
 ```bash
-python install-kueue-queues.py 
+uv run install-kueue-queues.py 
 ```
 
 ```console
@@ -60,7 +58,7 @@ python install-kueue-queues.py
 You can also target a specific version:
 
 ```bash
-python install-kueue-queues.py --version {{< param "version" >}}
+uv run install-kueue-queues.py --version {{< param "version" >}}
 ```
 
 ### Sample Job
@@ -72,7 +70,7 @@ For the next example, let's start with a cluster with Kueue installed, and first
 And run as follows:
 
 ```bash
-python sample-job.py
+uv run sample-job.py
 ```
 ```console
 📦️ Container image selected is registry.k8s.io/e2e-test-images/agnhost:2.53...
@@ -85,7 +83,7 @@ Use:
 or try changing the name (`generateName`) of the job:
 
 ```bash
-python sample-job.py --job-name sleep-job-
+uv run sample-job.py --job-name sleep-job-
 ```
 
 ```console
@@ -111,15 +109,15 @@ with the results. Write the following to a script called `sample-queue-control.p
 To make the output more interesting, we can run a few random jobs first:
 
 ```bash
-python sample-job.py
-python sample-job.py
-python sample-job.py --job-name tacos
+uv run sample-job.py
+uv run sample-job.py
+uv run sample-job.py --job-name tacos
 ```
 
 And then run the script to see your queue and sample job that you submit previously.
 
 ```bash
-python sample-queue-control.py
+uv run sample-queue-control.py
 ```
 ```console
 ⛑️  Local Queues
@@ -165,9 +163,8 @@ API documentation for more calls.
 For this example, we will be using the [Flux Operator](https://github.com/flux-framework/flux-operator)
 to submit a job, and specifically using the [Python SDK](https://github.com/flux-framework/flux-operator/tree/main/sdk/python/v1alpha1) to do this easily. Given our Python environment created in the [setup](#before-you-begin), we can install this Python SDK directly to it as follows:
 
-```bash
-pip install fluxoperator
-```
+The `fluxoperator` dependency is declared in the script's inline metadata and will be
+automatically installed by `uv run`.
 
 We will also need to [install the Flux operator](https://flux-framework.org/flux-operator/getting_started/user-guide.html#quick-install). 
 
@@ -182,7 +179,7 @@ Write the following script to `sample-flux-operator-job.py`:
 Now try running the example:
 
 ```bash
-python sample-flux-operator-job.py
+uv run sample-flux-operator-job.py
 ```
 ```console
 📦️ Container image selected is ghcr.io/flux-framework/flux-restful-api...
@@ -264,7 +261,7 @@ broker.info[0]: goodbye: goodbye->exit 0.06917ms
 If you submit and ask for four tasks, you'll see "hello world" four times:
 
 ```bash
-python sample-flux-operator-job.py --tasks 4
+uv run sample-flux-operator-job.py --tasks 4
 ```
 ```console
 ...
@@ -278,102 +275,73 @@ hello world
 You can further customize the job, and can ask questions on the [Flux Operator issues board](https://github.com/flux-framework/flux-operator/issues).
 Finally, for instructions for how to do this with YAML outside of Python, see [Run A Flux MiniCluster](/docs/tasks/run/external_workloads/flux_miniclusters/).
 
-### MPI Operator Job
+### Kubeflow Trainer Job
 
-For this example, we will be using the [MPI Operator](https://www.kubeflow.org/docs/components/training/mpi/)
-to submit a job, and specifically using the [Python SDK](https://github.com/kubeflow/mpi-operator/tree/master/sdk/python/v2beta1) to do this easily. Given our Python environment created in the [setup](#before-you-begin), we can install this Python SDK directly to it as follows:
+For this example, we will use [Kubeflow Trainer](https://trainer.kubeflow.org/en/latest/)
+to submit a `TrainJob` (the Kubeflow Trainer v2 API), and specifically the
+[Kubeflow SDK](https://github.com/kubeflow/sdk) to do this easily. Unlike the previous
+examples, the SDK builds and submits the resource for us, so we don't construct the CRD by
+hand. The `kubeflow` dependency is declared in the script's inline metadata and will be
+automatically installed by `uv run`.
 
-```bash
-git clone --depth 1 https://github.com/kubeflow/mpi-operator /tmp/mpijob
-cd /tmp/mpijob/sdk/python/v2beta1
-python setup.py install
-cd -
-```
-
-Importantly, the MPI Operator *must be installed before Kueue* for this to work! Let's start from scratch with a new Kind cluster.
-We will also need to [install the MPI operator](https://github.com/kubeflow/mpi-operator/tree/master#installation) and Kueue. Here we install
-the exact versions tested with this example:
-
-```bash
-kubectl apply -f https://github.com/kubeflow/mpi-operator/releases/download/v0.4.0/mpi-operator.yaml
-kubectl apply -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.4.0/manifests.yaml
-```
-
-Check the [mpi-operator release page](https://github.com/kubeflow/mpi-operator/releases) and [Kueue release page](https://github.com/kubernetes-sigs/kueue/releases) for alternate versions.
-You need to wait until Kueue is ready. You can determine this as follows:
-
-```bash
-# Wait until you see all pods in the kueue-system are Running
-kubectl get pods -n kueue-system
-```
-
-When Kueue is ready:
+This example assumes Kubeflow Trainer v2 is installed, the built-in `torch-distributed`
+`ClusterTrainingRuntime` is available, and Kueue is configured to manage TrainJobs. For these
+prerequisites (installing Kubeflow Trainer, the runtime, and enabling the TrainJob
+integration in Kueue), follow the [Run A TrainJob](/docs/tasks/run/trainjobs/) guide. You'll
+also need the queues created:
 
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/kueue/main/site/static/examples/admin/single-clusterqueue-setup.yaml
 ```
 
-Now try running the example MPIJob.
+Write the following script to `sample-trainjob.py`:
+
+{{< include file="examples/python/sample-trainjob.py" lang="python" >}}
+
+The Kueue integration is the `Labels` option, which sets the `kueue.x-k8s.io/queue-name`
+label on the TrainJob so Kueue can admit it to the right local queue (the same label the
+other examples set on their job metadata).
+
+Now try running the example:
 
 ```bash
-python sample-mpijob.py
+uv run sample-trainjob.py
 ```
 ```console
-📦️ Container image selected is mpioperator/mpi-pi:openmpi...
-⭐️ Creating sample job with prefix pi...
+⭐️ Submitting TrainJob to runtime torch-distributed...
+⭐️ Created TrainJob md3b82e943a5
 Use:
 "kubectl get queue" to see queue assignment
-"kubectl get jobs" to see jobs
+"kubectl get trainjobs" to see TrainJobs
 ```
 
-{{< include "examples/python/sample-mpijob.py" "python" >}}
+Using the TrainJob name printed above, you can watch the TrainJob and stream its logs with
+the Kubeflow SDK:
 
-After submit, you can see that the queue has an admitted workload!
+```python
+from kubeflow.trainer import TrainerClient
 
-```bash
-$ kubectl get queue
-```
-```console
-NAME         CLUSTERQUEUE    PENDING WORKLOADS   ADMITTED WORKLOADS
-user-queue   cluster-queue   0                   1
-```
+client = TrainerClient()
+job_name = "md3b82e943a5"
 
-And that the job "pi-launcher" has started:
-
-```bash
-$ kubectl get jobs
-NAME          COMPLETIONS   DURATION   AGE
-pi-launcher   0/1           9s         9s
-```
-
-The MPI Operator works by way of a central launcher interacting with nodes via ssh. We can inspect
-a worker and the launcher to get a glimpse of how both work:
-
-```bash
-$ kubectl logs pods/pi-worker-1 
+# Wait until Kueue admits the TrainJob and it starts running, then stream its logs.
+client.wait_for_job_status(name=job_name, status={"Running"})
+for logline in client.get_job_logs(job_name, follow=True):
+    print(logline)
 ```
 ```console
-Server listening on 0.0.0.0 port 22.
-Server listening on :: port 22.
-Accepted publickey for mpiuser from 10.244.0.8 port 51694 ssh2: ECDSA SHA256:rgZdwufXolOkUPA1w0bf780BNJC8e4/FivJb1/F7OOI
-Received disconnect from 10.244.0.8 port 51694:11: disconnected by user
-Disconnected from user mpiuser 10.244.0.8 port 51694
-Received signal 15; terminating.
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+Distributed Training with WORLD_SIZE: 1, RANK: 0, LOCAL_RANK: 0.
+Train Epoch: 0 [0/60000]	Loss: 2.310645
+Train Epoch: 0 [1000/60000]	Loss: 1.935180
+Train Epoch: 0 [2000/60000]	Loss: 2.096165
+...
+Train Epoch: 2 [58000/60000]	Loss: 0.372064
+Train Epoch: 2 [59000/60000]	Loss: 0.226857
+Training is finished
 ```
 
-The job is fairly quick, and we can see the output of pi in the launcher:
-
-```bash
-$ kubectl logs pods/pi-launcher-f4gqv 
-```
-```console
-Warning: Permanently added 'pi-worker-0.pi-worker.default.svc,10.244.0.7' (ECDSA) to the list of known hosts.
-Warning: Permanently added 'pi-worker-1.pi-worker.default.svc,10.244.0.9' (ECDSA) to the list of known hosts.
-Rank 1 on host pi-worker-1
-Workers: 2
-Rank 0 on host pi-worker-0
-pi is approximately 3.1410376000000002
-```
-
-That looks like pi! 🎉️🥧️
-If you are interested in running this same example with YAML outside of Python, see [Run an MPIJob](/docs/tasks/run/kubeflow/mpijobs/).
+You can further customize the job, and ask questions on the
+[Kubeflow Trainer issues board](https://github.com/kubeflow/trainer/issues).
+Finally, for instructions for how to do this with YAML outside of Python, see
+[Run A TrainJob](/docs/tasks/run/trainjobs/).

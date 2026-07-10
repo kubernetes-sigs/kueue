@@ -81,9 +81,11 @@ tags, and then generate with `hack/update-toc.sh`.
     - [Beta](#beta)
       - [KueueDRAIntegration (v0.18)](#kueuedraintegration-v018)
       - [KueueDRAIntegrationExtendedResource](#kueuedraintegrationextendedresource)
+      - [KueueDRAIntegrationPartitionableDevices](#kueuedraintegrationpartitionabledevices)
     - [GA](#ga)
       - [KueueDRAIntegration](#kueuedraintegration)
       - [KueueDRAIntegrationExtendedResource](#kueuedraintegrationextendedresource-1)
+      - [KueueDRAIntegrationPartitionableDevices](#kueuedraintegrationpartitionabledevices-1)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
@@ -1538,19 +1540,30 @@ tracks adding this). This follows the same pattern as upstream K8s integration t
 - support integration with MultiKueue
 - e2e tests
 - CEL expression validation against ResourceSlice devices
+- re-evaluate post-scheduling quota reconciliation for DeviceClass drift
 
 ##### KueueDRAIntegrationExtendedResource
 
-- re-evaluate post-scheduling quota reconciliation for DeviceClass drift
-- re-evaluate the need for indexing of resourceSlices for CEL performance lookups
+- feature gate enabled by default
+
+##### KueueDRAIntegrationPartitionableDevices
+
+- feature gate enabled by default
+- re-evaluate extending ResourceSlice indexing to CEL validation path. Counter processing
+  already uses the driver-based index but CEL validation lists all ResourceSlices unfiltered.
+- re-evaluate handling of devices with multiple ConsumesCounters entries referencing
+  different counter sets. Currently only the first matching entry is used.
+- re-evaluate MAX-based counter charging semantics for heterogeneous device profiles
+  within the same pool, such as mixed MIG sizes where charging the maximum value
+  across all matched devices may overcharge.
 - re-evaluate pool-aware flavor assignment for counter resources
 - re-evaluate caching `deviceSelector` evaluation results to avoid repeated ResourceSlice
   evaluation
 - re-evaluate consolidating ResourceSlice listing between CEL validation and counter
   processing into a shared layer
-- re-evaluate multi-counter tracking (e.g., memory and compute as separate quota resources
-  for the same DeviceClass) by relaxing the DeviceClass uniqueness constraint when mappings
-  have different counter sources configured
+- re-evaluate multi-counter tracking, such as memory and compute as separate quota resources
+  for the same DeviceClass, by relaxing the DeviceClass uniqueness constraint across
+  mappings or the single counter source limitation within a mapping
 
 #### GA
 
@@ -1558,12 +1571,20 @@ tracks adding this). This follows the same pattern as upstream K8s integration t
 
 - the feature gate in stable
 - TAS + DRA integration and testing
+- re-evaluate support for AdminAccess requests
+- re-evaluate support for FirstAvailable device selection
+- re-evaluate support for AllocationMode All
 
 ##### KueueDRAIntegrationExtendedResource
 
 - the feature gate in stable
 - user adoption feedback confirms stability
 - re-evaluate DeviceClass watcher performance at scale
+
+##### KueueDRAIntegrationPartitionableDevices
+
+- the feature gate in stable
+- user adoption feedback with MIG workloads confirms counter-based quota accuracy
 
 ## Implementation History
 

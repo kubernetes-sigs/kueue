@@ -34,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -42,16 +43,21 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	pkgconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/features"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
+	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -2798,7 +2804,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 				g.Expect(workload.IsActive(wl)).To(gomega.BeFalse())
-				g.Expect(workload.IsEvicted(wl)).To(gomega.BeTrue())
+				g.Expect(workloadevict.IsEvicted(wl)).To(gomega.BeTrue())
 				g.Expect(workload.IsAdmitted(wl)).To(gomega.BeFalse())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -2811,7 +2817,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			gomega.Consistently(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 				g.Expect(workload.IsAdmitted(wl)).To(gomega.BeFalse())
-				g.Expect(workload.IsEvicted(wl)).To(gomega.BeTrue())
+				g.Expect(workloadevict.IsEvicted(wl)).To(gomega.BeTrue())
 				// Using short intervals to make it likely to fail if the conditions flip
 			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			// NOTE: controller restart in integration tests does not reset the metrics
@@ -3086,6 +3092,9 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 			ginkgo.By("setting quota reservation")
 			util.SetQuotaReservation(ctx, k8sClient, wlKey, utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).Obj())
 
+			ginkgo.By("waiting for the job to be unsuspended")
+			util.ExpectJobUnsuspended(ctx, k8sClient, jobKey)
+
 			ginkgo.By("setting all job's pods to be ready")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, jobKey, job)).Should(gomega.Succeed())
@@ -3141,6 +3150,9 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 
 			ginkgo.By("setting quota reservation")
 			util.SetQuotaReservation(ctx, k8sClient, wlKey, utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).Obj())
+
+			ginkgo.By("waiting for the job to be unsuspended")
+			util.ExpectJobUnsuspended(ctx, k8sClient, jobKey)
 
 			ginkgo.By("setting all job's pods to be ready")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -3215,6 +3227,9 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 
 			ginkgo.By("setting quota reservation")
 			util.SetQuotaReservation(ctx, k8sClient, wlKey, utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).Obj())
+
+			ginkgo.By("waiting for the job to be unsuspended")
+			util.ExpectJobUnsuspended(ctx, k8sClient, jobKey)
 
 			ginkgo.By("setting all job's pods to be ready")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -3450,6 +3465,10 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 			ginkgo.By("setting quota reservation for both jobs")
 			util.SetQuotaReservation(ctx, k8sClient, lowWlKey, utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).Obj())
 			util.SetQuotaReservation(ctx, k8sClient, highWlKey, utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).Obj())
+
+			ginkgo.By("waiting for both jobs to be unsuspended")
+			util.ExpectJobUnsuspended(ctx, k8sClient, lowJobKey)
+			util.ExpectJobUnsuspended(ctx, k8sClient, highJobKey)
 
 			ginkgo.By("setting low priority job's pods to be ready")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -4195,6 +4214,20 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 	})
 })
 
+// ungatedPodNames is a helper that returns the names of the pods in nsName
+// that no longer carry the elastic-job scheduling gate.
+func ungatedPodNames(g gomega.Gomega, nsName string) sets.Set[string] {
+	pods := &corev1.PodList{}
+	g.Expect(k8sClient.List(ctx, pods, client.InNamespace(nsName))).Should(gomega.Succeed())
+	ungated := sets.New[string]()
+	for i := range pods.Items {
+		if !utilpod.HasGate(&pods.Items[i], kueue.ElasticJobSchedulingGate) {
+			ungated.Insert(pods.Items[i].Name)
+		}
+	}
+	return ungated
+}
+
 var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns             *corev1.Namespace
@@ -4324,12 +4357,173 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 			g.Expect(workloads.Items).Should(gomega.HaveLen(2))
 			for i := range workloads.Items {
 				if workloads.Items[i].Name == testJobWorkload.Name {
-					g.Expect(workload.IsFinished(&workloads.Items[i])).Should(gomega.BeTrue())
+					g.Expect(workloadfinish.IsFinished(&workloads.Items[i])).Should(gomega.BeTrue())
 					continue
 				}
 				g.Expect(workload.IsAdmitted(&workloads.Items[i])).Should(gomega.BeTrue())
 			}
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("Should cap elastic pod ungating to the granted quota", framework.SlowSpec, func() {
+		// Regression for kueue#11977: the ungater ungated every gated pod found
+		// via the workload-slice index, so surplus pods minted for an over-quota
+		// scale-up bypassed the ClusterQueue quota. Not Ray-specific; reproduced
+		// here with a batch Job.
+		const (
+			grantedPodCount = 2
+			totalPods       = 3
+		)
+
+		testJob := testingjob.MakeJob("ungate-cap", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Request(corev1.ResourceCPU, "1").
+			Parallelism(grantedPodCount).
+			Completions(grantedPodCount).
+			Obj()
+
+		ginkgo.By("creating the job")
+		util.MustCreate(ctx, k8sClient, testJob)
+
+		var (
+			jobWorkload *kueue.Workload
+			podSet      kueue.PodSetReference
+		)
+		ginkgo.By("admitting the job's workload at the granted pod count")
+		gomega.Eventually(func(g gomega.Gomega) {
+			workloads := &kueue.WorkloadList{}
+			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
+			jobWorkload = &workloads.Items[0]
+			g.Expect(workload.IsAdmitted(jobWorkload)).Should(gomega.BeTrue())
+			g.Expect(jobWorkload.Spec.PodSets).Should(gomega.HaveLen(1))
+			g.Expect(jobWorkload.Spec.PodSets[0].Count).Should(gomega.BeEquivalentTo(int32(grantedPodCount)))
+			podSet = jobWorkload.Spec.PodSets[0].Name
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By(fmt.Sprintf("minting %d gated pods (more than the granted %d)", totalPods, grantedPodCount))
+		for i := range totalPods {
+			pod := testingpod.MakePod(fmt.Sprintf("pod-%d", i), ns.Name).
+				Annotation(kueue.WorkloadAnnotation, jobWorkload.Name).
+				Annotation(kueue.WorkloadSliceNameAnnotation, jobWorkload.Name).
+				Label(pkgconstants.PodSetLabel, string(podSet)).
+				Gate(kueue.ElasticJobSchedulingGate).
+				Obj()
+			util.MustCreate(ctx, k8sClient, pod)
+		}
+
+		ginkgo.By("the ungater ungates exactly the granted count and leaves the surplus gated")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(sets.List(ungatedPodNames(g, ns.Name))).Should(gomega.HaveLen(grantedPodCount))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("the cap is stable: the ungater never exceeds the granted quota")
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(sets.List(ungatedPodNames(g, ns.Name))).Should(gomega.HaveLen(grantedPodCount))
+		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("Should ungate a scale-up pod minted after the replacement slice was admitted", framework.SlowSpec, func() {
+		// Reproduces the trigger gap behind kueue#12045: after a scale-up the
+		// replacement slice is the active workload while the previous slice is
+		// Finished. A pod carrying the Finished slice's name enqueues that slice,
+		// which the reconcile guard skips, so nothing re-reconciles the active one.
+		// Completions must cover the scaled-up size: podsCount is min(parallelism, completions).
+		testJob := testingjob.MakeJob("late-ungate", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Request(corev1.ResourceCPU, "1").
+			Parallelism(1).
+			Completions(2).
+			Obj()
+
+		ginkgo.By("creating the job with a single pod")
+		util.MustCreate(ctx, k8sClient, testJob)
+
+		var (
+			rootWorkloadName string
+			podSet           kueue.PodSetReference
+		)
+		ginkgo.By("admitting the root slice at 1 pod")
+		gomega.Eventually(func(g gomega.Gomega) {
+			workloads := &kueue.WorkloadList{}
+			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
+			g.Expect(workload.IsAdmitted(&workloads.Items[0])).Should(gomega.BeTrue())
+			g.Expect(workloads.Items[0].Spec.PodSets[0].Count).Should(gomega.BeEquivalentTo(int32(1)))
+			rootWorkloadName = workloads.Items[0].Name
+			podSet = workloads.Items[0].Spec.PodSets[0].Name
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		// Ungate the root's pod first so the late pod is the second of the active
+		// slice's two: capping at the Finished root's stale count (1) would starve
+		// it, so only enqueuing the active slice (granted 2) ungates it.
+		initialPod := testingpod.MakePod("initial-pod", ns.Name).
+			Annotation(kueue.WorkloadAnnotation, rootWorkloadName).
+			Annotation(kueue.WorkloadSliceNameAnnotation, rootWorkloadName).
+			Label(pkgconstants.PodSetLabel, string(podSet)).
+			Gate(kueue.ElasticJobSchedulingGate).
+			Obj()
+		ginkgo.By("minting the root slice's pod and waiting for it to be ungated")
+		util.MustCreate(ctx, k8sClient, initialPod)
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(initialPod), initialPod)).Should(gomega.Succeed())
+			g.Expect(utilpod.HasGate(initialPod, kueue.ElasticJobSchedulingGate)).Should(gomega.BeFalse())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("increasing the job's parallelism to 2 to emulate scale-up")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJob), testJob)).Should(gomega.Succeed())
+			testJob.Spec.Parallelism = ptr.To[int32](2)
+			g.Expect(k8sClient.Update(ctx, testJob)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		var activeWorkload *kueue.Workload
+		ginkgo.By("the replacement slice is admitted at 2 pods and the root slice is finished")
+		gomega.Eventually(func(g gomega.Gomega) {
+			workloads := &kueue.WorkloadList{}
+			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+			g.Expect(workloads.Items).Should(gomega.HaveLen(2))
+			var foundFinishedRoot bool
+			for i := range workloads.Items {
+				wl := &workloads.Items[i]
+				if workloadfinish.IsFinished(wl) {
+					g.Expect(wl.Name).Should(gomega.Equal(rootWorkloadName))
+					foundFinishedRoot = true
+					continue
+				}
+				g.Expect(workload.IsAdmitted(wl)).Should(gomega.BeTrue())
+				g.Expect(wl.Spec.PodSets[0].Count).Should(gomega.BeEquivalentTo(int32(2)))
+				activeWorkload = wl
+				podSet = wl.Spec.PodSets[0].Name
+			}
+			g.Expect(foundFinishedRoot).Should(gomega.BeTrue())
+			g.Expect(activeWorkload).ShouldNot(gomega.BeNil())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		// Mint the late pod only now, after the replacement was reconciled,
+		// carrying the Finished root slice's name.
+		latePod := testingpod.MakePod("late-pod", ns.Name).
+			Annotation(kueue.WorkloadAnnotation, rootWorkloadName).
+			Annotation(kueue.WorkloadSliceNameAnnotation, rootWorkloadName).
+			Label(pkgconstants.PodSetLabel, string(podSet)).
+			Gate(kueue.ElasticJobSchedulingGate).
+			Obj()
+		ginkgo.By("minting a late gated pod annotated with the finished root slice")
+		util.MustCreate(ctx, k8sClient, latePod)
+
+		ginkgo.By("the ungater ungates the late pod within the granted quota")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(latePod), latePod)).Should(gomega.Succeed())
+			g.Expect(utilpod.HasGate(latePod, kueue.ElasticJobSchedulingGate)).Should(gomega.BeFalse(),
+				"late scale-up pod must be ungated, but it stayed scheduling-gated")
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("the cap holds: both granted pods are ungated and no surplus is")
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(sets.List(ungatedPodNames(g, ns.Name))).Should(gomega.HaveLen(2))
+		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("Should support scheduling pending workload after freeing capacity on scale-down", func() {
@@ -4595,7 +4789,7 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 			g.Expect(k8sClient.List(ctx, wlList, client.InNamespace(testJob.Namespace))).Should(gomega.Succeed())
 			var activeWorkloads []string
 			for i := range wlList.Items {
-				if workload.HasQuotaReservation(&wlList.Items[i]) && !workload.IsFinished(&wlList.Items[i]) {
+				if workload.HasQuotaReservation(&wlList.Items[i]) && !workloadfinish.IsFinished(&wlList.Items[i]) {
 					activeWorkloads = append(activeWorkloads, wlList.Items[i].Name)
 				}
 			}

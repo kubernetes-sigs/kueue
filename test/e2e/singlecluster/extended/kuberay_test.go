@@ -21,12 +21,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -39,11 +41,13 @@ import (
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	workloadrayservice "sigs.k8s.io/kueue/pkg/controller/jobs/rayservice"
+	utilpodset "sigs.k8s.io/kueue/pkg/util/podset"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	testingrayservice "sigs.k8s.io/kueue/pkg/util/testingjobs/rayservice"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -64,6 +68,16 @@ func parsePodSetReplicaCount(annotationValue, groupName string) (int32, error) {
 		}
 	}
 	return 0, fmt.Errorf("group %q not found in annotation", groupName)
+}
+
+// findContainer returns the container with the given name, or nil if absent.
+func findContainer(containers []corev1.Container, name string) *corev1.Container {
+	for i := range containers {
+		if containers[i].Name == name {
+			return &containers[i]
+		}
+	}
+	return nil
 }
 
 const (
@@ -126,7 +140,13 @@ var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:k
 		cq = utiltestingapi.MakeClusterQueue(clusterQueueName).
 			ResourceGroup(
 				*utiltestingapi.MakeFlavorQuotas(rf.Name).
-					Resource(corev1.ResourceCPU, "3").Obj()).
+					// Head + workers, plus 500m for the autoscaler sidecar that
+					// BuildPodSets accounts for on in-tree-autoscaling clusters,
+					// with enough headroom for the multi-step scale-up test to
+					// reach 5 running workers (head 1 + sidecar 500m + submitter
+					// 400m + 5x400m workers = 3.9 CPU).
+					Resource(corev1.ResourceCPU, "4").
+					Resource(corev1.ResourceMemory, "2Gi").Obj()).
 			Obj()
 		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 
@@ -324,7 +344,7 @@ print(ray.get([my_task.remote(i, 10) for i in range(20)]))`,
 				g.Expect(workloadList.Items).NotTo(gomega.BeEmpty(), "Expected at least one workload in namespace")
 				hasAdmittedWorkload := false
 				for _, wl := range workloadList.Items {
-					if workload.IsAdmitted(&wl) || workload.IsFinished(&wl) {
+					if workload.IsAdmitted(&wl) || workloadfinish.IsFinished(&wl) {
 						hasAdmittedWorkload = true
 						break
 					}
@@ -524,7 +544,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 				g.Expect(workloadList.Items).NotTo(gomega.BeEmpty(), "Expected at least one workload in namespace")
 				hasAdmittedWorkload := false
 				for _, wl := range workloadList.Items {
-					if workload.IsAdmitted(&wl) || workload.IsFinished(&wl) {
+					if workload.IsAdmitted(&wl) || workloadfinish.IsFinished(&wl) {
 						hasAdmittedWorkload = true
 						break
 					}
@@ -623,6 +643,62 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 		})
 	})
 
+	ginkgo.It("Should account for the SidecarMode submitter in the head PodSet quota", ginkgo.Label("shard:kuberay-b"), func() {
+		kuberayTestImage := util.GetKuberayTestImage()
+
+		rayJob := testingrayjob.MakeJob("rayjob-sidecar", ns.Name).
+			Queue(localQueueName).
+			WithSubmissionMode(rayv1.SidecarMode).
+			Entrypoint("python -c \"import ray; ray.init(); print(ray.cluster_resources())\"").
+			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
+			RayStartParam(rayv1.HeadNode, "object-store-memory", objectStoreMemory).
+			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "400m").
+			RayStartParam(rayv1.WorkerNode, "object-store-memory", objectStoreMemory).
+			TerminationGracePeriod(1).
+			Image(rayv1.HeadNode, kuberayTestImage).
+			Image(rayv1.WorkerNode, kuberayTestImage).Obj()
+
+		ginkgo.By("Creating the rayJob", func() {
+			gomega.Expect(k8sClient.Create(ctx, rayJob)).Should(gomega.Succeed())
+		})
+
+		// In SidecarMode KubeRay injects the job submitter as a container in the
+		// head Pod, so Kueue must account for it on the head PodSet.
+		createdWorkload := &kueue.Workload{}
+		var kueueSubmitterRequests corev1.ResourceList
+		ginkgo.By("Checking the workload is admitted and its head PodSet includes the submitter", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				workloadList := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				active := util.FindNonFinishedWorkloads(workloadList.Items)
+				g.Expect(active).To(gomega.HaveLen(1), "expected exactly one non-finished workload")
+				g.Expect(workload.IsAdmitted(&active[0])).To(gomega.BeTrue(), "workload should be admitted")
+				*createdWorkload = active[0]
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+
+			headPodSet := utilpodset.FindPodSetByName(createdWorkload.Spec.PodSets, kueue.NewPodSetReference("head"))
+			gomega.Expect(headPodSet).NotTo(gomega.BeNil(), "workload should have a head PodSet")
+
+			submitter := findContainer(headPodSet.Template.Spec.Containers, "ray-job-submitter")
+			gomega.Expect(submitter).NotTo(gomega.BeNil(), "head PodSet should include the submitter sidecar container")
+			kueueSubmitterRequests = submitter.Resources.Requests
+		})
+
+		// Drift check: the resources Kueue accounted for must match the submitter
+		// container KubeRay actually injects into the head Pod.
+		ginkgo.By("Checking the accounted submitter resources match the real head Pod", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				headPod := getRayHeadPod(g)
+				submitter := findContainer(headPod.Spec.Containers, "ray-job-submitter")
+				g.Expect(submitter).NotTo(gomega.BeNil(), "KubeRay should inject the submitter container into the head Pod")
+				g.Expect(kueueSubmitterRequests.Cpu().Cmp(*submitter.Resources.Requests.Cpu())).To(gomega.Equal(0),
+					"Kueue's accounted submitter CPU should match the head Pod's")
+				g.Expect(kueueSubmitterRequests.Memory().Cmp(*submitter.Resources.Requests.Memory())).To(gomega.Equal(0),
+					"Kueue's accounted submitter memory should match the head Pod's")
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
 	ginkgo.It("Should run a RayCluster on worker if admitted", ginkgo.Label("shard:kuberay-a"), func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
@@ -664,7 +740,87 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 		})
 	})
 
-	ginkgo.It("Should run a RayService if admitted", ginkgo.Label("shard:kuberay-a"), func() {
+	ginkgo.It("Should account for the autoscaler sidecar in the head PodSet quota when in-tree autoscaling is enabled", ginkgo.Label("shard:kuberay-b"), func() {
+		kuberayTestImage := util.GetKuberayTestImage()
+
+		raycluster := testingraycluster.MakeCluster("raycluster-autoscaling", ns.Name).
+			Suspend(true).
+			Queue(localQueueName).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			WithEnableAutoscaling(new(true)).
+			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
+			RayStartParam(rayv1.HeadNode, "object-store-memory", objectStoreMemory).
+			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "400m").
+			RayStartParam(rayv1.WorkerNode, "object-store-memory", objectStoreMemory).
+			Image(rayv1.HeadNode, kuberayTestImage, []string{}).
+			Image(rayv1.WorkerNode, kuberayTestImage, []string{}).
+			Obj()
+
+		ginkgo.By("Creating the RayCluster", func() {
+			gomega.Expect(k8sClient.Create(ctx, raycluster)).Should(gomega.Succeed())
+		})
+
+		// Elastic (workload-slice) jobs name their Workload with a generation
+		// suffix, so look it up by listing the namespace rather than computing
+		// the name.
+		createdWorkload := &kueue.Workload{}
+		ginkgo.By("Checking the workload is created and admitted", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				workloadList := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				active := util.FindNonFinishedWorkloads(workloadList.Items)
+				g.Expect(active).To(gomega.HaveLen(1), "expected exactly one non-finished workload")
+				g.Expect(workload.IsAdmitted(&active[0])).To(gomega.BeTrue(), "workload should be admitted")
+				*createdWorkload = active[0]
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		// Kueue's view: the head PodSet must include the autoscaler sidecar that
+		// KubeRay injects, otherwise its resources are not counted against quota.
+		var kueueAutoscalerRequests corev1.ResourceList
+		ginkgo.By("Checking the head PodSet includes the autoscaler sidecar container", func() {
+			var headPodSet *kueue.PodSet
+			for i := range createdWorkload.Spec.PodSets {
+				if createdWorkload.Spec.PodSets[i].Name == "head" {
+					headPodSet = &createdWorkload.Spec.PodSets[i]
+					break
+				}
+			}
+			gomega.Expect(headPodSet).NotTo(gomega.BeNil(), "workload should have a head PodSet")
+
+			var autoscaler *corev1.Container
+			for i := range headPodSet.Template.Spec.Containers {
+				if headPodSet.Template.Spec.Containers[i].Name == "autoscaler" {
+					autoscaler = &headPodSet.Template.Spec.Containers[i]
+					break
+				}
+			}
+			gomega.Expect(autoscaler).NotTo(gomega.BeNil(), "head PodSet should include the autoscaler sidecar container")
+			kueueAutoscalerRequests = autoscaler.Resources.Requests
+		})
+
+		// Drift check: the resources Kueue accounted for must match the autoscaler
+		// container that KubeRay actually injects into the head Pod.
+		ginkgo.By("Checking the accounted autoscaler resources match the real head Pod", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				headPod := getRayHeadPod(g)
+				var autoscaler *corev1.Container
+				for i := range headPod.Spec.Containers {
+					if headPod.Spec.Containers[i].Name == "autoscaler" {
+						autoscaler = &headPod.Spec.Containers[i]
+						break
+					}
+				}
+				g.Expect(autoscaler).NotTo(gomega.BeNil(), "KubeRay should inject an autoscaler container into the head Pod")
+				g.Expect(kueueAutoscalerRequests.Cpu().Cmp(*autoscaler.Resources.Requests.Cpu())).To(gomega.Equal(0),
+					"Kueue's accounted autoscaler CPU should match the head Pod's")
+				g.Expect(kueueAutoscalerRequests.Memory().Cmp(*autoscaler.Resources.Requests.Memory())).To(gomega.Equal(0),
+					"Kueue's accounted autoscaler memory should match the head Pod's")
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("Should run a RayService if admitted", ginkgo.Label("shard:kuberay-a", "requires:fullray"), func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
 		// Create ConfigMap with a simple Ray Serve application
@@ -798,7 +954,113 @@ app = HelloWorld.bind()`,
 		})
 	})
 
-	ginkgo.It("Should run a rayservice with InTreeAutoscaling", ginkgo.Label("shard:kuberay-b"), func() {
+	ginkgo.It("Should run the Redis cleanup Job when a GCS fault-tolerant RayService is deleted", ginkgo.Label("shard:kuberay-a", "requires:fullray"), func() {
+		kuberayTestImage := util.GetKuberayTestImage()
+
+		// Deploy an in-cluster Redis backing the RayCluster's GCS fault tolerance.
+		redisLabels := map[string]string{"app": "redis-gcs-ft"}
+		redisDeployment := &appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{Name: "redis", Namespace: ns.Name},
+			Spec: appsv1.DeploymentSpec{
+				Selector: &metav1.LabelSelector{MatchLabels: redisLabels},
+				Template: corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{Labels: redisLabels},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{{
+							Name:            "redis",
+							Image:           util.GetRedisTestImage(),
+							ImagePullPolicy: corev1.PullIfNotPresent,
+							Ports:           []corev1.ContainerPort{{ContainerPort: 6379}},
+						}},
+					},
+				},
+			},
+		}
+		redisService := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{Name: "redis", Namespace: ns.Name},
+			Spec: corev1.ServiceSpec{
+				Selector: redisLabels,
+				Ports:    []corev1.ServicePort{{Port: 6379}},
+			},
+		}
+		ginkgo.By("Deploying Redis", func() {
+			gomega.Expect(k8sClient.Create(ctx, redisDeployment)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, redisService)).To(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(redisDeployment), redisDeployment)).To(gomega.Succeed())
+				g.Expect(redisDeployment.Status.ReadyReplicas).To(gomega.Equal(int32(1)))
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		rayService := testingrayservice.MakeService("rayservice-gcs-ft", ns.Name).
+			Suspend(true).
+			Queue(localQueueName).
+			GCSFaultTolerance("redis:6379").
+			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
+			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "600m").
+			Image(rayv1.HeadNode, kuberayTestImage).
+			Image(rayv1.WorkerNode, kuberayTestImage).
+			RayStartParam(rayv1.HeadNode, "object-store-memory", objectStoreMemory).
+			TerminationGracePeriod(1).
+			Obj()
+
+		ginkgo.By("Creating the RayService", func() {
+			gomega.Expect(k8sClient.Create(ctx, rayService)).To(gomega.Succeed())
+		})
+
+		wlLookupKey := types.NamespacedName{Name: workloadrayservice.GetWorkloadNameForRayService(rayService.Name, rayService.UID), Namespace: ns.Name}
+		createdWorkload := &kueue.Workload{}
+		ginkgo.By("Checking the workload is created and admitted", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, createdWorkload)
+		})
+
+		ginkgo.By("Waiting for the RayCluster to be provisioned with the GCS cleanup finalizer", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				clusters := &rayv1.RayClusterList{}
+				g.Expect(k8sClient.List(ctx, clusters, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				g.Expect(clusters.Items).To(gomega.HaveLen(1))
+				g.Expect(clusters.Items[0].Finalizers).To(gomega.ContainElement("ray.io/gcs-ft-redis-cleanup-finalizer"))
+			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		// redisDBSize returns the number of keys in the Redis backing store by running
+		// redis-cli in the Redis pod.
+		redisDBSize := func(g gomega.Gomega) int {
+			pods := &corev1.PodList{}
+			g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), client.MatchingLabels{"app": "redis-gcs-ft"})).To(gomega.Succeed())
+			g.Expect(pods.Items).To(gomega.HaveLen(1))
+			out, _, err := util.KExecute(ctx, cfg, restClient, ns.Name, pods.Items[0].Name, "redis", []string{"redis-cli", "DBSIZE"})
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+			size, err := strconv.Atoi(strings.TrimSpace(string(out)))
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+			return size
+		}
+
+		ginkgo.By("Checking GCS fault tolerance populated Redis", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(redisDBSize(g)).To(gomega.BeNumerically(">", 0))
+			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Deleting the RayService", func() {
+			gomega.Expect(k8sClient.Delete(ctx, rayService)).To(gomega.Succeed())
+		})
+
+		// Deferred finalization keeps the parent Workload admitted while KubeRay's Redis
+		// cleanup Job runs, so the Job purges the RayCluster's GCS metadata namespace.
+		// Without it the cleanup Job is gated forever and these keys leak until KubeRay's
+		// ~300s safety timeout force-removes the finalizer.
+		ginkgo.By("Checking Redis is cleaned up after the RayService is deleted", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(redisDBSize(g)).To(gomega.Equal(0))
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("Should run a rayservice with InTreeAutoscaling", ginkgo.Label("shard:kuberay-b", "requires:fullray"), func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
 		// Create ConfigMap with a Ray Serve application that supports a delay parameter
@@ -906,7 +1168,7 @@ app = HelloWorld.bind()`,
 				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				var activeWorkloads []kueue.Workload
 				for i := range workloadList.Items {
-					if !workload.IsFinished(&workloadList.Items[i]) {
+					if !workloadfinish.IsFinished(&workloadList.Items[i]) {
 						activeWorkloads = append(activeWorkloads, workloadList.Items[i])
 					}
 				}

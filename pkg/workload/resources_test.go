@@ -293,6 +293,52 @@ func TestAdjustResources(t *testing.T) {
 				).
 				Obj(),
 		},
+		"Handle pod-level resources with pod limit range": {
+			limitranges: []corev1.LimitRange{
+				utiltesting.MakeLimitRange("foo", "").
+					WithType(corev1.LimitTypePod).
+					WithValue(
+						"Default", corev1.ResourceCPU, "4",
+					).
+					WithValue(
+						"Default", corev1.ResourceMemory, "1Gi",
+					).
+					WithValue(
+						"DefaultRequest", corev1.ResourceCPU, "3",
+					).
+					WithValue(
+						"DefaultRequest", corev1.ResourceMemory, "512Mi",
+					).
+					LimitRange,
+			},
+			wl: utiltestingapi.MakeWorkload("foo", "").
+				PodSets(
+					*utiltestingapi.MakePodSet("a", 1).
+						PodLevelLimit(corev1.ResourceMemory, "2Gi").
+						Obj(),
+					*utiltestingapi.MakePodSet("b", 1).
+						PodLevelLimit(corev1.ResourceCPU, "6").
+						PodLevelRequest(corev1.ResourceCPU, "1").
+						Obj(),
+				).
+				Obj(),
+			wantWl: utiltestingapi.MakeWorkload("foo", "").
+				PodSets(
+					*utiltestingapi.MakePodSet("a", 1).
+						PodLevelLimit(corev1.ResourceCPU, "4").
+						PodLevelLimit(corev1.ResourceMemory, "2Gi").
+						PodLevelRequest(corev1.ResourceCPU, "3").
+						PodLevelRequest(corev1.ResourceMemory, "512Mi").
+						Obj(),
+					*utiltestingapi.MakePodSet("b", 1).
+						PodLevelLimit(corev1.ResourceCPU, "6").
+						PodLevelLimit(corev1.ResourceMemory, "1Gi").
+						PodLevelRequest(corev1.ResourceCPU, "1").
+						PodLevelRequest(corev1.ResourceMemory, "512Mi").
+						Obj(),
+				).
+				Obj(),
+		},
 		"Handle empty container limit range": {
 			limitranges: []corev1.LimitRange{
 				utiltesting.MakeLimitRange("foo", "").
@@ -316,6 +362,37 @@ func TestAdjustResources(t *testing.T) {
 					*utiltestingapi.MakePodSet("b", 1).
 						Limit(corev1.ResourceCPU, "6").
 						Request(corev1.ResourceCPU, "1").
+						Obj(),
+				).
+				Obj(),
+		},
+		"Apply pod-level limits to requests": {
+			wl: utiltestingapi.MakeWorkload("foo", "").
+				PodSets(
+					*utiltestingapi.MakePodSet("a", 1).
+						PodLevelLimit(corev1.ResourceCPU, "1").
+						PodLevelLimit(corev1.ResourceMemory, "1Gi").
+						Obj(),
+					*utiltestingapi.MakePodSet("b", 1).
+						PodLevelRequest(corev1.ResourceCPU, "2").
+						PodLevelLimit(corev1.ResourceCPU, "3").
+						PodLevelLimit(corev1.ResourceMemory, "1Gi").
+						Obj(),
+				).
+				Obj(),
+			wantWl: utiltestingapi.MakeWorkload("foo", "").
+				PodSets(
+					*utiltestingapi.MakePodSet("a", 1).
+						PodLevelLimit(corev1.ResourceCPU, "1").
+						PodLevelLimit(corev1.ResourceMemory, "1Gi").
+						PodLevelRequest(corev1.ResourceCPU, "1").
+						PodLevelRequest(corev1.ResourceMemory, "1Gi").
+						Obj(),
+					*utiltestingapi.MakePodSet("b", 1).
+						PodLevelRequest(corev1.ResourceCPU, "2").
+						PodLevelLimit(corev1.ResourceCPU, "3").
+						PodLevelLimit(corev1.ResourceMemory, "1Gi").
+						PodLevelRequest(corev1.ResourceMemory, "1Gi").
 						Obj(),
 				).
 				Obj(),
@@ -478,7 +555,7 @@ func TestAdjustResources(t *testing.T) {
 			cl := utiltesting.NewClientBuilder().WithLists(
 				&nodev1.RuntimeClassList{Items: tc.runtimeClasses},
 				&corev1.LimitRangeList{Items: tc.limitranges},
-			).WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerType, indexer.IndexLimitRangeHasContainerType).
+			).WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 				Build()
 			ctx, _ := utiltesting.ContextWithLog(t)
 			AdjustResources(ctx, cl, tc.wl)
@@ -515,6 +592,32 @@ func TestValidateResources(t *testing.T) {
 									Obj()).
 							Obj(),
 					).Obj(),
+			},
+		},
+		"valid workload with pod-level resources": {
+			workloadInfo: &Info{
+				Obj: utiltestingapi.MakeWorkload("alpha", metav1.NamespaceDefault).
+					PodSets(
+						*utiltestingapi.MakePodSet("a", 1).
+							PodLevelRequest(corev1.ResourceCPU, "100m").
+							PodLevelLimit(corev1.ResourceCPU, "200m").
+							Obj(),
+					).Obj(),
+			},
+		},
+		"invalid workload; pod-level requests exceed limits": {
+			workloadInfo: &Info{
+				Obj: utiltestingapi.MakeWorkload("alpha", metav1.NamespaceDefault).
+					PodSets(
+						*utiltestingapi.MakePodSet("a", 1).
+							PodLevelRequest(corev1.ResourceCPU, "300m").
+							PodLevelLimit(corev1.ResourceCPU, "200m").
+							Obj(),
+					).Obj(),
+			},
+			wantError: field.ErrorList{
+				field.Invalid(PodSetsPath.Index(0).Child("template").Child("spec").Child("resources"),
+					[]corev1.ResourceName{corev1.ResourceCPU}, RequestsMustNotExceedLimitMessage),
 			},
 		},
 		"invalid workload; multiple PodSet has invalid initContainers and containers": {

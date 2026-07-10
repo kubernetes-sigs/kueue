@@ -45,9 +45,9 @@ func SyncAdmittedCondition(w *kueue.Workload, now time.Time) bool {
 	quotaReservedCond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadQuotaReserved)
 
 	if features.Enabled(features.UnadmittedWorkloadsObservability) {
-		// If QuotaReserved is not set yet, we don't want to explicitly initialize
-		// the Admitted condition either (keeping them both absent).
-		if quotaReservedCond == nil && admittedCond == nil {
+		// If QuotaReserved is not set yet, and the UnadmittedWorkloadsExplicitStatus feature gate is disabled,
+		// we don't want to explicitly initialize the Admitted condition either (keeping them both absent).
+		if quotaReservedCond == nil && admittedCond == nil && !features.Enabled(features.UnadmittedWorkloadsExplicitStatus) {
 			return false
 		}
 	} else {
@@ -102,29 +102,6 @@ func SyncAdmittedCondition(w *kueue.Workload, now time.Time) bool {
 		}
 	}
 	return apimeta.SetStatusCondition(&w.Status.Conditions, newCondition)
-}
-
-// resetChecksOnEviction sets all AdmissionChecks to Pending
-func resetChecksOnEviction(w *kueue.Workload, now time.Time) {
-	checks := w.Status.AdmissionChecks
-	for i := range checks {
-		if checks[i].State == kueue.CheckStatePending {
-			continue
-		}
-		var retryCount *int32
-		if checks[i].State == kueue.CheckStateRetry {
-			tmpRetryCount := ptr.Deref(checks[i].RetryCount, 0) + 1
-			retryCount = new(tmpRetryCount)
-		}
-		checks[i] = kueue.AdmissionCheckState{
-			Name:                checks[i].Name,
-			State:               kueue.CheckStatePending,
-			Message:             "Reset to Pending after eviction. Previously: " + string(checks[i].State),
-			LastTransitionTime:  metav1.NewTime(now),
-			RequeueAfterSeconds: checks[i].RequeueAfterSeconds,
-			RetryCount:          retryCount,
-		}
-	}
 }
 
 // matchingChecks returns the list of admission checks in the given state.

@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	utilmath "sigs.k8s.io/kueue/pkg/util/math"
 )
 
 func GetCounterResourcesForWorkload(
@@ -302,9 +303,18 @@ func computeCounterCharges(
 		return nil
 	}
 
+	// A driver-published counter value is an unvalidated resource.Quantity: the
+	// apiserver accepts any parseable value, including negatives and magnitudes
+	// beyond int64 (maxValue.Value() would then truncate to garbage before the
+	// saturating multiply could clamp it). Clamp with SafeValue and drop
+	// negatives so the charge stays in [0, MaxInt64] for every count, including
+	// count == 1.
+	intVal := max(utilmath.SafeValue(maxValue), 0)
 	if count > 1 {
-		intVal := maxValue.Value()
-		maxValue = *resource.NewQuantity(intVal*count, maxValue.Format)
+		// Saturate rather than let intVal*count wrap to a negative quantity,
+		// consistent with countDevicesPerClass after #12897.
+		intVal = utilmath.SaturatingMul(intVal, count)
 	}
+	maxValue = *resource.NewQuantity(intVal, maxValue.Format)
 	return corev1.ResourceList{quotaResource: maxValue}
 }
