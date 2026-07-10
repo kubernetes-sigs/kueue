@@ -84,7 +84,7 @@ var _ admission.Validator[*kueue.Workload] = &WorkloadWebhook{}
 func (w *WorkloadWebhook) ValidateCreate(ctx context.Context, wl *kueue.Workload) (admission.Warnings, error) {
 	log := ctrl.LoggerFrom(ctx).WithName("workload-webhook")
 	log.V(5).Info("Validating create")
-	return nil, ValidateWorkload(wl).ToAggregate()
+	return nil, ValidateWorkload(wl, nil).ToAggregate()
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
@@ -99,7 +99,10 @@ func (w *WorkloadWebhook) ValidateDelete(_ context.Context, _ *kueue.Workload) (
 	return nil, nil
 }
 
-func ValidateWorkload(obj *kueue.Workload) field.ErrorList {
+// ValidateWorkload validates obj. On update, oldObj is the workload's previous
+// state; it is nil on create. See validateReclaimablePods for why the previous
+// state is needed.
+func ValidateWorkload(obj, oldObj *kueue.Workload) field.ErrorList {
 	var allErrs field.ErrorList
 	specPath := field.NewPath("spec")
 
@@ -126,7 +129,7 @@ func ValidateWorkload(obj *kueue.Workload) field.ErrorList {
 	}
 
 	allErrs = append(allErrs, metav1validation.ValidateConditions(obj.Status.Conditions, statusPath.Child("conditions"))...)
-	allErrs = append(allErrs, validateReclaimablePods(obj, statusPath.Child("reclaimablePods"))...)
+	allErrs = append(allErrs, validateReclaimablePods(obj, oldObj, statusPath.Child("reclaimablePods"))...)
 	allErrs = append(allErrs, validateAdmissionChecks(obj, statusPath.Child("admissionChecks"))...)
 
 	if features.Enabled(features.AdmissionGatedBy) {
@@ -265,7 +268,11 @@ func validateAdmission(obj *kueue.Workload, path *field.Path) field.ErrorList {
 	return allErrs
 }
 
-func validateReclaimablePods(obj *kueue.Workload, basePath *field.Path) field.ErrorList {
+// validateReclaimablePods checks that each reclaimable count refers to a real
+// podSet and doesn't exceed that podSet's size. For elastic workloads it allows
+// a count that is temporarily over the limit after a scale down, so the job can
+// converge instead of getting stuck (see kueue#12670).
+func validateReclaimablePods(obj, oldObj *kueue.Workload, basePath *field.Path) field.ErrorList {
 	if len(obj.Status.ReclaimablePods) == 0 {
 		return nil
 	}
@@ -277,6 +284,19 @@ func validateReclaimablePods(obj *kueue.Workload, basePath *field.Path) field.Er
 		knowPodSetNames[i] = name
 	}
 
+	// isPreexistingStaleCount reports whether this reclaimable entry is unchanged
+	// from the previous state. A count that exceeds its podSet's size but hasn't
+	// changed is a stale value left by an elastic scale down, so we let it converge
+	// instead of rejecting it (kueue#12670). A new or changed count is still checked.
+	isPreexistingStaleCount := func(rp *kueue.ReclaimablePod) bool {
+		if oldObj == nil || !workloadslicing.Enabled(obj) {
+			return false
+		}
+		return slices.ContainsFunc(oldObj.Status.ReclaimablePods, func(old kueue.ReclaimablePod) bool {
+			return old.Name == rp.Name && old.Count == rp.Count
+		})
+	}
+
 	var ret field.ErrorList
 	for i := range obj.Status.ReclaimablePods {
 		rps := &obj.Status.ReclaimablePods[i]
@@ -284,7 +304,7 @@ func validateReclaimablePods(obj *kueue.Workload, basePath *field.Path) field.Er
 		rpsPath := basePath.Key(string(rps.Name))
 		if !found {
 			ret = append(ret, field.NotSupported(rpsPath.Child("name"), rps.Name, knowPodSetNames))
-		} else if rps.Count > ps.Count {
+		} else if rps.Count > ps.Count && !isPreexistingStaleCount(rps) {
 			ret = append(ret, field.Invalid(rpsPath.Child("count"), rps.Count, fmt.Sprintf("should be less or equal to %d", ps.Count)))
 		}
 	}
@@ -295,7 +315,7 @@ func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload) field.ErrorList {
 	var allErrs field.ErrorList
 	specPath := field.NewPath("spec")
 	statusPath := field.NewPath("status")
-	allErrs = append(allErrs, ValidateWorkload(newObj)...)
+	allErrs = append(allErrs, ValidateWorkload(newObj, oldObj)...)
 
 	if workload.HasQuotaReservation(oldObj) {
 		allErrs = append(allErrs, validateImmutablePodSets(newObj.Spec.PodSets, oldObj.Spec.PodSets, specPath.Child("podSets"))...)
@@ -350,6 +370,19 @@ func validateReclaimablePodsUpdate(newObj, oldObj *kueue.Workload, basePath *fie
 		knowPodSets[name] = &oldObj.Status.ReclaimablePods[i]
 	}
 
+	// For elastic workloads, a reclaimable count that already reaches (or
+	// exceeds) its podSet's current count may be lowered: after a scale-down
+	// the job's controller re-derives the value for the smaller podSet, which
+	// is a recomputation, not a reneged reclaim (see kueue#12670).
+	newPodSetCounts := workload.ExtractPodSetCountsFromWorkload(newObj)
+	loweredByScaleDown := func(name kueue.PodSetReference, oldCount int32) bool {
+		if !workloadslicing.Enabled(newObj) {
+			return false
+		}
+		count, found := newPodSetCounts[name]
+		return found && count <= oldCount
+	}
+
 	var ret field.ErrorList
 	newNames := sets.New[kueue.PodSetReference]()
 	for i := range newObj.Status.ReclaimablePods {
@@ -359,13 +392,13 @@ func validateReclaimablePodsUpdate(newObj, oldObj *kueue.Workload, basePath *fie
 			continue
 		}
 		oldCount, found := knowPodSets[newCount.Name]
-		if found && newCount.Count < oldCount.Count {
+		if found && newCount.Count < oldCount.Count && !loweredByScaleDown(newCount.Name, oldCount.Count) {
 			ret = append(ret, field.Invalid(basePath.Key(string(newCount.Name)).Child("count"), newCount.Count, fmt.Sprintf("cannot be less then %d", oldCount.Count)))
 		}
 	}
 
-	for name := range knowPodSets {
-		if workload.HasQuotaReservation(newObj) && !newNames.Has(name) {
+	for name, oldCount := range knowPodSets {
+		if workload.HasQuotaReservation(newObj) && !newNames.Has(name) && !loweredByScaleDown(name, oldCount.Count) {
 			ret = append(ret, field.Required(basePath.Key(string(name)), "cannot be removed"))
 		}
 	}

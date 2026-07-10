@@ -495,6 +495,47 @@ func TestNewInfo(t *testing.T) {
 				},
 			},
 		},
+		"admitted with stale reclaim exceeding scaled-down podSet count": {
+			workload: *utiltestingapi.MakeWorkload("", "").
+				PodSets(
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+						Request(corev1.ResourceCPU, "10m").
+						Request(corev1.ResourceMemory, "10Ki").
+						Obj(),
+				).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "f1", "50m").
+							Assignment(corev1.ResourceMemory, "f1", "50Ki").
+							Count(5).
+							Obj()).
+						Obj(), now,
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{
+						Name:  kueue.DefaultPodSetName,
+						Count: 5,
+					},
+				).
+				Obj(),
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name: kueue.DefaultPodSetName,
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU:    "f1",
+							corev1.ResourceMemory: "f1",
+						},
+						Requests: resources.Requests{
+							corev1.ResourceCPU:    0,
+							corev1.ResourceMemory: 0,
+						},
+						Count: 0,
+					},
+				},
+			},
+		},
 		"partially admitted": {
 			workload: *utiltestingapi.MakeWorkload("", "").
 				PodSets(
@@ -1012,6 +1053,41 @@ func TestReclaimablePodsAreEqual(t *testing.T) {
 			result := ReclaimablePodsAreEqual(tc.a, tc.b)
 			if diff := cmp.Diff(result, tc.wantResult); diff != "" {
 				t.Errorf("Unexpected time (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestLimitReclaimablePodsToPodSetSizes(t *testing.T) {
+	wl := utiltestingapi.MakeWorkload("wl", "ns").
+		PodSets(
+			*utiltestingapi.MakePodSet("ps1", 3).Obj(),
+			*utiltestingapi.MakePodSet("ps2", 5).Obj(),
+		).
+		Obj()
+	cases := map[string]struct {
+		reclaimablePods []kueue.ReclaimablePod
+		want            []kueue.ReclaimablePod
+	}{
+		"empty": {},
+		"within podSet sizes": {
+			reclaimablePods: []kueue.ReclaimablePod{{Name: "ps1", Count: 3}, {Name: "ps2", Count: 1}},
+			want:            []kueue.ReclaimablePod{{Name: "ps1", Count: 3}, {Name: "ps2", Count: 1}},
+		},
+		"count exceeding its podSet size is lowered": {
+			reclaimablePods: []kueue.ReclaimablePod{{Name: "ps1", Count: 4}, {Name: "ps2", Count: 6}},
+			want:            []kueue.ReclaimablePod{{Name: "ps1", Count: 3}, {Name: "ps2", Count: 5}},
+		},
+		"unknown podSet is left as is": {
+			reclaimablePods: []kueue.ReclaimablePod{{Name: "ps3", Count: 10}},
+			want:            []kueue.ReclaimablePod{{Name: "ps3", Count: 10}},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := LimitReclaimablePodsToPodSetSizes(wl, tc.reclaimablePods)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("Unexpected reclaimable pods (-want,+got):\n%s", diff)
 			}
 		})
 	}
