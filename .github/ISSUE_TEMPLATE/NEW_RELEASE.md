@@ -13,7 +13,7 @@ Please do not remove items from the checklist
 - [ ] [OWNERS](https://github.com/kubernetes-sigs/kueue/blob/main/OWNERS) must LGTM the release proposal.
   At least two for minor or major releases. At least one for a patch release.
 - [ ] Verify that the changelog in this issue and the CHANGELOG folder is up-to-date
-  - [ ] Run `./hack/releasing/sync-notes.sh $VERSION` to generate and publish the release notes
+  - [ ] Use `/sync-release-notes` to generate and publish the release notes
 - [ ] For major or minor releases (v$MAJ.$MIN.0), create a new release branch.
   - [ ] An OWNER creates a vanilla release branch with
         `git branch release-$MAJ.$MIN main`
