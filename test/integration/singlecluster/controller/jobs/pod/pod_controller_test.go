@@ -41,6 +41,7 @@ import (
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -3224,5 +3225,199 @@ var _ = ginkgo.Describe("Pod controller with deployment-owned pods and waitForPo
 			g.Expect(k8sClient.Get(ctx, wl1Key, wl1)).To(gomega.Succeed())
 			g.Expect(wl1.Status.Conditions).Should(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadFinished, kueue.WorkloadFinishedReasonOwnerNotFound))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	})
+})
+
+var _ = ginkgo.Describe("Pod controller with WASPodGroups", ginkgo.Label("job:pod", "area:jobs", "feature:was"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	var (
+		ns *corev1.Namespace
+		fl *kueue.ResourceFlavor
+		cq *kueue.ClusterQueue
+		lq *kueue.LocalQueue
+	)
+
+	ginkgo.BeforeAll(func() {
+		fwk.StartManager(ctx, cfg, managerSetup(
+			false,
+			false,
+			nil,
+			jobframework.WithManageJobsWithoutQueueName(false),
+			jobframework.WithKubeServerVersion(serverVersionFetcher),
+			jobframework.WithEnabledFrameworks([]string{"pod"}),
+		))
+	})
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.BeforeEach(func() {
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-was-")
+
+		fl = utiltestingapi.MakeResourceFlavor("fl-was").Obj()
+		util.MustCreate(ctx, k8sClient, fl)
+
+		cq = utiltestingapi.MakeClusterQueue("cq-was").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(fl.Name).
+				Resource(corev1.ResourceCPU, "9").
+				Obj()).
+			Obj()
+		util.MustCreate(ctx, k8sClient, cq)
+
+		lq = utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(cq.Name).Obj()
+		util.MustCreate(ctx, k8sClient, lq)
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, fl, true)
+	})
+
+	ginkgo.It("should default schedulingGroup.podGroupName on Pod groups", func() {
+		pods := testingpod.MakePod(podName, ns.Name).
+			Queue(lq.Name).
+			WASPodGroupAnnotation().
+			MakeGroup(2)
+		for _, pod := range pods {
+			util.MustCreate(ctx, k8sClient, pod)
+		}
+
+		podLookupKey := types.NamespacedName{Name: podName + "-0", Namespace: ns.Name}
+		createdPod := &corev1.Pod{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, podLookupKey, createdPod)).Should(gomega.Succeed())
+			g.Expect(createdPod.Spec.SchedulingGroup).NotTo(gomega.BeNil())
+			g.Expect(ptr.Deref(createdPod.Spec.SchedulingGroup.PodGroupName, "")).To(gomega.Equal(podName))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		createdWorkload := &kueue.Workload{}
+		wlLookupKey := types.NamespacedName{Name: utilpod.GetPodGroupName(createdPod), Namespace: ns.Name}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("should preserve externally managed schedulingGroup on Pod groups", func() {
+		externalPodGroupName := "external-group"
+		pods := testingpod.MakePod(podName, ns.Name).
+			Queue(lq.Name).
+			WASPodGroupAnnotation().
+			MakeGroup(2)
+		for _, pod := range pods {
+			pod.Spec.SchedulingGroup = &corev1.PodSchedulingGroup{PodGroupName: new(externalPodGroupName)}
+			util.MustCreate(ctx, k8sClient, pod)
+		}
+
+		podLookupKey := types.NamespacedName{Name: podName + "-0", Namespace: ns.Name}
+		createdPod := &corev1.Pod{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, podLookupKey, createdPod)).Should(gomega.Succeed())
+			g.Expect(createdPod.Spec.SchedulingGroup).NotTo(gomega.BeNil())
+			g.Expect(ptr.Deref(createdPod.Spec.SchedulingGroup.PodGroupName, "")).To(gomega.Equal(externalPodGroupName))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("should not default schedulingGroup.podGroupName when WAS annotation is absent", func() {
+		pods := testingpod.MakePod(podName, ns.Name).
+			Queue(lq.Name).
+			MakeGroup(2)
+		for _, pod := range pods {
+			util.MustCreate(ctx, k8sClient, pod)
+		}
+
+		ginkgo.By("Waiting for the workload to be created")
+		createdWorkload := &kueue.Workload{}
+		wlLookupKey := types.NamespacedName{Name: podName, Namespace: ns.Name}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Verifying that pods do not have schedulingGroup.podGroupName set")
+		for i := range 2 {
+			podLookupKey := types.NamespacedName{Name: fmt.Sprintf("%s-%d", podName, i), Namespace: ns.Name}
+			createdPod := &corev1.Pod{}
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, podLookupKey, createdPod)).Should(gomega.Succeed())
+				if createdPod.Spec.SchedulingGroup != nil {
+					g.Expect(ptr.Deref(createdPod.Spec.SchedulingGroup.PodGroupName, "")).To(gomega.BeEmpty())
+				}
+			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+		}
+	})
+})
+
+var _ = ginkgo.Describe("Pod controller with WASPodGroups disabled", ginkgo.Label("job:pod", "area:jobs", "feature:was"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	var (
+		ns *corev1.Namespace
+		fl *kueue.ResourceFlavor
+		cq *kueue.ClusterQueue
+		lq *kueue.LocalQueue
+	)
+
+	ginkgo.BeforeAll(func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WASPodGroups, false)
+		fwk.StartManager(ctx, cfg, managerSetup(
+			false,
+			false,
+			nil,
+			jobframework.WithManageJobsWithoutQueueName(false),
+			jobframework.WithKubeServerVersion(serverVersionFetcher),
+			jobframework.WithEnabledFrameworks([]string{"pod"}),
+		))
+	})
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.BeforeEach(func() {
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-was-off-")
+
+		fl = utiltestingapi.MakeResourceFlavor("fl-was-off").Obj()
+		util.MustCreate(ctx, k8sClient, fl)
+
+		cq = utiltestingapi.MakeClusterQueue("cq-was-off").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(fl.Name).
+				Resource(corev1.ResourceCPU, "9").
+				Obj()).
+			Obj()
+		util.MustCreate(ctx, k8sClient, cq)
+
+		lq = utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(cq.Name).Obj()
+		util.MustCreate(ctx, k8sClient, lq)
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, fl, true)
+	})
+
+	ginkgo.It("should not default schedulingGroup.podGroupName even with WAS annotation", func() {
+		pods := testingpod.MakePod(podName, ns.Name).
+			Queue(lq.Name).
+			WASPodGroupAnnotation().
+			MakeGroup(2)
+		for _, pod := range pods {
+			util.MustCreate(ctx, k8sClient, pod)
+		}
+
+		ginkgo.By("Waiting for the workload to be created")
+		createdWorkload := &kueue.Workload{}
+		wlLookupKey := types.NamespacedName{Name: podName, Namespace: ns.Name}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Verifying that pods do not have schedulingGroup.podGroupName set")
+		for i := range 2 {
+			podLookupKey := types.NamespacedName{Name: fmt.Sprintf("%s-%d", podName, i), Namespace: ns.Name}
+			createdPod := &corev1.Pod{}
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, podLookupKey, createdPod)).Should(gomega.Succeed())
+				if createdPod.Spec.SchedulingGroup != nil {
+					g.Expect(ptr.Deref(createdPod.Spec.SchedulingGroup.PodGroupName, "")).To(gomega.BeEmpty())
+				}
+			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+		}
 	})
 })

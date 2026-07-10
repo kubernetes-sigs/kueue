@@ -1,0 +1,63 @@
+# Low-priority Job with WAS Workload + PodGroup (batch/v1 Job equivalent of the JobSet example)
+#
+# This Job creates 4 pods (parallelism=4, completions=4), each requesting 6 CPUs.
+# Total: 24 CPUs across 2 worker nodes (each with 16 CPUs).
+# This fills most of the cluster so the high-priority job will need to preempt.
+---
+apiVersion: scheduling.k8s.io/v1alpha3
+kind: Workload
+metadata:
+  name: lp-job-wl
+spec:
+  controllerRef:
+    apiGroup: batch
+    kind: Job
+    name: lp-job
+  podGroupTemplates:
+  - name: workers
+    priorityClassName: low-priority
+    disruptionMode:
+      all: {}
+    schedulingPolicy:
+      gang:
+        minCount: 4
+---
+apiVersion: scheduling.k8s.io/v1alpha3
+kind: PodGroup
+metadata:
+  name: lp-job-wl-workers
+  namespace: default
+spec:
+  podGroupTemplateRef:
+    workload:
+      workloadName: lp-job-wl
+      podGroupTemplateName: workers
+  priorityClassName: low-priority
+  disruptionMode:
+    all: {}
+  schedulingPolicy:
+    gang:
+      minCount: 4
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: lp-job
+spec:
+  completions: 4
+  parallelism: 4
+  backoffLimit: 10
+  template:
+    spec:
+      terminationGracePeriodSeconds: 0
+      priorityClassName: low-priority
+      schedulingGroup:
+        podGroupName: lp-job-wl-workers
+      containers:
+      - name: worker
+        image: busybox
+        command: ["sleep", "infinity"]
+        resources:
+          requests:
+            cpu: "6"
+      restartPolicy: Never

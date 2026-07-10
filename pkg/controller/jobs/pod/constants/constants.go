@@ -23,6 +23,14 @@ const (
 
 	SchedulingGateName = "kueue.x-k8s.io/admission"
 
+	ReasonNativePodGroupCreated = "NativePodGroupCreated"
+	ReasonNativePodGroupReused  = "NativePodGroupReused"
+
+	// WASPodGroupAnnotation is the opt-in annotation that must be set to "true"
+	// on a Pod for Kueue to create a native scheduling.k8s.io PodGroup and
+	// default pod.spec.schedulingGroup.podGroupName.
+	WASPodGroupAnnotation = "kueue.x-k8s.io/was-podgroup"
+
 	SuspendedByParentAnnotation       = "kueue.x-k8s.io/pod-suspending-parent"
 	GroupNameLabel                    = "kueue.x-k8s.io/pod-group-name"
 	GroupNameAnnotation               = "kueue.x-k8s.io/pod-group-name"
