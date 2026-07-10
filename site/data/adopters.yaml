@@ -162,3 +162,11 @@
   - pod
   contact: '@yakticus'
   contact_url: https://github.com/yakticus
+- name: Office of AI Affairs, NYCU
+  url: https://ai.winlab.tw/
+  type: End User
+  description: Student AI research and teaching experiments on Kueue
+  integrations:
+  - batch/job
+  contact: '@thc1006'
+  contact_url: https://github.com/thc1006
