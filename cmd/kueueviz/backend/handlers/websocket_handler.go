@@ -131,7 +131,6 @@ func (h *Handlers) sendData(ctx context.Context, conn *websocket.Conn, dataFetch
 	return nil
 }
 
-
 // handleInformerUpdates uses Kubernetes informers to stream real-time changes
 // Supports watching multiple resource types by registering handlers for all provided GVKs
 func (h *Handlers) handleInformerUpdates(ctx context.Context, conn *websocket.Conn, token string, dataFetcher func(ctx context.Context) (any, error), gvks ...schema.GroupVersionKind) {
