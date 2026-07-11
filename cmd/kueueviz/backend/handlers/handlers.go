@@ -19,6 +19,7 @@ package handlers
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"k8s.io/client-go/dynamic"
@@ -33,12 +34,16 @@ type TokenValidator interface {
 type Handlers struct {
 	client    Client
 	validator TokenValidator // nil when auth is disabled
+	// tokenRevalidationInterval controls how often a live WebSocket connection
+	// re-verifies the bearer token. Defaults to 30 s; overridable in tests.
+	tokenRevalidationInterval time.Duration
 }
 
 func New(client Client, validator TokenValidator) *Handlers {
 	return &Handlers{
-		client:    client,
-		validator: validator,
+		client:                    client,
+		validator:                 validator,
+		tokenRevalidationInterval: 30 * time.Second,
 	}
 }
 
