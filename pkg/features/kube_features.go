@@ -474,6 +474,11 @@ const (
 	// TODO(#12820): temporary workaround in the RayService integration. Remove once
 	// the generic FinishOrphanedWorkloads owner-deletion check lands.
 	DeferRayServiceFinalizationForRedisCleanup featuregate.Feature = "DeferRayServiceFinalizationForRedisCleanup"
+
+	// owner: @olekzabl
+	//
+	// Use binary search for determining the preemption set when more than 10 preemptees are necessary.
+	PreemptorBinarySearch featuregate.Feature = "PreemptorBinarySearch"
 )
 
 func init() {
@@ -730,6 +735,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	DeferRayServiceFinalizationForRedisCleanup: {
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	PreemptorBinarySearch: {
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 

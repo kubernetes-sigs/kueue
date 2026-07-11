@@ -4128,7 +4128,7 @@ func TestPreemption(t *testing.T) {
 				}
 
 				recorder := &utiltesting.EventRecorder{}
-				preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
+				preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil, 10)
 
 				beforeSnapshot, err := cqCache.Snapshot(ctx)
 				if err != nil {
@@ -4345,7 +4345,7 @@ func TestPreemptionWhenWorkloadModifiedConcurrently(t *testing.T) {
 				}
 
 				recorder := &utiltesting.EventRecorder{}
-				preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
+				preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil, 10)
 
 				beforeSnapshot, err := cqCache.Snapshot(ctx)
 				if err != nil {
@@ -4449,7 +4449,7 @@ func TestIssuePreemptionsCountsFailures(t *testing.T) {
 
 	recorder := &utiltesting.EventRecorder{}
 	store := preemptexpectations.New()
-	preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, store, nil)
+	preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, store, nil, 10)
 
 	snapshot, err := cqCache.Snapshot(ctx)
 	if err != nil {
@@ -4567,7 +4567,7 @@ func TestIssuePreemptionsSkipsDuplicate(t *testing.T) {
 				}
 
 				recorder := &utiltesting.EventRecorder{}
-				preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, store, nil)
+				preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, store, nil, 10)
 
 				snapshot, err := cqCache.Snapshot(ctx)
 				if err != nil {

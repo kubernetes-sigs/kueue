@@ -1840,7 +1840,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 				}
 
 				recorder := &utiltesting.EventRecorder{}
-				preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
+				preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil, 10)
 
 				beforeSnapshot, err := cqCache.Snapshot(ctx)
 				if err != nil {

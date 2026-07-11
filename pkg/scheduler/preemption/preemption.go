@@ -21,8 +21,10 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"sort"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -55,7 +57,9 @@ import (
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 )
 
-const parallelPreemptions = 8
+const (
+	parallelPreemptions = 8
+)
 
 type Preemptor struct {
 	clock clock.Clock
@@ -71,17 +75,19 @@ type Preemptor struct {
 	roleTracker            *roletracker.RoleTracker
 	customLabels           *metrics.CustomLabels
 	preemptionExpectations *expectations.Store
+	linearSearchThreshold  int
 }
 
 type preemptionCtx struct {
-	clock             clock.Clock
-	log               logr.Logger
-	preemptor         workload.Info
-	preemptorCQ       *schdcache.ClusterQueueSnapshot
-	snapshot          *schdcache.Snapshot
-	workloadUsage     workload.Usage
-	tasRequests       schdcache.WorkloadTASRequests
-	frsNeedPreemption sets.Set[resources.FlavorResource]
+	clock                 clock.Clock
+	log                   logr.Logger
+	preemptor             workload.Info
+	preemptorCQ           *schdcache.ClusterQueueSnapshot
+	snapshot              *schdcache.Snapshot
+	workloadUsage         workload.Usage
+	tasRequests           schdcache.WorkloadTASRequests
+	frsNeedPreemption     sets.Set[resources.FlavorResource]
+	linearSearchThreshold int
 }
 
 func New(
@@ -94,6 +100,7 @@ func New(
 	tracker *roletracker.RoleTracker,
 	preemptionExpectations *expectations.Store,
 	customLabels *metrics.CustomLabels,
+	linearSearchThreshold int,
 ) *Preemptor {
 	p := &Preemptor{
 		clock:                  clock,
@@ -106,6 +113,7 @@ func New(
 		roleTracker:            tracker,
 		customLabels:           customLabels,
 		preemptionExpectations: preemptionExpectations,
+		linearSearchThreshold:  linearSearchThreshold,
 	}
 	return p
 }
@@ -144,6 +152,7 @@ func (p *Preemptor) GetTargets(log logr.Logger, wl workload.Info, assignment fla
 			Quota: assignment.TotalRequestsFor(log, &wl),
 			TAS:   wl.TASUsage(),
 		},
+		linearSearchThreshold: p.linearSearchThreshold,
 	})
 }
 
@@ -275,6 +284,7 @@ type preemptionAttemptOpts struct {
 // reverse order in which they were removed, while the incoming Workload still
 // fits
 func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) []*Target {
+	startTime := preemptionCtx.clock.Now()
 	hierarchicalReclaimCtx := &classical.HierarchicalPreemptionCtx{
 		Log:               preemptionCtx.log,
 		Wl:                preemptionCtx.preemptor.Obj,
@@ -320,7 +330,19 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) []*Target
 				Reason:       reason,
 				WorkloadCq:   preemptionCtx.snapshot.ClusterQueue(candidate.ClusterQueue),
 			})
-			if workloadFits(preemptionCtx, attemptOpts.borrowing) {
+			if len(targets) <= preemptionCtx.linearSearchThreshold {
+				if workloadFits(preemptionCtx, attemptOpts.borrowing) {
+					targets = fillBackWorkloads(preemptionCtx, targets, attemptOpts.borrowing)
+					restoreSnapshot(preemptionCtx.snapshot, targets)
+					return targets
+				}
+			}
+		}
+		if len(targets) > preemptionCtx.linearSearchThreshold {
+			if len, found := findFitTargetLength(preemptionCtx, targets, preemptionCtx.linearSearchThreshold, startTime, func() bool {
+				return workloadFits(preemptionCtx, attemptOpts.borrowing)
+			}); found {
+				targets = targets[:len]
 				targets = fillBackWorkloads(preemptionCtx, targets, attemptOpts.borrowing)
 				restoreSnapshot(preemptionCtx.snapshot, targets)
 				return targets
@@ -371,10 +393,63 @@ func parseStrategies(fs *config.FairSharing) []fairsharing.Strategy {
 	return strategies
 }
 
+// findFitTargetLength performs a binary search between minLength and len(targets) to find the minimum number of preemptions needed to fit.
+// It assumes that minLength was not enough, and that len(targets) > minLength.
+// It also assumes the given snapshot state represents all targets removed.
+// The final snapshot state is either:
+// - when found == false: same as given on input
+// - when found == true: adjusted to the found length
+func findFitTargetLength(preemptionCtx *preemptionCtx, targets []*Target, minLength int, preemptionStrategyStartTime time.Time, checkFits func() bool) (length int, found bool) {
+	numChecks := minLength
+
+	defer func() {
+		if logV := preemptionCtx.log.V(4); logV.Enabled() {
+			logV.Info("Finished non-linear scan of preemption targets",
+				"preemptionStrategyDuration", preemptionCtx.clock.Since(preemptionStrategyStartTime).String(),
+				"foundFit", found,
+				"foundLength", length,
+				"numChecks", numChecks,
+				"numTargets", len(targets))
+		}
+	}()
+
+	numChecks++
+	if !checkFits() {
+		return
+	}
+
+	pos := len(targets)
+
+	moveTo := func(newPos int) {
+		for pos > newPos {
+			pos--
+			preemptionCtx.snapshot.AddWorkload(targets[pos].WorkloadInfo)
+		}
+		for pos < newPos {
+			preemptionCtx.snapshot.RemoveWorkload(targets[pos].WorkloadInfo)
+			pos++
+		}
+	}
+
+	searchN := len(targets) - minLength
+	foundIdx := sort.Search(searchN, func(i int) bool {
+		testedPos := minLength + i + 1
+		moveTo(testedPos)
+		numChecks++
+		return checkFits()
+	})
+
+	foundPos := minLength + foundIdx + 1
+	// Adjust the snapshot to the final state
+	moveTo(foundPos)
+	return foundPos, true
+}
+
 // runFirstFsStrategy runs the first configured FairSharing strategy,
 // and returns (fits, targets, retryCandidates) retryCandidates may be
 // used if rule S2-b is configured.
 func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Info, strategy fairsharing.Strategy) (bool, []*Target, []*workload.Info) {
+	startTime := preemptionCtx.clock.Now()
 	ordering := fairsharing.MakeClusterQueueOrdering(preemptionCtx.preemptorCQ, candidates, preemptionCtx.log, preemptionCtx.clock)
 
 	var targets []*Target
@@ -397,8 +472,10 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 				Reason:       kueue.InClusterQueueReason,
 				WorkloadCq:   candCQ.GetTargetCq(),
 			})
-			if workloadFitsForFairSharing(preemptionCtx) {
-				return true, targets, nil
+			if len(targets) <= preemptionCtx.linearSearchThreshold {
+				if workloadFitsForFairSharing(preemptionCtx) {
+					return true, targets, nil
+				}
 			}
 			continue
 		}
@@ -411,8 +488,10 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 				Reason:       kueue.InCohortReclamationReason,
 				WorkloadCq:   candCQ.GetTargetCq(),
 			})
-			if workloadFitsForFairSharing(preemptionCtx) {
-				return true, targets, nil
+			if len(targets) <= preemptionCtx.linearSearchThreshold {
+				if workloadFitsForFairSharing(preemptionCtx) {
+					return true, targets, nil
+				}
 			}
 			continue
 		}
@@ -438,8 +517,10 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 					Reason:       kueue.InCohortFairSharingReason,
 					WorkloadCq:   candCQ.GetTargetCq(),
 				})
-				if workloadFitsForFairSharing(preemptionCtx) {
-					return true, targets, nil
+				if len(targets) <= preemptionCtx.linearSearchThreshold {
+					if workloadFitsForFairSharing(preemptionCtx) {
+						return true, targets, nil
+					}
 				}
 				// Might need to pick a different CQ due to changing values.
 				break
@@ -448,13 +529,24 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 			}
 		}
 	}
+
+	if len(targets) > preemptionCtx.linearSearchThreshold {
+		if len, found := findFitTargetLength(preemptionCtx, targets, preemptionCtx.linearSearchThreshold, startTime, func() bool {
+			return workloadFitsForFairSharing(preemptionCtx)
+		}); found {
+			return true, targets[:len], nil
+		}
+	}
+
 	return false, targets, retryCandidates
 }
 
 // runSecondFsStrategy implements Fair Sharing Rule S2-b. It returns
 // (fits, targets).
 func runSecondFsStrategy(retryCandidates []*workload.Info, preemptionCtx *preemptionCtx, targets []*Target) (bool, []*Target) {
+	startTime := preemptionCtx.clock.Now()
 	ordering := fairsharing.MakeClusterQueueOrdering(preemptionCtx.preemptorCQ, retryCandidates, preemptionCtx.log, preemptionCtx.clock)
+	initialLen := len(targets)
 	for candCQ := range ordering.Iter() {
 		preemptorNewShare, targetOldShare := candCQ.ComputeShares()
 		passed := fairsharing.LessThanInitialShare(preemptorNewShare, targetOldShare, fairsharing.TargetNewShare{})
@@ -477,14 +569,27 @@ func runSecondFsStrategy(retryCandidates []*workload.Info, preemptionCtx *preemp
 				Reason:       kueue.InCohortFairSharingReason,
 				WorkloadCq:   candCQ.GetTargetCq(),
 			})
-			if workloadFitsForFairSharing(preemptionCtx) {
-				return true, targets
+			if len(targets) <= preemptionCtx.linearSearchThreshold {
+				if workloadFitsForFairSharing(preemptionCtx) {
+					return true, targets
+				}
 			}
 		}
 		// There doesn't seem to be an scenario where
 		// it's possible to apply rule S2-b more than once in a CQ.
 		ordering.DropQueue(candCQ)
 	}
+
+	// Up to initialLen we've already checked every value.
+	minLen := max(initialLen, preemptionCtx.linearSearchThreshold)
+	if len(targets) > minLen {
+		if len, found := findFitTargetLength(preemptionCtx, targets, minLen, startTime, func() bool {
+			return workloadFitsForFairSharing(preemptionCtx)
+		}); found {
+			return true, targets[:len]
+		}
+	}
+
 	return false, targets
 }
 
