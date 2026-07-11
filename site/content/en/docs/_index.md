@@ -7,6 +7,4 @@ menu:
     weight: 20
 ---
 
-## Experimental integrations
-
-- [Kueue Populator](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/experimental/kueue-populator) automatically creates LocalQueues in namespaces selected by a ClusterQueue.
+For community-driven extensions and experimental controllers, see [Satellite Projects]({{< ref "/docs/satellite-projects" >}}).
