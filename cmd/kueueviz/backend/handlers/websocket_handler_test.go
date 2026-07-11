@@ -45,7 +45,6 @@ var closedChan = func() <-chan struct{} {
 type mockTokenValidator struct {
 	mu    sync.Mutex
 	valid bool
-	err   error
 	calls int
 }
 
@@ -53,7 +52,7 @@ func (m *mockTokenValidator) ValidateToken(ctx context.Context, token string) (b
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.calls++
-	return m.valid, m.err
+	return m.valid, nil
 }
 
 func (m *mockTokenValidator) getCalls() int {
@@ -62,11 +61,10 @@ func (m *mockTokenValidator) getCalls() int {
 	return m.calls
 }
 
-func (m *mockTokenValidator) setValid(valid bool, err error) {
+func (m *mockTokenValidator) setValid(valid bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.valid = valid
-	m.err = err
 }
 
 type alwaysDone struct{}
@@ -255,10 +253,6 @@ func TestWebSocketHandleInformerUpdates(t *testing.T) {
 		},
 		"closes connection when token becomes invalid": {
 			run: func(t *testing.T) {
-				origInterval := tokenRevalidationInterval
-				tokenRevalidationInterval = 100 * time.Millisecond
-				defer func() { tokenRevalidationInterval = origInterval }()
-
 				gvk := schema.GroupVersionKind{Group: "group", Version: "v1", Kind: "Kind"}
 				informer := newMockInformer()
 				client := newMockClient(map[schema.GroupVersionKind]*mockInformer{gvk: informer})
@@ -270,7 +264,12 @@ func TestWebSocketHandleInformerUpdates(t *testing.T) {
 					return map[string]int64{"call": fetchCalls.Add(1)}, nil
 				}
 
-				conn, closeServer := newTestWebSocketConnectionWithToken(t, &Handlers{client: client, validator: validator}, "test-token", dataFetcher, gvk)
+				h := &Handlers{
+					client:                    client,
+					validator:                 validator,
+					tokenRevalidationInterval: 100 * time.Millisecond,
+				}
+				conn, closeServer := newTestWebSocketConnectionWithToken(t, h, "test-token", dataFetcher, gvk)
 				defer closeServer()
 
 				// Read initial message
@@ -282,7 +281,7 @@ func TestWebSocketHandleInformerUpdates(t *testing.T) {
 				}, "expected token validator to be called")
 
 				// Now simulate token expiration/revocation
-				validator.setValid(false, nil)
+				validator.setValid(false)
 
 				// The connection should be closed by the server
 				errChan := make(chan error, 1)

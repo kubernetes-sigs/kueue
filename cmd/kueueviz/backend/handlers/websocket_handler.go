@@ -131,11 +131,6 @@ func (h *Handlers) sendData(ctx context.Context, conn *websocket.Conn, dataFetch
 	return nil
 }
 
-// tokenRevalidationInterval controls how often an open WebSocket connection
-// re-verifies the bearer token against the Kubernetes TokenReview API.
-// This bounds the window in which a revoked or expired token can still
-// receive cluster data.
-var tokenRevalidationInterval = 30 * time.Second
 
 // handleInformerUpdates uses Kubernetes informers to stream real-time changes
 // Supports watching multiple resource types by registering handlers for all provided GVKs
@@ -207,7 +202,7 @@ func (h *Handlers) handleInformerUpdates(ctx context.Context, conn *websocket.Co
 	var authTicker *time.Ticker
 	var authTickerC <-chan time.Time
 	if h.validator != nil && token != "" {
-		authTicker = time.NewTicker(tokenRevalidationInterval)
+		authTicker = time.NewTicker(h.tokenRevalidationInterval)
 		defer authTicker.Stop()
 		authTickerC = authTicker.C
 	}
