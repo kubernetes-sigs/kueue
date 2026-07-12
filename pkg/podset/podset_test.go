@@ -410,6 +410,24 @@ func TestMergeRestore(t *testing.T) {
 			},
 			wantError: true,
 		},
+		"updated workload slice annotation": {
+			podSet: utiltestingapi.MakePodSet("", 1).
+				Annotations(map[string]string{
+					kueue.WorkloadSliceNameAnnotation: "old-slice",
+				}).
+				Obj(),
+			info: PodSetInfo{
+				Annotations: map[string]string{
+					kueue.WorkloadSliceNameAnnotation: "new-slice",
+				},
+			},
+			wantPodSet: utiltestingapi.MakePodSet("", 1).
+				Annotations(map[string]string{
+					kueue.WorkloadSliceNameAnnotation: "new-slice",
+				}).
+				Obj(),
+			wantRestoreChanges: true,
+		},
 		"conflicting node selector": {
 			podSet: basePodSet.DeepCopy(),
 			info: PodSetInfo{
