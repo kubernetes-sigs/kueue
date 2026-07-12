@@ -33,7 +33,6 @@
 - [Alternatives](#alternatives)
   - [Scatter fields across existing Configuration blocks](#scatter-fields-across-existing-configuration-blocks)
   - [List-based preemptionProtection API](#list-based-preemptionprotection-api)
-  - [Per-ClusterQueue configuration](#per-clusterqueue-configuration)
   - [Exempt candidates admitted while the preemptor was pending](#exempt-candidates-admitted-while-the-preemptor-was-pending)
   - [Count cumulative runtime across admissions](#count-cumulative-runtime-across-admissions)
   - [Rely on gracefulTerminationPeriod or terminationGracePeriodSeconds](#rely-on-gracefulterminationperiod-or-terminationgraceperiodseconds)
@@ -83,8 +82,7 @@ for reclaim (where the owner has a legitimate entitlement).
 - Within-ClusterQueue time-based preemption (addressed by KEP-8522; see
   [Alternatives](#rely-on-within-clusterqueue-time-based-preemption-alone))
 - Per-ClusterQueue overrides for either duration (see
-  [Per-ClusterQueue configuration](#per-clusterqueue-configuration) in
-  Alternatives)
+  [Future Extensibility](#future-extensibility))
 - Per-workload minimum runtime overrides
 - Workload priority that decays over time based on runtime
 - Precise CPU/GPU time accounting
@@ -477,6 +475,82 @@ resource-dependent protection (for example, reducing the guaranteed runtime
 for workloads holding scarce resources) can be added per rule without
 breaking the API.
 
+**Per-ClusterQueue overrides**: the global Configuration value serves as a
+cluster-wide default, but different workload types have fundamentally
+different tolerance for preemption:
+
+- A training job that checkpoints every 30 minutes only loses up to
+  30 minutes of progress if preempted. A 30-minute protection window
+  guarantees at least one checkpoint, and after that preemption is
+  tolerable.
+- A large batch evaluation job that does not checkpoint (for example, a
+  4-hour model evaluation or data processing pipeline) loses all progress
+  if preempted at any point - three hours in, preemption wastes all three
+  hours of compute.
+
+If both workload types borrow from the same cohort, a single global
+duration cannot serve both well: 30 minutes is too short for the
+evaluation job, and 4 hours is too long for the training queue's lenders
+who need to reclaim promptly. Per-ClusterQueue overrides would let
+administrators express both sides:
+
+- **Borrower side** (`spec.preemption.preemptionProtection`): a
+  ClusterQueue declares the minimum duration its workloads should be
+  protected when borrowing from other queues. This lets teams with longer
+  checkpoint intervals request more protection than the global default.
+- **Lender side** (`spec.preemption.maxBorrowerProtection`): a
+  ClusterQueue declares the maximum protection it will grant to workloads
+  borrowing its quota. This lets latency-sensitive queues that need to
+  reclaim their nominal quota quickly set a shorter ceiling, analogous to
+  how `lendingLimit` bounds `borrowingLimit`.
+
+The effective protection for a borrowing workload would be
+`min(borrower.preemptionProtection, lender.maxBorrowerProtection)`, falling
+back to the global Configuration value when either side is unset:
+
+```yaml
+# Global default (Configuration)
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+preemptionProtection:
+  fairSharing:
+    minAdmitDuration: 30m
+  reclaimWithinCohort:
+    minAdmitDuration: 10m
+---
+# Training team: longer checkpoint intervals, wants more protection
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: training
+spec:
+  preemption:
+    preemptionProtection:
+      fairSharing:
+        minAdmitDuration: 2h    # override: protect for 2 hours
+      reclaimWithinCohort:
+        minAdmitDuration: 30m   # override: 30 min before reclaim
+---
+# Inference team: latency-sensitive, wants to reclaim fast
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: inference
+spec:
+  preemption:
+    maxBorrowerProtection:
+      reclaimWithinCohort:
+        minAdmitDuration: 5m    # cap: borrowers get at most 5 min
+```
+
+Per-CQ overrides are deferred from Alpha to limit scope - the global
+Configuration is a meaningful first step that provides immediate value.
+Adding per-CQ overrides later is a backwards-compatible extension: the
+global value becomes the default, and per-CQ fields override it. The
+deferral also avoids the additional implementation cost of CRD schema
+changes, versioned conversion, and webhook validation until the user
+stories are validated through adoption feedback on the global setting.
+
 ### Test Plan
 
 [x] I/we understand the owners of the involved components may require updates to
@@ -620,25 +694,6 @@ validation must reject duplicate and unknown reasons, merging configurations
 becomes positional, and the schema cannot express per-reason refinements as
 naturally as named structs. The struct-based grouping keeps the same
 extensibility with simpler validation.
-
-### Per-ClusterQueue configuration
-
-Instead of global rules in the Configuration, each ClusterQueue could define
-its own protection (for example under `spec.preemption`). This was deferred:
-
-- there is no strong user story yet for per-CQ values, and global values
-  keep behavior predictable — every workload in the cluster gets the same
-  guarantee;
-- borrower-set reclaim protection takes resources from the lender, so a
-  per-CQ API is only sound together with a lender-side guard (analogous to
-  `lendingLimit` bounding `borrowingLimit`), which is significant additional
-  API surface;
-- a CRD field also requires schema regeneration, versioned conversion,
-  client-go updates, and webhook validation — a much larger change than
-  Configuration fields.
-
-If per-CQ needs materialize, an override can be added under the same
-`preemptionProtection` concept with the global value as the default.
 
 ### Exempt candidates admitted while the preemptor was pending
 
