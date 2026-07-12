@@ -156,9 +156,24 @@ func (podSetInfo *PodSetInfo) AddOrUpdateLabel(k, v string) {
 	}
 }
 
+// kueueManagedAnnotations lists pod template annotations owned by Kueue.
+// Their values are injected on job start and may legitimately differ from
+// the values injected by a previous admission (e.g. the workload slice name
+// changes when a new slice chain starts after preemption), so Merge
+// overwrites them instead of reporting a conflict.
+var kueueManagedAnnotations = []string{
+	kueue.WorkloadAnnotation,
+	kueue.WorkloadSliceNameAnnotation,
+}
+
 // Merge updates or appends the replica metadata & spec fields based on PodSetInfo.
 // It returns error if there is a conflict.
 func Merge(meta *metav1.ObjectMeta, spec *corev1.PodSpec, info PodSetInfo) error {
+	for _, key := range kueueManagedAnnotations {
+		if _, found := info.Annotations[key]; found {
+			delete(meta.Annotations, key)
+		}
+	}
 	tmp := PodSetInfo{
 		Annotations:     meta.Annotations,
 		Labels:          meta.Labels,
