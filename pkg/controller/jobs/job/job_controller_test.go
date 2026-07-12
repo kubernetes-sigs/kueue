@@ -332,6 +332,47 @@ func TestPodSetsInfo(t *testing.T) {
 	}
 }
 
+func TestStopDropsStaleWorkloadSliceAnnotation(t *testing.T) {
+	const userAnnotation = "example.com/user-annotation"
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+	jobObj := utiltestingjob.MakeJob("job", "ns").
+		Suspend(false).
+		ResourceVersion("1").
+		PodAnnotation(kueue.WorkloadSliceNameAnnotation, "old-slice").
+		PodAnnotation(userAnnotation, "user-value").
+		Obj()
+	kClient := utiltesting.NewClientBuilder().WithObjects(jobObj.DeepCopy()).Build()
+	job := (*Job)(jobObj)
+	restoreInfo := []podset.PodSetInfo{
+		{
+			Annotations: map[string]string{
+				kueue.WorkloadSliceNameAnnotation: "old-slice",
+				userAnnotation:                    "user-value",
+			},
+		},
+	}
+
+	stopped, err := job.Stop(ctx, kClient, restoreInfo, jobframework.StopReasonWorkloadEvicted, "preempted")
+	if err != nil {
+		t.Fatalf("Stop() error: %v", err)
+	}
+	if !stopped {
+		t.Error("Stop() stopped = false, want true")
+	}
+
+	var gotJob batchv1.Job
+	if err := kClient.Get(ctx, types.NamespacedName{Name: jobObj.Name, Namespace: jobObj.Namespace}, &gotJob); err != nil {
+		t.Fatalf("Get() stopped Job: %v", err)
+	}
+	if _, found := gotJob.Spec.Template.Annotations[kueue.WorkloadSliceNameAnnotation]; found {
+		t.Errorf("Stop() retained stale %q annotation", kueue.WorkloadSliceNameAnnotation)
+	}
+	if got := gotJob.Spec.Template.Annotations[userAnnotation]; got != "user-value" {
+		t.Errorf("Stop() user annotation = %q, want %q", got, "user-value")
+	}
+}
+
 func TestPodSets(t *testing.T) {
 	jobTemplate := utiltestingjob.MakeJob("job", "ns")
 
