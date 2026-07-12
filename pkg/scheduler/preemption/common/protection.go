@@ -28,13 +28,8 @@ import (
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 )
 
-// withinProtectionWindow reports whether candidate is protected from preemption
-// at time now under the given rule: the PreemptionProtection feature gate is on,
-// the rule is set, the candidate is Admitted and not already Evicted, and its
-// runtime since the Admitted transition is strictly less than minAdmitDuration.
-// A candidate whose runtime is exactly equal to minAdmitDuration is eligible
-// for preemption. Already-evicted candidates are never protected: they are the
-// preferred zero-cost preemption victims.
+// withinProtectionWindow reports whether candidate is protected from
+// preemption under the given rule at time now.
 func withinProtectionWindow(candidate *kueue.Workload, rule *config.PreemptionProtectionPolicy, now time.Time) bool {
 	if rule == nil || rule.MinAdmitDuration == nil {
 		return false
@@ -52,11 +47,8 @@ func withinProtectionWindow(candidate *kueue.Workload, rule *config.PreemptionPr
 	return now.Sub(admittedCond.LastTransitionTime.Time) < rule.MinAdmitDuration.Duration
 }
 
-// ProtectionExpiry returns the time at which the candidate's protection under
-// the given rule expires: the Admitted condition transition time plus the
-// rule's minAdmitDuration. Mirroring withinProtectionWindow, it returns the
-// zero time if the rule is unset or the candidate's Admitted condition is not
-// True.
+// ProtectionExpiry returns Admitted + minAdmitDuration, or zero if the
+// rule is unset or the candidate is not Admitted.
 func ProtectionExpiry(candidate *kueue.Workload, rule *config.PreemptionProtectionPolicy) time.Time {
 	if rule == nil || rule.MinAdmitDuration == nil {
 		return time.Time{}
@@ -68,20 +60,14 @@ func ProtectionExpiry(candidate *kueue.Workload, rule *config.PreemptionProtecti
 	return admittedCond.LastTransitionTime.Add(rule.MinAdmitDuration.Duration)
 }
 
-// ProtectionSkipTracker records preemption candidates skipped because they
-// are within their preemption-protection window, keeping the earliest
-// protection expiry among them for the protection-expiry retry mechanism.
-// The zero value is ready to use; one tracker is shared per target-selection
-// cycle across the classical and fair sharing paths.
+// ProtectionSkipTracker records skipped candidates and keeps the earliest
+// protection expiry for the retry mechanism. Zero value is ready to use.
 type ProtectionSkipTracker struct {
 	earliestExpiry time.Time
 }
 
-// Skip reports whether candidate is within its protection window under rule
-// at time now. When it is, Skip records the candidate's protection expiry
-// (keeping the earliest across calls). Callers must evaluate all other
-// preemption criteria first, so that a skip means protection was the sole
-// blocker. A nil tracker still filters, but records no expiry.
+// Skip returns true if candidate is within its protection window, recording
+// the expiry. A nil tracker still filters but records nothing.
 func (t *ProtectionSkipTracker) Skip(candidate *kueue.Workload, rule *config.PreemptionProtectionPolicy, now time.Time) bool {
 	if !withinProtectionWindow(candidate, rule, now) {
 		return false

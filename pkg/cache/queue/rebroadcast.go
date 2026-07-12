@@ -25,26 +25,19 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 )
 
-// rebroadcastMinGrace is the minimum delay before a rebroadcast timer armed
-// by RebroadcastAtTime fires. The scheduler arms the timer mid-cycle (from
-// GetTargets), while the pending preemptor is only moved to the inadmissible
-// set at the end of the cycle (requeueAndUpdate). Without the grace, a timer
-// for an imminent (or already past) expiry could fire against a still-empty
-// inadmissible set — a lost wakeup with no second timer behind it. The grace
-// guarantees the timer fires after the arming cycle's requeue completed.
+// rebroadcastMinGrace ensures the timer fires after the arming scheduling
+// cycle completes its requeue, avoiding a lost wakeup against an empty
+// inadmissible set.
 const rebroadcastMinGrace = time.Second
 
-// rebroadcastKey identifies the target of an armed rebroadcast timer: a root
-// Cohort or a standalone ClusterQueue (matching how NotifyRetryInadmissible
-// fans a ClusterQueue notification out to its whole Cohort tree).
+// rebroadcastKey identifies a root Cohort or standalone ClusterQueue for
+// timer deduplication.
 type rebroadcastKey struct {
 	cohort       kueue.CohortReference
 	clusterQueue kueue.ClusterQueueReference
 }
 
 // rebroadcastKeyLocked resolves the rebroadcast target for a ClusterQueue.
-// It returns false for unknown ClusterQueues and Cohort trees with cycles,
-// which NotifyRetryInadmissible would ignore anyway.
 // The Manager's lock must be held.
 func (m *Manager) rebroadcastKeyLocked(cqName kueue.ClusterQueueReference) (rebroadcastKey, bool) {
 	cq := m.hm.ClusterQueue(cqName)
@@ -60,15 +53,8 @@ func (m *Manager) rebroadcastKeyLocked(cqName kueue.ClusterQueueReference) (rebr
 	}
 }
 
-// RebroadcastAtTime schedules a retry, shortly after time t, of the
-// inadmissible workloads of the given ClusterQueues (and of all ClusterQueues
-// in their Cohort trees), moving them back to the active workload heaps and
-// waking the scheduler. It is used to retry pending preemptors once a
-// preemption-protection window expires, since protection expiry is a purely
-// time-based event that produces no cluster event.
-// A ClusterQueue is skipped when a timer for its Cohort tree is already armed
-// to fire at or before the requested time, so repeated scheduling cycles
-// against the same protected candidates don't accumulate timers.
+// RebroadcastAtTime schedules a retry of inadmissible workloads shortly
+// after time t. Deduplicates by Cohort tree to avoid timer accumulation.
 func (m *Manager) RebroadcastAtTime(t time.Time, cqNames ...kueue.ClusterQueueReference) {
 	m.Lock()
 	defer m.Unlock()

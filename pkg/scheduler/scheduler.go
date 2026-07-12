@@ -136,9 +136,7 @@ func WithAdmissionFairSharing(afs *config.AdmissionFairSharing) Option {
 	}
 }
 
-// WithPreemptionProtection sets the preemption-protection configuration,
-// which guarantees admitted workloads a minimum runtime before they become
-// eligible for cross-ClusterQueue preemption.
+// WithPreemptionProtection sets the preemption-protection configuration.
 func WithPreemptionProtection(pp *config.PreemptionProtection) Option {
 	return func(o *options) {
 		o.preemptionProtection = pp
@@ -198,9 +196,7 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 		options.preemptionExpectations,
 		options.customLabels,
 	)
-	// Retry pending preemptors once the earliest preemption-protection
-	// window among skipped candidates expires; protection expiry produces
-	// no cluster event that would otherwise trigger a retry.
+	// Retry pending preemptors when the earliest protection window expires.
 	preemptor.SetRetryAfter(func(t time.Time, cqName kueue.ClusterQueueReference) {
 		queues.RebroadcastAtTime(t, cqName)
 	})

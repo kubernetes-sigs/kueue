@@ -69,11 +69,6 @@ type Preemptor struct {
 	fsStrategies      []fairsharing.Strategy
 
 	preemptionProtection *config.PreemptionProtection
-	// retryAfter, when set, schedules a retry of the pending preemptor's
-	// ClusterQueue at the given time. It is invoked from GetTargets when
-	// target selection produced no targets but skipped candidates due to
-	// preemption protection, so that the preemptor is retried once the
-	// earliest protection window expires.
 	retryAfter func(time.Time, kueue.ClusterQueueReference)
 
 	enabledAfs             bool
@@ -84,8 +79,6 @@ type Preemptor struct {
 
 type preemptionCtx struct {
 	clock clock.Clock
-	// now is the time at which preemption protection windows are
-	// evaluated, taken once per target-selection cycle.
 	now               time.Time
 	log               logr.Logger
 	preemptor         workload.Info
@@ -95,15 +88,9 @@ type preemptionCtx struct {
 	tasRequests       schdcache.WorkloadTASRequests
 	frsNeedPreemption sets.Set[resources.FlavorResource]
 
-	// fairSharingProtection and reclaimProtection are the resolved
-	// preemption-protection rules (nil when not configured).
 	fairSharingProtection *config.PreemptionProtectionPolicy
 	reclaimProtection     *config.PreemptionProtectionPolicy
-	// protectionSkips records candidates skipped due to preemption
-	// protection during target selection; the classical and fair sharing
-	// paths share this tracker, which keeps the earliest protection expiry
-	// to retry the preemptor once protection expires.
-	protectionSkips *preemptioncommon.ProtectionSkipTracker
+	protectionSkips       *preemptioncommon.ProtectionSkipTracker
 }
 
 func New(
@@ -134,16 +121,13 @@ func New(
 	return p
 }
 
-// SetRetryAfter sets the callback used to schedule a retry of a pending
-// preemptor's ClusterQueue once the earliest preemption-protection window
-// among skipped candidates expires. It is only invoked from GetTargets when
-// the final target list is empty; oracle simulations never schedule retries.
+// SetRetryAfter sets the callback invoked when protection-skipped candidates
+// block all targets, to retry the preemptor once the window expires.
 func (p *Preemptor) SetRetryAfter(retryAfter func(time.Time, kueue.ClusterQueueReference)) {
 	p.retryAfter = retryAfter
 }
 
-// fairSharingProtectionRule returns the configured fair-sharing
-// preemption-protection rule, or nil when not configured.
+// fairSharingProtectionRule returns the fair-sharing protection rule, or nil.
 func (p *Preemptor) fairSharingProtectionRule() *config.PreemptionProtectionPolicy {
 	if p.preemptionProtection == nil {
 		return nil
@@ -151,8 +135,7 @@ func (p *Preemptor) fairSharingProtectionRule() *config.PreemptionProtectionPoli
 	return p.preemptionProtection.FairSharing
 }
 
-// reclaimProtectionRule returns the configured reclaim-within-cohort
-// preemption-protection rule, or nil when not configured.
+// reclaimProtectionRule returns the reclaim protection rule, or nil.
 func (p *Preemptor) reclaimProtectionRule() *config.PreemptionProtectionPolicy {
 	if p.preemptionProtection == nil {
 		return nil
