@@ -1311,9 +1311,7 @@ func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job Generi
 	if err != nil {
 		return nil, fmt.Errorf("can't construct workload for update: %w", err)
 	}
-	if err = r.applyClusterQueueDefaults(ctx, newWl); err != nil {
-		return nil, fmt.Errorf("applying ClusterQueue defaults: %w", err)
-	}
+	r.applyClusterQueueDefaults(ctx, newWl)
 	wl.Spec = newWl.Spec
 	if err = r.client.Update(ctx, wl); err != nil {
 		return nil, fmt.Errorf("updating existed workload: %w", err)
@@ -1563,14 +1561,17 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 
 // applyClusterQueueDefaults looks up the ClusterQueue backing the LocalQueue
 // and applies its defaults to the workload. Fields already set on the workload
-// are not overridden.
-func (r *JobReconciler) applyClusterQueueDefaults(ctx context.Context, wl *kueue.Workload) error {
+// are not overridden. If the lookup fails (e.g. a transient API error), the
+// error is logged and workload creation/update proceeds without the default,
+// consistent with existing behavior where a job can reference a non-existent
+// queue.
+func (r *JobReconciler) applyClusterQueueDefaults(ctx context.Context, wl *kueue.Workload) {
 	defaults, err := GetClusterQueueDefaults(ctx, r.client, wl.Spec.QueueName, wl.Namespace)
 	if err != nil {
-		return err
+		ctrl.LoggerFrom(ctx).Error(err, "Could not look up ClusterQueue defaults for workload, proceeding without them")
+		return
 	}
 	ApplyClusterQueueDefaults(defaults, wl)
-	return nil
 }
 
 func ExtractPriority(ctx context.Context, c client.Client, obj client.Object, podSets []kueue.PodSet, customPriorityClassFunc func() string) (*kueue.PriorityClassRef, int32, error) {
@@ -1684,9 +1685,7 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 	if err != nil {
 		return err
 	}
-	if err = r.applyClusterQueueDefaults(ctx, wl); err != nil {
-		return err
-	}
+	r.applyClusterQueueDefaults(ctx, wl)
 	if err = r.client.Create(ctx, wl); err != nil {
 		return err
 	}

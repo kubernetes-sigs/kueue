@@ -586,10 +586,10 @@ type entry struct {
 	assignment           flavorassigner.Assignment
 	status               entryStatus
 	inadmissibleMsg      string
+	quotaReservedReason  string
 	requeueReason        qcache.RequeueReason
 	preemptionTargets    []*preemption.Target
 	clusterQueueSnapshot *schdcache.ClusterQueueSnapshot
-	quotaReservedReason  string
 	skipStatusUpdate     bool
 }
 
@@ -644,6 +644,8 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 			}
 		} else if msg := s.checkMaximumExecutionTimeExceedsLimit(e.clusterQueueSnapshot, w.Obj); msg != "" {
 			e.inadmissibleMsg = msg
+			e.quotaReservedReason = kueue.WorkloadMaximumExecutionTimeExceeded
+			e.requeueReason = qcache.RequeueReasonMaxExecutionTimeExceeded
 		} else {
 			assignment, targets := s.getAssignments(log, &e.Info, snap)
 			e.recordAssignment(assignment, targets)

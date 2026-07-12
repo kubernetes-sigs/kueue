@@ -1140,7 +1140,9 @@ const (
 	WorkloadRequeuingLimitExceeded = "RequeuingLimitExceeded"
 
 	// WorkloadMaximumExecutionTimeExceeded indicates that the workload exceeded its
-	// maximum execution time.
+	// maximum execution time. It is also used as the QuotaReserved=False reason when
+	// a workload's requested maximumExecutionTimeSeconds exceeds the ClusterQueue's
+	// configured workloadDefaults.maximumExecutionTimeSeconds upper bound.
 	WorkloadMaximumExecutionTimeExceeded = "MaximumExecutionTimeExceeded"
 
 	// WorkloadWaitForStart indicates the reason for PodsReady=False condition

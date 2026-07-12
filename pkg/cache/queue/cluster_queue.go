@@ -56,15 +56,16 @@ import (
 type RequeueReason string
 
 const (
-	RequeueReasonFailedAfterNomination  RequeueReason = "FailedAfterNomination"
-	RequeueReasonNamespaceMismatch      RequeueReason = "NamespaceMismatch"
-	RequeueReasonGeneric                RequeueReason = ""
-	RequeueReasonPreemptionGated        RequeueReason = "PreemptionGated"
-	RequeueReasonPendingPreemption      RequeueReason = "PendingPreemption"
-	RequeueReasonPendingMigration       RequeueReason = "PendingMigration"
-	RequeueReasonPreemptionFailed       RequeueReason = "PreemptionFailed"
-	RequeueReasonNoFit                  RequeueReason = "NoFit"
-	RequeueReasonPreemptionNoCandidates RequeueReason = "PreemptionNoCandidates"
+	RequeueReasonFailedAfterNomination    RequeueReason = "FailedAfterNomination"
+	RequeueReasonNamespaceMismatch        RequeueReason = "NamespaceMismatch"
+	RequeueReasonGeneric                  RequeueReason = ""
+	RequeueReasonPreemptionGated          RequeueReason = "PreemptionGated"
+	RequeueReasonPendingPreemption        RequeueReason = "PendingPreemption"
+	RequeueReasonPendingMigration         RequeueReason = "PendingMigration"
+	RequeueReasonPreemptionFailed         RequeueReason = "PreemptionFailed"
+	RequeueReasonNoFit                    RequeueReason = "NoFit"
+	RequeueReasonPreemptionNoCandidates   RequeueReason = "PreemptionNoCandidates"
+	RequeueReasonMaxExecutionTimeExceeded RequeueReason = "MaxExecutionTimeExceeded"
 )
 
 // QuotaReservedReason represents the reason for the WorkloadQuotaReserved condition
@@ -916,7 +917,7 @@ func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.
 
 	var immediate bool
 	if c.queueingStrategy == kueue.StrictFIFO {
-		immediate = reason != RequeueReasonNamespaceMismatch
+		immediate = reason != RequeueReasonNamespaceMismatch && reason != RequeueReasonMaxExecutionTimeExceeded
 	} else {
 		immediate = reason == RequeueReasonFailedAfterNomination ||
 			reason == RequeueReasonPendingPreemption ||
