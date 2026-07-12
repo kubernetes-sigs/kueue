@@ -183,15 +183,8 @@ func (p *Preemptor) GetTargets(log logr.Logger, wl workload.Info, assignment fla
 		},
 	}
 	targets := p.getTargets(preemptionCtx)
-	// Protection is evaluated only after every other preemption criterion
-	// passes, so a recorded expiry means at least one candidate was blocked
-	// solely by its protection window. If target selection still produced
-	// no targets, schedule a retry of the pending workload's ClusterQueue
-	// once the earliest such window expires: protection expiry produces no
-	// cluster event, so without this the preemptor could wait for an
-	// unrelated event. The target list may be empty for additional reasons
-	// (e.g. even preempting every eligible candidate would not fit); the
-	// retry is then merely a harmless wakeup.
+	// Schedule a retry when protection-skipped candidates blocked all
+	// targets — protection expiry produces no cluster event.
 	if expiry := preemptionCtx.protectionSkips.EarliestExpiry(); len(targets) == 0 && p.retryAfter != nil && !expiry.IsZero() {
 		log.V(4).Info("No preemption targets due to protected candidates; scheduling retry at protection expiry",
 			"clusterQueue", wl.ClusterQueue,
@@ -462,8 +455,6 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 
 		if preemptorWithinNominal {
 			candWl := candCQ.PopWorkload()
-			// The candidate would be reclaimed unconditionally at this
-			// point, so preemption protection is the sole remaining check.
 			if preemptionCtx.protectionSkips.Skip(candWl.Obj, preemptionCtx.reclaimProtection, preemptionCtx.now) {
 				preemptionCtx.log.V(4).Info("Skipping preemption candidate within its protection window",
 					"workload", klog.KObj(candWl.Obj),
@@ -497,13 +488,8 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 					"strategyPassed", passed)
 			}
 			if passed {
-				// Preemption protection is evaluated only after the
-				// strategy passes, so a skip means protection is the sole
-				// blocker. Protected candidates are skipped entirely; they
-				// must not become retryCandidates for the second strategy.
-				// Candidates that fail the strategy still become
-				// retryCandidates regardless of protection: the second
-				// strategy re-evaluates protection for them.
+				// Protected candidates are skipped entirely and don't
+				// become retryCandidates for the second strategy.
 				if preemptionCtx.protectionSkips.Skip(candWl.Obj, preemptionCtx.fairSharingProtection, preemptionCtx.now) {
 					preemptionCtx.log.V(4).Info("Skipping preemption candidate within its protection window",
 						"workload", klog.KObj(candWl.Obj),
@@ -549,11 +535,6 @@ func runSecondFsStrategy(retryCandidates []*workload.Info, preemptionCtx *preemp
 		// Due to API validation, we can only reach here if the second strategy is LessThanInitialShare,
 		// in which case the last parameter for the strategy function is irrelevant.
 		if passed {
-			// Preemption protection is evaluated only after the strategy
-			// passes, so a skip means protection is the sole blocker.
-			// Unlike the share-based criteria, protection is per-candidate:
-			// try the next candidate from the same ClusterQueue instead of
-			// dropping the queue.
 			if preemptionCtx.protectionSkips.Skip(candWl.Obj, preemptionCtx.fairSharingProtection, preemptionCtx.now) {
 				preemptionCtx.log.V(4).Info("Skipping preemption candidate within its protection window",
 					"workload", klog.KObj(candWl.Obj),
@@ -570,9 +551,6 @@ func runSecondFsStrategy(retryCandidates []*workload.Info, preemptionCtx *preemp
 				return true, targets
 			}
 		}
-		// The share-based criteria doesn't depend on the preempted workload,
-		// so a ClusterQueue gets at most one (unprotected) application of
-		// rule S2-b.
 		ordering.DropQueue(candCQ)
 	}
 	return false, targets
