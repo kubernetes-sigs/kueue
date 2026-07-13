@@ -653,7 +653,7 @@ func TestWlReconcile(t *testing.T) {
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:               "ac1",
 						State:              kueue.CheckStateReady,
-						LastTransitionTime: metav1.NewTime(now.Add(-defaultWorkerLostTimeout * 3 / 2)), // old; the old code would have evicted immediately
+						LastTransitionTime: metav1.NewTime(now.Add(-defaultWorkerLostTimeout * 3 / 2)),
 						Message:            `The workload got reservation on "worker1"`,
 					}).
 					ClusterName("worker1").
@@ -1113,7 +1113,7 @@ func TestWlReconcile(t *testing.T) {
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:               "ac1",
 						State:              kueue.CheckStateReady,
-						LastTransitionTime: metav1.NewTime(now.Add(-defaultWorkerLostTimeout * 3 / 2)), // old transition time; the old code would have evicted immediately
+						LastTransitionTime: metav1.NewTime(now.Add(-defaultWorkerLostTimeout * 3 / 2)),
 						Message:            `The workload got reservation on "worker1"`,
 					}).
 					ClusterName("worker1").
