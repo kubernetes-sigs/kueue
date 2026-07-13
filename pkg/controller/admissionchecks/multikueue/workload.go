@@ -502,7 +502,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	// except for two cases (in which we'll update the remote workload accorddingly):
 	// - elastic workloads which have been scaled down
 	// - workloads for which workload priority has changed
-	outOfSyncDeleted := false
+	outOfSyncDeleted := map[string]bool{}
 	for rem, remWl := range group.remotes {
 		if remWl != nil && isRemoteSpecOutOfSync(group.local.Spec, remWl.Spec) {
 			var remotePreemptionGates []kueue.PreemptionGate
@@ -544,12 +544,8 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 				return reconcile.Result{}, err
 			}
 			group.remotes[rem] = nil
-			outOfSyncDeleted = true
+			outOfSyncDeleted[rem] = true
 		}
-	}
-
-	if outOfSyncDeleted && acs.State == kueue.CheckStateReady {
-		return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, "Remote workload out of sync")
 	}
 
 	// 6. Get the first reserving/admitted workload.
@@ -557,11 +553,16 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	remoteCond, reservingRemote := group.bestMatchByCondition(conditionToCheck)
 
 	// 6a. The reservation is no longer visible while the admission check is still Ready.
-	// If the reserving worker is only unreachable (e.g. its watch is reconnecting) its remote
-	// is likely still running, so keep the workload admitted and retry only once it stays
-	// unreachable past workerLostTimeout, measured from when the loss was first observed. If
-	// the worker is reachable, the reservation is genuinely gone and we retry immediately. An
-	// empty ClusterName is treated as unreachable, erring on the side of not evicting.
+	// The reachability of the reserving worker decides the response, and it takes precedence
+	// over any out-of-sync deletion above (which can only happen on a reachable worker and is
+	// unrelated to whether this reservation is alive):
+	//   - Unreachable (e.g. its watch is reconnecting) or undeterminable: the remote is likely
+	//     still running, so keep the workload admitted and retry only once it stays unreachable
+	//     past workerLostTimeout, measured from when the loss was first observed. An empty
+	//     ClusterName is treated as unreachable, erring on the side of not evicting.
+	//   - Reachable but no admitted remote: the reservation is genuinely gone, so retry
+	//     immediately, preferring the out-of-sync reason only when the reserving remote itself
+	//     was just deleted for drifting from the manager spec.
 	if remoteCond == nil && acs.State == kueue.CheckStateReady {
 		reserving := ptr.Deref(group.local.Status.ClusterName, "")
 		if reserving == "" || slices.Contains(group.unavailableClusters, reserving) {
@@ -574,6 +575,9 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 				return reconcile.Result{RequeueAfter: remainingWaitTime}, nil
 			}
 			return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, "Reserving remote lost")
+		}
+		if outOfSyncDeleted[reserving] {
+			return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, "Remote workload out of sync")
 		}
 		return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, "Reserving remote no longer exists or is not admitted")
 	}
