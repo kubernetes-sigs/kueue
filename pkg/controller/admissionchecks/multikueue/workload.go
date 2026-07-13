@@ -53,6 +53,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
+	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -85,6 +86,12 @@ var (
 // This is the canonical explanation of the deferred-sync handling; other sites
 // in this package point here rather than repeating it.
 const syncDeferredRequeueAfter = 2 * time.Second
+
+// workerLostSinceAnnotation records when the reserving worker was first observed to have
+// lost the local Workload's reservation. It anchors the worker-lost grace so a transient
+// watch reconnect does not evict a running workload, while a genuinely lost worker is
+// still retried after workerLostTimeout.
+const workerLostSinceAnnotation = "kueue.x-k8s.io/multikueue-worker-lost-since"
 
 type wlReconciler struct {
 	client            client.Client
@@ -278,6 +285,40 @@ func (w *wlReconciler) updateACS(ctx context.Context, wl *kueue.Workload, acs *k
 	})
 }
 
+// recordWorkerLost returns the time the reserving worker was first observed to have lost
+// the local Workload's reservation, recording it in the workerLostSinceAnnotation on the
+// first observation. It anchors the worker-lost grace on the Workload itself so a
+// long-stale admission-check transition time can't cause an immediate eviction, and so
+// repeated reconciles during the outage don't keep resetting the grace.
+func (w *wlReconciler) recordWorkerLost(ctx context.Context, wl *kueue.Workload) (time.Time, error) {
+	if v, ok := wl.Annotations[workerLostSinceAnnotation]; ok {
+		if lostSince, err := time.Parse(time.RFC3339, v); err == nil {
+			return lostSince, nil
+		}
+	}
+	lostSince := w.clock.Now()
+	err := clientutil.Patch(ctx, w.client, wl, func() (bool, error) {
+		if wl.Annotations == nil {
+			wl.Annotations = make(map[string]string, 1)
+		}
+		wl.Annotations[workerLostSinceAnnotation] = lostSince.UTC().Format(time.RFC3339)
+		return true, nil
+	})
+	return lostSince, err
+}
+
+// clearWorkerLost removes the workerLostSinceAnnotation once the reservation is confirmed
+// again, so a subsequent loss restarts the grace from scratch.
+func (w *wlReconciler) clearWorkerLost(ctx context.Context, wl *kueue.Workload) error {
+	if _, ok := wl.Annotations[workerLostSinceAnnotation]; !ok {
+		return nil
+	}
+	return clientutil.Patch(ctx, w.client, wl, func() (bool, error) {
+		delete(wl.Annotations, workerLostSinceAnnotation)
+		return true, nil
+	})
+}
+
 func (w *wlReconciler) remoteClientsForAC(ctx context.Context, acName kueue.AdmissionCheckReference) (availableClients map[string]*remoteClient, unavailableClusters []string, err error) {
 	cfg, err := w.helper.ConfigForAdmissionCheck(ctx, acName)
 	if err != nil {
@@ -461,6 +502,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	// except for two cases (in which we'll update the remote workload accorddingly):
 	// - elastic workloads which have been scaled down
 	// - workloads for which workload priority has changed
+	outOfSyncDeleted := false
 	for rem, remWl := range group.remotes {
 		if remWl != nil && isRemoteSpecOutOfSync(group.local.Spec, remWl.Spec) {
 			var remotePreemptionGates []kueue.PreemptionGate
@@ -502,12 +544,42 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 				return reconcile.Result{}, err
 			}
 			group.remotes[rem] = nil
+			outOfSyncDeleted = true
 		}
+	}
+
+	if outOfSyncDeleted && acs.State == kueue.CheckStateReady {
+		return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, "Remote workload out of sync")
 	}
 
 	// 6. Get the first reserving/admitted workload.
 	conditionToCheck := kueue.WorkloadAdmitted
-	if remoteCond, reservingRemote := group.bestMatchByCondition(conditionToCheck); remoteCond != nil {
+	remoteCond, reservingRemote := group.bestMatchByCondition(conditionToCheck)
+
+	// 6a. The reservation is no longer visible while the admission check is still Ready.
+	// If the reserving worker is only unreachable (e.g. its watch is reconnecting) its remote
+	// is likely still running, so keep the workload admitted and retry only once it stays
+	// unreachable past workerLostTimeout, measured from when the loss was first observed. If
+	// the worker is reachable, the reservation is genuinely gone and we retry immediately. An
+	// empty ClusterName is treated as unreachable, erring on the side of not evicting.
+	if remoteCond == nil && acs.State == kueue.CheckStateReady {
+		reserving := ptr.Deref(group.local.Status.ClusterName, "")
+		if reserving == "" || slices.Contains(group.unavailableClusters, reserving) {
+			lostSince, err := w.recordWorkerLost(ctx, group.local)
+			if err != nil {
+				return reconcile.Result{}, err
+			}
+			if remainingWaitTime := w.workerLostTimeout - w.clock.Since(lostSince); remainingWaitTime > 0 {
+				log.V(3).Info("Reserving remote temporarily unreachable, waiting before retry", "cluster", reserving, "retryAfter", remainingWaitTime)
+				return reconcile.Result{RequeueAfter: remainingWaitTime}, nil
+			}
+			return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, "Reserving remote lost")
+		}
+		return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, "Reserving remote no longer exists or is not admitted")
+	}
+
+	// 6b. A reserving remote is visible: converge onto it.
+	if remoteCond != nil {
 		// remove the non-selected worker workloads
 		for rem, remWl := range group.remotes {
 			if remWl != nil && rem != reservingRemote {
@@ -555,6 +627,9 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		if err := w.syncReservingRemoteState(ctx, group, reservingRemote, acs); err != nil {
 			return reconcile.Result{}, err
 		}
+		if err := w.clearWorkerLost(ctx, group.local); err != nil {
+			return reconcile.Result{}, err
+		}
 		requeueAfter := w.workerLostTimeout
 		if syncDeferred {
 			// The local Job is still suspended; requeue short so the next SyncJob
@@ -563,16 +638,6 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			requeueAfter = syncDeferredRequeueAfter
 		}
 		return reconcile.Result{RequeueAfter: requeueAfter}, nil
-	} else if acs.State == kueue.CheckStateReady {
-		// If there is no reserving and the AC is ready, the connection with the reserving remote might
-		// be lost, keep the workload admitted for keepReadyTimeout and put it back in the queue after that.
-		remainingWaitTime := w.workerLostTimeout - time.Since(acs.LastTransitionTime.Time)
-		if remainingWaitTime > 0 {
-			log.V(3).Info("Reserving remote lost, retry", "retryAfter", remainingWaitTime)
-			return reconcile.Result{RequeueAfter: remainingWaitTime}, nil
-		} else {
-			return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, "Reserving remote lost")
-		}
 	}
 
 	// 7. Open the preemption gate if applicable
