@@ -158,6 +158,15 @@ const (
 	// In TAS, treat node as failed if the node is not ready and the pods assigned to this node terminate.
 	TASReplaceNodeOnPodTermination featuregate.Feature = "TASReplaceNodeOnPodTermination"
 
+	// owner: @yakticus
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
+	//
+	// Skip TAS assignment recomputation (failed-node replacement and
+	// post-eviction requeue) for Workloads owned by a single Pod; the pod
+	// cannot relocate and the Workload cannot outlive it, so a recomputed
+	// topologyAssignment only diverges from the node the pod runs on.
+	SkipReassignmentForPodOwnedWorkloads featuregate.Feature = "SkipReassignmentForPodOwnedWorkloads"
+
 	// owner: @PannagaRao
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/3589-manage-jobs-selectively
 	//
@@ -498,6 +507,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	TASReplaceNodeOnPodTermination: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.14"), Default: true, PreRelease: featuregate.Beta},
+	},
+	SkipReassignmentForPodOwnedWorkloads: {
+		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	ManagedJobsNamespaceSelectorAlwaysRespected: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
