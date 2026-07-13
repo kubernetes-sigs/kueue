@@ -555,8 +555,8 @@ function cluster_create {
 
     local log_file="$ARTIFACTS/$cluster-create.log"
     local create_cmd="$KIND create cluster --name \"$cluster\" --image \"$E2E_KIND_VERSION\" --config \"$kind_config\" --kubeconfig=\"$kubeconfig\" --wait 5m -v 5 > \"$log_file\" 2>&1"
-    # Retry only known-transient failures so real bugs still fail fast (#11586, #12307).
-    local retriable_errors="port is already allocated|error execution phase wait-control-plane"
+    # Retry only known-transient failures so real bugs still fail fast (#11586, #12307, #12984).
+    local retriable_errors="port is already allocated|error execution phase wait-control-plane|could not find a log line that matches"
     local continue_if="grep -qE '${retriable_errors}' \"$log_file\""
     local cleanup_cmd="if [ -f \"$log_file\" ]; then mv \"$log_file\" \"${log_file}.failed-\$(date +%s)\"; fi; $KIND delete cluster --name \"$cluster\" 2>/dev/null || true"
 
@@ -564,6 +564,7 @@ function cluster_create {
     if ! "${ROOT_DIR}/hack/testing/retry.sh" \
         --attempts 3 \
         --delay 3 \
+        --exponential \
         --continue-if "$continue_if" \
         --cleanup "$cleanup_cmd" \
         -- bash -c "$create_cmd"; then
