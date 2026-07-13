@@ -19,7 +19,7 @@ certManager:
   #   group: cert-manager.io
 # -- Enable API Priority and Fairness configuration for the visibility API
 enableVisibilityAPF: false
-# -- Enable the visibility server's auth-reader RoleBinding in the kube-system namespace. Disable when deploying under a GitOps project that cannot target kube-system; the RoleBinding must then be created out-of-band.
+# -- Enable the visibility server's auth-reader RoleBinding. It is always created in the kube-system namespace because it binds to the built-in extension-apiserver-authentication-reader Role, which only exists there. Disable when deploying under a GitOps project that cannot target kube-system, then create the RoleBinding out-of-band.
 enableVisibilityAuthReaderRoleBinding: true
 # -- Enable KueueViz dashboard
 enableKueueViz: false
