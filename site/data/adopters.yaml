@@ -143,6 +143,7 @@
   type: End User
   description: Part of the AI Platform powering Wayve AI Driver
   integrations:
+  - PyTorchJob
   - RayJob
   - pod
   contact: '@mukund-wayve'
