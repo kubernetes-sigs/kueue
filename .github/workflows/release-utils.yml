@@ -39,17 +39,19 @@ jobs:
       - name: Validate Command and Issue Title
         id: validate
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
           BODY: ${{ github.event.comment.body }}
           TITLE: ${{ github.event.issue.title }}
         run: |
           if ! printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/sync-release-notes[[:space:]]*$'; then
-            echo "Error: Invalid command format. Use /sync-release-notes on its own line without arguments."
-            exit 1
+            gh issue comment "$ISSUE_NUMBER" --body "Invalid command format. Use \`/sync-release-notes\` on its own line without arguments."
+            exit 0
           fi
 
           if [[ ! "$TITLE" =~ ^Release\ (v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
-            echo "Error: Issue title '$TITLE' does not match 'Release vX.Y.Z'"
-            exit 1
+            gh issue comment "$ISSUE_NUMBER" --body "Invalid issue title: \`$TITLE\`. Expected format: \`Release vX.Y.Z\`."
+            exit 0
           fi
 
           VERSION="${BASH_REMATCH[1]}"
@@ -68,11 +70,12 @@ jobs:
       - name: Run Sync Notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
           UPSTREAM_REMOTE: origin
           VERSION: ${{ steps.validate.outputs.version }}
         run: |
           # Configure git identity
           git config --global user.name "kueue-release-bot"
           git config --global user.email "kueue-release-bot@kubernetes.io"
-          
           yes y | ./hack/releasing/sync-notes.sh "$VERSION"
+          gh issue comment "$ISSUE_NUMBER" --body "Release notes for version $VERSION have been synced."
