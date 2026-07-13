@@ -22,6 +22,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	"sigs.k8s.io/kueue/pkg/resources"
 )
 
 func TestNewDRAResourceMapper(t *testing.T) {
@@ -361,5 +362,26 @@ func TestCreateMapperFromConfiguration(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestPopulateFromConfigurationRegistersBinaryFormattedCounterResource(t *testing.T) {
+	mapper := NewResourceMapper()
+	err := mapper.PopulateFromConfiguration([]configapi.DeviceClassMapping{
+		{
+			Name:             corev1.ResourceName("gpu.memory"),
+			DeviceClassNames: []corev1.ResourceName{"gpu.example.com"},
+			Sources: []configapi.DeviceClassSourceConfig{
+				{Counter: &configapi.DeviceClassCounterSource{Driver: "gpu.example.com", Name: "memory"}},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("PopulateFromConfiguration failed: %v", err)
+	}
+
+	quantity := resources.ResourceQuantity("gpu.memory", 9984*1024*1024)
+	if quantity.String() != "9984Mi" {
+		t.Fatalf("expected BinarySI formatting, got %s", quantity.String())
 	}
 }

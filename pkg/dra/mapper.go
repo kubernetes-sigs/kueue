@@ -21,6 +21,7 @@ import (
 	resourcev1 "k8s.io/api/resource/v1"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	"sigs.k8s.io/kueue/pkg/resources"
 )
 
 // deviceClassCounterConfig holds counter configuration for a specific DeviceClass.
@@ -68,6 +69,9 @@ func (m *ResourceMapper) PopulateFromConfiguration(mappings []configapi.DeviceCl
 	dcToResource := make(map[corev1.ResourceName]corev1.ResourceName)
 	dcCounters := make(map[corev1.ResourceName]*deviceClassCounterConfig)
 	for _, mapping := range mappings {
+		if len(mapping.Sources) > 0 && mapping.Sources[0].Counter != nil {
+			resources.RegisterBinaryFormattedResource(mapping.Name)
+		}
 		for _, deviceClassName := range mapping.DeviceClassNames {
 			dcToResource[deviceClassName] = mapping.Name
 			if len(mapping.Sources) > 0 && mapping.Sources[0].Counter != nil {

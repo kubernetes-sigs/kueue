@@ -155,6 +155,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 				g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(corev1.ResourceName("gpu.memory")))
 				memUsage := assignment.ResourceUsage["gpu.memory"]
 				g.Expect(memUsage.Cmp(resource.MustParse("4864Mi"))).To(gomega.Equal(0))
+				g.Expect(memUsage.String()).To(gomega.Equal("4864Mi"))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -203,6 +204,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 				memUsage := assignment.ResourceUsage["gpu.memory"]
 				expectedBytes := int64(4864 * 1024 * 1024 * 2)
 				g.Expect(memUsage.Value()).To(gomega.Equal(expectedBytes))
+				g.Expect(memUsage.String()).To(gomega.Equal("9728Mi"))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -723,6 +725,8 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 							found = true
 							g.Expect(ru.Total.Cmp(resource.MustParse("50Gi"))).To(gomega.Equal(0))
 							g.Expect(ru.Borrowed.Cmp(resource.MustParse("20Gi"))).To(gomega.Equal(0))
+							g.Expect(ru.Total.String()).To(gomega.Equal("50Gi"))
+							g.Expect(ru.Borrowed.String()).To(gomega.Equal("20Gi"))
 						}
 					}
 				}
