@@ -568,6 +568,13 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests F
 				if psa == nil || psa.TopologyAssignment == nil {
 					continue
 				}
+				if features.Enabled(features.SkipReassignmentForPodOwnedWorkloads) && workload.OwnedBySinglePod(opts.workload) {
+					// The pod cannot relocate and the Workload cannot outlive it; keep
+					// the existing assignment so admit clears UnhealthyNodes without
+					// diverging from the node the pod actually runs on.
+					result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: utiltas.InternalFrom(psa.TopologyAssignment)}
+					continue
+				}
 				// We deepCopy the existing TopologyAssignment, so if we delete unwanted domain,
 				// And there is no fit, we have the original newAssignment to retry with
 				newAssignment, replacementAssignment, reason := s.findReplacementAssignment(&tr, utiltas.InternalFrom(psa.TopologyAssignment), opts.workload, assumedUsage)

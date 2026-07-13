@@ -46,6 +46,7 @@
     - [Node failures](#node-failures)
       - [Until v0.13](#until-v013)
       - [Since v0.14](#since-v014)
+      - [Workloads owned by a single Pod](#workloads-owned-by-a-single-pod)
     - [Tainted nodes treatment](#tainted-nodes-treatment)
       - [User stories](#user-stories-1)
   - [Implicit defaulting of TAS annotations](#implicit-defaulting-of-tas-annotations)
@@ -1415,6 +1416,36 @@ would like to collect more user feedback using the feature gates while in Alpha.
 Kueue tries to find a replacement for a failed node until success (or until it gets
 evicted by e.g. `waitForPodsReady.recoveryTimeout`). One can limit the number of retries
 to only one, by setting the `TASFailedNodeReplacementFailFast` feature gate to `true`.
+
+##### Workloads owned by a single Pod
+
+Node replacement assumes the Workload's controller re-creates pods within the same
+Workload (Job, JobSet, LeaderWorkerSet), so that replacement pods can consume the
+updated topology assignment. Workloads owned by a single Pod (the pod integration:
+bare pods and e.g. Deployment replicas) do not have this property: the Workload is
+deleted together with its pod, so no future pod can ever consume a replacement
+assignment. Rewriting the assignment of such a Workload only makes it diverge from
+the node the (immutable, still-running) pod occupies, which corrupts the per-node
+capacity accounting in both directions: the pod's real node is treated as free
+(over-admission), and the replacement node is blocked for other admissions.
+
+The `SkipReassignmentForPodOwnedWorkloads` feature gate (Beta from v0.19, Alpha in
+backports) makes the scheduler keep the existing topology assignment of a Workload
+owned by exactly one Pod instead of computing a replacement. The node is still
+tracked in `.status.unhealthyNodes` and the field is cleared on the next successful
+scheduling pass. Recovery for such workloads happens through the pod lifecycle: when
+the pod terminates, the owning controller (e.g. ReplicaSet) creates a new pod, which
+arrives as a new Workload and is admitted with a fresh assignment. Workloads with
+any other owner, including pod groups (which can receive user-created replacement
+pods into the same Workload), keep the existing replacement behavior.
+
+The same futility applies to the eviction requeue path. When a pod-owned Workload is
+evicted (e.g. by preemption), requeuing it re-admits the Workload with a freshly
+computed assignment while the evicted pod is still draining its termination grace
+period on the original node — an assignment no pod can ever consume, occupying the
+newly assigned node for the full grace period. With the gate enabled, evicted
+pod-owned Workloads get `Requeued=False` instead: the Workload is parked, finishes
+with its pod, and the owning controller's replacement pod arrives as a new Workload.
 
 #### Tainted nodes treatment
 
