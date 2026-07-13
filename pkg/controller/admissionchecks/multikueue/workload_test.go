@@ -649,7 +649,7 @@ func TestWlReconcile(t *testing.T) {
 			featureGates:             map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor:             "wl1",
 			worker1Reconnecting:      true,
-			worker1DisconnectedSince: ptr.To(now),
+			worker1DisconnectedSince: new(now),
 			managersJobs:             []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
@@ -1045,7 +1045,7 @@ func TestWlReconcile(t *testing.T) {
 			featureGates:             map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor:             "wl1",
 			worker1Reconnecting:      true,
-			worker1DisconnectedSince: ptr.To(now.Add(-defaultWorkerLostTimeout / 2)),
+			worker1DisconnectedSince: new(now.Add(-defaultWorkerLostTimeout / 2)),
 			managersJobs:             []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
@@ -1077,7 +1077,7 @@ func TestWlReconcile(t *testing.T) {
 			featureGates:             map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor:             "wl1",
 			worker1Reconnecting:      true,
-			worker1DisconnectedSince: ptr.To(now.Add(-defaultWorkerLostTimeout * 3 / 2)),
+			worker1DisconnectedSince: new(now.Add(-defaultWorkerLostTimeout * 3 / 2)),
 			managersJobs:             []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
@@ -1113,7 +1113,7 @@ func TestWlReconcile(t *testing.T) {
 			featureGates:             map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor:             "wl1",
 			worker1Reconnecting:      true,
-			worker1DisconnectedSince: ptr.To(now),
+			worker1DisconnectedSince: new(now),
 			managersJobs:             []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
@@ -1149,7 +1149,7 @@ func TestWlReconcile(t *testing.T) {
 			featureGates:             map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor:             "wl1",
 			worker1Reconnecting:      true,
-			worker1DisconnectedSince: ptr.To(now.Add(-defaultWorkerLostTimeout * 3 / 2)),
+			worker1DisconnectedSince: new(now.Add(-defaultWorkerLostTimeout * 3 / 2)),
 			managersJobs:             []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
