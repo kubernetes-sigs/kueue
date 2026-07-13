@@ -285,7 +285,7 @@ func (w *wlReconciler) remoteClientsForAC(ctx context.Context, acName kueue.Admi
 	}
 	availableClients = make(map[string]*remoteClient, len(cfg.Spec.Clusters))
 	for _, clusterName := range cfg.Spec.Clusters {
-		if client, found := w.clusters.controllerFor(clusterName); found && client.connected.Load() {
+		if client, found := w.clusters.controllerFor(clusterName); found && client.isConnected() {
 			availableClients[clusterName] = client
 		} else {
 			unavailableClusters = append(unavailableClusters, clusterName)
@@ -533,7 +533,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			// which errs on the side of not evicting.
 			lostSince := w.clock.Now()
 			if rc, found := w.clusters.controllerFor(reserving); found {
-				if since := rc.disconnectedSince.Load(); since != nil {
+				if since := rc.disconnectedSince(); since != nil {
 					lostSince = *since
 				}
 			}

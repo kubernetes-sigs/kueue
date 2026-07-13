@@ -1937,11 +1937,9 @@ func TestWlReconcile(t *testing.T) {
 
 				w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
 				w1remoteClient.client = worker1Client
-				if !tc.worker1Reconnecting {
-					w1remoteClient.connected.Store(true)
-				}
-				if tc.worker1DisconnectedSince != nil {
-					w1remoteClient.disconnectedSince.Store(tc.worker1DisconnectedSince)
+				w1remoteClient.connState = connectionState{
+					connected:         !tc.worker1Reconnecting,
+					disconnectedSince: tc.worker1DisconnectedSince,
 				}
 				cRec.remoteClients["worker1"] = w1remoteClient
 
@@ -1973,11 +1971,9 @@ func TestWlReconcile(t *testing.T) {
 					worker2Client = NewNeverCachingClient(worker2Builder.Build())
 					w2remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
 					w2remoteClient.client = worker2Client
-					if !tc.worker2Reconnecting {
-						w2remoteClient.connected.Store(true)
-					}
-					if tc.worker2DisconnectedSince != nil {
-						w2remoteClient.disconnectedSince.Store(tc.worker2DisconnectedSince)
+					w2remoteClient.connState = connectionState{
+						connected:         !tc.worker2Reconnecting,
+						disconnectedSince: tc.worker2DisconnectedSince,
 					}
 					cRec.remoteClients["worker2"] = w2remoteClient
 				}
@@ -2123,7 +2119,7 @@ func TestOrphanedRemoteWorkloadCleanedAfterReconnect(t *testing.T) {
 		WithStatusSubresource(&kueue.Workload{}).
 		WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
 		Build())
-	w1remoteClient.connected.Store(true)
+	w1remoteClient.markConnected()
 	cRec.remoteClients["worker1"] = w1remoteClient
 
 	worker2Client := NewNeverCachingClient(getClientBuilder(ctx).
@@ -2133,7 +2129,7 @@ func TestOrphanedRemoteWorkloadCleanedAfterReconnect(t *testing.T) {
 		Build())
 	w2remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
 	w2remoteClient.client = worker2Client
-	w2remoteClient.connected.Store(false)
+	w2remoteClient.connState = connectionState{}
 	cRec.remoteClients["worker2"] = w2remoteClient
 
 	helper, _ := admissioncheck.NewMultiKueueStoreHelper(managerClient)
@@ -2169,7 +2165,7 @@ func TestOrphanedRemoteWorkloadCleanedAfterReconnect(t *testing.T) {
 	}
 
 	// Step 2: worker2 finishes reconnecting — reconcile should clean up the orphaned workload.
-	w2remoteClient.connected.Store(true)
+	w2remoteClient.markConnected()
 
 	result, err = reconciler.Reconcile(ctx, req)
 	if err != nil {
