@@ -695,9 +695,21 @@ func (r *JobReconciler) finalizeWorkloads(ctx context.Context, key types.Namespa
 	if err != nil {
 		return err
 	}
+	jobExists := true
+	if err := r.client.Get(ctx, key, job.Object()); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return err
+		}
+		jobExists = false
+	}
 	for i := range workloads {
 		wl := &workloads[i]
-		if err := workload.FinalizeOrphanedWorkload(ctx, r.client, r.clock, wl, controllerutil.HasControllerReference(wl)); err != nil {
+		if !jobExists {
+			if err := workload.FinishOrphanedWorkload(ctx, r.client, r.clock, wl, controllerutil.HasControllerReference(wl)); err != nil {
+				return err
+			}
+		}
+		if err := workload.RemoveFinalizer(ctx, r.client, wl); client.IgnoreNotFound(err) != nil {
 			return err
 		}
 	}
