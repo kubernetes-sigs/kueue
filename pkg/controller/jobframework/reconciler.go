@@ -559,6 +559,11 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 				err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 					// The requeued condition status set to true only on EvictedByPreemption
 					setRequeued := (evCond.Reason == kueue.WorkloadEvictedByPreemption) || (evCond.Reason == kueue.WorkloadEvictedDueToNodeFailures)
+					// A pod-owned Workload dies with its pod; requeuing it would
+					// recompute an assignment nothing can consume (placement drift).
+					if features.Enabled(features.SkipReassignmentForPodOwnedWorkloads) && workload.OwnedBySinglePod(wl) {
+						setRequeued = false
+					}
 					updated := workload.SetRequeuedCondition(wl, evCond.Reason, evCond.Message, setRequeued)
 					if workload.UnsetQuotaReservationWithCondition(
 						wl,

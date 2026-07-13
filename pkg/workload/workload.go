@@ -48,6 +48,7 @@ import (
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
@@ -1259,6 +1260,22 @@ func HasConditionWithTypeAndReason(w *kueue.Workload, cond *metav1.Condition) bo
 		}
 	}
 	return false
+}
+
+// OwnedBySinglePod reports whether the Workload is owned by exactly one Pod
+// (bare-Pod / Deployment-replica pod integration). Such a Workload cannot
+// outlive its pod, so no future pod can consume a recomputed assignment.
+// Pod-group Workloads are excluded: a group of size 1 also has a single Pod
+// owner, but can receive replacement pods into the same Workload.
+func OwnedBySinglePod(w *kueue.Workload) bool {
+	if w == nil || len(w.OwnerReferences) != 1 {
+		return false
+	}
+	if w.Annotations[podconstants.IsGroupWorkloadAnnotationKey] == podconstants.IsGroupWorkloadAnnotationValue {
+		return false
+	}
+	ref := w.OwnerReferences[0]
+	return ref.Kind == "Pod" && ref.APIVersion == "v1"
 }
 
 func HasUnhealthyNodes(w *kueue.Workload) bool {
