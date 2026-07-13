@@ -453,6 +453,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.19"
+- name: TASReplaceMultipleFailedNodes
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.19"
 - name: TASReplaceNodeOnNodeTaints
   versionedSpecs:
   - default: true
