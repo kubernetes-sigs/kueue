@@ -38,6 +38,7 @@ import (
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -1411,31 +1412,20 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing", "featur
 		ginkgo.It("should preempt a workload from LQ with higher recent usage", func() {
 			ginkgo.By("Creating workloads in CQ1 that borrow from CQ2")
 			wlHighA := createWorkloadWithPriority("lq-a", "20", 10)
-			_ = createWorkloadWithPriority("lq-b", "12", 1)
+			wlLowB := createWorkloadWithPriority("lq-b", "12", 1)
 			util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 2)
 			util.ExpectReservingActiveWorkloadsMetric(cq1, 2)
 
-			ginkgo.By("Checking that LQs' resource usage is updated")
+			ginkgo.By("Checking that the scheduler sees higher recent usage for lq-a")
 			gomega.Eventually(func(g gomega.Gomega) {
-				var lqAObj, lqBObj kueue.LocalQueue
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lqA), &lqAObj)).To(gomega.Succeed())
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lqB), &lqBObj)).To(gomega.Succeed())
-				g.Expect(lqAObj.Status.FairSharing).NotTo(gomega.BeNil())
-				g.Expect(lqBObj.Status.FairSharing).NotTo(gomega.BeNil())
-				g.Expect(lqAObj.Status.FairSharing.AdmissionFairSharingStatus).NotTo(gomega.BeNil())
-				g.Expect(lqBObj.Status.FairSharing.AdmissionFairSharingStatus).NotTo(gomega.BeNil())
-
-				lqAConsumed := lqAObj.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources
-				lqBConsumed := lqBObj.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources
-				g.Expect(lqAConsumed).To(gomega.HaveKey(corev1.ResourceCPU))
-				g.Expect(lqBConsumed).To(gomega.HaveKey(corev1.ResourceCPU))
-
-				lqAUsage := lqAConsumed[corev1.ResourceCPU]
-				lqBUsage := lqBConsumed[corev1.ResourceCPU]
-				g.Expect(lqAUsage.MilliValue()).To(gomega.BeNumerically(">", lqBUsage.MilliValue()),
-					"expected lq-a usage (%v) > lq-b usage (%v) before creating reclaiming workload",
-					lqAUsage.String(), lqBUsage.String())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				lqAUsage, err := workload.NewInfo(wlHighA).CalcLocalQueueFSUsage(ctx, k8sClient, nil, qManager.AfsEntryPenalties, qManager.AfsConsumedResources)
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				lqBUsage, err := workload.NewInfo(wlLowB).CalcLocalQueueFSUsage(ctx, k8sClient, nil, qManager.AfsEntryPenalties, qManager.AfsConsumedResources)
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(lqAUsage).To(gomega.BeNumerically(">", lqBUsage),
+					"expected scheduler usage for lq-a (%v) > lq-b usage (%v) before creating reclaiming workload",
+					lqAUsage, lqBUsage)
+			}, util.Timeout, util.Interval).MustPassRepeatedly(int(time.Second/util.Interval) + 2).Should(gomega.Succeed())
 
 			ginkgo.By("Creating a workload in CQ2 that reclaims the quota")
 			_ = createWorkload("lq-c", "10")
