@@ -42,10 +42,10 @@ Please do not remove items from the checklist
   - [ ] Upload the files in the `release-artifacts` folder to the draft release - either
       via UI or `gh release --repo kubernetes-sigs/kueue upload $VERSION release-artifacts/*`.
 - [ ] Promote images and Helm Charts to production:
-  - [ ] Run `./hack/releasing/wait_for_images.sh $VERSION` to await for the staging images.
+  - [ ] Use `/wait-for-images` to await for the staging images.
   - [ ] Run `./hack/releasing/promote_pull.sh $VERSION` to submit the promotion PR
   - [ ] Wait for the PR to be merged <!-- K8S_IO_PULL --> <!-- example kubernetes/k8s.io#7899 -->
-  - [ ] Run: `./hack/releasing/wait_for_images.sh --prod $VERSION` to verify that the promoted images are available.
+  - [ ] Use `/wait-for-prod-images` to verify that the promoted images are available.
 - [ ] Publish the draft release prepared at the [GitHub releases page](https://github.com/kubernetes-sigs/kueue/releases).
       Link: <!-- example https://github.com/kubernetes-sigs/kueue/releases/tag/v0.1.0 -->
 - [ ] Run the [openvex action](https://github.com/kubernetes-sigs/kueue/actions/workflows/openvex.yaml) to generate openvex data. The action will add the file to the release artifacts.
