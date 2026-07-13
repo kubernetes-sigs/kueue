@@ -53,7 +53,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
-	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -86,12 +85,6 @@ var (
 // This is the canonical explanation of the deferred-sync handling; other sites
 // in this package point here rather than repeating it.
 const syncDeferredRequeueAfter = 2 * time.Second
-
-// workerLostSinceAnnotation records when the reserving worker was first observed to have
-// lost the local Workload's reservation. It anchors the worker-lost grace so a transient
-// watch reconnect does not evict a running workload, while a genuinely lost worker is
-// still retried after workerLostTimeout.
-const workerLostSinceAnnotation = "kueue.x-k8s.io/multikueue-worker-lost-since"
 
 type wlReconciler struct {
 	client            client.Client
@@ -282,40 +275,6 @@ func (w *wlReconciler) updateACS(ctx context.Context, wl *kueue.Workload, acs *k
 		acs.Message = message
 		acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
 		return workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *acs, w.clock), nil
-	})
-}
-
-// recordWorkerLost returns the time the reserving worker was first observed to have lost
-// the local Workload's reservation, recording it in the workerLostSinceAnnotation on the
-// first observation. It anchors the worker-lost grace on the Workload itself so a
-// long-stale admission-check transition time can't cause an immediate eviction, and so
-// repeated reconciles during the outage don't keep resetting the grace.
-func (w *wlReconciler) recordWorkerLost(ctx context.Context, wl *kueue.Workload) (time.Time, error) {
-	if v, ok := wl.Annotations[workerLostSinceAnnotation]; ok {
-		if lostSince, err := time.Parse(time.RFC3339, v); err == nil {
-			return lostSince, nil
-		}
-	}
-	lostSince := w.clock.Now()
-	err := clientutil.Patch(ctx, w.client, wl, func() (bool, error) {
-		if wl.Annotations == nil {
-			wl.Annotations = make(map[string]string, 1)
-		}
-		wl.Annotations[workerLostSinceAnnotation] = lostSince.UTC().Format(time.RFC3339)
-		return true, nil
-	})
-	return lostSince, err
-}
-
-// clearWorkerLost removes the workerLostSinceAnnotation once the reservation is confirmed
-// again, so a subsequent loss restarts the grace from scratch.
-func (w *wlReconciler) clearWorkerLost(ctx context.Context, wl *kueue.Workload) error {
-	if _, ok := wl.Annotations[workerLostSinceAnnotation]; !ok {
-		return nil
-	}
-	return clientutil.Patch(ctx, w.client, wl, func() (bool, error) {
-		delete(wl.Annotations, workerLostSinceAnnotation)
-		return true, nil
 	})
 }
 
@@ -568,9 +527,15 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	if remoteCond == nil && acs.State == kueue.CheckStateReady {
 		reserving := ptr.Deref(group.local.Status.ClusterName, "")
 		if reserving == "" || slices.Contains(group.unavailableClusters, reserving) {
-			lostSince, err := w.recordWorkerLost(ctx, group.local)
-			if err != nil {
-				return reconcile.Result{}, err
+			// Anchor the grace on when the reserving cluster's connection first dropped
+			// (tracked on the remote client), not on this reconcile. If that is unknown
+			// (undeterminable cluster, or the loss has not been recorded), fall back to now,
+			// which errs on the side of not evicting.
+			lostSince := w.clock.Now()
+			if rc, found := w.clusters.controllerFor(reserving); found {
+				if since := rc.disconnectedSince.Load(); since != nil {
+					lostSince = *since
+				}
 			}
 			if remainingWaitTime := w.workerLostTimeout - w.clock.Since(lostSince); remainingWaitTime > 0 {
 				log.V(3).Info("Reserving remote temporarily unreachable, waiting before retry", "cluster", reserving, "retryAfter", remainingWaitTime)
@@ -631,9 +596,6 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		}
 
 		if err := w.syncReservingRemoteState(ctx, group, reservingRemote, acs); err != nil {
-			return reconcile.Result{}, err
-		}
-		if err := w.clearWorkerLost(ctx, group.local); err != nil {
 			return reconcile.Result{}, err
 		}
 		requeueAfter := w.workerLostTimeout

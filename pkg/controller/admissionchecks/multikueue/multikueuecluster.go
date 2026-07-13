@@ -133,6 +133,11 @@ type remoteClient struct {
 	failedConnAttempts   uint
 	retryConnNextAttempt metav1.Time
 
+	// disconnectedSince records when the watch to this cluster first dropped; it is nil while
+	// connected. It is set on the first drop and preserved across failed reconnect attempts,
+	// and cleared only once the connection is fully re-established.
+	disconnectedSince atomic.Pointer[time.Time]
+
 	// Held during updateConfigAndRefreshWatchers. Without it, one stuck remote
 	// would stall every other cluster's reconcile via clustersReconciler.lock.
 	// See #11297.
@@ -302,6 +307,10 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 		}
 	}
 
+	// The connection is fully established (all watchers started); the cluster is reachable
+	// again, so clear the recorded loss time. Done only on success so that repeated failed
+	// reconnect attempts preserve the first-drop time recorded when the watch dropped.
+	rc.disconnectedSince.Store(nil)
 	rc.resetFailedConnAttempt()
 	return nil, nil
 }
@@ -395,6 +404,8 @@ func (rc *remoteClient) startWatcher(ctx context.Context, kind string, w jobfram
 			wasConnected := rc.connected.Swap(false)
 			// reconnect if this is the first watch failing.
 			if wasConnected {
+				now := rc.clock.Now()
+				rc.disconnectedSince.CompareAndSwap(nil, &now)
 				log.V(2).Info("Queue reconcile for reconnect", "cluster", rc.clusterName)
 				rc.queueWatchEndedEvent(ctx)
 			}
@@ -524,7 +535,10 @@ func (rc *remoteClient) StopWatchers() {
 // is now unreachable, and apply the workerLostTimeout delay before requeuing.
 func (rc *remoteClient) disconnect() {
 	rc.StopWatchers()
-	rc.connected.Store(false)
+	if rc.connected.Swap(false) {
+		now := rc.clock.Now()
+		rc.disconnectedSince.CompareAndSwap(nil, &now)
+	}
 }
 
 func (rc *remoteClient) queueWorkloadEvent(ctx context.Context, wlKey types.NamespacedName) {
