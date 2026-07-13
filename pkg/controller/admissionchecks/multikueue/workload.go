@@ -527,10 +527,6 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	if remoteCond == nil && acs.State == kueue.CheckStateReady {
 		reserving := ptr.Deref(group.local.Status.ClusterName, "")
 		if reserving == "" || slices.Contains(group.unavailableClusters, reserving) {
-			// Anchor the grace on when the reserving cluster's connection first dropped
-			// (tracked on the remote client), not on this reconcile. If that is unknown
-			// (undeterminable cluster, or the loss has not been recorded), fall back to now,
-			// which errs on the side of not evicting.
 			lostSince := w.clock.Now()
 			if rc, found := w.clusters.controllerFor(reserving); found {
 				if since := rc.disconnectedSince(); since != nil {
