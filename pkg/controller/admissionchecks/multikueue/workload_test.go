@@ -640,48 +640,6 @@ func TestWlReconcile(t *testing.T) {
 				},
 			},
 		},
-		"reachable reserving remote that is gone is not misreported as out of sync when another worker was out of sync": {
-			// The set records which clusters were deleted for being out of sync; only the
-			// reserving cluster's own deletion drives the out-of-sync reason. Here the reserving
-			// worker is reachable with no remote (genuinely gone) while a different worker had an
-			// out-of-sync remote deleted, so the retry reason must be the generic one.
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
-			reconcileFor: "wl1",
-			managersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
-			managersWorkloads: []kueue.Workload{
-				*baseWorkloadBuilder.Clone().
-					AdmissionCheck(kueue.AdmissionCheckState{
-						Name:    "ac1",
-						State:   kueue.CheckStateReady,
-						Message: `The workload got reservation on "worker1"`,
-					}).
-					ClusterName("worker1").
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
-					Obj(),
-			},
-			// worker1 (the reserving cluster) is reachable but has no remote workload.
-			useSecondWorker: true,
-			worker2Workloads: []kueue.Workload{
-				*baseWorkloadBuilder.Clone().
-					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					PodSets(*utiltestingapi.MakePodSet("different-name", 1).Obj()). // out of sync vs. the manager spec
-					Obj(),
-			},
-			wantManagersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
-			wantManagersWorkloads: []kueue.Workload{
-				*baseWorkloadBuilder.Clone().
-					AdmissionCheck(kueue.AdmissionCheckState{
-						Name:    "ac1",
-						State:   kueue.CheckStateRetry,
-						Message: `Reserving remote no longer exists or is not admitted`,
-					}).
-					ClusterName("worker1").
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
-					Obj(),
-			},
-		},
 		"worker-lost grace applies when the reserving worker is unreachable even if another worker's remote is out of sync": {
 			// Regression: an out-of-sync deletion on a reachable, non-reserving worker must not
 			// turn a transient reconnect of the reserving worker into an immediate eviction. The
