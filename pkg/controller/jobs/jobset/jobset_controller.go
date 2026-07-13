@@ -153,7 +153,7 @@ func (j *JobSet) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.Po
 }
 
 func (j *JobSet) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
-	if len(podSetsInfo) == 0 {
+	if len(podSetsInfo) != len(j.Spec.ReplicatedJobs) {
 		return false
 	}
 	changed := false
