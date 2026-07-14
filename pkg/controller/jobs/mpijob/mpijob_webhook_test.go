@@ -782,7 +782,7 @@ func TestDefault(t *testing.T) {
 
 			clientBuilder := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("default"))
 			cl := clientBuilder.Build()
-			cqCache := schdcache.New(cl)
+			cqCache := schdcache.New(cl, schdcache.NewDefaultSimulator())
 			queueManager := qcache.NewManagerForUnitTests(cl, cqCache)
 
 			if tc.defaultLqExist {

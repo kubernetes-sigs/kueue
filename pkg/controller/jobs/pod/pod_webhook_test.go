@@ -650,7 +650,7 @@ func TestDefault(t *testing.T) {
 			builder = builder.WithObjects(tc.initObjects...)
 			cli := builder.Build()
 
-			cqCache := schdcache.New(cli)
+			cqCache := schdcache.New(cli, schdcache.NewDefaultSimulator())
 			queueManager := qcache.NewManagerForUnitTests(cli, cqCache)
 
 			ctx, _ := utiltesting.ContextWithLog(t)

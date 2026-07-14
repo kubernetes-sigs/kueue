@@ -1057,7 +1057,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			cache := New(utiltesting.NewFakeClient(tc.clientObjects...))
+			cache := New(utiltesting.NewFakeClient(tc.clientObjects...), NewDefaultSimulator())
 			if err := tc.operation(log, cache); err != nil {
 				t.Errorf("Unexpected error during test operation: %s", err)
 			}
@@ -1501,7 +1501,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 	}
 	for _, step := range steps {
 		t.Run(step.name, func(t *testing.T) {
-			cache := New(cl)
+			cache := New(cl, NewDefaultSimulator())
 			ctx, log := utiltesting.ContextWithLog(t)
 
 			for _, c := range clusterQueues {
@@ -1883,7 +1883,7 @@ func TestClusterQueueUsage(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			cache := New(utiltesting.NewFakeClient())
+			cache := New(utiltesting.NewFakeClient(), NewDefaultSimulator())
 			ctx, log := utiltesting.ContextWithLog(t)
 			err := cache.AddClusterQueue(ctx, tc.clusterQueue)
 			if err != nil {
@@ -2118,7 +2118,7 @@ func TestLocalQueueUsage(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			cache := New(utiltesting.NewFakeClient())
+			cache := New(utiltesting.NewFakeClient(), NewDefaultSimulator())
 			ctx, log := utiltesting.ContextWithLog(t)
 			if tc.cq != nil {
 				if err := cache.AddClusterQueue(ctx, tc.cq); err != nil {
@@ -2181,7 +2181,7 @@ func TestGetCacheLQ(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			cl := utiltesting.NewFakeClient()
-			cache := New(cl)
+			cache := New(cl, NewDefaultSimulator())
 			ctx, _ := utiltesting.ContextWithLog(t)
 			if err := cache.AddClusterQueue(ctx, cq); err != nil {
 				t.Fatalf("Adding ClusterQueue: %v", err)
@@ -2605,7 +2605,7 @@ func TestCacheQueueOperations(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			cl := utiltesting.NewFakeClient()
-			cache := New(cl)
+			cache := New(cl, NewDefaultSimulator())
 			ctx, _ := utiltesting.ContextWithLog(t)
 			for i, op := range tc.ops {
 				if err := op(ctx, cl, cache); err != nil {
@@ -2683,7 +2683,7 @@ func TestClusterQueuesUsingFlavor(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
-			cache := New(utiltesting.NewFakeClient())
+			cache := New(utiltesting.NewFakeClient(), NewDefaultSimulator())
 			cache.AddOrUpdateResourceFlavor(log, x86Rf)
 			cache.AddOrUpdateResourceFlavor(log, aarch64Rf)
 
@@ -2722,7 +2722,7 @@ func TestMatchingClusterQueues(t *testing.T) {
 	}
 	wantCQs := sets.New[kueue.ClusterQueueReference]("matching1", "matching2")
 
-	cache := New(utiltesting.NewFakeClient())
+	cache := New(utiltesting.NewFakeClient(), NewDefaultSimulator())
 	ctx, _ := utiltesting.ContextWithLog(t)
 	for _, cq := range clusterQueues {
 		if err := cache.AddClusterQueue(ctx, cq); err != nil {
@@ -2740,7 +2740,7 @@ func TestMatchingClusterQueues(t *testing.T) {
 func TestWaitForPodsReadyCancelled(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	ctx, _ := utiltesting.ContextWithLog(t)
-	cache := New(utiltesting.NewFakeClient(), WithPodsReadyTracking(true))
+	cache := New(utiltesting.NewFakeClient(), NewDefaultSimulator(), WithPodsReadyTracking(true))
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	log := ctrl.LoggerFrom(ctx)
@@ -2935,7 +2935,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			cache := New(cl, WithPodsReadyTracking(true))
+			cache := New(cl, NewDefaultSimulator(), WithPodsReadyTracking(true))
 			ctx, log := utiltesting.ContextWithLog(t)
 
 			for _, c := range clusterQueues {
@@ -3025,7 +3025,7 @@ func TestIsAddedCheckWorkload(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			cache := New(utiltesting.NewFakeClient())
+			cache := New(utiltesting.NewFakeClient(), NewDefaultSimulator())
 			for _, cq := range tc.clusterQueues {
 				cache.hm.AddClusterQueue(cq)
 			}
@@ -3112,7 +3112,7 @@ func TestClusterQueuesUsingAdmissionChecks(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
-			cache := New(utiltesting.NewFakeClient())
+			cache := New(utiltesting.NewFakeClient(), NewDefaultSimulator())
 			for _, check := range checks {
 				cache.AddOrUpdateAdmissionCheck(log, check)
 			}
@@ -3225,7 +3225,7 @@ func TestClusterQueueReadiness(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
-			cache := New(utiltesting.NewFakeClient())
+			cache := New(utiltesting.NewFakeClient(), NewDefaultSimulator())
 			for _, rf := range tc.resourceFlavors {
 				cache.AddOrUpdateResourceFlavor(log, rf)
 			}
@@ -3267,14 +3267,14 @@ func TestClusterQueueReadiness(t *testing.T) {
 
 func TestCohortCycles(t *testing.T) {
 	t.Run("self cycle", func(t *testing.T) {
-		cache := New(utiltesting.NewFakeClient())
+		cache := New(utiltesting.NewFakeClient(), NewDefaultSimulator())
 		cohort := utiltestingapi.MakeCohort("cohort").Parent("cohort").Obj()
 		if err := cache.AddOrUpdateCohort(cohort); err == nil {
 			t.Fatal("Expected failure when cycle")
 		}
 	})
 	t.Run("simple cycle", func(t *testing.T) {
-		cache := New(utiltesting.NewFakeClient())
+		cache := New(utiltesting.NewFakeClient(), NewDefaultSimulator())
 		cohortA := utiltestingapi.MakeCohort("cohort-a").Parent("cohort-b").Obj()
 		cohortB := utiltestingapi.MakeCohort("cohort-b").Parent("cohort-c").Obj()
 		cohortC := utiltestingapi.MakeCohort("cohort-c").Parent("cohort-a").Obj()
@@ -3289,7 +3289,7 @@ func TestCohortCycles(t *testing.T) {
 		}
 	})
 	t.Run("clusterqueue add and update return error when cohort has cycle", func(t *testing.T) {
-		cache := New(utiltesting.NewFakeClient())
+		cache := New(utiltesting.NewFakeClient(), NewDefaultSimulator())
 		ctx, log := utiltesting.ContextWithLog(t)
 		cohortA := utiltestingapi.MakeCohort("cohort-a").Parent("cohort-b").Obj()
 		if err := cache.AddOrUpdateCohort(cohortA); err != nil {
@@ -3327,7 +3327,7 @@ func TestCohortCycles(t *testing.T) {
 	})
 
 	t.Run("clusterqueue leaving cohort with cycle successfully updates new cohort", func(t *testing.T) {
-		cache := New(utiltesting.NewFakeClient())
+		cache := New(utiltesting.NewFakeClient(), NewDefaultSimulator())
 		ctx, log := utiltesting.ContextWithLog(t)
 		cycleCohort := utiltestingapi.MakeCohort("cycle").Parent("cycle").Obj()
 		if err := cache.AddOrUpdateCohort(cycleCohort); err == nil {
@@ -3374,7 +3374,7 @@ func TestCohortCycles(t *testing.T) {
 	})
 
 	t.Run("clusterqueue joining cohort with cycle successfully updates old cohort", func(t *testing.T) {
-		cache := New(utiltesting.NewFakeClient())
+		cache := New(utiltesting.NewFakeClient(), NewDefaultSimulator())
 		ctx, log := utiltesting.ContextWithLog(t)
 		cycleCohort := utiltestingapi.MakeCohort("cycle").Parent("cycle").Obj()
 		if err := cache.AddOrUpdateCohort(cycleCohort); err == nil {
@@ -3431,7 +3431,7 @@ func TestCohortCycles(t *testing.T) {
 	})
 
 	t.Run("cohort switching cohorts updates both cohort trees", func(t *testing.T) {
-		cache := New(utiltesting.NewFakeClient())
+		cache := New(utiltesting.NewFakeClient(), NewDefaultSimulator())
 		root1 := utiltestingapi.MakeCohort("root1").Obj()
 		root2 := utiltestingapi.MakeCohort("root2").Obj()
 		if err := cache.AddOrUpdateCohort(root1); err != nil {
@@ -3496,7 +3496,7 @@ func TestCohortCycles(t *testing.T) {
 	})
 
 	t.Run("cohort leaving cohort with cycle successfully updates new cohort", func(t *testing.T) {
-		cache := New(utiltesting.NewFakeClient())
+		cache := New(utiltesting.NewFakeClient(), NewDefaultSimulator())
 		cycleRoot := utiltestingapi.MakeCohort("cycle-root").Parent("cycle-root").Obj()
 		if err := cache.AddOrUpdateCohort(cycleRoot); err == nil {
 			t.Fatal("Expected failure")
@@ -3531,7 +3531,7 @@ func TestCohortCycles(t *testing.T) {
 	})
 
 	t.Run("cohort joining cohort with cycle successfully updates old cohort", func(t *testing.T) {
-		cache := New(utiltesting.NewFakeClient())
+		cache := New(utiltesting.NewFakeClient(), NewDefaultSimulator())
 		cycleRoot := utiltestingapi.MakeCohort("cycle-root").Parent("cycle-root").Obj()
 		if err := cache.AddOrUpdateCohort(cycleRoot); err == nil {
 			t.Fatal("Expected failure")
@@ -3587,7 +3587,7 @@ func TestCohortCycles(t *testing.T) {
 		// ResyncGaugeMetrics must not call getRootUnsafe() on cohorts that are part of
 		// a cycle, as that would cause infinite recursion and a stack overflow panic.
 		_, log := utiltesting.ContextWithLog(t)
-		cache := New(utiltesting.NewFakeClient())
+		cache := New(utiltesting.NewFakeClient(), NewDefaultSimulator())
 		cohortA := utiltestingapi.MakeCohort("cohort-a").Parent("cohort-b").Obj()
 		if err := cache.AddOrUpdateCohort(cohortA); err != nil {
 			t.Fatal("Expected success as no cycle yet")
@@ -3702,7 +3702,7 @@ func TestDeleteCohortUpdatesAncestorSubtreeQuota(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			cache := New(utiltesting.NewFakeClient())
+			cache := New(utiltesting.NewFakeClient(), NewDefaultSimulator())
 			tc.setup(t, cache)
 
 			for cohortName, wantSubtreeQuota := range tc.wantBefore {
@@ -3777,7 +3777,7 @@ func TestClusterQueueAncestors(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			client := utiltesting.NewClientBuilder().Build()
-			cache := New(client)
+			cache := New(client, NewDefaultSimulator())
 			for _, cohort := range tc.cohorts {
 				_ = cache.AddOrUpdateCohort(cohort)
 			}
@@ -3919,7 +3919,7 @@ func TestWorkloadAncestors(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			client := utiltesting.NewClientBuilder().Build()
-			cache := New(client)
+			cache := New(client, NewDefaultSimulator())
 			for _, cohort := range tc.cohorts {
 				_ = cache.AddOrUpdateCohort(cohort)
 			}
@@ -3995,7 +3995,7 @@ func TestAncestors(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			client := utiltesting.NewClientBuilder().Build()
-			cache := New(client)
+			cache := New(client, NewDefaultSimulator())
 			for _, cohort := range tc.cohorts {
 				_ = cache.AddOrUpdateCohort(cohort)
 			}

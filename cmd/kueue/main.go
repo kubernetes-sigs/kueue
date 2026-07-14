@@ -338,15 +338,17 @@ func main() {
 		queueOptions = append(queueOptions, qcache.WithAdmissionFairSharing(cfg.AdmissionFairSharing))
 		cacheOptions = append(cacheOptions, schdcache.WithAdmissionFairSharing(cfg.AdmissionFairSharing))
 	}
+	var sim schdcache.SchedulingSimulator
 	if features.Enabled(features.SchedulerLibraryIntegration) {
-		sim, err := schdcache.NewSchedulingSimulator(ctx, mgr.GetConfig())
+		sim, err = schdcache.NewWASSimulator(ctx, mgr.GetConfig())
 		if err != nil {
 			setupLog.Error(err, "Failed to initialize scheduling simulator")
 			os.Exit(1)
 		}
-		cacheOptions = append(cacheOptions, schdcache.WithSchedulingSimulator(sim))
+	} else {
+		sim = schdcache.NewDefaultSimulator()
 	}
-	cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
+	cCache := schdcache.New(mgr.GetClient(), sim, cacheOptions...)
 
 	// setup inadmissible workload requeuer
 	requeuer := qcache.NewRequeuer()

@@ -31,7 +31,6 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	corev1helpers "k8s.io/component-helpers/scheduling/corev1"
 	"k8s.io/component-helpers/scheduling/corev1/nodeaffinity"
 	"k8s.io/utils/ptr"
 
@@ -41,7 +40,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
-	"sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 )
 
 var (
@@ -141,38 +139,11 @@ type TASFlavorSnapshot struct {
 	// isLowestLevelNode indicates if kubernetes.io/hostname is the lowest topology level
 	isLowestLevelNode bool
 
-	// schedulingSnapshot is the snaphost of the cluster state used by the scheduler-library
-	schedulingSnapshot *snapshot.ClusterSnapshot
-}
-
-type tasFlavorSnapshotOptions struct {
-	tolerations        []corev1.Toleration
-	schedulingSnapshot *snapshot.ClusterSnapshot
-}
-
-type tasFlavorSnapshotOption func(*tasFlavorSnapshotOptions)
-
-func withTolerations(tolerations []corev1.Toleration) tasFlavorSnapshotOption {
-	return func(o *tasFlavorSnapshotOptions) {
-		o.tolerations = tolerations
-	}
-}
-
-func withSchedulingSnapshot(schedulingSnapshot *snapshot.ClusterSnapshot) tasFlavorSnapshotOption {
-	return func(o *tasFlavorSnapshotOptions) {
-		o.schedulingSnapshot = schedulingSnapshot
-	}
+	feasibilityChecker NodeFeasibilityChecker
 }
 
 func newTASFlavorSnapshot(log logr.Logger, topologyName kueue.TopologyReference,
-	levels []string, opts ...tasFlavorSnapshotOption) *TASFlavorSnapshot {
-	options := &tasFlavorSnapshotOptions{}
-	for _, opt := range opts {
-		if opt != nil {
-			opt(options)
-		}
-	}
-
+	levels []string, tolerations []corev1.Toleration, feasibilityChecker NodeFeasibilityChecker) *TASFlavorSnapshot {
 	domainsPerLevel := make([]domainByID, len(levels))
 	for level := range levels {
 		domainsPerLevel[level] = make(domainByID)
@@ -183,12 +154,12 @@ func newTASFlavorSnapshot(log logr.Logger, topologyName kueue.TopologyReference,
 		topologyName:       topologyName,
 		levelKeys:          slices.Clone(levels),
 		leaves:             make(leafDomainByID),
-		tolerations:        slices.Clone(options.tolerations),
+		tolerations:        slices.Clone(tolerations),
 		domains:            make(domainByID),
 		roots:              make(domainByID),
 		domainsPerLevel:    domainsPerLevel,
 		isLowestLevelNode:  len(levels) > 0 && levels[len(levels)-1] == corev1.LabelHostname,
-		schedulingSnapshot: options.schedulingSnapshot,
+		feasibilityChecker: feasibilityChecker,
 	}
 	return snapshot
 }
@@ -1666,93 +1637,6 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool)
 	return result
 }
 
-func (s *TASFlavorSnapshot) findFeasibleLeavesLocally(requirements *topologyAssignmentPodRequirements, state *findTopologyAssignmentState) []*leafDomain {
-	var feasibleLeaves = make([]*leafDomain, 0, len(s.leaves))
-	for _, leaf := range s.leaves {
-		state.stats.TotalNodes++
-		if s.isLowestLevelNode {
-			// 1. Check Tolerations against Node Taints
-			nodeTaints := leaf.node.Taints
-			taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(s.log, nodeTaints, requirements.tolerations, func(t *corev1.Taint) bool {
-				return t.Effect == corev1.TaintEffectNoSchedule || t.Effect == corev1.TaintEffectNoExecute
-			}, true)
-			if untolerated {
-				s.log.V(5).Info("excluding node with untolerated taint", "domainID", leaf.id, "taint", taint)
-				state.stats.Taints[taint.ToString()]++
-				continue
-			}
-
-			// 2. Check Node Labels against Compiled Selector
-			var nodeLabelSet labels.Set
-			if nodeLabels := leaf.node.Labels; nodeLabels != nil {
-				nodeLabelSet = nodeLabels
-			}
-
-			if !requirements.selector.Matches(nodeLabelSet) {
-				s.log.V(5).Info("excluding node that doesn't match nodeSelectors", "domainID", leaf.id, "nodeLabels", nodeLabelSet)
-				state.stats.NodeSelector++
-				continue
-			}
-
-			// 3. Check Node against Affinity Node Selector
-			nodeObj := leaf.node.toNode()
-			if requirements.affinitySelector != nil && !requirements.affinitySelector.Match(nodeObj) {
-				s.log.V(5).Info("excluding node that doesn't match requiredDuringSchedulingIgnoredDuringExecution affinity", "domainID", leaf.id)
-				state.stats.Affinity++
-				continue
-			}
-
-			// 4. Calculate Affinity Score
-			if features.Enabled(features.TASRespectNodeAffinityPreferred) && requirements.preferredSchedulingTerms != nil {
-				leaf.affinityScore += requirements.preferredSchedulingTerms.Score(nodeObj)
-			}
-
-			// 5. Track the matching leaf as feasible
-			feasibleLeaves = append(feasibleLeaves, leaf)
-		} else {
-			feasibleLeaves = append(feasibleLeaves, leaf)
-		}
-	}
-	return feasibleLeaves
-}
-
-func (s *TASFlavorSnapshot) findFeasibleLeavesViaSchedulerLibrary(requirements *topologyAssignmentPodRequirements, state *findTopologyAssignmentState) ([]*leafDomain, error) {
-	var candidateLeaves = make(map[string]*leafDomain)
-	var candidateNodeNames []string
-
-	for _, leaf := range s.leaves {
-		state.stats.TotalNodes++
-		candidateNodeNames = append(candidateNodeNames, leaf.node.Name)
-		candidateLeaves[leaf.node.Name] = leaf
-	}
-
-	dummyPod := &corev1.Pod{
-		ObjectMeta: requirements.podTemplate.ObjectMeta,
-		Spec:       requirements.podTemplate.Spec,
-	}
-	placement, err := s.schedulingSnapshot.MakePlacement(candidateNodeNames)
-	if err != nil {
-		return nil, err
-	}
-	feasibleNodeNames, _, err := s.schedulingSnapshot.CanSchedulePod(context.Background(), dummyPod, placement)
-	if err != nil {
-		return nil, err
-	}
-
-	var feasibleLeaves []*leafDomain
-	for _, nodeName := range feasibleNodeNames {
-		leaf := candidateLeaves[nodeName]
-		nodeObj := leaf.node.toNode()
-		feasibleLeaves = append(feasibleLeaves, leaf)
-		if features.Enabled(features.TASRespectNodeAffinityPreferred) && requirements.preferredSchedulingTerms != nil {
-			leaf.affinityScore += requirements.preferredSchedulingTerms.Score(nodeObj)
-		}
-	}
-	state.stats.SchedulerLibraryNoFit = len(candidateNodeNames) - len(feasibleNodeNames)
-
-	return feasibleLeaves, nil
-}
-
 // fillInCounts computes per-domain pod, slice, and leader capacities from the
 // pod requirements, then rolls those capacities up the topology tree.
 func (s *TASFlavorSnapshot) fillInCounts(requirements *topologyAssignmentPodRequirements, state *findTopologyAssignmentState) error {
@@ -1767,17 +1651,23 @@ func (s *TASFlavorSnapshot) fillInCounts(requirements *topologyAssignmentPodRequ
 		domain.affinityScore = 0
 	}
 
-	shouldUseSchedulerLibrary := features.Enabled(features.SchedulerLibraryIntegration) && s.schedulingSnapshot != nil && requirements.podTemplate != nil
-
 	var feasibleLeaves []*leafDomain
 	var err error
-	if shouldUseSchedulerLibrary && s.isLowestLevelNode {
-		feasibleLeaves, err = s.findFeasibleLeavesViaSchedulerLibrary(requirements, state)
+
+	if s.isLowestLevelNode {
+		leavesSlice := make([]*leafDomain, 0, len(s.leaves))
+		for _, leaf := range s.leaves {
+			leavesSlice = append(leavesSlice, leaf)
+		}
+		feasibleLeaves, err = s.feasibilityChecker.FindFeasibleLeaves(context.Background(), s.log, leavesSlice, requirements, state.stats)
 		if err != nil {
 			return err
 		}
 	} else {
-		feasibleLeaves = s.findFeasibleLeavesLocally(requirements, state)
+		for _, leaf := range s.leaves {
+			state.stats.TotalNodes++
+			feasibleLeaves = append(feasibleLeaves, leaf)
+		}
 	}
 
 	for _, leaf := range feasibleLeaves {

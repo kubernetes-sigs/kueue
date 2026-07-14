@@ -36,7 +36,7 @@ func TestResyncClusterQueueGaugeMetricsUsesUpdatedCustomLabels(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 
 	customLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{{Name: "team"}})
-	cache := New(utiltesting.NewFakeClient(), WithCustomLabels(customLabels), WithResourceMetrics(true))
+	cache := New(utiltesting.NewFakeClient(), NewDefaultSimulator(), WithCustomLabels(customLabels), WithResourceMetrics(true))
 
 	cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
 
@@ -103,7 +103,7 @@ func TestResyncCohortGaugeMetricsUsesUpdatedCustomLabels(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 
 	customLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{{Name: "team"}})
-	cache := New(utiltesting.NewFakeClient(), WithCustomLabels(customLabels), WithFairSharing(true))
+	cache := New(utiltesting.NewFakeClient(), NewDefaultSimulator(), WithCustomLabels(customLabels), WithFairSharing(true))
 
 	cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
 

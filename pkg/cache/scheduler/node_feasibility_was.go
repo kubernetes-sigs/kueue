@@ -1,8 +1,11 @@
+//go:build !exclude_scheduler_library
+
 package scheduler
 
 import (
 	"context"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes/fake"
@@ -12,15 +15,16 @@ import (
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeaffinity"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/queuesort"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/tainttoleration"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/scheduler-library/pkg/simulator"
 	"sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 )
 
-type SchedulingSimulator struct {
+type wasSimulator struct {
 	sim *simulator.SchedulingSimulator
 }
 
-func NewSchedulingSimulator(ctx context.Context, restConfig *rest.Config) (*SchedulingSimulator, error) {
+func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (SchedulingSimulator, error) {
 	cfg := &schedulerconfig.KubeSchedulerConfiguration{
 		Profiles: []schedulerconfig.KubeSchedulerProfile{
 			{
@@ -63,13 +67,55 @@ func NewSchedulingSimulator(ctx context.Context, restConfig *rest.Config) (*Sche
 		return nil, err
 	}
 
-	return &SchedulingSimulator{sim: sim}, nil
+	return &wasSimulator{sim: sim}, nil
 }
 
-func (s *SchedulingSimulator) NewClusterSnapshot(ctx context.Context, nodes []*nodeInfo) (*snapshot.ClusterSnapshot, error) {
+func (s *wasSimulator) NewFeasibilityChecker(ctx context.Context, nodes []*nodeInfo) (NodeFeasibilityChecker, error) {
 	var v1Nodes []*corev1.Node
 	for _, n := range nodes {
 		v1Nodes = append(v1Nodes, n.toNode())
 	}
-	return s.sim.NewClusterSnapshot(ctx, nil, v1Nodes)
+	clusterSnap, err := s.sim.NewClusterSnapshot(ctx, nil, v1Nodes)
+	return &wasChecker{snap: clusterSnap}, err
+}
+
+type wasChecker struct {
+	snap *snapshot.ClusterSnapshot
+}
+
+func (c *wasChecker) FindFeasibleLeaves(ctx context.Context, log logr.Logger, leaves []*leafDomain, reqs *topologyAssignmentPodRequirements, stats *ExclusionStats) ([]*leafDomain, error) {
+	var candidateLeaves = make(map[string]*leafDomain)
+	var candidateNodeNames []string
+
+	for _, leaf := range leaves {
+		stats.TotalNodes++
+		candidateNodeNames = append(candidateNodeNames, leaf.node.Name)
+		candidateLeaves[leaf.node.Name] = leaf
+	}
+
+	dummyPod := &corev1.Pod{
+		ObjectMeta: reqs.podTemplate.ObjectMeta,
+		Spec:       reqs.podTemplate.Spec,
+	}
+	placement, err := c.snap.MakePlacement(candidateNodeNames)
+	if err != nil {
+		return nil, err
+	}
+	feasibleNodeNames, _, err := c.snap.CanSchedulePod(ctx, dummyPod, placement)
+	if err != nil {
+		return nil, err
+	}
+
+	var feasibleLeaves []*leafDomain
+	for _, nodeName := range feasibleNodeNames {
+		leaf := candidateLeaves[nodeName]
+		nodeObj := leaf.node.toNode()
+		feasibleLeaves = append(feasibleLeaves, leaf)
+		if features.Enabled(features.TASRespectNodeAffinityPreferred) && reqs.preferredSchedulingTerms != nil {
+			leaf.affinityScore += reqs.preferredSchedulingTerms.Score(nodeObj)
+		}
+	}
+	stats.SchedulerLibraryNoFit = len(candidateNodeNames) - len(feasibleNodeNames)
+
+	return feasibleLeaves, nil
 }

@@ -25,7 +25,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	k8sSchedulerSnapshot "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -93,7 +92,7 @@ type TASFlavorCache struct {
 	// e.g. static Pods or DaemonSet pods.
 	nonTasUsageCache *nonTasUsageCache
 
-	schedulingSimulator *SchedulingSimulator
+	schedulingSimulator SchedulingSimulator
 }
 
 func (t *tasCache) NewTASFlavorCache(topologyInfo topologyInformation,
@@ -137,16 +136,19 @@ func (c *TASFlavorCache) snapshot(
 	}
 	log.V(3).Info("Constructing TAS snapshot", infoKV...)
 
-	var schedulingSnapshot *k8sSchedulerSnapshot.ClusterSnapshot
+	var feasibilityChecker NodeFeasibilityChecker
 	if c.schedulingSimulator != nil {
 		var err error
-		schedulingSnapshot, err = c.schedulingSimulator.NewClusterSnapshot(context.Background(), nodes)
+		feasibilityChecker, err = c.schedulingSimulator.NewFeasibilityChecker(context.Background(), nodes)
 		if err != nil {
-			log.V(3).Error(err, "Failed to initialize cluster snapshot for TAS scheduler-library integration")
+			log.V(3).Error(err, "Failed to initialize feasibility checker for TAS")
 		}
+	} else {
+		// Fallback for tests that might pass a nil schedulingSimulator
+		feasibilityChecker, _ = NewDefaultSimulator().NewFeasibilityChecker(context.Background(), nodes)
 	}
 
-	snapshot := newTASFlavorSnapshot(log, c.flavor.TopologyName, c.topology.Levels, withTolerations(c.flavor.Tolerations), withSchedulingSnapshot(schedulingSnapshot))
+	snapshot := newTASFlavorSnapshot(log, c.flavor.TopologyName, c.topology.Levels, c.flavor.Tolerations, feasibilityChecker)
 	nodeToDomain := make(map[string]utiltas.TopologyDomainID)
 	for _, node := range nodes {
 		nodeToDomain[node.Name] = snapshot.addNode(node)

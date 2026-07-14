@@ -96,7 +96,7 @@ func managerAndSchedulerSetup(
 		}
 
 		cCache := schdcache.New(
-			mgr.GetClient(),
+			mgr.GetClient(), schdcache.NewDefaultSimulator(),
 			schdcache.WithFairSharing(fairsharing.Enabled(fairSharing)),
 			schdcache.WithAdmissionFairSharing(admissionFairSharing),
 		)

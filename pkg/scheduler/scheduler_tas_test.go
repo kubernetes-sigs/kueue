@@ -3383,7 +3383,7 @@ func TestScheduleForTAS(t *testing.T) {
 					_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
 					cl := clientBuilder.Build()
 					recorder := &utiltesting.EventRecorder{}
-					cqCache := schdcache.New(cl, schdcache.WithResourceTransformations(tc.resourceTransformations))
+					cqCache := schdcache.New(cl, schdcache.NewDefaultSimulator(), schdcache.WithResourceTransformations(tc.resourceTransformations))
 					fakeClock := testingclock.NewFakeClock(now)
 					qManager := qcache.NewManagerForUnitTests(cl, cqCache,
 						qcache.WithClock(fakeClock), qcache.WithResourceTransformations(tc.resourceTransformations))
@@ -3590,7 +3590,7 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 					_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
 					cl := clientBuilder.Build()
 					recorder := &utiltesting.EventRecorder{}
-					cqCache := schdcache.New(cl)
+					cqCache := schdcache.New(cl, schdcache.NewDefaultSimulator())
 					qManager := qcache.NewManagerForUnitTests(cl, cqCache)
 					topologyByName := slices.ToMap(tc.topologies, func(i int) (kueue.TopologyReference, kueue.Topology) {
 						return kueue.TopologyReference(tc.topologies[i].Name), tc.topologies[i]
@@ -9551,7 +9551,7 @@ func TestScheduleForTASWhenWorkloadModifiedConcurrently(t *testing.T) {
 				cl := clientBuilder.Build()
 				recorder := &utiltesting.EventRecorder{}
 				fakeClock := testingclock.NewFakeClock(now)
-				cqCache := schdcache.New(cl)
+				cqCache := schdcache.New(cl, schdcache.NewDefaultSimulator())
 				qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithClock(fakeClock))
 				cqCache.AddOrUpdateResourceFlavor(log, rf.DeepCopy())
 				cqCache.AddOrUpdateTopology(log, topology.DeepCopy())

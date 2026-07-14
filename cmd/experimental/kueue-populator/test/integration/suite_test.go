@@ -84,7 +84,7 @@ func managerAndControllerSetup(controllersCfg *config.Configuration) framework.M
 
 		controllersCfg.Metrics.EnableClusterQueueResources = true
 
-		cCache := schdcache.New(mgr.GetClient())
+		cCache := schdcache.New(mgr.GetClient(), schdcache.NewDefaultSimulator())
 		preemptionExpectations := preemptexpectations.New()
 		queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
