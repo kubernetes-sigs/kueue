@@ -133,6 +133,16 @@ files:
           {{- end }}
         indentation: 2
         onFileCondition: '.kind == "APIService"'
+      - type: INSERT_TEXT
+        position: START
+        value: |
+          {{- if .Values.enableVisibilityAuthReaderRoleBinding }}
+        onFileCondition: '.kind == "RoleBinding" and (.metadata.name | contains("visibility-server-auth-reader"))'
+      - type: INSERT_TEXT
+        position: END
+        value: |
+          {{- end }}
+        onFileCondition: '.kind == "RoleBinding" and (.metadata.name | contains("visibility-server-auth-reader"))'
   - path: ./config/components/visibility-apf/*.yaml
     outputDir: ./charts/kueue/templates/visibility-apf
     removeComments: true

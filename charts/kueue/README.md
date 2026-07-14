@@ -143,6 +143,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | enableKueueViz | bool | `false` | Enable KueueViz dashboard |
 | enablePrometheus | bool | `false` | Enable Prometheus |
 | enableVisibilityAPF | bool | `false` | Enable API Priority and Fairness configuration for the visibility API |
+| enableVisibilityAuthReaderRoleBinding | bool | `true` | Enable the visibility server's auth-reader RoleBinding. It is always created in the kube-system namespace because it binds to the built-in extension-apiserver-authentication-reader Role, which only exists there. Disable when deploying under a GitOps project that cannot target kube-system, then create the RoleBinding out-of-band. |
 | fullnameOverride | string | `""` | Override the resource name |
 | kubernetesClusterDomain | string | `"cluster.local"` | Kubernetes cluster's domain |
 | kueueViz.backend.auth.mode | string | `"Disabled"` | Authentication mode: "Disabled" or "TokenReview" (Alpha, disabled by default) |
