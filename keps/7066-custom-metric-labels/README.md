@@ -236,6 +236,8 @@ const (
 	SourceKindWorkload     SourceKind = "Workload"
 )
 
+const UntrackedCustomLabelValue = "kueue.k8s.io/_UNTRACKED_VALUE_"
+
 type ControllerMetricsCustomLabel struct {
     // Name is the Prometheus metric label name suffix.
     // Prepended with "custom_" to form the full Prometheus label name
@@ -347,6 +349,10 @@ in the custom label config will be copied to the Workload
 from its corresponding GenericJob.
 These will be added alongside the labels specified in
 `LabelKeysToCopy`.
+
+Similar to copied labels, component jobs of a ComposableJob
+(e.g. PodGroup) must match label and annotation values
+marked as sources for custom metric labels.
 
 ### Affected Metrics
 
