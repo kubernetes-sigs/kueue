@@ -42,6 +42,18 @@ var closedChan = func() <-chan struct{} {
 	return ch
 }()
 
+const (
+	// testTokenRevalidationInterval is a short interval used in tests to quickly
+	// trigger the token re-validation ticker without waiting 30 seconds.
+	testTokenRevalidationInterval = 100 * time.Millisecond
+
+	// testPollInterval is the polling frequency used in waitUntil calls.
+	testPollInterval = 10 * time.Millisecond
+
+	// testTimeout is the maximum duration tests will wait for an async condition.
+	testTimeout = 2 * time.Second
+)
+
 type mockTokenValidator struct {
 	mu    sync.Mutex
 	valid bool
@@ -267,7 +279,7 @@ func TestWebSocketHandleInformerUpdates(t *testing.T) {
 				h := &Handlers{
 					client:                    client,
 					validator:                 validator,
-					tokenRevalidationInterval: 100 * time.Millisecond,
+					tokenRevalidationInterval: testTokenRevalidationInterval,
 				}
 				conn, closeServer := newTestWebSocketConnectionWithToken(t, h, "test-token", dataFetcher, gvk)
 				defer closeServer()
@@ -276,7 +288,7 @@ func TestWebSocketHandleInformerUpdates(t *testing.T) {
 				readMessage(t, conn)
 
 				// Token should be validated successfully initially (by the ticker)
-				waitUntil(t, 2*time.Second, 10*time.Millisecond, func() bool {
+				waitUntil(t, testTimeout, testPollInterval, func() bool {
 					return validator.getCalls() >= 1
 				}, "expected token validator to be called")
 
@@ -303,7 +315,7 @@ func TestWebSocketHandleInformerUpdates(t *testing.T) {
 					} else {
 						t.Fatalf("expected CloseError, got %v", err)
 					}
-				case <-time.After(2 * time.Second):
+				case <-time.After(testTimeout):
 					t.Fatalf("timeout waiting for connection to close after token expiration")
 				}
 			},
@@ -398,7 +410,7 @@ func TestWebSocketHandleInformerUpdates(t *testing.T) {
 				}
 				select {
 				case <-drainDone:
-				case <-time.After(2 * time.Second):
+				case <-time.After(testTimeout):
 					t.Fatalf("reader goroutine did not exit after connection close")
 				}
 			},
@@ -427,7 +439,7 @@ func TestWebSocketHandleInformerUpdates(t *testing.T) {
 					t.Fatalf("failed to write 9KB message to server: %v", err)
 				}
 
-				if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+				if err := conn.SetReadDeadline(time.Now().Add(testTimeout)); err != nil {
 					t.Fatalf("set read deadline: %v", err)
 				}
 
@@ -499,7 +511,7 @@ func newTestWebSocketConnection(
 func readMessage(t *testing.T, conn *websocket.Conn) {
 	t.Helper()
 
-	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+	if err := conn.SetReadDeadline(time.Now().Add(testTimeout)); err != nil {
 		t.Fatalf("set read deadline: %v", err)
 	}
 	if _, _, err := conn.ReadMessage(); err != nil {
