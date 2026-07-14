@@ -99,7 +99,8 @@ func newTestClient(ctx context.Context, kubeconfig []byte, restConfig *rest.Conf
 
 func setReconnectState(rc *remoteClient, a uint) *remoteClient {
 	rc.failedConnAttempts = a
-	rc.connState = connectionState{}
+	rc.connState.connected = false
+	rc.connState.disconnectedSince = nil
 	return rc
 }
 
@@ -910,7 +911,8 @@ func TestDisconnectedClientReconnectsWithSameConfig(t *testing.T) {
 
 	rc := newTestClient(ctx, []byte(kubeconfig), nil, nil)
 	rc.builderOverride = reconciler.builderOverride
-	rc.connState = connectionState{}
+	rc.connState.connected = false
+	rc.connState.disconnectedSince = nil
 	reconciler.remoteClients["worker1"] = rc
 	defer rc.StopWatchers()
 
@@ -921,7 +923,7 @@ func TestDisconnectedClientReconnectsWithSameConfig(t *testing.T) {
 	if buildCalls != 1 {
 		t.Fatalf("builder invocations: want 1, got %d", buildCalls)
 	}
-	if !rc.isConnected() {
+	if !rc.connState.isConnected() {
 		t.Errorf("expected state to be connected")
 	}
 }
@@ -933,59 +935,59 @@ func TestConnectionStateTransitions(t *testing.T) {
 	rc.clock = fakeClock
 
 	// Initial state: never connected, no recorded loss.
-	if rc.isConnected() {
+	if rc.connState.isConnected() {
 		t.Fatal("want disconnected initially")
 	}
-	if rc.disconnectedSince() != nil {
-		t.Fatalf("want nil disconnectedSince initially, got %v", rc.disconnectedSince())
+	if rc.connState.lostSince() != nil {
+		t.Fatalf("want nil disconnectedSince initially, got %v", rc.connState.lostSince())
 	}
 
 	// Fully connected: no recorded loss.
-	rc.markConnected()
-	if !rc.isConnected() || rc.disconnectedSince() != nil {
-		t.Fatalf("after markConnected want connected with nil disconnectedSince, got connected=%v since=%v", rc.isConnected(), rc.disconnectedSince())
+	rc.connState.markConnected()
+	if !rc.connState.isConnected() || rc.connState.lostSince() != nil {
+		t.Fatalf("after markConnected want connected with nil disconnectedSince, got connected=%v since=%v", rc.connState.isConnected(), rc.connState.lostSince())
 	}
 
 	// First drop records the loss time and reports the transition.
-	if was := rc.markDisconnected(); !was {
+	if was := rc.connState.markDisconnected(fakeClock.Now()); !was {
 		t.Fatal("want wasConnected=true on the first drop")
 	}
-	if s := rc.disconnectedSince(); s == nil || !s.Equal(now) {
+	if s := rc.connState.lostSince(); s == nil || !s.Equal(now) {
 		t.Fatalf("first drop must record now (%v), got %v", now, s)
 	}
 
 	// Optimistic reconnect (before watchers) preserves the first-drop time.
 	fakeClock.Step(time.Minute)
-	rc.markConnecting()
-	if !rc.isConnected() {
+	rc.connState.markConnecting()
+	if !rc.connState.isConnected() {
 		t.Fatal("want connected after markConnecting")
 	}
-	if s := rc.disconnectedSince(); s == nil || !s.Equal(now) {
+	if s := rc.connState.lostSince(); s == nil || !s.Equal(now) {
 		t.Fatalf("markConnecting must preserve the first-drop time (%v), got %v", now, s)
 	}
 
 	// A failed reconnect (disconnect after the optimistic connect) must NOT reset the loss time.
 	fakeClock.Step(time.Minute)
-	if was := rc.markDisconnected(); !was {
+	if was := rc.connState.markDisconnected(fakeClock.Now()); !was {
 		t.Fatal("want wasConnected=true (was optimistically connected)")
 	}
-	if s := rc.disconnectedSince(); s == nil || !s.Equal(now) {
+	if s := rc.connState.lostSince(); s == nil || !s.Equal(now) {
 		t.Fatalf("markDisconnected must preserve the first-drop time across a failed reconnect (%v), got %v", now, s)
 	}
 
 	// A repeated drop while already disconnected reports no transition and preserves the time.
 	fakeClock.Step(time.Minute)
-	if was := rc.markDisconnected(); was {
+	if was := rc.connState.markDisconnected(fakeClock.Now()); was {
 		t.Fatal("want wasConnected=false when already disconnected")
 	}
-	if s := rc.disconnectedSince(); s == nil || !s.Equal(now) {
+	if s := rc.connState.lostSince(); s == nil || !s.Equal(now) {
 		t.Fatalf("want preserved first-drop time (%v), got %v", now, s)
 	}
 
 	// A fully successful reconnect clears the recorded loss.
-	rc.markConnected()
-	if !rc.isConnected() || rc.disconnectedSince() != nil {
-		t.Fatalf("after reconnect want connected with nil disconnectedSince, got connected=%v since=%v", rc.isConnected(), rc.disconnectedSince())
+	rc.connState.markConnected()
+	if !rc.connState.isConnected() || rc.connState.lostSince() != nil {
+		t.Fatalf("after reconnect want connected with nil disconnectedSince, got connected=%v since=%v", rc.connState.isConnected(), rc.connState.lostSince())
 	}
 }
 
@@ -1098,7 +1100,7 @@ func TestRemoteClientGC(t *testing.T) {
 			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
 			w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
 			w1remoteClient.client = worker1Client
-			w1remoteClient.markConnected()
+			w1remoteClient.connState.markConnected()
 
 			w1remoteClient.runGC(ctx)
 
@@ -1611,7 +1613,8 @@ func hammerSetConfigWithReader(t *testing.T, reader func(ctx context.Context, rc
 	rc.adapters = map[string]jobframework.MultiKueueAdapter{}
 
 	// Seed an initial client so the first read has a client to observe.
-	rc.connState = connectionState{}
+	rc.connState.connected = false
+	rc.connState.disconnectedSince = nil
 	if _, err := rc.updateConfigAndRefreshWatchers(ctx, rc.config); err != nil {
 		t.Fatalf("seeding initial client: %v", err)
 	}

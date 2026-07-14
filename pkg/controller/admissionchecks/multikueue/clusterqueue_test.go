@@ -464,7 +464,7 @@ func TestCQReconcile(t *testing.T) {
 					Build())
 				rc := newRemoteClient(c, nil, nil, nil, defaultOrigin, worker, adapters)
 				rc.client = workerClient
-				rc.connState = connectionState{connected: !wState.inactive}
+				rc.connState.connected = !wState.inactive
 				cRec.remoteClients[worker] = rc
 			}
 

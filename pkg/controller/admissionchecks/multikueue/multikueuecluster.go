@@ -128,9 +128,6 @@ type remoteClient struct {
 	origin       string
 	adapters     map[string]jobframework.MultiKueueAdapter
 
-	// connState holds the connection status. connMu guards it so its connected flag and
-	// disconnectedSince time are always read and updated together.
-	connMu    sync.RWMutex
 	connState connectionState
 
 	failedConnAttempts   uint
@@ -151,9 +148,10 @@ type remoteClient struct {
 	mu sync.RWMutex
 }
 
-// connectionState holds a remote client's connection status; its connected flag and
-// disconnectedSince are read and updated together under remoteClient.connMu.
+// connectionState holds a remote client's connection status. Its own mutex guards the fields
+// so connected and disconnectedSince are always read and updated together.
 type connectionState struct {
+	mu        sync.RWMutex
 	connected bool
 	// disconnectedSince is when the watch first dropped after having been connected; it is nil
 	// while connected or never yet connected. It is preserved across failed reconnect attempts
@@ -161,44 +159,44 @@ type connectionState struct {
 	disconnectedSince *time.Time
 }
 
-func (rc *remoteClient) isConnected() bool {
-	rc.connMu.RLock()
-	defer rc.connMu.RUnlock()
-	return rc.connState.connected
+func (c *connectionState) isConnected() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.connected
 }
 
-func (rc *remoteClient) disconnectedSince() *time.Time {
-	rc.connMu.RLock()
-	defer rc.connMu.RUnlock()
-	return rc.connState.disconnectedSince
+func (c *connectionState) lostSince() *time.Time {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.disconnectedSince
 }
 
 // markConnecting optimistically marks the client connected before the watchers are started,
 // preserving any recorded disconnectedSince until the connection is fully established.
-func (rc *remoteClient) markConnecting() {
-	rc.connMu.Lock()
-	defer rc.connMu.Unlock()
-	rc.connState.connected = true
+func (c *connectionState) markConnecting() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.connected = true
 }
 
 // markConnected records a fully established connection, clearing the recorded loss time.
-func (rc *remoteClient) markConnected() {
-	rc.connMu.Lock()
-	defer rc.connMu.Unlock()
-	rc.connState = connectionState{connected: true}
+func (c *connectionState) markConnected() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.connected = true
+	c.disconnectedSince = nil
 }
 
 // markDisconnected transitions to disconnected, recording now as the first-drop time only if
 // none is recorded yet (so repeated failed reconnects preserve the first loss). It returns
 // whether the client was connected, i.e. whether this call is the first drop of the streak.
-func (rc *remoteClient) markDisconnected() (wasConnected bool) {
-	rc.connMu.Lock()
-	defer rc.connMu.Unlock()
-	wasConnected = rc.connState.connected
-	rc.connState.connected = false
-	if rc.connState.disconnectedSince == nil {
-		now := rc.clock.Now()
-		rc.connState.disconnectedSince = &now
+func (c *connectionState) markDisconnected(now time.Time) (wasConnected bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	wasConnected = c.connected
+	c.connected = false
+	if c.disconnectedSince == nil {
+		c.disconnectedSince = &now
 	}
 	return wasConnected
 }
@@ -291,7 +289,7 @@ func (rc *remoteClient) increaseFailedConnAttempt() *time.Duration {
 // If the encountered error is not permanent the duration after which a retry should be done is returned.
 func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context, config *clientConfig) (*time.Duration, error) {
 	configChanged := !equality.Semantic.DeepEqual(config, rc.config)
-	connected := rc.isConnected()
+	connected := rc.connState.isConnected()
 	if !configChanged && connected {
 		return nil, nil
 	}
@@ -325,7 +323,7 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 	// Mark as connected before starting watchers to avoid a race condition.
 	// If a watcher queues an event and wlReconciler processes it before connected=true,
 	// the workload will be treated as unavailable and requeued after 15m.
-	rc.markConnecting()
+	rc.connState.markConnecting()
 
 	err = rc.startWatcher(watchCtx, kueue.SchemeGroupVersion.WithKind("Workload").GroupKind().String(), &workloadKueueWatcher{})
 	if err != nil {
@@ -359,7 +357,7 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 	// The connection is fully established (all watchers started); the cluster is reachable
 	// again, so clear the recorded loss time. Done only on success so that repeated failed
 	// reconnect attempts preserve the first-drop time recorded when the watch dropped.
-	rc.markConnected()
+	rc.connState.markConnected()
 	rc.resetFailedConnAttempt()
 	return nil, nil
 }
@@ -451,7 +449,7 @@ func (rc *remoteClient) startWatcher(ctx context.Context, kind string, w jobfram
 		// If the context is not yet Done , queue a reconcile to attempt reconnection
 		if ctx.Err() == nil {
 			// reconnect if this is the first watch failing.
-			if wasConnected := rc.markDisconnected(); wasConnected {
+			if wasConnected := rc.connState.markDisconnected(rc.clock.Now()); wasConnected {
 				log.V(2).Info("Queue reconcile for reconnect", "cluster", rc.clusterName)
 				rc.queueWatchEndedEvent(ctx)
 			}
@@ -581,7 +579,7 @@ func (rc *remoteClient) StopWatchers() {
 // is now unreachable, and apply the workerLostTimeout delay before requeuing.
 func (rc *remoteClient) disconnect() {
 	rc.StopWatchers()
-	rc.markDisconnected()
+	rc.connState.markDisconnected(rc.clock.Now())
 }
 
 func (rc *remoteClient) queueWorkloadEvent(ctx context.Context, wlKey types.NamespacedName) {
@@ -608,7 +606,7 @@ func (rc *remoteClient) queueWatchEndedEvent(ctx context.Context) {
 func (rc *remoteClient) runGC(ctx context.Context) {
 	log := ctrl.LoggerFrom(ctx)
 
-	if !rc.isConnected() {
+	if !rc.connState.isConnected() {
 		log.V(5).Info("Skip disconnected client")
 		return
 	}
