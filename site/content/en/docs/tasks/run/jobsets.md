@@ -67,6 +67,46 @@ The first [PriorityClassName](https://kubernetes.io/docs/concepts/scheduling-evi
               priorityClassName: high-priority
 ```
 
+### d. Topology-Aware Scheduling
+
+You can use [Topology-Aware Scheduling (TAS)](/docs/concepts/topology_aware_scheduling) to schedule `ReplicatedJobs` within specific topology domains (like racks or zones) to minimize network latency. Kueue supports three TAS placement scenarios for JobSets using annotations on the Pod template:
+
+**1. Same-domain placement (Just PodSet TAS)**
+Force the entire `ReplicatedJob` to be scheduled in a single topology domain.
+```yaml
+    - template:
+        spec:
+          template:
+            metadata:
+              annotations:
+                kueue.x-k8s.io/podset-required-topology: "cloud.provider.com/topology-rack"
+```
+
+**2. Sliced placement (Just PodSet-Slice TAS)**
+Split the `ReplicatedJob` into smaller slices, where each slice must fit in a single topology domain, but different slices can be in different domains.
+```yaml
+    - template:
+        spec:
+          template:
+            metadata:
+              annotations:
+                kueue.x-k8s.io/podset-slice-required-topology: "cloud.provider.com/topology-rack"
+                kueue.x-k8s.io/podset-slice-size: "4"
+```
+
+**3. Combined constraint (Both PodSet and PodSet-Slice TAS)**
+Force the entire `ReplicatedJob` into a larger domain (e.g. block), but allow it to be sliced across smaller domains (e.g. rack) within that block. *(Note: This is different from Kueue's Multi-Layer Topology feature, which uses the `podset-slice-required-topology-constraints` annotation).*
+```yaml
+    - template:
+        spec:
+          template:
+            metadata:
+              annotations:
+                kueue.x-k8s.io/podset-required-topology: "cloud.provider.com/topology-block"
+                kueue.x-k8s.io/podset-slice-required-topology: "cloud.provider.com/topology-rack"
+                kueue.x-k8s.io/podset-slice-size: "4"
+```
+
 ## Example JobSet
 
 {{< include "examples/jobs/sample-jobset.yaml" "yaml" >}}
