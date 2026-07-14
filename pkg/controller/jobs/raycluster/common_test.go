@@ -718,7 +718,7 @@ func TestUpdateRayClusterSpecToRunWithPodSetsInfo(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			err := UpdateRayClusterSpecToRunWithPodSetsInfo(tc.rayClusterSpec, tc.podSetsInfo)
+			err := UpdateRayClusterSpecToRunWithPodSetsInfo(t.Context(), tc.rayClusterSpec, tc.podSetsInfo)
 
 			if tc.wantErr {
 				if err == nil {

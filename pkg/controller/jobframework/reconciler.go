@@ -1234,7 +1234,7 @@ func expectedRunningPodSets(ctx context.Context, c client.Client, wl *kueue.Work
 		if !found {
 			return nil
 		}
-		err := podset.Merge(&ps.Template.ObjectMeta, &ps.Template.Spec, *psi)
+		err := podset.Merge(ctx, &ps.Template.ObjectMeta, &ps.Template.Spec, *psi)
 		if err != nil {
 			return nil
 		}

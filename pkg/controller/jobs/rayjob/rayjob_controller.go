@@ -170,7 +170,7 @@ func (j *RayJob) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSet
 
 	j.Spec.Suspend = false
 
-	err := raycluster.UpdateRayClusterSpecToRunWithPodSetsInfo(j.Spec.RayClusterSpec, podSetsInfo)
+	err := raycluster.UpdateRayClusterSpecToRunWithPodSetsInfo(ctx, j.Spec.RayClusterSpec, podSetsInfo)
 	if err != nil {
 		return err
 	}
@@ -179,7 +179,7 @@ func (j *RayJob) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSet
 	if j.Spec.SubmissionMode == rayv1.K8sJobMode {
 		submitterPod := getSubmitterTemplate(j)
 		info := podSetsInfo[expectedLen-1]
-		if err := podset.Merge(&submitterPod.ObjectMeta, &submitterPod.Spec, info); err != nil {
+		if err := podset.Merge(ctx, &submitterPod.ObjectMeta, &submitterPod.Spec, info); err != nil {
 			return err
 		}
 		if j.Spec.SubmitterPodTemplate == nil {
