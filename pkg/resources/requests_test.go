@@ -19,6 +19,7 @@ package resources
 import (
 	"encoding/json"
 	"math"
+	"sync"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -317,6 +318,10 @@ func TestGreaterKeysRL(t *testing.T) {
 	}
 }
 
+func resetBinaryFormattedResources() {
+	binaryFormattedResources = sync.Map{}
+}
+
 func TestResourceQuantityRoundTrips(t *testing.T) {
 	cases := map[string]struct {
 		resource corev1.ResourceName
@@ -386,6 +391,7 @@ func TestResourceQuantityRoundTrips(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			t.Cleanup(resetBinaryFormattedResources)
 			if tc.resource == corev1.ResourceName("gpu.memory") {
 				RegisterBinaryFormattedResource(tc.resource)
 			}

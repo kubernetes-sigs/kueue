@@ -69,12 +69,13 @@ func (m *ResourceMapper) PopulateFromConfiguration(mappings []configapi.DeviceCl
 	dcToResource := make(map[corev1.ResourceName]corev1.ResourceName)
 	dcCounters := make(map[corev1.ResourceName]*deviceClassCounterConfig)
 	for _, mapping := range mappings {
-		if len(mapping.Sources) > 0 && mapping.Sources[0].Counter != nil {
+		isCounter := len(mapping.Sources) > 0 && mapping.Sources[0].Counter != nil
+		if isCounter {
 			resources.RegisterBinaryFormattedResource(mapping.Name)
 		}
 		for _, deviceClassName := range mapping.DeviceClassNames {
 			dcToResource[deviceClassName] = mapping.Name
-			if len(mapping.Sources) > 0 && mapping.Sources[0].Counter != nil {
+			if isCounter {
 				c := mapping.Sources[0].Counter
 				dcCounters[deviceClassName] = &deviceClassCounterConfig{
 					driver:         c.Driver,
