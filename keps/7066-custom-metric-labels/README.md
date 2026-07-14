@@ -270,7 +270,7 @@ type ControllerMetricsCustomLabel struct {
     // +kubebuilder:validation:UniqueItems=true
     // +optional
     TrackedValues []string `json:"trackedValues,omitempty"`
-}§
+}
 
 type ControllerMetrics struct {
     ...
