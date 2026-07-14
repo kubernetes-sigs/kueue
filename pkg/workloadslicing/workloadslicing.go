@@ -360,6 +360,10 @@ func ReplacedWorkloadSlice(wl *workload.Info, snap *schdcache.Snapshot) ([]*pree
 		return nil, nil
 	}
 
+	if replaced.Obj.Namespace != wl.Obj.Namespace {
+		return nil, nil
+	}
+
 	return []*preemption.Target{{WorkloadInfo: replaced}}, replaced
 }
 
