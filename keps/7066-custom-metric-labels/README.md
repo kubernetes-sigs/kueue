@@ -236,7 +236,7 @@ const (
 	SourceKindWorkload     SourceKind = "Workload"
 )
 
-const UntrackedCustomLabelValue = "kueue.k8s.io/_UNTRACKED_VALUE_"
+const UntrackedCustomLabelValue = "kueue.x-k8s.io/_UNTRACKED_VALUE_"
 
 type ControllerMetricsCustomLabel struct {
     // Name is the Prometheus metric label name suffix.
@@ -259,7 +259,6 @@ type ControllerMetricsCustomLabel struct {
     // SourceKind is the object kind from which the label value should be sourced.
     // Up to 2 labels are allowed for Workloads and up to 6 for other source kinds.
     // Defaults to ClusterQueue.
-    // +kubebuilder:default=ClusterQueue
     // +kubebuilder:validation:Enum=Cohort;LocalQueue;ClusterQueue;Workload
     // +optional
     SourceKind *SourceKind `json:"sourceKind,omitempty"`
