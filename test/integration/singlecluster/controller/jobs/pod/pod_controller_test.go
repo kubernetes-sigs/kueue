@@ -352,6 +352,28 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 
+				// admitWorkloadForPod waits for the pod's Workload and admits it.
+				admitWorkloadForPod := func() *kueue.Workload {
+					localQueue := utiltestingapi.MakeLocalQueue("test-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+					util.MustCreate(ctx, k8sClient, localQueue)
+
+					createdWorkload := &kueue.Workload{}
+					wlLookupKey := types.NamespacedName{Name: podcontroller.GetWorkloadNameForPod(pod.Name, pod.UID), Namespace: ns.Name}
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+					admission := utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1").
+							Count(createdWorkload.Spec.PodSets[0].Count).
+							Obj()).
+						Obj()
+					util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+					util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+					return createdWorkload
+				}
+
 				ginkgo.It("Should stop the single pod with the queue name", func() {
 					createdPod := &corev1.Pod{}
 					gomega.Eventually(func(g gomega.Gomega) {
@@ -418,6 +440,109 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 							cmpopts.IgnoreFields(corev1.PodCondition{}, "LastTransitionTime"),
 						),
 					))
+				})
+
+				ginkgo.It("Should not requeue the pod-owned workload evicted by preemption when SkipReassignmentForPodOwnedWorkloads is enabled", func() {
+					features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.SkipReassignmentForPodOwnedWorkloads, true)
+
+					createdWorkload := admitWorkloadForPod()
+
+					ginkgo.By("evicting the workload by preemption")
+					wlLookupKey := types.NamespacedName{Name: podcontroller.GetWorkloadNameForPod(pod.Name, pod.UID), Namespace: ns.Name}
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+						g.Expect(
+							workload.SetConditionAndUpdate(ctx, k8sClient, createdWorkload, kueue.WorkloadEvicted, metav1.ConditionTrue,
+								kueue.WorkloadEvictedByPreemption, "By test", "evict", util.RealClock),
+						).To(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+					ginkgo.By("checking the workload is parked with Requeued=False")
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+						g.Expect(createdWorkload.Status.Conditions).Should(gomega.ContainElement(gomega.BeComparableTo(
+							metav1.Condition{
+								Type:    kueue.WorkloadRequeued,
+								Status:  metav1.ConditionFalse,
+								Reason:  kueue.WorkloadEvictedByPreemption,
+								Message: "By test",
+							},
+							util.IgnoreConditionTimestampsAndObservedGeneration,
+						)))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+					gomega.Consistently(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+						g.Expect(createdWorkload.Status.Conditions).Should(gomega.ContainElement(gomega.BeComparableTo(
+							metav1.Condition{
+								Type:    kueue.WorkloadRequeued,
+								Status:  metav1.ConditionFalse,
+								Reason:  kueue.WorkloadEvictedByPreemption,
+								Message: "By test",
+							},
+							util.IgnoreConditionTimestampsAndObservedGeneration,
+						)))
+					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+				})
+
+				ginkgo.It("Should not requeue the pod-owned workload evicted due to node failures when SkipReassignmentForPodOwnedWorkloads is enabled", func() {
+					features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.SkipReassignmentForPodOwnedWorkloads, true)
+
+					createdWorkload := admitWorkloadForPod()
+
+					ginkgo.By("evicting the workload due to node failures")
+					wlLookupKey := types.NamespacedName{Name: podcontroller.GetWorkloadNameForPod(pod.Name, pod.UID), Namespace: ns.Name}
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+						g.Expect(
+							workload.SetConditionAndUpdate(ctx, k8sClient, createdWorkload, kueue.WorkloadEvicted, metav1.ConditionTrue,
+								kueue.WorkloadEvictedDueToNodeFailures, "By test", "evict", util.RealClock),
+						).To(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+					ginkgo.By("checking the workload is parked with Requeued=False")
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+						g.Expect(createdWorkload.Status.Conditions).Should(gomega.ContainElement(gomega.BeComparableTo(
+							metav1.Condition{
+								Type:    kueue.WorkloadRequeued,
+								Status:  metav1.ConditionFalse,
+								Reason:  kueue.WorkloadEvictedDueToNodeFailures,
+								Message: "By test",
+							},
+							util.IgnoreConditionTimestampsAndObservedGeneration,
+						)))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.It("Should requeue the pod-owned workload evicted by preemption when SkipReassignmentForPodOwnedWorkloads is disabled", func() {
+					features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.SkipReassignmentForPodOwnedWorkloads, false)
+
+					createdWorkload := admitWorkloadForPod()
+
+					ginkgo.By("evicting the workload by preemption")
+					wlLookupKey := types.NamespacedName{Name: podcontroller.GetWorkloadNameForPod(pod.Name, pod.UID), Namespace: ns.Name}
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+						g.Expect(
+							workload.SetConditionAndUpdate(ctx, k8sClient, createdWorkload, kueue.WorkloadEvicted, metav1.ConditionTrue,
+								kueue.WorkloadEvictedByPreemption, "By test", "evict", util.RealClock),
+						).To(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+					ginkgo.By("checking the workload is requeued with Requeued=True")
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+						g.Expect(createdWorkload.Status.Conditions).Should(gomega.ContainElement(gomega.BeComparableTo(
+							metav1.Condition{
+								Type:    kueue.WorkloadRequeued,
+								Status:  metav1.ConditionTrue,
+								Reason:  kueue.WorkloadEvictedByPreemption,
+								Message: "By test",
+							},
+							util.IgnoreConditionTimestampsAndObservedGeneration,
+						)))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 			})
 
