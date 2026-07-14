@@ -40,15 +40,14 @@ The work directory also holds fetch.log (append-only run log) and, when a batch 
 failures, failed_jobs.txt. Re-running resumes: complete jobs are skipped, partial job
 folders are cleaned and refetched, so only the gaps are downloaded.
 
-Network in/out is opt-in via --network (off by default): it uses heavy raw-cAdvisor queries that
-are fine for a targeted single-job pull but destabilize wide --job-regex batches, so batches should
-leave it off. It is best-effort — a network failure never fails the job's cpu/mem fetch.
+Network in/out is on by default for now (--no-network to skip): it uses heavy raw-cAdvisor queries
+that are fine for a targeted single-job pull but destabilize wide --job-regex batches, so pass
+--no-network for batches. It is best-effort — a network failure never fails the job's cpu/mem fetch.
 
 Examples:
   ./fetch_prow_metrics.py --job pull-kueue-test-e2e-baseline-main-1-34 --step 30s --days 30
-  ./fetch_prow_metrics.py --job pull-kueue-test-e2e-baseline-main-1-34 --days 14 --network  # + network
-  ./fetch_prow_metrics.py --job-regex '^pull-.*-main' --list-jobs        # preview only
-  ./fetch_prow_metrics.py --job-regex '^periodic-' --days 14 --step 60s  # fetch all periodics (no network)
+  ./fetch_prow_metrics.py --job-regex '^pull-.*-main' --list-jobs             # preview only
+  ./fetch_prow_metrics.py --job-regex '^periodic-' --days 14 --no-network     # batch: skip heavy network
 """
 import argparse, collections, csv, json, os, re, shutil, statistics, sys, threading, time, urllib.parse, urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -432,15 +431,15 @@ def main():
     ap.add_argument("--retries", type=int, default=0, metavar="N",
                     help="after the batch, retry still-failed jobs up to N more passes "
                          "(default 0). Complements the per-request backoff in http_get.")
-    ap.add_argument("--network", action="store_true",
-                    help="also fetch per-build network in/out (eth0). Off by default: these are raw "
-                         "cAdvisor queries that stress the shared proxy far more than the recording-rule "
-                         "metrics, so they are unsuitable for wide --job-regex batch pulls. Enable for "
-                         "targeted single-job pulls. Network is best-effort: if it fails, the job still "
-                         "writes its cpu/mem data.")
+    ap.add_argument("--network", action=argparse.BooleanOptionalAction, default=True,
+                    help="fetch per-build network in/out (eth0). On by default for now; pass "
+                         "--no-network to skip it. These are raw cAdvisor queries that stress the "
+                         "shared proxy far more than the recording-rule metrics, so --no-network is "
+                         "recommended for wide --job-regex batch pulls. Network is best-effort: if it "
+                         "fails, the job still writes its cpu/mem data.")
     ap.add_argument("--network-retries", type=int, default=8, metavar="N",
                     help="per-request transient-error retry budget for the heavier network queries "
-                         "(default 8; the recording-rule metrics use 5). Only used with --network.")
+                         "(default 8; the recording-rule metrics use 5). No effect with --no-network.")
     ap.add_argument("--force", action="store_true",
                     help="re-fetch even jobs whose output folder is already complete; "
                          "by default completed jobs are skipped, so re-running only fills gaps.")

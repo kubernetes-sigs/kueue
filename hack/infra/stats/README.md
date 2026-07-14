@@ -88,14 +88,13 @@ excluded.
 | `container_network_receive_bytes_total` | cumulative bytes received (network **in**); pod-scoped, `eth0` only, attributed per build via the job's prow:job pods |
 | `container_network_transmit_bytes_total` | cumulative bytes transmitted (network **out**); pod-scoped, `eth0` only, attributed per build via the job's prow:job pods |
 
-The two network metrics are **opt-in** (`--network`) and off by default. Unlike the other metrics
-(pre-aggregated `prow:job:*` recording rules), network comes from raw cAdvisor counters that must be
-scanned and joined per pod at query time — many heavy queries per job that stress the shared prow
-proxy and make wide `--job-regex` batch pulls unstable (403/502/504). Enable it for **targeted
-single-job pulls**; leave it off for batches. When on it is **best-effort**: if the network queries
-fail, the job still writes its cpu/mem data (and retries harder per request — see `--network-retries`,
-default 8 vs 5 elsewhere). Without `--network`, no `net_*` series are written and the
-`timeline_network.png` plot is skipped.
+The two network metrics are **on by default for now** (`--no-network` to skip). Unlike the other
+metrics (pre-aggregated `prow:job:*` recording rules), network comes from raw cAdvisor counters that
+must be scanned and joined per pod at query time — many heavy queries per job that stress the shared
+prow proxy and make wide `--job-regex` batch pulls unstable (403/502/504), so pass `--no-network` for
+batches. Network is **best-effort**: if the queries fail, the job still writes its cpu/mem data (and
+retries harder per request — see `--network-retries`, default 8 vs 5 elsewhere). With `--no-network`,
+no `net_*` series are written and the `timeline_network.png` plot is skipped.
 
 CPU "cores" = CPU-seconds of work per wall-second (a rate). Build nodes have ~7 usable
 cores, so a 7-core request packs one build per node; cutting it toward 3–4 lets two share
