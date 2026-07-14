@@ -49,6 +49,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 func TestPodsReady(t *testing.T) {
@@ -2893,6 +2894,63 @@ func TestReconciler(t *testing.T) {
 				SetAnnotation(JobMinParallelismAnnotation, "5").
 				Suspend(false).
 				Parallelism(8).
+				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				PodLabel(constants.LocalQueueLabel, localQueueName).
+				PodLabel(constants.ClusterQueueLabel, clusterQueueName).
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("a", "ns").
+					Queue(localQueueName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(8).Obj()).Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("a", "ns").
+					Queue(localQueueName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).
+							SetMinimumCount(5).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(8).Obj()).Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Started",
+					Message:   "Admitted by clusterQueue cq",
+				},
+			},
+		},
+		"suspended job with partial admission and elastic annotation, admitted workload is unsuspended without updating job count": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:                     false,
+				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
+				features.AssignQueueLabelsForPods:                    true,
+				features.ElasticJobsViaWorkloadSlices:                true,
+				features.PartialAdmissionForElasticJob:               true,
+			},
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManageJobsWithoutQueueName(true),
+				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
+			},
+			job: baseJobWrapper.Clone().
+				SetAnnotation(JobMinParallelismAnnotation, "5").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				SetAnnotation(JobMinParallelismAnnotation, "5").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Suspend(false).
+				Parallelism(10). // parallelism is NOT updated (kept 10 from baseJobWrapper)
 				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 				PodLabel(constants.LocalQueueLabel, localQueueName).
 				PodLabel(constants.ClusterQueueLabel, clusterQueueName).

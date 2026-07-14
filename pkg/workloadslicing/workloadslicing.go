@@ -169,6 +169,7 @@ func EnsureWorkloadSlices(
 	jobPodSets []kueue.PodSet,
 	jobObject client.Object,
 	jobObjectGVK schema.GroupVersionKind,
+	expectedWorkloadName string,
 ) (*kueue.Workload, bool, error) {
 	jobPodSetsCounts := workload.ExtractPodSetCounts(jobPodSets)
 
@@ -190,6 +191,19 @@ func EnsureWorkloadSlices(
 		// Check if pod sets are structurally compatible (same number and names).
 		if !jobPodSetsCounts.HasSamePodSetKeys(wlPodSetsCounts) {
 			return nil, false, nil
+		}
+
+		// Update workload to match admitted pod sets counts. This is needed to
+		// construct the correct delta in the next call.
+		if wl.Name == expectedWorkloadName {
+			wlAdmittedCounts := workload.ExtractAdmittedPodSetCounts(wl)
+			if workload.HasQuotaReservation(wl) && !wlPodSetsCounts.EqualTo(wlAdmittedCounts) {
+				workload.ApplyPodSetCounts(wl, wlAdmittedCounts)
+				if err := clnt.Update(ctx, wl); err != nil {
+					return nil, true, fmt.Errorf("failed to update partially admitted workload's pod sets counts: %w", err)
+				}
+			}
+			return wl, true, nil
 		}
 
 		// If counts match, return the existing workload slice.
