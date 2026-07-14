@@ -18,6 +18,10 @@ import { useEffect, useState } from 'react';
 import { buildWebSocketUrl } from './utils/urlHelper';
 import { useAuth } from './AuthContext';
 
+const WS_CLOSE_NORMAL = 1000;
+const WS_CLOSE_GOING_AWAY = 1001;
+const WS_CLOSE_POLICY_VIOLATION = 1008;
+
 const WS_BASE_PROTOCOL = 'kueueviz.v1';
 const WS_TOKEN_PROTOCOL_PREFIX = 'kueueviz.auth.';
 
@@ -79,12 +83,17 @@ const useWebSocket = (url) => {
 
     ws.onclose = (event) => {
       console.log('WebSocket connection closed', 'code:', event.code, 'reason:', event.reason);
-      if (event.code !== 1000 && event.code !== 1001) {
-        if (event.code === 1008) {
+      switch (event.code) {
+        case WS_CLOSE_NORMAL:
+        case WS_CLOSE_GOING_AWAY:
+          // Normal closures, no error needed.
+          break;
+        case WS_CLOSE_POLICY_VIOLATION:
           setError('WebSocket connection closed: Token expired or revoked. Please log in again.');
-        } else {
+          break;
+        default:
           setError(`WebSocket connection closed unexpectedly (code: ${event.code}). Please refresh the page.`);
-        }
+          break;
       }
     };
 
