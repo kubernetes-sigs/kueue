@@ -24,6 +24,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/component-base/metrics/testutil"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -31,6 +32,8 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	kueuemetrics "sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
@@ -107,6 +110,47 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 
 					g.Expect(variantA).ToNot(gomega.BeNil(), "Variant for reservation not found")
 					g.Expect(variantB).ToNot(gomega.BeNil(), "Variant for spot not found")
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("Should not count variant workloads in unadmitted workload metrics", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
+
+			parentWl := utiltestingapi.MakeWorkload("parent-wl-metrics", ns.Name).
+				Request(corev1.ResourceCPU, "100").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				ParentVariant().
+				Obj()
+
+			ginkgo.By("Creating the parent workload requiring more quota than available", func() {
+				util.MustCreate(ctx, k8sClient, parentWl)
+			})
+
+			ginkgo.By("Verifying variants are created", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					list := &kueue.WorkloadList{}
+					g.Expect(k8sClient.List(ctx, list, client.InNamespace(ns.Name))).To(gomega.Succeed())
+
+					variantA := getVariantByFlavor(list, parentWl.Name, flavorReservation.Name)
+					variantB := getVariantByFlavor(list, parentWl.Name, flavorSpot.Name)
+
+					g.Expect(variantA).ToNot(gomega.BeNil(), "Variant for reservation not found")
+					g.Expect(variantB).ToNot(gomega.BeNil(), "Variant for spot not found")
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verifying unadmitted workload metrics only count the parent workload (count=1), ignoring the 2 variants", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					metric := kueuemetrics.UnadmittedWorkloads.WithLabelValues(
+						cq.Name,
+						kueue.WorkloadAdmittedReasonNoReservation,
+						kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+						roletracker.RoleStandalone,
+					)
+					v, err := testutil.GetGaugeMetricValue(metric)
+					g.Expect(err).NotTo(gomega.HaveOccurred())
+					g.Expect(v).To(gomega.Equal(float64(1)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
