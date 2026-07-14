@@ -199,10 +199,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
-
-      - name: Checkout release branch
-        run: |
-          git checkout "$BRANCH"
+          ref: ${{ needs.authorize.outputs.branch }}
 
       - name: Create and Push Tag
         env:
