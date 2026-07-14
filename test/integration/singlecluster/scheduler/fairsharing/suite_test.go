@@ -104,6 +104,7 @@ func managerAndSchedulerSetup(
 		queueOptions := []qcache.Option{}
 		queueOptions = append(queueOptions, qcache.WithAdmissionFairSharing(admissionFairSharing))
 		queueOptions = append(queueOptions, qcache.WithPreemptionExpectations(preemptionExpectations))
+		queueOptions = append(queueOptions, qcache.WithFairSharing(fairsharing.Enabled(fairSharing)))
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
 		qManager = queues
 

@@ -181,9 +181,12 @@ type ClusterQueue struct {
 	// of inadmissible workloads while a workload is being scheduled.
 	popCycle int64
 
-	// inflight is non-nil when a workload has been popped by the scheduler but
-	// not yet requeued or deleted.
-	inflight *workload.Info
+	// inflight holds workloads that have been popped by the scheduler but not
+	// yet requeued or deleted, keyed by workload reference. With fair sharing
+	// look-ahead the scheduler may pop more than one head per ClusterQueue
+	// in a single cycle, so more than one workload can be inflight at once.
+	// Entries are cleared per key when the workload is requeued or deleted.
+	inflight map[workload.Reference]*workload.Info
 
 	// queueInadmissibleCycle stores the popId at the time when
 	// QueueInadmissibleWorkloads is called.
@@ -340,6 +343,7 @@ func newClusterQueueImpl(ctx context.Context, client client.Client, cl *metrics.
 		localQueuesInClusterQueue:    make(map[utilqueue.LocalQueueReference]bool),
 		sw:                           &sw,
 		pendingResourcesTotal:        make(map[corev1.ResourceName]int64),
+		inflight:                     make(map[workload.Reference]*workload.Info),
 	}
 }
 
@@ -430,7 +434,7 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 	key := workload.Key(wInfo.Obj)
 	// Skip if the scheduler is actively processing this workload.
 	// RequeueWorkload will handle placement with the latest version.
-	if c.inflight != nil && workload.Key(c.inflight.Obj) == key {
+	if _, ok := c.inflight[key]; ok {
 		return
 	}
 	if oldInfo := c.inadmissibleWorkloads.get(key); oldInfo != nil {
@@ -565,7 +569,7 @@ func (c *ClusterQueue) removeFromInadmissible(key workload.Reference, wInfo *wor
 // Returns true if the workload was pushed.
 func (c *ClusterQueue) pushToHeapIfNotTracked(wInfo *workload.Info) bool {
 	key := workloadKey(wInfo)
-	if c.inflight != nil && workloadKey(c.inflight) == key {
+	if _, ok := c.inflight[key]; ok {
 		return false
 	}
 	if c.inadmissibleWorkloads.hasKey(key) {
@@ -671,6 +675,7 @@ func (c *ClusterQueue) DeleteFromLocalQueue(log logr.Logger, q *LocalQueue, role
 		wlKey := workloadKey(w)
 		c.delete(log, wlKey)
 	}
+	c.forgetInflightFromLocalQueue(q.Key)
 	for fw := range q.finishedWorkloads {
 		c.finishedWorkloads.Delete(fw)
 	}
@@ -751,9 +756,18 @@ func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info
 }
 
 func (c *ClusterQueue) forgetInflightByKey(key workload.Reference) {
-	if c.inflight != nil && workload.Key(c.inflight.Obj) == key {
-		c.inflight = nil
-		c.schedulingHashes.clearInflight()
+	if wl, ok := c.inflight[key]; ok {
+		delete(c.inflight, key)
+		c.schedulingHashes.removeInflight(wl)
+	}
+}
+
+func (c *ClusterQueue) forgetInflightFromLocalQueue(lqRef utilqueue.LocalQueueReference) {
+	for key, wl := range c.inflight {
+		if utilqueue.KeyFromWorkload(wl.Obj) == lqRef {
+			delete(c.inflight, key)
+			c.schedulingHashes.removeInflight(wl)
+		}
 	}
 }
 
@@ -782,8 +796,8 @@ func (c *ClusterQueue) pendingResources() map[corev1.ResourceName]int64 {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
 	result := maps.Clone(c.pendingResourcesTotal)
-	if c.inflight != nil {
-		for _, ps := range c.inflight.TotalRequests {
+	for _, wl := range c.inflight {
+		for _, ps := range wl.TotalRequests {
 			if ps.Requests != nil {
 				ps.Requests.ForEach(func(name corev1.ResourceName, q int64) {
 					result[name] += q
@@ -817,8 +831,8 @@ func (c *ClusterQueue) PendingBreakdown() (*metrics.LabelValsTracker, *metrics.L
 // workloads that are in the admission queue.
 func (c *ClusterQueue) pendingActive() *metrics.LabelValsTracker {
 	result := metrics.Copy(c.pendingWorkloadsTracker)
-	if c.inflight != nil {
-		metrics.TrackWorkload(c.customLabels, result, c.inflight.Obj)
+	for _, wl := range c.inflight {
+		metrics.TrackWorkload(c.customLabels, result, wl.Obj)
 	}
 	return result
 }
@@ -846,8 +860,10 @@ func (c *ClusterQueue) pendingActiveInLocalQueue(lqRef utilqueue.LocalQueueRefer
 			active++
 		}
 	}
-	if c.inflight != nil && utilqueue.KeyFromWorkload(c.inflight.Obj) == lqRef {
-		active++
+	for _, wl := range c.inflight {
+		if utilqueue.KeyFromWorkload(wl.Obj) == lqRef {
+			active++
+		}
 	}
 	return
 }
@@ -877,16 +893,17 @@ func (c *ClusterQueue) Pop() *workload.Info {
 
 	c.popCycle++
 	if c.heap.Len() == 0 {
-		c.inflight = nil
-		c.schedulingHashes.clearInflight()
+		// The scheduler may pop several heads per cycle; already-inflight
+		// workloads are cleared per-key on requeue/delete, so we must not
+		// wipe them when a later Pop finds the heap empty.
 		return nil
 	}
 	wl := c.popPending()
 	c.schedulingHashes.moveActiveToInflight(wl)
 	c.subtractPendingResources(wl)
-	c.inflight = wl
-	c.inflight.LastEvaluatedGeneration = c.inflight.Obj.Generation
-	return c.inflight
+	wl.LastEvaluatedGeneration = wl.Obj.Generation
+	c.inflight[workload.Key(wl.Obj)] = wl
+	return wl
 }
 
 // rebuildAll rebuilds the entire heap. Must be called with lock held.
@@ -1056,8 +1073,8 @@ func (c *ClusterQueue) trackedInfo(key workload.Reference) *workload.Info {
 	if wInfo := c.inadmissibleWorkloads.get(key); wInfo != nil {
 		return wInfo
 	}
-	if c.inflight != nil && workload.Key(c.inflight.Obj) == key {
-		return c.inflight
+	if wInfo, ok := c.inflight[key]; ok {
+		return wInfo
 	}
 	return nil
 }
@@ -1067,14 +1084,14 @@ func (c *ClusterQueue) trackedInfo(key workload.Reference) *workload.Info {
 func (c *ClusterQueue) totalElements() []*workload.Info {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
-	totalLen := c.heap.Len() + c.inadmissibleWorkloads.len()
+	totalLen := c.heap.Len() + c.inadmissibleWorkloads.len() + len(c.inflight)
 	elements := make([]*workload.Info, 0, totalLen)
 	elements = append(elements, c.heap.List()...)
 	for _, e := range c.inadmissibleWorkloads {
 		elements = append(elements, e)
 	}
-	if c.inflight != nil {
-		elements = append(elements, c.inflight)
+	for _, wl := range c.inflight {
+		elements = append(elements, wl)
 	}
 	return elements
 }
