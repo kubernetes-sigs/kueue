@@ -22,9 +22,13 @@ It reads the job folder's raw_series.json and writes, into that same folder:
 
   dist_mean.png        per-build MEAN CPU & memory histograms   -> sizes the request
   dist_peak.png        per-build PEAK CPU & memory histograms    -> sizes memory (worst case)
+  dist_mean_new_cpu.png  current vs target-duration per-build mean CPU -> work-conserving reco
+  dist_duration.png    per-build duration histogram (mean, percentiles, target marker)
+  dist_work.png        per-build CPU work histogram (avg CPU × duration, core-minutes)
   dist_throttle.png    across-build histogram of "% of build time without CPU pressure"
   timeline_throttle.png  CPU cores + CPU-waiting % vs time-into-build (PSI "some")
-  timeline_stall.png     CPU cores + CPU-stalled % vs time-into-build (PSI "full")
+  (timeline_stall.png — PSI "full" — is disabled; see plot_throttle_timeline)
+  timeline_network.png   network in/out throughput vs time-into-build (same 4-panel layout)
   recommendation.json  structured current-vs-recommended request/limit for this job
                        (aggregate_reco.py later folds every job's JSON into one table)
 
@@ -37,8 +41,12 @@ raise) when a job has too little data, so a job still gets whatever images it ca
 
   generate_recommendation()     -> recommendation.json         (+ returns the reco dict)
   plot_distribution()           -> dist_<stat>.png for each stat (uses the reco for lines)
+  plot_new_cpu_distribution()   -> dist_mean_new_cpu.png (current vs target-duration mean CPU)
+  plot_duration_distribution()  -> dist_duration.png (per-build duration histogram)
+  plot_work_distribution()      -> dist_work.png (per-build CPU work histogram)
   plot_throttle_distribution()  -> dist_throttle.png
-  plot_throttle_timeline()      -> timeline_throttle.png, timeline_stall.png
+  plot_throttle_timeline()      -> timeline_throttle.png (timeline_stall.png disabled)
+  plot_network_timeline()       -> timeline_network.png (network in/out over time-into-build)
 
 Shared helpers:
   load()        read raw_series.json from a folder or file path
@@ -46,6 +54,7 @@ Shared helpers:
   per_build()   collapse each build's samples to one number (mean / peak / pNN)
   wait_pct()    cumulative PSI counter -> per-interval percentage (with minutes-into-build)
   cores()       cumulative cores series -> (minutes-into-build, cores)
+  byte_rate()   cumulative byte counter -> (minutes-into-build, MiB/s) per interval
 
 Examples:
   ./plot.py ./pull-kueue-test-e2e-baseline-main-1-34_30d_30s
@@ -70,6 +79,14 @@ SAMPLE_COLORS = ["#D62728", "#2CA02C", "#1F77B4", "#FF7F0E"]
 MIN_INTERVALS = 4           # dist_throttle: skip builds with fewer PSI intervals than this
 MIN_BUILDS_PER_OFFSET = 10  # timelines: draw the envelope only where >= this many builds cover an offset
 MIN_SAMPLE_POINTS = 8       # timelines: only highlight sample builds with >= this many points
+
+# Work-conserving CPU right-sizing (issue #12750). Assume each build's CPU work
+# (avg cores x duration) is roughly invariant to the request: CPU is compressible, so
+# fewer cores just stretch the build. A build given `work / target` cores would then
+# finish in about `target` minutes. These are the defaults; each is overridable via CLI.
+CPU_TARGET_MIN = 10.0  # target build duration in minutes to size the request against
+CPU_LEGROOM_FRAC = 0.15  # fractional headroom on top of the p95 target (0.15 = +15%)
+CPU_RESOLUTION = 0.1   # round the recommendation up to this core granularity (100m)
 
 RENDERERS = ("distribution", "throttle", "timeline")
 
@@ -125,6 +142,39 @@ def per_build(series, stat, min_dur_min=0.0, exclude=None):
     return np.array(out)
 
 
+def per_build_cpu_work(series, min_dur_min=0.0, exclude=None):
+    """One (avg_cpu_cores, duration_min) pair per build, using the same exclusions as
+    per_build (drop <2 samples, shorter than min_dur_min, or ids in `exclude`). Returning
+    the pair keeps each build's usage<->duration correlation, which a marginal percentile
+    over means alone would lose. Duration is the metrics-observed span of the `test`
+    container, i.e. the compute phase, not prow's full wall-clock."""
+    exclude = exclude or set()
+    out = []
+    for bid, pts in series.items():
+        if bid in exclude or len(pts) < 2:
+            continue
+        ts = [t for t, _ in pts]
+        dur = (max(ts) - min(ts)) / 60.0
+        if dur < min_dur_min:
+            continue
+        out.append((float(np.mean([v for _, v in pts])), dur))
+    return out
+
+
+def target_new_avg_cpus(pairs, target_min):
+    """Given per-build (avg_cpu, duration_min) pairs, the average CPU that would stretch
+    each build to about target_min minutes at constant work: avg x duration / max(duration,
+    target_min). The max() means a build already at/above the target keeps its real avg, so
+    the transform only ever LOWERS CPU (for fast builds) and never raises it."""
+    return np.array([avg * dur / max(dur, target_min) for avg, dur in pairs])
+
+
+def round_up_to(x, res):
+    """Round x UP to the nearest multiple of res, so any added legroom is never rounded
+    away. res=0.1 gives 100m CPU granularity."""
+    return round(math.ceil(x / res) * res, 3)
+
+
 def oom_build_ids(data):
     """Build ids that recorded an OOM-kill (container_oom_events_total increased). Such a
     build hit its memory limit, so its working-set peak sits at the ceiling and must not
@@ -156,6 +206,22 @@ def cores(pts):
     return [(t - t0) / 60.0 for t, _ in pts], [v for _, v in pts]
 
 
+def byte_rate(pts):
+    """Cumulative byte counter (network rx/tx) -> (minutes_into_build, MiB/s) per interval
+    via Δbytes/Δt. Counter resets (Δ<0, e.g. a restarted pod) are dropped, mirroring the
+    Δ≥0 guard in wait_pct."""
+    pts = sorted(pts)
+    xs, ys = [], []
+    MIB = 1024 ** 2
+    for i in range(1, len(pts)):
+        dt = pts[i][0] - pts[i - 1][0]
+        dv = pts[i][1] - pts[i - 1][1]
+        if dt > 0 and dv >= 0:
+            xs.append((pts[i][0] - pts[0][0]) / 60.0)
+            ys.append(dv / dt / MIB)
+    return xs, ys
+
+
 def stat_word(stat):
     return {"mean": "average", "median": "median", "peak": "peak", "max": "peak"}.get(
         stat, f"per-build {stat}")
@@ -168,10 +234,45 @@ def days_of(data):
 # --------------------------------------------------------------------------- #
 # Recommendation (derived from the usage distribution)
 # --------------------------------------------------------------------------- #
-def compute_reco(data, min_dur):
+def compute_cpu_target(data, min_dur, target_min, legroom_frac, resolution):
+    """Work-conserving CPU recommendation: the single Guaranteed-QoS value (request ==
+    limit, as test-infra requires) that would let builds finish in about target_min
+    minutes. Sizes off p95 of the per-build target mean CPU (see target_new_avg_cpus), adds
+    fractional legroom (e.g. 0.15 = +15%), rounds up to `resolution`, and caps at the
+    current limit (never
+    recommend more than is already allocated). Returns (value, stats) or (None, None) when
+    there is too little CPU data. `stats` carries the percentiles that justify the value."""
+    oom = oom_build_ids(data)
+    pairs = per_build_cpu_work(data["series"].get("cpu_used_cores", {}), min_dur, exclude=oom)
+    if len(pairs) < 2:
+        return None, None
+    new = target_new_avg_cpus(pairs, target_min)
+    durs = np.array([d for _, d in pairs])
+    p95 = float(np.percentile(new, 95))
+    val = round_up_to(p95 * (1 + legroom_frac), resolution)
+    cpu_lim_cur = const(data, "cpu_limit_cores")
+    if cpu_lim_cur is not None:
+        val = min(val, cpu_lim_cur)
+    stats = {
+        "target_min": target_min,
+        "legroom_frac": legroom_frac,
+        "resolution": resolution,
+        "new_mean_p50": round(float(np.percentile(new, 50)), 3),
+        "new_mean_p95": round(p95, 3),
+        "new_mean_p99": round(float(np.percentile(new, 99)), 3),
+        "duration_p50_min": round(float(np.percentile(durs, 50)), 2),
+        "duration_p95_min": round(float(np.percentile(durs, 95)), 2),
+    }
+    return val, stats
+
+
+def compute_reco(data, min_dur, target_min=CPU_TARGET_MIN, legroom_frac=CPU_LEGROOM_FRAC,
+                 resolution=CPU_RESOLUTION):
     """Recommended request/limit from the usage distribution:
       cpu request = p95 of per-build mean x1.15, capped at the current limit;
       cpu limit   = kept as-is (throttling only; measured peaks are rate() artifacts);
+      cpu target  = work-conserving Guaranteed-QoS value (see compute_cpu_target), a
+        fractional alternative that trades runtime for cores on fast jobs;
       mem request == mem limit = largest observed per-build peak x1.15. Memory is
         incompressible, so the value must hold the worst peak. Builds that OOM-killed are
         excluded first (their peak sits pinned at the ceiling), so the max is taken over
@@ -194,9 +295,12 @@ def compute_reco(data, min_dur):
     cpu_req_raw = math.ceil(cpu_mean_p95 * 1.15)
     cpu_lim = int(cpu_lim_cur) if cpu_lim_cur else cpu_req_raw
     mem_val = math.ceil(mem_peak_max * 1.15)
+    cpu_target, cpu_target_stats = compute_cpu_target(data, min_dur, target_min, legroom_frac, resolution)
     return {
         "cpu_req": min(cpu_req_raw, cpu_lim),
         "cpu_lim": cpu_lim,
+        "cpu_target": cpu_target,
+        "cpu_target_stats": cpu_target_stats,
         "mem_req": mem_val,
         "mem_lim": mem_val,
         "saturated": cpu_lim_cur is not None and cpu_req_raw >= cpu_lim_cur,
@@ -236,6 +340,9 @@ def build_reco_json(data, reco, min_dur):
             "mean_p99": xp("cpu_used_cores", "mean", 99, False),
             "peak_max": xp("cpu_used_cores", "peak", 100, False),
             "saturated": reco["saturated"],
+            "request_target_based": reco.get("cpu_target"),
+            "saved_target_based": saved(cpu_req_cur, reco.get("cpu_target")),
+            "target": reco.get("cpu_target_stats"),
         },
         "mem": {
             "request_current": mem_req_cur,
@@ -248,10 +355,11 @@ def build_reco_json(data, reco, min_dur):
     }
 
 
-def generate_recommendation(data, base_dir, min_dur):
+def generate_recommendation(data, base_dir, min_dur, target_min=CPU_TARGET_MIN,
+                            legroom_frac=CPU_LEGROOM_FRAC, resolution=CPU_RESOLUTION):
     """Compute the sizing recommendation and write recommendation.json. Returns the reco
     dict (or None, printing a skip note, when the job has too little data)."""
-    reco = compute_reco(data, min_dur)
+    reco = compute_reco(data, min_dur, target_min, legroom_frac, resolution)
     if reco is None:
         print("  recommendation: skipped (not enough CPU/memory data)")
         return None
@@ -265,11 +373,11 @@ def generate_recommendation(data, base_dir, min_dur):
 # --------------------------------------------------------------------------- #
 # Renderer 1: usage distributions (dist_mean.png, dist_peak.png)
 # --------------------------------------------------------------------------- #
-def _draw_hist(ax, series, unit, stat, bins, min_dur, scale=1.0,
-               req=None, lim=None, rec_req=None, rec_lim=None):
-    """Histogram of per-build `stat` values with a KDE bell curve, p50/p95/p99 lines, the
-    current k8s request/limit (purple) and, when given, the recommended ones (gold)."""
-    vals = per_build(series, stat, min_dur) * scale
+def _hist_on_ax(ax, vals, xlabel, title, bins=30,
+                req=None, lim=None, rec_req=None, rec_lim=None):
+    """Histogram of the already-reduced per-build `vals` with a KDE bell curve, p50/p95/p99
+    lines, the current k8s request/limit (purple) and, when given, the recommended ones
+    (gold). Shared by every distribution plot so they stay visually identical."""
     if len(vals) < 2:
         ax.text(0.5, 0.5, "not enough data", ha="center", transform=ax.transAxes)
         return
@@ -293,12 +401,21 @@ def _draw_hist(ax, series, unit, stat, bins, min_dur, scale=1.0,
     if rec_lim is not None:
         eq = " (=request)" if rec_req is not None and rec_lim == rec_req else ""
         ax.axvline(rec_lim, color="gold", ls=":", lw=2.5, label=f"optimal limit={rec_lim:g}{eq}")
-    sw = stat_word(stat)
-    ax.set_xlabel(f"per-build {sw} {unit}")
+    ax.set_xlabel(xlabel)
     ax.set_ylabel("number of builds")
-    ax.set_title(f"distribution across {len(vals)} builds of each build's {sw} {unit}")
+    ax.set_title(title)
     ax.legend(fontsize=8, framealpha=0.9)
     ax.grid(axis="y", alpha=0.3)
+
+
+def _draw_hist(ax, series, unit, stat, bins, min_dur, scale=1.0,
+               req=None, lim=None, rec_req=None, rec_lim=None):
+    """Reduce each build to `stat` (scaled), then histogram via _hist_on_ax."""
+    vals = per_build(series, stat, min_dur) * scale
+    sw = stat_word(stat)
+    _hist_on_ax(ax, vals, f"per-build {sw} {unit}",
+                f"distribution across {len(vals)} builds of each build's {sw} {unit}",
+                bins=bins, req=req, lim=lim, rec_req=rec_req, rec_lim=rec_lim)
 
 
 def plot_distribution(data, base_dir, reco, bins=30, min_dur=0.0, stats=("mean", "peak")):
@@ -321,6 +438,119 @@ def plot_distribution(data, base_dir, reco, bins=30, min_dur=0.0, stats=("mean",
         fig.savefig(out, dpi=130)
         plt.close(fig)
         print(f"  dist_{stat} -> {out}")
+
+
+def _draw_duration_hist(ax, durs, target_min, bins=30):
+    """Per-build duration histogram (minutes) with p50/p95/p99, the mean, and the gold
+    target marker. Shared by dist_duration.png and the bottom panel of dist_mean_new_cpu.png
+    so the two stay identical."""
+    _hist_on_ax(ax, durs, "per-build duration (minutes)",
+                f"build durations across {len(durs)} builds "
+                f"(builds ≥ {target_min:g} min keep their CPU unchanged)", bins=bins)
+    if len(durs) >= 2:
+        ax.axvline(float(np.mean(durs)), color="#1F77B4", ls="-.", lw=2,
+                   label=f"mean = {np.mean(durs):.2f} min")
+    ax.axvline(target_min, color="gold", ls="-", lw=2.5, label=f"target = {target_min:g} min")
+    ax.legend(fontsize=8, framealpha=0.9)  # redraw so the mean + target lines are included
+
+
+def plot_new_cpu_distribution(data, base_dir, reco, bins=30, min_dur=0.0,
+                              target_min=CPU_TARGET_MIN):
+    """Render dist_mean_new_cpu.png: three stacked panels.
+      top    — each build's CURRENT mean CPU (today's demand);
+      middle — each build's TARGET mean CPU = work / max(duration, target_min), i.e. the
+               request that would stretch the build to ~target_min minutes at constant work;
+      bottom — the per-build DURATION distribution (minutes), with the target marked, which
+               explains the shift above: builds already at/above the target are left alone.
+    The top two panels share x and y so the leftward CPU shift is obvious; the duration
+    panel is on its own minutes axis. The middle panel's p50/p95/p99 justify the gold
+    recommended request (reco['cpu_target']). OOM-killed builds are excluded throughout."""
+    oom = oom_build_ids(data)
+    pairs = per_build_cpu_work(data["series"].get("cpu_used_cores", {}), min_dur, exclude=oom)
+    if len(pairs) < 2:
+        print("  dist_mean_new_cpu: skipped (not enough CPU data)")
+        return
+    old = np.array([avg for avg, _ in pairs])
+    new = target_new_avg_cpus(pairs, target_min)
+    durs = np.array([d for _, d in pairs])
+    cpu_req_cur, cpu_lim_cur = const(data, "cpu_request_cores"), const(data, "cpu_limit_cores")
+    rec = (reco or {}).get("cpu_target")
+
+    # Top two panels share bin edges + x/y so their geometry is identical and comparable;
+    # the duration panel (bottom) lives on its own minutes axis, so it is not shared.
+    xmax = max(old.max(), float(new.max()), cpu_req_cur or 0.0) * 1.05 or 1.0
+    edges = np.linspace(0, xmax, bins + 1)
+    fig = plt.figure(figsize=(11, 5.4 * 3))
+    ax_cur = fig.add_subplot(3, 1, 1)
+    ax_tgt = fig.add_subplot(3, 1, 2, sharex=ax_cur, sharey=ax_cur)
+    ax_dur = fig.add_subplot(3, 1, 3)
+    _hist_on_ax(ax_cur, old, "per-build average CPU cores",
+                f"current — distribution across {len(old)} builds of each build's average CPU",
+                bins=edges, req=cpu_req_cur, lim=cpu_lim_cur)
+    _hist_on_ax(ax_tgt, new, "per-build target-duration CPU cores",
+                f"target {target_min:g} min — each build's work / max(duration, {target_min:g} min)",
+                bins=edges, req=cpu_req_cur, rec_req=rec, rec_lim=rec)
+    ax_cur.set_xlim(0, xmax)
+
+    _draw_duration_hist(ax_dur, durs, target_min, bins)
+
+    fig.suptitle(f"{data.get('job')}  —  current vs {target_min:g}-min-target mean CPU  —  "
+                 f"{data.get('step')}s step, {days_of(data)}d", fontsize=13, y=0.995)
+    fig.tight_layout(rect=[0, 0, 1, 0.99])
+    out = os.path.join(base_dir, "dist_mean_new_cpu.png")
+    fig.savefig(out, dpi=130)
+    plt.close(fig)
+    print(f"  dist_mean_new_cpu -> {out}"
+          + (f"  (rec target request = {rec:g} cores)" if rec is not None else ""))
+
+
+def plot_duration_distribution(data, base_dir, bins=30, min_dur=0.0,
+                               target_min=CPU_TARGET_MIN):
+    """Render dist_duration.png: the per-build duration histogram on its own image — the
+    same panel shown at the bottom of dist_mean_new_cpu.png, with mean/percentiles and the
+    target marker. OOM-killed builds are excluded, matching the recommendation."""
+    oom = oom_build_ids(data)
+    pairs = per_build_cpu_work(data["series"].get("cpu_used_cores", {}), min_dur, exclude=oom)
+    if len(pairs) < 2:
+        print("  dist_duration: skipped (not enough CPU data)")
+        return
+    durs = np.array([d for _, d in pairs])
+    fig, ax = plt.subplots(figsize=(12, 6.5))
+    _draw_duration_hist(ax, durs, target_min, bins)
+    fig.suptitle(f"{data.get('job')}  —  per-build duration  —  {data.get('step')}s step, "
+                 f"{days_of(data)}d", fontsize=13)
+    fig.tight_layout()
+    out = os.path.join(base_dir, "dist_duration.png")
+    fig.savefig(out, dpi=130)
+    plt.close(fig)
+    print(f"  dist_duration -> {out}")
+
+
+def plot_work_distribution(data, base_dir, bins=30, min_dur=0.0):
+    """Render dist_work.png: the per-build CPU work histogram (avg CPU x duration, in
+    core-minutes). Work is the quantity the recommendation assumes is invariant to the
+    request, so its spread across builds shows how stable that assumption is for the job.
+    OOM-killed builds are excluded, matching the recommendation."""
+    oom = oom_build_ids(data)
+    pairs = per_build_cpu_work(data["series"].get("cpu_used_cores", {}), min_dur, exclude=oom)
+    if len(pairs) < 2:
+        print("  dist_work: skipped (not enough CPU data)")
+        return
+    work = np.array([avg * dur for avg, dur in pairs])
+    fig, ax = plt.subplots(figsize=(12, 6.5))
+    _hist_on_ax(ax, work, "per-build CPU work (core-minutes)",
+                f"CPU work across {len(work)} builds of each build's avg CPU × duration",
+                bins=bins)
+    ax.axvline(float(np.mean(work)), color="#1F77B4", ls="-.", lw=2,
+               label=f"mean = {np.mean(work):.1f} core-min")
+    ax.legend(fontsize=8, framealpha=0.9)  # redraw so the mean line is included
+    fig.suptitle(f"{data.get('job')}  —  per-build CPU work  —  {data.get('step')}s step, "
+                 f"{days_of(data)}d", fontsize=13)
+    fig.tight_layout()
+    out = os.path.join(base_dir, "dist_work.png")
+    fig.savefig(out, dpi=130)
+    plt.close(fig)
+    print(f"  dist_work -> {out}")
 
 
 # --------------------------------------------------------------------------- #
@@ -416,11 +646,27 @@ def _draw_samples(ax, samples_xy, ylabel, title, cap=None, sample_labels=None):
     ax.grid(alpha=0.3)
 
 
-def plot_throttle_timeline(data, base_dir, samples=3, seed=None):
+def pick_sample_builds(data, samples=3, seed=None):
+    """Choose the concrete sample-build ids highlighted on the timelines ONCE, so the throttle and
+    network figures show the *same* runs (otherwise each timeline samples independently and they
+    diverge). Candidates are builds present with >= MIN_SAMPLE_POINTS in every timeline series —
+    cpu cores + wait, and (when network was fetched) net rx + tx — so a pick renders on every panel.
+    Reproducible via `seed`."""
+    S = data["series"]
+    required = ["cpu_waiting_seconds", "cpu_used_cores"]
+    if S.get("net_rx_bytes") and S.get("net_tx_bytes"):
+        required += ["net_rx_bytes", "net_tx_bytes"]
+    common = set.intersection(*(set(S.get(k, {})) for k in required))
+    cands = sorted(b for b in common if all(len(S[k][b]) >= MIN_SAMPLE_POINTS for k in required))
+    return random.Random(seed).sample(cands, min(samples, len(cands)))
+
+
+def plot_throttle_timeline(data, base_dir, picks):
     """Render timeline_throttle.png (PSI "some" = cpu_waiting_seconds) and, when present,
     timeline_stall.png (PSI "full" = cpu_stalled_seconds). Each is a 4-panel figure aligned
-    by minutes-into-build: CPU-cores population, pressure-% population, then the same for a
-    few concrete sample builds. The same sample builds are reused across both images."""
+    by minutes-into-build: CPU-cores population, pressure-% population, then the same for the
+    concrete sample builds in `picks` (chosen by pick_sample_builds so the network timeline
+    highlights the identical runs). The same sample builds are reused across both images."""
     S = data["series"]
     step = data.get("step", 30)
     wsrc = S.get("cpu_waiting_seconds")
@@ -432,9 +678,6 @@ def plot_throttle_timeline(data, base_dir, samples=3, seed=None):
     # CPU-cores clouds/samples are shared by both figures; only the pressure panels differ.
     cpu_xy = [(x, y) for x, y in (cores(v) for v in csrc.values()) if x]
 
-    # pick sample builds with enough points in both wait and cores series (reproducible via seed)
-    cands = [b for b in wsrc if len(wsrc[b]) >= MIN_SAMPLE_POINTS and len(csrc.get(b, [])) >= MIN_SAMPLE_POINTS]
-    picks = random.Random(seed).sample(cands, min(samples, len(cands)))
     cpu_samp, labels = [], []
     for bid in picks:
         cx, cy = cores(csrc[bid])
@@ -483,7 +726,64 @@ def plot_throttle_timeline(data, base_dir, samples=3, seed=None):
         print(f"  {out_name} -> {out}  ({n} builds, {len(picks)} samples)")
 
     render(wsrc, "cpu_waiting_seconds", "timeline_throttle.png")
-    render(S.get("cpu_stalled_seconds"), "cpu_stalled_seconds", "timeline_stall.png")
+    # timeline_stall.png (PSI "full" = cpu_stalled_seconds) disabled by request: the
+    # throttle timeline (PSI "some") already conveys CPU pressure. Re-enable if needed.
+    # render(S.get("cpu_stalled_seconds"), "cpu_stalled_seconds", "timeline_stall.png")
+
+
+def plot_network_timeline(data, base_dir, picks):
+    """Render timeline_network.png: the same 4-panel, minutes-into-build layout as
+    timeline_throttle.png, but for network throughput instead of CPU. Network "in" (receive)
+    takes the role of CPU cores and network "out" (transmit) the role of CPU pressure:
+
+      1. network in  — faint per-build cloud + median/p90/max envelopes across builds;
+      2. network out — same population view;
+      3. network in  — a few concrete sample builds (red/green/blue, the throttle palette);
+      4. network out — the same sample builds.
+
+    Throughput is Δbytes/Δt in MiB/s (see byte_rate). Skips (never raises) when the network
+    counters are absent, e.g. data fetched before net_rx_bytes/net_tx_bytes were added."""
+    S = data["series"]
+    step = data.get("step", 30)
+    rxsrc, txsrc = S.get("net_rx_bytes"), S.get("net_tx_bytes")
+    if not rxsrc or not txsrc:
+        print("  timeline_network: skipped (no net_rx_bytes/net_tx_bytes)")
+        return
+
+    rx_xy = [(x, y) for x, y in (byte_rate(v) for v in rxsrc.values()) if x]
+    tx_xy = [(x, y) for x, y in (byte_rate(v) for v in txsrc.values()) if x]
+
+    rx_samp, tx_samp, labels = [], [], []
+    for bid in picks:
+        rx, tx = byte_rate(rxsrc[bid]), byte_rate(txsrc.get(bid, []))
+        rx_samp.append(rx)
+        tx_samp.append(tx)
+        dur = rx[0][-1] if rx[0] else 0
+        peak_in = max(rx[1]) if rx[1] else 0
+        peak_out = max(tx[1]) if tx[1] else 0
+        labels.append(f"{bid[:8]}  ({dur:.0f} min, peak in {peak_in:.1f} / out {peak_out:.1f} MiB/s)")
+
+    n = len(rx_xy)
+    days = days_of(data)
+    fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, 1, figsize=(13, 18), sharex=True)
+    _draw_population(ax1, rx_xy, step, MIN_BUILDS_PER_OFFSET, "network in (MiB/s)",
+                     f"{data.get('job')} — {n} builds overlaid ({step}s, {days}d)")
+    _draw_population(ax2, tx_xy, step, MIN_BUILDS_PER_OFFSET, "network out (MiB/s)",
+                     "network out (transmit) — cloud + envelopes")
+    _draw_samples(ax3, rx_samp, "network in (MiB/s)",
+                  f"network in (receive) — {len(picks)} sample builds only", sample_labels=labels)
+    _draw_samples(ax4, tx_samp, "network out (MiB/s)",
+                  "network out (transmit) — same sample builds only",
+                  sample_labels=[b[:8] for b in picks])
+    for ax in (ax1, ax2, ax3, ax4):  # sharex hides upper tick labels; re-enable, 1 tick/min
+        ax.tick_params(labelbottom=True)
+        ax.xaxis.set_major_locator(MultipleLocator(1))
+        ax.set_xlabel("minutes into build (aligned from each build's start)")
+    fig.tight_layout()
+    out = os.path.join(base_dir, "timeline_network.png")
+    fig.savefig(out, dpi=130)
+    plt.close(fig)
+    print(f"  timeline_network -> {out}  ({n} builds, {len(picks)} samples)")
 
 
 # --------------------------------------------------------------------------- #
@@ -501,6 +801,15 @@ def main():
     ap.add_argument("--bins", type=int, default=30, help="histogram bins (default 30)")
     ap.add_argument("--min-duration", type=float, default=0.0,
                     help="drop builds shorter than this many minutes (default 0)")
+    ap.add_argument("--cpu-target-min", type=float, default=CPU_TARGET_MIN,
+                    help="work-conserving CPU reco: target build duration in minutes "
+                         "(default %(default)s)")
+    ap.add_argument("--cpu-legroom-frac", type=float, default=CPU_LEGROOM_FRAC,
+                    help="work-conserving CPU reco: fractional headroom on top of the p95 "
+                         "target (default %(default)s = +15%%)")
+    ap.add_argument("--cpu-resolution", type=float, default=CPU_RESOLUTION,
+                    help="work-conserving CPU reco: round the value up to this core "
+                         "granularity (default %(default)s = 100m)")
     ap.add_argument("--threshold", type=float, default=5.0,
                     help="dist_throttle: CPU wait%% at/above this counts as pressured (default 5)")
     ap.add_argument("--samples", type=int, default=3,
@@ -518,13 +827,21 @@ def main():
     print(f"{data.get('job')}  ({base})")
 
     if "distribution" in which:
-        reco = generate_recommendation(data, base, args.min_duration)
+        reco = generate_recommendation(data, base, args.min_duration, args.cpu_target_min,
+                                       args.cpu_legroom_frac, args.cpu_resolution)
         stats = [s.strip() for s in args.stats.split(",") if s.strip()]
         plot_distribution(data, base, reco, args.bins, args.min_duration, stats)
+        plot_new_cpu_distribution(data, base, reco, args.bins, args.min_duration,
+                                  args.cpu_target_min)
+        plot_duration_distribution(data, base, args.bins, args.min_duration,
+                                   args.cpu_target_min)
+        plot_work_distribution(data, base, args.bins, args.min_duration)
     if "throttle" in which:
         plot_throttle_distribution(data, base, args.threshold, args.bins)
     if "timeline" in which:
-        plot_throttle_timeline(data, base, args.samples, args.seed)
+        picks = pick_sample_builds(data, args.samples, args.seed)  # shared across both timelines
+        plot_throttle_timeline(data, base, picks)
+        plot_network_timeline(data, base, picks)
 
 
 if __name__ == "__main__":

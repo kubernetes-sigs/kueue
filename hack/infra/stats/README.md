@@ -61,7 +61,7 @@ Everything lands under the work directory:
     ├── dist_peak.png
     ├── dist_throttle.png
     ├── timeline_throttle.png
-    └── timeline_stall.png
+    └── timeline_network.png
 ```
 
 Re-running `fetch_prow_metrics.py` **resumes**: complete jobs are skipped and partial
@@ -85,6 +85,17 @@ excluded.
 | `prow:job:resource_limits_memory_bytes` | configured k8s memory limit |
 | `container_pressure_cpu_waiting_seconds_total` | seconds **≥1** thread waited for CPU (PSI "some"); high ⇒ CPU-hungry |
 | `container_pressure_cpu_stalled_seconds_total` | seconds **all** threads waited for CPU (PSI "full"); stalled ≤ waiting |
+| `container_network_receive_bytes_total` | cumulative bytes received (network **in**); pod-scoped, `eth0` only, attributed per build via the job's prow:job pods |
+| `container_network_transmit_bytes_total` | cumulative bytes transmitted (network **out**); pod-scoped, `eth0` only, attributed per build via the job's prow:job pods |
+
+The two network metrics are **opt-in** (`--network`) and off by default. Unlike the other metrics
+(pre-aggregated `prow:job:*` recording rules), network comes from raw cAdvisor counters that must be
+scanned and joined per pod at query time — many heavy queries per job that stress the shared prow
+proxy and make wide `--job-regex` batch pulls unstable (403/502/504). Enable it for **targeted
+single-job pulls**; leave it off for batches. When on it is **best-effort**: if the network queries
+fail, the job still writes its cpu/mem data (and retries harder per request — see `--network-retries`,
+default 8 vs 5 elsewhere). Without `--network`, no `net_*` series are written and the
+`timeline_network.png` plot is skipped.
 
 CPU "cores" = CPU-seconds of work per wall-second (a rate). Build nodes have ~7 usable
 cores, so a 7-core request packs one build per node; cutting it toward 3–4 lets two share
@@ -135,3 +146,17 @@ seconds (PSI "full"). Four panels:
 
 e2e jobs typically show two demand peaks with an idle valley between (cluster bring-up,
 then test execution), which is why their average is low even when peaks are high.
+
+### `timeline_network.png` — when does network I/O happen?
+The same 4-panel, minutes-into-build layout as `timeline_throttle.png`, but for network
+throughput instead of CPU. Network **in** (receive) takes the role of CPU cores and network
+**out** (transmit) the role of CPU pressure. Throughput per 30s interval is
+Δbytes / Δt in **MiB/s** (counter resets from a restarted pod are dropped).
+
+1. network in  — faint per-build cloud + median/p90/max **envelopes across builds**;
+2. network out — same population view;
+3. network in  — a few **concrete sample builds** (red/green/blue, the throttle palette);
+4. network out — the same sample builds.
+
+Image-build and e2e jobs show a receive spike early (pulling base images, Go modules,
+kind node images) that maps to the compile/setup phase.

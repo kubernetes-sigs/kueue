@@ -40,12 +40,17 @@ The work directory also holds fetch.log (append-only run log) and, when a batch 
 failures, failed_jobs.txt. Re-running resumes: complete jobs are skipped, partial job
 folders are cleaned and refetched, so only the gaps are downloaded.
 
+Network in/out is opt-in via --network (off by default): it uses heavy raw-cAdvisor queries that
+are fine for a targeted single-job pull but destabilize wide --job-regex batches, so batches should
+leave it off. It is best-effort — a network failure never fails the job's cpu/mem fetch.
+
 Examples:
   ./fetch_prow_metrics.py --job pull-kueue-test-e2e-baseline-main-1-34 --step 30s --days 30
+  ./fetch_prow_metrics.py --job pull-kueue-test-e2e-baseline-main-1-34 --days 14 --network  # + network
   ./fetch_prow_metrics.py --job-regex '^pull-.*-main' --list-jobs        # preview only
-  ./fetch_prow_metrics.py --job-regex '^periodic-' --days 14 --step 60s  # fetch all periodics
+  ./fetch_prow_metrics.py --job-regex '^periodic-' --days 14 --step 60s  # fetch all periodics (no network)
 """
-import argparse, csv, json, os, re, shutil, statistics, sys, threading, time, urllib.parse, urllib.request
+import argparse, collections, csv, json, os, re, shutil, statistics, sys, threading, time, urllib.parse, urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # --- prow Grafana / Prometheus backend (see 12750/grafana.md) ---
@@ -54,6 +59,93 @@ DS_UID = "PA553F4D380FC2FA5"                       # "Prometheus Main" datasourc
 BASE = f"{HOST}/api/datasources/proxy/uid/{DS_UID}/api/v1"
 MAX_POINTS = 11000                                 # Prometheus per-series range cap
 MIN_CHUNK_S = 3600                                 # don't split a 504'd query window below 1h
+INITIAL_CHUNK_S = 4 * 3600                         # adaptive chunk starting point (see _AdaptiveChunk)
+NET_POD_BATCH = 50                                 # pods per network query (bounds cost + URL length)
+
+
+class _AdaptiveChunk:
+    """Shared, thread-safe chunk-size estimate for query_range_chunked.
+
+    The proxy's real limit is load-dependent, not just point count, so probing top-down
+    from the point-cap size causes repeated 504-and-split churn (see collect_stats.sh
+    logs splitting 90h->45h->22h->11h->5h on every run). Instead start small and grow:
+    each success doubles the estimate (capped at the point-cap size), each 504 halves it.
+    Shared across worker threads because a 504 reflects proxy-wide state, not a
+    per-job property.
+    """
+
+    def __init__(self, initial_s):
+        self._value = initial_s
+        self._lock = threading.Lock()
+
+    def get(self, cap_s):
+        with self._lock:
+            return min(self._value, cap_s)
+
+    def grow(self, cap_s):
+        with self._lock:
+            self._value = min(self._value * 2, cap_s)
+
+    def shrink(self, size_s):
+        with self._lock:
+            self._value = min(self._value, max(size_s, MIN_CHUNK_S))
+
+
+_adaptive_chunk = _AdaptiveChunk(INITIAL_CHUNK_S)
+
+
+# --- diagnostics: mirror HTTP retry/failure lines into fetch.log and tally them for the summary ---
+_log_lock = threading.Lock()      # guards the run log; shared by _emit and run_batch's logb
+_log_file = None                  # set by run_batch to the open fetch.log; None before/after a run
+
+
+def _emit(msg):
+    """Print a diagnostic line to stderr and, once run_batch has attached the run log, mirror it
+    there too (thread-safe — http_get runs in worker threads). Before the log is attached (e.g. the
+    list_jobs discovery call) it just goes to stderr, exactly as before."""
+    print(msg, file=sys.stderr)
+    with _log_lock:
+        if _log_file is not None:
+            _log_file.write(msg + "\n")
+            _log_file.flush()
+
+
+class _ReqStats:
+    """Thread-safe tally of HTTP activity for the run summary, so overload (5xx) is distinguishable
+    from throttling (403/429) at a glance: total requests, plus retries and give-ups bucketed by
+    status code. Process-global; a fresh process starts at zero, so no reset is needed."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self.requests = 0
+        self.retries = collections.Counter()
+        self.gaveups = collections.Counter()
+
+    def request(self):
+        with self._lock:
+            self.requests += 1
+
+    def retry(self, bucket):
+        with self._lock:
+            self.retries[bucket] += 1
+
+    def gave_up(self, bucket):
+        with self._lock:
+            self.gaveups[bucket] += 1
+
+    def summary(self):
+        with self._lock:
+            parts = [f"{self.requests} requests"]
+            if self.retries:
+                detail = ", ".join(f"{n}x {b}" for b, n in self.retries.most_common())
+                parts.append(f"{sum(self.retries.values())} retries ({detail})")
+            if self.gaveups:
+                detail = ", ".join(f"{n}x {b}" for b, n in self.gaveups.most_common())
+                parts.append(f"{sum(self.gaveups.values())} gave up ({detail})")
+            return "; ".join(parts)
+
+
+_req_stats = _ReqStats()
 
 # metric key -> recording rule (already carry the id/phase labels)
 METRICS = {
@@ -78,6 +170,20 @@ JOINED_METRICS = {
     # OOM-kill counter: a build whose value increases hit its memory limit, so its peak
     # sits at the ceiling and must be excluded from the memory recommendation.
     "oom_events":            "container_oom_events_total",
+}
+# Network counters (cumulative bytes). cAdvisor reports network only at pod scope (there is no
+# per-container "test" series) and the raw metric carries no prow labels (org/repo/name/id), so it
+# cannot be narrowed to one job up front. Rather than select fleet-wide and attach the build id
+# with a PromQL group_left join — which scans every pod's series and 502/504s on wide windows — we
+# push the filter down to pods: job_pod_index() reads prow:job (the only series carrying both
+# (namespace,pod) and the build id) to learn this job's pods, then fetch_network_by_pod() selects
+# the counter for exactly those pods (batched) and attaches the build id in Python. We restrict to
+# interface="eth0", the pod's primary external interface, to measure real ingress/egress (image
+# pulls, module downloads) rather than internal kind/DinD bridge (br-*) traffic.
+# rate() of these in plot.py gives receive ("in") / transmit ("out") throughput.
+NET_METRICS = {
+    "net_rx_bytes": "container_network_receive_bytes_total",
+    "net_tx_bytes": "container_network_transmit_bytes_total",
 }
 GIB = 1024 ** 3
 
@@ -108,63 +214,109 @@ def parse_time(s, now):
     raise ValueError(f"cannot parse time: {s!r}")
 
 
+RETRYABLE_HTTP = frozenset({403, 429, 500, 502, 503})
+
+
 def http_get(path, params, retries=5):
     """GET with exponential backoff on transient errors (403 rate-limit, 5xx, timeouts).
     The anonymous prow proxy throttles sustained querying with 403s; a short wait clears it.
     504 (Gateway Timeout) is NOT retried here — it means the query is too expensive for the
-    proxy, so it is raised for query_range_chunked to react to by splitting the time window."""
+    proxy, so it is raised for query_range_chunked to react to by splitting the time window.
+    Retry and give-up messages print the full request URL so the failing call can be copied and
+    curl'd directly; the URL's query embeds the job name (e.g. name="pull-...") and metric."""
     url = f"{BASE}/{path}?" + urllib.parse.urlencode(params)
     for attempt in range(retries):
+        _req_stats.request()
         try:
             with urllib.request.urlopen(url, timeout=90) as r:
                 return json.load(r)
         except urllib.error.HTTPError as e:
-            if e.code not in (403, 429, 500, 502, 503) or attempt == retries - 1:
+            reason, bucket = f"HTTP {e.code} {e.reason}", f"HTTP {e.code}"
+            if e.code not in RETRYABLE_HTTP or attempt == retries - 1:
+                if e.code in RETRYABLE_HTTP:  # exhausted retries on a transient code
+                    _req_stats.gave_up(bucket)
+                    _emit(f"  gave up after {attempt+1} attempt(s): {reason}\n    URL: {url}")
                 raise
-            reason = f"HTTP {e.code} {e.reason}"
         except (urllib.error.URLError, TimeoutError) as e:
-            if attempt == retries - 1:
-                raise
             reason = str(getattr(e, "reason", "") or e) or type(e).__name__
-        wait = 5 * (2 ** attempt)  # 5,10,20,40,80s
-        print(f"  retry {attempt+1}/{retries} after {wait}s ({reason})", file=sys.stderr)
+            bucket = type(e).__name__
+            if attempt == retries - 1:
+                _req_stats.gave_up(bucket)
+                _emit(f"  gave up after {attempt+1} attempt(s): {reason}\n    URL: {url}")
+                raise
+        wait = min(5 * (2 ** attempt), 120)  # 5,10,20,40,80,120,120... capped so high retry counts stay sane
+        _req_stats.retry(bucket)
+        _emit(f"  retry {attempt+1}/{retries} after {wait}s ({reason})\n    URL: {url}")
         time.sleep(wait)
 
 
-def query_range_chunked(expr, start, end, step):
-    """Run query_range in <=MAX_POINTS windows; return merged {id: {ts: val}}.
-    A window whose query is too expensive for the proxy (504 Gateway Timeout) is split in
-    half and retried, recursively down to MIN_CHUNK_S, so heavy joins still complete as
-    several lighter queries rather than failing the whole fetch."""
+def _series_id(metric):
+    """Default merge key for query_range_chunked: the build id carried by prow:job-based series."""
+    return metric.get("id", "?")
+
+
+def query_range_chunked(expr, start, end, step, key=_series_id, retries=5):
+    """Run query_range in windows sized by the shared adaptive chunk estimate (see
+    _AdaptiveChunk), capped at <=MAX_POINTS worth of samples; return merged {key: {ts: val}}.
+    Series are grouped by `key(metric_labels)` (default the build id); the network path passes a
+    (namespace,pod) key because its series carry no id label. A window whose query is too expensive
+    for the proxy (504 Gateway Timeout) is split in half and retried, recursively down to
+    MIN_CHUNK_S, so heavy joins still complete as several lighter queries rather than failing the
+    whole fetch. `retries` is the per-request transient-error retry budget (network passes a higher
+    value — see --network-retries — because its raw-cAdvisor queries hit the proxy hardest)."""
     merged = {}
-    chunk = (MAX_POINTS - 100) * step
+    cap_s = (MAX_POINTS - 100) * step
     s = start
     while s < end:
-        e = min(s + chunk, end)
-        _fetch_window(expr, s, e, step, merged)
+        e = min(s + _adaptive_chunk.get(cap_s), end)
+        _fetch_window(expr, s, e, step, merged, cap_s, key, retries)
         s = e
     return merged
 
 
-def _fetch_window(expr, s, e, step, merged):
-    """Fetch [s, e] into `merged`; on a 504 (query too expensive for the proxy) split the
-    window in half and recurse."""
+def _splittable(err):
+    """Whether an HTTPError from query_range should be handled by narrowing the time window
+    rather than failing. Two cases, both resolved by a smaller query:
+      504 Gateway Timeout — the query took too long for the proxy;
+      422 with a sample-limit message — the series x points loaded exceeds Prometheus's
+        `query.max-samples`. A wide per-pod network window can trip this even though the CPU
+        joins (one series per pod) do not, so it must degrade to smaller windows, not abort.
+    A 422 that is NOT the sample limit (e.g. a genuinely malformed expression) is not
+    splittable and is re-raised so the real error surfaces."""
+    if err.code == 504:
+        return True
+    if err.code == 422:
+        try:
+            body = err.read().decode("utf-8", "replace")
+        except Exception:
+            body = ""
+        return "sample" in body.lower()
+    return False
+
+
+def _fetch_window(expr, s, e, step, merged, cap_s, key=_series_id, retries=5):
+    """Fetch [s, e] into `merged`; on a proxy-side query-too-big error (see _splittable) split
+    the window in half and recurse. Successes grow the shared adaptive chunk estimate;
+    splits shrink it, so later windows and other jobs start from a size that's likely to work.
+    `retries` is forwarded to http_get for transient-error backoff (network uses a higher budget)."""
     try:
-        res = http_get("query_range", {"query": expr, "start": s, "end": e, "step": step})
+        res = http_get("query_range", {"query": expr, "start": s, "end": e, "step": step}, retries=retries)
     except urllib.error.HTTPError as err:
-        if err.code == 504 and (e - s) > MIN_CHUNK_S:
+        if _splittable(err) and (e - s) > MIN_CHUNK_S:
             mid = (s + e) // 2
-            print(f"  HTTP 504 on {(e - s) // 3600}h window; splitting in half", file=sys.stderr)
-            _fetch_window(expr, s, mid, step, merged)
-            _fetch_window(expr, mid, e, step, merged)
+            _emit(f"  HTTP {err.code} on {(e - s) // 3600}h window; splitting in half")
+            _adaptive_chunk.shrink(mid - s)
+            _fetch_window(expr, s, mid, step, merged, cap_s, key, retries)
+            _fetch_window(expr, mid, e, step, merged, cap_s, key, retries)
             return
         raise
     if res.get("status") != "success":
-        print(f"  WARN window [{s},{e}] failed: {res.get('error')}", file=sys.stderr)
+        _emit(f"  WARN window [{s},{e}] failed: {res.get('error')}")
         return
+    _adaptive_chunk.grow(cap_s)
     for ser in res["data"]["result"]:
-        bid = ser["metric"].get("id", "?")
-        d = merged.setdefault(bid, {})
+        gid = key(ser["metric"])
+        d = merged.setdefault(gid, {})
         for t, v in ser["values"]:
             d[float(t)] = float(v)
 
@@ -182,6 +334,60 @@ def list_jobs(org, repo, start, end):
     sel = f'prow:job{{org="{org}",repo="{repo}"}}'
     res = http_get("series", {"match[]": sel, "start": start, "end": end})
     return sorted({s.get("name") for s in res.get("data", []) if s.get("name")})
+
+
+def job_pod_index(org, repo, job, phase, start, end):
+    """Map (namespace,pod) -> build id for a job's builds, from the prow:job series index.
+    prow:job is the only series carrying both placement (namespace,pod) and the build id, so it is
+    the index that lets pod-scoped cAdvisor metrics (network) be attributed back to a build without
+    a PromQL join. Cheap: hits the series endpoint (label sets only, no samples)."""
+    sel = f'prow:job{{org="{org}",repo="{repo}",name="{job}",phase="{phase}"}}'
+    res = http_get("series", {"match[]": sel, "start": start, "end": end})
+    index = {}
+    for s in res.get("data", []):
+        ns, pod, bid = s.get("namespace"), s.get("pod"), s.get("id")
+        if ns and pod and bid:
+            index[(ns, pod)] = bid
+    return index
+
+
+_RE2_META = re.compile(r'([.+*?()|\[\]{}^$\\])')
+
+
+def _re2_alt(names):
+    """RE2 alternation of exact names for a PromQL `pod=~` matcher, meant to sit inside a backtick
+    raw-string literal so PromQL does no escape processing (a double-quoted literal rejects the
+    `\\-` that re.escape emits for hyphenated pod names). PromQL matchers are fully anchored, so the
+    alternation matches each name exactly; metacharacters that can appear in a k8s name (e.g. '.')
+    are backslash-escaped for RE2."""
+    return "|".join(_RE2_META.sub(r'\\\1', n) for n in names)
+
+
+def fetch_network_by_pod(cadv, index, start, end, step, retries=8):
+    """Fetch a pod-scoped cAdvisor counter for exactly a job's build pods, keyed by build id.
+    Pushes a (namespace,pod) matcher into the selector so Prometheus prunes at selection time
+    instead of loading every pod's series fleet-wide and joining prow:job after (the join 502/504s
+    on wide windows). Pods are queried in NET_POD_BATCH-sized batches to bound query cost and URL
+    length; the build id is attached from `index`, so no PromQL join is needed. `retries` is passed
+    through to each request: these raw-cAdvisor queries are the heaviest and stress the shared proxy
+    most, so network retries harder than the recording-rule metrics (see --network-retries)."""
+    pods_by_ns = {}
+    for ns, pod in index:
+        pods_by_ns.setdefault(ns, []).append(pod)
+    by_id = {}
+    for ns, pods in pods_by_ns.items():
+        for i in range(0, len(pods), NET_POD_BATCH):
+            pod_re = _re2_alt(pods[i:i + NET_POD_BATCH])
+            expr = (f'sum by (namespace,pod)('
+                    f'{cadv}{{interface="eth0",namespace="{ns}",pod=~`{pod_re}`}})')
+            merged = query_range_chunked(expr, start, end, step,
+                                         key=lambda m: (m.get("namespace"), m.get("pod")),
+                                         retries=retries)
+            for nspod, pts in merged.items():
+                bid = index.get(nspod)
+                if bid is not None:
+                    by_id.setdefault(bid, {}).update(pts)
+    return by_id
 
 
 def main():
@@ -226,6 +432,15 @@ def main():
     ap.add_argument("--retries", type=int, default=0, metavar="N",
                     help="after the batch, retry still-failed jobs up to N more passes "
                          "(default 0). Complements the per-request backoff in http_get.")
+    ap.add_argument("--network", action="store_true",
+                    help="also fetch per-build network in/out (eth0). Off by default: these are raw "
+                         "cAdvisor queries that stress the shared proxy far more than the recording-rule "
+                         "metrics, so they are unsuitable for wide --job-regex batch pulls. Enable for "
+                         "targeted single-job pulls. Network is best-effort: if it fails, the job still "
+                         "writes its cpu/mem data.")
+    ap.add_argument("--network-retries", type=int, default=8, metavar="N",
+                    help="per-request transient-error retry budget for the heavier network queries "
+                         "(default 8; the recording-rule metrics use 5). Only used with --network.")
     ap.add_argument("--force", action="store_true",
                     help="re-fetch even jobs whose output folder is already complete; "
                          "by default completed jobs are skipped, so re-running only fills gaps.")
@@ -333,13 +548,16 @@ def run_batch(jobs, start, end, step, args):
     """Fetch every job into the work dir: skip completed jobs, clean partial folders,
     log progress to <work>/fetch.log, retry failures, and record leftovers in
     <work>/failed_jobs.txt."""
+    global _log_file
     args._range_days = (end - start) / 86400
     os.makedirs(args.out_dir, exist_ok=True)
     with open(os.path.join(args.out_dir, "fetch.log"), "a") as logf:
         def logb(msg=""):
             print(msg)
-            logf.write(msg + "\n")
-            logf.flush()
+            with _log_lock:                    # shared with _emit so log writes don't interleave
+                logf.write(msg + "\n")
+                logf.flush()
+        _log_file = logf                       # mirror http_get retry/failure lines into this run's log
 
         logb(f"\n===== run {time.strftime('%Y-%m-%d %H:%M:%S')} — {len(jobs)} job(s), "
              f"{round(args._range_days)}d/{step}s, concurrency {args.concurrency} =====")
@@ -361,6 +579,7 @@ def run_batch(jobs, start, end, step, args):
 
         if not pending:
             logb("nothing to fetch.")
+            _log_file = None
             return
 
         verbose = len(jobs) == 1 and args.concurrency == 1
@@ -389,6 +608,9 @@ def run_batch(jobs, start, end, step, args):
                 logb(f"  failed: {j}")
             if failed:
                 logb(f"  (listed in {failed_path}; rerun the same command to fetch them)")
+
+        logb(f"HTTP activity: {_req_stats.summary()}")  # requests + retries/give-ups by status
+        _log_file = None
 
 
 def fetch_one(job, start, end, step, args, verbose=True):
@@ -420,6 +642,23 @@ def fetch_one(job, start, end, step, args, verbose=True):
                 f'group_left(id) max by (namespace,pod,id)(prow:job{sel}))')
         data[key] = query_range_chunked(expr, start, end, step)
         log(f"  {key:20} {len(data[key])} builds")
+    # network counters (see NET_METRICS): opt-in (--network) and best-effort. Resolved per build by
+    # pod pushdown, not a PromQL join: job_pod_index gives this job's pods (and their build ids) from
+    # prow:job, then fetch_network_by_pod selects the counter for exactly those pods and attaches the
+    # build id in Python — avoiding the fleet-wide scan + group_left join that returned 502/504 on
+    # wide windows. These raw-cAdvisor queries are the heaviest, so they are off by default (unfit for
+    # wide batches) and, when on, never fail the job: on error we drop any partial network data and
+    # keep the cpu/mem results.
+    if args.network:
+        try:
+            net_index = job_pod_index(args.org, args.repo, job, args.phase, start, end)
+            for key, cadv in NET_METRICS.items():
+                data[key] = fetch_network_by_pod(cadv, net_index, start, end, step, args.network_retries)
+                log(f"  {key:20} {len(data[key])} builds")
+        except Exception as err:
+            for key in NET_METRICS:                     # all-or-nothing: don't leave one series behind
+                data.pop(key, None)
+            log(f"  network: skipped after error ({err}); keeping cpu/mem metrics")
 
     # --- clean: drop cancelled/superseded builds (never reached a terminal phase) ---
     all_ids = set().union(*(set(v) for v in data.values())) if data else set()
