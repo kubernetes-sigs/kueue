@@ -119,8 +119,12 @@ func (s *stickyWorkload) matches(workload workload.Reference) bool {
 // comparison in that sort observes the same sticky workload. See Kueue#12740.
 func (s *stickyWorkload) matcher() func(workload.Reference) bool {
 	name := s.workloadName.Load()
+	if name == nil {
+		return func(workload.Reference) bool { return false }
+	}
+	captured := *name
 	return func(key workload.Reference) bool {
-		return name != nil && *name == key
+		return captured == key
 	}
 }
 
