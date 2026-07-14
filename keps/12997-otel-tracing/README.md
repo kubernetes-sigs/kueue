@@ -16,6 +16,9 @@
   - [Instrumented spans](#instrumented-spans)
   - [Workload-lifecycle traces](#workload-lifecycle-traces)
   - [Test Plan](#test-plan)
+    - [Unit tests](#unit-tests)
+    - [Integration tests](#integration-tests)
+    - [e2e tests](#e2e-tests)
   - [Graduation Criteria](#graduation-criteria)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
@@ -79,6 +82,13 @@ reconciles over time, which does not map onto a single request-scoped context
 the way kubelet's per-CRI-call traces do. See
 [Workload-lifecycle traces](#workload-lifecycle-traces) for the phased approach.
 
+Configuration is **cluster-scoped only**. The `Tracing` block is set by the
+cluster admin on the Kueue `Configuration`; this proposal adds no per-object
+(Workload/Queue) API to control tracing. A per-object opt-in / sampling API
+could be added later (see [Alternatives](#alternatives)) but is intentionally
+out of scope for alpha — it enlarges the API surface and would introduce a
+user-facing trigger for span emission (see the security note below).
+
 ### Risks and Mitigations
 
 - **Overhead / cardinality:** sampling is controlled via
@@ -124,8 +134,20 @@ Two phases:
 1. **Alpha (MVP):** per-reconcile / per-cycle spans only, no cross-reconcile
    correlation. Immediately useful for latency debugging and low risk.
 2. **Later:** stitch a single trace across a workload's lifecycle by persisting
-   span context on the Workload (annotation), so submission → admission is one
-   trace. Larger design/review surface; gated separately.
+   the trace/span context on the Workload in a **controller-written**
+   annotation (e.g. `kueue.x-k8s.io/trace-context`, holding a W3C
+   `traceparent`). Kueue generates this context itself at admission; it is
+   **not** a user-supplied opt-in signal, and Kueue does not trace a workload
+   merely because a user set an annotation.
+
+   **Security / DoS:** because the annotation is written by Kueue rather than
+   honored from user input, and sampling stays governed server-side by
+   `samplingRatePerMillion` plus the feature gate, users cannot force or
+   amplify span emission — so this is not a DoS vector. If a future revision
+   chose to honor a user-provided trace context (e.g. to link with an external
+   submitter's trace), it must remain subject to the same server-side sampling
+   cap and validation to preserve this property. Larger design/review surface;
+   gated separately.
 
 ### Test Plan
 
@@ -170,6 +192,12 @@ libraries.
   path.
 - **Custom tracing config instead of `component-base/tracing`:** diverges from
   the established kubelet/apiserver UX for no benefit.
+- **Per-object tracing API (deferred):** a field on Workload / LocalQueue /
+  ClusterQueue to opt in or set per-object sampling. Deferred: it enlarges the
+  API surface and creates a user-controlled path to emit spans (see the
+  security note under [Workload-lifecycle traces](#workload-lifecycle-traces));
+  the cluster-scoped config covers the alpha use cases. Can be revisited if
+  operators need finer-grained control.
 
 Prior art in Kueue: @vladikkuzn's draft tracing experiment in #10818 explored
 this direction; this KEP formalizes it. Related: #8848 (OTLP metrics export) is a
