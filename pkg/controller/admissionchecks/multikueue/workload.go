@@ -613,8 +613,16 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			return reconcile.Result{}, err
 		}
 
+		// Detect the transition into the admitted state before syncAdmittingRemoteState
+		// flips the admission check to Ready, so the counter is incremented only once
+		// per admission rather than on every subsequent reconcile.
+		newlyAdmitted := acs.State != kueue.CheckStateReady
+
 		if err := w.syncAdmittingRemoteState(ctx, group, admittingRemote, acs); err != nil {
 			return reconcile.Result{}, err
+		}
+		if newlyAdmitted {
+			metrics.ReportMultiKueueWorkloadAdmitted(admittedClusterQueue(group.local), admittingRemote, w.roleTracker)
 		}
 		requeueAfter := w.workerLostTimeout
 		if syncDeferred {
