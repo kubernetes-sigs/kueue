@@ -24,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -63,11 +64,12 @@ func (j *KubeflowJob) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []pods
 	}
 	// The node selectors are provided in the same order as the generated list of
 	// podSets, use the same ordering logic to restore them.
+	log := ctrl.LoggerFrom(ctx)
 	for index := range podSetsInfo {
 		replicaType := orderedReplicaTypes[index]
 		info := podSetsInfo[index]
 		replica := &j.KFJobControl.ReplicaSpecs()[replicaType].Template
-		if err := podset.Merge(ctx, &replica.ObjectMeta, &replica.Spec, info); err != nil {
+		if err := podset.Merge(log, &replica.ObjectMeta, &replica.Spec, info); err != nil {
 			return err
 		}
 	}

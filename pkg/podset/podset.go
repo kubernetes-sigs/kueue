@@ -23,12 +23,12 @@ import (
 	"maps"
 	"slices"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/ptr"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -169,7 +169,7 @@ var kueueManagedAnnotations = []string{
 
 // Merge updates or appends the replica metadata & spec fields based on PodSetInfo.
 // It returns error if there is a conflict.
-func Merge(ctx context.Context, meta *metav1.ObjectMeta, spec *corev1.PodSpec, info PodSetInfo) error {
+func Merge(log logr.Logger, meta *metav1.ObjectMeta, spec *corev1.PodSpec, info PodSetInfo) error {
 	for _, key := range kueueManagedAnnotations {
 		newValue, found := info.Annotations[key]
 		if !found {
@@ -179,7 +179,7 @@ func Merge(ctx context.Context, meta *metav1.ObjectMeta, spec *corev1.PodSpec, i
 			// A leftover value from a previous admission is anomalous, e.g. the
 			// previous Workload was deleted manually and the replacement got a
 			// different name.
-			ctrl.LoggerFrom(ctx).Info("Overwriting stale Kueue-managed annotation on the pod template",
+			log.Info("Overwriting stale Kueue-managed annotation on the pod template",
 				"annotation", key, "oldValue", oldValue, "newValue", newValue)
 			delete(meta.Annotations, key)
 		}

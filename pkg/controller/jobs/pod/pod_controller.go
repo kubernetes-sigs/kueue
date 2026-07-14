@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -268,7 +269,7 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 		}
 
 		if err := clientutil.Patch(ctx, c, &p.pod, func() (bool, error) {
-			return true, prepare(ctx, &p.pod, podSetsInfo[0])
+			return true, prepare(log, &p.pod, podSetsInfo[0])
 		}); err != nil {
 			return err
 		}
@@ -300,7 +301,7 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 				return false, fmt.Errorf("%w: podSetInfo with the name '%s' is not found", podset.ErrInvalidPodsetInfo, roleHash)
 			}
 
-			err = prepare(ctx, pod, podSetsInfo[podSetIndex])
+			err = prepare(log, pod, podSetsInfo[podSetIndex])
 			if err != nil {
 				return false, err
 			}
@@ -1489,8 +1490,8 @@ func isGated(pod *corev1.Pod) bool {
 	return utilpod.HasGate(pod, podconstants.SchedulingGateName)
 }
 
-func prepare(ctx context.Context, pod *corev1.Pod, info podset.PodSetInfo) error {
-	if err := podset.Merge(ctx, &pod.ObjectMeta, &pod.Spec, info); err != nil {
+func prepare(log logr.Logger, pod *corev1.Pod, info podset.PodSetInfo) error {
+	if err := podset.Merge(log, &pod.ObjectMeta, &pod.Spec, info); err != nil {
 		return err
 	}
 	utilpod.Ungate(pod, podconstants.SchedulingGateName)

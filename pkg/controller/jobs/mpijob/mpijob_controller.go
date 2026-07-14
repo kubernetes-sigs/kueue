@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -141,11 +142,12 @@ func (j *MPIJob) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.Po
 
 	// The node selectors are provided in the same order as the generated list of
 	// podSets, use the same ordering logic to restore them.
+	log := ctrl.LoggerFrom(ctx)
 	for index := range podSetsInfo {
 		replicaType := orderedReplicaTypes[index]
 		info := podSetsInfo[index]
 		replica := &j.Spec.MPIReplicaSpecs[replicaType].Template
-		if err := podset.Merge(ctx, &replica.ObjectMeta, &replica.Spec, info); err != nil {
+		if err := podset.Merge(log, &replica.ObjectMeta, &replica.Spec, info); err != nil {
 			return err
 		}
 	}
