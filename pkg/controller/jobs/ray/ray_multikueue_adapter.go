@@ -67,6 +67,12 @@ type adapter[PtrT objAsPtr[T], T any] struct {
 // replicas belong to a child RayCluster on the worker cluster that has no
 // representation on the manager, so they keep the create-once behavior and
 // leave this unset.
+//
+// Scope: detection compares the effective per-group pod count (WorkerReplicas)
+// of worker groups that exist on both the manager and the remote. Changes that
+// keep the count equal but reshape its inputs (e.g. replicas vs. NumOfHosts for
+// RayCluster), and worker groups present only on the manager, are out of scope:
+// the PodSet count is what Kueue admits, so only the effective count matters.
 type ElasticReplicaSync[PtrT objAsPtr[T], T any] struct {
 	// SyncReplicas copies the worker replica counts from src into dst, returning
 	// whether dst changed.

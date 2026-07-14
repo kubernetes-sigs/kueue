@@ -57,6 +57,21 @@ const (
 	RayClusterGenerationAnnotation = "kueue.x-k8s.io/raycluster-generation"
 )
 
+// effectiveWorkerCount returns the effective worker pod count for a worker
+// group: Replicas scaled by NumOfHosts, with Replicas defaulting to 1 when
+// unset. BuildPodSets, UpdatePodSets, and the MultiKueue elastic replica sync
+// all call this so the per-group count derivation stays in one place.
+func effectiveWorkerCount(wgs *rayv1.WorkerGroupSpec) int32 {
+	count := int32(1)
+	if wgs.Replicas != nil {
+		count = *wgs.Replicas
+	}
+	if wgs.NumOfHosts > 1 {
+		count *= wgs.NumOfHosts
+	}
+	return count
+}
+
 // BuildPodSets builds PodSets from RayClusterSpec.
 func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec, annotations map[string]string) ([]kueue.PodSet, error) {
 	podSets := make([]kueue.PodSet, 0)
@@ -94,17 +109,10 @@ func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec, annotations map[string]s
 	// workers
 	for index := range rayClusterSpec.WorkerGroupSpecs {
 		wgs := &rayClusterSpec.WorkerGroupSpecs[index]
-		count := int32(1)
-		if wgs.Replicas != nil {
-			count = *wgs.Replicas
-		}
-		if wgs.NumOfHosts > 1 {
-			count *= wgs.NumOfHosts
-		}
 		workerPodSet := kueue.PodSet{
 			Name:     kueue.NewPodSetReference(wgs.GroupName),
 			Template: *wgs.Template.DeepCopy(),
-			Count:    count,
+			Count:    effectiveWorkerCount(wgs),
 		}
 		if features.Enabled(features.TopologyAwareScheduling) {
 			topologyRequest, err := jobframework.NewPodSetTopologyRequest(&wgs.Template.ObjectMeta).Build()
@@ -223,11 +231,7 @@ func UpdatePodSets(ctx context.Context, podSets []kueue.PodSet, c client.Client,
 						continue
 					}
 
-					// Calculate the count based on RayCluster's worker group replicas
-					count := *wgs.Replicas
-					if wgs.NumOfHosts > 1 {
-						count *= wgs.NumOfHosts
-					}
+					count := effectiveWorkerCount(wgs)
 
 					// Update the count in the PodSet only if it's different
 					if podSet.Count != count {

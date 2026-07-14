@@ -68,14 +68,7 @@ func workerReplicaCounts(rc *rayv1.RayCluster) map[kueue.PodSetReference]int32 {
 	counts := make(map[kueue.PodSetReference]int32, len(rc.Spec.WorkerGroupSpecs))
 	for i := range rc.Spec.WorkerGroupSpecs {
 		wgs := &rc.Spec.WorkerGroupSpecs[i]
-		count := int32(1)
-		if wgs.Replicas != nil {
-			count = *wgs.Replicas
-		}
-		if wgs.NumOfHosts > 1 {
-			count *= wgs.NumOfHosts
-		}
-		counts[kueue.NewPodSetReference(wgs.GroupName)] = count
+		counts[kueue.NewPodSetReference(wgs.GroupName)] = effectiveWorkerCount(wgs)
 	}
 	return counts
 }
@@ -96,6 +89,14 @@ func syncWorkerReplicas(dst, src *rayv1.RayCluster) bool {
 		srcSizes[wgs.GroupName] = groupSize{replicas: wgs.Replicas, numOfHosts: wgs.NumOfHosts}
 	}
 	changed := false
+	// Re-assert that the remote autoscaler stays off. copyJobSpec clears this
+	// at create time; re-asserting here keeps the "manager owns replicas"
+	// invariant reconciled, since the elastic sync path patches the remote in
+	// place rather than re-copying the full spec.
+	if dst.Spec.EnableInTreeAutoscaling != nil {
+		dst.Spec.EnableInTreeAutoscaling = nil
+		changed = true
+	}
 	for i := range dst.Spec.WorkerGroupSpecs {
 		wgs := &dst.Spec.WorkerGroupSpecs[i]
 		want, ok := srcSizes[wgs.GroupName]
