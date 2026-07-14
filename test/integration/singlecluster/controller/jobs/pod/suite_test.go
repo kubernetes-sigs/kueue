@@ -97,7 +97,7 @@ func managerSetup(
 		err = pod.SetupIndexes(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		cCache := schdcache.New(mgr.GetClient())
+		cCache := schdcache.New(mgr.GetClient(), schdcache.NewDefaultSimulator())
 		opts = append(opts, jobframework.WithCache(cCache))
 
 		podReconciler, err := pod.NewReconciler(

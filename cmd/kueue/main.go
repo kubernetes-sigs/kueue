@@ -338,7 +338,7 @@ func main() {
 		queueOptions = append(queueOptions, qcache.WithAdmissionFairSharing(cfg.AdmissionFairSharing))
 		cacheOptions = append(cacheOptions, schdcache.WithAdmissionFairSharing(cfg.AdmissionFairSharing))
 	}
-	cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
+	cCache := schdcache.New(mgr.GetClient(), schdcache.NewDefaultSimulator(), cacheOptions...)
 
 	// setup inadmissible workload requeuer
 	requeuer := qcache.NewRequeuer()

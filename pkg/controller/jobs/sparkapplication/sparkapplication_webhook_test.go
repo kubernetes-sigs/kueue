@@ -172,7 +172,7 @@ func TestDefault(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			kClient := utiltesting.NewClientBuilder().WithObjects(testManagedNamespace.Obj()).Build()
-			cqCache := schdcache.New(kClient)
+			cqCache := schdcache.New(kClient, schdcache.NewDefaultSimulator())
 			queueManager := qcache.NewManagerForUnitTests(kClient, cqCache)
 
 			cq := testClusterQueue.Clone()

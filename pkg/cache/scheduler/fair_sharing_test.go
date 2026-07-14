@@ -788,7 +788,7 @@ func TestDominantResourceShare(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
-			cache := New(utiltesting.NewFakeClient())
+			cache := New(utiltesting.NewFakeClient(), NewDefaultSimulator())
 			cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
 			cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("on-demand").Obj())
 			cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("spot").Obj())
@@ -949,7 +949,7 @@ func TestIsBorrowingOn(t *testing.T) {
 				).Obj()
 
 			ctx, log := utiltesting.ContextWithLog(t)
-			cache := New(utiltesting.NewFakeClient())
+			cache := New(utiltesting.NewFakeClient(), NewDefaultSimulator())
 			cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
 			_ = cache.AddClusterQueue(ctx, cq)
 			_ = cache.AddClusterQueue(ctx, lendingCQ)

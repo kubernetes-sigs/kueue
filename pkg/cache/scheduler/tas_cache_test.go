@@ -7786,7 +7786,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
 			client := clientBuilder.Build()
 
-			tasCache := NewTASCache(client)
+			tasCache := NewTASCache(client, NewDefaultSimulator())
 			for i := range tc.nodes {
 				tasCache.SyncNode(&tc.nodes[i])
 			}
@@ -7821,7 +7821,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			if features.Enabled(features.TASHandleOverlappingFlavors) && tas.IsLowestLevelHostname(tasFlavorCache.topology.Levels) {
 				aggregatedDomainUsage = tc.aggregatedDomainUsages
 			}
-			snapshot := tasFlavorCache.snapshot(
+			snapshot, _ := tasFlavorCache.snapshot(
 				log,
 				tasCache.nodesCache.find(tasFlavorCache.flavor.NodeLabels, tasFlavorCache.topology.Levels),
 				aggregatedDomainUsage,
@@ -8261,7 +8261,7 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 			_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
 			c := clientBuilder.Build()
 
-			tasCache := NewTASCache(c)
+			tasCache := NewTASCache(c, NewDefaultSimulator())
 			for i := range tc.nodes {
 				tasCache.SyncNode(&tc.nodes[i])
 			}
@@ -8293,7 +8293,7 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 			if features.Enabled(features.TASHandleOverlappingFlavors) && tas.IsLowestLevelHostname(tasFlavorCache.topology.Levels) {
 				aggregatedDomainUsages = tc.aggregatedDomainUsages
 			}
-			snapshot := tasFlavorCache.snapshot(
+			snapshot, _ := tasFlavorCache.snapshot(
 				log,
 				tasCache.nodesCache.find(tasFlavorCache.flavor.NodeLabels, tasFlavorCache.topology.Levels),
 				aggregatedDomainUsages,

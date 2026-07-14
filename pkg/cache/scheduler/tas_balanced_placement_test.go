@@ -79,7 +79,7 @@ func TestSelectOptimalDomainSetToFit(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "dummy", []string{})
+			s := newTASFlavorSnapshot(log, "dummy", []string{}, nil, &defaultChecker{})
 			got := selectOptimalDomainSetToFit(s, tc.domains, tc.workerCount, tc.leaderCount, 1, true)
 			gotIDs := make([]string, len(got))
 			for i, d := range got {
@@ -107,7 +107,7 @@ func TestSelectOptimalDomainSetToFitStableTieBreak(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "dummy", []string{}, nil)
+			s := newTASFlavorSnapshot(log, "dummy", []string{}, nil, &defaultChecker{})
 			domains := []*domain{
 				{id: "leaf-a", levelValues: []string{"block-b", "host-a"}, state: 3, sliceState: 3, stateWithLeader: 3, sliceStateWithLeader: 3},
 				{id: "leaf-m", levelValues: []string{"block-b", "host-m"}, state: 3, sliceState: 3, stateWithLeader: 3, sliceStateWithLeader: 3},
@@ -224,7 +224,7 @@ func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			domains := make([]*domain, len(tc.domains))
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "dummy", []string{})
+			s := newTASFlavorSnapshot(log, "dummy", []string{}, nil, &defaultChecker{})
 			for i, d := range tc.domains {
 				clone := *d
 				domains[i] = &clone
@@ -247,7 +247,7 @@ func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
 
 func TestPlaceSlicesOnDomainsBalancedStableTieBreak(t *testing.T) {
 	_, log := utiltesting.ContextWithLog(t)
-	s := newTASFlavorSnapshot(log, "dummy", []string{}, nil)
+	s := newTASFlavorSnapshot(log, "dummy", []string{}, nil, &defaultChecker{})
 	domains := []*domain{
 		{id: "leaf-a", levelValues: []string{"block-b", "host-a"}, state: 3, sliceState: 3, stateWithLeader: 3, sliceStateWithLeader: 3},
 		{id: "leaf-z", levelValues: []string{"block-a", "host-z"}, state: 3, sliceState: 3, stateWithLeader: 3, sliceStateWithLeader: 3},
@@ -313,7 +313,7 @@ func TestPruneDomainsBelowThreshold(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			domains, domainsByName := tc.domains()
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "dummy", []string{})
+			s := newTASFlavorSnapshot(log, "dummy", []string{}, nil, &defaultChecker{})
 
 			s.pruneDomainsBelowThreshold(domains, tc.threshold, tc.sliceSize, tc.sliceLevelIdx, tc.level, tc.leaderRequired)
 
@@ -389,7 +389,7 @@ func TestFindBestDomainsForBalancedPlacement(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "dummy", []string{"block", "rack"})
+			s := newTASFlavorSnapshot(log, "dummy", []string{"block", "rack"}, nil, &defaultChecker{})
 			domainsByID := make(map[string]*domain, len(tc.domains))
 			for _, spec := range tc.domains {
 				d := &domain{

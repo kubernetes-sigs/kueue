@@ -108,7 +108,7 @@ func controllersSetup(
 	preemptionExpectations *expectations.Store,
 	opts ...jobframework.Option,
 ) (*schdcache.Cache, *qcache.Manager, *config.Configuration) {
-	cCache := schdcache.New(mgr.GetClient())
+	cCache := schdcache.New(mgr.GetClient(), schdcache.NewDefaultSimulator())
 	queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
 	queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
 

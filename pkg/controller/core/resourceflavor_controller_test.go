@@ -52,7 +52,7 @@ const (
 
 func newTestRFReconciler(cl *fake.ClientBuilder) *ResourceFlavorReconciler {
 	c := cl.Build()
-	cqCache := schdcache.New(c)
+	cqCache := schdcache.New(c, schdcache.NewDefaultSimulator())
 	qManager := qcache.NewManagerForUnitTests(c, nil)
 	tracker := roletracker.NewFakeRoleTracker(roletracker.RoleLeader)
 	return NewResourceFlavorReconciler(c, qManager, cqCache, tracker)
@@ -188,7 +188,7 @@ func TestResourceFlavorReconcile(t *testing.T) {
 			}
 			cl := builder.Build()
 
-			cqCache := schdcache.New(cl)
+			cqCache := schdcache.New(cl, schdcache.NewDefaultSimulator())
 			qManager := qcache.NewManagerForUnitTests(cl, nil)
 			tracker := roletracker.NewFakeRoleTracker(roletracker.RoleLeader)
 			reconciler := NewResourceFlavorReconciler(cl, qManager, cqCache, tracker)
@@ -350,7 +350,7 @@ func TestCqHandlerGeneric(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			cl := utiltesting.NewClientBuilder().Build()
-			cqCache := schdcache.New(cl)
+			cqCache := schdcache.New(cl, schdcache.NewDefaultSimulator())
 
 			for _, cq := range tc.clusterQueues {
 				if err := cqCache.AddClusterQueue(ctx, cq); err != nil {

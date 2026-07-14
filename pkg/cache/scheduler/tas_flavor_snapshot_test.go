@@ -346,7 +346,7 @@ func TestMergeTopologyAssignments(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "dummy", levels)
+			s := newTASFlavorSnapshot(log, "dummy", levels, nil, &defaultChecker{})
 			for i := range nodes {
 				s.addNode(&nodes[i])
 			}
@@ -421,7 +421,7 @@ func TestHasLevel(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "dummy", levels)
+			s := newTASFlavorSnapshot(log, "dummy", levels, nil, &defaultChecker{})
 			got := s.HasLevel(tc.podSetTopologyRequest)
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("unexpected HasLevel result (-want,+got): %s", diff)
@@ -530,7 +530,7 @@ func TestSortedDomainsWithLeader(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TASRespectNodeAffinityPreferred, tc.enableTASPreferredSchedulingAffinity)
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "test", levels)
+			s := newTASFlavorSnapshot(log, "test", levels, nil, &defaultChecker{})
 
 			sorted := s.sortedDomainsWithLeader(tc.domains, tc.unconstrained)
 
@@ -629,7 +629,7 @@ func TestSortedDomains(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TASRespectNodeAffinityPreferred, tc.enableTASPreferredSchedulingAffinity)
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "test", levels)
+			s := newTASFlavorSnapshot(log, "test", levels, nil, &defaultChecker{})
 
 			sorted := s.sortedDomains(tc.domains, tc.unconstrained)
 

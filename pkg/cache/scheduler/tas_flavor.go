@@ -17,6 +17,7 @@ limitations under the License.
 package scheduler
 
 import (
+	"context"
 	"slices"
 	"sync"
 
@@ -89,17 +90,22 @@ type TASFlavorCache struct {
 	// nonTasUsageCache maintains the usage coming from non-TAS pods,
 	// e.g. static Pods or DaemonSet pods.
 	nonTasUsageCache *nonTasUsageCache
+
+	// schedulingSimulator performs the node feasability check
+	// based on topology requirements.
+	schedulingSimulator SchedulingSimulator
 }
 
 func (t *tasCache) NewTASFlavorCache(topologyInfo topologyInformation,
 	flavorInfo flavorInformation) *TASFlavorCache {
 	return &TASFlavorCache{
-		client:           t.client,
-		topology:         topologyInfo,
-		flavor:           flavorInfo,
-		usage:            make(map[utiltas.TopologyDomainID]resources.Requests),
-		wlUsage:          make(map[workload.Reference][]workload.TopologyDomainRequests),
-		nonTasUsageCache: t.nonTasUsageCache,
+		client:              t.client,
+		topology:            topologyInfo,
+		flavor:              flavorInfo,
+		usage:               make(map[utiltas.TopologyDomainID]resources.Requests),
+		wlUsage:             make(map[workload.Reference][]workload.TopologyDomainRequests),
+		nonTasUsageCache:    t.nonTasUsageCache,
+		schedulingSimulator: t.schedulingSimulator,
 	}
 }
 
@@ -117,7 +123,7 @@ func (c *TASFlavorCache) TopologyLevels() []string {
 
 func (c *TASFlavorCache) snapshot(
 	log logr.Logger, nodes []*corev1.Node, aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests,
-) *TASFlavorSnapshot {
+) (*TASFlavorSnapshot, error) {
 	c.RLock()
 	defer c.RUnlock()
 
@@ -131,7 +137,12 @@ func (c *TASFlavorCache) snapshot(
 	}
 	log.V(3).Info("Constructing TAS snapshot", infoKV...)
 
-	snapshot := newTASFlavorSnapshot(log, c.flavor.TopologyName, c.topology.Levels, withTolerations(c.flavor.Tolerations))
+	feasibilityChecker, err := c.schedulingSimulator.NewFeasibilityChecker(context.Background(), nodes)
+	if err != nil {
+		return nil, err
+	}
+
+	snapshot := newTASFlavorSnapshot(log, c.flavor.TopologyName, c.topology.Levels, c.flavor.Tolerations, feasibilityChecker)
 	nodeToDomain := make(map[string]utiltas.TopologyDomainID)
 	for _, node := range nodes {
 		nodeToDomain[node.Name] = snapshot.addNode(node)
@@ -150,7 +161,7 @@ func (c *TASFlavorCache) snapshot(
 			snapshot.addNonTASUsage(domainID, usage)
 		}
 	})
-	return snapshot
+	return snapshot, nil
 }
 
 func (c *TASFlavorCache) addUsage(log logr.Logger, key workload.Reference, topologyRequests []workload.TopologyDomainRequests) {

@@ -1161,7 +1161,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 			}
 			cl := clientBuilder.Build()
 			recorder := &utiltesting.EventRecorder{}
-			r := newNodeReconciler(cl, recorder, schdcache.New(cl), nil)
+			r := newNodeReconciler(cl, recorder, schdcache.New(cl, schdcache.NewDefaultSimulator()), nil)
 			r.clock = fakeClock
 
 			var result reconcile.Result

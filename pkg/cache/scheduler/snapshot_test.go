@@ -853,7 +853,7 @@ func TestSnapshot(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
-			cache := New(utiltesting.NewFakeClient())
+			cache := New(utiltesting.NewFakeClient(), NewDefaultSimulator())
 			for _, cq := range tc.cqs {
 				// Purposely do not make a copy of clusterQueues. Clones of necessary fields are
 				// done in AddClusterQueue.
@@ -965,7 +965,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	cl := utiltesting.NewClientBuilder().WithLists(&kueue.WorkloadList{Items: workloads}).Build()
 
-	cqCache := New(cl)
+	cqCache := New(cl, NewDefaultSimulator())
 	for _, flv := range flavors {
 		cqCache.AddOrUpdateResourceFlavor(log, flv)
 	}
@@ -1276,7 +1276,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	cl := utiltesting.NewClientBuilder().WithLists(&kueue.WorkloadList{Items: workloads}).Build()
 
-	cqCache := New(cl)
+	cqCache := New(cl, NewDefaultSimulator())
 	for _, flv := range flavors {
 		cqCache.AddOrUpdateResourceFlavor(log, flv)
 	}

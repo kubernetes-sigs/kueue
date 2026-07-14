@@ -99,7 +99,7 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 		err = podReconciler.SetupWithManager(mgr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		cCache := schdcache.New(mgr.GetClient())
+		cCache := schdcache.New(mgr.GetClient(), schdcache.NewDefaultSimulator())
 		preemptionExpectations := preemptexpectations.New()
 		queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)

@@ -29,7 +29,7 @@ import (
 
 func TestCohortLendable(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
-	cache := New(utiltesting.NewFakeClient())
+	cache := New(utiltesting.NewFakeClient(), NewDefaultSimulator())
 
 	cq1 := utiltestingapi.MakeClusterQueue("cq1").
 		ResourceGroup(

@@ -105,7 +105,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", framewor
 	)
 
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{}), jobframework.WithCache(schdcache.New(k8sClient))))
+		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{}), jobframework.WithCache(schdcache.New(k8sClient, schdcache.NewDefaultSimulator()))))
 
 		ginkgo.By("Create a resource flavor")
 		util.MustCreate(ctx, k8sClient, defaultFlavor)

@@ -205,7 +205,7 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 
 					cl := clientBuilder.Build()
 					recorder := &utiltesting.EventRecorder{}
-					cqCache := schdcache.New(cl)
+					cqCache := schdcache.New(cl, schdcache.NewDefaultSimulator())
 					qManager := qcache.NewManagerForUnitTests(cl, cqCache)
 					// Workloads are loaded into queues or clusterQueues as we add them.
 					for _, q := range allQueues {
@@ -7732,7 +7732,7 @@ func TestLastSchedulingContext(t *testing.T) {
 
 					cl := clientBuilder.Build()
 					recorder := &utiltesting.EventRecorder{}
-					cqCache := schdcache.New(cl)
+					cqCache := schdcache.New(cl, schdcache.NewDefaultSimulator())
 					qManager, watcher := qcache.NewManagerForUnitTestsWithRequeuer(cl, cqCache)
 					// Workloads are loaded into queues or clusterQueues as we add them.
 					for _, q := range queues {
@@ -7978,7 +7978,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 					},
 				}).WithObjects(objs...).WithStatusSubresource(objs...).Build()
 				recorder := &utiltesting.EventRecorder{}
-				cqCache := schdcache.New(cl)
+				cqCache := schdcache.New(cl, schdcache.NewDefaultSimulator())
 				qManager := qcache.NewManagerForUnitTests(cl, cqCache)
 				scheduler := New(qManager, cqCache, cl, recorder, WithPreemptionExpectations(preemptexpectations.New()))
 				if err := qManager.AddLocalQueue(ctx, q1); err != nil {
@@ -8406,7 +8406,7 @@ func TestResourcesToReserve(t *testing.T) {
 			cl := utiltesting.NewClientBuilder().
 				WithLists(&kueue.ClusterQueueList{Items: []kueue.ClusterQueue{*cq}}).
 				Build()
-			cqCache := schdcache.New(cl)
+			cqCache := schdcache.New(cl, schdcache.NewDefaultSimulator())
 			for _, flavor := range resourceFlavors {
 				cqCache.AddOrUpdateResourceFlavor(log, flavor)
 			}
@@ -8597,7 +8597,7 @@ func TestSchedulerWhenWorkloadModifiedConcurrently(t *testing.T) {
 					cl := clientBuilder.Build()
 					recorder := &utiltesting.EventRecorder{}
 
-					cqCache := schdcache.New(cl)
+					cqCache := schdcache.New(cl, schdcache.NewDefaultSimulator())
 					qManager := qcache.NewManagerForUnitTests(cl, cqCache)
 
 					cqCache.AddOrUpdateResourceFlavor(log, rf.DeepCopy())
@@ -8701,7 +8701,7 @@ func TestSchedulerNotifiesWatchersWhenAssumedWorkloadAdmissionFailsWithNotFound(
 		}).
 		Build()
 
-	cqCache := schdcache.New(cl)
+	cqCache := schdcache.New(cl, schdcache.NewDefaultSimulator())
 	qManager := qcache.NewManagerForUnitTests(cl, cqCache)
 	watcher := &workloadUpdateWatcherRecorder{}
 	qManager.AddWorkloadUpdateWatcher(watcher)

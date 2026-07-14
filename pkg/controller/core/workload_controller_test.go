@@ -460,7 +460,7 @@ func TestUpdateSkipsRequeueForOnHoldWorkload(t *testing.T) {
 
 	cl := utiltesting.NewClientBuilder().Build()
 	recorder := &utiltesting.EventRecorder{}
-	cqCache := schdcache.New(cl)
+	cqCache := schdcache.New(cl, schdcache.NewDefaultSimulator())
 	qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithClock(fakeClock))
 	reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder)
 
@@ -514,7 +514,7 @@ func TestUpdateRemovesStaleQueueEntryForOnHoldWorkload(t *testing.T) {
 
 	cl := utiltesting.NewClientBuilder().Build()
 	recorder := &utiltesting.EventRecorder{}
-	cqCache := schdcache.New(cl)
+	cqCache := schdcache.New(cl, schdcache.NewDefaultSimulator())
 	qManager := qcache.NewManagerForUnitTests(cl, cqCache,
 		qcache.WithClock(fakeClock),
 		qcache.WithPreemptionExpectations(preemptexpectations.New()))
@@ -1808,7 +1808,7 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 				cl := clientBuilder.Build()
 				recorder := &utiltesting.EventRecorder{}
 
-				cqCache := schdcache.New(cl)
+				cqCache := schdcache.New(cl, schdcache.NewDefaultSimulator())
 				var draCache *dra.ExtendedResourceCache
 				if features.Enabled(features.KueueDRAIntegration) {
 					draCache = setupDRACache(objs)
@@ -2095,7 +2095,7 @@ func TestReconcileSyncAdmissionChecks(t *testing.T) {
 
 			cl := clientBuilder.Build()
 			recorder := &utiltesting.EventRecorder{}
-			cqCache := schdcache.New(cl)
+			cqCache := schdcache.New(cl, schdcache.NewDefaultSimulator())
 			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
 
 			reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder)
@@ -2224,7 +2224,7 @@ func TestUpdateAfsConsumedUsage(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			fakeClock := testingclock.NewFakeClock(now)
 			cl := utiltesting.NewClientBuilder().Build()
-			cqCache := schdcache.New(cl)
+			cqCache := schdcache.New(cl, schdcache.NewDefaultSimulator())
 			qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithClock(fakeClock), qcache.WithAdmissionFairSharing(afsConfig))
 			reconciler := NewWorkloadReconciler(cl, qManager, cqCache, &utiltesting.EventRecorder{}, WithAdmissionFairSharing(afsConfig))
 			reconciler.clock = fakeClock

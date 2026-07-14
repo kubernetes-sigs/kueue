@@ -137,7 +137,7 @@ func managerAndControllerSetup(
 			qcache.WithResourceMetrics(controllersCfg.Metrics.EnableClusterQueueResources),
 		}
 
-		cCache := schdcache.New(mgr.GetClient(), cacheOpts...)
+		cCache := schdcache.New(mgr.GetClient(), schdcache.NewDefaultSimulator(), cacheOpts...)
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOpts...)
 
 		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, core.SetupControllersOpts{

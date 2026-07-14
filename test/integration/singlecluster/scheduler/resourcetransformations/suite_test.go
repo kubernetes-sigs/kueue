@@ -68,7 +68,7 @@ func managerAndSchedulerSetup(transformations []config.ResourceTransformation) f
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		cCache := schdcache.New(mgr.GetClient())
+		cCache := schdcache.New(mgr.GetClient(), schdcache.NewDefaultSimulator())
 		var queueOptions []qcache.Option
 		if len(transformations) > 0 {
 			queueOptions = append(queueOptions, qcache.WithResourceTransformations(transformations))

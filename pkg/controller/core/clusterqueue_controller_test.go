@@ -207,7 +207,7 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 
 			cl := utiltesting.NewClientBuilder().WithLists(defaultWls).WithObjects(lq, cq).WithStatusSubresource(lq, cq).
 				Build()
-			cqCache := schdcache.New(cl)
+			cqCache := schdcache.New(cl, schdcache.NewDefaultSimulator())
 			options := qcache.WithPreemptionExpectations(preemptexpectations.New())
 			qManager := qcache.NewManagerForUnitTests(cl, cqCache, options)
 			if tc.insertCqIntoCache {
@@ -272,7 +272,7 @@ func TestReconcileRemovesFinalizerWithFinishedWorkloads(t *testing.T) {
 			cq.Finalizers = []string{kueue.ResourceInUseFinalizerName}
 
 			cl := utiltesting.NewClientBuilder().WithObjects(cq).Build()
-			cqCache := schdcache.New(cl)
+			cqCache := schdcache.New(cl, schdcache.NewDefaultSimulator())
 			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
 			if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
 				t.Fatalf("Inserting clusterQueue in cache: %v", err)
@@ -616,7 +616,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
 
 			cl := utiltesting.NewClientBuilder().Build()
-			cqCache := schdcache.New(cl)
+			cqCache := schdcache.New(cl, schdcache.NewDefaultSimulator())
 			r := &ClusterQueueReconciler{cache: cqCache}
 			err := cqCache.AddClusterQueue(ctx, tc.queue)
 			if err != nil {

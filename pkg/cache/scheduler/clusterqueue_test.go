@@ -74,7 +74,7 @@ func TestClusterQueueUpdateWithFlavors(t *testing.T) {
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			cache := New(utiltesting.NewFakeClient())
+			cache := New(utiltesting.NewFakeClient(), NewDefaultSimulator())
 			cq, err := cache.newClusterQueue(log, cq)
 			if err != nil {
 				t.Fatalf("failed to new clusterQueue %v", err)
@@ -153,7 +153,7 @@ func TestClusterQueueUpdate(t *testing.T) {
 					tc.cq,
 				)
 			cl := clientBuilder.Build()
-			cqCache := New(cl)
+			cqCache := New(cl, NewDefaultSimulator())
 			// Workloads are loaded into queues or clusterQueues as we add them.
 			for _, rf := range resourceFlavors {
 				cqCache.AddOrUpdateResourceFlavor(log, rf)
@@ -473,7 +473,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			cache := New(utiltesting.NewFakeClient())
+			cache := New(utiltesting.NewFakeClient(), NewDefaultSimulator())
 			cq, err := cache.newClusterQueue(log, tc.cq)
 			if err != nil {
 				t.Fatalf("failed to new clusterQueue %v", err)
@@ -607,7 +607,7 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 			_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
 			client := clientBuilder.Build()
 
-			cqCache := New(client)
+			cqCache := New(client, NewDefaultSimulator())
 
 			topology := utiltestingapi.MakeTopology("example-topology").Levels("tas-level-0").Obj()
 

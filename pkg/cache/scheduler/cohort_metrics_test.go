@@ -129,7 +129,7 @@ func TestRecordCohortMetrics_Guards(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
-			cache := New(utiltesting.NewFakeClient())
+			cache := New(utiltesting.NewFakeClient(), NewDefaultSimulator())
 
 			wantPoints := tc.setup(t, ctx, log, cache)
 
@@ -510,7 +510,7 @@ type cohortMetricsFixture struct {
 func newCohortMetricsFixture(t *testing.T) cohortMetricsFixture {
 	t.Helper()
 	ctx, log := utiltesting.ContextWithLog(t)
-	return cohortMetricsFixture{ctx: ctx, log: log, cache: New(utiltesting.NewFakeClient())}
+	return cohortMetricsFixture{ctx: ctx, log: log, cache: New(utiltesting.NewFakeClient(), NewDefaultSimulator())}
 }
 
 func setupDefaultRootChildCQHierarchy(
@@ -802,7 +802,7 @@ func TestAddClusterQueue_RecordsInfoOnCreateWithoutCohort(t *testing.T) {
 
 func TestResyncGaugeMetrics_ReportsHierarchyInfoWithFairSharing(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
-	cache := New(utiltesting.NewFakeClient(), WithFairSharing(true))
+	cache := New(utiltesting.NewFakeClient(), NewDefaultSimulator(), WithFairSharing(true))
 
 	setupDefaultRootChildCQHierarchy(ctx, t, log, cache)
 
@@ -826,7 +826,7 @@ func TestResyncGaugeMetrics_ReportsHierarchyInfoWithFairSharing(t *testing.T) {
 
 func TestResyncGaugeMetrics_SkipsCohortInfoForCycle(t *testing.T) {
 	_, log := utiltesting.ContextWithLog(t)
-	cache := New(utiltesting.NewFakeClient())
+	cache := New(utiltesting.NewFakeClient(), NewDefaultSimulator())
 	clearCohortMetricsForTest(t, "cohort-a", "cohort-b")
 
 	if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("cohort-a").Parent("cohort-b").Obj()); err != nil {

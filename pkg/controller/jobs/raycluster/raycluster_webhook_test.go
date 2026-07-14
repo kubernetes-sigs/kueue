@@ -100,7 +100,7 @@ func TestValidateDefault(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			builder := utiltesting.NewClientBuilder()
 			cli := builder.Build()
-			cqCache := schdcache.New(cli)
+			cqCache := schdcache.New(cli, schdcache.NewDefaultSimulator())
 			queueManager := qcache.NewManagerForUnitTests(cli, cqCache)
 			if tc.defaultLqExist {
 				if err := queueManager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("default", "default").

@@ -114,7 +114,7 @@ func TestBaseWebhookDefault(t *testing.T) {
 					utiltesting.MakeNamespace(metav1.NamespaceDefault),
 				)
 			cl := clientBuilder.Build()
-			cqCache := schdcache.New(cl)
+			cqCache := schdcache.New(cl, schdcache.NewDefaultSimulator())
 			queueManager := qcache.NewManagerForUnitTests(cl, cqCache)
 			if tc.defaultLqExist {
 				if err := queueManager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("default", metav1.NamespaceDefault).

@@ -96,7 +96,7 @@ func managerAndSchedulerSetup(setupTASControllers bool, opts ...jobframework.Opt
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		cCache := schdcache.New(mgr.GetClient())
+		cCache := schdcache.New(mgr.GetClient(), schdcache.NewDefaultSimulator())
 		preemptionExpectations := preemptexpectations.New()
 		queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)

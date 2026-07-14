@@ -111,7 +111,7 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 			Outputs:  corev1.ResourceList{corev1.ResourceCPU: resourcev1.MustParse("2")},
 		},
 	}
-	cCache := schdcache.New(mgr.GetClient())
+	cCache := schdcache.New(mgr.GetClient(), schdcache.NewDefaultSimulator())
 	preemptionExpectations := preemptexpectations.New()
 	queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache,
 		qcache.WithResourceTransformations(transformations),
