@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -164,7 +165,8 @@ func (j *RayJob) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSet
 
 	j.Spec.Suspend = false
 
-	err := raycluster.UpdateRayClusterSpecToRunWithPodSetsInfo(ctx, j.Spec.RayClusterSpec, podSetsInfo)
+	log := ctrl.LoggerFrom(ctx)
+	err := raycluster.UpdateRayClusterSpecToRunWithPodSetsInfo(log, j.Spec.RayClusterSpec, podSetsInfo)
 	if err != nil {
 		return err
 	}
@@ -173,7 +175,7 @@ func (j *RayJob) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSet
 	if j.Spec.SubmissionMode == rayv1.K8sJobMode {
 		submitterPod := getSubmitterTemplate(j)
 		info := podSetsInfo[expectedLen-1]
-		if err := podset.Merge(ctx, &submitterPod.ObjectMeta, &submitterPod.Spec, info); err != nil {
+		if err := podset.Merge(log, &submitterPod.ObjectMeta, &submitterPod.Spec, info); err != nil {
 			return err
 		}
 		if j.Spec.SubmitterPodTemplate == nil {

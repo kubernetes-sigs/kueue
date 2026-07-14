@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -113,7 +114,7 @@ func (j *RayCluster) RunWithPodSetsInfo(ctx context.Context, _ client.Client, po
 
 	j.Spec.Suspend = new(false)
 
-	err := UpdateRayClusterSpecToRunWithPodSetsInfo(ctx, &j.Spec, podSetsInfo)
+	err := UpdateRayClusterSpecToRunWithPodSetsInfo(ctrl.LoggerFrom(ctx), &j.Spec, podSetsInfo)
 	if err != nil {
 		return err
 	}

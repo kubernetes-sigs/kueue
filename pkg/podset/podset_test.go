@@ -496,7 +496,7 @@ func TestMergeRestore(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			orig := tc.podSet.DeepCopy()
 
-			gotError := Merge(t.Context(), &tc.podSet.Template.ObjectMeta, &tc.podSet.Template.Spec, tc.info)
+			gotError := Merge(utiltesting.NewLogger(t), &tc.podSet.Template.ObjectMeta, &tc.podSet.Template.Spec, tc.info)
 
 			if tc.wantError != (gotError != nil) {
 				t.Errorf("Unexpected error status want: %v", tc.wantError)
