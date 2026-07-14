@@ -51,6 +51,10 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
+const (
+	tokenValidationTimeout = 5 * time.Second
+)
+
 // GenericWebSocketHandler creates a WebSocket endpoint with informer-based real-time updates
 // Accepts one or more GroupVersionKinds to watch for changes
 func (h *Handlers) GenericWebSocketHandler(dataFetcher func(ctx context.Context) (any, error), gvks ...schema.GroupVersionKind) gin.HandlerFunc {
@@ -214,7 +218,7 @@ func (h *Handlers) handleInformerUpdates(ctx context.Context, conn *websocket.Co
 		case <-authTickerC:
 			// Use a short timeout so a slow or unavailable API server cannot
 			// block this goroutine indefinitely.
-			validateCtx, validateCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			validateCtx, validateCancel := context.WithTimeout(ctx, tokenValidationTimeout)
 			ok, err := h.validator.ValidateToken(validateCtx, token)
 			validateCancel()
 			if err != nil {
@@ -224,7 +228,7 @@ func (h *Handlers) handleInformerUpdates(ctx context.Context, conn *websocket.Co
 			}
 			if err != nil || !ok {
 				// Set a write deadline so the close-frame write cannot block indefinitely.
-				_ = conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+				_ = conn.SetWriteDeadline(time.Now().Add(writeDeadlineExtension))
 				_ = conn.WriteMessage(
 					websocket.CloseMessage,
 					websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "token expired or revoked"),
