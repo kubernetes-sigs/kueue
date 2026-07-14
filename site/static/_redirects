@@ -32,3 +32,6 @@
 /docs/tasks/dev/setup_multikueue_tas /docs/tasks/dev/setup_multikueue_development_environment 301
 
 /docs/installation /docs/getting-started/installation 301
+
+# Proxy Medium RSS feed for client-side revalidation
+/api/medium-feed https://medium.com/feed/tag/kueue 200!

@@ -174,6 +174,8 @@
   translation: "Medium feed temporarily unavailable. Check back later!"
 - id: community_medium_no_articles
   translation: "No recent articles found. Check back later!"
+- id: community_medium_loading
+  translation: "Loading..."
 
 # ==============================================================================
 # Talks & Case Studies Page Strings
