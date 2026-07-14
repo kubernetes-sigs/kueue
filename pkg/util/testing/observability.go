@@ -17,6 +17,7 @@ limitations under the License.
 package testing
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -113,5 +114,23 @@ func AdjustWorkloadsForDisabledObservabilityInScheduler(workloads []kueue.Worklo
 	for i := range workloads {
 		wl := &workloads[i]
 		wl.Status.Conditions = AdjustConditionsForDisabledObservabilityInScheduler(wl.Status.Conditions)
+	}
+}
+
+// AdjustEventsForDisabledObservabilityInScheduler adjusts the event reasons in-place for
+// a slice of events, matching the scenario when the UnadmittedWorkloadsObservability
+// feature gate is disabled.
+func AdjustEventsForDisabledObservabilityInScheduler(events []EventRecord) {
+	for i := range events {
+		if events[i].EventType == corev1.EventTypeWarning {
+			switch events[i].Reason {
+			case kueue.WorkloadQuotaReservedReasonWaitingForPodsReady:
+				events[i].Reason = kueue.WorkloadWaiting //nolint:staticcheck // SA1019: legacy reason
+			case kueue.WorkloadAdmissionGated, "SecondPassFailed", "DeprecatedPathUsage", "FailedCreate", "ErrWorkloadCompose", "JobNestingTooDeep":
+				// Keep warning events that are not related to QuotaReserved=False unadmitted reasons
+			default:
+				events[i].Reason = kueue.WorkloadPending //nolint:staticcheck // SA1019: legacy reason
+			}
+		}
 	}
 }
