@@ -194,7 +194,7 @@ additional placement behavior:
   single domain, using `kueue.x-k8s.io/podset-slice-required-topology` and
   `kueue.x-k8s.io/podset-slice-size`. See the
   [Topology-Aware Scheduling concepts](/docs/concepts/topology_aware_scheduling)
-  page.
+  page and the [JobSet TAS examples](/docs/tasks/run/jobsets#d-topology-aware-scheduling).
 - **Multi-layer topology** - express slice constraints at up to three
   topology layers in one annotation using
   `kueue.x-k8s.io/podset-slice-required-topology-constraints`. This is
