@@ -1315,6 +1315,50 @@ func TestRequeueWorkloadStrictFIFO(t *testing.T) {
 	}
 }
 
+func TestRequeueWorkloadChangedQueueClearsOldInflight(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	cqFoo := utiltestingapi.MakeClusterQueue("fooCq").Obj()
+	cqBar := utiltestingapi.MakeClusterQueue("barCq").Obj()
+	foo := utiltestingapi.MakeLocalQueue("foo", "").ClusterQueue("fooCq").Obj()
+	bar := utiltestingapi.MakeLocalQueue("bar", "").ClusterQueue("barCq").Obj()
+	wl := utiltestingapi.MakeWorkload("wl", "").Queue("foo").Obj()
+	cl := utiltesting.NewFakeClient(wl)
+	manager := NewManagerForUnitTests(cl, nil, WithPreemptionExpectations(preemptexpectations.New()))
+	for _, cq := range []*kueue.ClusterQueue{cqFoo, cqBar} {
+		if err := manager.AddClusterQueue(ctx, cq); err != nil {
+			t.Fatalf("Failed adding cluster queue %s: %v", cq.Name, err)
+		}
+	}
+	for _, q := range []*kueue.LocalQueue{foo, bar} {
+		if err := manager.AddLocalQueue(ctx, q); err != nil {
+			t.Fatalf("Failed adding queue %s: %v", q.Name, err)
+		}
+	}
+	if err := manager.AddOrUpdateWorkload(log, wl); err != nil {
+		t.Fatalf("Failed adding workload: %v", err)
+	}
+
+	head := manager.Heads(ctx)
+	if got, want := len(head), 1; got != want {
+		t.Fatalf("Heads returned %d workloads, want %d", got, want)
+	}
+	updated := wl.DeepCopy()
+	updated.Spec.QueueName = "bar"
+	if err := cl.Update(ctx, updated); err != nil {
+		t.Fatalf("Failed updating workload queue: %v", err)
+	}
+	if requeued := manager.RequeueWorkload(ctx, workload.NewInfo(wl), RequeueReasonGeneric); !requeued {
+		t.Fatalf("expected workload to be requeued into new queue")
+	}
+
+	if pending, err := manager.Pending(cqFoo); err != nil || pending != 0 {
+		t.Fatalf("old ClusterQueue pending: got %d, err %v, want 0", pending, err)
+	}
+	if pending, err := manager.Pending(cqBar); err != nil || pending != 1 {
+		t.Fatalf("new ClusterQueue pending: got %d, err %v, want 1", pending, err)
+	}
+}
+
 func TestUpdateWorkload(t *testing.T) {
 	now := time.Now()
 	cases := map[string]struct {
@@ -1667,7 +1711,7 @@ func TestHeadsFairSharingDeepAdmission(t *testing.T) {
 	workloads := []*kueue.Workload{
 		utiltestingapi.MakeWorkload("a1", "").Creation(now).Queue("foo").Obj(),
 		utiltestingapi.MakeWorkload("a2", "").Creation(now.Add(time.Minute)).Queue("foo").Obj(),
-		utiltestingapi.MakeWorkload("a3", "").Creation(now.Add(2*time.Minute)).Queue("foo").Obj(),
+		utiltestingapi.MakeWorkload("a3", "").Creation(now.Add(2 * time.Minute)).Queue("foo").Obj(),
 		utiltestingapi.MakeWorkload("b1", "").Creation(now).Queue("bar").Obj(),
 	}
 	cases := map[string]struct {

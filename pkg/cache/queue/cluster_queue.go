@@ -498,6 +498,7 @@ func (c *ClusterQueue) DeleteFromLocalQueue(log logr.Logger, q *LocalQueue, role
 		wlKey := workloadKey(w)
 		c.delete(log, wlKey)
 	}
+	c.forgetInflightFromLocalQueue(q.Key)
 	for fw := range q.finishedWorkloads {
 		c.finishedWorkloads.Delete(fw)
 	}
@@ -567,6 +568,14 @@ func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info
 
 func (c *ClusterQueue) forgetInflightByKey(key workload.Reference) {
 	delete(c.inflight, key)
+}
+
+func (c *ClusterQueue) forgetInflightFromLocalQueue(lqRef utilqueue.LocalQueueReference) {
+	for key, wl := range c.inflight {
+		if utilqueue.KeyFromWorkload(wl.Obj) == lqRef {
+			delete(c.inflight, key)
+		}
+	}
 }
 
 // handleInadmissibleHash bulk-moves all heap workloads matching the given

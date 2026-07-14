@@ -40,7 +40,8 @@ type fairSharingIterator struct {
 	// cqToEntry tracks ClusterQueues which still have workloads to schedule,
 	// and their pending entries in popped (heap) order. With Fair Sharing deep
 	// admission a CQ may have more than one entry; the tournament always
-	// considers each CQ's front entry and pop() advances that front.
+	// considers each CQ's front entry, and done() advances that front only
+	// after the previous entry is successfully assumed.
 	cqToEntry     map[*schdcache.ClusterQueueSnapshot][]*entry
 	entryComparer entryComparer
 	log           logr.Logger
@@ -76,7 +77,6 @@ func (f *fairSharingIterator) pop() *entry {
 		f.log.V(3).Info("Returning workload from ClusterQueue without Cohort",
 			"clusterQueue", klog.KRef("", string(cq.GetName())),
 			"workload", klog.KObj(e.Obj))
-		f.advance(cq)
 		return e
 	}
 
@@ -102,8 +102,31 @@ func (f *fairSharingIterator) pop() *entry {
 	log.V(3).Info("Determined tournament winner")
 	f.entryComparer.logDrsValuesWhenVerbose(log)
 
-	f.advance(e.clusterQueueSnapshot)
 	return e
+}
+
+func (f *fairSharingIterator) done(e *entry) {
+	if e.status == assumed {
+		f.advance(e.clusterQueueSnapshot)
+		return
+	}
+	delete(f.cqToEntry, e.clusterQueueSnapshot)
+}
+
+func (f *fairSharingIterator) dropWhile(match func(*entry) bool) {
+	for cq, entries := range f.cqToEntry {
+		kept := entries[:0]
+		for _, e := range entries {
+			if !match(e) {
+				kept = append(kept, e)
+			}
+		}
+		if len(kept) == 0 {
+			delete(f.cqToEntry, cq)
+		} else {
+			f.cqToEntry[cq] = kept
+		}
+	}
 }
 
 // frontEntries returns the current front entry of every ClusterQueue still

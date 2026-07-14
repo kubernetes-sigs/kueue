@@ -317,10 +317,11 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	}
 	logSnapshotIfVerbose(log, snapshot)
 	log.V(2).Info("Snapshot taken", "duration", s.clock.Since(phaseStartTime))
+	deepAdmission := fairsharing.Enabled(s.fairSharing) && features.Enabled(features.FairSharingDeepAdmission)
 
 	// 3. Calculate requirements (resource flavors, borrowing) for admitting workloads.
 	phaseStartTime = s.clock.Now()
-	entries, inadmissibleEntries := s.nominate(ctx, headWorkloads, snapshot)
+	entries, inadmissibleEntries := s.nominate(ctx, headWorkloads, snapshot, deepAdmission)
 	log.V(2).Info("Nomination done", "entries", len(entries), "inadmissibleEntries", len(inadmissibleEntries), "duration", s.clock.Since(phaseStartTime))
 
 	// 4. Create iterator which returns ordered entries.
@@ -338,17 +339,20 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	// admits per cycle. Once a subtree reaches the deep-admission depth we
 	// interrupt the cycle so freed capacity keeps flowing to the low-DRS owner
 	// across cycles instead of an over-share sibling borrowing it (issue #9345).
-	deepAdmission := fairsharing.Enabled(s.fairSharing) && features.Enabled(features.FairSharingDeepAdmission)
 	admittedPerSubtree := make(map[string]int)
 	for iterator.hasNext() {
 		e := iterator.pop()
 		s.processEntry(ctx, e, snapshot, preemptedWorkloads, skippedPreemptions)
+		iterator.done(e)
 		if deepAdmission && e.status == assumed {
 			key := topLevelSubtreeKey(e.clusterQueueSnapshot)
 			admittedPerSubtree[key]++
 			if admittedPerSubtree[key] >= qcache.FairSharingDeepAdmissionDepth {
-				log.V(3).Info("Interrupting scheduling cycle after subtree reached deep-admission depth", "subtree", key)
-				break
+				rootScope := rootScopeKey(e.clusterQueueSnapshot)
+				log.V(3).Info("Skipping remaining entries from root scope after subtree reached deep-admission depth", "subtree", key, "rootScope", rootScope)
+				iterator.dropWhile(func(e *entry) bool {
+					return rootScopeKey(e.clusterQueueSnapshot) == rootScope
+				})
 			}
 		}
 	}
@@ -412,6 +416,9 @@ func (s *Scheduler) processEntry(
 	// independently, making them likely to choose conflicting topology domains.
 	// Recompute when needed so CQs considered later in the cycle don't repeatedly
 	// lose to earlier CQs and starve for prolonged periods.
+	// Additionally, re-compute the assignment if the workload itself has a pre-existing TAS assignment
+	// (e.g. it is a scale-up of an already admitted workload) but the current assignment failed to
+	// retain it, or we are in a multiple-head deep admission scenario.
 	usage, fits := s.updateAssignmentIfNeeded(log, e, snapshot, cq, preemptedWorkloads)
 	mode := e.assignment.RepresentativeMode()
 
@@ -626,15 +633,19 @@ func (e *entry) readResourceToFlavorMapping() workload.PodSetResourcesToFlavors 
 // nominate returns the workloads with their requirements (resource flavors, borrowing) if
 // they were admitted by the clusterQueues in the snapshot. The second return value
 // is the list of inadmissibleEntries.
-func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, snap *schdcache.Snapshot) ([]entry, []entry) {
+func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, snap *schdcache.Snapshot, blockSameCQHeads bool) ([]entry, []entry) {
 	log := ctrl.LoggerFrom(ctx)
 	entries := make([]entry, 0, len(workloads))
 	var inadmissibleEntries []entry
+	blockedCQs := make(map[kueue.ClusterQueueReference]bool)
 	for _, w := range workloads {
 		log := log.WithValues("workload", klog.KObj(w.Obj), "clusterQueue", klog.KRef("", string(w.ClusterQueue)))
 		e := entry{Info: w}
 		e.clusterQueueSnapshot = snap.ClusterQueue(w.ClusterQueue)
-		if !workload.NeedsSecondPass(w.Obj) && s.cache.IsAdded(w) {
+		if blockSameCQHeads && blockedCQs[w.ClusterQueue] {
+			e.inadmissibleMsg = "Blocked by an earlier workload from the same ClusterQueue"
+			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonPendingEvaluation
+		} else if !workload.NeedsSecondPass(w.Obj) && s.cache.IsAdded(w) {
 			log.Info("Workload skipped from admission because it's already accounted in cache, and it does not need second pass", "workload", klog.KObj(w.Obj))
 			continue
 		} else if workload.HasRetryChecks(w.Obj) || workload.HasRejectedChecks(w.Obj) {
@@ -664,6 +675,9 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 			continue
 		}
 		inadmissibleEntries = append(inadmissibleEntries, e)
+		if blockSameCQHeads {
+			blockedCQs[w.ClusterQueue] = true
+		}
 	}
 	return entries, inadmissibleEntries
 }
@@ -675,8 +689,8 @@ func (s *Scheduler) updateAssignmentIfNeeded(log logr.Logger,
 	preemptedWorkloads preemption.PreemptedWorkloads) (workload.Usage, bool) {
 	usage := e.assignmentUsage(log)
 	fitsCheck := fits(snapshot, cq, &usage, preemptedWorkloads, e.preemptionTargets)
-	if fitsCheck == schdcache.FitsCheckNoTAS && features.Enabled(features.TASRecomputeAssignmentWithinSchedulingCycle) {
-		log.V(2).Info("Re-computing the assignment as it doesn't fit for TAS")
+	if (fitsCheck == schdcache.FitsCheckNoTAS || features.Enabled(features.FairSharingDeepAdmission)) && features.Enabled(features.TASRecomputeAssignmentWithinSchedulingCycle) {
+		log.V(2).Info("Re-computing the assignment as it doesn't fit for TAS or deep admission is active")
 		// Clear the last assignment so that we can start from the first flavor again and
 		// reach all flavors from the nomination.
 		e.LastAssignment = nil
@@ -948,6 +962,8 @@ func (s *Scheduler) assumeWorkload(log logr.Logger, e *entry, cq *schdcache.Clus
 type entryIterator interface {
 	pop() *entry
 	hasNext() bool
+	done(*entry)
+	dropWhile(func(*entry) bool)
 }
 
 // topLevelSubtreeKey returns a key identifying the root cohort's child subtree
@@ -960,6 +976,7 @@ type entryIterator interface {
 // reduces to a per-CQ key for flat cohorts.
 func topLevelSubtreeKey(cq *schdcache.ClusterQueueSnapshot) string {
 	if cq.HasParent() {
+		root := cq.Parent().Root()
 		var topChild *schdcache.CohortSnapshot
 		for ancestor := range cq.PathParentToRoot() {
 			if !ancestor.HasParent() {
@@ -968,8 +985,15 @@ func topLevelSubtreeKey(cq *schdcache.ClusterQueueSnapshot) string {
 			topChild = ancestor
 		}
 		if topChild != nil {
-			return "cohort/" + string(topChild.GetName())
+			return "root/" + string(root.GetName()) + "/cohort/" + string(topChild.GetName())
 		}
+	}
+	return "cq/" + string(cq.GetName())
+}
+
+func rootScopeKey(cq *schdcache.ClusterQueueSnapshot) string {
+	if cq.HasParent() {
+		return "root/" + string(cq.Parent().Root().GetName())
 	}
 	return "cq/" + string(cq.GetName())
 }
@@ -998,6 +1022,18 @@ func (co *classicalIterator) pop() *entry {
 	head := &co.entries[0]
 	co.entries = co.entries[1:]
 	return head
+}
+
+func (co *classicalIterator) done(*entry) {}
+
+func (co *classicalIterator) dropWhile(match func(*entry) bool) {
+	kept := co.entries[:0]
+	for i := range co.entries {
+		if !match(&co.entries[i]) {
+			kept = append(kept, co.entries[i])
+		}
+	}
+	co.entries = kept
 }
 
 func makeClassicalIterator(log logr.Logger, entries []entry, workloadOrdering workload.Ordering) *classicalIterator {

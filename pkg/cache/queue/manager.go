@@ -702,13 +702,17 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 		return false
 	}
 
+	log := ctrl.LoggerFrom(ctx)
+	wlKey := workload.Key(&w)
 	qKey := queue.KeyFromWorkload(&w)
+	if assignedQueue, ok := m.workloadAssignedQueues[wlKey]; ok && assignedQueue != qKey {
+		m.deleteAndForgetWorkloadWithoutLock(log, wlKey)
+	}
 
 	q := m.localQueues[qKey]
 	if q == nil {
 		return false
 	}
-	log := ctrl.LoggerFrom(ctx)
 	workload.AdjustResources(ctx, m.client, &w)
 	if dra.NeedsDRAReconcile(&w, m.draBackedResources) {
 		info.Update(log, &w, workload.WithPreserveTotalRequests())
@@ -857,7 +861,7 @@ func (m *Manager) heads() []workload.Info {
 		if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(cqName) {
 			continue
 		}
-		for i := 0; i < depth; i++ {
+		for range depth {
 			wl := cq.Pop()
 			reportCQPendingWorkloads(m, cq)
 			if wl == nil {
