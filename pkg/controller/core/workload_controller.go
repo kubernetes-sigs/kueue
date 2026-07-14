@@ -393,8 +393,10 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 
 		log.V(3).Info("Processing DRA resources for workload")
 
+		sliceCache := dra.NewResourceSliceCache(r.client)
+
 		// Process ResourceClaimTemplates (existing DRA path)
-		draResources, fieldErrs := dra.GetResourceRequestsForResourceClaimTemplates(ctx, r.client, r.draMapper, &wl)
+		draResources, fieldErrs := dra.GetResourceRequestsForResourceClaimTemplates(ctx, r.client, sliceCache, r.draMapper, &wl)
 		if len(fieldErrs) > 0 {
 			err := fieldErrs.ToAggregate()
 			log.Error(err, "Failed to process DRA resources for workload")
@@ -459,7 +461,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 
 		// Process counter-based resources for partitionable devices
 		if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) {
-			counterResources, counterFieldErrs := dra.GetCounterResourcesForWorkload(ctx, r.client, r.draMapper, &wl)
+			counterResources, counterFieldErrs := dra.GetCounterResourcesForWorkload(ctx, r.client, sliceCache, r.draMapper, &wl)
 			if len(counterFieldErrs) > 0 {
 				err := counterFieldErrs.ToAggregate()
 				log.Error(err, "Failed to process DRA counter resources for workload")

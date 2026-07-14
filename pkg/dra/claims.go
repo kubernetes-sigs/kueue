@@ -155,6 +155,7 @@ func getClaimSpec(ctx context.Context, cl client.Client, namespace string, prc c
 func GetResourceRequestsForResourceClaimTemplates(
 	ctx context.Context,
 	cl client.Client,
+	sliceCache *ResourceSliceCache,
 	mapper *ResourceMapper,
 	wl *kueue.Workload) (map[kueue.PodSetReference]corev1.ResourceList, field.ErrorList) {
 	perPodSet := make(map[kueue.PodSetReference]corev1.ResourceList)
@@ -196,7 +197,7 @@ func GetResourceRequestsForResourceClaimTemplates(
 
 			// Validate CEL selectors against actual devices in the cluster.
 			celBasePath := field.NewPath("spec", "podSets").Index(i).Child("template", "spec", "resourceClaims").Index(j)
-			if celErrs := validateCELSelectorsAgainstDevices(ctx, cl, spec, celBasePath); len(celErrs) > 0 {
+			if celErrs := validateCELSelectorsAgainstDevices(ctx, cl, sliceCache, mapper, spec, celBasePath); len(celErrs) > 0 {
 				for _, celErr := range celErrs {
 					allErrs = append(allErrs, &field.Error{
 						Type:     celErr.Type,
@@ -217,7 +218,7 @@ func GetResourceRequestsForResourceClaimTemplates(
 					))
 					return nil, allErrs
 				}
-				if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) && mapper.getCounterConfig(dc) != nil {
+				if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) && len(mapper.getCounterConfigs(dc)) > 0 {
 					continue
 				}
 				aggregated = utilresource.MergeResourceListKeepSum(aggregated, corev1.ResourceList{logical: resource.MustParse(strconv.FormatInt(qty, 10))})
@@ -408,18 +409,51 @@ func countMatchingDevices(ctx context.Context, devices []dracel.Device, classSel
 // If fewer devices match than requested, it returns field errors indicating the
 // workload is unsatisfiable, preventing quota from being matchedDevices by workloads
 // whose pods can never be scheduled.
-func validateCELSelectorsAgainstDevices(ctx context.Context, cl client.Client, claimSpec *resourcev1.ResourceClaimSpec, basePath *field.Path) field.ErrorList {
+func validateCELSelectorsAgainstDevices(
+	ctx context.Context,
+	cl client.Client,
+	sliceCache *ResourceSliceCache,
+	mapper *ResourceMapper,
+	claimSpec *resourcev1.ResourceClaimSpec,
+	basePath *field.Path,
+) field.ErrorList {
 	celReqs := extractCELRequests(claimSpec)
 	if len(celReqs) == 0 {
 		return nil
 	}
 
-	var sliceList resourcev1.ResourceSliceList
-	if err := cl.List(ctx, &sliceList); err != nil {
-		return field.ErrorList{field.InternalError(basePath, fmt.Errorf("failed to list ResourceSlices: %w", err))}
+	var collectedSlices []resourcev1.ResourceSlice
+	needsAll := false
+	for _, cr := range celReqs {
+		if len(mapper.getCounterConfigs(corev1.ResourceName(cr.deviceClassName))) == 0 {
+			needsAll = true
+			break
+		}
+	}
+	if needsAll {
+		slices, err := sliceCache.ListAll(ctx)
+		if err != nil {
+			return field.ErrorList{field.InternalError(basePath, fmt.Errorf("failed to list ResourceSlices: %w", err))}
+		}
+		collectedSlices = slices
+	} else {
+		seenDrivers := sets.New[string]()
+		for _, cr := range celReqs {
+			for _, cc := range mapper.getCounterConfigs(corev1.ResourceName(cr.deviceClassName)) {
+				if seenDrivers.Has(cc.driver) {
+					continue
+				}
+				seenDrivers.Insert(cc.driver)
+				slices, err := sliceCache.ListByDriver(ctx, cc.driver)
+				if err != nil {
+					return field.ErrorList{field.InternalError(basePath, fmt.Errorf("failed to list ResourceSlices for driver %s: %w", cc.driver, err))}
+				}
+				collectedSlices = append(collectedSlices, slices...)
+			}
+		}
 	}
 
-	clusterDevices := buildDeviceListFromSlices(sliceList.Items)
+	clusterDevices := buildDeviceListFromSlices(collectedSlices)
 	classCache := make(map[string]*resourcev1.DeviceClass)
 	matchedDevices := sets.New[int]()
 

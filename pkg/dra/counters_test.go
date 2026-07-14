@@ -153,6 +153,34 @@ func TestComputeCounterCharges(t *testing.T) {
 			},
 		},
 		{
+			name:          "multiple ConsumesCounters entries, MAX across counter sets",
+			cc:            defaultCC,
+			quotaResource: "gpu.memory",
+			matched: []resourcev1.Device{
+				{
+					Name: "multi-set-device",
+					ConsumesCounters: []resourcev1.DeviceCounterConsumption{
+						{
+							CounterSet: "set-a",
+							Counters: map[string]resourcev1.Counter{
+								"memory": {Value: resource.MustParse("10Gi")},
+							},
+						},
+						{
+							CounterSet: "set-b",
+							Counters: map[string]resourcev1.Counter{
+								"memory": {Value: resource.MustParse("30Gi")},
+							},
+						},
+					},
+				},
+			},
+			count: 1,
+			want: corev1.ResourceList{
+				"gpu.memory": resource.MustParse("30Gi"),
+			},
+		},
+		{
 			name:          "no consumesCounters, no deviceSelector",
 			cc:            defaultCC,
 			quotaResource: "gpu.memory",

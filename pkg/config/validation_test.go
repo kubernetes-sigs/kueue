@@ -1297,6 +1297,150 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"multi-counter: same DeviceClass with different counter names allowed": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"mig.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "memory",
+									Driver: "gpu.nvidia.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+							},
+						},
+						{
+							Name:             "gpu.compute",
+							DeviceClassNames: []corev1.ResourceName{"mig.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "multiprocessors",
+									Driver: "gpu.nvidia.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+		},
+		"multi-counter: same DeviceClass with same counter name rejected": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"mig.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "memory",
+									Driver: "gpu.nvidia.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+							},
+						},
+						{
+							Name:             "gpu.memory2",
+							DeviceClassNames: []corev1.ResourceName{"mig.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "memory",
+									Driver: "gpu.nvidia.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[1].deviceClassNames[0]",
+				},
+			},
+		},
+		"multi-counter: whole-device and counter for same DeviceClass rejected": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu",
+							DeviceClassNames: []corev1.ResourceName{"gpu.nvidia.com"},
+						},
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"gpu.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "memory",
+									Driver: "gpu.nvidia.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[1].deviceClassNames[0]",
+				},
+			},
+		},
+		"multi-counter: counter then whole-device for same DeviceClass rejected": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"gpu.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "memory",
+									Driver: "gpu.nvidia.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+							},
+						},
+						{
+							Name:             "gpu",
+							DeviceClassNames: []corev1.ResourceName{"gpu.nvidia.com"},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[1].deviceClassNames[0]",
+				},
+			},
+		},
 		"sources configured but KueueDRAIntegrationPartitionableDevices disabled": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,

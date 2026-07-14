@@ -123,7 +123,7 @@ func resolveContainerExtendedResources(
 		for _, dc := range dcList.Items {
 			if logicalName, found := mapper.Lookup(corev1.ResourceName(dc.Name)); found {
 				quotaKey = logicalName
-				if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) && mapper.getCounterConfig(corev1.ResourceName(dc.Name)) != nil {
+				if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) && len(mapper.getCounterConfigs(corev1.ResourceName(dc.Name))) > 0 {
 					errs = append(errs, field.Invalid(
 						containerPath,
 						resourceName,
