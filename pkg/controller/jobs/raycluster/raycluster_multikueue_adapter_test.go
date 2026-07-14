@@ -28,7 +28,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
@@ -367,7 +366,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					ScaleFirstWorkerGroup(3).
-					WithEnableAutoscaling(ptr.To(true)).
+					WithEnableAutoscaling(new(true)).
 					Obj(),
 			},
 			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
