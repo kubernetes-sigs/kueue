@@ -1042,7 +1042,7 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 		}, workloadpatching.WithLooseOnApply(), workloadpatching.WithRetryOnConflict()); err != nil {
 			log.Error(err, "Could not update Workload status")
 		}
-		s.recorder.Eventf(e.Obj, nil, corev1.EventTypeWarning, "Pending", "Pending", api.TruncateEventMessage(e.inadmissibleMsg))
+		s.recorder.Eventf(e.Obj, nil, corev1.EventTypeWarning, condReason, condReason, api.TruncateEventMessage(e.inadmissibleMsg))
 	}
 }
 
