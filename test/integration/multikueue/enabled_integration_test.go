@@ -249,7 +249,7 @@ var _ = ginkgo.Describe("MultiKueue when not all integrations are enabled", gink
 				managerTestCluster.ctx, managerTestCluster.client, wlLookupKey,
 				multiKueueAC.Name,
 				kueue.CheckStateRejected,
-				`No multikueue adapter found for owner kind "kubeflow.org/v2beta1, Kind=MPIJob"`,
+				`No multikueue adapter found for owner kind "kubeflow.org/v2beta1, Kind=MPIJob", Previously: "Pending"`,
 			)
 		})
 	})
