@@ -203,11 +203,11 @@ func UpdatePodSets(ctx context.Context, podSets []kueue.PodSet, c client.Client,
 	return podSets, nil
 }
 
-func UpdateRayClusterSpecToRunWithPodSetsInfo(rayClusterSpec *rayv1.RayClusterSpec, podSetsInfo []podset.PodSetInfo) error {
+func UpdateRayClusterSpecToRunWithPodSetsInfo(ctx context.Context, rayClusterSpec *rayv1.RayClusterSpec, podSetsInfo []podset.PodSetInfo) error {
 	// head
 	headPod := &rayClusterSpec.HeadGroupSpec.Template
 	info := podSetsInfo[0]
-	if err := podset.Merge(&headPod.ObjectMeta, &headPod.Spec, info); err != nil {
+	if err := podset.Merge(ctx, &headPod.ObjectMeta, &headPod.Spec, info); err != nil {
 		return err
 	}
 
@@ -215,7 +215,7 @@ func UpdateRayClusterSpecToRunWithPodSetsInfo(rayClusterSpec *rayv1.RayClusterSp
 	for index := range rayClusterSpec.WorkerGroupSpecs {
 		workerPod := &rayClusterSpec.WorkerGroupSpecs[index].Template
 		info := podSetsInfo[index+1]
-		if err := podset.Merge(&workerPod.ObjectMeta, &workerPod.Spec, info); err != nil {
+		if err := podset.Merge(ctx, &workerPod.ObjectMeta, &workerPod.Spec, info); err != nil {
 			return err
 		}
 	}

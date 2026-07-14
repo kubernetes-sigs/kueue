@@ -145,7 +145,7 @@ func (j *MPIJob) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.Po
 		replicaType := orderedReplicaTypes[index]
 		info := podSetsInfo[index]
 		replica := &j.Spec.MPIReplicaSpecs[replicaType].Template
-		if err := podset.Merge(&replica.ObjectMeta, &replica.Spec, info); err != nil {
+		if err := podset.Merge(ctx, &replica.ObjectMeta, &replica.Spec, info); err != nil {
 			return err
 		}
 	}

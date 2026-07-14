@@ -282,7 +282,7 @@ func (j *Job) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSe
 			j.Spec.Completions = j.Spec.Parallelism
 		}
 	}
-	return podset.Merge(&j.Spec.Template.ObjectMeta, &j.Spec.Template.Spec, info)
+	return podset.Merge(ctx, &j.Spec.Template.ObjectMeta, &j.Spec.Template.Spec, info)
 }
 
 func (j *Job) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {

@@ -192,7 +192,7 @@ func (j *RayService) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podse
 	j.Spec.RayClusterSpec.Suspend = ptr.To(false)
 
 	rayClusterSpec := &j.Spec.RayClusterSpec
-	err := raycluster.UpdateRayClusterSpecToRunWithPodSetsInfo(rayClusterSpec, podSetsInfo)
+	err := raycluster.UpdateRayClusterSpecToRunWithPodSetsInfo(ctx, rayClusterSpec, podSetsInfo)
 	if err != nil {
 		return err
 	}

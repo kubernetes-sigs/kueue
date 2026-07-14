@@ -454,7 +454,7 @@ func (r *nodeReconciler) podSetsWithEffectiveTolerationsOnNode(ctx context.Conte
 				}
 			}
 		}
-		if err := podsetinfo.Merge(&effective.Template.ObjectMeta, &effective.Template.Spec, info); err != nil {
+		if err := podsetinfo.Merge(ctx, &effective.Template.ObjectMeta, &effective.Template.Spec, info); err != nil {
 			return nil, err
 		}
 		result = append(result, *effective)

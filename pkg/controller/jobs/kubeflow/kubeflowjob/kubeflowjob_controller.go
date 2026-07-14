@@ -67,7 +67,7 @@ func (j *KubeflowJob) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []pods
 		replicaType := orderedReplicaTypes[index]
 		info := podSetsInfo[index]
 		replica := &j.KFJobControl.ReplicaSpecs()[replicaType].Template
-		if err := podset.Merge(&replica.ObjectMeta, &replica.Spec, info); err != nil {
+		if err := podset.Merge(ctx, &replica.ObjectMeta, &replica.Spec, info); err != nil {
 			return err
 		}
 	}

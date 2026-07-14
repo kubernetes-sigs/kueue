@@ -268,7 +268,7 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 		}
 
 		if err := clientutil.Patch(ctx, c, &p.pod, func() (bool, error) {
-			return true, prepare(&p.pod, podSetsInfo[0])
+			return true, prepare(ctx, &p.pod, podSetsInfo[0])
 		}); err != nil {
 			return err
 		}
@@ -300,7 +300,7 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 				return false, fmt.Errorf("%w: podSetInfo with the name '%s' is not found", podset.ErrInvalidPodsetInfo, roleHash)
 			}
 
-			err = prepare(pod, podSetsInfo[podSetIndex])
+			err = prepare(ctx, pod, podSetsInfo[podSetIndex])
 			if err != nil {
 				return false, err
 			}
@@ -1489,8 +1489,8 @@ func isGated(pod *corev1.Pod) bool {
 	return utilpod.HasGate(pod, podconstants.SchedulingGateName)
 }
 
-func prepare(pod *corev1.Pod, info podset.PodSetInfo) error {
-	if err := podset.Merge(&pod.ObjectMeta, &pod.Spec, info); err != nil {
+func prepare(ctx context.Context, pod *corev1.Pod, info podset.PodSetInfo) error {
+	if err := podset.Merge(ctx, &pod.ObjectMeta, &pod.Spec, info); err != nil {
 		return err
 	}
 	utilpod.Ungate(pod, podconstants.SchedulingGateName)
