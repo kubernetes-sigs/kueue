@@ -563,14 +563,14 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				field.Invalid(field.NewPath("status", "reclaimablePods").Key("ps1").Child("count"), nil, ""),
 			},
 		},
-		"elastic workload: reclaimable pod count can decrease after its podSet scaled down below it": {
+		"elastic workload: reclaimable pod count can decrease after its podSet scaled down below the admitted count": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				PodSets(*utiltestingapi.MakePodSet("ps1", 3).Obj()).
 				ReserveQuotaAt(
 					utiltestingapi.MakeAdmission("cluster-queue").
-						PodSets(kueue.PodSetAssignment{Name: "ps1"}).
+						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: ptr.To[int32](8)}).
 						Obj(), now,
 				).
 				ReclaimablePods(
@@ -582,11 +582,43 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("ps1", 3).Obj()).
 				ReserveQuotaAt(
 					utiltestingapi.MakeAdmission("cluster-queue").
-						PodSets(kueue.PodSetAssignment{Name: "ps1"}).
+						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: ptr.To[int32](8)}).
 						Obj(), now,
 				).
 				ReclaimablePods(
 					kueue.ReclaimablePod{Name: "ps1", Count: 3},
+				).
+				Obj(),
+			wantErr: nil,
+		},
+		"elastic workload: reclaimable pod count can decrease when scaled down below the admitted count even if the podSet still exceeds it": {
+			// The exact kueue#12958 scenario: admitted at 20, scaled to 10, the
+			// reconciler lowers reclaimable from 9 to 0. The podSet (10) still
+			// exceeds the reclaimable count, so only the admission count reveals
+			// the scale-down.
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 10).Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: ptr.To[int32](20)}).
+						Obj(), now,
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{Name: "ps1", Count: 9},
+				).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 10).Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: ptr.To[int32](20)}).
+						Obj(), now,
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{Name: "ps1", Count: 0},
 				).
 				Obj(),
 			wantErr: nil,
@@ -621,14 +653,14 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				field.Invalid(field.NewPath("status", "reclaimablePods").Key("ps1").Child("count"), nil, ""),
 			},
 		},
-		"elastic workload: reclaimable pod entry can be removed after its podSet scaled down below it": {
+		"elastic workload: reclaimable pod entry can be removed after its podSet scaled down below the admitted count": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				PodSets(*utiltestingapi.MakePodSet("ps1", 8).Obj()).
 				ReserveQuotaAt(
 					utiltestingapi.MakeAdmission("cluster-queue").
-						PodSets(kueue.PodSetAssignment{Name: "ps1"}).
+						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: ptr.To[int32](8)}).
 						Obj(), now,
 				).
 				ReclaimablePods(
@@ -640,7 +672,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("ps1", 1).Obj()).
 				ReserveQuotaAt(
 					utiltestingapi.MakeAdmission("cluster-queue").
-						PodSets(kueue.PodSetAssignment{Name: "ps1"}).
+						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: ptr.To[int32](8)}).
 						Obj(), now,
 				).
 				Obj(),

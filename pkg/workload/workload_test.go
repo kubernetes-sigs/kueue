@@ -1093,6 +1093,59 @@ func TestLimitReclaimablePodsToPodSetSizes(t *testing.T) {
 	}
 }
 
+func TestReduceReclaimablePodsByScaleDown(t *testing.T) {
+	// makeWorkload builds a workload whose PodSet has been scaled down to
+	// currentSize while its admission still records the originally granted
+	// admittedSize.
+	makeWorkload := func(admittedSize, currentSize int32) *kueue.Workload {
+		return utiltestingapi.MakeWorkload("wl", "ns").
+			PodSets(*utiltestingapi.MakePodSet("main", int(currentSize)).Obj()).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+				PodSets(utiltestingapi.MakePodSetAssignment("main").Count(admittedSize).Obj()).
+				Obj(), time.Now()).
+			Obj()
+	}
+	cases := map[string]struct {
+		wl              *kueue.Workload
+		reclaimablePods []kueue.ReclaimablePod
+		want            []kueue.ReclaimablePod
+	}{
+		"no admission is a no-op": {
+			wl:              utiltestingapi.MakeWorkload("wl", "ns").PodSets(*utiltestingapi.MakePodSet("main", 10).Obj()).Obj(),
+			reclaimablePods: []kueue.ReclaimablePod{{Name: "main", Count: 9}},
+			want:            []kueue.ReclaimablePod{{Name: "main", Count: 9}},
+		},
+		"no scale-down leaves the count unchanged": {
+			wl:              makeWorkload(10, 10),
+			reclaimablePods: []kueue.ReclaimablePod{{Name: "main", Count: 5}},
+			want:            []kueue.ReclaimablePod{{Name: "main", Count: 5}},
+		},
+		"scale-down larger than the count clamps to zero": {
+			wl:              makeWorkload(20, 10),
+			reclaimablePods: []kueue.ReclaimablePod{{Name: "main", Count: 9}},
+			want:            []kueue.ReclaimablePod{{Name: "main", Count: 0}},
+		},
+		"scale-down smaller than the count reduces by the delta": {
+			wl:              makeWorkload(20, 10),
+			reclaimablePods: []kueue.ReclaimablePod{{Name: "main", Count: 15}},
+			want:            []kueue.ReclaimablePod{{Name: "main", Count: 5}},
+		},
+		"podSet without an admission entry is left as is": {
+			wl:              makeWorkload(20, 10),
+			reclaimablePods: []kueue.ReclaimablePod{{Name: "other", Count: 4}},
+			want:            []kueue.ReclaimablePod{{Name: "other", Count: 4}},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := ReduceReclaimablePodsByScaleDown(logr.Discard(), tc.wl, tc.reclaimablePods)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("Unexpected reclaimable pods (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestAssignmentClusterQueueState(t *testing.T) {
 	cases := map[string]struct {
 		state              *AssignmentClusterQueueState
