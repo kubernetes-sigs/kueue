@@ -565,9 +565,13 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 						setRequeued = false
 					}
 					updated := workload.SetRequeuedCondition(wl, evCond.Reason, evCond.Message, setRequeued)
+					reason := workload.UnadmittedWorkloadReasonWithFallback(
+						kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+						kueue.WorkloadPending, //nolint:staticcheck // SA1019: fallback
+					)
 					if workload.UnsetQuotaReservationWithCondition(
 						wl,
-						kueue.WorkloadPending, //nolint:staticcheck // SA1019: fallback
+						reason,
 						evCond.Message,
 						r.clock.Now(),
 					) {
