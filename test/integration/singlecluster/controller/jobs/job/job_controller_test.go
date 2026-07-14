@@ -4933,65 +4933,35 @@ var _ = ginkgo.Describe("Job reconciliation", ginkgo.Ordered, func() {
 		fwk.StopManager(ctx)
 	})
 
-	ginkgo.When("ManagedJobsNamespaceSelectorAlwaysRespected enabled", func() {
-		ginkgo.BeforeEach(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ManagedJobsNamespaceSelectorAlwaysRespected, true)
-		})
+	ginkgo.It("should not reconcile a job in an unmanaged namespace", func() {
+		job := testingjob.MakeJob("unmanaged-job", unmanagedNs.Name).
+			Queue(kueue.LocalQueueName(lq.Name)).
+			Suspend(true).
+			Image(util.GetAgnHostImage(), util.BehaviorExitFast).
+			Obj()
 
-		ginkgo.It("should not reconcile a job in an unmanaged namespace", func() {
-			job := testingjob.MakeJob("unmanaged-job", unmanagedNs.Name).
-				Queue(kueue.LocalQueueName(lq.Name)).
-				Suspend(true).
-				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
-				Obj()
+		gomega.Expect(k8sClient.Create(ctx, job)).To(gomega.Succeed())
 
-			gomega.Expect(k8sClient.Create(ctx, job)).To(gomega.Succeed())
-
-			wls := &kueue.WorkloadList{}
-			gomega.Expect(k8sClient.List(ctx, wls, client.InNamespace(unmanagedNs.Name))).To(gomega.Succeed())
-			gomega.Expect(wls.Items).To(gomega.BeEmpty(), "Expected no workload in unmanaged namespace")
-		})
-
-		ginkgo.It("should reconcile a job in managed namespace and create a workload", func() {
-			job := testingjob.MakeJob("managed-job", managedNs.Name).
-				Queue(kueue.LocalQueueName(lq.Name)).
-				Suspend(true).
-				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
-				Obj()
-
-			gomega.Expect(k8sClient.Create(ctx, job)).To(gomega.Succeed())
-
-			ginkgo.By("check that only one workload is created", func() {
-				createdWorkloads := &kueue.WorkloadList{}
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.List(ctx, createdWorkloads, client.InNamespace(managedNs.Name))).To(gomega.Succeed())
-					g.Expect(createdWorkloads.Items).To(gomega.HaveLen(1))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-		})
+		wls := &kueue.WorkloadList{}
+		gomega.Expect(k8sClient.List(ctx, wls, client.InNamespace(unmanagedNs.Name))).To(gomega.Succeed())
+		gomega.Expect(wls.Items).To(gomega.BeEmpty(), "Expected no workload in unmanaged namespace")
 	})
 
-	ginkgo.When("ManagedJobsNamespaceSelectorAlwaysRespected disabled", func() {
-		ginkgo.BeforeEach(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ManagedJobsNamespaceSelectorAlwaysRespected, false)
-		})
+	ginkgo.It("should reconcile a job in managed namespace and create a workload", func() {
+		job := testingjob.MakeJob("managed-job", managedNs.Name).
+			Queue(kueue.LocalQueueName(lq.Name)).
+			Suspend(true).
+			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+			Obj()
 
-		ginkgo.It("should reconcile a job in an unmanaged namespace with queue name set and create a workload", func() {
-			job := testingjob.MakeJob("unmanaged-job-with-queue-name", unmanagedNs.Name).
-				Queue(kueue.LocalQueueName(lq.Name)).
-				Suspend(true).
-				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
-				Obj()
+		gomega.Expect(k8sClient.Create(ctx, job)).To(gomega.Succeed())
 
-			gomega.Expect(k8sClient.Create(ctx, job)).To(gomega.Succeed())
-
-			ginkgo.By("check that only one workload is created", func() {
-				createdWorkloads := &kueue.WorkloadList{}
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.List(ctx, createdWorkloads, client.InNamespace(unmanagedNs.Name))).To(gomega.Succeed())
-					g.Expect(createdWorkloads.Items).To(gomega.HaveLen(1))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
+		ginkgo.By("check that only one workload is created", func() {
+			createdWorkloads := &kueue.WorkloadList{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.List(ctx, createdWorkloads, client.InNamespace(managedNs.Name))).To(gomega.Succeed())
+				g.Expect(createdWorkloads.Items).To(gomega.HaveLen(1))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })
