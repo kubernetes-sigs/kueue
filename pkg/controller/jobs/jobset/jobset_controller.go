@@ -145,7 +145,7 @@ func (j *JobSet) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSet
 	for index := range j.Spec.ReplicatedJobs {
 		template := &j.Spec.ReplicatedJobs[index].Template.Spec.Template
 		info := podSetsInfo[index]
-		if err := podset.Merge(&template.ObjectMeta, &template.Spec, info); err != nil {
+		if err := podset.Merge(ctx, &template.ObjectMeta, &template.Spec, info); err != nil {
 			return err
 		}
 	}

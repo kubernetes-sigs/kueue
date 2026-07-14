@@ -113,7 +113,7 @@ func (j *RayCluster) RunWithPodSetsInfo(ctx context.Context, _ client.Client, po
 
 	j.Spec.Suspend = new(false)
 
-	err := UpdateRayClusterSpecToRunWithPodSetsInfo(&j.Spec, podSetsInfo)
+	err := UpdateRayClusterSpecToRunWithPodSetsInfo(ctx, &j.Spec, podSetsInfo)
 	if err != nil {
 		return err
 	}
