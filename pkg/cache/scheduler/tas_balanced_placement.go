@@ -89,8 +89,11 @@ func selectOptimalDomainSetToFit(s *TASFlavorSnapshot, domains []*domain, sliceC
 		return nil
 	}
 
+	orderedDomains := slices.Clone(domains)
 	if priorizeByEntropy {
-		sortDomainsByCapacityAndEntropy(domains)
+		sortDomainsByCapacityAndEntropy(orderedDomains)
+	} else {
+		sortDomainsByLevelValues(orderedDomains)
 	}
 
 	// domain_placements[i][j][k] stores a list of domains that uses 'i' domains with
@@ -101,7 +104,7 @@ func selectOptimalDomainSetToFit(s *TASFlavorSnapshot, domains []*domain, sliceC
 	}
 	domainPlacements[0][leaderCount] = map[int32][]*domain{sliceCount * sliceSize: {}}
 
-	for _, d := range domains {
+	for _, d := range orderedDomains {
 		for i := optimalNumberOfDomains; i > 0; i-- {
 			for _, beforeLeader := range slices.Sorted(maps.Keys(domainPlacements[i-1])) {
 				for _, beforeState := range slices.Sorted(maps.Keys(domainPlacements[i-1][beforeLeader])) {
@@ -231,7 +234,7 @@ func sortDomainsByCapacityAndEntropy(domains []*domain) {
 		if bEntropy < aEntropy {
 			return -1
 		}
-		return 0
+		return compareDomainLevelValues(a, b)
 	})
 }
 
@@ -247,7 +250,9 @@ func findBestDomainsForBalancedPlacement(s *TASFlavorSnapshot, params *topologyA
 	if params.requestedLevelIdx == 0 {
 		requestedLevelDomainsToConsider = [][]*domain{slices.Collect(maps.Values(s.domainsPerLevel[0]))}
 	} else {
-		for _, higherLevelDomain := range slices.Collect(maps.Values(s.domainsPerLevel[params.requestedLevelIdx-1])) {
+		higherLevelDomains := slices.Collect(maps.Values(s.domainsPerLevel[params.requestedLevelIdx-1]))
+		sortDomainsByLevelValues(higherLevelDomains)
+		for _, higherLevelDomain := range higherLevelDomains {
 			requestedLevelDomainsToConsider = append(requestedLevelDomainsToConsider, higherLevelDomain.children)
 		}
 	}
