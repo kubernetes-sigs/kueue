@@ -41,7 +41,7 @@ export E2E_SKIP_REINSTALL="${E2E_SKIP_REINSTALL:-false}"
 # when they already exist locally / on kind worker nodes. CI mode always pulls and loads.
 export E2E_SKIP_IMAGE_RELOAD="${E2E_SKIP_IMAGE_RELOAD:-false}"
 
-export KIND_VERSION="${E2E_KIND_VERSION/"kindest/node:v"/}"
+export KIND_VERSION="${E2E_KIND_VERSION#kindest/node:v}"
 
 function build_kind_node_image {
     if [[ "$E2E_KIND_VERSION" != kindest/node:v* ]]; then
