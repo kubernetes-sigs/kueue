@@ -931,63 +931,62 @@ func TestDisconnectedClientReconnectsWithSameConfig(t *testing.T) {
 func TestConnectionStateTransitions(t *testing.T) {
 	now := time.Now()
 	fakeClock := testingclock.NewFakeClock(now)
-	rc := newRemoteClient(nil, nil, nil, nil, defaultOrigin, "worker1", nil)
-	rc.clock = fakeClock
+	cs := &connectionState{}
 
-	// Initial state: never connected, no recorded loss.
-	if rc.connState.isConnected() {
+	// Zero value: not connected, no recorded loss.
+	if cs.isConnected() {
 		t.Fatal("want disconnected initially")
 	}
-	if rc.connState.lostSince() != nil {
-		t.Fatalf("want nil disconnectedSince initially, got %v", rc.connState.lostSince())
+	if cs.lostSince() != nil {
+		t.Fatalf("want nil disconnectedSince for the zero value, got %v", cs.lostSince())
 	}
 
 	// Fully connected: no recorded loss.
-	rc.connState.markConnected()
-	if !rc.connState.isConnected() || rc.connState.lostSince() != nil {
-		t.Fatalf("after markConnected want connected with nil disconnectedSince, got connected=%v since=%v", rc.connState.isConnected(), rc.connState.lostSince())
+	cs.markConnected()
+	if !cs.isConnected() || cs.lostSince() != nil {
+		t.Fatalf("after markConnected want connected with nil disconnectedSince, got connected=%v since=%v", cs.isConnected(), cs.lostSince())
 	}
 
 	// First drop records the loss time and reports the transition.
-	if was := rc.connState.markDisconnected(fakeClock.Now()); !was {
+	if was := cs.markDisconnected(fakeClock.Now()); !was {
 		t.Fatal("want wasConnected=true on the first drop")
 	}
-	if s := rc.connState.lostSince(); s == nil || !s.Equal(now) {
+	if s := cs.lostSince(); s == nil || !s.Equal(now) {
 		t.Fatalf("first drop must record now (%v), got %v", now, s)
 	}
 
 	// Optimistic reconnect (before watchers) preserves the first-drop time.
 	fakeClock.Step(time.Minute)
-	rc.connState.markConnecting()
-	if !rc.connState.isConnected() {
+	cs.markConnecting()
+	if !cs.isConnected() {
 		t.Fatal("want connected after markConnecting")
 	}
-	if s := rc.connState.lostSince(); s == nil || !s.Equal(now) {
+	if s := cs.lostSince(); s == nil || !s.Equal(now) {
 		t.Fatalf("markConnecting must preserve the first-drop time (%v), got %v", now, s)
 	}
 
 	// A failed reconnect (disconnect after the optimistic connect) must NOT reset the loss time.
 	fakeClock.Step(time.Minute)
-	if was := rc.connState.markDisconnected(fakeClock.Now()); !was {
+	if was := cs.markDisconnected(fakeClock.Now()); !was {
 		t.Fatal("want wasConnected=true (was optimistically connected)")
 	}
-	if s := rc.connState.lostSince(); s == nil || !s.Equal(now) {
+	if s := cs.lostSince(); s == nil || !s.Equal(now) {
 		t.Fatalf("markDisconnected must preserve the first-drop time across a failed reconnect (%v), got %v", now, s)
 	}
 
 	// A repeated drop while already disconnected reports no transition and preserves the time.
 	fakeClock.Step(time.Minute)
-	if was := rc.connState.markDisconnected(fakeClock.Now()); was {
+	if was := cs.markDisconnected(fakeClock.Now()); was {
 		t.Fatal("want wasConnected=false when already disconnected")
 	}
-	if s := rc.connState.lostSince(); s == nil || !s.Equal(now) {
+	if s := cs.lostSince(); s == nil || !s.Equal(now) {
 		t.Fatalf("want preserved first-drop time (%v), got %v", now, s)
 	}
 
 	// A fully successful reconnect clears the recorded loss.
-	rc.connState.markConnected()
-	if !rc.connState.isConnected() || rc.connState.lostSince() != nil {
-		t.Fatalf("after reconnect want connected with nil disconnectedSince, got connected=%v since=%v", rc.connState.isConnected(), rc.connState.lostSince())
+	cs.markConnected()
+	if !cs.isConnected() || cs.lostSince() != nil {
+		t.Fatalf("after reconnect want connected with nil disconnectedSince, got connected=%v since=%v", cs.isConnected(), cs.lostSince())
 	}
 }
 
