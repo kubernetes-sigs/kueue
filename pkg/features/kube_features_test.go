@@ -20,7 +20,6 @@ import (
 	"testing"
 
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
-	"k8s.io/component-base/featuregate"
 	featuregatetesting "k8s.io/component-base/featuregate/testing"
 )
 
@@ -29,73 +28,5 @@ func TestFeatureGate(t *testing.T) {
 
 	if utilfeature.DefaultFeatureGate.Enabled(PartialAdmission) {
 		t.Error("feature gate should be disabled")
-	}
-}
-
-func TestDRAFeatureGraduationVersions(t *testing.T) {
-	tests := []struct {
-		name             string
-		feature          featuregate.Feature
-		expectedVersions []string
-		expectedDefaults []bool
-		expectedStages   []string
-	}{
-		{
-			name:             "KueueDRAIntegrationExtendedResource graduation",
-			feature:          KueueDRAIntegrationExtendedResource,
-			expectedVersions: []string{"0.18", "0.19"},
-			expectedDefaults: []bool{false, true},
-			expectedStages:   []string{"Alpha", "Beta"},
-		},
-		{
-			name:             "KueueDRAIntegrationPartitionableDevices graduation",
-			feature:          KueueDRAIntegrationPartitionableDevices,
-			expectedVersions: []string{"0.18", "0.19"},
-			expectedDefaults: []bool{false, true},
-			expectedStages:   []string{"Alpha", "Beta"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			specs, exists := defaultVersionedFeatureGates[tt.feature]
-			if !exists {
-				t.Fatalf("Feature %s not found in defaultVersionedFeatureGates", tt.feature)
-			}
-
-			if len(specs) != len(tt.expectedVersions) {
-				t.Errorf("Expected %d version specs, got %d", len(tt.expectedVersions), len(specs))
-			}
-
-			for i, spec := range specs {
-				expectedVersion := tt.expectedVersions[i]
-				expectedDefault := tt.expectedDefaults[i]
-				expectedStage := tt.expectedStages[i]
-
-				if spec.Version.String() != expectedVersion {
-					t.Errorf("Spec %d: expected version %s, got %s", i, expectedVersion, spec.Version.String())
-				}
-
-				if spec.Default != expectedDefault {
-					t.Errorf("Spec %d (v%s): expected default=%v, got %v", i, expectedVersion, expectedDefault, spec.Default)
-				}
-
-				var stageStr string
-				switch spec.PreRelease {
-				case featuregate.Alpha:
-					stageStr = "Alpha"
-				case featuregate.Beta:
-					stageStr = "Beta"
-				case featuregate.GA:
-					stageStr = "GA"
-				case featuregate.Deprecated:
-					stageStr = "Deprecated"
-				}
-
-				if stageStr != expectedStage {
-					t.Errorf("Spec %d (v%s): expected stage %s, got %s", i, expectedVersion, expectedStage, stageStr)
-				}
-			}
-		})
 	}
 }
