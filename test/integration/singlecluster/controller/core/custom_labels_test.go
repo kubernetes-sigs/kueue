@@ -337,7 +337,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 				v, err := testutil.GetGaugeMetricValue(metric)
 				g.Expect(err).ToNot(gomega.HaveOccurred())
 				g.Expect(v).To(gomega.Equal(float64(0)))
-			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 	})
 
