@@ -73,12 +73,6 @@ const (
 	// Enables MultiKueue support.
 	MultiKueue featuregate.Feature = "MultiKueue"
 
-	// owners: @B1F030, @kerthcet
-	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/1224-lending-limit
-	//
-	// Enables lending limit.
-	LendingLimit featuregate.Feature = "LendingLimit"
-
 	// owner: @trasc
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/693-multikueue
 	//
@@ -527,11 +521,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	MultiKueue: {
 		{Version: version.MustParse("0.6"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.9"), Default: true, PreRelease: featuregate.Beta},
-	},
-	LendingLimit: {
-		{Version: version.MustParse("0.6"), Default: false, PreRelease: featuregate.Alpha},
-		{Version: version.MustParse("0.9"), Default: true, PreRelease: featuregate.Beta},
-		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.19
 	},
 	MultiKueueBatchJobWithManagedBy: {
 		{Version: version.MustParse("0.8"), Default: false, PreRelease: featuregate.Alpha},
