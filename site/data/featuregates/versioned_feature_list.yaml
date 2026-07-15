@@ -323,6 +323,10 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.18"
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
 - name: ReclaimablePods
   versionedSpecs:
   - default: true

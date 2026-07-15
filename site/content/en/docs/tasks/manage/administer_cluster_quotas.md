@@ -470,7 +470,7 @@ The Workload obtains an effective resource requests for quota purposes:
 
 By default, administrators must specify all resources required by workloads in the ClusterQueue's `.spec.resourceGroups[*]`.
 If you want to relax that requirement and make resources declared on the workload, but not declared on the ClusterQueues to be skipped from quota management and admission process,
-you can specify the `quotaCheckStrategy: IgnoreUndeclared` in the Kueue Configuration as a cluster-level setting and enable the alpha `featureGates` `QuotaCheckStrategy`.
+you can rely on the quotaCheckStrategy feature that is enabled by default and specify the strategy `quotaCheckStrategy: IgnoreUndeclared` in the Kueue Configuration as a cluster-level setting. If needed, you can disable the feature with the `featureGates` `QuotaCheckStrategy`.
 
 Follow the [installation instructions for using a custom configuration](/docs/installation#install-a-custom-configured-released-version)
 and extend the configuration with fields similar to the following:
@@ -478,8 +478,6 @@ and extend the configuration with fields similar to the following:
 ```yaml
 apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
-featureGates:
-  QuotaCheckStrategy: true
 resources:
   quotaCheckStrategy: "IgnoreUndeclared"
 ```
