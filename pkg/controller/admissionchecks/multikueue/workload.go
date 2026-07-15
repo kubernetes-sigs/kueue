@@ -509,7 +509,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 	// 6. Get the first reserving/admitted workload.
 	conditionToCheck := kueue.WorkloadAdmitted
-	remoteCond, selectedRemote := group.bestMatchByCondition(conditionToCheck)
+	remoteCond, reservingRemote := group.bestMatchByCondition(conditionToCheck)
 
 	// 6a. The reservation is no longer visible while the admission check is still Ready.
 	// The reachability of the reserving worker decides the response, and it takes precedence
@@ -549,7 +549,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	if remoteCond != nil {
 		// remove the non-selected worker workloads
 		for rem, remWl := range group.remotes {
-			if remWl != nil && rem != selectedRemote {
+			if remWl != nil && rem != reservingRemote {
 				if err := client.IgnoreNotFound(group.RemoveRemoteObjects(ctx, rem)); err != nil {
 					log.V(2).Error(err, "Deleting out of sync remote objects", "remote", rem)
 					return reconcile.Result{}, err
@@ -558,10 +558,10 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			}
 		}
 
-		remoteCl := group.remoteClients[selectedRemote].getClient()
-		remoteWl := group.remotes[selectedRemote]
+		remoteCl := group.remoteClients[reservingRemote].getClient()
+		remoteWl := group.remotes[reservingRemote]
 
-		log = log.WithValues("remote", selectedRemote, "remoteWorkload", klog.KObj(remoteWl))
+		log = log.WithValues("remote", reservingRemote, "remoteWorkload", klog.KObj(remoteWl))
 		ctx = ctrl.LoggerInto(ctx, log)
 
 		evictedCond := apimeta.FindStatusCondition(group.local.Status.Conditions, kueue.WorkloadEvicted)
@@ -580,7 +580,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		}
 
 		if _, err := jobframework.ValidateRemoteObjectOwnership(ctx, remoteCl, group.controllerKey, group.jobAdapter.GVK(), w.origin); err != nil {
-			log.Error(err, "validating remote controller object", "cluster", selectedRemote)
+			log.Error(err, "validating remote controller object", "cluster", reservingRemote)
 			return reconcile.Result{}, err
 		}
 
@@ -591,7 +591,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			return reconcile.Result{}, err
 		}
 
-		if err := w.syncReservingRemoteState(ctx, group, selectedRemote, acs); err != nil {
+		if err := w.syncReservingRemoteState(ctx, group, reservingRemote, acs); err != nil {
 			return reconcile.Result{}, err
 		}
 		requeueAfter := w.workerLostTimeout
