@@ -90,8 +90,8 @@ var _ = ginkgo.Describe("MPIJob", ginkgo.Label("area:singlecluster", "feature:mp
 						Args:         util.BehaviorExitFast,
 					},
 				).
-				Request(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "500m").
-				Request(kfmpi.MPIReplicaTypeWorker, corev1.ResourceCPU, "100m").
+				RequestAndLimit(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "500m").
+				RequestAndLimit(kfmpi.MPIReplicaTypeWorker, corev1.ResourceCPU, "100m").
 				Obj()
 
 			ginkgo.By("Creating the MPIJob", func() {
