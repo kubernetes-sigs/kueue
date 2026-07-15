@@ -932,9 +932,7 @@ func TestConnectionStateTransitions(t *testing.T) {
 	fakeClock := testingclock.NewFakeClock(now)
 	cs := &connectionState{}
 
-	// A connectionState begins life disconnected with the loss recorded from creation (as
-	// newRemoteClient does), never the illegal disconnected/nil pair. Establish that first.
-	if was := cs.markDisconnected(fakeClock.Now()); was {
+	if was := cs.markDisconnected(now); was {
 		t.Fatal("want wasConnected=false for the initial disconnect")
 	}
 	if cs.isConnected() {
