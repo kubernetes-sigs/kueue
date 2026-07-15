@@ -1681,6 +1681,46 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		})
 	})
 
+	ginkgo.It("Should not evict admitted workloads when the connection to the reserving worker is briefly lost", framework.SlowSpec, func() {
+		// Regression for the worker-lost false-eviction: the grace must be anchored on when the
+		// connection was first observed lost, not on the (possibly stale) admission-check
+		// transition time. Several workloads are admitted on worker2 and their admission-check
+		// transition time is aged past the worker-lost timeout; a brief connection blip must then
+		// not evict any of them. Before the fix all would be evicted at once because the stale
+		// transition time made the grace look already expired.
+		keys := admitJobsOnWorker2AndAgeAdmissionCheck(managerNs.Name, managerLq.Name, managerCq.Name, multiKueueAC.Name, 3)
+
+		restoreConnection := util.BreakConnection(managerTestCluster.ctx, managerTestCluster.client, workerCluster2)
+		restoreConnection()
+
+		ginkgo.By("no admitted workload is evicted after the brief connection loss", func() {
+			expectNoEviction(keys, multiKueueAC.Name, testingWorkerLostTimeout*2)
+		})
+	})
+
+	ginkgo.It("Should not immediately evict admitted workloads after a manager restart while the reserving worker is unreachable", framework.SlowSpec, func() {
+		// Regression: the worker-lost grace is tracked in memory, so a manager restart during an
+		// outage must re-anchor it from the restart rather than evicting immediately. With the
+		// transition time already stale, restarting the manager while worker2 is unreachable must
+		// not cause an immediate mass eviction.
+		keys := admitJobsOnWorker2AndAgeAdmissionCheck(managerNs.Name, managerLq.Name, managerCq.Name, multiKueueAC.Name, 3)
+
+		restoreConnection := util.BreakConnection(managerTestCluster.ctx, managerTestCluster.client, workerCluster2)
+
+		ginkgo.By("restarting the manager while worker2 is unreachable", func() {
+			managerTestCluster.fwk.StopManager(managerTestCluster.ctx)
+			managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
+				managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, defaultEnabledIntegrations, config.MultiKueueDispatcherModeAllAtOnce)
+			})
+		})
+
+		ginkgo.By("the restarted manager re-anchors the grace and does not immediately evict", func() {
+			expectNoEviction(keys, multiKueueAC.Name, testingWorkerLostTimeout*2/3)
+		})
+
+		restoreConnection()
+	})
+
 	ginkgo.It("Should run a RayJob on worker if admitted", func() {
 		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).PodSets(
 			utiltestingapi.MakePodSetAssignment("head").Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj(),
@@ -2453,6 +2493,58 @@ func admitWorkloadAndCheckWorkerCopies(acName string, wlLookupKey types.Namespac
 			g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
+}
+
+// admitJobsOnWorker2AndAgeAdmissionCheck creates count Jobs in the manager namespace, admits each
+// on worker2, and waits until every admission check's transition time is older than the worker-lost
+// timeout. Aging the transition time ensures the test would catch a regression back to anchoring the
+// grace on it: the current code measures the grace from the in-memory first-loss time, so a stale
+// transition time must not cause an eviction. It returns the manager Workload keys.
+func admitJobsOnWorker2AndAgeAdmissionCheck(managerNsName, lqName, cqName, acName string, count int) []types.NamespacedName {
+	ginkgo.GinkgoHelper()
+	keys := make([]types.NamespacedName, 0, count)
+	for i := range count {
+		job := testingjob.MakeJob(fmt.Sprintf("job-%d", i), managerNsName).
+			Queue(kueue.LocalQueueName(lqName)).
+			Obj()
+		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, job)
+		key := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNsName}
+		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cqName)).
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj())
+		admitWorkloadAndCheckWorkerCopies(acName, key, admission)
+		keys = append(keys, key)
+	}
+
+	ginkgo.By("waiting until each admission check's transition time is older than the worker-lost timeout", func() {
+		gomega.Eventually(func(g gomega.Gomega) {
+			for _, key := range keys {
+				wl := &kueue.Workload{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, key, wl)).To(gomega.Succeed())
+				acs := admissioncheck.FindAdmissionCheck(wl.Status.AdmissionChecks, kueue.AdmissionCheckReference(acName))
+				g.Expect(acs).NotTo(gomega.BeNil())
+				g.Expect(acs.State).To(gomega.Equal(kueue.CheckStateReady))
+				g.Expect(time.Since(acs.LastTransitionTime.Time)).To(gomega.BeNumerically(">", testingWorkerLostTimeout))
+			}
+		}, testingWorkerLostTimeout*3, util.Interval).Should(gomega.Succeed())
+	})
+	return keys
+}
+
+// expectNoEviction asserts that, for the given duration, none of the workloads lose their quota
+// reservation or have their MultiKueue admission check moved off Ready.
+func expectNoEviction(keys []types.NamespacedName, acName string, within time.Duration) {
+	ginkgo.GinkgoHelper()
+	gomega.Consistently(func(g gomega.Gomega) {
+		for _, key := range keys {
+			wl := &kueue.Workload{}
+			g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, key, wl)).To(gomega.Succeed())
+			g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadQuotaReserved))
+			acs := admissioncheck.FindAdmissionCheck(wl.Status.AdmissionChecks, kueue.AdmissionCheckReference(acName))
+			g.Expect(acs).NotTo(gomega.BeNil())
+			g.Expect(acs.State).To(gomega.Equal(kueue.CheckStateReady))
+			g.Expect(ptr.Deref(acs.RetryCount, 0)).To(gomega.BeZero())
+		}
+	}, within, util.Interval).Should(gomega.Succeed())
 }
 
 func waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlLookupKey types.NamespacedName, finishJobReason string) {
