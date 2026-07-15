@@ -1268,6 +1268,27 @@ func TestReplacedWorkloadSlice(t *testing.T) {
 				},
 			},
 		},
+		"CrossNamespaceReplacementIsRejected": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			args: args{
+				wl: workload.NewInfo(utiltestingapi.MakeWorkload("test-new", "other-ns").
+					Annotation(WorkloadSliceReplacementFor, "default/test-old").
+					Admission(utiltestingapi.MakeAdmission("shared-cq").Obj()).
+					Obj()),
+				snap: &schdcache.Snapshot{
+					Manager: hierarchy.NewManagerForTest(
+						map[kueue.CohortReference]*schdcache.CohortSnapshot{},
+						map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
+							"shared-cq": {
+								Workloads: map[workload.Reference]*workload.Info{
+									"default/test-old": workload.NewInfo(utiltestingapi.MakeWorkload("test-old", "default").Obj()),
+								},
+							},
+						},
+					),
+				},
+			},
+		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
