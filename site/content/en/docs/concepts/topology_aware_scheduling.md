@@ -186,10 +186,8 @@ Before v0.19, a node was additionally assumed to have failed once its
 state. This fixed-time marking is deprecated: it remains available behind the
 `TASReplaceNodeDueToNotReadyOverFixedTime` feature gate (enabled by default in
 v0.17–v0.18, disabled by default and deprecated since v0.19) and is planned for
-removal. When that gate is enabled, disabling `TASReplaceNodeOnPodTermination`
-additionally restores the pre-v0.14 behavior of waiting for the fixed time before
-any replacement; with the gate disabled, `TASReplaceNodeOnPodTermination` has no
-effect.
+removal. Disabling `TASReplaceNodeOnPodTermination` retains the pre-v0.14 behavior of
+marking the node after the fixed time regardless of Pod state.
 
 Note that finding a replacement node that meets all the requirements (e.g. the same type of machine placed in the rack that Kueue had previously assigned to the workload) may not always be possible.
 If a workload is big enough to cover the whole topology domain (e.g. block or rack) it's inevitable that there will be no replacement within the same domain.
@@ -298,8 +296,9 @@ not-ready trigger depends on `TASReplaceNodeOnPodTermination` (`RNO`):
 - `RNO` disabled: the node is treated as failed only after 30 seconds of `NotReady`
   (the pre-v0.14 behavior), regardless of Pod state.
 
-With the gate disabled (the default since v0.19), `RNO` has no effect and Pod
-termination is the only not-ready trigger. Nodes that are deleted or lack a `Ready`
+With the gate disabled (the default since v0.19), Pod termination is the only
+not-ready trigger while `RNO` remains enabled (its default); disabling `RNO`
+retains the fixed-time marking. Nodes that are deleted or lack a `Ready`
 condition are treated as failed immediately in all configurations. To disable node
 replacement entirely, use the `TASFailedNodeReplacement` feature gate instead.
 

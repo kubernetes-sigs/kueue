@@ -27,6 +27,7 @@ import (
 	"github.com/onsi/gomega/types"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,6 +36,7 @@ import (
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -1547,11 +1549,17 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Obj()
 					util.MustCreate(ctx, k8sClient, pod)
 					ginkgo.DeferCleanup(func() {
-						p := &corev1.Pod{}
-						if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), p); err == nil {
-							p.Finalizers = nil
-							_ = k8sClient.Update(ctx, p)
-						}
+						gomega.Eventually(func(g gomega.Gomega) {
+							p := &corev1.Pod{}
+							err := k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), p)
+							if apierrors.IsNotFound(err) {
+								return
+							}
+							g.Expect(err).To(gomega.Succeed())
+							if controllerutil.RemoveFinalizer(p, "kueue.x-k8s.io/integration-test") {
+								g.Expect(k8sClient.Update(ctx, p)).To(gomega.Succeed())
+							}
+						}, util.Timeout, util.Interval).Should(gomega.Succeed())
 					})
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(gomega.Succeed())
@@ -1601,8 +1609,9 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				ginkgo.By("removing the pod finalizer", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(gomega.Succeed())
-						pod.Finalizers = nil
-						g.Expect(k8sClient.Update(ctx, pod)).To(gomega.Succeed())
+						if controllerutil.RemoveFinalizer(pod, "kueue.x-k8s.io/integration-test") {
+							g.Expect(k8sClient.Update(ctx, pod)).To(gomega.Succeed())
+						}
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 			})

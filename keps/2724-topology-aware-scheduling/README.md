@@ -1414,8 +1414,7 @@ The fixed-time heuristic is retained behind the
 in v0.17 and v0.18 backports, Deprecated (disabled by default) since v0.19, with
 removal planned in v0.21. While that gate is enabled, the interplay with
 `TASReplaceNodeOnPodTermination` is unchanged from v0.14; once it is disabled,
-`TASReplaceNodeOnPodTermination` has no effect and pod-termination marking is
-unconditional. Nodes that are deleted or lack a Ready condition are still marked
+disabling `TASReplaceNodeOnPodTermination` retains the fixed-time marking. Nodes that are deleted or lack a Ready condition are still marked
 immediately in all configurations.
 
 Kueue tries to find a replacement for a failed node until success (or until it gets
