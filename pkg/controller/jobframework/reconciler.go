@@ -497,6 +497,10 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			log.Error(err, "Getting reclaimable pods")
 			return ctrl.Result{}, err
 		}
+		if WorkloadSliceEnabled(job) {
+			// Elastic jobs may have scaled down since admission (kueue#12958).
+			reclPods = workload.ReduceReclaimablePodsByScaleDown(log, wl, reclPods)
+		}
 		reclPods = workload.LimitReclaimablePodsToPodSetSizes(wl, reclPods)
 
 		if !workload.ReclaimablePodsAreEqual(reclPods, wl.Status.ReclaimablePods) {
