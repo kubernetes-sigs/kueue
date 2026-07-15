@@ -28,16 +28,6 @@ Please do not remove items from the checklist
       release's docs into `site/content/<locale>/v$MAJ.$MIN/docs`, adds it to the version
       dropdown, and prunes old snapshots. No Netlify/DNS steps are required. Just confirm the
       snapshot dirs and the `[[params.versions]]` entry are present in that PR.
-- [ ] An OWNER creates a signed tag
-  - [ ] pull the release branch after PR from previous step merged
-  - [ ] run
-     `git tag -s $VERSION`
-      and inserts the changelog into the tag description.
-      To perform this step, you need [a PGP key registered on github](https://docs.github.com/en/authentication/managing-commit-signature-verification/checking-for-existing-gpg-keys).
-- [ ] An OWNER pushes the tag with
-      `git push upstream $VERSION`
-  - Triggers prow to build and publish a staging container image
-      `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:$VERSION`
 - [ ] Run ChatOps command `/tag-release` on this issue. This will:
   - Extract the changelog from the issue description.
   - Create the release tag at the tip of the release branch.
