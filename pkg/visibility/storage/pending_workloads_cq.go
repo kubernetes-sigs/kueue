@@ -65,14 +65,13 @@ func (m *pendingWorkloadsInCqREST) Get(_ context.Context, name string, opts runt
 	if !ok {
 		return nil, fmt.Errorf("invalid options object: %#v", opts)
 	}
-	limit := pendingWorkloadOpts.Limit
-	offset := pendingWorkloadOpts.Offset
+	limit, offset := boundedLimitOffset(pendingWorkloadOpts.Limit, pendingWorkloadOpts.Offset)
 
-	wls := make([]visibility.PendingWorkload, 0, limit)
 	pendingWorkloadsInfo := m.queueMgr.PendingWorkloadsInfo(kueue.ClusterQueueReference(name))
 	if pendingWorkloadsInfo == nil {
 		return nil, errors.NewNotFound(visibility.Resource("clusterqueue"), name)
 	}
+	wls := make([]visibility.PendingWorkload, 0, min(limit, int64(len(pendingWorkloadsInfo))))
 
 	localQueuePositions := make(map[kueue.LocalQueueName]int32, 0)
 

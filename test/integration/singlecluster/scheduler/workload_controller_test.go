@@ -1116,7 +1116,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 				g.Expect(cond).ToNot(gomega.BeNil())
 				g.Expect(cond.Reason).To(gomega.Equal(kueue.WorkloadQuotaReservedReasonWaitingForQuota))
 				g.Expect(cond.Message).To(gomega.Equal(detailedMsg))
-			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 	})
 })

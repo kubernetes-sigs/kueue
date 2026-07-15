@@ -38,6 +38,10 @@ Please do not remove items from the checklist
       `git push upstream $VERSION`
   - Triggers prow to build and publish a staging container image
       `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:$VERSION`
+- [ ] Run ChatOps command `/tag-release` on this issue. This will:
+  - Extract the changelog from the issue description.
+  - Create the release tag at the tip of the release branch.
+  - Push the tag upstream (triggers Prow to build and publish staging container image: `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:$VERSION`).
 - [ ] An OWNER [prepares a draft release](https://github.com/kubernetes-sigs/kueue/releases)
   - [ ] Create the draft release pointing out to the created tag.
   - [ ] Write the change log into the draft release.
@@ -47,10 +51,10 @@ Please do not remove items from the checklist
   - [ ] Upload the files in the `release-artifacts` folder to the draft release - either
       via UI or `gh release --repo kubernetes-sigs/kueue upload $VERSION release-artifacts/*`.
 - [ ] Promote images and Helm Charts to production:
-  - [ ] Run `./hack/releasing/wait_for_images.sh $VERSION` to await for the staging images.
+  - [ ] Use `/wait-for-images` to await for the staging images.
   - [ ] Run `./hack/releasing/promote_pull.sh $VERSION` to submit the promotion PR
   - [ ] Wait for the PR to be merged <!-- K8S_IO_PULL --> <!-- example kubernetes/k8s.io#7899 -->
-  - [ ] Run: `./hack/releasing/wait_for_images.sh --prod $VERSION` to verify that the promoted images are available.
+  - [ ] Use `/wait-for-prod-images` to verify that the promoted images are available.
 - [ ] Publish the draft release prepared at the [GitHub releases page](https://github.com/kubernetes-sigs/kueue/releases).
       Link: <!-- example https://github.com/kubernetes-sigs/kueue/releases/tag/v0.1.0 -->
 - [ ] Run the [openvex action](https://github.com/kubernetes-sigs/kueue/actions/workflows/openvex.yaml) to generate openvex data. The action will add the file to the release artifacts.

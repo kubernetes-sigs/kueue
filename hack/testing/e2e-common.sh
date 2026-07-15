@@ -42,7 +42,7 @@ export E2E_SKIP_REINSTALL="${E2E_SKIP_REINSTALL:-false}"
 # when they already exist locally / on kind worker nodes. CI mode always pulls and loads.
 export E2E_SKIP_IMAGE_RELOAD="${E2E_SKIP_IMAGE_RELOAD:-false}"
 
-export KIND_VERSION="${E2E_KIND_VERSION/"kindest/node:v"/}"
+export KIND_VERSION="${E2E_KIND_VERSION#kindest/node:v}"
 
 function build_kind_node_image {
     if [[ "$E2E_KIND_VERSION" != kindest/node:v* ]]; then
@@ -58,7 +58,7 @@ function build_kind_node_image {
     fi
 
     echo "Building kind node image: $E2E_KIND_VERSION (K8s v$KIND_VERSION)"
-    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 3 --delay 5 -- \
+    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 7 --delay 2 --exponential --stream -- \
         "$KIND" build node-image "v$KIND_VERSION" --image "$E2E_KIND_VERSION"
 }
 
@@ -555,8 +555,8 @@ function cluster_create {
 
     local log_file="$ARTIFACTS/$cluster-create.log"
     local create_cmd="$KIND create cluster --name \"$cluster\" --image \"$E2E_KIND_VERSION\" --config \"$kind_config\" --kubeconfig=\"$kubeconfig\" --wait 5m -v 5 > \"$log_file\" 2>&1"
-    # Retry only known-transient failures so real bugs still fail fast (#11586, #12307).
-    local retriable_errors="port is already allocated|error execution phase wait-control-plane"
+    # Retry only known-transient failures so real bugs still fail fast (#11586, #12307, #12984).
+    local retriable_errors="port is already allocated|error execution phase wait-control-plane|could not find a log line that matches"
     local continue_if="grep -qE '${retriable_errors}' \"$log_file\""
     local cleanup_cmd="if [ -f \"$log_file\" ]; then mv \"$log_file\" \"${log_file}.failed-\$(date +%s)\"; fi; $KIND delete cluster --name \"$cluster\" 2>/dev/null || true"
 
@@ -564,6 +564,7 @@ function cluster_create {
     if ! "${ROOT_DIR}/hack/testing/retry.sh" \
         --attempts 3 \
         --delay 3 \
+        --exponential \
         --continue-if "$continue_if" \
         --cleanup "$cleanup_cmd" \
         -- bash -c "$create_cmd"; then

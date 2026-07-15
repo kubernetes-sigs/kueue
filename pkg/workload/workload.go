@@ -48,6 +48,7 @@ import (
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
@@ -1162,6 +1163,45 @@ func LimitReclaimablePodsToPodSetSizes(wl *kueue.Workload, reclaimablePods []kue
 	return limited
 }
 
+// ReduceReclaimablePodsByScaleDown returns a copy of reclaimablePods with every
+// count reduced, bounded at zero, by the pods removed from its PodSet since
+// admission (the admission's granted count minus the current PodSet count).
+//
+// Without this, a job's reclaimable count derived from monotonic state (e.g. a
+// batch/Job's Status.Succeeded) would release quota for pods already removed by
+// an elastic scale-down (kueue#12958).
+func ReduceReclaimablePodsByScaleDown(log logr.Logger, wl *kueue.Workload, reclaimablePods []kueue.ReclaimablePod) []kueue.ReclaimablePod {
+	if wl.Status.Admission == nil {
+		return reclaimablePods
+	}
+	admittedSizes := make(map[kueue.PodSetReference]int32, len(wl.Status.Admission.PodSetAssignments))
+	for i := range wl.Status.Admission.PodSetAssignments {
+		psa := &wl.Status.Admission.PodSetAssignments[i]
+		if psa.Count != nil {
+			admittedSizes[psa.Name] = *psa.Count
+		}
+	}
+	currentSizes := ExtractPodSetCountsFromWorkload(wl)
+	reduced := slices.Clone(reclaimablePods)
+	for i := range reduced {
+		admitted, found := admittedSizes[reduced[i].Name]
+		if !found {
+			continue
+		}
+		if scaledDown := admitted - currentSizes[reduced[i].Name]; scaledDown > 0 {
+			newCount := max(0, reduced[i].Count-scaledDown)
+			log.V(3).Info("Reducing reclaimable pods for scaled-down podSet",
+				"podSet", reduced[i].Name,
+				"admittedCount", admitted,
+				"currentCount", currentSizes[reduced[i].Name],
+				"reclaimableFrom", reduced[i].Count,
+				"reclaimableTo", newCount)
+			reduced[i].Count = newCount
+		}
+	}
+	return reduced
+}
+
 // ReclaimablePodsAreEqual checks if two Reclaimable pods are semantically equal
 // having the same length and all keys have the same value.
 func ReclaimablePodsAreEqual(a, b []kueue.ReclaimablePod) bool {
@@ -1259,6 +1299,22 @@ func HasConditionWithTypeAndReason(w *kueue.Workload, cond *metav1.Condition) bo
 		}
 	}
 	return false
+}
+
+// OwnedBySinglePod reports whether the Workload is owned by exactly one Pod
+// (bare-Pod / Deployment-replica pod integration). Such a Workload cannot
+// outlive its pod, so no future pod can consume a recomputed assignment.
+// Pod-group Workloads are excluded: a group of size 1 also has a single Pod
+// owner, but can receive replacement pods into the same Workload.
+func OwnedBySinglePod(w *kueue.Workload) bool {
+	if w == nil || len(w.OwnerReferences) != 1 {
+		return false
+	}
+	if w.Annotations[podconstants.IsGroupWorkloadAnnotationKey] == podconstants.IsGroupWorkloadAnnotationValue {
+		return false
+	}
+	ref := w.OwnerReferences[0]
+	return ref.Kind == "Pod" && ref.APIVersion == "v1"
 }
 
 func HasUnhealthyNodes(w *kueue.Workload) bool {

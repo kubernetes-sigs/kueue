@@ -1049,6 +1049,10 @@ app = HelloWorld.bind()`,
 			gomega.Expect(k8sClient.Delete(ctx, rayService)).To(gomega.Succeed())
 		})
 
+		ginkgo.By("Verifying that the RayService is actually deleted", func() {
+			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, rayService, false, util.LongTimeout)
+		})
+
 		// Deferred finalization keeps the parent Workload admitted while KubeRay's Redis
 		// cleanup Job runs, so the Job purges the RayCluster's GCS metadata namespace.
 		// Without it the cleanup Job is gated forever and these keys leak until KubeRay's

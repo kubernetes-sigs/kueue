@@ -233,6 +233,14 @@ var (
 	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",active="one of `True`, `False`, or `Unknown`",replica_role="one of `leader`, `follower`, or `standalone`"
 	LocalQueueByStatus *prometheus.GaugeVec
 
+	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",reason="the reason why the workload is not admitted",underlying_cause="the underlying cause for the quota reservation deficit",replica_role="one of `leader`, `follower`, or `standalone`"
+	UnadmittedWorkloads *prometheus.GaugeVec
+
+	// +metricsdoc:group=localqueue
+	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",cluster_queue="the name of the ClusterQueue",reason="the reason why the workload is not admitted",underlying_cause="the underlying cause for the quota reservation deficit",replica_role="one of `leader`, `follower`, or `standalone`"
+	LocalQueueUnadmittedWorkloads *prometheus.GaugeVec
+
 	// Optional cluster queue metrics
 
 	// +metricsdoc:group=optional_clusterqueue_resources
@@ -763,6 +771,24 @@ For a LocalQueue, the metric only reports a value of 1 for one of the statuses.`
 		}, append([]string{"name", "namespace", "active", "replica_role"}, extraLabels...),
 	)
 	trackGaugeVec(LocalQueueByStatus, gaugeCleanupScopeLocalQueueCache)
+
+	UnadmittedWorkloads = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "unadmitted_workloads",
+			Help:      "The number of unadmitted workloads, per 'cluster_queue', 'reason', and 'underlying_cause'. This metric is only emitted when UnadmittedWorkloadsObservability feature gate is enabled.",
+		}, append([]string{"cluster_queue", "reason", "underlying_cause", "replica_role"}, extraLabels...),
+	)
+	trackGaugeVec(UnadmittedWorkloads, gaugeCleanupScopeClusterQueue, gaugeCleanupScopeClusterQueueCache, gaugeCleanupScopeClusterQueueLabelChange)
+
+	LocalQueueUnadmittedWorkloads = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "local_queue_unadmitted_workloads",
+			Help:      "The number of unadmitted workloads, per 'name', 'namespace', 'cluster_queue', 'reason', and 'underlying_cause'. This metric is only emitted when UnadmittedWorkloadsObservability feature gate is enabled.",
+		}, append([]string{"name", "namespace", "cluster_queue", "reason", "underlying_cause", "replica_role"}, extraLabels...),
+	)
+	trackGaugeVec(LocalQueueUnadmittedWorkloads, gaugeCleanupScopeLocalQueue, gaugeCleanupScopeLocalQueueCache)
 
 	ClusterQueueResourceReservations = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -1441,6 +1467,7 @@ func Register() {
 		CohortSubtreeResourceReservations,
 		CohortSubtreeAdmittedActiveWorkloads,
 		PodSchedulingGateRemovalSeconds,
+		UnadmittedWorkloads,
 	)
 	if features.Enabled(features.MetricForWorkloadCreationLatency) {
 		metrics.Registry.MustRegister(WorkloadCreationLatency)
@@ -1469,5 +1496,76 @@ func RegisterLQMetrics() {
 		LocalQueueResourceReservations,
 		LocalQueueResourceUsage,
 		LocalQueueAdmissionFairSharingUsage,
+		LocalQueueUnadmittedWorkloads,
 	)
+}
+
+func ReportUnadmittedWorkload(
+	cqName kueue.ClusterQueueReference,
+	reason, underlyingCause string,
+	customLabelValues []string,
+	tracker *roletracker.RoleTracker,
+	count int,
+) {
+	labels := append(
+		[]string{string(cqName), reason, underlyingCause, roletracker.GetRole(tracker)},
+		customLabelValues...,
+	)
+	UnadmittedWorkloads.WithLabelValues(labels...).Set(float64(count))
+}
+
+func ClearUnadmittedWorkloadLabelValues(
+	cqName kueue.ClusterQueueReference,
+	reason, underlyingCause string,
+	customLabelValues []string,
+	tracker *roletracker.RoleTracker,
+) {
+	labels := append(
+		[]string{string(cqName), reason, underlyingCause, roletracker.GetRole(tracker)},
+		customLabelValues...,
+	)
+	UnadmittedWorkloads.DeleteLabelValues(labels...)
+}
+
+func ReportLocalQueueUnadmittedWorkload(
+	lq LocalQueueReference,
+	cqName kueue.ClusterQueueReference,
+	reason, underlyingCause string,
+	customLabelValues []string,
+	tracker *roletracker.RoleTracker,
+	count int,
+) {
+	labels := append(
+		[]string{
+			string(lq.Name),
+			lq.Namespace,
+			string(cqName),
+			reason,
+			underlyingCause,
+			roletracker.GetRole(tracker),
+		},
+		customLabelValues...,
+	)
+	LocalQueueUnadmittedWorkloads.WithLabelValues(labels...).Set(float64(count))
+}
+
+func ClearLocalQueueUnadmittedWorkloadLabelValues(
+	lq LocalQueueReference,
+	cqName kueue.ClusterQueueReference,
+	reason, underlyingCause string,
+	customLabelValues []string,
+	tracker *roletracker.RoleTracker,
+) {
+	labels := append(
+		[]string{
+			string(lq.Name),
+			lq.Namespace,
+			string(cqName),
+			reason,
+			underlyingCause,
+			roletracker.GetRole(tracker),
+		},
+		customLabelValues...,
+	)
+	LocalQueueUnadmittedWorkloads.DeleteLabelValues(labels...)
 }
