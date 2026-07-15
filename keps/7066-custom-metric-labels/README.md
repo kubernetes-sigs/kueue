@@ -259,7 +259,11 @@ type ControllerMetricsCustomLabel struct {
     // SourceKind is the object kind from which the label value should be sourced.
     // Up to 2 labels are allowed for Workloads and up to 6 for other source kinds.
     // Defaults to ClusterQueue.
-    // +kubebuilder:validation:Enum=Cohort;LocalQueue;ClusterQueue;Workload
+    // The possible values are:
+    // - Cohort
+    // - LocalQueue
+    // - ClusterQueue
+    // - Workloads
     // +optional
     SourceKind *SourceKind `json:"sourceKind,omitempty"`
 
