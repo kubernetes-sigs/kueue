@@ -198,9 +198,10 @@ func TestWlReconcile(t *testing.T) {
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
-			useSecondWorker:     true,
-			worker2Reconnecting: true,
-			worker2OnGetError:   errFake,
+			useSecondWorker:          true,
+			worker2Reconnecting:      true,
+			worker2DisconnectedSince: new(now),
+			worker2OnGetError:        errFake,
 		},
 		"missing workload (in deleted workload cache), no remote objects": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
@@ -307,9 +308,10 @@ func TestWlReconcile(t *testing.T) {
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					Obj(),
 			},
-			useSecondWorker:     true,
-			worker2Reconnecting: true,
-			worker2OnGetError:   errFake,
+			useSecondWorker:          true,
+			worker2Reconnecting:      true,
+			worker2DisconnectedSince: new(now),
+			worker2OnGetError:        errFake,
 
 			wantManagersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
 			wantManagersWorkloads: []kueue.Workload{
@@ -331,9 +333,10 @@ func TestWlReconcile(t *testing.T) {
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					Obj(),
 			},
-			useSecondWorker:     true,
-			worker2Reconnecting: true,
-			worker2OnGetError:   errFake,
+			useSecondWorker:          true,
+			worker2Reconnecting:      true,
+			worker2DisconnectedSince: new(now),
+			worker2OnGetError:        errFake,
 			worker2Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
@@ -2134,8 +2137,6 @@ func TestOrphanedRemoteWorkloadCleanedAfterReconnect(t *testing.T) {
 		Build())
 	w2remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
 	w2remoteClient.client = worker2Client
-	w2remoteClient.connState.connected = false
-	w2remoteClient.connState.disconnectedSince = nil
 	cRec.remoteClients["worker2"] = w2remoteClient
 
 	helper, _ := admissioncheck.NewMultiKueueStoreHelper(managerClient)
@@ -2321,7 +2322,9 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 			}
 			remoteClients := make(map[string]*remoteClient, len(tt.remotes))
 			for remote, builder := range remoteClientBuilders {
-				remoteClients[remote] = &remoteClient{client: NewNeverCachingClient(builder.Build()), origin: remote}
+				rc := &remoteClient{client: NewNeverCachingClient(builder.Build()), origin: remote}
+				rc.connState.markDisconnected(time.Now())
+				remoteClients[remote] = rc
 			}
 
 			if tt.cond != nil {

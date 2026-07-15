@@ -94,13 +94,14 @@ func newTestClient(ctx context.Context, kubeconfig []byte, restConfig *rest.Conf
 
 		builderOverride: fakeClientBuilder(ctx),
 	}
+	// Match newRemoteClient's initial state: a client that has never connected still records
+	// the loss from creation, so connState never sits in the illegal disconnected/nil combination.
+	ret.connState.markDisconnected(ret.clock.Now())
 	return ret
 }
 
 func setReconnectState(rc *remoteClient, a uint) *remoteClient {
 	rc.failedConnAttempts = a
-	rc.connState.connected = false
-	rc.connState.disconnectedSince = nil
 	return rc
 }
 
@@ -911,8 +912,6 @@ func TestDisconnectedClientReconnectsWithSameConfig(t *testing.T) {
 
 	rc := newTestClient(ctx, []byte(kubeconfig), nil, nil)
 	rc.builderOverride = reconciler.builderOverride
-	rc.connState.connected = false
-	rc.connState.disconnectedSince = nil
 	reconciler.remoteClients["worker1"] = rc
 	defer rc.StopWatchers()
 
@@ -933,26 +932,30 @@ func TestConnectionStateTransitions(t *testing.T) {
 	fakeClock := testingclock.NewFakeClock(now)
 	cs := &connectionState{}
 
-	// Zero value: not connected, no recorded loss.
+	// A connectionState begins life disconnected with the loss recorded from creation (as
+	// newRemoteClient does), never the illegal disconnected/nil pair. Establish that first.
+	if was := cs.markDisconnected(fakeClock.Now()); was {
+		t.Fatal("want wasConnected=false for the initial disconnect")
+	}
 	if cs.isConnected() {
 		t.Fatal("want disconnected initially")
 	}
-	if cs.lostSince() != nil {
-		t.Fatalf("want nil disconnectedSince for the zero value, got %v", cs.lostSince())
+	if s := cs.lostSince(); s == nil || !s.Equal(now) {
+		t.Fatalf("initial disconnect must record now (%v), got %v", now, s)
 	}
 
-	// Fully connected: no recorded loss.
+	// Fully connected: clears the recorded loss.
 	cs.markConnected()
 	if !cs.isConnected() || cs.lostSince() != nil {
 		t.Fatalf("after markConnected want connected with nil disconnectedSince, got connected=%v since=%v", cs.isConnected(), cs.lostSince())
 	}
 
-	// First drop records the loss time and reports the transition.
+	// A drop from a connected client records the loss time and reports the transition.
 	if was := cs.markDisconnected(fakeClock.Now()); !was {
-		t.Fatal("want wasConnected=true on the first drop")
+		t.Fatal("want wasConnected=true when dropping from connected")
 	}
 	if s := cs.lostSince(); s == nil || !s.Equal(now) {
-		t.Fatalf("first drop must record now (%v), got %v", now, s)
+		t.Fatalf("drop from connected must record now (%v), got %v", now, s)
 	}
 
 	// Optimistic reconnect (before watchers) preserves the first-drop time.
@@ -1612,8 +1615,6 @@ func hammerSetConfigWithReader(t *testing.T, reader func(ctx context.Context, rc
 	rc.adapters = map[string]jobframework.MultiKueueAdapter{}
 
 	// Seed an initial client so the first read has a client to observe.
-	rc.connState.connected = false
-	rc.connState.disconnectedSince = nil
 	if _, err := rc.updateConfigAndRefreshWatchers(ctx, rc.config); err != nil {
 		t.Fatalf("seeding initial client: %v", err)
 	}
