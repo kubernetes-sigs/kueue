@@ -361,9 +361,6 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 		}
 	}
 
-	// The connection is fully established (all watchers started); the cluster is reachable
-	// again, so clear the recorded loss time. Done only on success so that repeated failed
-	// reconnect attempts preserve the first-drop time recorded when the watch dropped.
 	rc.connState.markConnected()
 	rc.resetFailedConnAttempt()
 	return nil, nil
