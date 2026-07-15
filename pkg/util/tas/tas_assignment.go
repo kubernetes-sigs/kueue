@@ -17,7 +17,6 @@ limitations under the License.
 package tas
 
 import (
-	"encoding/json"
 	"iter"
 	"slices"
 
@@ -287,74 +286,9 @@ func V1Beta2From(ta *TopologyAssignment, options ...V1Beta2FromOption) *kueue.To
 }
 
 // compactTopologyAssignmentEncoding translates a v1beta1 TopologyAssignment to
-// a v1beta2 counterpart. It keeps the single-slice encoding when that fits
-// v1beta2 limits, and only splits hostname-level assignments when needed.
-//
-// When splitting is needed, hostname-level assignments are split into contiguous
-// runs that share reusable '-' delimited hostname prefixes. Prefix keys are
-// chosen from longest to shortest, backing off until the resulting run chunks
-// fit the v1beta2 slice limit.
-//
-// For example, domains (gke-c-pool-a-hash1-aa, 3),
-// (gke-c-pool-a-hash1-bb, 3), (gke-c-pool-b-hash2-cc, 4), and
-// (gke-c-pool-b-hash2-dd, 5) produce two slices. The first slice uses prefix
-// "gke-c-pool-a-hash1-", roots ["aa", "bb"], and universal pod count 3. The
-// second uses prefix "gke-c-pool-b-hash2-", roots ["cc", "dd"], and pod
-// counts [4, 5].
-//
-// Local BenchmarkV1Beta2From results on an Intel i9-14900K were approximately
-// 2-6 ms for 40k-node cases and 20 ms for the sorted 150k-node GKE-style split
-// case.
-func compactTopologyAssignmentEncoding(log logr.Logger, ta *TopologyAssignment) *kueue.TopologyAssignment {
-	if len(ta.Domains) <= maxDomainsPerTopologyAssignmentSlice {
-		out := singleCompactTopologyAssignmentEncoding(ta)
-		bytes, err := json.Marshal(out)
-		switch {
-		case err != nil:
-			log.Error(err, "Failed to marshal single-slice topology assignment; falling back to hostname-prefix runs",
-				"domainCount", len(ta.Domains),
-			)
-		case len(bytes) <= maxTopologyAssignmentJSONBytes:
-			return out
-		default:
-			log.V(4).Info("Single-slice topology assignment exceeds the heuristic serialized-size budget; falling back to hostname-prefix runs",
-				"domainCount", len(ta.Domains),
-				"serializedBytes", len(bytes),
-				"heuristicBudgetBytes", maxTopologyAssignmentJSONBytes,
-			)
-		}
-	} else {
-		log.V(4).Info("Topology assignment exceeds the per-slice domain limit; falling back to hostname-prefix runs",
-			"domainCount", len(ta.Domains),
-			"maxDomainsPerSlice", maxDomainsPerTopologyAssignmentSlice,
-		)
-	}
-
-	out := compactTopologyAssignmentEncodingWithHostnamePrefixRuns(ta)
-	if logV := log.V(3); logV.Enabled() {
-		bytes, err := json.Marshal(out)
-		if err != nil {
-			log.Error(err, "Failed to marshal topology assignment after hostname-prefix encoding",
-				"domainCount", len(ta.Domains),
-				"sliceCount", len(out.Slices),
-			)
-		} else if len(bytes) > maxTopologyAssignmentJSONBytes {
-			logV.Info("Topology assignment remains above the heuristic serialized-size budget after hostname-prefix encoding",
-				"domainCount", len(ta.Domains),
-				"sliceCount", len(out.Slices),
-				"serializedBytes", len(bytes),
-				"heuristicBudgetBytes", maxTopologyAssignmentJSONBytes,
-			)
-		}
-	}
-	if len(out.Slices) > maxTopologyAssignmentSlices {
-		log.V(3).Info("Topology assignment exceeds the slice limit after hostname-prefix encoding",
-			"domainCount", len(ta.Domains),
-			"sliceCount", len(out.Slices),
-			"maxSlices", maxTopologyAssignmentSlices,
-		)
-	}
-	return out
+// a v1beta2 counterpart using hostname-prefix runs.
+func compactTopologyAssignmentEncoding(_ logr.Logger, ta *TopologyAssignment) *kueue.TopologyAssignment {
+	return compactTopologyAssignmentEncodingWithHostnamePrefixRuns(ta)
 }
 
 // singleCompactTopologyAssignmentEncoding represents an empty assignment with no

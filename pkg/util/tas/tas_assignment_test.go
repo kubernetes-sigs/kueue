@@ -822,7 +822,8 @@ func TestCompactTopologyAssignmentEncodingWithHostnamePrefixRuns_withoutHostname
 	}
 }
 
-func TestV1Beta2FromInternal_usesSingleSliceWhenItFits(t *testing.T) {
+func TestV1Beta2FromInternal_featureGateEnabledUsesPrefixRuns(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASAssignmentsEncodingByHostnamePrefix, true)
 	internal := &TopologyAssignment{
 		Levels: []string{corev1.LabelHostname},
 		Domains: []TopologyDomainAssignment{
@@ -834,8 +835,8 @@ func TestV1Beta2FromInternal_usesSingleSliceWhenItFits(t *testing.T) {
 	}
 
 	got := V1Beta2From(internal)
-	if len(got.Slices) != 1 {
-		t.Fatalf("unexpected number of slices: got %d, want 1", len(got.Slices))
+	if len(got.Slices) != 2 {
+		t.Fatalf("unexpected number of slices: got %d, want 2", len(got.Slices))
 	}
 	if diff := cmp.Diff(internal, InternalFrom(got), cmpopts.EquateEmpty()); diff != "" {
 		t.Errorf("unexpected round trip (-want,+got):\n%s", diff)
