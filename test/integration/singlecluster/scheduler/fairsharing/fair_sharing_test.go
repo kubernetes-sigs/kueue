@@ -1548,7 +1548,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing", "featur
 				cpu := lqObj.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources[corev1.ResourceCPU]
 				g.Expect(cpu.Cmp(resource.MustParse("0"))).To(gomega.BeNumerically(">", 0),
 					"ConsumedResources CPU should remain > 0, got %v", cpu.String())
-			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 	})
 })

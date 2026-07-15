@@ -4486,7 +4486,7 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 		ginkgo.By("the cap is stable: the ungater never exceeds the granted quota")
 		gomega.Consistently(func(g gomega.Gomega) {
 			g.Expect(sets.List(ungatedPodNames(g, ns.Name))).Should(gomega.HaveLen(grantedPodCount))
-		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("Should ungate a scale-up pod minted after the replacement slice was admitted", framework.SlowSpec, func() {
@@ -4588,7 +4588,7 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 		ginkgo.By("the cap holds: both granted pods are ungated and no surplus is")
 		gomega.Consistently(func(g gomega.Gomega) {
 			g.Expect(sets.List(ungatedPodNames(g, ns.Name))).Should(gomega.HaveLen(2))
-		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("Should support scheduling pending workload after freeing capacity on scale-down", func() {

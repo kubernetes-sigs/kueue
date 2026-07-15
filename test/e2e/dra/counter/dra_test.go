@@ -270,7 +270,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices", func() {
 			gomega.Consistently(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 				g.Expect(workload.HasQuotaReservation(createdWorkload)).To(gomega.BeFalse())
-			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should admit multiple workloads sharing counter quota", func() {
