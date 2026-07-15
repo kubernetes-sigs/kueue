@@ -949,7 +949,7 @@ func TestConnectionStateTransitions(t *testing.T) {
 	}
 
 	// A drop from a connected client records the loss time and reports the transition.
-	if was := cs.markDisconnected(fakeClock.Now()); !was {
+	if was := cs.markDisconnected(now); !was {
 		t.Fatal("want wasConnected=true when dropping from connected")
 	}
 	if s := cs.lostSince(); s == nil || !s.Equal(now) {
