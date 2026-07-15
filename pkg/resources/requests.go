@@ -20,6 +20,7 @@ import (
 	"maps"
 	"math"
 	"strings"
+	"sync"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -28,6 +29,20 @@ import (
 
 	utilmath "sigs.k8s.io/kueue/pkg/util/math"
 )
+
+var binaryFormattedResources sync.Map
+
+// RegisterBinaryFormattedResource marks a resource name as byte-valued for display.
+// Counter-based DRA logical resources (for example gpu.memory) should be registered
+// at startup so quantities serialize with BinarySI units.
+func RegisterBinaryFormattedResource(name corev1.ResourceName) {
+	binaryFormattedResources.Store(name, struct{}{})
+}
+
+func usesBinaryFormat(name corev1.ResourceName) bool {
+	_, ok := binaryFormattedResources.Load(name)
+	return ok
+}
 
 // The following resources calculations are inspired on
 // https://github.com/kubernetes/kubernetes/blob/master/pkg/scheduler/framework/types.go
@@ -117,7 +132,7 @@ func ResourceQuantity(name corev1.ResourceName, v int64) resource.Quantity {
 	case corev1.ResourceMemory, corev1.ResourceEphemeralStorage:
 		return newCanonicalQuantity(v, resource.BinarySI)
 	default:
-		if strings.HasPrefix(string(name), corev1.ResourceHugePagesPrefix) {
+		if strings.HasPrefix(string(name), corev1.ResourceHugePagesPrefix) || usesBinaryFormat(name) {
 			return newCanonicalQuantity(v, resource.BinarySI)
 		}
 		return *resource.NewQuantity(v, resource.DecimalSI)

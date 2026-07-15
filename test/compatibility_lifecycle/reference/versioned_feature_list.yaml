@@ -171,6 +171,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.15"
+  - default: true
+    lockToDefault: true
+    preRelease: GA
+    version: "0.19"
 - name: MetricForWorkloadCreationLatency
   versionedSpecs:
   - default: true
@@ -458,6 +462,16 @@
   - default: true
     lockToDefault: false
     preRelease: Beta
+    version: "0.19"
+- name: TASReplaceNodeDueToNotReadyOverFixedTime
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.17"
+  - default: false
+    lockToDefault: false
+    preRelease: Deprecated
     version: "0.19"
 - name: TASReplaceNodeOnNodeTaints
   versionedSpecs:

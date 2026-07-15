@@ -199,7 +199,7 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 			g.Expect(cond).ShouldNot(gomega.BeNil())
 			g.Expect(cond.Status).Should(gomega.Equal(metav1.ConditionFalse))
 			g.Expect(cond.Reason).Should(gomega.Equal(kueue.WorkloadOnHold))
-		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 
 		ginkgo.By("Scaling the StatefulSet back up to 1")
 		gomega.Eventually(func(g gomega.Gomega) {
