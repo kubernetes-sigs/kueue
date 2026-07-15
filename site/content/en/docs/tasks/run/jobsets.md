@@ -69,6 +69,10 @@ The first [PriorityClassName](https://kubernetes.io/docs/concepts/scheduling-evi
 
 ### d. Topology-Aware Scheduling
 
+{{% alert title="Note" color="primary" %}}
+The following examples require your cluster to be configured for Topology-Aware Scheduling. This includes having appropriate labels on your nodes, a configured `Topology` object, and a `ResourceFlavor` referencing that topology. Please refer to the [Topology-Aware Scheduling guide](/docs/concepts/topology_aware_scheduling) for full cluster setup instructions before running these examples.
+{{% /alert %}}
+
 You can use [Topology-Aware Scheduling (TAS)](/docs/concepts/topology_aware_scheduling) to schedule `ReplicatedJobs` within specific topology domains (like racks or zones) to minimize network latency. Kueue supports three TAS placement scenarios for JobSets using annotations on the Pod template:
 
 **1. Same-domain placement (Just PodSet TAS)**
