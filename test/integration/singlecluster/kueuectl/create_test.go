@@ -155,7 +155,7 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 				var createdQueue kueue.LocalQueue
 				gomega.Consistently(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: lqName, Namespace: ns.Name}, &createdQueue)).To(utiltesting.BeNotFoundError())
-				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 		})
 
@@ -242,7 +242,7 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 					var createdQueue kueue.LocalQueue
 					gomega.Consistently(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: lqName, Namespace: ns.Name}, &createdQueue)).To(utiltesting.BeNotFoundError())
-					}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 				})
 
 				ginkgo.By("Verify the local queue object is still printed to stdout", func() {
