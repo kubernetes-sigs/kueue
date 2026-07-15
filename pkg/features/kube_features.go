@@ -161,6 +161,14 @@ const (
 	// topologyAssignment only diverges from the node the pod runs on.
 	SkipReassignmentForPodOwnedWorkloads featuregate.Feature = "SkipReassignmentForPodOwnedWorkloads"
 
+	// owner: @yakticus
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
+	//
+	// Mark a TAS node as failed once it has been NotReady for NodeFailureDelay,
+	// regardless of pod state. When disabled, node replacement is driven solely
+	// by pod termination. Sunset gate: deprecated and off by default from 0.19.
+	TASReplaceNodeDueToNotReadyOverFixedTime featuregate.Feature = "TASReplaceNodeDueToNotReadyOverFixedTime"
+
 	// owner: @PannagaRao
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/3589-manage-jobs-selectively
 	//
@@ -576,6 +584,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	SkipReassignmentForPodOwnedWorkloads: {
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+	},
+	TASReplaceNodeDueToNotReadyOverFixedTime: {
+		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Deprecated},
 	},
 	ManagedJobsNamespaceSelectorAlwaysRespected: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
