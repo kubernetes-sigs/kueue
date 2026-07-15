@@ -280,6 +280,15 @@ func (w *wlReconciler) updateACS(ctx context.Context, wl *kueue.Workload, acs *k
 	})
 }
 
+func (w *wlReconciler) reservingWorkerLostSince(clusterName string) time.Time {
+	if rc, found := w.clusters.controllerFor(clusterName); found {
+		if since := rc.connState.lostSince(); since != nil {
+			return *since
+		}
+	}
+	return w.clock.Now()
+}
+
 func (w *wlReconciler) remoteClientsForAC(ctx context.Context, acName kueue.AdmissionCheckReference) (availableClients map[string]*remoteClient, unavailableClusters []string, err error) {
 	cfg, err := w.helper.ConfigForAdmissionCheck(ctx, acName)
 	if err != nil {
@@ -546,12 +555,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	if remoteCond == nil && acs.State == kueue.CheckStateReady {
 		reserving := ptr.Deref(group.local.Status.ClusterName, "")
 		if reserving != "" && slices.Contains(group.unavailableClusters, reserving) {
-			lostSince := w.clock.Now()
-			if rc, found := w.clusters.controllerFor(reserving); found {
-				if since := rc.connState.lostSince(); since != nil {
-					lostSince = *since
-				}
-			}
+			lostSince := w.reservingWorkerLostSince(reserving)
 			if remainingWaitTime := w.workerLostTimeout - w.clock.Since(lostSince); remainingWaitTime > 0 {
 				log.V(3).Info("Reserving remote temporarily unreachable, waiting before retry", "cluster", reserving, "retryAfter", remainingWaitTime)
 				return reconcile.Result{RequeueAfter: remainingWaitTime}, nil
