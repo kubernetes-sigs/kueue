@@ -2509,7 +2509,7 @@ func TestReconciler(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						LastTransitionTime: metav1.NewTime(now),
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonPendingEvaluation,
 						Message:            "Preempted to accommodate a higher priority Workload",
 					}).
 					Condition(metav1.Condition{
@@ -6325,7 +6325,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
+						Reason:  kueue.WorkloadQuotaReservedReasonPendingEvaluation,
 						Message: "The workload is deactivated",
 					}).
 					Condition(metav1.Condition{

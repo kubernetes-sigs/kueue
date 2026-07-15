@@ -1620,7 +1620,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			ginkgo.By("checking that the third workload is not admitted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey3, createdWorkload3)).Should(gomega.Succeed())
-					g.Expect(createdWorkload3.Status.Conditions).Should(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, "Pending"))
+					g.Expect(createdWorkload3.Status.Conditions).Should(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, kueue.WorkloadQuotaReservedReasonWaitingForQuota))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -1719,7 +1719,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			ginkgo.By("checking that the third workload is not admitted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey3, createdWorkload3)).Should(gomega.Succeed())
-					g.Expect(createdWorkload3.Status.Conditions).Should(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, "Pending"))
+					g.Expect(createdWorkload3.Status.Conditions).Should(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, kueue.WorkloadQuotaReservedReasonWaitingForQuota))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -1743,7 +1743,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 					g.Expect(createdWorkload2.Status.Conditions).ShouldNot(utiltesting.HaveConditionStatusTrue(kueue.WorkloadEvicted))
 					g.Expect(createdWorkload2.Status.Conditions).ShouldNot(utiltesting.HaveConditionStatusTrue(kueue.WorkloadPreempted))
 					g.Expect(k8sClient.Get(ctx, wlLookupKey3, createdWorkload3)).Should(gomega.Succeed())
-					g.Expect(createdWorkload3.Status.Conditions).Should(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, "Pending"))
+					g.Expect(createdWorkload3.Status.Conditions).Should(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, kueue.WorkloadQuotaReservedReasonWaitingForQuota))
 				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 		})
@@ -1891,7 +1891,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			ginkgo.By("checking that the third workload is not admitted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey3, createdWorkload3)).Should(gomega.Succeed())
-					g.Expect(createdWorkload3.Status.Conditions).Should(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, "Pending"))
+					g.Expect(createdWorkload3.Status.Conditions).Should(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, kueue.WorkloadQuotaReservedReasonWaitingForQuota))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -1986,7 +1986,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			ginkgo.By("checking that the third workload is not admitted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey3, createdWorkload3)).Should(gomega.Succeed())
-					g.Expect(createdWorkload3.Status.Conditions).Should(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, "Pending"))
+					g.Expect(createdWorkload3.Status.Conditions).Should(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, kueue.WorkloadQuotaReservedReasonWaitingForQuota))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -2010,7 +2010,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 					g.Expect(createdWorkload2.Status.Conditions).ShouldNot(utiltesting.HaveConditionStatusTrue(kueue.WorkloadEvicted))
 					g.Expect(createdWorkload2.Status.Conditions).ShouldNot(utiltesting.HaveConditionStatusTrue(kueue.WorkloadPreempted))
 					g.Expect(k8sClient.Get(ctx, wlLookupKey3, createdWorkload3)).Should(gomega.Succeed())
-					g.Expect(createdWorkload3.Status.Conditions).Should(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, "Pending"))
+					g.Expect(createdWorkload3.Status.Conditions).Should(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, kueue.WorkloadQuotaReservedReasonWaitingForQuota))
 				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 		})
@@ -2109,7 +2109,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			ginkgo.By("checking that the third workload is not admitted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey3, createdWorkload3)).Should(gomega.Succeed())
-					g.Expect(createdWorkload3.Status.Conditions).Should(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, "Pending"))
+					g.Expect(createdWorkload3.Status.Conditions).Should(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, kueue.WorkloadQuotaReservedReasonWaitingForQuota))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -2736,7 +2736,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
+						Reason:  kueue.WorkloadDeactivated,
 						Message: "The workload is deactivated",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 					gomega.BeComparableTo(metav1.Condition{
@@ -2793,7 +2793,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 				// Workload should stay unadmitted.
 				g.Expect(k8sClient.Get(ctx, wlKey, wll)).Should(gomega.Succeed())
 				g.Expect(wll.Status.Conditions).Should(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadEvicted, "Deactivated"))
-				g.Expect(wll.Status.Conditions).Should(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, "Pending"))
+				g.Expect(wll.Status.Conditions).Should(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, kueue.WorkloadDeactivated))
 				g.Expect(wll.Status.Conditions).Should(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadAdmitted, "NoReservation"))
 			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 
@@ -3124,7 +3124,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
+						Reason:  kueue.WorkloadQuotaReservedReasonPendingEvaluation,
 						Message: fmt.Sprintf("Exceeded the PodsReady timeout %s", wlKey.String()),
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 					gomega.BeComparableTo(metav1.Condition{
@@ -3423,7 +3423,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
+						Reason:  kueue.WorkloadQuotaReservedReasonPendingEvaluation,
 						Message: fmt.Sprintf("Exceeded the PodsReady timeout %s", wlKey.String()),
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 					gomega.BeComparableTo(metav1.Condition{
@@ -3467,8 +3467,8 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
-						Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
+						Reason:  kueue.WorkloadDeactivated,
+						Message: "The workload is deactivated",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.WorkloadEvicted,
@@ -4150,7 +4150,7 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 							gomega.BeComparableTo(metav1.Condition{
 								Type:    kueue.WorkloadQuotaReserved,
 								Status:  metav1.ConditionFalse,
-								Reason:  "Pending",
+								Reason:  kueue.WorkloadQuotaReservedReasonPendingEvaluation,
 								Message: fmt.Sprintf("Exceeded the PodsReady timeout %s", wlKey.String()),
 							}, util.IgnoreConditionTimestampsAndObservedGeneration),
 							gomega.BeComparableTo(metav1.Condition{
@@ -4248,7 +4248,7 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 							gomega.BeComparableTo(metav1.Condition{
 								Type:    kueue.WorkloadQuotaReserved,
 								Status:  metav1.ConditionFalse,
-								Reason:  "Pending",
+								Reason:  kueue.WorkloadQuotaReservedReasonPendingEvaluation,
 								Message: fmt.Sprintf("Exceeded the PodsReady timeout %s", wlKey.String()),
 							}, util.IgnoreConditionTimestampsAndObservedGeneration),
 							gomega.BeComparableTo(metav1.Condition{
@@ -4973,7 +4973,7 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testJobA.Namespace), client.MatchingLabels{constants.JobUIDLabel: string(testJobB.UID)})).Should(gomega.Succeed())
 			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
 			testJobBWorkload = &workloads.Items[0]
-			g.Expect(testJobBWorkload.Status.Conditions).Should(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, "Pending"))
+			g.Expect(testJobBWorkload.Status.Conditions).Should(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, kueue.WorkloadQuotaReservedReasonWaitingForQuota))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("scale-down job-a to make room for job-b")

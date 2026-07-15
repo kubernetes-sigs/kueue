@@ -78,17 +78,19 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 			wl = utiltestingapi.MakeWorkload("one", ns.Name).Request(corev1.ResourceCPU, "1").Obj()
 			message = fmt.Sprintf("LocalQueue %s doesn't exist", "")
 			util.MustCreate(ctx, k8sClient, wl)
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
-				g.Expect(updatedQueueWorkload.Status.Conditions).Should(gomega.HaveLen(1))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			gomega.Expect(updatedQueueWorkload.Status.Conditions[0]).To(
-				gomega.BeComparableTo(metav1.Condition{
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, client.ObjectKeyFromObject(wl),
+				metav1.Condition{
 					Type:    kueue.WorkloadQuotaReserved,
 					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadInadmissible,
+					Reason:  kueue.WorkloadQuotaReservedReasonMisconfigured,
 					Message: message,
-				}, util.IgnoreConditionTimestampsAndObservedGeneration),
+				},
+				metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				},
 			)
 		})
 	})
@@ -101,17 +103,19 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 			wl = utiltestingapi.MakeWorkload("two", ns.Name).Queue("non-created-queue").Request(corev1.ResourceCPU, "1").Obj()
 			message = fmt.Sprintf("LocalQueue %s doesn't exist", "non-created-queue")
 			util.MustCreate(ctx, k8sClient, wl)
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
-				g.Expect(updatedQueueWorkload.Status.Conditions).Should(gomega.HaveLen(1))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			gomega.Expect(updatedQueueWorkload.Status.Conditions[0]).To(
-				gomega.BeComparableTo(metav1.Condition{
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, client.ObjectKeyFromObject(wl),
+				metav1.Condition{
 					Type:    kueue.WorkloadQuotaReserved,
 					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadInadmissible,
+					Reason:  kueue.WorkloadQuotaReservedReasonMisconfigured,
 					Message: message,
-				}, util.IgnoreConditionTimestampsAndObservedGeneration),
+				},
+				metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				},
 			)
 		})
 	})
@@ -128,17 +132,19 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 			wl = utiltestingapi.MakeWorkload("three", ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
 			message = fmt.Sprintf("ClusterQueue %s doesn't exist", "fooclusterqueue")
 			util.MustCreate(ctx, k8sClient, wl)
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
-				g.Expect(updatedQueueWorkload.Status.Conditions).ShouldNot(gomega.BeNil())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			gomega.Expect(updatedQueueWorkload.Status.Conditions[0]).To(
-				gomega.BeComparableTo(metav1.Condition{
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, client.ObjectKeyFromObject(wl),
+				metav1.Condition{
 					Type:    kueue.WorkloadQuotaReserved,
 					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadInadmissible,
+					Reason:  kueue.WorkloadQuotaReservedReasonMisconfigured,
 					Message: message,
-				}, util.IgnoreConditionTimestampsAndObservedGeneration),
+				},
+				metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				},
 			)
 		})
 	})
@@ -840,7 +846,6 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 		)
 
 		ginkgo.BeforeEach(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsExplicitStatus, true)
 			flavor = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()
 			gomega.Expect(k8sClient.Create(ctx, flavor)).Should(gomega.Succeed())
@@ -1245,8 +1250,8 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", func()
 			rf         *kueue.ResourceFlavor
 		)
 		ginkgo.BeforeEach(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
 			startManager()
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
 			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
 
 			rf = utiltestingapi.MakeResourceFlavor("default-flavor").Obj()
@@ -1556,7 +1561,6 @@ var _ = ginkgo.Describe("Workload controller with resource retention", func() {
 
 		ginkgo.BeforeEach(func() {
 			startManager()
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
 			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-ns-selector-")
 			flavor = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()
 			gomega.Expect(k8sClient.Create(ctx, flavor)).Should(gomega.Succeed())

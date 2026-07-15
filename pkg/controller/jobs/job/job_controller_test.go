@@ -1390,7 +1390,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
+						Reason:  kueue.WorkloadQuotaReservedReasonPendingEvaluation,
 						Message: "The workload is deactivated",
 					}).
 					Condition(metav1.Condition{
@@ -1485,7 +1485,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
+						Reason:  kueue.WorkloadQuotaReservedReasonPendingEvaluation,
 						Message: "The workload is deactivated",
 					}).
 					Condition(metav1.Condition{
@@ -1580,7 +1580,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
+						Reason:  kueue.WorkloadQuotaReservedReasonPendingEvaluation,
 						Message: "The workload is deactivated",
 					}).
 					Condition(metav1.Condition{
@@ -1672,7 +1672,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
+						Reason:  kueue.WorkloadQuotaReservedReasonPendingEvaluation,
 						Message: "The workload is deactivated",
 					}).
 					Condition(metav1.Condition{
@@ -1773,7 +1773,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
+						Reason:  kueue.WorkloadQuotaReservedReasonPendingEvaluation,
 						Message: "The workload is deactivated",
 					}).
 					Condition(metav1.Condition{
@@ -1865,7 +1865,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
+						Reason:  kueue.WorkloadQuotaReservedReasonPendingEvaluation,
 						Message: "The workload is deactivated",
 					}).
 					Condition(metav1.Condition{
@@ -1944,7 +1944,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
+						Reason:  kueue.WorkloadQuotaReservedReasonPendingEvaluation,
 						Message: "Exceeded the PodsReady timeout",
 					}).
 					Condition(metav1.Condition{
@@ -2017,7 +2017,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
+						Reason:  kueue.WorkloadQuotaReservedReasonPendingEvaluation,
 						Message: "At least one admission check is false",
 					}).
 					Condition(metav1.Condition{
@@ -2102,7 +2102,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
+						Reason:  kueue.WorkloadQuotaReservedReasonPendingEvaluation,
 						Message: "The ClusterQueue is stopped",
 					}).
 					Condition(metav1.Condition{
@@ -2187,7 +2187,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
+						Reason:  kueue.WorkloadQuotaReservedReasonPendingEvaluation,
 						Message: "The LocalQueue is stopped",
 					}).
 					Condition(metav1.Condition{
@@ -2272,7 +2272,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
+						Reason:  kueue.WorkloadQuotaReservedReasonPendingEvaluation,
 						Message: "Preempted",
 					}).
 					Condition(metav1.Condition{
@@ -2337,7 +2337,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
+						Reason:  kueue.WorkloadQuotaReservedReasonPendingEvaluation,
 						Message: "The workload is deactivated",
 					}).
 					AdmissionCheck(kueue.AdmissionCheckState{
@@ -2368,7 +2368,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
+						Reason:  kueue.WorkloadQuotaReservedReasonPendingEvaluation,
 						Message: "The workload is deactivated",
 					}).
 					AdmissionCheck(kueue.AdmissionCheckState{

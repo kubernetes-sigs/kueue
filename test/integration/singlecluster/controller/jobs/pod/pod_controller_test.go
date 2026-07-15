@@ -2506,7 +2506,7 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 				metav1.Condition{
 					Type:    kueue.WorkloadQuotaReserved,
 					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadPending, //nolint:staticcheck // SA1019: legacy reason
+					Reason:  kueue.WorkloadQuotaReservedReasonPendingEvaluation,
 					Message: fmt.Sprintf("Exceeded the PodsReady timeout %s", wlKey.String()),
 				},
 				metav1.Condition{
@@ -2557,8 +2557,8 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 				metav1.Condition{
 					Type:    kueue.WorkloadQuotaReserved,
 					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadPending, //nolint:staticcheck // SA1019: legacy reason
-					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
+					Reason:  kueue.WorkloadDeactivated,
+					Message: "The workload is deactivated",
 				},
 				metav1.Condition{
 					Type:    kueue.WorkloadEvicted,

@@ -537,7 +537,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             kueue.WorkloadQuotaReservedReasonPendingEvaluation,
 						Message:            "The workload was deactivated",
 						ObservedGeneration: 1,
 					}).

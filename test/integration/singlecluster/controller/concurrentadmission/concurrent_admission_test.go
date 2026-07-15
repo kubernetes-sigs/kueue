@@ -115,8 +115,6 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 		})
 
 		ginkgo.It("Should not count variant workloads in unadmitted workload metrics", func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
-
 			parentWl := utiltestingapi.MakeWorkload("parent-wl-metrics", ns.Name).
 				Request(corev1.ResourceCPU, "100").
 				Queue(kueue.LocalQueueName(lq.Name)).

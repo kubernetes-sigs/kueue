@@ -358,7 +358,7 @@ var _ = ginkgo.Describe("DRA", func() {
 				g.Expect(unmatchableWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
 					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
 					gomega.HaveField("Status", metav1.ConditionFalse),
-					gomega.HaveField("Reason", kueue.WorkloadInadmissible),
+					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonMisconfigured),
 					gomega.HaveField("Message", gomega.ContainSubstring("insufficient matching devices for CEL selector")),
 				)))
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
