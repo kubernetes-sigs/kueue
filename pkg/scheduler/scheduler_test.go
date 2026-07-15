@@ -65,7 +65,9 @@ const (
 )
 
 var cmpDump = cmp.Options{
-	cmpopts.SortSlices(func(a, b string) bool { return a < b }),
+	// Queue dumps are []workload.Reference; a plain string sorter would not
+	// match that element type and the option would never apply.
+	cmpopts.SortSlices(func(a, b workload.Reference) bool { return a < b }),
 }
 
 // scheduleTestCase is the shared case definition for the core scheduling tests
@@ -7126,6 +7128,75 @@ func TestNominateBlocksDeeperSameCQEntriesAfterInadmissibleHead(t *testing.T) {
 	}
 	if got, want := inadmissible[1].inadmissibleMsg, "Blocked by an earlier workload from the same ClusterQueue"; got != want {
 		t.Fatalf("second inadmissible message: got %q, want %q", got, want)
+	}
+	// The blocked entry was never evaluated: it must requeue immediately to
+	// the heap (not park as inadmissible) and must not patch the workload
+	// status, matching the status quo in which it would not have been popped.
+	if got, want := inadmissible[1].requeueReason, qcache.RequeueReasonFailedAfterNomination; got != want {
+		t.Errorf("blocked entry requeueReason: got %q, want %q", got, want)
+	}
+	if !inadmissible[1].skipStatusUpdate {
+		t.Error("blocked entry must skip the workload status update")
+	}
+	// The genuinely inadmissible head keeps the default (non-immediate) path.
+	if got, want := inadmissible[0].requeueReason, qcache.RequeueReasonGeneric; got != want {
+		t.Errorf("failed head requeueReason: got %q, want %q", got, want)
+	}
+}
+
+// TestNominateSkipsAddedWorkloadAndClearsQueueBookkeeping verifies that when
+// nominate() skips a popped head because the cache already accounts for it,
+// the queue-side bookkeeping is dropped too: the workload stops counting as
+// pending, and a later re-add is accepted instead of being silently ignored by
+// the stale inflight entry.
+func TestNominateSkipsAddedWorkloadAndClearsQueueBookkeeping(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+	lq := utiltestingapi.MakeLocalQueue("foo", "default").ClusterQueue("cq").Obj()
+	wl := utiltestingapi.MakeWorkload("wl", "default").Queue("foo").Obj()
+	cl := utiltesting.NewFakeClient(wl)
+
+	cqCache := schdcache.New(cl)
+	if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Failed adding ClusterQueue to cache: %v", err)
+	}
+	qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithPreemptionExpectations(preemptexpectations.New()))
+	if err := qManager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Failed adding ClusterQueue to queue manager: %v", err)
+	}
+	if err := qManager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("Failed adding LocalQueue: %v", err)
+	}
+	if err := qManager.AddOrUpdateWorkload(log, wl); err != nil {
+		t.Fatalf("Failed adding workload: %v", err)
+	}
+
+	heads := qManager.Heads(ctx)
+	if got, want := len(heads), 1; got != want {
+		t.Fatalf("Heads returned %d workloads, want %d", got, want)
+	}
+
+	// The workload gets accounted in the cache (e.g. admitted) while popped.
+	admitted := utiltestingapi.MakeWorkload("wl", "default").Queue("foo").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), time.Now()).
+		Obj()
+	cqCache.AddOrUpdateWorkload(log, admitted)
+
+	s := &Scheduler{cache: cqCache, queues: qManager}
+	entries, inadmissible := s.nominate(ctx, heads, &schdcache.Snapshot{}, false)
+	if len(entries) != 0 || len(inadmissible) != 0 {
+		t.Fatalf("expected the added workload to be skipped, got %d entries and %d inadmissible", len(entries), len(inadmissible))
+	}
+	if pending, err := qManager.Pending(cq); err != nil || pending != 0 {
+		t.Fatalf("pending after skip: got %d, err %v, want 0", pending, err)
+	}
+
+	// A later re-add (e.g. after eviction) must be accepted again.
+	if err := qManager.AddOrUpdateWorkload(log, wl); err != nil {
+		t.Fatalf("Failed re-adding workload: %v", err)
+	}
+	if pending, err := qManager.Pending(cq); err != nil || pending != 1 {
+		t.Fatalf("pending after re-add: got %d, err %v, want 1", pending, err)
 	}
 }
 

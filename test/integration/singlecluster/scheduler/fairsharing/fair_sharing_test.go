@@ -306,6 +306,48 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			util.ExpectPreemptedWorkloadsTotalMetric(cqB.Name, "InCohortFairSharing", 0)
 			util.ExpectPreemptedWorkloadsTotalMetric(cqShared.Name, "InCohortFairSharing", 0)
 		})
+
+		// Guards the cross-cycle convergence of the interrupt: when a burst
+		// frees MORE capacity than the look-ahead depth, the entries the
+		// interrupt drops must be reconsidered by the scheduler on its own in
+		// the next cycles - spare capacity plus a pending backlog must never
+		// coexist idly waiting for an external event.
+		ginkgo.It("keeps scheduling dropped heads across cycles when the burst exceeds the look-ahead depth", framework.SlowSpec, func() {
+			ginkgo.By("Saturating cq-a with the whole shared pool")
+			for range 8 {
+				createWorkload("a", "1")
+			}
+			util.ExpectReservingActiveWorkloadsMetric(cqA, 8)
+
+			ginkgo.By("Creating a standing backlog: two in cq-b, two more in cq-a")
+			util.WaitForNextSecondAfterCreation(wls[len(wls)-1])
+			for range 2 {
+				createWorkload("b", "1")
+			}
+			for range 2 {
+				createWorkload("a", "1")
+			}
+			util.ExpectReservingActiveWorkloadsMetric(cqB, 0)
+
+			ginkgo.By("Freeing three units at once (more than the look-ahead depth)")
+			util.FinishRunningWorkloadsInCQ(ctx, k8sClient, cqA, 3)
+
+			// Cycle 1 admits both cq-b workloads and interrupts, dropping
+			// cq-a's popped heads; one unit is still free. The dropped heads
+			// must return to the heap so the next cycle seats one of them.
+			ginkgo.By("cq-b takes two units, and cq-a reclaims the remaining unit in a later cycle")
+			util.ExpectReservingActiveWorkloadsMetric(cqB, 2)
+			util.ExpectReservingActiveWorkloadsMetric(cqA, 6)
+
+			ginkgo.By("Only the workload that genuinely does not fit remains pending")
+			util.ExpectPendingWorkloadsMetric(cqA, 0, 1)
+			util.ExpectPendingWorkloadsMetric(cqB, 0, 0)
+
+			ginkgo.By("No cross-CQ fair-share preemptions were issued")
+			util.ExpectPreemptedWorkloadsTotalMetric(cqA.Name, "InCohortFairSharing", 0)
+			util.ExpectPreemptedWorkloadsTotalMetric(cqB.Name, "InCohortFairSharing", 0)
+			util.ExpectPreemptedWorkloadsTotalMetric(cqShared.Name, "InCohortFairSharing", 0)
+		})
 	})
 
 	ginkgo.When("Preemption is enabled", func() {

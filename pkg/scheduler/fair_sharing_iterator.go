@@ -110,6 +110,13 @@ func (f *fairSharingIterator) done(e *entry) {
 		f.advance(e.clusterQueueSnapshot)
 		return
 	}
+	// The front entry failed, so this ClusterQueue's deeper entries are
+	// dropped without evaluation; mark them so they requeue to the heap and
+	// the next cycle reconsiders them (under BestEffortFIFO a smaller deeper
+	// workload may then legitimately jump the failed front).
+	for _, deeper := range f.cqToEntry[e.clusterQueueSnapshot][1:] {
+		deeper.markDropped()
+	}
 	delete(f.cqToEntry, e.clusterQueueSnapshot)
 }
 
@@ -119,6 +126,8 @@ func (f *fairSharingIterator) dropWhile(match func(*entry) bool) {
 		for _, e := range entries {
 			if !match(e) {
 				kept = append(kept, e)
+			} else {
+				e.markDropped()
 			}
 		}
 		if len(kept) == 0 {
@@ -185,8 +194,9 @@ func runTournament(cohort *schdcache.CohortSnapshot, ec entryComparer, cqToEntry
 		}
 	}
 
-	// Collect entries from CQ. If an entry was returned during a
-	// previous call to pop, it will not be in the cqToEntry map.
+	// Collect entries from CQ. A ClusterQueue is absent from the map once
+	// done() consumed its entries: advanced past them after successful
+	// assumptions, or dropped them behind a failed front.
 	for _, childCq := range cohort.ChildCQs() {
 		if candidate, ok := cqToEntry[childCq]; ok {
 			candidates = append(candidates, candidate)

@@ -1362,6 +1362,58 @@ func TestRequeueWorkloadChangedQueueClearsOldInflight(t *testing.T) {
 	}
 }
 
+// TestRequeueWorkloadNotAdmissibleClearsInflight verifies that when
+// RequeueWorkload declines a popped workload (it became non-admissible), the
+// inflight bookkeeping is cleared: the workload stops counting as pending and,
+// once admissible again, is accepted back into the queue instead of being
+// silently dropped by the PushOrUpdate inflight guard.
+func TestRequeueWorkloadNotAdmissibleClearsInflight(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+	q := utiltestingapi.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj()
+	wl := utiltestingapi.MakeWorkload("wl", "").Queue("foo").Obj()
+	cl := utiltesting.NewFakeClient(wl)
+	manager := NewManagerForUnitTests(cl, nil, WithPreemptionExpectations(preemptexpectations.New()))
+	if err := manager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Failed adding cluster queue: %v", err)
+	}
+	if err := manager.AddLocalQueue(ctx, q); err != nil {
+		t.Fatalf("Failed adding queue: %v", err)
+	}
+	if err := manager.AddOrUpdateWorkload(log, wl); err != nil {
+		t.Fatalf("Failed adding workload: %v", err)
+	}
+
+	if got, want := len(manager.Heads(ctx)), 1; got != want {
+		t.Fatalf("Heads returned %d workloads, want %d", got, want)
+	}
+
+	updated := wl.DeepCopy()
+	inactive := false
+	updated.Spec.Active = &inactive
+	if err := cl.Update(ctx, updated); err != nil {
+		t.Fatalf("Failed deactivating workload: %v", err)
+	}
+	if requeued := manager.RequeueWorkload(ctx, workload.NewInfo(wl), RequeueReasonGeneric, ""); requeued {
+		t.Fatalf("expected RequeueWorkload to decline a non-admissible workload")
+	}
+	if pending, err := manager.Pending(cq); err != nil || pending != 0 {
+		t.Fatalf("pending after declined requeue: got %d, err %v, want 0", pending, err)
+	}
+
+	active := true
+	updated.Spec.Active = &active
+	if err := cl.Update(ctx, updated); err != nil {
+		t.Fatalf("Failed reactivating workload: %v", err)
+	}
+	if err := manager.AddOrUpdateWorkload(log, updated); err != nil {
+		t.Fatalf("Failed re-adding reactivated workload: %v", err)
+	}
+	if pending, err := manager.Pending(cq); err != nil || pending != 1 {
+		t.Fatalf("pending after reactivation: got %d, err %v, want 1", pending, err)
+	}
+}
+
 func TestUpdateWorkload(t *testing.T) {
 	now := time.Now()
 	cases := map[string]struct {

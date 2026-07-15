@@ -776,9 +776,28 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	var w kueue.Workload
 	// Always get the newest workload to avoid requeuing the out-of-date obj.
 	err := m.client.Get(ctx, client.ObjectKeyFromObject(info.Obj), &w)
-	// Since the client is cached, the only possible error is NotFound.
+	// Since the client is cached, the only expected error is NotFound.
 	// We should not requeue a workload that is not admissible.
-	if apierrors.IsNotFound(err) || !workload.IsAdmissible(&w) {
+	// In all these cases the caller popped this workload and no requeue follows,
+	// so drop the queue-side bookkeeping here; a stale inflight entry would
+	// otherwise make PushOrUpdate ignore every future update for the workload.
+	if apierrors.IsNotFound(err) {
+		m.deleteAndForgetWorkloadWithoutLock(ctrl.LoggerFrom(ctx), workload.Key(info.Obj))
+		return false
+	}
+	if err != nil {
+		// Unexpected with a cached client; the object may still exist, so
+		// clear only the queue-side bookkeeping and keep the records owned
+		// by the workload controller.
+		m.deleteWorkloadWithoutLock(ctrl.LoggerFrom(ctx), workload.Key(info.Obj))
+		return false
+	}
+	if !workload.IsAdmissible(&w) {
+		// The workload still exists (e.g. it finished or was put on hold
+		// while inflight), so keep its finished/unadmitted records and queue
+		// assignment: the workload controller owns their lifecycle and only
+		// forgets them when the object is deleted.
+		m.deleteWorkloadWithoutLock(ctrl.LoggerFrom(ctx), workload.Key(info.Obj))
 		return false
 	}
 
@@ -956,10 +975,12 @@ func (m *Manager) heads() []workload.Info {
 			workloads = append(workloads, wlCopy)
 
 			qKey := m.workloadAssignedQueues[wlKey]
-			q := m.localQueues[qKey]
-			delete(q.items, wlKey)
-
-			reportLQPendingWorkloads(m, q)
+			// The LocalQueue may already be gone if it was deleted while this
+			// workload sat in the ClusterQueue heap.
+			if q := m.localQueues[qKey]; q != nil {
+				delete(q.items, wlKey)
+				reportLQPendingWorkloads(m, q)
+			}
 		}
 	}
 	return workloads

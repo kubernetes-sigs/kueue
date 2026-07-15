@@ -402,6 +402,139 @@ func TestScheduleForAFS(t *testing.T) {
 					Obj(),
 			},
 		},
+		// With FairSharingLookAhead, both heads are popped before the first
+		// admission pushes the AFS entry penalty, so the less-active LocalQueue
+		// can land up to depth (2) workloads in one cycle before the penalty
+		// reorders the heap. Without the gate, the penalty from wl-a1 would
+		// reorder lq-a below lq-b and wl-b1 would take the second slot.
+		"look-ahead: less active localqueue front-runs by at most the depth before the penalty lands": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AdmissionFairSharing: true,
+				features.FairSharingLookAhead: true,
+			},
+			// The usage gap (0.1) is smaller than the entry penalty of one
+			// 4-CPU admission (4 * (1-0.5^(1/10)) ~= 0.27): without the gate,
+			// wl-a1's penalty reorders lq-a above lq-b before the second
+			// admission, and wl-b1 takes the second slot.
+			initialUsage: map[string]corev1.ResourceList{
+				"lq-a": {corev1.ResourceCPU: resource.MustParse("7900m")},
+				"lq-b": {corev1.ResourceCPU: resource.MustParse("8")},
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-a1", "default").
+					Queue("lq-a").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "4").
+						Obj()).
+					Creation(now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-a2", "default").
+					Queue("lq-a").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "4").
+						Obj()).
+					Creation(now.Add(1 * time.Second)).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-b1", "default").
+					Queue("lq-b").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "4").
+						Obj()).
+					Creation(now.Add(2 * time.Second)).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-a1", "default").
+					Queue("lq-a").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "4").
+						Obj()).
+					Creation(now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "QuotaReserved",
+						Message:            "Quota reserved in ClusterQueue cq1",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Admitted",
+						Message:            "The workload is admitted",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Admission(
+						utiltestingapi.MakeAdmission("cq1").
+							PodSets(
+								utiltestingapi.MakePodSetAssignment("one").
+									Assignment(corev1.ResourceCPU, "default", "4").
+									Count(1).
+									Obj(),
+							).
+							Obj(),
+					).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-a2", "default").
+					Queue("lq-a").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "4").
+						Obj()).
+					Creation(now.Add(1 * time.Second)).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "QuotaReserved",
+						Message:            "Quota reserved in ClusterQueue cq1",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Admitted",
+						Message:            "The workload is admitted",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Admission(
+						utiltestingapi.MakeAdmission("cq1").
+							PodSets(
+								utiltestingapi.MakePodSetAssignment("one").
+									Assignment(corev1.ResourceCPU, "default", "4").
+									Count(1).
+									Obj(),
+							).
+							Obj(),
+					).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-b1", "default").
+					Queue("lq-b").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "4").
+						Obj()).
+					Creation(now.Add(2 * time.Second)).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+						Message:            "couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor default, 4 more needed",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "one",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("4"),
+						},
+					}).
+					Obj(),
+			},
+		},
 		"without AFS: classic admission decision ignores queue usage": {
 			featureGates: map[featuregate.Feature]bool{features.AdmissionFairSharing: false},
 			initialUsage: map[string]corev1.ResourceList{
@@ -485,8 +618,15 @@ func TestScheduleForAFS(t *testing.T) {
 					Obj(),
 			},
 		},
+		// Look-ahead is pinned off: it pops both heads before the first
+		// admission pushes an entry penalty, so lq-a takes both slots. That
+		// bounded front-running is asserted separately by the "look-ahead"
+		// case above; this case pins the per-admission interleaving.
 		"admits one workload from each localqueue when quota is limited": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
+			featureGates: map[featuregate.Feature]bool{
+				features.AdmissionFairSharing: true,
+				features.FairSharingLookAhead: false,
+			},
 			initialUsage: map[string]corev1.ResourceList{
 				"lq-a": {corev1.ResourceCPU: resource.MustParse("4")},
 				"lq-b": {corev1.ResourceCPU: resource.MustParse("4")},
@@ -874,7 +1014,7 @@ func TestScheduleForAFS(t *testing.T) {
 					cl := clientBuilder.Build()
 
 					cqCache := schdcache.New(cl, schdcache.WithFairSharing(tc.featureGates[features.AdmissionFairSharing]), schdcache.WithAdmissionFairSharing(afsConfig))
-					qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithAdmissionFairSharing(afsConfig))
+					qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithAdmissionFairSharing(afsConfig), qcache.WithFairSharing(tc.featureGates[features.AdmissionFairSharing]))
 
 					ctx, log := utiltesting.ContextWithLog(t)
 					for _, q := range queues {

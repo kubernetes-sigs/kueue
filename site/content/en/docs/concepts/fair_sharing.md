@@ -13,6 +13,30 @@ A mechanism for ordering workloads based on the historical resource usage of
 their source LocalQueues, giving preference to those that have consumed fewer
 resources over time.
 
+## Look-ahead
+
+{{< feature-state state="alpha" for_version="v0.20" >}}
+
+By default, each scheduling cycle considers only the head workload of every
+ClusterQueue. When a burst of capacity frees up in a cohort (for example, a
+large workload finishes), the under-share ClusterQueue is admitted first, but
+only its single head: the rest of the freed capacity can be borrowed in the
+same cycle by an over-share sibling. Without preemption the resulting
+imbalance persists; with preemption it causes admit-then-preempt churn.
+
+With the `FairSharingLookAhead` feature gate enabled (and `fairSharing`
+configured), each cycle considers up to two workloads per ClusterQueue, and
+stops admitting within a cohort once one of its top-level subtrees admits two
+workloads, so that a burst of freed capacity keeps flowing to the
+ClusterQueues with the lowest share across consecutive cycles. This changes
+no APIs and adds no new statuses; the observable effect is that weighted
+shares converge without fair-sharing preemptions after bursts of freed
+capacity.
+
+The feature matters when Fair Sharing is enabled, ClusterQueues borrow within
+cohorts, and capacity frees up in bursts. Clusters without cohorts or without
+borrowing see no behavioral difference.
+
 ## [Preemption based Fair Sharing](/docs/concepts/preemption/#fair-sharing)
 
 ### Proof that two workloads won't preempt each other
