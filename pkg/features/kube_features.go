@@ -396,6 +396,14 @@ const (
 	// Enables configurable stepSize for the MultiKueue Incremental Dispatcher.
 	MultiKueueIncrementalDispatcherConfig featuregate.Feature = "MultiKueueIncrementalDispatcherConfig"
 
+	// owner: @andrewseif
+	//
+	// kep: https://github.com/kubernetes-sigs/kueue/issues/12854
+	// Enables the MultiKueue Incremental Dispatcher to nominate worker clusters in the
+	// order defined in MultiKueueConfig.spec.clusters. When disabled, clusters are
+	// nominated in alphabetical order.
+	MultiKueueIncrementalDispatcherRespectConfigOrder featuregate.Feature = "MultiKueueIncrementalDispatcherRespectConfigOrder"
+
 	// owner: @pbundyra
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/8691-concurrent-admission
 	//
@@ -696,6 +704,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
 	},
 	MultiKueueIncrementalDispatcherConfig: {
+		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+	},
+	MultiKueueIncrementalDispatcherRespectConfigOrder: {
+		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
 	},
 	ConcurrentAdmission: {

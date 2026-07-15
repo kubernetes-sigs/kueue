@@ -19,6 +19,7 @@ package workloaddispatcher
 import (
 	"context"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -173,6 +174,10 @@ func getNextNominatedWorkers(log logr.Logger, wl *kueue.Workload, remoteClusters
 		if !alreadyNominated.Has(remoteWorker) {
 			workers = append(workers, remoteWorker)
 		}
+	}
+	// Sorts the local copy, never remoteClusters, which aliases the cached MultiKueueConfig.
+	if !features.Enabled(features.MultiKueueIncrementalDispatcherRespectConfigOrder) {
+		slices.Sort(workers)
 	}
 
 	log.V(5).Info("proceeding worker clusters nomination", "alreadyNominatedClusterNames", alreadyNominated, "remainingClusterNames", workers)

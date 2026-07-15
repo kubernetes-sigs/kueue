@@ -111,6 +111,20 @@ If none of the nominated clusters admit the Workload within a fixed duration (5 
 the next batch of clusters — again following the configured order — is incrementally added in
 subsequent rounds, until the Workload is admitted or all clusters have been nominated.
 
+{{< feature-state state="beta" for_version="v0.19" >}}
+
+{{% alert title="Note" color="primary" %}}
+Nominating clusters in the order defined in `MultiKueueConfig.spec.clusters` is controlled by the
+`MultiKueueIncrementalDispatcherRespectConfigOrder` feature gate, which is Beta and enabled by
+default since Kueue v0.19. In v0.17 and v0.18 the gate is Alpha and disabled by default; enable it
+to opt in.
+
+When the gate is disabled, clusters are nominated in alphabetical order instead, which was the
+behavior before the gate was introduced. Refer to the
+[Installation guide](/docs/installation/#change-the-feature-gates-configuration)
+for instructions on configuring feature gates.
+{{% /alert %}}
+
 The default maximum batch size is 3. This can be configured by enabling the `MultiKueueIncrementalDispatcherConfig` feature gate and setting `.multiKueue.incrementalDispatcherConfig.stepSize` in the Kueue configuration.
 
 #### Example: prioritizing clusters for cost-optimized spillover
@@ -145,8 +159,8 @@ With this setup the incremental dispatcher nominates clusters as follows:
 - Round 2 (after 5 minutes without admission): `worker-onprem`, `worker-aws`
 - Round 3 (after another 5 minutes): `worker-onprem`, `worker-aws`, `worker-gcp`
 
-The nomination order always follows `spec.clusters`, regardless of the cluster names'
-alphabetical order.
+With the `MultiKueueIncrementalDispatcherRespectConfigOrder` gate enabled, the nomination order
+always follows `spec.clusters`, regardless of the cluster names' alphabetical order.
 
 ### External (Custom implementation):
 In this mode, the selection of worker clusters is delegated to an external controller.

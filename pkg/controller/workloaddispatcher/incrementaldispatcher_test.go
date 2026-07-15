@@ -18,6 +18,7 @@ package workloaddispatcher
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -305,13 +306,16 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 			advanceRoundTime:           false,
 			wantNominatedClusters:      []string{"A", "B", "C"},
 		},
-		// Order-preservation cases (issue #12854): the dispatcher must nominate in the
-		// order clusters appear in MultiKueueConfig.spec.clusters, never alphabetically.
-		"respects configured order: preferred cluster first, not alphabetical (stepSize 1)": {
+		// Gate ON (issue #12854): nominate in MultiKueueConfig.spec.clusters order.
+		// Each case below is mirrored by a gate-off case asserting the opposite order.
+		"gate on: preferred cluster first, not alphabetical (stepSize 1)": {
 			remoteClusters: []string{"onprem", "aws", "gcp"},
 			workload:       baseWl.DeepCopy(),
 			cfg: &kueueconfig.IncrementalDispatcherConfig{
 				StepSize: new(int32(1)),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.MultiKueueIncrementalDispatcherRespectConfigOrder: true,
 			},
 			wantNominatedClustersCount: 1,
 			wantErr:                    nil,
@@ -319,23 +323,166 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 			// Alphabetical order would nominate "aws" first; configured order wins.
 			wantNominatedClusters: []string{"onprem"},
 		},
-		"respects configured order: full non-alphabetical list preserved (stepSize 3)": {
-			remoteClusters:             []string{"zeta", "alpha", "mike"},
-			workload:                   baseWl.DeepCopy(),
+		"gate on: second round nominates next configured cluster": {
+			remoteClusters: []string{"onprem", "aws", "gcp"},
+			workload:       baseWl.Clone().NominatedClusterNames("onprem").Obj(),
+			cfg: &kueueconfig.IncrementalDispatcherConfig{
+				StepSize: new(int32(1)),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.MultiKueueIncrementalDispatcherRespectConfigOrder: true,
+			},
+			wantNominatedClustersCount: 2,
+			wantErr:                    nil,
+			advanceRoundTime:           true,
+			wantNominatedClusters:      []string{"onprem", "aws"},
+		},
+		"gate on: third round nominates last configured cluster": {
+			remoteClusters: []string{"onprem", "aws", "gcp"},
+			workload:       baseWl.Clone().NominatedClusterNames("onprem", "aws").Obj(),
+			cfg: &kueueconfig.IncrementalDispatcherConfig{
+				StepSize: new(int32(1)),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.MultiKueueIncrementalDispatcherRespectConfigOrder: true,
+			},
+			wantNominatedClustersCount: 3,
+			wantErr:                    nil,
+			advanceRoundTime:           true,
+			wantNominatedClusters:      []string{"onprem", "aws", "gcp"},
+		},
+		"gate on: all configured clusters exhausted": {
+			remoteClusters: []string{"onprem", "aws", "gcp"},
+			workload:       baseWl.Clone().NominatedClusterNames("onprem", "aws", "gcp").Obj(),
+			cfg: &kueueconfig.IncrementalDispatcherConfig{
+				StepSize: new(int32(1)),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.MultiKueueIncrementalDispatcherRespectConfigOrder: true,
+			},
+			wantNominatedClustersCount: 3,
+			wantErr:                    ErrNoMoreWorkers,
+			advanceRoundTime:           true,
+			wantNominatedClusters:      []string{"onprem", "aws", "gcp"},
+		},
+		"gate on: full non-alphabetical list preserved (stepSize 3)": {
+			remoteClusters: []string{"zeta", "alpha", "mike"},
+			workload:       baseWl.DeepCopy(),
+			featureGates: map[featuregate.Feature]bool{
+				features.MultiKueueIncrementalDispatcherRespectConfigOrder: true,
+			},
 			wantNominatedClustersCount: 3,
 			wantErr:                    nil,
 			advanceRoundTime:           true,
 			// Sorted would be [alpha, mike, zeta]; configured order is preserved.
 			wantNominatedClusters: []string{"zeta", "alpha", "mike"},
 		},
-		"respects configured order: reverse-alphabetical with prior nomination, filtered in order": {
-			remoteClusters:             []string{"e", "d", "c", "b", "a"},
-			workload:                   baseWl.Clone().NominatedClusterNames("e").Obj(),
+		"gate on: non-alphabetical prefix preserved (stepSize 2)": {
+			remoteClusters: []string{"c", "a", "b"},
+			workload:       baseWl.DeepCopy(),
+			cfg: &kueueconfig.IncrementalDispatcherConfig{
+				StepSize: new(int32(2)),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.MultiKueueIncrementalDispatcherRespectConfigOrder: true,
+			},
+			wantNominatedClustersCount: 2,
+			wantErr:                    nil,
+			advanceRoundTime:           true,
+			// Sorted would be [a, b]; configured order wins.
+			wantNominatedClusters: []string{"c", "a"},
+		},
+		"gate on: remainder smaller than stepSize": {
+			remoteClusters: []string{"c", "a", "b"},
+			workload:       baseWl.Clone().NominatedClusterNames("c", "a").Obj(),
+			cfg: &kueueconfig.IncrementalDispatcherConfig{
+				StepSize: new(int32(2)),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.MultiKueueIncrementalDispatcherRespectConfigOrder: true,
+			},
+			wantNominatedClustersCount: 3,
+			wantErr:                    nil,
+			advanceRoundTime:           true,
+			wantNominatedClusters:      []string{"c", "a", "b"},
+		},
+		"gate on: reverse-alphabetical with prior nomination, filtered in order": {
+			remoteClusters: []string{"e", "d", "c", "b", "a"},
+			workload:       baseWl.Clone().NominatedClusterNames("e").Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.MultiKueueIncrementalDispatcherRespectConfigOrder: true,
+			},
 			wantNominatedClustersCount: 4,
 			wantErr:                    nil,
 			advanceRoundTime:           true,
 			// Skips already-nominated "e", then adds the next 3 in configured order.
 			wantNominatedClusters: []string{"e", "d", "c", "b"},
+		},
+		// Gate OFF: legacy alphabetical nomination. Each case mirrors a gate-on case
+		// above with the same input and the opposite expected order.
+		"gate off: alphabetically first wins, ignoring configured order (stepSize 1)": {
+			remoteClusters: []string{"onprem", "aws", "gcp"},
+			workload:       baseWl.DeepCopy(),
+			cfg: &kueueconfig.IncrementalDispatcherConfig{
+				StepSize: new(int32(1)),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.MultiKueueIncrementalDispatcherRespectConfigOrder: false,
+			},
+			wantNominatedClustersCount: 1,
+			wantErr:                    nil,
+			advanceRoundTime:           true,
+			wantNominatedClusters:      []string{"aws"},
+		},
+		"gate off: full list sorted, ignoring configured order (stepSize 3)": {
+			remoteClusters: []string{"zeta", "alpha", "mike"},
+			workload:       baseWl.DeepCopy(),
+			featureGates: map[featuregate.Feature]bool{
+				features.MultiKueueIncrementalDispatcherRespectConfigOrder: false,
+			},
+			wantNominatedClustersCount: 3,
+			wantErr:                    nil,
+			advanceRoundTime:           true,
+			wantNominatedClusters:      []string{"alpha", "mike", "zeta"},
+		},
+		"gate off: sorted prefix, ignoring configured order (stepSize 2)": {
+			remoteClusters: []string{"c", "a", "b"},
+			workload:       baseWl.DeepCopy(),
+			cfg: &kueueconfig.IncrementalDispatcherConfig{
+				StepSize: new(int32(2)),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.MultiKueueIncrementalDispatcherRespectConfigOrder: false,
+			},
+			wantNominatedClustersCount: 2,
+			wantErr:                    nil,
+			advanceRoundTime:           true,
+			wantNominatedClusters:      []string{"a", "b"},
+		},
+		"gate off: prior nomination filtered then sorted": {
+			remoteClusters: []string{"e", "d", "c", "b", "a"},
+			workload:       baseWl.Clone().NominatedClusterNames("e").Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.MultiKueueIncrementalDispatcherRespectConfigOrder: false,
+			},
+			wantNominatedClustersCount: 4,
+			wantErr:                    nil,
+			advanceRoundTime:           true,
+			wantNominatedClusters:      []string{"e", "a", "b", "c"},
+		},
+		"gate off: all clusters exhausted": {
+			remoteClusters: []string{"onprem", "aws", "gcp"},
+			workload:       baseWl.Clone().NominatedClusterNames("aws", "gcp", "onprem").Obj(),
+			cfg: &kueueconfig.IncrementalDispatcherConfig{
+				StepSize: new(int32(1)),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.MultiKueueIncrementalDispatcherRespectConfigOrder: false,
+			},
+			wantNominatedClustersCount: 3,
+			wantErr:                    ErrNoMoreWorkers,
+			advanceRoundTime:           true,
+			wantNominatedClusters:      []string{"aws", "gcp", "onprem"},
 		},
 	}
 
@@ -374,6 +521,7 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 			}
 
 			previousRoundNominatedClusters := tc.workload.Status.NominatedClusterNames
+			originalRemoteClusters := slices.Clone(tc.remoteClusters)
 
 			ctx, log := utiltesting.ContextWithLog(t)
 			_, gotErr := reconciler.nominateWorkers(ctx, tc.workload, tc.remoteClusters, log)
@@ -394,6 +542,11 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 				}
 			} else if len(tc.workload.Status.NominatedClusterNames) != tc.wantNominatedClustersCount {
 				t.Errorf("expected %d nominated clusters, got %d: %v", tc.wantNominatedClustersCount, len(tc.workload.Status.NominatedClusterNames), tc.workload.Status.NominatedClusterNames)
+			}
+
+			// remoteClusters aliases the cached MultiKueueConfig, so nominating must not reorder it.
+			if diff := cmp.Diff(originalRemoteClusters, tc.remoteClusters); diff != "" {
+				t.Errorf("nominateWorkers mutated remoteClusters (-want/+got):\n%s", diff)
 			}
 		})
 	}
