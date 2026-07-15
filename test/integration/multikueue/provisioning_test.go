@@ -343,7 +343,7 @@ var _ = ginkgo.Describe("MultiKueue with ProvisioningRequest", ginkgo.Label("are
 		ginkgo.By("verifying worker2 workload still exists while worker1 is not admitted", func() {
 			gomega.Consistently(func(g gomega.Gomega) {
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, worker2WlKey, worker2Wl)).To(gomega.Succeed())
-			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 
 		worker1ProvReqKey := types.NamespacedName{
