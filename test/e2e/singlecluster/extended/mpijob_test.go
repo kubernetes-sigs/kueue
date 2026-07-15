@@ -1,14 +1,30 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package extended
 
 import (
+	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
-	"k8s.io/utils/ptr"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadmpijob "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -63,7 +79,20 @@ var _ = ginkgo.Describe("MPIJob", ginkgo.Label("area:singlecluster", "feature:mp
 		ginkgo.It("Should run a MPIJob if admitted", func() {
 			mpiJob := testingmpijob.MakeMPIJob("mpijob", ns.Name).
 				Queue("main").
-				GenericLauncherAndWorker().
+				MPIJobReplicaSpecs(
+					testingmpijob.MPIJobReplicaSpecRequirement{
+						ReplicaType:  kfmpi.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+						Image:        util.GetAgnHostImage(),
+						Args:         util.BehaviorExitFast,
+					},
+					testingmpijob.MPIJobReplicaSpecRequirement{
+						ReplicaType:  kfmpi.MPIReplicaTypeWorker,
+						ReplicaCount: 1,
+						Image:        util.GetAgnHostImage(),
+						Args:         util.BehaviorExitFast,
+					},
+				).
 				Request(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "500m").
 				Request(kfmpi.MPIReplicaTypeWorker, corev1.ResourceCPU, "100m").
 				Obj()
@@ -133,7 +162,20 @@ var _ = ginkgo.Describe("MPIJob", ginkgo.Label("area:singlecluster", "feature:mp
 		ginkgo.It("Should allow to suspend a MPIJob when injected nodeSelector", func() {
 			mpiJob := testingmpijob.MakeMPIJob("mpijob-suspend", ns.Name).
 				Queue("main").
-				GenericLauncherAndWorker().
+				MPIJobReplicaSpecs(
+					testingmpijob.MPIJobReplicaSpecRequirement{
+						ReplicaType:  kfmpi.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+						Image:        util.GetAgnHostImage(),
+						Args:         util.BehaviorExitFast,
+					},
+					testingmpijob.MPIJobReplicaSpecRequirement{
+						ReplicaType:  kfmpi.MPIReplicaTypeWorker,
+						ReplicaCount: 1,
+						Image:        util.GetAgnHostImage(),
+						Args:         util.BehaviorExitFast,
+					},
+				).
 				Request(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "100m").
 				Request(kfmpi.MPIReplicaTypeWorker, corev1.ResourceCPU, "100m").
 				Obj()
