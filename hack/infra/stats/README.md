@@ -56,9 +56,10 @@ Everything lands under the work directory:
     ├── raw_series.json             # merged per-build time series (fetch)
     ├── per_build_summary.csv       # one row per build (fetch)
     ├── aggregate_stats.json        # per-metric distribution across builds (fetch)
-    ├── recommendation.json         # structured current-vs-recommended sizing (plot.py)
+    ├── recommendation.json         # structured current-vs-recommended sizing + burstiness (plot.py)
     ├── dist_mean.png
     ├── dist_peak.png
+    ├── dist_crest.png
     ├── dist_throttle.png
     ├── timeline_throttle.png
     └── timeline_network.png
@@ -119,6 +120,24 @@ peaks — recommended memory = **largest per-build peak × 1.15**, taken over he
 only (builds that OOM-killed are excluded first, since their peak sits pinned at the
 ceiling and would otherwise dictate the value). CPU peak reads inflated (a Prometheus
 `rate()` extrapolation artifact over sparse samples), so it is *not* used to size CPU.
+
+### `dist_crest.png` — is the job's CPU usage stable or bursty?
+Because test-infra forces `request == limit`, the CPU request is a hard ceiling, so the
+work-conserving target-avg recommendation is only safe when a build's mean is close to its
+peak. This plot classifies that. For each build, the **crest factor** = `p95 / p50` of its
+CPU samples (spike height vs the typical level; `p95` avoids the `rate()` max artifact).
+Histogram those across builds on a **log axis** (crest is a ratio that can span 1 → thousands
+when a mostly-idle build has a near-zero `p50`).
+
+- crest **≈ 1** ⇒ flat, steady usage — **stable**; sizing to a target-average is safe.
+- crest **≥ 2** (median) ⇒ tall spikes over a low baseline — **burst** (the
+  idle→peak→idle→peak shape); a target-average request would clip the peak, so size such a
+  job to its busy-phase demand instead.
+
+The median across builds decides the label (`stable` / `burst`), written to
+`recommendation.json` under `burstiness` alongside the p10–p90 spread (how much the builds
+agree) and two companion scores: **idle fraction** (share of samples below 30% of the
+build's `p95` — time spent in the valleys) and **CV** (`std/mean` — overall swinginess).
 
 ### `dist_throttle.png` — is the job CPU-starved?
 Uses `container_pressure_cpu_waiting_seconds_total`. With 30s samples, take the delta from

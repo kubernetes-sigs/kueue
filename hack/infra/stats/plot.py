@@ -25,6 +25,7 @@ It reads the job folder's raw_series.json and writes, into that same folder:
   dist_mean_new_cpu.png  current vs target-duration per-build mean CPU -> work-conserving reco
   dist_duration.png    per-build duration histogram (mean, percentiles, target marker)
   dist_work.png        per-build CPU work histogram (avg CPU × duration, core-minutes)
+  dist_crest.png       per-build crest factor (p95/p50) histogram -> stable vs burst job
   dist_throttle.png    across-build histogram of "% of build time without CPU pressure"
   timeline_throttle.png  CPU cores + CPU-waiting % vs time-into-build (PSI "some")
   (timeline_stall.png — PSI "full" — is disabled; see plot_throttle_timeline)
@@ -44,6 +45,7 @@ raise) when a job has too little data, so a job still gets whatever images it ca
   plot_new_cpu_distribution()   -> dist_mean_new_cpu.png (current vs target-duration mean CPU)
   plot_duration_distribution()  -> dist_duration.png (per-build duration histogram)
   plot_work_distribution()      -> dist_work.png (per-build CPU work histogram)
+  plot_crest_distribution()     -> dist_crest.png (per-build crest factor; stable vs burst)
   plot_throttle_distribution()  -> dist_throttle.png
   plot_throttle_timeline()      -> timeline_throttle.png (timeline_stall.png disabled)
   plot_network_timeline()       -> timeline_network.png (network in/out over time-into-build)
@@ -87,6 +89,14 @@ MIN_SAMPLE_POINTS = 8       # timelines: only highlight sample builds with >= th
 CPU_TARGET_MIN = 7.5  # target build duration in minutes to size the request against
 CPU_LEGROOM_FRAC = 0.15  # fractional headroom on top of the p95 target (0.15 = +15%)
 CPU_RESOLUTION = 0.1   # round the recommendation up to this core granularity (100m)
+
+# Burstiness classification. Because request == limit is a hard CPU ceiling, the
+# work-conserving target-avg recommendation is only safe when a build's mean is close to its
+# peak (a "stable" job). An idle->peak->idle->peak ("burst") job sized to its target-avg
+# would clip the peak. We score each build's CPU sample vector three ways and classify the
+# job off the median crest across its builds.
+IDLE_FRAC_OF_BUSY = 0.30  # a sample below this fraction of the build's p95 counts as "idle"
+CREST_STABLE_MAX = 2.0    # median crest at/below this => "stable", above => "burst"
 
 RENDERERS = ("distribution", "throttle", "timeline")
 
@@ -167,6 +177,84 @@ def target_new_avg_cpus(pairs, target_min):
     target_min). The max() means a build already at/above the target keeps its real avg, so
     the transform only ever LOWERS CPU (for fast builds) and never raises it."""
     return np.array([avg * dur / max(dur, target_min) for avg, dur in pairs])
+
+
+def per_build_cpu_samples(series, min_dur_min=0.0, exclude=None):
+    """One numpy array of raw CPU samples per build, using the same exclusions as
+    per_build_cpu_work (drop <2 samples, shorter than min_dur_min, or ids in `exclude`).
+    Keeping the full sample vector lets the burstiness scores (crest / idle / CV) see the
+    within-build shape that a single reduction (mean, peak) would hide."""
+    exclude = exclude or set()
+    out = []
+    for bid, pts in series.items():
+        if bid in exclude or len(pts) < 2:
+            continue
+        ts = [t for t, _ in pts]
+        if (max(ts) - min(ts)) / 60.0 < min_dur_min:
+            continue
+        out.append(np.array([v for _, v in pts]))
+    return out
+
+
+def build_burstiness(samples):
+    """Per-build (crest, idle_fraction, cv) from one build's CPU sample vector:
+      crest = p95/p50   — spike height vs the typical level (avoids the rate() max artifact);
+      idle  = fraction of samples below IDLE_FRAC_OF_BUSY x p95 — time spent in the valleys;
+      cv    = std/mean  — overall swinginess in one number.
+    A metric whose denominator is ~0 (an all-idle build) is returned as None."""
+    p50 = float(np.percentile(samples, 50))
+    p95 = float(np.percentile(samples, 95))
+    mean = float(np.mean(samples))
+    crest = p95 / p50 if p50 > 0 else None
+    idle = float(np.mean(samples < IDLE_FRAC_OF_BUSY * p95)) if p95 > 0 else None
+    cv = float(np.std(samples) / mean) if mean > 0 else None
+    return crest, idle, cv
+
+
+def per_build_burstiness(data, min_dur):
+    """Per-build burstiness scores over the recommendation's build population (OOM-killed
+    builds excluded, matching the sizing). Returns (crest, idle, cv) as three lists, one
+    entry per scorable build. Shared by the recommendation summary and dist_crest.png so
+    both see the identical population."""
+    oom = oom_build_ids(data)
+    builds = per_build_cpu_samples(data["series"].get("cpu_used_cores", {}), min_dur, exclude=oom)
+    crest, idle, cv = [], [], []
+    for s in builds:
+        c, i, v = build_burstiness(s)
+        if c is not None:
+            crest.append(c)
+        if i is not None:
+            idle.append(i)
+        if v is not None:
+            cv.append(v)
+    return crest, idle, cv
+
+
+def compute_burstiness(data, min_dur):
+    """Job-level burstiness from the per-build CPU sample vectors: for each of crest, idle
+    fraction and CV, the median across builds (the representative value) plus the p10-p90
+    spread (how much the builds agree). The job is classified "burst" or "stable" off the
+    median crest (CREST_STABLE_MAX). Returns None when there are too few builds to score."""
+    crest, idle, cv = per_build_burstiness(data, min_dur)
+    if len(crest) < 2:
+        return None
+
+    def agg(vals):
+        if not vals:
+            return None
+        a = np.array(vals)
+        return {"median": round(float(np.percentile(a, 50)), 3),
+                "p10": round(float(np.percentile(a, 10)), 3),
+                "p90": round(float(np.percentile(a, 90)), 3)}
+
+    crest_agg = agg(crest)
+    return {
+        "type": "burst" if crest_agg["median"] > CREST_STABLE_MAX else "stable",
+        "builds_scored": len(crest),
+        "crest": crest_agg,
+        "idle_fraction": agg(idle),
+        "cv": agg(cv),
+    }
 
 
 def round_up_to(x, res):
@@ -329,6 +417,7 @@ def build_reco_json(data, reco, min_dur):
         "step_s": data.get("step"),
         "builds": n,
         "builds_oom_excluded": len(oom),
+        "burstiness": compute_burstiness(data, min_dur),
         "cpu": {
             "request_current": cpu_req_cur,
             "request_recommended": reco["cpu_req"],
@@ -551,6 +640,49 @@ def plot_work_distribution(data, base_dir, bins=30, min_dur=0.0):
     fig.savefig(out, dpi=130)
     plt.close(fig)
     print(f"  dist_work -> {out}")
+
+
+def plot_crest_distribution(data, base_dir, bins=30, min_dur=0.0):
+    """Render dist_crest.png: each build's crest factor (p95/p50 of its CPU samples)
+    histogrammed across builds. Crest measures spike height vs the typical level — ~1 is
+    flat/stable usage, >= CREST_STABLE_MAX is bursty (idle->peak->idle->peak). The gold line
+    marks the stable/burst threshold; the median (blue) decides the job's classification,
+    stated in the title. A wide p10-p90 gap means the builds disagree on burstiness."""
+    crest, _, _ = per_build_burstiness(data, min_dur)
+    crest = np.array(crest)
+    if len(crest) < 2:
+        print("  dist_crest: skipped (not enough CPU data)")
+        return
+    p10, p50, p90 = np.percentile(crest, [10, 50, 90])
+    label = "burst" if p50 > CREST_STABLE_MAX else "stable"
+    # Log x-axis: crest is a ratio, so equal multiplicative steps (2->4, 4->8) should read as
+    # equal distances, and the per-job range is huge (a near-zero-p50 build can push crest into
+    # the thousands) — on linear that lone outlier crushes the bulk into one bin. Keep the
+    # default power-of-ten ticks (10^0, 10^1, ...): the scientific labels themselves signal to
+    # the reader that the axis is logarithmic, without picking arbitrary data-dependent numbers.
+    fig, ax = plt.subplots(figsize=(12, 6.5))
+    lo = max(1.0, float(crest.min()))
+    edges = np.logspace(np.log10(lo), np.log10(crest.max()), bins + 1)
+    ax.hist(crest, bins=edges, color="#4C78A8", alpha=0.75, edgecolor="white",
+            label=f"builds (n={len(crest)})")
+    ax.set_xscale("log")
+    ax.set_xlim(lo / 1.05, max(float(crest.max()), CREST_STABLE_MAX) * 1.05)  # keep threshold in view
+    ax.axvline(p50, color="#1F77B4", ls="--", lw=2.2, label=f"median = {p50:.2f}")
+    ax.axvline(p10, color="#2CA02C", ls="--", lw=1.6, label=f"p10 = {p10:.2f}")
+    ax.axvline(p90, color="#D62728", ls="--", lw=1.6, label=f"p90 = {p90:.2f}")
+    ax.axvline(CREST_STABLE_MAX, color="gold", ls="-", lw=2.5,
+               label=f"stable/burst threshold = {CREST_STABLE_MAX:g}")
+    ax.set_xlabel("per-build crest factor  (p95 / p50 of the build's CPU samples, log scale)")
+    ax.set_ylabel("number of builds")
+    ax.set_title(f"{data.get('job')} — CPU crest factor across builds  →  {label.upper()}\n"
+                 f"({data.get('step')}s step, {days_of(data)}d, n={len(crest)})")
+    ax.legend(fontsize=9)
+    ax.grid(axis="y", alpha=0.3)
+    fig.tight_layout()
+    out = os.path.join(base_dir, "dist_crest.png")
+    fig.savefig(out, dpi=130)
+    plt.close(fig)
+    print(f"  dist_crest -> {out}  ({label}, median crest {p50:.2f})")
 
 
 # --------------------------------------------------------------------------- #
@@ -836,6 +968,7 @@ def main():
         plot_duration_distribution(data, base, args.bins, args.min_duration,
                                    args.cpu_target_min)
         plot_work_distribution(data, base, args.bins, args.min_duration)
+        plot_crest_distribution(data, base, args.bins, args.min_duration)
     if "throttle" in which:
         plot_throttle_distribution(data, base, args.threshold, args.bins)
     if "timeline" in which:
