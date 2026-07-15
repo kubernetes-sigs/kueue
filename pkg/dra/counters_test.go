@@ -21,6 +21,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-logr/logr"
+	"github.com/go-logr/logr/funcr"
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
@@ -172,15 +174,135 @@ func TestComputeCounterCharges(t *testing.T) {
 				"gpu.memory": *resource.NewQuantity(math.MaxInt64, resource.DecimalSI),
 			},
 		},
+		{
+			// 1e19 > MaxInt64; Value() truncates it to 0, so without SafeValue
+			// this device would silently charge nothing.
+			name:          "counter that Value() would truncate is clamped before multiply",
+			cc:            defaultCC,
+			quotaResource: "gpu.memory",
+			matched: []resourcev1.Device{
+				makeDevice("truncating-0", "big", "10000000000000000000"),
+			},
+			count: 2,
+			want: corev1.ResourceList{
+				"gpu.memory": *resource.NewQuantity(math.MaxInt64, resource.DecimalSI),
+			},
+		},
+		{
+			name:          "counter above int64 is clamped at count=1",
+			cc:            defaultCC,
+			quotaResource: "gpu.memory",
+			matched: []resourcev1.Device{
+				makeDevice("overmax-0", "big", "9223372036854775808"),
+			},
+			count: 1,
+			want: corev1.ResourceList{
+				"gpu.memory": *resource.NewQuantity(math.MaxInt64, resource.DecimalSI),
+			},
+		},
+		{
+			name:          "negative counter is clamped to zero",
+			cc:            defaultCC,
+			quotaResource: "gpu.memory",
+			matched: []resourcev1.Device{
+				makeDevice("negative-0", "big", "-5"),
+			},
+			count: 2,
+			want: corev1.ResourceList{
+				"gpu.memory": *resource.NewQuantity(0, resource.DecimalSI),
+			},
+		},
+		{
+			// count == 1 charges the counter value through Value(), which rounds a
+			// fractional quantity up away from zero. This is conservative and
+			// consistent with the count > 1 path; pin it so it cannot silently change.
+			name:          "fractional counter rounds up at count=1",
+			cc:            defaultCC,
+			quotaResource: "gpu.memory",
+			matched: []resourcev1.Device{
+				makeDevice("fractional-0", "small", "500m"),
+			},
+			count: 1,
+			want: corev1.ResourceList{
+				"gpu.memory": *resource.NewQuantity(1, resource.DecimalSI),
+			},
+		},
+		{
+			name:          "negative counter is clamped to zero at count=1",
+			cc:            defaultCC,
+			quotaResource: "gpu.memory",
+			matched: []resourcev1.Device{
+				makeDevice("negative-count1-0", "big", "-5"),
+			},
+			count: 1,
+			want: corev1.ResourceList{
+				"gpu.memory": *resource.NewQuantity(0, resource.DecimalSI),
+			},
+		},
+		{
+			// A fractional negative like -500m (Value() -1, Sign() -1) is clamped to
+			// 0 like any other negative; pin that it charges 0.
+			name:          "sub-integer negative counter is clamped to zero",
+			cc:            defaultCC,
+			quotaResource: "gpu.memory",
+			matched: []resourcev1.Device{
+				makeDevice("negative-fractional-0", "small", "-500m"),
+			},
+			count: 1,
+			want: corev1.ResourceList{
+				"gpu.memory": *resource.NewQuantity(0, resource.DecimalSI),
+			},
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := computeCounterCharges(tc.cc, tc.quotaResource, tc.matched, tc.count)
+			got := computeCounterCharges(logr.Discard(), tc.cc, tc.quotaResource, tc.matched, tc.count)
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("computeCounterCharges() mismatch (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// TestComputeCounterChargesLogsNegativeCounter pins that a negative driver
+// counter is not only clamped to zero but also surfaced through the logger, so
+// a misbehaving driver leaves an operator-visible trace instead of a silent
+// clamp.
+func TestComputeCounterChargesLogsNegativeCounter(t *testing.T) {
+	cc := &deviceClassCounterConfig{
+		driver:      "gpu.nvidia.com",
+		counterName: "memory",
+	}
+
+	// Verbosity 0 pins that the clamp is logged at V(0), i.e. visible even at the
+	// most restrictive log level -- a driver publishing a negative counter is an
+	// anomaly an operator must be able to see.
+	var logged []string
+	logger := funcr.New(
+		func(_, args string) { logged = append(logged, args) },
+		funcr.Options{Verbosity: 0},
+	)
+
+	got := computeCounterCharges(logger, cc, "gpu.memory", []resourcev1.Device{
+		makeDevice("negative-0", "big", "-5"),
+	}, 1)
+
+	want := corev1.ResourceList{
+		"gpu.memory": *resource.NewQuantity(0, resource.DecimalSI),
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("computeCounterCharges() mismatch (-want +got):\n%s", diff)
+	}
+
+	if len(logged) == 0 {
+		t.Fatalf("expected a V(0) log line for the negative counter, got none")
+	}
+	joined := strings.Join(logged, "\n")
+	for _, substr := range []string{"Unexpected negative device counter value", "gpu.nvidia.com", "memory", "-5"} {
+		if !strings.Contains(joined, substr) {
+			t.Errorf("expected log output to contain %q, got:\n%s", substr, joined)
+		}
 	}
 }
 

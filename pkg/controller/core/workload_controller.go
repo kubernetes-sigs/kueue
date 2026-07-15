@@ -254,14 +254,27 @@ func (r *WorkloadReconciler) logger() logr.Logger {
 // +kubebuilder:rbac:groups=resource.k8s.io,resources=deviceclasses,verbs=get;list;watch
 // +kubebuilder:rbac:groups=resource.k8s.io,resources=resourceslices,verbs=get;list;watch
 
-func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
+	log := ctrl.LoggerFrom(ctx)
 	var wl kueue.Workload
-	if err := r.client.Get(ctx, req.NamespacedName, &wl); err != nil {
+	var getErr error
+	wlKey := workload.NewReference(req.Namespace, req.Name)
+	defer func() {
+		if features.Enabled(features.UnadmittedWorkloadsObservability) {
+			if getErr == nil && retErr == nil {
+				r.queues.UpdateUnadmittedWorkload(log, &wl)
+			} else if apierrors.IsNotFound(getErr) {
+				r.queues.RemoveUnadmittedWorkload(log, wlKey)
+			}
+		}
+	}()
+
+	getErr = r.client.Get(ctx, req.NamespacedName, &wl)
+	if getErr != nil {
 		// we'll ignore not-found errors, since there is nothing to do.
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+		return ctrl.Result{}, client.IgnoreNotFound(getErr)
 	}
 
-	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile Workload")
 
 	if isOrphanedWorkload(&wl) {

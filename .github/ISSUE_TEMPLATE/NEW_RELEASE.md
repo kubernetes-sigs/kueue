@@ -13,7 +13,7 @@ Please do not remove items from the checklist
 - [ ] [OWNERS](https://github.com/kubernetes-sigs/kueue/blob/main/OWNERS) must LGTM the release proposal.
   At least two for minor or major releases. At least one for a patch release.
 - [ ] Verify that the changelog in this issue and the CHANGELOG folder is up-to-date
-  - [ ] Run `./hack/releasing/sync-notes.sh $VERSION` to generate and publish the release notes
+  - [ ] Use `/sync-release-notes` to generate and publish the release notes
 - [ ] For major or minor releases (v$MAJ.$MIN.0), create a new release branch.
   - [ ] An OWNER creates a vanilla release branch with
         `git branch release-$MAJ.$MIN main`
@@ -23,16 +23,10 @@ Please do not remove items from the checklist
   - [ ] Ensure there are no unstaged changes in your directory (the script adds everything)
   - [ ] Run `./hack/releasing/prepare_pull.sh --target release $VERSION`
   - [ ] Wait for this PR to merge <!-- PREPARE_PULL_RELEASE --> <!-- example #211 -->
-- [ ] An OWNER creates a signed tag
-  - [ ] pull the release branch after PR from previous step merged
-  - [ ] run
-     `git tag -s $VERSION`
-      and inserts the changelog into the tag description.
-      To perform this step, you need [a PGP key registered on github](https://docs.github.com/en/authentication/managing-commit-signature-verification/checking-for-existing-gpg-keys).
-- [ ] An OWNER pushes the tag with
-      `git push upstream $VERSION`
-  - Triggers prow to build and publish a staging container image
-      `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:$VERSION`
+- [ ] Run ChatOps command `/tag-release` on this issue. This will:
+  - Extract the changelog from the issue description.
+  - Create the release tag at the tip of the release branch.
+  - Push the tag upstream (triggers Prow to build and publish staging container image: `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:$VERSION`).
 - [ ] An OWNER [prepares a draft release](https://github.com/kubernetes-sigs/kueue/releases)
   - [ ] Create the draft release pointing out to the created tag.
   - [ ] Write the change log into the draft release.
@@ -42,10 +36,10 @@ Please do not remove items from the checklist
   - [ ] Upload the files in the `release-artifacts` folder to the draft release - either
       via UI or `gh release --repo kubernetes-sigs/kueue upload $VERSION release-artifacts/*`.
 - [ ] Promote images and Helm Charts to production:
-  - [ ] Run `./hack/releasing/wait_for_images.sh $VERSION` to await for the staging images.
+  - [ ] Use `/wait-for-images` to await for the staging images.
   - [ ] Run `./hack/releasing/promote_pull.sh $VERSION` to submit the promotion PR
   - [ ] Wait for the PR to be merged <!-- K8S_IO_PULL --> <!-- example kubernetes/k8s.io#7899 -->
-  - [ ] Run: `./hack/releasing/wait_for_images.sh --prod $VERSION` to verify that the promoted images are available.
+  - [ ] Use `/wait-for-prod-images` to verify that the promoted images are available.
 - [ ] Publish the draft release prepared at the [GitHub releases page](https://github.com/kubernetes-sigs/kueue/releases).
       Link: <!-- example https://github.com/kubernetes-sigs/kueue/releases/tag/v0.1.0 -->
 - [ ] Run the [openvex action](https://github.com/kubernetes-sigs/kueue/actions/workflows/openvex.yaml) to generate openvex data. The action will add the file to the release artifacts.

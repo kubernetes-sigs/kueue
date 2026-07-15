@@ -3,13 +3,19 @@ on:
     types: [created]
 
 jobs:
-  sync-notes:
-    name: Sync Release Notes
+  authorize:
+    name: Authorize and Parse Command
     runs-on: ubuntu-latest
-    if: ${{ startsWith(github.event.comment.body, '/sync-release-notes') }}
-    permissions:
-      contents: read
-      issues: write
+    if: |
+      github.event.issue.pull_request == null &&
+      (contains(github.event.comment.body, '/sync-release-notes') ||
+       contains(github.event.comment.body, '/tag-release') ||
+       contains(github.event.comment.body, '/wait-for-images') ||
+       contains(github.event.comment.body, '/wait-for-prod-images'))
+    outputs:
+      command: ${{ steps.parse.outputs.command }}
+      version: ${{ steps.parse.outputs.version }}
+      branch: ${{ steps.parse.outputs.branch }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -19,35 +25,71 @@ jobs:
       - name: Verify Actor Authorization
         env:
           ACTOR: ${{ github.actor }}
+          OWNERS_FILE: OWNERS_ALIASES
         run: |
-          TEAM_FILE="release-team.json"
-          if [ ! -f "$TEAM_FILE" ]; then
-            echo "Error: Allowed actors list file $TEAM_FILE not found."
+          if [ ! -f "$OWNERS_FILE" ]; then
+            echo "Error: $OWNERS_FILE not found."
             exit 1
           fi
-          if ! jq -e --arg actor "$ACTOR" '. | index($actor)' "$TEAM_FILE" > /dev/null; then
+          if ! python3 -c "
+          import os, yaml
+
+          aliases = yaml.safe_load(open(os.environ['OWNERS_FILE'])).get('aliases', {})
+          authorized = set(aliases.get('release-team', [])) | set(aliases.get('kueue-approvers', []))
+          raise SystemExit(0 if os.environ['ACTOR'] in authorized else 1)
+          "; then
             echo "Error: Actor $ACTOR is not authorized."
             exit 1
           fi
 
-      - name: Validate Command and Issue Title
-        id: validate
+      - name: Parse and Validate Command and Version
+        id: parse
         env:
           BODY: ${{ github.event.comment.body }}
           TITLE: ${{ github.event.issue.title }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
-          if [[ ! "$BODY" =~ ^/sync-release-notes[[:space:]]*$ ]]; then
-            echo "Error: Invalid command format. Use /sync-release-notes without arguments."
-            exit 1
-          fi
-
           if [[ ! "$TITLE" =~ ^Release\ (v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
-            echo "Error: Issue title '$TITLE' does not match 'Release vX.Y.Z'"
-            exit 1
+            gh issue comment "$ISSUE_NUMBER" --body "Invalid issue title: \`$TITLE\`. Expected format: \`Release vX.Y.Z\`."
+            exit 0
           fi
-
           VERSION="${BASH_REMATCH[1]}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          if [[ "$VERSION" =~ ^v([0-9]+)\.([0-9]+)\.[0-9]+ ]]; then
+            echo "branch=release-${BASH_REMATCH[1]}.${BASH_REMATCH[2]}" >> "$GITHUB_OUTPUT"
+          fi
+
+          COMMAND=""
+          if printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/sync-release-notes[[:space:]]*$'; then
+            COMMAND="sync-notes"
+          elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/tag-release[[:space:]]*$'; then
+            COMMAND="tag-release"
+          elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/wait-for-images[[:space:]]*$'; then
+            COMMAND="wait-for-images"
+          elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/wait-for-prod-images[[:space:]]*$'; then
+            COMMAND="wait-for-prod-images"
+          else
+            gh issue comment "$ISSUE_NUMBER" --body "Invalid command format."
+            exit 0
+          fi
+
+          echo "command=$COMMAND" >> "$GITHUB_OUTPUT"
+
+  sync-notes:
+    name: Sync Release Notes
+    runs-on: ubuntu-latest
+    needs: authorize
+    if: ${{ needs.authorize.outputs.command == 'sync-notes' }}
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
@@ -62,11 +104,170 @@ jobs:
       - name: Run Sync Notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
           UPSTREAM_REMOTE: origin
-          VERSION: ${{ steps.validate.outputs.version }}
+          VERSION: ${{ needs.authorize.outputs.version }}
         run: |
           # Configure git identity
           git config --global user.name "kueue-release-bot"
           git config --global user.email "kueue-release-bot@kubernetes.io"
-          
           yes y | ./hack/releasing/sync-notes.sh "$VERSION"
+          gh issue comment "$ISSUE_NUMBER" --body "Release notes for version $VERSION have been synced."
+
+  wait-for-images:
+    name: Wait for Images
+    runs-on: ubuntu-latest
+    needs: authorize
+    if: | 
+      needs.authorize.outputs.command == 'wait-for-images' ||
+      needs.authorize.outputs.command == 'wait-for-prod-images'
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Install Crane
+        uses: imjasonh/setup-crane@v0.7
+
+      - name: Run Wait for Images Script
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          VERSION: ${{ needs.authorize.outputs.version }}
+          COMMAND: ${{ needs.authorize.outputs.command }}
+        run: |
+          # Initialize an empty array for arguments
+          ARGS=()
+          
+          # Append --prod if the command matches the production condition,
+          if [ "$COMMAND" = "wait-for-prod-images" ]; then
+            ARGS+=("--prod")
+          fi
+          
+          # Set an one hour timeout to prevent running indefinitely.
+          ARGS+=("--timeout" "3600s")
+          
+          # Append the version to the arguments
+          ARGS+=("$VERSION")
+          
+          # Direct output to a log file while still printing it to the console.
+          set +e
+          ./hack/releasing/wait_for_images.sh "${ARGS[@]}" 2>&1 | tee output.log
+          SCRIPT_EXIT_CODE=${PIPESTATUS[0]}
+          set -e
+          
+          # Handle Failures.
+          if [ $SCRIPT_EXIT_CODE -ne 0 ]; then
+            # Extract the raw error line from the logs.
+            ERROR_LINE=$(sed -n 's/^!!! Error: //p' output.log)
+
+            # If an explicit script error message was found, comment and exit cleanly (0),
+            if [ -n "$ERROR_LINE" ]; then
+              echo "${ERROR_LINE}" >> comment.md
+              gh issue comment "$ISSUE_NUMBER" --body-file comment.md
+              exit 0
+            fi
+          
+            # For any other unhandled crash, skip commenting.
+            exit $SCRIPT_EXIT_CODE
+          fi
+          
+          # Extract from the LAST "Images:" block to the end of the file.
+          # Format it cleanly as a Markdown code block inside the issue comment.
+          awk '/^Images:/ { out = ""; flag = 1 } flag { out = out $0 "\n" } END { printf "### Images Ready\n```text\n%s```", out }' output.log > comment.md
+          
+          # Post the parsed comment to the GitHub issue.
+          gh issue comment "$ISSUE_NUMBER" --body-file comment.md
+
+  tag-release:
+    name: Tag Release
+    runs-on: ubuntu-latest
+    needs: authorize
+    if: ${{ needs.authorize.outputs.command == 'tag-release' }}
+    permissions:
+      contents: write
+      issues: write
+    env:
+      BRANCH: ${{ needs.authorize.outputs.branch }}
+      ISSUE_NUMBER: ${{ github.event.issue.number }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.authorize.outputs.branch }}
+          persist-credentials: false
+
+      - name: Create and Push Tag
+        env:
+          VERSION: ${{ needs.authorize.outputs.version }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Extract the changelog
+          CHANGELOG_SECTION=$(echo "$ISSUE_BODY" | tr -d '\r' | sed -ne '/^## Changelog/,$ p' | tail -n +2)
+          if echo "$CHANGELOG_SECTION" | grep -q '^```'; then
+            CHANGELOG=$(echo "$CHANGELOG_SECTION" | awk '/^```/ {in_block=!in_block; next} in_block {print}')
+          else
+            CHANGELOG="$CHANGELOG_SECTION"
+          fi
+          
+          # Trim leading and trailing empty lines from CHANGELOG
+          CHANGELOG=$(echo "$CHANGELOG" | sed -e '/./,$!d' -e :a -e '/^\n*$/{$d;N;ba}')
+          
+          if [ -z "$CHANGELOG" ]; then
+            gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to create release tag \`$VERSION\`: No changelog found in the issue description. Make sure the issue has the Markdown block under \`## Changelog\`."
+            exit 1
+          fi
+          
+          # Prepare tag message
+          NOTES_FILE=$(mktemp)
+          printf "%s\n\n%s\n" "$VERSION" "$CHANGELOG" > "$NOTES_FILE"
+
+          # Configure git identity
+          git config --global user.name "kueue-release-bot"
+          git config --global user.email "kueue-release-bot@kubernetes.io"
+          gh auth setup-git
+          
+          # Clear existing tag
+          TAG_EXISTS=false
+          if git tag -l | grep -q "^${VERSION}$" || git ls-remote --tags origin "$VERSION" | grep -q "refs/tags/${VERSION}$"; then
+            TAG_EXISTS=true
+            git tag -d "$VERSION" 2>/dev/null || true
+            git push origin --delete "$VERSION" 2>/dev/null || true
+          fi
+
+          # Create and push the tag
+          PUSH_EXIT=0
+          set +e
+          git tag -a "$VERSION" -F "$NOTES_FILE" 2> err.log
+          TAG_EXIT=$?
+          if [ $TAG_EXIT -eq 0 ]; then
+            git push origin "$VERSION" 2>> err.log
+            PUSH_EXIT=$?
+          fi
+          set -e
+          rm -f "$NOTES_FILE"
+          
+          if [ $TAG_EXIT -ne 0 ] || [ $PUSH_EXIT -ne 0 ]; then
+            ERR_MSG=$(cat err.log)
+            gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to create or push release tag \`$VERSION\`.
+            
+            **Error details:**
+            \`\`\`text
+            ${ERR_MSG}
+            \`\`\`"
+            exit 1
+          fi
+          
+          # Log successful creation/update
+          ACTION="created"
+          if [ "$TAG_EXISTS" = "true" ]; then
+            ACTION="updated"
+          fi
+          
+          gh issue comment "$ISSUE_NUMBER" --body "✅ Release tag \`$VERSION\` has been successfully ${ACTION}."
