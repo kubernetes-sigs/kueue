@@ -1297,7 +1297,8 @@ Defaults to 30min.</p>
 </td>
 <td>
    <p>BlockAdmission when true, cluster queue will block admissions for all
-subsequent jobs until the jobs reach the PodsReady=true condition.</p>
+subsequent jobs until the jobs reach the PodsReady=true condition.
+This setting is only honored when <code>Enable</code> is set to true.</p>
 </td>
 </tr>
 <tr><td><code>requeuingStrategy</code><br/>
