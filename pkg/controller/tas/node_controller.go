@@ -151,7 +151,7 @@ func (r *nodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		timeSinceNotReady := r.clock.Now().Sub(readyCondition.LastTransitionTime.Time)
 		remainingTime := NodeFailureDelay - timeSinceNotReady
 		timerExpired = remainingTime <= 0
-		if features.Enabled(features.TASReplaceNodeDueToNotReadyOverFixedTime) && !timerExpired && !features.Enabled(features.TASReplaceNodeOnPodTermination) {
+		if !timerExpired && !replaceOnPodTermination() {
 			return ctrl.Result{RequeueAfter: remainingTime}, nil
 		}
 	}
@@ -409,10 +409,9 @@ func (r *nodeReconciler) getWorkloadStatus(
 }
 
 // replaceOnPodTermination reports whether node replacement is driven by pod
-// termination. Once the fixed-time marking is sunset (gate disabled), this is
-// unconditionally true and TASReplaceNodeOnPodTermination has no effect.
+// termination.
 func replaceOnPodTermination() bool {
-	return features.Enabled(features.TASReplaceNodeOnPodTermination) || !features.Enabled(features.TASReplaceNodeDueToNotReadyOverFixedTime)
+	return features.Enabled(features.TASReplaceNodeOnPodTermination)
 }
 
 func hasSchedulingTaints(taints []corev1.Taint) bool {
