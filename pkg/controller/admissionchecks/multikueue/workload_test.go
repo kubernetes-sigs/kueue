@@ -1110,6 +1110,15 @@ func TestWlReconcile(t *testing.T) {
 			// invisible. The workload must not be evicted; the grace is measured from when the
 			// cluster connection dropped (worker1DisconnectedSince), not from the (old)
 			// admission-check transition time.
+			//
+			// This also covers a manager restart during the outage: disconnectedSince is only
+			// tracked in memory, so on restart the remote client is recreated already disconnected
+			// with disconnectedSince set to ~now (its creation time; modeled here by
+			// worker1DisconnectedSince=now). The grace therefore restarts from the restart instead
+			// of evicting immediately, and it always runs to completion rather than requeuing
+			// forever (worst case, when the restart lands just as the first grace is about to
+			// fire, a genuinely lost worker waits up to 2x workerLostTimeout plus the manager
+			// restart time) - the safe direction, with no mass eviction.
 			featureGates:             map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor:             "wl1",
 			worker1Reconnecting:      true,

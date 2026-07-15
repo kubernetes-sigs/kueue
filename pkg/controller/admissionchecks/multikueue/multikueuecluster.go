@@ -153,9 +153,10 @@ type remoteClient struct {
 type connectionState struct {
 	mu        sync.RWMutex
 	connected bool
-	// disconnectedSince is when the watch first dropped after having been connected; it is nil
-	// while connected or never yet connected. It is preserved across failed reconnect attempts
-	// so the worker-lost grace measures from the first loss, not the latest failed retry.
+	// disconnectedSince is when the client last became disconnected: the watch dropping, or the
+	// client's creation for one that has never connected. It is nil only while connected, and is
+	// preserved across failed reconnect attempts so the worker-lost grace measures from the first
+	// loss, not the latest failed retry.
 	disconnectedSince *time.Time
 }
 
@@ -218,6 +219,12 @@ func newRemoteClient(
 		adapters:     adapters,
 		clock:        clock.RealClock{},
 	}
+	// Start in the disconnected state, tracking the loss from creation. If the worker is
+	// unreachable when the client is created (e.g. the reserving worker is down right after a
+	// manager restart, so building the client fails before it is ever marked connected), the
+	// worker-lost grace still runs from here and the workload is eventually retried, instead of
+	// the grace never starting and the workload requeuing forever.
+	rc.connState.markDisconnected(rc.clock.Now())
 	return rc
 }
 
