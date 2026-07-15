@@ -79,7 +79,7 @@ Blogs and repositories:
 - [Red Hat OpenShift is joining the Kueue](https://www.redhat.com/en/blog/openshift-joining-kueue) — announcement blog.
 - [Red Hat build of Kueue documentation](https://docs.redhat.com/en/documentation/openshift_container_platform/4.20/html/ai_workloads/red-hat-build-of-kueue).
 - [Improve GPU utilization with Kueue in OpenShift AI. How IBM achieved 90% GPU allocation in Vela](https://developers.redhat.com/articles/2025/05/22/improve-gpu-utilization-kueue-openshift-ai).
-- 
+
 ## IBM
 
 - [MLBatch](https://github.com/project-codeflare/mlbatch) — queueing and quota management setup for AI/ML batch jobs, combining Kueue, AppWrapper, Kubeflow Training Operator and KubeRay, with detailed operational best practices.
