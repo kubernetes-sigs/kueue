@@ -14,13 +14,20 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package tas
+package was
 
 import (
+	"github.com/onsi/ginkgo/v2"
+
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/test/integration/multikueue/tas/shared"
 )
 
 var _ = func() bool {
+	ginkgo.BeforeSuite(func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.SchedulerLibraryIntegration, true)
+	})
+
 	tc := &shared.TestContext{
 		ManagerTestCluster: shared.Cluster{
 			Cfg:    managerTestCluster.cfg,
