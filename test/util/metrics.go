@@ -17,12 +17,15 @@ limitations under the License.
 package util
 
 import (
+	"context"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	gomegatypes "github.com/onsi/gomega/types"
+	prometheusv1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/common/model"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/metrics/testutil"
 
@@ -353,4 +356,23 @@ func ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric(cohortName kueue.Coho
 	ginkgo.GinkgoHelper()
 	lvs := []string{string(cohortName), roletracker.RoleStandalone}
 	expectGaugeMetric(metrics.CohortSubtreeAdmittedActiveWorkloads, lvs, gomega.Equal(count))
+}
+
+func ExpectPrometheusTargetForKueue(ctx context.Context, prometheusClient prometheusv1.API) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
+		result, err := prometheusClient.Targets(ctx)
+		g.Expect(err).NotTo(gomega.HaveOccurred())
+
+		hasKueueTarget := false
+		for _, t := range result.Active {
+			if t.Labels["job"] == model.LabelValue(DefaultMetricsServiceName) &&
+				t.Labels["namespace"] == model.LabelValue(GetKueueNamespace()) {
+				hasKueueTarget = true
+				g.Expect(t.Health).To(gomega.Equal(prometheusv1.HealthGood))
+				break
+			}
+		}
+		g.Expect(hasKueueTarget).To(gomega.BeTrue(), "Kueue target not found. Active targets: %v", result.Active)
+	}, VeryLongTimeout, Interval).Should(gomega.Succeed())
 }
