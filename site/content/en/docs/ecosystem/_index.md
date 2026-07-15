@@ -52,7 +52,6 @@ Blogs and repositories:
 
 ## Google Cloud (GKE, AI Hypercomputer)
 
-
 Documentation:
 
 - [Deploy a batch system using Kueue](https://cloud.google.com/kubernetes-engine/docs/tutorials/kueue-intro) — the canonical GKE Kueue starter tutorial (two tenant teams sharing a cluster).
@@ -74,23 +73,11 @@ Blogs and repositories:
 - [MultiKueue with ClusterProfile API and GKE Fleet](https://github.com/GoogleCloudPlatform/gke-fleet-management/blob/b9fe08386c48f84617cb8ab7b042f2790741e893/multikueue-clusterprofile/README.md) — end-to-end walkthrough of using MultiKueue with GKE Fleet.
 - [NeMo Framework on Google Kubernetes Engine (GKE) to train Megatron LM](https://github.com/GoogleCloudPlatform/nvidia-nemo-on-gke) 
 
-## RedHat
-
-- [Red Hat OpenShift is joining the Kueue](https://www.redhat.com/en/blog/openshift-joining-kueue) — announcement blog.
-- [Red Hat build of Kueue documentation](https://docs.redhat.com/en/documentation/openshift_container_platform/4.20/html/ai_workloads/red-hat-build-of-kueue).
-- [Improve GPU utilization with Kueue in OpenShift AI. How IBM achieved 90% GPU allocation in Vela](https://developers.redhat.com/articles/2025/05/22/improve-gpu-utilization-kueue-openshift-ai).
-
 ## IBM
 
 - [MLBatch](https://github.com/project-codeflare/mlbatch) — queueing and quota management setup for AI/ML batch jobs, combining Kueue, AppWrapper, Kubeflow Training Operator and KubeRay, with detailed operational best practices.
 - [AppWrapper](https://github.com/project-codeflare/appwrapper) — the AppWrapper controller for Kueue.
-
-- [Red Hat OpenShift is joining the Kueue](https://www.redhat.com/en/blog/openshift-joining-kueue) — announcement blog.
-- [Red Hat build of Kueue documentation](https://docs.redhat.com/en/documentation/openshift_container_platform/4.20/html/ai_workloads/red-hat-build-of-kueue).
 - [Improve GPU utilization with Kueue in OpenShift AI. How IBM achieved 90% GPU allocation in Vela](https://developers.redhat.com/articles/2025/05/22/improve-gpu-utilization-kueue-openshift-ai).
-- [MLBatch](https://github.com/project-codeflare/mlbatch) — queueing and quota management setup for AI/ML batch jobs, combining Kueue, AppWrapper, Kubeflow Training Operator and KubeRay, with detailed operational best practices.
-- [AppWrapper](https://github.com/project-codeflare/appwrapper) — the AppWrapper controller for Kueue.
-
 
 ## Microsoft Azure (AKS)
 - [Install and Configure Kueue on Azure Kubernetes Service (AKS)](https://learn.microsoft.com/en-us/azure/aks/kueue-overview) — AKS-maintained overview and installation guide.
@@ -101,6 +88,11 @@ Blogs and repositories:
 - [Running RDMA (Remote Direct Memory Access) GPU Workloads on OKE](https://github.com/oracle-quickstart/oci-hpc-oke) — Oracle's reference stack for GPU clusters on OKE; recent versions deploy Kueue (with Topology, ResourceFlavor, ClusterQueue, and LocalQueue objects) by default.
 - [Using RDMA Network Locality When Running Workloads on OKE](https://github.com/oracle-quickstart/oci-hpc-oke/blob/main/docs/using-rdma-network-locality-when-running-workloads-on-oke.md).
 
+## RedHat
+
+- [Red Hat OpenShift is joining the Kueue](https://www.redhat.com/en/blog/openshift-joining-kueue) — announcement blog.
+- [Red Hat build of Kueue documentation](https://docs.redhat.com/en/documentation/openshift_container_platform/4.20/html/ai_workloads/red-hat-build-of-kueue).
+- [Improve GPU utilization with Kueue in OpenShift AI. How IBM achieved 90% GPU allocation in Vela](https://developers.redhat.com/articles/2025/05/22/improve-gpu-utilization-kueue-openshift-ai).
 
 ## Other external docs
 
