@@ -63,6 +63,7 @@ var _ = ginkgo.Describe("MPIJob", ginkgo.Label("area:singlecluster", "feature:mp
 		ginkgo.It("Should run a MPIJob if admitted", func() {
 			mpiJob := testingmpijob.MakeMPIJob("mpijob", ns.Name).
 				Queue("main").
+				GenericLauncherAndWorker().
 				Request(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "500m").
 				Request(kfmpi.MPIReplicaTypeWorker, corev1.ResourceCPU, "100m").
 				Obj()
@@ -132,6 +133,7 @@ var _ = ginkgo.Describe("MPIJob", ginkgo.Label("area:singlecluster", "feature:mp
 		ginkgo.It("Should allow to suspend a MPIJob when injected nodeSelector", func() {
 			mpiJob := testingmpijob.MakeMPIJob("mpijob-suspend", ns.Name).
 				Queue("main").
+				GenericLauncherAndWorker().
 				Request(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "100m").
 				Request(kfmpi.MPIReplicaTypeWorker, corev1.ResourceCPU, "100m").
 				Obj()
