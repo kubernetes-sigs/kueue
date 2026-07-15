@@ -479,6 +479,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.18"
+- name: TASReplaceNodeDueToNotReadyOverFixedTime
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.17"
 - name: TASReplaceNodeOnNodeTaints
   versionedSpecs:
   - default: true
