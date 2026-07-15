@@ -898,7 +898,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 					g.Expect(unaffectedWorkerClient.Get(ctx, unaffectedWlKey, unaffectedWl)).To(gomega.Succeed())
 					g.Expect(unaffectedWl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
 					g.Expect(workload.IsEvicted(unaffectedWl)).To(gomega.BeFalse())
-				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking the evicted workload was requeued successfully", func() {
