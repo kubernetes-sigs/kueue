@@ -1677,7 +1677,7 @@ func TestWlReconcile(t *testing.T) {
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:    "ac1",
 						State:   kueue.CheckStateRetry,
-						Message: `Remote workload out of sync, Previously: "Ready"`,
+						Message: `Reserving remote no longer exists or is not admitted, Previously: "Ready"`,
 					}).
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
 					ClusterName("worker1").

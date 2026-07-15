@@ -490,7 +490,6 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	// except for two cases (in which we'll update the remote workload accorddingly):
 	// - elastic workloads which have been scaled down
 	// - workloads for which workload priority has changed
-	outOfSyncDeleted := map[string]bool{}
 	for rem, remWl := range group.remotes {
 		if remWl != nil && isRemoteSpecOutOfSync(group.local.Spec, remWl.Spec) {
 			var remotePreemptionGates []kueue.PreemptionGate
@@ -532,7 +531,6 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 				return reconcile.Result{}, err
 			}
 			group.remotes[rem] = nil
-			outOfSyncDeleted[rem] = true
 		}
 	}
 
@@ -540,18 +538,15 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	conditionToCheck := kueue.WorkloadAdmitted
 	remoteCond, reservingRemote := group.bestMatchByCondition(conditionToCheck)
 
-	// 6a. The reservation is no longer visible while the admission check is still Ready.
-	// The reachability of the reserving worker decides the response, and it takes precedence
-	// over any out-of-sync deletion above (which can only happen on a reachable worker and is
-	// unrelated to whether this reservation is alive). The outcomes:
+	// 6a. The reservation is no longer visible while the admission check is still Ready. The
+	// reachability of the reserving worker decides the response:
 	//   - A known reserving worker that is unreachable (e.g. its watch is reconnecting): the
 	//     remote is likely still running, so keep the workload admitted and retry only once the
 	//     worker stays unreachable past workerLostTimeout, measured from when the loss was first
 	//     observed.
-	//   - The reserving remote was just deleted above for drifting from the manager spec: retry
-	//     immediately so it is recreated with the current spec.
-	//   - Reachable with no admitted remote, or an empty ClusterName: the reservation is gone (or
-	//     was never recorded), so retry immediately.
+	//   - An empty ClusterName: this cannot arise from normal admission, so surface it and retry.
+	//   - Otherwise (reachable with no admitted remote, e.g. its remote was deleted above as out
+	//     of sync): the reservation is gone, so retry immediately.
 	if remoteCond == nil && acs.State == kueue.CheckStateReady {
 		reserving := ptr.Deref(group.local.Status.ClusterName, "")
 		if reserving != "" && slices.Contains(group.unavailableClusters, reserving) {
@@ -568,9 +563,6 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			log.V(2).Info("Admission check Ready but ClusterName is empty; treating as misconfigured and retrying")
 			return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry,
 				"Admission check is Ready but no reserving cluster is recorded; this is unexpected, please report it")
-		}
-		if outOfSyncDeleted[reserving] {
-			return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, "Remote workload out of sync")
 		}
 		return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, "Reserving remote no longer exists or is not admitted")
 	}
