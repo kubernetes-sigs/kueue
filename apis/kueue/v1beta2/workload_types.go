@@ -208,6 +208,7 @@ type PodSetTopologyRequest struct {
 
 	// subGroupCount indicates the count of replicated Jobs (groups) within a PodSet.
 	// For example, in the context of JobSet this value is read from jobset.sigs.k8s.io/replicatedjob-replicas.
+	// +kubebuilder:validation:Minimum=0
 	// +optional
 	SubGroupCount *int32 `json:"subGroupCount,omitempty"`
 
