@@ -17,21 +17,19 @@ limitations under the License.
 package scheduler
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 
+	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 func domainIDs(domains []*domain) []string {
-	ids := make([]string, len(domains))
-	for i, d := range domains {
-		ids[i] = string(d.id)
-	}
-	return ids
+	return utilslices.Map(domains, func(d **domain) string { return string((*d).id) })
 }
 
 func TestSelectOptimalDomainSetToFit(t *testing.T) {
@@ -96,13 +94,13 @@ func TestSelectOptimalDomainSetToFit(t *testing.T) {
 
 func TestSelectOptimalDomainSetToFitStableTieBreak(t *testing.T) {
 	testCases := map[string]struct {
-		priorizeByEntropy bool
+		prioritizeByEntropy bool
 	}{
 		"balanced selection": {
-			priorizeByEntropy: false,
+			prioritizeByEntropy: false,
 		},
 		"entropy-prioritized selection": {
-			priorizeByEntropy: true,
+			prioritizeByEntropy: true,
 		},
 	}
 
@@ -114,9 +112,10 @@ func TestSelectOptimalDomainSetToFitStableTieBreak(t *testing.T) {
 				{id: "leaf-a", levelValues: []string{"block-b", "host-a"}, state: 3, sliceState: 3, stateWithLeader: 3, sliceStateWithLeader: 3},
 				{id: "leaf-m", levelValues: []string{"block-b", "host-m"}, state: 3, sliceState: 3, stateWithLeader: 3, sliceStateWithLeader: 3},
 				{id: "leaf-z", levelValues: []string{"block-a", "host-z"}, state: 3, sliceState: 3, stateWithLeader: 3, sliceStateWithLeader: 3},
+				{id: "leaf-zz", levelValues: []string{"block-a", "host-zz"}, state: 3, sliceState: 3, stateWithLeader: 3, sliceStateWithLeader: 3},
 			}
 
-			got := selectOptimalDomainSetToFit(s, domains, 1, 0, 1, tc.priorizeByEntropy)
+			got := selectOptimalDomainSetToFit(s, domains, 1, 0, 1, tc.prioritizeByEntropy)
 
 			if diff := cmp.Diff([]string{"leaf-z"}, domainIDs(got)); diff != "" {
 				t.Errorf("unexpected optimal domain set (-want,+got): %s", diff)
@@ -125,12 +124,12 @@ func TestSelectOptimalDomainSetToFitStableTieBreak(t *testing.T) {
 	}
 }
 
-func TestSortDomainsByCapacityAndEntropy(t *testing.T) {
+func TestCompareDomainCapacityAndEntropy(t *testing.T) {
 	testCases := map[string]struct {
 		domains []*domain
 		want    []string
 	}{
-		"levelValues ascending as final tiebreaker": {
+		"tie-breaking on level values when capacity and entropy are equal": {
 			domains: []*domain{
 				{id: "leaf-a", levelValues: []string{"block-b", "host-a"}, leaderState: 1, sliceStateWithLeader: 5, children: []*domain{{state: 2}, {state: 2}}},
 				{id: "leaf-m", levelValues: []string{"block-b", "host-m"}, leaderState: 1, sliceStateWithLeader: 5, children: []*domain{{state: 2}, {state: 2}}},
@@ -138,7 +137,7 @@ func TestSortDomainsByCapacityAndEntropy(t *testing.T) {
 			},
 			want: []string{"leaf-z", "leaf-a", "leaf-m"},
 		},
-		"capacity and entropy ranking before tiebreaker": {
+		"capacity overrides entropy, and higher entropy overrides level values": {
 			domains: []*domain{
 				{id: "lower-leader", levelValues: []string{"a"}, leaderState: 0, sliceStateWithLeader: 100, children: []*domain{{state: 50}, {state: 50}}},
 				{id: "lower-capacity", levelValues: []string{"b"}, leaderState: 1, sliceStateWithLeader: 4, children: []*domain{{state: 2}, {state: 2}}},
@@ -151,7 +150,7 @@ func TestSortDomainsByCapacityAndEntropy(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			sortDomainsByCapacityAndEntropy(tc.domains)
+			slices.SortFunc(tc.domains, compareDomainCapacityAndEntropy)
 
 			if diff := cmp.Diff(tc.want, domainIDs(tc.domains)); diff != "" {
 				t.Errorf("unexpected domain order (-want,+got): %s", diff)
