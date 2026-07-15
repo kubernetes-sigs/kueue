@@ -505,8 +505,8 @@ metrics will be reported.</p>
 </td>
 <td>
    <p>CustomLabels is a list of entries whose values will be added as extra
-Prometheus labels on ClusterQueue, LocalQueue, and Cohort metrics.
-Requires the CustomMetricLabels feature gate.</p>
+Prometheus labels on supported metrics.
+A maximum of 6 labels are allowed per SourceKind (2 for Workloads), with up to 20 labels defined in total.</p>
 </td>
 </tr>
 <tr><td><code>localQueueMetrics</code><br/>
@@ -540,9 +540,10 @@ as a Prometheus metric label with a &quot;custom_&quot; prefix.</p>
 <code>string</code>
 </td>
 <td>
-   <p>Name is used as a suffix to build the Prometheus label: Kueue
-automatically prepends &quot;custom_&quot; (e.g., name: &quot;team&quot; becomes label &quot;custom_team&quot;).
-Must follow Prometheus label naming conventions: [a-zA-Z_][a-zA-Z0-9_]*.</p>
+   <p>Name is the Prometheus metric label name suffix.
+Prepended with &quot;custom_&quot; to form the full Prometheus label name
+(e.g., &quot;team&quot; becomes &quot;custom_team&quot;).
+Must contain only [a-zA-Z0-9_] characters and start with a letter.</p>
 </td>
 </tr>
 <tr><td><code>sourceLabelKey</code><br/>
@@ -562,6 +563,32 @@ If neither is specified, defaults to Name.</p>
    <p>SourceAnnotationKey is the Kubernetes annotation key to read the value from.
 Must be a valid Kubernetes qualified name.
 Mutually exclusive with SourceLabelKey.</p>
+</td>
+</tr>
+<tr><td><code>sourceKind</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-SourceKind"><code>SourceKind</code></a>
+</td>
+<td>
+   <p>SourceKind is the object kind from which the label value should be sourced.
+Up to 2 labels are allowed for Workloads and up to 6 for other source kinds.
+Defaults to ClusterQueue.
+The possible values are:</p>
+<ul>
+<li>Cohort</li>
+<li>LocalQueue</li>
+<li>ClusterQueue</li>
+<li>Workloads</li>
+</ul>
+</td>
+</tr>
+<tr><td><code>trackedValues</code><br/>
+<code>[]string</code>
+</td>
+<td>
+   <p>TrackedValues is a list of the label's allowed values.
+When SourceKind is Workload, a closed list of 1-12 TrackedValues is required.
+Non-workload source kinds can have 0-16 TrackedValues. If the list is empty, any value is allowed.
+Label values not allowed by this field will be reported as &quot;kueue.x-k8s.io/<em>UNTRACKED_VALUE</em>&quot;.</p>
 </td>
 </tr>
 </tbody>
@@ -1320,6 +1347,18 @@ for Dynamic Resource Allocation support.</p>
 </tr>
 </tbody>
 </table>
+
+## `SourceKind`     {#config-kueue-x-k8s-io-v1beta2-SourceKind}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [ControllerMetricsCustomLabel](#config-kueue-x-k8s-io-v1beta2-ControllerMetricsCustomLabel)
+
+
+
+
 
 ## `TLSOptions`     {#config-kueue-x-k8s-io-v1beta2-TLSOptions}
     

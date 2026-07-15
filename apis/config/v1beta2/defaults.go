@@ -52,6 +52,7 @@ const (
 	DefaultRequeuingBackoffMaxSeconds             = 3600
 	DefaultResourceTransformationStrategy         = Retain
 	DefaultVisibilityBindPort                     = 8082
+	DefaultCustomMetricLabelSourceKind            = SourceKindClusterQueue
 )
 
 func getOperatorNamespace() string {
