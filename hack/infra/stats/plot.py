@@ -84,7 +84,7 @@ MIN_SAMPLE_POINTS = 8       # timelines: only highlight sample builds with >= th
 # (avg cores x duration) is roughly invariant to the request: CPU is compressible, so
 # fewer cores just stretch the build. A build given `work / target` cores would then
 # finish in about `target` minutes. These are the defaults; each is overridable via CLI.
-CPU_TARGET_MIN = 10.0  # target build duration in minutes to size the request against
+CPU_TARGET_MIN = 7.5  # target build duration in minutes to size the request against
 CPU_LEGROOM_FRAC = 0.15  # fractional headroom on top of the p95 target (0.15 = +15%)
 CPU_RESOLUTION = 0.1   # round the recommendation up to this core granularity (100m)
 

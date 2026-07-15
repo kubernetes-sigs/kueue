@@ -40,14 +40,14 @@ The work directory also holds fetch.log (append-only run log) and, when a batch 
 failures, failed_jobs.txt. Re-running resumes: complete jobs are skipped, partial job
 folders are cleaned and refetched, so only the gaps are downloaded.
 
-Network in/out is on by default for now (--no-network to skip): it uses heavy raw-cAdvisor queries
-that are fine for a targeted single-job pull but destabilize wide --job-regex batches, so pass
---no-network for batches. It is best-effort — a network failure never fails the job's cpu/mem fetch.
+Network in/out is fetched alongside cpu/mem: it uses heavy raw-cAdvisor queries that stress the
+shared proxy more than the recording-rule metrics, so it stays best-effort — a network failure
+never fails the job's cpu/mem fetch — but there is no flag to disable it.
 
 Examples:
   ./fetch_prow_metrics.py --job pull-kueue-test-e2e-baseline-main-1-34 --step 30s --days 30
   ./fetch_prow_metrics.py --job-regex '^pull-.*-main' --list-jobs             # preview only
-  ./fetch_prow_metrics.py --job-regex '^periodic-' --days 14 --no-network     # batch: skip heavy network
+  ./fetch_prow_metrics.py --job-regex '^periodic-' --days 14                  # batch
 """
 import argparse, collections, csv, json, os, re, shutil, statistics, sys, threading, time, urllib.parse, urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -261,8 +261,8 @@ def query_range_chunked(expr, start, end, step, key=_series_id, retries=5):
     (namespace,pod) key because its series carry no id label. A window whose query is too expensive
     for the proxy (504 Gateway Timeout) is split in half and retried, recursively down to
     MIN_CHUNK_S, so heavy joins still complete as several lighter queries rather than failing the
-    whole fetch. `retries` is the per-request transient-error retry budget (network passes a higher
-    value — see --network-retries — because its raw-cAdvisor queries hit the proxy hardest)."""
+    whole fetch. `retries` is the per-request transient-error retry budget (the network path passes a
+    higher value because its raw-cAdvisor queries hit the proxy hardest)."""
     merged = {}
     cap_s = (MAX_POINTS - 100) * step
     s = start
@@ -369,7 +369,7 @@ def fetch_network_by_pod(cadv, index, start, end, step, retries=8):
     on wide windows). Pods are queried in NET_POD_BATCH-sized batches to bound query cost and URL
     length; the build id is attached from `index`, so no PromQL join is needed. `retries` is passed
     through to each request: these raw-cAdvisor queries are the heaviest and stress the shared proxy
-    most, so network retries harder than the recording-rule metrics (see --network-retries)."""
+    most, so network retries harder (default 8) than the recording-rule metrics (5)."""
     pods_by_ns = {}
     for ns, pod in index:
         pods_by_ns.setdefault(ns, []).append(pod)
@@ -431,15 +431,6 @@ def main():
     ap.add_argument("--retries", type=int, default=0, metavar="N",
                     help="after the batch, retry still-failed jobs up to N more passes "
                          "(default 0). Complements the per-request backoff in http_get.")
-    ap.add_argument("--network", action=argparse.BooleanOptionalAction, default=True,
-                    help="fetch per-build network in/out (eth0). On by default for now; pass "
-                         "--no-network to skip it. These are raw cAdvisor queries that stress the "
-                         "shared proxy far more than the recording-rule metrics, so --no-network is "
-                         "recommended for wide --job-regex batch pulls. Network is best-effort: if it "
-                         "fails, the job still writes its cpu/mem data.")
-    ap.add_argument("--network-retries", type=int, default=8, metavar="N",
-                    help="per-request transient-error retry budget for the heavier network queries "
-                         "(default 8; the recording-rule metrics use 5). No effect with --no-network.")
     ap.add_argument("--force", action="store_true",
                     help="re-fetch even jobs whose output folder is already complete; "
                          "by default completed jobs are skipped, so re-running only fills gaps.")
@@ -641,23 +632,21 @@ def fetch_one(job, start, end, step, args, verbose=True):
                 f'group_left(id) max by (namespace,pod,id)(prow:job{sel}))')
         data[key] = query_range_chunked(expr, start, end, step)
         log(f"  {key:20} {len(data[key])} builds")
-    # network counters (see NET_METRICS): opt-in (--network) and best-effort. Resolved per build by
-    # pod pushdown, not a PromQL join: job_pod_index gives this job's pods (and their build ids) from
-    # prow:job, then fetch_network_by_pod selects the counter for exactly those pods and attaches the
-    # build id in Python — avoiding the fleet-wide scan + group_left join that returned 502/504 on
-    # wide windows. These raw-cAdvisor queries are the heaviest, so they are off by default (unfit for
-    # wide batches) and, when on, never fail the job: on error we drop any partial network data and
-    # keep the cpu/mem results.
-    if args.network:
-        try:
-            net_index = job_pod_index(args.org, args.repo, job, args.phase, start, end)
-            for key, cadv in NET_METRICS.items():
-                data[key] = fetch_network_by_pod(cadv, net_index, start, end, step, args.network_retries)
-                log(f"  {key:20} {len(data[key])} builds")
-        except Exception as err:
-            for key in NET_METRICS:                     # all-or-nothing: don't leave one series behind
-                data.pop(key, None)
-            log(f"  network: skipped after error ({err}); keeping cpu/mem metrics")
+    # network counters (see NET_METRICS): resolved per build by pod pushdown, not a PromQL join:
+    # job_pod_index gives this job's pods (and their build ids) from prow:job, then
+    # fetch_network_by_pod selects the counter for exactly those pods and attaches the build id in
+    # Python — avoiding the fleet-wide scan + group_left join that returned 502/504 on wide windows.
+    # These raw-cAdvisor queries are the heaviest of the fetch, so they stay best-effort: on error we
+    # drop any partial network data and keep the cpu/mem results rather than failing the whole job.
+    try:
+        net_index = job_pod_index(args.org, args.repo, job, args.phase, start, end)
+        for key, cadv in NET_METRICS.items():
+            data[key] = fetch_network_by_pod(cadv, net_index, start, end, step)
+            log(f"  {key:20} {len(data[key])} builds")
+    except Exception as err:
+        for key in NET_METRICS:                     # all-or-nothing: don't leave one series behind
+            data.pop(key, None)
+        log(f"  network: skipped after error ({err}); keeping cpu/mem metrics")
 
     # --- clean: drop cancelled/superseded builds (never reached a terminal phase) ---
     all_ids = set().union(*(set(v) for v in data.values())) if data else set()
