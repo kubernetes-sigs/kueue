@@ -366,18 +366,10 @@ func validateReclaimablePodsUpdate(newObj, oldObj *kueue.Workload, basePath *fie
 		knowPodSets[name] = &oldObj.Status.ReclaimablePods[i]
 	}
 
-	// For elastic workloads, a reclaimable count that already reaches (or
-	// exceeds) its podSet's current count may be lowered: after a scale-down
-	// the job's controller re-derives the value for the smaller podSet, which
-	// is a recomputation, not a reneged reclaim (see kueue#12670).
-	newPodSetCounts := workload.ExtractPodSetCountsFromWorkload(newObj)
-	loweredByScaleDown := func(name kueue.PodSetReference, oldCount int32) bool {
-		if !workloadslicing.Enabled(newObj) {
-			return false
-		}
-		count, found := newPodSetCounts[name]
-		return found && count <= oldCount
-	}
+	// A reclaimable count may legitimately decrease or be removed for a podSet
+	// that was scaled down, since its count is re-derived for the smaller
+	// podSet (see kueue#12670 and kueue#12958).
+	scaledDownPodSets := scaledDownPodSetNames(newObj)
 
 	var ret field.ErrorList
 	newNames := sets.New[kueue.PodSetReference]()
@@ -388,17 +380,35 @@ func validateReclaimablePodsUpdate(newObj, oldObj *kueue.Workload, basePath *fie
 			continue
 		}
 		oldCount, found := knowPodSets[newCount.Name]
-		if found && newCount.Count < oldCount.Count && !loweredByScaleDown(newCount.Name, oldCount.Count) {
+		if found && newCount.Count < oldCount.Count && !scaledDownPodSets.Has(newCount.Name) {
 			ret = append(ret, field.Invalid(basePath.Key(string(newCount.Name)).Child("count"), newCount.Count, fmt.Sprintf("cannot be less then %d", oldCount.Count)))
 		}
 	}
 
-	for name, oldCount := range knowPodSets {
-		if workload.HasQuotaReservation(newObj) && !newNames.Has(name) && !loweredByScaleDown(name, oldCount.Count) {
+	for name := range knowPodSets {
+		if workload.HasQuotaReservation(newObj) && !newNames.Has(name) && !scaledDownPodSets.Has(name) {
 			ret = append(ret, field.Required(basePath.Key(string(name)), "cannot be removed"))
 		}
 	}
 	return ret
+}
+
+// scaledDownPodSetNames returns the set of podSet names whose current count is
+// below the count granted at admission, i.e. those that have been scaled down.
+// Only meaningful for elastic workloads; returns empty otherwise.
+func scaledDownPodSetNames(wl *kueue.Workload) sets.Set[kueue.PodSetReference] {
+	scaledDown := sets.New[kueue.PodSetReference]()
+	if !workloadslicing.Enabled(wl) || wl.Status.Admission == nil {
+		return scaledDown
+	}
+	currentSizes := workload.ExtractPodSetCountsFromWorkload(wl)
+	for i := range wl.Status.Admission.PodSetAssignments {
+		psa := &wl.Status.Admission.PodSetAssignments[i]
+		if psa.Count != nil && *psa.Count > currentSizes[psa.Name] {
+			scaledDown.Insert(psa.Name)
+		}
+	}
+	return scaledDown
 }
 
 // validateImmutablePodSet helper to validate PodSet immutability on all fields but PodSet.Count.
