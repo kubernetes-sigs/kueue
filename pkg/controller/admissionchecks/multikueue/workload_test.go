@@ -2375,7 +2375,7 @@ func TestOrphanedRemoteWorkloadCleanedAfterReconnect(t *testing.T) {
 // setupAdmittedMetricTest builds a reconciler with a manager workload whose
 // admission check starts in acState and a worker1 remote workload that is
 // already admitted, so reconciliation reaches the admitted-metric code path.
-func setupAdmittedMetricTest(t *testing.T, ctx context.Context, acState kueue.CheckState) *wlReconciler {
+func setupAdmittedMetricTest(ctx context.Context, t *testing.T, acState kueue.CheckState) *wlReconciler {
 	t.Helper()
 
 	now := time.Now().Truncate(time.Second)
@@ -2451,7 +2451,7 @@ func TestMultiKueueWorkloadAdmittedMetricIncrementedOnceOnAdmission(t *testing.T
 	t.Cleanup(metrics.MultiKueueWorkloadsAdmittedTotal.Reset)
 
 	ctx, _ := utiltesting.ContextWithLog(t)
-	reconciler := setupAdmittedMetricTest(t, ctx, kueue.CheckStatePending)
+	reconciler := setupAdmittedMetricTest(ctx, t, kueue.CheckStatePending)
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "wl1", Namespace: TestNamespace}}
 
 	// First reconcile: the admission check transitions Pending -> Ready,
@@ -2481,7 +2481,7 @@ func TestMultiKueueWorkloadAdmittedMetricNotIncrementedOnRetryOrRejected(t *test
 			t.Cleanup(metrics.MultiKueueWorkloadsAdmittedTotal.Reset)
 
 			ctx, _ := utiltesting.ContextWithLog(t)
-			reconciler := setupAdmittedMetricTest(t, ctx, state)
+			reconciler := setupAdmittedMetricTest(ctx, t, state)
 			req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "wl1", Namespace: TestNamespace}}
 
 			// syncReservingRemoteState intentionally does not flip Retry/Rejected

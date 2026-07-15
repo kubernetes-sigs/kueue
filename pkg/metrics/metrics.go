@@ -378,7 +378,7 @@ The label 'result' can have the following values:
 		prometheus.CounterOpts{
 			Subsystem: constants.MultiKueueName,
 			Name:      "workloads_admitted_total",
-			Help:      `The total number of remote workloads admitted by a worker cluster, per 'cluster_queue' and 'cluster'.`,
+			Help:      `The total number of remote workload admissions on a worker cluster, per 'cluster_queue' and 'cluster'. A workload may be counted more than once if it is evicted and re-admitted.`,
 		}, []string{"cluster_queue", "cluster", "replica_role"},
 	)
 
