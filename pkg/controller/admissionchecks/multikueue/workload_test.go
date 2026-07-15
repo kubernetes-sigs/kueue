@@ -26,6 +26,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -46,7 +47,9 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -2366,6 +2369,133 @@ func TestOrphanedRemoteWorkloadCleanedAfterReconnect(t *testing.T) {
 	}
 	if err == nil {
 		t.Fatal("worker2 workload should have been deleted after second reconcile")
+	}
+}
+
+// setupAdmittedMetricTest builds a reconciler with a manager workload whose
+// admission check starts in acState and a worker1 remote workload that is
+// already admitted, so reconciliation reaches the admitted-metric code path.
+func setupAdmittedMetricTest(t *testing.T, ctx context.Context, acState kueue.CheckState) *wlReconciler {
+	t.Helper()
+
+	now := time.Now().Truncate(time.Second)
+	fakeClock := testingclock.NewFakeClock(now)
+
+	baseWorkloadBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace)
+	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace).Suspend(false).ManagedBy(kueue.MultiKueueControllerName)
+
+	managerWl := *baseWorkloadBuilder.Clone().
+		AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: acState}).
+		ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+		Obj()
+	remoteWl := *baseWorkloadBuilder.Clone().
+		Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+		Condition(metav1.Condition{
+			Type:   kueue.WorkloadAdmitted,
+			Status: metav1.ConditionTrue,
+			Reason: "Admitted",
+		}).
+		Obj()
+
+	managerClient := getClientBuilder(ctx).
+		WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
+		WithLists(&kueue.WorkloadList{Items: []kueue.Workload{managerWl}}, &batchv1.JobList{Items: []batchv1.Job{*baseJobBuilder.DeepCopy()}}).
+		WithStatusSubresource(&managerWl).
+		WithObjects(
+			utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1").Obj(),
+			utiltestingapi.MakeAdmissionCheck("ac1").ControllerName(kueue.MultiKueueControllerName).
+				Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
+				Obj(),
+		).
+		Build()
+
+	adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
+	cRec := newClustersReconciler(managerClient, TestNamespace, 0, defaultOrigin, nil, adapters, nil, nil, nil)
+
+	w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
+	w1remoteClient.client = NewNeverCachingClient(getClientBuilder(ctx).
+		WithLists(&kueue.WorkloadList{Items: []kueue.Workload{remoteWl}}).
+		WithStatusSubresource(&kueue.Workload{}).
+		WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
+		Build())
+	w1remoteClient.connected.Store(true)
+	cRec.remoteClients["worker1"] = w1remoteClient
+
+	helper, _ := admissioncheck.NewMultiKueueStoreHelper(managerClient)
+	recorder := &utiltesting.EventRecorder{}
+	return newWlReconciler(
+		managerClient,
+		helper,
+		cRec,
+		defaultOrigin,
+		recorder,
+		defaultWorkerLostTimeout,
+		time.Second,
+		adapters,
+		config.MultiKueueDispatcherModeAllAtOnce,
+		nil,
+		WithClock(t, fakeClock),
+	)
+}
+
+func admittedMetricValue(t *testing.T) float64 {
+	t.Helper()
+	return testutil.ToFloat64(metrics.MultiKueueWorkloadsAdmittedTotal.WithLabelValues("q1", "worker1", roletracker.RoleStandalone))
+}
+
+func TestMultiKueueWorkloadAdmittedMetricIncrementedOnceOnAdmission(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.WorkloadIdentifierAnnotations, false)
+	metrics.MultiKueueWorkloadsAdmittedTotal.Reset()
+	t.Cleanup(metrics.MultiKueueWorkloadsAdmittedTotal.Reset)
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+	reconciler := setupAdmittedMetricTest(t, ctx, kueue.CheckStatePending)
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "wl1", Namespace: TestNamespace}}
+
+	// First reconcile: the admission check transitions Pending -> Ready,
+	// the counter must increment exactly once.
+	if _, err := reconciler.Reconcile(ctx, req); err != nil {
+		t.Fatalf("unexpected error on first reconcile: %v", err)
+	}
+	if got := admittedMetricValue(t); got != 1 {
+		t.Errorf("expected admitted metric to be 1 after admission, got %v", got)
+	}
+
+	// Second reconcile: the check is already Ready, the counter must not move.
+	if _, err := reconciler.Reconcile(ctx, req); err != nil {
+		t.Fatalf("unexpected error on second reconcile: %v", err)
+	}
+	if got := admittedMetricValue(t); got != 1 {
+		t.Errorf("expected admitted metric to stay 1 after a second reconcile, got %v", got)
+	}
+}
+
+func TestMultiKueueWorkloadAdmittedMetricNotIncrementedOnRetryOrRejected(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.WorkloadIdentifierAnnotations, false)
+
+	for _, state := range []kueue.CheckState{kueue.CheckStateRetry, kueue.CheckStateRejected} {
+		t.Run(string(state), func(t *testing.T) {
+			metrics.MultiKueueWorkloadsAdmittedTotal.Reset()
+			t.Cleanup(metrics.MultiKueueWorkloadsAdmittedTotal.Reset)
+
+			ctx, _ := utiltesting.ContextWithLog(t)
+			reconciler := setupAdmittedMetricTest(t, ctx, state)
+			req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "wl1", Namespace: TestNamespace}}
+
+			// syncReservingRemoteState intentionally does not flip Retry/Rejected
+			// to Ready, so no admission happens and the counter must stay 0 no
+			// matter how many times the workload is reconciled.
+			for i := range 2 {
+				if _, err := reconciler.Reconcile(ctx, req); err != nil {
+					t.Fatalf("unexpected error on reconcile %d: %v", i+1, err)
+				}
+				if got := admittedMetricValue(t); got != 0 {
+					t.Errorf("expected admitted metric to stay 0 after reconcile %d, got %v", i+1, got)
+				}
+			}
+		})
 	}
 }
 
