@@ -45,6 +45,7 @@
     - [Node failures](#node-failures)
       - [Until v0.13](#until-v013)
       - [Since v0.14](#since-v014)
+      - [Sunsetting fixed-time marking (since v0.19)](#sunsetting-fixed-time-marking-since-v019)
       - [Workloads owned by a single Pod](#workloads-owned-by-a-single-pod)
     - [Tainted nodes treatment](#tainted-nodes-treatment)
       - [User stories](#user-stories-1)
@@ -1391,13 +1392,31 @@ Sometimes node failures are only transient and the node might recover, and so re
 immediately to NotReady condition could result in unnecessary node replacements.
 
 For that reason we introduce two heuristics for marking nodes to replace for a given workload:
-1. when the node is NotReady for over 30s (used by default)
+1. when the node is NotReady for over 30s (the default until v0.19; see
+[Sunsetting fixed-time marking](#sunsetting-fixed-time-marking-since-v019))
 2. when the node is NotReady and all of the workload's Pods scheduled on that node are terminated
 or terminating (used when the `TASReplaceNodeOnPodTermination` feature gate is enabled which is
-available starting with Kueue v0.13)
+available starting with Kueue v0.13; the only heuristic since v0.19)
 
 For the future releases we are going to consider API configuration for the approach, but first we
 would like to collect more user feedback using the feature gates while in Alpha.
+
+##### Sunsetting fixed-time marking (since v0.19)
+
+Marking a node failed after a fixed NotReady duration is premature in principle: a
+node can become Ready again after an arbitrary amount of time, and while the
+workload's Pods are still running on it, a recomputed assignment diverges from where
+the Pods actually run and corrupts per-node capacity accounting. Heuristic 2 (pod
+termination) is therefore the only marking trigger since v0.19.
+
+The fixed-time heuristic is retained behind the
+`TASReplaceNodeDueToNotReadyOverFixedTime` feature gate: Beta (enabled by default)
+in v0.17 and v0.18 backports, Deprecated (disabled by default) since v0.19, with
+removal planned in v0.21. While that gate is enabled, the interplay with
+`TASReplaceNodeOnPodTermination` is unchanged from v0.14; once it is disabled,
+`TASReplaceNodeOnPodTermination` has no effect and pod-termination marking is
+unconditional. Nodes that are deleted or lack a Ready condition are still marked
+immediately in all configurations.
 
 Kueue tries to find a replacement for a failed node until success (or until it gets
 evicted by e.g. `waitForPodsReady.recoveryTimeout`). One can limit the number of retries

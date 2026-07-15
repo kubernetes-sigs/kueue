@@ -538,6 +538,7 @@ func LoadAndValidateFeatureGates(featureGateCLI string, featureGateMap map[strin
 	allErrs = append(allErrs, validateFeatureGateDependency(features.TASFailedNodeReplacement, features.TopologyAwareScheduling)...)
 	allErrs = append(allErrs, validateFeatureGateDependency(features.TASFailedNodeReplacementFailFast, features.TopologyAwareScheduling, features.TASFailedNodeReplacement)...)
 	allErrs = append(allErrs, validateFeatureGateDependency(features.TASReplaceNodeOnPodTermination, features.TopologyAwareScheduling, features.TASFailedNodeReplacement)...)
+	allErrs = append(allErrs, validateFeatureGateDependency(features.TASReplaceNodeDueToNotReadyOverFixedTime, features.TopologyAwareScheduling, features.TASFailedNodeReplacement)...)
 	allErrs = append(allErrs, validateFeatureGateDependency(features.TASBalancedPlacement, features.TopologyAwareScheduling)...)
 	allErrs = append(allErrs, validateFeatureGateDependency(features.TASReplaceNodeOnNodeTaints, features.TopologyAwareScheduling)...)
 	allErrs = append(allErrs, validateFeatureGateDependency(features.TASMultiLayerTopology, features.TopologyAwareScheduling)...)
