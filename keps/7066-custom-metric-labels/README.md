@@ -271,7 +271,6 @@ type ControllerMetricsCustomLabel struct {
     // When SourceKind is Workload, a closed list of 1-12 TrackedValues is required.
     // Non-workload source kinds can have 0-16 TrackedValues. If the list is empty, any value is allowed.
     // Label values not allowed by this field will be reported as "kueue.x-k8s.io/_UNTRACKED_VALUE_".
-    // +kubebuilder:validation:UniqueItems=true
     // +optional
     TrackedValues []string `json:"trackedValues,omitempty"`
 }
