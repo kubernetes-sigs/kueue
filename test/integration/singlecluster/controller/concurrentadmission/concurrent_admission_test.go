@@ -282,7 +282,7 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 				gomega.Consistently(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(parentWl), parentWl)).To(gomega.Succeed())
 					g.Expect(parentWl.Status.Admission.PodSetAssignments[0].Flavors[corev1.ResourceCPU]).To(gomega.Equal(kueue.ResourceFlavorReference(flavorSpot.Name)))
-				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Releasing quota on reservation", func() {
@@ -392,7 +392,7 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 					variantReservation := getVariantByFlavor(list, parentWl.Name, flavorReservation.Name)
 					g.Expect(variantReservation).ToNot(gomega.BeNil(), "Variant for reservation not found")
 					g.Expect(ptr.Deref(variantReservation.Spec.Active, true)).To(gomega.BeFalse(), "Variant for reservation should remain inactive")
-				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 		})
 	})
@@ -467,7 +467,7 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 				gomega.Consistently(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(parentWl), parentWl)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(parentWl)).To(gomega.BeFalse())
-				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Simulating Admission Check success on variant", func() {

@@ -158,7 +158,7 @@ var _ = ginkgo.Describe("Kueuectl Stop", func() {
 					gomega.Consistently(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdLocalQueue), createdLocalQueue)).To(gomega.Succeed())
 						g.Expect(ptr.Deref(createdLocalQueue.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(kueue.None))
-					}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 				})
 			},
 			ginkgo.Entry("client", "lq-dry-run-client", "client"),
@@ -246,7 +246,7 @@ var _ = ginkgo.Describe("Kueuectl Stop", func() {
 					gomega.Consistently(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdClusterQueue), createdClusterQueue)).To(gomega.Succeed())
 						g.Expect(ptr.Deref(createdClusterQueue.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(kueue.None))
-					}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 				})
 			},
 			ginkgo.Entry("client",
