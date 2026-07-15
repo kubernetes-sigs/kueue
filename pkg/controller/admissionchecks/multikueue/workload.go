@@ -514,19 +514,18 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	// 6a. The reservation is no longer visible while the admission check is still Ready.
 	// The reachability of the reserving worker decides the response, and it takes precedence
 	// over any out-of-sync deletion above (which can only happen on a reachable worker and is
-	// unrelated to whether this reservation is alive). The three outcomes map to the three
-	// returns below:
-	//   - Unreachable (e.g. its watch is reconnecting) or undeterminable: the remote is likely
-	//     still running, so keep the workload admitted and retry only once it stays unreachable
-	//     past workerLostTimeout, measured from when the loss was first observed. An empty
-	//     ClusterName is treated as unreachable, erring on the side of not evicting.
-	//   - Reachable, and the reserving remote itself was just deleted above for drifting from
-	//     the manager spec: retry immediately so it is recreated with the current spec.
-	//   - Reachable with no admitted remote otherwise: the reservation is genuinely gone, so
-	//     retry immediately.
+	// unrelated to whether this reservation is alive). The outcomes:
+	//   - A known reserving worker that is unreachable (e.g. its watch is reconnecting): the
+	//     remote is likely still running, so keep the workload admitted and retry only once the
+	//     worker stays unreachable past workerLostTimeout, measured from when the loss was first
+	//     observed.
+	//   - The reserving remote was just deleted above for drifting from the manager spec: retry
+	//     immediately so it is recreated with the current spec.
+	//   - Reachable with no admitted remote, or an empty ClusterName: the reservation is gone (or
+	//     was never recorded), so retry immediately.
 	if remoteCond == nil && acs.State == kueue.CheckStateReady {
 		reserving := ptr.Deref(group.local.Status.ClusterName, "")
-		if reserving == "" || slices.Contains(group.unavailableClusters, reserving) {
+		if reserving != "" && slices.Contains(group.unavailableClusters, reserving) {
 			lostSince := w.clock.Now()
 			if rc, found := w.clusters.controllerFor(reserving); found {
 				if since := rc.connState.lostSince(); since != nil {
@@ -538,6 +537,13 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 				return reconcile.Result{RequeueAfter: remainingWaitTime}, nil
 			}
 			return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, "Reserving remote lost")
+		}
+		if reserving == "" {
+			// Under normal operation this is unreachable: A Ready check with no ClusterName indicates a bug in Kueue
+			// (or an externally modified / stale workload), so surface it and retry instead of looping silently.
+			log.V(2).Info("Admission check Ready but ClusterName is empty; treating as misconfigured and retrying")
+			return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry,
+				"Admission check is Ready but no reserving cluster is recorded; this is unexpected, please report it. Retrying.")
 		}
 		if outOfSyncDeleted[reserving] {
 			return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, "Remote workload out of sync")
