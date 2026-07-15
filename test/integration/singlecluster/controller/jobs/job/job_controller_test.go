@@ -4944,8 +4944,8 @@ var _ = ginkgo.Describe("Job reconciliation", ginkgo.Ordered, func() {
 
 		gomega.Consistently(func(g gomega.Gomega) {
 			wls := &kueue.WorkloadList{}
-			g.Expect(k8sClient.List(ctx, wls, client.InNamespace(unmanagedNs.Name))).To(gomega.Succeed())
-			g.Expect(wls.Items).To(gomega.BeEmpty(), "Expected no workload in unmanaged namespace")
+			gomega.Expect(k8sClient.List(ctx, wls, client.InNamespace(unmanagedNs.Name))).To(gomega.Succeed())
+			gomega.Expect(wls.Items).To(gomega.BeEmpty(), "Expected no workload in unmanaged namespace")
 		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 	})
 
