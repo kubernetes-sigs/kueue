@@ -1,5 +1,5 @@
 ---
-title: "Topology Aware Scheduling"
+title: "Topology-Aware Scheduling"
 date: 2024-04-11
 weight: 6
 description: >
@@ -29,7 +29,7 @@ different units. We say that nodes placed in different racks are more distant
 than nodes placed within the same rack. Similarly, nodes placed in different
 blocks are more distant than two nodes within the same block.
 
-In this feature (called Topology Aware Scheduling, or TAS for short) we
+In this feature (called Topology-Aware Scheduling, or TAS for short) we
 introduce a convention to represent the
 [hierarchical node topology information](#node-topology-information), and a set
 of APIs for Kueue administrators and users to utilize the information
@@ -77,17 +77,25 @@ As an admin, in order to enable the feature you need to:
 
 #### Example
 
-{{< include "examples/tas/sample-queues.yaml" "yaml" >}}
+```yaml
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: "tas-flavor"
+spec:
+  nodeLabels:
+    cloud.provider.com/node-group: "tas-group"
+  topologyName: "default"
+```
 
-An example for managing GPUs:
-{{< include "examples/tas/sample-gpu-queues.yaml" "yaml" >}}
+For a step-by-step administrator guide on setting up a cluster with TAS, see [Setup Topology-Aware Scheduling](/docs/tasks/manage/setup_topology_aware_scheduling/).
 
 ### User-facing APIs
 
 Once TAS is configured and ready to be used, you can create Jobs with the
 following annotations set at the PodTemplate level:
 - `kueue.x-k8s.io/podset-preferred-topology` - indicates that a PodSet requires
-	Topology Aware Scheduling, but scheduling all pods within pods on nodes
+	Topology-Aware Scheduling, but scheduling all pods within pods on nodes
 	within the same topology domain is a preference rather than requirement.
 	The levels are evaluated one-by-one going up from the level indicated by
 	the annotation. If the PodSet cannot fit within a given topology domain
@@ -95,11 +103,11 @@ following annotations set at the PodTemplate level:
 	at the highest topology level, then it gets admitted as distributed
 	among multiple topology domains.
 - `kueue.x-k8s.io/podset-required-topology` - indicates that a PodSet
-  requires Topology Aware Scheduling, and requires scheduling all pods on nodes
+  requires Topology-Aware Scheduling, and requires scheduling all pods on nodes
 	within the same topology domain corresponding to the topology level
 	indicated by the annotation value (e.g. within a rack or within a block).
 - `kueue.x-k8s.io/podset-unconstrained-topology` - indicates that a PodSet requires
-    Topology Aware Scheduling, and requires scheduling all pods on any nodes without
+    Topology-Aware Scheduling, and requires scheduling all pods on any nodes without
     topology considerations. In other words, this considers if all pods could be accommodated 
     within any nodes which helps to minimize fragmentation by filling the small gaps
     on nodes across the cluster.
@@ -115,11 +123,15 @@ following annotations set at the PodTemplate level:
 
 #### Example
 
-Here is an example Job a user might submit to use TAS. It assumes there exists
-a LocalQueue named `tas-user-queue` which refernces the ClusterQueue pointing
-to a TAS ResourceFlavor.
+```yaml
+spec:
+  template:
+    metadata:
+      annotations:
+        kueue.x-k8s.io/podset-preferred-topology: "cloud.provider.com/topology-block"
+```
 
-{{< include "examples/tas/sample-job-preferred.yaml" "yaml" >}}
+For detailed instructions and full examples on running TAS workloads as a batch user, see [Run Workloads with Topology-Aware Scheduling](/docs/tasks/run/topology_aware_scheduling/).
 
 ### ClusterAutoscaler support
 
@@ -379,7 +391,7 @@ See [Replace Node on Node Taints](#replace-node-on-node-taints) for the per-tain
 
 We recommend keeping all four feature gates enabled to ensure the fastest feedback loop for workloads affected by node failures or tainted nodes.
 
-#### Balanced Placement
+### Balanced placement
 {{< feature-state state="alpha" for_version="v0.15" >}}
 {{% alert title="Note" color="primary" %}}
 `TASBalancedPlacement` is currently an alpha feature and is disabled by default.
@@ -407,7 +419,7 @@ will be maximied. Also (as a second criterion) the number of domains used on the
 minimized. However, if the Job would not fit within a single domain **one level above** the indicated level,
 Kueue will not perform the balanced placement and will fallback to the standard TAS algorithm.
 
-#### Multi-Layer Topology
+### Multi-layer topology
 {{< feature-state state="beta" for_version="v0.19" >}}
 {{% alert title="Note" color="primary" %}}
 `TASMultiLayerTopology` is currently an beta feature and is enabled by default.
