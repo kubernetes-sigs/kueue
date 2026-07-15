@@ -154,9 +154,10 @@ type connectionState struct {
 	mu        sync.RWMutex
 	connected bool
 	// disconnectedSince is when the client last became disconnected: the watch dropping, or the
-	// client's creation for one that has never connected. It is nil only while connected, and is
-	// preserved across failed reconnect attempts so the worker-lost grace measures from the first
-	// loss, not the latest failed retry.
+	// client's creation for one that has never connected. It becomes nil only when a fully
+	// established connection (markConnected) clears it; the optimistic markConnecting does not, and
+	// it is preserved across failed reconnect attempts, so the worker-lost grace measures from the
+	// first loss, not the latest failed retry.
 	disconnectedSince *time.Time
 }
 
