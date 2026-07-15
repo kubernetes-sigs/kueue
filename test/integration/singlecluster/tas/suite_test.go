@@ -43,6 +43,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
+	"sigs.k8s.io/kueue/test/integration/singlecluster/tas/shared"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -68,6 +69,7 @@ var _ = ginkgo.BeforeSuite(func() {
 	}
 	cfg = fwk.Init()
 	ctx, k8sClient = fwk.SetupClient(cfg)
+	shared.Setup(ctx, k8sClient, fwk, cfg)
 })
 
 var _ = ginkgo.AfterSuite(func() {
@@ -101,6 +103,7 @@ func managerSetupWithConfig(
 		}
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
 		qManager = queues
+		shared.SetQManager(qManager)
 
 		failedCtrl, err := core.SetupControllers(
 			mgr,

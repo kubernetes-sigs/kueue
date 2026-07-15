@@ -50,6 +50,12 @@ func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (SchedulingSi
 						},
 					},
 				},
+				PluginConfig: []schedulerconfig.PluginConfig{
+					{
+						Name: nodeaffinity.Name,
+						Args: &schedulerconfig.NodeAffinityArgs{},
+					},
+				},
 			},
 		},
 	}

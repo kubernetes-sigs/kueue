@@ -21,13 +21,6 @@ import (
 )
 
 var _ = func() bool {
-	tc := &shared.TestContext{
-		Ctx:       ctx,
-		K8sClient: k8sClient,
-		Fwk:       fwk,
-		Cfg:       cfg,
-		QManager:  qManager,
-	}
-	shared.RunTASIntegrationTests(tc, managerSetup, managerSetupWithConfig)
+	shared.RunTASIntegrationTests(managerSetup, managerSetupWithConfig)
 	return true
 }()

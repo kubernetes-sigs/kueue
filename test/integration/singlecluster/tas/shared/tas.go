@@ -120,16 +120,29 @@ func forceDeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Names
 	return nil
 }
 
+var (
+	cfg       *rest.Config
+	k8sClient client.Client
+	ctx       context.Context
+	fwk       *framework.Framework
+	qManager  *qcache.Manager
+)
+
+func Setup(c context.Context, k client.Client, f *framework.Framework, cf *rest.Config) {
+	ctx = c
+	k8sClient = k
+	fwk = f
+	cfg = cf
+}
+
+func SetQManager(q *qcache.Manager) {
+	qManager = q
+}
+
 func RunTASIntegrationTests(
-	tc *TestContext,
 	managerSetup func(resourceTransformations ...config.ResourceTransformation) func(ctx context.Context, mgr manager.Manager),
 	managerSetupWithConfig func(controllersCfg *config.Configuration, resourceTransformations ...config.ResourceTransformation) func(ctx context.Context, mgr manager.Manager),
 ) {
-	ctx := tc.Ctx
-	k8sClient := tc.K8sClient
-	fwk := tc.Fwk
-	cfg := tc.Cfg
-	qManager := tc.QManager
 
 	ginkgo.Describe("Single-cluster Topology Aware Scheduling", ginkgo.Ordered, func() {
 	var (

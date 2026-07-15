@@ -851,6 +851,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		assumedUsage:              assumedUsage,
 		requiredReplacementDomain: requiredReplacementDomain,
 		simulateEmpty:             simulateEmpty,
+		podTemplate:               workersTasPodSetRequests.PodSet.Template.DeepCopy(),
 	}
 	state := &findTopologyAssignmentState{
 		topologyAssignmentParameters: topologyAssignmentParameters{
@@ -947,6 +948,16 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		}
 	}
 
+	requirements.podTemplate.Spec.NodeSelector = info.NodeSelector
+	requirements.podTemplate.Spec.Tolerations = requirements.tolerations
+	if info.Affinity != nil {
+		if requirements.podTemplate.Spec.Affinity == nil {
+			requirements.podTemplate.Spec.Affinity = &corev1.Affinity{}
+		}
+		if info.Affinity.NodeAffinity != nil {
+			requirements.podTemplate.Spec.Affinity.NodeAffinity = info.Affinity.NodeAffinity.DeepCopy()
+		}
+	}
 	// phase 1 - determine the number of pods and slices which can fit in each topology domain
 	err := s.fillInCounts(requirements, state)
 	if err != nil {
