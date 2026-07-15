@@ -23,16 +23,10 @@ Please do not remove items from the checklist
   - [ ] Ensure there are no unstaged changes in your directory (the script adds everything)
   - [ ] Run `./hack/releasing/prepare_pull.sh --target release $VERSION`
   - [ ] Wait for this PR to merge <!-- PREPARE_PULL_RELEASE --> <!-- example #211 -->
-- [ ] An OWNER creates a signed tag
-  - [ ] pull the release branch after PR from previous step merged
-  - [ ] run
-     `git tag -s $VERSION`
-      and inserts the changelog into the tag description.
-      To perform this step, you need [a PGP key registered on github](https://docs.github.com/en/authentication/managing-commit-signature-verification/checking-for-existing-gpg-keys).
-- [ ] An OWNER pushes the tag with
-      `git push upstream $VERSION`
-  - Triggers prow to build and publish a staging container image
-      `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:$VERSION`
+- [ ] Run ChatOps command `/tag-release` on this issue. This will:
+  - Extract the changelog from the issue description.
+  - Create the release tag at the tip of the release branch.
+  - Push the tag upstream (triggers Prow to build and publish staging container image: `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:$VERSION`).
 - [ ] An OWNER [prepares a draft release](https://github.com/kubernetes-sigs/kueue/releases)
   - [ ] Create the draft release pointing out to the created tag.
   - [ ] Write the change log into the draft release.

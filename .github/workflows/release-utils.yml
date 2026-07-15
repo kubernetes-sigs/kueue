@@ -9,6 +9,7 @@ jobs:
     if: |
       github.event.issue.pull_request == null &&
       (contains(github.event.comment.body, '/sync-release-notes') ||
+       contains(github.event.comment.body, '/tag-release') ||
        contains(github.event.comment.body, '/wait-for-images') ||
        contains(github.event.comment.body, '/wait-for-prod-images'))
     outputs:
@@ -53,7 +54,6 @@ jobs:
             gh issue comment "$ISSUE_NUMBER" --body "Invalid issue title: \`$TITLE\`. Expected format: \`Release vX.Y.Z\`."
             exit 0
           fi
-
           VERSION="${BASH_REMATCH[1]}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
@@ -64,6 +64,8 @@ jobs:
           COMMAND=""
           if printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/sync-release-notes[[:space:]]*$'; then
             COMMAND="sync-notes"
+          elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/tag-release[[:space:]]*$'; then
+            COMMAND="tag-release"
           elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/wait-for-images[[:space:]]*$'; then
             COMMAND="wait-for-images"
           elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/wait-for-prod-images[[:space:]]*$'; then
@@ -136,6 +138,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           VERSION: ${{ needs.authorize.outputs.version }}
+          COMMAND: ${{ needs.authorize.outputs.command }}
         run: |
           # Initialize an empty array for arguments
           ARGS=()
@@ -179,3 +182,92 @@ jobs:
           
           # Post the parsed comment to the GitHub issue.
           gh issue comment "$ISSUE_NUMBER" --body-file comment.md
+
+  tag-release:
+    name: Tag Release
+    runs-on: ubuntu-latest
+    needs: authorize
+    if: ${{ needs.authorize.outputs.command == 'tag-release' }}
+    permissions:
+      contents: write
+      issues: write
+    env:
+      BRANCH: ${{ needs.authorize.outputs.branch }}
+      ISSUE_NUMBER: ${{ github.event.issue.number }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.authorize.outputs.branch }}
+          persist-credentials: false
+
+      - name: Create and Push Tag
+        env:
+          VERSION: ${{ needs.authorize.outputs.version }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Extract the changelog
+          CHANGELOG_SECTION=$(echo "$ISSUE_BODY" | tr -d '\r' | sed -ne '/^## Changelog/,$ p' | tail -n +2)
+          if echo "$CHANGELOG_SECTION" | grep -q '^```'; then
+            CHANGELOG=$(echo "$CHANGELOG_SECTION" | awk '/^```/ {in_block=!in_block; next} in_block {print}')
+          else
+            CHANGELOG="$CHANGELOG_SECTION"
+          fi
+          
+          # Trim leading and trailing empty lines from CHANGELOG
+          CHANGELOG=$(echo "$CHANGELOG" | sed -e '/./,$!d' -e :a -e '/^\n*$/{$d;N;ba}')
+          
+          if [ -z "$CHANGELOG" ]; then
+            gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to create release tag \`$VERSION\`: No changelog found in the issue description. Make sure the issue has the Markdown block under \`## Changelog\`."
+            exit 1
+          fi
+          
+          # Prepare tag message
+          NOTES_FILE=$(mktemp)
+          printf "%s\n\n%s\n" "$VERSION" "$CHANGELOG" > "$NOTES_FILE"
+
+          # Configure git identity
+          git config --global user.name "kueue-release-bot"
+          git config --global user.email "kueue-release-bot@kubernetes.io"
+          gh auth setup-git
+          
+          # Clear existing tag
+          TAG_EXISTS=false
+          if git tag -l | grep -q "^${VERSION}$" || git ls-remote --tags origin "$VERSION" | grep -q "refs/tags/${VERSION}$"; then
+            TAG_EXISTS=true
+            git tag -d "$VERSION" 2>/dev/null || true
+            git push origin --delete "$VERSION" 2>/dev/null || true
+          fi
+
+          # Create and push the tag
+          PUSH_EXIT=0
+          set +e
+          git tag -a "$VERSION" -F "$NOTES_FILE" 2> err.log
+          TAG_EXIT=$?
+          if [ $TAG_EXIT -eq 0 ]; then
+            git push origin "$VERSION" 2>> err.log
+            PUSH_EXIT=$?
+          fi
+          set -e
+          rm -f "$NOTES_FILE"
+          
+          if [ $TAG_EXIT -ne 0 ] || [ $PUSH_EXIT -ne 0 ]; then
+            ERR_MSG=$(cat err.log)
+            gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to create or push release tag \`$VERSION\`.
+            
+            **Error details:**
+            \`\`\`text
+            ${ERR_MSG}
+            \`\`\`"
+            exit 1
+          fi
+          
+          # Log successful creation/update
+          ACTION="created"
+          if [ "$TAG_EXISTS" = "true" ]; then
+            ACTION="updated"
+          fi
+          
+          gh issue comment "$ISSUE_NUMBER" --body "✅ Release tag \`$VERSION\` has been successfully ${ACTION}."
