@@ -3,7 +3,7 @@ title: "Setup All-or-nothing with ready Pods"
 date: 2022-03-14
 weight: 5
 description: >
-  Timeout-based implementation of the All-or-nothing scheduling
+  Default implementation of the All-or-nothing scheduling
 ---
 
 Some jobs need all pods to be running at the same time to operate; for example,
@@ -13,14 +13,14 @@ if the physical availability of resources do not match the configured quotas in
 Kueue. The same pair of jobs could run to completion if their pods were scheduled
 sequentially.
 
-To address this requirement, in version 0.3.0 we introduced an opt-in mechanism
-configured via the flag `waitForPodsReady` that provides a simple implementation
-of the all-or-nothing scheduling. When enabled, the workload is monitored by
-Kueue until all of its Pods are ready (meaning scheduled, running, and passing
-the optional readiness probe). If not all pods of the workload are ready within
-the configured timeout, then the workload is evicted and requeued.
+To address this requirement, in version 0.3.0 we introduced the
+`waitForPodsReady` configuration that provides a simple implementation
+of the all-or-nothing scheduling. Kueue monitors the workload until all
+of its Pods are ready (meaning scheduled, running, and passing the
+optional readiness probe). If not all pods of the workload are ready
+within the configured timeout, then the workload is evicted and requeued.
 
-This page shows you how to configure Kueue to use `waitForPodsReady`, which
+This page describes the `waitForPodsReady` configuration, which
 is a simple implementation of the all-or-nothing scheduling.
 The intended audience for this page are [batch administrators](/docs/tasks#batch-administrator).
 
@@ -32,17 +32,17 @@ Make sure the following conditions are met:
 - The kubectl command-line tool has communication with your cluster.
 - [Kueue is installed](/docs/installation) in version 0.3.0 or later.
 
-## Enabling waitForPodsReady
+## Configuring waitForPodsReady
+
 
 Follow the instructions described
 [here](/docs/installation#install-a-custom-configured-released-version) to
-install a release version by extending the configuration with the following
-fields:
+install a release version and customize the default `waitForPodsReady` configuration with the following fields:
 
 ```yaml
     waitForPodsReady:
-      timeout: 10m
-      recoveryTimeout: 3m
+      timeout: 30m
+      recoveryTimeout: 30m
       blockAdmission: false
       requeuingStrategy:
         timestamp: Eviction | Creation
@@ -62,7 +62,7 @@ kubectl delete pods --all -n kueue-system
 {{% /alert %}}
 
 The `timeout` (`waitForPodsReady.timeout`) is an optional parameter, defaulting to
-5 minutes.
+30 minutes.
 
 When the `timeout` expires for an admitted Workload, and the workload's
 pods are not all scheduled yet (i.e., the Workload condition remains
@@ -119,7 +119,8 @@ until the number of re-queue reaches the `backoffLimitCount`.
 
 ## Example
 
-In this example we demonstrate the impact of enabling `waitForPodsReady` in Kueue.
+
+In this example we demonstrate how `waitForPodsReady` works in Kueue.
 We create two jobs which both require all their pods to be running at the same
 time to complete. The cluster has enough resources to support running one of the
 jobs at the same time, but not both.
@@ -337,71 +338,7 @@ spec:
   backoffLimit: 0
 ```
 
-### 2. Induce a deadlock under the default configuration (optional)
 
-#### Run the jobs
-
-```yaml
-sed 's/_ID_/1/g' job-template.yaml > /tmp/job1.yaml
-sed 's/_ID_/2/g' job-template.yaml > /tmp/job2.yaml
-kubectl create -f quick-job.yaml
-kubectl create -f /tmp/job1.yaml
-kubectl create -f /tmp/job2.yaml
-```
-
-After a while check the status of the pods by
-
-```shell
-kubectl get pods
-```
-
-The output is like this (omitting the pods of the `quick-job` for brevity):
-
-```shell
-NAME            READY   STATUS      RESTARTS   AGE
-job1-0-9pvs8    1/1     Running     0          28m
-job1-1-w9zht    1/1     Running     0          28m
-job1-10-fg99v   1/1     Running     0          28m
-job1-11-4gspm   1/1     Running     0          28m
-job1-12-w5jft   1/1     Running     0          28m
-job1-13-8d5jk   1/1     Running     0          28m
-job1-14-h5q8x   1/1     Running     0          28m
-job1-15-kkv4j   0/1     Pending     0          28m
-job1-16-frs8k   0/1     Pending     0          28m
-job1-17-g78g8   0/1     Pending     0          28m
-job1-18-2ghmt   0/1     Pending     0          28m
-job1-19-4w2j5   0/1     Pending     0          28m
-job1-2-9s486    1/1     Running     0          28m
-job1-3-s9kh4    1/1     Running     0          28m
-job1-4-52mj9    1/1     Running     0          28m
-job1-5-bpjv5    1/1     Running     0          28m
-job1-6-7f7tj    1/1     Running     0          28m
-job1-7-pnq7w    1/1     Running     0          28m
-job1-8-7s894    1/1     Running     0          28m
-job1-9-kz4gt    1/1     Running     0          28m
-job2-0-x6xvg    1/1     Running     0          28m
-job2-1-flkpj    1/1     Running     0          28m
-job2-10-vf4j9   1/1     Running     0          28m
-job2-11-ktbld   0/1     Pending     0          28m
-job2-12-sf4xb   1/1     Running     0          28m
-job2-13-9j7lp   0/1     Pending     0          28m
-job2-14-czc6l   1/1     Running     0          28m
-job2-15-m77zt   0/1     Pending     0          28m
-job2-16-7p7fs   0/1     Pending     0          28m
-job2-17-sfdmj   0/1     Pending     0          28m
-job2-18-cs4lg   0/1     Pending     0          28m
-job2-19-x66dt   0/1     Pending     0          28m
-job2-2-hnqjv    1/1     Running     0          28m
-job2-3-pkwhw    1/1     Running     0          28m
-job2-4-gdtsh    1/1     Running     0          28m
-job2-5-6swdc    1/1     Running     0          28m
-job2-6-qb6sp    1/1     Running     0          28m
-job2-7-grcg4    0/1     Pending     0          28m
-job2-8-kg568    1/1     Running     0          28m
-job2-9-hvwj8    0/1     Pending     0          28m
-```
-
-These jobs are now deadlock'ed and are not going to be able to make progress.
 
 #### Cleanup
 
@@ -413,11 +350,12 @@ kubectl delete -f /tmp/job1.yaml
 kubectl delete -f /tmp/job2.yaml
 ```
 
-### 3. Run with waitForPodsReady enabled
+### 2. Run with the default waitForPodsReady configuration
 
-#### Enable waitForPodsReady
+#### Configure waitForPodsReady
 
-Update the Kueue configuration following the instructions [here](#enabling-waitforpodsready).
+
+Update the Kueue configuration following the instructions [here](#configuring-waitforpodsready).
 
 #### Run the jobs
 
@@ -530,6 +468,7 @@ kubectl delete -f /tmp/job2.yaml
 
 ## Drawbacks
 
-When enabling `waitForPodsReady`, the admission of Workloads may
-be unnecessarily slowed down by sequencing in case the cluster has enough
-resources to support concurrent Workload startup.
+When `waitForPodsReady` is configured with `blockAdmission: true`,
+the admission of Workloads may be unnecessarily slowed down by
+sequencing in cases where the cluster has enough resources to support
+concurrent workload startup.
