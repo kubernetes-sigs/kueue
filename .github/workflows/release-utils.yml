@@ -200,6 +200,7 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ needs.authorize.outputs.branch }}
+          persist-credentials: false
 
       - name: Create and Push Tag
         env:
@@ -230,6 +231,7 @@ jobs:
           # Configure git identity
           git config --global user.name "kueue-release-bot"
           git config --global user.email "kueue-release-bot@kubernetes.io"
+          gh auth setup-git
           
           # Clear existing tag
           TAG_EXISTS=false
