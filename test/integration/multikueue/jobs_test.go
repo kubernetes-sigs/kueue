@@ -241,12 +241,12 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				managerTestCluster.ctx, managerTestCluster.client, wlLookupKey,
 				multiKueueAC.Name,
 				kueue.CheckStateReady,
-				`The workload got reservation on "worker1"`,
+				`The workload was admitted on "worker1"`,
 			)
 			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, eventsv1.Event{
 				Reason: "MultiKueue",
 				Type:   corev1.EventTypeNormal,
-				Note:   `The workload got reservation on "worker1"`,
+				Note:   `The workload was admitted on "worker1"`,
 			})
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -320,7 +320,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			util.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlLookupKey, admission)
 			util.ExpectAdmissionCheckStateWithMessage(
 				managerTestCluster.ctx, managerTestCluster.client, wlLookupKey,
-				multiKueueAC.Name, kueue.CheckStateReady, `The workload got reservation on "worker1"`,
+				multiKueueAC.Name, kueue.CheckStateReady, `The workload was admitted on "worker1"`,
 			)
 		})
 
@@ -393,12 +393,12 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				managerTestCluster.ctx, managerTestCluster.client, wlLookupKey,
 				multiKueueAC.Name,
 				kueue.CheckStateReady,
-				`The workload got reservation on "worker1"`,
+				`The workload was admitted on "worker1"`,
 			)
 			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, eventsv1.Event{
 				Reason: "MultiKueue",
 				Type:   corev1.EventTypeNormal,
-				Note:   `The workload got reservation on "worker1"`,
+				Note:   `The workload was admitted on "worker1"`,
 			})
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -1087,13 +1087,13 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				managerTestCluster.ctx, managerTestCluster.client, wlLookupKey,
 				multiKueueAC.Name,
 				kueue.CheckStateReady,
-				`The workload got reservation on "worker1"`,
+				`The workload was admitted on "worker1"`,
 			)
 
 			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, eventsv1.Event{
 				Reason: "MultiKueue",
 				Type:   corev1.EventTypeNormal,
-				Note:   `The workload got reservation on "worker1"`,
+				Note:   `The workload was admitted on "worker1"`,
 			})
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -1200,13 +1200,13 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				managerTestCluster.ctx, managerTestCluster.client, wlLookupKey,
 				multiKueueAC.Name,
 				kueue.CheckStateReady,
-				`The workload got reservation on "worker1"`,
+				`The workload was admitted on "worker1"`,
 			)
 
 			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, eventsv1.Event{
 				Reason: "MultiKueue",
 				Type:   corev1.EventTypeNormal,
-				Note:   `The workload got reservation on "worker1"`,
+				Note:   `The workload was admitted on "worker1"`,
 			})
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -1393,13 +1393,13 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				acs := admissioncheck.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAC.Name))
 				g.Expect(acs).NotTo(gomega.BeNil())
 				g.Expect(acs.State).To(gomega.Equal(kueue.CheckStateReady))
-				g.Expect(acs.Message).To(gomega.Equal(`The workload got reservation on "worker1"`))
+				g.Expect(acs.Message).To(gomega.Equal(`The workload was admitted on "worker1"`))
 				g.Expect(apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadAdmitted)).To(gomega.BeTrue())
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, eventsv1.Event{
 				Reason: "MultiKueue",
 				Type:   corev1.EventTypeNormal,
-				Note:   `The workload got reservation on "worker1"`,
+				Note:   `The workload was admitted on "worker1"`,
 			})
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -1681,7 +1681,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		})
 	})
 
-	ginkgo.It("Should not evict admitted workloads when the connection to the reserving worker is briefly lost", framework.SlowSpec, func() {
+	ginkgo.It("Should not evict admitted workloads when the connection to the admitting worker is briefly lost", framework.SlowSpec, func() {
 		keys := admitJobsAndAgeAdmissionCheck(managerNs.Name, managerLq.Name, managerCq.Name, multiKueueAC.Name, 3)
 
 		restoreConnection := util.BreakConnection(managerTestCluster.ctx, managerTestCluster.client, workerCluster2)
@@ -1692,7 +1692,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		})
 	})
 
-	ginkgo.It("Should not immediately evict admitted workloads after a manager restart while the reserving worker is unreachable", framework.SlowSpec, func() {
+	ginkgo.It("Should not immediately evict admitted workloads after a manager restart while the admitting worker is unreachable", framework.SlowSpec, func() {
 		keys := admitJobsAndAgeAdmissionCheck(managerNs.Name, managerLq.Name, managerCq.Name, multiKueueAC.Name, 3)
 
 		restoreConnection := util.BreakConnection(managerTestCluster.ctx, managerTestCluster.client, workerCluster2)
@@ -1923,12 +1923,12 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			manager.ctx, manager.client, workloadKey,
 			multiKueueAC.Name,
 			kueue.CheckStateReady,
-			`The workload got reservation on "worker1"`,
+			`The workload was admitted on "worker1"`,
 		)
 		util.ExpectEventAppeared(manager.ctx, manager.client, eventsv1.Event{
 			Reason: "MultiKueue",
 			Type:   corev1.EventTypeNormal,
-			Note:   `The workload got reservation on "worker1"`,
+			Note:   `The workload was admitted on "worker1"`,
 		})
 
 		ginkgo.By("observe: job is synced to the worker1 cluster and is active", func() {
@@ -2041,12 +2041,12 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			manager.ctx, manager.client, newWorkloadKey,
 			multiKueueAC.Name,
 			kueue.CheckStateReady,
-			`The workload got reservation on "worker1"`,
+			`The workload was admitted on "worker1"`,
 		)
 		util.ExpectEventAppeared(manager.ctx, manager.client, eventsv1.Event{
 			Reason: "MultiKueue",
 			Type:   corev1.EventTypeNormal,
-			Note:   `The workload got reservation on "worker1"`,
+			Note:   `The workload was admitted on "worker1"`,
 		})
 
 		ginkgo.By("observe: job changes are synced to the worker1 cluster", func() {
@@ -2182,12 +2182,12 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				managerTestCluster.ctx, managerTestCluster.client, wlLookupKey,
 				multiKueueAC.Name,
 				kueue.CheckStateReady,
-				`The workload got reservation on "worker1"`,
+				`The workload was admitted on "worker1"`,
 			)
 			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, eventsv1.Event{
 				Reason: "MultiKueue",
 				Type:   corev1.EventTypeNormal,
-				Note:   `The workload got reservation on "worker1"`,
+				Note:   `The workload was admitted on "worker1"`,
 			})
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -2471,12 +2471,12 @@ func admitWorkloadAndCheckWorkerCopies(acName string, wlLookupKey types.Namespac
 			managerTestCluster.ctx, managerTestCluster.client, wlLookupKey,
 			acName,
 			kueue.CheckStateReady,
-			`The workload got reservation on "worker2"`,
+			`The workload was admitted on "worker2"`,
 		)
 		util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, eventsv1.Event{
 			Reason: "MultiKueue",
 			Type:   corev1.EventTypeNormal,
-			Note:   `The workload got reservation on "worker2"`,
+			Note:   `The workload was admitted on "worker2"`,
 		})
 
 		gomega.Eventually(func(g gomega.Gomega) {

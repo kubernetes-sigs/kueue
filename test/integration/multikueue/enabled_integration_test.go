@@ -159,13 +159,13 @@ var _ = ginkgo.Describe("MultiKueue when not all integrations are enabled", gink
 				managerTestCluster.ctx, managerTestCluster.client, wlLookupKey,
 				multiKueueAC.Name,
 				kueue.CheckStateReady,
-				`The workload got reservation on "worker1"`,
+				`The workload was admitted on "worker1"`,
 			)
 
 			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, eventsv1.Event{
 				Reason: "MultiKueue",
 				Type:   corev1.EventTypeNormal,
-				Note:   `The workload got reservation on "worker1"`,
+				Note:   `The workload was admitted on "worker1"`,
 			})
 		})
 

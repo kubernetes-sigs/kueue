@@ -280,7 +280,7 @@ func (w *wlReconciler) updateACS(ctx context.Context, wl *kueue.Workload, acs *k
 	})
 }
 
-func (w *wlReconciler) reservingWorkerLostSince(clusterName string) time.Time {
+func (w *wlReconciler) admittingWorkerLostSince(clusterName string) time.Time {
 	if rc, found := w.clusters.controllerFor(clusterName); found {
 		if since := rc.connState.lostSince(); since != nil {
 			return *since
@@ -534,44 +534,44 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		}
 	}
 
-	// 6. Get the first reserving/admitted workload.
+	// 6. Get the admitting remote.
 	conditionToCheck := kueue.WorkloadAdmitted
-	remoteCond, reservingRemote := group.bestMatchByCondition(conditionToCheck)
+	remoteCond, admittingRemote := group.bestMatchByCondition(conditionToCheck)
 
-	// 6a. The reservation is no longer visible while the admission check is still Ready. The
-	// reachability of the reserving worker decides the response:
-	//   - A known reserving worker that is unreachable (e.g. its watch is reconnecting): the
+	// 6a. No admitted remote is visible while the admission check is still Ready. The
+	// reachability of the admitting worker decides the response:
+	//   - A known admitting worker that is unreachable (e.g. its watch is reconnecting): the
 	//     remote is likely still running, so keep the workload admitted and retry only once the
 	//     worker stays unreachable past workerLostTimeout, measured from when the loss was first
 	//     observed.
 	//   - An empty ClusterName: this cannot arise from normal admission, so surface it and retry.
 	//   - Otherwise (reachable with no admitted remote, e.g. its remote was deleted above as out
-	//     of sync): the reservation is gone, so retry immediately.
+	//     of sync): the admitted remote is gone, so retry immediately.
 	if remoteCond == nil && acs.State == kueue.CheckStateReady {
-		reserving := ptr.Deref(group.local.Status.ClusterName, "")
-		if reserving != "" && slices.Contains(group.unavailableClusters, reserving) {
-			lostSince := w.reservingWorkerLostSince(reserving)
+		admitting := ptr.Deref(group.local.Status.ClusterName, "")
+		if admitting != "" && slices.Contains(group.unavailableClusters, admitting) {
+			lostSince := w.admittingWorkerLostSince(admitting)
 			if remainingWaitTime := w.workerLostTimeout - w.clock.Since(lostSince); remainingWaitTime > 0 {
-				log.V(3).Info("Reserving remote temporarily unreachable, waiting before retry", "cluster", reserving, "retryAfter", remainingWaitTime)
+				log.V(3).Info("Admitting remote temporarily unreachable, waiting before retry", "cluster", admitting, "retryAfter", remainingWaitTime)
 				return reconcile.Result{RequeueAfter: remainingWaitTime}, nil
 			}
-			return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, "Reserving remote lost")
+			return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, "Admitting remote lost")
 		}
-		if reserving == "" {
+		if admitting == "" {
 			// Under normal operation this is unreachable: A Ready check with no ClusterName indicates a bug in Kueue
 			// (or an externally modified / stale workload), so surface it and retry instead of looping silently.
 			log.V(2).Info("Admission check Ready but ClusterName is empty; treating as misconfigured and retrying")
 			return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry,
-				"Admission check is Ready but no reserving cluster is recorded; this is unexpected, please report it")
+				"Admission check is Ready but no admitting cluster is recorded; this is unexpected, please report it")
 		}
-		return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, "Reserving remote no longer exists or is not admitted")
+		return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, "Admitting remote no longer exists")
 	}
 
-	// 6b. A reserving remote is visible: converge onto it.
+	// 6b. An admitting remote is visible: converge onto it.
 	if remoteCond != nil {
 		// remove the non-selected worker workloads
 		for rem, remWl := range group.remotes {
-			if remWl != nil && rem != reservingRemote {
+			if remWl != nil && rem != admittingRemote {
 				if err := client.IgnoreNotFound(group.RemoveRemoteObjects(ctx, rem)); err != nil {
 					log.V(2).Error(err, "Deleting out of sync remote objects", "remote", rem)
 					return reconcile.Result{}, err
@@ -580,10 +580,10 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			}
 		}
 
-		remoteCl := group.remoteClients[reservingRemote].getClient()
-		remoteWl := group.remotes[reservingRemote]
+		remoteCl := group.remoteClients[admittingRemote].getClient()
+		remoteWl := group.remotes[admittingRemote]
 
-		log = log.WithValues("remote", reservingRemote, "remoteWorkload", klog.KObj(remoteWl))
+		log = log.WithValues("remote", admittingRemote, "remoteWorkload", klog.KObj(remoteWl))
 		ctx = ctrl.LoggerInto(ctx, log)
 
 		evictedCond := apimeta.FindStatusCondition(group.local.Status.Conditions, kueue.WorkloadEvicted)
@@ -602,7 +602,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		}
 
 		if _, err := jobframework.ValidateRemoteObjectOwnership(ctx, remoteCl, group.controllerKey, group.jobAdapter.GVK(), w.origin); err != nil {
-			log.Error(err, "validating remote controller object", "cluster", reservingRemote)
+			log.Error(err, "validating remote controller object", "cluster", admittingRemote)
 			return reconcile.Result{}, err
 		}
 
@@ -613,7 +613,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			return reconcile.Result{}, err
 		}
 
-		if err := w.syncReservingRemoteState(ctx, group, reservingRemote, acs); err != nil {
+		if err := w.syncAdmittingRemoteState(ctx, group, admittingRemote, acs); err != nil {
 			return reconcile.Result{}, err
 		}
 		requeueAfter := w.workerLostTimeout
@@ -1113,10 +1113,10 @@ func needsDelayedTopologyUpdate(local, remote *kueue.Workload) bool {
 	return false
 }
 
-func (w *wlReconciler) syncReservingRemoteState(ctx context.Context, group *wlGroup, reservingRemote string, acs *kueue.AdmissionCheckState) error {
+func (w *wlReconciler) syncAdmittingRemoteState(ctx context.Context, group *wlGroup, admittingRemote string, acs *kueue.AdmissionCheckState) error {
 	log := ctrl.LoggerFrom(ctx)
 
-	needsTopologyUpdate := needsDelayedTopologyUpdate(group.local, group.remotes[reservingRemote])
+	needsTopologyUpdate := needsDelayedTopologyUpdate(group.local, group.remotes[admittingRemote])
 	needsACUpdate := acs.State != kueue.CheckStateRetry && acs.State != kueue.CheckStateRejected
 
 	if !needsTopologyUpdate && !needsACUpdate {
@@ -1125,24 +1125,24 @@ func (w *wlReconciler) syncReservingRemoteState(ctx context.Context, group *wlGr
 
 	if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
 		if needsTopologyUpdate {
-			updateDelayedTopologyRequest(wl, group.remotes[reservingRemote])
+			updateDelayedTopologyRequest(wl, group.remotes[admittingRemote])
 		}
 
 		if needsACUpdate {
 			acs.State = kueue.CheckStateReady
 			// update the message
-			acs.Message = fmt.Sprintf("The workload got reservation on %q", reservingRemote)
+			acs.Message = fmt.Sprintf("The workload was admitted on %q", admittingRemote)
 			// update the transition time since is used to detect the lost worker state.
 			acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
 
 			workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *acs, w.clock)
-			// Set the cluster name to the reserving remote and clear the nominated clusters.
+			// Set the cluster name to the admitting remote and clear the nominated clusters.
 			// Only set ClusterName if not already set, as it is immutable once set.
 			if wl.Status.ClusterName == nil {
-				wl.Status.ClusterName = &reservingRemote
-			} else if *wl.Status.ClusterName != reservingRemote {
+				wl.Status.ClusterName = &admittingRemote
+			} else if *wl.Status.ClusterName != admittingRemote {
 				return false, fmt.Errorf("attempting to change immutable ClusterName from %q to %q",
-					*wl.Status.ClusterName, reservingRemote)
+					*wl.Status.ClusterName, admittingRemote)
 			}
 			wl.Status.NominatedClusterNames = nil
 		}
