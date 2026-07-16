@@ -577,7 +577,7 @@ The possible values are:</p>
 <li>Cohort</li>
 <li>LocalQueue</li>
 <li>ClusterQueue</li>
-<li>Workloads</li>
+<li>Workload</li>
 </ul>
 </td>
 </tr>
