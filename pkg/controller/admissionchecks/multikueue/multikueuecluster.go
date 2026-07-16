@@ -28,7 +28,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -129,7 +128,8 @@ type remoteClient struct {
 	origin       string
 	adapters     map[string]jobframework.MultiKueueAdapter
 
-	connected            atomic.Bool
+	connState connectionState
+
 	failedConnAttempts   uint
 	retryConnNextAttempt metav1.Time
 
@@ -146,6 +146,61 @@ type remoteClient struct {
 	builderOverride clientWithWatchBuilder
 
 	mu sync.RWMutex
+}
+
+// connectionState holds a remote client's connection status. Its own mutex guards the fields
+// so connected and disconnectedSince are always read and updated together.
+type connectionState struct {
+	mu        sync.RWMutex
+	connected bool
+	// disconnectedSince is when the client last became disconnected: the watch dropping, or the
+	// client's creation for one that has never connected. It becomes nil only when a fully
+	// established connection (markConnected) clears it; the optimistic markConnecting does not, and
+	// it is preserved across failed reconnect attempts, so the worker-lost grace measures from the
+	// first loss, not the latest failed retry.
+	disconnectedSince *time.Time
+}
+
+func (c *connectionState) isConnected() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.connected
+}
+
+func (c *connectionState) lostSince() *time.Time {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.disconnectedSince
+}
+
+// markConnecting optimistically marks the client connected before the watchers are started,
+// preserving any recorded disconnectedSince until the connection is fully established.
+func (c *connectionState) markConnecting() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.connected = true
+}
+
+// markConnected records a fully established connection, clearing the recorded loss time.
+func (c *connectionState) markConnected() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.connected = true
+	c.disconnectedSince = nil
+}
+
+// markDisconnected transitions to disconnected, recording now as the first-drop time only if
+// none is recorded yet (so repeated failed reconnects preserve the first loss). It returns
+// whether the client was connected, i.e. whether this call is the first drop of the streak.
+func (c *connectionState) markDisconnected(now time.Time) (wasConnected bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	wasConnected = c.connected
+	c.connected = false
+	if c.disconnectedSince == nil {
+		c.disconnectedSince = &now
+	}
+	return wasConnected
 }
 
 func newRemoteClient(
@@ -165,7 +220,12 @@ func newRemoteClient(
 		adapters:     adapters,
 		clock:        clock.RealClock{},
 	}
-	rc.connected.Store(false)
+	// Start in the disconnected state, tracking the loss from creation. If the worker is
+	// unreachable when the client is created (e.g. the reserving worker is down right after a
+	// manager restart, so building the client fails before it is ever marked connected), the
+	// worker-lost grace still runs from here and the workload is eventually retried, instead of
+	// the grace never starting and the workload requeuing forever.
+	rc.connState.markDisconnected(rc.clock.Now())
 	return rc
 }
 
@@ -237,7 +297,7 @@ func (rc *remoteClient) increaseFailedConnAttempt() *time.Duration {
 // If the encountered error is not permanent the duration after which a retry should be done is returned.
 func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context, config *clientConfig) (*time.Duration, error) {
 	configChanged := !equality.Semantic.DeepEqual(config, rc.config)
-	connected := rc.connected.Load()
+	connected := rc.connState.isConnected()
 	if !configChanged && connected {
 		return nil, nil
 	}
@@ -271,7 +331,7 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 	// Mark as connected before starting watchers to avoid a race condition.
 	// If a watcher queues an event and wlReconciler processes it before connected=true,
 	// the workload will be treated as unavailable and requeued after 15m.
-	rc.connected.Store(true)
+	rc.connState.markConnecting()
 
 	err = rc.startWatcher(watchCtx, kueue.SchemeGroupVersion.WithKind("Workload").GroupKind().String(), &workloadKueueWatcher{})
 	if err != nil {
@@ -302,6 +362,7 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 		}
 	}
 
+	rc.connState.markConnected()
 	rc.resetFailedConnAttempt()
 	return nil, nil
 }
@@ -392,9 +453,8 @@ func (rc *remoteClient) startWatcher(ctx context.Context, kind string, w jobfram
 		log.V(2).Info("Watch ended", "ctxErr", ctx.Err())
 		// If the context is not yet Done , queue a reconcile to attempt reconnection
 		if ctx.Err() == nil {
-			wasConnected := rc.connected.Swap(false)
 			// reconnect if this is the first watch failing.
-			if wasConnected {
+			if wasConnected := rc.connState.markDisconnected(rc.clock.Now()); wasConnected {
 				log.V(2).Info("Queue reconcile for reconnect", "cluster", rc.clusterName)
 				rc.queueWatchEndedEvent(ctx)
 			}
@@ -524,7 +584,7 @@ func (rc *remoteClient) StopWatchers() {
 // is now unreachable, and apply the workerLostTimeout delay before requeuing.
 func (rc *remoteClient) disconnect() {
 	rc.StopWatchers()
-	rc.connected.Store(false)
+	rc.connState.markDisconnected(rc.clock.Now())
 }
 
 func (rc *remoteClient) queueWorkloadEvent(ctx context.Context, wlKey types.NamespacedName) {
@@ -551,7 +611,7 @@ func (rc *remoteClient) queueWatchEndedEvent(ctx context.Context) {
 func (rc *remoteClient) runGC(ctx context.Context) {
 	log := ctrl.LoggerFrom(ctx)
 
-	if !rc.connected.Load() {
+	if !rc.connState.isConnected() {
 		log.V(5).Info("Skip disconnected client")
 		return
 	}
