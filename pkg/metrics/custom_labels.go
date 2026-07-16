@@ -83,12 +83,15 @@ func (cl *CustomLabels) LabelNames(srcs ...configapi.SourceKind) []string {
 	return labels
 }
 
-func (cl *CustomLabels) EqualToStored(kind configapi.SourceKind, ref string, labels, annotations map[string]string) bool {
+func (cl *CustomLabels) UpdateRequired(kind configapi.SourceKind, ref string, labels, annotations map[string]string) bool {
+	if cl == nil {
+		return false
+	}
 	store, supported := cl.m[kind]
 	if !supported {
-		return true
+		return false
 	}
-	return slices.Equal(
+	return !slices.Equal(
 		store.get(ref),
 		store.extractValues(labels, annotations),
 	)

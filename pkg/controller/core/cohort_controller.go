@@ -140,18 +140,14 @@ func (r *CohortReconciler) Create(e event.TypedCreateEvent[*kueue.Cohort]) bool 
 func (r *CohortReconciler) Update(e event.TypedUpdateEvent[*kueue.Cohort]) bool {
 	log := r.logger().WithValues("cohort", klog.KObj(e.ObjectNew))
 
-	var customLabelsChanged bool
-	if features.Enabled(features.CustomMetricLabels) {
-		// Store in Reconcile so labelsUpdated remains true for clear-and-resync.
-		customLabelsChanged = !r.customLabels.EqualToStored(
-			config.SourceKindCohort,
-			e.ObjectNew.GetName(),
-			e.ObjectNew.GetLabels(),
-			e.ObjectNew.GetAnnotations(),
-		)
-	}
+	clUpdateRequired := r.customLabels.UpdateRequired(
+		config.SourceKindCohort,
+		e.ObjectNew.GetName(),
+		e.ObjectNew.GetLabels(),
+		e.ObjectNew.GetAnnotations(),
+	)
 
-	if equality.Semantic.DeepEqual(e.ObjectOld.Spec, e.ObjectNew.Spec) && !customLabelsChanged {
+	if equality.Semantic.DeepEqual(e.ObjectOld.Spec, e.ObjectNew.Spec) && !clUpdateRequired {
 		log.V(2).Info("Skip Cohort update event as Cohort unchanged")
 		return false
 	}
