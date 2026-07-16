@@ -45,7 +45,10 @@ const (
 	//
 	// Enables Kueue visibility on demand
 	VisibilityOnDemand featuregate.Feature = "VisibilityOnDemand"
-
+	//
+	// Allows disabling WaitForPodsReady during the migration period.
+	// temporary option while WaitForPodsReady is enabled by default.
+	DisableWaitForPodsReady featuregate.Feature = "DisableWaitForPodsReady"
 	// owner: @yaroslava-serdiuk
 	// kep: https://github.com/kubernetes-sigs/kueue/issues/1283
 	//
@@ -508,6 +511,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	VisibilityOnDemand: {
 		{Version: version.MustParse("0.6"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.9"), Default: true, PreRelease: featuregate.Beta},
+	},
+	DisableWaitForPodsReady: {
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Deprecated},
 	},
 	PrioritySortingWithinCohort: {
 		{Version: version.MustParse("0.6"), Default: true, PreRelease: featuregate.Beta},

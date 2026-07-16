@@ -1456,21 +1456,33 @@ func TestEncode(t *testing.T) {
 
 func TestWaitForPodsReadyIsEnabled(t *testing.T) {
 	cases := map[string]struct {
-		cfg  *configapi.Configuration
-		want bool
+		cfg          *configapi.Configuration
+		featureGates map[featuregate.Feature]bool
+		want         bool
 	}{
-		"waitforpodsready.Enabled() is false": {
-			cfg: &configapi.Configuration{},
-		},
-		"waitforpodsready.Enabled() is true": {
+		"waitforpodsready.Enabled() is false when DisableWaitForPodsReady feature gate is enabled": {
 			cfg: &configapi.Configuration{
-				WaitForPodsReady: &configapi.WaitForPodsReady{},
+				WaitForPodsReady: defaultWaitForPodsReady,
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.DisableWaitForPodsReady: true,
+			},
+			want: false,
+		},
+
+		"waitforpodsready.Enabled() is true when DisableWaitForPodsReady feature gate is disabled": {
+			cfg: &configapi.Configuration{
+				WaitForPodsReady: defaultWaitForPodsReady,
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.DisableWaitForPodsReady: false,
 			},
 			want: true,
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			got := waitforpodsready.Enabled(tc.cfg.WaitForPodsReady)
 			if tc.want != got {
 				t.Errorf("Unexpected result from waitforpodsready.Enabled()\nwant:\n%v\ngot:%v\n", tc.want, got)
