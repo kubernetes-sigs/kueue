@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -37,6 +38,7 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
@@ -3349,5 +3351,199 @@ var _ = ginkgo.Describe("Pod controller with deployment-owned pods and waitForPo
 			g.Expect(k8sClient.Get(ctx, wl1Key, wl1)).To(gomega.Succeed())
 			g.Expect(wl1.Status.Conditions).Should(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadFinished, kueue.WorkloadFinishedReasonOwnerNotFound))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	})
+})
+
+var _ = ginkgo.Describe("Pod controller with ClusterQueue default execution time", ginkgo.Label("job:pod", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	var (
+		ns         *corev1.Namespace
+		onDemand   *kueue.ResourceFlavor
+		cqWithTime *kueue.ClusterQueue
+		cqNoTime   *kueue.ClusterQueue
+		lqWithTime *kueue.LocalQueue
+		lqNoTime   *kueue.LocalQueue
+	)
+
+	ginkgo.BeforeAll(func() {
+		gomega.Expect(utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{
+			string(features.ClusterQueueMaxExecutionTime): true,
+		})).Should(gomega.Succeed())
+		fwk.StartManager(ctx, cfg, managerSetup(false, false, nil,
+			jobframework.WithManageJobsWithoutQueueName(false),
+		))
+	})
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+		gomega.Expect(utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{
+			string(features.ClusterQueueMaxExecutionTime): false,
+		})).Should(gomega.Succeed())
+	})
+
+	ginkgo.BeforeEach(func() {
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-exec-time-")
+
+		onDemand = utiltestingapi.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
+		util.MustCreate(ctx, k8sClient, onDemand)
+
+		cqWithTime = utiltestingapi.MakeClusterQueue("exec-time-cq").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
+			).
+			MaximumExecutionTimeSeconds(120).
+			Obj()
+		util.MustCreate(ctx, k8sClient, cqWithTime)
+
+		cqNoTime = utiltestingapi.MakeClusterQueue("exec-time-cq-none").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
+			).Obj()
+		util.MustCreate(ctx, k8sClient, cqNoTime)
+
+		lqWithTime = utiltestingapi.MakeLocalQueue("lq-with-timeout", ns.Name).
+			ClusterQueue(cqWithTime.Name).
+			Obj()
+		util.MustCreate(ctx, k8sClient, lqWithTime)
+
+		lqNoTime = utiltestingapi.MakeLocalQueue("lq-without-timeout", ns.Name).
+			ClusterQueue(cqNoTime.Name).
+			Obj()
+		util.MustCreate(ctx, k8sClient, lqNoTime)
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, cqWithTime, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, cqNoTime, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemand, true)
+	})
+
+	ginkgo.It("should set workload MaximumExecutionTimeSeconds from ClusterQueue default", func() {
+		pod := testingpod.MakePod("pod-no-label", ns.Name).
+			Queue(lqWithTime.Name).
+			GroupNameLabel("group-cq-default").
+			GroupTotalCount("1").
+			Request(corev1.ResourceCPU, "1").
+			Obj()
+		util.MustCreate(ctx, k8sClient, pod)
+
+		createdWorkload := &kueue.Workload{}
+		wlLookupKey := types.NamespacedName{
+			Name:      "group-cq-default",
+			Namespace: ns.Name,
+		}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+			g.Expect(createdWorkload.Spec.MaximumExecutionTimeSeconds).NotTo(gomega.BeNil())
+			g.Expect(*createdWorkload.Spec.MaximumExecutionTimeSeconds).To(gomega.Equal(int32(120)))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("should use pod label over ClusterQueue default for MaximumExecutionTimeSeconds", func() {
+		pod := testingpod.MakePod("pod-with-label", ns.Name).
+			Queue(lqWithTime.Name).
+			GroupNameLabel("group-label-override").
+			GroupTotalCount("1").
+			Label(controllerconsts.MaxExecTimeSecondsLabel, "30").
+			Request(corev1.ResourceCPU, "1").
+			Obj()
+		util.MustCreate(ctx, k8sClient, pod)
+
+		createdWorkload := &kueue.Workload{}
+		wlLookupKey := types.NamespacedName{
+			Name:      "group-label-override",
+			Namespace: ns.Name,
+		}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+			g.Expect(createdWorkload.Spec.MaximumExecutionTimeSeconds).NotTo(gomega.BeNil())
+			g.Expect(*createdWorkload.Spec.MaximumExecutionTimeSeconds).To(gomega.Equal(int32(30)))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("should not set MaximumExecutionTimeSeconds when ClusterQueue has no default", func() {
+		pod := testingpod.MakePod("pod-no-timeout", ns.Name).
+			Queue(lqNoTime.Name).
+			GroupNameLabel("group-no-timeout").
+			GroupTotalCount("1").
+			Request(corev1.ResourceCPU, "1").
+			Obj()
+		util.MustCreate(ctx, k8sClient, pod)
+
+		createdWorkload := &kueue.Workload{}
+		wlLookupKey := types.NamespacedName{
+			Name:      "group-no-timeout",
+			Namespace: ns.Name,
+		}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		gomega.Expect(createdWorkload.Spec.MaximumExecutionTimeSeconds).To(gomega.BeNil())
+	})
+})
+
+var _ = ginkgo.Describe("Pod controller with ClusterQueue default execution time disabled", ginkgo.Label("job:pod", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	var (
+		ns         *corev1.Namespace
+		onDemand   *kueue.ResourceFlavor
+		cqWithTime *kueue.ClusterQueue
+		lqWithTime *kueue.LocalQueue
+	)
+
+	ginkgo.BeforeAll(func() {
+		gomega.Expect(utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{
+			string(features.ClusterQueueMaxExecutionTime): false,
+		})).Should(gomega.Succeed())
+		fwk.StartManager(ctx, cfg, managerSetup(false, false, nil,
+			jobframework.WithManageJobsWithoutQueueName(false),
+		))
+	})
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.BeforeEach(func() {
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-exec-time-off-")
+
+		onDemand = utiltestingapi.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
+		util.MustCreate(ctx, k8sClient, onDemand)
+
+		cqWithTime = utiltestingapi.MakeClusterQueue("exec-time-cq-off").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
+			).
+			MaximumExecutionTimeSeconds(120).
+			Obj()
+		util.MustCreate(ctx, k8sClient, cqWithTime)
+
+		lqWithTime = utiltestingapi.MakeLocalQueue("lq-with-timeout", ns.Name).
+			ClusterQueue(cqWithTime.Name).
+			Obj()
+		util.MustCreate(ctx, k8sClient, lqWithTime)
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, cqWithTime, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemand, true)
+	})
+
+	ginkgo.It("should not set MaximumExecutionTimeSeconds when feature gate is disabled", func() {
+		pod := testingpod.MakePod("pod-gate-off", ns.Name).
+			Queue(lqWithTime.Name).
+			GroupNameLabel("group-gate-off").
+			GroupTotalCount("1").
+			Request(corev1.ResourceCPU, "1").
+			Obj()
+		util.MustCreate(ctx, k8sClient, pod)
+
+		createdWorkload := &kueue.Workload{}
+		wlLookupKey := types.NamespacedName{
+			Name:      "group-gate-off",
+			Namespace: ns.Name,
+		}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		gomega.Expect(createdWorkload.Spec.MaximumExecutionTimeSeconds).To(gomega.BeNil())
 	})
 })

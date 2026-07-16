@@ -142,6 +142,7 @@ type ClusterQueueSpec struct {
 	// admissionScope indicates whether ClusterQueue uses the Admission Fair Sharing
 	// +optional
 	AdmissionScope *AdmissionScope `json:"admissionScope,omitempty"`
+
 }
 
 // AdmissionChecksStrategy defines a strategy for a AdmissionCheck.

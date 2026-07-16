@@ -48,6 +48,9 @@ func MakeLeaderWorkerSet(name, ns string) *LeaderWorkerSetWrapper {
 		Spec: leaderworkersetv1.LeaderWorkerSetSpec{
 			Replicas:      ptr.To[int32](1),
 			StartupPolicy: leaderworkersetv1.LeaderCreatedStartupPolicy,
+			RolloutStrategy: leaderworkersetv1.RolloutStrategy{
+				Type: leaderworkersetv1.RollingUpdateStrategyType,
+			},
 			LeaderWorkerTemplate: leaderworkersetv1.LeaderWorkerTemplate{
 				WorkerTemplate: corev1.PodTemplateSpec{
 					Spec: corev1.PodSpec{
