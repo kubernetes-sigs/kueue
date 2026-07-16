@@ -76,6 +76,9 @@ func (j *KubeflowJob) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []pods
 
 func (j *KubeflowJob) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 	orderedReplicaTypes := j.OrderedReplicaTypes()
+	if len(podSetsInfo) != len(orderedReplicaTypes) {
+		return false
+	}
 	changed := false
 	for index, info := range podSetsInfo {
 		replicaType := orderedReplicaTypes[index]
