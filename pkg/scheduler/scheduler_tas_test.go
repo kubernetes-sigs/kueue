@@ -3332,16 +3332,57 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 		},
 	}
+	scenarios := []map[featuregate.Feature]bool{
+		{
+			features.WorkloadRequestUseMergePatch:     false,
+			features.TASCacheNodeMatchResults:         false,
+		},
+		{
+			features.WorkloadRequestUseMergePatch:     false,
+			features.TASCacheNodeMatchResults:         true,
+		},
+		{
+			features.WorkloadRequestUseMergePatch:     false,
+			features.TASCacheNodeMatchResults:         false,
+		},
+		{
+			features.WorkloadRequestUseMergePatch:     false,
+			features.TASCacheNodeMatchResults:         true,
+		},
+		{
+			features.WorkloadRequestUseMergePatch:     true,
+			features.TASCacheNodeMatchResults:         false,
+		},
+		{
+			features.WorkloadRequestUseMergePatch:     true,
+			features.TASCacheNodeMatchResults:         true,
+		},
+		{
+			features.WorkloadRequestUseMergePatch:     true,
+			features.TASCacheNodeMatchResults:         false,
+		},
+		{
+			features.WorkloadRequestUseMergePatch:     true,
+			features.TASCacheNodeMatchResults:         true,
+		},
+	}
+
 	for name, tc := range cases {
-		for _, enabled := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
-				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
-				features.SetFeatureGatesDuringTest(t, tc.featureGates)
-				ctx, log := utiltesting.ContextWithLog(t)
-				testWls := make([]kueue.Workload, 0, len(tc.workloads))
-				for _, wl := range tc.workloads {
-					testWls = append(testWls, *wl.DeepCopy())
-				}
+		for _, scenario := range scenarios {
+			t.Run(
+				fmt.Sprintf("%s WorkloadRequestUseMergePatch:%t observability:%t cacheMatchResults:%t",
+					name,
+					scenario[features.WorkloadRequestUseMergePatch],
+					scenario[features.TASCacheNodeMatchResults],
+				),
+				func(t *testing.T) {
+					features.SetFeatureGatesDuringTest(t, scenario)
+					features.SetFeatureGatesDuringTest(t, tc.featureGates)
+					ctx, log := utiltesting.ContextWithLog(t)
+					testWls := make([]kueue.Workload, 0, len(tc.workloads))
+					for _, wl := range tc.workloads {
+						testWls = append(testWls, *wl.DeepCopy())
+					}
 
 				clientBuilder := utiltesting.NewClientBuilder().
 					WithLists(
@@ -3515,11 +3556,53 @@ type tasScheduleTestConfig struct {
 // on/off double run.
 func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[string]tasScheduleTestCase) {
 	t.Helper()
+
+	scenarios := []map[featuregate.Feature]bool{
+		{
+			features.WorkloadRequestUseMergePatch:     false,
+			features.TASCacheNodeMatchResults:         false,
+		},
+		{
+			features.WorkloadRequestUseMergePatch:     false,
+			features.TASCacheNodeMatchResults:         true,
+		},
+		{
+			features.WorkloadRequestUseMergePatch:     false,
+			features.TASCacheNodeMatchResults:         false,
+		},
+		{
+			features.WorkloadRequestUseMergePatch:     false,
+			features.TASCacheNodeMatchResults:         true,
+		},
+		{
+			features.WorkloadRequestUseMergePatch:     true,
+			features.TASCacheNodeMatchResults:         false,
+		},
+		{
+			features.WorkloadRequestUseMergePatch:     true,
+			features.TASCacheNodeMatchResults:         true,
+		},
+		{
+			features.WorkloadRequestUseMergePatch:     true,
+			features.TASCacheNodeMatchResults:         false,
+		},
+		{
+			features.WorkloadRequestUseMergePatch:     true,
+			features.TASCacheNodeMatchResults:         true,
+		},
+	}
+
 	for name, tc := range cases {
-		for _, enabled := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
-				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
-				features.SetFeatureGatesDuringTest(t, tc.featureGates)
+		for _, scenario := range scenarios {
+			t.Run(
+				fmt.Sprintf("%s WorkloadRequestUseMergePatch:%t observability:%t cacheMatchResults:%t",
+					name,
+					scenario[features.WorkloadRequestUseMergePatch],
+					scenario[features.TASCacheNodeMatchResults],
+				),
+				func(t *testing.T) {
+					features.SetFeatureGatesDuringTest(t, scenario)
+					features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
 				ctx, log := utiltesting.ContextWithLog(t)
 				testWls := make([]kueue.Workload, 0, len(tc.workloads))

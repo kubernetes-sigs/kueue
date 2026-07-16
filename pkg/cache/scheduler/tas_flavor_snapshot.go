@@ -30,6 +30,7 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	corev1helpers "k8s.io/component-helpers/scheduling/corev1"
 	"k8s.io/component-helpers/scheduling/corev1/nodeaffinity"
 	"k8s.io/utils/ptr"
@@ -135,14 +136,44 @@ type TASFlavorSnapshot struct {
 
 	// isLowestLevelNode indicates if kubernetes.io/hostname is the lowest topology level
 	isLowestLevelNode bool
+
+	// matchingLeavesCache caches the set of qualified leaves for a PodSet
+	// of a Workload to avoid recalculating selectors/taints during preemption simulations or
+	// multiple worker PodSet placements within the same scheduling cycle snapshot.
+	matchingLeavesCache map[podSetMatchKey]*matchingLeavesCacheEntry
 }
 
+// podSetMatchKey uniquely identifies a PodSet within a Workload for caching purposes.
+type podSetMatchKey struct {
+	workloadUID types.UID
+	podSetName  kueue.PodSetReference
+}
+
+// matchedLeaf represents a leaf domain (node) that matched the scheduling requirements
+// along with its calculated affinity score.
+type matchedLeaf struct {
+	leaf          *leafDomain
+	affinityScore int64
+}
+
+// matchingLeavesCacheEntry stores the cached list of matching leaves and accumulated
+// exclusion stats for a specific podSetMatchKey.
+type matchingLeavesCacheEntry struct {
+	leaves []matchedLeaf
+	stats  *ExclusionStats
+}
+
+// nodeExclusionType classifies the reason why a node was excluded from scheduling.
 type nodeExclusionType int
 
 const (
+	// exclusionNone means the node was not excluded.
 	exclusionNone nodeExclusionType = iota
+	// exclusionTaints means the node was excluded due to untolerated taints.
 	exclusionTaints
+	// exclusionNodeSelector means the node was excluded due to failing node selector match.
 	exclusionNodeSelector
+	// exclusionAffinity means the node was excluded due to failing node affinity match.
 	exclusionAffinity
 )
 
@@ -457,6 +488,7 @@ type topologyAssignmentPodRequirements struct {
 	affinitySelector          *nodeaffinity.NodeSelector
 	requiredReplacementDomain utiltas.TopologyDomainID
 	simulateEmpty             bool
+	matchKey                  *podSetMatchKey
 }
 
 // topologyAssignmentParameters stores placement-specific inputs that remain
@@ -643,7 +675,7 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests F
 			}
 
 			// Normal path: no previous assignment or stale assignment
-			assignments, reason := s.findTopologyAssignment(workers, leader, assumedUsage, opts.simulateEmpty, "")
+			assignments, reason := s.findTopologyAssignment(workers, leader, assumedUsage, opts.simulateEmpty, "", opts.workload)
 			for _, tr := range trs {
 				podSetName := tr.PodSet.Name
 				result[podSetName] = tasPodSetAssignmentResult{TopologyAssignment: assignments[podSetName], FailureReason: reason}
@@ -712,7 +744,7 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 		trCopy.PodSet.TopologyRequest.PodSetSliceRequiredTopology = effectiveSliceTopology
 		trCopy.PodSet.TopologyRequest.PodSetSliceSize = ptr.To(effectiveSliceSize)
 	}
-	replacementAssignment, reason := s.findTopologyAssignment(trCopy, nil, assumedUsage, false, requiredReplacementDomain)
+	replacementAssignment, reason := s.findTopologyAssignment(trCopy, nil, assumedUsage, false, requiredReplacementDomain, wl)
 	if reason != "" {
 		return nil, nil, reason
 	}
@@ -876,7 +908,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	workersTasPodSetRequests TASPodSetRequests,
 	leaderTasPodSetRequests *TASPodSetRequests,
 	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
-	simulateEmpty bool, requiredReplacementDomain utiltas.TopologyDomainID) (map[kueue.PodSetReference]*utiltas.TopologyAssignment, string) {
+	simulateEmpty bool, requiredReplacementDomain utiltas.TopologyDomainID, wl *kueue.Workload) (map[kueue.PodSetReference]*utiltas.TopologyAssignment, string) {
 	requirements := &topologyAssignmentPodRequirements{
 		assumedUsage:              assumedUsage,
 		requiredReplacementDomain: requiredReplacementDomain,
@@ -953,6 +985,12 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 			return nil, fmt.Sprintf("invalid node selectors: %s, reason: %s", info.NodeSelector, err)
 		}
 		requirements.selector = sel
+		if features.Enabled(features.TASCacheNodeMatchResults) && wl != nil && wl.UID != "" {
+			requirements.matchKey = &podSetMatchKey{
+				workloadUID: wl.UID,
+				podSetName:  workersTasPodSetRequests.PodSet.Name,
+			}
+		}
 	} else {
 		requirements.selector = labels.Everything()
 	}
@@ -1652,23 +1690,79 @@ func (s *TASFlavorSnapshot) fillInCounts(requirements *topologyAssignmentPodRequ
 		domain.sliceStateWithLeader = 0
 		domain.leaderState = 0
 	}
-	for _, leaf := range s.leaves {
-		state.stats.TotalNodes++
-		// Gather node level information only when the node is the lowest level of the topology
-		if s.isLowestLevelNode {
-			excluded, taint, exclusionType := s.matchNode(leaf, requirements)
-			if excluded {
-				state.stats.recordExclusion(exclusionType, taint)
-				continue
-			}
+
+	if features.Enabled(features.TASCacheNodeMatchResults) {
+		matchingLeaves, stats := s.getMatchingLeaves(requirements)
+		state.stats.add(stats)
+		for _, ml := range matchingLeaves {
+			s.fillLeafCounts(ml.leaf, requirements, state)
 		}
-		s.fillLeafCounts(leaf, requirements, state)
+	} else {
+		for _, leaf := range s.leaves {
+			state.stats.TotalNodes++
+			// Gather node level information only when the node is the lowest level of the topology
+			if s.isLowestLevelNode {
+				excluded, taint, exclusionType := s.matchNode(leaf, requirements)
+				if excluded {
+					state.stats.recordExclusion(exclusionType, taint)
+					continue
+				}
+			}
+			s.fillLeafCounts(leaf, requirements, state)
+		}
 	}
+
 	for _, root := range s.roots {
 		s.fillInCountsHelper(root, state.sliceSize, state.sliceLevelIdx, 0, state.sliceSizeAtLevel, state.leaderCount > 0)
 	}
 }
 
+func (s *TASFlavorSnapshot) getMatchingLeaves(requirements *topologyAssignmentPodRequirements) ([]matchedLeaf, *ExclusionStats) {
+	if !s.isLowestLevelNode {
+		stats := newExclusionStats()
+		stats.TotalNodes += len(s.leaves)
+		result := make([]matchedLeaf, 0, len(s.leaves))
+		for _, leaf := range s.leaves {
+			result = append(result, matchedLeaf{leaf: leaf})
+		}
+		return result, stats
+	}
+
+	matchKey := requirements.matchKey
+	hasKey := matchKey != nil
+	if hasKey {
+		cached, found := s.matchingLeavesCache[*matchKey]
+		if found {
+			return cached.leaves, cached.stats
+		}
+	}
+
+	entry := &matchingLeavesCacheEntry{
+		leaves: make([]matchedLeaf, 0, len(s.leaves)),
+		stats:  newExclusionStats(),
+	}
+
+	for _, leaf := range s.leaves {
+		entry.stats.TotalNodes++
+
+		excluded, taint, exclusionType := s.matchNode(leaf, requirements)
+		if excluded {
+			entry.stats.recordExclusion(exclusionType, taint)
+			continue
+		}
+
+		entry.leaves = append(entry.leaves, matchedLeaf{leaf: leaf})
+	}
+
+	if hasKey {
+		if s.matchingLeavesCache == nil {
+			s.matchingLeavesCache = make(map[podSetMatchKey]*matchingLeavesCacheEntry)
+		}
+		s.matchingLeavesCache[*matchKey] = entry
+	}
+
+	return entry.leaves, entry.stats
+}
 func (s *TASFlavorSnapshot) matchNode(leaf *leafDomain, requirements *topologyAssignmentPodRequirements) (bool, *corev1.Taint, nodeExclusionType) {
 	nodeTaints := leaf.node.Spec.Taints
 	taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(s.log, nodeTaints, requirements.tolerations, utiltaints.IsSchedulingTaint, true)
