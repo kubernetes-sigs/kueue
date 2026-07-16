@@ -143,28 +143,6 @@ type ClusterQueueSpec struct {
 	// +optional
 	AdmissionScope *AdmissionScope `json:"admissionScope,omitempty"`
 
-	// workloadDefaults defines default values that are applied to workloads
-	// submitted to LocalQueues backed by this ClusterQueue when the workload
-	// does not already specify them.
-	// +optional
-	WorkloadDefaults *ClusterQueueWorkloadDefaults `json:"workloadDefaults,omitempty"`
-}
-
-// ClusterQueueWorkloadDefaults defines default values that are applied to
-// workloads submitted to LocalQueues backed by this ClusterQueue when the
-// workload does not already specify them.
-type ClusterQueueWorkloadDefaults struct {
-	// maximumExecutionTimeSeconds if provided, determines the default maximum
-	// time, in seconds, for workloads submitted to LocalQueues backed by this
-	// ClusterQueue.
-	// This value is used when the job does not already specify a maximum execution
-	// time via the kueue.x-k8s.io/max-exec-time-seconds label.
-	//
-	// This is an alpha field and requires enabling the ClusterQueueMaxExecutionTime feature gate.
-	//
-	// +optional
-	// +kubebuilder:validation:Minimum=1
-	MaximumExecutionTimeSeconds *int32 `json:"maximumExecutionTimeSeconds,omitempty"`
 }
 
 // AdmissionChecksStrategy defines a strategy for a AdmissionCheck.
