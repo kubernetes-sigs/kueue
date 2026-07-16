@@ -1682,13 +1682,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 	})
 
 	ginkgo.It("Should not evict admitted workloads when the connection to the reserving worker is briefly lost", framework.SlowSpec, func() {
-		// Regression for the worker-lost false-eviction: the grace must be anchored on when the
-		// connection was first observed lost, not on the (possibly stale) admission-check
-		// transition time. Several workloads are admitted on worker2 and their admission-check
-		// transition time is aged past the worker-lost timeout; a brief connection blip must then
-		// not evict any of them. Before the fix all would be evicted at once because the stale
-		// transition time made the grace look already expired.
-		keys := admitJobsOnWorker2AndAgeAdmissionCheck(managerNs.Name, managerLq.Name, managerCq.Name, multiKueueAC.Name, 3)
+		keys := admitJobsAndAgeAdmissionCheck(managerNs.Name, managerLq.Name, managerCq.Name, multiKueueAC.Name, 3)
 
 		restoreConnection := util.BreakConnection(managerTestCluster.ctx, managerTestCluster.client, workerCluster2)
 		restoreConnection()
@@ -1699,11 +1693,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 	})
 
 	ginkgo.It("Should not immediately evict admitted workloads after a manager restart while the reserving worker is unreachable", framework.SlowSpec, func() {
-		// Regression: the worker-lost grace is tracked in memory, so a manager restart during an
-		// outage must re-anchor it from the restart rather than evicting immediately. With the
-		// transition time already stale, restarting the manager while worker2 is unreachable must
-		// not cause an immediate mass eviction.
-		keys := admitJobsOnWorker2AndAgeAdmissionCheck(managerNs.Name, managerLq.Name, managerCq.Name, multiKueueAC.Name, 3)
+		keys := admitJobsAndAgeAdmissionCheck(managerNs.Name, managerLq.Name, managerCq.Name, multiKueueAC.Name, 3)
 
 		restoreConnection := util.BreakConnection(managerTestCluster.ctx, managerTestCluster.client, workerCluster2)
 
@@ -2495,12 +2485,7 @@ func admitWorkloadAndCheckWorkerCopies(acName string, wlLookupKey types.Namespac
 	})
 }
 
-// admitJobsOnWorker2AndAgeAdmissionCheck creates count Jobs in the manager namespace, admits each
-// on worker2, and waits until every admission check's transition time is older than the worker-lost
-// timeout. Aging the transition time ensures the test would catch a regression back to anchoring the
-// grace on it: the current code measures the grace from the in-memory first-loss time, so a stale
-// transition time must not cause an eviction. It returns the manager Workload keys.
-func admitJobsOnWorker2AndAgeAdmissionCheck(managerNsName, lqName, cqName, acName string, count int) []types.NamespacedName {
+func admitJobsAndAgeAdmissionCheck(managerNsName, lqName, cqName, acName string, count int) []types.NamespacedName {
 	ginkgo.GinkgoHelper()
 	keys := make([]types.NamespacedName, 0, count)
 	for i := range count {
