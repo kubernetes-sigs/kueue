@@ -1460,6 +1460,14 @@ func TestWaitForPodsReadyIsEnabled(t *testing.T) {
 		featureGates map[featuregate.Feature]bool
 		want         bool
 	}{
+		"waitforpodsready.Enabled() is false when WaitForPodsReady config is nil": {
+			cfg: &configapi.Configuration{},
+			featureGates: map[featuregate.Feature]bool{
+				features.DisableWaitForPodsReady: false,
+			},
+			want: false,
+		},
+
 		"waitforpodsready.Enabled() is false when DisableWaitForPodsReady feature gate is enabled": {
 			cfg: &configapi.Configuration{
 				WaitForPodsReady: defaultWaitForPodsReady,
