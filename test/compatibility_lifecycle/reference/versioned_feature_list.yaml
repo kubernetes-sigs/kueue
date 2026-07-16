@@ -431,6 +431,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.15"
+- name: TASCacheNodeMatchResults
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
 - name: TASFailedNodeReplacement
   versionedSpecs:
   - default: false
