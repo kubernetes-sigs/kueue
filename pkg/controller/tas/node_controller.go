@@ -57,6 +57,7 @@ import (
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utilpodset "sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	utiltaints "sigs.k8s.io/kueue/pkg/util/taints"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
@@ -415,8 +416,8 @@ func replaceOnPodTermination() bool {
 }
 
 func hasSchedulingTaints(taints []corev1.Taint) bool {
-	return slices.ContainsFunc(taints, func(taint corev1.Taint) bool {
-		return taint.Effect == corev1.TaintEffectNoExecute || taint.Effect == corev1.TaintEffectNoSchedule
+	return slices.ContainsFunc(taints, func(t corev1.Taint) bool {
+		return utiltaints.IsSchedulingTaint(&t)
 	})
 }
 
@@ -758,7 +759,7 @@ func checkTaintTolerations(logger logr.Logger, taint *corev1.Taint, podSets []ku
 func classifyTaints(ctx context.Context, taints []corev1.Taint, podSets []kueue.PodSet) (untolerated, temporarilyTolerated []corev1.Taint) {
 	logger := ctrl.LoggerFrom(ctx)
 	for _, taint := range taints {
-		if taint.Effect != corev1.TaintEffectNoExecute && taint.Effect != corev1.TaintEffectNoSchedule {
+		if !utiltaints.IsSchedulingTaint(&taint) {
 			continue
 		}
 
