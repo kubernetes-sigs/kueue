@@ -151,7 +151,7 @@ func (r *nodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		timeSinceNotReady := r.clock.Now().Sub(readyCondition.LastTransitionTime.Time)
 		remainingTime := NodeFailureDelay - timeSinceNotReady
 		timerExpired = remainingTime <= 0
-		if !timerExpired && !features.Enabled(features.TASReplaceNodeOnPodTermination) {
+		if !timerExpired && !replaceOnPodTermination() {
 			return ctrl.Result{RequeueAfter: remainingTime}, nil
 		}
 	}
@@ -173,7 +173,7 @@ func (r *nodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return ctrl.Result{}, err
 	}
 
-	if timerExpired {
+	if features.Enabled(features.TASReplaceNodeDueToNotReadyOverFixedTime) && timerExpired {
 		log.V(3).Info("Node is not ready and NodeFailureDelay timer expired, marking as failed")
 		evictedWorkloads, err := r.handleUnhealthyNode(ctx, req.Name, affectedWorkloads)
 		if err != nil {
@@ -380,7 +380,7 @@ func (r *nodeReconciler) getWorkloadStatus(
 		// to catch and fail the stray pod.
 		return r.checkPodsOnNode(ctx, nodeName, wl, false, hasTASAssignment, nodeSelectorAssignedPods)
 	case !ready:
-		if !features.Enabled(features.TASReplaceNodeOnPodTermination) {
+		if !replaceOnPodTermination() {
 			return workloadHealthCheck{status: workloadUnhealthy}, nil
 		}
 		return r.checkPodsOnNode(ctx, nodeName, wl, false, hasTASAssignment, nodeSelectorAssignedPods)
@@ -396,7 +396,7 @@ func (r *nodeReconciler) getWorkloadStatus(
 		untolerated, temporarilyTolerated := classifyTaints(ctx, node.Spec.Taints, podSets)
 
 		if len(untolerated) > 0 {
-			if !features.Enabled(features.TASReplaceNodeOnPodTermination) {
+			if !replaceOnPodTermination() {
 				return workloadHealthCheck{status: workloadUnhealthy}, nil
 			}
 			return r.checkPodsOnNode(ctx, nodeName, wl, true, hasTASAssignment, nodeSelectorAssignedPods)
@@ -406,6 +406,12 @@ func (r *nodeReconciler) getWorkloadStatus(
 		}
 		return workloadHealthCheck{status: workloadHealthy}, nil
 	}
+}
+
+// replaceOnPodTermination reports whether node replacement is driven by pod
+// termination.
+func replaceOnPodTermination() bool {
+	return features.Enabled(features.TASReplaceNodeOnPodTermination)
 }
 
 func hasSchedulingTaints(taints []corev1.Taint) bool {
@@ -474,7 +480,7 @@ func (r *nodeReconciler) checkPodsOnNode(
 		return workloadHealthCheck{status: workloadHealthy, podsToTerminate: podsToTerminate}, nil
 	}
 
-	if hasProgressingPods && (!hasUntoleratedTaints || features.Enabled(features.TASReplaceNodeOnPodTermination)) {
+	if hasProgressingPods && (!hasUntoleratedTaints || replaceOnPodTermination()) {
 		return workloadHealthCheck{status: workloadHealthy, podsToTerminate: podsToTerminate}, nil
 	}
 
