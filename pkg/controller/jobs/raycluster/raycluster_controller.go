@@ -121,8 +121,8 @@ func (j *RayCluster) RunWithPodSetsInfo(ctx context.Context, _ client.Client, po
 	return nil
 }
 
-func (j *RayCluster) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
-	return RestorePodSetsInfo(&j.Spec, podSetsInfo)
+func (j *RayCluster) RestorePodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) bool {
+	return RestorePodSetsInfo(ctx, &j.Spec, podSetsInfo)
 }
 
 func (j *RayCluster) Finished(ctx context.Context) (message string, success, finished bool) {

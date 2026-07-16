@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
@@ -152,8 +153,13 @@ func (j *JobSet) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSet
 	return nil
 }
 
-func (j *JobSet) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
+func (j *JobSet) RestorePodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) bool {
 	if len(podSetsInfo) != len(j.Spec.ReplicatedJobs) {
+		ctrl.LoggerFrom(ctx).V(2).Info(
+			"Skipping pod set info restore because the pod set count does not match the admitted workload",
+			"expectedCount", len(j.Spec.ReplicatedJobs),
+			"gotCount", len(podSetsInfo),
+		)
 		return false
 	}
 	changed := false

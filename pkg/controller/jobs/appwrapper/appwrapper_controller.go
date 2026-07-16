@@ -180,7 +180,7 @@ func (j *AppWrapper) RunWithPodSetsInfo(ctx context.Context, _ client.Client, po
 	return nil
 }
 
-func (j *AppWrapper) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
+func (j *AppWrapper) RestorePodSetsInfo(_ context.Context, _ []podset.PodSetInfo) bool {
 	return awutils.ClearPodSetInfos((*awv1beta2.AppWrapper)(j))
 }
 

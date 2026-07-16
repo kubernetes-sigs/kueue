@@ -323,7 +323,7 @@ func TestPodSetsInfo(t *testing.T) {
 			if diff := cmp.Diff(tc.job.Spec, tc.wantUnsuspended.Spec); diff != "" {
 				t.Errorf("node selectors mismatch (-want +got):\n%s", diff)
 			}
-			tc.job.RestorePodSetsInfo(tc.restoreInfo)
+			tc.job.RestorePodSetsInfo(t.Context(), tc.restoreInfo)
 			tc.job.Suspend()
 			if diff := cmp.Diff(tc.job.Spec, origSpec); diff != "" {
 				t.Errorf("node selectors mismatch (-want +got):\n%s", diff)

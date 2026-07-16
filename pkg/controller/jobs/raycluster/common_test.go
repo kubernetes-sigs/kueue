@@ -996,7 +996,7 @@ func TestRestorePodSetsInfo(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			gotChanged := RestorePodSetsInfo(tc.rayClusterSpec, tc.podSetsInfo)
+			gotChanged := RestorePodSetsInfo(t.Context(), tc.rayClusterSpec, tc.podSetsInfo)
 
 			if gotChanged != tc.wantChanged {
 				t.Errorf("Expected changed=%v, got changed=%v", tc.wantChanged, gotChanged)

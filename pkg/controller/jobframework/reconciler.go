@@ -1393,7 +1393,7 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.W
 	if err := clientutil.Patch(ctx, r.client, object, func() (bool, error) {
 		job.Suspend()
 		if info != nil {
-			job.RestorePodSetsInfo(info)
+			job.RestorePodSetsInfo(ctx, info)
 		}
 		return true, nil
 	}); err != nil {
