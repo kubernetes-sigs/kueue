@@ -295,3 +295,83 @@ func TestStoreCustomLabels(t *testing.T) {
 		})
 	}
 }
+
+func TestUpdateRequired(t *testing.T) {
+	tests := map[string]struct {
+		entries     []configapi.ControllerMetricsCustomLabel
+		kind        configapi.SourceKind
+		ref         string
+		storeLabels map[string]string
+		storeAnnots map[string]string
+		testLabels  map[string]string
+		testAnnots  map[string]string
+		want        bool
+		nilReceiver bool
+	}{
+		"nil receiver": {
+			entries:     []configapi.ControllerMetricsCustomLabel{{Name: "team"}},
+			kind:        configapi.SourceKindClusterQueue,
+			ref:         "cq1",
+			testLabels:  map[string]string{"team": "infra"},
+			want:        false,
+			nilReceiver: true,
+		},
+		"unsupported kind": {
+			entries:    []configapi.ControllerMetricsCustomLabel{{Name: "team", SourceKind: ptr.To(configapi.SourceKindClusterQueue)}},
+			kind:       configapi.SourceKindLocalQueue,
+			ref:        "lq1",
+			testLabels: map[string]string{"team": "infra"},
+			want:       false,
+		},
+		"not stored, new values empty": {
+			entries:    []configapi.ControllerMetricsCustomLabel{{Name: "team"}},
+			kind:       configapi.SourceKindClusterQueue,
+			ref:        "cq1",
+			testLabels: map[string]string{"other": "value"},
+			want:       false,
+		},
+		"not stored, new values not empty": {
+			entries:    []configapi.ControllerMetricsCustomLabel{{Name: "team"}},
+			kind:       configapi.SourceKindClusterQueue,
+			ref:        "cq1",
+			testLabels: map[string]string{"team": "infra"},
+			want:       true,
+		},
+		"stored, values equal": {
+			entries:     []configapi.ControllerMetricsCustomLabel{{Name: "team"}},
+			kind:        configapi.SourceKindClusterQueue,
+			ref:         "cq1",
+			storeLabels: map[string]string{"team": "infra"},
+			testLabels:  map[string]string{"team": "infra"},
+			want:        false,
+		},
+		"stored, values not equal": {
+			entries:     []configapi.ControllerMetricsCustomLabel{{Name: "team"}},
+			kind:        configapi.SourceKindClusterQueue,
+			ref:         "cq1",
+			storeLabels: map[string]string{"team": "infra"},
+			testLabels:  map[string]string{"team": "platform"},
+			want:        true,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			var cl *CustomLabels
+			if !tc.nilReceiver {
+				cl = NewCustomLabels(tc.entries)
+				t.Cleanup(func() {
+					InitMetricVectors(nil)
+				})
+				if tc.storeLabels != nil || tc.storeAnnots != nil {
+					cl.Store(tc.kind, tc.ref, tc.storeLabels, tc.storeAnnots)
+				}
+			}
+
+			got := cl.UpdateRequired(tc.kind, tc.ref, tc.testLabels, tc.testAnnots)
+			if got != tc.want {
+				t.Errorf("UpdateRequired() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
