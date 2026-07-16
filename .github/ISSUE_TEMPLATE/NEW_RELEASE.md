@@ -27,14 +27,12 @@ Please do not remove items from the checklist
   - Extract the changelog from the issue description.
   - Create the release tag at the tip of the release branch.
   - Push the tag upstream (triggers Prow to build and publish staging container image: `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:$VERSION`).
-- [ ] An OWNER [prepares a draft release](https://github.com/kubernetes-sigs/kueue/releases)
-  - [ ] Create the draft release pointing out to the created tag.
-  - [ ] Write the change log into the draft release.
-  - [ ] Run
-      `make release-artifacts IMAGE_REGISTRY=registry.k8s.io/kueue GIT_TAG=$VERSION`
-      to generate the artifacts in the `release-artifacts` folder.
-  - [ ] Upload the files in the `release-artifacts` folder to the draft release - either
-      via UI or `gh release --repo kubernetes-sigs/kueue upload $VERSION release-artifacts/*`.
+- [ ] Run ChatOps command `/create-draft-release` on this issue. This will:
+  - Extract the changelog from the issue description.
+  - Create the draft release pointing out to the created tag.
+  - Write the change log into the draft release.
+  - Generate the artifacts in the `release-artifacts` folder.
+  - Upload the files in the `release-artifacts` folder to the draft release.
 - [ ] Promote images and Helm Charts to production:
   - [ ] Use `/wait-for-images` to await for the staging images.
   - [ ] Run `./hack/releasing/promote_pull.sh $VERSION` to submit the promotion PR
