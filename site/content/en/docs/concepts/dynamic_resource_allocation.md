@@ -59,24 +59,24 @@ For setup instructions, see
 
 ## How the extended resource path works
 
-{{< feature-state state="alpha" for_version="v0.18" >}}
+{{< feature-state state="beta" for_version="v0.19" >}}
 
 When a Pod requests an extended resource backed by DRA (e.g.,
 `nvidia.com/gpu: 1`), the kube-scheduler auto-creates a `ResourceClaim`.
-Without the `KueueDRAIntegrationExtendedResource` feature gate enabled, Kueue would charge
-quota for both the `resources.requests` entry **and** the auto-created claim,
-double counting the same device.
+Kueue detects the matching `DeviceClass`, uses `extendedResourceName` as the
+quota key, and drops the auto-created claim from accounting. This prevents
+quota from being charged for both the `resources.requests` entry **and** the
+auto-created claim, which would double count the same device. No
+`deviceClassMappings` configuration is needed; the mapping is discovered
+from the `DeviceClass` automatically.
 
-With `KueueDRAIntegrationExtendedResource` enabled, Kueue detects the matching `DeviceClass`,
-uses `extendedResourceName` as the quota key, and drops the auto-created claim
-from accounting. No `deviceClassMappings` configuration is needed — the
-mapping is discovered from the `DeviceClass` automatically.
+This behavior is controlled by the `KueueDRAIntegrationExtendedResource`
+feature gate, which is enabled by default since v0.19.
 
 {{% alert title="Note" color="info" %}}
 The extended resource path additionally requires the Kubernetes
 `DRAExtendedResource` feature gate on kube-apiserver and kube-scheduler
-(beta in Kubernetes 1.36), in addition to Kueue's
-`KueueDRAIntegrationExtendedResource` feature gate.
+(beta in Kubernetes 1.36).
 {{% /alert %}}
 
 ## Path separation

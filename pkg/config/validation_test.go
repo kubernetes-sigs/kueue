@@ -1265,6 +1265,7 @@ func TestValidate(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{
 				features.KueueDRAIntegrationPartitionableDevices: true,
 				features.KueueDRAIntegration:                     false,
+				features.KueueDRAIntegrationExtendedResource:     false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -1468,18 +1469,21 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 			featureGatesCLI: "",
 		},
 		"feature gate cli": {
-			featureGatesCLI: string(features.KueueDRAIntegration) + "=false",
+			featureGatesCLI: string(features.KueueDRAIntegration) + "=false," + string(features.KueueDRAIntegrationExtendedResource) + "=false",
 			gatesToRestore: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration: false,
+				features.KueueDRAIntegration:                 false,
+				features.KueueDRAIntegrationExtendedResource: false,
 			},
 		},
 		"cannot specify both feature gates": {
 			featureGatesCLI: string(features.KueueDRAIntegration) + "=false",
 			featureGateMap: map[string]bool{
-				string(features.KueueDRAIntegration): false,
+				string(features.KueueDRAIntegration):                 false,
+				string(features.KueueDRAIntegrationExtendedResource): false,
 			},
 			gatesToRestore: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration: false,
+				features.KueueDRAIntegration:                 false,
+				features.KueueDRAIntegrationExtendedResource: false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
