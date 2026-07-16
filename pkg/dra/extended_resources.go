@@ -47,7 +47,9 @@ func NeedsDRAReconcile(wl *kueue.Workload, erCache *ExtendedResourceCache) bool 
 	if workload.HasDRA(wl) {
 		return true
 	}
-	if !features.Enabled(features.KueueDRAIntegrationExtendedResource) {
+	// erCache is always set when the gate is enabled; nil only occurs in tests
+	// that don't configure the full DRA stack.
+	if !features.Enabled(features.KueueDRAIntegrationExtendedResource) || erCache == nil {
 		return false
 	}
 	for i := range wl.Spec.PodSets {

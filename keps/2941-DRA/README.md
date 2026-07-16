@@ -1602,6 +1602,7 @@ tracks adding this). This follows the same pattern as upstream K8s integration t
 - `KueueDRARejectWorkloadsWhenDRADisabled` feature gate added: May 2026 by @kannon92 — rejects DRA workloads
   when the `DynamicResourceAllocation` feature gate is disabled to prevent silent quota bypass
   (see [#10504](https://github.com/kubernetes-sigs/kueue/issues/10504))
+- Promoted KueueDRAIntegrationExtendedResource to Beta: July 2026 by @PannagaRao
 
 **Key Design Evolution:**
 - **Original Design**: Standalone DynamicResourceAllocationConfig CRD with runtime ambiguity resolution
