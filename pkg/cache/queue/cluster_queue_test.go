@@ -594,7 +594,9 @@ func TestSnapshotConsistentUnderConcurrentStickyChange(t *testing.T) {
 	// lock) to force a change mid-sort, which the lock-free Snapshot must
 	// tolerate; the fix makes it capture the value once per sort.
 	stop := make(chan struct{})
+	started := make(chan struct{})
 	go func() {
+		close(started)
 		for {
 			select {
 			case <-stop:
@@ -607,6 +609,9 @@ func TestSnapshotConsistentUnderConcurrentStickyChange(t *testing.T) {
 			}
 		}
 	}()
+	// Block until the writer is scheduled, so the loop below cannot finish before
+	// any churn has happened and pass vacuously.
+	<-started
 	defer close(stop)
 
 	for i := range 2000 {
