@@ -5024,17 +5024,12 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 		ginkgo.By("a workload for a new slice chain is created with a different slice name")
 		var newChainSlice *kueue.Workload
 		gomega.Eventually(func(g gomega.Gomega) {
-			newChainSlice = nil
 			wlList := &kueue.WorkloadList{}
 			g.Expect(k8sClient.List(ctx, wlList, client.InNamespace(ns.Name))).Should(gomega.Succeed())
-			for i := range wlList.Items {
-				wl := &wlList.Items[i]
-				if !workloadfinish.IsFinished(wl) && wl.Name != originalSlice.Name && wl.Name != replacementSlice.Name {
-					newChainSlice = wl
-					break
-				}
-			}
-			g.Expect(newChainSlice).ShouldNot(gomega.BeNil())
+			active := util.FindNonFinishedWorkloads(wlList.Items)
+			g.Expect(active).Should(gomega.HaveLen(1))
+			newChainSlice = &active[0]
+			g.Expect(newChainSlice.Name).ShouldNot(gomega.BeElementOf(originalSlice.Name, replacementSlice.Name))
 			g.Expect(newChainSlice.Annotations).Should(gomega.HaveKeyWithValue(kueue.WorkloadSliceNameAnnotation, newChainSlice.Name))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
