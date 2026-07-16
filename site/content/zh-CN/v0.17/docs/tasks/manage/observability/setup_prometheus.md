@@ -46,7 +46,7 @@ helm upgrade kueue oci://registry.k8s.io/kueue/charts/kueue \
 如果你使用 kubectl 安装了 Kueue 并附带了发布清单文件，请应用 Prometheus ServiceMonitor：
 
 ```bash
-VERSION={{< param "version" >}}
+VERSION=v0.17.7
 kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/${VERSION}/prometheus.yaml
 ```
 

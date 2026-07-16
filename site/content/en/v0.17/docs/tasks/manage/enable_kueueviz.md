@@ -36,7 +36,7 @@ To install KueueViz as part of a new Kueue installation:
 
 ```bash
 helm install kueue oci://registry.k8s.io/kueue/charts/kueue \
-  --version={{< param "chart_version" >}} \
+  --version=0.17.7 \
   --namespace kueue-system \
   --create-namespace \
   --wait --timeout 300s \
@@ -55,7 +55,7 @@ To enable KueueViz on an existing Kueue installation by Helm:
 
 ```bash
 helm upgrade kueue oci://registry.k8s.io/kueue/charts/kueue \
-  --version={{< param "chart_version" >}} \
+  --version=0.17.7 \
   --namespace kueue-system \
   --set enableKueueViz=true # enable KueueViz
 ```
@@ -65,7 +65,7 @@ helm upgrade kueue oci://registry.k8s.io/kueue/charts/kueue \
 To enable KueueViz on an existing Kueue installation by YAML:
 
 ```bash
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kueueviz.yaml
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.17.7/kueueviz.yaml
 ```
 
 ## Accessing the Dashboard
@@ -186,7 +186,7 @@ To upgrade KueueViz by Helm:
 
 ```bash
 helm upgrade kueue oci://registry.k8s.io/kueue/charts/kueue \
-  --version={{< param "chart_version" >}} \
+  --version=0.17.7 \
   --namespace kueue-system \
   --set enableKueueViz=true
 ```
@@ -196,7 +196,7 @@ helm upgrade kueue oci://registry.k8s.io/kueue/charts/kueue \
 To upgrade KueueViz by YAML:
 
 ```bash
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kueueviz.yaml
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.17.7/kueueviz.yaml
 ```
 
 ## Uninstall
@@ -206,7 +206,7 @@ kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases
 To uninstall KueueViz components:
 
 ```bash
-kubectl delete -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kueueviz.yaml
+kubectl delete -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.17.7/kueueviz.yaml
 ```
 
 ## What's next

@@ -45,7 +45,7 @@ helm upgrade kueue oci://registry.k8s.io/kueue/charts/kueue \
 If you installed Kueue using kubectl with the release manifests, apply the Prometheus ServiceMonitor:
 
 ```bash
-VERSION={{< param "version" >}}
+VERSION=v0.18.3
 kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/${VERSION}/prometheus.yaml
 ```
 

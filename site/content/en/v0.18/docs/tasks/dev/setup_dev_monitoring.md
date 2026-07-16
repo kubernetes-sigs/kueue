@@ -69,7 +69,7 @@ Apply the Kueue
 so Prometheus knows where to find Kueue's metrics endpoint:
 
 ```bash
-VERSION={{< param "version" >}}
+VERSION=v0.18.3
 kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/${VERSION}/prometheus.yaml
 ```
 

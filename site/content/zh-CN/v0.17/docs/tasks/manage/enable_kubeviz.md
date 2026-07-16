@@ -38,7 +38,7 @@ KueueViz 可以使用 Helm（推荐）或 kubectl 进行安装。
 
 ```bash
 helm install kueue oci://registry.k8s.io/kueue/charts/kueue \
-  --version={{< param "chart_version" >}} \
+  --version=0.17.7 \
   --namespace kueue-system \
   --create-namespace \
   --wait --timeout 300s \
@@ -57,7 +57,7 @@ helm install kueue oci://registry.k8s.io/kueue/charts/kueue \
 
 ```bash
 helm upgrade kueue oci://registry.k8s.io/kueue/charts/kueue \
-  --version={{< param "chart_version" >}} \
+  --version=0.17.7 \
   --namespace kueue-system \
   --set enableKueueViz=true # 启用 KueueViz
 ```
@@ -67,7 +67,7 @@ helm upgrade kueue oci://registry.k8s.io/kueue/charts/kueue \
 在现有的 Kueue 安装上通过 YAML 启用 KueueViz：
 
 ```bash
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kueueviz.yaml
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.17.7/kueueviz.yaml
 ```
 
 ## 访问 Dashboard {#accessing-the-dashboard}
@@ -187,7 +187,7 @@ spec:
 
 ```bash
 helm upgrade kueue oci://registry.k8s.io/kueue/charts/kueue \
-  --version={{< param "chart_version" >}} \
+  --version=0.17.7 \
   --namespace kueue-system \
   --set enableKueueViz=true
 ```
@@ -197,7 +197,7 @@ helm upgrade kueue oci://registry.k8s.io/kueue/charts/kueue \
 通过 YAML 升级 KueueViz：
 
 ```bash
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kueueviz.yaml
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.17.7/kueueviz.yaml
 ```
 
 ## 卸载 {#uninstall}
@@ -207,7 +207,7 @@ kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases
 卸载 KueueViz 组件：
 
 ```bash
-kubectl delete -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kueueviz.yaml
+kubectl delete -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.17.7/kueueviz.yaml
 ```
 
 ## 下一步 {#whats-next}

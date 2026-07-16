@@ -56,7 +56,7 @@ a third-party one, e.g. [cert-manager](https://github.com/cert-manager/cert-mana
 To install a released version of Kueue in your cluster by kubectl, run the following command:
 
 ```shell
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/manifests.yaml
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.18.3/manifests.yaml
 ```
 
 To wait for Kueue to be fully available, run:
@@ -71,7 +71,7 @@ To install a released version of Kueue in your cluster by [Helm](https://helm.sh
 
 ```shell
 helm install kueue oci://registry.k8s.io/kueue/charts/kueue \
-  --version={{< param "chart_version" >}} \
+  --version=0.18.3 \
   --namespace  kueue-system \
   --create-namespace \
   --wait --timeout 300s
@@ -80,7 +80,7 @@ helm install kueue oci://registry.k8s.io/kueue/charts/kueue \
 You can also use the following command:
 
 ```shell
-helm install kueue https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kueue-{{< param "chart_version" >}}.tgz \
+helm install kueue https://github.com/kubernetes-sigs/kueue/releases/download/v0.18.3/kueue-0.18.3.tgz \
   --namespace kueue-system \
   --create-namespace \
   --wait --timeout 300s
@@ -98,7 +98,7 @@ We can follow [Prometheus Operator Installing guide](https://prometheus-operator
 {{% /alert %}}
 
 ```shell
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/prometheus.yaml
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.18.3/prometheus.yaml
 ```
 
 For more detailed setup instructions and optional metrics configuration, see the [Observability guide](/v0.18/docs/tasks/manage/observability/).
@@ -123,7 +123,7 @@ When upgrading Kueue, review the following release notes:
 To uninstall a released version of Kueue from your cluster by kubectl, run the following command:
 
 ```shell
-kubectl delete -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/manifests.yaml
+kubectl delete -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.18.3/manifests.yaml
 ```
 
 To uninstall a released version of Kueue from your cluster by Helm, run the following command:
@@ -139,7 +139,7 @@ To install a custom-configured released version of Kueue in your cluster, execut
 1. Download the release's `manifests.yaml` file:
 
 ```shell
-wget https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/manifests.yaml
+wget https://github.com/kubernetes-sigs/kueue/releases/download/v0.18.3/manifests.yaml
 ```
 
 2. With an editor of your preference, open `manifests.yaml`.
