@@ -188,7 +188,6 @@ type ControllerMetrics struct {
 	// Prometheus labels on supported metrics.
 	// A maximum of 6 labels are allowed per SourceKind (2 for Workloads), with up to 20 labels defined in total.
 	// +optional
-	// +kubebuilder:validation:MaxItems=20
 	CustomLabels []ControllerMetricsCustomLabel `json:"customLabels,omitempty"`
 
 	// LocalQueueMetrics is a configuration that provides LocalQueue metrics options.
