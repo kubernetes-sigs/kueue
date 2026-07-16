@@ -47,6 +47,7 @@ const (
 	VisibilityOnDemand featuregate.Feature = "VisibilityOnDemand"
 	//
 	// Allows disabling WaitForPodsReady during the migration period.
+	//
 	// Deprecated: Temporary option while WaitForPodsReady is enabled by default.
 	DisableWaitForPodsReady featuregate.Feature = "DisableWaitForPodsReady"
 	// owner: @yaroslava-serdiuk
