@@ -157,20 +157,29 @@ func (podSetInfo *PodSetInfo) AddOrUpdateLabel(k, v string) {
 	}
 }
 
-// kueueManagedAnnotations lists pod template annotations owned by Kueue.
-// Their values are injected on job start and may legitimately differ from
-// the values injected by a previous admission (e.g. the workload slice name
-// changes when a new slice chain starts after preemption), so Merge
-// overwrites them instead of reporting a conflict.
-var kueueManagedAnnotations = []string{
-	kueue.WorkloadAnnotation,
-	kueue.WorkloadSliceNameAnnotation,
+// overrideableAnnotations returns the Kueue-owned pod template annotations
+// that Merge may overwrite instead of reporting a conflict. For elastic jobs
+// their values may legitimately change between admissions (e.g. when a new
+// slice chain starts), so overwriting is restricted to elastic flows:
+//  1. the workload-slice-name annotation, whenever the
+//     ElasticJobsViaWorkloadSlices feature is enabled, and
+//  2. the workload annotation, only for an elastic admission, identified by
+//     the workload-slice-name annotation being part of the injected info.
+func overrideableAnnotations(info PodSetInfo) []string {
+	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+		return nil
+	}
+	annotations := []string{kueue.WorkloadSliceNameAnnotation}
+	if _, elastic := info.Annotations[kueue.WorkloadSliceNameAnnotation]; elastic {
+		annotations = append(annotations, kueue.WorkloadAnnotation)
+	}
+	return annotations
 }
 
 // Merge updates or appends the replica metadata & spec fields based on PodSetInfo.
 // It returns error if there is a conflict.
 func Merge(log logr.Logger, meta *metav1.ObjectMeta, spec *corev1.PodSpec, info PodSetInfo) error {
-	for _, key := range kueueManagedAnnotations {
+	for _, key := range overrideableAnnotations(info) {
 		newValue, found := info.Annotations[key]
 		if !found {
 			continue
