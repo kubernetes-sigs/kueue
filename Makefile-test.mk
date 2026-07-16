@@ -240,7 +240,7 @@ $(TEST_E2E_SHARD_2_TARGETS): export RAY_VERSION := $(RAY_VERSION)
 $(TEST_E2E_SHARD_2_TARGETS): export RAYMINI_VERSION := $(RAYMINI_VERSION)
 
 ## Label Taxonomy:
-##   Features: appwrapper,jaxjob,jobset,kuberay,leaderworkerset,pytorchjob,trainjob
+##   Features: appwrapper,jaxjob,jobset,kuberay,leaderworkerset,pytorchjob,trainjob,mpijob
 ##
 ## Examples:
 ##   Run only AppWrapper tests: GINKGO_ARGS="--label-filter=feature:appwrapper" make test-e2e-extended
