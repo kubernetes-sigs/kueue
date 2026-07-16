@@ -18,6 +18,7 @@ package config
 
 import (
 	"fmt"
+	"maps"
 	"net"
 	"regexp"
 	"slices"
@@ -825,7 +826,7 @@ func validateCustomLabels(c *configapi.Configuration) field.ErrorList {
 		}
 	}
 
-	for kind, count := range countPerSourceKind {
+	for _, kind := range slices.Sorted(maps.Keys(countPerSourceKind)) {
 		labelLimit, kindSupported := maxCustomLabelsPerSourceKind[kind]
 		if !kindSupported {
 			allErrs = append(allErrs, field.Invalid(
@@ -833,11 +834,11 @@ func validateCustomLabels(c *configapi.Configuration) field.ErrorList {
 				c.Metrics.CustomLabels,
 				fmt.Sprintf("unknown source kind: %s", kind),
 			))
-		} else if count > labelLimit {
+		} else if count := countPerSourceKind[kind]; count > labelLimit {
 			allErrs = append(allErrs, field.Invalid(
 				customLabelsPath,
 				c.Metrics.CustomLabels,
-				fmt.Sprintf("too many custom labels for source kind %s: found %d, expected <= %d", kind, count, maxCustomLabelsPerSourceKind[kind]),
+				fmt.Sprintf("too many custom labels for source kind %s: found %d, expected <= %d", kind, count, labelLimit),
 			))
 		}
 	}
