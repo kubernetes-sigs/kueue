@@ -18,7 +18,6 @@ package waitforpodsready
 
 import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
-
 	"sigs.k8s.io/kueue/pkg/features"
 )
 
