@@ -18,6 +18,7 @@ package config
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -2654,6 +2655,102 @@ func TestValidateCustomLabels(t *testing.T) {
 				},
 			},
 		},
+		"too many custom labels": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{Name: "c1", SourceKind: ptr.To(configapi.SourceKindCohort)},
+							{Name: "c2", SourceKind: ptr.To(configapi.SourceKindCohort)},
+							{Name: "c3", SourceKind: ptr.To(configapi.SourceKindCohort)},
+							{Name: "c4", SourceKind: ptr.To(configapi.SourceKindCohort)},
+							{Name: "c5", SourceKind: ptr.To(configapi.SourceKindCohort)},
+							{Name: "c6", SourceKind: ptr.To(configapi.SourceKindCohort)},
+							{Name: "c7", SourceKind: ptr.To(configapi.SourceKindCohort)},
+							{Name: "c8", SourceKind: ptr.To(configapi.SourceKindCohort)},
+							{Name: "c9", SourceKind: ptr.To(configapi.SourceKindCohort)},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metrics.customLabels",
+				},
+			},
+		},
+		"too many tracked values": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{
+								Name:          "team",
+								SourceKind:    ptr.To(configapi.SourceKindCohort),
+								TrackedValues: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13"},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeTooMany,
+					Field: "metrics.customLabels[0].trackedValues",
+				},
+			},
+		},
+		"workload without tracked values": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{
+								Name:       "team",
+								SourceKind: ptr.To(configapi.SourceKindWorkload),
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metrics.customLabels[0].trackedValues",
+				},
+			},
+		},
+		"valid workload with tracked values": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{
+								Name:          "team",
+								SourceKind:    ptr.To(configapi.SourceKindWorkload),
+								TrackedValues: []string{"a"},
+							},
+						},
+					},
+				},
+			},
+		},
+		"valid cohort with tracked values": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{
+								Name:          "team",
+								SourceKind:    ptr.To(configapi.SourceKindCohort),
+								TrackedValues: []string{"a"},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {
@@ -2664,4 +2761,59 @@ func TestValidateCustomLabels(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("too many custom labels message detail", func(t *testing.T) {
+		cfg := &configapi.Configuration{
+			ControllerManager: configapi.ControllerManager{
+				Metrics: configapi.ControllerMetrics{
+					CustomLabels: []configapi.ControllerMetricsCustomLabel{
+						{Name: "c1", SourceKind: ptr.To(configapi.SourceKindCohort)},
+						{Name: "c2", SourceKind: ptr.To(configapi.SourceKindCohort)},
+						{Name: "c3", SourceKind: ptr.To(configapi.SourceKindCohort)},
+						{Name: "c4", SourceKind: ptr.To(configapi.SourceKindCohort)},
+						{Name: "c5", SourceKind: ptr.To(configapi.SourceKindCohort)},
+						{Name: "c6", SourceKind: ptr.To(configapi.SourceKindCohort)},
+						{Name: "c7", SourceKind: ptr.To(configapi.SourceKindCohort)},
+						{Name: "c8", SourceKind: ptr.To(configapi.SourceKindCohort)},
+						{Name: "c9", SourceKind: ptr.To(configapi.SourceKindCohort)},
+						{Name: "l1", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
+						{Name: "l2", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
+						{Name: "l3", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
+						{Name: "l4", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
+						{Name: "l5", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
+						{Name: "l6", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
+						{Name: "l7", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
+						{Name: "l8", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
+						{Name: "l9", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
+						{Name: "l10", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
+						{Name: "w1", SourceKind: ptr.To(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
+						{Name: "w2", SourceKind: ptr.To(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
+						{Name: "w3", SourceKind: ptr.To(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
+						{Name: "w4", SourceKind: ptr.To(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
+						{Name: "w5", SourceKind: ptr.To(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
+					},
+				},
+			},
+		}
+		wantDetails := []string{
+			"too many custom labels for source kind Cohort: found 9, expected <= 6",
+			"too many custom labels for source kind LocalQueue: found 10, expected <= 6",
+			"too many custom labels for source kind Workload: found 5, expected <= 2",
+		}
+
+		got := validateCustomLabels(cfg)
+
+		if len(got) != 3 {
+			t.Fatalf("expected 3 errors, got %d", len(got))
+		}
+
+		gotDetails := make([]string, len(got))
+		for i, err := range got {
+			gotDetails[i] = err.Detail
+		}
+		slices.Sort(gotDetails)
+		if diff := cmp.Diff(wantDetails, gotDetails); diff != "" {
+			t.Errorf("unexpected error details (-want,+got):\n%s", diff)
+		}
+	})
 }

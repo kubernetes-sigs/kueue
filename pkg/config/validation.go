@@ -74,6 +74,13 @@ var (
 	visibilityServerBindPortPath          = field.NewPath("visibilityServer", "bindPort")
 	customLabelsPath                      = field.NewPath("metrics", "customLabels")
 	resourceQuotaCheckStrategyPath        = field.NewPath("resources", "quotaCheckStrategy")
+	maxTrackedCustomLabelValues           = 12
+	maxCustomLabelsPerSourceKind          = map[configapi.SourceKind]int{
+		configapi.SourceKindWorkload:     2,
+		configapi.SourceKindLocalQueue:   6,
+		configapi.SourceKindClusterQueue: 6,
+		configapi.SourceKindCohort:       6,
+	}
 )
 
 // Validate checks the configuration for invalid values.
@@ -771,6 +778,7 @@ func validateCustomLabels(c *configapi.Configuration) field.ErrorList {
 	}
 	var allErrs field.ErrorList
 	seenNames := sets.New[string]()
+	countPerSourceKind := make(map[configapi.SourceKind]int)
 	for i, entry := range c.Metrics.CustomLabels {
 		fldPath := customLabelsPath.Index(i)
 
@@ -795,7 +803,27 @@ func validateCustomLabels(c *configapi.Configuration) field.ErrorList {
 		default:
 			allErrs = append(allErrs, validateQualifiedName(fldPath.Child("name"), entry.Name)...)
 		}
+		if len(entry.TrackedValues) > maxTrackedCustomLabelValues {
+			allErrs = append(allErrs, field.TooMany(fldPath.Child("trackedValues"), len(entry.TrackedValues), maxTrackedCustomLabelValues))
+		}
+		sourceKind := ptr.Deref(entry.SourceKind, configapi.DefaultCustomMetricLabelSourceKind)
+		countPerSourceKind[sourceKind]++
+		if sourceKind == configapi.SourceKindWorkload && len(entry.TrackedValues) == 0 {
+			allErrs = append(allErrs, field.Invalid(fldPath.Child("trackedValues"), entry.TrackedValues,
+				"must not be empty when sourceKind is 'Workload'"))
+		}
 	}
+
+	for kind, count := range countPerSourceKind {
+		if count > maxCustomLabelsPerSourceKind[kind] {
+			allErrs = append(allErrs, field.Invalid(
+				customLabelsPath,
+				c.Metrics.CustomLabels,
+				fmt.Sprintf("too many custom labels for source kind %s: found %d, expected <= %d", kind, count, maxCustomLabelsPerSourceKind[kind]),
+			))
+		}
+	}
+
 	return allErrs
 }
 
