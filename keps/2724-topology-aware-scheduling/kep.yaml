@@ -44,6 +44,7 @@ feature-gates:
   - name: TASFailedNodeReplacement
   - name: TASFailedNodeReplacementFailFast
   - name: TASReplaceNodeOnPodTermination
+  - name: TASReplaceNodeDueToNotReadyOverFixedTime
   - name: TASBalancedPlacement
   - name: TASReplaceNodeOnNodeTaints
   - name: TASMultiLayerTopology
