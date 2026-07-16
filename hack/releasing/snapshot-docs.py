@@ -22,6 +22,10 @@ site/content/<locale>/v0.X/docs (served at /v0.X/docs/, /zh-cn/v0.X/docs/).
 Every locale that has a docs/ tree is snapshotted; content is copied as-is and
 not translated. No per-version subdomains, DNS, or Netlify config is involved.
 
+After freezing and pruning the snapshot directories, it adds the release to the
+[[params.versions]] dropdown in site/hugo.toml (dropping the oldest once the
+retention window is exceeded).
+
 Usage: snapshot-docs.py <minor-version> [<source-ref>]
   minor-version: e.g. v0.20 or 0.20
   source-ref:    git ref to snapshot docs from (default: release-<minor>).
@@ -39,8 +43,8 @@ import sys
 import tarfile
 from pathlib import Path
 
-# Two most recent releases (current, N-1); keep in sync with update-docs-versions.py.
-# "main" tracks the upcoming release and is served at the site root.
+# Two most recent releases (current, N-1) are kept; "main" tracks the upcoming
+# release and is served at the site root (kept separately in the dropdown).
 MAX_VERSIONS = 2
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -179,6 +183,48 @@ def prefix_aliases(text, short):
     return "".join(out)
 
 
+def update_versions_menu(hugo_toml, short):
+    """Add <short> to the [[params.versions]] dropdown in hugo.toml.
+
+    Docs are versioned by path: "main" is the development site at /docs/, and each
+    release is a frozen snapshot at /v0.X/docs/. Prepend a [[params.versions]]
+    entry for this release just after the "main" entry and drop the oldest once the
+    total exceeds MAX_VERSIONS. Idempotent: skipped if the version already exists.
+    """
+    content = hugo_toml.read_text()
+    if f'version = "{short}"' in content:
+        return
+
+    main_entry = (
+        '  [[params.versions]]\n'
+        '    version = "main"\n'
+        '    url = "/docs/"\n'
+    )
+    if main_entry not in content:
+        print("error: could not find the 'main' [[params.versions]] entry", file=sys.stderr)
+        sys.exit(1)
+    new_entry = (
+        f'\n  [[params.versions]]\n'
+        f'    version = "{short}"\n'
+        f'    url = "/{short}/docs/"\n'
+    )
+    content = content.replace(main_entry, main_entry + new_entry, 1)
+
+    # Drop the oldest release entry when the cap is exceeded (matches complete
+    # [[params.versions]] blocks for versioned releases, not "main").
+    entry_re = re.compile(
+        r'\n  \[\[params\.versions\]\]\n'
+        r'    version = "v\d[^"]*"\n'
+        r'    url = "[^"]+"\n'
+    )
+    entries = list(entry_re.finditer(content))
+    if len(entries) > MAX_VERSIONS:
+        last = entries[-1]
+        content = content[:last.start()] + content[last.end():]
+
+    hugo_toml.write_text(content)
+
+
 def main():
     if len(sys.argv) < 2:
         print(f"Usage: {sys.argv[0]} <minor-version> [<source-ref>]", file=sys.stderr)
@@ -220,11 +266,7 @@ def main():
     prune(REPO_ROOT / "site" / "static", MAX_VERSIONS)
 
     # Update the shared version dropdown in hugo.toml (prepend + drop oldest).
-    subprocess.run(
-        [sys.executable, str(SCRIPT_DIR / "update-docs-versions.py"), "site/hugo.toml", short],
-        cwd=REPO_ROOT,
-        check=True,
-    )
+    update_versions_menu(REPO_ROOT / "site" / "hugo.toml", short)
 
     print(f"+++ Done: snapshotted {short} for locales: {' '.join(locales)}")
 

@@ -45,7 +45,7 @@ automatically runs [`hack/releasing/snapshot-docs.py`](hack/releasing/snapshot-d
 - Rewrites internal `/docs/` links in the copy to `/v0.20/docs/` so it navigates within itself.
 - Prunes snapshot directories beyond the retention window.
 - Prepends a `[[params.versions]]` entry (`v0.20 → /v0.20/docs/`) to `site/hugo.toml` and drops
-  the oldest, via [`update-docs-versions.py`](hack/releasing/update-docs-versions.py).
+  the oldest.
 
 The snapshot lands on `main` and reaches the live site on the next `main` -> `website` merge.
 No manual infrastructure steps are required.
