@@ -86,16 +86,19 @@ func TestWlReconcile(t *testing.T) {
 		managersDeletedWorkloads []*kueue.Workload
 		worker1Workloads         []kueue.Workload
 		worker1Jobs              []batchv1.Job
+		worker1Reconnecting      bool
+		worker1DisconnectedSince *time.Time
 		dispatcherName           *string
 
 		// second worker
-		useSecondWorker      bool
-		worker2Reconnecting  bool
-		worker2OnDeleteError error
-		worker2OnGetError    error
-		worker2OnCreateError error
-		worker2Workloads     []kueue.Workload
-		worker2Jobs          []batchv1.Job
+		useSecondWorker          bool
+		worker2Reconnecting      bool
+		worker2DisconnectedSince *time.Time
+		worker2OnDeleteError     error
+		worker2OnGetError        error
+		worker2OnCreateError     error
+		worker2Workloads         []kueue.Workload
+		worker2Jobs              []batchv1.Job
 
 		wantError             error
 		wantResult            *reconcile.Result
@@ -195,9 +198,10 @@ func TestWlReconcile(t *testing.T) {
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
-			useSecondWorker:     true,
-			worker2Reconnecting: true,
-			worker2OnGetError:   errFake,
+			useSecondWorker:          true,
+			worker2Reconnecting:      true,
+			worker2DisconnectedSince: new(now),
+			worker2OnGetError:        errFake,
 		},
 		"missing workload (in deleted workload cache), no remote objects": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
@@ -304,9 +308,10 @@ func TestWlReconcile(t *testing.T) {
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					Obj(),
 			},
-			useSecondWorker:     true,
-			worker2Reconnecting: true,
-			worker2OnGetError:   errFake,
+			useSecondWorker:          true,
+			worker2Reconnecting:      true,
+			worker2DisconnectedSince: new(now),
+			worker2OnGetError:        errFake,
 
 			wantManagersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
 			wantManagersWorkloads: []kueue.Workload{
@@ -328,9 +333,10 @@ func TestWlReconcile(t *testing.T) {
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					Obj(),
 			},
-			useSecondWorker:     true,
-			worker2Reconnecting: true,
-			worker2OnGetError:   errFake,
+			useSecondWorker:          true,
+			worker2Reconnecting:      true,
+			worker2DisconnectedSince: new(now),
+			worker2OnGetError:        errFake,
 			worker2Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
@@ -562,6 +568,126 @@ func TestWlReconcile(t *testing.T) {
 					Message:   `The workload got reservation on "worker1"`,
 				},
 			},
+		},
+		"reserving remote is kept when another worker's remote is out of sync": {
+			// Regression: an out-of-sync remote on a non-reserving worker is deleted, but the
+			// workload is still admitted on its reserving worker. It must converge onto that
+			// reserving remote, not retry as if the reservation were lost.
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			reconcileFor: "wl1",
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload got reservation on "worker1"`,
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					ClusterName("worker1").
+					Obj(),
+			},
+			managersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			worker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadAdmitted,
+						Status: metav1.ConditionTrue,
+						Reason: "Admitted",
+					}).
+					Obj(),
+			},
+			useSecondWorker: true,
+			worker2Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					PodSets(*utiltestingapi.MakePodSet("different-name", 1).Obj()). // out of sync vs. the manager spec
+					Obj(),
+			},
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload got reservation on "worker1"`,
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					ClusterName("worker1").
+					Obj(),
+			},
+			wantManagersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			wantWorker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadAdmitted,
+						Status: metav1.ConditionTrue,
+						Reason: "Admitted",
+					}).
+					Obj(),
+			},
+			wantWorker1Jobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkloadBuilder.DeepCopy()),
+					EventType: "Normal",
+					Reason:    "MultiKueue",
+					Message:   `The workload got reservation on "worker1"`,
+				},
+			},
+		},
+		"worker-lost grace applies when the reserving worker is unreachable even if another worker's remote is out of sync": {
+			// Regression: an out-of-sync deletion on a reachable, non-reserving worker must not
+			// turn a transient reconnect of the reserving worker into an immediate eviction. The
+			// real cause is worker-lost, so the grace applies and the workload stays admitted.
+			featureGates:             map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			reconcileFor:             "wl1",
+			worker1Reconnecting:      true,
+			worker1DisconnectedSince: new(now),
+			managersJobs:             []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:               "ac1",
+						State:              kueue.CheckStateReady,
+						LastTransitionTime: metav1.NewTime(now.Add(-defaultWorkerLostTimeout * 3 / 2)),
+						Message:            `The workload got reservation on "worker1"`,
+					}).
+					ClusterName("worker1").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+			useSecondWorker: true,
+			worker2Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					PodSets(*utiltestingapi.MakePodSet("different-name", 1).Obj()). // out of sync vs. the manager spec
+					Obj(),
+			},
+			wantManagersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload got reservation on "worker1"`,
+					}).
+					ClusterName("worker1").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+			wantResult: &reconcile.Result{RequeueAfter: defaultWorkerLostTimeout},
 		},
 		"handle workload evicted on manager cluster": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
@@ -1068,18 +1194,20 @@ func TestWlReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
-		"the local workload admission check Ready if the remote WorkerLostTimeout is not exceeded": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
-			reconcileFor: "wl1",
-			managersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+		"the local workload admission check stays Ready if the reservation was lost less than WorkerLostTimeout ago": {
+			featureGates:             map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			reconcileFor:             "wl1",
+			worker1Reconnecting:      true,
+			worker1DisconnectedSince: new(now.Add(-defaultWorkerLostTimeout / 2)),
+			managersJobs:             []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
-						Name:               "ac1",
-						State:              kueue.CheckStateReady,
-						LastTransitionTime: metav1.NewTime(now.Add(-defaultWorkerLostTimeout / 2)), // 50% of the timeout
-						Message:            `The workload got reservation on "worker1"`,
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload got reservation on "worker1"`,
 					}).
+					ClusterName("worker1").
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
 					Obj(),
@@ -1092,23 +1220,26 @@ func TestWlReconcile(t *testing.T) {
 						State:   kueue.CheckStateReady,
 						Message: `The workload got reservation on "worker1"`,
 					}).
+					ClusterName("worker1").
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
 					Obj(),
 			},
 		},
-		"the local workload's admission check is set to Retry if the WorkerLostTimeout is exceeded": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
-			reconcileFor: "wl1",
-			managersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+		"the local workload's admission check is set to Retry if the reservation was lost more than WorkerLostTimeout ago": {
+			featureGates:             map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			reconcileFor:             "wl1",
+			worker1Reconnecting:      true,
+			worker1DisconnectedSince: new(now.Add(-defaultWorkerLostTimeout * 3 / 2)),
+			managersJobs:             []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
-						Name:               "ac1",
-						State:              kueue.CheckStateReady,
-						LastTransitionTime: metav1.NewTime(now.Add(-defaultWorkerLostTimeout * 3 / 2)), // 150% of the timeout
-						Message:            `The workload got reservation on "worker1"`,
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload got reservation on "worker1"`,
 					}).
+					ClusterName("worker1").
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
 					Obj(),
@@ -1120,6 +1251,150 @@ func TestWlReconcile(t *testing.T) {
 						Name:    "ac1",
 						State:   kueue.CheckStateRetry,
 						Message: `Reserving remote lost, Previously: "Ready"`,
+					}).
+					ClusterName("worker1").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+		},
+		"the local workload is NOT evicted when the reserving cluster is only reconnecting, even if the admission check transition time is old": {
+			// Regression test: a transient watch reconnect makes the reserving remote briefly
+			// invisible. The workload must not be evicted; the grace is measured from when the
+			// cluster connection dropped (worker1DisconnectedSince), not from the (old)
+			// admission-check transition time.
+			//
+			// This also covers a manager restart during the outage: disconnectedSince is only
+			// tracked in memory, so on restart the remote client is recreated already disconnected
+			// with disconnectedSince set to ~now (its creation time; modeled here by
+			// worker1DisconnectedSince=now). The grace therefore restarts from the restart instead
+			// of evicting immediately, and it always runs to completion rather than requeuing
+			// forever (worst case, when the restart lands just as the first grace is about to
+			// fire, a genuinely lost worker waits up to 2x workerLostTimeout plus the manager
+			// restart time) - the safe direction, with no mass eviction.
+			featureGates:             map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			reconcileFor:             "wl1",
+			worker1Reconnecting:      true,
+			worker1DisconnectedSince: new(now),
+			managersJobs:             []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:               "ac1",
+						State:              kueue.CheckStateReady,
+						LastTransitionTime: metav1.NewTime(now.Add(-defaultWorkerLostTimeout * 3 / 2)),
+						Message:            `The workload got reservation on "worker1"`,
+					}).
+					ClusterName("worker1").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+			wantManagersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload got reservation on "worker1"`,
+					}).
+					ClusterName("worker1").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+			wantResult: &reconcile.Result{RequeueAfter: defaultWorkerLostTimeout},
+		},
+		"the local workload IS retried when the reservation stays lost past the WorkerLostTimeout": {
+			// A genuinely lost worker (reservation missing longer than the grace) must be
+			// retried: evict and requeue so the workload can be re-dispatched.
+			featureGates:             map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			reconcileFor:             "wl1",
+			worker1Reconnecting:      true,
+			worker1DisconnectedSince: new(now.Add(-defaultWorkerLostTimeout * 3 / 2)),
+			managersJobs:             []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload got reservation on "worker1"`,
+					}).
+					ClusterName("worker1").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+			wantManagersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateRetry,
+						Message: `Reserving remote lost, Previously: "Ready"`,
+					}).
+					ClusterName("worker1").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+		},
+		"the local workload is retried immediately when the reserving cluster is reachable but its remote workload is gone": {
+			// Case B: the reserving worker is connected (not reconnecting) yet its remote
+			// Workload is absent — a genuine loss with nothing to wait for. Retry immediately,
+			// without consuming the worker-lost grace, even though the loss was only just
+			// observed (the fresh worker-lost annotation would still be within grace).
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			reconcileFor: "wl1",
+			managersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload got reservation on "worker1"`,
+					}).
+					ClusterName("worker1").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+			wantManagersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateRetry,
+						Message: `Reserving remote no longer exists or is not admitted, Previously: "Ready"`,
+					}).
+					ClusterName("worker1").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+		},
+		"the local workload is retried when the admission check is Ready but no reserving cluster is recorded": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			reconcileFor: "wl1",
+			managersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload got reservation on "worker1"`,
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+			wantManagersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateRetry,
+						Message: `Admission check is Ready but no reserving cluster is recorded; this is unexpected, please report it, Previously: "Ready"`,
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
@@ -1402,7 +1677,7 @@ func TestWlReconcile(t *testing.T) {
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:    "ac1",
 						State:   kueue.CheckStateRetry,
-						Message: `Reserving remote lost, Previously: "Ready"`,
+						Message: `Reserving remote no longer exists or is not admitted, Previously: "Ready"`,
 					}).
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
 					ClusterName("worker1").
@@ -1851,7 +2126,8 @@ func TestWlReconcile(t *testing.T) {
 
 				w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
 				w1remoteClient.client = worker1Client
-				w1remoteClient.connected.Store(true)
+				w1remoteClient.connState.connected = !tc.worker1Reconnecting
+				w1remoteClient.connState.disconnectedSince = tc.worker1DisconnectedSince
 				cRec.remoteClients["worker1"] = w1remoteClient
 
 				var worker2Client SelectivelyCachingClient
@@ -1882,9 +2158,8 @@ func TestWlReconcile(t *testing.T) {
 					worker2Client = NewNeverCachingClient(worker2Builder.Build())
 					w2remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
 					w2remoteClient.client = worker2Client
-					if !tc.worker2Reconnecting {
-						w2remoteClient.connected.Store(true)
-					}
+					w2remoteClient.connState.connected = !tc.worker2Reconnecting
+					w2remoteClient.connState.disconnectedSince = tc.worker2DisconnectedSince
 					cRec.remoteClients["worker2"] = w2remoteClient
 				}
 
@@ -2030,7 +2305,7 @@ func TestOrphanedRemoteWorkloadCleanedAfterReconnect(t *testing.T) {
 		WithStatusSubresource(&kueue.Workload{}).
 		WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
 		Build())
-	w1remoteClient.connected.Store(true)
+	w1remoteClient.connState.markConnected()
 	cRec.remoteClients["worker1"] = w1remoteClient
 
 	worker2Client := NewNeverCachingClient(getClientBuilder(ctx).
@@ -2040,7 +2315,6 @@ func TestOrphanedRemoteWorkloadCleanedAfterReconnect(t *testing.T) {
 		Build())
 	w2remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
 	w2remoteClient.client = worker2Client
-	w2remoteClient.connected.Store(false)
 	cRec.remoteClients["worker2"] = w2remoteClient
 
 	helper, _ := admissioncheck.NewMultiKueueStoreHelper(managerClient)
@@ -2076,7 +2350,7 @@ func TestOrphanedRemoteWorkloadCleanedAfterReconnect(t *testing.T) {
 	}
 
 	// Step 2: worker2 finishes reconnecting — reconcile should clean up the orphaned workload.
-	w2remoteClient.connected.Store(true)
+	w2remoteClient.connState.markConnected()
 
 	result, err = reconciler.Reconcile(ctx, req)
 	if err != nil {
@@ -2226,7 +2500,9 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 			}
 			remoteClients := make(map[string]*remoteClient, len(tt.remotes))
 			for remote, builder := range remoteClientBuilders {
-				remoteClients[remote] = &remoteClient{client: NewNeverCachingClient(builder.Build()), origin: remote}
+				rc := &remoteClient{client: NewNeverCachingClient(builder.Build()), origin: remote}
+				rc.connState.markDisconnected(time.Now())
+				remoteClients[remote] = rc
 			}
 
 			if tt.cond != nil {
