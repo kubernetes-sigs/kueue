@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/resources"
+	utiltaints "sigs.k8s.io/kueue/pkg/util/taints"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -139,6 +140,15 @@ type TASFlavorSnapshot struct {
 	// isLowestLevelNode indicates if kubernetes.io/hostname is the lowest topology level
 	isLowestLevelNode bool
 }
+
+type nodeExclusionType int
+
+const (
+	exclusionNone nodeExclusionType = iota
+	exclusionTaints
+	exclusionNodeSelector
+	exclusionAffinity
+)
 
 type tasFlavorSnapshotOptions struct {
 	tolerations []corev1.Toleration
@@ -529,6 +539,38 @@ func (s *ExclusionStats) formatReasons() string {
 	}
 	slices.Sort(reasons)
 	return strings.Join(reasons, ", ")
+}
+
+func (s *ExclusionStats) recordExclusion(exclusionType nodeExclusionType, taint *corev1.Taint) {
+	if s == nil {
+		return
+	}
+	switch exclusionType {
+	case exclusionTaints:
+		if taint != nil {
+			s.Taints[taint.ToString()]++
+		}
+	case exclusionNodeSelector:
+		s.NodeSelector++
+	case exclusionAffinity:
+		s.Affinity++
+	}
+}
+
+func (s *ExclusionStats) add(other *ExclusionStats) {
+	if s == nil || other == nil {
+		return
+	}
+	s.TotalNodes += other.TotalNodes
+	s.NodeSelector += other.NodeSelector
+	s.Affinity += other.Affinity
+	s.TopologyDomain += other.TopologyDomain
+	for k, v := range other.Taints {
+		s.Taints[k] += v
+	}
+	for k, v := range other.Resources {
+		s.Resources[k] += v
+	}
 }
 
 type FindTopologyAssignmentsOption func(*findTopologyAssignmentsOption)
@@ -1680,76 +1722,81 @@ func (s *TASFlavorSnapshot) fillInCounts(requirements *topologyAssignmentPodRequ
 		state.stats.TotalNodes++
 		// Gather node level information only when the node is the lowest level of the topology
 		if s.isLowestLevelNode {
-			// 1. Check Tolerations against Node Taints
-			nodeTaints := leaf.node.Spec.Taints
-			taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(s.log, nodeTaints, requirements.tolerations, func(t *corev1.Taint) bool {
-				return t.Effect == corev1.TaintEffectNoSchedule || t.Effect == corev1.TaintEffectNoExecute
-			}, true)
-			if untolerated {
-				s.log.V(5).Info("excluding node with untolerated taint", "domainID", leaf.id, "taint", taint)
-				state.stats.Taints[taint.ToString()]++
+			excluded, affinityScore, taint, exclusionType := s.matchNode(leaf, requirements)
+			if excluded {
+				state.stats.recordExclusion(exclusionType, taint)
 				continue
 			}
-
-			// 2. Check Node Labels against Compiled Selector
-			var nodeLabelSet labels.Set
-			if nodeLabels := leaf.node.Labels; nodeLabels != nil {
-				nodeLabelSet = nodeLabels
-			}
-
-			if !requirements.selector.Matches(nodeLabelSet) {
-				s.log.V(5).Info("excluding node that doesn't match nodeSelectors", "domainID", leaf.id, "nodeLabels", nodeLabelSet)
-				state.stats.NodeSelector++
-				continue
-			}
-
-			// 3. Check Node against Affinity Node Selector
-			if requirements.affinitySelector != nil && !requirements.affinitySelector.Match(leaf.node) {
-				s.log.V(5).Info("excluding node that doesn't match requiredDuringSchedulingIgnoredDuringExecution affinity", "domainID", leaf.id)
-				state.stats.Affinity++
-				continue
-			}
-
-			// 4. Calculate Affinity Score
-			if features.Enabled(features.TASRespectNodeAffinityPreferred) && requirements.preferredSchedulingTerms != nil {
-				leaf.affinityScore += requirements.preferredSchedulingTerms.Score(leaf.node)
-			}
+			leaf.affinityScore += affinityScore
 		}
-
-		// 5. While correcting the topologyAssignment with a failed node
-		// check if the leaf belongs to the required domain
-		if !belongsToRequiredDomain(leaf, requirements.requiredReplacementDomain) {
-			state.stats.TopologyDomain++
-			continue
-		}
-
-		remainingCapacity := leaf.freeCapacity.Clone()
-		if !requirements.simulateEmpty {
-			remainingCapacity.Sub(leaf.tasUsage)
-		}
-		if leafAssumedUsage, found := requirements.assumedUsage[leaf.id]; found {
-			remainingCapacity.Sub(leafAssumedUsage)
-		}
-		var limitingRes corev1.ResourceName
-		leaf.state, limitingRes = requirements.requests.CountInWithLimitingResource(remainingCapacity)
-
-		// Track resource exclusions: if this node can't fit even one pod,
-		// identify which resource is the bottleneck.
-		if leaf.state == 0 && limitingRes != "" {
-			state.stats.Resources[limitingRes]++
-		}
-
-		leaf.leaderState = 0
-		if requirements.leaderRequests != nil && requirements.leaderRequests.CountIn(remainingCapacity) > 0 {
-			leaf.leaderState = 1
-			remainingCapacity.Sub(*requirements.leaderRequests)
-		}
-
-		leaf.stateWithLeader = requirements.requests.CountIn(remainingCapacity)
+		s.fillLeafCounts(leaf, requirements, state)
 	}
 	for _, root := range s.roots {
 		s.fillInCountsHelper(root, state.sliceSize, state.sliceLevelIdx, 0, state.sliceSizeAtLevel, state.leaderCount > 0)
 	}
+}
+
+func (s *TASFlavorSnapshot) matchNode(leaf *leafDomain, requirements *topologyAssignmentPodRequirements) (bool, int64, *corev1.Taint, nodeExclusionType) {
+	nodeTaints := leaf.node.Spec.Taints
+	taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(s.log, nodeTaints, requirements.tolerations, utiltaints.IsSchedulingTaint, true)
+	if untolerated {
+		s.log.V(5).Info("excluding node with untolerated taint", "domainID", leaf.id, "taint", taint)
+		return true, 0, &taint, exclusionTaints
+	}
+
+	var nodeLabelSet labels.Set
+	if nodeLabels := leaf.node.Labels; nodeLabels != nil {
+		nodeLabelSet = nodeLabels
+	}
+	if !requirements.selector.Matches(nodeLabelSet) {
+		s.log.V(5).Info("excluding node that doesn't match nodeSelectors", "domainID", leaf.id, "nodeLabels", nodeLabelSet)
+		return true, 0, nil, exclusionNodeSelector
+	}
+
+	if requirements.affinitySelector != nil && !requirements.affinitySelector.Match(leaf.node) {
+		s.log.V(5).Info("excluding node that doesn't match requiredDuringSchedulingIgnoredDuringExecution affinity", "domainID", leaf.id)
+		return true, 0, nil, exclusionAffinity
+	}
+
+	var affinityScore int64
+	if features.Enabled(features.TASRespectNodeAffinityPreferred) && requirements.preferredSchedulingTerms != nil {
+		affinityScore = requirements.preferredSchedulingTerms.Score(leaf.node)
+	}
+
+	return false, affinityScore, nil, exclusionNone
+}
+
+func (s *TASFlavorSnapshot) fillLeafCounts(leaf *leafDomain, requirements *topologyAssignmentPodRequirements, state *findTopologyAssignmentState) {
+	// While correcting the topologyAssignment with a failed node
+	// check if the leaf belongs to the required domain
+	if !belongsToRequiredDomain(leaf, requirements.requiredReplacementDomain) {
+		state.stats.TopologyDomain++
+		return
+	}
+
+	remainingCapacity := leaf.freeCapacity.Clone()
+	if !requirements.simulateEmpty {
+		remainingCapacity.Sub(leaf.tasUsage)
+	}
+	if leafAssumedUsage, found := requirements.assumedUsage[leaf.id]; found {
+		remainingCapacity.Sub(leafAssumedUsage)
+	}
+	var limitingRes corev1.ResourceName
+	leaf.state, limitingRes = requirements.requests.CountInWithLimitingResource(remainingCapacity)
+
+	// Track resource exclusions: if this node can't fit even one pod,
+	// identify which resource is the bottleneck.
+	if leaf.state == 0 && limitingRes != "" {
+		state.stats.Resources[limitingRes]++
+	}
+
+	leaf.leaderState = 0
+	if requirements.leaderRequests != nil && requirements.leaderRequests.CountIn(remainingCapacity) > 0 {
+		leaf.leaderState = 1
+		remainingCapacity.Sub(*requirements.leaderRequests)
+	}
+
+	leaf.stateWithLeader = requirements.requests.CountIn(remainingCapacity)
 }
 
 func belongsToRequiredDomain(leaf *leafDomain, requiredReplacementDomain utiltas.TopologyDomainID) bool {
