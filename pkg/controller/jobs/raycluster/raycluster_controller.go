@@ -122,10 +122,6 @@ func (j *RayCluster) RunWithPodSetsInfo(ctx context.Context, _ client.Client, po
 }
 
 func (j *RayCluster) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
-	if len(podSetsInfo) != ExpectedPodSetsCount(&j.Spec) {
-		return false
-	}
-
 	return RestorePodSetsInfo(&j.Spec, podSetsInfo)
 }
 

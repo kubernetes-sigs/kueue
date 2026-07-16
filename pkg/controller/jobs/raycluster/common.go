@@ -267,6 +267,10 @@ func UpdateRayClusterSpecToRunWithPodSetsInfo(rayClusterSpec *rayv1.RayClusterSp
 }
 
 func RestorePodSetsInfo(rayClusterSpec *rayv1.RayClusterSpec, podSetsInfo []podset.PodSetInfo) bool {
+	if len(podSetsInfo) != ExpectedPodSetsCount(rayClusterSpec) {
+		return false
+	}
+
 	// head
 	headPod := &rayClusterSpec.HeadGroupSpec.Template
 	changed := podset.RestorePodSpec(&headPod.ObjectMeta, &headPod.Spec, podSetsInfo[0])
