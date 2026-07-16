@@ -10,6 +10,8 @@
 - [Design Details](#design-details)
   - [Workload API](#workload-api)
   - [Scheduler / Flavorassignment](#scheduler--flavorassignment)
+    - [Priority-Based Policy (<code>priority-based</code>)](#priority-based-policy-priority-based)
+    - [Proportional Policy (<code>proportional</code> - default)](#proportional-policy-proportional---default)
   - [Jobframework](#jobframework)
   - [batch/Job controller](#batchjob-controller)
   - [kubeflow/MPIJob controller](#kubeflowmpijob-controller)
@@ -80,33 +82,102 @@ type PodSet struct {
 
 In case the workload proposed for the current scheduling cycle does not fit, with or without preemption, in the current available quota and any of its PodSets allow partial admission, try to find a lower counts combination that fits the available quota with or without borrowing.
 
-The search could be priority-based or proportionally. It's a job-level setting, that is set by adding 'kueue.x-k8s.io/partial-admission-policy=priority-based' or 'kueue.x-k8s.io/partial-admission-policy=proportional' annotation. If the value is not set, the proportional policy is used. 
-The priority-based policy assumes that the PodSets are listed in descending order of priorities.
+The policy for shrinking PodSet counts is configured via the `kueue.x-k8s.io/partial-admission-policy` annotation on the Job. The supported policies are:
+- **`proportional` (default)**: Shrinks the counts of all variable PodSets proportionally to their allowable reduction ranges.
+- **`priority-based`**: Shrinks the counts of the PodSets sequentially, assuming they are listed in descending order of priority (i.e., the first PodSet has the highest priority and the last PodSet has the lowest priority).
 
-The accepted number of pods in each PodSet is recorded in `workload.Status.Admission.PodSetAssignments[*].ResourceUsage.Count`
+#### Priority-Based Policy (`priority-based`)
 
-In order to evaluate the potential success of the preemption, the preemption process should be split into:
-- Target selection, which should select the workloads within cohort that will need to be evicted, if the list is empty the assignment will be treated as `NoFit`. This step will take place during nomination.
-- Preemption issuing, will do the actual eviction of the targets previously selected.
+Under the `priority-based` policy, Kueue assumes that the PodSets are listed in descending order of priority. To preserve the counts of higher-priority PodSets, Kueue shrinks the PodSets starting from the end (lowest priority) and moving towards the beginning (highest priority) as needed.
 
-**Partial admission with multiple variable PodSets count**
+Specifically, if multiple PodSets have variable counts, Kueue iterates over them in the order they are defined in the Workload spec, starting from the last one. It decreases the count of the current PodSet down to its `minCount` until the workload fits the available quota. If shrinking the last PodSet to its `minCount` is still not enough to fit, Kueue keeps it at its `minCount` and moves to the second-to-last PodSet, decreasing its count down to its `minCount`, and so on.
 
-If multiple PodSets within a workload have variable counts, Kueue will iterate over the PodSets in the order they are defined in the Workload spec, starting from the end, and will try to decrease their counts until a fit is found. If shrinking the last PodSet still results in a NoFit, Kueue will try to decrease the next PodSet while keeping the last one at its minimum count, and so on.
+**Example:**
+Consider a Job with three PodSets:
+- `ps0` (highest priority): `count: 1`, no `minCount` (cannot be shrunk).
+- `ps1` (medium priority): `count: 4`, `minCount: 2` (can be reduced by up to 2 pods).
+- `ps2` (lowest priority): `count: 20`, `minCount: 10` (can be reduced by up to 10 pods).
+
+Total requested pods: `1 + 4 + 20 = 25` pods.
+
+- **Scenario A: Available quota is 19 pods** (requires a reduction of 6 pods).
+  1. Kueue targets the lowest priority PodSet, `ps2`, and decreases its count by 6 (from 20 to 14).
+  2. The resulting counts are: `ps0: 1`, `ps1: 4`, `ps2: 14` (total 19 pods, fits the quota).
+  3. Admitted counts: `ps0: 1`, `ps1: 4`, `ps2: 14`.
+
+- **Scenario B: Available quota is 13 pods** (requires a reduction of 12 pods).
+  1. Kueue targets the lowest priority PodSet, `ps2`, and decreases its count to its minimum: `10` (reduction of 10 pods). The current total count is now `1 + 4 + 10 = 15`.
+  2. Since it still does not fit the quota of 13, Kueue keeps `ps2` at `10` and moves to the next lowest priority PodSet, `ps1`.
+  3. Kueue decreases `ps1` by the remaining 2 pods (from 4 to 2). The resulting total count is `1 + 2 + 10 = 13` pods.
+  4. Admitted counts: `ps0: 1`, `ps1: 2`, `ps2: 10`.
+
+- **Scenario C: Available quota is 10 pods** (requires a reduction of 15 pods).
+  1. Kueue targets the lowest priority PodSet, `ps2`, and decreases its count to its minimum: `10` (reduction of 10 pods). The current total count is now `1 + 4 + 10 = 15`.
+  2. Since it does not fit the quota of 10, Kueue keeps `ps2` at `10` and moves to the next lowest priority PodSet, `ps1`.
+  3. Kueue decreases `ps1` to its minimum: `2` (reduction of 2 pods). The current total count is now `1 + 2 + 10 = 13`.
+  4. Since it still does not fit the quota of 10, and the remaining PodSet `ps0` does not allow partial admission (has no `minCount`), the search fails.
+  5. The job remains unadmitted.
+
+#### Proportional Policy (`proportional` - default)
+
+Under the `proportional` policy, Kueue reduces the counts of all variable PodSets proportionally to their maximum allowable reduction range (i.e., `count - minCount`).
+
+For each PodSet $j$ that allows partial admission, let:
+- $C_j$ be the maximum requested count.
+- $M_j$ be the minimum acceptable count (`minCount`).
+- $D_j = C_j - M_j$ be the maximum reduction delta for PodSet $j$.
+- $T_D = \sum D_j$ be the sum of all maximum reduction deltas.
+
+To find the optimal fit, Kueue performs a binary search on a scaling index $i$ in the range $[0, T_D]$. For a given index $i$, the count for PodSet $j$ is computed as:
+$$currentCount_j = C_j - \lfloor \frac{D_j \times i}{T_D} \rfloor$$
+
+Kueue finds the smallest index $i$ (corresponding to the minimal reduction) for which the resulting counts fit the available quota.
+
+**Example:**
+Consider a Job with three PodSets:
+- `ps0`: `count: 1`, no `minCount` ($D_0 = 0$).
+- `ps1`: `count: 4`, `minCount: 2` ($D_1 = 2$).
+- `ps2`: `count: 20`, `minCount: 10` ($D_2 = 10$).
+
+Total requested pods: `1 + 4 + 20 = 25` pods.
+Total reduction delta: $T_D = 0 + 2 + 10 = 12$ pods.
+
+- **Scenario A: Available quota is 19 pods** (requires a reduction of at least 6 pods).
+  - For $i = 6$:
+    - `ps0` count: $1 - \lfloor \frac{0 \times 6}{12} \rfloor = 1 - 0 = 1$
+    - `ps1` count: $4 - \lfloor \frac{2 \times 6}{12} \rfloor = 4 - 1 = 3$
+    - `ps2` count: $20 - \lfloor \frac{10 \times 6}{12} \rfloor = 20 - 5 = 15$
+    - Total count: `1 + 3 + 15 = 19` pods. This fits the 19-pod quota.
+  - For $i = 5$:
+    - `ps0` count: $1 - \lfloor \frac{0 \times 5}{12} \rfloor = 1 - 0 = 1$
+    - `ps1` count: $4 - \lfloor \frac{2 \times 5}{12} \rfloor = 4 - 0 = 4$
+    - `ps2` count: $20 - \lfloor \frac{10 \times 5}{12} \rfloor = 20 - 4 = 16$
+    - Total count: `1 + 4 + 16 = 21` pods. This does not fit the 19-pod quota.
+  - Thus, the binary search selects $i = 6$.
+  - Admitted counts: `ps0: 1`, `ps1: 3`, `ps2: 15` (total 19 pods).
+
+- **Scenario B: Available quota is 13 pods** (requires a reduction of at least 12 pods).
+  - For $i = 12$:
+    - `ps0` count: $1 - \lfloor \frac{0 \times 12}{12} \rfloor = 1 - 0 = 1$
+    - `ps1` count: $4 - \lfloor \frac{2 \times 12}{12} \rfloor = 4 - 2 = 2$
+    - `ps2` count: $20 - \lfloor \frac{10 \times 12}{12} \rfloor = 20 - 10 = 10$
+    - Total count: `1 + 2 + 10 = 13` pods. This fits the 13-pod quota.
+  - For $i = 11$:
+    - `ps0` count: $1 - \lfloor \frac{0 \times 11}{12} \rfloor = 1 - 0 = 1$
+    - `ps1` count: $4 - \lfloor \frac{2 \times 11}{12} \rfloor = 4 - 1 = 3$
+    - `ps2` count: $20 - \lfloor \frac{10 \times 11}{12} \rfloor = 20 - 9 = 11$
+    - Total count: `1 + 3 + 11 = 15` pods. This does not fit the 13-pod quota.
+  - Thus, the binary search selects $i = 12$.
+  - Admitted counts: `ps0: 1`, `ps1: 2`, `ps2: 10` (total 13 pods).
+
+- **Scenario C: Available quota is 10 pods** (requires a reduction of at least 15 pods).
+  - Even with the maximum possible index $i = 12$ (maximum reduction), the total count is `1 + 2 + 10 = 13` pods, which does not fit in 10 pods.
+  - Thus, the binary search fails, and the job remains unadmitted.
 
 As an optimization, we will introduce an increased step: when a workload finds a combination that fits the available quota, Kueue could try to find the combination that can be reached with minimum pod loss by checking if any of the PodSets with count == min count can be increased up to the original count. 
 The increased step is not necessary for elastic workloads, but the non-elastic workloads will benefit from it.
 
-Starting with the PodSets:
-
-```go
-[]podSet { {Count: 1} , {Count: 4, MinCount: 2}, {Count: 20, MinCount: 10}}
-```
-
-And only being able to admit 19 pods, it should end up with
-
-```go
-[]podSet { {Count: 1} , {Count: 4}, {Count: 14}}
-```
+The accepted number of pods in each PodSet is recorded in `workload.Status.Admission.PodSetAssignments[*].ResourceUsage.Count`.
 
 ### Jobframework
 
