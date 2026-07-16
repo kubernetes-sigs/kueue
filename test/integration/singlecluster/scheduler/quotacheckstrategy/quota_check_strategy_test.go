@@ -60,7 +60,6 @@ var _ = ginkgo.Describe("Quota check strategy", ginkgo.Ordered, ginkgo.ContinueO
 		})
 
 		ginkgo.BeforeEach(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.QuotaCheckStrategy, true)
 			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "quota-check-strategy-")
 
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -168,6 +167,7 @@ var _ = ginkgo.Describe("Quota check strategy", ginkgo.Ordered, ginkgo.ContinueO
 		})
 
 		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.QuotaCheckStrategy, false)
 			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "quota-check-gate-off-")
 
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()

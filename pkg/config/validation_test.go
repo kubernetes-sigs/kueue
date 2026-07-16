@@ -1170,9 +1170,6 @@ func TestValidate(t *testing.T) {
 					ExcludeResourcePrefixes: []string{"foo.com/device"},
 				},
 			},
-			featureGates: map[featuregate.Feature]bool{
-				features.QuotaCheckStrategy: true,
-			},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:   field.ErrorTypeInvalid,
@@ -1187,9 +1184,6 @@ func TestValidate(t *testing.T) {
 				Resources: &configapi.Resources{
 					QuotaCheckStrategy: ptr.To(configapi.QuotaCheckIgnoreUndeclared),
 				},
-			},
-			featureGates: map[featuregate.Feature]bool{
-				features.QuotaCheckStrategy: true,
 			},
 		},
 		"quotaCheckStrategy with value blockundeclared allowed with excludeResourcePrefixes": {
@@ -1208,9 +1202,6 @@ func TestValidate(t *testing.T) {
 					QuotaCheckStrategy: ptr.To(configapi.QuotaCheckStrategy("test")),
 				},
 			},
-			featureGates: map[featuregate.Feature]bool{
-				features.QuotaCheckStrategy: true,
-			},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeNotSupported,
@@ -1224,6 +1215,9 @@ func TestValidate(t *testing.T) {
 				Resources: &configapi.Resources{
 					QuotaCheckStrategy: ptr.To(configapi.QuotaCheckStrategy("test")),
 				},
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.QuotaCheckStrategy: false,
 			},
 		},
 		"KueueDRAIntegrationExtendedResource requires KueueDRAIntegration": {
