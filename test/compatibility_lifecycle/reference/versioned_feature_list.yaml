@@ -57,10 +57,6 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.19"
-  - default: false
-    lockToDefault: false
-    preRelease: Deprecated
-    version: "0.20"
 - name: ElasticJobsViaWorkloadSlices
   versionedSpecs:
   - default: false
