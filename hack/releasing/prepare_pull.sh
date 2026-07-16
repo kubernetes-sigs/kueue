@@ -270,7 +270,7 @@ function prepare_local_branch() {
       # and add it to the version dropdown. Sourced from the release branch, which
       # holds this release's docs; committed on main and flows to the live website
       # branch via the usual main->website merge.
-      hack/releasing/snapshot-docs.sh "v${MAJOR_MINOR}" "${UPSTREAM_REMOTE}/${RELEASE_BRANCH}"
+      hack/releasing/snapshot-docs.py "v${MAJOR_MINOR}" "${UPSTREAM_REMOTE}/${RELEASE_BRANCH}"
     fi
   fi
 

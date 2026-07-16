@@ -38,7 +38,7 @@ version affordance.)
 ### Automated steps
 
 When `prepare_pull.sh` runs for the newest minor release (e.g. `v0.20`), the `main`-update PR
-automatically runs [`hack/releasing/snapshot-docs.sh`](hack/releasing/snapshot-docs.sh), which:
+automatically runs [`hack/releasing/snapshot-docs.py`](hack/releasing/snapshot-docs.py), which:
 
 - Copies each locale's `docs/` from the `release-0.20` branch (the source of truth for that
   release's docs) into `site/content/<locale>/v0.20/docs`.

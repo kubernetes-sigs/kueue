@@ -27,7 +27,7 @@ path and drops the oldest release once the total exceeds MAX_RELEASE_ENTRIES
 release and is kept separately). It is idempotent:
 the prepend is skipped if the version already exists.
 
-Called by hack/releasing/snapshot-docs.sh after the snapshot directory is created.
+Called by hack/releasing/snapshot-docs.py after the snapshot directory is created.
 """
 import re
 import sys
