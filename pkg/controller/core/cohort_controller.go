@@ -18,7 +18,6 @@ package core
 
 import (
 	"context"
-	"slices"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -144,9 +143,11 @@ func (r *CohortReconciler) Update(e event.TypedUpdateEvent[*kueue.Cohort]) bool 
 	var customLabelsChanged bool
 	if features.Enabled(features.CustomMetricLabels) {
 		// Store in Reconcile so labelsUpdated remains true for clear-and-resync.
-		customLabelsChanged = !slices.Equal(
-			r.customLabels.CohortGet(kueue.CohortReference(e.ObjectNew.GetName())),
-			r.customLabels.ExtractValues(e.ObjectNew.GetLabels(), e.ObjectNew.GetAnnotations()),
+		customLabelsChanged = !r.customLabels.EqualToStored(
+			config.SourceKindCohort,
+			e.ObjectNew.GetName(),
+			e.ObjectNew.GetLabels(),
+			e.ObjectNew.GetAnnotations(),
 		)
 	}
 

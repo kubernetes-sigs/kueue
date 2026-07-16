@@ -35,6 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
 	testingclock "k8s.io/utils/clock/testing"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
@@ -362,7 +363,7 @@ func TestResyncLocalQueueGaugeMetrics(t *testing.T) {
 
 	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
 
-	customLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{{Name: "team"}})
+	customLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{{Name: "team", SourceKind: ptr.To(configapi.SourceKindLocalQueue)}})
 	fakeClient := utiltesting.NewFakeClient(
 		utiltesting.MakeNamespace(defaultNamespace),
 		utiltestingapi.MakeWorkload("done", defaultNamespace).Queue("foo").Finished().Obj(),
