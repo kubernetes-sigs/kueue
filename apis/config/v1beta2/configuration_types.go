@@ -185,10 +185,9 @@ type ControllerMetrics struct {
 	EnableClusterQueueResources bool `json:"enableClusterQueueResources,omitempty"`
 
 	// CustomLabels is a list of entries whose values will be added as extra
-	// Prometheus labels on ClusterQueue, LocalQueue, and Cohort metrics.
-	// Requires the CustomMetricLabels feature gate.
+	// Prometheus labels on supported metrics.
+	// A maximum of 6 labels are allowed per SourceKind (2 for Workloads), with up to 20 labels defined in total.
 	// +optional
-	// +kubebuilder:validation:MaxItems=8
 	CustomLabels []ControllerMetricsCustomLabel `json:"customLabels,omitempty"`
 
 	// LocalQueueMetrics is a configuration that provides LocalQueue metrics options.
@@ -196,12 +195,24 @@ type ControllerMetrics struct {
 	LocalQueueMetrics *LocalQueueMetrics `json:"localQueueMetrics,omitempty"`
 }
 
+type SourceKind string
+
+const (
+	SourceKindCohort       SourceKind = "Cohort"
+	SourceKindLocalQueue   SourceKind = "LocalQueue"
+	SourceKindClusterQueue SourceKind = "ClusterQueue"
+	SourceKindWorkload     SourceKind = "Workload"
+)
+
+const UntrackedCustomLabelValue = "kueue.x-k8s.io/_UNTRACKED_VALUE_"
+
 // ControllerMetricsCustomLabel defines a Kubernetes label or annotation to promote
 // as a Prometheus metric label with a "custom_" prefix.
 type ControllerMetricsCustomLabel struct {
-	// Name is used as a suffix to build the Prometheus label: Kueue
-	// automatically prepends "custom_" (e.g., name: "team" becomes label "custom_team").
-	// Must follow Prometheus label naming conventions: [a-zA-Z_][a-zA-Z0-9_]*.
+	// Name is the Prometheus metric label name suffix.
+	// Prepended with "custom_" to form the full Prometheus label name
+	// (e.g., "team" becomes "custom_team").
+	// Must contain only [a-zA-Z0-9_] characters and start with a letter.
 	Name string `json:"name"`
 
 	// SourceLabelKey is the Kubernetes label key to read the value from.
@@ -216,6 +227,24 @@ type ControllerMetricsCustomLabel struct {
 	// Mutually exclusive with SourceLabelKey.
 	// +optional
 	SourceAnnotationKey string `json:"sourceAnnotationKey,omitempty"`
+
+	// SourceKind is the object kind from which the label value should be sourced.
+	// Up to 2 labels are allowed for Workloads and up to 6 for other source kinds.
+	// Defaults to ClusterQueue.
+	// The possible values are:
+	// - Cohort
+	// - LocalQueue
+	// - ClusterQueue
+	// - Workload
+	// +optional
+	SourceKind *SourceKind `json:"sourceKind,omitempty"`
+
+	// TrackedValues is a list of the label's allowed values.
+	// When SourceKind is Workload, a closed list of 1-12 TrackedValues is required.
+	// Non-workload source kinds can have 0-16 TrackedValues. If the list is empty, any value is allowed.
+	// Label values not allowed by this field will be reported as "kueue.x-k8s.io/_UNTRACKED_VALUE_".
+	// +optional
+	TrackedValues []string `json:"trackedValues,omitempty"`
 }
 
 // LocalQueueMetrics defines the configuration options for local queue metrics.

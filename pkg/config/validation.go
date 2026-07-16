@@ -18,6 +18,7 @@ package config
 
 import (
 	"fmt"
+	"maps"
 	"net"
 	"regexp"
 	"slices"
@@ -74,6 +75,15 @@ var (
 	visibilityServerBindPortPath          = field.NewPath("visibilityServer", "bindPort")
 	customLabelsPath                      = field.NewPath("metrics", "customLabels")
 	resourceQuotaCheckStrategyPath        = field.NewPath("resources", "quotaCheckStrategy")
+	maxCustomLabels                       = 20
+	maxTrackedCustomLabelValues           = 16
+	maxTrackedWlCustomLabelValues         = 12
+	maxCustomLabelsPerSourceKind          = map[configapi.SourceKind]int{
+		configapi.SourceKindWorkload:     2,
+		configapi.SourceKindLocalQueue:   6,
+		configapi.SourceKindClusterQueue: 6,
+		configapi.SourceKindCohort:       6,
+	}
 )
 
 // Validate checks the configuration for invalid values.
@@ -771,6 +781,10 @@ func validateCustomLabels(c *configapi.Configuration) field.ErrorList {
 	}
 	var allErrs field.ErrorList
 	seenNames := sets.New[string]()
+	countPerSourceKind := make(map[configapi.SourceKind]int)
+	if len(c.Metrics.CustomLabels) > maxCustomLabels {
+		allErrs = append(allErrs, field.TooMany(customLabelsPath, len(c.Metrics.CustomLabels), maxCustomLabels))
+	}
 	for i, entry := range c.Metrics.CustomLabels {
 		fldPath := customLabelsPath.Index(i)
 
@@ -795,7 +809,43 @@ func validateCustomLabels(c *configapi.Configuration) field.ErrorList {
 		default:
 			allErrs = append(allErrs, validateQualifiedName(fldPath.Child("name"), entry.Name)...)
 		}
+
+		sourceKind := ptr.Deref(entry.SourceKind, configapi.DefaultCustomMetricLabelSourceKind)
+		countPerSourceKind[sourceKind]++
+		if sourceKind == configapi.SourceKindWorkload {
+			if len(entry.TrackedValues) == 0 {
+				allErrs = append(allErrs, field.Invalid(fldPath.Child("trackedValues"), entry.TrackedValues,
+					"must not be empty when sourceKind is 'Workload'"))
+			}
+			if len(entry.TrackedValues) > maxTrackedWlCustomLabelValues {
+				allErrs = append(allErrs, field.Invalid(fldPath.Child("trackedValues"), entry.TrackedValues,
+					fmt.Sprintf("must not be greater than %d when sourceKind is 'Workload'", maxTrackedWlCustomLabelValues)))
+			}
+		} else if len(entry.TrackedValues) > maxTrackedCustomLabelValues {
+			allErrs = append(allErrs, field.TooMany(fldPath.Child("trackedValues"), len(entry.TrackedValues), maxTrackedCustomLabelValues))
+		}
+		if sets.New(entry.TrackedValues...).Len() < len(entry.TrackedValues) {
+			allErrs = append(allErrs, field.Invalid(fldPath.Child("trackedValues"), entry.TrackedValues, "must not contain duplicates"))
+		}
 	}
+
+	for _, kind := range slices.Sorted(maps.Keys(countPerSourceKind)) {
+		labelLimit, kindSupported := maxCustomLabelsPerSourceKind[kind]
+		if !kindSupported {
+			allErrs = append(allErrs, field.Invalid(
+				customLabelsPath,
+				c.Metrics.CustomLabels,
+				fmt.Sprintf("unknown source kind: %s", kind),
+			))
+		} else if count := countPerSourceKind[kind]; count > labelLimit {
+			allErrs = append(allErrs, field.Invalid(
+				customLabelsPath,
+				c.Metrics.CustomLabels,
+				fmt.Sprintf("too many custom labels for source kind %s: found %d, expected <= %d", kind, count, labelLimit),
+			))
+		}
+	}
+
 	return allErrs
 }
 

@@ -18,6 +18,7 @@ package config
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -2478,6 +2479,30 @@ func TestValidateCustomLabels(t *testing.T) {
 				},
 			},
 		},
+		"name with underscore valid as k8s label key": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{Name: "has_underscore"},
+						},
+					},
+				},
+			},
+		},
+		"valid multiple entries": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{Name: "team"},
+							{Name: "env", SourceLabelKey: "environment"},
+							{Name: "cost", SourceAnnotationKey: "billing/cost"},
+						},
+					},
+				},
+			},
+		},
 		"valid with sourceLabelKey": {
 			cfg: &configapi.Configuration{
 				ControllerManager: configapi.ControllerManager{
@@ -2500,14 +2525,31 @@ func TestValidateCustomLabels(t *testing.T) {
 				},
 			},
 		},
-		"valid multiple entries": {
+		"valid workload with tracked values": {
 			cfg: &configapi.Configuration{
 				ControllerManager: configapi.ControllerManager{
 					Metrics: configapi.ControllerMetrics{
 						CustomLabels: []configapi.ControllerMetricsCustomLabel{
-							{Name: "team"},
-							{Name: "env", SourceLabelKey: "environment"},
-							{Name: "cost", SourceAnnotationKey: "billing/cost"},
+							{
+								Name:          "team",
+								SourceKind:    ptr.To(configapi.SourceKindWorkload),
+								TrackedValues: []string{"a"},
+							},
+						},
+					},
+				},
+			},
+		},
+		"valid cohort with tracked values": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{
+								Name:          "team",
+								SourceKind:    ptr.To(configapi.SourceKindCohort),
+								TrackedValues: []string{"a"},
+							},
 						},
 					},
 				},
@@ -2525,8 +2567,9 @@ func TestValidateCustomLabels(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "metrics.customLabels[0].name",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "metrics.customLabels[0].name",
+					Detail: "must match ^[a-zA-Z][a-zA-Z0-9_]*$",
 				},
 			},
 		},
@@ -2542,8 +2585,9 @@ func TestValidateCustomLabels(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "metrics.customLabels[0].name",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "metrics.customLabels[0].name",
+					Detail: "must match ^[a-zA-Z][a-zA-Z0-9_]*$",
 				},
 			},
 		},
@@ -2559,12 +2603,14 @@ func TestValidateCustomLabels(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "metrics.customLabels[0].name",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "metrics.customLabels[0].name",
+					Detail: "must match ^[a-zA-Z][a-zA-Z0-9_]*$",
 				},
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "metrics.customLabels[0].name",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "metrics.customLabels[0].name",
+					Detail: "name part must be non-empty; name part must consist of alphanumeric characters, '-', '_' or '.', and must start and end with an alphanumeric character (e.g. 'MyName',  or 'my.name',  or '123-abc', regex used for validation is '([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9]')",
 				},
 			},
 		},
@@ -2598,8 +2644,9 @@ func TestValidateCustomLabels(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "metrics.customLabels[0]",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "metrics.customLabels[0]",
+					Detail: "sourceLabelKey and sourceAnnotationKey are mutually exclusive",
 				},
 			},
 		},
@@ -2615,8 +2662,9 @@ func TestValidateCustomLabels(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "metrics.customLabels[0].sourceLabelKey",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "metrics.customLabels[0].sourceLabelKey",
+					Detail: "name part must consist of alphanumeric characters, '-', '_' or '.', and must start and end with an alphanumeric character (e.g. 'MyName',  or 'my.name',  or '123-abc', regex used for validation is '([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9]')",
 				},
 			},
 		},
@@ -2632,19 +2680,170 @@ func TestValidateCustomLabels(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "metrics.customLabels[0].sourceAnnotationKey",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "metrics.customLabels[0].sourceAnnotationKey",
+					Detail: "name part must consist of alphanumeric characters, '-', '_' or '.', and must start and end with an alphanumeric character (e.g. 'MyName',  or 'my.name',  or '123-abc', regex used for validation is '([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9]')",
 				},
 			},
 		},
-		"name with underscore valid as k8s label key": {
+		"unknown source kind": {
 			cfg: &configapi.Configuration{
 				ControllerManager: configapi.ControllerManager{
 					Metrics: configapi.ControllerMetrics{
 						CustomLabels: []configapi.ControllerMetricsCustomLabel{
-							{Name: "has_underscore"},
+							{
+								Name:       "team",
+								SourceKind: ptr.To(configapi.SourceKind("Unknown")),
+							},
 						},
 					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "metrics.customLabels",
+					Detail: "unknown source kind: Unknown",
+				},
+			},
+		},
+		"too many custom labels in total": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{Name: "c1"}, {Name: "c2"}, {Name: "c3"}, {Name: "c4"}, {Name: "c5"},
+							{Name: "c6"}, {Name: "c7"}, {Name: "c8"}, {Name: "c9"}, {Name: "c10"},
+							{Name: "c11"}, {Name: "c12"}, {Name: "c13"}, {Name: "c14"}, {Name: "c15"},
+							{Name: "c16"}, {Name: "c17"}, {Name: "c18"}, {Name: "c19"}, {Name: "c20"},
+							{Name: "c21"},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeTooMany,
+					Field:  "metrics.customLabels",
+					Detail: "must have at most 20 items",
+				},
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "metrics.customLabels",
+					Detail: "too many custom labels for source kind ClusterQueue: found 21, expected <= 6",
+				},
+			},
+		},
+		"too many custom labels": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{Name: "c1", SourceKind: ptr.To(configapi.SourceKindCohort)},
+							{Name: "c2", SourceKind: ptr.To(configapi.SourceKindCohort)},
+							{Name: "c3", SourceKind: ptr.To(configapi.SourceKindCohort)},
+							{Name: "c4", SourceKind: ptr.To(configapi.SourceKindCohort)},
+							{Name: "c5", SourceKind: ptr.To(configapi.SourceKindCohort)},
+							{Name: "c6", SourceKind: ptr.To(configapi.SourceKindCohort)},
+							{Name: "c7", SourceKind: ptr.To(configapi.SourceKindCohort)},
+							{Name: "c8", SourceKind: ptr.To(configapi.SourceKindCohort)},
+							{Name: "c9", SourceKind: ptr.To(configapi.SourceKindCohort)},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "metrics.customLabels",
+					Detail: "too many custom labels for source kind Cohort: found 9, expected <= 6",
+				},
+			},
+		},
+		"workload without tracked values": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{
+								Name:       "team",
+								SourceKind: ptr.To(configapi.SourceKindWorkload),
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "metrics.customLabels[0].trackedValues",
+					Detail: "must not be empty when sourceKind is 'Workload'",
+				},
+			},
+		},
+		"too many tracked values": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{
+								Name:          "team",
+								SourceKind:    ptr.To(configapi.SourceKindCohort),
+								TrackedValues: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17"},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeTooMany,
+					Field:  "metrics.customLabels[0].trackedValues",
+					Detail: "must have at most 16 items",
+				},
+			},
+		},
+		"too many tracked values for workload": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{
+								Name:          "team",
+								SourceKind:    ptr.To(configapi.SourceKindWorkload),
+								TrackedValues: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13"},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "metrics.customLabels[0].trackedValues",
+					Detail: "must not be greater than 12 when sourceKind is 'Workload'",
+				},
+			},
+		},
+		"duplicate tracked values": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{
+								Name:          "team",
+								SourceKind:    ptr.To(configapi.SourceKindCohort),
+								TrackedValues: []string{"a", "b", "a"},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "metrics.customLabels[0].trackedValues",
+					Detail: "must not contain duplicates",
 				},
 			},
 		},
@@ -2653,9 +2852,67 @@ func TestValidateCustomLabels(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			got := validateCustomLabels(tc.cfg)
-			if diff := cmp.Diff(tc.wantErr, got, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
+			if diff := cmp.Diff(tc.wantErr, got, cmpopts.IgnoreFields(field.Error{}, "BadValue")); diff != "" {
 				t.Errorf("validateCustomLabels() returned unexpected error (-want,+got):\n%s", diff)
 			}
 		})
 	}
+
+	t.Run("too many custom labels message detail", func(t *testing.T) {
+		cfg := &configapi.Configuration{
+			ControllerManager: configapi.ControllerManager{
+				Metrics: configapi.ControllerMetrics{
+					CustomLabels: []configapi.ControllerMetricsCustomLabel{
+						{Name: "c1", SourceKind: ptr.To(configapi.SourceKindCohort)},
+						{Name: "c2", SourceKind: ptr.To(configapi.SourceKindCohort)},
+						{Name: "c3", SourceKind: ptr.To(configapi.SourceKindCohort)},
+						{Name: "c4", SourceKind: ptr.To(configapi.SourceKindCohort)},
+						{Name: "c5", SourceKind: ptr.To(configapi.SourceKindCohort)},
+						{Name: "c6", SourceKind: ptr.To(configapi.SourceKindCohort)},
+						{Name: "c7", SourceKind: ptr.To(configapi.SourceKindCohort)},
+						{Name: "c8", SourceKind: ptr.To(configapi.SourceKindCohort)},
+						{Name: "c9", SourceKind: ptr.To(configapi.SourceKindCohort)},
+						{Name: "l1", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
+						{Name: "l2", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
+						{Name: "l3", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
+						{Name: "l4", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
+						{Name: "l5", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
+						{Name: "l6", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
+						{Name: "l7", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
+						{Name: "l8", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
+						{Name: "l9", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
+						{Name: "l10", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
+						{Name: "w1", SourceKind: ptr.To(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
+						{Name: "w2", SourceKind: ptr.To(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
+						{Name: "w3", SourceKind: ptr.To(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
+						{Name: "w4", SourceKind: ptr.To(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
+						{Name: "w5", SourceKind: ptr.To(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
+					},
+				},
+			},
+		}
+		wantDetails := []string{
+			"too many custom labels for source kind Cohort: found 9, expected <= 6",
+			"too many custom labels for source kind LocalQueue: found 10, expected <= 6",
+			"too many custom labels for source kind Workload: found 5, expected <= 2",
+		}
+
+		got := validateCustomLabels(cfg)
+
+		var gotDetails []string
+		for _, err := range got {
+			if err.Type != field.ErrorTypeTooMany {
+				gotDetails = append(gotDetails, err.Detail)
+			}
+		}
+
+		if len(gotDetails) != 3 {
+			t.Fatalf("expected 3 errors, got %d", len(gotDetails))
+		}
+
+		slices.Sort(gotDetails)
+		if diff := cmp.Diff(wantDetails, gotDetails); diff != "" {
+			t.Errorf("unexpected error details (-want,+got):\n%s", diff)
+		}
+	})
 }
