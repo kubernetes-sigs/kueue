@@ -84,14 +84,28 @@ var _ admission.Validator[*kueue.Workload] = &WorkloadWebhook{}
 func (w *WorkloadWebhook) ValidateCreate(ctx context.Context, wl *kueue.Workload) (admission.Warnings, error) {
 	log := ctrl.LoggerFrom(ctx).WithName("workload-webhook")
 	log.V(5).Info("Validating create")
-	return nil, ValidateWorkload(wl, nil).ToAggregate()
+	return warningsForWorkload(wl), ValidateWorkload(wl, nil).ToAggregate()
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *WorkloadWebhook) ValidateUpdate(ctx context.Context, oldWL, newWL *kueue.Workload) (admission.Warnings, error) {
 	log := ctrl.LoggerFrom(ctx).WithName("workload-webhook")
 	log.V(5).Info("Validating update")
-	return nil, ValidateWorkloadUpdate(newWL, oldWL).ToAggregate()
+	return warningsForWorkload(newWL), ValidateWorkloadUpdate(newWL, oldWL).ToAggregate()
+}
+
+// slated to become a hard validation error in a future release (see https://github.com/kubernetes-sigs/kueue/pull/13061#issuecomment-4979676077 for more context).
+func warningsForWorkload(wl *kueue.Workload) admission.Warnings {
+	var warnings admission.Warnings
+	specPath := field.NewPath("spec")
+	for i := range wl.Spec.PodSets {
+		tr := wl.Spec.PodSets[i].TopologyRequest
+		if tr != nil && tr.SubGroupCount != nil && *tr.SubGroupCount < 0 {
+			path := specPath.Child("podSets").Index(i).Child("topologyRequest", "subGroupCount")
+			warnings = append(warnings, fmt.Sprintf("%s: negative value %d is deprecated and will be rejected in a future release", path, *tr.SubGroupCount))
+		}
+	}
+	return warnings
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
