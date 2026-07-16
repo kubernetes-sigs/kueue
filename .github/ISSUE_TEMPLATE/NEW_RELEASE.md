@@ -23,11 +23,12 @@ Please do not remove items from the checklist
   - [ ] Ensure there are no unstaged changes in your directory (the script adds everything)
   - [ ] Run `./hack/releasing/prepare_pull.sh --target release $VERSION`
   - [ ] Wait for this PR to merge <!-- PREPARE_PULL_RELEASE --> <!-- example #211 -->
-- [ ] For major or minor releases, versioned docs are handled automatically: the `main`-update
-      PR from `prepare_pull.sh` runs `hack/releasing/snapshot-docs.py`, which freezes the
-      release's docs into `site/content/<locale>/v$MAJ.$MIN/docs`, adds it to the version
-      dropdown, and prunes old snapshots. No Netlify/DNS steps are required. Just confirm the
-      snapshot dirs and the `[[params.versions]]` entry are present in that PR.
+- [ ] Versioned docs are handled automatically during releases -- major, minor, and patch: the
+      `main`-update PR from `prepare_pull.sh` runs `hack/releasing/snapshot-docs.py`, which
+      freezes the release's docs into `site/content/<locale>/v$MAJ.$MIN/docs`, adds it to the
+      version dropdown, and prunes old snapshots. Patch releases re-freeze the existing snapshot
+      to the new patch version (e.g. v0.17.7 -> v0.17.8). No Netlify/DNS steps are required. Just
+      confirm the snapshot dirs and the `[[params.versions]]` entry are present in that PR.
 - [ ] Run ChatOps command `/tag-release` on this issue. This will:
   - Extract the changelog from the issue description.
   - Create the release tag at the tip of the release branch.
