@@ -154,6 +154,9 @@ func (j *MPIJob) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSet
 
 func (j *MPIJob) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 	orderedReplicaTypes := orderedReplicaTypes(&j.Spec)
+	if len(podSetsInfo) != len(orderedReplicaTypes) {
+		return false
+	}
 	changed := false
 	for index, info := range podSetsInfo {
 		replicaType := orderedReplicaTypes[index]

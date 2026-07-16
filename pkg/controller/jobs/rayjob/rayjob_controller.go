@@ -152,12 +152,18 @@ func (j *RayJob) PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet, 
 	return podSets, nil
 }
 
-func (j *RayJob) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSetsInfo []podset.PodSetInfo) error {
-	expectedLen := raycluster.ExpectedPodSetsCount(j.Spec.RayClusterSpec)
+// expectedPodSetsCount returns the number of pod sets for the RayJob:
+// the RayCluster pod sets plus the submitter pod set when submissionMode is K8sJobMode.
+func (j *RayJob) expectedPodSetsCount() int {
+	count := raycluster.ExpectedPodSetsCount(j.Spec.RayClusterSpec)
 	if j.Spec.SubmissionMode == rayv1.K8sJobMode {
-		expectedLen++
+		count++
 	}
+	return count
+}
 
+func (j *RayJob) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSetsInfo []podset.PodSetInfo) error {
+	expectedLen := j.expectedPodSetsCount()
 	if len(podSetsInfo) != expectedLen {
 		return podset.BadPodSetsInfoLenError(expectedLen, len(podSetsInfo))
 	}
@@ -185,21 +191,18 @@ func (j *RayJob) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSet
 }
 
 func (j *RayJob) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
-	expectedLen := raycluster.ExpectedPodSetsCount(j.Spec.RayClusterSpec)
-	if j.Spec.SubmissionMode == rayv1.K8sJobMode {
-		expectedLen++
-	}
-
-	if len(podSetsInfo) != expectedLen {
+	if len(podSetsInfo) != j.expectedPodSetsCount() {
 		return false
 	}
 
-	changed := raycluster.RestorePodSetsInfo(j.Spec.RayClusterSpec, podSetsInfo)
+	// RayCluster pod sets come first, the optional submitter pod set is last.
+	rayClusterLen := raycluster.ExpectedPodSetsCount(j.Spec.RayClusterSpec)
+	changed := raycluster.RestorePodSetsInfo(j.Spec.RayClusterSpec, podSetsInfo[:rayClusterLen])
 
 	// submitter
 	if j.Spec.SubmissionMode == rayv1.K8sJobMode {
 		submitterPod := getSubmitterTemplate(j)
-		info := podSetsInfo[expectedLen-1]
+		info := podSetsInfo[len(podSetsInfo)-1]
 		changed = podset.RestorePodSpec(&submitterPod.ObjectMeta, &submitterPod.Spec, info) || changed
 	}
 
