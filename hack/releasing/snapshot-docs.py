@@ -67,17 +67,20 @@ def tree_has_entries(ref, path):
     return bool(git("ls-tree", "--name-only", ref, "--", path).strip())
 
 
-# Site params that name this release and must be frozen into the snapshot: the
-# docs use {{< param "version" >}} shortcodes that otherwise resolve to main's
-# current (newer) release, so an archived vX page would show the wrong version.
-FROZEN_PARAMS = ("version", "chart_version")
+# Site params that name this release. The docs read these (via the `param`
+# shortcode and templates like upgrade-policy-example) and would otherwise
+# resolve to main's current, newer release, so an archived vX page would show
+# the wrong version. They are pinned per-snapshot via the _index.md cascade
+# (see rewrite_docs) rather than by rewriting the content, keeping snapshots
+# free of per-release churn.
+RELEASE_PARAMS = ("version", "chart_version")
 
 
-def frozen_params(ref):
+def release_params(ref):
     """Read the release-naming params from the source ref's site/hugo.toml."""
     hugo_toml = git("show", f"{ref}:site/hugo.toml")
     values = {}
-    for key in FROZEN_PARAMS:
+    for key in RELEASE_PARAMS:
         m = re.search(rf'^\s*{key}\s*=\s*"([^"]+)"', hugo_toml, re.MULTILINE)
         if m:
             values[key] = m.group(1)
@@ -136,14 +139,6 @@ def prune(parent, keep):
 
 def rewrite_docs(dst, short, params):
     """Apply the frozen-snapshot text rewrites in place across the snapshot tree."""
-    # Freeze release-naming params to literal values (Karpenter-style): the docs
-    # reference {{< param "version" >}} etc., which Hugo would resolve to main's
-    # current release; bake in this release's values so the archived pages are
-    # self-contained and show the correct version.
-    param_res = [
-        (re.compile(rf'\{{\{{<\s*param\s+"{key}"\s*>\}}\}}'), val)
-        for key, val in params.items()
-    ]
     # Rewrite internal doc links so the frozen snapshot navigates within itself.
     # Inserts /v0.X before /docs/ in markdown-link and absolute-URL contexts,
     # preserving an optional locale prefix (e.g. /zh-cn/docs/ -> /zh-cn/v0.X/docs/).
@@ -165,8 +160,6 @@ def rewrite_docs(dst, short, params):
         if path.suffix not in (".md", ".html") or not path.is_file():
             continue
         text = path.read_text()
-        for pattern, repl in param_res:
-            text = pattern.sub(repl, text)
         for pattern, repl in link_res:
             text = pattern.sub(repl, text)
         if path.suffix == ".md":
@@ -175,15 +168,39 @@ def rewrite_docs(dst, short, params):
             text = menu_re.sub("", text)
         path.write_text(text)
 
-    # Force `type: docs` on the snapshot so Docsy applies the docs layout (sidebar +
-    # content). Docsy keys that layout on the section/type being "docs", but nesting
-    # under /v0.X/docs makes Hugo's section "v0.X"; the cascade restores it for all
-    # pages in the snapshot. Without this the versioned pages render blank.
+    # Inject snapshot-wide front matter into the section _index.md:
+    #   - type: docs (+ cascade) so Docsy applies the docs layout (sidebar +
+    #     content). Docsy keys that layout on the section/type being "docs", but
+    #     nesting under /v0.X/docs makes Hugo's section "v0.X"; the cascade
+    #     restores it for every page in the snapshot (else pages render blank).
+    #   - the release-naming params (version/chart_version/docs_minor) as page
+    #     params + a cascade, so {{< param "version" >}} and templates that read
+    #     .Page.Param resolve to this release's values instead of main's current
+    #     release. This freezes the version without rewriting page content.
     index = dst / "_index.md"
     if index.is_file():
         text = index.read_text()
-        text = re.sub(r"\A---\n", "---\ntype: docs\ncascade:\n  type: docs\n", text, count=1)
+        text = re.sub(r"\A---\n", _index_front_matter(short, params), text, count=1)
         index.write_text(text)
+
+
+def _index_front_matter(short, params):
+    """Build the injected _index.md front matter block (type + frozen params)."""
+    def param_lines(indent):
+        lines = [f"{indent}docs_minor: {short}"]
+        lines += [f"{indent}{key}: {params[key]}" for key in RELEASE_PARAMS if key in params]
+        return "\n".join(lines)
+
+    return (
+        "---\n"
+        "type: docs\n"
+        "params:\n"
+        f"{param_lines('  ')}\n"
+        "cascade:\n"
+        "  type: docs\n"
+        "  params:\n"
+        f"{param_lines('    ')}\n"
+    )
 
 
 def prefix_aliases(text, short):
@@ -262,7 +279,7 @@ def main():
     source_ref = sys.argv[2] if len(sys.argv) > 2 else f"release-{minor}"
 
     locales = discover_locales(source_ref)
-    params = frozen_params(source_ref)
+    params = release_params(source_ref)
 
     for locale in locales:
         docs_src = f"site/content/{locale}/docs"

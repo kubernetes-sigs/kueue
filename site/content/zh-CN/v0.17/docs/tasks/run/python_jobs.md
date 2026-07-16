@@ -59,7 +59,7 @@ python install-kueue-queues.py
 你也可以指定版本：
 
 ```bash
-python install-kueue-queues.py --version v0.17.7
+python install-kueue-queues.py --version {{< param "version" >}}
 ```
 
 ### 示例作业 {#sample-job}

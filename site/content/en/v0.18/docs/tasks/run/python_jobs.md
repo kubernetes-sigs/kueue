@@ -60,7 +60,7 @@ python install-kueue-queues.py
 You can also target a specific version:
 
 ```bash
-python install-kueue-queues.py --version v0.18.3
+python install-kueue-queues.py --version {{< param "version" >}}
 ```
 
 ### Sample Job

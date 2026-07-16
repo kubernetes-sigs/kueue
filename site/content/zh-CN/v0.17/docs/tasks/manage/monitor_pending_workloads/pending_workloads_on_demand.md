@@ -27,7 +27,7 @@ Make sure the following conditions are met:
 To install the [API Priority and Fairness](https://kubernetes.io/docs/concepts/cluster-administration/flow-control/) configuration for the visibility API apply manifests:
 
 ```shell
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.17.7/visibility-apf.yaml
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/visibility-apf.yaml
 ```
 
 ### Directly accessing the Visibility API

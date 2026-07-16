@@ -20,15 +20,15 @@ kubectl krew install kueue
 On Linux:
 
 {{< tabpane lang="shell" persist=disabled >}}
-{{< tab header="AMD64 / x86_64"  >}}curl -Lo ./kubectl-kueue https://github.com/kubernetes-sigs/kueue/releases/download/v0.17.7/kubectl-kueue-linux-amd64{{< /tab >}}
-{{< tab header="ARM64" >}}curl -Lo ./kubectl-kueue https://github.com/kubernetes-sigs/kueue/releases/download/v0.17.7/kubectl-kueue-linux-arm64{{< /tab >}}
+{{< tab header="AMD64 / x86_64"  >}}curl -Lo ./kubectl-kueue https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kubectl-kueue-linux-amd64{{< /tab >}}
+{{< tab header="ARM64" >}}curl -Lo ./kubectl-kueue https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kubectl-kueue-linux-arm64{{< /tab >}}
 {{< /tabpane >}}
 
 On Mac:
 
 {{< tabpane lang="shell" persist=disabled >}}
-{{< tab header="AMD64 / x86_64" >}}curl -Lo ./kubectl-kueue https://github.com/kubernetes-sigs/kueue/releases/download/v0.17.7/kubectl-kueue-darwin-amd64{{< /tab >}}
-{{< tab header="ARM64" >}}curl -Lo ./kubectl-kueue https://github.com/kubernetes-sigs/kueue/releases/download/v0.17.7/kubectl-kueue-darwin-arm64{{< /tab >}}
+{{< tab header="AMD64 / x86_64" >}}curl -Lo ./kubectl-kueue https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kubectl-kueue-darwin-amd64{{< /tab >}}
+{{< tab header="ARM64" >}}curl -Lo ./kubectl-kueue https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kubectl-kueue-darwin-arm64{{< /tab >}}
 {{< /tabpane >}}
 
 ### 2. Make the kubectl-kueue binary executable.
