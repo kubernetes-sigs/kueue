@@ -17,7 +17,7 @@ limitations under the License.
 package metrics
 
 import (
-	"maps"
+	"iter"
 	"slices"
 
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -62,19 +62,14 @@ func NewCustomLabels(entries []configapi.ControllerMetricsCustomLabel) *CustomLa
 // LabelNames returns the computed metric label names (e.g. "custom_team")
 // for the requested set of sources.
 // The labels are ordered by source kind then by the order of definition in the config.
-// This order must be consistent with the CustomLabels.GetFor method.
 func (cl *CustomLabels) LabelNames(srcs ...configapi.SourceKind) []string {
 	if cl == nil || len(srcs) == 0 {
 		return nil
 	}
-	slices.Sort(srcs)
-	srcs = slices.Compact(srcs)
 
 	labels := make([]string, 0)
-	for _, kind := range srcs {
-		if store, ok := cl.m[kind]; ok {
-			labels = append(labels, store.labelNames...)
-		}
+	for store := range cl.labelStoreIter(srcs...) {
+		labels = append(labels, store.labelNames...)
 	}
 
 	if len(labels) == 0 {
@@ -109,17 +104,15 @@ func (cl *CustomLabels) Get(kind configapi.SourceKind, ref string) []string {
 }
 
 // GetFor returns a list of label values, ordered by source kind then by the order of definition in the config.
-// This order must be consistent with the CustomLabels.LabelNames method.
 func (cl *CustomLabels) GetFor(sourceMap map[configapi.SourceKind]string) []string {
 	if cl == nil || len(sourceMap) == 0 {
 		return nil
 	}
 
 	vals := make([]string, 0)
-	for _, kind := range slices.Sorted(maps.Keys(sourceMap)) {
-		if store, ok := cl.m[kind]; ok {
-			vals = append(vals, store.get(sourceMap[kind])...)
-		}
+	srcs := sets.KeySet(sourceMap).UnsortedList()
+	for store, kind := range cl.labelStoreIter(srcs...) {
+		vals = append(vals, store.get(sourceMap[kind])...)
 	}
 	if len(vals) == 0 {
 		return nil
@@ -132,6 +125,20 @@ func (cl *CustomLabels) Delete(kind configapi.SourceKind, ref string) {
 		return
 	}
 	cl.m[kind].delete(ref)
+}
+
+func (cl *CustomLabels) labelStoreIter(srcs ...configapi.SourceKind) iter.Seq2[*SourceKindLabelStore, configapi.SourceKind] {
+	return func(yield func(*SourceKindLabelStore, configapi.SourceKind) bool) {
+		slices.Sort(srcs)
+		srcs = slices.Compact(srcs)
+		for _, kind := range srcs {
+			if store, ok := cl.m[kind]; ok {
+				if !yield(store, kind) {
+					return
+				}
+			}
+		}
+	}
 }
 
 func newSourceKindLabelStore(sourceKind configapi.SourceKind, labelSpecs []configapi.ControllerMetricsCustomLabel) *SourceKindLabelStore {
