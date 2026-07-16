@@ -235,7 +235,7 @@ type ControllerMetricsCustomLabel struct {
 	// - Cohort
 	// - LocalQueue
 	// - ClusterQueue
-	// - Workloads
+	// - Workload
 	// +optional
 	SourceKind *SourceKind `json:"sourceKind,omitempty"`
 
