@@ -2831,6 +2831,28 @@ func TestValidateCustomLabels(t *testing.T) {
 				},
 			},
 		},
+		"duplicate tracked values": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{
+								Name:          "team",
+								SourceKind:    ptr.To(configapi.SourceKindCohort),
+								TrackedValues: []string{"a", "b", "a"},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "metrics.customLabels[0].trackedValues",
+					Detail: "must not contain duplicates",
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {

@@ -824,6 +824,9 @@ func validateCustomLabels(c *configapi.Configuration) field.ErrorList {
 		} else if len(entry.TrackedValues) > maxTrackedCustomLabelValues {
 			allErrs = append(allErrs, field.TooMany(fldPath.Child("trackedValues"), len(entry.TrackedValues), maxTrackedCustomLabelValues))
 		}
+		if sets.New(entry.TrackedValues...).Len() < len(entry.TrackedValues) {
+			allErrs = append(allErrs, field.Invalid(fldPath.Child("trackedValues"), entry.TrackedValues, "must not contain duplicates"))
+		}
 	}
 
 	for _, kind := range slices.Sorted(maps.Keys(countPerSourceKind)) {
