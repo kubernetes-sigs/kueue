@@ -10,9 +10,9 @@ jobs:
       github.event.issue.pull_request == null &&
       (contains(github.event.comment.body, '/sync-release-notes') ||
        contains(github.event.comment.body, '/tag-release') ||
-       contains(github.event.comment.body, '/create-draft-release')) ||
+       contains(github.event.comment.body, '/create-draft-release') ||
        contains(github.event.comment.body, '/wait-for-images') ||
-       contains(github.event.comment.body, '/wait-for-prod-images')
+       contains(github.event.comment.body, '/wait-for-prod-images'))
     outputs:
       command: ${{ steps.parse.outputs.command }}
       version: ${{ steps.parse.outputs.version }}
