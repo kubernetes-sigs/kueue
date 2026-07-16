@@ -120,29 +120,17 @@ func forceDeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Names
 	return nil
 }
 
-var (
-	cfg       *rest.Config
-	k8sClient client.Client
-	ctx       context.Context
-	fwk       *framework.Framework
-	qManager  *qcache.Manager
-)
-
-func Setup(c context.Context, k client.Client, f *framework.Framework, cf *rest.Config) {
-	ctx = c
-	k8sClient = k
-	fwk = f
-	cfg = cf
-}
-
-func SetQManager(q *qcache.Manager) {
-	qManager = q
-}
-
-func RunTASIntegrationTests(
-	managerSetup func(resourceTransformations ...config.ResourceTransformation) func(ctx context.Context, mgr manager.Manager),
-	managerSetupWithConfig func(controllersCfg *config.Configuration, resourceTransformations ...config.ResourceTransformation) func(ctx context.Context, mgr manager.Manager),
+func SetupIntegrationTests(
+	getTC func() *TestContext,
+	setupManager func(controllersCfg *config.Configuration, resourceTransformations ...config.ResourceTransformation) func(ctx context.Context, mgr manager.Manager),
 ) {
+	var (
+		cfg       *rest.Config
+		k8sClient client.Client
+		ctx       context.Context
+		fwk       *framework.Framework
+		qManager  *qcache.Manager
+	)
 
 	ginkgo.Describe("Single-cluster Topology Aware Scheduling", ginkgo.Ordered, func() {
 	var (
@@ -150,7 +138,15 @@ func RunTASIntegrationTests(
 	)
 
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup())
+		tc := getTC()
+		cfg = tc.Cfg
+		k8sClient = tc.K8sClient
+		ctx = tc.Ctx
+		fwk = tc.Fwk
+
+		fwk.StartManager(ctx, cfg, setupManager(&config.Configuration{}))
+
+		qManager = tc.QManager
 	})
 
 	ginkgo.AfterAll(func() {
@@ -959,7 +955,7 @@ func RunTASIntegrationTests(
 
 				ginkgo.By("restart controllers", func() {
 					fwk.StopManager(ctx)
-					fwk.StartManager(ctx, cfg, managerSetup())
+					fwk.StartManager(ctx, cfg, setupManager(&config.Configuration{}))
 				})
 
 				ginkgo.By("verify wl2 is still not admitted", func() {
@@ -4370,7 +4366,7 @@ func RunTASIntegrationTests(
 
 				ginkgo.By("restart Kueue manager", func() {
 					fwk.StopManager(ctx)
-					fwk.StartManager(ctx, cfg, managerSetup())
+					fwk.StartManager(ctx, cfg, setupManager(&config.Configuration{}))
 				})
 
 				for _, node := range nodes {
@@ -4827,7 +4823,7 @@ func RunTASIntegrationTests(
 
 				ginkgo.By("restart Kueue manager", func() {
 					fwk.StopManager(ctx)
-					fwk.StartManager(ctx, cfg, managerSetup())
+					fwk.StartManager(ctx, cfg, setupManager(&config.Configuration{}))
 				})
 
 				ginkgo.By("verify admission for the workload", func() {
@@ -6903,8 +6899,14 @@ ginkgo.Describe("Topology Aware Scheduling – Resource Transformation: Retain C
 	)
 
 	ginkgo.BeforeAll(func() {
+		tc := getTC()
+		cfg = tc.Cfg
+		k8sClient = tc.K8sClient
+		ctx = tc.Ctx
+		fwk = tc.Fwk
+
 		// Starts the manager with a single retain transformation: 1 CPU → 1 cpu_credits
-		fwk.StartManager(ctx, cfg, managerSetup(config.ResourceTransformation{
+		fwk.StartManager(ctx, cfg, setupManager(&config.Configuration{}, config.ResourceTransformation{
 			Input:    corev1.ResourceCPU,
 			Strategy: ptr.To(config.Retain),
 			Outputs:  corev1.ResourceList{cpuCredits: resource.MustParse("1")},
@@ -7070,6 +7072,14 @@ ginkgo.Describe("Topology Aware Scheduling – Resource Transformation: Retain C
 })
 
 ginkgo.Describe("Topology validations", func() {
+	ginkgo.BeforeEach(func() {
+		tc := getTC()
+		cfg = tc.Cfg
+		k8sClient = tc.K8sClient
+		ctx = tc.Ctx
+		fwk = tc.Fwk
+	})
+
 	ginkgo.When("Creating a Topology", func() {
 		ginkgo.DescribeTable("Validate Topology on creation", func(topology *kueue.Topology, matcher types.GomegaMatcher) {
 			err := k8sClient.Create(ctx, topology)
@@ -7151,7 +7161,13 @@ ginkgo.Describe("Topology Aware Scheduling – WaitForPodsReady with UnhealthyNo
 	)
 
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetupWithConfig(&config.Configuration{
+		tc := getTC()
+		cfg = tc.Cfg
+		k8sClient = tc.K8sClient
+		ctx = tc.Ctx
+		fwk = tc.Fwk
+
+		fwk.StartManager(ctx, cfg, setupManager(&config.Configuration{
 			WaitForPodsReady: &config.WaitForPodsReady{
 				Timeout:         metav1.Duration{Duration: 5 * time.Minute},
 				RecoveryTimeout: &metav1.Duration{Duration: 1 * time.Second},

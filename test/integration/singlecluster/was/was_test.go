@@ -17,10 +17,14 @@ limitations under the License.
 package was
 
 import (
+	"github.com/onsi/ginkgo/v2"
+
 	"sigs.k8s.io/kueue/test/integration/singlecluster/tas/shared"
 )
 
-var _ = func() bool {
-	shared.RunTASIntegrationTests(managerSetup, managerSetupWithConfig)
-	return true
-}()
+var _ = ginkgo.Describe("TAS Tests", func() {
+	shared.SetupIntegrationTests(
+		func() *shared.TestContext { return &tc },
+		managerSetupWithConfig,
+	)
+})

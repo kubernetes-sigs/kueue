@@ -52,8 +52,7 @@ var (
 	k8sClient client.Client
 	ctx       context.Context
 	fwk       *framework.Framework
-	// Cleanup after https://github.com/kubernetes-sigs/kueue/issues/8653
-	qManager *qcache.Manager
+	tc        shared.TestContext
 )
 
 func TestAPIs(t *testing.T) {
@@ -69,7 +68,12 @@ var _ = ginkgo.BeforeSuite(func() {
 	}
 	cfg = fwk.Init()
 	ctx, k8sClient = fwk.SetupClient(cfg)
-	shared.Setup(ctx, k8sClient, fwk, cfg)
+	tc = shared.TestContext{
+		Ctx:       ctx,
+		K8sClient: k8sClient,
+		Fwk:       fwk,
+		Cfg:       cfg,
+	}
 })
 
 var _ = ginkgo.AfterSuite(func() {
@@ -102,8 +106,7 @@ func managerSetupWithConfig(
 			qcache.WithPreemptionExpectations(preemptionExpectations),
 		}
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
-		qManager = queues
-		shared.SetQManager(qManager)
+		tc.QManager = queues
 
 		failedCtrl, err := core.SetupControllers(
 			mgr,
@@ -145,8 +148,4 @@ func managerSetupWithConfig(
 	}
 }
 
-func managerSetup(
-	resourceTransformations ...config.ResourceTransformation,
-) func(ctx context.Context, mgr manager.Manager) {
-	return managerSetupWithConfig(&config.Configuration{}, resourceTransformations...)
-}
+
