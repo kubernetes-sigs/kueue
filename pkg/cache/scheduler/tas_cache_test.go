@@ -8041,6 +8041,7 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TASMultiLayerTopology, true)
+			features.SetFeatureGateDuringTest(t, features.TASCacheNodeMatchResults, true)
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, log := utiltesting.ContextWithLog(t)
 
