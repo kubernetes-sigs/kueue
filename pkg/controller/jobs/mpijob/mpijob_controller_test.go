@@ -385,7 +385,7 @@ func TestRestorePodSetsInfo(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			if gotChanged := tc.job.RestorePodSetsInfo(tc.podSetsInfo); gotChanged != tc.wantChanged {
+			if gotChanged := tc.job.RestorePodSetsInfo(t.Context(), tc.podSetsInfo); gotChanged != tc.wantChanged {
 				t.Errorf("RestorePodSetsInfo() = %v, want %v", gotChanged, tc.wantChanged)
 			}
 		})

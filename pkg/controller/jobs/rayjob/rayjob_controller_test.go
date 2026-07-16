@@ -901,7 +901,7 @@ func TestNodeSelectors(t *testing.T) {
 
 			if tc.wantRunError == nil {
 				genJob.Suspend()
-				genJob.RestorePodSetsInfo(tc.restoreInfo)
+				genJob.RestorePodSetsInfo(t.Context(), tc.restoreInfo)
 				if diff := cmp.Diff(tc.wantFinal, tc.job); diff != "" {
 					t.Errorf("Unexpected job after restore (-want/+got): %s", diff)
 				}
@@ -966,7 +966,7 @@ func TestRestorePodSetsInfo(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			genJob := (*RayJob)(tc.job)
-			if gotChanged := genJob.RestorePodSetsInfo(tc.podSetsInfo); gotChanged != tc.wantChanged {
+			if gotChanged := genJob.RestorePodSetsInfo(t.Context(), tc.podSetsInfo); gotChanged != tc.wantChanged {
 				t.Errorf("RestorePodSetsInfo() = %v, want %v", gotChanged, tc.wantChanged)
 			}
 		})

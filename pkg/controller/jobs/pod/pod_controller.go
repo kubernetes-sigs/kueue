@@ -348,7 +348,7 @@ func (p *Pod) RunWithPodSetsInfo(_ context.Context, _ client.Client, _ []podset.
 }
 
 // RestorePodSetsInfo will restore the original node affinity and podSet counts of the job.
-func (p *Pod) RestorePodSetsInfo(_ []podset.PodSetInfo) bool {
+func (p *Pod) RestorePodSetsInfo(_ context.Context, _ []podset.PodSetInfo) bool {
 	// Not implemented since Pods cannot be updated, they can only be terminated.
 	return false
 }

@@ -192,7 +192,7 @@ func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.Po
 	}
 
 	if err := clientutil.Patch(ctx, c, object, func() (bool, error) {
-		j.RestorePodSetsInfo(podSetsInfo)
+		j.RestorePodSetsInfo(ctx, podSetsInfo)
 		delete(j.Annotations, StoppingAnnotation)
 		return true, nil
 	}); err != nil {
@@ -285,7 +285,7 @@ func (j *Job) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSetsIn
 	return podset.Merge(&j.Spec.Template.ObjectMeta, &j.Spec.Template.Spec, info)
 }
 
-func (j *Job) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
+func (j *Job) RestorePodSetsInfo(_ context.Context, podSetsInfo []podset.PodSetInfo) bool {
 	if len(podSetsInfo) == 0 {
 		return false
 	}

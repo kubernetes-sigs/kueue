@@ -266,8 +266,13 @@ func UpdateRayClusterSpecToRunWithPodSetsInfo(rayClusterSpec *rayv1.RayClusterSp
 	return nil
 }
 
-func RestorePodSetsInfo(rayClusterSpec *rayv1.RayClusterSpec, podSetsInfo []podset.PodSetInfo) bool {
-	if len(podSetsInfo) != ExpectedPodSetsCount(rayClusterSpec) {
+func RestorePodSetsInfo(ctx context.Context, rayClusterSpec *rayv1.RayClusterSpec, podSetsInfo []podset.PodSetInfo) bool {
+	if expected := ExpectedPodSetsCount(rayClusterSpec); len(podSetsInfo) != expected {
+		ctrl.LoggerFrom(ctx).V(2).Info(
+			"Skipping pod set info restore because the pod set count does not match the admitted workload",
+			"expectedCount", expected,
+			"gotCount", len(podSetsInfo),
+		)
 		return false
 	}
 

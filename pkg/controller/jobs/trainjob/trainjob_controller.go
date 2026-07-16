@@ -302,7 +302,7 @@ func (t *TrainJob) Stop(ctx context.Context, c client.Client, podSetsInfo []pods
 	}
 
 	if err := clientutil.Patch(ctx, c, t.Object(), func() (bool, error) {
-		if !t.RestorePodSetsInfo(podSetsInfo) {
+		if !t.RestorePodSetsInfo(ctx, podSetsInfo) {
 			return false, errors.New("error restoring info to the trainjob")
 		}
 		return true, nil
@@ -312,7 +312,7 @@ func (t *TrainJob) Stop(ctx context.Context, c client.Client, podSetsInfo []pods
 	return true, nil
 }
 
-func (t *TrainJob) RestorePodSetsInfo(_ []podset.PodSetInfo) bool {
+func (t *TrainJob) RestorePodSetsInfo(_ context.Context, _ []podset.PodSetInfo) bool {
 	kueueRuntimePatch := getKueueRuntimePatch(t)
 	if kueueRuntimePatch == nil {
 		return false
