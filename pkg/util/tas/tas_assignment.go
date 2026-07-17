@@ -24,6 +24,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 )
 
@@ -306,7 +307,12 @@ func ComputeUsagePerDomain(ta *TopologyAssignment, singlePodRequests resources.R
 	usage := make(map[TopologyDomainID]resources.Requests)
 	for _, domain := range ta.Domains {
 		domainID := DomainID(domain.Values)
-		domainUsage := singlePodRequests.ScaledUp(int64(domain.Count))
+		var domainUsage resources.Requests
+		if features.Enabled(features.TASCachingRemainingResources) && domain.Count == 1 {
+			domainUsage = singlePodRequests.Clone()
+		} else {
+			domainUsage = singlePodRequests.ScaledUp(int64(domain.Count))
+		}
 		domainUsage.Add(resources.Requests{corev1.ResourcePods: int64(domain.Count)})
 		usage[domainID] = domainUsage
 	}
