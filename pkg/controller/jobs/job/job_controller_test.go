@@ -4566,3 +4566,33 @@ func TestCleanLabels(t *testing.T) {
 		})
 	}
 }
+
+func TestCompletedIndexesCount(t *testing.T) {
+	cases := map[string]struct {
+		completedIndexes string
+		completions      int32
+		want             int32
+	}{
+		"empty":                         {completedIndexes: "", completions: 10, want: 0},
+		"zero completions":              {completedIndexes: "0-9", completions: 0, want: 0},
+		"single index":                  {completedIndexes: "0", completions: 10, want: 1},
+		"single range":                  {completedIndexes: "0-4", completions: 10, want: 5},
+		"mixed intervals":               {completedIndexes: "0-4,7,9-11", completions: 10, want: 7},
+		"surviving low indexes":         {completedIndexes: "0-8", completions: 10, want: 9},
+		"all completed within range":    {completedIndexes: "0-14", completions: 10, want: 10},
+		"range straddling the cap":      {completedIndexes: "5-19", completions: 10, want: 5},
+		"all removed (above the cap)":   {completedIndexes: "10-19", completions: 10, want: 0},
+		"range capped tighter":          {completedIndexes: "0-4", completions: 3, want: 3},
+		"discrete indexes":              {completedIndexes: "3,5,7", completions: 10, want: 3},
+		"discrete indexes partly above": {completedIndexes: "3,5,12", completions: 10, want: 2},
+		"malformed interval skipped":    {completedIndexes: "abc,0-2", completions: 10, want: 3},
+		"malformed range end skipped":   {completedIndexes: "0-x,4", completions: 10, want: 1},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := completedIndexesCount(tc.completedIndexes, tc.completions); got != tc.want {
+				t.Errorf("completedIndexesCount(%q, %d) = %d, want %d", tc.completedIndexes, tc.completions, got, tc.want)
+			}
+		})
+	}
+}
