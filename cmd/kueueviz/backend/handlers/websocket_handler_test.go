@@ -36,12 +36,6 @@ import (
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-var closedChan = func() <-chan struct{} {
-	ch := make(chan struct{})
-	close(ch)
-	return ch
-}()
-
 const (
 	// testTokenRevalidationInterval is a short interval used in tests to quickly
 	// trigger the token re-validation ticker without waiting 30 seconds.
@@ -77,16 +71,6 @@ func (m *mockTokenValidator) setValid(valid bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.valid = valid
-}
-
-type alwaysDone struct{}
-
-func (alwaysDone) Name() string {
-	return "mock"
-}
-
-func (alwaysDone) Done() <-chan struct{} {
-	return closedChan
 }
 
 type mockResourceEventHandlerRegistration struct{}
