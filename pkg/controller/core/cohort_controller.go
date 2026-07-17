@@ -140,7 +140,7 @@ func (r *CohortReconciler) Create(e event.TypedCreateEvent[*kueue.Cohort]) bool 
 func (r *CohortReconciler) Update(e event.TypedUpdateEvent[*kueue.Cohort]) bool {
 	log := r.logger().WithValues("cohort", klog.KObj(e.ObjectNew))
 
-	clUpdateRequired := r.customLabels.UpdateRequired(
+	clUpdateRequired := features.Enabled(features.CustomMetricLabels) && r.customLabels.UpdateRequired(
 		config.SourceKindCohort,
 		e.ObjectNew.GetName(),
 		e.ObjectNew.GetLabels(),

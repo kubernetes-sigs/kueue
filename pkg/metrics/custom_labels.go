@@ -69,7 +69,7 @@ func (cl *CustomLabels) LabelNames(srcs ...configapi.SourceKind) []string {
 	}
 
 	labels := make([]string, 0)
-	for store := range cl.labelStoreIter(srcs...) {
+	for store := range cl.labelStoreIter(srcs) {
 		labels = append(labels, store.labelNames...)
 	}
 
@@ -112,7 +112,7 @@ func (cl *CustomLabels) GetFor(sourceMap map[configapi.SourceKind]string) []stri
 
 	vals := make([]string, 0)
 	srcs := sets.KeySet(sourceMap).UnsortedList()
-	for store, kind := range cl.labelStoreIter(srcs...) {
+	for store, kind := range cl.labelStoreIter(srcs) {
 		vals = append(vals, store.get(sourceMap[kind])...)
 	}
 	if len(vals) == 0 {
@@ -132,11 +132,12 @@ func (cl *CustomLabels) enabled() bool {
 	return cl != nil && features.Enabled(features.CustomMetricLabels)
 }
 
-func (cl *CustomLabels) labelStoreIter(srcs ...configapi.SourceKind) iter.Seq2[*SourceKindLabelStore, configapi.SourceKind] {
+func (cl *CustomLabels) labelStoreIter(srcs []configapi.SourceKind) iter.Seq2[*SourceKindLabelStore, configapi.SourceKind] {
+	orderedSrcs := slices.Clone(srcs)
+	slices.Sort(orderedSrcs)
+	orderedSrcs = slices.Compact(orderedSrcs)
 	return func(yield func(*SourceKindLabelStore, configapi.SourceKind) bool) {
-		slices.Sort(srcs)
-		srcs = slices.Compact(srcs)
-		for _, kind := range srcs {
+		for _, kind := range orderedSrcs {
 			if store, ok := cl.m[kind]; ok {
 				if !yield(store, kind) {
 					return
