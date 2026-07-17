@@ -456,12 +456,14 @@ def build_reco_json(data, reco, min_dur):
 
     n = len(per_build(data["series"].get("mem_used_bytes", {}), "mean", min_dur, exclude=oom))
     cpu_req_cur, mem_req_cur = const(data, "cpu_request_cores"), const(data, "mem_request_bytes", True)
+    durs = [d for _, d in per_build_cpu_work(data["series"].get("cpu_used_cores", {}), min_dur, exclude=oom)]
     return {
         "job": data.get("job"),
         "range_days": round((data["end"] - data["start"]) / 86400, 2),
         "step_s": data.get("step"),
         "builds": n,
         "builds_oom_excluded": len(oom),
+        "avg_duration_min": round(float(np.mean(durs)), 2) if durs else None,
         "burstiness": compute_burstiness(data, min_dur),
         "cpu": {
             "algorithm": reco["cpu_algorithm"],

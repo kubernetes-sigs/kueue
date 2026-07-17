@@ -45,9 +45,9 @@ def main():
     if not rows:
         raise SystemExit(f"no recommendation.json under {args.workdir}/*/ — run the plot scripts first")
 
-    header = ("| job | builds | cur cpu req | cur cpu lim | cur mem req | cur mem lim "
+    header = ("| job | builds | avg dur (min) | cur cpu req | cur cpu lim | cur mem req | cur mem lim "
               "| rec cpu req | rec cpu lim | rec mem req | rec mem lim |")
-    sep = "|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|"
+    sep = "|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|"
     lines = [f"# CPU/memory right-sizing recommendations ({len(rows)} jobs)",
              "", "CPU values are cores; memory values are GiB.", "",
              header, sep]
@@ -66,7 +66,7 @@ def main():
         add("mem_req", m["request_current"], m["request_recommended"])
         add("mem_lim", m["limit_current"], m["limit_recommended"])
         lines.append(
-            f"| {r['job']} | {r['builds']} "
+            f"| {r['job']} | {r['builds']} | {num(r.get('avg_duration_min'))} "
             f"| {num(c['request_current'])} | {num(c['limit_current'])} "
             f"| {num(m['request_current'])} | {num(m['limit_current'])} "
             f"| {num(c['request_recommended'])} | {num(c['limit_recommended'])} "
