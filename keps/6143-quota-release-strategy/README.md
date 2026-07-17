@@ -31,16 +31,16 @@
 
 ## Summary
 
-This KEP aims to standardize the quota release strategy for terminating jobs.
+This KEP aims to standardize and configure the quota release strategy for terminating jobs.
 Currently, the Pod integration holds quota until pods reach a terminal phase,
 while most other integrations (e.g., batch/v1 Job) release quota as soon as
 pods begin terminating. This inconsistency leads to unnecessarily delayed
-admission and serialized preemption for Pod workloads. As a first step, this
-KEP introduces a `FastQuotaRelease` feature gate for the Pod integration to
-align it with the existing Job integration behavior. In future releases, this
-work may evolve into a configurable quota release strategy (e.g., a
-Configuration API knob) that allows administrators to select between different
-strategies for all integrations.
+admission and serialized preemption for Pod workloads. On the other hand,
+TopologyAwareScheduling (TAS) requires quota to be held until underlying pods
+are fully terminated to prevent scheduling failures on physically full nodes.
+To address both use cases, this KEP introduces a `.scheduling.quotaReleaseStrategy`
+Configuration API knob that allows administrators to select between different
+quota release strategies across all integrations.
 
 ## Motivation
 
@@ -62,9 +62,11 @@ Ultimately, this behavioral inconsistency between integrations leads to:
 
 ### Goals
 
-- Align the Pod integration's quota release behavior with the Job integration
-  by introducing a `FastQuotaRelease` feature gate (Alpha, disabled by default)
-  that releases quota as soon as all Pods have a `deletionTimestamp`.
+- Introduce a `.scheduling.quotaReleaseStrategy` Configuration API knob
+  that allows administrators to select when quota is released (either fast on
+  `deletionTimestamp` or delayed until terminal state).
+- Standardize the quota release behavior across all integrations (Pod, Job, JobSet, etc.)
+  based on this global configuration.
 
 ### Non-Goals
 
@@ -73,16 +75,20 @@ Ultimately, this behavioral inconsistency between integrations leads to:
 
 ## Proposal
 
-Introduce a `FastQuotaRelease` feature gate (Alpha, disabled by default) that
-modifies the Pod integration to release quota as soon as all Pods have a
-`deletionTimestamp`, regardless of whether they are still running. This aligns
-the Pod integration with how the batch/v1 Job integration already behaves,
-since the Kubernetes Job controller does not count terminating pods in
-`status.active`.
+Introduce a `.scheduling.quotaReleaseStrategy` field to the Kueue Configuration
+API with two supported modes:
 
-When the feature gate is disabled, the current behavior is preserved: quota is
-only released after all Pods have reached a terminal phase (`Succeeded` or
-`Failed`).
+1. `OnTermination`: (Default) Quota is released as soon as workloads are marked
+   terminating (e.g., all Pods have a `deletionTimestamp`). This preserves the
+   existing behavior of the Job integration and allows fast readmission of
+   preempted workloads.
+2. `OnTerminalBestEffort`: Quota is held until underlying pods are fully
+   terminated (completely dead and no longer consuming resources). This is critical
+   for TAS workloads where hardware constraints prevent new pods from running
+   until old pods physically release the hardware.
+
+The implementation will delegate to each integration's `job.IsActive()` function
+to respect this global configuration.
 
 ### User Stories
 
@@ -116,14 +122,14 @@ integration and other integrations, so it's a well established/understood
 behavior.
 
 #### Discrepancy could occur from actual available quota
-**Risk**: With fast quota release, if a pod gets "stuck" in a terminating
+**Risk**: With fast quota release (`OnTermination`), if a pod gets "stuck" in a terminating
 state, there may be a discrepancy between the amount of quota available and the
 actual resources available on the cluster. In fixed-size clusters where the sum
 of nominal quotas strictly equals cluster capacity, this can cause temporary
 capacity oversubscription.
 
-**Mitigation**: The feature is behind a feature gate (disabled by default),
-allowing administrators to opt in only when appropriate for their environment.
+**Mitigation**: Administrators running fixed-size bare-metal clusters (like
+TAS environments) can configure the `OnTerminalBestEffort` strategy.
 Additionally, [setup failure recovery](https://kueue.sigs.k8s.io/docs/tasks/manage/setup_failure_recovery/)
 provides a failure recovery mechanism that automatically transitions
 pods into the Failed phase when they are assigned to unreachable nodes and stuck
@@ -131,19 +137,23 @@ terminating.
 
 ## Design Details
 
-The `FastQuotaRelease` feature gate will be introduced as Alpha (disabled by
-default) in v0.17, with backports to v0.15 and v0.16 (also disabled by
-default).
+The `.scheduling.quotaReleaseStrategy` Configuration API will be introduced in
+v0.17 as an Alpha feature.
 
 ### Implementation overview
 
-The implementation delegates to the Pod integration's `job.IsActive()` function
-in `pkg/controller/jobs/pod/pod_controller.go`.
+The `Configuration` struct in `apis/config/v1beta1/configuration_types.go` will
+be updated to include a `Scheduling` struct containing the `QuotaReleaseStrategy`
+field.
 
-When the `FastQuotaRelease` feature gate is enabled, the `IsActive()` method is
-modified to treat any Pod with a `deletionTimestamp` as inactive. When disabled,
-the existing behavior is preserved: a Pod is only considered inactive once it
-has reached a terminal phase (`Succeeded` or `Failed`).
+This global configuration will be passed down to the `job.IsActive()` function
+of each integration (e.g., Pod, Job, JobSet) via the `JobReconciler` context.
+
+When `OnTerminalBestEffort` is selected, `IsActive()` will be modified to return
+true until all underlying pods have fully transitioned out of the terminating
+state (i.e., they are physically dead). When `OnTermination` is selected,
+`IsActive()` will return false as soon as the workload begins terminating
+(e.g., `deletionTimestamp` is present).
 
 No changes are needed to the generic reconciler. The existing flow already
 handles this:
@@ -166,20 +176,18 @@ None.
 
 #### Unit tests
 
-- `pkg/controller/jobs/pod`: Test `IsActive()` with the feature gate enabled
-  and disabled, covering:
-  - Pod with `deletionTimestamp` and feature gate enabled returns inactive.
-  - Pod with `deletionTimestamp` and feature gate disabled returns active
-    (unless in terminal phase).
+- `pkg/controller/jobs/pod` & `pkg/controller/jobs/job`: Test `IsActive()`
+  with both configuration strategies, covering:
+  - Pod with `deletionTimestamp` and `OnTermination` returns inactive.
+  - Pod with `deletionTimestamp` and `OnTerminalBestEffort` returns active.
   - Mixed groups with some terminating and some running Pods.
-  - Single Pod (non-group) behavior.
 
 #### Integration tests
 
-- Test that when a Pod workload is evicted with the feature gate enabled, quota
-  is released as soon as all Pods have a `deletionTimestamp`.
-- Test that preempted workloads are readmitted promptly after the preempted
-  Pods begin terminating.
+- Test that when a workload is evicted with `OnTermination`, quota is
+  released as soon as all Pods have a `deletionTimestamp`.
+- Test that when a workload is evicted with `OnTerminalBestEffort`, quota
+  is held until all Pods are fully terminated.
 
 #### e2e tests
 
@@ -189,38 +197,32 @@ None required for Alpha.
 
 #### Alpha (v0.17)
 
-- `FastQuotaRelease` feature gate (disabled by default)
-- Backport to v0.15 and v0.16 with feature gate disabled by default
+- `.scheduling.quotaReleaseStrategy` Configuration API introduced with
+  `OnTermination` and `OnTerminalBestEffort` modes.
+- Core integrations (Pod, Job, JobSet) support the API.
 
 #### Beta (v0.18)
 
-- Address feedback from Alpha users
-- Re-evaluate the enablement of `FastQuotaRelease` by default
-- Based on Alpha experience, evaluate whether a Configuration API knob (e.g.,
-  `.scheduling.quotaReleaseStrategy`) is warranted to allow administrators to
-  select between quota release strategies across all integrations
+- Address feedback from Alpha users.
+- Support added for all remaining integrations.
 
 ## Implementation History
 
 ## Alternatives
 
-### Modify the generic reconciler instead of the Pod controller
+### Modify the generic reconciler instead of the integration controllers
 
-Instead of changing just the Pod controller's `IsActive()` logic, the reconciler
-could be modified to release quota for any workload as soon as it's marked for
-preemption. This was considered because it would provide a single,
-integration-agnostic mechanism. However, the `job.IsActive()` approach was
-preferred because:
-- It keeps the change scoped and non-invasive
+Instead of changing the `IsActive()` logic within each integration, the reconciler
+could be modified to release quota based on the strategy. However, the
+`job.IsActive()` approach was preferred because:
+- It keeps the change scoped and allows integrations to define their own terminal states.
 - The job-specific `IsActive()` implementation is the established pattern for
-  controlling when to release quota
-- It maintains consistency with how other integrations already work
+  controlling when to release quota.
 
-### Configuration API knob instead of feature gates
+### Feature gates instead of Configuration API
 
-Instead of feature gates, a Configuration API field (e.g.,
-`.scheduling.quotaReleaseStrategy: OnTermination | OnTerminal`) could be
-introduced to allow administrators to select the quota release strategy across
-all integrations. This approach is intentionally deferred to a future release
-to first validate the consistency fix in Alpha and gather user feedback before
-designing a broader configuration surface.
+We originally considered introducing a `FastQuotaRelease` feature gate just for
+the Pod integration. This approach was rejected because it did not address the
+urgent TAS capacity gap for other integrations (like Job and JobSet), which
+require a global `OnTerminalBestEffort` configuration to delay quota release
+until hardware is physically freed.
