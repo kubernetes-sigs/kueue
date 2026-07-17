@@ -982,3 +982,35 @@ func TestIsBorrowingOn(t *testing.T) {
 		})
 	}
 }
+
+func TestPreciseWeightedShareSerialized(t *testing.T) {
+	cases := map[string]struct {
+		drs  DRS
+		want string
+	}{
+		"zero weight returning Inf": {
+			drs:  DRS{fairWeight: 0, unweightedRatio: 100},
+			want: "+Inf",
+		},
+		"zero unweighted ratio returns 0": {
+			drs:  DRS{fairWeight: 1, unweightedRatio: 0},
+			want: "0",
+		},
+		"regular integer division": {
+			drs:  DRS{fairWeight: 2, unweightedRatio: 400},
+			want: "200",
+		},
+		"decimal division": {
+			drs:  DRS{fairWeight: 4, unweightedRatio: 10},
+			want: "2.5",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := tc.drs.PreciseWeightedShareSerialized()
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("Unexpected string output (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
