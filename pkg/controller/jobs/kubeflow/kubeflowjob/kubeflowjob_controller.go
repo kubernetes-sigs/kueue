@@ -64,11 +64,12 @@ func (j *KubeflowJob) RunWithPodSetsInfo(ctx context.Context, _ client.Client, p
 	}
 	// The node selectors are provided in the same order as the generated list of
 	// podSets, use the same ordering logic to restore them.
+	log := ctrl.LoggerFrom(ctx)
 	for index := range podSetsInfo {
 		replicaType := orderedReplicaTypes[index]
 		info := podSetsInfo[index]
 		replica := &j.KFJobControl.ReplicaSpecs()[replicaType].Template
-		if err := podset.Merge(&replica.ObjectMeta, &replica.Spec, info); err != nil {
+		if err := podset.Merge(log, &replica.ObjectMeta, &replica.Spec, info); err != nil {
 			return err
 		}
 	}

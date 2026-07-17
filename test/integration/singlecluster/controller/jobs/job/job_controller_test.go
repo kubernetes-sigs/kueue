@@ -1039,6 +1039,81 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 				gomega.Expect(createdJob.Spec.Template.Labels).Should(gomega.HaveKeyWithValue("label-key", "old-label-value"))
 			})
 		})
+
+		ginkgo.It("should not admit workload if there is a conflict in annotations", framework.SlowSpec, func() {
+			// Negative counterpart of the stale workload-slice annotation scenario:
+			// only Kueue-managed annotations are overwritten on job start; a conflict
+			// on a user-provided annotation remains a permanent failure.
+			createdJob := &batchv1.Job{}
+			createdWorkload := &kueue.Workload{}
+			job := testingjob.MakeJob(jobName, ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Request(corev1.ResourceCPU, "5").
+				PodAnnotation("ann-key", "old-ann-value").
+				Obj()
+
+			ginkgo.By("creating the job with a pod annotation", func() {
+				util.MustCreate(ctx, k8sClient, job)
+			})
+
+			wlLookupKey := &types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: ns.Name}
+			ginkgo.By("fetch the created job & workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, *jobLookupKey, createdJob)).Should(gomega.Succeed())
+					g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(new(true)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, *wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("add a conflicting annotation to the admission check in PodSetUpdates", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var newWL kueue.Workload
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdWorkload), &newWL)).To(gomega.Succeed())
+					workloadpatching.SetAdmissionCheckState(&newWL.Status.AdmissionChecks, kueue.AdmissionCheckState{
+						Name:  "check",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: kueue.DefaultPodSetName,
+								Annotations: map[string]string{
+									"ann-key": "new-ann-value",
+								},
+							},
+						},
+					}, util.RealClock)
+					g.Expect(k8sClient.Status().Update(ctx, &newWL)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("attempt to admit the workload", func() {
+				admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueAc.Name)).
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "test-flavor", "1").
+						Count(createdWorkload.Spec.PodSets[0].Count).
+						Obj()).
+					Obj()
+				util.SetQuotaReservation(ctx, k8sClient, *wlLookupKey, admission)
+				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+			})
+
+			ginkgo.By("verify the workload is finished with FailedToStart", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, *wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+					g.Expect(createdWorkload.Status.Conditions).Should(
+						utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadFinished, jobframework.FailedToStartFinishedReason))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verify the job stays suspended with the old annotation value", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, *jobLookupKey, createdJob)).Should(gomega.Succeed())
+					g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(new(true)))
+					g.Expect(createdJob.Spec.Template.Annotations).Should(gomega.HaveKeyWithValue("ann-key", "old-ann-value"))
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			})
+		})
 	})
 })
 
@@ -4900,6 +4975,169 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 
 		ginkgo.By("old workload is finished")
 		util.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKeyFromObject(oldWorkloadSlice))
+	})
+
+	ginkgo.It("Should overwrite a stale workload-slice annotation when a new slice chain starts", func() {
+		// Regression test for kueue#12993: after the active workload slice is
+		// deleted manually, the job's pod template retains the slice-name
+		// annotation of the old chain. The replacement workload starts a new
+		// chain with a different slice name; starting the job used to fail
+		// permanently (FailedToStart) on the annotation conflict.
+		testJob := testingjob.MakeJob("stale-slice-annotation", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Request(corev1.ResourceCPU, "100m").
+			Parallelism(1).
+			Completions(3).
+			Obj()
+
+		ginkgo.By("creating an elastic job")
+		util.MustCreate(ctx, k8sClient, testJob)
+
+		ginkgo.By("admitting the original workload slice")
+		workloads := util.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)
+		originalSlice := workloads[0].DeepCopy()
+		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, originalSlice)
+
+		ginkgo.By("the unsuspended job's pod template carries the original slice name")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJob), testJob)).Should(gomega.Succeed())
+			g.Expect(ptr.Deref(testJob.Spec.Suspend, true)).Should(gomega.BeFalse())
+			g.Expect(testJob.Spec.Template.Annotations).Should(gomega.HaveKeyWithValue(kueue.WorkloadSliceNameAnnotation, originalSlice.Name))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("scaling the job up to create a replacement slice")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJob), testJob)).Should(gomega.Succeed())
+			testJob.Spec.Parallelism = ptr.To[int32](2)
+			g.Expect(k8sClient.Update(ctx, testJob)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		replacementSlice := util.ExpectNewWorkloadSlice(ctx, k8sClient, originalSlice)
+		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, replacementSlice)
+		util.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKeyFromObject(originalSlice))
+
+		ginkgo.By("the replacement slice's pod template contains the original slice annotation")
+		gomega.Expect(replacementSlice.Spec.PodSets[0].Template.Annotations).
+			Should(gomega.HaveKeyWithValue(kueue.WorkloadSliceNameAnnotation, originalSlice.Name))
+
+		ginkgo.By("deleting the replacement workload manually")
+		gomega.Expect(k8sClient.Delete(ctx, replacementSlice)).Should(gomega.Succeed())
+
+		ginkgo.By("a workload for a new slice chain is created with a different slice name")
+		var newChainSlice *kueue.Workload
+		gomega.Eventually(func(g gomega.Gomega) {
+			wlList := &kueue.WorkloadList{}
+			g.Expect(k8sClient.List(ctx, wlList, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+			active := util.FindNonFinishedWorkloads(wlList.Items)
+			g.Expect(active).Should(gomega.HaveLen(1))
+			newChainSlice = &active[0]
+			g.Expect(newChainSlice.Name).ShouldNot(gomega.BeElementOf(originalSlice.Name, replacementSlice.Name))
+			g.Expect(newChainSlice.Annotations).Should(gomega.HaveKeyWithValue(kueue.WorkloadSliceNameAnnotation, newChainSlice.Name))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("the new slice's pod template still contains the stale annotation of the old chain")
+		gomega.Expect(newChainSlice.Spec.PodSets[0].Template.Annotations).
+			Should(gomega.HaveKeyWithValue(kueue.WorkloadSliceNameAnnotation, originalSlice.Name))
+
+		ginkgo.By("the job restarts with the stale annotation overwritten by the new slice name")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJob), testJob)).Should(gomega.Succeed())
+			g.Expect(ptr.Deref(testJob.Spec.Suspend, true)).Should(gomega.BeFalse())
+			g.Expect(testJob.Spec.Template.Annotations).Should(gomega.HaveKeyWithValue(kueue.WorkloadSliceNameAnnotation, newChainSlice.Name))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("the new slice stays admitted and is not marked finished")
+		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, newChainSlice)
+		gomega.Consistently(func(g gomega.Gomega) {
+			wl := &kueue.Workload{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(newChainSlice), wl)).Should(gomega.Succeed())
+			g.Expect(workloadfinish.IsFinished(wl)).Should(gomega.BeFalse())
+		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("Should resume with the same slice chain after eviction by a stopped ClusterQueue", func() {
+		// Companion to the stale-annotation test above, using an eviction (here
+		// via ClusterQueue stopPolicy=HoldAndDrain) instead of a deletion. The
+		// workload slice survives, so the slice chain identity is preserved,
+		// but after a scale-up the pod template still carries the workload
+		// annotation of the first slice. Re-admitting the replacement slice
+		// used to fail permanently (FailedToStart) on that annotation conflict.
+		testJob := testingjob.MakeJob("evicted-slice", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Request(corev1.ResourceCPU, "100m").
+			Parallelism(1).
+			Completions(3).
+			Obj()
+
+		ginkgo.By("creating an elastic job")
+		util.MustCreate(ctx, k8sClient, testJob)
+
+		ginkgo.By("admitting the original workload slice")
+		workloads := util.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)
+		originalSlice := workloads[0].DeepCopy()
+		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, originalSlice)
+
+		ginkgo.By("scaling the job up to create a replacement slice")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJob), testJob)).Should(gomega.Succeed())
+			testJob.Spec.Parallelism = ptr.To[int32](2)
+			g.Expect(k8sClient.Update(ctx, testJob)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		replacementSlice := util.ExpectNewWorkloadSlice(ctx, k8sClient, originalSlice)
+		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, replacementSlice)
+		util.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKeyFromObject(originalSlice))
+
+		ginkgo.By("the unsuspended job's pod template carries the original slice name")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJob), testJob)).Should(gomega.Succeed())
+			g.Expect(ptr.Deref(testJob.Spec.Suspend, true)).Should(gomega.BeFalse())
+			g.Expect(testJob.Spec.Template.Annotations).Should(gomega.HaveKeyWithValue(kueue.WorkloadSliceNameAnnotation, originalSlice.Name))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("draining the ClusterQueue to evict the workload without deleting it")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).Should(gomega.Succeed())
+			clusterQueue.Spec.StopPolicy = ptr.To(kueue.HoldAndDrain)
+			g.Expect(k8sClient.Update(ctx, clusterQueue)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("the workload slice is evicted and the job is suspended")
+		gomega.Eventually(func(g gomega.Gomega) {
+			wl := &kueue.Workload{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(replacementSlice), wl)).Should(gomega.Succeed())
+			g.Expect(wl.Status.Conditions).Should(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadEvicted, kueue.WorkloadEvictedByClusterQueueStopped))
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJob), testJob)).Should(gomega.Succeed())
+			g.Expect(ptr.Deref(testJob.Spec.Suspend, false)).Should(gomega.BeTrue())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("resuming the ClusterQueue")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).Should(gomega.Succeed())
+			clusterQueue.Spec.StopPolicy = ptr.To(kueue.None)
+			g.Expect(k8sClient.Update(ctx, clusterQueue)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("the same workload slice is re-admitted and the job restarts with the same slice name")
+		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, replacementSlice)
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJob), testJob)).Should(gomega.Succeed())
+			g.Expect(ptr.Deref(testJob.Spec.Suspend, true)).Should(gomega.BeFalse())
+			g.Expect(testJob.Spec.Template.Annotations).Should(gomega.HaveKeyWithValue(kueue.WorkloadSliceNameAnnotation, originalSlice.Name))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("no new slice chain is started and the slice is not finished")
+		gomega.Consistently(func(g gomega.Gomega) {
+			wlList := &kueue.WorkloadList{}
+			g.Expect(k8sClient.List(ctx, wlList, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+			// Only the finished original slice and the re-admitted replacement exist.
+			g.Expect(wlList.Items).Should(gomega.HaveLen(2))
+			wl := &kueue.Workload{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(replacementSlice), wl)).Should(gomega.Succeed())
+			g.Expect(workloadfinish.IsFinished(wl)).Should(gomega.BeFalse())
+		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("Should handle rapid scale cycles without quota leaks", framework.SlowSpec, func() {

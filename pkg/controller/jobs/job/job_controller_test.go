@@ -178,6 +178,7 @@ func TestPodsReady(t *testing.T) {
 
 func TestPodSetsInfo(t *testing.T) {
 	testcases := map[string]struct {
+		featureGates         map[featuregate.Feature]bool
 		job                  *Job
 		runInfo, restoreInfo []podset.PodSetInfo
 		wantUnsuspended      *batchv1.Job
@@ -269,6 +270,32 @@ func TestPodSetsInfo(t *testing.T) {
 				},
 			},
 		},
+		"replace stale workload slice annotation": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			job: (*Job)(utiltestingjob.MakeJob("job", "ns").
+				Parallelism(1).
+				PodAnnotation(kueue.WorkloadSliceNameAnnotation, "old-slice").
+				Obj()),
+			runInfo: []podset.PodSetInfo{
+				{
+					Annotations: map[string]string{
+						kueue.WorkloadSliceNameAnnotation: "new-slice",
+					},
+				},
+			},
+			wantUnsuspended: utiltestingjob.MakeJob("job", "ns").
+				Parallelism(1).
+				PodAnnotation(kueue.WorkloadSliceNameAnnotation, "new-slice").
+				Suspend(false).
+				Obj(),
+			restoreInfo: []podset.PodSetInfo{
+				{
+					Annotations: map[string]string{
+						kueue.WorkloadSliceNameAnnotation: "old-slice",
+					},
+				},
+			},
+		},
 		"parallelism": {
 			job: (*Job)(utiltestingjob.MakeJob("job", "ns").
 				Parallelism(5).
@@ -311,6 +338,7 @@ func TestPodSetsInfo(t *testing.T) {
 	}
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			origSpec := *tc.job.Spec.DeepCopy()
 
