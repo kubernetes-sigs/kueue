@@ -1585,13 +1585,14 @@ func sortDomainsByLevelValues(domains []*domain) {
 
 func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstrained bool) []*domain {
 	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
+	respectNodeAffinityPreferred := features.Enabled(features.TASRespectNodeAffinityPreferred)
 	result := slices.Clone(domains)
 	slices.SortFunc(result, func(a, b *domain) int {
 		if a.leaderState != b.leaderState {
 			return cmp.Compare(b.leaderState, a.leaderState)
 		}
 
-		if features.Enabled(features.TASRespectNodeAffinityPreferred) && a.affinityScore != b.affinityScore {
+		if respectNodeAffinityPreferred && a.affinityScore != b.affinityScore {
 			return cmp.Compare(b.affinityScore, a.affinityScore)
 		}
 
@@ -1622,9 +1623,10 @@ func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstra
 // `state` is always sorted ascending. This prioritizes domains that can accommodate slices with minimal leftover pod capacity.
 func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool) []*domain {
 	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
+	respectNodeAffinityPreferred := features.Enabled(features.TASRespectNodeAffinityPreferred)
 	result := slices.Clone(domains)
 	slices.SortFunc(result, func(a, b *domain) int {
-		if features.Enabled(features.TASRespectNodeAffinityPreferred) && a.affinityScore != b.affinityScore {
+		if respectNodeAffinityPreferred && a.affinityScore != b.affinityScore {
 			return cmp.Compare(b.affinityScore, a.affinityScore)
 		}
 
