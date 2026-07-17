@@ -157,7 +157,6 @@ type connectionState struct {
 	// client's creation for one that has never connected. It becomes nil only when a fully
 	// established connection (markConnected) clears it, and is preserved across failed reconnect
 	// attempts, so the worker-lost grace measures from the first loss, not the latest failed retry.
-	// connected and disconnectedSince always flip together, so disconnectedSince == nil <==> connected.
 	disconnectedSince *time.Time
 }
 
