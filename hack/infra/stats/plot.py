@@ -407,7 +407,7 @@ def compute_reco(data, min_dur, cfg=None, algorithm=DEFAULT_CPU_ALGORITHM):
     """Recommended request/limit from the usage distribution:
       cpu request = the chosen recommender's value (see CPU_RECOMMENDERS / --cpu-algorithm),
         capped at the current limit; the sizing policy is plug-and-play;
-      cpu limit   = kept as-is (throttling only; measured peaks are rate() artifacts);
+      cpu limit   = equal to the cpu request (Guaranteed QoS: request == limit);
       mem request == mem limit = largest observed per-build peak x1.15. Memory is
         incompressible, so the value must hold the worst peak. Builds that OOM-killed are
         excluded first (their peak sits pinned at the ceiling), so the max is taken over
@@ -427,8 +427,7 @@ def compute_reco(data, min_dur, cfg=None, algorithm=DEFAULT_CPU_ALGORITHM):
     if cpu_val is None or mem_peak_max is None:
         return None
 
-    cpu_lim_cur = const(data, "cpu_limit_cores")
-    cpu_lim = int(cpu_lim_cur) if cpu_lim_cur else math.ceil(cpu_val)
+    cpu_lim = cpu_val
     mem_val = math.ceil(mem_peak_max * 1.15)
     return {
         "cpu_algorithm": algorithm,

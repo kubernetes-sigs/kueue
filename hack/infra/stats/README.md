@@ -117,7 +117,8 @@ name and supporting percentiles are written under `cpu.algorithm` and `cpu.stats
 | `p95-mean` | Conservative (the original approach): p95 of the per-build mean CPU × 1.15, rounded up to whole cores. Ignores build duration, so it never trades runtime for cores. |
 
 Both cap the recommendation at the current limit (test-infra forces `request == limit`) and
-exclude OOM-killed builds. The CPU limit is kept as-is.
+exclude OOM-killed builds. The recommended CPU limit is set equal to the recommended CPU
+request (`request == limit`, Guaranteed QoS).
 
 ## The diagrams (and how each is drawn)
 
