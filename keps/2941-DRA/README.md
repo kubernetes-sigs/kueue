@@ -1549,21 +1549,18 @@ tracks adding this). This follows the same pattern as upstream K8s integration t
 ##### KueueDRAIntegrationPartitionableDevices
 
 - feature gate enabled by default
-- re-evaluate extending ResourceSlice indexing to CEL validation path. Counter processing
-  already uses the driver-based index but CEL validation lists all ResourceSlices unfiltered.
-- re-evaluate handling of devices with multiple ConsumesCounters entries referencing
-  different counter sets. Currently only the first matching entry is used.
-- re-evaluate MAX-based counter charging semantics for heterogeneous device profiles
-  within the same pool, such as mixed MIG sizes where charging the maximum value
-  across all matched devices may overcharge.
-- re-evaluate pool-aware flavor assignment for counter resources
-- re-evaluate caching `deviceSelector` evaluation results to avoid repeated ResourceSlice
-  evaluation
-- re-evaluate consolidating ResourceSlice listing between CEL validation and counter
-  processing into a shared layer
-- re-evaluate multi-counter tracking, such as memory and compute as separate quota resources
-  for the same DeviceClass, by relaxing the DeviceClass uniqueness constraint across
-  mappings or the single counter source limitation within a mapping
+- consolidate ResourceSlice listing between CEL validation and counter processing
+  into a shared request-scoped cache, eliminating duplicate API calls within a
+  single workload reconciliation.
+- extend CEL validation path to use driver-based indexed ResourceSlice listing for
+  DeviceClasses with counter sources, instead of listing all ResourceSlices
+  unfiltered. When a broader listing is already cached, per-driver requests filter
+  from cached results.
+- iterate all ConsumesCounters entries per device, consistent with the upstream K8s
+  allocator behavior. Takes MAX across all matching counter sets per device.
+- support multi-counter tracking by relaxing the DeviceClass uniqueness constraint
+  across mappings when both have counter sources with different counter names,
+  allowing memory and compute as separate quota resources for the same DeviceClass
 
 #### GA
 
@@ -1585,6 +1582,13 @@ tracks adding this). This follows the same pattern as upstream K8s integration t
 
 - the feature gate in stable
 - user adoption feedback with MIG workloads confirms counter-based quota accuracy
+- re-evaluate MAX-based counter charging for heterogeneous device profiles. Accurate
+  charging requires knowing which device the scheduler will allocate. Depends on
+  scheduler-library integration ([#12422](https://github.com/kubernetes-sigs/kueue/issues/12422)).
+- re-evaluate pool-aware flavor assignment for counter resources. Connecting
+  ResourceSlice pools to flavors requires scheduler-library awareness of which
+  node a workload will land on. Depends on scheduler-library integration
+  ([#12422](https://github.com/kubernetes-sigs/kueue/issues/12422)).
 
 ## Implementation History
 

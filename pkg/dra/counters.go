@@ -36,6 +36,7 @@ import (
 func GetCounterResourcesForWorkload(
 	ctx context.Context,
 	cl client.Client,
+	sliceCache *ResourceSliceCache,
 	mapper *ResourceMapper,
 	wl *kueue.Workload,
 ) (map[kueue.PodSetReference]corev1.ResourceList, field.ErrorList) {
@@ -71,30 +72,34 @@ func GetCounterResourcesForWorkload(
 					continue
 				}
 				deviceClass := corev1.ResourceName(req.Exactly.DeviceClassName)
-				quotaResource, found := mapper.Lookup(deviceClass)
-				if !found {
+				counterConfigs := mapper.getCounterConfigs(deviceClass)
+				if len(counterConfigs) == 0 {
 					continue
 				}
-				counterConfig := mapper.getCounterConfig(deviceClass)
-				if counterConfig == nil {
-					continue
-				}
-
-				log.V(4).Info("Processing counter charge", "podSet", ps.Name, "deviceClass", deviceClass, "quotaResource", quotaResource, "count", req.Exactly.Count)
 
 				reqPath := field.NewPath("spec", "podSets").Index(i).Child("template", "spec", "resourceClaims").Index(j).Child("devices", "requests").Index(reqIdx)
 
-				charges, errs := processCounterCharge(ctx, cl, counterConfig, quotaResource, req.Exactly.DeviceClassName, req.Exactly.Selectors, req.Exactly.Count, classCache, reqPath)
+				classSelectors, requestSelectors, errs := prepareCounterCharge(ctx, cl, req.Exactly.DeviceClassName, req.Exactly.Selectors, classCache, reqPath)
 				if len(errs) > 0 {
 					allErrs = append(allErrs, errs...)
 					return nil, allErrs
 				}
-				for resName, qty := range charges {
-					existing := aggregated[resName]
-					existing.Add(qty)
-					aggregated[resName] = existing
+
+				for _, cc := range counterConfigs {
+					log.V(4).Info("Processing counter charge", "podSet", ps.Name, "deviceClass", deviceClass, "quotaResource", cc.quotaResource, "count", req.Exactly.Count)
+
+					charges, errs := processCounterCharge(ctx, sliceCache, &cc, cc.quotaResource, classSelectors, requestSelectors, req.Exactly.Count, reqPath)
+					if len(errs) > 0 {
+						allErrs = append(allErrs, errs...)
+						return nil, allErrs
+					}
+					for resName, qty := range charges {
+						existing := aggregated[resName]
+						existing.Add(qty)
+						aggregated[resName] = existing
+					}
+					log.V(4).Info("Counter charge computed", "podSet", ps.Name, "deviceClass", deviceClass, "charges", charges)
 				}
-				log.V(4).Info("Counter charge computed", "podSet", ps.Name, "deviceClass", deviceClass, "charges", charges)
 			}
 		}
 
@@ -107,15 +112,35 @@ func GetCounterResourcesForWorkload(
 	return perPodSet, nil
 }
 
-func processCounterCharge(
+func prepareCounterCharge(
 	ctx context.Context,
 	cl client.Client,
-	counterConfig *deviceClassCounterConfig,
-	quotaResource corev1.ResourceName,
 	deviceClassName string,
 	selectors []resourcev1.DeviceSelector,
-	count int64,
 	classCache map[string]*resourcev1.DeviceClass,
+	reqPath *field.Path,
+) ([]dracel.CompilationResult, []dracel.CompilationResult, field.ErrorList) {
+	classSelectors, classErr := resolveAndCompileDeviceClass(ctx, cl, deviceClassName, classCache, reqPath, 0)
+	if classErr != nil {
+		return nil, nil, field.ErrorList{classErr}
+	}
+
+	requestSelectors, compErrs := compileCELSelectors(selectors, reqPath.Child("exactly", "selectors"), "CEL compilation failed")
+	if len(compErrs) > 0 {
+		return nil, nil, compErrs
+	}
+
+	return classSelectors, requestSelectors, nil
+}
+
+func processCounterCharge(
+	ctx context.Context,
+	sliceCache *ResourceSliceCache,
+	counterConfig *deviceClassCounterConfig,
+	quotaResource corev1.ResourceName,
+	classSelectors []dracel.CompilationResult,
+	requestSelectors []dracel.CompilationResult,
+	count int64,
 	reqPath *field.Path,
 ) (corev1.ResourceList, field.ErrorList) {
 	log := ctrl.LoggerFrom(ctx)
@@ -128,28 +153,18 @@ func processCounterCharge(
 		return nil, compErrs
 	}
 
-	classSelectors, classErr := resolveAndCompileDeviceClass(ctx, cl, deviceClassName, classCache, reqPath, 0)
-	if classErr != nil {
-		return nil, field.ErrorList{classErr}
-	}
-
-	requestSelectors, compErrs := compileCELSelectors(selectors, reqPath.Child("exactly", "selectors"), "CEL compilation failed")
-	if len(compErrs) > 0 {
-		return nil, compErrs
-	}
-
-	var sliceList resourcev1.ResourceSliceList
-	if err := cl.List(ctx, &sliceList, client.MatchingFields{"spec.driver": counterConfig.driver}); err != nil {
+	sliceList, err := sliceCache.ListByDriver(ctx, counterConfig.driver)
+	if err != nil {
 		return nil, field.ErrorList{field.InternalError(reqPath, fmt.Errorf("failed to list ResourceSlices: %w", err))}
 	}
-	pools := groupSlicesByPool(sliceList.Items, counterConfig.driver)
-	log.V(4).Info("Listed ResourceSlices for counter processing", "driver", counterConfig.driver, "pools", len(pools), "slices", len(sliceList.Items))
+	pools := groupSlicesByPool(sliceList, counterConfig.driver)
+	log.V(4).Info("Listed ResourceSlices for counter processing", "driver", counterConfig.driver, "pools", len(pools), "slices", len(sliceList))
 
 	matched, errs := matchDevicesWithSelectors(ctx, pools, counterConfig.driver, selectorSelectors, classSelectors, requestSelectors, reqPath)
 	if len(errs) > 0 {
 		return nil, errs
 	}
-	log.V(4).Info("Matched devices for counter charge", "deviceClass", deviceClassName, "matched", len(matched), "requested", count)
+	log.V(4).Info("Matched devices for counter charge", "matched", len(matched), "requested", count)
 
 	if int64(len(matched)) < count {
 		// Cluster-state shortage: retryable until matching ResourceSlices appear.
@@ -296,7 +311,6 @@ func computeCounterCharges(
 					maxValue = v.Value.DeepCopy()
 					found = true
 				}
-				break
 			}
 		}
 	}

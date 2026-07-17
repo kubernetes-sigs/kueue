@@ -488,6 +488,7 @@ func validateDeviceClassMappings(c *configapi.Configuration) field.ErrorList {
 
 	seenResourceNames := make(sets.Set[corev1.ResourceName])
 	deviceClassToResource := make(map[corev1.ResourceName]corev1.ResourceName)
+	deviceClassCounterNames := make(map[corev1.ResourceName]sets.Set[string])
 
 	for idx, mapping := range mappings {
 		mappingPath := dynamicResourceAllocationPath.Index(idx)
@@ -534,13 +535,30 @@ func validateDeviceClassMappings(c *configapi.Configuration) field.ErrorList {
 				seenDeviceClassNames.Insert(deviceClass)
 			}
 
+			counterName := counterNameForMapping(mapping)
 			if existingResource, exists := deviceClassToResource[deviceClass]; exists {
 				if existingResource != mapping.Name {
-					allErrs = append(allErrs, field.Invalid(dcPath, deviceClass,
-						fmt.Sprintf("device class already mapped to resource %s", existingResource)))
+					// Allow same DeviceClass in multiple mappings only when both have
+					// counter sources with different counter names — each mapping tracks
+					// a different counter dimension (e.g., gpu.memory and gpu.compute).
+					existingCounters := deviceClassCounterNames[deviceClass]
+					switch {
+					case counterName == "" || existingCounters.Len() == 0:
+						allErrs = append(allErrs, field.Invalid(dcPath, deviceClass,
+							fmt.Sprintf("device class already mapped to resource %s", existingResource)))
+					case existingCounters.Has(counterName):
+						allErrs = append(allErrs, field.Invalid(dcPath, deviceClass,
+							fmt.Sprintf("device class already has a counter source for counter %q", counterName)))
+					default:
+						deviceClassCounterNames[deviceClass].Insert(counterName)
+					}
 				}
 			} else {
 				deviceClassToResource[deviceClass] = mapping.Name
+				deviceClassCounterNames[deviceClass] = sets.New[string]()
+				if counterName != "" {
+					deviceClassCounterNames[deviceClass].Insert(counterName)
+				}
 			}
 		}
 
@@ -854,4 +872,11 @@ func validateQualifiedName(fldPath *field.Path, value string) field.ErrorList {
 		return field.ErrorList{field.Invalid(fldPath, value, strings.Join(errs, "; "))}
 	}
 	return nil
+}
+
+func counterNameForMapping(mapping configapi.DeviceClassMapping) string {
+	if len(mapping.Sources) > 0 && mapping.Sources[0].Counter != nil {
+		return mapping.Sources[0].Counter.Name
+	}
+	return ""
 }

@@ -26,6 +26,7 @@ import (
 
 // deviceClassCounterConfig holds counter configuration for a specific DeviceClass.
 type deviceClassCounterConfig struct {
+	quotaResource  corev1.ResourceName
 	driver         string
 	counterName    string
 	deviceSelector resourcev1.DeviceSelector
@@ -35,18 +36,20 @@ type deviceClassCounterConfig struct {
 // based on Configuration API DRA settings. Initialized once at startup, immutable during runtime.
 type ResourceMapper struct {
 	deviceClassToResource map[corev1.ResourceName]corev1.ResourceName
-	deviceClassCounters   map[corev1.ResourceName]*deviceClassCounterConfig
+	deviceClassCounters   map[corev1.ResourceName][]deviceClassCounterConfig
 }
 
 // NewResourceMapper creates a new empty ResourceMapper instance.
 func NewResourceMapper() *ResourceMapper {
 	return &ResourceMapper{
 		deviceClassToResource: make(map[corev1.ResourceName]corev1.ResourceName),
-		deviceClassCounters:   make(map[corev1.ResourceName]*deviceClassCounterConfig),
+		deviceClassCounters:   make(map[corev1.ResourceName][]deviceClassCounterConfig),
 	}
 }
 
 // Lookup returns the logical resource name for a device class.
+// For DeviceClasses with counter sources, the quota resource name is on each
+// counter config instead.
 func (m *ResourceMapper) Lookup(deviceClass corev1.ResourceName) (corev1.ResourceName, bool) {
 	if m == nil {
 		return "", false
@@ -55,9 +58,9 @@ func (m *ResourceMapper) Lookup(deviceClass corev1.ResourceName) (corev1.Resourc
 	return logicalResource, found
 }
 
-// getCounterConfig returns the counter configuration for a DeviceClass, or nil if
+// getCounterConfigs returns the counter configurations for a DeviceClass, or nil if
 // the DeviceClass does not use counter-based quota.
-func (m *ResourceMapper) getCounterConfig(deviceClass corev1.ResourceName) *deviceClassCounterConfig {
+func (m *ResourceMapper) getCounterConfigs(deviceClass corev1.ResourceName) []deviceClassCounterConfig {
 	return m.deviceClassCounters[deviceClass]
 }
 
@@ -67,21 +70,24 @@ func (m *ResourceMapper) PopulateFromConfiguration(mappings []configapi.DeviceCl
 		return nil
 	}
 	dcToResource := make(map[corev1.ResourceName]corev1.ResourceName)
-	dcCounters := make(map[corev1.ResourceName]*deviceClassCounterConfig)
+	dcCounters := make(map[corev1.ResourceName][]deviceClassCounterConfig)
 	for _, mapping := range mappings {
 		isCounter := len(mapping.Sources) > 0 && mapping.Sources[0].Counter != nil
 		if isCounter {
 			resources.RegisterBinaryFormattedResource(mapping.Name)
 		}
 		for _, deviceClassName := range mapping.DeviceClassNames {
-			dcToResource[deviceClassName] = mapping.Name
+			if _, exists := dcToResource[deviceClassName]; !exists {
+				dcToResource[deviceClassName] = mapping.Name
+			}
 			if isCounter {
 				c := mapping.Sources[0].Counter
-				dcCounters[deviceClassName] = &deviceClassCounterConfig{
+				dcCounters[deviceClassName] = append(dcCounters[deviceClassName], deviceClassCounterConfig{
+					quotaResource:  mapping.Name,
 					driver:         c.Driver,
 					counterName:    c.Name,
 					deviceSelector: c.DeviceSelector,
-				}
+				})
 			}
 		}
 	}

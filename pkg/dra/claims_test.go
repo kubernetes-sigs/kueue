@@ -702,7 +702,11 @@ func Test_GetResourceRequests(t *testing.T) {
 					objs = append(objs, o.(client.Object))
 				}
 			}
-			baseClient := utiltesting.NewClientBuilder().WithObjects(objs...).Build()
+			baseClient := utiltesting.NewClientBuilder().
+				WithIndex(&resourcev1.ResourceSlice{}, "spec.driver", func(obj client.Object) []string {
+					return []string{obj.(*resourcev1.ResourceSlice).Spec.Driver}
+				}).
+				WithObjects(objs...).Build()
 
 			wlCopy := wl.DeepCopy()
 			if tc.modifyWL != nil {
@@ -713,7 +717,8 @@ func Test_GetResourceRequests(t *testing.T) {
 			if testMapper == nil {
 				testMapper = NewResourceMapper()
 			}
-			got, err := GetResourceRequestsForResourceClaimTemplates(ctx, baseClient, testMapper, wlCopy)
+			sliceCache := NewResourceSliceCache(baseClient)
+			got, err := GetResourceRequestsForResourceClaimTemplates(ctx, baseClient, sliceCache, testMapper, wlCopy)
 
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
 				t.Errorf("GetResourceRequestsForResourceClaimTemplates() error mismatch (-want +got):\n%s", diff)
