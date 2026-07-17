@@ -424,7 +424,9 @@ const (
 
 	// owner: @j-skiba
 	//
-	// Enable caching node matching results (NodeSelector, Tolerations, Affinity) per workload/PodSet during a scheduling cycle snapshot in TAS.
+	// Enable caching node matching results (NodeSelector, Tolerations, Affinity) per workload/PodSet
+	// to be reused within a single scheduling cycle by TAS evaluations corresponding to different
+	// sets of preemption candidates.
 	TASCacheNodeMatchResults featuregate.Feature = "TASCacheNodeMatchResults"
 )
 

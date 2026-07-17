@@ -1728,10 +1728,8 @@ func (s *TASFlavorSnapshot) getMatchingLeaves(requirements *topologyAssignmentPo
 		return result, stats
 	}
 
-	matchKey := requirements.matchKey
-	hasKey := matchKey != nil
-	if hasKey {
-		cached, found := s.matchingLeavesCache[*matchKey]
+	if requirements.matchKey != nil {
+		cached, found := s.matchingLeavesCache[*requirements.matchKey]
 		if found {
 			return cached.leaves, cached.stats
 		}
@@ -1754,11 +1752,11 @@ func (s *TASFlavorSnapshot) getMatchingLeaves(requirements *topologyAssignmentPo
 		entry.leaves = append(entry.leaves, matchedLeaf{leaf: leaf})
 	}
 
-	if hasKey {
+	if requirements.matchKey != nil {
 		if s.matchingLeavesCache == nil {
 			s.matchingLeavesCache = make(map[podSetMatchKey]*matchingLeavesCacheEntry)
 		}
-		s.matchingLeavesCache[*matchKey] = entry
+		s.matchingLeavesCache[*requirements.matchKey] = entry
 	}
 
 	return entry.leaves, entry.stats
