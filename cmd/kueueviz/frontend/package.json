@@ -30,7 +30,7 @@
     "@vitejs/plugin-react": "^6.0.3",
     "depcheck": "^1.4.7",
     "serve": "^14.2.6",
-    "vite": "^8.1.4",
+    "vite": "^8.1.5",
     "vitest": "^4.1.10"
   },
   "browserslist": {
