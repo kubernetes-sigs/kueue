@@ -21,8 +21,8 @@
     - [Integration tests](#integration-tests)
     - [e2e tests](#e2e-tests)
   - [Graduation Criteria](#graduation-criteria)
-    - [Alpha (v0.17)](#alpha-v017)
-    - [Beta (v0.18)](#beta-v018)
+    - [Alpha (v0.20)](#alpha-v020)
+    - [Beta (v0.21)](#beta-v021)
 - [Implementation History](#implementation-history)
 - [Alternatives](#alternatives)
   - [Modify the generic reconciler instead of the Pod controller](#modify-the-generic-reconciler-instead-of-the-pod-controller)
@@ -135,7 +135,7 @@ terminating.
 ## Design Details
 
 The `.scheduling.quotaReleaseStrategy` Configuration API will be introduced in
-v0.17 as an Alpha feature.
+v0.20 as an Alpha feature.
 
 ### Implementation overview
 
@@ -223,13 +223,13 @@ None required for Alpha.
 
 ### Graduation Criteria
 
-#### Alpha (v0.17)
+#### Alpha (v0.20)
 
 - `.scheduling.quotaReleaseStrategy` Configuration API introduced with
   `OnTermination` and `OnTerminalBestEffort` modes.
 - Core integrations (Pod, Job, JobSet) support the API.
 
-#### Beta (v0.18)
+#### Beta (v0.21)
 
 - Address feedback from Alpha users.
 - Support added for all remaining integrations.
