@@ -170,8 +170,10 @@ func syncLocalPodWithRemote(
 			// PodScheduled=False/Unschedulable condition verbatim would make the
 			// management cluster's autoscaler treat the gated Pod as a regular
 			// unschedulable Pod and trigger a spurious scale-up. Preserve the local
-			// condition while gated; everything else (phase, container statuses, IPs)
-			// is still synced for visibility.
+			// condition while the worker Pod is not yet scheduled; once the worker Pod
+			// reports PodScheduled=True the remote condition is synced through so the
+			// manager Pod stops showing SchedulingGated while its phase is Running.
+			// Everything else (phase, container statuses, IPs) is always synced.
 			//
 			// The cluster-autoscaler classifies a Pod as Unschedulable (a scale-up
 			// candidate) purely from PodScheduled=False/reason=Unschedulable, and
@@ -180,8 +182,13 @@ func syncLocalPodWithRemote(
 			// ArrangePodsBySchedulability / isSchedulingGated in cluster-autoscaler:
 			// https://github.com/kubernetes/autoscaler/blob/94dcda068/cluster-autoscaler/utils/kubernetes/listers.go#L180-L236
 			localScheduled := findPodCondition(localPod.Status.Conditions, corev1.PodScheduled)
+			remoteScheduled := findPodCondition(remotePod.Status.Conditions, corev1.PodScheduled)
 			localPod.Status = remotePod.Status
-			if isGated(localPod) && localScheduled != nil {
+			// Keep the local SchedulingGated condition only while the worker Pod has
+			// not been scheduled yet (PodScheduled != True). Once it is scheduled, the
+			// remote PodScheduled=True condition (already copied above) is left in place.
+			remoteIsScheduled := remoteScheduled != nil && remoteScheduled.Status == corev1.ConditionTrue
+			if isGated(localPod) && localScheduled != nil && !remoteIsScheduled {
 				setPodCondition(&localPod.Status, *localScheduled)
 			}
 			return true, nil
