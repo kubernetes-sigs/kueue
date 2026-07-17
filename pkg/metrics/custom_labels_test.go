@@ -24,9 +24,13 @@ import (
 	"k8s.io/utils/ptr"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
+	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 )
 
 func TestCustomLabels(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 	tests := map[string]struct {
 		entries     []configapi.ControllerMetricsCustomLabel
 		labels      map[string]string
@@ -168,6 +172,7 @@ func TestCustomLabels(t *testing.T) {
 }
 
 func TestStoreCustomLabels(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 	tests := map[string]struct {
 		setup              func(*CustomLabels) (store func(map[string]string, map[string]string) bool, get func() []string, clear func())
 		entries            []configapi.ControllerMetricsCustomLabel
@@ -297,6 +302,7 @@ func TestStoreCustomLabels(t *testing.T) {
 }
 
 func TestUpdateRequired(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 	tests := map[string]struct {
 		entries     []configapi.ControllerMetricsCustomLabel
 		kind        configapi.SourceKind
@@ -374,4 +380,58 @@ func TestUpdateRequired(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCustomLabelsDisabled(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, false)
+	entries := []configapi.ControllerMetricsCustomLabel{{Name: "team"}}
+	cl := NewCustomLabels(entries)
+	if cl != nil {
+		t.Error("expected nil CustomLabels when feature gate is disabled")
+	}
+
+	// Also verify that calling methods on nil receiver returns expected defaults when disabled.
+	var nilCl *CustomLabels
+	if got := nilCl.LabelNames(configapi.SourceKindClusterQueue); got != nil {
+		t.Errorf("expected nil LabelNames, got %v", got)
+	}
+	if got := nilCl.UpdateRequired(configapi.SourceKindClusterQueue, "cq", nil, nil); got {
+		t.Error("expected false for UpdateRequired")
+	}
+	if got := nilCl.Store(configapi.SourceKindClusterQueue, "cq", nil, nil); got {
+		t.Error("expected false for Store")
+	}
+	if got := nilCl.Get(configapi.SourceKindClusterQueue, "cq"); got != nil {
+		t.Errorf("expected nil Get, got %v", got)
+	}
+	if got := nilCl.GetFor(map[configapi.SourceKind]string{configapi.SourceKindClusterQueue: "cq"}); got != nil {
+		t.Errorf("expected nil GetFor, got %v", got)
+	}
+	// Delete shouldn't panic
+	nilCl.Delete(configapi.SourceKindClusterQueue, "cq")
+
+	// Verify XStore, XGet, XDelete
+	if got := nilCl.CQStore(kueue.ClusterQueueReference("cq"), nil, nil); got {
+		t.Error("expected false for CQStore")
+	}
+	if got := nilCl.CQGet(kueue.ClusterQueueReference("cq")); got != nil {
+		t.Errorf("expected nil CQGet, got %v", got)
+	}
+	nilCl.CQDelete(kueue.ClusterQueueReference("cq"))
+
+	if got := nilCl.LQStore(utilqueue.LocalQueueReference("lq"), nil, nil); got {
+		t.Error("expected false for LQStore")
+	}
+	if got := nilCl.LQGet(utilqueue.LocalQueueReference("lq")); got != nil {
+		t.Errorf("expected nil LQGet, got %v", got)
+	}
+	nilCl.LQDelete(utilqueue.LocalQueueReference("lq"))
+
+	if got := nilCl.CohortStore(kueue.CohortReference("cohort"), nil, nil); got {
+		t.Error("expected false for CohortStore")
+	}
+	if got := nilCl.CohortGet(kueue.CohortReference("cohort")); got != nil {
+		t.Errorf("expected nil CohortGet, got %v", got)
+	}
+	nilCl.CohortDelete(kueue.CohortReference("cohort"))
 }

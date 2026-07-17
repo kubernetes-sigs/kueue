@@ -25,6 +25,7 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 )
@@ -41,7 +42,7 @@ type SourceKindLabelStore struct {
 }
 
 func NewCustomLabels(entries []configapi.ControllerMetricsCustomLabel) *CustomLabels {
-	if len(entries) == 0 {
+	if !features.Enabled(features.CustomMetricLabels) || len(entries) == 0 {
 		return nil
 	}
 
@@ -63,7 +64,7 @@ func NewCustomLabels(entries []configapi.ControllerMetricsCustomLabel) *CustomLa
 // for the requested set of sources.
 // The labels are ordered by source kind then by the order of definition in the config.
 func (cl *CustomLabels) LabelNames(srcs ...configapi.SourceKind) []string {
-	if cl == nil || len(srcs) == 0 {
+	if !cl.enabled() || len(srcs) == 0 {
 		return nil
 	}
 
@@ -79,7 +80,7 @@ func (cl *CustomLabels) LabelNames(srcs ...configapi.SourceKind) []string {
 }
 
 func (cl *CustomLabels) UpdateRequired(kind configapi.SourceKind, ref string, labels, annotations map[string]string) bool {
-	if cl == nil {
+	if !cl.enabled() {
 		return false
 	}
 	store, supported := cl.m[kind]
@@ -93,7 +94,7 @@ func (cl *CustomLabels) UpdateRequired(kind configapi.SourceKind, ref string, la
 }
 
 func (cl *CustomLabels) Store(kind configapi.SourceKind, ref string, labels, annotations map[string]string) bool {
-	if cl == nil || cl.m[kind] == nil {
+	if !cl.enabled() || cl.m[kind] == nil {
 		return false
 	}
 	return cl.m[kind].store(ref, labels, annotations)
@@ -105,7 +106,7 @@ func (cl *CustomLabels) Get(kind configapi.SourceKind, ref string) []string {
 
 // GetFor returns a list of label values, ordered by source kind then by the order of definition in the config.
 func (cl *CustomLabels) GetFor(sourceMap map[configapi.SourceKind]string) []string {
-	if cl == nil || len(sourceMap) == 0 {
+	if !cl.enabled() || len(sourceMap) == 0 {
 		return nil
 	}
 
@@ -121,10 +122,14 @@ func (cl *CustomLabels) GetFor(sourceMap map[configapi.SourceKind]string) []stri
 }
 
 func (cl *CustomLabels) Delete(kind configapi.SourceKind, ref string) {
-	if cl == nil || cl.m[kind] == nil {
+	if !cl.enabled() || cl.m[kind] == nil {
 		return
 	}
 	cl.m[kind].delete(ref)
+}
+
+func (cl *CustomLabels) enabled() bool {
+	return cl != nil && features.Enabled(features.CustomMetricLabels)
 }
 
 func (cl *CustomLabels) labelStoreIter(srcs ...configapi.SourceKind) iter.Seq2[*SourceKindLabelStore, configapi.SourceKind] {
