@@ -445,6 +445,7 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 			customLabels:       c.customLabels,
 		}
 		qImpl.customLabels.LQStore(qKey, q.GetLabels(), q.Annotations)
+		qImpl.resetFlavorsAndResources(cqImpl.resourceNode.Usage, cqImpl.AdmittedUsage)
 		cqImpl.localQueues[qKey] = qImpl
 	}
 	var workloads kueue.WorkloadList
