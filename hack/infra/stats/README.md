@@ -103,16 +103,32 @@ a node.
 
 ---
 
+## How the CPU request is sized (pluggable)
+
+`recommendation.json` carries a **single** recommended CPU request, produced by one of the
+named algorithms in `CPU_RECOMMENDERS` (in `plot.py`), selected with `--cpu-algorithm`.
+Adding an algorithm is plug-and-play: register a `(data, min_dur, cfg) -> (value, stats)`
+function in that dict and it becomes selectable with no other wiring. The chosen algorithm's
+name and supporting percentiles are written under `cpu.algorithm` and `cpu.stats`.
+
+| `--cpu-algorithm` | how it sizes the request |
+|---|---|
+| `target-duration` (default) | Work-conserving: assumes CPU work (avg × duration) is invariant to the request, so it sizes to the value that would stretch each build to about `--cpu-target-min` minutes — p95 of the per-build target mean CPU (see `dist_mean_new_cpu.png`), plus optional `--cpu-legroom-frac`, rounded up to `--cpu-resolution`. |
+| `p95-mean` | Conservative (the original approach): p95 of the per-build mean CPU × 1.15, rounded up to whole cores. Ignores build duration, so it never trades runtime for cores. |
+
+Both cap the recommendation at the current limit (test-infra forces `request == limit`) and
+exclude OOM-killed builds. The CPU limit is kept as-is.
+
 ## The diagrams (and how each is drawn)
 
 `plot.py` writes five PNGs per job.
 
-### `dist_mean.png` — sizes the CPU request
+### `dist_mean.png` — the per-build mean CPU distribution
 For each build, compute the **average** CPU (and memory) usage across its samples; that
 gives one number per build. Histogram those numbers across all builds. Overlays: the
 p50/p95/p99 across builds, the current k8s request/limit (purple), and the recommended
-request/limit (gold). The bulk of the mean distribution is the sustained demand the
-request should cover.
+request/limit (gold, the chosen algorithm's value). The bulk of the mean distribution is
+the sustained demand the request should cover.
 
 ### `dist_peak.png` — sizes memory
 Same as above but reduces each build to its **peak** usage. Memory is sized off these

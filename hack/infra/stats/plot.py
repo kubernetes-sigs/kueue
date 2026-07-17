@@ -64,6 +64,7 @@ Examples:
   ./plot.py ./<dir> --only throttle,timeline --samples 3 --seed 7
 """
 import argparse, json, math, os, random
+from dataclasses import dataclass
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")  # headless
@@ -82,12 +83,15 @@ MIN_INTERVALS = 4           # dist_throttle: skip builds with fewer PSI interval
 MIN_BUILDS_PER_OFFSET = 10  # timelines: draw the envelope only where >= this many builds cover an offset
 MIN_SAMPLE_POINTS = 8       # timelines: only highlight sample builds with >= this many points
 
-# Work-conserving CPU right-sizing (issue #12750). Assume each build's CPU work
-# (avg cores x duration) is roughly invariant to the request: CPU is compressible, so
-# fewer cores just stretch the build. A build given `work / target` cores would then
-# finish in about `target` minutes. These are the defaults; each is overridable via CLI.
-CPU_TARGET_MIN = 7.5  # target build duration in minutes to size the request against
-CPU_LEGROOM_FRAC = 0.15  # fractional headroom on top of the p95 target (0.15 = +15%)
+# CPU right-sizing (issue #12750). The sizing policy is pluggable: the CPU request is
+# produced by one of the named recommenders in CPU_RECOMMENDERS, selected via
+# --cpu-algorithm. The default, "target-duration", is work-conserving: it assumes each
+# build's CPU work (avg cores x duration) is roughly invariant to the request (CPU is
+# compressible, so fewer cores just stretch the build), so a build given `work / target`
+# cores would finish in about `target` minutes. The knobs below are its defaults, each
+# overridable via CLI.
+CPU_TARGET_MIN = 10.0  # target build duration in minutes to size the request against
+CPU_LEGROOM_FRAC = 0.0  # fractional headroom on top of the p95 target (0 = none; 0.15 = +15%)
 CPU_RESOLUTION = 0.1   # round the recommendation up to this core granularity (100m)
 
 # Burstiness classification. Because request == limit is a hard CPU ceiling, the
@@ -322,29 +326,46 @@ def days_of(data):
 # --------------------------------------------------------------------------- #
 # Recommendation (derived from the usage distribution)
 # --------------------------------------------------------------------------- #
-def compute_cpu_target(data, min_dur, target_min, legroom_frac, resolution):
-    """Work-conserving CPU recommendation: the single Guaranteed-QoS value (request ==
-    limit, as test-infra requires) that would let builds finish in about target_min
-    minutes. Sizes off p95 of the per-build target mean CPU (see target_new_avg_cpus), adds
-    fractional legroom (e.g. 0.15 = +15%), rounds up to `resolution`, and caps at the
-    current limit (never
-    recommend more than is already allocated). Returns (value, stats) or (None, None) when
-    there is too little CPU data. `stats` carries the percentiles that justify the value."""
+@dataclass(frozen=True)
+class CPURecoConfig:
+    """Tunables shared by the CPU recommenders. Not every algorithm reads every field —
+    e.g. "p95-mean" ignores target_min. Defaults come from the module-level constants."""
+    target_min: float = CPU_TARGET_MIN
+    legroom_frac: float = CPU_LEGROOM_FRAC
+    resolution: float = CPU_RESOLUTION
+
+
+def cap_at_limit(data, val):
+    """Never recommend more CPU than the job is already allowed: test-infra forces
+    request == limit, so the current limit is a hard ceiling. Returns (capped, saturated),
+    where `saturated` means the uncapped value already reached that ceiling (no room to save)."""
+    cpu_lim_cur = const(data, "cpu_limit_cores")
+    if cpu_lim_cur is None:
+        return val, False
+    return min(val, cpu_lim_cur), val >= cpu_lim_cur
+
+
+def cpu_reco_target_duration(data, min_dur, cfg):
+    """Work-conserving recommender (the default): the single Guaranteed-QoS CPU value that
+    would let builds finish in about cfg.target_min minutes, assuming CPU work
+    (avg x duration) is invariant to the request. Sizes off p95 of the per-build target
+    mean CPU (see target_new_avg_cpus), optionally adds fractional legroom, rounds up to
+    cfg.resolution, and caps at the current limit. Returns (value, stats) or (None, None)
+    when there is too little CPU data; `stats` carries the percentiles that justify it."""
     oom = oom_build_ids(data)
     pairs = per_build_cpu_work(data["series"].get("cpu_used_cores", {}), min_dur, exclude=oom)
     if len(pairs) < 2:
         return None, None
-    new = target_new_avg_cpus(pairs, target_min)
+    new = target_new_avg_cpus(pairs, cfg.target_min)
     durs = np.array([d for _, d in pairs])
     p95 = float(np.percentile(new, 95))
-    val = round_up_to(p95 * (1 + legroom_frac), resolution)
-    cpu_lim_cur = const(data, "cpu_limit_cores")
-    if cpu_lim_cur is not None:
-        val = min(val, cpu_lim_cur)
+    val, saturated = cap_at_limit(data, round_up_to(p95 * (1 + cfg.legroom_frac), cfg.resolution))
     stats = {
-        "target_min": target_min,
-        "legroom_frac": legroom_frac,
-        "resolution": resolution,
+        "algorithm": "target-duration",
+        "target_min": cfg.target_min,
+        "legroom_frac": cfg.legroom_frac,
+        "resolution": cfg.resolution,
+        "saturated": saturated,
         "new_mean_p50": round(float(np.percentile(new, 50)), 3),
         "new_mean_p95": round(p95, 3),
         "new_mean_p99": round(float(np.percentile(new, 99)), 3),
@@ -354,18 +375,45 @@ def compute_cpu_target(data, min_dur, target_min, legroom_frac, resolution):
     return val, stats
 
 
-def compute_reco(data, min_dur, target_min=CPU_TARGET_MIN, legroom_frac=CPU_LEGROOM_FRAC,
-                 resolution=CPU_RESOLUTION):
+def cpu_reco_p95_mean(data, min_dur, cfg):
+    """Conservative recommender (the original approach): p95 of the per-build mean CPU with
+    15% headroom, rounded up to whole cores, capped at the current limit. Ignores build
+    duration, so it never trades runtime for cores. Returns (value, stats) or (None, None)."""
+    oom = oom_build_ids(data)
+    vals = per_build(data["series"].get("cpu_used_cores", {}), "mean", min_dur, exclude=oom)
+    if len(vals) == 0:
+        return None, None
+    p95 = float(np.percentile(vals, 95))
+    val, saturated = cap_at_limit(data, float(math.ceil(p95 * 1.15)))
+    stats = {
+        "algorithm": "p95-mean",
+        "headroom_frac": 0.15,
+        "saturated": saturated,
+        "mean_p95": round(p95, 3),
+    }
+    return val, stats
+
+
+# Pluggable CPU sizing policies. Add an algorithm here and it becomes selectable via
+# --cpu-algorithm with no other wiring. Each maps (data, min_dur, cfg) -> (value, stats).
+CPU_RECOMMENDERS = {
+    "target-duration": cpu_reco_target_duration,
+    "p95-mean": cpu_reco_p95_mean,
+}
+DEFAULT_CPU_ALGORITHM = "target-duration"
+
+
+def compute_reco(data, min_dur, cfg=None, algorithm=DEFAULT_CPU_ALGORITHM):
     """Recommended request/limit from the usage distribution:
-      cpu request = p95 of per-build mean x1.15, capped at the current limit;
+      cpu request = the chosen recommender's value (see CPU_RECOMMENDERS / --cpu-algorithm),
+        capped at the current limit; the sizing policy is plug-and-play;
       cpu limit   = kept as-is (throttling only; measured peaks are rate() artifacts);
-      cpu target  = work-conserving Guaranteed-QoS value (see compute_cpu_target), a
-        fractional alternative that trades runtime for cores on fast jobs;
       mem request == mem limit = largest observed per-build peak x1.15. Memory is
         incompressible, so the value must hold the worst peak. Builds that OOM-killed are
         excluded first (their peak sits pinned at the ceiling), so the max is taken over
         healthy builds only and is not polluted by those artifacts.
     Returns the reco dict, or None if the job has too little CPU/memory data to size."""
+    cfg = cfg or CPURecoConfig()
     oom = oom_build_ids(data)
 
     def xp(key, stat, p, gib):
@@ -374,24 +422,22 @@ def compute_reco(data, min_dur, target_min=CPU_TARGET_MIN, legroom_frac=CPU_LEGR
             vals = vals / GIB
         return float(np.percentile(vals, p)) if len(vals) else None
 
-    cpu_mean_p95 = xp("cpu_used_cores", "mean", 95, False)
     mem_peak_max = xp("mem_used_bytes", "peak", 100, True)
-    if cpu_mean_p95 is None or mem_peak_max is None:
+    cpu_val, cpu_stats = CPU_RECOMMENDERS[algorithm](data, min_dur, cfg)
+    if cpu_val is None or mem_peak_max is None:
         return None
 
     cpu_lim_cur = const(data, "cpu_limit_cores")
-    cpu_req_raw = math.ceil(cpu_mean_p95 * 1.15)
-    cpu_lim = int(cpu_lim_cur) if cpu_lim_cur else cpu_req_raw
+    cpu_lim = int(cpu_lim_cur) if cpu_lim_cur else math.ceil(cpu_val)
     mem_val = math.ceil(mem_peak_max * 1.15)
-    cpu_target, cpu_target_stats = compute_cpu_target(data, min_dur, target_min, legroom_frac, resolution)
     return {
-        "cpu_req": min(cpu_req_raw, cpu_lim),
+        "cpu_algorithm": algorithm,
+        "cpu_req": cpu_val,
         "cpu_lim": cpu_lim,
-        "cpu_target": cpu_target,
-        "cpu_target_stats": cpu_target_stats,
+        "cpu_stats": cpu_stats,
         "mem_req": mem_val,
         "mem_lim": mem_val,
-        "saturated": cpu_lim_cur is not None and cpu_req_raw >= cpu_lim_cur,
+        "saturated": cpu_stats["saturated"],
     }
 
 
@@ -419,6 +465,7 @@ def build_reco_json(data, reco, min_dur):
         "builds_oom_excluded": len(oom),
         "burstiness": compute_burstiness(data, min_dur),
         "cpu": {
+            "algorithm": reco["cpu_algorithm"],
             "request_current": cpu_req_cur,
             "request_recommended": reco["cpu_req"],
             "limit_current": const(data, "cpu_limit_cores"),
@@ -429,9 +476,7 @@ def build_reco_json(data, reco, min_dur):
             "mean_p99": xp("cpu_used_cores", "mean", 99, False),
             "peak_max": xp("cpu_used_cores", "peak", 100, False),
             "saturated": reco["saturated"],
-            "request_target_based": reco.get("cpu_target"),
-            "saved_target_based": saved(cpu_req_cur, reco.get("cpu_target")),
-            "target": reco.get("cpu_target_stats"),
+            "stats": reco["cpu_stats"],
         },
         "mem": {
             "request_current": mem_req_cur,
@@ -444,11 +489,11 @@ def build_reco_json(data, reco, min_dur):
     }
 
 
-def generate_recommendation(data, base_dir, min_dur, target_min=CPU_TARGET_MIN,
-                            legroom_frac=CPU_LEGROOM_FRAC, resolution=CPU_RESOLUTION):
+def generate_recommendation(data, base_dir, min_dur, cfg=None,
+                            algorithm=DEFAULT_CPU_ALGORITHM):
     """Compute the sizing recommendation and write recommendation.json. Returns the reco
     dict (or None, printing a skip note, when the job has too little data)."""
-    reco = compute_reco(data, min_dur, target_min, legroom_frac, resolution)
+    reco = compute_reco(data, min_dur, cfg, algorithm)
     if reco is None:
         print("  recommendation: skipped (not enough CPU/memory data)")
         return None
@@ -553,7 +598,7 @@ def plot_new_cpu_distribution(data, base_dir, reco, bins=30, min_dur=0.0,
                explains the shift above: builds already at/above the target are left alone.
     The top two panels share x and y so the leftward CPU shift is obvious; the duration
     panel is on its own minutes axis. The middle panel's p50/p95/p99 justify the gold
-    recommended request (reco['cpu_target']). OOM-killed builds are excluded throughout."""
+    recommended request (reco['cpu_req']). OOM-killed builds are excluded throughout."""
     oom = oom_build_ids(data)
     pairs = per_build_cpu_work(data["series"].get("cpu_used_cores", {}), min_dur, exclude=oom)
     if len(pairs) < 2:
@@ -563,7 +608,7 @@ def plot_new_cpu_distribution(data, base_dir, reco, bins=30, min_dur=0.0,
     new = target_new_avg_cpus(pairs, target_min)
     durs = np.array([d for _, d in pairs])
     cpu_req_cur, cpu_lim_cur = const(data, "cpu_request_cores"), const(data, "cpu_limit_cores")
-    rec = (reco or {}).get("cpu_target")
+    rec = (reco or {}).get("cpu_req")
 
     # Top two panels share bin edges + x/y so their geometry is identical and comparable;
     # the duration panel (bottom) lives on its own minutes axis, so it is not shared.
@@ -933,14 +978,17 @@ def main():
     ap.add_argument("--bins", type=int, default=30, help="histogram bins (default 30)")
     ap.add_argument("--min-duration", type=float, default=0.0,
                     help="drop builds shorter than this many minutes (default 0)")
+    ap.add_argument("--cpu-algorithm", default=DEFAULT_CPU_ALGORITHM,
+                    choices=sorted(CPU_RECOMMENDERS),
+                    help="CPU sizing policy for the recommendation (default %(default)s)")
     ap.add_argument("--cpu-target-min", type=float, default=CPU_TARGET_MIN,
-                    help="work-conserving CPU reco: target build duration in minutes "
+                    help="target-duration CPU reco: target build duration in minutes "
                          "(default %(default)s)")
     ap.add_argument("--cpu-legroom-frac", type=float, default=CPU_LEGROOM_FRAC,
-                    help="work-conserving CPU reco: fractional headroom on top of the p95 "
-                         "target (default %(default)s = +15%%)")
+                    help="target-duration CPU reco: fractional headroom on top of the p95 "
+                         "target (default %(default)s = none; e.g. 0.15 = +15%%)")
     ap.add_argument("--cpu-resolution", type=float, default=CPU_RESOLUTION,
-                    help="work-conserving CPU reco: round the value up to this core "
+                    help="target-duration CPU reco: round the value up to this core "
                          "granularity (default %(default)s = 100m)")
     ap.add_argument("--threshold", type=float, default=5.0,
                     help="dist_throttle: CPU wait%% at/above this counts as pressured (default 5)")
@@ -959,8 +1007,10 @@ def main():
     print(f"{data.get('job')}  ({base})")
 
     if "distribution" in which:
-        reco = generate_recommendation(data, base, args.min_duration, args.cpu_target_min,
-                                       args.cpu_legroom_frac, args.cpu_resolution)
+        cfg = CPURecoConfig(target_min=args.cpu_target_min,
+                            legroom_frac=args.cpu_legroom_frac,
+                            resolution=args.cpu_resolution)
+        reco = generate_recommendation(data, base, args.min_duration, cfg, args.cpu_algorithm)
         stats = [s.strip() for s in args.stats.split(",") if s.strip()]
         plot_distribution(data, base, reco, args.bins, args.min_duration, stats)
         plot_new_cpu_distribution(data, base, reco, args.bins, args.min_duration,
