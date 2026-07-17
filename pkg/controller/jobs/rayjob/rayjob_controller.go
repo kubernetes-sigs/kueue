@@ -202,7 +202,7 @@ func (j *RayJob) expectedPodSetsCount() int {
 	return count
 }
 
-func (j *RayJob) RunWithPodSetsInfo(_ context.Context, podSetsInfo []podset.PodSetInfo) error {
+func (j *RayJob) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error {
 	expectedLen := j.expectedPodSetsCount()
 	if len(podSetsInfo) != expectedLen {
 		return podset.BadPodSetsInfoLenError(expectedLen, len(podSetsInfo))

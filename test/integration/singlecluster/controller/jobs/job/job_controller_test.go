@@ -1057,7 +1057,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 			ginkgo.By("fetch the created job & workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, *jobLookupKey, createdJob)).Should(gomega.Succeed())
-					g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(new(true)))
+					g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(ptr.To(true)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, *wlLookupKey, createdWorkload)).Should(gomega.Succeed())
@@ -1068,7 +1068,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 				gomega.Eventually(func(g gomega.Gomega) {
 					var newWL kueue.Workload
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdWorkload), &newWL)).To(gomega.Succeed())
-					workloadpatching.SetAdmissionCheckState(&newWL.Status.AdmissionChecks, kueue.AdmissionCheckState{
+					workload.SetAdmissionCheckState(&newWL.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:  "check",
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
@@ -1106,7 +1106,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 			ginkgo.By("verify the job stays suspended with the old annotation value", func() {
 				gomega.Consistently(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, *jobLookupKey, createdJob)).Should(gomega.Succeed())
-					g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(new(true)))
+					g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(ptr.To(true)))
 					g.Expect(createdJob.Spec.Template.Annotations).Should(gomega.HaveKeyWithValue("ann-key", "old-ann-value"))
 				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
@@ -5109,7 +5109,7 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 		gomega.Consistently(func(g gomega.Gomega) {
 			wl := &kueue.Workload{}
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(newChainSlice), wl)).Should(gomega.Succeed())
-			g.Expect(workloadfinish.IsFinished(wl)).Should(gomega.BeFalse())
+			g.Expect(workload.IsFinished(wl)).Should(gomega.BeFalse())
 		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 	})
 
@@ -5193,7 +5193,7 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 			g.Expect(wlList.Items).Should(gomega.HaveLen(2))
 			wl := &kueue.Workload{}
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(replacementSlice), wl)).Should(gomega.Succeed())
-			g.Expect(workloadfinish.IsFinished(wl)).Should(gomega.BeFalse())
+			g.Expect(workload.IsFinished(wl)).Should(gomega.BeFalse())
 		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 	})
 })
