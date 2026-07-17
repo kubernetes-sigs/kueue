@@ -262,16 +262,24 @@ func BenchmarkSchedulerTAS(b *testing.B) {
 
 				cqCache.AddOrUpdateTopology(log, tasTopology)
 				cqCache.AddOrUpdateResourceFlavor(log, tasFlavor)
-				_ = cqCache.AddClusterQueue(ctx, cq)
-				_ = qManager.AddClusterQueue(ctx, cq)
-				_ = qManager.AddLocalQueue(ctx, lq)
+				if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+					b.Fatalf("Failed to add ClusterQueue to cqCache: %v", err)
+				}
+				if err := qManager.AddClusterQueue(ctx, cq); err != nil {
+					b.Fatalf("Failed to add ClusterQueue to qManager: %v", err)
+				}
+				if err := qManager.AddLocalQueue(ctx, lq); err != nil {
+					b.Fatalf("Failed to add LocalQueue to qManager: %v", err)
+				}
 
 				for i := range nodes {
 					cqCache.TASCache().SyncNode(&nodes[i])
 				}
 				for i := range workloads {
 					// Admitted workloads go to scheduling cache directly
-					_ = cqCache.AddOrUpdateWorkload(log, &workloads[i])
+					if !cqCache.AddOrUpdateWorkload(log, &workloads[i]) {
+						b.Fatalf("Failed to add workload %s to cqCache", workloads[i].Name)
+					}
 				}
 
 				scheduler := New(qManager, cqCache, cl, recorder, WithPreemptionExpectations(expStore))
@@ -281,7 +289,9 @@ func BenchmarkSchedulerTAS(b *testing.B) {
 					func() { wg.Done() },
 				))
 
-				_ = qManager.AddOrUpdateWorkload(log, requestedWl)
+				if err := qManager.AddOrUpdateWorkload(log, requestedWl); err != nil {
+					b.Fatalf("Failed to add requested workload to qManager: %v", err)
+				}
 
 				b.StartTimer()
 				scheduler.schedule(ctx)
@@ -293,9 +303,15 @@ func BenchmarkSchedulerTAS(b *testing.B) {
 				for _, event := range recorder.RecordedEvents {
 					if event.Reason == "Preempted" {
 						parts := strings.Split(event.Key.String(), "-")
-						idx, _ := strconv.Atoi(parts[len(parts)-1])
+						idx, err := strconv.Atoi(parts[len(parts)-1])
+						if err != nil {
+							b.Fatalf("Failed to parse workload index from event key %q: %v", event.Key.String(), err)
+						}
 						preemptees.Insert(idx)
 					}
+				}
+				if preemptees.Len() == 0 {
+					b.Fatal("Expected at least one preemptee to be recorded, but found none")
 				}
 				b.Logf("[BENCH-DEBUG] Preempted workloads: %v", sets.List(preemptees))
 				b.StartTimer()
