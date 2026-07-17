@@ -4,7 +4,6 @@
 - [Summary](#summary)
 - [Motivation](#motivation)
   - [Goals](#goals)
-  - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
   - [User Stories](#user-stories)
     - [Story 1: Preemption of &quot;plain pod&quot; workloads](#story-1-preemption-of-plain-pod-workloads)
@@ -15,6 +14,8 @@
     - [Discrepancy could occur from actual available quota](#discrepancy-could-occur-from-actual-available-quota)
 - [Design Details](#design-details)
   - [Implementation overview](#implementation-overview)
+  - [Compatibility &amp; Defaulting](#compatibility--defaulting)
+  - [Integration Signals &amp; Stuck Pods](#integration-signals--stuck-pods)
   - [Test Plan](#test-plan)
     - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit tests](#unit-tests)
@@ -25,8 +26,8 @@
     - [Beta (v0.21)](#beta-v021)
 - [Implementation History](#implementation-history)
 - [Alternatives](#alternatives)
-  - [Modify the generic reconciler instead of the Pod controller](#modify-the-generic-reconciler-instead-of-the-pod-controller)
-  - [Configuration API knob instead of feature gates](#configuration-api-knob-instead-of-feature-gates)
+  - [Modify the generic reconciler instead of the integration controllers](#modify-the-generic-reconciler-instead-of-the-integration-controllers)
+  - [Feature gates instead of Configuration API](#feature-gates-instead-of-configuration-api)
 <!-- /toc -->
 
 ## Summary
