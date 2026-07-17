@@ -956,9 +956,7 @@ func TestConnectionStateTransitions(t *testing.T) {
 		t.Fatalf("drop from connected must record now (%v), got %v", now, s)
 	}
 
-	// Repeated drops while already disconnected report no transition and preserve the
-	// first-drop time, so the worker-lost grace measures from the first loss across
-	// failed reconnect attempts (establishment never reaches markConnected).
+	// A repeated drop while already disconnected reports no transition and preserves the time.
 	fakeClock.Step(time.Minute)
 	if was := cs.markDisconnected(fakeClock.Now()); was {
 		t.Fatal("want wasConnected=false when already disconnected")
