@@ -68,10 +68,7 @@ Ultimately, this behavioral inconsistency between integrations leads to:
 - Standardize the quota release behavior across all integrations (Pod, Job, JobSet, etc.)
   based on this global configuration.
 
-### Non-Goals
 
-- Changing quota release behavior for non-Pod integrations (they already
-  release quota when their upstream controller reports no active pods).
 
 ## Proposal
 
@@ -163,6 +160,37 @@ handles this:
 2. If `IsActive()` returns false, the reconciler clears the workload's
    admission, releasing quota.
 3. The released quota becomes available for the next scheduling cycle.
+
+### Compatibility & Defaulting
+
+Making `OnTermination` the default configuration introduces a behavioral change
+for existing Pod integration workloads upon upgrading. Previously, the Pod
+integration held quota until the grace period expired or the pods reached a
+terminal phase. With `OnTermination`, quota is released immediately upon
+termination. 
+
+Administrators relying on exact physical capacity guarantees (such as TAS users)
+**must** explicitly configure `.scheduling.quotaReleaseStrategy = OnTerminalBestEffort`
+in their Kueue Configuration when upgrading to ensure their capacity guarantees
+are preserved.
+
+### Integration Signals & Stuck Pods
+
+Integrations will map the configuration strategies as follows:
+- **`OnTermination`**: Integrations that wrap upstream controllers (like Job and
+  JobSet) will simply return their upstream controller's status (e.g., `Job.status.active`).
+  Upstream controllers natively ignore terminating pods in these counts.
+- **`OnTerminalBestEffort`**: Integrations will actively inspect the underlying
+  Pods (or wait for the upstream controller's terminal status) to verify they
+  have physically transitioned out of the terminating state.
+
+**Stuck Pod Fallback:** Under `OnTerminalBestEffort`, if a hardware failure
+causes a pod to get stuck terminating indefinitely beyond its grace period,
+Kueue will intentionally hold the quota indefinitely. Releasing the quota based
+on a grace period timeout would violate TAS capacity constraints. Administrators
+must use Kueue's [setup failure recovery](https://kueue.sigs.k8s.io/docs/tasks/manage/setup_failure_recovery/)
+mechanism (or manual intervention) to forcefully remove the stuck pod, which
+will subsequently release the quota.
 
 ### Test Plan
 
