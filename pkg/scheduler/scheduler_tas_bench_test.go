@@ -191,8 +191,12 @@ func BenchmarkSchedulerTAS(b *testing.B) {
 			psReq := utiltestingapi.MakePodSet("main", numRequestedPods).
 				Request(corev1.ResourceCPU, requestedCPUStr).
 				Request(corev1.ResourceMemory, fmt.Sprintf("%dGi", requestedRAM)).
+<<<<<<< HEAD
 				NodeSelector(map[string]string{"node-group": "group-1"}).
 				UnconstrainedTopologyRequest()
+=======
+				NodeSelector(map[string]string{"node-group": "group-1"})
+>>>>>>> 985fd9dbf (address comments)
 			for r := 2; r < numResources; r++ {
 				psReq.Request(corev1.ResourceName(fmt.Sprintf("example.com/res-%d", r)), requestedCPUStr)
 			}
@@ -290,9 +294,13 @@ func BenchmarkSchedulerTAS(b *testing.B) {
 					func() { wg.Done() },
 				))
 
+<<<<<<< HEAD
 				if err := qManager.AddOrUpdateWorkload(log, requestedWl); err != nil {
 					b.Fatalf("Failed to add requested workload to qManager: %v", err)
 				}
+=======
+				_ = qManager.AddOrUpdateWorkload(log, requestedWl)
+>>>>>>> 985fd9dbf (address comments)
 
 				b.StartTimer()
 				scheduler.schedule(ctx)

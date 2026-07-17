@@ -3330,17 +3330,7 @@ func TestScheduleForTAS(t *testing.T) {
 		{
 			features.WorkloadRequestUseMergePatch:     false,
 			features.UnadmittedWorkloadsObservability: false,
-			features.TASCacheNodeMatchResults:         false,
-		},
-		{
-			features.WorkloadRequestUseMergePatch:     false,
-			features.UnadmittedWorkloadsObservability: false,
 			features.TASCacheNodeMatchResults:         true,
-		},
-		{
-			features.WorkloadRequestUseMergePatch:     false,
-			features.UnadmittedWorkloadsObservability: true,
-			features.TASCacheNodeMatchResults:         false,
 		},
 		{
 			features.WorkloadRequestUseMergePatch:     false,
@@ -3350,22 +3340,17 @@ func TestScheduleForTAS(t *testing.T) {
 		{
 			features.WorkloadRequestUseMergePatch:     true,
 			features.UnadmittedWorkloadsObservability: false,
-			features.TASCacheNodeMatchResults:         false,
+			features.TASCacheNodeMatchResults:         true,
 		},
 		{
 			features.WorkloadRequestUseMergePatch:     true,
+			features.UnadmittedWorkloadsObservability: true,
+			features.TASCacheNodeMatchResults:         true,
+		},
+		{
+			features.WorkloadRequestUseMergePatch:     false,
 			features.UnadmittedWorkloadsObservability: false,
-			features.TASCacheNodeMatchResults:         true,
-		},
-		{
-			features.WorkloadRequestUseMergePatch:     true,
-			features.UnadmittedWorkloadsObservability: true,
 			features.TASCacheNodeMatchResults:         false,
-		},
-		{
-			features.WorkloadRequestUseMergePatch:     true,
-			features.UnadmittedWorkloadsObservability: true,
-			features.TASCacheNodeMatchResults:         true,
 		},
 	}
 
@@ -3573,17 +3558,7 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 		{
 			features.WorkloadRequestUseMergePatch:     false,
 			features.UnadmittedWorkloadsObservability: false,
-			features.TASCacheNodeMatchResults:         false,
-		},
-		{
-			features.WorkloadRequestUseMergePatch:     false,
-			features.UnadmittedWorkloadsObservability: false,
 			features.TASCacheNodeMatchResults:         true,
-		},
-		{
-			features.WorkloadRequestUseMergePatch:     false,
-			features.UnadmittedWorkloadsObservability: true,
-			features.TASCacheNodeMatchResults:         false,
 		},
 		{
 			features.WorkloadRequestUseMergePatch:     false,
@@ -3593,22 +3568,17 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 		{
 			features.WorkloadRequestUseMergePatch:     true,
 			features.UnadmittedWorkloadsObservability: false,
-			features.TASCacheNodeMatchResults:         false,
+			features.TASCacheNodeMatchResults:         true,
 		},
 		{
 			features.WorkloadRequestUseMergePatch:     true,
+			features.UnadmittedWorkloadsObservability: true,
+			features.TASCacheNodeMatchResults:         true,
+		},
+		{
+			features.WorkloadRequestUseMergePatch:     false,
 			features.UnadmittedWorkloadsObservability: false,
-			features.TASCacheNodeMatchResults:         true,
-		},
-		{
-			features.WorkloadRequestUseMergePatch:     true,
-			features.UnadmittedWorkloadsObservability: true,
 			features.TASCacheNodeMatchResults:         false,
-		},
-		{
-			features.WorkloadRequestUseMergePatch:     true,
-			features.UnadmittedWorkloadsObservability: true,
-			features.TASCacheNodeMatchResults:         true,
 		},
 	}
 
