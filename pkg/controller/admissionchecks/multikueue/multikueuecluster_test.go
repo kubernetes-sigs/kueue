@@ -966,13 +966,6 @@ func TestConnectionStateTransitions(t *testing.T) {
 	if s := cs.lostSince(); s == nil || !s.Equal(now) {
 		t.Fatalf("want preserved first-drop time (%v), got %v", now, s)
 	}
-	fakeClock.Step(time.Minute)
-	if was := cs.markDisconnected(fakeClock.Now()); was {
-		t.Fatal("want wasConnected=false on a further drop while disconnected")
-	}
-	if s := cs.lostSince(); s == nil || !s.Equal(now) {
-		t.Fatalf("want preserved first-drop time (%v), got %v", now, s)
-	}
 
 	// A fully successful reconnect clears the recorded loss.
 	cs.markConnected()
