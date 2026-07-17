@@ -518,10 +518,7 @@ type findTopologyAssignmentState struct {
 }
 
 func newExclusionStats() *ExclusionStats {
-	return &ExclusionStats{
-		Taints:    make(map[string]int),
-		Resources: make(map[corev1.ResourceName]int),
-	}
+	return &ExclusionStats{}
 }
 
 // hasExclusions returns true if any exclusion reasons were recorded.
@@ -553,12 +550,12 @@ func (s *ExclusionStats) formatReasons() string {
 }
 
 func (s *ExclusionStats) recordExclusion(exclusionType nodeExclusionType, taint *corev1.Taint) {
-	if s == nil {
-		return
-	}
 	switch exclusionType {
 	case exclusionTaints:
 		if taint != nil {
+			if s.Taints == nil {
+				s.Taints = make(map[string]int)
+			}
 			s.Taints[taint.ToString()]++
 		}
 	case exclusionNodeSelector:
@@ -568,18 +565,28 @@ func (s *ExclusionStats) recordExclusion(exclusionType nodeExclusionType, taint 
 	}
 }
 
-func (s *ExclusionStats) add(other *ExclusionStats) {
-	if s == nil || other == nil {
-		return
+func (s *ExclusionStats) recordResourceExclusion(res corev1.ResourceName) {
+	if s.Resources == nil {
+		s.Resources = make(map[corev1.ResourceName]int)
 	}
+	s.Resources[res]++
+}
+
+func (s *ExclusionStats) add(other *ExclusionStats) {
 	s.TotalNodes += other.TotalNodes
 	s.NodeSelector += other.NodeSelector
 	s.Affinity += other.Affinity
 	s.TopologyDomain += other.TopologyDomain
 	for k, v := range other.Taints {
+		if s.Taints == nil {
+			s.Taints = make(map[string]int)
+		}
 		s.Taints[k] += v
 	}
 	for k, v := range other.Resources {
+		if s.Resources == nil {
+			s.Resources = make(map[corev1.ResourceName]int)
+		}
 		s.Resources[k] += v
 	}
 }
@@ -1867,7 +1874,7 @@ func (s *TASFlavorSnapshot) fillLeafCounts(leaf *leafDomain, requirements *topol
 	// Track resource exclusions: if this node can't fit even one pod,
 	// identify which resource is the bottleneck.
 	if leaf.state == 0 && limitingRes != "" {
-		state.stats.Resources[limitingRes]++
+		state.stats.recordResourceExclusion(limitingRes)
 	}
 
 	leaf.leaderState = 0
