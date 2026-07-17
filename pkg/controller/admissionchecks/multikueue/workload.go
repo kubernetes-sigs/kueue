@@ -257,6 +257,15 @@ func (w *wlReconciler) updateACS(ctx context.Context, wl *kueue.Workload, acs *k
 	})
 }
 
+func (w *wlReconciler) reservingWorkerLostSince(clusterName string) time.Time {
+	if rc, found := w.clusters.controllerFor(clusterName); found {
+		if since := rc.connState.lostSince(); since != nil {
+			return *since
+		}
+	}
+	return w.clock.Now()
+}
+
 func (w *wlReconciler) remoteClientsForAC(ctx context.Context, acName kueue.AdmissionCheckReference) (availableClients map[string]*remoteClient, unavailableClusters []string, err error) {
 	cfg, err := w.helper.ConfigForAdmissionCheck(ctx, acName)
 	if err != nil {
@@ -264,7 +273,7 @@ func (w *wlReconciler) remoteClientsForAC(ctx context.Context, acName kueue.Admi
 	}
 	availableClients = make(map[string]*remoteClient, len(cfg.Spec.Clusters))
 	for _, clusterName := range cfg.Spec.Clusters {
-		if client, found := w.clusters.controllerFor(clusterName); found && !client.connecting.Load() && !client.disconnected.Load() {
+		if client, found := w.clusters.controllerFor(clusterName); found && client.connState.isConnected() {
 			availableClients[clusterName] = client
 		} else {
 			unavailableClusters = append(unavailableClusters, clusterName)
@@ -498,7 +507,39 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	if !features.Enabled(features.MultiKueueWaitForWorkloadAdmitted) {
 		conditionToCheck = kueue.WorkloadQuotaReserved
 	}
-	if remoteCond, reservingRemote := group.bestMatchByCondition(conditionToCheck); remoteCond != nil {
+	remoteCond, reservingRemote := group.bestMatchByCondition(conditionToCheck)
+
+	// 6a. The reservation is no longer visible while the admission check is still Ready. The
+	// reachability of the reserving worker decides the response:
+	//   - A known reserving worker that is unreachable (e.g. its watch is reconnecting): the
+	//     remote is likely still running, so keep the workload admitted and retry only once the
+	//     worker stays unreachable past workerLostTimeout, measured from when the loss was first
+	//     observed.
+	//   - An empty ClusterName: this cannot arise from normal admission, so surface it and retry.
+	//   - Otherwise (reachable with no admitted remote, e.g. its remote was deleted above as out
+	//     of sync): the reservation is gone, so retry immediately.
+	if remoteCond == nil && acs.State == kueue.CheckStateReady {
+		reserving := ptr.Deref(group.local.Status.ClusterName, "")
+		if reserving != "" && slices.Contains(group.unavailableClusters, reserving) {
+			lostSince := w.reservingWorkerLostSince(reserving)
+			if remainingWaitTime := w.workerLostTimeout - w.clock.Since(lostSince); remainingWaitTime > 0 {
+				log.V(3).Info("Reserving remote temporarily unreachable, waiting before retry", "cluster", reserving, "retryAfter", remainingWaitTime)
+				return reconcile.Result{RequeueAfter: remainingWaitTime}, nil
+			}
+			return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, "Reserving remote lost")
+		}
+		if reserving == "" {
+			// Under normal operation this is unreachable: A Ready check with no ClusterName indicates a bug in Kueue
+			// (or an externally modified / stale workload), so surface it and retry instead of looping silently.
+			log.V(2).Info("Admission check Ready but ClusterName is empty; treating as misconfigured and retrying")
+			return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry,
+				"Admission check is Ready but no reserving cluster is recorded; this is unexpected, please report it")
+		}
+		return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, "Reserving remote no longer exists or is not admitted")
+	}
+
+	// 6b. A reserving remote is visible: converge onto it.
+	if remoteCond != nil {
 		// remove the non-selected worker workloads
 		for rem, remWl := range group.remotes {
 			if remWl != nil && rem != reservingRemote {
@@ -546,16 +587,6 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			return reconcile.Result{}, err
 		}
 		return reconcile.Result{RequeueAfter: w.workerLostTimeout}, nil
-	} else if acs.State == kueue.CheckStateReady {
-		// If there is no reserving and the AC is ready, the connection with the reserving remote might
-		// be lost, keep the workload admitted for keepReadyTimeout and put it back in the queue after that.
-		remainingWaitTime := w.workerLostTimeout - time.Since(acs.LastTransitionTime.Time)
-		if remainingWaitTime > 0 {
-			log.V(3).Info("Reserving remote lost, retry", "retryAfter", remainingWaitTime)
-			return reconcile.Result{RequeueAfter: remainingWaitTime}, nil
-		} else {
-			return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, "Reserving remote lost")
-		}
 	}
 
 	// 7. Open the preemption gate if applicable
