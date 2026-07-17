@@ -202,7 +202,7 @@ func (j *RayJob) expectedPodSetsCount() int {
 	return count
 }
 
-func (j *RayJob) RunWithPodSetsInfo(_ context.Context, podSetsInfo []podset.PodSetInfo) error {
+func (j *RayJob) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error {
 	expectedLen := j.expectedPodSetsCount()
 	if len(podSetsInfo) != expectedLen {
 		return podset.BadPodSetsInfoLenError(expectedLen, len(podSetsInfo))
@@ -210,7 +210,8 @@ func (j *RayJob) RunWithPodSetsInfo(_ context.Context, podSetsInfo []podset.PodS
 
 	j.Spec.Suspend = false
 
-	err := raycluster.UpdateRayClusterSpecToRunWithPodSetsInfo(j.Spec.RayClusterSpec, podSetsInfo)
+	log := ctrl.LoggerFrom(ctx)
+	err := raycluster.UpdateRayClusterSpecToRunWithPodSetsInfo(log, j.Spec.RayClusterSpec, podSetsInfo)
 	if err != nil {
 		return err
 	}
@@ -219,7 +220,7 @@ func (j *RayJob) RunWithPodSetsInfo(_ context.Context, podSetsInfo []podset.PodS
 	if j.Spec.SubmissionMode == rayv1.K8sJobMode {
 		submitterPod := getSubmitterTemplate(j)
 		info := podSetsInfo[expectedLen-1]
-		if err := podset.Merge(&submitterPod.ObjectMeta, &submitterPod.Spec, info); err != nil {
+		if err := podset.Merge(log, &submitterPod.ObjectMeta, &submitterPod.Spec, info); err != nil {
 			return err
 		}
 		if j.Spec.SubmitterPodTemplate == nil {
