@@ -82,7 +82,7 @@ func (s *TASFlavorSnapshot) handleScaleUp(
 	// Previous pods consume capacity.
 	addAssumedUsage(assumedUsage, prevAssignment, &workers)
 
-	deltaAssignments, reason := s.findTopologyAssignment(deltaRequest, leader, assumedUsage, opts.simulateEmpty, "")
+	deltaAssignments, reason := s.findTopologyAssignment(deltaRequest, leader, assumedUsage, opts.simulateEmpty, "", opts.workload)
 	if reason != "" {
 		result[workers.PodSet.Name] = tasPodSetAssignmentResult{FailureReason: reason}
 		return elasticPlacementResult{applied: true, assignments: result}

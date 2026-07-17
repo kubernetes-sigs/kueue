@@ -483,6 +483,13 @@ const (
 	// TODO(#12820): temporary workaround in the RayService integration. Remove once
 	// the generic FinishOrphanedWorkloads owner-deletion check lands.
 	DeferRayServiceFinalizationForRedisCleanup featuregate.Feature = "DeferRayServiceFinalizationForRedisCleanup"
+
+	// owner: @j-skiba
+	//
+	// Enable caching node matching results (NodeSelector, Tolerations, Affinity) per workload/PodSet
+	// to be reused within a single scheduling cycle by TAS evaluations corresponding to different
+	// sets of preemption candidates.
+	TASCacheNodeMatchResults featuregate.Feature = "TASCacheNodeMatchResults"
 )
 
 func init() {
@@ -741,6 +748,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	DeferRayServiceFinalizationForRedisCleanup: {
+		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	TASCacheNodeMatchResults: {
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
