@@ -295,6 +295,7 @@ func TestUpdateClusterQueue(t *testing.T) {
 }
 
 func TestResyncClusterQueueGaugeMetrics(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 	ctx, _ := utiltesting.ContextWithLog(t)
 	defer metrics.InitMetricVectors(nil)
 
@@ -362,6 +363,7 @@ func TestResyncLocalQueueGaugeMetrics(t *testing.T) {
 	defer metrics.InitMetricVectors(nil)
 
 	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
+	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 
 	customLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{{Name: "team", SourceKind: ptr.To(configapi.SourceKindLocalQueue)}})
 	fakeClient := utiltesting.NewFakeClient(
