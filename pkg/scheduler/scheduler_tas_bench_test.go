@@ -191,7 +191,8 @@ func BenchmarkSchedulerTAS(b *testing.B) {
 			psReq := utiltestingapi.MakePodSet("main", numRequestedPods).
 				Request(corev1.ResourceCPU, requestedCPUStr).
 				Request(corev1.ResourceMemory, fmt.Sprintf("%dGi", requestedRAM)).
-				NodeSelector(map[string]string{"node-group": "group-1"})
+				NodeSelector(map[string]string{"node-group": "group-1"}).
+				UnconstrainedTopologyRequest()
 			for r := 2; r < numResources; r++ {
 				psReq.Request(corev1.ResourceName(fmt.Sprintf("example.com/res-%d", r)), requestedCPUStr)
 			}
