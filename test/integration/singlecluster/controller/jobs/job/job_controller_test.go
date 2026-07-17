@@ -1068,7 +1068,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 				gomega.Eventually(func(g gomega.Gomega) {
 					var newWL kueue.Workload
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdWorkload), &newWL)).To(gomega.Succeed())
-					workloadpatching.SetAdmissionCheckState(&newWL.Status.AdmissionChecks, kueue.AdmissionCheckState{
+					workload.SetAdmissionCheckState(&newWL.Status.AdmissionChecks, kueue.AdmissionCheckState{
 						Name:  "check",
 						State: kueue.CheckStateReady,
 						PodSetUpdates: []kueue.PodSetUpdate{
@@ -5049,7 +5049,7 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 		gomega.Consistently(func(g gomega.Gomega) {
 			wl := &kueue.Workload{}
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(newChainSlice), wl)).Should(gomega.Succeed())
-			g.Expect(workloadfinish.IsFinished(wl)).Should(gomega.BeFalse())
+			g.Expect(workload.IsFinished(wl)).Should(gomega.BeFalse())
 		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 	})
 
@@ -5133,7 +5133,7 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 			g.Expect(wlList.Items).Should(gomega.HaveLen(2))
 			wl := &kueue.Workload{}
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(replacementSlice), wl)).Should(gomega.Succeed())
-			g.Expect(workloadfinish.IsFinished(wl)).Should(gomega.BeFalse())
+			g.Expect(workload.IsFinished(wl)).Should(gomega.BeFalse())
 		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 	})
 
