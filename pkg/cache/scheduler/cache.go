@@ -178,15 +178,12 @@ func (c *Cache) newClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) (*clust
 		resourceNode:        NewResourceNode(),
 		tasCache:            &c.tasCache,
 		AdmissionScope:      cq.Spec.AdmissionScope,
-
-		roleTracker: c.roleTracker,
-		lqMetrics:   c.lqMetrics,
+		roleTracker:         c.roleTracker,
+		lqMetrics:           c.lqMetrics,
+		customLabels:        c.customLabels,
 	}
 	c.hm.AddClusterQueue(cqImpl)
 	c.hm.UpdateClusterQueueEdge(kueue.ClusterQueueReference(cq.Name), cq.Spec.CohortName)
-	if features.Enabled(features.CustomMetricLabels) {
-		cqImpl.customMetricLabelValues = c.customLabels.ExtractValues(cq.Labels, cq.Annotations)
-	}
 	if err := cqImpl.updateClusterQueue(log, cq, c.resourceFlavors, c.admissionChecks, nil); err != nil {
 		return nil, err
 	}
@@ -399,7 +396,7 @@ func (c *Cache) TerminateClusterQueue(name kueue.ClusterQueueReference) {
 	defer c.Unlock()
 	if cq := c.hm.ClusterQueue(name); cq != nil {
 		cq.Status = terminating
-		metrics.ReportClusterQueueStatus(cq.Name, cq.Status, cq.customMetricLabelValues, c.roleTracker)
+		metrics.ReportClusterQueueStatus(cq.Name, cq.Status, cq.GetCustomLabelValues(), c.roleTracker)
 	}
 }
 
@@ -445,10 +442,9 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 			totalReserved:      make(resources.FlavorResourceQuantities),
 			admittedUsage:      make(resources.FlavorResourceQuantities),
 			labels:             q.GetLabels(),
+			customLabels:       c.customLabels,
 		}
-		if features.Enabled(features.CustomMetricLabels) {
-			qImpl.customMetricLabelValues = c.customLabels.ExtractValues(q.Labels, q.Annotations)
-		}
+		qImpl.customLabels.LQStore(qKey, q.GetLabels(), q.Annotations)
 		qImpl.resetFlavorsAndResources(cqImpl.resourceNode.Usage, cqImpl.AdmittedUsage)
 		cqImpl.localQueues[qKey] = qImpl
 	}
@@ -482,9 +478,6 @@ func (c *Cache) UpdateClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) erro
 	}
 	oldParent := cqImpl.Parent()
 	c.hm.UpdateClusterQueueEdge(kueue.ClusterQueueReference(cq.Name), cq.Spec.CohortName)
-	if features.Enabled(features.CustomMetricLabels) {
-		cqImpl.customMetricLabelValues = c.customLabels.ExtractValues(cq.Labels, cq.Annotations)
-	}
 	if err := cqImpl.updateClusterQueue(log, cq, c.resourceFlavors, c.admissionChecks, oldParent); err != nil {
 		return err
 	}
@@ -506,7 +499,7 @@ func (c *Cache) resyncClusterQueueGaugeMetricsLocked(cq *clusterQueue) {
 	if cq == nil {
 		return
 	}
-	metrics.ReportClusterQueueStatus(cq.Name, cq.Status, cq.customMetricLabelValues, c.roleTracker)
+	metrics.ReportClusterQueueStatus(cq.Name, cq.Status, cq.GetCustomLabelValues(), c.roleTracker)
 	parentCohort, rootCohort := cq.parentAndRootCohort()
 	c.recordCQInfo(cq, parentCohort, rootCohort)
 	cq.reportActiveWorkloads()
@@ -674,11 +667,7 @@ func (c *Cache) AddLocalQueue(q *kueue.LocalQueue) error {
 	if cq == nil {
 		return nil
 	}
-	var customLabelValues []string
-	if features.Enabled(features.CustomMetricLabels) {
-		customLabelValues = c.customLabels.ExtractValues(q.Labels, q.Annotations)
-	}
-	return cq.addLocalQueue(q, customLabelValues)
+	return cq.addLocalQueue(q)
 }
 
 func (c *Cache) DeleteLocalQueue(q *kueue.LocalQueue) {
@@ -727,11 +716,7 @@ func (c *Cache) UpdateLocalQueue(oldQ, newQ *kueue.LocalQueue) error {
 	}
 	cq = c.hm.ClusterQueue(newQ.Spec.ClusterQueue)
 	if cq != nil {
-		var customLabelValues []string
-		if features.Enabled(features.CustomMetricLabels) {
-			customLabelValues = c.customLabels.ExtractValues(newQ.Labels, newQ.Annotations)
-		}
-		return cq.addLocalQueue(newQ, customLabelValues)
+		return cq.addLocalQueue(newQ)
 	}
 	return nil
 }
@@ -745,7 +730,7 @@ func (c *Cache) updateLqMetricLabels(newLq *kueue.LocalQueue) {
 	defer cachedLq.Unlock()
 	cachedLq.labels = newLq.GetLabels()
 	if features.Enabled(features.CustomMetricLabels) {
-		cachedLq.customMetricLabelValues = c.customLabels.ExtractValues(newLq.Labels, newLq.Annotations)
+		cachedLq.customLabels.LQStore(cachedLq.key, newLq.Labels, newLq.Annotations)
 	}
 }
 
