@@ -440,7 +440,7 @@ func validateCELSelectorsAgainstDevices(
 		}
 		collectedSlices = slices
 	} else {
-		seenDrivers := sets.New[string]()
+		seenDrivers := sets.New[DriverReference]()
 		for _, cr := range celReqs {
 			dc := corev1.ResourceName(cr.deviceClassName)
 			for _, cc := range mapper.getCounterConfigs(dc) {
@@ -455,11 +455,11 @@ func validateCELSelectorsAgainstDevices(
 				collectedSlices = append(collectedSlices, slices...)
 			}
 			for _, capCfg := range mapper.getCapacityConfigs(dc) {
-				if seenDrivers.Has(capCfg.driver) {
+				if seenDrivers.Has(DriverReference(capCfg.driver)) {
 					continue
 				}
-				seenDrivers.Insert(capCfg.driver)
-				slices, err := sliceCache.ListByDriver(ctx, capCfg.driver)
+				seenDrivers.Insert(DriverReference(capCfg.driver))
+				slices, err := sliceCache.ListByDriver(ctx, DriverReference(capCfg.driver))
 				if err != nil {
 					return field.ErrorList{field.InternalError(basePath, fmt.Errorf("failed to list ResourceSlices for driver %s: %w", capCfg.driver, err))}
 				}

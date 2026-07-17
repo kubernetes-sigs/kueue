@@ -154,7 +154,7 @@ func processCapacityCharge(
 	count := exactly.Count
 
 	for _, capCfg := range capacityConfigs {
-		matched, errs := matchDevicesForSource(ctx, sliceCache, capCfg.driver, capCfg.deviceSelector, classSelectors, requestSelectors, reqPath)
+		matched, errs := matchDevicesForSource(ctx, sliceCache, DriverReference(capCfg.driver), capCfg.deviceSelector, classSelectors, requestSelectors, reqPath)
 		if len(errs) > 0 {
 			return nil, errs
 		}
