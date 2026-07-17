@@ -100,7 +100,7 @@ type leafDomain struct {
 	tasUsage resources.Requests
 
 	// node at the leaf, if the lowest level is a node
-	node *nodeInfo
+	node *corev1.Node
 }
 
 type domainByID map[utiltas.TopologyDomainID]*domain
@@ -157,7 +157,7 @@ func newTASFlavorSnapshot(log logr.Logger, topologyName kueue.TopologyReference,
 	return snapshot
 }
 
-func (s *TASFlavorSnapshot) addNode(node *nodeInfo) utiltas.TopologyDomainID {
+func (s *TASFlavorSnapshot) addNode(node *corev1.Node) utiltas.TopologyDomainID {
 	var levelValues []string
 	var domainID utiltas.TopologyDomainID
 	var leafFound bool
@@ -189,7 +189,7 @@ func (s *TASFlavorSnapshot) addNode(node *nodeInfo) utiltas.TopologyDomainID {
 		}
 		s.leaves[domainID] = &leafDomain
 	}
-	capacity := resources.NewRequests(node.Allocatable)
+	capacity := resources.NewRequests(node.Status.Allocatable)
 	s.addCapacity(domainID, capacity)
 	return domainID
 }
@@ -1609,7 +1609,7 @@ func (s *TASFlavorSnapshot) fillInCounts(requirements *topologyAssignmentPodRequ
 		// Gather node level information only when the node is the lowest level of the topology
 		if s.isLowestLevelNode {
 			// 1. Check Tolerations against Node Taints
-			nodeTaints := leaf.node.Taints
+			nodeTaints := leaf.node.Spec.Taints
 			taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(s.log, nodeTaints, requirements.tolerations, func(t *corev1.Taint) bool {
 				return t.Effect == corev1.TaintEffectNoSchedule || t.Effect == corev1.TaintEffectNoExecute
 			}, true)
@@ -1632,7 +1632,7 @@ func (s *TASFlavorSnapshot) fillInCounts(requirements *topologyAssignmentPodRequ
 			}
 
 			// 3. Check Node against Affinity Node Selector
-			if requirements.affinitySelector != nil && !requirements.affinitySelector.Match(leaf.node.toNode()) {
+			if requirements.affinitySelector != nil && !requirements.affinitySelector.Match(leaf.node) {
 				s.log.V(5).Info("excluding node that doesn't match requiredDuringSchedulingIgnoredDuringExecution affinity", "domainID", leaf.id)
 				state.stats.Affinity++
 				continue
