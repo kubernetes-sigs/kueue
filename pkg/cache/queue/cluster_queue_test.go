@@ -1676,6 +1676,8 @@ func TestPushOrUpdateRespectsInadmissibleHashes(t *testing.T) {
 }
 
 func TestQueueInadmissibleWorkloadsClearsHashes(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
+
 	ctx, _ := utiltesting.ContextWithLog(t)
 	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()))
 	cq.queueingStrategy = kueue.BestEffortFIFO
@@ -1691,6 +1693,10 @@ func TestQueueInadmissibleWorkloadsClearsHashes(t *testing.T) {
 	if _, has := cq.hashToBulkMoveReason["test-hash"]; !has {
 		t.Fatal("hash should be recorded before clearing")
 	}
+	activeHashes, inadmissibleHashes := cq.PendingSchedulingHashes()
+	if activeHashes != 0 || inadmissibleHashes != 1 {
+		t.Fatalf("before requeue: activeHashes=%d inadmissibleHashes=%d, want activeHashes=0 inadmissibleHashes=1", activeHashes, inadmissibleHashes)
+	}
 
 	queueInadmissibleWorkloads(ctx, cq, utiltesting.NewFakeClient(
 		wl, utiltesting.MakeNamespace(defaultNamespace),
@@ -1703,6 +1709,10 @@ func TestQueueInadmissibleWorkloadsClearsHashes(t *testing.T) {
 	active, inadmissible := cq.Pending()
 	if active != 1 || inadmissible != 0 {
 		t.Errorf("after requeue: active=%d inadmissible=%d, want active=1 inadmissible=0", active, inadmissible)
+	}
+	activeHashes, inadmissibleHashes = cq.PendingSchedulingHashes()
+	if activeHashes != 1 || inadmissibleHashes != 0 {
+		t.Errorf("after requeue: activeHashes=%d inadmissibleHashes=%d, want activeHashes=1 inadmissibleHashes=0", activeHashes, inadmissibleHashes)
 	}
 }
 

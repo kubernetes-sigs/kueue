@@ -107,6 +107,15 @@ func ExpectPendingWorkloadsMetric(cq *kueue.ClusterQueue, active, inadmissible i
 	}
 }
 
+func ExpectPendingSchedulingHashesMetric(cq *kueue.ClusterQueue, active, inadmissible int, customLabels ...string) {
+	ginkgo.GinkgoHelper()
+	vals := []int{active, inadmissible}
+	for i, status := range pendingStatuses {
+		lvs := append([]string{cq.Name, status, roletracker.RoleStandalone}, customLabels...)
+		expectGaugeMetric(metrics.PendingSchedulingHashes, lvs, gomega.Equal(float64(vals[i])), "pending_scheduling_hashes with status=%s", status)
+	}
+}
+
 func ExpectReservingActiveWorkloadsMetric(cq *kueue.ClusterQueue, value int) {
 	ginkgo.GinkgoHelper()
 	lvs := []string{cq.Name, roletracker.RoleStandalone}
