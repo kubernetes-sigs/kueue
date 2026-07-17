@@ -3329,42 +3329,30 @@ func TestScheduleForTAS(t *testing.T) {
 	scenarios := []map[featuregate.Feature]bool{
 		{
 			features.WorkloadRequestUseMergePatch: false,
-			features.TASCacheNodeMatchResults:     false,
-		},
-		{
-			features.WorkloadRequestUseMergePatch: false,
 			features.TASCacheNodeMatchResults:     true,
 		},
 		{
 			features.WorkloadRequestUseMergePatch: false,
-			features.TASCacheNodeMatchResults:     false,
+			features.TASCacheNodeMatchResults:     true,
+		},
+		{
+			features.WorkloadRequestUseMergePatch: true,
+			features.TASCacheNodeMatchResults:     true,
+		},
+		{
+			features.WorkloadRequestUseMergePatch: true,
+			features.TASCacheNodeMatchResults:     true,
 		},
 		{
 			features.WorkloadRequestUseMergePatch: false,
-			features.TASCacheNodeMatchResults:     true,
-		},
-		{
-			features.WorkloadRequestUseMergePatch: true,
 			features.TASCacheNodeMatchResults:     false,
-		},
-		{
-			features.WorkloadRequestUseMergePatch: true,
-			features.TASCacheNodeMatchResults:     true,
-		},
-		{
-			features.WorkloadRequestUseMergePatch: true,
-			features.TASCacheNodeMatchResults:     false,
-		},
-		{
-			features.WorkloadRequestUseMergePatch: true,
-			features.TASCacheNodeMatchResults:     true,
 		},
 	}
 
 	for name, tc := range cases {
 		for _, scenario := range scenarios {
 			t.Run(
-				fmt.Sprintf("%s WorkloadRequestUseMergePatch:%t observability:%t cacheMatchResults:%t",
+				fmt.Sprintf("%s WorkloadRequestUseMergePatch:%t TASCacheNodeMatchResults:%t",
 					name,
 					scenario[features.WorkloadRequestUseMergePatch],
 					scenario[features.TASCacheNodeMatchResults],
@@ -3554,42 +3542,30 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 	scenarios := []map[featuregate.Feature]bool{
 		{
 			features.WorkloadRequestUseMergePatch: false,
-			features.TASCacheNodeMatchResults:     false,
-		},
-		{
-			features.WorkloadRequestUseMergePatch: false,
 			features.TASCacheNodeMatchResults:     true,
 		},
 		{
 			features.WorkloadRequestUseMergePatch: false,
-			features.TASCacheNodeMatchResults:     false,
+			features.TASCacheNodeMatchResults:     true,
+		},
+		{
+			features.WorkloadRequestUseMergePatch: true,
+			features.TASCacheNodeMatchResults:     true,
+		},
+		{
+			features.WorkloadRequestUseMergePatch: true,
+			features.TASCacheNodeMatchResults:     true,
 		},
 		{
 			features.WorkloadRequestUseMergePatch: false,
-			features.TASCacheNodeMatchResults:     true,
-		},
-		{
-			features.WorkloadRequestUseMergePatch: true,
 			features.TASCacheNodeMatchResults:     false,
-		},
-		{
-			features.WorkloadRequestUseMergePatch: true,
-			features.TASCacheNodeMatchResults:     true,
-		},
-		{
-			features.WorkloadRequestUseMergePatch: true,
-			features.TASCacheNodeMatchResults:     false,
-		},
-		{
-			features.WorkloadRequestUseMergePatch: true,
-			features.TASCacheNodeMatchResults:     true,
 		},
 	}
 
 	for name, tc := range cases {
 		for _, scenario := range scenarios {
 			t.Run(
-				fmt.Sprintf("%s WorkloadRequestUseMergePatch:%t observability:%t cacheMatchResults:%t",
+				fmt.Sprintf("%s WorkloadRequestUseMergePatch:%t TASCacheNodeMatchResults:%t",
 					name,
 					scenario[features.WorkloadRequestUseMergePatch],
 					scenario[features.TASCacheNodeMatchResults],

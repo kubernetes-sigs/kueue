@@ -290,9 +290,13 @@ func BenchmarkSchedulerTAS(b *testing.B) {
 					func() { wg.Done() },
 				))
 
+<<<<<<< HEAD
 				if err := qManager.AddOrUpdateWorkload(log, requestedWl); err != nil {
 					b.Fatalf("Failed to add requested workload to qManager: %v", err)
 				}
+=======
+				_ = qManager.AddOrUpdateWorkload(log, requestedWl)
+>>>>>>> 985fd9dbf (address comments)
 
 				b.StartTimer()
 				scheduler.schedule(ctx)
