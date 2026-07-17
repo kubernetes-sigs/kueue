@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"slices"
 	"strings"
 	"testing"
@@ -175,6 +176,10 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 	wo := workload.Ordering{
 		PodsReadyRequeuingTimestamp: options.podsReadyRequeuingTimestamp,
 	}
+	linearSearchThr := math.MaxInt
+	if features.Enabled(features.PreemptorBinarySearch) {
+		linearSearchThr = 10
+	}
 	s := &Scheduler{
 		fairSharing: options.fairSharing,
 		queues:      queues,
@@ -191,6 +196,7 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 			options.roleTracker,
 			options.preemptionExpectations,
 			options.customLabels,
+			linearSearchThr,
 		),
 		admissionRoutineWrapper: routine.DefaultWrapper,
 		workloadOrdering:        wo,

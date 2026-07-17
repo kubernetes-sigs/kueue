@@ -974,7 +974,7 @@ func TestFairPreemptions(t *testing.T) {
 			recorder := &utiltesting.EventRecorder{}
 			preemptor := New(cl, workload.Ordering{}, recorder, &config.FairSharing{
 				PreemptionStrategies: tc.strategies,
-			}, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
+			}, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil, 10)
 
 			beforeSnapshot, err := cqCache.Snapshot(ctx)
 			if err != nil {

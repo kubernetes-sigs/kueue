@@ -291,6 +291,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.5"
+- name: PreemptorBinarySearch
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.19"
 - name: PriorityBoost
   versionedSpecs:
   - default: false
