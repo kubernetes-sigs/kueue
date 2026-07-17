@@ -466,6 +466,7 @@ type FlavorTASRequests []TASPodSetRequests
 
 // Fits checks if the snapshot has enough capacity to accommodate the workload
 func (s *TASFlavorSnapshot) Fits(flavorUsage workload.TASFlavorUsage) bool {
+	cachingEnabled := features.Enabled(features.TASCachingRemainingResources)
 	for _, domainUsage := range flavorUsage {
 		domainID := utiltas.DomainID(domainUsage.Values)
 		leaf, found := s.leaves[domainID]
@@ -473,7 +474,7 @@ func (s *TASFlavorSnapshot) Fits(flavorUsage workload.TASFlavorUsage) bool {
 			return false
 		}
 		var remainingCapacity resources.Requests
-		if features.Enabled(features.TASCachingRemainingResources) {
+		if cachingEnabled {
 			remainingCapacity = s.getRemainingCapacity(leaf)
 		} else {
 			remainingCapacity = leaf.freeCapacity.Clone()
@@ -795,8 +796,9 @@ func addAssumedUsage(assumedUsage map[utiltas.TopologyDomainID]resources.Request
 }
 
 func addUsagePerDomain(assumedUsage map[utiltas.TopologyDomainID]resources.Requests, usagePerDomain map[utiltas.TopologyDomainID]resources.Requests) {
+	cachingEnabled := features.Enabled(features.TASCachingRemainingResources)
 	for domainID, usage := range usagePerDomain {
-		if features.Enabled(features.TASCachingRemainingResources) && assumedUsage[domainID] == nil {
+		if cachingEnabled && assumedUsage[domainID] == nil {
 			assumedUsage[domainID] = usage
 		} else {
 			if assumedUsage[domainID] == nil {
@@ -1729,12 +1731,12 @@ func (s *TASFlavorSnapshot) fillInCounts(requirements *topologyAssignmentPodRequ
 		domain.sliceStateWithLeader = 0
 		domain.leaderState = 0
 	}
-
+	cachingRemainingResourcesEnabled := features.Enabled(features.TASCachingRemainingResources)
 	if features.Enabled(features.TASCacheNodeMatchResults) {
 		matchingLeaves, stats := s.getMatchingLeaves(requirements)
 		state.stats.add(stats)
 		for _, ml := range matchingLeaves {
-			s.fillLeafCounts(ml.leaf, requirements, state)
+			s.fillLeafCounts(ml.leaf, requirements, state, cachingRemainingResourcesEnabled)
 		}
 	} else {
 		for _, leaf := range s.leaves {
@@ -1747,7 +1749,7 @@ func (s *TASFlavorSnapshot) fillInCounts(requirements *topologyAssignmentPodRequ
 					continue
 				}
 			}
-			s.fillLeafCounts(leaf, requirements, state)
+			s.fillLeafCounts(leaf, requirements, state, cachingRemainingResourcesEnabled)
 		}
 	}
 
@@ -1825,7 +1827,7 @@ func (s *TASFlavorSnapshot) matchNode(leaf *leafDomain, requirements *topologyAs
 	return false, nil, exclusionNone
 }
 
-func (s *TASFlavorSnapshot) fillLeafCounts(leaf *leafDomain, requirements *topologyAssignmentPodRequirements, state *findTopologyAssignmentState) {
+func (s *TASFlavorSnapshot) fillLeafCounts(leaf *leafDomain, requirements *topologyAssignmentPodRequirements, state *findTopologyAssignmentState, cachingRemainingResourcesEnabled bool) {
 	// While correcting the topologyAssignment with a failed node
 	// check if the leaf belongs to the required domain
 	if !belongsToRequiredDomain(leaf, requirements.requiredReplacementDomain) {
@@ -1834,7 +1836,7 @@ func (s *TASFlavorSnapshot) fillLeafCounts(leaf *leafDomain, requirements *topol
 	}
 
 	var remainingCapacity resources.Requests
-	if features.Enabled(features.TASCachingRemainingResources) {
+	if cachingRemainingResourcesEnabled {
 		leafAssumedUsage, hasAssumedUsage := requirements.assumedUsage[leaf.id]
 		hasLeaderRequests := requirements.leaderRequests != nil
 
