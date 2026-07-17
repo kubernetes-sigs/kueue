@@ -213,7 +213,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("area:multikueue", "
 					managerTestCluster.ctx, managerTestCluster.client, wlLookupKey,
 					multiKueueAC.Name,
 					kueue.CheckStateReady,
-					`The workload got reservation on "worker1"`,
+					`The workload was admitted on "worker1"`,
 				)
 
 				gomega.Eventually(func(g gomega.Gomega) {

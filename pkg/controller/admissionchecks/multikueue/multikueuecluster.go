@@ -221,7 +221,7 @@ func newRemoteClient(
 		clock:        clock.RealClock{},
 	}
 	// Start in the disconnected state, tracking the loss from creation. If the worker is
-	// unreachable when the client is created (e.g. the reserving worker is down right after a
+	// unreachable when the client is created (e.g. the admitting worker is down right after a
 	// manager restart, so building the client fails before it is ever marked connected), the
 	// worker-lost grace still runs from here and the workload is eventually retried, instead of
 	// the grace never starting and the workload requeuing forever.

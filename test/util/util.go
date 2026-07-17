@@ -1683,7 +1683,7 @@ func ExpectWorkloadAdmittedWithCheck(ctx context.Context, wlLookupKey types.Name
 		ctx, client, wlLookupKey,
 		acName,
 		kueue.CheckStateReady,
-		fmt.Sprintf(`The workload got reservation on "%s"`, clusterName),
+		fmt.Sprintf(`The workload was admitted on "%s"`, clusterName),
 	)
 }
 
