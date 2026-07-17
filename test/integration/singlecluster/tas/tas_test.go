@@ -37,6 +37,7 @@ import (
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -1162,8 +1163,23 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 		ginkgo.When("Nodes are created before test with the hostname being the lowest level", func() {
 			var (
-				nodes []corev1.Node
+				nodes            []corev1.Node
+				podWithFinalizer *corev1.Pod
 			)
+
+			ginkgo.AfterEach(func() {
+				if podWithFinalizer == nil {
+					return
+				}
+				gomega.Eventually(func(g gomega.Gomega) {
+					p := &corev1.Pod{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(podWithFinalizer), p)).To(gomega.Succeed())
+					if controllerutil.RemoveFinalizer(p, "kueue.x-k8s.io/integration-test") {
+						g.Expect(k8sClient.Update(ctx, p)).To(gomega.Succeed())
+					}
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				podWithFinalizer = nil
+			})
 			ginkgo.BeforeEach(func() {
 				//     b1          b2
 				//   /    \      /    \
@@ -1571,13 +1587,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Request(corev1.ResourceCPU, "1").
 						Obj()
 					util.MustCreate(ctx, k8sClient, pod)
-					ginkgo.DeferCleanup(func() {
-						p := &corev1.Pod{}
-						if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), p); err == nil {
-							p.Finalizers = nil
-							_ = k8sClient.Update(ctx, p)
-						}
-					})
+					podWithFinalizer = pod
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(gomega.Succeed())
 						pod.Status.Phase = corev1.PodRunning
@@ -1620,14 +1630,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 								},
 							}),
 						))
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				})
-
-				ginkgo.By("removing the pod finalizer", func() {
-					gomega.Eventually(func(g gomega.Gomega) {
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(gomega.Succeed())
-						pod.Finalizers = nil
-						g.Expect(k8sClient.Update(ctx, pod)).To(gomega.Succeed())
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 			})

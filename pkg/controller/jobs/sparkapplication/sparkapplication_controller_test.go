@@ -608,7 +608,7 @@ func TestRestorePodSetsInfo(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			kSparkApp := (*SparkApplication)(tc.sparkApp)
-			changed := kSparkApp.RestorePodSetsInfo(tc.podsetsInfo)
+			changed := kSparkApp.RestorePodSetsInfo(t.Context(), tc.podsetsInfo)
 			if diff := cmp.Diff(tc.wantChanged, changed); diff != "" {
 				t.Errorf("changed mismatch (-want,+got):\n%s", diff)
 				return

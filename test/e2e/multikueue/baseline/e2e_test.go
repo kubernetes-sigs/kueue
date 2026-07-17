@@ -526,7 +526,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					ctx, k8sManagerClient, wlLookupKey,
 					multiKueueAc.Name,
 					kueue.CheckStateReady,
-					fmt.Sprintf("The workload got reservation on %q", admittedWorkerName),
+					fmt.Sprintf("The workload was admitted on %q", admittedWorkerName),
 				)
 
 				ginkgo.By("ensure all pods are created", func() {
@@ -579,7 +579,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					ctx, k8sManagerClient, wlLookupKey,
 					multiKueueAc.Name,
 					kueue.CheckStateReady,
-					fmt.Sprintf("The workload got reservation on %q", admittedWorkerName),
+					fmt.Sprintf("The workload was admitted on %q", admittedWorkerName),
 				)
 
 				gomega.Eventually(func(g gomega.Gomega) {

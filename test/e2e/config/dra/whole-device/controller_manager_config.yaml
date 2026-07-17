@@ -19,9 +19,6 @@ integrations:
   frameworks:
   - "batch/job"
   - "pod"
-featureGates:
-  KueueDRAIntegration: true
-  KueueDRAIntegrationExtendedResource: true
 resources:
   deviceClassMappings:
   - name: gpu

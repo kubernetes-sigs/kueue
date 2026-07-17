@@ -111,7 +111,7 @@ func BenchmarkTASFlavorSnapshot(b *testing.B) {
 				)
 			}
 
-			flavorNodes := make([][]*nodeInfo, len(flavorCaches))
+			flavorNodes := make([][]*corev1.Node, len(flavorCaches))
 			for i, flavorCache := range flavorCaches {
 				flavorNodes[i] = tasCache.nodesCache.find(flavorCache.flavor.NodeLabels, flavorCache.topology.Levels)
 			}

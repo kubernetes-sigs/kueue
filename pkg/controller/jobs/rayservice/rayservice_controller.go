@@ -191,7 +191,7 @@ func (j *RayService) RunWithPodSetsInfo(ctx context.Context, _ client.Client, po
 	j.Spec.RayClusterSpec.Suspend = new(false)
 
 	rayClusterSpec := &j.Spec.RayClusterSpec
-	err := raycluster.UpdateRayClusterSpecToRunWithPodSetsInfo(rayClusterSpec, podSetsInfo)
+	err := raycluster.UpdateRayClusterSpecToRunWithPodSetsInfo(ctrl.LoggerFrom(ctx), rayClusterSpec, podSetsInfo)
 	if err != nil {
 		return err
 	}
@@ -199,8 +199,8 @@ func (j *RayService) RunWithPodSetsInfo(ctx context.Context, _ client.Client, po
 	return nil
 }
 
-func (j *RayService) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
-	return raycluster.RestorePodSetsInfo(&j.Spec.RayClusterSpec, podSetsInfo)
+func (j *RayService) RestorePodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) bool {
+	return raycluster.RestorePodSetsInfo(ctx, &j.Spec.RayClusterSpec, podSetsInfo)
 }
 
 func (j *RayService) Finished(ctx context.Context) (message string, success, finished bool) {

@@ -280,7 +280,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
 			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
 		},
-		"Node NotReady, delay passed, pod running, both gates disabled - not marked (termination-driven)": {
+		"Node NotReady, delay passed, pod running, both gates disabled - marked at the fixed time": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TASReplaceNodeDueToNotReadyOverFixedTime: false,
 				features.TASReplaceNodeOnPodTermination:           false,
@@ -294,9 +294,9 @@ func TestNodeFailureReconciler(t *testing.T) {
 				basePod.DeepCopy(),
 			},
 			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
-			wantUnhealthyNodes: nil,
+			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
 		},
-		"Node NotReady, pod terminating, both gates disabled - marked (termination-driven)": {
+		"Node NotReady, pod terminating, both gates disabled - marked": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TASReplaceNodeDueToNotReadyOverFixedTime: false,
 				features.TASReplaceNodeOnPodTermination:           false,

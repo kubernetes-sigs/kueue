@@ -22,7 +22,6 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -117,7 +116,7 @@ func (c *TASFlavorCache) TopologyLevels() []string {
 }
 
 func (c *TASFlavorCache) snapshot(
-	log logr.Logger, nodes []*nodeInfo, aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests,
+	log logr.Logger, nodes []*corev1.Node, aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests,
 ) *TASFlavorSnapshot {
 	c.RLock()
 	defer c.RUnlock()
@@ -189,43 +188,5 @@ func (c *TASFlavorCache) updateUsage(topologyRequests []workload.TopologyDomainR
 			c.usage[domainID].Add(tr.TotalRequests())
 			c.usage[domainID].Add(resources.Requests{corev1.ResourcePods: int64(tr.Count)})
 		}
-	}
-}
-
-type nodeInfo struct {
-	// Name holds the node's name, used to evaluate node affinity.
-	Name string
-
-	// Labels are used to match Topology levels and NodeSelectors.
-	Labels map[string]string
-
-	// Taints are used to check tolerations.
-	Taints []corev1.Taint
-
-	// Allocatable capacity from Status.Allocatable.
-	Allocatable corev1.ResourceList
-}
-
-func newNodeInfo(node *corev1.Node) *nodeInfo {
-	return &nodeInfo{
-		Name:        node.Name,
-		Labels:      node.Labels,
-		Taints:      node.Spec.Taints,
-		Allocatable: node.Status.Allocatable,
-	}
-}
-
-func (ni *nodeInfo) toNode() *corev1.Node {
-	return &corev1.Node{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:   ni.Name,
-			Labels: ni.Labels,
-		},
-		Spec: corev1.NodeSpec{
-			Taints: ni.Taints,
-		},
-		Status: corev1.NodeStatus{
-			Allocatable: ni.Allocatable,
-		},
 	}
 }

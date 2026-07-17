@@ -1244,7 +1244,7 @@ func expectedRunningPodSets(ctx context.Context, c client.Client, wl *kueue.Work
 		if !found {
 			return nil
 		}
-		err := podset.Merge(&ps.Template.ObjectMeta, &ps.Template.Spec, *psi)
+		err := podset.Merge(ctrl.LoggerFrom(ctx), &ps.Template.ObjectMeta, &ps.Template.Spec, *psi)
 		if err != nil {
 			return nil
 		}
@@ -1393,7 +1393,7 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.W
 	if err := clientutil.Patch(ctx, r.client, object, func() (bool, error) {
 		job.Suspend()
 		if info != nil {
-			job.RestorePodSetsInfo(info)
+			job.RestorePodSetsInfo(ctx, info)
 		}
 		return true, nil
 	}); err != nil {
