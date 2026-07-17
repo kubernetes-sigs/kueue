@@ -127,6 +127,22 @@ func ExpectAdmittedWorkloadsTotalMetric(cq *kueue.ClusterQueue, priorityClass st
 	ExpectAdmittedWorkloadsTotalMetricWithTimeout(cq, priorityClass, v, Timeout, customLabels...)
 }
 
+// GetMultiKueueWorkloadsAdmittedTotal reads the current value of the
+// multikueue_workloads_admitted_total counter, so tests can assert on the
+// delta and stay independent of metrics accumulated by earlier specs.
+func GetMultiKueueWorkloadsAdmittedTotal(cq *kueue.ClusterQueue, cluster string) int {
+	ginkgo.GinkgoHelper()
+	v, err := testutil.GetCounterMetricValue(metrics.MultiKueueWorkloadsAdmittedTotal.WithLabelValues(cq.Name, cluster, roletracker.RoleStandalone))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return int(v)
+}
+
+func ExpectMultiKueueWorkloadsAdmittedTotalMetric(cq *kueue.ClusterQueue, cluster string, v int) {
+	ginkgo.GinkgoHelper()
+	expectCounterMetric(metrics.MultiKueueWorkloadsAdmittedTotal, v,
+		cq.Name, cluster, roletracker.RoleStandalone)
+}
+
 func ExpectAdmissionWaitTimeMetric(cq *kueue.ClusterQueue, priorityClass string, count int) {
 	ginkgo.GinkgoHelper()
 	expectHistogramMetric(metrics.AdmissionWaitTime, gomega.Equal(count), cq.Name, priorityClass, roletracker.RoleStandalone)

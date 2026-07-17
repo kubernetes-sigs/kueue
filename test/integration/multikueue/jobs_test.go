@@ -205,6 +205,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 	})
 
 	ginkgo.It("Should run a job on worker if admitted", func() {
+		admittedMetricBefore := util.GetMultiKueueWorkloadsAdmittedTotal(managerCq, "worker1")
 		job := testingjob.MakeJob("job", managerNs.Name).
 			Queue(kueue.LocalQueueName(managerLq.Name)).
 			Obj()
@@ -252,6 +253,8 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			util.ExpectMultiKueueWorkloadsAdmittedTotalMetric(managerCq, "worker1", admittedMetricBefore+1)
 		})
 
 		ginkgo.By("finishing the worker job", func() {
@@ -2145,6 +2148,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 	})
 
 	ginkgo.It("Should redo the admission process once the workload loses Admission in the worker cluster", func() {
+		admittedMetricBefore := util.GetMultiKueueWorkloadsAdmittedTotal(managerCq, "worker1")
 		job := testingjob.MakeJob("job", managerNs.Name).
 			ManagedBy(kueue.MultiKueueControllerName).
 			Queue(kueue.LocalQueueName(managerLq.Name)).
@@ -2193,6 +2197,8 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			util.ExpectMultiKueueWorkloadsAdmittedTotalMetric(managerCq, "worker1", admittedMetricBefore+1)
 		})
 
 		ginkgo.By("preempting workload in worker1", func() {
@@ -2241,6 +2247,21 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 				g.Expect(createdWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("re-admitting the workload in worker1, the admitted metric counts the second admission", func() {
+			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).
+				Obj()
+			util.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlLookupKey, admission)
+
+			util.ExpectAdmissionCheckStateWithMessage(
+				managerTestCluster.ctx, managerTestCluster.client, wlLookupKey,
+				multiKueueAC.Name,
+				kueue.CheckStateReady,
+				`The workload was admitted on "worker1"`,
+			)
+			util.ExpectMultiKueueWorkloadsAdmittedTotalMetric(managerCq, "worker1", admittedMetricBefore+2)
 		})
 	})
 

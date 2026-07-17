@@ -2420,7 +2420,7 @@ func setupAdmittedMetricTest(ctx context.Context, t *testing.T, acState kueue.Ch
 		WithStatusSubresource(&kueue.Workload{}).
 		WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
 		Build())
-	w1remoteClient.connected.Store(true)
+	w1remoteClient.connState.markConnected()
 	cRec.remoteClients["worker1"] = w1remoteClient
 
 	helper, _ := admissioncheck.NewMultiKueueStoreHelper(managerClient)
