@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -212,11 +213,26 @@ func (j *Job) PodLabelSelector() string {
 
 func (j *Job) ReclaimablePods(ctx context.Context, _ client.Client) ([]kueue.ReclaimablePod, error) {
 	parallelism := ptr.Deref(j.Spec.Parallelism, 1)
-	if parallelism == 1 || j.Status.Succeeded == 0 {
+	completions := ptr.Deref(j.Spec.Completions, parallelism)
+
+	// For an Indexed Job derive the number of completed pods from
+	// completedIndexes rather than Status.Succeeded. After an elastic scale-down
+	// that shrinks completions, Status.Succeeded briefly keeps counting the
+	// removed high indexes until the Job controller recounts it; releasing quota
+	// based on that stale value would let the surviving pods run outside quota
+	// (kueue#13117). Counting only the completed indexes below the current
+	// completions yields the post-recount value immediately and can never
+	// over-credit, since completedIndexes lists real successes.
+	succeeded := j.Status.Succeeded
+	if ptr.Deref(j.Spec.CompletionMode, batchv1.NonIndexedCompletion) == batchv1.IndexedCompletion {
+		succeeded = completedIndexesCount(j.Status.CompletedIndexes, completions)
+	}
+
+	if parallelism == 1 || succeeded == 0 {
 		return nil, nil
 	}
 
-	remaining := ptr.Deref(j.Spec.Completions, parallelism) - j.Status.Succeeded
+	remaining := completions - succeeded
 	if remaining >= parallelism {
 		return nil, nil
 	}
@@ -225,6 +241,44 @@ func (j *Job) ReclaimablePods(ctx context.Context, _ client.Client) ([]kueue.Rec
 		Name:  kueue.DefaultPodSetName,
 		Count: parallelism - remaining,
 	}}, nil
+}
+
+// completedIndexesCount returns the number of indexes listed in an Indexed Job's
+// status.completedIndexes that are below completions. completedIndexes uses the
+// Kubernetes format: an ascending, comma-separated list of intervals where each
+// interval is a single index ("3") or an inclusive range ("3-5"), e.g. "1,3-5,7".
+// Capping the intervals at completions gives the number of completed pods within
+// the current pod set even while status.Succeeded is briefly stale after a
+// scale-down (kueue#13117).
+func completedIndexesCount(completedIndexes string, completions int32) int32 {
+	if completedIndexes == "" || completions <= 0 {
+		return 0
+	}
+	limit := int(completions)
+	count := 0
+	for interval := range strings.SplitSeq(completedIndexes, ",") {
+		firstStr, lastStr, isRange := strings.Cut(interval, "-")
+		first, err := strconv.Atoi(firstStr)
+		if err != nil {
+			continue
+		}
+		last := first
+		if isRange {
+			if last, err = strconv.Atoi(lastStr); err != nil {
+				continue
+			}
+		}
+		if first < 0 || last < first {
+			continue
+		}
+		if last >= limit {
+			last = limit - 1
+		}
+		if first <= last {
+			count += last - first + 1
+		}
+	}
+	return int32(count)
 }
 
 // The following labels are managed internally by batch/job controller, we should not
