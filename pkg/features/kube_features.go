@@ -490,6 +490,11 @@ const (
 	// to be reused within a single scheduling cycle by TAS evaluations corresponding to different
 	// sets of preemption candidates.
 	TASCacheNodeMatchResults featuregate.Feature = "TASCacheNodeMatchResults"
+
+	// owner: @j-skiba
+	//
+	// Enables caching of remaining capacity and clone reduction in TAS Flavor Snapshot.
+	TASCachingRemainingResources featuregate.Feature = "TASCachingRemainingResources"
 )
 
 func init() {
@@ -752,6 +757,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	TASCacheNodeMatchResults: {
+		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	TASCachingRemainingResources: {
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
