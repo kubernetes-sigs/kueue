@@ -1,0 +1,4 @@
+output: controller_manager_config.yaml
+fragments:
+  - ../components/manager-config/core.yaml
+  - ./delta.yaml

@@ -167,6 +167,10 @@ compile-crd-manifests: manifests kustomize
 update-helm: compile-crd-manifests yq yaml-processor
 	$(YAML_PROCESSOR) -zap-log-level=$(YAML_PROCESSOR_LOG_LEVEL) hack/processing-plan.yaml
 
+.PHONY: generate-e2e-manager-configs
+generate-e2e-manager-configs: yq ## Regenerate test/e2e/config/**/controller_manager_config.yaml from their shared fragments.
+	YQ=$(YQ) ./hack/generate-e2e-manager-configs.sh
+
 .PHONY: generate
 generate: generate-mocks generate-apiref generate-code generate-kueuectl-docs generate-helm-docs generate-metrics-tables generate-featuregates
 

@@ -1,0 +1,8 @@
+integrations:
+  frameworks:
+  - "batch/job"
+  - "pod"
+featureGates:
+  LocalQueueMetrics: true
+  ElasticJobsViaWorkloadSlices: true
+  MultiKueueManagerQuotaAutomation: true
