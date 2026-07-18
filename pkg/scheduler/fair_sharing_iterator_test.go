@@ -17,13 +17,13 @@ limitations under the License.
 package scheduler
 
 import (
-	"context"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -52,12 +52,12 @@ func TestFairSharingIteratorReturnsAllEntriesOfClusterQueue(t *testing.T) {
 	entries := make([]entry, 0, 3)
 	for _, wl := range []*kueue.Workload{headNew, headOld, secondPass} {
 		entries = append(entries, entry{
-			Info:                 *workload.NewInfo(wl),
+			Head:                 qcache.Head{Info: *workload.NewInfo(wl)},
 			clusterQueueSnapshot: cq,
 		})
 	}
 
-	iterator := makeFairSharingIterator(context.Background(), entries, workload.Ordering{})
+	iterator := makeFairSharingIterator(t.Context(), entries, workload.Ordering{})
 	var got []string
 	for iterator.hasNext() {
 		got = append(got, iterator.pop().Obj.Name)
