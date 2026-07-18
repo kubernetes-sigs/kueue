@@ -17,7 +17,6 @@ limitations under the License.
 package scheduler
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -57,7 +56,7 @@ func TestFairSharingIteratorReturnsAllEntriesOfClusterQueue(t *testing.T) {
 		})
 	}
 
-	iterator := makeFairSharingIterator(context.Background(), entries, workload.Ordering{})
+	iterator := makeFairSharingIterator(t.Context(), entries, workload.Ordering{})
 	var got []string
 	for iterator.hasNext() {
 		got = append(got, iterator.pop().Obj.Name)
