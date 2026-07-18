@@ -929,6 +929,13 @@ func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.
 // baseCompareFunc orders workloads by sticky status, priority, timestamp, and UID.
 func baseCompareFunc(log logr.Logger, wo workload.Ordering, sw *stickyWorkload) func(a, b *workload.Info) int {
 	return func(a, b *workload.Info) int {
+		p1 := utilpriority.EffectivePriority(log, a.Obj)
+		p2 := utilpriority.EffectivePriority(log, b.Obj)
+		// Higher priority comes first (reverse order).
+		if cmpResult := cmp.Compare(p2, p1); cmpResult != 0 {
+			return cmpResult
+		}
+
 		aSticky := sw.matches(workload.Key(a.Obj))
 		bSticky := sw.matches(workload.Key(b.Obj))
 		if aSticky != bSticky {
@@ -938,13 +945,6 @@ func baseCompareFunc(log logr.Logger, wo workload.Ordering, sw *stickyWorkload) 
 			}
 			logStickyWorkloadSelectionIfVerbose(log, b.Obj)
 			return 1
-		}
-
-		p1 := utilpriority.EffectivePriority(log, a.Obj)
-		p2 := utilpriority.EffectivePriority(log, b.Obj)
-		// Higher priority comes first (reverse order).
-		if cmpResult := cmp.Compare(p2, p1); cmpResult != 0 {
-			return cmpResult
 		}
 
 		tA := wo.GetQueueOrderTimestamp(a.Obj)
