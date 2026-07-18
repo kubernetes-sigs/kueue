@@ -1304,7 +1304,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing", "featur
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(
 			&config.AdmissionFairSharing{
 				UsageHalfLifeTime: metav1.Duration{
-					Duration: 1 * time.Second,
+					Duration: 2 * time.Second,
 				},
 				UsageSamplingInterval: metav1.Duration{
 					Duration: 1 * time.Second,
@@ -1416,11 +1416,25 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing", "featur
 			util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 2)
 			util.ExpectReservingActiveWorkloadsMetric(cq1, 2)
 
+			wlHighAInfo := workload.NewInfo(wlHighA)
+			wlLowBInfo := workload.NewInfo(wlLowB)
 			ginkgo.By("Checking that the scheduler sees higher recent usage for lq-a")
 			gomega.Eventually(func(g gomega.Gomega) {
-				lqAUsage, err := workload.NewInfo(wlHighA).CalcLocalQueueFSUsage(ctx, k8sClient, nil, qManager.AfsEntryPenalties, qManager.AfsConsumedResources)
+				lqAUsage, err := wlHighAInfo.CalcLocalQueueFSUsage(
+					ctx,
+					k8sClient,
+					nil,
+					qManager.AfsEntryPenalties,
+					qManager.AfsConsumedResources,
+				)
 				g.Expect(err).NotTo(gomega.HaveOccurred())
-				lqBUsage, err := workload.NewInfo(wlLowB).CalcLocalQueueFSUsage(ctx, k8sClient, nil, qManager.AfsEntryPenalties, qManager.AfsConsumedResources)
+				lqBUsage, err := wlLowBInfo.CalcLocalQueueFSUsage(
+					ctx,
+					k8sClient,
+					nil,
+					qManager.AfsEntryPenalties,
+					qManager.AfsConsumedResources,
+				)
 				g.Expect(err).NotTo(gomega.HaveOccurred())
 				g.Expect(lqAUsage).To(gomega.BeNumerically(">", lqBUsage),
 					"expected scheduler usage for lq-a (%v) > lq-b usage (%v) before creating reclaiming workload",
