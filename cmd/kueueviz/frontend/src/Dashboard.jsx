@@ -63,7 +63,9 @@ const Dashboard = () => {
 
       kueueData.workloads?.items?.forEach(workload => {
         if (workload.preemption?.preempted) {
-          toast.error(`Workload ${workload.metadata?.name} was preempted: ${workload.preemption.reason}`);
+          toast.error(`Workload ${workload.metadata?.name} was preempted: ${workload.preemption.reason}`, {
+            toastId: workload.metadata?.uid || workload.metadata?.name
+          });
         }
       });
       setLoading(false);
