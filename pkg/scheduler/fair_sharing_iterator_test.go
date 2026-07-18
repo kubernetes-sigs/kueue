@@ -131,3 +131,78 @@ func TestFairSharingIteratorPush(t *testing.T) {
 		t.Errorf("Unexpected pop order (-want,+got):\n%s", diff)
 	}
 }
+
+// TestFairSharingIteratorReturnsAllEntriesOfClusterQueue verifies that the
+// iterator considers every entry of a ClusterQueue within a cycle, in
+// compareEntries order. A ClusterQueue can have several entries in one cycle:
+// workloads queued for a second pass of scheduling in addition to the queue
+// head.
+func TestFairSharingIteratorReturnsAllEntriesOfClusterQueue(t *testing.T) {
+	now := time.Now()
+	ctx, log := utiltesting.ContextWithLog(t)
+	cq := &schdcache.ClusterQueueSnapshot{Name: "cq"}
+
+	secondPass := utiltestingapi.MakeWorkload("second-pass", "ns").
+		Creation(now.Add(2*time.Minute)).
+		SimpleReserveQuota("cq", "default", now).
+		Obj()
+	headOld := utiltestingapi.MakeWorkload("head-old", "ns").
+		Creation(now).
+		Obj()
+	headNew := utiltestingapi.MakeWorkload("head-new", "ns").
+		Creation(now.Add(time.Minute)).
+		Obj()
+
+	entries := make([]entry, 0, 3)
+	for _, wl := range []*kueue.Workload{headNew, headOld, secondPass} {
+		entries = append(entries, entry{
+			Info:                 *workload.NewInfo(log, wl),
+			clusterQueueSnapshot: cq,
+		})
+	}
+
+	iterator := makeFairSharingIterator(ctx, entries, workload.Ordering{})
+	var got []string
+	for iterator.hasNext() {
+		got = append(got, iterator.pop().Obj.Name)
+	}
+	// The entry with quota already reserved goes first, the remaining ones
+	// follow in FIFO order.
+	want := []string{"second-pass", "head-old", "head-new"}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("unexpected pop order (-want,+got):\n%s", diff)
+	}
+}
+
+// TestFairSharingIteratorPushKeepsClusterQueueOrder verifies that an entry
+// pushed into a ClusterQueue which still has entries in the cycle is placed
+// according to compareEntries, rather than replacing or skipping them.
+func TestFairSharingIteratorPushKeepsClusterQueueOrder(t *testing.T) {
+	now := time.Now()
+	ctx, log := utiltesting.ContextWithLog(t)
+	cq := &schdcache.ClusterQueueSnapshot{Name: "cq"}
+
+	makeEntry := func(name string, creation time.Time) entry {
+		return entry{
+			Info:                 *workload.NewInfo(log, utiltestingapi.MakeWorkload(name, "ns").Creation(creation).Obj()),
+			clusterQueueSnapshot: cq,
+		}
+	}
+	entries := []entry{
+		makeEntry("oldest", now),
+		makeEntry("old", now.Add(time.Minute)),
+		makeEntry("newest", now.Add(3*time.Minute)),
+	}
+	pushed := makeEntry("new", now.Add(2*time.Minute))
+
+	iterator := makeFairSharingIterator(ctx, entries, workload.Ordering{})
+	got := []string{iterator.pop().Obj.Name}
+	iterator.push(&pushed)
+	for iterator.hasNext() {
+		got = append(got, iterator.pop().Obj.Name)
+	}
+	want := []string{"oldest", "old", "new", "newest"}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("unexpected pop order (-want,+got):\n%s", diff)
+	}
+}
