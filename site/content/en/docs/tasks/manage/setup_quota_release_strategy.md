@@ -29,7 +29,3 @@ When this strategy is used, Kueue releases the quota as soon as pods enter the t
 
 #### OnTerminalBestEffort
 When this strategy is used, Kueue waits for the pods to fully terminate and completely release their physical resources before releasing quota. This is required if you are using Topology Aware Scheduling (TAS) to ensure physical nodes are completely empty before scheduling the next job.
-
-{{% alert title="Requirements" color="warning" %}}
-`OnTerminalBestEffort` requires a Kubernetes cluster with the `JobPodReplacementPolicy` feature enabled (which is enabled by default in modern Kubernetes versions). If this feature is not present, Kueue will gracefully fall back to manually querying pod statuses, which may slightly increase API server load.
-{{% /alert %}}
