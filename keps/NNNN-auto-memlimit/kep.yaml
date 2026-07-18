@@ -1,0 +1,22 @@
+title: Automatic GOMEMLIMIT Tuning for Kueue Controller
+kep-number: NNNN
+authors:
+  - "@dongjiang1989"
+status: provisional
+creation-date: 2026-05-26
+reviewers:
+  - TBD
+approvers:
+  - TBD
+
+stage: alpha
+
+latest-milestone: "v0.13"
+
+milestone:
+  alpha: "v0.13"
+
+feature-gates: []
+disable-supported: true
+
+metrics: []
