@@ -546,6 +546,44 @@ func TestReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
+		"terminal pods do not consume the cap: replacements are ungated": {
+			// Regression for kueue#13121: Pods in a terminal phase (Succeeded,
+			// e.g. the first completion of a Job with completions > parallelism,
+			// or Failed with restartPolicy=Never) remain in the API without the
+			// gate but no longer occupy an admitted slot. They must not count
+			// against the granted cap, so the gated replacement pods can be
+			// ungated within the same admitted count.
+			workloads: []kueue.Workload{admittedElasticWorkload(2, now)},
+			pods: []corev1.Pod{
+				*chainPod("pod-succeeded").StatusPhase(corev1.PodSucceeded).Obj(),
+				*chainPod("pod-failed").StatusPhase(corev1.PodFailed).Obj(),
+				*chainPod("pod-replacement-0").Gate(kueue.ElasticJobSchedulingGate).Obj(),
+				*chainPod("pod-replacement-1").Gate(kueue.ElasticJobSchedulingGate).Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*chainPod("pod-failed").StatusPhase(corev1.PodFailed).Obj(),
+				*chainPod("pod-replacement-0").Obj(),
+				*chainPod("pod-replacement-1").Obj(),
+				*chainPod("pod-succeeded").StatusPhase(corev1.PodSucceeded).Obj(),
+			},
+		},
+		"running ungated pod still consumes the cap": {
+			// Boundary guard for the kueue#13121 fix: only terminal pods free
+			// their slot. A Running (non-terminal) ungated pod keeps consuming
+			// the cap, so the gated pod must stay gated at granted=1. This is
+			// also the only unit case where an already-ungated pod blocks a
+			// gated one at the cap (the kueue#12045 cases never modeled pod
+			// phases, and their ungated pods never exhausted the granted count).
+			workloads: []kueue.Workload{admittedElasticWorkload(1, now)},
+			pods: []corev1.Pod{
+				*chainPod("pod-running").StatusPhase(corev1.PodRunning).Obj(),
+				*chainPod("pod-waiting").Gate(kueue.ElasticJobSchedulingGate).Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*chainPod("pod-running").StatusPhase(corev1.PodRunning).Obj(),
+				*chainPod("pod-waiting").Gate(kueue.ElasticJobSchedulingGate).Obj(),
+			},
+		},
 	}
 
 	for name, tc := range testCases {
@@ -628,6 +666,26 @@ func TestReconcile(t *testing.T) {
 			}
 		})
 	}
+}
+
+// admittedElasticWorkload returns an admitted elastic workload "wl" in "ns"
+// with a single default PodSet granted count replicas.
+func admittedElasticWorkload(count int, now time.Time) kueue.Workload {
+	return *utiltestingapi.MakeWorkload("wl", "ns").
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+		ControllerReference(rayClusterGVK, "ray", "ray-uid").
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, count).Request(corev1.ResourceCPU, "1").Obj()).
+		SimpleReserveQuota("cq", "flavor", now).
+		AdmittedAt(true, now).
+		Obj()
+}
+
+// chainPod returns a pod of the "wl" slice chain in "ns".
+func chainPod(name string) *testingpod.PodWrapper {
+	return testingpod.MakePod(name, "ns").
+		Annotation(kueue.WorkloadAnnotation, "wl").
+		Annotation(kueue.WorkloadSliceNameAnnotation, "wl")
 }
 
 // ensureDefaultPodSetLabel sets the default PodSet label on the pod unless it

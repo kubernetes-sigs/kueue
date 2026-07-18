@@ -4755,6 +4755,70 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 	})
 
+	ginkgo.It("Should ungate a replacement pod once its predecessor reaches a terminal phase", framework.SlowSpec, func() {
+		// Regression for kueue#13121: a terminal (Succeeded/Failed) pod stays in
+		// the API without the elastic gate and was counted against the admitted
+		// cap, so the replacement pod of a Job with completions > parallelism
+		// stayed scheduling-gated forever. Mirrors the issue's repro:
+		// parallelism=1, completions=2.
+		testJob := testingjob.MakeJob("terminal-pod-repro", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Request(corev1.ResourceCPU, "1").
+			Parallelism(1).
+			Completions(2).
+			Obj()
+
+		ginkgo.By("creating the job")
+		util.MustCreate(ctx, k8sClient, testJob)
+
+		var (
+			jobWorkload *kueue.Workload
+			podSet      kueue.PodSetReference
+		)
+		ginkgo.By("admitting the job's workload at 1 pod")
+		gomega.Eventually(func(g gomega.Gomega) {
+			workloads := &kueue.WorkloadList{}
+			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
+			jobWorkload = &workloads.Items[0]
+			g.Expect(workload.IsAdmitted(jobWorkload)).Should(gomega.BeTrue())
+			g.Expect(jobWorkload.Spec.PodSets[0].Count).Should(gomega.BeEquivalentTo(int32(1)))
+			podSet = jobWorkload.Spec.PodSets[0].Name
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		mintPod := func(name string) *corev1.Pod {
+			return testingpod.MakePod(name, ns.Name).
+				Annotation(kueue.WorkloadAnnotation, jobWorkload.Name).
+				Annotation(kueue.WorkloadSliceNameAnnotation, jobWorkload.Name).
+				Label(pkgconstants.PodSetLabel, string(podSet)).
+				Gate(kueue.ElasticJobSchedulingGate).
+				Obj()
+		}
+
+		firstPod := mintPod("first-pod")
+		ginkgo.By("minting the first gated pod and waiting for it to be ungated")
+		util.MustCreate(ctx, k8sClient, firstPod)
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(firstPod), firstPod)).Should(gomega.Succeed())
+			g.Expect(utilpod.HasGate(firstPod, kueue.ElasticJobSchedulingGate)).Should(gomega.BeFalse())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("marking the first pod Succeeded, emulating its completion")
+		util.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, firstPod)
+
+		replacementPod := mintPod("replacement-pod")
+		ginkgo.By("minting the gated replacement pod for the second completion")
+		util.MustCreate(ctx, k8sClient, replacementPod)
+
+		ginkgo.By("the ungater ungates the replacement: the terminal pod freed its slot")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(replacementPod), replacementPod)).Should(gomega.Succeed())
+			g.Expect(utilpod.HasGate(replacementPod, kueue.ElasticJobSchedulingGate)).Should(gomega.BeFalse(),
+				"replacement pod must be ungated once its predecessor is terminal, but it stayed scheduling-gated")
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	})
+
 	ginkgo.It("Should support scheduling pending workload after freeing capacity on scale-down", func() {
 		var (
 			testJobAWorkload *kueue.Workload
