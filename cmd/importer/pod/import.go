@@ -83,14 +83,15 @@ func Import(ctx context.Context, c client.Client, importCache *cache.ImportCache
 			wl.Spec.Priority = &pc.Value
 		}
 
+		cq, ok := importCache.ClusterQueues[string(lq.Spec.ClusterQueue)]
+		if !ok {
+			return false, fmt.Errorf("cluster queue not found in cache: %s: %w", lq.Spec.ClusterQueue, cache.ErrCQNotFound)
+		}
+
 		if err := createWorkload(ctx, c, wl); err != nil {
 			return false, fmt.Errorf("creating workload: %w", err)
 		}
 
-		cq, ok := importCache.ClusterQueues[string(lq.Spec.ClusterQueue)]
-		if !ok {
-			return false, fmt.Errorf("cluster queue not found in cache: %s", lq.Spec.ClusterQueue)
-		}
 		if err := admitWorkload(ctx, c, wl, cq); err != nil {
 			return false, err
 		}
