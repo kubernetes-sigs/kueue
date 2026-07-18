@@ -91,20 +91,23 @@ func (a *Authenticator) Stop() {
 	// The utilcache.LRUExpireCache does not require stopping a goroutine.
 }
 
-// RateLimiter returns a gin middleware that enforces a per-client-IP
-// token-bucket rate limit. Each source IP gets its own independent bucket so
-// an attacker flooding from one IP cannot drain the budget for legitimate
-// clients. Requests that exceed the per-IP limit receive 429 Too Many Requests
-// before they reach the authentication logic, preventing TokenReview
-// amplification.
+// RateLimiter returns a gin middleware that enforces both a per-client-IP
+// rate limit and a global rate limit. Each source IP gets its own independent 
+// bucket so an attacker flooding from one IP cannot drain the budget for legitimate
+// clients. Requests that exceed either limit receive 429 Too Many Requests
+// before they reach the authentication logic, preventing TokenReview amplification.
 //
-//   - r: steady-state requests per second allowed per IP.
-//   - burst: maximum burst size (peak requests from a single IP at once).
-func RateLimiter(r rate.Limit, burst int) gin.HandlerFunc {
+//   - perIPRate: steady-state requests per second allowed per IP.
+//   - perIPBurst: maximum burst size (peak requests from a single IP at once).
+//   - globalRate: total requests per second allowed globally.
+//   - globalBurst: maximum global burst size.
+func RateLimiter(perIPRate rate.Limit, perIPBurst int, globalRate rate.Limit, globalBurst int) gin.HandlerFunc {
 	// A bounded, TTL-based cache mapping IP addresses to *rate.Limiter.
 	// This prevents memory exhaustion from spoofed or highly distributed IP addresses.
 	limiters := utilcache.NewLRUExpireCache(10000)
 	var mu sync.Mutex
+
+	globalLimiter := rate.NewLimiter(globalRate, globalBurst)
 
 	getLimiter := func(ip string) *rate.Limiter {
 		mu.Lock()
@@ -112,7 +115,7 @@ func RateLimiter(r rate.Limit, burst int) gin.HandlerFunc {
 		if l, ok := limiters.Get(ip); ok {
 			return l.(*rate.Limiter)
 		}
-		l := rate.NewLimiter(r, burst)
+		l := rate.NewLimiter(perIPRate, perIPBurst)
 		limiters.Add(ip, l, 10*time.Minute)
 		return l
 	}
@@ -120,10 +123,19 @@ func RateLimiter(r rate.Limit, burst int) gin.HandlerFunc {
 		// Rely on gin's ClientIP() which automatically handles X-Forwarded-For
 		// and securely validates it against trusted proxies.
 		ip := c.ClientIP()
+		
+		// Check per-IP limit first so malicious IPs don't consume the global budget.
 		if !getLimiter(ip).Allow() {
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "too many requests"})
 			return
 		}
+		
+		// Then check the global limit to protect the backend from distributed attacks.
+		if !globalLimiter.Allow() {
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "too many requests"})
+			return
+		}
+		
 		c.Next()
 	}
 }
