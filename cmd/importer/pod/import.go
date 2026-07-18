@@ -89,7 +89,11 @@ func Import(ctx context.Context, c client.Client, importCache *cache.ImportCache
 			return false, fmt.Errorf("creating workload: %w", err)
 		}
 
-		if err := admitWorkload(ctx, c, wl, importCache.ClusterQueues[string(lq.Spec.ClusterQueue)]); err != nil {
+		cq, ok := importCache.ClusterQueues[string(lq.Spec.ClusterQueue)]
+		if !ok {
+			return false, fmt.Errorf("cluster queue not found in cache: %s", lq.Spec.ClusterQueue)
+		}
+		if err := admitWorkload(ctx, c, wl, cq); err != nil {
 			return false, err
 		}
 		log.V(2).Info("Successfully imported", "pod", klog.KObj(p), "workload", klog.KObj(wl))
