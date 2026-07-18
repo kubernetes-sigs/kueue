@@ -1715,12 +1715,37 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 
 	fullAssignment, targets, err = *assignmentPlan.Assignment, assignmentPlan.PreemptionTargets, assignmentPlan.Error
 	if assignmentPlan.CanFit() {
-		targets = append(slicePreemptTargets, targets...)
+		targets = mergeWithReplacedSliceTargets(slicePreemptTargets, targets)
 	}
 	if features.Enabled(features.UnadmittedWorkloadsObservability) {
 		fullAssignment.ResolveNoFitReason(cq)
 	}
 	return
+}
+
+// mergeWithReplacedSliceTargets appends the targets selected by the
+// preemptor to the replaced-workload-slice targets, dropping preemptor
+// duplicates of the replaced slice. The old slice remains in the
+// snapshot as an admitted workload, so the preemptor can select it
+// again; keeping both copies would subtract the slice's usage twice in
+// fit simulations, and FindReplacedSliceTarget removes only one
+// occurrence, so the duplicate would be evicted via preemption instead
+// of replaced.
+func mergeWithReplacedSliceTargets(sliceTargets, preemptorTargets []*preemption.Target) []*preemption.Target {
+	if len(sliceTargets) == 0 {
+		return preemptorTargets
+	}
+	sliceKeys := sets.New[workload.Reference]()
+	for _, target := range sliceTargets {
+		sliceKeys.Insert(workload.Key(target.WorkloadInfo.Obj))
+	}
+	merged := slices.Clone(sliceTargets)
+	for _, target := range preemptorTargets {
+		if !sliceKeys.Has(workload.Key(target.WorkloadInfo.Obj)) {
+			merged = append(merged, target)
+		}
+	}
+	return merged
 }
 
 // effectiveReducerPodSets swaps in the live predecessor's granted count (by PodSet name) as the
