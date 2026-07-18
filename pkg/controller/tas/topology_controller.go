@@ -18,6 +18,7 @@ package tas
 
 import (
 	"context"
+	"time"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/types"
@@ -45,6 +46,10 @@ import (
 
 const (
 	updateChBuffer = 10
+
+	// topologyInUseRequeueInterval is how often a Topology pending deletion
+	// re-verifies whether referencing ResourceFlavors are gone.
+	topologyInUseRequeueInterval = time.Minute
 )
 
 type topologyReconciler struct {
@@ -115,7 +120,13 @@ func (r *topologyReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 			}
 			if len(flavors) != 0 {
 				log.V(3).Info("topology is still in use", "ResourceFlavors", flavors)
-				return ctrl.Result{}, nil
+				// The in-use check reads the TAS cache, which may not have
+				// observed the deletion of a referencing ResourceFlavor yet
+				// when that flavor's delete event enqueued this Topology.
+				// Since topologyName is immutable, no further ResourceFlavor
+				// event may re-enqueue the Topology, so requeue to re-verify
+				// instead of leaving the finalizer stuck until a restart.
+				return ctrl.Result{RequeueAfter: topologyInUseRequeueInterval}, nil
 			}
 			controllerutil.RemoveFinalizer(topology, kueue.ResourceInUseFinalizerName)
 			if err := r.client.Update(ctx, topology); err != nil {
