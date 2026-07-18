@@ -432,7 +432,11 @@ func (s *Scheduler) processEntry(
 	if preemptedWorkloads.HasAny(e.preemptionTargets) {
 		e.markSkipped("Workload has overlapping preemption targets with another workload")
 		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForQuota
-		skippedPreemptions[cq.Name]++
+		// Entries in Fit mode can carry targets too (a replaced workload
+		// slice); only count the skip as a preemption skip in Preempt mode.
+		if mode == flavorassigner.Preempt {
+			skippedPreemptions[cq.Name]++
+		}
 		return
 	}
 
