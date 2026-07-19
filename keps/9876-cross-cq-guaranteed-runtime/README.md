@@ -79,8 +79,11 @@ for reclaim (where the owner has a legitimate entitlement).
 
 ### Non-Goals
 
-- Within-ClusterQueue time-based preemption (addressed by KEP-8522; see
-  [Alternatives](#rely-on-within-clusterqueue-time-based-preemption-alone))
+- Within-ClusterQueue time-based preemption, currently addressed
+  experimentally by the
+  [priority booster](../../cmd/experimental/kueue-priority-booster/README.md).
+  See
+  [Alternatives](#rely-on-within-clusterqueue-time-based-preemption-alone).
 - Per-ClusterQueue overrides for either duration (see
   [Future Extensibility](#future-extensibility))
 - Per-workload minimum runtime overrides
@@ -151,12 +154,14 @@ Workloads that don't implement checkpointing lose progress when preempted.
 This is not new; workloads already need to handle preemption gracefully.
 Protection reduces how often that happens but does not remove the need.
 
-This feature is complementary to KEP-8522 (time-based same-priority
-preemption within a ClusterQueue). KEP-8522 addresses time-sharing among
-workloads within the same ClusterQueue, while this feature addresses minimum
-runtime guarantees across ClusterQueues. The two mechanisms operate
-independently and do not conflict; the protection rules are grouped so that
-a within-ClusterQueue rule can slot in later (see
+This feature is complementary to within-ClusterQueue time-based preemption,
+currently addressed experimentally by the
+[priority booster](../../cmd/experimental/kueue-priority-booster/README.md).
+The priority booster implements time-sharing within a ClusterQueue by changing
+a workload's effective priority after a configured interval, while this
+feature filters cross-ClusterQueue preemption candidates. The two mechanisms
+operate independently and do not conflict; the protection rules are grouped
+so that a native within-ClusterQueue rule can slot in later (see
 [Future Extensibility](#future-extensibility)).
 
 It is also complementary to the `SchedulerTimestampPreemptionBuffer` feature
@@ -166,13 +171,45 @@ Preemption protection provides an administrator-configurable, cross-CQ
 guarantee measured from admission time rather than queue timestamps.
 
 **Interaction with Fair Sharing strategies**: protected cross-CQ candidates
-are excluded during target classification, before the configured
-`preemptionStrategies` are applied to them; `InClusterQueue` candidates are
-never affected.
+are excluded only after the existing resource, policy, and configured
+`preemptionStrategies` checks pass and the candidate's preemption reason is
+known. This ensures that expiry retries are recorded only for candidates that
+would otherwise be eligible; `InClusterQueue` candidates are never affected.
 
 **Re-admission**: preempted workloads follow the existing eviction and
 re-admission path. On re-admission the workload's admission time is set
 afresh, restarting the protection window.
+
+**Enabling protection for already-admitted workloads**: enabling the feature
+gate and configuration applies to workloads that are already admitted. Their
+persisted `Admitted.LastTransitionTime` is used; enabling protection does not
+start a fresh window. For example, a workload admitted 5 minutes before a
+10-minute rule takes effect is protected for approximately 5 more minutes.
+
+**Maximum execution time**: preemption protection does not override
+[KEP-3125](../3125-maximum-execution-time/README.md) or
+`Workload.spec.maximumExecutionTimeSeconds`. The maximum-execution-time
+controller accounts for execution accumulated in previous admission cycles
+and elapsed time in the current cycle. If that limit expires before the
+protection duration, the workload is deactivated and evicted even though it
+is still protected from the configured cross-ClusterQueue preemption reason.
+
+**Elastic workloads using WorkloadSlices**: scale-down updates the existing
+Workload slice in place and preserves its `Admitted` timestamp. Scale-up of an
+admitted Workload creates a replacement Workload slice. When that replacement
+is admitted it receives a new `Admitted=True` transition time, starts a new
+protection window, and the old slice is marked `Finished`. Protection is
+therefore measured per Workload slice rather than from the parent job's first
+admission.
+
+This is intentional: each admitted scale-up represents a new execution shape
+for the complete workload, and the fresh window gives that expanded workload
+an opportunity to stabilize and make progress. Reusing the parent job's
+original timestamp could make a long-running elastic workload immediately
+eligible for preemption as soon as it scales up, allowing the newly added
+capacity to be removed before it contributes and slowing the workload's
+progress toward completion. Scale-down does not restart protection because it
+does not require admitting additional capacity.
 
 ### Risks and Mitigations
 
@@ -188,13 +225,16 @@ are within their protection window, an owner CQ must wait to get its own
 nominal quota back — and because every newly admitted borrower starts a
 fresh protection window, a sustained stream of short-lived borrower
 admissions can delay reclaim indefinitely, not just by one window. Two
-design elements bound this risk: while an owner's reclaim fails solely due
+design elements mitigate this risk: while an owner's reclaim fails solely due
 to protection, the scheduler reserves the contested capacity within the
 scheduling cycle rather than admitting new borrowers onto it (see
 [Preemption Eligibility](#preemption-eligibility) for the `CanAlwaysReclaim`
 interaction), and the pending owner is retried when the earliest protection
 window expires (see
 [Retrying After Protection Expiry](#retrying-after-protection-expiry)).
+Neither mechanism establishes a cross-cycle upper bound: sustained borrower
+churn can still delay reclaim indefinitely.
+
 Administrators should additionally keep the reclaim protection duration
 short (or unset). An alternative that exempts late-admitted borrowers
 entirely is discussed in
@@ -325,6 +365,16 @@ distinction matters:
   `QuotaReserved` in the first pass and only become `Admitted` after
   topology assignment in the second pass.
 
+`Admitted.LastTransitionTime` is the authoritative start of the current
+admission cycle. Updates that leave `Admitted=True` must preserve it; a real
+transition away from and back to `Admitted=True` starts a new cycle and gets a
+new timestamp. This timestamp already affects behavioral decisions such as
+the `waitForPodsReady` timeout and maximum execution time. This KEP also makes
+it an input to preemption victim selection. Changes to admission flows - for
+example concurrent-admission retries, WorkloadSlice replacement, or TAS
+second-pass handling - must therefore preserve or reset it deliberately and
+cover the resulting protection behavior in tests.
+
 Note that pod scheduling and startup happen after `Admitted`, so pod startup
 time counts against the protection window; administrators should size
 durations accordingly.
@@ -342,7 +392,7 @@ victims (preempting them costs nothing extra). Protection therefore applies
 only to candidates with `Admitted=True` and not `Evicted=True`. When the
 workload is later re-admitted, `Admitted` transitions back to `True` with a
 fresh timestamp, so the protection window always refers to the current
-uninterrupted run. Because the condition and its timestamp are persisted in
+admission cycle. Because the condition and its timestamp are persisted in
 the workload status, protection windows survive controller restarts with no
 special handling.
 
@@ -369,7 +419,8 @@ candidates are filtered at the point where their preemption type is known:
   the preemption policy and is skipped.
 - **Fair sharing path**: targets are selected in `runFirstFsStrategy` /
   `runSecondFsStrategy` (`pkg/scheduler/preemption/preemption.go`).
-  Candidates that would become `InCohortFairSharing` targets are checked
+  After a candidate satisfies the configured fair-sharing strategy,
+  candidates that would become `InCohortFairSharing` targets are checked
   against `fairSharing.minAdmitDuration`; candidates that would become
   `InCohortReclamation` targets (the `FairSharingPreemptWithinNominal` path)
   are checked against `reclaimWithinCohort.minAdmitDuration`. If the
@@ -378,11 +429,12 @@ candidates are filtered at the point where their preemption type is known:
   preemptions — including an owner reclaiming nominal quota — carry
   `InCohortFairSharing` and are governed by `fairSharing.minAdmitDuration`.
 - **`InClusterQueue` candidates are unaffected** on both paths. Within-CQ
-  protection is the subject of KEP-8522.
+  time-based behavior is currently addressed experimentally by the priority
+  booster.
 
-The current time is taken once per scheduling attempt from the preemptor's
-injected clock, keeping the behavior deterministic and testable with a fake
-clock.
+The current time is taken once per target-selection operation (including an
+oracle simulation) from the preemptor's injected clock, keeping each operation
+deterministic and testable with a fake clock.
 
 If no eligible candidates remain after filtering for a given preemption
 type, that type of preemption is simply not available in the current cycle:
@@ -406,29 +458,32 @@ During flavor assignment, the scheduler consults the preemption oracle
 (`SimulatePreemption`, `pkg/scheduler/preemption/preemption_oracle.go`) to
 determine whether preemption or reclaim is possible for a flavor. The oracle
 runs the same target-selection code (`getTargets`) that later computes real
-victims, so filtering inside that shared path automatically propagates:
-a flavor whose only candidates are protected reports no candidates, which
+victims and explicitly supplies the current time and configured protection
+rules. It uses a non-retrying protection tracker because an oracle simulation
+must not schedule a queue rebroadcast. Consequently, a flavor whose only
+candidates are protected reports no candidates, which
 makes the flavor assigner try subsequent flavors; if none fit, the workload
 keeps mode `Preempt` with zero targets and the scheduler requeues it with
-the existing no-candidates behavior described above. No oracle-specific
-changes are required.
+the existing no-candidates behavior described above.
 
 ### Retrying After Protection Expiry
 
-A workload requeued because all candidates were protected is placed in the
-inadmissible set, which today is only retried on cluster events (workload
-finished/evicted/updated, ClusterQueue or Cohort changes). Protection expiry
-is a purely time-based event that produces no such trigger, so in a quiet
-cohort the preemptor could wait far longer than the protection window.
+When no target set is found and at least one otherwise eligible candidate was
+skipped due to protection, the preemptor is requeued according to its
+ClusterQueue's queueing strategy. It may be placed in the inadmissible set or
+remain heap-resident, and neither state is guaranteed to be reconsidered at
+the protection boundary in a quiet cohort. Protection expiry is a purely
+time-based event that produces no ordinary cluster event, so the preemptor
+could otherwise wait far longer than the configured window.
 
-To keep the guarantee "protected for the duration" from silently becoming
-"blocked until the next unrelated event", target selection records the
-earliest `Admitted + minAdmitDuration` among candidates skipped due to
-protection, and the scheduler schedules a re-queue of the pending workload's
-ClusterQueue at that time (following the delayed-requeue precedent of the
-TAS second-pass queue). This is a liveness optimization: correctness does
-not depend on the timer, and a conservative implementation (for example,
-rounding expiry times up to a coarse interval) is acceptable at Alpha.
+Target selection therefore records the earliest
+`Admitted + minAdmitDuration` among otherwise eligible candidates skipped due
+to protection. At or shortly after that time, the scheduler rebroadcasts the
+root Cohort tree so affected queues are reconsidered, including StrictFIFO
+workloads that may remain heap-resident. The timer is not required for safety,
+but it is required for prompt time-driven liveness in a quiet cohort. A
+conservative implementation (for example, rounding expiry times up to a
+coarse interval) is acceptable at Alpha.
 
 ### Observability
 
@@ -461,11 +516,13 @@ floor would complicate integration and e2e tests. This mirrors
 
 ### Future Extensibility
 
-**Within-ClusterQueue protection**: KEP-8522 proposes time-based
-same-priority preemption within a ClusterQueue, including distinguishing
-incumbent workloads from opportunistically admitted ones (queued after the
-preemptor but admitted first, e.g., via BestEffortFIFO). If a global default
-for that mechanism is desired, it has a natural home here as
+**Within-ClusterQueue protection**: within-ClusterQueue time-sharing is
+currently provided by the experimental priority booster, which changes a
+workload's effective priority after a configured interval. A future native
+preemption rule could additionally distinguish incumbent workloads from
+opportunistically admitted ones (queued after the preemptor but admitted
+first, e.g., via BestEffortFIFO). If a global default for that mechanism is
+desired, it has a natural home here as
 `preemptionProtection.withinClusterQueue`, reusing
 `PreemptionProtectionPolicy` (possibly extended with an
 `opportunisticMinAdmitDuration`).
@@ -704,9 +761,9 @@ requires tracking a per-preemptor pending-since timestamp through nomination
 and simulation, and it makes the guarantee unpredictable for users — whether
 a workload gets its minimum runtime would depend on queue state invisible to
 it at admission time. The capacity-reservation interaction and expiry retry
-(see [Risks and Mitigations](#risks-and-mitigations)) bound the same risk
-with simpler, more predictable semantics. This can be revisited at Beta with
-adoption feedback.
+(see [Risks and Mitigations](#risks-and-mitigations)) mitigate the same risk
+within a scheduling cycle, but do not provide a cross-cycle bound. This can
+be revisited at Beta with adoption feedback.
 
 ### Count cumulative runtime across admissions
 
@@ -750,8 +807,10 @@ quota.
 
 ### Rely on within-ClusterQueue time-based preemption alone
 
-KEP-8522 introduces minimum-runtime semantics for within-ClusterQueue
-same-priority preemption. It is explicitly scoped to `withinClusterQueue`
-and does not affect cross-ClusterQueue preemption. The two operate at
-different levels and are complementary; this KEP's API leaves room for the
-within-CQ rule to join the same `preemptionProtection` block later.
+Within-ClusterQueue time-sharing is currently addressed experimentally by the
+[priority booster](../../cmd/experimental/kueue-priority-booster/README.md),
+which changes effective workload priority after a configured interval. It
+does not provide protection from cross-ClusterQueue preemption. The two
+mechanisms operate at different levels and are complementary; this KEP's API
+leaves room for a future native within-CQ rule to join the same
+`preemptionProtection` block later.
