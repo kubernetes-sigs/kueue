@@ -20,7 +20,6 @@ import (
 	"maps"
 	"math"
 	"strings"
-	"sync"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -30,17 +29,40 @@ import (
 	utilmath "sigs.k8s.io/kueue/pkg/util/math"
 )
 
-var binaryFormattedResources sync.Map
+// ResourceFormatter formats resource quantities using manager-specific rules.
+//
+// Register all binary-formatted resources before sharing a formatter with
+// concurrent controller code.
+type ResourceFormatter struct {
+	binaryFormattedResources map[corev1.ResourceName]struct{}
+}
+
+// NewResourceFormatter creates a ResourceFormatter with no custom resource
+// formatting rules.
+func NewResourceFormatter() *ResourceFormatter {
+	return &ResourceFormatter{
+		binaryFormattedResources: make(map[corev1.ResourceName]struct{}),
+	}
+}
 
 // RegisterBinaryFormattedResource marks a resource name as byte-valued for display.
 // Counter-based DRA logical resources (for example gpu.memory) should be registered
 // at startup so quantities serialize with BinarySI units.
-func RegisterBinaryFormattedResource(name corev1.ResourceName) {
-	binaryFormattedResources.Store(name, struct{}{})
+func (f *ResourceFormatter) RegisterBinaryFormattedResource(name corev1.ResourceName) {
+	if f == nil {
+		return
+	}
+	if f.binaryFormattedResources == nil {
+		f.binaryFormattedResources = make(map[corev1.ResourceName]struct{})
+	}
+	f.binaryFormattedResources[name] = struct{}{}
 }
 
-func usesBinaryFormat(name corev1.ResourceName) bool {
-	_, ok := binaryFormattedResources.Load(name)
+func (f *ResourceFormatter) usesBinaryFormat(name corev1.ResourceName) bool {
+	if f == nil {
+		return false
+	}
+	_, ok := f.binaryFormattedResources[name]
 	return ok
 }
 
@@ -126,13 +148,18 @@ func ResourceValue(name corev1.ResourceName, q resource.Quantity) int64 {
 }
 
 func ResourceQuantity(name corev1.ResourceName, v int64) resource.Quantity {
+	return (*ResourceFormatter)(nil).ResourceQuantity(name, v)
+}
+
+// ResourceQuantity returns v in the appropriate Kubernetes quantity format for name.
+func (f *ResourceFormatter) ResourceQuantity(name corev1.ResourceName, v int64) resource.Quantity {
 	switch name {
 	case corev1.ResourceCPU:
 		return *resource.NewMilliQuantity(v, resource.DecimalSI)
 	case corev1.ResourceMemory, corev1.ResourceEphemeralStorage:
 		return newCanonicalQuantity(v, resource.BinarySI)
 	default:
-		if strings.HasPrefix(string(name), corev1.ResourceHugePagesPrefix) || usesBinaryFormat(name) {
+		if strings.HasPrefix(string(name), corev1.ResourceHugePagesPrefix) || f.usesBinaryFormat(name) {
 			return newCanonicalQuantity(v, resource.BinarySI)
 		}
 		return *resource.NewQuantity(v, resource.DecimalSI)
@@ -160,7 +187,12 @@ func newCanonicalQuantity(v int64, preferredFormat resource.Format) resource.Qua
 }
 
 func ResourceQuantityString(name corev1.ResourceName, v int64) string {
-	rq := ResourceQuantity(name, v)
+	return (*ResourceFormatter)(nil).ResourceQuantityString(name, v)
+}
+
+// ResourceQuantityString returns v formatted as a Kubernetes resource quantity.
+func (f *ResourceFormatter) ResourceQuantityString(name corev1.ResourceName, v int64) string {
+	rq := f.ResourceQuantity(name, v)
 	return rq.String()
 }
 
@@ -168,10 +200,17 @@ func ResourceQuantityString(name corev1.ResourceName, v int64) string {
 // string. Unlimited amounts are formatted as "<unlimited>" rather than as
 // the raw math.MaxInt64 sentinel.
 func AmountQuantityString(name corev1.ResourceName, a Amount) string {
+	return (*ResourceFormatter)(nil).AmountQuantityString(name, a)
+}
+
+// AmountQuantityString formats an Amount as a Kubernetes resource quantity
+// string. Unlimited amounts are formatted as "<unlimited>" rather than as
+// the raw math.MaxInt64 sentinel.
+func (f *ResourceFormatter) AmountQuantityString(name corev1.ResourceName, a Amount) string {
 	if a.Equal(Unlimited) {
 		return Unlimited.String()
 	}
-	return ResourceQuantityString(name, a.Int64())
+	return f.ResourceQuantityString(name, a.Int64())
 }
 
 // GreaterKeys returns keys where the receiver is greater than other.
