@@ -1,5 +1,5 @@
 # defaulted ARGs need to be declared first
-ARG BUILDER_IMAGE=docker.io/library/golang:1.26
+ARG BUILDER_IMAGE=gcr.io/library/golang:1.26
 ARG BASE_IMAGE=gcr.io/distroless/static:nonroot@sha256:963fa6c544fe5ce420f1f54fb88b6fb01479f054c8056d0f74cc2c6000df5240
 # compilation stage for the manager binary
 FROM --platform=${BUILDPLATFORM} ${BUILDER_IMAGE} AS builder
