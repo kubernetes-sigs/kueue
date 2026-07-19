@@ -38,14 +38,14 @@ func (c *defaultChecker) FindFeasibleNodes(ctx context.Context, log logr.Logger,
 	var feasibleLeaves = make([]matchedLeaf, 0, len(leaves))
 	for _, leaf := range leaves {
 		if leaf.node == nil {
-			feasibleLeaves = append(feasibleLeaves, matchedLeaf{leaf: leaf, affinityScore: leaf.affinityScore})
+			feasibleLeaves = append(feasibleLeaves, matchedLeaf{leaf: leaf})
 			continue
 		}
 		// 1. Check Tolerations against Node Taints
 		nodeTaints := leaf.node.Spec.Taints
 		taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(log, nodeTaints, reqs.tolerations, utiltaints.IsSchedulingTaint, true)
 		if untolerated {
-			log.V(5).Info("excluding node with untolerated taint", "domainID", leaf.domain.id, "taint", taint)
+			log.V(5).Info("excluding node with untolerated taint", "domainID", leaf.id, "taint", taint)
 			stats.recordExclusion(exclusionTaints, &taint)
 			continue
 		}
@@ -57,7 +57,7 @@ func (c *defaultChecker) FindFeasibleNodes(ctx context.Context, log logr.Logger,
 		}
 
 		if !reqs.selector.Matches(nodeLabelSet) {
-			log.V(5).Info("excluding node due to a node label selector mismatch", "domainID", leaf.domain.id)
+			log.V(5).Info("excluding node that doesn't match nodeSelectors", "domainID", leaf.id, "nodeLabels", nodeLabelSet)
 			stats.recordExclusion(exclusionNodeSelector, nil)
 			continue
 		}
@@ -65,7 +65,7 @@ func (c *defaultChecker) FindFeasibleNodes(ctx context.Context, log logr.Logger,
 		// 3. Check Node against Affinity Node Selector
 		nodeObj := leaf.node
 		if reqs.affinitySelector != nil && !reqs.affinitySelector.Match(nodeObj) {
-			log.V(5).Info("excluding node due to an affinity mismatch", "domainID", leaf.domain.id)
+			log.V(5).Info("excluding node due to an affinity mismatch", "domainID", leaf.id)
 			stats.recordExclusion(exclusionAffinity, nil)
 			continue
 		}
