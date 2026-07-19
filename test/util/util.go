@@ -1550,12 +1550,13 @@ func IsLoggedEntryAConcurrentModification(le observer.LoggedEntry) bool {
 
 // BreakConnection simulates a network loss to cluster's worker by rewriting the API server in its
 // kubeconfig secret to an unreachable address (connection refused).
-// Returns a callback that restores the original kubeconfig.
-func BreakConnection(ctx context.Context, cli client.Client, cluster *kueue.MultiKueueCluster, secret *corev1.Secret) (restoreConnection func()) {
+// The cluster stores the kubeconfig secret's name (Location) but not its namespace, so the caller
+// supplies secretNamespace. Returns a callback that restores the original kubeconfig.
+func BreakConnection(ctx context.Context, cli client.Client, cluster *kueue.MultiKueueCluster, secretNamespace string) (restoreConnection func()) {
 	ginkgo.GinkgoHelper()
 
 	clusterKey := client.ObjectKeyFromObject(cluster)
-	secretKey := client.ObjectKeyFromObject(secret)
+	secretKey := client.ObjectKey{Namespace: secretNamespace, Name: cluster.Spec.ClusterSource.KubeConfig.Location}
 
 	originalSecret := &corev1.Secret{}
 	gomega.Expect(cli.Get(ctx, secretKey, originalSecret)).To(gomega.Succeed())
