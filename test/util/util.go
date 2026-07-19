@@ -1549,9 +1549,7 @@ func IsLoggedEntryAConcurrentModification(le observer.LoggedEntry) bool {
 }
 
 // BreakConnection simulates a network loss to cluster's worker by rewriting the API server in its
-// kubeconfig secret to an unreachable address (connection refused). Unlike a config error, the
-// remote client is still created and records a disconnect time, as a real network loss does, so the
-// worker-lost grace is anchored on it. secret is the kubeconfig secret referenced by cluster.
+// kubeconfig secret to an unreachable address (connection refused).
 // Returns a callback that restores the original kubeconfig.
 func BreakConnection(ctx context.Context, cli client.Client, cluster *kueue.MultiKueueCluster, secret *corev1.Secret) (restoreConnection func()) {
 	ginkgo.GinkgoHelper()
