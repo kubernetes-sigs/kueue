@@ -387,6 +387,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	// entry re-computes its stale assignment only when its own CQ consumed
 	// quota earlier in the cycle (see updateAssignmentIfNeeded).
 	assumedPerCQ := make(map[kueue.ClusterQueueReference]bool)
+	interruptedRoots := 0
 	for iterator.hasNext() {
 		e := iterator.pop()
 		s.processEntry(ctx, e, snapshot, preemptedWorkloads, skippedPreemptions, assumedPerCQ)
@@ -400,26 +401,43 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			assumedPerCQ[e.ClusterQueue] = true
 		}
 		// Second-pass assumptions reserve no new quota (netUsage) and must not
-		// spend the subtree's look-ahead budget.
-		if lookAhead && e.status == assumed && !e.secondPass {
+		// spend the subtree's look-ahead budget. A solo ClusterQueue's
+		// scope contains only itself and heads() already enforces the depth,
+		// so there is nothing to interrupt.
+		if lookAhead && e.status == assumed && !e.secondPass && e.clusterQueueSnapshot.HasParent() {
 			key := topLevelSubtreeKey(e.clusterQueueSnapshot)
 			admittedPerSubtree[key]++
 			if admittedPerSubtree[key] >= qcache.FairSharingLookAheadDepth {
-				rootScope := rootScopeKey(e.clusterQueueSnapshot)
-				log.V(3).Info("Skipping remaining entries from root scope after subtree reached look-ahead depth", "subtree", key, "rootScope", rootScope)
+				root := e.clusterQueueSnapshot.Parent().Root()
 				// The interrupt is a fair-sharing-only concept: look-ahead
 				// implies Fair Sharing, so makeIterator returned this type.
-				iterator.(*fairSharingIterator).dropWhile(func(e *entry) bool {
-					return rootScopeKey(e.clusterQueueSnapshot) == rootScope
+				droppedByInterrupt := iterator.(*fairSharingIterator).dropWhile(func(e *entry) bool {
+					return e.clusterQueueSnapshot.HasParent() && e.clusterQueueSnapshot.Parent().Root() == root
 				})
+				// Reaching the budget with nothing left to drop is normal
+				// saturation (e.g. a root cohort with a single ClusterQueue),
+				// not interrupt pressure; counting it would contradict the
+				// metric's help text.
+				if droppedByInterrupt > 0 {
+					interruptedRoots++
+					metrics.LookAheadInterrupt(s.roleTracker)
+					log.V(3).Info("Skipping remaining entries from root scope after subtree reached look-ahead depth",
+						"subtree", key,
+						"rootCohort", klog.KRef("", string(root.GetName())),
+						"dropped", droppedByInterrupt)
+				}
 			}
 		}
 	}
 
 	// 6. Requeue the heads that were not scheduled.
 	result := metrics.AdmissionResultInadmissible
+	droppedEntries := 0
 	for _, e := range entries {
 		logAdmissionAttemptIfVerbose(log, &e)
+		if e.status == dropped {
+			droppedEntries++
+		}
 		// When the workload is evicted by scheduler we skip requeueAndUpdate.
 		// The eviction process will be finalized by the workload controller.
 		if e.status != assumed && e.status != evicted {
@@ -433,7 +451,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		s.requeueAndUpdate(ctx, e)
 	}
 
-	log.V(2).Info("Workload processing done", "duration", s.clock.Since(phaseStartTime))
+	log.V(2).Info("Workload processing done", "duration", s.clock.Since(phaseStartTime), "lookAheadInterrupts", interruptedRoots, "droppedEntries", droppedEntries)
 	s.reportSkippedPreemptions(skippedPreemptions)
 	metrics.AdmissionAttempt(result, s.clock.Since(startTime), s.roleTracker)
 	if result != metrics.AdmissionResultSuccess {
@@ -1148,13 +1166,6 @@ func topLevelSubtreeKey(cq *schdcache.ClusterQueueSnapshot) string {
 		if topChild != nil {
 			return "root/" + string(root.GetName()) + "/cohort/" + string(topChild.GetName())
 		}
-	}
-	return "cq/" + string(cq.GetName())
-}
-
-func rootScopeKey(cq *schdcache.ClusterQueueSnapshot) string {
-	if cq.HasParent() {
-		return "root/" + string(cq.Parent().Root().GetName())
 	}
 	return "cq/" + string(cq.GetName())
 }

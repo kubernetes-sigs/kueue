@@ -29,13 +29,15 @@ configured), each cycle considers up to two workloads per ClusterQueue, and
 stops admitting within a cohort once one of its top-level subtrees admits two
 workloads, so that a burst of freed capacity keeps flowing to the
 ClusterQueues with the lowest share across consecutive cycles. This changes
-no APIs and adds no new statuses; the observable effect is that weighted
-shares converge without fair-sharing preemptions after bursts of freed
-capacity.
+no APIs and adds no new statuses; the primary observable effect is that
+weighted shares converge without fair-sharing preemptions after bursts of
+freed capacity.
 
 The feature matters when Fair Sharing is enabled, ClusterQueues borrow within
 cohorts, and capacity frees up in bursts. Clusters without cohorts or without
-borrowing see no behavioral difference.
+borrowing see no fairness-related behavioral difference, although each
+ClusterQueue can still admit up to two workloads per cycle. Interrupt
+frequency is exposed via the `kueue_look_ahead_interrupts_total` metric.
 
 ## [Preemption based Fair Sharing](/docs/concepts/preemption/#fair-sharing)
 

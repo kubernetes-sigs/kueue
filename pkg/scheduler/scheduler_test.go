@@ -7200,7 +7200,7 @@ func TestNominateSkipsAddedWorkloadAndClearsQueueBookkeeping(t *testing.T) {
 	}
 }
 
-func TestFairSharingLookAheadDropsOnlySaturatedStandaloneScope(t *testing.T) {
+func TestFairSharingIteratorDropWhile(t *testing.T) {
 	cqA := &schdcache.ClusterQueueSnapshot{Name: "cq-a"}
 	cqB := &schdcache.ClusterQueueSnapshot{Name: "cq-b"}
 
@@ -7222,16 +7222,20 @@ func TestFairSharingLookAheadDropsOnlySaturatedStandaloneScope(t *testing.T) {
 	}
 	ctx, _ := utiltesting.ContextWithLog(t)
 	iter := makeFairSharingIterator(ctx, entries, workload.Ordering{})
-	saturatedRoot := rootScopeKey(cqA)
-	iter.dropWhile(func(e *entry) bool {
-		return rootScopeKey(e.clusterQueueSnapshot) == saturatedRoot
-	})
+	if got := iter.dropWhile(func(e *entry) bool {
+		return e.ClusterQueue == "cq-a"
+	}); got != 1 {
+		t.Fatalf("dropWhile returned %d dropped entries, want 1", got)
+	}
 
+	if entries[0].status != dropped {
+		t.Fatalf("expected the matched entry to be marked dropped, got status %q", entries[0].status)
+	}
 	if !iter.hasNext() {
-		t.Fatalf("expected unrelated standalone scope to remain")
+		t.Fatalf("expected the unmatched entry to remain")
 	}
 	if got := iter.pop().ClusterQueue; got != "cq-b" {
-		t.Fatalf("expected entry from unrelated standalone scope, got %q", got)
+		t.Fatalf("expected the unmatched entry to survive, got %q", got)
 	}
 }
 

@@ -882,8 +882,20 @@ func (c *ClusterQueue) pendingInadmissibleInLocalQueue(lqRef utilqueue.LocalQueu
 }
 
 // Pop removes the head of the queue and returns it. It returns nil if the
-// queue is empty.
+// queue is empty. Pop is a depth-1 convenience wrapper over popMany, kept
+// for tests and any single-pop caller.
 func (c *ClusterQueue) Pop() *workload.Info {
+	if popped := c.popMany(1); len(popped) == 1 {
+		return popped[0]
+	}
+	return nil
+}
+
+// popMany pops up to n workloads under a single lock acquisition. The AFS
+// penalty rebuild runs at most once for the whole batch: penalties are only
+// settled asynchronously, so a per-pop rebuild would repeat the O(N log N)
+// work for every look-ahead pop with nothing changed in between.
+func (c *ClusterQueue) popMany(n int) []*workload.Info {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 
@@ -891,19 +903,23 @@ func (c *ClusterQueue) Pop() *workload.Info {
 		c.rebuildAll()
 	}
 
-	c.popCycle++
-	if c.heap.Len() == 0 {
-		// The scheduler may pop several heads per cycle; already-inflight
-		// workloads are cleared per-key on requeue/delete, so we must not
-		// wipe them when a later Pop finds the heap empty.
-		return nil
+	var popped []*workload.Info
+	for range n {
+		c.popCycle++
+		if c.heap.Len() == 0 {
+			// The scheduler may pop several heads per cycle; already-inflight
+			// workloads are cleared per-key on requeue/delete, so we must not
+			// wipe them when a later pop finds the heap empty.
+			return popped
+		}
+		wl := c.popPending()
+		c.schedulingHashes.moveActiveToInflight(wl)
+		c.subtractPendingResources(wl)
+		wl.LastEvaluatedGeneration = wl.Obj.Generation
+		c.inflight[workload.Key(wl.Obj)] = wl
+		popped = append(popped, wl)
 	}
-	wl := c.popPending()
-	c.schedulingHashes.moveActiveToInflight(wl)
-	c.subtractPendingResources(wl)
-	wl.LastEvaluatedGeneration = wl.Obj.Generation
-	c.inflight[workload.Key(wl.Obj)] = wl
-	return wl
+	return popped
 }
 
 // rebuildAll rebuilds the entire heap. Must be called with lock held.

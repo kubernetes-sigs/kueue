@@ -171,7 +171,8 @@ func (f *fairSharingIterator) done(e *entry) {
 	delete(f.cqToEntry, e.clusterQueueSnapshot)
 }
 
-func (f *fairSharingIterator) dropWhile(match func(*entry) bool) {
+func (f *fairSharingIterator) dropWhile(match func(*entry) bool) int {
+	dropped := 0
 	for cq, entries := range f.cqToEntry {
 		kept := entries[:0]
 		for _, e := range entries {
@@ -179,6 +180,7 @@ func (f *fairSharingIterator) dropWhile(match func(*entry) bool) {
 				kept = append(kept, e)
 			} else {
 				e.markDropped()
+				dropped++
 			}
 		}
 		if len(kept) == 0 {
@@ -187,6 +189,7 @@ func (f *fairSharingIterator) dropWhile(match func(*entry) bool) {
 			f.cqToEntry[cq] = kept
 		}
 	}
+	return dropped
 }
 
 // frontEntries returns the current front entry of every ClusterQueue still
@@ -278,8 +281,8 @@ type entryComparer struct {
 	log       logr.Logger
 	drsValues map[drsKey]schdcache.DRS
 	// requestedFRs stores the FlavorResources each workload's
-	// assignment uses. Bounded by the number of ClusterQueues
-	// (one head-of-line workload per CQ), not total workloads.
+	// assignment uses. Bounded by the number of ClusterQueues because only
+	// front entries participate in a round; rebuilt on every pop.
 	requestedFRs     map[workload.Reference]resources.FlavorResourceQuantities
 	workloadOrdering workload.Ordering
 }

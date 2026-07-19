@@ -958,17 +958,15 @@ func (m *Manager) heads() []workload.Info {
 	if m.fairSharingEnabled && features.Enabled(features.FairSharingLookAhead) {
 		depth = FairSharingLookAheadDepth
 	}
+	// Pending gauges are invariant under Pop (both count inflight workloads),
+	// so report once per touched queue after popping instead of once per pop.
+	touchedLQs := make(map[*LocalQueue]struct{})
 	for cqName, cq := range m.hm.ClusterQueues() {
 		// Cache might be nil in tests, if cache is nil, we'll skip the check.
 		if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(cqName) {
 			continue
 		}
-		for range depth {
-			wl := cq.Pop()
-			reportCQPendingWorkloads(m, cq)
-			if wl == nil {
-				break
-			}
+		for _, wl := range cq.popMany(depth) {
 			wlKey := workload.Key(wl.Obj)
 			wlCopy := *wl
 			wlCopy.ClusterQueue = cqName
@@ -979,9 +977,13 @@ func (m *Manager) heads() []workload.Info {
 			// workload sat in the ClusterQueue heap.
 			if q := m.localQueues[qKey]; q != nil {
 				delete(q.items, wlKey)
-				reportLQPendingWorkloads(m, q)
+				touchedLQs[q] = struct{}{}
 			}
 		}
+		reportCQPendingWorkloads(m, cq)
+	}
+	for q := range touchedLQs {
+		reportLQPendingWorkloads(m, q)
 	}
 	return workloads
 }
