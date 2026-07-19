@@ -387,7 +387,9 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		e := iterator.pop()
 		s.processEntry(ctx, e, snapshot, preemptedWorkloads, skippedPreemptions)
 		iterator.done(e)
-		if lookAhead && e.status == assumed {
+		// Second-pass assumptions reserve no new quota (netUsage) and must not
+		// spend the subtree's look-ahead budget.
+		if lookAhead && e.status == assumed && !e.secondPass {
 			key := topLevelSubtreeKey(e.clusterQueueSnapshot)
 			admittedPerSubtree[key]++
 			if admittedPerSubtree[key] >= qcache.FairSharingLookAheadDepth {
@@ -670,6 +672,12 @@ type entry struct {
 	clusterQueueSnapshot *schdcache.ClusterQueueSnapshot
 	quotaReservedReason  string
 	skipStatusUpdate     bool
+	// secondPass records, at nomination time, that the workload already holds
+	// a quota reservation and is only back to complete or repair its topology
+	// assignment. Captured on the entry because NeedsSecondPass flips once the
+	// entry is assumed. See fairSharingIterator.secondPassEntries for how these
+	// entries bypass the per-CQ queueing disciplines.
+	secondPass bool
 }
 
 func (e *entry) assignmentUsage(log logr.Logger) workload.Usage {
@@ -697,7 +705,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 	blockedCQs := make(map[kueue.ClusterQueueReference]bool)
 	for _, w := range workloads {
 		log := log.WithValues("workload", klog.KObj(w.Obj), "clusterQueue", klog.KRef("", string(w.ClusterQueue)))
-		e := entry{Info: w}
+		e := entry{Info: w, secondPass: workload.NeedsSecondPass(w.Obj)}
 		e.clusterQueueSnapshot = snap.ClusterQueue(w.ClusterQueue)
 		if blockSameCQHeads && blockedCQs[w.ClusterQueue] && !workload.NeedsSecondPass(w.Obj) {
 			e.inadmissibleMsg = "Blocked by an earlier workload from the same ClusterQueue"

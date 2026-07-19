@@ -7235,6 +7235,85 @@ func TestFairSharingLookAheadDropsOnlySaturatedStandaloneScope(t *testing.T) {
 	}
 }
 
+func TestFairSharingIteratorSecondPassIsolation(t *testing.T) {
+	cqA := &schdcache.ClusterQueueSnapshot{Name: "cq-a"}
+
+	makeEntries := func() []entry {
+		return []entry{
+			{
+				// Second-pass entries are emitted first by heads().
+				Info: workload.Info{
+					Obj:          utiltestingapi.MakeWorkload("sp", "default").Obj(),
+					ClusterQueue: "cq-a",
+				},
+				clusterQueueSnapshot: cqA,
+				secondPass:           true,
+			},
+			{
+				Info: workload.Info{
+					Obj:          utiltestingapi.MakeWorkload("a1", "default").Obj(),
+					ClusterQueue: "cq-a",
+				},
+				clusterQueueSnapshot: cqA,
+			},
+			{
+				Info: workload.Info{
+					Obj:          utiltestingapi.MakeWorkload("a2", "default").Obj(),
+					ClusterQueue: "cq-a",
+				},
+				clusterQueueSnapshot: cqA,
+			},
+		}
+	}
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	t.Run("second-pass entry pops first and its failure keeps the CQ's fresh heads", func(t *testing.T) {
+		entries := makeEntries()
+		iter := makeFairSharingIterator(ctx, entries, workload.Ordering{})
+
+		first := iter.pop()
+		if !first.secondPass || first.Obj.Name != "sp" {
+			t.Fatalf("expected the second-pass entry first, got %q", first.Obj.Name)
+		}
+		// The second-pass entry failed (status stays non-assumed): the CQ's
+		// fresh heads must remain schedulable, not be dropped as collateral.
+		iter.done(first)
+		if !iter.hasNext() {
+			t.Fatalf("fresh heads were dropped after a failed second-pass entry")
+		}
+		for i := range entries {
+			if !entries[i].secondPass && entries[i].status == dropped {
+				t.Errorf("fresh head %q was marked dropped", entries[i].Obj.Name)
+			}
+		}
+		if got := iter.pop().Obj.Name; got != "a1" {
+			t.Fatalf("expected the CQ's front fresh head a1 next, got %q", got)
+		}
+	})
+
+	t.Run("interrupt never discards second-pass entries", func(t *testing.T) {
+		entries := makeEntries()
+		iter := makeFairSharingIterator(ctx, entries, workload.Ordering{})
+
+		iter.dropWhile(func(*entry) bool { return true })
+
+		for i := range entries {
+			if entries[i].secondPass && entries[i].status == dropped {
+				t.Errorf("second-pass entry was discarded by the interrupt")
+			}
+			if !entries[i].secondPass && entries[i].status != dropped {
+				t.Errorf("fresh entry %q should have been dropped", entries[i].Obj.Name)
+			}
+		}
+		if !iter.hasNext() {
+			t.Fatalf("second-pass entry must remain schedulable after the interrupt")
+		}
+		if got := iter.pop(); !got.secondPass {
+			t.Fatalf("expected the surviving entry to be the second-pass one, got %q", got.Obj.Name)
+		}
+	})
+}
+
 func TestLastSchedulingContext(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	fakeClock := testingclock.NewFakeClock(now)

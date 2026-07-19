@@ -42,9 +42,17 @@ type fairSharingIterator struct {
 	// look-ahead a CQ may have more than one entry; the tournament always
 	// considers each CQ's front entry, and done() advances that front only
 	// after the previous entry is successfully assumed.
-	cqToEntry     map[*schdcache.ClusterQueueSnapshot][]*entry
-	entryComparer entryComparer
-	log           logr.Logger
+	cqToEntry map[*schdcache.ClusterQueueSnapshot][]*entry
+	// secondPassEntries holds entries that already reserved quota and are only
+	// back to complete or repair their topology assignment. They are not "in
+	// line" for admission, so they stay out of the per-CQ chains: they are
+	// returned before any tournament round (mirroring the classical iterator,
+	// which sorts quota-reserved workloads first), a failure of theirs never
+	// drops the CQ's fresh heads in done(), and the look-ahead interrupt
+	// never discards them.
+	secondPassEntries []*entry
+	entryComparer     entryComparer
+	log               logr.Logger
 }
 
 func makeFairSharingIterator(ctx context.Context, entries []entry, workloadOrdering workload.Ordering) *fairSharingIterator {
@@ -58,17 +66,55 @@ func makeFairSharingIterator(ctx context.Context, entries []entry, workloadOrder
 		log: log,
 	}
 	for i := range entries {
+		if entries[i].secondPass {
+			f.secondPassEntries = append(f.secondPassEntries, &entries[i])
+			continue
+		}
 		cq := entries[i].clusterQueueSnapshot
 		f.cqToEntry[cq] = append(f.cqToEntry[cq], &entries[i])
 	}
+	// takeAllReady emits second-pass entries in map order; sort them so
+	// contended repairs resolve deterministically. This approximates the
+	// classical iterator's ordering of quota-reserved workloads, which
+	// additionally tiebreaks on borrowing and gates the priority comparison
+	// behind PrioritySortingWithinCohort.
+	slices.SortStableFunc(f.secondPassEntries, func(a, b *entry) int {
+		p1, p2 := priority.EffectivePriority(log, a.Obj), priority.EffectivePriority(log, b.Obj)
+		if p1 != p2 {
+			if p1 > p2 {
+				return -1
+			}
+			return 1
+		}
+		ta, tb := workloadOrdering.GetQueueOrderTimestamp(a.Obj), workloadOrdering.GetQueueOrderTimestamp(b.Obj)
+		if ta.Before(tb) {
+			return -1
+		}
+		if tb.Before(ta) {
+			return 1
+		}
+		return 0
+	})
 	return &f
 }
 
 func (f *fairSharingIterator) hasNext() bool {
-	return len(f.cqToEntry) > 0
+	return len(f.secondPassEntries) > 0 || len(f.cqToEntry) > 0
 }
 
 func (f *fairSharingIterator) pop() *entry {
+	// Second-pass entries go first: their quota is already reserved and sits
+	// idle until the topology assignment completes, and they compete with
+	// nobody for capacity, so there is nothing for a tournament to decide.
+	if len(f.secondPassEntries) > 0 {
+		e := f.secondPassEntries[0]
+		f.secondPassEntries = f.secondPassEntries[1:]
+		f.log.V(3).Info("Returning second-pass workload",
+			"clusterQueue", klog.KRef("", string(e.ClusterQueue)),
+			"workload", klog.KObj(e.Obj))
+		return e
+	}
+
 	cq := f.getCq()
 
 	// CQ has no Cohort. We simply return its front workload.
@@ -106,6 +152,11 @@ func (f *fairSharingIterator) pop() *entry {
 }
 
 func (f *fairSharingIterator) done(e *entry) {
+	// Second-pass entries are not part of any per-CQ chain: their outcome
+	// must neither advance the CQ's front nor drop its fresh heads.
+	if e.secondPass {
+		return
+	}
 	if e.status == assumed {
 		f.advance(e.clusterQueueSnapshot)
 		return
