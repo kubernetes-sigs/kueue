@@ -68,7 +68,7 @@ RAYMINI_VERSION ?= 0.0.4
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
 BASE_IMAGE ?= gcr.io/distroless/static:nonroot
 BASE_BUILDER_IMAGE ?= golang
-BUILDER_IMAGE ?= $(BASE_BUILDER_IMAGE):$(GO_VERSION)
+BUILDER_IMAGE ?= docker.io/$(BASE_BUILDER_IMAGE):$(GO_VERSION)@sha256:32c0e6e5c4f6707717051091b4d0b077464a679eaab563e11474efc5328e2aa5
 CGO_ENABLED ?= 0
 
 YAML_PROCESSOR_LOG_LEVEL ?= info
@@ -234,7 +234,6 @@ image-local-push: image-local-build
 
 .PHONY: image-build
 image-build:
-  $(HACK_DIR)/testing/retry.sh --attempts 5 --delay 2 --exponential --stream -- \
 	$(IMAGE_BUILD_CMD) \
 		-t $(IMAGE_TAG) \
 		-t $(IMAGE_REPO):$(RELEASE_BRANCH) \
