@@ -145,6 +145,7 @@ type TASFlavorSnapshot struct {
 	// of a Workload to avoid recalculating selectors/taints during preemption simulations or
 	// multiple worker PodSet placements within the same scheduling cycle snapshot.
 	matchingLeavesCache map[podSetMatchKey]*matchingLeavesCacheEntry
+	resourceFormatter   *resources.ResourceFormatter
 }
 
 // podSetMatchKey uniquely identifies a PodSet within a Workload for caching purposes.
@@ -182,7 +183,8 @@ const (
 )
 
 type tasFlavorSnapshotOptions struct {
-	tolerations []corev1.Toleration
+	tolerations       []corev1.Toleration
+	resourceFormatter *resources.ResourceFormatter
 }
 
 type tasFlavorSnapshotOption func(*tasFlavorSnapshotOptions)
@@ -190,6 +192,12 @@ type tasFlavorSnapshotOption func(*tasFlavorSnapshotOptions)
 func withTolerations(tolerations []corev1.Toleration) tasFlavorSnapshotOption {
 	return func(o *tasFlavorSnapshotOptions) {
 		o.tolerations = tolerations
+	}
+}
+
+func withResourceFormatter(formatter *resources.ResourceFormatter) tasFlavorSnapshotOption {
+	return func(o *tasFlavorSnapshotOptions) {
+		o.resourceFormatter = formatter
 	}
 }
 
@@ -217,6 +225,7 @@ func newTASFlavorSnapshot(log logr.Logger, topologyName kueue.TopologyReference,
 		roots:             make(domainByID),
 		domainsPerLevel:   domainsPerLevel,
 		isLowestLevelNode: len(levels) > 0 && levels[len(levels)-1] == corev1.LabelHostname,
+		resourceFormatter: options.resourceFormatter,
 	}
 	return snapshot
 }
@@ -394,13 +403,13 @@ func (s *TASFlavorSnapshot) SerializeFreeCapacityPerDomain() (string, error) {
 		freeCapacityDetails := make(map[corev1.ResourceName]string, len(freeCapacity))
 		for _, resourceName := range slices.Sorted(maps.Keys(freeCapacity)) {
 			value := freeCapacity[resourceName]
-			freeCapacityDetails[resourceName] = resources.ResourceQuantityString(resourceName, value)
+			freeCapacityDetails[resourceName] = s.resourceFormatter.ResourceQuantityString(resourceName, value)
 		}
 
 		tasUsageDetails := make(map[corev1.ResourceName]string, len(freeCapacity))
 		for _, resourceName := range slices.Sorted(maps.Keys(tasUsage)) {
 			value := tasUsage[resourceName]
-			tasUsageDetails[resourceName] = resources.ResourceQuantityString(resourceName, value)
+			tasUsageDetails[resourceName] = s.resourceFormatter.ResourceQuantityString(resourceName, value)
 		}
 
 		details[domain] = domainCapacityDetails{

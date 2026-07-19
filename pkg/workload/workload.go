@@ -505,12 +505,12 @@ func (i *Info) TASUsage() TASUsage {
 	return result
 }
 
-func (i *Info) SumTotalRequests() corev1.ResourceList {
+func (i *Info) SumTotalRequests(formatter *resources.ResourceFormatter) corev1.ResourceList {
 	reqs := make(resources.Requests)
 	for _, psReqs := range i.TotalRequests {
 		reqs.Add(psReqs.Requests)
 	}
-	return reqs.ToResourceList()
+	return reqs.ToResourceList(formatter)
 }
 
 func applyResourceTransformations(input corev1.ResourceList, transforms map[corev1.ResourceName]*config.ResourceTransformation) corev1.ResourceList {
@@ -1054,12 +1054,12 @@ func BlockedOnPreemptionGatesCondition(w *kueue.Workload) *metav1.Condition {
 
 // PropagateResourceRequests synchronizes w.Status.ResourceRequests to
 // with info.TotalRequests if the feature gate is enabled and returns true if w was updated
-func PropagateResourceRequests(w *kueue.Workload, info *Info) bool {
+func PropagateResourceRequests(w *kueue.Workload, info *Info, formatter *resources.ResourceFormatter) bool {
 	if len(w.Status.ResourceRequests) == len(info.TotalRequests) {
 		match := true
 		for idx := range w.Status.ResourceRequests {
 			if w.Status.ResourceRequests[idx].Name != info.TotalRequests[idx].Name ||
-				!equality.Semantic.DeepEqual(w.Status.ResourceRequests[idx].Resources, info.TotalRequests[idx].Requests.ToResourceList()) {
+				!equality.Semantic.DeepEqual(w.Status.ResourceRequests[idx].Resources, info.TotalRequests[idx].Requests.ToResourceList(formatter)) {
 				match = false
 				break
 			}
@@ -1072,7 +1072,7 @@ func PropagateResourceRequests(w *kueue.Workload, info *Info) bool {
 	res := make([]kueue.PodSetRequest, len(info.TotalRequests))
 	for idx := range info.TotalRequests {
 		res[idx].Name = info.TotalRequests[idx].Name
-		res[idx].Resources = info.TotalRequests[idx].Requests.ToResourceList()
+		res[idx].Resources = info.TotalRequests[idx].Requests.ToResourceList(formatter)
 	}
 	w.Status.ResourceRequests = res
 	return true

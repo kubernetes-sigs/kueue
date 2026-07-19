@@ -431,3 +431,14 @@ func TestNilResourceFormatterUsesDefaultFormatting(t *testing.T) {
 		t.Errorf("nil formatter returned %q, want 10468982784", got)
 	}
 }
+
+func TestRequestsToResourceListUsesFormatter(t *testing.T) {
+	formatter := NewResourceFormatter()
+	formatter.RegisterBinaryFormattedResource("gpu.memory")
+
+	requests := Requests{"gpu.memory": 9984 * 1024 * 1024}
+	quantity := requests.ToResourceList(formatter)["gpu.memory"]
+	if got := quantity.String(); got != "9984Mi" {
+		t.Errorf("ToResourceList() returned %q, want 9984Mi", got)
+	}
+}

@@ -1745,7 +1745,7 @@ func TestPropagateResourceRequests(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got := PropagateResourceRequests(tc.wl, tc.info)
+			got := PropagateResourceRequests(tc.wl, tc.info, resources.NewResourceFormatter())
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("Unexpected PropagateResourceRequests() result (-want,+got):\n%s", diff)
 			}
@@ -3205,7 +3205,7 @@ func TestSumTotalRequestsWithDRAFromAdmission(t *testing.T) {
 		).Obj()
 
 	info := NewInfo(wl)
-	sumReqs := info.SumTotalRequests()
+	sumReqs := info.SumTotalRequests(resources.NewResourceFormatter())
 
 	// Verify CPU is present
 	cpuVal, hasCPU := sumReqs[corev1.ResourceCPU]

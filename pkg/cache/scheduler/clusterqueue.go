@@ -83,6 +83,7 @@ type clusterQueue struct {
 	admittedWorkloadsCount             int
 	isStopped                          bool
 	workloadInfoOptions                []workload.InfoOption
+	resourceFormatter                  *resources.ResourceFormatter
 
 	resourceNode resourceNode
 	hierarchy.ClusterQueue[*cohort]
@@ -534,21 +535,21 @@ func (c *clusterQueue) reportResourceMetrics(fairSharingEnabled bool) {
 	clVals := c.GetCustomLabelValues()
 	for fr, quota := range c.resourceNode.Quotas {
 		fName, rName := string(fr.Flavor), string(fr.Resource)
-		nominal := resourceFloat(fr.Resource, quota.Nominal.Int64())
+		nominal := resourceFloat(c.resourceFormatter, fr.Resource, quota.Nominal.Int64())
 		var borrowing, lending float64
 		if quota.BorrowingLimit == nil {
 			borrowing = math.Inf(1)
 		} else {
-			borrowing = resourceFloat(fr.Resource, quota.BorrowingLimit.Int64())
+			borrowing = resourceFloat(c.resourceFormatter, fr.Resource, quota.BorrowingLimit.Int64())
 		}
 		if quota.LendingLimit == nil {
 			lending = math.Inf(1)
 		} else {
-			lending = resourceFloat(fr.Resource, quota.LendingLimit.Int64())
+			lending = resourceFloat(c.resourceFormatter, fr.Resource, quota.LendingLimit.Int64())
 		}
 		metrics.ReportClusterQueueQuotas(cohort, cqName, fName, rName, nominal, borrowing, lending, clVals, c.roleTracker)
-		metrics.ReportClusterQueueResourceReservations(cohort, cqName, fName, rName, resourceFloat(fr.Resource, c.resourceNode.Usage[fr].Int64()), clVals, c.roleTracker)
-		metrics.ReportClusterQueueResourceUsage(cohort, cqName, fName, rName, resourceFloat(fr.Resource, c.AdmittedUsage[fr].Int64()), clVals, c.roleTracker)
+		metrics.ReportClusterQueueResourceReservations(cohort, cqName, fName, rName, resourceFloat(c.resourceFormatter, fr.Resource, c.resourceNode.Usage[fr].Int64()), clVals, c.roleTracker)
+		metrics.ReportClusterQueueResourceUsage(cohort, cqName, fName, rName, resourceFloat(c.resourceFormatter, fr.Resource, c.AdmittedUsage[fr].Int64()), clVals, c.roleTracker)
 	}
 	if fairSharingEnabled {
 		c.reportWeightedShare(cohort)
@@ -636,6 +637,7 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 		totalReserved:      make(resources.FlavorResourceQuantities),
 		customLabels:       c.customLabels,
 		labels:             q.GetLabels(),
+		resourceFormatter:  c.resourceFormatter,
 	}
 	if features.Enabled(features.CustomMetricLabels) {
 		c.customLabels.LQStore(qKey, q.Labels, q.Annotations)

@@ -130,10 +130,10 @@ func (r Requests) Sub(subRequests Requests) {
 	}
 }
 
-func (r Requests) ToResourceList() corev1.ResourceList {
+func (r Requests) ToResourceList(formatter *ResourceFormatter) corev1.ResourceList {
 	ret := make(corev1.ResourceList, len(r))
 	for k, v := range r {
-		ret[k] = ResourceQuantity(k, v)
+		ret[k] = formatter.ResourceQuantity(k, v)
 	}
 	return ret
 }
@@ -145,10 +145,6 @@ func ResourceValue(name corev1.ResourceName, q resource.Quantity) int64 {
 		return utilmath.SafeMilliValue(q)
 	}
 	return q.Value()
-}
-
-func ResourceQuantity(name corev1.ResourceName, v int64) resource.Quantity {
-	return (*ResourceFormatter)(nil).ResourceQuantity(name, v)
 }
 
 // ResourceQuantity returns v in the appropriate Kubernetes quantity format for name.
@@ -186,21 +182,10 @@ func newCanonicalQuantity(v int64, preferredFormat resource.Format) resource.Qua
 	return final
 }
 
-func ResourceQuantityString(name corev1.ResourceName, v int64) string {
-	return (*ResourceFormatter)(nil).ResourceQuantityString(name, v)
-}
-
 // ResourceQuantityString returns v formatted as a Kubernetes resource quantity.
 func (f *ResourceFormatter) ResourceQuantityString(name corev1.ResourceName, v int64) string {
 	rq := f.ResourceQuantity(name, v)
 	return rq.String()
-}
-
-// AmountQuantityString formats an Amount as a Kubernetes resource quantity
-// string. Unlimited amounts are formatted as "<unlimited>" rather than as
-// the raw math.MaxInt64 sentinel.
-func AmountQuantityString(name corev1.ResourceName, a Amount) string {
-	return (*ResourceFormatter)(nil).AmountQuantityString(name, a)
 }
 
 // AmountQuantityString formats an Amount as a Kubernetes resource quantity
