@@ -952,7 +952,7 @@ func TestFairPreemptions(t *testing.T) {
 			cl := utiltesting.NewClientBuilder().
 				WithLists(&kueue.WorkloadList{Items: tc.admitted}).
 				Build()
-			cqCache := schdcache.New(cl, schdcache.NewDefaultSimulator())
+			cqCache := schdcache.New(cl)
 			flvs := flavors
 			if tc.flavors != nil {
 				flvs = tc.flavors

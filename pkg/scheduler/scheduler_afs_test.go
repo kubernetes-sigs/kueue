@@ -637,7 +637,7 @@ func TestScheduleForAFS(t *testing.T) {
 						WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 					cl := clientBuilder.Build()
 
-					cqCache := schdcache.New(cl, schdcache.NewDefaultSimulator(), schdcache.WithFairSharing(tc.featureGates[features.AdmissionFairSharing]), schdcache.WithAdmissionFairSharing(afsConfig))
+					cqCache := schdcache.New(cl, schdcache.WithFairSharing(tc.featureGates[features.AdmissionFairSharing]), schdcache.WithAdmissionFairSharing(afsConfig))
 					qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithAdmissionFairSharing(afsConfig))
 
 					ctx, log := utiltesting.ContextWithLog(t)

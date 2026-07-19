@@ -157,7 +157,7 @@ func TestDefault(t *testing.T) {
 
 			builder := utiltesting.NewClientBuilder().WithObjects(tc.initObjs...)
 			cli := builder.Build()
-			cqCache := schdcache.New(cli, schdcache.NewDefaultSimulator())
+			cqCache := schdcache.New(cli)
 			queueManager := qcache.NewManagerForUnitTests(cli, cqCache)
 			if tc.defaultLqExist {
 				if err := queueManager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("default", "default").

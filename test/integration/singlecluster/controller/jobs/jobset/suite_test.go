@@ -90,7 +90,7 @@ func managerAndSchedulerSetup(setupTASControllers bool, opts ...jobframework.Opt
 	return func(ctx context.Context, mgr manager.Manager) {
 		managerSetup(opts...)(ctx, mgr)
 
-		cCache := schdcache.New(mgr.GetClient(), schdcache.NewDefaultSimulator())
+		cCache := schdcache.New(mgr.GetClient())
 		preemptionExpectations := preemptexpectations.New()
 		queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)

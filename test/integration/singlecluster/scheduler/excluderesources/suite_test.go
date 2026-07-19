@@ -88,7 +88,7 @@ func managerAndSchedulerSetup(configuration *config.Configuration) framework.Man
 				schdcache.WithExcludedResourcePrefixes(configuration.Resources.ExcludeResourcePrefixes))
 		}
 
-		cCache := schdcache.New(mgr.GetClient(), schdcache.NewDefaultSimulator(), cacheOptions...)
+		cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
 		preemptionExpectations := preemptexpectations.New()
 		queueOptions = append(queueOptions, qcache.WithPreemptionExpectations(preemptionExpectations))
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)

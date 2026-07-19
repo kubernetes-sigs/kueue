@@ -4112,7 +4112,7 @@ func TestPreemption(t *testing.T) {
 					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
 					Build()
 
-				cqCache := schdcache.New(cl, schdcache.NewDefaultSimulator())
+				cqCache := schdcache.New(cl)
 				for _, flv := range flavors {
 					cqCache.AddOrUpdateResourceFlavor(log, flv)
 				}
@@ -4338,7 +4338,7 @@ func TestPreemptionWhenWorkloadModifiedConcurrently(t *testing.T) {
 					}).
 					Build()
 
-				cqCache := schdcache.New(cl, schdcache.NewDefaultSimulator())
+				cqCache := schdcache.New(cl)
 				cqCache.AddOrUpdateResourceFlavor(log, rf.DeepCopy())
 				if err := cqCache.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
 					t.Fatalf("Couldn't add ClusterQueue to cache: %v", err)
@@ -4441,7 +4441,7 @@ func TestIssuePreemptionsCountsFailures(t *testing.T) {
 		}).
 		Build()
 
-	cqCache := schdcache.New(cl, schdcache.NewDefaultSimulator())
+	cqCache := schdcache.New(cl)
 	cqCache.AddOrUpdateResourceFlavor(log, rf)
 	if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
 		t.Fatalf("Couldn't add ClusterQueue to cache: %v", err)
@@ -4560,7 +4560,7 @@ func TestIssuePreemptionsSkipsDuplicate(t *testing.T) {
 					}).
 					Build()
 
-				cqCache := schdcache.New(cl, schdcache.NewDefaultSimulator())
+				cqCache := schdcache.New(cl)
 				cqCache.AddOrUpdateResourceFlavor(log, rf.DeepCopy())
 				if err := cqCache.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
 					t.Fatalf("Couldn't add ClusterQueue to cache: %v", err)

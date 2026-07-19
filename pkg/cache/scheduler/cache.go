@@ -73,6 +73,12 @@ func WithPodsReadyTracking(f bool) Option {
 	}
 }
 
+func WithSchedulingSimulator(s SchedulingSimulator) Option {
+	return func(c *Cache) {
+		c.schedulingSimulator = s
+	}
+}
+
 func WithExcludedResourcePrefixes(excludedPrefixes []string) Option {
 	return func(c *Cache) {
 		c.workloadInfoOptions = append(c.workloadInfoOptions, workload.WithExcludedResourcePrefixes(excludedPrefixes))
@@ -152,14 +158,14 @@ type Cache struct {
 	schedulingSimulator SchedulingSimulator
 }
 
-func New(client client.Client, schedulingSimulator SchedulingSimulator, options ...Option) *Cache {
+func New(client client.Client, options ...Option) *Cache {
 	cache := &Cache{
 		client:                 client,
 		resourceFlavors:        make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor),
 		admissionChecks:        make(map[kueue.AdmissionCheckReference]AdmissionCheck),
 		workloadAssignedQueues: make(map[workload.Reference]kueue.ClusterQueueReference),
 		hm:                     hierarchy.NewManager(newCohort),
-		schedulingSimulator:    schedulingSimulator,
+		schedulingSimulator:    NewDefaultSimulator(),
 	}
 	for _, option := range options {
 		option(cache)

@@ -362,7 +362,7 @@ func TestAvailable(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
-			cache := New(utiltesting.NewFakeClient(), NewDefaultSimulator())
+			cache := New(utiltesting.NewFakeClient())
 			cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("red").Obj())
 			cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("blue").Obj())
 			for _, cq := range tc.clusterQueues {

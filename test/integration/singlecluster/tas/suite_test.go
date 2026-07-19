@@ -93,7 +93,7 @@ func managerSetupWithConfig(
 		cacheOptions := []schdcache.Option{
 			schdcache.WithResourceTransformations(resourceTransformations),
 		}
-		cCache := schdcache.New(mgr.GetClient(), schdcache.NewDefaultSimulator(), cacheOptions...)
+		cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
 		preemptionExpectations := preemptexpectations.New()
 		queueOptions := []qcache.Option{
 			qcache.WithResourceTransformations(resourceTransformations),

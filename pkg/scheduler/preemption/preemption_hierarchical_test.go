@@ -1824,7 +1824,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
 					Build()
 
-				cqCache := schdcache.New(cl, schdcache.NewDefaultSimulator())
+				cqCache := schdcache.New(cl)
 				for _, flv := range flavors {
 					cqCache.AddOrUpdateResourceFlavor(log, flv)
 				}

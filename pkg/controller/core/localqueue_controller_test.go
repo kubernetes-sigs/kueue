@@ -881,7 +881,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				Build()
 
 			ctxWithLogger, log := utiltesting.ContextWithLog(t)
-			cqCache := schdcache.New(cl, schdcache.NewDefaultSimulator())
+			cqCache := schdcache.New(cl)
 			if err := cqCache.AddClusterQueue(ctxWithLogger, tc.clusterQueue); err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}
@@ -1001,7 +1001,7 @@ func TestLocalQueueReconcileReportsAdmissionFairSharingUsageMetric(t *testing.T)
 		Build()
 
 	ctx, _ := utiltesting.ContextWithLog(t)
-	cqCache := schdcache.New(cl, schdcache.NewDefaultSimulator())
+	cqCache := schdcache.New(cl)
 	if err := cqCache.AddClusterQueue(ctx, clusterQueue); err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}

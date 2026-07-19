@@ -1100,7 +1100,7 @@ func TestReconcileGenericJobWithWaitForPodsReady(t *testing.T) {
 			options := []Option{
 				WithClock(fakeClock),
 				WithWaitForPodsReady(&configapi.WaitForPodsReady{}),
-				WithCache(schdcache.New(cl, schdcache.NewDefaultSimulator())),
+				WithCache(schdcache.New(cl)),
 			}
 			recorder := &utiltesting.EventRecorder{}
 			r := NewReconciler(cl, recorder, options...)

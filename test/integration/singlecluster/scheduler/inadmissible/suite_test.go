@@ -68,7 +68,7 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	cCache := schdcache.New(mgr.GetClient(), schdcache.NewDefaultSimulator())
+	cCache := schdcache.New(mgr.GetClient())
 
 	// Use a longer batch period so that
 	// requeue notifications are reliably collapsed in the test.

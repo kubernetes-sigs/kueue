@@ -124,7 +124,7 @@ func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSet
 		err = draMapper.PopulateFromConfiguration(controllersCfg.Resources.DeviceClassMappings)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		cCache := schdcache.New(mgr.GetClient(), schdcache.NewDefaultSimulator())
+		cCache := schdcache.New(mgr.GetClient())
 		preemptionExpectations := preemptexpectations.New()
 		draBackedResources := dra.NewExtendedResourceCache()
 		queueOptions := []qcache.Option{

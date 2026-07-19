@@ -3591,7 +3591,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 				})
 
-				cache := schdcache.New(utiltesting.NewFakeClient(), schdcache.NewDefaultSimulator())
+				cache := schdcache.New(utiltesting.NewFakeClient())
 				if err := cache.AddClusterQueue(ctx, &tc.clusterQueue); err != nil {
 					t.Fatalf("Failed to add CQ to cache")
 				}
@@ -3814,7 +3814,7 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 				testCq.Spec.FlavorFungibility = tc.flavorFungibility
 			}
 
-			cache := schdcache.New(utiltesting.NewFakeClient(), schdcache.NewDefaultSimulator())
+			cache := schdcache.New(utiltesting.NewFakeClient())
 			if err := cache.AddClusterQueue(ctx, &testCq); err != nil {
 				t.Fatalf("Failed to add CQ to cache")
 			}
@@ -3956,7 +3956,7 @@ func TestDeletedFlavors(t *testing.T) {
 					},
 				})
 
-				cache := schdcache.New(utiltesting.NewFakeClient(), schdcache.NewDefaultSimulator())
+				cache := schdcache.New(utiltesting.NewFakeClient())
 				if err := cache.AddClusterQueue(ctx, &tc.clusterQueue); err != nil {
 					t.Fatalf("Failed to add CQ to cache")
 				}
@@ -4146,7 +4146,7 @@ func TestHierarchical(t *testing.T) {
 			if tc.flavorFungibility != nil {
 				testCq.Spec.FlavorFungibility = tc.flavorFungibility
 			}
-			cache := schdcache.New(utiltesting.NewFakeClient(), schdcache.NewDefaultSimulator())
+			cache := schdcache.New(utiltesting.NewFakeClient())
 			for _, cohort := range cohorts {
 				if err := cache.AddOrUpdateCohort(cohort); err != nil {
 					t.Fatalf("Couldn't add Cohort to cache: %v", err)
@@ -5127,7 +5127,7 @@ func TestAssignFlavorsWithAllowedFlavors(t *testing.T) {
 			wlInfo := workload.NewInfo(wl)
 
 			ctx, log := utiltesting.ContextWithLog(t)
-			cache := schdcache.New(utiltesting.NewFakeClient(), schdcache.NewDefaultSimulator())
+			cache := schdcache.New(utiltesting.NewFakeClient())
 			if err := cache.AddClusterQueue(ctx, &cq); err != nil {
 				t.Fatalf("Failed to add CQ to cache: %v", err)
 			}
@@ -5591,7 +5591,7 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 			wlInfo := workload.NewInfo(wl)
 
 			ctx, log := utiltesting.ContextWithLog(t)
-			cache := schdcache.New(utiltesting.NewFakeClient(), schdcache.NewDefaultSimulator())
+			cache := schdcache.New(utiltesting.NewFakeClient())
 			if err := cache.AddClusterQueue(ctx, &testCQ); err != nil {
 				t.Fatalf("Failed to add CQ to cache: %v", err)
 			}

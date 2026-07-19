@@ -104,7 +104,7 @@ func managerAndControllersSetup(
 
 		lqMetrics := metrics.NewLocalQueueMetricsConfig(configuration.Metrics.LocalQueueMetrics)
 
-		cCache := schdcache.New(mgr.GetClient(), schdcache.NewDefaultSimulator(), schdcache.WithLocalQueueMetrics(lqMetrics))
+		cCache := schdcache.New(mgr.GetClient(), schdcache.WithLocalQueueMetrics(lqMetrics))
 		preemptionExpectations := preemptexpectations.New()
 		queueOptions := []qcache.Option{
 			qcache.WithPreemptionExpectations(preemptionExpectations),

@@ -774,7 +774,7 @@ func TestReconciler(t *testing.T) {
 			recorder := &utiltesting.EventRecorder{}
 			reconciler, err := NewReconciler(ctx, kClient, indexer, recorder,
 				append(tc.reconcilerOptions,
-					jobframework.WithCache(schdcache.New(kClient, schdcache.NewDefaultSimulator())),
+					jobframework.WithCache(schdcache.New(kClient)),
 					jobframework.WithClock(testingclock.NewFakeClock(now)),
 				)...)
 			if err != nil {

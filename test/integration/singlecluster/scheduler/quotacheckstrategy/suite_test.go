@@ -72,7 +72,7 @@ func managerAndSchedulerSetup(
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		cCache := schdcache.New(mgr.GetClient(), schdcache.NewDefaultSimulator(), schdcache.WithAdmissionFairSharing(admissionFairSharing))
+		cCache := schdcache.New(mgr.GetClient(), schdcache.WithAdmissionFairSharing(admissionFairSharing))
 		preemptionExpectations := preemptexpectations.New()
 		queueOptions := []qcache.Option{
 			qcache.WithPreemptionExpectations(preemptionExpectations),

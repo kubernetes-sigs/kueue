@@ -157,7 +157,7 @@ func TestDefault(t *testing.T) {
 			t.Cleanup(jobframework.EnableIntegrationsForTest(t, "pod"))
 			builder := utiltesting.NewClientBuilder()
 			client := builder.Build()
-			cqCache := schdcache.New(client, schdcache.NewDefaultSimulator())
+			cqCache := schdcache.New(client)
 			queueManager := qcache.NewManagerForUnitTests(client, cqCache)
 			if tc.defaultLqExist {
 				if err := queueManager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("default", "default").

@@ -201,7 +201,7 @@ func run() int {
 		}
 	}
 
-	cCache := schdcache.New(mgr.GetClient(), schdcache.NewDefaultSimulator())
+	cCache := schdcache.New(mgr.GetClient())
 
 	// setup inadmissible workload requeuer
 	requeuer := qcache.NewRequeuer()

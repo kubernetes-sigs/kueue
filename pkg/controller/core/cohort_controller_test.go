@@ -42,7 +42,7 @@ import (
 func TestCohortReconcileCohortNotFoundDelete(t *testing.T) {
 	cl := utiltesting.NewClientBuilder().Build()
 	ctx, _ := utiltesting.ContextWithLog(t)
-	cache := schdcache.New(cl, schdcache.NewDefaultSimulator())
+	cache := schdcache.New(cl)
 	qManager := qcache.NewManagerForUnitTests(cl, cache)
 	reconciler := NewCohortReconciler(cl, cache, qManager)
 
@@ -77,7 +77,7 @@ func TestCohortReconcileCohortNotFoundIdempotentDelete(t *testing.T) {
 	cl := utiltesting.NewClientBuilder().
 		Build()
 	ctx, _ := utiltesting.ContextWithLog(t)
-	cache := schdcache.New(cl, schdcache.NewDefaultSimulator())
+	cache := schdcache.New(cl)
 	qManager := qcache.NewManagerForUnitTests(cl, cache)
 	reconciler := NewCohortReconciler(cl, cache, qManager)
 
@@ -114,7 +114,7 @@ func TestCohortReconcileCycleReturnsError(t *testing.T) {
 		WithStatusSubresource(&kueue.Cohort{}).
 		Build()
 	ctx, _ := utiltesting.ContextWithLog(t)
-	cache := schdcache.New(cl, schdcache.NewDefaultSimulator())
+	cache := schdcache.New(cl)
 	qManager := qcache.NewManagerForUnitTests(cl, cache)
 	reconciler := NewCohortReconciler(cl, cache, qManager)
 
@@ -162,7 +162,7 @@ func TestCohortReconcileCycleCacheSnapshotBehavior(t *testing.T) {
 		WithStatusSubresource(&kueue.Cohort{}).
 		Build()
 	ctx, _ := utiltesting.ContextWithLog(t)
-	cache := schdcache.New(cl, schdcache.NewDefaultSimulator())
+	cache := schdcache.New(cl)
 	qManager := qcache.NewManagerForUnitTests(cl, cache)
 	reconciler := NewCohortReconciler(cl, cache, qManager)
 
@@ -224,7 +224,7 @@ func TestCohortReconcileErrorOtherThanNotFoundNotDeleted(t *testing.T) {
 	}
 	cl := utiltesting.NewClientBuilder().WithInterceptorFuncs(funcs).Build()
 
-	cache := schdcache.New(cl, schdcache.NewDefaultSimulator())
+	cache := schdcache.New(cl)
 	qManager := qcache.NewManagerForUnitTests(cl, cache)
 	reconciler := NewCohortReconciler(cl, cache, qManager)
 	cohort := utiltestingapi.MakeCohort("cohort").Obj()
@@ -260,7 +260,7 @@ func TestCohortReconcileLifecycle(t *testing.T) {
 		*utiltestingapi.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
 	).Obj()
 	cl := utiltesting.NewClientBuilder().WithObjects(cohort).WithStatusSubresource(&kueue.Cohort{}).Build()
-	cache := schdcache.New(cl, schdcache.NewDefaultSimulator())
+	cache := schdcache.New(cl)
 	qManager := qcache.NewManagerForUnitTests(cl, cache)
 	reconciler := NewCohortReconciler(cl, cache, qManager)
 	labels := map[string]string{"cohort": cohort.Name, "flavor": "red", "resource": "cpu", "replica_role": "standalone"}
@@ -382,7 +382,7 @@ func checkMetricDataPoints(t *testing.T, got, want []testingmetrics.MetricDataPo
 func TestCohortReconcilerFilters(t *testing.T) {
 	cl := utiltesting.NewClientBuilder().
 		Build()
-	cache := schdcache.New(cl, schdcache.NewDefaultSimulator())
+	cache := schdcache.New(cl)
 	qManager := qcache.NewManagerForUnitTests(cl, cache)
 	reconciler := NewCohortReconciler(cl, cache, qManager)
 
