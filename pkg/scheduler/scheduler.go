@@ -383,10 +383,22 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	// interrupt the cycle so freed capacity keeps flowing to the low-DRS owner
 	// across cycles instead of an over-share sibling borrowing it (issue #9345).
 	admittedPerSubtree := make(map[string]int)
+	// assumedPerCQ records CQs that assumed a workload this cycle; a deeper
+	// entry re-computes its stale assignment only when its own CQ consumed
+	// quota earlier in the cycle (see updateAssignmentIfNeeded).
+	assumedPerCQ := make(map[kueue.ClusterQueueReference]bool)
 	for iterator.hasNext() {
 		e := iterator.pop()
-		s.processEntry(ctx, e, snapshot, preemptedWorkloads, skippedPreemptions)
+		s.processEntry(ctx, e, snapshot, preemptedWorkloads, skippedPreemptions, assumedPerCQ)
 		iterator.done(e)
+		// A second-pass assumption reserves no quota, so the only misses
+		// it can cause are TAS misses - the TASRecomputeAssignment branch
+		// of updateAssignmentIfNeeded refreshes those, and with that gate
+		// off, skip-and-requeue is the status quo the look-ahead
+		// recompute must not override.
+		if e.status == assumed && !e.secondPass {
+			assumedPerCQ[e.ClusterQueue] = true
+		}
 		// Second-pass assumptions reserve no new quota (netUsage) and must not
 		// spend the subtree's look-ahead budget.
 		if lookAhead && e.status == assumed && !e.secondPass {
@@ -440,6 +452,7 @@ func (s *Scheduler) processEntry(
 	snapshot *schdcache.Snapshot,
 	preemptedWorkloads preemption.PreemptedWorkloads,
 	skippedPreemptions map[kueue.ClusterQueueReference]int,
+	assumedPerCQ map[kueue.ClusterQueueReference]bool,
 ) {
 	cq := snapshot.ClusterQueue(e.ClusterQueue)
 	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)))
@@ -463,7 +476,7 @@ func (s *Scheduler) processEntry(
 	// independently, making them likely to choose conflicting topology domains.
 	// Recompute when needed so CQs considered later in the cycle don't repeatedly
 	// lose to earlier CQs and starve for prolonged periods.
-	usage, fits := s.updateAssignmentIfNeeded(ctx, log, e, snapshot, cq, preemptedWorkloads)
+	usage, fits := s.updateAssignmentIfNeeded(ctx, log, e, snapshot, cq, preemptedWorkloads, assumedPerCQ)
 	mode := e.assignment.RepresentativeMode()
 
 	if features.Enabled(features.TASFailedNodeReplacementFailFast) && workload.HasTopologyAssignmentWithUnhealthyNode(e.Obj) && mode != flavorassigner.Fit {
@@ -763,22 +776,29 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	e *entry,
 	snapshot *schdcache.Snapshot,
 	cq *schdcache.ClusterQueueSnapshot,
-	preemptedWorkloads preemption.PreemptedWorkloads) (workload.Usage, bool) {
+	preemptedWorkloads preemption.PreemptedWorkloads,
+	assumedPerCQ map[kueue.ClusterQueueReference]bool) (workload.Usage, bool) {
 	usage := e.assignmentUsage(log)
 	fitsCheck := fits(snapshot, cq, &usage, preemptedWorkloads, e.preemptionTargets)
 	// With look-ahead, all entries were nominated against the pre-cycle
-	// snapshot, and an earlier admission in this cycle (possibly from the same
-	// ClusterQueue) may have consumed the quota or TAS capacity backing this
-	// entry's assignment; refresh it then, but never when it still fits.
+	// snapshot; when an earlier admission from the same ClusterQueue consumed
+	// the quota or TAS capacity backing this entry's assignment, refresh it,
+	// but never when it still fits. The recompute is restricted to that
+	// same-CQ case: the tournament ranked this entry using the nominated
+	// assignment, and admitting a freshly recomputed (possibly more-borrowing)
+	// assignment without re-ranking would bypass the DRS ordering, so
+	// cross-CQ conflicts keep the status-quo skip-and-re-rank behavior. The
+	// per-CQ flag is a proxy for the deeper-head case; a miss can still have
+	// cross-CQ contamination when the entry's own CQ also admitted earlier.
 	// The look-ahead recompute is deliberately independent of the
 	// TASRecomputeAssignmentWithinSchedulingCycle gate: without it, a deeper
 	// head whose front consumed the quota would fail its fit every cycle and
 	// look-ahead would silently degrade to one admission per ClusterQueue.
 	lookAhead := fairsharing.Enabled(s.fairSharing) && features.Enabled(features.FairSharingLookAhead)
 	needsRecompute := (fitsCheck == schdcache.FitsCheckNoTAS && features.Enabled(features.TASRecomputeAssignmentWithinSchedulingCycle)) ||
-		(lookAhead && fitsCheck != schdcache.FitsCheckOk)
+		(lookAhead && fitsCheck != schdcache.FitsCheckOk && assumedPerCQ[e.ClusterQueue])
 	if needsRecompute {
-		log.V(2).Info("Re-computing the assignment as it no longer fits", "fitsCheck", fitsCheck)
+		log.V(4).Info("Re-computing the assignment as it no longer fits", "fitsCheck", fitsCheck)
 		// Clear the last assignment so that we can start from the first flavor again and
 		// reach all flavors from the nomination.
 		e.LastAssignment = nil
@@ -787,7 +807,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 		e.recordAssignment(newAssignment, newTargets)
 		usage = e.assignmentUsage(log)
 		fitsCheck = fits(snapshot, cq, &usage, preemptedWorkloads, newTargets)
-		log.V(2).Info("Re-computed assignment", "newMode", newAssignment.RepresentativeMode())
+		log.V(4).Info("Re-computed assignment", "newMode", newAssignment.RepresentativeMode())
 		// clear the assignment flavors as they are only used within a single scheduling cycle
 		e.NominationMapping = nil
 	}
