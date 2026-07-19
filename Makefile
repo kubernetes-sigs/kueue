@@ -245,6 +245,7 @@ image-local-push: image-local-build
 
 .PHONY: image-build
 image-build:
+  $(HACK_DIR)/testing/retry.sh --attempts 5 --delay 2 --exponential --stream -- \
 	$(IMAGE_BUILD_CMD) \
 		-t $(IMAGE_TAG) \
 		-t $(IMAGE_REPO):$(RELEASE_BRANCH) \
