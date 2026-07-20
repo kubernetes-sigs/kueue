@@ -84,8 +84,12 @@ jobs:
           fi
           echo "command=$COMMAND" >> "$GITHUB_OUTPUT"
           
-          CHANGELOG=$(echo "ISSUE_BODY" | sed -n '/^```markdown$/,/^```$/p' | sed '/^```markdown$/d;/^```$/d')
-          echo "changelog=$CHANGELOG" >> "$GITHUB_OUTPUT"
+          CHANGELOG="$(echo "$ISSUE_BODY" | sed -n '/^```markdown$/,/^```$/p' | sed '/^```markdown$/d;/^```$/d')"
+          {
+            echo "changelog<<EOF"
+            printf '%s\n' "$CHANGELOG"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
   sync-notes:
     name: Sync Release Notes
