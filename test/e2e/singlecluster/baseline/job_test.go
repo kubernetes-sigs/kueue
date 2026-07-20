@@ -993,19 +993,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 		// (overbooking) nor dropping below it (pods leak). Each pod requests 200m,
 		// so the ClusterQueue's reserved CPU must always equal running pods * 200m.
 		ginkgo.It("keeps the reserved quota equal to the running pods", func() {
-			reservedMilliCPU := func(g gomega.Gomega) int64 {
-				cq := &kueue.ClusterQueue{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
-				var total int64
-				for _, fu := range cq.Status.FlavorsUsage {
-					for _, r := range fu.Resources {
-						if r.Name == corev1.ResourceCPU {
-							total += r.Total.MilliValue()
-						}
-					}
-				}
-				return total
-			}
+			cqKey := client.ObjectKeyFromObject(clusterQueue)
 
 			elasticJob := testingjob.MakeJob("elastic-indexed-scale-down", ns.Name).
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
@@ -1022,7 +1010,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 			ginkgo.By("admitting the job: 4 pods running, quota reserved for 4 (800m)", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(findRunningPods(g, ns.Name, elasticJob.Name)).Should(gomega.HaveLen(4))
-					g.Expect(reservedMilliCPU(g)).Should(gomega.BeEquivalentTo(int64(800)))
+					g.Expect(clusterQueueReservedMilliCPU(g, cqKey)).Should(gomega.BeEquivalentTo(int64(800)))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -1036,7 +1024,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 				}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(findRunningPods(g, ns.Name, elasticJob.Name)).Should(gomega.HaveLen(2))
-					g.Expect(reservedMilliCPU(g)).Should(gomega.BeEquivalentTo(int64(400)))
+					g.Expect(clusterQueueReservedMilliCPU(g, cqKey)).Should(gomega.BeEquivalentTo(int64(400)))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -1049,12 +1037,28 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(findRunningPods(g, ns.Name, elasticJob.Name)).Should(gomega.HaveLen(1))
-					g.Expect(reservedMilliCPU(g)).Should(gomega.BeEquivalentTo(int64(200)))
+					g.Expect(clusterQueueReservedMilliCPU(g, cqKey)).Should(gomega.BeEquivalentTo(int64(200)))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 	})
 })
+
+// clusterQueueReservedMilliCPU returns the CPU currently reserved by the
+// ClusterQueue across all flavors, in milliCPU.
+func clusterQueueReservedMilliCPU(g gomega.Gomega, cqKey client.ObjectKey) int64 {
+	cq := &kueue.ClusterQueue{}
+	g.Expect(k8sClient.Get(ctx, cqKey, cq)).Should(gomega.Succeed())
+	var total int64
+	for _, fu := range cq.Status.FlavorsUsage {
+		for _, r := range fu.Resources {
+			if r.Name == corev1.ResourceCPU {
+				total += r.Total.MilliValue()
+			}
+		}
+	}
+	return total
+}
 
 func findRunningPods(g gomega.Gomega, namespace, jobName string) []corev1.Pod {
 	podList := &corev1.PodList{}
