@@ -2208,12 +2208,12 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		ginkgo.By("admit the workload on the worker1 cluster")
 		util.SetQuotaReservation(worker1.ctx, worker1.client, workloadKey, admission().Obj())
 
-		ginkgo.By("observe: the local admission check reflects the reservation on the worker1 cluster")
+		ginkgo.By("observe: the local admission check reflects the admission on the worker1 cluster")
 		util.ExpectAdmissionCheckStateWithMessage(
 			manager.ctx, manager.client, workloadKey,
 			multiKueueAC.Name,
 			kueue.CheckStateReady,
-			`The workload got reservation on "worker1"`,
+			`The workload was admitted on "worker1"`,
 		)
 
 		ginkgo.By("observe: the RayCluster is synced to the worker1 cluster and is not suspended", func() {
