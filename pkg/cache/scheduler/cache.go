@@ -37,6 +37,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -73,7 +74,7 @@ func WithPodsReadyTracking(f bool) Option {
 	}
 }
 
-func WithSchedulingSimulator(s SchedulingSimulator) Option {
+func WithSchedulingSimulator(s simulator.SchedulingSimulator) Option {
 	return func(c *Cache) {
 		c.schedulingSimulator = s
 	}
@@ -155,7 +156,7 @@ type Cache struct {
 	customLabels *metrics.CustomLabels
 	lqMetrics    *metrics.LocalQueueMetricsConfig
 
-	schedulingSimulator SchedulingSimulator
+	schedulingSimulator simulator.SchedulingSimulator
 }
 
 func New(client client.Client, options ...Option) *Cache {

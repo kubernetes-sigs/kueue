@@ -24,6 +24,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/tas"
@@ -34,23 +35,23 @@ import (
 func TestFreeCapacityPerDomain(t *testing.T) {
 	snapshot := &TASFlavorSnapshot{
 		leaves: leafDomainByID{
-			"domain2": &leafDomain{
-				freeCapacity: resources.Requests{
+			"domain2": &simulator.LeafDomain{
+				FreeCapacity: resources.Requests{
 					corev1.ResourceCPU:    1000,
 					corev1.ResourceMemory: 2 * 1024 * 1024 * 1024, // 2 GiB
 				},
-				tasUsage: resources.Requests{
+				TasUsage: resources.Requests{
 					corev1.ResourceMemory: 1 * 1024 * 1024 * 1024, // 1 GiB
 					corev1.ResourceCPU:    500,
 				},
 			},
-			"domain1": &leafDomain{
-				freeCapacity: resources.Requests{
+			"domain1": &simulator.LeafDomain{
+				FreeCapacity: resources.Requests{
 					corev1.ResourceMemory: 4 * 1024 * 1024 * 1024, // 4 GiB
 					corev1.ResourceCPU:    2000,
 					"nvidia.com/gpu":      1,
 				},
-				tasUsage: resources.Requests{
+				TasUsage: resources.Requests{
 					corev1.ResourceCPU:    500,
 					"nvidia.com/gpu":      1,
 					corev1.ResourceMemory: 2 * 1024 * 1024 * 1024, // 1 GiB
@@ -439,87 +440,87 @@ func TestSortedDomainsWithLeader(t *testing.T) {
 	levels := []string{"block"}
 
 	testCases := map[string]struct {
-		domains                              []*domain
+		domains                              []*simulator.Domain
 		unconstrained                        bool
 		enableTASPreferredSchedulingAffinity bool
 		wantOrder                            []string
 	}{
 		"affinityScore descending: higher affinity score comes first": {
 			enableTASPreferredSchedulingAffinity: true,
-			domains: []*domain{
-				{id: "low-affinity", affinityScore: 10, leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 10, levelValues: []string{"a"}},
-				{id: "high-affinity", affinityScore: 100, leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 10, levelValues: []string{"b"}},
+			domains: []*simulator.Domain{
+				{ID: "low-affinity", AffinityScore: 10, LeaderState: 1, SliceStateWithLeader: 5, StateWithLeader: 10, LevelValues: []string{"a"}},
+				{ID: "high-affinity", AffinityScore: 100, LeaderState: 1, SliceStateWithLeader: 5, StateWithLeader: 10, LevelValues: []string{"b"}},
 			},
 			unconstrained: false,
 			wantOrder:     []string{"high-affinity", "low-affinity"},
 		},
 		"affinityScore ignored when feature gate is disabled": {
 			enableTASPreferredSchedulingAffinity: false,
-			domains: []*domain{
-				{id: "low-affinity", affinityScore: 10, leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 10, levelValues: []string{"a"}},
-				{id: "high-affinity", affinityScore: 100, leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 10, levelValues: []string{"b"}},
+			domains: []*simulator.Domain{
+				{ID: "low-affinity", AffinityScore: 10, LeaderState: 1, SliceStateWithLeader: 5, StateWithLeader: 10, LevelValues: []string{"a"}},
+				{ID: "high-affinity", AffinityScore: 100, LeaderState: 1, SliceStateWithLeader: 5, StateWithLeader: 10, LevelValues: []string{"b"}},
 			},
 			unconstrained: false,
 			wantOrder:     []string{"low-affinity", "high-affinity"},
 		},
 		"leaderState descending: domains that can host leader come first": {
-			domains: []*domain{
-				{id: "no-leader", leaderState: 0, sliceStateWithLeader: 10, stateWithLeader: 10, levelValues: []string{"a"}},
-				{id: "has-leader", leaderState: 1, sliceStateWithLeader: 1, stateWithLeader: 1, levelValues: []string{"b"}},
+			domains: []*simulator.Domain{
+				{ID: "no-leader", LeaderState: 0, SliceStateWithLeader: 10, StateWithLeader: 10, LevelValues: []string{"a"}},
+				{ID: "has-leader", LeaderState: 1, SliceStateWithLeader: 1, StateWithLeader: 1, LevelValues: []string{"b"}},
 			},
 			unconstrained: false,
 			wantOrder:     []string{"has-leader", "no-leader"},
 		},
 		"leader capability prioritized over preferred affinity": {
 			enableTASPreferredSchedulingAffinity: true,
-			domains: []*domain{
-				{id: "preferred-no-leader", affinityScore: 100, leaderState: 0, sliceStateWithLeader: 0, stateWithLeader: 0, levelValues: []string{"a"}},
-				{id: "non-preferred-has-leader", affinityScore: 10, leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 10, levelValues: []string{"b"}},
+			domains: []*simulator.Domain{
+				{ID: "preferred-no-leader", AffinityScore: 100, LeaderState: 0, SliceStateWithLeader: 0, StateWithLeader: 0, LevelValues: []string{"a"}},
+				{ID: "non-preferred-has-leader", AffinityScore: 10, LeaderState: 1, SliceStateWithLeader: 5, StateWithLeader: 10, LevelValues: []string{"b"}},
 			},
 			unconstrained: false,
 			wantOrder:     []string{"non-preferred-has-leader", "preferred-no-leader"},
 		},
 		"BestFit: sliceStateWithLeader descending": {
-			domains: []*domain{
-				{id: "a", leaderState: 1, sliceStateWithLeader: 3, stateWithLeader: 1, levelValues: []string{"a"}},
-				{id: "b", leaderState: 1, sliceStateWithLeader: 1, stateWithLeader: 1, levelValues: []string{"b"}},
-				{id: "c", leaderState: 1, sliceStateWithLeader: 2, stateWithLeader: 1, levelValues: []string{"c"}},
+			domains: []*simulator.Domain{
+				{ID: "a", LeaderState: 1, SliceStateWithLeader: 3, StateWithLeader: 1, LevelValues: []string{"a"}},
+				{ID: "b", LeaderState: 1, SliceStateWithLeader: 1, StateWithLeader: 1, LevelValues: []string{"b"}},
+				{ID: "c", LeaderState: 1, SliceStateWithLeader: 2, StateWithLeader: 1, LevelValues: []string{"c"}},
 			},
 			unconstrained: false,
 			wantOrder:     []string{"a", "c", "b"},
 		},
 		"LeastFreeCapacity: sliceStateWithLeader ascending": {
-			domains: []*domain{
-				{id: "a", leaderState: 1, sliceStateWithLeader: 3, stateWithLeader: 1, levelValues: []string{"a"}},
-				{id: "b", leaderState: 1, sliceStateWithLeader: 1, stateWithLeader: 1, levelValues: []string{"b"}},
-				{id: "c", leaderState: 1, sliceStateWithLeader: 2, stateWithLeader: 1, levelValues: []string{"c"}},
+			domains: []*simulator.Domain{
+				{ID: "a", LeaderState: 1, SliceStateWithLeader: 3, StateWithLeader: 1, LevelValues: []string{"a"}},
+				{ID: "b", LeaderState: 1, SliceStateWithLeader: 1, StateWithLeader: 1, LevelValues: []string{"b"}},
+				{ID: "c", LeaderState: 1, SliceStateWithLeader: 2, StateWithLeader: 1, LevelValues: []string{"c"}},
 			},
 			unconstrained: true,
 			wantOrder:     []string{"b", "c", "a"},
 		},
 		"BestFit: stateWithLeader ascending as tiebreaker": {
-			domains: []*domain{
-				{id: "large", leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 100, levelValues: []string{"a"}},
-				{id: "small", leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 10, levelValues: []string{"b"}},
-				{id: "medium", leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 50, levelValues: []string{"c"}},
+			domains: []*simulator.Domain{
+				{ID: "large", LeaderState: 1, SliceStateWithLeader: 5, StateWithLeader: 100, LevelValues: []string{"a"}},
+				{ID: "small", LeaderState: 1, SliceStateWithLeader: 5, StateWithLeader: 10, LevelValues: []string{"b"}},
+				{ID: "medium", LeaderState: 1, SliceStateWithLeader: 5, StateWithLeader: 50, LevelValues: []string{"c"}},
 			},
 			unconstrained: false,
 			wantOrder:     []string{"small", "medium", "large"},
 		},
 		"LeastFreeCapacity: stateWithLeader ascending as tiebreaker": {
-			domains: []*domain{
-				{id: "large", leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 100, levelValues: []string{"a"}},
-				{id: "small", leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 10, levelValues: []string{"b"}},
-				{id: "medium", leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 50, levelValues: []string{"c"}},
+			domains: []*simulator.Domain{
+				{ID: "large", LeaderState: 1, SliceStateWithLeader: 5, StateWithLeader: 100, LevelValues: []string{"a"}},
+				{ID: "small", LeaderState: 1, SliceStateWithLeader: 5, StateWithLeader: 10, LevelValues: []string{"b"}},
+				{ID: "medium", LeaderState: 1, SliceStateWithLeader: 5, StateWithLeader: 50, LevelValues: []string{"c"}},
 			},
 			unconstrained: true,
 			wantOrder:     []string{"small", "medium", "large"},
 		},
 		"levelValues ascending as final tiebreaker": {
-			domains: []*domain{
-				{id: "c", leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 10, levelValues: []string{"c"}},
-				{id: "a", leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 10, levelValues: []string{"a"}},
-				{id: "b", leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 10, levelValues: []string{"b"}},
+			domains: []*simulator.Domain{
+				{ID: "c", LeaderState: 1, SliceStateWithLeader: 5, StateWithLeader: 10, LevelValues: []string{"c"}},
+				{ID: "a", LeaderState: 1, SliceStateWithLeader: 5, StateWithLeader: 10, LevelValues: []string{"a"}},
+				{ID: "b", LeaderState: 1, SliceStateWithLeader: 5, StateWithLeader: 10, LevelValues: []string{"b"}},
 			},
 			unconstrained: false,
 			wantOrder:     []string{"a", "b", "c"},
@@ -536,7 +537,7 @@ func TestSortedDomainsWithLeader(t *testing.T) {
 
 			gotOrder := make([]string, len(sorted))
 			for i, d := range sorted {
-				gotOrder[i] = string(d.id)
+				gotOrder[i] = string(d.ID)
 			}
 
 			if diff := cmp.Diff(tc.wantOrder, gotOrder); diff != "" {
@@ -555,70 +556,70 @@ func TestSortedDomains(t *testing.T) {
 	levels := []string{"block"}
 
 	testCases := map[string]struct {
-		domains                              []*domain
+		domains                              []*simulator.Domain
 		unconstrained                        bool
 		enableTASPreferredSchedulingAffinity bool
 		wantOrder                            []string
 	}{
 		"affinityScore descending: higher affinity score comes first": {
 			enableTASPreferredSchedulingAffinity: true,
-			domains: []*domain{
-				{id: "low-affinity", affinityScore: 10, sliceState: 5, state: 10, levelValues: []string{"a"}},
-				{id: "high-affinity", affinityScore: 100, sliceState: 5, state: 10, levelValues: []string{"b"}},
+			domains: []*simulator.Domain{
+				{ID: "low-affinity", AffinityScore: 10, SliceState: 5, State: 10, LevelValues: []string{"a"}},
+				{ID: "high-affinity", AffinityScore: 100, SliceState: 5, State: 10, LevelValues: []string{"b"}},
 			},
 			unconstrained: false,
 			wantOrder:     []string{"high-affinity", "low-affinity"},
 		},
 		"affinityScore ignored when feature gate is disabled": {
 			enableTASPreferredSchedulingAffinity: false,
-			domains: []*domain{
-				{id: "low-affinity", affinityScore: 10, sliceState: 5, state: 10, levelValues: []string{"a"}},
-				{id: "high-affinity", affinityScore: 100, sliceState: 5, state: 10, levelValues: []string{"b"}},
+			domains: []*simulator.Domain{
+				{ID: "low-affinity", AffinityScore: 10, SliceState: 5, State: 10, LevelValues: []string{"a"}},
+				{ID: "high-affinity", AffinityScore: 100, SliceState: 5, State: 10, LevelValues: []string{"b"}},
 			},
 			unconstrained: false,
 			wantOrder:     []string{"low-affinity", "high-affinity"},
 		},
 		"BestFit: sliceState descending": {
-			domains: []*domain{
-				{id: "a", sliceState: 3, state: 1, levelValues: []string{"a"}},
-				{id: "b", sliceState: 1, state: 1, levelValues: []string{"b"}},
-				{id: "c", sliceState: 2, state: 1, levelValues: []string{"c"}},
+			domains: []*simulator.Domain{
+				{ID: "a", SliceState: 3, State: 1, LevelValues: []string{"a"}},
+				{ID: "b", SliceState: 1, State: 1, LevelValues: []string{"b"}},
+				{ID: "c", SliceState: 2, State: 1, LevelValues: []string{"c"}},
 			},
 			unconstrained: false,
 			wantOrder:     []string{"a", "c", "b"},
 		},
 		"LeastFreeCapacity: sliceState ascending": {
-			domains: []*domain{
-				{id: "a", sliceState: 3, state: 1, levelValues: []string{"a"}},
-				{id: "b", sliceState: 1, state: 1, levelValues: []string{"b"}},
-				{id: "c", sliceState: 2, state: 1, levelValues: []string{"c"}},
+			domains: []*simulator.Domain{
+				{ID: "a", SliceState: 3, State: 1, LevelValues: []string{"a"}},
+				{ID: "b", SliceState: 1, State: 1, LevelValues: []string{"b"}},
+				{ID: "c", SliceState: 2, State: 1, LevelValues: []string{"c"}},
 			},
 			unconstrained: true,
 			wantOrder:     []string{"b", "c", "a"},
 		},
 		"BestFit: state ascending as tiebreaker": {
-			domains: []*domain{
-				{id: "large", sliceState: 5, state: 100, levelValues: []string{"a"}},
-				{id: "small", sliceState: 5, state: 10, levelValues: []string{"b"}},
-				{id: "medium", sliceState: 5, state: 50, levelValues: []string{"c"}},
+			domains: []*simulator.Domain{
+				{ID: "large", SliceState: 5, State: 100, LevelValues: []string{"a"}},
+				{ID: "small", SliceState: 5, State: 10, LevelValues: []string{"b"}},
+				{ID: "medium", SliceState: 5, State: 50, LevelValues: []string{"c"}},
 			},
 			unconstrained: false,
 			wantOrder:     []string{"small", "medium", "large"},
 		},
 		"LeastFreeCapacity: state ascending as tiebreaker": {
-			domains: []*domain{
-				{id: "large", sliceState: 5, state: 100, levelValues: []string{"a"}},
-				{id: "small", sliceState: 5, state: 10, levelValues: []string{"b"}},
-				{id: "medium", sliceState: 5, state: 50, levelValues: []string{"c"}},
+			domains: []*simulator.Domain{
+				{ID: "large", SliceState: 5, State: 100, LevelValues: []string{"a"}},
+				{ID: "small", SliceState: 5, State: 10, LevelValues: []string{"b"}},
+				{ID: "medium", SliceState: 5, State: 50, LevelValues: []string{"c"}},
 			},
 			unconstrained: true,
 			wantOrder:     []string{"small", "medium", "large"},
 		},
 		"levelValues ascending as final tiebreaker": {
-			domains: []*domain{
-				{id: "c", sliceState: 5, state: 10, levelValues: []string{"c"}},
-				{id: "a", sliceState: 5, state: 10, levelValues: []string{"a"}},
-				{id: "b", sliceState: 5, state: 10, levelValues: []string{"b"}},
+			domains: []*simulator.Domain{
+				{ID: "c", SliceState: 5, State: 10, LevelValues: []string{"c"}},
+				{ID: "a", SliceState: 5, State: 10, LevelValues: []string{"a"}},
+				{ID: "b", SliceState: 5, State: 10, LevelValues: []string{"b"}},
 			},
 			unconstrained: false,
 			wantOrder:     []string{"a", "b", "c"},
@@ -635,7 +636,7 @@ func TestSortedDomains(t *testing.T) {
 
 			gotOrder := make([]string, len(sorted))
 			for i, d := range sorted {
-				gotOrder[i] = string(d.id)
+				gotOrder[i] = string(d.ID)
 			}
 
 			if diff := cmp.Diff(tc.wantOrder, gotOrder); diff != "" {

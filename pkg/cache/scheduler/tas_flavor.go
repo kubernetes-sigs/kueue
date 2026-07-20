@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
@@ -93,7 +94,7 @@ type TASFlavorCache struct {
 
 	// schedulingSimulator performs the node feasability check
 	// based on topology requirements.
-	schedulingSimulator SchedulingSimulator
+	schedulingSimulator simulator.SchedulingSimulator
 }
 
 func (t *tasCache) NewTASFlavorCache(topologyInfo topologyInformation,

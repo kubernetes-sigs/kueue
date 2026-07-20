@@ -23,67 +23,70 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	corev1helpers "k8s.io/component-helpers/scheduling/corev1"
-
+	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltaints "sigs.k8s.io/kueue/pkg/util/taints"
 )
 
 type defaultSimulator struct{}
 
-func NewDefaultSimulator() SchedulingSimulator {
+func NewDefaultSimulator() simulator.SchedulingSimulator {
 	return &defaultSimulator{}
 }
 
-func (s *defaultSimulator) NewFeasibilityChecker(ctx context.Context, nodes []*corev1.Node) (nodeFeasibilityChecker, error) {
-	return &defaultChecker{}, nil
+func (s *defaultSimulator) NewFeasibilityChecker(ctx context.Context, nodes []*corev1.Node) (simulator.NodeFeasibilityChecker, error) {
+	log := log.FromContext(ctx)
+	return &defaultChecker{log: log}, nil
 }
 
-type defaultChecker struct{}
+type defaultChecker struct{ log logr.Logger }
 
-func (c *defaultChecker) FindFeasibleNodes(ctx context.Context, log logr.Logger, query *FeasibleNodesQuery) ([]matchedLeaf, error) {
-	var feasibleLeaves = make([]matchedLeaf, 0, len(query.Leaves))
+func (c *defaultChecker) FindFeasibleNodes(query *simulator.FeasibleNodesQuery) ([]simulator.MatchedLeaf, *simulator.ExclusionStats, error) {
+	exclusionStats := simulator.NewExclusionStats()
+	var feasibleLeaves = make([]simulator.MatchedLeaf, 0, len(query.Leaves))
 	for _, leaf := range query.Leaves {
-		if leaf.node == nil {
-			feasibleLeaves = append(feasibleLeaves, matchedLeaf{leaf: leaf})
+		if leaf.Node == nil {
+			feasibleLeaves = append(feasibleLeaves, simulator.MatchedLeaf{Leaf: leaf})
 			continue
 		}
 		// 1. Check Tolerations against Node Taints
-		nodeTaints := leaf.node.Spec.Taints
-		taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(log, nodeTaints, query.Requirements.tolerations, utiltaints.IsSchedulingTaint, true)
+		nodeTaints := leaf.Node.Spec.Taints
+		taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(c.log, nodeTaints, query.Requirements.Tolerations, utiltaints.IsSchedulingTaint, true)
 		if untolerated {
-			log.V(5).Info("excluding node with untolerated taint", "domainID", leaf.id, "taint", taint)
-			query.Stats.recordExclusion(exclusionTaints, &taint)
+			c.log.V(5).Info("excluding node with untolerated taint", "domainID", leaf.ID, "taint", taint)
+			exclusionStats.RecordExclusion(simulator.ExclusionTaints, &taint)
 			continue
 		}
 
 		// 2. Check Node Labels against Compiled Selector
 		var nodeLabelSet labels.Set
-		if nodeLabels := leaf.node.Labels; nodeLabels != nil {
+		if nodeLabels := leaf.Node.Labels; nodeLabels != nil {
 			nodeLabelSet = nodeLabels
 		}
 
-		if !query.Requirements.selector.Matches(nodeLabelSet) {
-			log.V(5).Info("excluding node that doesn't match nodeSelectors", "domainID", leaf.id, "nodeLabels", nodeLabelSet)
-			query.Stats.recordExclusion(exclusionNodeSelector, nil)
+		if !query.Requirements.Selector.Matches(nodeLabelSet) {
+			c.log.V(5).Info("excluding node that doesn't match nodeSelectors", "domainID", leaf.ID, "nodeLabels", nodeLabelSet)
+			exclusionStats.RecordExclusion(simulator.ExclusionNodeSelector, nil)
 			continue
 		}
 
 		// 3. Check Node against Affinity Node Selector
-		nodeObj := leaf.node
-		if query.Requirements.affinitySelector != nil && !query.Requirements.affinitySelector.Match(nodeObj) {
-			log.V(5).Info("excluding node due to an affinity mismatch", "domainID", leaf.id)
-			query.Stats.recordExclusion(exclusionAffinity, nil)
+		nodeObj := leaf.Node
+		if query.Requirements.AffinitySelector != nil && !query.Requirements.AffinitySelector.Match(nodeObj) {
+			c.log.V(5).Info("excluding node due to an affinity mismatch", "domainID", leaf.ID)
+			exclusionStats.RecordExclusion(simulator.ExclusionAffinity, nil)
 			continue
 		}
 
 		// 4. Calculate Affinity Score
 		var affinityScore int64
-		if features.Enabled(features.TASRespectNodeAffinityPreferred) && query.Requirements.preferredSchedulingTerms != nil {
-			affinityScore = query.Requirements.preferredSchedulingTerms.Score(nodeObj)
+		if features.Enabled(features.TASRespectNodeAffinityPreferred) && query.Requirements.PreferredSchedulingTerms != nil {
+			affinityScore = query.Requirements.PreferredSchedulingTerms.Score(nodeObj)
 		}
 
 		// 5. Track the matching leaf as feasible
-		feasibleLeaves = append(feasibleLeaves, matchedLeaf{leaf: leaf, affinityScore: affinityScore})
+		feasibleLeaves = append(feasibleLeaves, simulator.MatchedLeaf{Leaf: leaf, AffinityScore: affinityScore})
 	}
-	return feasibleLeaves, nil
+	return feasibleLeaves, exclusionStats, nil
 }

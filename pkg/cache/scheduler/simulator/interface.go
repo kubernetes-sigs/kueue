@@ -14,27 +14,26 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package scheduler
+package simulator
 
 import (
 	"context"
 
-	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 )
 
 type FeasibleNodesQuery struct {
-	Leaves       []*leafDomain
-	Requirements *topologyAssignmentPodRequirements
+	Leaves       []*LeafDomain
+	Requirements *TopologyAssignmentPodRequirements
 	Stats        *ExclusionStats
 }
 
-// nodeFeasibilityChecker determines which topology leaves can satisfy pod requirements.
-type nodeFeasibilityChecker interface {
-	FindFeasibleNodes(ctx context.Context, log logr.Logger, query *FeasibleNodesQuery) ([]matchedLeaf, error)
+// NodeFeasibilityChecker determines which topology leaves can satisfy pod requirements.
+type NodeFeasibilityChecker interface {
+	FindFeasibleNodes(query *FeasibleNodesQuery) ([]MatchedLeaf, *ExclusionStats, error)
 }
 
 // SchedulingSimulator acts as a factory for the feasibility checker.
 type SchedulingSimulator interface {
-	NewFeasibilityChecker(ctx context.Context, nodes []*corev1.Node) (nodeFeasibilityChecker, error)
+	NewFeasibilityChecker(ctx context.Context, nodes []*corev1.Node) (NodeFeasibilityChecker, error)
 }

@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
@@ -40,10 +41,10 @@ type tasCache struct {
 
 	nonTasUsageCache    *nonTasUsageCache
 	nodesCache          *nodesCache
-	schedulingSimulator SchedulingSimulator
+	schedulingSimulator simulator.SchedulingSimulator
 }
 
-func NewTASCache(client client.Client, schedulingSimulator SchedulingSimulator) tasCache {
+func NewTASCache(client client.Client, schedulingSimulator simulator.SchedulingSimulator) tasCache {
 	return tasCache{
 		client:      client,
 		flavors:     make(map[kueue.ResourceFlavorReference]flavorInformation),
