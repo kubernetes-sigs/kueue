@@ -4689,7 +4689,8 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 		util.MustCreate(ctx, k8sClient, firstPod)
 		ginkgo.By("waiting for Kueue to remove the first pod's scheduling gate")
 		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(firstPod), firstPod)).Should(gomega.Succeed())oa			g.Expect(utilpod.HasGate(firstPod, kueue.ElasticJobSchedulingGate)).Should(gomega.BeFalse())
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(firstPod), firstPod)).Should(gomega.Succeed())
+			g.Expect(utilpod.HasGate(firstPod, kueue.ElasticJobSchedulingGate)).Should(gomega.BeFalse())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("recording the first pod as Succeeded")
