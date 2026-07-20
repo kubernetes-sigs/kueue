@@ -910,8 +910,8 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 		for workerName := range group.remotes {
 			nominatedWorkers = append(nominatedWorkers, workerName)
 		}
-		if group.local.Status.ClusterName == nil && !equality.Semantic.DeepEqual(group.local.Status.NominatedClusterNames, nominatedWorkers) {
-			if err := workload.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
+		if !nominatedClusterSetsEqual(group.local.Status.NominatedClusterNames, nominatedWorkers) {
+			if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
 				wl.Status.NominatedClusterNames = nominatedWorkers
 				return true, nil
 			}); err != nil {
@@ -956,7 +956,7 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 			// longer called, and the manager Job's Status.Active is never updated.
 			// The remote will be cleaned up later, once the local workload is
 			// re-admitted (or finishes / loses its quota reservation).
-			if workload.IsEvicted(remoteWl) {
+			if workloadevict.IsEvicted(remoteWl) {
 				log.V(3).Info("Preserving evicted remote workload to allow eviction-recovery sync", "remote", rem)
 				continue
 			}

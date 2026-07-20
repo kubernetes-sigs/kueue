@@ -2432,6 +2432,24 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 			remotes:               map[string]*kueue.Workload{remoteNames[0]: nil, remoteNames[1]: nil},
 			wantCreated:           []string{remoteNames[0], remoteNames[1]},
 		},
+		{
+			name:                      "AllClusters legacy: gate off, nominate all workers when called directly with ClusterName set",
+			dispatcherMode:            config.MultiKueueDispatcherModeAllAtOnce,
+			allAtOnceExternalGate:     new(bool),
+			remotes:                   map[string]*kueue.Workload{remoteNames[0]: nil, remoteNames[1]: nil},
+			localClusterName:          new(remoteNames[0]),
+			wantCreated:               []string{remoteNames[0], remoteNames[1]},
+			wantNominatedClusterNames: []string{remoteNames[0], remoteNames[1]},
+		},
+		{
+			name:                      "AllClusters legacy: gate off, same set in reversed order does not trigger unnecessary patch",
+			dispatcherMode:            config.MultiKueueDispatcherModeAllAtOnce,
+			allAtOnceExternalGate:     new(bool),
+			remotes:                   map[string]*kueue.Workload{remoteNames[0]: {}, remoteNames[1]: {}},
+			nominatedWorkers:          []string{remoteNames[1], remoteNames[0]}, // reversed (not sorted)
+			wantCreated:               nil,
+			wantNominatedClusterNames: []string{remoteNames[0], remoteNames[1]}, // sorted in-place even without a patch
+		},
 		// Incremental and AllAtOnce dispatcher unit tests live in pkg/controller/workloaddispatcher.
 		{
 			name:           "External controller: no nominated workers, nothing created",

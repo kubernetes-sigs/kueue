@@ -41,6 +41,9 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
+	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 )
 
 type AllAtOnceDispatcherReconciler struct {
@@ -109,7 +112,7 @@ func (r *AllAtOnceDispatcherReconciler) Reconcile(ctx context.Context, req ctrl.
 		return reconcile.Result{}, err
 	}
 
-	if workload.IsFinished(wl) || !workload.HasQuotaReservation(wl) {
+	if workloadfinish.IsFinished(wl) || !workload.HasQuotaReservation(wl) {
 		log.V(3).Info("Workload is already finished or has no quota reserved, skip the reconciliation")
 		return reconcile.Result{}, nil
 	}
@@ -119,7 +122,7 @@ func (r *AllAtOnceDispatcherReconciler) Reconcile(ctx context.Context, req ctrl.
 	// the scheduler will requeue it) before re-nominating clusters. Re-nominating
 	// during eviction races with the post-eviction cleanup and prevents the
 	// workload from re-entering the queue.
-	if workload.IsEvicted(wl) {
+	if workloadevict.IsEvicted(wl) {
 		log.V(3).Info("Workload is being evicted, skip the reconciliation")
 		return reconcile.Result{}, nil
 	}
@@ -137,9 +140,9 @@ func (r *AllAtOnceDispatcherReconciler) Reconcile(ctx context.Context, req ctrl.
 // filterActiveClusters returns the subset of remoteClusters whose MultiKueueCluster
 // has the MultiKueueClusterActive condition set to True. Clusters that are missing
 // or not active are excluded so they are not nominated for workload placement.
-func (r *AllAtOnceDispatcherReconciler) filterActiveClusters(ctx context.Context, remoteClusters sets.Set[string]) (sets.Set[string], error) {
+func (r *AllAtOnceDispatcherReconciler) filterActiveClusters(ctx context.Context, remoteClusters []string) (sets.Set[string], error) {
 	active := sets.New[string]()
-	for clusterName := range remoteClusters {
+	for _, clusterName := range remoteClusters {
 		cluster := &kueue.MultiKueueCluster{}
 		if err := r.client.Get(ctx, types.NamespacedName{Name: clusterName}, cluster); err != nil {
 			if client.IgnoreNotFound(err) != nil {
@@ -164,7 +167,7 @@ func (r *AllAtOnceDispatcherReconciler) nominateWorkers(ctx context.Context, wl 
 	}
 
 	log.V(5).Info("Nominating worker clusters", "nominatedClusterNames", nominatedWorkers)
-	if err := workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+	if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 		wl.Status.NominatedClusterNames = nominatedWorkers
 		return true, nil
 	}); err != nil {
