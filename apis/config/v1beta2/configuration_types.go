@@ -652,21 +652,28 @@ type DeviceClassMapping struct {
 
 	// Sources configures resource accounting sources for this mapping.
 	// Each source defines how quota is tracked for this DeviceClass.
-	// Currently only counter sources are supported (for partitionable devices).
 	// Extended resource requests that resolve to a DeviceClass with sources
 	// configured are marked inadmissible.
-	// Requires the KueueDRAIntegrationPartitionableDevices feature gate.
+	// Counter sources require KueueDRAIntegrationPartitionableDevices.
+	// Capacity sources require KueueDRAIntegrationConsumableCapacity.
 	// +optional
 	Sources []DeviceClassSourceConfig `json:"sources,omitempty"`
 }
 
 // DeviceClassSourceConfig defines a resource accounting source for a DeviceClassMapping.
-// Exactly one of the source types must be set.
+// Exactly one of the source types must be set per entry.
 type DeviceClassSourceConfig struct {
 	// Counter configures counter-based quota for partitionable devices.
 	// Maps a DRA driver counter to the parent DeviceClassMapping's Kueue quota resource.
 	// +optional
 	Counter *DeviceClassCounterSource `json:"counter,omitempty"`
+
+	// Capacity configures capacity-based quota for devices that allow
+	// multiple allocations (consumable capacity, KEP-5075).
+	// Maps a device capacity dimension to the parent DeviceClassMapping's Kueue quota resource.
+	// Requires the KueueDRAIntegrationConsumableCapacity feature gate.
+	// +optional
+	Capacity *DeviceClassCapacitySource `json:"capacity,omitempty"`
 }
 
 // DeviceClassCounterSource identifies where to read counter data from and which counter to track.
@@ -683,7 +690,7 @@ type DeviceClassCounterSource struct {
 
 	// Driver is the DRA driver name used to filter relevant ResourceSlices.
 	// Must match the spec.driver field on ResourceSlice objects.
-	// The total length must not exceed 253 characters.
+	// The total length must not exceed 63 characters.
 	// +required
 	Driver string `json:"driver"`
 
@@ -692,6 +699,30 @@ type DeviceClassCounterSource struct {
 	// so all partition profiles on that model share one quota pool.
 	// Per-workload charging is determined by the workload's own
 	// ResourceClaimTemplate selector, which narrows to the requested profile.
+	// The selector is compiled at config load time using the upstream dracel
+	// compiler.
+	// +required
+	DeviceSelector resourcev1.DeviceSelector `json:"deviceSelector"`
+}
+
+// DeviceClassCapacitySource configures capacity-based quota tracking
+// for devices that allow multiple allocations (KEP-5075).
+type DeviceClassCapacitySource struct {
+	// Name identifies the capacity dimension to track for quota
+	// (e.g., "gpu.memory").
+	// Must not exceed 63 characters.
+	// +required
+	Name string `json:"name"`
+
+	// Driver is the DRA driver name used to filter relevant ResourceSlices.
+	// Must match the spec.driver field on ResourceSlice objects.
+	// Must not exceed 63 characters.
+	// +required
+	Driver string `json:"driver"`
+
+	// DeviceSelector scopes which devices are eligible for quota accounting.
+	// Matches devices whose capacity dimensions should be tracked against
+	// the quota pool.
 	// The selector is compiled at config load time using the upstream dracel
 	// compiler.
 	// +required

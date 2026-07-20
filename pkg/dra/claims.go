@@ -221,6 +221,9 @@ func GetResourceRequestsForResourceClaimTemplates(
 				if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) && len(mapper.getCounterConfigs(dc)) > 0 {
 					continue
 				}
+				if features.Enabled(features.KueueDRAIntegrationConsumableCapacity) && len(mapper.getCapacityConfigs(dc)) > 0 {
+					continue
+				}
 				aggregated = utilresource.MergeResourceListKeepSum(aggregated, corev1.ResourceList{logical: resource.MustParse(strconv.FormatInt(qty, 10))})
 			}
 		}
@@ -425,7 +428,7 @@ func validateCELSelectorsAgainstDevices(
 	var collectedSlices []resourcev1.ResourceSlice
 	needsAll := false
 	for _, cr := range celReqs {
-		if len(mapper.getCounterConfigs(corev1.ResourceName(cr.deviceClassName))) == 0 {
+		if len(mapper.getCounterConfigs(corev1.ResourceName(cr.deviceClassName))) == 0 && len(mapper.getCapacityConfigs(corev1.ResourceName(cr.deviceClassName))) == 0 {
 			needsAll = true
 			break
 		}
@@ -439,7 +442,8 @@ func validateCELSelectorsAgainstDevices(
 	} else {
 		seenDrivers := sets.New[string]()
 		for _, cr := range celReqs {
-			for _, cc := range mapper.getCounterConfigs(corev1.ResourceName(cr.deviceClassName)) {
+			dc := corev1.ResourceName(cr.deviceClassName)
+			for _, cc := range mapper.getCounterConfigs(dc) {
 				if seenDrivers.Has(cc.driver) {
 					continue
 				}
@@ -447,6 +451,17 @@ func validateCELSelectorsAgainstDevices(
 				slices, err := sliceCache.ListByDriver(ctx, cc.driver)
 				if err != nil {
 					return field.ErrorList{field.InternalError(basePath, fmt.Errorf("failed to list ResourceSlices for driver %s: %w", cc.driver, err))}
+				}
+				collectedSlices = append(collectedSlices, slices...)
+			}
+			for _, capCfg := range mapper.getCapacityConfigs(dc) {
+				if seenDrivers.Has(capCfg.driver) {
+					continue
+				}
+				seenDrivers.Insert(capCfg.driver)
+				slices, err := sliceCache.ListByDriver(ctx, capCfg.driver)
+				if err != nil {
+					return field.ErrorList{field.InternalError(basePath, fmt.Errorf("failed to list ResourceSlices for driver %s: %w", capCfg.driver, err))}
 				}
 				collectedSlices = append(collectedSlices, slices...)
 			}
