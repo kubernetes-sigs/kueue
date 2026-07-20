@@ -397,6 +397,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.17"
+- name: TASAssignmentsEncodingByHostnamePrefix
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
 - name: TASBalancedPlacement
   versionedSpecs:
   - default: false
@@ -404,6 +410,12 @@
     preRelease: Alpha
     version: "0.15"
 - name: TASCacheNodeMatchResults
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
+- name: TASCachingRemainingResources
   versionedSpecs:
   - default: true
     lockToDefault: false

@@ -47,13 +47,14 @@ const (
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
-		SetupIndexes:      SetupIndexes,
-		NewJob:            NewJob,
-		NewReconciler:     NewReconciler,
-		SetupWebhook:      SetupRayClusterWebhook,
-		JobType:           &rayv1.RayCluster{},
-		AddToScheme:       rayv1.AddToScheme,
-		MultiKueueAdapter: ray.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy),
+		SetupIndexes:  SetupIndexes,
+		NewJob:        NewJob,
+		NewReconciler: NewReconciler,
+		SetupWebhook:  SetupRayClusterWebhook,
+		JobType:       &rayv1.RayCluster{},
+		AddToScheme:   rayv1.AddToScheme,
+		MultiKueueAdapter: ray.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy,
+			ray.WithElasticReplicaSync(elasticReplicaSync())),
 	}))
 }
 
