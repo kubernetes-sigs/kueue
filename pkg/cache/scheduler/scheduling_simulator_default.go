@@ -44,39 +44,43 @@ type defaultChecker struct {
 	log logr.Logger
 }
 
-func (c *defaultChecker) FindFeasibleNodes(leaves []*simulator.LeafDomain, requirements *simulator.TopologyAssignmentPodRequirements) ([]simulator.MatchedLeaf, *simulator.ExclusionStats, error) {
+func (c *defaultChecker) FindFeasibleNodes(
+	candidates []simulator.Candidate,
+	requirements *simulator.TopologyAssignmentPodRequirements,
+) ([]simulator.MatchedCandidate, *simulator.ExclusionStats, error) {
 	exclusionStats := simulator.NewExclusionStats()
-	var feasibleLeaves = make([]simulator.MatchedLeaf, 0, len(leaves))
-	for _, leaf := range leaves {
-		if leaf.Node == nil {
-			feasibleLeaves = append(feasibleLeaves, simulator.MatchedLeaf{Leaf: leaf})
+	var feasibleCandidates = make([]simulator.MatchedCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		nodeObj := candidate.GetNode()
+		domainID := candidate.GetID()
+		if nodeObj == nil {
+			feasibleCandidates = append(feasibleCandidates, simulator.MatchedCandidate{Candidate: candidate})
 			continue
 		}
 		// 1. Check Tolerations against Node Taints
-		nodeTaints := leaf.Node.Spec.Taints
+		nodeTaints := nodeObj.Spec.Taints
 		taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(c.log, nodeTaints, requirements.Tolerations, utiltaints.IsSchedulingTaint, true)
 		if untolerated {
-			c.log.V(5).Info("excluding node with untolerated taint", "domainID", leaf.ID, "taint", taint)
+			c.log.V(5).Info("excluding node with untolerated taint", "domainID", domainID, "taint", taint)
 			exclusionStats.RecordExclusion(simulator.ExclusionTaints, &taint)
 			continue
 		}
 
 		// 2. Check Node Labels against Compiled Selector
 		var nodeLabelSet labels.Set
-		if nodeLabels := leaf.Node.Labels; nodeLabels != nil {
+		if nodeLabels := nodeObj.Labels; nodeLabels != nil {
 			nodeLabelSet = nodeLabels
 		}
 
 		if requirements.Selector != nil && !requirements.Selector.Matches(nodeLabelSet) {
-			c.log.V(5).Info("excluding node that doesn't match nodeSelectors", "domainID", leaf.ID, "nodeLabels", nodeLabelSet)
+			c.log.V(5).Info("excluding node that doesn't match nodeSelectors", "domainID", domainID, "nodeLabels", nodeLabelSet)
 			exclusionStats.RecordExclusion(simulator.ExclusionNodeSelector, nil)
 			continue
 		}
 
 		// 3. Check Node against Affinity Node Selector
-		nodeObj := leaf.Node
 		if requirements.AffinitySelector != nil && !requirements.AffinitySelector.Match(nodeObj) {
-			c.log.V(5).Info("excluding node due to an affinity mismatch", "domainID", leaf.ID)
+			c.log.V(5).Info("excluding node due to an affinity mismatch", "domainID", domainID)
 			exclusionStats.RecordExclusion(simulator.ExclusionAffinity, nil)
 			continue
 		}
@@ -87,8 +91,8 @@ func (c *defaultChecker) FindFeasibleNodes(leaves []*simulator.LeafDomain, requi
 			affinityScore = requirements.PreferredSchedulingTerms.Score(nodeObj)
 		}
 
-		// 5. Track the matching leaf as feasible
-		feasibleLeaves = append(feasibleLeaves, simulator.MatchedLeaf{Leaf: leaf, AffinityScore: affinityScore})
+		// 5. Track the matching candidate as feasible
+		feasibleCandidates = append(feasibleCandidates, simulator.MatchedCandidate{Candidate: candidate, AffinityScore: affinityScore})
 	}
-	return feasibleLeaves, exclusionStats, nil
+	return feasibleCandidates, exclusionStats, nil
 }

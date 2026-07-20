@@ -24,7 +24,7 @@ import (
 
 // NodeFeasibilityChecker determines which topology leaves can satisfy pod requirements.
 type NodeFeasibilityChecker interface {
-	FindFeasibleNodes(leaves []*LeafDomain, requirements *TopologyAssignmentPodRequirements) ([]MatchedLeaf, *ExclusionStats, error)
+	FindFeasibleNodes(candidates []Candidate, requirements *TopologyAssignmentPodRequirements) ([]MatchedCandidate, *ExclusionStats, error)
 }
 
 // SchedulingSimulator acts as a factory for the feasibility checker.

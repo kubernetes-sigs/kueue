@@ -31,54 +31,16 @@ import (
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
-// Domain holds the static information about placement of a topology
-// domain in the hierarchy of topology domains.
-type Domain struct {
-	// ID is the globally unique id of the domain
-	ID utiltas.TopologyDomainID
-
-	// Parent points to domain which is a parent in topology structure
-	Parent *Domain
-
-	// Children points to domains which are children in topology structure
-	Children []*Domain
-
-	// State is a temporary state of the topology domains during the assignment algorithm.
-	State int32
-
-	// SliceState is a temporary state of the topology domains during the assignment algorithm.
-	SliceState int32
-
-	StateWithLeader      int32
-	SliceStateWithLeader int32
-	LeaderState          int32
-
-	// LevelValues stores the mapping from domain ID back to the ordered list of values
-	LevelValues []string
-
-	// AffinityScore is the sum of weights of all preferred affinity terms that match the node.
-	AffinityScore int64
+// Candidate represents an abstract scheduleable domain.
+type Candidate interface {
+	GetID() utiltas.TopologyDomainID
+	GetNode() *corev1.Node
 }
 
-// LeafDomain extends the domain with information for the lowest-level domain.
-type LeafDomain struct {
-	Domain
-	// FreeCapacity represents the total node capacity minus the non-TAS usage
-	FreeCapacity resources.Requests
-
-	// TasUsage represents the usage associated with TAS workloads.
-	TasUsage resources.Requests
-
-	// Node at the leaf, if the lowest level is a node
-	Node *corev1.Node
-}
-
-type DomainByID map[utiltas.TopologyDomainID]*Domain
-type LeafDomainByID map[utiltas.TopologyDomainID]*LeafDomain
-
-// MatchedLeaf represents a leaf domain (node) that matched the scheduling requirements
-type MatchedLeaf struct {
-	Leaf          *LeafDomain
+// MatchedCandidate represents a Candidate that matched the scheduling requirements
+// along with its calculated affinity score.
+type MatchedCandidate struct {
+	Candidate     Candidate
 	AffinityScore int64
 }
 
