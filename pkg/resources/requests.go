@@ -23,6 +23,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/util/sets"
 	resourcehelpers "k8s.io/component-helpers/resource"
 	"k8s.io/utils/ptr"
 
@@ -34,14 +35,14 @@ import (
 // Register all binary-formatted resources before sharing a formatter with
 // concurrent controller code.
 type ResourceFormatter struct {
-	binaryFormattedResources map[corev1.ResourceName]struct{}
+	binaryFormattedResources sets.Set[corev1.ResourceName]
 }
 
 // NewResourceFormatter creates a ResourceFormatter with no custom resource
 // formatting rules.
 func NewResourceFormatter() *ResourceFormatter {
 	return &ResourceFormatter{
-		binaryFormattedResources: make(map[corev1.ResourceName]struct{}),
+		binaryFormattedResources: sets.New[corev1.ResourceName](),
 	}
 }
 
@@ -53,17 +54,16 @@ func (f *ResourceFormatter) RegisterBinaryFormattedResource(name corev1.Resource
 		return
 	}
 	if f.binaryFormattedResources == nil {
-		f.binaryFormattedResources = make(map[corev1.ResourceName]struct{})
+		f.binaryFormattedResources = sets.New[corev1.ResourceName]()
 	}
-	f.binaryFormattedResources[name] = struct{}{}
+	f.binaryFormattedResources.Insert(name)
 }
 
 func (f *ResourceFormatter) usesBinaryFormat(name corev1.ResourceName) bool {
 	if f == nil {
 		return false
 	}
-	_, ok := f.binaryFormattedResources[name]
-	return ok
+	return f.binaryFormattedResources.Has(name)
 }
 
 // The following resources calculations are inspired on
