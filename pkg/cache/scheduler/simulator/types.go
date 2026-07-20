@@ -17,11 +17,6 @@ limitations under the License.
 package simulator
 
 import (
-	"fmt"
-	"maps"
-	"slices"
-	"strings"
-
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/component-helpers/scheduling/corev1/nodeaffinity"
@@ -42,74 +37,12 @@ type MatchedCandidate[C Candidate] struct {
 	AffinityScore int64
 }
 
-// ExclusionStats tracks why nodes were excluded during TAS scheduling.
-type ExclusionStats struct {
-	Taints         map[string]int
-	NodeSelector   int
-	Affinity       int
-	TopologyDomain int
-	Resources      map[corev1.ResourceName]int
-	TotalNodes     int
-}
-
-func NewExclusionStats() *ExclusionStats {
-	return &ExclusionStats{}
-}
-
-// HasExclusions returns true if any exclusion reasons were recorded.
-func (s *ExclusionStats) HasExclusions() bool {
-	return s.NodeSelector > 0 || s.Affinity > 0 || s.TopologyDomain > 0 ||
-		len(s.Taints) > 0 || len(s.Resources) > 0
-}
-
-// FormatReasons returns a sorted, comma-separated string of exclusion reasons.
-func (s *ExclusionStats) FormatReasons() string {
-	var reasons []string
-	if s.NodeSelector > 0 {
-		reasons = append(reasons, fmt.Sprintf("nodeSelector: %d", s.NodeSelector))
-	}
-	if s.Affinity > 0 {
-		reasons = append(reasons, fmt.Sprintf("affinity: %d", s.Affinity))
-	}
-	if s.TopologyDomain > 0 {
-		reasons = append(reasons, fmt.Sprintf("topologyDomain: %d", s.TopologyDomain))
-	}
-	for _, taint := range slices.Sorted(maps.Keys(s.Taints)) {
-		reasons = append(reasons, fmt.Sprintf("taint %q: %d", taint, s.Taints[taint]))
-	}
-	for _, resource := range slices.Sorted(maps.Keys(s.Resources)) {
-		reasons = append(reasons, fmt.Sprintf("resource %q: %d", resource, s.Resources[resource]))
-	}
-	slices.Sort(reasons)
-	return strings.Join(reasons, ", ")
-}
-
-// RecordResourceExclusion tracks excluding a domain by resource.
-func (s *ExclusionStats) RecordResourceExclusion(res corev1.ResourceName) {
-	if s.Resources == nil {
-		s.Resources = make(map[corev1.ResourceName]int)
-	}
-	s.Resources[res]++
-}
-
-// Add merges another ExclusionStats into this one.
-func (s *ExclusionStats) Add(other *ExclusionStats) {
-	s.TotalNodes += other.TotalNodes
-	s.NodeSelector += other.NodeSelector
-	s.Affinity += other.Affinity
-	s.TopologyDomain += other.TopologyDomain
-	for k, v := range other.Taints {
-		if s.Taints == nil {
-			s.Taints = make(map[string]int)
-		}
-		s.Taints[k] += v
-	}
-	for k, v := range other.Resources {
-		if s.Resources == nil {
-			s.Resources = make(map[corev1.ResourceName]int)
-		}
-		s.Resources[k] += v
-	}
+// NodeExclusionStats tracks why nodes were excluded during TAS scheduling.
+type NodeExclusionStats struct {
+	Taints       map[string]int
+	NodeSelector int
+	Affinity     int
+	TotalNodes   int
 }
 
 // PodRequirements stores pod-driven scheduling filters and
@@ -129,7 +62,7 @@ const (
 	ExclusionAffinity
 )
 
-func (s *ExclusionStats) RecordExclusion(exclusionType NodeExclusionType, taint *corev1.Taint) {
+func (s *NodeExclusionStats) RecordExclusion(exclusionType NodeExclusionType, taint *corev1.Taint) {
 	switch exclusionType {
 	case ExclusionTaints:
 		if taint != nil {

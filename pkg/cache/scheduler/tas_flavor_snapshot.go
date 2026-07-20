@@ -175,7 +175,7 @@ type podSetMatchKey struct {
 // exclusion stats for a specific podSetMatchKey.
 type matchingLeavesCacheEntry struct {
 	leaves []leafCandidate
-	Stats  *simulator.ExclusionStats
+	stats  *tasExclusionStats
 }
 
 func newTASFlavorSnapshot(
@@ -484,6 +484,12 @@ type findTopologyAssignmentsOption struct {
 	aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests
 }
 
+type tasExclusionStats struct {
+	simulator.NodeExclusionStats
+	TopologyDomain int
+	Resources      map[corev1.ResourceName]int
+}
+
 type topologyAssignmentPodRequirements struct {
 	podRequirements           simulator.PodRequirements
 	requests                  resources.Requests
@@ -512,7 +518,62 @@ type topologyAssignmentParameters struct {
 // TAS placement algorithm.
 type findTopologyAssignmentState struct {
 	topologyAssignmentParameters
-	stats *simulator.ExclusionStats
+	stats *tasExclusionStats
+}
+
+func newTASExclusionStats() *tasExclusionStats {
+	return &tasExclusionStats{}
+}
+
+func (s *tasExclusionStats) hasExclusions() bool {
+	return s.NodeSelector > 0 || s.Affinity > 0 || len(s.Taints) > 0 || s.TopologyDomain > 0 || len(s.Resources) > 0
+}
+
+func (s *tasExclusionStats) formatReasons() string {
+	var reasons []string
+	if s.NodeSelector > 0 {
+		reasons = append(reasons, fmt.Sprintf("nodeSelector: %d", s.NodeSelector))
+	}
+	if s.Affinity > 0 {
+		reasons = append(reasons, fmt.Sprintf("affinity: %d", s.Affinity))
+	}
+	if s.TopologyDomain > 0 {
+		reasons = append(reasons, fmt.Sprintf("topologyDomain: %d", s.TopologyDomain))
+	}
+	for _, taint := range slices.Sorted(maps.Keys(s.Taints)) {
+		reasons = append(reasons, fmt.Sprintf("taint %q: %d", taint, s.Taints[taint]))
+	}
+	for _, resource := range slices.Sorted(maps.Keys(s.Resources)) {
+		reasons = append(reasons, fmt.Sprintf("resource %q: %d", resource, s.Resources[resource]))
+	}
+	slices.Sort(reasons)
+	return strings.Join(reasons, ", ")
+}
+
+func (s *tasExclusionStats) recordResourceExclusion(res corev1.ResourceName) {
+	if s.Resources == nil {
+		s.Resources = make(map[corev1.ResourceName]int)
+	}
+	s.Resources[res]++
+}
+
+func (s *tasExclusionStats) add(other *tasExclusionStats) {
+	s.TotalNodes += other.TotalNodes
+	s.NodeSelector += other.NodeSelector
+	s.Affinity += other.Affinity
+	s.TopologyDomain += other.TopologyDomain
+	for k, v := range other.Taints {
+		if s.Taints == nil {
+			s.Taints = make(map[string]int)
+		}
+		s.Taints[k] += v
+	}
+	for k, v := range other.Resources {
+		if s.Resources == nil {
+			s.Resources = make(map[corev1.ResourceName]int)
+		}
+		s.Resources[k] += v
+	}
 }
 
 type FindTopologyAssignmentsOption func(*findTopologyAssignmentsOption)
@@ -865,7 +926,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		topologyAssignmentParameters: topologyAssignmentParameters{
 			count: workersTasPodSetRequests.Count,
 		},
-		stats: &simulator.ExclusionStats{},
+		stats: &tasExclusionStats{},
 	}
 	requirements.requests = workersTasPodSetRequests.SinglePodRequests.Clone()
 	requirements.requests.Add(resources.Requests{corev1.ResourcePods: 1})
@@ -1675,7 +1736,7 @@ func (s *TASFlavorSnapshot) fillInCounts(ctx context.Context, requirements *topo
 		if err != nil {
 			return err
 		}
-		state.stats.Add(stats)
+		state.stats.add(stats)
 		for _, ml := range matchingLeaves {
 			leaf := ml.Candidate
 			leaf.affinityScore += ml.AffinityScore
@@ -1683,12 +1744,11 @@ func (s *TASFlavorSnapshot) fillInCounts(ctx context.Context, requirements *topo
 		}
 	} else {
 		if s.isLowestLevelNode {
-			feasibleLeaves, leafStats, err := s.feasibilityChecker.FindFeasibleNodes(ctx, maps.Values(s.leaves), &requirements.podRequirements)
+			feasibleLeaves, err := s.feasibilityChecker.FindFeasibleNodes(ctx, maps.Values(s.leaves), &requirements.podRequirements, &state.stats.NodeExclusionStats)
 
 			if err != nil {
 				return err
 			}
-			state.stats.Add(leafStats)
 
 			for _, ml := range feasibleLeaves {
 				leaf := ml.Candidate
@@ -1709,9 +1769,9 @@ func (s *TASFlavorSnapshot) fillInCounts(ctx context.Context, requirements *topo
 	return nil
 }
 
-func (s *TASFlavorSnapshot) getMatchingLeaves(ctx context.Context, requirements *topologyAssignmentPodRequirements) ([]leafCandidate, *simulator.ExclusionStats, error) {
+func (s *TASFlavorSnapshot) getMatchingLeaves(ctx context.Context, requirements *topologyAssignmentPodRequirements) ([]leafCandidate, *tasExclusionStats, error) {
 	if !s.isLowestLevelNode {
-		stats := &simulator.ExclusionStats{}
+		stats := newTASExclusionStats()
 		stats.TotalNodes += len(s.leaves)
 		result := make([]leafCandidate, 0, len(s.leaves))
 		for _, leaf := range s.leaves {
@@ -1723,19 +1783,19 @@ func (s *TASFlavorSnapshot) getMatchingLeaves(ctx context.Context, requirements 
 	if requirements.matchKey != nil {
 		cached, found := s.matchingLeavesCache[*requirements.matchKey]
 		if found {
-			return cached.leaves, cached.Stats, nil
+			return cached.leaves, cached.stats, nil
 		}
 	}
 
-	var leafStats *simulator.ExclusionStats
+	leafStats := newTASExclusionStats()
 	var err error
-	feasibleLeaves, leafStats, err := s.feasibilityChecker.FindFeasibleNodes(ctx, maps.Values(s.leaves), &requirements.podRequirements)
+	feasibleLeaves, err := s.feasibilityChecker.FindFeasibleNodes(ctx, maps.Values(s.leaves), &requirements.podRequirements, &leafStats.NodeExclusionStats)
 	if err != nil {
 		return nil, nil, err
 	}
 	entry := &matchingLeavesCacheEntry{
 		leaves: feasibleLeaves,
-		Stats:  leafStats,
+		stats:  leafStats,
 	}
 
 	if requirements.matchKey != nil {
@@ -1745,7 +1805,7 @@ func (s *TASFlavorSnapshot) getMatchingLeaves(ctx context.Context, requirements 
 		s.matchingLeavesCache[*requirements.matchKey] = entry
 	}
 
-	return entry.leaves, entry.Stats, nil
+	return entry.leaves, entry.stats, nil
 }
 
 func (s *TASFlavorSnapshot) remainingCapacityForLeaf(leaf *leafDomain, simulateEmpty, cachingRemainingResourcesEnabled bool) resources.LazyRequests {
@@ -1780,7 +1840,7 @@ func (s *TASFlavorSnapshot) fillLeafCounts(leaf *leafDomain, requirements *topol
 	// Track resource exclusions: if this node can't fit even one pod,
 	// identify which resource is the bottleneck.
 	if leaf.state == 0 && limitingRes != "" {
-		state.stats.RecordResourceExclusion(limitingRes)
+		state.stats.recordResourceExclusion(limitingRes)
 	}
 
 	leaf.leaderState = 0
@@ -1866,7 +1926,7 @@ func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, sliceSize int32, 
 	domain.sliceStateWithLeader = sliceStateWithLeader
 }
 
-func (s *TASFlavorSnapshot) notFitMessage(slicesFitCount, totalRequestsSlicesCount, sliceSize int32, stats *simulator.ExclusionStats) string {
+func (s *TASFlavorSnapshot) notFitMessage(slicesFitCount, totalRequestsSlicesCount, sliceSize int32, stats *tasExclusionStats) string {
 	var builder strings.Builder
 
 	unit := "slice"
@@ -1881,8 +1941,8 @@ func (s *TASFlavorSnapshot) notFitMessage(slicesFitCount, totalRequestsSlicesCou
 	}
 
 	// Append exclusion stats if available.
-	if stats.HasExclusions() {
-		fmt.Fprintf(&builder, ". Total nodes: %d; excluded: %s", stats.TotalNodes, stats.FormatReasons())
+	if stats.hasExclusions() {
+		fmt.Fprintf(&builder, ". Total nodes: %d; excluded: %s", stats.TotalNodes, stats.formatReasons())
 	}
 
 	return builder.String()
@@ -1903,7 +1963,7 @@ func (s *TASFlavorSnapshot) multiLayerNotFitMessage(
 	requiredLevelIdx int,
 	count int32,
 	constraints []kueue.PodsetSliceRequiredTopologyConstraint,
-	stats *simulator.ExclusionStats,
+	stats *tasExclusionStats,
 ) string {
 	var builder strings.Builder
 	fmt.Fprintf(&builder, "topology %q doesn't allow to fit", s.topologyName)
@@ -1933,8 +1993,8 @@ func (s *TASFlavorSnapshot) multiLayerNotFitMessage(
 	}
 
 	// Append exclusion stats if available.
-	if stats.HasExclusions() {
-		fmt.Fprintf(&builder, ". Total nodes: %d; excluded: %s", stats.TotalNodes, stats.FormatReasons())
+	if stats.hasExclusions() {
+		fmt.Fprintf(&builder, ". Total nodes: %d; excluded: %s", stats.TotalNodes, stats.formatReasons())
 	}
 
 	return builder.String()

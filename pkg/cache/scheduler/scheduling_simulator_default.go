@@ -46,9 +46,9 @@ func (c *defaultChecker) FindFeasibleNodes(
 	ctx context.Context,
 	candidates iter.Seq[*leafDomain],
 	requirements *simulator.PodRequirements,
-) ([]simulator.MatchedCandidate[*leafDomain], *simulator.ExclusionStats, error) {
+	exclusionStats *simulator.NodeExclusionStats,
+) ([]simulator.MatchedCandidate[*leafDomain], error) {
 	logger := log.FromContext(ctx)
-	exclusionStats := simulator.NewExclusionStats()
 
 	var feasibleCandidates []simulator.MatchedCandidate[*leafDomain]
 	respectNodeAffinityPreferredEnabled := features.Enabled(features.TASRespectNodeAffinityPreferred)
@@ -98,5 +98,5 @@ func (c *defaultChecker) FindFeasibleNodes(
 		// 5. Track the matching candidate as feasible
 		feasibleCandidates = append(feasibleCandidates, simulator.MatchedCandidate[*leafDomain]{Candidate: candidate, AffinityScore: affinityScore})
 	}
-	return feasibleCandidates, exclusionStats, nil
+	return feasibleCandidates, nil
 }
