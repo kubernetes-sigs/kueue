@@ -4011,7 +4011,6 @@ func TestLocalQueueCustomMetricLabelsRace(t *testing.T) {
 		t.Fatalf("Failed to add local queue: %v", err)
 	}
 
-	lqRef := queue.NewLocalQueueReference("ns", kueue.LocalQueueName("lq"))
 	start := make(chan struct{})
 	var wg sync.WaitGroup
 
@@ -4035,7 +4034,7 @@ func TestLocalQueueCustomMetricLabelsRace(t *testing.T) {
 	wg.Go(func() {
 		<-start
 		for range 10000 {
-			cache.ResyncLocalQueueGaugeMetrics(kueue.ClusterQueueReference("cq"), lqRef)
+			cache.ResyncGaugeMetrics()
 		}
 	})
 
