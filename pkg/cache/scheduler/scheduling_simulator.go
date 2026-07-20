@@ -1,3 +1,19 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+	http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package scheduler
 
 import (
@@ -12,9 +28,15 @@ import (
 	utiltaints "sigs.k8s.io/kueue/pkg/util/taints"
 )
 
+type FeasibleNodesQuery struct {
+	Leaves       []*leafDomain
+	Requirements *topologyAssignmentPodRequirements
+	Stats        *ExclusionStats
+}
+
 // nodeFeasibilityChecker determines which topology leaves can satisfy pod requirements.
 type nodeFeasibilityChecker interface {
-	FindFeasibleNodes(ctx context.Context, log logr.Logger, leaves []*leafDomain, reqs *topologyAssignmentPodRequirements, stats *ExclusionStats) ([]matchedLeaf, error)
+	FindFeasibleNodes(ctx context.Context, log logr.Logger, query *FeasibleNodesQuery) ([]matchedLeaf, error)
 }
 
 // SchedulingSimulator acts as a factory for the feasibility checker.
@@ -34,19 +56,19 @@ func (s *defaultSimulator) NewFeasibilityChecker(ctx context.Context, nodes []*c
 
 type defaultChecker struct{}
 
-func (c *defaultChecker) FindFeasibleNodes(ctx context.Context, log logr.Logger, leaves []*leafDomain, reqs *topologyAssignmentPodRequirements, stats *ExclusionStats) ([]matchedLeaf, error) {
-	var feasibleLeaves = make([]matchedLeaf, 0, len(leaves))
-	for _, leaf := range leaves {
+func (c *defaultChecker) FindFeasibleNodes(ctx context.Context, log logr.Logger, query *FeasibleNodesQuery) ([]matchedLeaf, error) {
+	var feasibleLeaves = make([]matchedLeaf, 0, len(query.Leaves))
+	for _, leaf := range query.Leaves {
 		if leaf.node == nil {
 			feasibleLeaves = append(feasibleLeaves, matchedLeaf{leaf: leaf})
 			continue
 		}
 		// 1. Check Tolerations against Node Taints
 		nodeTaints := leaf.node.Spec.Taints
-		taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(log, nodeTaints, reqs.tolerations, utiltaints.IsSchedulingTaint, true)
+		taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(log, nodeTaints, query.Requirements.tolerations, utiltaints.IsSchedulingTaint, true)
 		if untolerated {
 			log.V(5).Info("excluding node with untolerated taint", "domainID", leaf.id, "taint", taint)
-			stats.recordExclusion(exclusionTaints, &taint)
+			query.Stats.recordExclusion(exclusionTaints, &taint)
 			continue
 		}
 
@@ -56,24 +78,24 @@ func (c *defaultChecker) FindFeasibleNodes(ctx context.Context, log logr.Logger,
 			nodeLabelSet = nodeLabels
 		}
 
-		if !reqs.selector.Matches(nodeLabelSet) {
+		if !query.Requirements.selector.Matches(nodeLabelSet) {
 			log.V(5).Info("excluding node that doesn't match nodeSelectors", "domainID", leaf.id, "nodeLabels", nodeLabelSet)
-			stats.recordExclusion(exclusionNodeSelector, nil)
+			query.Stats.recordExclusion(exclusionNodeSelector, nil)
 			continue
 		}
 
 		// 3. Check Node against Affinity Node Selector
 		nodeObj := leaf.node
-		if reqs.affinitySelector != nil && !reqs.affinitySelector.Match(nodeObj) {
+		if query.Requirements.affinitySelector != nil && !query.Requirements.affinitySelector.Match(nodeObj) {
 			log.V(5).Info("excluding node due to an affinity mismatch", "domainID", leaf.id)
-			stats.recordExclusion(exclusionAffinity, nil)
+			query.Stats.recordExclusion(exclusionAffinity, nil)
 			continue
 		}
 
 		// 4. Calculate Affinity Score
 		var affinityScore int64
-		if features.Enabled(features.TASRespectNodeAffinityPreferred) && reqs.preferredSchedulingTerms != nil {
-			affinityScore = reqs.preferredSchedulingTerms.Score(nodeObj)
+		if features.Enabled(features.TASRespectNodeAffinityPreferred) && query.Requirements.preferredSchedulingTerms != nil {
+			affinityScore = query.Requirements.preferredSchedulingTerms.Score(nodeObj)
 		}
 
 		// 5. Track the matching leaf as feasible

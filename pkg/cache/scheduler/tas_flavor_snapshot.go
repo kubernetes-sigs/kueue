@@ -1766,7 +1766,11 @@ func (s *TASFlavorSnapshot) fillInCounts(ctx context.Context, requirements *topo
 
 		if s.isLowestLevelNode {
 			var err error
-			feasibleLeaves, err = s.feasibilityChecker.FindFeasibleNodes(ctx, s.log, leaves, requirements, state.stats)
+			feasibleLeaves, err = s.feasibilityChecker.FindFeasibleNodes(ctx, s.log, &FeasibleNodesQuery{
+				Leaves:       leaves,
+				Requirements: requirements,
+				Stats:        state.stats,
+			})
 			if err != nil {
 				return err
 			}
@@ -1818,7 +1822,11 @@ func (s *TASFlavorSnapshot) getMatchingLeaves(ctx context.Context, requirements 
 		leaves = append(leaves, leaf)
 	}
 
-	feasibleLeaves, err := s.feasibilityChecker.FindFeasibleNodes(ctx, s.log, leaves, requirements, entry.stats)
+	feasibleLeaves, err := s.feasibilityChecker.FindFeasibleNodes(ctx, s.log, &FeasibleNodesQuery{
+		Leaves:       leaves,
+		Requirements: requirements,
+		Stats:        entry.stats,
+	})
 	if err != nil {
 		return nil, nil, err
 	}
