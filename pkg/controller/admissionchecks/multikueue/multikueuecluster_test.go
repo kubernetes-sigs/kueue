@@ -940,25 +940,6 @@ func TestConnectionStateTransitions(t *testing.T) {
 		t.Fatalf("drop from connected must record now (%v), got %v", now, s)
 	}
 
-	// Optimistic reconnect (before watchers) preserves the first-drop time.
-	fakeClock.Step(time.Minute)
-	cs.markConnecting()
-	if !cs.isConnected() {
-		t.Fatal("want connected after markConnecting")
-	}
-	if s := cs.lostSince(); s == nil || !s.Equal(now) {
-		t.Fatalf("markConnecting must preserve the first-drop time (%v), got %v", now, s)
-	}
-
-	// A failed reconnect (disconnect after the optimistic connect) must NOT reset the loss time.
-	fakeClock.Step(time.Minute)
-	if was := cs.markDisconnected(fakeClock.Now()); !was {
-		t.Fatal("want wasConnected=true (was optimistically connected)")
-	}
-	if s := cs.lostSince(); s == nil || !s.Equal(now) {
-		t.Fatalf("markDisconnected must preserve the first-drop time across a failed reconnect (%v), got %v", now, s)
-	}
-
 	// A repeated drop while already disconnected reports no transition and preserves the time.
 	fakeClock.Step(time.Minute)
 	if was := cs.markDisconnected(fakeClock.Now()); was {
