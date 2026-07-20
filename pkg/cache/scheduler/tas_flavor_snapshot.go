@@ -181,12 +181,6 @@ const (
 	exclusionAffinity
 )
 
-type tasFlavorSnapshotOptions struct {
-	tolerations []corev1.Toleration
-}
-
-type tasFlavorSnapshotOption func(*tasFlavorSnapshotOptions)
-
 func newTASFlavorSnapshot(log logr.Logger, topologyName kueue.TopologyReference,
 	levels []string, tolerations []corev1.Toleration) *TASFlavorSnapshot {
 	domainsPerLevel := make([]domainByID, len(levels))
