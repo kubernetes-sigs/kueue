@@ -175,10 +175,6 @@ func defaultAutoscalerResources() corev1.ResourceRequirements {
 	}
 }
 
-// autoscalerContainer returns a container mirroring the Ray autoscaler sidecar
-// that KubeRay injects into the head Pod when in-tree autoscaling is enabled.
-// It uses AutoscalerOptions.Resources when provided, otherwise KubeRay's
-// defaults, matching how KubeRay builds the actual container.
 // isMultiKueueElasticRayCluster reports whether pod sets are being built for an
 // elastic RayCluster dispatched via MultiKueue. Such a RayCluster never runs an
 // in-tree autoscaler: the manager copy is not executed, and the remote copy is
@@ -189,6 +185,10 @@ func isMultiKueueElasticRayCluster(rayClusterSpec *rayv1.RayClusterSpec, annotat
 		annotations[workloadslicing.EnabledAnnotationKey] == workloadslicing.EnabledAnnotationValue
 }
 
+// autoscalerContainer returns a container mirroring the Ray autoscaler sidecar
+// that KubeRay injects into the head Pod when in-tree autoscaling is enabled.
+// It uses AutoscalerOptions.Resources when provided, otherwise KubeRay's
+// defaults, matching how KubeRay builds the actual container.
 func autoscalerContainer(opts *rayv1.AutoscalerOptions) corev1.Container {
 	resources := defaultAutoscalerResources()
 	if opts != nil && opts.Resources != nil {
