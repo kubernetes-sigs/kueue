@@ -579,6 +579,23 @@ Here’s a structured and detailed **Graduation Criteria** section for KEP-77: *
 * [ ] Feature is permanently enabled and no longer gated.
 * [ ] Associated documentation, examples, and operational best practices are published as part of the GA release.
 
+### `ElasticJobsViaWorkloadSlicesWithTAS` Graduation Criteria
+
+TAS integration is gated separately via `ElasticJobsViaWorkloadSlicesWithTAS`
+(requires both `ElasticJobsViaWorkloadSlices` and `TopologyAwareScheduling`).
+
+#### Alpha
+
+* [x] Unconstrained topology mode supported for scale-up.
+* [x] Webhook validation to reject elastic jobs with required/preferred topology annotations.
+* [x] Integration tests for elastic workloads with unconstrained topology.
+
+#### Beta
+
+* [ ] Re-evaluate in production-like environments with scale-up/scale-down cycles.
+* [ ] Re-evaluate full integration with required/preferred topology modes.
+* [ ] Re-evaluate handling scale-ups and scale-downs during node repair.
+* [ ] Correct handling of rank-based ordering for scale-downs.
 
 ## Implementation History
 
