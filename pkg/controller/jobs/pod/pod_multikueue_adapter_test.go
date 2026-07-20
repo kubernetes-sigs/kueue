@@ -192,13 +192,14 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 		},
-		"keeps SchedulingGated condition even when remote pod is scheduled": {
+		"overwrites SchedulingGated once the remote pod is scheduled": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
-			// The management-cluster Pod stays gated for its whole lifetime, so its
-			// PodScheduled condition is locally owned (SchedulingGated) and is never
-			// overwritten - not even by the worker's PodScheduled=True, which would be
-			// untrue locally (the manager Pod has no NodeName) and would fight the
-			// local scheduler. Other status (phase, Ready) is still synced.
+			// While the worker Pod is unscheduled the manager Pod keeps its local
+			// SchedulingGated condition (see the case above, which avoids a spurious
+			// autoscaler scale-up). Once the worker Pod reports PodScheduled=True, that
+			// condition is synced through to the manager Pod so its status reflects
+			// reality instead of showing SchedulingGated while the phase is Running.
+			// The manager Pod stays gated in its spec.
 			managersPods: []corev1.Pod{
 				*basePodBuilder.Clone().
 					KueueSchedulingGate().
@@ -230,11 +231,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 					KueueSchedulingGate().
 					StatusPhase(corev1.PodRunning).
 					StatusConditions(
-						corev1.PodCondition{
-							Type:   corev1.PodScheduled,
-							Status: corev1.ConditionFalse,
-							Reason: corev1.PodReasonSchedulingGated,
-						},
+						corev1.PodCondition{Type: corev1.PodScheduled, Status: corev1.ConditionTrue},
 						corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionTrue},
 					).
 					Obj(),
