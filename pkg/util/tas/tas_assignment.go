@@ -24,7 +24,6 @@ import (
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 )
 
@@ -305,15 +304,9 @@ func TruncateAssignment(ta *TopologyAssignment, newCount int32) *TopologyAssignm
 // ComputeUsagePerDomain calculates resource usage per topology domain from an assignment.
 func ComputeUsagePerDomain(ta *TopologyAssignment, singlePodRequests resources.Requests) map[TopologyDomainID]resources.Requests {
 	usage := make(map[TopologyDomainID]resources.Requests)
-	cachingEnabled := features.Enabled(features.TASCachingRemainingResources)
 	for _, domain := range ta.Domains {
 		domainID := DomainID(domain.Values)
-		var domainUsage resources.Requests
-		if cachingEnabled && domain.Count == 1 {
-			domainUsage = singlePodRequests.Clone()
-		} else {
-			domainUsage = singlePodRequests.ScaledUp(int64(domain.Count))
-		}
+		domainUsage := singlePodRequests.ScaledUp(int64(domain.Count))
 		domainUsage.Add(resources.Requests{corev1.ResourcePods: int64(domain.Count)})
 		usage[domainID] = domainUsage
 	}
