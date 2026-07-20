@@ -7821,12 +7821,15 @@ func TestFindTopologyAssignments(t *testing.T) {
 			if features.Enabled(features.TASHandleOverlappingFlavors) && tas.IsLowestLevelHostname(tasFlavorCache.topology.Levels) {
 				aggregatedDomainUsage = tc.aggregatedDomainUsages
 			}
-			snapshot, _ := tasFlavorCache.snapshot(
+			snapshot, err := tasFlavorCache.snapshot(
 				ctx,
 				log,
 				tasCache.nodesCache.find(tasFlavorCache.flavor.NodeLabels, tasFlavorCache.topology.Levels),
 				aggregatedDomainUsage,
 			)
+			if err != nil {
+				t.Fatalf("TASFlavorSnapshot creation failed: %v", err)
+			}
 			flavorTASRequests := make([]TASPodSetRequests, 0, len(tc.podSets))
 			wantResult := make(TASAssignmentsResult)
 			for _, ps := range tc.podSets {

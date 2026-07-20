@@ -818,7 +818,8 @@ func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, 
 
 func updateAssignmentForTAS(
 	ctx context.Context,
-	log logr.Logger, snapshot *schdcache.Snapshot,
+	log logr.Logger,
+	snapshot *schdcache.Snapshot,
 	cq *schdcache.ClusterQueueSnapshot,
 	wl *workload.Info,
 	assignment *flavorassigner.Assignment,

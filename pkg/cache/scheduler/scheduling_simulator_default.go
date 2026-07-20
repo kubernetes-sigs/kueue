@@ -67,7 +67,7 @@ func (c *defaultChecker) FindFeasibleNodes(leaves []*simulator.LeafDomain, requi
 			nodeLabelSet = nodeLabels
 		}
 
-		if !requirements.Selector.Matches(nodeLabelSet) {
+		if requirements.Selector != nil && !requirements.Selector.Matches(nodeLabelSet) {
 			c.log.V(5).Info("excluding node that doesn't match nodeSelectors", "domainID", leaf.ID, "nodeLabels", nodeLabelSet)
 			exclusionStats.RecordExclusion(simulator.ExclusionNodeSelector, nil)
 			continue
