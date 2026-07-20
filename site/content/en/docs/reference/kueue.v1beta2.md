@@ -2036,7 +2036,9 @@ Supported modes:</p>
 <code>[]string</code>
 </td>
 <td>
-   <p>clusters is a list of MultiKueueClusters names where the workloads from the ClusterQueue should be distributed.</p>
+   <p>clusters is a list of MultiKueueClusters names where the workloads from the ClusterQueue should be distributed.
+The order of the list is significant: the Incremental dispatcher nominates clusters
+following this order, so the most preferred clusters should be listed first.</p>
 </td>
 </tr>
 <tr><td><code>quotaManagement</code><br/>

@@ -229,6 +229,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.19"
+- name: MultiKueueIncrementalDispatcherRespectConfigOrder
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
 - name: MultiKueueKubeConfigPathValidation
   versionedSpecs:
   - default: false
