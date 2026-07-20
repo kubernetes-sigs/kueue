@@ -31,11 +31,11 @@ import (
 
 type defaultSimulator struct{}
 
-func newDefaultSimulator() simulator.SchedulingSimulator {
+func newDefaultSimulator() simulator.SchedulingSimulator[*leafDomain] {
 	return &defaultSimulator{}
 }
 
-func (s *defaultSimulator) NewFeasibilityChecker(nodes []*corev1.Node) (simulator.NodeFeasibilityChecker, error) {
+func (s *defaultSimulator) NewFeasibilityChecker(nodes []*corev1.Node) (simulator.NodeFeasibilityChecker[*leafDomain], error) {
 	return &defaultChecker{}, nil
 }
 
@@ -43,21 +43,21 @@ type defaultChecker struct{}
 
 func (c *defaultChecker) FindFeasibleNodes(
 	ctx context.Context,
-	candidates []simulator.Candidate,
+	candidates []*leafDomain,
 	requirements *simulator.TopologyAssignmentPodRequirements,
-) ([]simulator.MatchedCandidate, *simulator.ExclusionStats, error) {
+) ([]simulator.MatchedCandidate[*leafDomain], *simulator.ExclusionStats, error) {
 	logger := log.FromContext(ctx)
 	exclusionStats := simulator.NewExclusionStats()
 	exclusionStats.TotalNodes = len(candidates)
 
-	var feasibleCandidates = make([]simulator.MatchedCandidate, 0, len(candidates))
+	var feasibleCandidates = make([]simulator.MatchedCandidate[*leafDomain], 0, len(candidates))
 	respectNodeAffinityPreferredEnabled := features.Enabled(features.TASRespectNodeAffinityPreferred)
 
 	for _, candidate := range candidates {
 		nodeObj := candidate.GetNode()
 		domainID := candidate.GetID()
 		if nodeObj == nil {
-			feasibleCandidates = append(feasibleCandidates, simulator.MatchedCandidate{Candidate: candidate})
+			feasibleCandidates = append(feasibleCandidates, simulator.MatchedCandidate[*leafDomain]{Candidate: candidate})
 			continue
 		}
 		// 1. Check Tolerations against Node Taints
@@ -95,7 +95,7 @@ func (c *defaultChecker) FindFeasibleNodes(
 		}
 
 		// 5. Track the matching candidate as feasible
-		feasibleCandidates = append(feasibleCandidates, simulator.MatchedCandidate{Candidate: candidate, AffinityScore: affinityScore})
+		feasibleCandidates = append(feasibleCandidates, simulator.MatchedCandidate[*leafDomain]{Candidate: candidate, AffinityScore: affinityScore})
 	}
 	return feasibleCandidates, exclusionStats, nil
 }

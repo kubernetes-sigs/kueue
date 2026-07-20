@@ -23,11 +23,11 @@ import (
 )
 
 // NodeFeasibilityChecker determines which topology leaves can satisfy pod requirements.
-type NodeFeasibilityChecker interface {
-	FindFeasibleNodes(ctx context.Context, candidates []Candidate, requirements *TopologyAssignmentPodRequirements) ([]MatchedCandidate, *ExclusionStats, error)
+type NodeFeasibilityChecker[C Candidate] interface {
+	FindFeasibleNodes(ctx context.Context, candidates []C, requirements *TopologyAssignmentPodRequirements) ([]MatchedCandidate[C], *ExclusionStats, error)
 }
 
 // SchedulingSimulator acts as a factory for the feasibility checker.
-type SchedulingSimulator interface {
-	NewFeasibilityChecker(nodes []*corev1.Node) (NodeFeasibilityChecker, error)
+type SchedulingSimulator[C Candidate] interface {
+	NewFeasibilityChecker(nodes []*corev1.Node) (NodeFeasibilityChecker[C], error)
 }

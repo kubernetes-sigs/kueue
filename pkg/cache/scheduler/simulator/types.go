@@ -39,8 +39,8 @@ type Candidate interface {
 
 // MatchedCandidate represents a Candidate that matched the scheduling requirements
 // along with its calculated affinity score.
-type MatchedCandidate struct {
-	Candidate     Candidate
+type MatchedCandidate[C Candidate] struct {
+	Candidate     C
 	AffinityScore int64
 }
 

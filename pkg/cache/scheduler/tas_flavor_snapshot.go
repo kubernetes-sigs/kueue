@@ -117,6 +117,8 @@ func (l *leafDomain) GetNode() *corev1.Node {
 	return l.node
 }
 
+type leafCandidate = simulator.MatchedCandidate[*leafDomain]
+
 type domainByID map[utiltas.TopologyDomainID]*domain
 type leafDomainByID map[utiltas.TopologyDomainID]*leafDomain
 
@@ -155,18 +157,18 @@ type TASFlavorSnapshot struct {
 	matchingLeavesCache map[simulator.PodSetMatchKey]*matchingLeavesCacheEntry
 
 	// feasibilityChecker checks whether a pod can fit in a given set of nodes.
-	feasibilityChecker simulator.NodeFeasibilityChecker
+	feasibilityChecker simulator.NodeFeasibilityChecker[*leafDomain]
 }
 
 // matchingLeavesCacheEntry stores the cached list of matching leaves and accumulated
 // exclusion stats for a specific podSetMatchKey.
 type matchingLeavesCacheEntry struct {
-	leaves []simulator.MatchedCandidate
+	leaves []leafCandidate
 	Stats  *simulator.ExclusionStats
 }
 
 func newTASFlavorSnapshot(log logr.Logger, topologyName kueue.TopologyReference,
-	levels []string, tolerations []corev1.Toleration, feasibilityChecker simulator.NodeFeasibilityChecker) *TASFlavorSnapshot {
+	levels []string, tolerations []corev1.Toleration, feasibilityChecker simulator.NodeFeasibilityChecker[*leafDomain]) *TASFlavorSnapshot {
 	domainsPerLevel := make([]domainByID, len(levels))
 	for level := range levels {
 		domainsPerLevel[level] = make(domainByID)
@@ -1635,17 +1637,17 @@ func (s *TASFlavorSnapshot) fillInCounts(ctx context.Context, requirements *simu
 		}
 		state.stats.Add(stats)
 		for _, ml := range matchingLeaves {
-			leaf := ml.Candidate.(*leafDomain)
+			leaf := ml.Candidate
 			leaf.affinityScore += ml.AffinityScore
 			s.fillLeafCounts(leaf, requirements, state)
 		}
 	} else {
-		leaves := make([]simulator.Candidate, 0, len(s.leaves))
+		leaves := make([]*leafDomain, 0, len(s.leaves))
 		for _, leaf := range s.leaves {
 			leaves = append(leaves, leaf)
 		}
 
-		var feasibleLeaves []simulator.MatchedCandidate
+		var feasibleLeaves []leafCandidate
 
 		if s.isLowestLevelNode {
 			var err error
@@ -1656,15 +1658,15 @@ func (s *TASFlavorSnapshot) fillInCounts(ctx context.Context, requirements *simu
 			}
 			state.stats.Add(leafStats)
 		} else {
-			feasibleLeaves = make([]simulator.MatchedCandidate, 0, len(leaves))
+			feasibleLeaves = make([]leafCandidate, 0, len(leaves))
 			for _, leaf := range leaves {
-				feasibleLeaves = append(feasibleLeaves, simulator.MatchedCandidate{Candidate: leaf})
+				feasibleLeaves = append(feasibleLeaves, leafCandidate{Candidate: leaf})
 			}
+			state.stats.TotalNodes = len(leaves)
 		}
-		state.stats.TotalNodes = len(leaves)
 
 		for _, ml := range feasibleLeaves {
-			leaf := ml.Candidate.(*leafDomain)
+			leaf := ml.Candidate
 			leaf.affinityScore += ml.AffinityScore
 			s.fillLeafCounts(leaf, requirements, state)
 		}
@@ -1676,13 +1678,13 @@ func (s *TASFlavorSnapshot) fillInCounts(ctx context.Context, requirements *simu
 	return nil
 }
 
-func (s *TASFlavorSnapshot) getMatchingLeaves(ctx context.Context, requirements *simulator.TopologyAssignmentPodRequirements) ([]simulator.MatchedCandidate, *simulator.ExclusionStats, error) {
+func (s *TASFlavorSnapshot) getMatchingLeaves(ctx context.Context, requirements *simulator.TopologyAssignmentPodRequirements) ([]leafCandidate, *simulator.ExclusionStats, error) {
 	if !s.isLowestLevelNode {
 		stats := &simulator.ExclusionStats{}
 		stats.TotalNodes += len(s.leaves)
-		result := make([]simulator.MatchedCandidate, 0, len(s.leaves))
+		result := make([]leafCandidate, 0, len(s.leaves))
 		for _, leaf := range s.leaves {
-			result = append(result, simulator.MatchedCandidate{Candidate: leaf})
+			result = append(result, leafCandidate{Candidate: leaf})
 		}
 		return result, stats, nil
 	}
@@ -1694,7 +1696,7 @@ func (s *TASFlavorSnapshot) getMatchingLeaves(ctx context.Context, requirements 
 		}
 	}
 
-	leaves := make([]simulator.Candidate, 0, len(s.leaves))
+	leaves := make([]*leafDomain, 0, len(s.leaves))
 	for _, leaf := range s.leaves {
 		leaves = append(leaves, leaf)
 	}

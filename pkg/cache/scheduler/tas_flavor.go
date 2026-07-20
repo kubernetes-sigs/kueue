@@ -93,7 +93,7 @@ type TASFlavorCache struct {
 
 	// schedulingSimulator performs the node feasibility check
 	// based on topology requirements.
-	schedulingSimulator simulator.SchedulingSimulator
+	schedulingSimulator simulator.SchedulingSimulator[*leafDomain]
 }
 
 func (t *tasCache) NewTASFlavorCache(topologyInfo topologyInformation,
