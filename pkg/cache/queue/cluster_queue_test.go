@@ -17,6 +17,7 @@ limitations under the License.
 package queue
 
 import (
+	"fmt"
 	"slices"
 	"testing"
 	"time"
@@ -527,6 +528,101 @@ func TestSnapshotConcurrentWithRequeueNoDataRace(t *testing.T) {
 	// Reader: Snapshot reads the sticky workload through the comparator.
 	for range 1000 {
 		cq.Snapshot()
+	}
+}
+
+// TestSnapshotConsistentUnderConcurrentStickyChange guards against Kueue#12740:
+// Snapshot sorts a copy of the pending workloads without holding the
+// ClusterQueue lock, so the comparator must observe a single, consistent sticky
+// workload for the whole sort. If it re-read the sticky workload on every
+// comparison, a concurrent change could make the ordering non-transitive and
+// corrupt the Snapshot order. This is a logic bug, not a data race: the atomic
+// pointer already makes each access memory-safe, so -race does not catch it.
+//
+// With equal priority and creation timestamp, every valid Snapshot is either the
+// pure UID order or exactly one workload (the sticky one) pulled to the front
+// followed by the rest in UID order. Any other permutation means the sort
+// observed the sticky workload changing mid-sort.
+func TestSnapshotConsistentUnderConcurrentStickyChange(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	cq, err := newClusterQueue(ctx, nil,
+		&kueue.ClusterQueue{
+			Spec: kueue.ClusterQueueSpec{
+				QueueingStrategy: kueue.BestEffortFIFO,
+			},
+		},
+		defaultOrdering,
+		nil, nil, nil)
+	if err != nil {
+		t.Fatalf("failed to create ClusterQueue: %v", err)
+	}
+
+	now := time.Now().Truncate(time.Second)
+	// Names are listed in UID order; equal priority and creation timestamp make
+	// UID the only tiebreak once stickiness is accounted for.
+	names := []string{"wl1", "wl2", "wl3", "wl4", "wl5", "wl6"}
+	keys := make([]workload.Reference, len(names))
+	for i, name := range names {
+		wl := utiltestingapi.MakeWorkload(name, defaultNamespace).
+			Creation(now).UID(types.UID(fmt.Sprintf("uid-%d", i))).Obj()
+		cq.PushOrUpdate(workload.NewInfo(wl))
+		keys[i] = workload.Key(wl)
+	}
+
+	// Valid orderings: pure UID order, or any single workload pulled to the front.
+	valid := [][]string{slices.Clone(names)}
+	for i := range names {
+		order := []string{names[i]}
+		for j := range names {
+			if j != i {
+				order = append(order, names[j])
+			}
+		}
+		valid = append(valid, order)
+	}
+	isValid := func(got []string) bool {
+		for _, v := range valid {
+			if slices.Equal(got, v) {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Writer: continuously churn the sticky workload so it can change while a
+	// Snapshot sort is in flight. It sets the field directly (bypassing the
+	// lock) to force a change mid-sort, which the lock-free Snapshot must
+	// tolerate; the fix makes it capture the value once per sort.
+	stop := make(chan struct{})
+	started := make(chan struct{})
+	go func() {
+		close(started)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				for _, k := range keys {
+					cq.sw.set(k)
+				}
+				cq.sw.clear()
+			}
+		}
+	}()
+	// Block until the writer is scheduled, so the loop below cannot finish before
+	// any churn has happened and pass vacuously.
+	<-started
+	defer close(stop)
+
+	for i := range 2000 {
+		snap := cq.Snapshot()
+		got := make([]string, len(snap))
+		for j, wInfo := range snap {
+			got[j] = wInfo.Obj.Name
+		}
+		if !isValid(got) {
+			t.Fatalf("call %d: non-transitive Snapshot ordering %v; sticky workload changed mid-sort", i+1, got)
+		}
 	}
 }
 
