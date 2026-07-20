@@ -225,6 +225,11 @@ func NewLazyRequests(base Requests) LazyRequests {
 	return LazyRequests{base: base}
 }
 
+// IsValid returns true if either the base or cached map is initialized.
+func (l *LazyRequests) IsValid() bool {
+	return l.base != nil || l.cached != nil
+}
+
 // Get returns the underlying Requests (either the cached clone if mutated, or base).
 func (l *LazyRequests) Get() Requests {
 	if l.cached != nil {
