@@ -171,10 +171,8 @@ type matchingLeavesCacheEntry struct {
 type nodeExclusionType int
 
 const (
-	// exclusionNone means the node was not excluded.
-	exclusionNone nodeExclusionType = iota
 	// exclusionTaints means the node was excluded due to untolerated taints.
-	exclusionTaints
+	exclusionTaints nodeExclusionType = iota
 	// exclusionNodeSelector means the node was excluded due to failing node selector match.
 	exclusionNodeSelector
 	// exclusionAffinity means the node was excluded due to failing node affinity match.
