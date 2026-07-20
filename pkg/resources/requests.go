@@ -213,3 +213,59 @@ func (r Requests) CountInWithLimitingResource(capacity Requests) (int32, corev1.
 	}
 	return ptr.Deref(result, 0), limitingResource
 }
+
+// LazyRequests wraps a base Requests map and performs copy-on-write
+// (lazy cloning) when mutations occur.
+type LazyRequests struct {
+	base   Requests
+	cached Requests
+}
+
+func NewLazyRequests(base Requests) LazyRequests {
+	return LazyRequests{base: base}
+}
+
+// IsValid returns true if either the base or cached map is initialized.
+func (l *LazyRequests) IsValid() bool {
+	return l.base != nil || l.cached != nil
+}
+
+// Get returns the underlying Requests (either the cached clone if mutated, or base).
+func (l *LazyRequests) Get() Requests {
+	if l.cached != nil {
+		return l.cached
+	}
+	return l.base
+}
+
+// Sub subtracts subRequests from the underlying Requests map,
+// cloning base on first write.
+func (l *LazyRequests) Sub(subRequests Requests) {
+	if len(subRequests) == 0 {
+		return
+	}
+	if l.cached == nil {
+		if l.base == nil {
+			l.cached = Requests{}
+		} else {
+			l.cached = l.base.Clone()
+		}
+	}
+	l.cached.Sub(subRequests)
+}
+
+// Add adds addRequests to the underlying Requests map,
+// cloning base on first write.
+func (l *LazyRequests) Add(addRequests Requests) {
+	if len(addRequests) == 0 {
+		return
+	}
+	if l.cached == nil {
+		if l.base == nil {
+			l.cached = Requests{}
+		} else {
+			l.cached = l.base.Clone()
+		}
+	}
+	l.cached.Add(addRequests)
+}
