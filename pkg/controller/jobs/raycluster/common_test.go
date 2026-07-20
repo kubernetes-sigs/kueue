@@ -49,10 +49,11 @@ import (
 
 func TestBuildPodSets(t *testing.T) {
 	testCases := map[string]struct {
-		rayClusterSpec *rayv1.RayClusterSpec
-		annotations    map[string]string
-		wantPodSets    []kueue.PodSet
-		wantErr        bool
+		rayClusterSpec               *rayv1.RayClusterSpec
+		annotations                  map[string]string
+		elasticJobsViaWorkloadSlices bool
+		wantPodSets                  []kueue.PodSet
+		wantErr                      bool
 	}{
 		"basic spec with head and single worker group": {
 			rayClusterSpec: &rayv1.RayClusterSpec{
@@ -396,10 +397,89 @@ func TestBuildPodSets(t *testing.T) {
 					Obj(),
 			},
 		},
+		"autoscaler sidecar is not accounted for a MultiKueue-managed elastic RayCluster": {
+			elasticJobsViaWorkloadSlices: true,
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				EnableInTreeAutoscaling: new(true),
+				ManagedBy:               ptr.To(kueue.MultiKueueControllerName),
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{Name: "head"}},
+						},
+					},
+				},
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName: "workers",
+						Replicas:  ptr.To[int32](1),
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker"}},
+							},
+						},
+					},
+				},
+			},
+			annotations: map[string]string{
+				workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "head"}},
+					}).
+					Obj(),
+				*utiltestingapi.MakePodSet("workers", 1).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "worker"}},
+					}).
+					Obj(),
+			},
+		},
+		"autoscaler sidecar is accounted for a MultiKueue-managed RayCluster that is not elastic": {
+			elasticJobsViaWorkloadSlices: true,
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				EnableInTreeAutoscaling: new(true),
+				ManagedBy:               ptr.To(kueue.MultiKueueControllerName),
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{Name: "head"}},
+						},
+					},
+				},
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{
+							{Name: "head"},
+							{
+								Name: "autoscaler",
+								Resources: corev1.ResourceRequirements{
+									Requests: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("500m"),
+										corev1.ResourceMemory: resource.MustParse("512Mi"),
+									},
+									Limits: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("500m"),
+										corev1.ResourceMemory: resource.MustParse("512Mi"),
+									},
+								},
+							},
+						},
+					}).
+					Obj(),
+			},
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			if tc.elasticJobsViaWorkloadSlices {
+				features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+			}
 			gotPodSets, err := BuildPodSets(tc.rayClusterSpec, tc.annotations)
 
 			if tc.wantErr {
