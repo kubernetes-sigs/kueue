@@ -4651,6 +4651,8 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 	})
 
 	ginkgo.It("Should ungate a replacement after the prior Pod succeeds", framework.SlowSpec, func() {
+		// Regression for kueue#13121: a terminal Pod still counted toward the
+		// granted PodSet count, leaving the Job's replacement Pod gated indefinitely.
 		testJob := testingjob.MakeJob("terminal-pod-replacement", ns.Name).
 			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 			Queue(kueue.LocalQueueName(localQueue.Name)).
@@ -4768,9 +4770,7 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 		gomega.Consistently(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(firstPod), firstPod)).Should(gomega.Succeed())
 			g.Expect(firstPod.Status.Phase).Should(gomega.Equal(corev1.PodRunning))
-			g.Expect(utilpod.HasGate(firstPod, kueue.ElasticJobSchedulingGate)).Should(gomega.BeFalse())
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(waitingPod), waitingPod)).Should(gomega.Succeed())
-			g.Expect(utilpod.HasGate(waitingPod, kueue.ElasticJobSchedulingGate)).Should(gomega.BeTrue())
+			g.Expect(sets.List(ungatedPodNames(g, ns.Name))).Should(gomega.ConsistOf(firstPod.Name))
 		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 	})
 
