@@ -3358,7 +3358,7 @@ func TestScheduleForTAS(t *testing.T) {
 	for name, tc := range cases {
 		for _, scenario := range scenarios {
 			t.Run(
-				fmt.Sprintf("%s WorkloadRequestUseMergePatch:%t observability:%t cacheMatchResults:%t",
+				fmt.Sprintf("%s WorkloadRequestUseMergePatch:%t cacheMatchResults:%t",
 					name,
 					scenario[features.WorkloadRequestUseMergePatch],
 					scenario[features.TASCacheNodeMatchResults],
@@ -3571,7 +3571,7 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 	for name, tc := range cases {
 		for _, scenario := range scenarios {
 			t.Run(
-				fmt.Sprintf("%s WorkloadRequestUseMergePatch:%t observability:%t cacheMatchResults:%t",
+				fmt.Sprintf("%s WorkloadRequestUseMergePatch:%t cacheMatchResults:%t",
 					name,
 					scenario[features.WorkloadRequestUseMergePatch],
 					scenario[features.TASCacheNodeMatchResults],

@@ -152,8 +152,7 @@ type podSetMatchKey struct {
 // matchedLeaf represents a leaf domain (node) that matched the scheduling requirements
 // along with its calculated affinity score.
 type matchedLeaf struct {
-	leaf          *leafDomain
-	affinityScore int64
+	leaf *leafDomain
 }
 
 // matchingLeavesCacheEntry stores the cached list of matching leaves and accumulated
@@ -176,12 +175,6 @@ const (
 	// exclusionAffinity means the node was excluded due to failing node affinity match.
 	exclusionAffinity
 )
-
-type tasFlavorSnapshotOptions struct {
-	tolerations []corev1.Toleration
-}
-
-type tasFlavorSnapshotOption func(*tasFlavorSnapshotOptions)
 
 func newTASFlavorSnapshot(log logr.Logger, topologyName kueue.TopologyReference,
 	levels []string, tolerations []corev1.Toleration) *TASFlavorSnapshot {
