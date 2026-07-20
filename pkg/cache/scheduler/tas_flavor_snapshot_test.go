@@ -952,7 +952,7 @@ func TestTASCachingRemainingResourcesFeatureGate(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TASCachingRemainingResources, enableCaching)
 
 			_, log := utiltesting.ContextWithLog(t)
-			snapshot := newTASFlavorSnapshot(log, "tas-topology", []string{"hostname"})
+			snapshot := newTASFlavorSnapshot(log, "tas-topology", []string{"hostname"}, nil)
 			nodeObj := node.MakeNode("node-a").
 				Label("hostname", "node-a").
 				StatusAllocatable(corev1.ResourceList{
