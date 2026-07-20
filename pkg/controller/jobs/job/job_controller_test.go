@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	batchv1 "k8s.io/api/batch/v1"
@@ -4590,7 +4591,7 @@ func TestCompletedIndexesCount(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			if got := completedIndexesCount(tc.completedIndexes, tc.completions); got != tc.want {
+			if got := completedIndexesCount(logr.Discard(), tc.completedIndexes, tc.completions); got != tc.want {
 				t.Errorf("completedIndexesCount(%q, %d) = %d, want %d", tc.completedIndexes, tc.completions, got, tc.want)
 			}
 		})

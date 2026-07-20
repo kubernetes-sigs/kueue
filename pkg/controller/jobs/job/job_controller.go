@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/go-logr/logr"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -226,7 +227,7 @@ func (j *Job) ReclaimablePods(ctx context.Context, _ client.Client) ([]kueue.Rec
 	// over-credit, since completedIndexes lists real successes.
 	succeeded := j.Status.Succeeded
 	if ptr.Deref(j.Spec.CompletionMode, batchv1.NonIndexedCompletion) == batchv1.IndexedCompletion {
-		succeeded = completedIndexesCount(j.Status.CompletedIndexes, completions)
+		succeeded = completedIndexesCount(log, j.Status.CompletedIndexes, completions)
 		log.V(3).Info("Derived completed pods from completedIndexes for Indexed Job",
 			"completedIndexes", j.Status.CompletedIndexes,
 			"completions", completions,
@@ -270,25 +271,15 @@ func (j *Job) ReclaimablePods(ctx context.Context, _ client.Client) ([]kueue.Rec
 // Capping the intervals at completions gives the number of completed pods within
 // the current pod set even while status.Succeeded is briefly stale after a
 // scale-down (kueue#13117).
-func completedIndexesCount(completedIndexes string, completions int32) int32 {
+func completedIndexesCount(log logr.Logger, completedIndexes string, completions int32) int32 {
 	if completedIndexes == "" || completions <= 0 {
 		return 0
 	}
 	limit := int(completions)
 	count := 0
 	for interval := range strings.SplitSeq(completedIndexes, ",") {
-		firstStr, lastStr, isRange := strings.Cut(interval, "-")
-		first, err := strconv.Atoi(firstStr)
-		if err != nil {
-			continue
-		}
-		last := first
-		if isRange {
-			if last, err = strconv.Atoi(lastStr); err != nil {
-				continue
-			}
-		}
-		if first < 0 || last < first {
+		first, last, ok := parseIndexRange(log, interval)
+		if !ok {
 			continue
 		}
 		last = min(last, limit-1)
@@ -297,6 +288,33 @@ func completedIndexesCount(completedIndexes string, completions int32) int32 {
 		}
 	}
 	return int32(count)
+}
+
+// parseIndexRange parses a single completedIndexes interval ("3" or "3-5") into
+// its inclusive [first, last] bounds. It returns ok=false and logs when the
+// interval is malformed or descending; the Job controller always writes
+// well-formed, ascending indexes, so a failure here signals unexpected status
+// content worth surfacing rather than silently skipping.
+func parseIndexRange(log logr.Logger, interval string) (first, last int, ok bool) {
+	firstStr, lastStr, isRange := strings.Cut(interval, "-")
+	first, err := strconv.Atoi(firstStr)
+	if err != nil {
+		log.V(3).Info("Ignoring malformed completedIndexes interval", "interval", interval, "error", err)
+		return 0, 0, false
+	}
+	last = first
+	if isRange {
+		if last, err = strconv.Atoi(lastStr); err != nil {
+			log.V(3).Info("Ignoring malformed completedIndexes interval", "interval", interval, "error", err)
+			return 0, 0, false
+		}
+	}
+	// first is never negative, so only a descending range like "5-3" is invalid.
+	if last < first {
+		log.V(3).Info("Ignoring descending completedIndexes interval", "interval", interval)
+		return 0, 0, false
+	}
+	return first, last, true
 }
 
 // The following labels are managed internally by batch/job controller, we should not
