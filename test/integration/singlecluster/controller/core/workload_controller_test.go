@@ -241,6 +241,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 			flavor2 *kueue.ResourceFlavor
 			check1  *kueue.AdmissionCheck
 			check2  *kueue.AdmissionCheck
+			check3  *kueue.AdmissionCheck
 		)
 
 		ginkgo.BeforeEach(func() {
@@ -258,6 +259,10 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 			util.MustCreate(ctx, k8sClient, check2)
 			util.SetAdmissionCheckActive(ctx, k8sClient, check2, metav1.ConditionTrue)
 
+			check3 = utiltestingapi.MakeAdmissionCheck("check3").ControllerName("ctrl").Obj()
+			util.MustCreate(ctx, k8sClient, check3)
+			util.SetAdmissionCheckActive(ctx, k8sClient, check3, metav1.ConditionTrue)
+
 			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavorOnDemand).Resource(resourceGPU, "5", "5").Obj()).
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavorSpot).Resource(corev1.ResourceMemory, "5", "5").Obj()).
@@ -273,13 +278,14 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 					},
 				).
 				Obj()
-			util.MustCreate(ctx, k8sClient, clusterQueue)
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 			localQueue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-			util.MustCreate(ctx, k8sClient, localQueue)
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, check3, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, check2, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, check1, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor2, true)
@@ -1199,16 +1205,25 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", func()
 
 			ginkgo.By("reactivating the workload and making the LocalQueue active again (should transition back to WaitingForQuota)")
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, wl2Key, &updatedWl)).To(gomega.Succeed())
-				updatedWl.Spec.Active = new(true)
-				g.Expect(k8sClient.Update(ctx, &updatedWl)).To(gomega.Succeed())
+				var fetchedLq kueue.LocalQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), &fetchedLq)).To(gomega.Succeed())
+				fetchedLq.Spec.StopPolicy = ptr.To(kueue.None)
+				g.Expect(k8sClient.Update(ctx, &fetchedLq)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				var fetchedLq kueue.LocalQueue
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), &fetchedLq)).To(gomega.Succeed())
-				fetchedLq.Spec.StopPolicy = ptr.To(kueue.None)
-				g.Expect(k8sClient.Update(ctx, &fetchedLq)).To(gomega.Succeed())
+				cond := apimeta.FindStatusCondition(fetchedLq.Status.Conditions, kueue.LocalQueueActive)
+				g.Expect(cond).NotTo(gomega.BeNil())
+				g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionTrue))
+				g.Expect(cond.Reason).To(gomega.Equal("Ready"))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wl2Key, &updatedWl)).To(gomega.Succeed())
+				updatedWl.Spec.Active = new(true)
+				g.Expect(k8sClient.Update(ctx, &updatedWl)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {

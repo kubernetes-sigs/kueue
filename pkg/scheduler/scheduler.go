@@ -821,13 +821,19 @@ func updateAssignmentForTAS(log logr.Logger, snapshot *schdcache.Snapshot, cq *s
 		(workload.IsExplicitlyRequestingTAS(wl.Obj.Spec.PodSets...) || cq.IsTASOnly()) && !workload.HasTopologyAssignmentWithUnhealthyNode(wl.Obj) {
 		tasRequests := assignment.WorkloadsTopologyRequests(log, wl, cq)
 		var tasResult schdcache.TASAssignmentsResult
+		log = log.WithValues("workload", klog.KRef(wl.Obj.Namespace, wl.Obj.Name))
+
 		if len(targets) > 0 {
 			var targetWorkloads []*workload.Info
 			for _, target := range targets {
 				targetWorkloads = append(targetWorkloads, target.WorkloadInfo)
 			}
 			revertUsage := snapshot.SimulateWorkloadRemoval(targetWorkloads)
-			tasResult = cq.FindTopologyAssignmentsForWorkload(tasRequests)
+			tasResult = cq.FindTopologyAssignmentsForWorkload(
+				log,
+				tasRequests,
+				schdcache.WithWorkload(wl.Obj),
+			)
 			revertUsage()
 		} else {
 			// In this scenario we don't have any preemption candidates, yet we need
@@ -836,7 +842,12 @@ func updateAssignmentForTAS(log logr.Logger, snapshot *schdcache.Snapshot, cq *s
 			// in the next scheduling cycle by the waiting workload. To obtain
 			// a TAS assignment for reserving the resources we run the algorithm
 			// assuming the cluster is empty.
-			tasResult = cq.FindTopologyAssignmentsForWorkload(tasRequests, schdcache.WithSimulateEmpty(true))
+			tasResult = cq.FindTopologyAssignmentsForWorkload(
+				log,
+				tasRequests,
+				schdcache.WithSimulateEmpty(true),
+				schdcache.WithWorkload(wl.Obj),
+			)
 		}
 		assignment.UpdateForTASResult(log, cq, wl, tasResult)
 	}
@@ -1020,7 +1031,7 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 		return
 	}
 
-	added := s.queues.RequeueWorkload(ctx, &e.Info, e.requeueReason)
+	added := s.queues.RequeueWorkload(ctx, &e.Info, e.requeueReason, qcache.QuotaReservedReason(e.quotaReservedReason))
 	log.V(2).
 		Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)), "queue", klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName)), "requeueReason", e.requeueReason, "added", added, "status", e.status)
 	if e.status == notNominated || e.status == skipped || e.status == preemptionGated {
@@ -1042,7 +1053,7 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 		}, workloadpatching.WithLooseOnApply(), workloadpatching.WithRetryOnConflict()); err != nil {
 			log.Error(err, "Could not update Workload status")
 		}
-		s.recorder.Eventf(e.Obj, nil, corev1.EventTypeWarning, "Pending", "Pending", api.TruncateEventMessage(e.inadmissibleMsg))
+		s.recorder.Eventf(e.Obj, nil, corev1.EventTypeWarning, condReason, condReason, api.TruncateEventMessage(e.inadmissibleMsg))
 	}
 }
 

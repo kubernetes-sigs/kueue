@@ -213,7 +213,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("area:multikueue", "
 					managerTestCluster.ctx, managerTestCluster.client, wlLookupKey,
 					multiKueueAC.Name,
 					kueue.CheckStateReady,
-					`The workload got reservation on "worker1"`,
+					`The workload was admitted on "worker1"`,
 				)
 
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -300,7 +300,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("area:multikueue", "
 				gomega.Consistently(func(g gomega.Gomega) {
 					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 					g.Expect(createdWorkload.Status.ClusterName).To(gomega.BeNil())
-				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 		})
 	})

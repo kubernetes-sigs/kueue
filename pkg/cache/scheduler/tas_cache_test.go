@@ -25,11 +25,13 @@ import (
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -393,8 +395,201 @@ func TestFindTopologyAssignments(t *testing.T) {
 		aggregatedDomainUsages map[tas.TopologyDomainID]resources.Requests
 		priorFlavorUsage       []workload.TopologyDomainRequests
 		priorOwnUsage          []workload.TopologyDomainRequests
+		workload               *kueue.Workload
 		podSets                []PodSetTestCase
 	}{
+		"node replacement skipped for single-Pod-owned workload; gate on": {
+			featureGates: map[featuregate.Feature]bool{features.SkipReassignmentForPodOwnedWorkloads: true},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					NotReady().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().
+					Obj(),
+			},
+			levels: []string{corev1.LabelHostname},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "owner-0", "uid-0").
+				Admission(utiltestingapi.MakeAdmission("cq", "main").
+					PodSets(utiltestingapi.MakePodSetAssignment("main").
+						Count(1).
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+							Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"x1"}}).
+							Obj()).
+						Obj()).
+					Obj()).
+				UnhealthyNodes("x1").
+				Obj(),
+			podSets: []PodSetTestCase{{
+				podSetName:      "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To(corev1.LabelHostname)},
+				requests:        resources.Requests{corev1.ResourceCPU: 1000},
+				count:           1,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels:  []string{corev1.LabelHostname},
+					Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"x1"}}},
+				},
+			}},
+		},
+		"node replaced for Job-owned workload; gate on": {
+			featureGates: map[featuregate.Feature]bool{features.SkipReassignmentForPodOwnedWorkloads: true},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					NotReady().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().
+					Obj(),
+			},
+			levels: []string{corev1.LabelHostname},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				OwnerReference(schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"}, "owner-0", "uid-0").
+				Admission(utiltestingapi.MakeAdmission("cq", "main").
+					PodSets(utiltestingapi.MakePodSetAssignment("main").
+						Count(1).
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+							Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"x1"}}).
+							Obj()).
+						Obj()).
+					Obj()).
+				UnhealthyNodes("x1").
+				Obj(),
+			podSets: []PodSetTestCase{{
+				podSetName:      "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To(corev1.LabelHostname)},
+				requests:        resources.Requests{corev1.ResourceCPU: 1000},
+				count:           1,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels:  []string{corev1.LabelHostname},
+					Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"x2"}}},
+				},
+			}},
+		},
+		"node replaced for pod-group workload with two Pod owners; gate on": {
+			featureGates: map[featuregate.Feature]bool{features.SkipReassignmentForPodOwnedWorkloads: true},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					NotReady().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().
+					Obj(),
+			},
+			levels: []string{corev1.LabelHostname},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "owner-0", "uid-0").
+				OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "owner-1", "uid-1").
+				Admission(utiltestingapi.MakeAdmission("cq", "main").
+					PodSets(utiltestingapi.MakePodSetAssignment("main").
+						Count(1).
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+							Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"x1"}}).
+							Obj()).
+						Obj()).
+					Obj()).
+				UnhealthyNodes("x1").
+				Obj(),
+			podSets: []PodSetTestCase{{
+				podSetName:      "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To(corev1.LabelHostname)},
+				requests:        resources.Requests{corev1.ResourceCPU: 1000},
+				count:           1,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels:  []string{corev1.LabelHostname},
+					Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"x2"}}},
+				},
+			}},
+		},
+		"node replaced for size-1 pod-group workload (is-group-workload annotation); gate on": {
+			featureGates: map[featuregate.Feature]bool{features.SkipReassignmentForPodOwnedWorkloads: true},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					NotReady().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().
+					Obj(),
+			},
+			levels: []string{corev1.LabelHostname},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "owner-0", "uid-0").
+				Annotations(map[string]string{podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue}).
+				Admission(utiltestingapi.MakeAdmission("cq", "main").
+					PodSets(utiltestingapi.MakePodSetAssignment("main").
+						Count(1).
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+							Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"x1"}}).
+							Obj()).
+						Obj()).
+					Obj()).
+				UnhealthyNodes("x1").
+				Obj(),
+			podSets: []PodSetTestCase{{
+				podSetName:      "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To(corev1.LabelHostname)},
+				requests:        resources.Requests{corev1.ResourceCPU: 1000},
+				count:           1,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels:  []string{corev1.LabelHostname},
+					Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"x2"}}},
+				},
+			}},
+		},
+		"node replaced for single-Pod-owned workload; gate off": {
+			featureGates: map[featuregate.Feature]bool{features.SkipReassignmentForPodOwnedWorkloads: false},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					NotReady().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().
+					Obj(),
+			},
+			levels: []string{corev1.LabelHostname},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "owner-0", "uid-0").
+				Admission(utiltestingapi.MakeAdmission("cq", "main").
+					PodSets(utiltestingapi.MakePodSetAssignment("main").
+						Count(1).
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+							Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"x1"}}).
+							Obj()).
+						Obj()).
+					Obj()).
+				UnhealthyNodes("x1").
+				Obj(),
+			podSets: []PodSetTestCase{{
+				podSetName:      "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To(corev1.LabelHostname)},
+				requests:        resources.Requests{corev1.ResourceCPU: 1000},
+				count:           1,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels:  []string{corev1.LabelHostname},
+					Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"x2"}}},
+				},
+			}},
+		},
 		"minimize the number of used racks before optimizing the number of nodes; BestFit": {
 			// Solution by optimizing the number of racks then nodes: [r3]: [x1,x6,x2,x4]
 			// Solution by optimizing the number of nodes: [r1,r2]: [x3,x5]
@@ -7389,6 +7584,190 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			},
 		},
+		"stable tie break on identical nodes: TASBalancedPlacement enabled": {
+			featureGates: map[featuregate.Feature]bool{features.TASBalancedPlacement: true},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Required: ptr.To(corev1.LabelHostname),
+				},
+				requests: resources.Requests{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 1,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{
+							Count: 1,
+							Values: []string{
+								"x1",
+							},
+						},
+					},
+				},
+			}},
+		},
+		"stable tie break on identical nodes: TASBalancedPlacement disabled": {
+			featureGates: map[featuregate.Feature]bool{features.TASBalancedPlacement: false},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Required: ptr.To(corev1.LabelHostname),
+				},
+				requests: resources.Requests{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 1,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{
+							Count: 1,
+							Values: []string{
+								"x1",
+							},
+						},
+					},
+				},
+			}},
+		},
+		"stable tie break on identical nodes: reversed order, TASBalancedPlacement enabled": {
+			featureGates: map[featuregate.Feature]bool{features.TASBalancedPlacement: true},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Required: ptr.To(corev1.LabelHostname),
+				},
+				requests: resources.Requests{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 1,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{
+							Count: 1,
+							Values: []string{
+								"x1",
+							},
+						},
+					},
+				},
+			}},
+		},
+		"stable tie break on identical nodes: reversed order, TASBalancedPlacement disabled": {
+			featureGates: map[featuregate.Feature]bool{features.TASBalancedPlacement: false},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Required: ptr.To(corev1.LabelHostname),
+				},
+				requests: resources.Requests{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 1,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{
+							Count: 1,
+							Values: []string{
+								"x1",
+							},
+						},
+					},
+				},
+			}},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -7488,7 +7867,11 @@ func TestFindTopologyAssignments(t *testing.T) {
 				}
 				wantResult[kueue.NewPodSetReference(ps.podSetName)] = wantPodSetResult
 			}
-			gotResult := snapshot.FindTopologyAssignmentsForFlavor(flavorTASRequests)
+			var findOpts []FindTopologyAssignmentsOption
+			if tc.workload != nil {
+				findOpts = append(findOpts, WithWorkload(tc.workload))
+			}
+			gotResult := snapshot.FindTopologyAssignmentsForFlavor(log, flavorTASRequests, findOpts...)
 			if diff := cmp.Diff(wantResult, gotResult); diff != "" {
 				t.Errorf("unexpected topology assignment (-want,+got): %s", diff)
 			}
@@ -7842,6 +8225,7 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TASMultiLayerTopology, true)
+			features.SetFeatureGateDuringTest(t, features.TASCacheNodeMatchResults, true)
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, log := utiltesting.ContextWithLog(t)
 
@@ -7914,7 +8298,7 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 				tasCache.nodesCache.find(tasFlavorCache.flavor.NodeLabels, tasFlavorCache.topology.Levels),
 				aggregatedDomainUsages,
 			)
-			result := snapshot.FindTopologyAssignmentsForFlavor(flavorTASRequests, WithWorkload(wl))
+			result := snapshot.FindTopologyAssignmentsForFlavor(log, flavorTASRequests, WithWorkload(wl))
 
 			psResult, ok := result[podSetName]
 			if !ok {

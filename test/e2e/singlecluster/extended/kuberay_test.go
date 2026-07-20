@@ -21,12 +21,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -949,6 +951,116 @@ app = HelloWorld.bind()`,
 				g.Expect(err).NotTo(gomega.HaveOccurred())
 				g.Expect(strings.TrimSpace(string(body))).To(gomega.ContainSubstring("Hello, World!"))
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("Should run the Redis cleanup Job when a GCS fault-tolerant RayService is deleted", ginkgo.Label("shard:kuberay-a", "requires:fullray"), func() {
+		kuberayTestImage := util.GetKuberayTestImage()
+
+		// Deploy an in-cluster Redis backing the RayCluster's GCS fault tolerance.
+		redisLabels := map[string]string{"app": "redis-gcs-ft"}
+		redisDeployment := &appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{Name: "redis", Namespace: ns.Name},
+			Spec: appsv1.DeploymentSpec{
+				Selector: &metav1.LabelSelector{MatchLabels: redisLabels},
+				Template: corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{Labels: redisLabels},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{{
+							Name:            "redis",
+							Image:           util.GetRedisTestImage(),
+							ImagePullPolicy: corev1.PullIfNotPresent,
+							Ports:           []corev1.ContainerPort{{ContainerPort: 6379}},
+						}},
+					},
+				},
+			},
+		}
+		redisService := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{Name: "redis", Namespace: ns.Name},
+			Spec: corev1.ServiceSpec{
+				Selector: redisLabels,
+				Ports:    []corev1.ServicePort{{Port: 6379}},
+			},
+		}
+		ginkgo.By("Deploying Redis", func() {
+			gomega.Expect(k8sClient.Create(ctx, redisDeployment)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, redisService)).To(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(redisDeployment), redisDeployment)).To(gomega.Succeed())
+				g.Expect(redisDeployment.Status.ReadyReplicas).To(gomega.Equal(int32(1)))
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		rayService := testingrayservice.MakeService("rayservice-gcs-ft", ns.Name).
+			Suspend(true).
+			Queue(localQueueName).
+			GCSFaultTolerance("redis:6379").
+			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
+			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "600m").
+			Image(rayv1.HeadNode, kuberayTestImage).
+			Image(rayv1.WorkerNode, kuberayTestImage).
+			RayStartParam(rayv1.HeadNode, "object-store-memory", objectStoreMemory).
+			TerminationGracePeriod(1).
+			Obj()
+
+		ginkgo.By("Creating the RayService", func() {
+			gomega.Expect(k8sClient.Create(ctx, rayService)).To(gomega.Succeed())
+		})
+
+		wlLookupKey := types.NamespacedName{Name: workloadrayservice.GetWorkloadNameForRayService(rayService.Name, rayService.UID), Namespace: ns.Name}
+		createdWorkload := &kueue.Workload{}
+		ginkgo.By("Checking the workload is created and admitted", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, createdWorkload)
+		})
+
+		ginkgo.By("Waiting for the RayCluster to be provisioned with the GCS cleanup finalizer", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				clusters := &rayv1.RayClusterList{}
+				g.Expect(k8sClient.List(ctx, clusters, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				g.Expect(clusters.Items).To(gomega.HaveLen(1))
+				g.Expect(clusters.Items[0].Finalizers).To(gomega.ContainElement("ray.io/gcs-ft-redis-cleanup-finalizer"))
+			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		// redisDBSize returns the number of keys in the Redis backing store by running
+		// redis-cli in the Redis pod.
+		redisDBSize := func(g gomega.Gomega) int {
+			pods := &corev1.PodList{}
+			g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), client.MatchingLabels{"app": "redis-gcs-ft"})).To(gomega.Succeed())
+			g.Expect(pods.Items).To(gomega.HaveLen(1))
+			out, _, err := util.KExecute(ctx, cfg, restClient, ns.Name, pods.Items[0].Name, "redis", []string{"redis-cli", "DBSIZE"})
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+			size, err := strconv.Atoi(strings.TrimSpace(string(out)))
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+			return size
+		}
+
+		ginkgo.By("Checking GCS fault tolerance populated Redis", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(redisDBSize(g)).To(gomega.BeNumerically(">", 0))
+			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Deleting the RayService", func() {
+			gomega.Expect(k8sClient.Delete(ctx, rayService)).To(gomega.Succeed())
+		})
+
+		ginkgo.By("Verifying that the RayService is actually deleted", func() {
+			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, rayService, false, util.LongTimeout)
+		})
+
+		// Deferred finalization keeps the parent Workload admitted while KubeRay's Redis
+		// cleanup Job runs, so the Job purges the RayCluster's GCS metadata namespace.
+		// Without it the cleanup Job is gated forever and these keys leak until KubeRay's
+		// ~300s safety timeout force-removes the finalizer.
+		ginkgo.By("Checking Redis is cleaned up after the RayService is deleted", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(redisDBSize(g)).To(gomega.Equal(0))
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 

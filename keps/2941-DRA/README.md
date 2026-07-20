@@ -81,9 +81,11 @@ tags, and then generate with `hack/update-toc.sh`.
     - [Beta](#beta)
       - [KueueDRAIntegration (v0.18)](#kueuedraintegration-v018)
       - [KueueDRAIntegrationExtendedResource](#kueuedraintegrationextendedresource)
+      - [KueueDRAIntegrationPartitionableDevices](#kueuedraintegrationpartitionabledevices)
     - [GA](#ga)
       - [KueueDRAIntegration](#kueuedraintegration)
       - [KueueDRAIntegrationExtendedResource](#kueuedraintegrationextendedresource-1)
+      - [KueueDRAIntegrationPartitionableDevices](#kueuedraintegrationpartitionabledevices-1)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
@@ -1538,19 +1540,27 @@ tracks adding this). This follows the same pattern as upstream K8s integration t
 - support integration with MultiKueue
 - e2e tests
 - CEL expression validation against ResourceSlice devices
+- re-evaluate post-scheduling quota reconciliation for DeviceClass drift
 
 ##### KueueDRAIntegrationExtendedResource
 
-- re-evaluate post-scheduling quota reconciliation for DeviceClass drift
-- re-evaluate the need for indexing of resourceSlices for CEL performance lookups
-- re-evaluate pool-aware flavor assignment for counter resources
-- re-evaluate caching `deviceSelector` evaluation results to avoid repeated ResourceSlice
-  evaluation
-- re-evaluate consolidating ResourceSlice listing between CEL validation and counter
-  processing into a shared layer
-- re-evaluate multi-counter tracking (e.g., memory and compute as separate quota resources
-  for the same DeviceClass) by relaxing the DeviceClass uniqueness constraint when mappings
-  have different counter sources configured
+- feature gate enabled by default
+
+##### KueueDRAIntegrationPartitionableDevices
+
+- feature gate enabled by default
+- consolidate ResourceSlice listing between CEL validation and counter processing
+  into a shared request-scoped cache, eliminating duplicate API calls within a
+  single workload reconciliation.
+- extend CEL validation path to use driver-based indexed ResourceSlice listing for
+  DeviceClasses with counter sources, instead of listing all ResourceSlices
+  unfiltered. When a broader listing is already cached, per-driver requests filter
+  from cached results.
+- iterate all ConsumesCounters entries per device, consistent with the upstream K8s
+  allocator behavior. Takes MAX across all matching counter sets per device.
+- support multi-counter tracking by relaxing the DeviceClass uniqueness constraint
+  across mappings when both have counter sources with different counter names,
+  allowing memory and compute as separate quota resources for the same DeviceClass
 
 #### GA
 
@@ -1558,12 +1568,27 @@ tracks adding this). This follows the same pattern as upstream K8s integration t
 
 - the feature gate in stable
 - TAS + DRA integration and testing
+- re-evaluate support for AdminAccess requests
+- re-evaluate support for FirstAvailable device selection
+- re-evaluate support for AllocationMode All
 
 ##### KueueDRAIntegrationExtendedResource
 
 - the feature gate in stable
 - user adoption feedback confirms stability
 - re-evaluate DeviceClass watcher performance at scale
+
+##### KueueDRAIntegrationPartitionableDevices
+
+- the feature gate in stable
+- user adoption feedback with MIG workloads confirms counter-based quota accuracy
+- re-evaluate MAX-based counter charging for heterogeneous device profiles. Accurate
+  charging requires knowing which device the scheduler will allocate. Depends on
+  scheduler-library integration ([#12422](https://github.com/kubernetes-sigs/kueue/issues/12422)).
+- re-evaluate pool-aware flavor assignment for counter resources. Connecting
+  ResourceSlice pools to flavors requires scheduler-library awareness of which
+  node a workload will land on. Depends on scheduler-library integration
+  ([#12422](https://github.com/kubernetes-sigs/kueue/issues/12422)).
 
 ## Implementation History
 
@@ -1581,6 +1606,7 @@ tracks adding this). This follows the same pattern as upstream K8s integration t
 - `KueueDRARejectWorkloadsWhenDRADisabled` feature gate added: May 2026 by @kannon92 — rejects DRA workloads
   when the `DynamicResourceAllocation` feature gate is disabled to prevent silent quota bypass
   (see [#10504](https://github.com/kubernetes-sigs/kueue/issues/10504))
+- Promoted KueueDRAIntegrationExtendedResource to Beta: July 2026 by @PannagaRao
 
 **Key Design Evolution:**
 - **Original Design**: Standalone DynamicResourceAllocationConfig CRD with runtime ambiguity resolution

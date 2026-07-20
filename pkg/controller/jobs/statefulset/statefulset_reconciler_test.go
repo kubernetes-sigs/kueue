@@ -17,6 +17,7 @@ limitations under the License.
 package statefulset
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -24,6 +25,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
@@ -653,6 +655,78 @@ func TestHandle(t *testing.T) {
 			got := r.handle(tc.obj)
 			if got != tc.want {
 				t.Errorf("handle(%T) = %v, want %v", tc.obj, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestReconciler_ClearOnHoldSetsReason(t *testing.T) {
+	scenarios := []map[featuregate.Feature]bool{
+		{
+			features.UnadmittedWorkloadsObservability: false,
+		},
+		{
+			features.UnadmittedWorkloadsObservability: true,
+		},
+	}
+
+	for _, scenario := range scenarios {
+		t.Run(fmt.Sprintf("UnadmittedWorkloadsObservability enabled: %t", scenario[features.UnadmittedWorkloadsObservability]), func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, scenario)
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			sts := statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Replicas(1).
+				Queue("lq").
+				Obj()
+
+			wl := utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadQuotaReserved,
+					Status: metav1.ConditionFalse,
+					Reason: kueue.WorkloadOnHold,
+				}).
+				Obj()
+
+			clientBuilder := utiltesting.NewClientBuilder().
+				WithObjects(sts, wl).
+				WithStatusSubresource(sts, wl)
+			indexer := utiltesting.AsIndexer(clientBuilder)
+			err := indexer.IndexField(ctx, &corev1.Pod{}, podcontroller.PodGroupNameCacheKey, podcontroller.IndexPodGroupName)
+			if err != nil {
+				t.Fatalf("Could not add index for %s field name", podcontroller.PodGroupNameCacheKey)
+			}
+			cl := clientBuilder.Build()
+
+			reconciler, err := NewReconciler(ctx, cl, indexer, &utiltesting.EventRecorder{})
+			if err != nil {
+				t.Fatalf("NewReconciler() error: %v", err)
+			}
+
+			req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "sts"}}
+			_, err = reconciler.Reconcile(ctx, req)
+			if err != nil {
+				t.Fatalf("Reconcile() error: %v", err)
+			}
+
+			var gotWl kueue.Workload
+			if err := cl.Get(ctx, types.NamespacedName{Namespace: "ns", Name: wl.Name}, &gotWl); err != nil {
+				t.Fatalf("failed to get workload: %v", err)
+			}
+
+			wantReason := kueue.WorkloadPending //nolint:staticcheck // SA1019: fallback
+			if scenario[features.UnadmittedWorkloadsObservability] {
+				wantReason = kueue.WorkloadQuotaReservedReasonPendingEvaluation
+			}
+
+			cond := apimeta.FindStatusCondition(gotWl.Status.Conditions, kueue.WorkloadQuotaReserved)
+			if cond == nil {
+				t.Fatalf("QuotaReserved condition not found")
+			}
+			if cond.Status != metav1.ConditionFalse || cond.Reason != wantReason {
+				t.Errorf("Unexpected QuotaReserved condition status/reason: got %s/%s, want False/%s", cond.Status, cond.Reason, wantReason)
 			}
 		})
 	}

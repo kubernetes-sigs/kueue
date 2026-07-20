@@ -42,7 +42,7 @@ export E2E_SKIP_REINSTALL="${E2E_SKIP_REINSTALL:-false}"
 # when they already exist locally / on kind worker nodes. CI mode always pulls and loads.
 export E2E_SKIP_IMAGE_RELOAD="${E2E_SKIP_IMAGE_RELOAD:-false}"
 
-export KIND_VERSION="${E2E_KIND_VERSION/"kindest/node:v"/}"
+export KIND_VERSION="${E2E_KIND_VERSION#kindest/node:v}"
 
 function build_kind_node_image {
     if [[ "$E2E_KIND_VERSION" != kindest/node:v* ]]; then
@@ -58,7 +58,7 @@ function build_kind_node_image {
     fi
 
     echo "Building kind node image: $E2E_KIND_VERSION (K8s v$KIND_VERSION)"
-    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 3 --delay 5 -- \
+    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 7 --delay 2 --exponential --stream -- \
         "$KIND" build node-image "v$KIND_VERSION" --image "$E2E_KIND_VERSION"
 }
 
@@ -257,6 +257,10 @@ fi
 if [[ -n ${KUBERAY_VERSION:-} && ("$GINKGO_ARGS" =~ feature:kuberay || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     export KUBERAY_MANIFEST="${ROOT_DIR}/dep-crds/ray-operator/default/"
     export KUBERAY_IMAGE=quay.io/kuberay/operator:${KUBERAY_VERSION}
+    # Redis backend for the GCS fault-tolerance e2e test. Pull by digest and strip it
+    # only for the tag referenced by kind and the pod spec.
+    E2E_TEST_REDIS_IMAGE_WITH_SHA=$(grep '^FROM' "${ROOT_DIR}/hack/testing/redis/Dockerfile" | awk '{print $2}')
+    export E2E_TEST_REDIS_IMAGE=${E2E_TEST_REDIS_IMAGE_WITH_SHA%%@*}
 fi
 
 if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename|workloadidentifierannotations) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
@@ -484,6 +488,7 @@ function patch_kind_config_for_was {
     cp "$1" "$patched_config"
 
     $YQ -i '.featureGates.GenericWorkload = true' "$patched_config"
+    $YQ -i '.featureGates.WorkloadWithJob = true' "$patched_config"
     $YQ -i '(.nodes[] | select(.role == "control-plane")).kubeadmConfigPatches[0] = "kind: ClusterConfiguration
 apiVersion: kubeadm.k8s.io/v1beta4
 scheduler:
@@ -550,8 +555,8 @@ function cluster_create {
 
     local log_file="$ARTIFACTS/$cluster-create.log"
     local create_cmd="$KIND create cluster --name \"$cluster\" --image \"$E2E_KIND_VERSION\" --config \"$kind_config\" --kubeconfig=\"$kubeconfig\" --wait 5m -v 5 > \"$log_file\" 2>&1"
-    # Retry only known-transient failures so real bugs still fail fast (#11586, #12307).
-    local retriable_errors="port is already allocated|error execution phase wait-control-plane"
+    # Retry only known-transient failures so real bugs still fail fast (#11586, #12307, #12984).
+    local retriable_errors="port is already allocated|error execution phase wait-control-plane|could not find a log line that matches"
     local continue_if="grep -qE '${retriable_errors}' \"$log_file\""
     local cleanup_cmd="if [ -f \"$log_file\" ]; then mv \"$log_file\" \"${log_file}.failed-\$(date +%s)\"; fi; $KIND delete cluster --name \"$cluster\" 2>/dev/null || true"
 
@@ -559,6 +564,7 @@ function cluster_create {
     if ! "${ROOT_DIR}/hack/testing/retry.sh" \
         --attempts 3 \
         --delay 3 \
+        --exponential \
         --continue-if "$continue_if" \
         --cleanup "$cleanup_cmd" \
         -- bash -c "$create_cmd"; then
@@ -612,6 +618,8 @@ function prepare_docker_images {
     fi
     if [[ -n ${KUBERAY_VERSION:-} && ("$GINKGO_ARGS" =~ feature:kuberay || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_docker_pull_if_needed "${KUBERAY_IMAGE}"
+        e2e_docker_pull_if_needed "${E2E_TEST_REDIS_IMAGE_WITH_SHA}"
+        docker tag "${E2E_TEST_REDIS_IMAGE_WITH_SHA}" "${E2E_TEST_REDIS_IMAGE}"
         determine_kuberay_ray_image
         if [[ "${USE_RAY_FOR_TESTS:-}" == "ray" ]]; then
             e2e_docker_pull_if_needed "${KUBERAY_RAY_IMAGE}"
@@ -1160,6 +1168,7 @@ function install_kuberay {
 
     cluster_kind_load_image "$name" "${KUBERAY_RAY_IMAGE}"
     cluster_kind_load_image "$name" "${KUBERAY_IMAGE}"
+    cluster_kind_load_image "$name" "${E2E_TEST_REDIS_IMAGE}"
     # In E2E_MODE=dev we keep and reuse the kind cluster between runs.
     #
     # "kubectl create -k" is used instead of apply (https://github.com/ray-project/kuberay/issues/504),

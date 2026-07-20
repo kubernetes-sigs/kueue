@@ -1,0 +1,28 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kueue-visibility-server-api
+rules:
+- apiGroups:
+  - "visibility.kueue.x-k8s.io"
+  resources:
+  - "clusterqueues/pendingworkloads"
+  - "localqueues/pendingworkloads"
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kueue-visibility-server-api
+  namespace: default
+subjects:
+- kind: ServiceAccount
+  name: default
+  namespace: default
+roleRef:
+  kind: ClusterRole
+  name: kueue-visibility-server-api
+  apiGroup: rbac.authorization.k8s.io

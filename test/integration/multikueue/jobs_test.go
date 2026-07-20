@@ -241,12 +241,12 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				managerTestCluster.ctx, managerTestCluster.client, wlLookupKey,
 				multiKueueAC.Name,
 				kueue.CheckStateReady,
-				`The workload got reservation on "worker1"`,
+				`The workload was admitted on "worker1"`,
 			)
 			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, eventsv1.Event{
 				Reason: "MultiKueue",
 				Type:   corev1.EventTypeNormal,
-				Note:   `The workload got reservation on "worker1"`,
+				Note:   `The workload was admitted on "worker1"`,
 			})
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -300,6 +300,61 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		})
 	})
 
+	ginkgo.It("Should retry a Job whose remote workload finishes OutOfSync instead of finishing the manager workload", func() {
+		job := testingjob.MakeJob("job-oos", managerNs.Name).
+			Queue(kueue.LocalQueueName(managerLq.Name)).
+			Obj()
+		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, job)).Should(gomega.Succeed())
+
+		wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
+		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).
+			Obj()
+
+		ginkgo.By("setting workload reservation on the manager and worker1, AC becomes Ready", func() {
+			util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdWorkload := &kueue.Workload{}
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlLookupKey, admission)
+			util.ExpectAdmissionCheckStateWithMessage(
+				managerTestCluster.ctx, managerTestCluster.client, wlLookupKey,
+				multiKueueAC.Name, kueue.CheckStateReady, `The workload was admitted on "worker1"`,
+			)
+		})
+
+		ginkgo.By("finishing the remote workload OutOfSync (simulating a worker-mutated mirrored Job)", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				remoteWl := &kueue.Workload{}
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, remoteWl)).To(gomega.Succeed())
+				apimeta.SetStatusCondition(&remoteWl.Status.Conditions, metav1.Condition{
+					Type:    kueue.WorkloadFinished,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadFinishedReasonOutOfSync,
+					Message: "The prebuilt workload is out of sync with its user job",
+				})
+				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, remoteWl)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("the manager emits a reset event and does not finish the manager workload", func() {
+			resetMsg := `Remote workload on worker cluster "worker1" is out of sync with its user job, resetting for re-dispatch, Previously: "Ready"`
+			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, eventsv1.Event{
+				Reason: "MultiKueue",
+				Type:   corev1.EventTypeWarning,
+				Note:   resetMsg,
+			})
+			gomega.Consistently(func(g gomega.Gomega) {
+				createdWorkload := &kueue.Workload{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				if finished := apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadFinished); finished != nil {
+					g.Expect(finished.Reason).NotTo(gomega.Equal(kueue.WorkloadFinishedReasonOutOfSync))
+				}
+			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
 	ginkgo.It("Should run a job on worker if admitted (ManagedBy)", func() {
 		job := testingjob.MakeJob("job", managerNs.Name).
 			ManagedBy(kueue.MultiKueueControllerName).
@@ -338,12 +393,12 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				managerTestCluster.ctx, managerTestCluster.client, wlLookupKey,
 				multiKueueAC.Name,
 				kueue.CheckStateReady,
-				`The workload got reservation on "worker1"`,
+				`The workload was admitted on "worker1"`,
 			)
 			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, eventsv1.Event{
 				Reason: "MultiKueue",
 				Type:   corev1.EventTypeNormal,
-				Note:   `The workload got reservation on "worker1"`,
+				Note:   `The workload was admitted on "worker1"`,
 			})
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -1032,13 +1087,13 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				managerTestCluster.ctx, managerTestCluster.client, wlLookupKey,
 				multiKueueAC.Name,
 				kueue.CheckStateReady,
-				`The workload got reservation on "worker1"`,
+				`The workload was admitted on "worker1"`,
 			)
 
 			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, eventsv1.Event{
 				Reason: "MultiKueue",
 				Type:   corev1.EventTypeNormal,
-				Note:   `The workload got reservation on "worker1"`,
+				Note:   `The workload was admitted on "worker1"`,
 			})
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -1145,13 +1200,13 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				managerTestCluster.ctx, managerTestCluster.client, wlLookupKey,
 				multiKueueAC.Name,
 				kueue.CheckStateReady,
-				`The workload got reservation on "worker1"`,
+				`The workload was admitted on "worker1"`,
 			)
 
 			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, eventsv1.Event{
 				Reason: "MultiKueue",
 				Type:   corev1.EventTypeNormal,
-				Note:   `The workload got reservation on "worker1"`,
+				Note:   `The workload was admitted on "worker1"`,
 			})
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -1338,13 +1393,13 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				acs := admissioncheck.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAC.Name))
 				g.Expect(acs).NotTo(gomega.BeNil())
 				g.Expect(acs.State).To(gomega.Equal(kueue.CheckStateReady))
-				g.Expect(acs.Message).To(gomega.Equal(`The workload got reservation on "worker1"`))
+				g.Expect(acs.Message).To(gomega.Equal(`The workload was admitted on "worker1"`))
 				g.Expect(apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadAdmitted)).To(gomega.BeTrue())
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, eventsv1.Event{
 				Reason: "MultiKueue",
 				Type:   corev1.EventTypeNormal,
-				Note:   `The workload got reservation on "worker1"`,
+				Note:   `The workload was admitted on "worker1"`,
 			})
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -1626,6 +1681,36 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		})
 	})
 
+	ginkgo.It("Should not evict admitted workloads when the connection to the admitting worker is briefly lost", framework.SlowSpec, func() {
+		keys := admitJobsAndAgeAdmissionCheck(managerNs.Name, managerLq.Name, managerCq.Name, multiKueueAC.Name, 3)
+
+		restoreConnection := util.BreakConnection(managerTestCluster.ctx, managerTestCluster.client, workerCluster2)
+		restoreConnection()
+
+		ginkgo.By("no admitted workload is evicted after the brief connection loss", func() {
+			expectNoEviction(keys, multiKueueAC.Name, testingWorkerLostTimeout*2)
+		})
+	})
+
+	ginkgo.It("Should not immediately evict admitted workloads after a manager restart while the admitting worker is unreachable", framework.SlowSpec, func() {
+		keys := admitJobsAndAgeAdmissionCheck(managerNs.Name, managerLq.Name, managerCq.Name, multiKueueAC.Name, 3)
+
+		restoreConnection := util.BreakConnection(managerTestCluster.ctx, managerTestCluster.client, workerCluster2)
+
+		ginkgo.By("restarting the manager while worker2 is unreachable", func() {
+			managerTestCluster.fwk.StopManager(managerTestCluster.ctx)
+			managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
+				managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, defaultEnabledIntegrations, config.MultiKueueDispatcherModeAllAtOnce)
+			})
+		})
+
+		ginkgo.By("the restarted manager re-anchors the grace and does not immediately evict", func() {
+			expectNoEviction(keys, multiKueueAC.Name, testingWorkerLostTimeout*2/3)
+		})
+
+		restoreConnection()
+	})
+
 	ginkgo.It("Should run a RayJob on worker if admitted", func() {
 		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).PodSets(
 			utiltestingapi.MakePodSetAssignment("head").Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj(),
@@ -1838,12 +1923,12 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			manager.ctx, manager.client, workloadKey,
 			multiKueueAC.Name,
 			kueue.CheckStateReady,
-			`The workload got reservation on "worker1"`,
+			`The workload was admitted on "worker1"`,
 		)
 		util.ExpectEventAppeared(manager.ctx, manager.client, eventsv1.Event{
 			Reason: "MultiKueue",
 			Type:   corev1.EventTypeNormal,
-			Note:   `The workload got reservation on "worker1"`,
+			Note:   `The workload was admitted on "worker1"`,
 		})
 
 		ginkgo.By("observe: job is synced to the worker1 cluster and is active", func() {
@@ -1956,12 +2041,12 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			manager.ctx, manager.client, newWorkloadKey,
 			multiKueueAC.Name,
 			kueue.CheckStateReady,
-			`The workload got reservation on "worker1"`,
+			`The workload was admitted on "worker1"`,
 		)
 		util.ExpectEventAppeared(manager.ctx, manager.client, eventsv1.Event{
 			Reason: "MultiKueue",
 			Type:   corev1.EventTypeNormal,
-			Note:   `The workload got reservation on "worker1"`,
+			Note:   `The workload was admitted on "worker1"`,
 		})
 
 		ginkgo.By("observe: job changes are synced to the worker1 cluster", func() {
@@ -2097,12 +2182,12 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				managerTestCluster.ctx, managerTestCluster.client, wlLookupKey,
 				multiKueueAC.Name,
 				kueue.CheckStateReady,
-				`The workload got reservation on "worker1"`,
+				`The workload was admitted on "worker1"`,
 			)
 			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, eventsv1.Event{
 				Reason: "MultiKueue",
 				Type:   corev1.EventTypeNormal,
-				Note:   `The workload got reservation on "worker1"`,
+				Note:   `The workload was admitted on "worker1"`,
 			})
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -2386,18 +2471,65 @@ func admitWorkloadAndCheckWorkerCopies(acName string, wlLookupKey types.Namespac
 			managerTestCluster.ctx, managerTestCluster.client, wlLookupKey,
 			acName,
 			kueue.CheckStateReady,
-			`The workload got reservation on "worker2"`,
+			`The workload was admitted on "worker2"`,
 		)
 		util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, eventsv1.Event{
 			Reason: "MultiKueue",
 			Type:   corev1.EventTypeNormal,
-			Note:   `The workload got reservation on "worker2"`,
+			Note:   `The workload was admitted on "worker2"`,
 		})
 
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
+}
+
+func admitJobsAndAgeAdmissionCheck(managerNsName, lqName, cqName, acName string, count int) []types.NamespacedName {
+	ginkgo.GinkgoHelper()
+	keys := make([]types.NamespacedName, 0, count)
+	for i := range count {
+		job := testingjob.MakeJob(fmt.Sprintf("job-%d", i), managerNsName).
+			Queue(kueue.LocalQueueName(lqName)).
+			Obj()
+		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, job)
+		key := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNsName}
+		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cqName)).
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj())
+		admitWorkloadAndCheckWorkerCopies(acName, key, admission)
+		keys = append(keys, key)
+	}
+
+	ginkgo.By("waiting until each admission check's transition time is older than the worker-lost timeout", func() {
+		gomega.Eventually(func(g gomega.Gomega) {
+			for _, key := range keys {
+				wl := &kueue.Workload{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, key, wl)).To(gomega.Succeed())
+				acs := admissioncheck.FindAdmissionCheck(wl.Status.AdmissionChecks, kueue.AdmissionCheckReference(acName))
+				g.Expect(acs).NotTo(gomega.BeNil())
+				g.Expect(acs.State).To(gomega.Equal(kueue.CheckStateReady))
+				g.Expect(time.Since(acs.LastTransitionTime.Time)).To(gomega.BeNumerically(">", testingWorkerLostTimeout))
+			}
+		}, testingWorkerLostTimeout*3, util.Interval).Should(gomega.Succeed())
+	})
+	return keys
+}
+
+// expectNoEviction asserts that, for the given duration, none of the workloads lose their quota
+// reservation or have their MultiKueue admission check moved off Ready.
+func expectNoEviction(keys []types.NamespacedName, acName string, within time.Duration) {
+	ginkgo.GinkgoHelper()
+	gomega.Consistently(func(g gomega.Gomega) {
+		for _, key := range keys {
+			wl := &kueue.Workload{}
+			g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, key, wl)).To(gomega.Succeed())
+			g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadQuotaReserved))
+			acs := admissioncheck.FindAdmissionCheck(wl.Status.AdmissionChecks, kueue.AdmissionCheckReference(acName))
+			g.Expect(acs).NotTo(gomega.BeNil())
+			g.Expect(acs.State).To(gomega.Equal(kueue.CheckStateReady))
+			g.Expect(ptr.Deref(acs.RetryCount, 0)).To(gomega.BeZero())
+		}
+	}, within, util.Interval).Should(gomega.Succeed())
 }
 
 func waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlLookupKey types.NamespacedName, finishJobReason string) {

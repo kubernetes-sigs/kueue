@@ -901,10 +901,73 @@ func TestNodeSelectors(t *testing.T) {
 
 			if tc.wantRunError == nil {
 				genJob.Suspend()
-				genJob.RestorePodSetsInfo(tc.restoreInfo)
+				genJob.RestorePodSetsInfo(t.Context(), tc.restoreInfo)
 				if diff := cmp.Diff(tc.wantFinal, tc.job); diff != "" {
 					t.Errorf("Unexpected job after restore (-want/+got): %s", diff)
 				}
+			}
+		})
+	}
+}
+
+func TestRestorePodSetsInfo(t *testing.T) {
+	// head + 2 worker groups => ExpectedPodSetsCount is 3; with K8sJobMode a
+	// submitter pod set is appended, so the expected length becomes 4.
+	baseJob := testingrayutil.MakeJob("rayjob", "ns").
+		WithHeadGroupSpec(rayv1.HeadGroupSpec{Template: corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head", Image: "ray:latest"}}},
+		}}).
+		WithWorkerGroups(
+			rayv1.WorkerGroupSpec{GroupName: "group1", Template: corev1.PodTemplateSpec{}},
+			rayv1.WorkerGroupSpec{GroupName: "group2", Template: corev1.PodTemplateSpec{}},
+		)
+
+	testCases := map[string]struct {
+		job         *rayv1.RayJob
+		podSetsInfo []podset.PodSetInfo
+		wantChanged bool
+	}{
+		"fewer podSetsInfo than expected is a no-op": {
+			job:         baseJob.Clone().Obj(),
+			podSetsInfo: []podset.PodSetInfo{{}, {}},
+			wantChanged: false,
+		},
+		"more podSetsInfo than expected is a no-op": {
+			job:         baseJob.Clone().Obj(),
+			podSetsInfo: []podset.PodSetInfo{{}, {}, {}, {}},
+			wantChanged: false,
+		},
+		"matching length without submitter restores pod sets": {
+			job: baseJob.Clone().Obj(),
+			podSetsInfo: []podset.PodSetInfo{
+				{NodeSelector: map[string]string{"restored": "true"}},
+				{NodeSelector: map[string]string{"restored": "true"}},
+				{NodeSelector: map[string]string{"restored": "true"}},
+			},
+			wantChanged: true,
+		},
+		"K8sJobMode with a missing submitter pod set is a no-op": {
+			job:         baseJob.Clone().WithSubmissionMode(rayv1.K8sJobMode).Obj(),
+			podSetsInfo: []podset.PodSetInfo{{}, {}, {}},
+			wantChanged: false,
+		},
+		"K8sJobMode with matching length restores pod sets including the submitter": {
+			job: baseJob.Clone().WithSubmissionMode(rayv1.K8sJobMode).Obj(),
+			podSetsInfo: []podset.PodSetInfo{
+				{NodeSelector: map[string]string{"restored": "true"}},
+				{NodeSelector: map[string]string{"restored": "true"}},
+				{NodeSelector: map[string]string{"restored": "true"}},
+				{NodeSelector: map[string]string{"restored": "true"}},
+			},
+			wantChanged: true,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			genJob := (*RayJob)(tc.job)
+			if gotChanged := genJob.RestorePodSetsInfo(t.Context(), tc.podSetsInfo); gotChanged != tc.wantChanged {
+				t.Errorf("RestorePodSetsInfo() = %v, want %v", gotChanged, tc.wantChanged)
 			}
 		})
 	}

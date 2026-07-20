@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -55,7 +56,8 @@ func TestValidateWorkload(t *testing.T) {
 	testCases := map[string]struct {
 		featureGates map[featuregate.Feature]bool
 		workload     *kueue.Workload
-		wantErr      field.ErrorList
+		wantErr      error
+		wantWarnings admission.Warnings
 	}{
 		"valid": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
@@ -69,7 +71,7 @@ func TestValidateWorkload(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.NotFound(statusPath.Child("admission", "podSetAssignments").Index(0).Child("name"), nil),
-			},
+			}.ToAggregate(),
 		},
 		"assignment usage should be divisible by count": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -85,7 +87,7 @@ func TestValidateWorkload(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(statusPath.Child("admission", "podSetAssignments").Index(0).Child("resourceUsage").Key(string(corev1.ResourceCPU)), nil, ""),
-			},
+			}.ToAggregate(),
 		},
 		"should not request num-pods resource": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -103,7 +105,7 @@ func TestValidateWorkload(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(firstPodSetSpecPath.Child("initContainers").Index(0).Child("resources", "requests").Key(string(corev1.ResourcePods)), nil, ""),
 				field.Invalid(firstPodSetSpecPath.Child("containers").Index(0).Child("resources", "requests").Key(string(corev1.ResourcePods)), nil, ""),
-			},
+			}.ToAggregate(),
 		},
 		"empty podSetUpdates": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).AdmissionChecks(kueue.AdmissionCheckState{}).Obj(),
@@ -127,7 +129,7 @@ func TestValidateWorkload(t *testing.T) {
 			).Obj(),
 			wantErr: field.ErrorList{
 				field.NotSupported(firstAdmissionChecksPath.Child("podSetUpdates").Index(1).Child("name"), nil, []string{}),
-			},
+			}.ToAggregate(),
 		},
 		"matched names in podSetUpdates with names in podSets": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
@@ -179,7 +181,7 @@ func TestValidateWorkload(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(podSetUpdatePath.Index(0).Child("labels"), "@abc", "").
 					WithOrigin("format=k8s-label-key"),
-			},
+			}.ToAggregate(),
 		},
 		"invalid node selector name of podSetUpdate": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -190,7 +192,7 @@ func TestValidateWorkload(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(podSetUpdatePath.Index(0).Child("nodeSelector"), "@abc", "").
 					WithOrigin("format=k8s-label-key"),
-			},
+			}.ToAggregate(),
 		},
 		"invalid label value of podSetUpdate": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -201,7 +203,7 @@ func TestValidateWorkload(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(podSetUpdatePath.Index(0).Child("labels"), "@abc", "").
 					WithOrigin("format=k8s-label-value"),
-			},
+			}.ToAggregate(),
 		},
 		"invalid reclaimablePods": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -216,7 +218,7 @@ func TestValidateWorkload(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(statusPath.Child("reclaimablePods").Key("ps1").Child("count"), nil, ""),
 				field.NotSupported(statusPath.Child("reclaimablePods").Key("ps2").Child("name"), nil, []string{}),
-			},
+			}.ToAggregate(),
 		},
 		"too many variable count podSets": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -227,7 +229,7 @@ func TestValidateWorkload(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(podSetsPath, nil, ""),
-			},
+			}.ToAggregate(),
 		},
 		"valid priority-boost": {
 			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
@@ -261,7 +263,7 @@ func TestValidateWorkload(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(priorityBoostAnnotationPath, "invalid", "must be a valid signed integer"),
-			},
+			}.ToAggregate(),
 		},
 		"empty string priority-boost": {
 			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
@@ -271,7 +273,7 @@ func TestValidateWorkload(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(priorityBoostAnnotationPath, "", "must be a valid signed integer; use \"0\" explicitly, empty string is not allowed"),
-			},
+			}.ToAggregate(),
 		},
 		"missing priority-boost annotation": {
 			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
@@ -358,7 +360,7 @@ func TestValidateWorkload(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("metadata", "annotations").Key(constants.AdmissionGatedByAnnotation), "this is an invalid value", ""),
-			},
+			}.ToAggregate(),
 		},
 		"invalid AdmissionGatedBy annotation - duplicate gates": {
 			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
@@ -370,7 +372,7 @@ func TestValidateWorkload(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("metadata", "annotations").Key(constants.AdmissionGatedByAnnotation), "duplicates.are/invalid,duplicates.are/invalid", ""),
-			},
+			}.ToAggregate(),
 		},
 		"invalid AdmissionGatedBy annotation - space in path component": {
 			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
@@ -382,7 +384,7 @@ func TestValidateWorkload(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("metadata", "annotations").Key(constants.AdmissionGatedByAnnotation), "example.com/gate name", ""),
-			},
+			}.ToAggregate(),
 		},
 		"invalid AdmissionGatedBy annotation - space in domain component": {
 			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
@@ -394,7 +396,7 @@ func TestValidateWorkload(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("metadata", "annotations").Key(constants.AdmissionGatedByAnnotation), "example .com/gate", ""),
-			},
+			}.ToAggregate(),
 		},
 		"invalid AdmissionGatedBy annotation - multiple gates with one containing space": {
 			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
@@ -406,7 +408,7 @@ func TestValidateWorkload(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("metadata", "annotations").Key(constants.AdmissionGatedByAnnotation), "valid.com/gate,invalid gate.com/controller", ""),
-			},
+			}.ToAggregate(),
 		},
 		"partial admission and elastic job cannot be used together": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
@@ -416,15 +418,31 @@ func TestValidateWorkload(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(specPath.Child("podSets"), 1, ""),
+			}.ToAggregate(),
+		},
+		"non-negative subGroupCount is accepted without warning": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
+				*utiltestingapi.MakePodSet("main", 1).SubGroupCount(new(int32(0))).Obj(),
+			).Obj(),
+		},
+		"negative subGroupCount is accepted with a warning": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
+				*utiltestingapi.MakePodSet("main", 1).SubGroupCount(new(int32(-1))).Obj(),
+			).Obj(),
+			wantWarnings: admission.Warnings{
+				"spec.podSets[0].topologyRequest.subGroupCount: negative value -1 is deprecated and will be rejected in a future release",
 			},
 		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
-			gotErr := ValidateWorkload(tc.workload)
+			gotWarnings, gotErr := (&WorkloadWebhook{}).ValidateCreate(t.Context(), tc.workload)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
-				t.Errorf("ValidateWorkload() mismatch (-want +got):\n%s", diff)
+				t.Errorf("ValidateCreate() error mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantWarnings, gotWarnings); diff != "" {
+				t.Errorf("ValidateCreate() warnings mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -436,7 +454,8 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 		featureGates map[featuregate.Feature]bool
 
 		before, after *kueue.Workload
-		wantErr       field.ErrorList
+		wantErr       error
+		wantWarnings  admission.Warnings
 	}{
 		"reclaimable pod count can change up": {
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -503,7 +522,235 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("status", "reclaimablePods").Key("ps1").Child("count"), nil, ""),
 				field.Required(field.NewPath("status", "reclaimablePods").Key("ps2"), ""),
-			},
+			}.ToAggregate(),
+		},
+		"elastic workload: unchanged reclaimable pod count is tolerated while its podSet scales down below it": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 8).Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "ps1"}).
+						Obj(), now,
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{Name: "ps1", Count: 4},
+				).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 3).Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "ps1"}).
+						Obj(), now,
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{Name: "ps1", Count: 4},
+				).
+				Obj(),
+			wantErr: nil,
+		},
+		"elastic workload: changed reclaimable pod count above the podSet count is rejected": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 8).Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "ps1"}).
+						Obj(), now,
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{Name: "ps1", Count: 4},
+				).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 3).Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "ps1"}).
+						Obj(), now,
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{Name: "ps1", Count: 5},
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("status", "reclaimablePods").Key("ps1").Child("count"), nil, ""),
+			}.ToAggregate(),
+		},
+		"elastic workload: reclaimable pod count can decrease after its podSet scaled down below the admitted count": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 3).Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: ptr.To[int32](8)}).
+						Obj(), now,
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{Name: "ps1", Count: 4},
+				).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 3).Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: ptr.To[int32](8)}).
+						Obj(), now,
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{Name: "ps1", Count: 3},
+				).
+				Obj(),
+			wantErr: nil,
+		},
+		"elastic workload: reclaimable pod count can decrease when scaled down below the admitted count even if the podSet still exceeds it": {
+			// The exact kueue#12958 scenario: admitted at 20, scaled to 10, the
+			// reconciler lowers reclaimable from 9 to 0. The podSet (10) still
+			// exceeds the reclaimable count, so only the admission count reveals
+			// the scale-down.
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 10).Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: ptr.To[int32](20)}).
+						Obj(), now,
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{Name: "ps1", Count: 9},
+				).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 10).Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: ptr.To[int32](20)}).
+						Obj(), now,
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{Name: "ps1", Count: 0},
+				).
+				Obj(),
+			wantErr: nil,
+		},
+		"elastic workload: reclaimable pod count cannot decrease without a podSet scale-down": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 8).Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "ps1"}).
+						Obj(), now,
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{Name: "ps1", Count: 4},
+				).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 8).Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "ps1"}).
+						Obj(), now,
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{Name: "ps1", Count: 2},
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("status", "reclaimablePods").Key("ps1").Child("count"), nil, ""),
+			}.ToAggregate(),
+		},
+		"elastic workload: reclaimable pod entry can be removed after its podSet scaled down below the admitted count": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 8).Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: ptr.To[int32](8)}).
+						Obj(), now,
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{Name: "ps1", Count: 4},
+				).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 1).Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: ptr.To[int32](8)}).
+						Obj(), now,
+				).
+				Obj(),
+			wantErr: nil,
+		},
+		"elastic workload: reclaimable pod entry cannot be removed without a podSet scale-down": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 8).Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "ps1"}).
+						Obj(), now,
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{Name: "ps1", Count: 4},
+				).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 8).Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "ps1"}).
+						Obj(), now,
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Required(field.NewPath("status", "reclaimablePods").Key("ps1"), ""),
+			}.ToAggregate(),
+		},
+		"non-elastic workload: stale reclaimable pod count is still rejected when its podSet scales down": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 8).Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "ps1"}).
+						Obj(), now,
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{Name: "ps1", Count: 4},
+				).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 3).Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "ps1"}).
+						Obj(), now,
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{Name: "ps1", Count: 4},
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("status", "reclaimablePods").Key("ps1").Child("count"), nil, ""),
+			}.ToAggregate(),
 		},
 		"reclaimable pod count can go to 0 if the job is suspended": {
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -554,7 +801,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			}).Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("status").Child("admissionChecks").Index(0).Child("podSetUpdates"), nil, ""),
-			},
+			}.ToAggregate(),
 		},
 		"should change other fields of admissionchecks when podSetUpdates is immutable": {
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
@@ -656,7 +903,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("status", "admission"), nil, ""),
-			},
+			}.ToAggregate(),
 		},
 		"PodSets cannot be added to admission": {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
@@ -691,7 +938,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("status", "admission"), nil, ""),
-			},
+			}.ToAggregate(),
 		},
 
 		"workload.podSets[].count is immutable": {
@@ -712,7 +959,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 					kueue.PodSetAssignment{Name: "ps2"}).Obj(), now).Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("spec", "podSets", "1"), nil, ""),
-			},
+			}.ToAggregate(),
 		},
 		"workload.podSets[].count is mutable with ElasticJobs feature gate": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
@@ -762,7 +1009,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Forbidden(field.NewPath("metadata", "annotations").Key(constants.AdmissionGatedByAnnotation), ""),
-			},
+			}.ToAggregate(),
 		},
 		"allow removing AdmissionGatedBy annotation with single gate": {
 			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
@@ -822,7 +1069,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Forbidden(field.NewPath("metadata", "annotations").Key(constants.AdmissionGatedByAnnotation), ""),
-			},
+			}.ToAggregate(),
 		},
 		"allow reordering gates in AdmissionGatedBy annotation": {
 			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
@@ -840,13 +1087,27 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
+		"negative subGroupCount is accepted with a warning": {
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
+				*utiltestingapi.MakePodSet("main", 1).Obj(),
+			).Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
+				*utiltestingapi.MakePodSet("main", 1).SubGroupCount(new(int32(-1))).Obj(),
+			).Obj(),
+			wantWarnings: admission.Warnings{
+				"spec.podSets[0].topologyRequest.subGroupCount: negative value -1 is deprecated and will be rejected in a future release",
+			},
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
-			errList := ValidateWorkloadUpdate(tc.after, tc.before)
-			if diff := cmp.Diff(tc.wantErr, errList, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
-				t.Errorf("ValidateWorkloadUpdate() mismatch (-want +got):\n%s", diff)
+			gotWarnings, gotErr := (&WorkloadWebhook{}).ValidateUpdate(t.Context(), tc.before, tc.after)
+			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
+				t.Errorf("ValidateUpdate() error mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantWarnings, gotWarnings); diff != "" {
+				t.Errorf("ValidateUpdate() warnings mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

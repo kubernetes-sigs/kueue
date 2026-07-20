@@ -77,8 +77,10 @@ IMAGE_PUSH_RETRY = $(PROJECT_DIR)/hack/testing/retry.sh --attempts 7 --delay 2 -
 
 MAKE_TIMING ?= $(if $(filter 1 true TRUE yes YES on ON,$(CI)),1,0)
 MAKE_TIMING_MIN_SECONDS ?= 1
+MAKE_TIMING_COMMANDS ?= 0
 export MAKE_TIMING
 export MAKE_TIMING_MIN_SECONDS
+export MAKE_TIMING_COMMANDS
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # This is a requirement for 'setup-envtest.sh' in the test target.
@@ -108,7 +110,7 @@ LD_FLAGS += -X '$(version_pkg).BuildDate=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)'
 
 # Update these variables when preparing a new release or a release branch.
 # Then run `make prepare-release-branch`
-RELEASE_VERSION=v0.18.2
+RELEASE_VERSION=v0.18.3
 RELEASE_BRANCH=main
 # Application version for Helm and npm (strips leading 'v' from RELEASE_VERSION)
 APP_VERSION := $(shell echo $(RELEASE_VERSION) | cut -c2-)

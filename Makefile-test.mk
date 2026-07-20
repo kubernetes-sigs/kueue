@@ -137,7 +137,7 @@ test-integration-run:
 	ENVTEST_K8S_VERSION=$(ENVTEST_K8S_VERSION) \
 	ARTIFACTS=$(ARTIFACTS) \
 	TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) API_LOG_LEVEL=$(INTEGRATION_API_LOG_LEVEL) \
-	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) $(GOFLAGS) -procs=$(INTEGRATION_NPROCS) --race --json-report=integration.json --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
+	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) $(GOFLAGS) -procs=$(INTEGRATION_NPROCS) --race --json-report=integration.json --output-interceptor-mode=none --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
 	$(BIN_DIR)/ginkgo-top -i $(ARTIFACTS)/integration.json > $(ARTIFACTS)/integration-top.yaml
 
 .PHONY: test-integration-baseline
@@ -240,7 +240,7 @@ $(TEST_E2E_SHARD_2_TARGETS): export RAY_VERSION := $(RAY_VERSION)
 $(TEST_E2E_SHARD_2_TARGETS): export RAYMINI_VERSION := $(RAYMINI_VERSION)
 
 ## Label Taxonomy:
-##   Features: appwrapper,jaxjob,jobset,kuberay,leaderworkerset,pytorchjob,trainjob
+##   Features: appwrapper,jaxjob,jobset,kuberay,leaderworkerset,pytorchjob,trainjob,mpijob
 ##
 ## Examples:
 ##   Run only AppWrapper tests: GINKGO_ARGS="--label-filter=feature:appwrapper" make test-e2e-extended
@@ -255,7 +255,7 @@ test-e2e-extended-shard-0: setup-e2e-env run-test-e2e-extended-$(E2E_KIND_VERSIO
 
 .PHONY: test-e2e-extended-shard-1
 test-e2e-extended-shard-1: E2E_NPROCS := 4
-test-e2e-extended-shard-1: GINKGO_ARGS=--label-filter=feature:appwrapper,feature:jaxjob,feature:jobset,feature:leaderworkerset,feature:pytorchjob,feature:trainjob
+test-e2e-extended-shard-1: GINKGO_ARGS=--label-filter=feature:appwrapper,feature:jaxjob,feature:jobset,feature:leaderworkerset,feature:pytorchjob,feature:trainjob,feature:mpijob
 test-e2e-extended-shard-1: setup-e2e-env run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-e2e-extended-shard-2
@@ -599,9 +599,10 @@ run-test-e2e-k8s-main-was:
 		APPWRAPPER_VERSION=$(APPWRAPPER_VERSION) \
 		JOBSET_VERSION=$(JOBSET_VERSION) \
 		KUBEFLOW_VERSION=$(KUBEFLOW_VERSION) \
+		KUBEFLOW_MPI_VERSION=$(KUBEFLOW_MPI_VERSION) \
 		KUBEFLOW_TRAINER_VERSION=$(KUBEFLOW_TRAINER_VERSION) \
 		LEADERWORKERSET_VERSION=$(LEADERWORKERSET_VERSION) \
-		KUBERAY_VERSION=$(KUBERAY_VERSION) RAY_VERSION=$(RAY_VERSION) RAYMINI_VERSION=$(RAYMINI_VERSION) USE_RAY_FOR_TESTS=$(USE_RAY_FOR_TESTS) \
+		KUBERAY_VERSION=$(KUBERAY_VERSION) RAY_VERSION=$(RAY_VERSION) RAYMINI_VERSION=$(RAYMINI_VERSION) USE_RAY_FOR_TESTS="ray" \
 		PROMETHEUS_OPERATOR_VERSION=$(PROMETHEUS_OPERATOR_VERSION) \
 		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="singlecluster" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
@@ -771,4 +772,4 @@ test-e2e-kueueviz: setup-e2e-env ## Run end-to-end tests for kueueviz without ru
 
 .PHONY: verify-ci-build-times
 verify-ci-build-times: ## Verify that CI build times are below threshold.
-	python3 ./hack/tools/prow-runtimes/prow_runtimes.py --kueue-presubmits --limit 5 --only-success --only-merge-pool --threshold-stat=second_longest --threshold 12m
+	python3 ./hack/tools/prow-runtimes/prow_runtimes.py --kueue-presubmits --limit 5 --only-success --only-merge-pool --threshold-stat=second_longest --threshold 14m

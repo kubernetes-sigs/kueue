@@ -1,0 +1,14 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: hello
+spec:
+  params:
+  - name: username
+    type: string
+  steps:
+    - name: hello
+      image: ubuntu
+      script: |
+        #!/bin/bash
+        echo "Hello $(params.username)!"

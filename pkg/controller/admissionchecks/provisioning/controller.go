@@ -388,7 +388,7 @@ func (c *Controller) createPodTemplate(ctx context.Context, wl *kueue.Workload, 
 		return nil, err
 	}
 
-	err = podset.Merge(&newPt.Template.ObjectMeta, &newPt.Template.Spec, psi)
+	err = podset.Merge(ctrl.LoggerFrom(ctx), &newPt.Template.ObjectMeta, &newPt.Template.Spec, psi)
 	if err != nil {
 		return nil, err
 	}

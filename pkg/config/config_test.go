@@ -58,6 +58,21 @@ import (
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
 )
 
+var defaultWaitForPodsReady = &configapi.WaitForPodsReady{
+	Timeout: metav1.Duration{
+		Duration: 30 * time.Minute,
+	},
+	BlockAdmission: new(false),
+	RecoveryTimeout: &metav1.Duration{
+		Duration: 30 * time.Minute,
+	},
+	RequeuingStrategy: &configapi.RequeuingStrategy{
+		Timestamp:          ptr.To(configapi.EvictionTimestamp),
+		BackoffBaseSeconds: ptr.To[int32](configapi.DefaultRequeuingBackoffBaseSeconds),
+		BackoffMaxSeconds:  ptr.To[int32](configapi.DefaultRequeuingBackoffMaxSeconds),
+	},
+}
+
 func defaultControlCacheOptions(namespace string) ctrlcache.Options {
 	return ctrlcache.Options{
 		ByObject: map[ctrlclient.Object]ctrlcache.ByObject{
@@ -463,6 +478,7 @@ objectRetentionPolicies:
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
+				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -481,6 +497,7 @@ objectRetentionPolicies:
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
+				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -519,6 +536,7 @@ objectRetentionPolicies:
 					},
 				},
 				VisibilityServer: defaultVisibility,
+				WaitForPodsReady: defaultWaitForPodsReady,
 			},
 			wantOptions: defaultControlOptions("kueue-tenant-a"),
 		},
@@ -538,6 +556,7 @@ objectRetentionPolicies:
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
+				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: ctrl.Options{
 				Cache:                  defaultControlCacheOptions(configapi.DefaultNamespace),
@@ -574,6 +593,7 @@ objectRetentionPolicies:
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
+				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -595,6 +615,7 @@ objectRetentionPolicies:
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
+				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -614,6 +635,7 @@ objectRetentionPolicies:
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
+				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: ctrl.Options{
 				Cache:                  defaultControlCacheOptions("kueue-system"),
@@ -679,6 +701,7 @@ objectRetentionPolicies:
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
+				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -701,6 +724,7 @@ objectRetentionPolicies:
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
+				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: ctrl.Options{
 				Cache:                  defaultControlCacheOptions(configapi.DefaultNamespace),
@@ -748,6 +772,7 @@ objectRetentionPolicies:
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
+				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -792,6 +817,7 @@ objectRetentionPolicies:
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
+				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -831,6 +857,7 @@ objectRetentionPolicies:
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
+				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -850,6 +877,7 @@ objectRetentionPolicies:
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
+				WaitForPodsReady:             defaultWaitForPodsReady,
 				Resources: &configapi.Resources{
 					Transformations: []configapi.ResourceTransformation{
 						{
@@ -904,6 +932,7 @@ objectRetentionPolicies:
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
+				WaitForPodsReady:             defaultWaitForPodsReady,
 				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
 						AfterFinished:           &metav1.Duration{Duration: 30 * time.Minute},
@@ -1012,6 +1041,7 @@ webhook:
 					WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
 					WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
 				},
+				WaitForPodsReady: defaultWaitForPodsReady,
 				ClientConnection: &configapi.ClientConnection{
 					QPS:   ptr.To(configapi.DefaultClientConnectionQPS),
 					Burst: ptr.To(configapi.DefaultClientConnectionBurst),
@@ -1062,6 +1092,8 @@ webhook:
 					WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
 					WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
 				},
+				WaitForPodsReady: defaultWaitForPodsReady,
+
 				ClientConnection: &configapi.ClientConnection{
 					QPS:   ptr.To(configapi.DefaultClientConnectionQPS),
 					Burst: ptr.To(configapi.DefaultClientConnectionBurst),
@@ -1112,6 +1144,8 @@ webhook:
 					WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
 					WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
 				},
+				WaitForPodsReady: defaultWaitForPodsReady,
+
 				ClientConnection: &configapi.ClientConnection{
 					QPS:   ptr.To(configapi.DefaultClientConnectionQPS),
 					Burst: ptr.To(configapi.DefaultClientConnectionBurst),
@@ -1164,6 +1198,7 @@ webhook:
 					WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
 					WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
 				},
+				WaitForPodsReady: defaultWaitForPodsReady,
 				ClientConnection: &configapi.ClientConnection{
 					QPS:   ptr.To(configapi.DefaultClientConnectionQPS),
 					Burst: ptr.To(configapi.DefaultClientConnectionBurst),
@@ -1210,6 +1245,8 @@ webhook:
 					WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
 					WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
 				},
+				WaitForPodsReady: defaultWaitForPodsReady,
+
 				ClientConnection: &configapi.ClientConnection{
 					QPS:   ptr.To(configapi.DefaultClientConnectionQPS),
 					Burst: ptr.To(configapi.DefaultClientConnectionBurst),
@@ -1386,6 +1423,16 @@ func TestEncode(t *testing.T) {
 				"visibilityServer": map[string]any{
 					"bindPort": int64(8082),
 				},
+				"waitForPodsReady": map[string]any{
+					"blockAdmission":  false,
+					"recoveryTimeout": "30m0s",
+					"requeuingStrategy": map[string]any{
+						"backoffBaseSeconds": int64(60),
+						"backoffMaxSeconds":  int64(3600),
+						"timestamp":          "Eviction",
+					},
+					"timeout": "30m0s",
+				},
 			},
 		},
 	}
@@ -1409,21 +1456,41 @@ func TestEncode(t *testing.T) {
 
 func TestWaitForPodsReadyIsEnabled(t *testing.T) {
 	cases := map[string]struct {
-		cfg  *configapi.Configuration
-		want bool
+		cfg          *configapi.Configuration
+		featureGates map[featuregate.Feature]bool
+		want         bool
 	}{
-		"waitforpodsready.Enabled() is false": {
+		"waitforpodsready.Enabled() is false when WaitForPodsReady config is nil": {
 			cfg: &configapi.Configuration{},
+			featureGates: map[featuregate.Feature]bool{
+				features.DisableWaitForPodsReady: false,
+			},
+			want: false,
 		},
-		"waitforpodsready.Enabled() is true": {
+
+		"waitforpodsready.Enabled() is false when DisableWaitForPodsReady feature gate is enabled": {
 			cfg: &configapi.Configuration{
-				WaitForPodsReady: &configapi.WaitForPodsReady{},
+				WaitForPodsReady: defaultWaitForPodsReady,
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.DisableWaitForPodsReady: true,
+			},
+			want: false,
+		},
+
+		"waitforpodsready.Enabled() is true when DisableWaitForPodsReady feature gate is disabled": {
+			cfg: &configapi.Configuration{
+				WaitForPodsReady: defaultWaitForPodsReady,
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.DisableWaitForPodsReady: false,
 			},
 			want: true,
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			got := waitforpodsready.Enabled(tc.cfg.WaitForPodsReady)
 			if tc.want != got {
 				t.Errorf("Unexpected result from waitforpodsready.Enabled()\nwant:\n%v\ngot:%v\n", tc.want, got)

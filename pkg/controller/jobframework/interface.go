@@ -47,9 +47,10 @@ type GenericJob interface {
 	// from the workload into the job and unsuspends it.
 	RunWithPodSetsInfo(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo) error
 
-	// RestorePodSetsInfo restores the original node affinity and pod set counts
-	// of the job. It returns whether any change was made.
-	RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool
+	// RestorePodSetsInfo restores the original node affinity and pod set counts of the job.
+	// It returns whether any change was made. On a pod set count mismatch it logs
+	// and returns false without applying any change.
+	RestorePodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) bool
 
 	// Finished returns whether the job is completed or failed.
 	// The message describes the condition, and success indicates completion status.

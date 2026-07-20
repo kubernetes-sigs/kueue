@@ -32,6 +32,7 @@ import (
 	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -46,6 +47,7 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
@@ -55,6 +57,7 @@ import (
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -431,7 +434,7 @@ type reconcileTestCase struct {
 	wantEvents                []utiltesting.EventRecord
 	wantResult                reconcile.Result
 	reconcilerOpts            []Option
-	beforeReconcile           func(context.Context, client.Client)
+	beforeReconcile           func(context.Context, client.Client, *qcache.Manager)
 }
 
 func TestUpdateSkipsRequeueForOnHoldWorkload(t *testing.T) {
@@ -485,6 +488,59 @@ func TestUpdateSkipsRequeueForOnHoldWorkload(t *testing.T) {
 
 	if heads := qManager.Heads(headsCtx); len(heads) != 0 {
 		t.Fatalf("expected no second-pass workloads, got %d", len(heads))
+	}
+}
+
+func TestUpdateRemovesStaleQueueEntryForOnHoldWorkload(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	fakeClock := testingclock.NewFakeClock(now)
+
+	oldWl := utiltestingapi.MakeWorkload("wl", "ns").
+		Queue("lq").
+		Active(true).
+		Request(corev1.ResourceCPU, "1").
+		Obj()
+	newWl := utiltestingapi.MakeWorkload("wl", "ns").
+		Queue("lq").
+		Active(true).
+		Request(corev1.ResourceCPU, "1").
+		Condition(metav1.Condition{
+			Type:    kueue.WorkloadQuotaReserved,
+			Status:  metav1.ConditionFalse,
+			Reason:  kueue.WorkloadOnHold,
+			Message: "StatefulSet scaled to zero; workload on hold",
+		}).
+		Obj()
+
+	cl := utiltesting.NewClientBuilder().Build()
+	recorder := &utiltesting.EventRecorder{}
+	cqCache := schdcache.New(cl)
+	qManager := qcache.NewManagerForUnitTests(cl, cqCache,
+		qcache.WithClock(fakeClock),
+		qcache.WithPreemptionExpectations(preemptexpectations.New()))
+	reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder)
+
+	ctx, log := utiltesting.ContextWithLog(t)
+
+	setupClusterQueue(ctx, t, cl, qManager, cqCache, utiltestingapi.MakeClusterQueue("cq").Obj(), false)
+	setupLocalQueue(ctx, t, cl, qManager, utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(), false)
+
+	if err := qManager.AddOrUpdateWorkload(log, oldWl); err != nil {
+		t.Fatalf("AddOrUpdateWorkload() error = %v", err)
+	}
+	if pending := qManager.PendingWorkloadsInfo("cq"); len(pending) != 1 {
+		t.Fatalf("expected one pending workload before update, got %d", len(pending))
+	}
+
+	if got := reconciler.Update(event.TypedUpdateEvent[*kueue.Workload]{
+		ObjectOld: oldWl,
+		ObjectNew: newWl,
+	}); !got {
+		t.Fatalf("Update() = %v, want true", got)
+	}
+
+	if pending := qManager.PendingWorkloadsInfo("cq"); len(pending) != 0 {
+		t.Fatalf("expected no workloads in pending queue, got %d", len(pending))
 	}
 }
 
@@ -1429,7 +1485,7 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			cq: utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).Obj(),
 			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
-			beforeReconcile: func(ctx context.Context, cl client.Client) {
+			beforeReconcile: func(ctx context.Context, cl client.Client, _ *qcache.Manager) {
 				cq := &kueue.ClusterQueue{}
 				if err := cl.Get(ctx, types.NamespacedName{Name: "cq"}, cq); err != nil {
 					panic(err)
@@ -1500,6 +1556,152 @@ func TestReconcile(t *testing.T) {
 			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Queue("lq").
+				Obj(),
+		},
+		"reconcile bypassed workload when SchedulingEquivalenceHashing is enabled (stale status -> bypassed status)": {
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulingEquivalenceHashing:      true,
+				features.UnadmittedWorkloadsObservability:  true,
+				features.UnadmittedWorkloadsExplicitStatus: true,
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			beforeReconcile: func(ctx context.Context, cl client.Client, qManager *qcache.Manager) {
+				wl := &kueue.Workload{}
+				if err := cl.Get(ctx, types.NamespacedName{Name: "wl", Namespace: "ns"}, wl); err != nil {
+					panic(err)
+				}
+				qManager.Heads(ctx) // Pop from active heap
+				wInfo := workload.NewInfo(wl)
+				qManager.RequeueWorkload(ctx, wInfo, qcache.RequeueReasonNoFit, qcache.QuotaReservedReasonWaitingForQuota)
+			},
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Request(corev1.ResourceCPU, "1").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+					Message: "Bypassed scheduling evaluation because an equivalent workload recently failed",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
+				Obj(),
+		},
+		"reconcile bypassed workload when SchedulingEquivalenceHashing is enabled and UnadmittedWorkloadsExplicitStatus is disabled (no status stamped on creation)": {
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulingEquivalenceHashing:      true,
+				features.UnadmittedWorkloadsObservability:  true,
+				features.UnadmittedWorkloadsExplicitStatus: false,
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			beforeReconcile: func(ctx context.Context, cl client.Client, qManager *qcache.Manager) {
+				wl := &kueue.Workload{}
+				if err := cl.Get(ctx, types.NamespacedName{Name: "wl", Namespace: "ns"}, wl); err != nil {
+					panic(err)
+				}
+				qManager.Heads(ctx) // Pop from active heap
+				wInfo := workload.NewInfo(wl)
+				qManager.RequeueWorkload(ctx, wInfo, qcache.RequeueReasonNoFit, qcache.QuotaReservedReasonWaitingForQuota)
+			},
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+		},
+		"reconcile bypassed workload when SchedulingEquivalenceHashing is enabled (keep detailed scheduler message)": {
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulingEquivalenceHashing:      true,
+				features.UnadmittedWorkloadsObservability:  true,
+				features.UnadmittedWorkloadsExplicitStatus: true,
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Request(corev1.ResourceCPU, "1").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+					Message: "insufficient CPU in ClusterQueue cq",
+				}).
+				Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			beforeReconcile: func(ctx context.Context, cl client.Client, qManager *qcache.Manager) {
+				wl := &kueue.Workload{}
+				if err := cl.Get(ctx, types.NamespacedName{Name: "wl", Namespace: "ns"}, wl); err != nil {
+					panic(err)
+				}
+				qManager.Heads(ctx) // Pop from active heap
+				wInfo := workload.NewInfo(wl)
+				qManager.RequeueWorkload(ctx, wInfo, qcache.RequeueReasonNoFit, qcache.QuotaReservedReasonWaitingForQuota)
+			},
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Request(corev1.ResourceCPU, "1").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+					Message: "insufficient CPU in ClusterQueue cq",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
+				Obj(),
+		},
+		"reconcile bypassed workload when SchedulingEquivalenceHashing is disabled (stale status remains pending)": {
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulingEquivalenceHashing:      false,
+				features.UnadmittedWorkloadsObservability:  true,
+				features.UnadmittedWorkloadsExplicitStatus: true,
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			beforeReconcile: func(ctx context.Context, cl client.Client, qManager *qcache.Manager) {
+				wl := &kueue.Workload{}
+				if err := cl.Get(ctx, types.NamespacedName{Name: "wl", Namespace: "ns"}, wl); err != nil {
+					panic(err)
+				}
+				qManager.Heads(ctx) // Pop from active heap
+				wInfo := workload.NewInfo(wl)
+				qManager.RequeueWorkload(ctx, wInfo, qcache.RequeueReasonNoFit, qcache.QuotaReservedReasonWaitingForQuota)
+			},
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Request(corev1.ResourceCPU, "1").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+					Message: "Workload is pending evaluation in the scheduling queue",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
 				Obj(),
 		},
 	}
@@ -1661,7 +1863,7 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 				}
 
 				if tc.beforeReconcile != nil {
-					tc.beforeReconcile(ctx, cl)
+					tc.beforeReconcile(ctx, cl, qManager)
 				}
 
 				gotResult, gotError := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(testWl)})
@@ -1969,4 +2171,107 @@ func setupDRACache(objs []client.Object) *dra.ExtendedResourceCache {
 		}
 	}
 	return draCache
+}
+
+func TestUpdateAfsConsumedUsage(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	afsConfig := &configapi.AdmissionFairSharing{
+		UsageHalfLifeTime:     metav1.Duration{Duration: 5 * time.Minute},
+		UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
+	}
+
+	// With halfLifeTime == samplingInterval the entry penalty is half of the
+	// request, so the 4 CPU workload settles a 2 CPU penalty.
+	cases := map[string]struct {
+		initialEntry        *queueafs.ConsumedResourcesEntry
+		wantCPUMilli        int64
+		wantStatusAccounted bool
+		// wantLastUpdate defaults to now when zero.
+		wantLastUpdate time.Time
+	}{
+		"creates a penalty-only entry on a cache miss": {
+			// StatusAccounted must start false so the LocalQueue seed can still
+			// merge the persisted history into this entry.
+			wantCPUMilli:        2_000,
+			wantStatusAccounted: false,
+		},
+		"folds into an existing entry and preserves StatusAccounted": {
+			initialEntry: &queueafs.ConsumedResourcesEntry{
+				Resources:       corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")},
+				LastUpdate:      now,
+				StatusAccounted: true,
+			},
+			wantCPUMilli:        10_000,
+			wantStatusAccounted: true,
+		},
+		"clamps a future LastUpdate and keeps the timestamp monotonic": {
+			// A concurrent writer stamped a LastUpdate later than now. The
+			// elapsed time must clamp to 0 so alpha stays within [0, 1]: the old
+			// usage is kept verbatim and only the 2 CPU penalty folds in (8+2=10),
+			// instead of the negative-elapsed path inflating it. The stored
+			// timestamp stays monotonic at the later value rather than rewinding.
+			initialEntry: &queueafs.ConsumedResourcesEntry{
+				Resources:       corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")},
+				LastUpdate:      now.Add(5 * time.Minute),
+				StatusAccounted: true,
+			},
+			wantCPUMilli:        10_000,
+			wantStatusAccounted: true,
+			wantLastUpdate:      now.Add(5 * time.Minute),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			fakeClock := testingclock.NewFakeClock(now)
+			cl := utiltesting.NewClientBuilder().Build()
+			cqCache := schdcache.New(cl)
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithClock(fakeClock), qcache.WithAdmissionFairSharing(afsConfig))
+			reconciler := NewWorkloadReconciler(cl, qManager, cqCache, &utiltesting.EventRecorder{}, WithAdmissionFairSharing(afsConfig))
+			reconciler.clock = fakeClock
+
+			ctx, log := utiltesting.ContextWithLog(t)
+			cq := utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).Obj()
+			setupClusterQueue(ctx, t, cl, qManager, cqCache, cq, false)
+			lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()
+			setupLocalQueue(ctx, t, cl, qManager, lq, false)
+			if err := cqCache.AddLocalQueue(lq); err != nil {
+				t.Fatalf("couldn't add the local queue to the scheduler cache: %v", err)
+			}
+
+			wl := utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Request(corev1.ResourceCPU, "4").
+				SimpleReserveQuota("cq", "rf", now).
+				AdmittedAt(true, now).
+				Obj()
+
+			lqKey := utilqueue.KeyFromWorkload(wl)
+			if tc.initialEntry != nil {
+				qManager.AfsConsumedResources.Update(lqKey, func(queueafs.ConsumedResourcesEntry, bool) queueafs.ConsumedResourcesEntry {
+					return *tc.initialEntry
+				})
+			}
+
+			reconciler.updateAfsConsumedUsage(log, wl)
+
+			gotEntry, found := qManager.AfsConsumedResources.Get(lqKey)
+			if !found {
+				t.Fatal("expected an AfsConsumedResources entry after settlement")
+			}
+			gotCPU := gotEntry.Resources[corev1.ResourceCPU]
+			if gotCPU.MilliValue() != tc.wantCPUMilli {
+				t.Errorf("unexpected consumed CPU: want %dm, got %dm", tc.wantCPUMilli, gotCPU.MilliValue())
+			}
+			wantLastUpdate := tc.wantLastUpdate
+			if wantLastUpdate.IsZero() {
+				wantLastUpdate = now
+			}
+			if !gotEntry.LastUpdate.Equal(wantLastUpdate) {
+				t.Errorf("unexpected LastUpdate: want %v, got %v", wantLastUpdate, gotEntry.LastUpdate)
+			}
+			if gotEntry.StatusAccounted != tc.wantStatusAccounted {
+				t.Errorf("unexpected StatusAccounted: want %t, got %t", tc.wantStatusAccounted, gotEntry.StatusAccounted)
+			}
+		})
+	}
 }

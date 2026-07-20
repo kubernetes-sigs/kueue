@@ -18,6 +18,7 @@ limitations under the License.
 package workloadslicing
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -36,7 +37,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
-	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
@@ -110,27 +110,12 @@ func FindNotFinishedWorkloads(ctx context.Context, clnt client.Client, jobObject
 		return nil, err
 	}
 
-	// Sort workloads by creation timestamp, oldest first.
-	// In the rare case that two workload slices have identical creationTimestamp values
-	// (due to RFC3339 second-level precision), use WorkloadSliceReplacementFor
-	// as a tiebreaker. This edge case is uncommon in production but can occur in
-	// integration or e2e tests where the original and scaled-up workloads are created
-	// in rapid succession.
+	// Sort oldest-first; break same-second ties by UID for stable ordering.
 	slices.SortFunc(list.Items, func(a, b kueue.Workload) int {
-		return cmputil.LazyOr(
-			func() int {
-				return a.CreationTimestamp.Compare(b.CreationTimestamp.Time)
-			},
-			func() int {
-				if b.Annotations[WorkloadSliceReplacementFor] == string(workload.Key(&a)) {
-					return -1
-				}
-				if a.Annotations[WorkloadSliceReplacementFor] == string(workload.Key(&b)) {
-					return 1
-				}
-				return 0
-			},
-		)
+		if c := a.CreationTimestamp.Compare(b.CreationTimestamp.Time); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.UID, b.UID)
 	})
 
 	// Filter out workloads with activated "Finished" condition.
@@ -142,9 +127,7 @@ func FindNotFinishedWorkloads(ctx context.Context, clnt client.Client, jobObject
 // FindLatestActiveWorkload returns the newest non-finished workload slice owned
 // by the provided job object/gvk that holds a quota reservation, or nil if none
 // qualifies. This is the chain's "active" slice: its granted PodSet counts
-// define the admitted capacity. It builds on FindNotFinishedWorkloads, so the
-// returned slice respects the same ordering (newest last, with
-// WorkloadSliceReplacementFor as a tiebreaker on equal creation timestamps).
+// define the admitted capacity.
 func FindLatestActiveWorkload(ctx context.Context, clnt client.Client, jobObject client.Object, jobObjectGVK schema.GroupVersionKind) (*kueue.Workload, error) {
 	workloads, err := FindNotFinishedWorkloads(ctx, clnt, jobObject, jobObjectGVK)
 	if err != nil {
@@ -266,8 +249,6 @@ func EnsureWorkloadSlices(
 //   - When no non-evicted admitted workload exists, the newest non-evicted
 //     workload is kept
 //   - Evicted workloads are always finished (they hold quota that must be released)
-//
-// The input slice must be sorted oldest-first.
 func normalizeActiveSlices(
 	ctx context.Context,
 	clnt client.Client,
@@ -276,32 +257,43 @@ func normalizeActiveSlices(
 ) (*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
 
-	var latestWithQuotaReservation, pendingReplacement, latestNonEvicted *kueue.Workload
-	for i, _ := range slices.Backward(workloads) {
+	// Index replacements by the workload they replace. On duplicate claims
+	// (race-created forks), prefer the admitted one.
+	replacements := make(map[workload.Reference]*kueue.Workload)
+	for i := range workloads {
 		wl := &workloads[i]
-		if workloadevict.IsEvicted(wl) {
-			continue
-		}
-		if latestNonEvicted == nil {
-			latestNonEvicted = wl
-		}
-		if workload.HasQuotaReservation(wl) {
-			if latestWithQuotaReservation == nil {
-				latestWithQuotaReservation = wl
+		if replKey := ReplacementForKey(wl); replKey != nil && !workloadevict.IsEvicted(wl) {
+			if existing, ok := replacements[*replKey]; !ok || (!workload.HasQuotaReservation(existing) && workload.HasQuotaReservation(wl)) {
+				replacements[*replKey] = wl
 			}
 		}
 	}
 
+	// Find the admitted workload at the head of the replacement chain: the one
+	// whose replacement (if any) is not itself admitted.
+	var latestWithQuotaReservation, pendingReplacement, latestNonEvicted *kueue.Workload
+	for i := range workloads {
+		wl := &workloads[i]
+		if workloadevict.IsEvicted(wl) {
+			continue
+		}
+		if latestNonEvicted == nil || wl.CreationTimestamp.After(latestNonEvicted.CreationTimestamp.Time) {
+			latestNonEvicted = wl
+		}
+		if !workload.HasQuotaReservation(wl) {
+			continue
+		}
+		// Skip if replaced by another admitted workload.
+		if repl, ok := replacements[workload.Key(wl)]; ok && workload.HasQuotaReservation(repl) {
+			continue
+		}
+		latestWithQuotaReservation = wl
+	}
+
 	if latestWithQuotaReservation != nil {
-		latestWithQuotaReservationKey := workload.Key(latestWithQuotaReservation)
-		for i, _ := range slices.Backward(workloads) {
-			wl := &workloads[i]
-			if workload.HasQuotaReservation(wl) || workloadevict.IsEvicted(wl) {
-				continue
-			}
-			if replKey := ReplacementForKey(wl); replKey != nil && *replKey == latestWithQuotaReservationKey {
-				pendingReplacement = wl
-				break
+		if repl, ok := replacements[workload.Key(latestWithQuotaReservation)]; ok {
+			if !workload.HasQuotaReservation(repl) {
+				pendingReplacement = repl
 			}
 		}
 	}
@@ -367,6 +359,10 @@ func ReplacedWorkloadSlice(wl *workload.Info, snap *schdcache.Snapshot) ([]*pree
 
 	replaced, found := queue.Workloads[*sliceKey]
 	if !found {
+		return nil, nil
+	}
+
+	if replaced.Obj.Namespace != wl.Obj.Namespace {
 		return nil, nil
 	}
 

@@ -20,8 +20,6 @@ import (
 	"maps"
 	"math"
 	"slices"
-
-	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
 
 // evaluateGreedyAssignment simulates placement of a (leaderCount, sliceCount) request on the given domains.
@@ -78,14 +76,17 @@ func balanceThresholdValue(sliceCount int32, selectedDomainsCount int32, lastDom
 // the request (sliceCount, leaderCount). It uses dynamic programming to find a combination
 // of domains that can fit the requested number of leaders and slices, using the minimum number
 // of domains possible (as determined by a greedy assignment) and having the minimum total capacity.
-func selectOptimalDomainSetToFit(s *TASFlavorSnapshot, domains []*domain, sliceCount int32, leaderCount int32, sliceSize int32, priorizeByEntropy bool) []*domain {
+func selectOptimalDomainSetToFit(s *TASFlavorSnapshot, domains []*domain, sliceCount int32, leaderCount int32, sliceSize int32, prioritizeByEntropy bool) []*domain {
 	fit, optimalNumberOfDomains, _, _ := evaluateGreedyAssignment(s, domains, sliceCount, leaderCount)
 	if !fit {
 		return nil
 	}
 
-	if priorizeByEntropy {
-		sortDomainsByCapacityAndEntropy(domains)
+	orderedDomains := slices.Clone(domains)
+	if prioritizeByEntropy {
+		slices.SortFunc(orderedDomains, compareDomainCapacityAndEntropy)
+	} else {
+		slices.SortFunc(orderedDomains, compareDomainLevelValues)
 	}
 
 	// domain_placements[i][j][k] stores a list of domains that uses 'i' domains with
@@ -96,7 +97,7 @@ func selectOptimalDomainSetToFit(s *TASFlavorSnapshot, domains []*domain, sliceC
 	}
 	domainPlacements[0][leaderCount] = map[int32][]*domain{sliceCount * sliceSize: {}}
 
-	for _, d := range domains {
+	for _, d := range orderedDomains {
 		for i := optimalNumberOfDomains; i > 0; i-- {
 			for _, beforeLeader := range slices.Sorted(maps.Keys(domainPlacements[i-1])) {
 				for _, beforeState := range slices.Sorted(maps.Keys(domainPlacements[i-1][beforeLeader])) {
@@ -183,14 +184,14 @@ func placeSlicesOnDomainsBalanced(s *TASFlavorSnapshot, domains []*domain, slice
 	return resultDomains, ""
 }
 
-func calculateEntropy(blockSizes []int32) float64 {
-	if len(blockSizes) == 0 {
+func calculateDomainsEntropy(domains []*domain) float64 {
+	if len(domains) == 0 {
 		return 0.0
 	}
 
 	var total int32
-	for _, size := range blockSizes {
-		total += size
+	for _, d := range domains {
+		total += d.state
 	}
 
 	if total == 0 {
@@ -199,35 +200,31 @@ func calculateEntropy(blockSizes []int32) float64 {
 
 	var entropy float64
 	totalF := float64(total)
-	for _, size := range blockSizes {
-		if size > 0 {
-			pI := float64(size) / totalF
+	for _, d := range domains {
+		if d.state > 0 {
+			pI := float64(d.state) / totalF
 			entropy += -pI * math.Log2(pI)
 		}
 	}
 	return entropy
 }
 
-func sortDomainsByCapacityAndEntropy(domains []*domain) {
-	slices.SortFunc(domains, func(a, b *domain) int {
-		if r := b.leaderState - a.leaderState; r != 0 {
-			return int(r)
-		}
-		if r := b.sliceStateWithLeader - a.sliceStateWithLeader; r != 0 {
-			return int(r)
-		}
-		aChildrenCapacities := utilslices.Map(a.children, func(d **domain) int32 { return (*d).state })
-		bChildrenCapacities := utilslices.Map(b.children, func(d **domain) int32 { return (*d).state })
-		aEntropy := calculateEntropy(aChildrenCapacities)
-		bEntropy := calculateEntropy(bChildrenCapacities)
-		if bEntropy > aEntropy {
-			return 1
-		}
-		if bEntropy < aEntropy {
-			return -1
-		}
-		return 0
-	})
+func compareDomainCapacityAndEntropy(a, b *domain) int {
+	if r := b.leaderState - a.leaderState; r != 0 {
+		return int(r)
+	}
+	if r := b.sliceStateWithLeader - a.sliceStateWithLeader; r != 0 {
+		return int(r)
+	}
+	aEntropy := calculateDomainsEntropy(a.children)
+	bEntropy := calculateDomainsEntropy(b.children)
+	if bEntropy > aEntropy {
+		return 1
+	}
+	if bEntropy < aEntropy {
+		return -1
+	}
+	return compareDomainLevelValues(a, b)
 }
 
 // findBestDomainsForBalancedPlacement evaluates domains for balanced placement.
@@ -242,7 +239,9 @@ func findBestDomainsForBalancedPlacement(s *TASFlavorSnapshot, params *topologyA
 	if params.requestedLevelIdx == 0 {
 		requestedLevelDomainsToConsider = [][]*domain{slices.Collect(maps.Values(s.domainsPerLevel[0]))}
 	} else {
-		for _, higherLevelDomain := range slices.Collect(maps.Values(s.domainsPerLevel[params.requestedLevelIdx-1])) {
+		higherLevelDomains := slices.Collect(maps.Values(s.domainsPerLevel[params.requestedLevelIdx-1]))
+		slices.SortFunc(higherLevelDomains, compareDomainLevelValues)
+		for _, higherLevelDomain := range higherLevelDomains {
 			requestedLevelDomainsToConsider = append(requestedLevelDomainsToConsider, higherLevelDomain.children)
 		}
 	}

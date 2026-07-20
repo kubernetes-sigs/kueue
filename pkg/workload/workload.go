@@ -27,9 +27,11 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"gopkg.in/inf.v0"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	resourcehelpers "k8s.io/component-helpers/resource"
@@ -46,6 +48,7 @@ import (
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
@@ -71,11 +74,17 @@ const (
 	StatusFinished      = "finished"
 
 	// SchedulingHashUnknown indicates the scheduling hash could not be computed.
-	SchedulingHashUnknown = "unknown"
+	SchedulingHashUnknown EquivalenceHash = "unknown"
 )
 
 // Reference is the full reference to Workload formed as <namespace>/< kueue.WorkloadName >.
 type Reference string
+
+// EquivalenceHash represents a scheduling equivalence class key used to track
+// EquivalenceHash is a hash of a workload's scheduling-relevant shape.
+// Workloads with the same hash have identical scheduling properties
+// and will receive the same FlavorAssigner result given the same cluster state.
+type EquivalenceHash string
 
 func NewReference(namespace, name string) Reference {
 	return Reference(namespace + "/" + name)
@@ -227,7 +236,7 @@ type Info struct {
 	// SchedulingHash identifies the workload's scheduling equivalence class.
 	// Workloads with the same hash have identical scheduling-relevant shape
 	// and will receive the same FlavorAssigner result given the same cluster state.
-	SchedulingHash string
+	SchedulingHash EquivalenceHash
 
 	// NominationMapping is the mapping of PodSets resources and their flavors
 	// based on the nomination phase.
@@ -338,7 +347,7 @@ func (i *Info) rebuildTotalRequests(opts ...InfoOption) {
 // computeSchedulingHash returns a deterministic hash of the workload's
 // scheduling-relevant shape: effective workload priority, pod spec (via
 // SpecShape), effective count, minCount, and topologyRequest per PodSet.
-func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []PodSetResources) string {
+func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []PodSetResources) EquivalenceHash {
 	if !features.Enabled(features.SchedulingEquivalenceHashing) {
 		return SchedulingHashUnknown
 	}
@@ -378,7 +387,7 @@ func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []
 	if logV := log.V(5); logV.Enabled() {
 		logV.Info("Computed scheduling hash", "workload", klog.KObj(wl), "hash", hash, "shapeJSON", string(shapeJSON))
 	}
-	return hash
+	return EquivalenceHash(hash)
 }
 
 func (i *Info) CanBePartiallyAdmitted() bool {
@@ -522,13 +531,12 @@ func applyResourceTransformations(input corev1.ResourceList, transforms map[core
 			// the value of the resource specified in MultiplyBy.
 			if mapping.MultiplyBy != "" {
 				if q, ok := input[mapping.MultiplyBy]; ok {
-					inputQuantity.Mul(q.Value())
+					inputQuantity = multiplyResourceQuantities(inputQuantity, q)
 				}
 			}
 
 			for outputName, baseFactor := range mapping.Outputs {
-				outputQuantity := baseFactor.DeepCopy()
-				outputQuantity.Mul(inputQuantity.Value())
+				outputQuantity := multiplyResourceQuantities(inputQuantity, baseFactor)
 				if accumulated, ok := output[outputName]; ok {
 					outputQuantity.Add(accumulated)
 				}
@@ -542,6 +550,14 @@ func applyResourceTransformations(input corev1.ResourceList, transforms map[core
 		}
 	}
 	return output
+}
+
+func multiplyResourceQuantities(value, mul resource.Quantity) resource.Quantity {
+	value = value.DeepCopy()
+	mul = mul.DeepCopy()
+	product := inf.Dec{}
+	product.Mul(value.AsDec(), mul.AsDec())
+	return *resource.NewDecimalQuantity(product, value.Format)
 }
 
 func CanBePartiallyAdmitted(wl *kueue.Workload) bool {
@@ -578,7 +594,9 @@ func podSetsCountsAfterReclaim(wl *kueue.Workload) map[kueue.PodSetReference]int
 	reclaimCounts := reclaimableCounts(wl)
 	for podSetName := range totalCounts {
 		if rc, found := reclaimCounts[podSetName]; found {
-			totalCounts[podSetName] -= rc
+			// The reclaimable count can transiently exceed the podSet count after an
+			// elastic scale-down (see kueue#12670); never let usage go negative.
+			totalCounts[podSetName] -= min(rc, totalCounts[podSetName])
 		}
 	}
 	return totalCounts
@@ -1127,6 +1145,63 @@ func UpdateReclaimablePods(ctx context.Context, c client.Client, wl *kueue.Workl
 	})
 }
 
+// LimitReclaimablePodsToPodSetSizes returns a copy of reclaimablePods with every
+// count lowered, if needed, to the matching PodSet's count in wl.
+//
+// A job can report a reclaimable count derived from monotonic state (e.g. a
+// batch/Job's Status.Succeeded), which after an elastic scale-down can exceed
+// the shrunk PodSet's count; persisting such a value would violate the
+// webhook invariant reclaimablePods[i].count <= podSets[i].count.
+func LimitReclaimablePodsToPodSetSizes(wl *kueue.Workload, reclaimablePods []kueue.ReclaimablePod) []kueue.ReclaimablePod {
+	sizes := ExtractPodSetCountsFromWorkload(wl)
+	limited := slices.Clone(reclaimablePods)
+	for i := range limited {
+		if size, found := sizes[limited[i].Name]; found {
+			limited[i].Count = min(limited[i].Count, size)
+		}
+	}
+	return limited
+}
+
+// ReduceReclaimablePodsByScaleDown returns a copy of reclaimablePods with every
+// count reduced, bounded at zero, by the pods removed from its PodSet since
+// admission (the admission's granted count minus the current PodSet count).
+//
+// Without this, a job's reclaimable count derived from monotonic state (e.g. a
+// batch/Job's Status.Succeeded) would release quota for pods already removed by
+// an elastic scale-down (kueue#12958).
+func ReduceReclaimablePodsByScaleDown(log logr.Logger, wl *kueue.Workload, reclaimablePods []kueue.ReclaimablePod) []kueue.ReclaimablePod {
+	if wl.Status.Admission == nil {
+		return reclaimablePods
+	}
+	admittedSizes := make(map[kueue.PodSetReference]int32, len(wl.Status.Admission.PodSetAssignments))
+	for i := range wl.Status.Admission.PodSetAssignments {
+		psa := &wl.Status.Admission.PodSetAssignments[i]
+		if psa.Count != nil {
+			admittedSizes[psa.Name] = *psa.Count
+		}
+	}
+	currentSizes := ExtractPodSetCountsFromWorkload(wl)
+	reduced := slices.Clone(reclaimablePods)
+	for i := range reduced {
+		admitted, found := admittedSizes[reduced[i].Name]
+		if !found {
+			continue
+		}
+		if scaledDown := admitted - currentSizes[reduced[i].Name]; scaledDown > 0 {
+			newCount := max(0, reduced[i].Count-scaledDown)
+			log.V(3).Info("Reducing reclaimable pods for scaled-down podSet",
+				"podSet", reduced[i].Name,
+				"admittedCount", admitted,
+				"currentCount", currentSizes[reduced[i].Name],
+				"reclaimableFrom", reduced[i].Count,
+				"reclaimableTo", newCount)
+			reduced[i].Count = newCount
+		}
+	}
+	return reduced
+}
+
 // ReclaimablePodsAreEqual checks if two Reclaimable pods are semantically equal
 // having the same length and all keys have the same value.
 func ReclaimablePodsAreEqual(a, b []kueue.ReclaimablePod) bool {
@@ -1150,7 +1225,8 @@ func IsActive(w *kueue.Workload) bool {
 
 // IsAdmissible returns true if the workload can be added to the queue.
 func IsAdmissible(w *kueue.Workload) bool {
-	return !HasAdmissionGate(w) && !workloadfinish.IsFinished(w) && IsActive(w) && !HasQuotaReservation(w) && !IsOnHold(w)
+	return !HasAdmissionGate(w) && !workloadfinish.IsFinished(w) && IsActive(w) && !HasQuotaReservation(w) && !IsOnHold(w) &&
+		!apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadWaitingForReplacementPods)
 }
 
 // HasAdmissionGate returns true if the workload has an admission gate annotation and the AdmissionGatedBy feature is on
@@ -1223,6 +1299,22 @@ func HasConditionWithTypeAndReason(w *kueue.Workload, cond *metav1.Condition) bo
 		}
 	}
 	return false
+}
+
+// OwnedBySinglePod reports whether the Workload is owned by exactly one Pod
+// (bare-Pod / Deployment-replica pod integration). Such a Workload cannot
+// outlive its pod, so no future pod can consume a recomputed assignment.
+// Pod-group Workloads are excluded: a group of size 1 also has a single Pod
+// owner, but can receive replacement pods into the same Workload.
+func OwnedBySinglePod(w *kueue.Workload) bool {
+	if w == nil || len(w.OwnerReferences) != 1 {
+		return false
+	}
+	if w.Annotations[podconstants.IsGroupWorkloadAnnotationKey] == podconstants.IsGroupWorkloadAnnotationValue {
+		return false
+	}
+	ref := w.OwnerReferences[0]
+	return ref.Kind == "Pod" && ref.APIVersion == "v1"
 }
 
 func HasUnhealthyNodes(w *kueue.Workload) bool {

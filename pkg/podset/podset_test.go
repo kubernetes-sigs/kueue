@@ -285,6 +285,7 @@ func TestMergeRestore(t *testing.T) {
 		Obj()
 
 	cases := map[string]struct {
+		featureGates       map[featuregate.Feature]bool
 		podSet             *kueue.PodSet
 		info               PodSetInfo
 		wantError          bool
@@ -410,6 +411,75 @@ func TestMergeRestore(t *testing.T) {
 			},
 			wantError: true,
 		},
+		"updated workload slice annotation": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			podSet: utiltestingapi.MakePodSet("", 1).
+				Annotations(map[string]string{
+					kueue.WorkloadSliceNameAnnotation: "old-slice",
+				}).
+				Obj(),
+			info: PodSetInfo{
+				Annotations: map[string]string{
+					kueue.WorkloadSliceNameAnnotation: "new-slice",
+				},
+			},
+			wantPodSet: utiltestingapi.MakePodSet("", 1).
+				Annotations(map[string]string{
+					kueue.WorkloadSliceNameAnnotation: "new-slice",
+				}).
+				Obj(),
+			wantRestoreChanges: true,
+		},
+		"updated workload slice annotation; feature disabled": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false},
+			podSet: utiltestingapi.MakePodSet("", 1).
+				Annotations(map[string]string{
+					kueue.WorkloadSliceNameAnnotation: "old-slice",
+				}).
+				Obj(),
+			info: PodSetInfo{
+				Annotations: map[string]string{
+					kueue.WorkloadSliceNameAnnotation: "new-slice",
+				},
+			},
+			wantError: true,
+		},
+		"updated workload and workload slice annotations for an elastic admission": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			podSet: utiltestingapi.MakePodSet("", 1).
+				Annotations(map[string]string{
+					kueue.WorkloadAnnotation:          "old-slice",
+					kueue.WorkloadSliceNameAnnotation: "old-slice",
+				}).
+				Obj(),
+			info: PodSetInfo{
+				Annotations: map[string]string{
+					kueue.WorkloadAnnotation:          "new-slice",
+					kueue.WorkloadSliceNameAnnotation: "new-slice",
+				},
+			},
+			wantPodSet: utiltestingapi.MakePodSet("", 1).
+				Annotations(map[string]string{
+					kueue.WorkloadAnnotation:          "new-slice",
+					kueue.WorkloadSliceNameAnnotation: "new-slice",
+				}).
+				Obj(),
+			wantRestoreChanges: true,
+		},
+		"updated workload annotation for a non-elastic admission": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			podSet: utiltestingapi.MakePodSet("", 1).
+				Annotations(map[string]string{
+					kueue.WorkloadAnnotation: "old-workload",
+				}).
+				Obj(),
+			info: PodSetInfo{
+				Annotations: map[string]string{
+					kueue.WorkloadAnnotation: "new-workload",
+				},
+			},
+			wantError: true,
+		},
 		"conflicting node selector": {
 			podSet: basePodSet.DeepCopy(),
 			info: PodSetInfo{
@@ -476,9 +546,10 @@ func TestMergeRestore(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			orig := tc.podSet.DeepCopy()
 
-			gotError := Merge(&tc.podSet.Template.ObjectMeta, &tc.podSet.Template.Spec, tc.info)
+			gotError := Merge(utiltesting.NewLogger(t), &tc.podSet.Template.ObjectMeta, &tc.podSet.Template.Spec, tc.info)
 
 			if tc.wantError != (gotError != nil) {
 				t.Errorf("Unexpected error status want: %v", tc.wantError)

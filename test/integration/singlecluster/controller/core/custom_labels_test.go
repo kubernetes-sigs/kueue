@@ -21,6 +21,7 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/component-base/metrics/testutil"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -49,7 +50,8 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
-				{Name: "team"},
+				{Name: "team_cq", SourceLabelKey: "team", SourceKind: ptr.To(config.SourceKindClusterQueue)},
+				{Name: "team_lq", SourceLabelKey: "team", SourceKind: ptr.To(config.SourceKindLocalQueue)},
 			}
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -138,8 +140,8 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			util.ExpectClusterQueueStatusMetric(cq, metrics.CQStatusActive, "alpha")
 			gomega.Eventually(func() int {
 				return len(testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourceNominalQuota, map[string]string{
-					"cluster_queue": cq.Name,
-					"custom_team":   "alpha",
+					"cluster_queue":  cq.Name,
+					"custom_team_cq": "alpha",
 				}))
 			}, util.Timeout, util.Interval).Should(gomega.Equal(1))
 
@@ -154,12 +156,12 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			ginkgo.By("verifying metric with custom_team=beta appears")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.PendingWorkloads, map[string]string{
-					"cluster_queue": cq.Name,
-					"custom_team":   "beta",
+					"cluster_queue":  cq.Name,
+					"custom_team_cq": "beta",
 				})).To(gomega.HaveLen(2))
 				g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourceNominalQuota, map[string]string{
-					"cluster_queue": cq.Name,
-					"custom_team":   "beta",
+					"cluster_queue":  cq.Name,
+					"custom_team_cq": "beta",
 				})).To(gomega.HaveLen(1))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			util.ExpectClusterQueueStatusMetric(cq, metrics.CQStatusActive, "beta")
@@ -167,16 +169,16 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			ginkgo.By("verifying old alpha series is cleaned")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.PendingWorkloads, map[string]string{
-					"cluster_queue": cq.Name,
-					"custom_team":   "alpha",
-				})).To(gomega.BeEmpty())
-				g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueByStatus, map[string]string{
-					"cluster_queue": cq.Name,
-					"custom_team":   "alpha",
+					"cluster_queue":  cq.Name,
+					"custom_team_cq": "alpha",
 				})).To(gomega.BeEmpty())
 				g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourceNominalQuota, map[string]string{
-					"cluster_queue": cq.Name,
-					"custom_team":   "alpha",
+					"cluster_queue":  cq.Name,
+					"custom_team_cq": "alpha",
+				})).To(gomega.BeEmpty())
+				g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueByStatus, map[string]string{
+					"cluster_queue":  cq.Name,
+					"custom_team_cq": "alpha",
 				})).To(gomega.BeEmpty())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -192,7 +194,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
-				{Name: "cost_center", SourceLabelKey: "billing/cost-center"},
+				{Name: "cost_center", SourceLabelKey: "billing/cost-center", SourceKind: ptr.To(config.SourceKindClusterQueue)},
 			}
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -242,7 +244,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
-				{Name: "budget", SourceAnnotationKey: "billing.co/budget"},
+				{Name: "budget", SourceAnnotationKey: "billing.co/budget", SourceKind: ptr.To(config.SourceKindClusterQueue)},
 			}
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -292,7 +294,8 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, false)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
-				{Name: "team"},
+				{Name: "team_cq", SourceLabelKey: "team", SourceKind: ptr.To(config.SourceKindClusterQueue)},
+				{Name: "team_lq", SourceLabelKey: "team", SourceKind: ptr.To(config.SourceKindLocalQueue)},
 			}
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -337,7 +340,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 				v, err := testutil.GetGaugeMetricValue(metric)
 				g.Expect(err).ToNot(gomega.HaveOccurred())
 				g.Expect(v).To(gomega.Equal(float64(0)))
-			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 	})
 
@@ -385,7 +388,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			util.ExpectPendingWorkloadsMetric(cq, 1, 0)
 
 			ginkgo.By("verifying no custom label names are configured")
-			gomega.Expect((*metrics.CustomLabels)(nil).LabelNames()).To(gomega.BeEmpty())
+			gomega.Expect((*metrics.CustomLabels)(nil).LabelNames(config.SourceKindClusterQueue)).To(gomega.BeEmpty())
 		})
 	})
 
@@ -399,7 +402,8 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
-				{Name: "team"},
+				{Name: "team_cq", SourceLabelKey: "team", SourceKind: ptr.To(config.SourceKindClusterQueue)},
+				{Name: "team_lq", SourceLabelKey: "team", SourceKind: ptr.To(config.SourceKindLocalQueue)},
 			}
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg, runScheduler))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -461,7 +465,8 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
-				{Name: "team"},
+				{Name: "team_cq", SourceLabelKey: "team", SourceKind: ptr.To(config.SourceKindClusterQueue)},
+				{Name: "team_lq", SourceLabelKey: "team", SourceKind: ptr.To(config.SourceKindLocalQueue)},
 			}
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg, runScheduler))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -549,19 +554,19 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueuePendingWorkloads, map[string]string{
-					"name":        lq.Name,
-					"namespace":   lq.Namespace,
-					"custom_team": "alpha",
+					"name":           lq.Name,
+					"namespace":      lq.Namespace,
+					"custom_team_lq": "alpha",
 				})).To(gomega.HaveLen(2))
 				g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueByStatus, map[string]string{
-					"name":        lq.Name,
-					"namespace":   lq.Namespace,
-					"custom_team": "alpha",
+					"name":           lq.Name,
+					"namespace":      lq.Namespace,
+					"custom_team_lq": "alpha",
 				})).To(gomega.HaveLen(len(metrics.ConditionStatusValues)))
 				g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueResourceReservations, map[string]string{
-					"name":        lq.Name,
-					"namespace":   lq.Namespace,
-					"custom_team": "alpha",
+					"name":           lq.Name,
+					"namespace":      lq.Namespace,
+					"custom_team_lq": "alpha",
 				})).To(gomega.HaveLen(1))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -574,37 +579,37 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueuePendingWorkloads, map[string]string{
-					"name":        lq.Name,
-					"namespace":   lq.Namespace,
-					"custom_team": "beta",
+					"name":           lq.Name,
+					"namespace":      lq.Namespace,
+					"custom_team_lq": "beta",
 				})).To(gomega.HaveLen(2))
 				g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueByStatus, map[string]string{
-					"name":        lq.Name,
-					"namespace":   lq.Namespace,
-					"custom_team": "beta",
+					"name":           lq.Name,
+					"namespace":      lq.Namespace,
+					"custom_team_lq": "beta",
 				})).To(gomega.HaveLen(len(metrics.ConditionStatusValues)))
 				g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueResourceReservations, map[string]string{
-					"name":        lq.Name,
-					"namespace":   lq.Namespace,
-					"custom_team": "beta",
+					"name":           lq.Name,
+					"namespace":      lq.Namespace,
+					"custom_team_lq": "beta",
 				})).To(gomega.HaveLen(1))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueuePendingWorkloads, map[string]string{
-					"name":        lq.Name,
-					"namespace":   lq.Namespace,
-					"custom_team": "alpha",
+					"name":           lq.Name,
+					"namespace":      lq.Namespace,
+					"custom_team_lq": "alpha",
 				})).To(gomega.BeEmpty())
 				g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueByStatus, map[string]string{
-					"name":        lq.Name,
-					"namespace":   lq.Namespace,
-					"custom_team": "alpha",
+					"name":           lq.Name,
+					"namespace":      lq.Namespace,
+					"custom_team_lq": "alpha",
 				})).To(gomega.BeEmpty())
 				g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueResourceReservations, map[string]string{
-					"name":        lq.Name,
-					"namespace":   lq.Namespace,
-					"custom_team": "alpha",
+					"name":           lq.Name,
+					"namespace":      lq.Namespace,
+					"custom_team_lq": "alpha",
 				})).To(gomega.BeEmpty())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -621,7 +626,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
-				{Name: "team"},
+				{Name: "team", SourceKind: ptr.To(config.SourceKindClusterQueue)},
 			}
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg, runScheduler))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -718,7 +723,8 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			controllersCfg := &config.Configuration{}
 			controllersCfg.FairSharing = &config.FairSharing{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
-				{Name: "team"},
+				{Name: "team_cq", SourceLabelKey: "team", SourceKind: ptr.To(config.SourceKindClusterQueue)},
+				{Name: "team_cohort", SourceLabelKey: "team", SourceKind: ptr.To(config.SourceKindCohort)},
 			}
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg, runScheduler))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -817,16 +823,16 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.CohortSubtreeQuota, map[string]string{
-					"cohort":      cohort.Name,
-					"custom_team": "data-eng",
+					"cohort":             cohort.Name,
+					"custom_team_cohort": "data-eng",
 				})).To(gomega.HaveLen(1))
 				g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.CohortSubtreeResourceReservations, map[string]string{
-					"cohort":      cohort.Name,
-					"custom_team": "data-eng",
+					"cohort":             cohort.Name,
+					"custom_team_cohort": "data-eng",
 				})).To(gomega.HaveLen(1))
 				g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.CohortWeightedShare, map[string]string{
-					"cohort":      cohort.Name,
-					"custom_team": "data-eng",
+					"cohort":             cohort.Name,
+					"custom_team_cohort": "data-eng",
 				})).To(gomega.HaveLen(1))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -839,31 +845,31 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.CohortSubtreeQuota, map[string]string{
-					"cohort":      cohort.Name,
-					"custom_team": "data-test",
+					"cohort":             cohort.Name,
+					"custom_team_cohort": "data-test",
 				})).To(gomega.HaveLen(1))
 				g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.CohortSubtreeResourceReservations, map[string]string{
-					"cohort":      cohort.Name,
-					"custom_team": "data-test",
+					"cohort":             cohort.Name,
+					"custom_team_cohort": "data-test",
 				})).To(gomega.HaveLen(1))
 				g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.CohortWeightedShare, map[string]string{
-					"cohort":      cohort.Name,
-					"custom_team": "data-test",
+					"cohort":             cohort.Name,
+					"custom_team_cohort": "data-test",
 				})).To(gomega.HaveLen(1))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.CohortSubtreeQuota, map[string]string{
-					"cohort":      cohort.Name,
-					"custom_team": "data-eng",
+					"cohort":             cohort.Name,
+					"custom_team_cohort": "data-eng",
 				})).To(gomega.BeEmpty())
 				g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.CohortSubtreeResourceReservations, map[string]string{
-					"cohort":      cohort.Name,
-					"custom_team": "data-eng",
+					"cohort":             cohort.Name,
+					"custom_team_cohort": "data-eng",
 				})).To(gomega.BeEmpty())
 				g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.CohortWeightedShare, map[string]string{
-					"cohort":      cohort.Name,
-					"custom_team": "data-eng",
+					"cohort":             cohort.Name,
+					"custom_team_cohort": "data-eng",
 				})).To(gomega.BeEmpty())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})

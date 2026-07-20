@@ -47,7 +47,9 @@ func NeedsDRAReconcile(wl *kueue.Workload, erCache *ExtendedResourceCache) bool 
 	if workload.HasDRA(wl) {
 		return true
 	}
-	if !features.Enabled(features.KueueDRAIntegrationExtendedResource) {
+	// erCache is always set when the gate is enabled; nil only occurs in tests
+	// that don't configure the full DRA stack.
+	if !features.Enabled(features.KueueDRAIntegrationExtendedResource) || erCache == nil {
 		return false
 	}
 	for i := range wl.Spec.PodSets {
@@ -123,7 +125,7 @@ func resolveContainerExtendedResources(
 		for _, dc := range dcList.Items {
 			if logicalName, found := mapper.Lookup(corev1.ResourceName(dc.Name)); found {
 				quotaKey = logicalName
-				if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) && mapper.getCounterConfig(corev1.ResourceName(dc.Name)) != nil {
+				if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) && len(mapper.getCounterConfigs(corev1.ResourceName(dc.Name))) > 0 {
 					errs = append(errs, field.Invalid(
 						containerPath,
 						resourceName,

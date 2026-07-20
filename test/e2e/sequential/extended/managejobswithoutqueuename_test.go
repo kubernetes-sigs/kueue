@@ -38,7 +38,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/leaderworkerset"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
-	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -617,7 +616,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 	})
 })
 
-var _ = ginkgo.Describe("ManageJobsWithoutQueueName with ManagedJobsNamespaceSelectorAlwaysRespected=false", ginkgo.Label("feature:managejobswithoutqueuename"), func() {
+var _ = ginkgo.Describe("ManageJobsWithoutQueueName with namespace selector excluding test namespace", ginkgo.Label("feature:managejobswithoutqueuename"), func() {
 	var (
 		ns           *corev1.Namespace
 		defaultRf    *kueue.ResourceFlavor
@@ -644,7 +643,6 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName with ManagedJobsNamespaceSel
 		// Unfortunately, we can't move it to BeforeAll, due to we need to know the namespace name.
 		util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
 			cfg.ManageJobsWithoutQueueName = true
-			cfg.FeatureGates = map[string]bool{string(features.ManagedJobsNamespaceSelectorAlwaysRespected): false}
 			cfg.ManagedJobsNamespaceSelector = &metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{{
 					Key:      "kubernetes.io/metadata.name",

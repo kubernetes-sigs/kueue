@@ -304,14 +304,16 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					Reason: finishReason,
 				},
 				{
-					// The manager-cluster Pod stays scheduling-gated for its whole
-					// lifetime, so its locally-owned PodScheduled condition is
-					// preserved (SchedulingGated) rather than overwritten by the
-					// worker's PodScheduled=True. This keeps the Pod invisible to the
-					// manager cluster's cluster-autoscaler.
+					// Once the worker Pod was scheduled, its PodScheduled=True condition
+					// is synced through to the manager Pod, overwriting the local
+					// SchedulingGated condition, so a finished Pod reports that it
+					// actually ran on the worker. (While the worker Pod is still
+					// unscheduled the local SchedulingGated condition is preserved to
+					// keep the Pod invisible to the manager cluster's cluster-autoscaler
+					// - the unit tests cover that window, and the interim running state
+					// is asserted by the spec below.)
 					Type:   corev1.PodScheduled,
-					Status: corev1.ConditionFalse,
-					Reason: corev1.PodReasonSchedulingGated,
+					Status: corev1.ConditionTrue,
 				},
 			}
 			ginkgo.By("Waiting for the pod to get status updates", func() {
@@ -321,6 +323,57 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					g.Expect(createdPod.Status.Phase).To(gomega.Equal(corev1.PodSucceeded))
 					g.Expect(createdPod.Status.Conditions).To(gomega.BeComparableTo(finishPodConditions, util.IgnorePodConditionTimestampsMessageAndObservedGeneration))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("Should overwrite the manager Pod's SchedulingGated condition once it runs on the worker", func() {
+			// A Pod that keeps running (BehaviorWaitForDeletion) lets us observe the
+			// interim manager-Pod status deterministically, instead of racing a
+			// fast-completing Pod: while the manager Pod stays scheduling-gated in its
+			// spec, its PodScheduled condition must reflect the worker's
+			// PodScheduled=True rather than the local SchedulingGated, so the status
+			// shows the Pod is actually running.
+			pod := testingpod.MakePod("running-pod", managerNs.Name).
+				RequestAndLimit(corev1.ResourceCPU, "100m").
+				RequestAndLimit(corev1.ResourceMemory, "100M").
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				TerminationGracePeriod(1).
+				Queue(managerLq.Name).
+				Obj()
+
+			ginkgo.By("Creating the pod", func() {
+				util.MustCreate(ctx, k8sManagerClient, pod)
+			})
+
+			wlLookupKey := types.NamespacedName{Name: workloadpod.GetWorkloadNameForPod(pod.Name, pod.UID), Namespace: managerNs.Name}
+
+			ginkgo.By("Waiting to be admitted in worker", func() {
+				util.ExpectAdmissionCheckStateWithMessage(
+					ctx, k8sManagerClient, wlLookupKey,
+					multiKueueAc.Name,
+					kueue.CheckStateReady,
+					"",
+				)
+			})
+
+			ginkgo.By("Waiting for the running manager Pod to report PodScheduled=True while staying gated", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdPod := &corev1.Pod{}
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(pod), createdPod)).To(gomega.Succeed())
+					g.Expect(createdPod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
+					// The manager Pod is still gated in its spec ...
+					g.Expect(utilpod.HasGate(createdPod, podconstants.SchedulingGateName)).To(gomega.BeTrue())
+					// ... but its PodScheduled condition is synced from the worker.
+					g.Expect(createdPod.Status.Conditions).To(gomega.ContainElement(gomega.SatisfyAll(
+						gomega.HaveField("Type", corev1.PodScheduled),
+						gomega.HaveField("Status", corev1.ConditionTrue),
+					)))
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Deleting the pod", func() {
+				gomega.Expect(k8sManagerClient.Delete(ctx, pod)).To(gomega.Succeed())
+				util.ExpectAllPodsInNamespaceDeleted(ctx, k8sManagerClient, managerNs)
 			})
 		})
 
@@ -526,7 +579,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					ctx, k8sManagerClient, wlLookupKey,
 					multiKueueAc.Name,
 					kueue.CheckStateReady,
-					fmt.Sprintf("The workload got reservation on %q", admittedWorkerName),
+					fmt.Sprintf("The workload was admitted on %q", admittedWorkerName),
 				)
 
 				ginkgo.By("ensure all pods are created", func() {
@@ -579,7 +632,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					ctx, k8sManagerClient, wlLookupKey,
 					multiKueueAc.Name,
 					kueue.CheckStateReady,
-					fmt.Sprintf("The workload got reservation on %q", admittedWorkerName),
+					fmt.Sprintf("The workload was admitted on %q", admittedWorkerName),
 				)
 
 				gomega.Eventually(func(g gomega.Gomega) {

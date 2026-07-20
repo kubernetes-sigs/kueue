@@ -430,9 +430,13 @@ func (r *variantReconciler) clearWorkloadAdmission(ctx context.Context, wl *kueu
 		setRequeued := (evCond.Reason == kueue.WorkloadEvictedByPreemption) ||
 			(evCond.Reason == kueue.WorkloadEvictedDueToNodeFailures)
 		updated := workload.SetRequeuedCondition(w, evCond.Reason, evCond.Message, setRequeued)
+		reason := workload.UnadmittedWorkloadReasonWithFallback(
+			kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+			kueue.WorkloadPending, //nolint:staticcheck // SA1019: fallback
+		)
 		if workload.UnsetQuotaReservationWithCondition(
 			w,
-			kueue.WorkloadPending, //nolint:staticcheck // SA1019: fallback
+			reason,
 			evCond.Message,
 			r.clock.Now(),
 		) {

@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingrayutil "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
@@ -806,7 +807,7 @@ func TestUpdateRayClusterSpecToRunWithPodSetsInfo(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			err := UpdateRayClusterSpecToRunWithPodSetsInfo(tc.rayClusterSpec, tc.podSetsInfo)
+			err := UpdateRayClusterSpecToRunWithPodSetsInfo(utiltesting.NewLogger(t), tc.rayClusterSpec, tc.podSetsInfo)
 
 			if tc.wantErr {
 				if err == nil {
@@ -932,11 +933,71 @@ func TestRestorePodSetsInfo(t *testing.T) {
 				},
 			},
 		},
+		"no restore when podSetsInfo is shorter than the pod set count": {
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{Name: "head"}},
+						},
+					},
+				},
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName: "group1",
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker1"}},
+							},
+						},
+					},
+					{
+						GroupName: "group2",
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker2"}},
+							},
+						},
+					},
+				},
+			},
+			// Expected 3 pod sets (head + 2 worker groups) but only 2 are provided, as
+			// happens when a running RayCluster's spec drifts from its admitted Workload.
+			podSetsInfo: []podset.PodSetInfo{{}, {}},
+			wantChanged: false,
+			wantSpec: &rayv1.RayClusterSpec{
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{Name: "head"}},
+						},
+					},
+				},
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName: "group1",
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker1"}},
+							},
+						},
+					},
+					{
+						GroupName: "group2",
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker2"}},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			gotChanged := RestorePodSetsInfo(tc.rayClusterSpec, tc.podSetsInfo)
+			gotChanged := RestorePodSetsInfo(t.Context(), tc.rayClusterSpec, tc.podSetsInfo)
 
 			if gotChanged != tc.wantChanged {
 				t.Errorf("Expected changed=%v, got changed=%v", tc.wantChanged, gotChanged)
@@ -950,6 +1011,10 @@ func TestRestorePodSetsInfo(t *testing.T) {
 }
 
 func TestValidateCreateRayClusterSpec(t *testing.T) {
+	tooManyWorkerGroups := testingrayutil.MakeWorkerGroups(jobframework.MaxPodSets)
+	tooManyWorkerGroupsWithHead := testingrayutil.MakeWorkerGroups(jobframework.MaxPodSets)
+	tooManyWorkerGroupsWithHead[0] = rayv1.WorkerGroupSpec{GroupName: "head"}
+
 	testCases := map[string]struct {
 		object         client.Object
 		rayClusterSpec *rayv1.RayClusterSpec
@@ -1006,21 +1071,10 @@ func TestValidateCreateRayClusterSpec(t *testing.T) {
 				HeadGroupSpec: rayv1.HeadGroupSpec{
 					Template: corev1.PodTemplateSpec{},
 				},
-				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
-					{GroupName: "workers1"},
-					{GroupName: "workers2"},
-					{GroupName: "workers3"},
-					{GroupName: "workers4"},
-					{GroupName: "workers5"},
-					{GroupName: "workers6"},
-					{GroupName: "workers7"},
-					{GroupName: "workers8"},
-					{GroupName: "workers9"},
-					{GroupName: "workers10"}, // 10 worker groups is too many
-				},
+				WorkerGroupSpecs: tooManyWorkerGroups,
 			},
 			wantErrors: field.ErrorList{
-				field.TooMany(field.NewPath("spec", "workerGroupSpecs"), 11, jobframework.MaxPodSets),
+				field.TooMany(field.NewPath("spec", "workerGroupSpecs"), jobframework.MaxPodSets+1, jobframework.MaxPodSets),
 			},
 		},
 		"worker group named 'head'": {
@@ -1046,22 +1100,11 @@ func TestValidateCreateRayClusterSpec(t *testing.T) {
 				HeadGroupSpec: rayv1.HeadGroupSpec{
 					Template: corev1.PodTemplateSpec{},
 				},
-				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
-					{GroupName: "head"},
-					{GroupName: "workers2"},
-					{GroupName: "workers3"},
-					{GroupName: "workers4"},
-					{GroupName: "workers5"},
-					{GroupName: "workers6"},
-					{GroupName: "workers7"},
-					{GroupName: "workers8"},
-					{GroupName: "workers9"},
-					{GroupName: "workers10"},
-				},
+				WorkerGroupSpecs: tooManyWorkerGroupsWithHead,
 			},
 			wantErrors: field.ErrorList{
 				field.Invalid(field.NewPath("spec", "enableInTreeAutoscaling"), new(true), "a kueue managed job should only use autoscaling when workload slicing is enabled"),
-				field.TooMany(field.NewPath("spec", "workerGroupSpecs"), 11, jobframework.MaxPodSets),
+				field.TooMany(field.NewPath("spec", "workerGroupSpecs"), jobframework.MaxPodSets+1, jobframework.MaxPodSets),
 				field.Forbidden(field.NewPath("spec", "workerGroupSpecs").Index(0).Child("groupName"), fmt.Sprintf("%q is reserved for the head group", headGroupPodSetName)),
 			},
 		},

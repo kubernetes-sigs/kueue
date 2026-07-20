@@ -55,6 +55,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
@@ -253,14 +254,27 @@ func (r *WorkloadReconciler) logger() logr.Logger {
 // +kubebuilder:rbac:groups=resource.k8s.io,resources=deviceclasses,verbs=get;list;watch
 // +kubebuilder:rbac:groups=resource.k8s.io,resources=resourceslices,verbs=get;list;watch
 
-func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
+	log := ctrl.LoggerFrom(ctx)
 	var wl kueue.Workload
-	if err := r.client.Get(ctx, req.NamespacedName, &wl); err != nil {
+	var getErr error
+	wlKey := workload.NewReference(req.Namespace, req.Name)
+	defer func() {
+		if features.Enabled(features.UnadmittedWorkloadsObservability) {
+			if getErr == nil && retErr == nil {
+				r.queues.UpdateUnadmittedWorkload(log, &wl)
+			} else if apierrors.IsNotFound(getErr) {
+				r.queues.RemoveUnadmittedWorkload(log, wlKey)
+			}
+		}
+	}()
+
+	getErr = r.client.Get(ctx, req.NamespacedName, &wl)
+	if getErr != nil {
 		// we'll ignore not-found errors, since there is nothing to do.
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+		return ctrl.Result{}, client.IgnoreNotFound(getErr)
 	}
 
-	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile Workload")
 
 	if isOrphanedWorkload(&wl) {
@@ -379,8 +393,10 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 		log.V(3).Info("Processing DRA resources for workload")
 
+		sliceCache := dra.NewResourceSliceCache(r.client)
+
 		// Process ResourceClaimTemplates (existing DRA path)
-		draResources, fieldErrs := dra.GetResourceRequestsForResourceClaimTemplates(ctx, r.client, r.draMapper, &wl)
+		draResources, fieldErrs := dra.GetResourceRequestsForResourceClaimTemplates(ctx, r.client, sliceCache, r.draMapper, &wl)
 		if len(fieldErrs) > 0 {
 			err := fieldErrs.ToAggregate()
 			log.Error(err, "Failed to process DRA resources for workload")
@@ -445,7 +461,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 		// Process counter-based resources for partitionable devices
 		if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) {
-			counterResources, counterFieldErrs := dra.GetCounterResourcesForWorkload(ctx, r.client, r.draMapper, &wl)
+			counterResources, counterFieldErrs := dra.GetCounterResourcesForWorkload(ctx, r.client, sliceCache, r.draMapper, &wl)
 			if len(counterFieldErrs) > 0 {
 				err := counterFieldErrs.ToAggregate()
 				log.Error(err, "Failed to process DRA counter resources for workload")
@@ -537,6 +553,11 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				})
 				if err != nil {
 					return ctrl.Result{}, client.IgnoreNotFound(err)
+				}
+
+				if !workload.IsAdmissible(&wl) {
+					log.V(3).Info("Workload is inadmissible after backoff, waiting for condition change", "workload", klog.KObj(&wl))
+					return ctrl.Result{}, nil
 				}
 
 				if err := r.queues.AddOrUpdateWorkload(log, wl.DeepCopy()); err != nil {
@@ -1325,7 +1346,8 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 	case prevStatus == workload.StatusPending && status == workload.StatusPending:
 		switch {
 		case onHold:
-			log.V(2).Info("Skipping queue update for workload on hold")
+			log.V(2).Info("Removing workload from queue because it is on-hold")
+			r.queues.DeleteWorkload(log, wlKey)
 		case dra.NeedsDRAReconcile(e.ObjectNew, r.draBackedResources):
 			log.V(2).Info("Skipping queue update for DRA workload - handled in Reconcile")
 		default:
@@ -1413,28 +1435,40 @@ func (r *WorkloadReconciler) updateAfsConsumedUsage(log logr.Logger, wl *kueue.W
 	penalty := afs.CalculateEntryPenalty(workload.NewInfo(wl).SumTotalRequests(), r.admissionFSConfig)
 	now := r.clock.Now()
 
-	oldEntry, found := r.queues.AfsConsumedResources.Get(lqKey)
-	if !found {
-		oldEntry.LastUpdate = now
-	}
-
 	cacheLq, err := r.cache.GetCacheLocalQueue(wl.Status.Admission.ClusterQueue, lqKey)
 	if err != nil {
 		log.V(2).Info("Failed to get cache LocalQueue", "error", err)
 		return
 	}
-
-	oldUsage := oldEntry.Resources
+	// Read live usage before taking the entry lock: the scheduler snapshot reads
+	// AfsConsumedResources while holding the scheduler-cache lock, so the Update
+	// closure must not call back into the cache.
 	newUsage := cacheLq.GetAdmittedUsage()
-	elapsed := now.Sub(oldEntry.LastUpdate).Seconds()
-	newConsumed := afs.CalculateDecayedConsumed(oldUsage, newUsage, elapsed, r.admissionFSConfig.UsageHalfLifeTime.Seconds())
-	newConsumed = resource.MergeResourceListKeepSum(newConsumed, penalty)
 
-	r.queues.AfsConsumedResources.Set(lqKey, newConsumed, now)
+	updated := r.queues.AfsConsumedResources.Update(lqKey, func(old queueafs.ConsumedResourcesEntry, found bool) queueafs.ConsumedResourcesEntry {
+		lastUpdate := old.LastUpdate
+		if !found {
+			lastUpdate = now
+		}
+		// Clamp elapsed and keep the stored timestamp monotonic against a
+		// concurrent writer stamping a future LastUpdate; see the canonical note
+		// in reconcileConsumedUsage (localqueue_controller.go).
+		elapsed := max(0, now.Sub(lastUpdate).Seconds())
+		storedLastUpdate := now
+		if lastUpdate.After(now) {
+			storedLastUpdate = lastUpdate
+		}
+		newConsumed := afs.CalculateDecayedConsumed(old.Resources, newUsage, elapsed, r.admissionFSConfig.UsageHalfLifeTime.Seconds())
+		return queueafs.ConsumedResourcesEntry{
+			Resources:       resource.MergeResourceListKeepSum(newConsumed, penalty),
+			LastUpdate:      storedLastUpdate,
+			StatusAccounted: old.StatusAccounted,
+		}
+	})
 	r.queues.AfsEntryPenalties.Sub(lqKey, penalty)
 	log.V(3).Info("Entry penalty subtracted from localQueue", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)), "penalty", penalty, "remaining", r.queues.AfsEntryPenalties.Peek(lqKey))
 
-	log.V(2).Info("Updated AFS consumed usage", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)), "consumed", newConsumed)
+	log.V(2).Info("Updated AFS consumed usage", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)), "consumed", updated.Resources)
 }
 
 func (r *WorkloadReconciler) notifyWatchers(oldWl, newWl *kueue.Workload) {
@@ -1879,6 +1913,15 @@ func (r *WorkloadReconciler) resolveGranularUnadmittedQuotaReservedCondition(
 		return kueue.WorkloadQuotaReservedReasonMisconfigured, admissibilityErr.Error(), nil //nolint:nilerr // admissibility validation failure does not require retry
 	case workload.HasAdmissionGate(wl):
 		return kueue.WorkloadAdmissionGated, fmt.Sprintf("Admission is gated by: %s", wl.Annotations[constants.AdmissionGatedByAnnotation]), nil
+	}
+
+	if shouldCheckEquivalenceHash(cond) {
+		if reason, ok := r.queues.GetNoFitReason(wl); ok {
+			return reason, "Bypassed scheduling evaluation because an equivalent workload recently failed", nil
+		}
+	}
+
+	switch {
 	case cond != nil && cond.Reason != "" && schedulerSetReasons.Has(cond.Reason):
 		// Preserve scheduler feedback reasons until the next scheduler cycle.
 		return cond.Reason, cond.Message, nil
@@ -1922,5 +1965,42 @@ func (r *WorkloadReconciler) getQueueBlocker(wl *kueue.Workload, lqExists, lqAct
 		return kueue.WorkloadQuotaReservedReasonSuspended, fmt.Sprintf("ClusterQueue %s is inactive", cq.Name)
 	default:
 		return "", ""
+	}
+}
+
+// shouldCheckEquivalenceHash returns true if the workload is eligible to be
+// checked against the scheduling equivalence cache.
+func shouldCheckEquivalenceHash(cond *metav1.Condition) bool {
+	if !features.Enabled(features.SchedulingEquivalenceHashing) {
+		return false
+	}
+	// For newly created workloads (cond == nil), checking the equivalence cache
+	// on creation is gated by UnadmittedWorkloadsExplicitStatus.
+	if cond == nil {
+		return features.Enabled(features.UnadmittedWorkloadsExplicitStatus)
+	}
+	if cond.Reason == "" {
+		return true
+	}
+	// We only query the equivalence cache for workloads that are pending scheduling
+	// or transitioning back to the queue (stale states).
+	// We explicitly exclude:
+	// - Statically blocked states (Misconfigured, AdmissionGated): We want to keep
+	//   these blocking reasons visible instead of hiding them behind a bypassed message.
+	// - Scheduler diagnostics (WaitingForQuota, etc.): We want to preserve the
+	//   detailed resource breakdown messages set by the scheduler.
+	//
+	// This leaves only:
+	// - PendingEvaluation / Pending (legacy): The workload is actively in the queue waiting for scheduler.
+	// - Deactivated / Suspended: The workload was blocked but is now transitioning
+	//   back to active scheduling (the previous block is resolved, so we check the cache).
+	switch cond.Reason {
+	case kueue.WorkloadDeactivated,
+		kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+		kueue.WorkloadQuotaReservedReasonSuspended,
+		kueue.WorkloadPending: //nolint:staticcheck // SA1019: legacy reason
+		return true
+	default:
+		return false
 	}
 }
