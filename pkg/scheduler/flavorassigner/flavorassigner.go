@@ -783,7 +783,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 	if features.Enabled(features.TopologyAwareScheduling) {
 		tasRequests := assignment.WorkloadsTopologyRequests(log, a.wl, a.cq)
 		if assignment.RepresentativeMode() == Fit {
-			result := a.cq.FindTopologyAssignmentsForWorkload(tasRequests, schdcache.WithWorkload(a.wl.Obj))
+			result := a.cq.FindTopologyAssignmentsForWorkload(tasRequests, log, schdcache.WithWorkload(a.wl.Obj))
 			if failure := result.Failure(); failure != nil {
 				// There is at least one PodSet which does not fit
 				psAssignment := assignment.podSetAssignmentByName(failure.PodSetName)
@@ -799,6 +799,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 			// Don't preempt other workloads if looking for a failed node replacement
 			result := a.cq.FindTopologyAssignmentsForWorkload(
 				tasRequests,
+				log,
 				schdcache.WithSimulateEmpty(true),
 				schdcache.WithWorkload(a.wl.Obj),
 			)

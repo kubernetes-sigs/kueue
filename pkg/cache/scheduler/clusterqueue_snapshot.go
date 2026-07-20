@@ -21,6 +21,7 @@ import (
 	"maps"
 	"slices"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -206,6 +207,7 @@ type WorkloadTASRequests map[kueue.ResourceFlavorReference]FlavorTASRequests
 
 func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
 	tasRequestsByFlavor WorkloadTASRequests,
+	log logr.Logger,
 	options ...FindTopologyAssignmentsOption,
 ) TASAssignmentsResult {
 	opts := &findTopologyAssignmentsOption{}
@@ -229,7 +231,7 @@ func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
 		if features.Enabled(features.TASHandleOverlappingFlavors) && tasFlavorCache.isLowestLevelNode {
 			flvOpts = append(slices.Clone(options), WithAggregatedDomainUsages(aggregatedDomainUsages))
 		}
-		flvResult := tasFlavorCache.FindTopologyAssignmentsForFlavor(flavorTASRequests, flvOpts...)
+		flvResult := tasFlavorCache.FindTopologyAssignmentsForFlavor(flavorTASRequests, log, flvOpts...)
 		for psName, res := range flvResult {
 			res.Flavor = tasFlavor
 			result[psName] = res

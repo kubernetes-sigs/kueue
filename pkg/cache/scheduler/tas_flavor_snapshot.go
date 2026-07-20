@@ -639,7 +639,7 @@ func WithAggregatedDomainUsages(m map[utiltas.TopologyDomainID]resources.Request
 
 // FindTopologyAssignmentsForFlavor returns TAS assignment, if possible, for all
 // the TAS requests in the flavor handled by the snapshot.
-func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests FlavorTASRequests, options ...FindTopologyAssignmentsOption) TASAssignmentsResult {
+func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests FlavorTASRequests, log logr.Logger, options ...FindTopologyAssignmentsOption) TASAssignmentsResult {
 	opts := &findTopologyAssignmentsOption{}
 	for _, option := range options {
 		option(opts)
@@ -685,10 +685,13 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests F
 				}
 				// We deepCopy the existing TopologyAssignment, so if we delete unwanted domain,
 				// And there is no fit, we have the original newAssignment to retry with
-				newAssignment, replacementAssignment, reason := s.findReplacementAssignment(&tr, utiltas.InternalFrom(psa.TopologyAssignment), opts.workload, assumedUsage)
+				existingAssignment := psa.TopologyAssignment
+				newAssignment, replacementAssignment, reason := s.findReplacementAssignment(&tr, utiltas.InternalFrom(existingAssignment), opts.workload, assumedUsage)
 				result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: newAssignment, FailureReason: reason}
 				if reason != "" {
 					return result
+				} else {
+					log.V(3).Info("Found replacement assginment for workload", "existingAssignment", existingAssignment, "newAssignment", newAssignment)
 				}
 				addAssumedUsage(assumedUsage, replacementAssignment, &tr)
 			}
