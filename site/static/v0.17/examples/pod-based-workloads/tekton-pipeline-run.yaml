@@ -1,0 +1,13 @@
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: kueue-test
+  labels: 
+    kueue.x-k8s.io/queue-name: my-local-queue
+spec:
+  pipelineRef:
+    name: kueue-test
+  params:
+  - name: username
+    value: "Tekton"
+

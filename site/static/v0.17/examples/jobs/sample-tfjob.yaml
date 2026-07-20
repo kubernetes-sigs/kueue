@@ -1,0 +1,33 @@
+apiVersion: kubeflow.org/v1
+kind: TFJob
+metadata:
+  name: tensorflow-dist-mnist
+  namespace: default
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+spec:
+  tfReplicaSpecs:
+    PS:
+      replicas: 1
+      restartPolicy: Never
+      template:
+        spec:
+          containers:
+            - name: tensorflow
+              image: kubeflow/tf-dist-mnist-test:latest
+              resources:
+                requests:
+                  cpu: 1
+                  memory: "200Mi"
+    Worker:
+      replicas: 2
+      restartPolicy: Never
+      template:
+        spec:
+          containers:
+            - name: tensorflow
+              image: kubeflow/tf-dist-mnist-test:latest
+              resources:
+                requests:
+                  cpu: 1
+                  memory: "200Mi"
