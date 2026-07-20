@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -245,6 +246,34 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 
 		if !managed {
 			return reconcile.Result{}, w.updateACS(ctx, wl, mkAc, kueue.CheckStateRejected, fmt.Sprintf("The owner is not managed by Kueue: %s", unmanagedReason))
+		}
+
+		// Verify that this Workload is genuinely owned by the referenced Job to prevent Confused Deputy attacks.
+		if watcher, implements := adapter.(jobframework.MultiKueueWatcher); implements {
+			emptyList := watcher.GetEmptyList()
+			t := reflect.TypeOf(emptyList)
+			if t.Kind() == reflect.Ptr {
+				t = t.Elem()
+			}
+			if itemsField, found := t.FieldByName("Items"); found {
+				itemType := itemsField.Type.Elem()
+				if jobObj, ok := reflect.New(itemType).Interface().(client.Object); ok {
+					if err := w.client.Get(ctx, types.NamespacedName{Name: owner.Name, Namespace: wl.Namespace}, jobObj); err == nil {
+						if keys, err := watcher.WorkloadKeysFor(jobObj); err == nil {
+							ownsWorkload := false
+							for _, k := range keys {
+								if k.Name == wl.Name && k.Namespace == wl.Namespace {
+									ownsWorkload = true
+									break
+								}
+							}
+							if !ownsWorkload {
+								return reconcile.Result{}, w.updateACS(ctx, wl, mkAc, kueue.CheckStateRejected, "Workload is not owned by the referenced Job")
+							}
+						}
+					}
+				}
+			}
 		}
 	}
 
