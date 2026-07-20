@@ -19,9 +19,9 @@ package preemption
 import (
 	"context"
 
-	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/util/sets"
 
+	"sigs.k8s.io/controller-runtime/pkg/log"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
@@ -42,12 +42,12 @@ type PreemptionOracle struct {
 // preemption and reclaim are possible in this flavor resource.
 func (p *PreemptionOracle) SimulatePreemption(
 	ctx context.Context,
-	log logr.Logger,
 	cq *schdcache.ClusterQueueSnapshot,
 	wl workload.Info,
 	fr resources.FlavorResource,
 	quantity resources.Amount,
 ) (preemptioncommon.PreemptionPossibility, int) {
+	log := log.FromContext(ctx)
 	candidates := p.preemptor.getTargets(&preemptionCtx{
 		ctx:               ctx,
 		clock:             p.preemptor.clock,

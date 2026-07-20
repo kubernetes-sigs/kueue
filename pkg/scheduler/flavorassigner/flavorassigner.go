@@ -574,7 +574,6 @@ type FlavorAssignment struct {
 type preemptionOracle interface {
 	SimulatePreemption(
 		ctx context.Context,
-		log logr.Logger,
 		cq *schdcache.ClusterQueueSnapshot,
 		wl workload.Info,
 		fr resources.FlavorResource,
@@ -1250,7 +1249,7 @@ func (a *FlavorAssigner) fitsResourceQuota(
 		fr.Resource, fr.Flavor, resources.AmountQuantityString(fr.Resource, val.Sub(available)))
 
 	if rQuota.Nominal.Cmp(val) >= 0 || mayReclaimInHierarchy || a.canPreemptWhileBorrowing() {
-		preemptionPossiblity, borrowAfterPreemptions := a.oracle.SimulatePreemption(ctx, log, a.cq, *a.wl, fr, val)
+		preemptionPossiblity, borrowAfterPreemptions := a.oracle.SimulatePreemption(ctx, a.cq, *a.wl, fr, val)
 		mode := fromPreemptionPossibility(preemptionPossiblity)
 		if mode != noFit {
 			status.noFitReason = ""

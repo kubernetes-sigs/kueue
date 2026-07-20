@@ -160,7 +160,6 @@ type testOracle struct {
 
 func (f *testOracle) SimulatePreemption(
 	ctx context.Context,
-	log logr.Logger,
 	cq *schdcache.ClusterQueueSnapshot,
 	wl workload.Info,
 	fr resources.FlavorResource,
