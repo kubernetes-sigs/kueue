@@ -5,7 +5,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -27,22 +27,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltaints "sigs.k8s.io/kueue/pkg/util/taints"
 )
-
-type FeasibleNodesQuery struct {
-	Leaves       []*leafDomain
-	Requirements *topologyAssignmentPodRequirements
-	Stats        *ExclusionStats
-}
-
-// nodeFeasibilityChecker determines which topology leaves can satisfy pod requirements.
-type nodeFeasibilityChecker interface {
-	FindFeasibleNodes(ctx context.Context, log logr.Logger, query *FeasibleNodesQuery) ([]matchedLeaf, error)
-}
-
-// SchedulingSimulator acts as a factory for the feasibility checker.
-type SchedulingSimulator interface {
-	NewFeasibilityChecker(ctx context.Context, nodes []*corev1.Node) (nodeFeasibilityChecker, error)
-}
 
 type defaultSimulator struct{}
 
