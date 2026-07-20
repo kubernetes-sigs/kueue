@@ -165,7 +165,7 @@ type TopologyAssignmentPodRequirements struct {
 	RequiredReplacementDomain utiltas.TopologyDomainID
 	SimulateEmpty             bool
 	MatchKey                  *PodSetMatchKey
-} // closing brace originally moved
+}
 
 type NodeExclusionType int
 
