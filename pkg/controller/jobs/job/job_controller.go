@@ -235,29 +235,24 @@ func (j *Job) ReclaimablePods(ctx context.Context, _ client.Client) ([]kueue.Rec
 			"statusSucceeded", j.Status.Succeeded)
 	}
 
-	if parallelism == 1 || succeeded == 0 {
-		log.V(3).Info("No reclaimable pods: single-pod Job or nothing completed",
-			"parallelism", parallelism,
-			"succeeded", succeeded)
-		return nil, nil
+	// A single-pod Job or one with no completed pods has nothing to reclaim; so
+	// does one whose remaining work still fills every parallel slot.
+	reclaimable := int32(0)
+	if parallelism > 1 && succeeded > 0 {
+		if remaining := completions - succeeded; remaining < parallelism {
+			reclaimable = parallelism - remaining
+		}
 	}
 
-	remaining := completions - succeeded
-	if remaining >= parallelism {
-		log.V(3).Info("No reclaimable pods: remaining work still fills the pod set",
-			"parallelism", parallelism,
-			"completions", completions,
-			"succeeded", succeeded,
-			"remaining", remaining)
-		return nil, nil
-	}
-
-	reclaimable := parallelism - remaining
 	log.V(3).Info("Computed reclaimable pods for Job",
 		"parallelism", parallelism,
 		"completions", completions,
 		"succeeded", succeeded,
 		"reclaimable", reclaimable)
+
+	if reclaimable == 0 {
+		return nil, nil
+	}
 	return []kueue.ReclaimablePod{{
 		Name:  kueue.DefaultPodSetName,
 		Count: reclaimable,
