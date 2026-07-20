@@ -719,6 +719,72 @@ func TestPendingInLocalQueueCountsInflight(t *testing.T) {
 	}
 }
 
+// TestMultipleInflightWorkloadsAccounting verifies that when more than one head
+// is popped from the same ClusterQueue in a single cycle (as Fair Sharing deep
+// admission does), all popped workloads are tracked as inflight: they are still
+// counted as pending, their resources are summed, the PushOrUpdate re-entrancy
+// guard applies to each, and they are cleared independently per-key.
+func TestMultipleInflightWorkloadsAccounting(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	now := time.Now()
+	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
+
+	wl1 := workload.NewInfo(utiltestingapi.MakeWorkload("wl1", defaultNamespace).
+		Queue("lq-a").Creation(now).
+		PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "1").Obj()).Obj())
+	wl2 := workload.NewInfo(utiltestingapi.MakeWorkload("wl2", defaultNamespace).
+		Queue("lq-a").Creation(now.Add(time.Second)).
+		PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "2").Obj()).Obj())
+
+	cq.PushOrUpdate(wl1)
+	cq.PushOrUpdate(wl2)
+
+	// Pop both heads, as the scheduler does with deep admission enabled.
+	p1 := cq.Pop()
+	p2 := cq.Pop()
+	if p1 == nil || p2 == nil {
+		t.Fatalf("expected to pop two workloads, got %v and %v", p1, p2)
+	}
+
+	// Both popped workloads remain counted as active pending (inflight).
+	if active, _ := cq.Pending(); active != 2 {
+		t.Errorf("expected 2 active pending (both inflight), got %d", active)
+	}
+
+	// pendingResources sums both inflight workloads.
+	gotCPU := cq.pendingResources()[corev1.ResourceCPU]
+	wantCPU := wl1.TotalRequests[0].Requests[corev1.ResourceCPU] + wl2.TotalRequests[0].Requests[corev1.ResourceCPU]
+	if gotCPU != wantCPU {
+		t.Errorf("pendingResources CPU: want %d, got %d", wantCPU, gotCPU)
+	}
+
+	// totalElements includes both inflight workloads.
+	if got := len(cq.totalElements()); got != 2 {
+		t.Errorf("expected totalElements to include both inflight workloads, got %d", got)
+	}
+
+	// A concurrent PushOrUpdate while a workload is inflight must be ignored,
+	// for BOTH popped workloads (guard is per-key, not a single slot).
+	cq.PushOrUpdate(wl1)
+	cq.PushOrUpdate(wl2)
+	if active, _ := cq.Pending(); active != 2 {
+		t.Errorf("expected inflight guard to keep active pending at 2, got %d", active)
+	}
+	if got := len(cq.totalElements()); got != 2 {
+		t.Errorf("expected no duplicate re-add of inflight workloads, got %d elements", got)
+	}
+
+	// Clearing one inflight workload leaves the other tracked.
+	cq.forgetInflightByKey(workload.Key(wl1.Obj))
+	if active, _ := cq.Pending(); active != 1 {
+		t.Errorf("expected 1 active pending after forgetting one inflight, got %d", active)
+	}
+	cq.forgetInflightByKey(workload.Key(wl2.Obj))
+	if active, _ := cq.Pending(); active != 0 {
+		t.Errorf("expected 0 active pending after forgetting both inflight, got %d", active)
+	}
+}
+
 func Test_DeleteFromLocalQueue(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()))
@@ -754,6 +820,39 @@ func Test_DeleteFromLocalQueue(t *testing.T) {
 	cq.DeleteFromLocalQueue(log, qImpl, nil, nil)
 	if cq.PendingTotal() != 0 {
 		t.Error("clusterQueue should be empty")
+	}
+}
+
+func TestDeleteFromLocalQueueClearsInflightWorkloads(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	now := time.Now()
+	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
+	q := utiltestingapi.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj()
+	qImpl := newLocalQueue(q)
+
+	for i, name := range []string{"wl1", "wl2"} {
+		wInfo := workload.NewInfo(utiltestingapi.MakeWorkload(name, "").
+			Queue(kueue.LocalQueueName(q.Name)).
+			Creation(now.Add(time.Duration(i) * time.Second)).
+			Obj())
+		cq.PushOrUpdate(wInfo)
+		qImpl.AddOrUpdate(wInfo)
+	}
+
+	for range 2 {
+		wInfo := cq.Pop()
+		if wInfo == nil {
+			t.Fatalf("expected popped workload")
+		}
+		delete(qImpl.items, workload.Key(wInfo.Obj))
+	}
+	if active, _ := cq.Pending(); active != 2 {
+		t.Fatalf("expected 2 inflight workloads before LocalQueue deletion, got %d", active)
+	}
+
+	cq.DeleteFromLocalQueue(log, qImpl, nil, nil)
+	if cq.PendingTotal() != 0 {
+		t.Fatalf("expected LocalQueue deletion to clear inflight workloads, got pending total %d", cq.PendingTotal())
 	}
 }
 

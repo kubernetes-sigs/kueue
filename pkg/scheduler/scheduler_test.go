@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"maps"
 	"reflect"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -206,7 +207,7 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 					cl := clientBuilder.Build()
 					recorder := &utiltesting.EventRecorder{}
 					cqCache := schdcache.New(cl)
-					qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+					qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithFairSharing(tc.enableFairSharing))
 					// Workloads are loaded into queues or clusterQueues as we add them.
 					for _, q := range allQueues {
 						if err := qManager.AddLocalQueue(ctx, &q); err != nil {
@@ -6914,7 +6915,9 @@ func TestEntryOrdering(t *testing.T) {
 			iter := makeIterator(ctx, tc.input, tc.workloadOrdering, false)
 			order := make([]string, len(tc.input))
 			for i := range tc.input {
-				order[i] = iter.pop().Obj.Name
+				e := iter.pop()
+				order[i] = e.Obj.Name
+				iter.done(e)
 			}
 			if iter.hasNext() {
 				t.Error("Expected iterator to be exhausted")
@@ -6923,6 +6926,116 @@ func TestEntryOrdering(t *testing.T) {
 				t.Errorf("%s: Unexpected order (-want,+got):\n%s", tc.name, diff)
 			}
 		})
+	}
+}
+
+func TestFairSharingIteratorBlocksDeeperSameCQEntriesUntilAssumed(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	cq := &schdcache.ClusterQueueSnapshot{Name: "cq"}
+	entries := []entry{
+		{
+			Info: workload.Info{
+				Obj:          utiltestingapi.MakeWorkload("head", "default").Obj(),
+				ClusterQueue: "cq",
+			},
+			clusterQueueSnapshot: cq,
+		},
+		{
+			Info: workload.Info{
+				Obj:          utiltestingapi.MakeWorkload("second", "default").Obj(),
+				ClusterQueue: "cq",
+			},
+			clusterQueueSnapshot: cq,
+		},
+	}
+
+	t.Run("failed head blocks second entry", func(t *testing.T) {
+		iter := makeFairSharingIterator(ctx, slices.Clone(entries), workload.Ordering{})
+		e := iter.pop()
+		e.markSkipped("head blocked")
+		iter.done(e)
+		if iter.hasNext() {
+			t.Fatalf("expected iterator to drop deeper entries after blocked head")
+		}
+	})
+
+	t.Run("assumed head exposes second entry", func(t *testing.T) {
+		iter := makeFairSharingIterator(ctx, slices.Clone(entries), workload.Ordering{})
+		e := iter.pop()
+		e.markAssumed()
+		iter.done(e)
+		if !iter.hasNext() {
+			t.Fatalf("expected iterator to keep second entry after assumed head")
+		}
+		if got := iter.pop().Obj.Name; got != "second" {
+			t.Fatalf("expected second entry, got %q", got)
+		}
+	})
+}
+
+func TestNominateBlocksDeeperSameCQEntriesAfterInadmissibleHead(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	s := &Scheduler{cache: schdcache.New(utiltesting.NewFakeClient())}
+	workloads := []workload.Info{
+		{
+			Obj: utiltestingapi.MakeWorkload("head", "default").
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateRetry,
+				}).
+				Obj(),
+			ClusterQueue: "cq",
+		},
+		{
+			Obj:          utiltestingapi.MakeWorkload("second", "default").Obj(),
+			ClusterQueue: "cq",
+		},
+	}
+
+	entries, inadmissible := s.nominate(ctx, workloads, &schdcache.Snapshot{}, true)
+	if len(entries) != 0 {
+		t.Fatalf("expected no schedulable entries, got %d", len(entries))
+	}
+	if got, want := len(inadmissible), 2; got != want {
+		t.Fatalf("inadmissible entries count: got %d, want %d", got, want)
+	}
+	if got, want := inadmissible[1].inadmissibleMsg, "Blocked by an earlier workload from the same ClusterQueue"; got != want {
+		t.Fatalf("second inadmissible message: got %q, want %q", got, want)
+	}
+}
+
+func TestFairSharingDeepAdmissionDropsOnlySaturatedStandaloneScope(t *testing.T) {
+	cqA := &schdcache.ClusterQueueSnapshot{Name: "cq-a"}
+	cqB := &schdcache.ClusterQueueSnapshot{Name: "cq-b"}
+
+	entries := []entry{
+		{
+			Info: workload.Info{
+				Obj:          utiltestingapi.MakeWorkload("a", "default").Obj(),
+				ClusterQueue: "cq-a",
+			},
+			clusterQueueSnapshot: cqA,
+		},
+		{
+			Info: workload.Info{
+				Obj:          utiltestingapi.MakeWorkload("b", "default").Obj(),
+				ClusterQueue: "cq-b",
+			},
+			clusterQueueSnapshot: cqB,
+		},
+	}
+	ctx, _ := utiltesting.ContextWithLog(t)
+	iter := makeFairSharingIterator(ctx, entries, workload.Ordering{})
+	saturatedRoot := rootScopeKey(cqA)
+	iter.dropWhile(func(e *entry) bool {
+		return rootScopeKey(e.clusterQueueSnapshot) == saturatedRoot
+	})
+
+	if !iter.hasNext() {
+		t.Fatalf("expected unrelated standalone scope to remain")
+	}
+	if got := iter.pop().ClusterQueue; got != "cq-b" {
+		t.Fatalf("expected entry from unrelated standalone scope, got %q", got)
 	}
 }
 

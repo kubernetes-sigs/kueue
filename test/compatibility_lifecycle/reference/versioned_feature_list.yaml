@@ -79,6 +79,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.15"
+- name: FairSharingDeepAdmission
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.19"
 - name: FairSharingPreemptWithinNominal
   versionedSpecs:
   - default: true

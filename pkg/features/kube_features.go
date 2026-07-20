@@ -71,6 +71,17 @@ const (
 	// every level of the cohort hierarchy.
 	FairSharingPrioritizeNonBorrowing featuregate.Feature = "FairSharingPrioritizeNonBorrowing"
 
+	// owner: @mukund-wayve
+	// kep: https://github.com/kubernetes-sigs/kueue/issues/9345
+	//
+	// In fair sharing admission, look a fixed depth into each ClusterQueue
+	// per scheduling cycle (pop up to 2 heads per CQ) and interrupt the cycle
+	// once a single root-cohort subtree admits its 2nd workload, so a burst of
+	// freed cohort capacity keeps flowing to its low-DRS owner instead of an
+	// over-share sibling that would otherwise borrow it (avoiding admit-then-preempt
+	// oscillation).
+	FairSharingDeepAdmission featuregate.Feature = "FairSharingDeepAdmission"
+
 	// owner: @trasc
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/693-multikueue
 	//
@@ -544,6 +555,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	FairSharingPrioritizeNonBorrowing: {
 		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
+	},
+	FairSharingDeepAdmission: {
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	MultiKueue: {
 		{Version: version.MustParse("0.6"), Default: false, PreRelease: featuregate.Alpha},
