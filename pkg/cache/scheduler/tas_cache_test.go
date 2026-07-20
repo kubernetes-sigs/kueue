@@ -7871,7 +7871,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			if tc.workload != nil {
 				findOpts = append(findOpts, WithWorkload(tc.workload))
 			}
-			gotResult := snapshot.FindTopologyAssignmentsForFlavor(flavorTASRequests, findOpts...)
+			gotResult := snapshot.FindTopologyAssignmentsForFlavor(log, flavorTASRequests, findOpts...)
 			if diff := cmp.Diff(wantResult, gotResult); diff != "" {
 				t.Errorf("unexpected topology assignment (-want,+got): %s", diff)
 			}
@@ -8298,7 +8298,7 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 				tasCache.nodesCache.find(tasFlavorCache.flavor.NodeLabels, tasFlavorCache.topology.Levels),
 				aggregatedDomainUsages,
 			)
-			result := snapshot.FindTopologyAssignmentsForFlavor(flavorTASRequests, WithWorkload(wl))
+			result := snapshot.FindTopologyAssignmentsForFlavor(log, flavorTASRequests, WithWorkload(wl))
 
 			psResult, ok := result[podSetName]
 			if !ok {

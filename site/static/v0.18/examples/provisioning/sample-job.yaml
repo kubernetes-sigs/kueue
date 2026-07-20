@@ -1,0 +1,30 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: sample-job-
+  namespace: default
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+  annotations:
+    provreq.kueue.x-k8s.io/maxRunDurationSeconds: "600"
+spec:
+  parallelism: 3
+  completions: 3
+  template:
+    spec:
+      tolerations:
+      - key: "nvidia.com/gpu"
+        operator: "Exists"
+        effect: "NoSchedule"
+      containers:
+      - name: dummy-job
+        image: registry.k8s.io/e2e-test-images/agnhost:2.53
+        args: ["pause"]
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "100Mi"
+            nvidia.com/gpu: 1
+          limits:
+            nvidia.com/gpu: 1
+      restartPolicy: Never
