@@ -830,8 +830,8 @@ func updateAssignmentForTAS(log logr.Logger, snapshot *schdcache.Snapshot, cq *s
 			}
 			revertUsage := snapshot.SimulateWorkloadRemoval(targetWorkloads)
 			tasResult = cq.FindTopologyAssignmentsForWorkload(
-				tasRequests,
 				log,
+				tasRequests,
 				schdcache.WithWorkload(wl.Obj),
 			)
 			revertUsage()
@@ -843,8 +843,8 @@ func updateAssignmentForTAS(log logr.Logger, snapshot *schdcache.Snapshot, cq *s
 			// a TAS assignment for reserving the resources we run the algorithm
 			// assuming the cluster is empty.
 			tasResult = cq.FindTopologyAssignmentsForWorkload(
-				tasRequests,
 				log,
+				tasRequests,
 				schdcache.WithSimulateEmpty(true),
 				schdcache.WithWorkload(wl.Obj),
 			)

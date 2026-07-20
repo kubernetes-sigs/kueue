@@ -639,7 +639,7 @@ func WithAggregatedDomainUsages(m map[utiltas.TopologyDomainID]resources.Request
 
 // FindTopologyAssignmentsForFlavor returns TAS assignment, if possible, for all
 // the TAS requests in the flavor handled by the snapshot.
-func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests FlavorTASRequests, log logr.Logger, options ...FindTopologyAssignmentsOption) TASAssignmentsResult {
+func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(log logr.Logger, flavorTASRequests FlavorTASRequests, options ...FindTopologyAssignmentsOption) TASAssignmentsResult {
 	opts := &findTopologyAssignmentsOption{}
 	for _, option := range options {
 		option(opts)

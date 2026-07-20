@@ -486,7 +486,7 @@ func (r *nodeReconciler) checkPodsOnNode(
 
 // evictWorkloadIfNeeded idempotently evicts the workload when the node has failed.
 // It returns whether the node was evicted, and whether an error was encountered.
-func (r *nodeReconciler) evictWorkloadIfNeeded(ctx context.Context, wl *kueue.Workload, nodeName string, log logr.Logger) (bool, error) {
+func (r *nodeReconciler) evictWorkloadIfNeeded(ctx context.Context, log logr.Logger, wl *kueue.Workload, nodeName string) (bool, error) {
 	if workload.HasUnhealthyNodes(wl) && !workload.HasUnhealthyNode(wl, nodeName) && !workloadevict.IsEvicted(wl) {
 		unhealthyNodeNames := workload.UnhealthyNodeNames(wl)
 		log = log.WithValues("unhealthyNodes", unhealthyNodeNames)
@@ -529,7 +529,7 @@ func (r *nodeReconciler) handleUnhealthyNode(ctx context.Context, nodeName strin
 			continue
 		}
 		// evict workload when workload already has a different node marked for replacement
-		evictedNow, err := r.evictWorkloadIfNeeded(ctx, &wl, nodeName, wlLog)
+		evictedNow, err := r.evictWorkloadIfNeeded(ctx, wlLog, &wl, nodeName)
 		if err != nil {
 			workloadProcessingErrors = append(workloadProcessingErrors, err)
 			continue
