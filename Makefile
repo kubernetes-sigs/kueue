@@ -68,7 +68,7 @@ RAYMINI_VERSION ?= 0.0.4
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
 BASE_IMAGE ?= gcr.io/distroless/static:nonroot
 BASE_BUILDER_IMAGE ?= golang
-BUILDER_IMAGE ?= golang:$(GO_VERSION)
+BUILDER_IMAGE ?= $(BASE_BUILDER_IMAGE):$(GO_VERSION)
 CGO_ENABLED ?= 0
 
 YAML_PROCESSOR_LOG_LEVEL ?= info
