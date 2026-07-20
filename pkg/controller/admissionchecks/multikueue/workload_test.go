@@ -276,6 +276,34 @@ func TestWlReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
+		"unmanaged wl (spoofed owner annotation) is rejected": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			reconcileFor: "wl1",
+			managersJobs: []batchv1.Job{
+				*baseJobManagedByKueueBuilder.Clone().PrebuiltWorkloadLabel("different-wl").Obj(),
+			},
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Annotations(map[string]string{
+						constants.JobOwnerGVKAnnotation:  batchv1.SchemeGroupVersion.WithKind("Job").String(),
+						constants.JobOwnerNameAnnotation: "job1",
+					}).
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					Obj(),
+			},
+			wantManagersJobs: []batchv1.Job{
+				*baseJobManagedByKueueBuilder.Clone().PrebuiltWorkloadLabel("different-wl").Obj(),
+			},
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Annotations(map[string]string{
+						constants.JobOwnerGVKAnnotation:  batchv1.SchemeGroupVersion.WithKind("Job").String(),
+						constants.JobOwnerNameAnnotation: "job1",
+					}).
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStateRejected, Message: `Workload is not owned by the referenced Job, Previously: "Pending"`}).
+					Obj(),
+			},
+		},
 		"failing to read from a worker": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor: "wl1",
