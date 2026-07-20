@@ -432,6 +432,7 @@ func (rc *remoteClient) setClient(c client.WithWatch) {
 func (rc *remoteClient) StopWatchers() {
 	if rc.watchCancel != nil {
 		rc.watchCancel()
+		rc.watchCancel = nil
 	}
 }
 
@@ -683,6 +684,7 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 
 	if retryAfter, err := c.setRemoteClientConfig(ctx, cluster.Name, clientConfig, c.origin); err != nil {
 		log.Error(err, "setting client config", "retryAfter", retryAfter)
+		c.disconnectCluster(req.Name)
 		if err := c.updateStatus(ctx, cluster, false, "ClientConnectionFailed", err.Error()); err != nil {
 			return reconcile.Result{}, err
 		} else {
