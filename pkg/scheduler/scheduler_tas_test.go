@@ -3331,37 +3331,43 @@ func TestScheduleForTAS(t *testing.T) {
 			features.WorkloadRequestUseMergePatch:     false,
 			features.UnadmittedWorkloadsObservability: false,
 			features.TASCacheNodeMatchResults:         true,
+			features.TASCachingRemainingResources:     true,
 		},
 		{
 			features.WorkloadRequestUseMergePatch:     false,
 			features.UnadmittedWorkloadsObservability: true,
 			features.TASCacheNodeMatchResults:         true,
+			features.TASCachingRemainingResources:     true,
 		},
 		{
 			features.WorkloadRequestUseMergePatch:     true,
 			features.UnadmittedWorkloadsObservability: false,
 			features.TASCacheNodeMatchResults:         true,
+			features.TASCachingRemainingResources:     true,
 		},
 		{
 			features.WorkloadRequestUseMergePatch:     true,
 			features.UnadmittedWorkloadsObservability: true,
 			features.TASCacheNodeMatchResults:         true,
+			features.TASCachingRemainingResources:     true,
 		},
 		{
 			features.WorkloadRequestUseMergePatch:     false,
 			features.UnadmittedWorkloadsObservability: false,
 			features.TASCacheNodeMatchResults:         false,
+			features.TASCachingRemainingResources:     false,
 		},
 	}
 
 	for name, tc := range cases {
 		for _, scenario := range scenarios {
 			t.Run(
-				fmt.Sprintf("%s WorkloadRequestUseMergePatch:%t observability:%t cacheMatchResults:%t",
+				fmt.Sprintf("%s WorkloadRequestUseMergePatch:%t observability:%t cacheMatchResults:%t cachingRemainingResources:%t",
 					name,
 					scenario[features.WorkloadRequestUseMergePatch],
 					scenario[features.UnadmittedWorkloadsObservability],
 					scenario[features.TASCacheNodeMatchResults],
+					scenario[features.TASCachingRemainingResources],
 				),
 				func(t *testing.T) {
 					features.SetFeatureGatesDuringTest(t, scenario)
@@ -3559,37 +3565,43 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 			features.WorkloadRequestUseMergePatch:     false,
 			features.UnadmittedWorkloadsObservability: false,
 			features.TASCacheNodeMatchResults:         true,
+			features.TASCachingRemainingResources:     true,
 		},
 		{
 			features.WorkloadRequestUseMergePatch:     false,
 			features.UnadmittedWorkloadsObservability: true,
 			features.TASCacheNodeMatchResults:         true,
+			features.TASCachingRemainingResources:     true,
 		},
 		{
 			features.WorkloadRequestUseMergePatch:     true,
 			features.UnadmittedWorkloadsObservability: false,
 			features.TASCacheNodeMatchResults:         true,
+			features.TASCachingRemainingResources:     true,
 		},
 		{
 			features.WorkloadRequestUseMergePatch:     true,
 			features.UnadmittedWorkloadsObservability: true,
 			features.TASCacheNodeMatchResults:         true,
+			features.TASCachingRemainingResources:     true,
 		},
 		{
 			features.WorkloadRequestUseMergePatch:     false,
 			features.UnadmittedWorkloadsObservability: false,
 			features.TASCacheNodeMatchResults:         false,
+			features.TASCachingRemainingResources:     false,
 		},
 	}
 
 	for name, tc := range cases {
 		for _, scenario := range scenarios {
 			t.Run(
-				fmt.Sprintf("%s WorkloadRequestUseMergePatch:%t observability:%t cacheMatchResults:%t",
+				fmt.Sprintf("%s WorkloadRequestUseMergePatch:%t observability:%t cacheMatchResults:%t cachingRemainingResources:%t",
 					name,
 					scenario[features.WorkloadRequestUseMergePatch],
 					scenario[features.UnadmittedWorkloadsObservability],
 					scenario[features.TASCacheNodeMatchResults],
+					scenario[features.TASCachingRemainingResources],
 				),
 				func(t *testing.T) {
 					features.SetFeatureGatesDuringTest(t, scenario)
