@@ -119,8 +119,7 @@ Nominating clusters in the order defined in `MultiKueueConfig.spec.clusters` is 
 default since Kueue v0.19. In v0.17 and v0.18 the gate is Alpha and disabled by default; enable it
 to opt in.
 
-When the gate is disabled, clusters are nominated in alphabetical order instead, which was the
-behavior before the gate was introduced. Refer to the
+When the gate is disabled, clusters are nominated in alphabetical order instead. Refer to the
 [Installation guide](/docs/installation/#change-the-feature-gates-configuration)
 for instructions on configuring feature gates.
 {{% /alert %}}
@@ -158,9 +157,6 @@ With this setup the incremental dispatcher nominates clusters as follows:
 - Round 1: `worker-onprem`
 - Round 2 (after 5 minutes without admission): `worker-onprem`, `worker-aws`
 - Round 3 (after another 5 minutes): `worker-onprem`, `worker-aws`, `worker-gcp`
-
-With the `MultiKueueIncrementalDispatcherRespectConfigOrder` gate enabled, the nomination order
-always follows `spec.clusters`, regardless of the cluster names' alphabetical order.
 
 ### External (Custom implementation):
 In this mode, the selection of worker clusters is delegated to an external controller.
