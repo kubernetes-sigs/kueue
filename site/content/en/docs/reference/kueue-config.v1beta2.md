@@ -93,6 +93,14 @@ and passing the readiness probe) within the specified time. If the timeout
 is exceeded, then the workload is evicted.</p>
 </td>
 </tr>
+<tr><td><code>scheduling</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-Scheduling"><code>Scheduling</code></a>
+</td>
+<td>
+   <p>Scheduling provides configuration options for controlling the quota release
+strategy used across all job integrations.</p>
+</td>
+</tr>
 <tr><td><code>clientConnection</code> <B>[Required]</B><br/>
 <a href="#config-kueue-x-k8s-io-v1beta2-ClientConnection"><code>ClientConnection</code></a>
 </td>
@@ -1221,6 +1229,20 @@ during admission.</p>
 
 
 
+## `QuotaReleaseStrategy`     {#config-kueue-x-k8s-io-v1beta2-QuotaReleaseStrategy}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [Scheduling](#config-kueue-x-k8s-io-v1beta2-Scheduling)
+
+
+<p>QuotaReleaseStrategy defines when Kueue releases quota for a terminating workload.</p>
+
+
+
+
 ## `RequeuingStrategy`     {#config-kueue-x-k8s-io-v1beta2-RequeuingStrategy}
     
 
@@ -1402,6 +1424,34 @@ This is intended to be a map with Input as the key (enforced by validation code)
 <td>
    <p>DeviceClassMappings defines mappings from device classes to logical resources
 for Dynamic Resource Allocation support.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `Scheduling`     {#config-kueue-x-k8s-io-v1beta2-Scheduling}
+    
+
+**Appears in:**
+
+- [Configuration](#config-kueue-x-k8s-io-v1beta2-Configuration)
+
+
+<p>Scheduling defines configuration for the quota release strategy,
+which controls when Kueue releases quota for terminating workloads.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>quotaReleaseStrategy</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-QuotaReleaseStrategy"><code>QuotaReleaseStrategy</code></a>
+</td>
+<td>
+   <p>QuotaReleaseStrategy controls when Kueue releases a workload's quota
+reservation after the workload begins terminating. Defaults to OnTermination.</p>
 </td>
 </tr>
 </tbody>
