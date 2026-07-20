@@ -49,3 +49,61 @@ resolve_path() {
   local resolved="/${stack[*]}"
   echo "${resolved// /\/}"
 }
+
+# Returns 0 if version $1 is strictly less than version $2, else 1
+function version_less_than() {
+  local v1="${1#v}"; v1="${v1%-*}"
+  local v2="${2#v}"; v2="${v2%-*}"
+
+  local major1 minor1 patch1
+  IFS='.' read -r major1 minor1 patch1 <<< "${v1}"
+
+  local major2 minor2 patch2
+  IFS='.' read -r major2 minor2 patch2 <<< "${v2}"
+
+  if (( ${major1:-0} == ${major2:-0} && ${minor1:-0} == ${minor2:-0} )); then
+    (( ${patch1:-0} < ${patch2:-0} ))
+    return
+  fi
+  if (( ${major1:-0} == ${major2:-0} )); then
+    (( ${minor1:-0} < ${minor2:-0} ))
+    return
+  fi
+  (( ${major1:-0} < ${major2:-0} ))
+}
+
+# Returns 0 if the image should be skipped, else 1
+# $1 - image name
+# $2 - release version
+# $3 - images file path
+function should_skip_image() {
+  local name="$1"
+  local release_version="$2"
+  local images_file_path="$3"
+
+  if [[ ! -f "${images_file_path}" ]]; then
+    return 1 # Do not skip if file is missing (failsafe)
+  fi
+
+  local min_version
+  min_version=$(awk -v name="${name}" '
+    $0 ~ "^-[[:space:]]*name:[[:space:]]*" {
+      current_name = $3
+    }
+    current_name == name && $0 ~ /\["[^"]+"\]/ {
+      match($0, /\["[^"]+"\]/)
+      print substr($0, RSTART+2, RLENGTH-4)
+    }
+  ' "${images_file_path}" | sed 's/^v//' | sort -t. -k 1,1n -k 2,2n -k 3,3n | head -n 1)
+
+  if [[ -z "${min_version}" ]]; then
+    return 1 # Do not skip if no historical promotions exist (e.g. brand new image)
+  fi
+
+  if version_less_than "${release_version}" "${min_version}"; then
+    return 0 # Skip
+  fi
+
+  return 1 # Do not skip
+}
+
