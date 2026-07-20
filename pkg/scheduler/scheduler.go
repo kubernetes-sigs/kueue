@@ -828,6 +828,8 @@ func updateAssignmentForTAS(
 		(workload.IsExplicitlyRequestingTAS(wl.Obj.Spec.PodSets...) || cq.IsTASOnly()) && !workload.HasTopologyAssignmentWithUnhealthyNode(wl.Obj) {
 		tasRequests := assignment.WorkloadsTopologyRequests(log, wl, cq)
 		var tasResult schdcache.TASAssignmentsResult
+		log = log.WithValues("workload", klog.KRef(wl.Obj.Namespace, wl.Obj.Name))
+
 		if len(targets) > 0 {
 			var targetWorkloads []*workload.Info
 			for _, target := range targets {
@@ -836,6 +838,7 @@ func updateAssignmentForTAS(
 			revertUsage := snapshot.SimulateWorkloadRemoval(targetWorkloads)
 			tasResult = cq.FindTopologyAssignmentsForWorkload(
 				ctx,
+				log,
 				tasRequests,
 				schdcache.WithWorkload(wl.Obj),
 			)
@@ -849,6 +852,7 @@ func updateAssignmentForTAS(
 			// assuming the cluster is empty.
 			tasResult = cq.FindTopologyAssignmentsForWorkload(
 				ctx,
+				log,
 				tasRequests,
 				schdcache.WithSimulateEmpty(true),
 				schdcache.WithWorkload(wl.Obj),

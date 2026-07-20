@@ -65,6 +65,24 @@ func TestMakeClusterQueueOrdering(t *testing.T) {
 			candidateCQs: []kueue.ClusterQueueReference{"preemptor"},
 			wantOrder:    []kueue.ClusterQueueReference{"preemptor"},
 		},
+		"no cohort: DropQueue ends the iteration with candidates remaining": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("preemptor").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "4").Obj()).
+					Obj(),
+			},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl1", "ns").Request(corev1.ResourceCPU, "1").
+					SimpleReserveQuota("preemptor", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("wl2", "ns").Request(corev1.ResourceCPU, "1").
+					SimpleReserveQuota("preemptor", "default", now).Obj(),
+			},
+			preemptorCQ:  "preemptor",
+			candidateCQs: []kueue.ClusterQueueReference{"preemptor"},
+			actions:      []string{"drop"},
+			wantOrder:    []kueue.ClusterQueueReference{"preemptor"},
+		},
 		"non-borrowing CQ is pruned even with candidates": {
 			clusterQueues: []*kueue.ClusterQueue{
 				utiltestingapi.MakeClusterQueue("preemptor").Cohort("all").

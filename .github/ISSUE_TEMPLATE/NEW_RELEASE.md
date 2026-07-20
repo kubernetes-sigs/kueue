@@ -19,6 +19,12 @@ Please do not remove items from the checklist
   - [ ] Ensure there are no unstaged changes in your directory (the script adds everything)
   - [ ] Run `./hack/releasing/prepare_pull.sh --target release $VERSION`
   - [ ] Wait for this PR to merge <!-- PREPARE_PULL_RELEASE --> <!-- example #211 -->
+- [ ] Versioned docs are handled automatically during releases -- major, minor, and patch: the
+      `main`-update PR from `prepare_pull.sh` runs `hack/releasing/snapshot-docs.py`, which
+      freezes the release's docs into `site/content/<locale>/v$MAJ.$MIN/docs`, adds it to the
+      version dropdown, and prunes old snapshots. Patch releases re-freeze the existing snapshot
+      to the new patch version (e.g. v0.17.7 -> v0.17.8). No Netlify/DNS steps are required. Just
+      confirm the snapshot dirs and the `[[params.versions]]` entry are present in that PR.
 - [ ] Run ChatOps command `/tag-release` on this issue. This will:
   - Extract the changelog from the issue description.
   - Create the release tag at the tip of the release branch.
@@ -43,7 +49,7 @@ Please do not remove items from the checklist
         Note: Add --skip-version-updates if a newer minor or major version is already out.
   - [ ] Wait for this PR to merge <!-- PREPARE_PULL_MAIN --> <!-- example #214 -->
   - [ ] Cherry-pick the pull request onto the `website` branch
-- [ ] For major or minor releases, merge the `main` branch into the `website` branch to publish the updated documentation.
+- [ ] For major, minor, or patch releases, merge the `main` branch into the `website` branch to publish the updated documentation.
 - [ ] Send an announcement email to `sig-scheduling@kubernetes.io` and `wg-batch@kubernetes.io` with the subject `[ANNOUNCE] kueue $VERSION is released`.   <!--Link: example https://groups.google.com/a/kubernetes.io/g/wg-batch/c/-gZOrSnwDV4 -->
 - [ ] For a major or minor release, prepare the repo for the next version:
   - [ ] Create an unannotated _devel_ tag in the

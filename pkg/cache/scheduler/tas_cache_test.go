@@ -7871,7 +7871,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			if tc.workload != nil {
 				findOpts = append(findOpts, WithWorkload(tc.workload))
 			}
-			gotResult := snapshot.FindTopologyAssignmentsForFlavor(t.Context(), flavorTASRequests, findOpts...)
+			gotResult := snapshot.FindTopologyAssignmentsForFlavor(t.Context(), log, flavorTASRequests, findOpts...)
 			if diff := cmp.Diff(wantResult, gotResult); diff != "" {
 				t.Errorf("unexpected topology assignment (-want,+got): %s", diff)
 			}
@@ -8302,7 +8302,7 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 				t.Fatalf("TASFlavorSnapshot creation failed: %v", err)
 			}
 
-			result := snapshot.FindTopologyAssignmentsForFlavor(t.Context(), flavorTASRequests, WithWorkload(wl))
+			result := snapshot.FindTopologyAssignmentsForFlavor(t.Context(), log, flavorTASRequests, WithWorkload(wl))
 
 			psResult, ok := result[podSetName]
 			if !ok {

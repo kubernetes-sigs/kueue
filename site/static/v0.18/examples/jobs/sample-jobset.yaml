@@ -1,0 +1,51 @@
+# sample-jobset.yaml
+apiVersion: jobset.x-k8s.io/v1alpha2
+kind: JobSet
+metadata:
+  generateName: sleep-job-
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+spec:
+  network:
+    enableDNSHostnames: false
+    subdomain: some-subdomain
+  replicatedJobs:
+    - name: workers
+      replicas: 1
+      template:
+        spec:
+          parallelism: 1
+          completions: 1
+          backoffLimit: 0
+          template:
+            spec:
+              containers:
+                - name: sleep
+                  image: busybox
+                  resources:
+                    requests:
+                      cpu: 1
+                      memory: "200Mi"
+                  command:
+                    - sleep
+                  args:
+                    - 100s
+    - name: driver
+      template:
+        spec:
+          parallelism: 1
+          completions: 1
+          backoffLimit: 0
+          template:
+            spec:
+              containers:
+                - name: sleep
+                  image: busybox
+                  resources:
+                    requests:
+                      cpu: 2
+                      memory: "200Mi"
+                  command:
+                    - sleep
+                  args:
+                    - 100s
