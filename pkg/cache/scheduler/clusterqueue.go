@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/ptr"
 
+	cfg "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -488,6 +489,7 @@ func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, w *kueue.Workload) {
 	wi := workload.NewInfo(w, c.workloadInfoOptions...)
 	wi.UpdateSchedulingHash(log)
 	c.Workloads[k] = wi
+	c.customLabels.Store(cfg.SourceKindWorkload, string(k), w.Labels, w.Annotations)
 	c.updateWorkloadUsage(log, wi, add)
 	if c.podsReadyTracking && !apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadPodsReady) {
 		c.WorkloadsNotReady.Insert(k)
@@ -513,6 +515,7 @@ func (c *clusterQueue) deleteWorkload(log logr.Logger, wlKey workload.Reference)
 	c.AllocatableResourceGeneration++
 
 	delete(c.Workloads, wlKey)
+	c.customLabels.Delete(cfg.SourceKindWorkload, string(wlKey))
 	c.reportActiveWorkloads()
 }
 
@@ -521,8 +524,15 @@ func (c *clusterQueue) reportActiveWorkloads() {
 	for ancestor := range c.Parent().PathSelfToRoot() {
 		metrics.ReportCohortSubtreeAdmittedActiveWorkloads(ancestor.Name, ancestor.admittedWorkloadsCount, clVals, c.roleTracker)
 	}
-	metrics.ReportAdmittedActiveWorkloads(c.Name, c.admittedWorkloadsCount, clVals, c.roleTracker)
 	metrics.ReportReservingActiveWorkloads(c.Name, len(c.Workloads), clVals, c.roleTracker)
+}
+
+func (c *clusterQueue) resyncAdmittedActiveWorkloads() {
+	for wlRef, wl := range c.Workloads {
+		if workload.IsActive(wl.Obj) && workload.IsAdmitted(wl.Obj) {
+			metrics.ReportAdmittedActiveWorkloads(c.Name, 1, c.getLabelValuesFor(wlRef), c.roleTracker)
+		}
+	}
 }
 
 func (c *clusterQueue) reportResourceMetrics(fairSharingEnabled bool) {
@@ -580,8 +590,13 @@ func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, o
 	c.updateWorkloadTASUsage(log, wi, op)
 	if admitted {
 		updateFlavorUsage(frUsage, c.AdmittedUsage, op)
-		c.Parent().updateAdmittedWorkloadsCount(op.asSignedOne())
-		c.admittedWorkloadsCount += op.asSignedOne()
+
+		incr := op.asSignedOne()
+		c.Parent().updateAdmittedWorkloadsCount(incr)
+		c.admittedWorkloadsCount += incr
+
+		wlRef := workload.Key(wi.Obj)
+		metrics.ReportAdmittedActiveWorkloads(c.Name, incr, c.getLabelValuesFor(wlRef), c.roleTracker)
 	}
 	qKey := queue.KeyFromWorkload(wi.Obj)
 	if lq, ok := c.localQueues[qKey]; ok {
@@ -595,6 +610,13 @@ func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, o
 			lq.reportActiveWorkloads(c.roleTracker)
 		}
 	}
+}
+
+func (c *clusterQueue) getLabelValuesFor(wlRef workload.Reference) []string {
+	return c.customLabels.GetFor(map[cfg.SourceKind]string{
+		cfg.SourceKindWorkload:     string(wlRef),
+		cfg.SourceKindClusterQueue: string(c.Name),
+	})
 }
 
 func (c *clusterQueue) updateWorkloadTASUsage(log logr.Logger, wi *workload.Info, op usageOp) {
