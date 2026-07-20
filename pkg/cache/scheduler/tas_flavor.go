@@ -123,7 +123,7 @@ func (c *TASFlavorCache) TopologyLevels() []string {
 }
 
 func (c *TASFlavorCache) snapshot(
-	log logr.Logger, nodes []*corev1.Node, aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests,
+	ctx context.Context, log logr.Logger, nodes []*corev1.Node, aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests,
 ) (*TASFlavorSnapshot, error) {
 	c.RLock()
 	defer c.RUnlock()
@@ -138,7 +138,7 @@ func (c *TASFlavorCache) snapshot(
 	}
 	log.V(3).Info("Constructing TAS snapshot", infoKV...)
 
-	feasibilityChecker, err := c.schedulingSimulator.NewFeasibilityChecker(context.Background(), nodes)
+	feasibilityChecker, err := c.schedulingSimulator.NewFeasibilityChecker(ctx, nodes)
 	if err != nil {
 		return nil, err
 	}
