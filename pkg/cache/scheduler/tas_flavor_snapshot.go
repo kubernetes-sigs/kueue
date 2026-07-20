@@ -1666,33 +1666,23 @@ func (s *TASFlavorSnapshot) fillInCounts(ctx context.Context, requirements *simu
 			s.fillLeafCounts(leaf, requirements, state, cachingRemainingResourcesEnabled)
 		}
 	} else {
-		leaves := make([]*leafDomain, 0, len(s.leaves))
-		for _, leaf := range s.leaves {
-			leaves = append(leaves, leaf)
-		}
-
-		var feasibleLeaves []leafCandidate
-
 		if s.isLowestLevelNode {
-			var err error
-			var leafStats *simulator.ExclusionStats
-			feasibleLeaves, leafStats, err = s.feasibilityChecker.FindFeasibleNodes(ctx, leaves, requirements)
+			feasibleLeaves, leafStats, err := s.feasibilityChecker.FindFeasibleNodes(ctx, maps.Values(s.leaves), requirements)
 			if err != nil {
 				return err
 			}
 			state.stats.Add(leafStats)
-		} else {
-			feasibleLeaves = make([]leafCandidate, 0, len(leaves))
-			for _, leaf := range leaves {
-				feasibleLeaves = append(feasibleLeaves, leafCandidate{Candidate: leaf})
-			}
-			state.stats.TotalNodes = len(leaves)
-		}
 
-		for _, ml := range feasibleLeaves {
-			leaf := ml.Candidate
-			leaf.affinityScore += ml.AffinityScore
-			s.fillLeafCounts(leaf, requirements, state, cachingRemainingResourcesEnabled)
+			for _, ml := range feasibleLeaves {
+				leaf := ml.Candidate
+				leaf.affinityScore += ml.AffinityScore
+				s.fillLeafCounts(leaf, requirements, state, cachingRemainingResourcesEnabled)
+			}
+		} else {
+			state.stats.TotalNodes += len(s.leaves)
+			for _, leaf := range s.leaves {
+				s.fillLeafCounts(leaf, requirements, state, cachingRemainingResourcesEnabled)
+			}
 		}
 	}
 
@@ -1720,14 +1710,9 @@ func (s *TASFlavorSnapshot) getMatchingLeaves(ctx context.Context, requirements 
 		}
 	}
 
-	leaves := make([]*leafDomain, 0, len(s.leaves))
-	for _, leaf := range s.leaves {
-		leaves = append(leaves, leaf)
-	}
-
 	var leafStats *simulator.ExclusionStats
 	var err error
-	feasibleLeaves, leafStats, err := s.feasibilityChecker.FindFeasibleNodes(ctx, leaves, requirements)
+	feasibleLeaves, leafStats, err := s.feasibilityChecker.FindFeasibleNodes(ctx, maps.Values(s.leaves), requirements)
 	if err != nil {
 		return nil, nil, err
 	}

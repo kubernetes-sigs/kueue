@@ -18,6 +18,7 @@ package scheduler
 
 import (
 	"context"
+	"iter"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -43,17 +44,17 @@ type defaultChecker struct{}
 
 func (c *defaultChecker) FindFeasibleNodes(
 	ctx context.Context,
-	candidates []*leafDomain,
+	candidates iter.Seq[*leafDomain],
 	requirements *simulator.TopologyAssignmentPodRequirements,
 ) ([]simulator.MatchedCandidate[*leafDomain], *simulator.ExclusionStats, error) {
 	logger := log.FromContext(ctx)
 	exclusionStats := simulator.NewExclusionStats()
-	exclusionStats.TotalNodes = len(candidates)
 
-	var feasibleCandidates = make([]simulator.MatchedCandidate[*leafDomain], 0, len(candidates))
+	var feasibleCandidates []simulator.MatchedCandidate[*leafDomain]
 	respectNodeAffinityPreferredEnabled := features.Enabled(features.TASRespectNodeAffinityPreferred)
 
-	for _, candidate := range candidates {
+	for candidate := range candidates {
+		exclusionStats.TotalNodes++
 		nodeObj := candidate.GetNode()
 		domainID := candidate.GetID()
 		if nodeObj == nil {

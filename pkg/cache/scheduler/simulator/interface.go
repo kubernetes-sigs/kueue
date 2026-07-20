@@ -18,13 +18,14 @@ package simulator
 
 import (
 	"context"
+	"iter"
 
 	corev1 "k8s.io/api/core/v1"
 )
 
 // NodeFeasibilityChecker determines which topology leaves can satisfy pod requirements.
 type NodeFeasibilityChecker[C Candidate] interface {
-	FindFeasibleNodes(ctx context.Context, candidates []C, requirements *TopologyAssignmentPodRequirements) ([]MatchedCandidate[C], *ExclusionStats, error)
+	FindFeasibleNodes(ctx context.Context, candidates iter.Seq[C], requirements *TopologyAssignmentPodRequirements) ([]MatchedCandidate[C], *ExclusionStats, error)
 }
 
 // SchedulingSimulator acts as a factory for the feasibility checker.
