@@ -406,12 +406,14 @@ func TestLazyRequests(t *testing.T) {
 		op                func(*LazyRequests)
 		wantResult        Requests
 		wantCachedCreated bool
+		wantValid         bool
 	}{
 		"no operation preserves base": {
 			base:              Requests{corev1.ResourceCPU: 10, corev1.ResourceMemory: 100},
 			op:                nil,
 			wantResult:        Requests{corev1.ResourceCPU: 10, corev1.ResourceMemory: 100},
 			wantCachedCreated: false,
+			wantValid:         true,
 		},
 		"subtraction creates clone and updates result": {
 			base: Requests{corev1.ResourceCPU: 10, corev1.ResourceMemory: 100},
@@ -420,6 +422,7 @@ func TestLazyRequests(t *testing.T) {
 			},
 			wantResult:        Requests{corev1.ResourceCPU: 7, corev1.ResourceMemory: 100},
 			wantCachedCreated: true,
+			wantValid:         true,
 		},
 		"addition creates clone and updates result": {
 			base: Requests{corev1.ResourceCPU: 10, corev1.ResourceMemory: 100},
@@ -428,6 +431,7 @@ func TestLazyRequests(t *testing.T) {
 			},
 			wantResult:        Requests{corev1.ResourceCPU: 15, corev1.ResourceMemory: 100},
 			wantCachedCreated: true,
+			wantValid:         true,
 		},
 		"subtraction with empty map short circuits": {
 			base: Requests{corev1.ResourceCPU: 10, corev1.ResourceMemory: 100},
@@ -436,6 +440,7 @@ func TestLazyRequests(t *testing.T) {
 			},
 			wantResult:        Requests{corev1.ResourceCPU: 10, corev1.ResourceMemory: 100},
 			wantCachedCreated: false,
+			wantValid:         true,
 		},
 		"addition with empty map short circuits": {
 			base: Requests{corev1.ResourceCPU: 10, corev1.ResourceMemory: 100},
@@ -444,6 +449,7 @@ func TestLazyRequests(t *testing.T) {
 			},
 			wantResult:        Requests{corev1.ResourceCPU: 10, corev1.ResourceMemory: 100},
 			wantCachedCreated: false,
+			wantValid:         true,
 		},
 		"nil base input with non-empty addition": {
 			base: nil,
@@ -452,6 +458,7 @@ func TestLazyRequests(t *testing.T) {
 			},
 			wantResult:        Requests{corev1.ResourceCPU: 5},
 			wantCachedCreated: true,
+			wantValid:         true,
 		},
 		"nil base input with empty addition short circuits": {
 			base: nil,
@@ -460,6 +467,7 @@ func TestLazyRequests(t *testing.T) {
 			},
 			wantResult:        nil,
 			wantCachedCreated: false,
+			wantValid:         false,
 		},
 		"nil base input with non-empty subtraction": {
 			base: nil,
@@ -468,6 +476,14 @@ func TestLazyRequests(t *testing.T) {
 			},
 			wantResult:        Requests{corev1.ResourceCPU: -5},
 			wantCachedCreated: true,
+			wantValid:         true,
+		},
+		"zero-value LazyRequests is not valid": {
+			base:              nil,
+			op:                nil,
+			wantResult:        nil,
+			wantCachedCreated: false,
+			wantValid:         false,
 		},
 	}
 
@@ -482,6 +498,10 @@ func TestLazyRequests(t *testing.T) {
 
 			if tc.op != nil {
 				tc.op(&lazy)
+			}
+
+			if gotValid := lazy.IsValid(); gotValid != tc.wantValid {
+				t.Errorf("unexpected IsValid() result, want=%t, got=%t", tc.wantValid, gotValid)
 			}
 
 			if (lazy.cached != nil) != tc.wantCachedCreated {
