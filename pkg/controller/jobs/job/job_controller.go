@@ -212,6 +212,7 @@ func (j *Job) PodLabelSelector() string {
 }
 
 func (j *Job) ReclaimablePods(ctx context.Context, _ client.Client) ([]kueue.ReclaimablePod, error) {
+	log := ctrl.LoggerFrom(ctx)
 	parallelism := ptr.Deref(j.Spec.Parallelism, 1)
 	completions := ptr.Deref(j.Spec.Completions, parallelism)
 
@@ -226,20 +227,39 @@ func (j *Job) ReclaimablePods(ctx context.Context, _ client.Client) ([]kueue.Rec
 	succeeded := j.Status.Succeeded
 	if ptr.Deref(j.Spec.CompletionMode, batchv1.NonIndexedCompletion) == batchv1.IndexedCompletion {
 		succeeded = completedIndexesCount(j.Status.CompletedIndexes, completions)
+		log.V(3).Info("Derived completed pods from completedIndexes for Indexed Job",
+			"completedIndexes", j.Status.CompletedIndexes,
+			"completions", completions,
+			"derivedSucceeded", succeeded,
+			"statusSucceeded", j.Status.Succeeded)
 	}
 
 	if parallelism == 1 || succeeded == 0 {
+		log.V(3).Info("No reclaimable pods: single-pod Job or nothing completed",
+			"parallelism", parallelism,
+			"succeeded", succeeded)
 		return nil, nil
 	}
 
 	remaining := completions - succeeded
 	if remaining >= parallelism {
+		log.V(3).Info("No reclaimable pods: remaining work still fills the pod set",
+			"parallelism", parallelism,
+			"completions", completions,
+			"succeeded", succeeded,
+			"remaining", remaining)
 		return nil, nil
 	}
 
+	reclaimable := parallelism - remaining
+	log.V(3).Info("Computed reclaimable pods for Job",
+		"parallelism", parallelism,
+		"completions", completions,
+		"succeeded", succeeded,
+		"reclaimable", reclaimable)
 	return []kueue.ReclaimablePod{{
 		Name:  kueue.DefaultPodSetName,
-		Count: parallelism - remaining,
+		Count: reclaimable,
 	}}, nil
 }
 
@@ -271,9 +291,7 @@ func completedIndexesCount(completedIndexes string, completions int32) int32 {
 		if first < 0 || last < first {
 			continue
 		}
-		if last >= limit {
-			last = limit - 1
-		}
+		last = min(last, limit-1)
 		if first <= last {
 			count += last - first + 1
 		}
