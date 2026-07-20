@@ -24,10 +24,8 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-helpers/scheduling/corev1/nodeaffinity"
 
-	"sigs.k8s.io/kueue/pkg/resources"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
@@ -114,19 +112,13 @@ func (s *ExclusionStats) Add(other *ExclusionStats) {
 	}
 }
 
-// TopologyAssignmentPodRequirements stores pod-driven scheduling filters and
+// PodRequirements stores pod-driven scheduling filters and
 // resource inputs that are only needed while filling per-domain counts.
-type TopologyAssignmentPodRequirements struct {
-	Requests                  resources.Requests
-	LeaderRequests            *resources.Requests
-	AssumedUsage              map[utiltas.TopologyDomainID]resources.Requests
-	Tolerations               []corev1.Toleration
-	Selector                  labels.Selector
-	AffinitySelector          *nodeaffinity.NodeSelector
-	PreferredSchedulingTerms  *nodeaffinity.PreferredSchedulingTerms
-	RequiredReplacementDomain utiltas.TopologyDomainID
-	SimulateEmpty             bool
-	MatchKey                  *PodSetMatchKey
+type PodRequirements struct {
+	Tolerations              []corev1.Toleration
+	Selector                 labels.Selector
+	AffinitySelector         *nodeaffinity.NodeSelector
+	PreferredSchedulingTerms *nodeaffinity.PreferredSchedulingTerms
 }
 
 type NodeExclusionType int
@@ -151,9 +143,4 @@ func (s *ExclusionStats) RecordExclusion(exclusionType NodeExclusionType, taint 
 	case ExclusionAffinity:
 		s.Affinity++
 	}
-}
-
-type PodSetMatchKey struct {
-	WorkloadUID types.UID
-	PodSetName  string
 }

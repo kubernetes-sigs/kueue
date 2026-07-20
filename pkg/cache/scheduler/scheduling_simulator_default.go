@@ -45,7 +45,7 @@ type defaultChecker struct{}
 func (c *defaultChecker) FindFeasibleNodes(
 	ctx context.Context,
 	candidates iter.Seq[*leafDomain],
-	requirements *simulator.TopologyAssignmentPodRequirements,
+	requirements *simulator.PodRequirements,
 ) ([]simulator.MatchedCandidate[*leafDomain], *simulator.ExclusionStats, error) {
 	logger := log.FromContext(ctx)
 	exclusionStats := simulator.NewExclusionStats()
