@@ -40,7 +40,9 @@ func (s *defaultSimulator) NewFeasibilityChecker(ctx context.Context, nodes []*c
 	return &defaultChecker{log: log}, nil
 }
 
-type defaultChecker struct{ log logr.Logger }
+type defaultChecker struct {
+	log logr.Logger
+}
 
 func (c *defaultChecker) FindFeasibleNodes(query *simulator.FeasibleNodesQuery) ([]simulator.MatchedLeaf, *simulator.ExclusionStats, error) {
 	exclusionStats := simulator.NewExclusionStats()
