@@ -66,9 +66,6 @@ var _ = ginkgo.BeforeSuite(func() {
 	if ginkgo.Label("feature:jaxjob", "feature:pytorchjob").MatchesLabelFilter(labelFilter) {
 		util.WaitForKubeFlowTrainingOperatorAvailability(ctx, k8sClient)
 	}
-	if ginkgo.Label("feature:mpijob").MatchesLabelFilter(labelFilter) {
-		util.WaitForKubeFlowMPIOperatorAvailability(ctx, k8sClient)
-	}
 	if ginkgo.Label("feature:kuberay").MatchesLabelFilter(labelFilter) {
 		util.WaitForKubeRayOperatorAvailability(ctx, k8sClient)
 	}
