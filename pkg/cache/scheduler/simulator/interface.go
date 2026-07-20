@@ -22,15 +22,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-type FeasibleNodesQuery struct {
-	Leaves       []*LeafDomain
-	Requirements *TopologyAssignmentPodRequirements
-	Stats        *ExclusionStats
-}
-
 // NodeFeasibilityChecker determines which topology leaves can satisfy pod requirements.
 type NodeFeasibilityChecker interface {
-	FindFeasibleNodes(query *FeasibleNodesQuery) ([]MatchedLeaf, *ExclusionStats, error)
+	FindFeasibleNodes(leaves []*LeafDomain, requirements *TopologyAssignmentPodRequirements) ([]MatchedLeaf, *ExclusionStats, error)
 }
 
 // SchedulingSimulator acts as a factory for the feasibility checker.

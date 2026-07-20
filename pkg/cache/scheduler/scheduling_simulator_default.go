@@ -44,17 +44,17 @@ type defaultChecker struct {
 	log logr.Logger
 }
 
-func (c *defaultChecker) FindFeasibleNodes(query *simulator.FeasibleNodesQuery) ([]simulator.MatchedLeaf, *simulator.ExclusionStats, error) {
+func (c *defaultChecker) FindFeasibleNodes(leaves []*simulator.LeafDomain, requirements *simulator.TopologyAssignmentPodRequirements) ([]simulator.MatchedLeaf, *simulator.ExclusionStats, error) {
 	exclusionStats := simulator.NewExclusionStats()
-	var feasibleLeaves = make([]simulator.MatchedLeaf, 0, len(query.Leaves))
-	for _, leaf := range query.Leaves {
+	var feasibleLeaves = make([]simulator.MatchedLeaf, 0, len(leaves))
+	for _, leaf := range leaves {
 		if leaf.Node == nil {
 			feasibleLeaves = append(feasibleLeaves, simulator.MatchedLeaf{Leaf: leaf})
 			continue
 		}
 		// 1. Check Tolerations against Node Taints
 		nodeTaints := leaf.Node.Spec.Taints
-		taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(c.log, nodeTaints, query.Requirements.Tolerations, utiltaints.IsSchedulingTaint, true)
+		taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(c.log, nodeTaints, requirements.Tolerations, utiltaints.IsSchedulingTaint, true)
 		if untolerated {
 			c.log.V(5).Info("excluding node with untolerated taint", "domainID", leaf.ID, "taint", taint)
 			exclusionStats.RecordExclusion(simulator.ExclusionTaints, &taint)
@@ -67,7 +67,7 @@ func (c *defaultChecker) FindFeasibleNodes(query *simulator.FeasibleNodesQuery) 
 			nodeLabelSet = nodeLabels
 		}
 
-		if !query.Requirements.Selector.Matches(nodeLabelSet) {
+		if !requirements.Selector.Matches(nodeLabelSet) {
 			c.log.V(5).Info("excluding node that doesn't match nodeSelectors", "domainID", leaf.ID, "nodeLabels", nodeLabelSet)
 			exclusionStats.RecordExclusion(simulator.ExclusionNodeSelector, nil)
 			continue
@@ -75,7 +75,7 @@ func (c *defaultChecker) FindFeasibleNodes(query *simulator.FeasibleNodesQuery) 
 
 		// 3. Check Node against Affinity Node Selector
 		nodeObj := leaf.Node
-		if query.Requirements.AffinitySelector != nil && !query.Requirements.AffinitySelector.Match(nodeObj) {
+		if requirements.AffinitySelector != nil && !requirements.AffinitySelector.Match(nodeObj) {
 			c.log.V(5).Info("excluding node due to an affinity mismatch", "domainID", leaf.ID)
 			exclusionStats.RecordExclusion(simulator.ExclusionAffinity, nil)
 			continue
@@ -83,8 +83,8 @@ func (c *defaultChecker) FindFeasibleNodes(query *simulator.FeasibleNodesQuery) 
 
 		// 4. Calculate Affinity Score
 		var affinityScore int64
-		if features.Enabled(features.TASRespectNodeAffinityPreferred) && query.Requirements.PreferredSchedulingTerms != nil {
-			affinityScore = query.Requirements.PreferredSchedulingTerms.Score(nodeObj)
+		if features.Enabled(features.TASRespectNodeAffinityPreferred) && requirements.PreferredSchedulingTerms != nil {
+			affinityScore = requirements.PreferredSchedulingTerms.Score(nodeObj)
 		}
 
 		// 5. Track the matching leaf as feasible

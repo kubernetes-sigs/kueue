@@ -1577,11 +1577,7 @@ func (s *TASFlavorSnapshot) fillInCounts(ctx context.Context, requirements *simu
 		if s.isLowestLevelNode {
 			var err error
 			var leafStats *simulator.ExclusionStats
-			feasibleLeaves, leafStats, err = s.feasibilityChecker.FindFeasibleNodes(&simulator.FeasibleNodesQuery{
-				Leaves:       leaves,
-				Requirements: requirements,
-				Stats:        state.stats,
-			})
+			feasibleLeaves, leafStats, err = s.feasibilityChecker.FindFeasibleNodes(leaves, requirements)
 			if err != nil {
 				return err
 			}
@@ -1636,11 +1632,7 @@ func (s *TASFlavorSnapshot) getMatchingLeaves(ctx context.Context, requirements 
 
 	var leafStats *simulator.ExclusionStats
 	var err error
-	feasibleLeaves, leafStats, err := s.feasibilityChecker.FindFeasibleNodes(&simulator.FeasibleNodesQuery{
-		Leaves:       leaves,
-		Requirements: requirements,
-		Stats:        entry.Stats,
-	})
+	feasibleLeaves, leafStats, err := s.feasibilityChecker.FindFeasibleNodes(leaves, requirements)
 	if err != nil {
 		return nil, nil, err
 	}
