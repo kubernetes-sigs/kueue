@@ -1478,7 +1478,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		restoreConnectionToWorker2 := util.BreakConnection(managerTestCluster.ctx, managerTestCluster.client, workerCluster2)
+		restoreConnectionToWorker2 := util.BreakConnection(managerTestCluster.ctx, managerTestCluster.client, workerCluster2, managersConfigNamespace.Name)
 
 		ginkgo.By("setting workload reservation in worker1, the job is created in worker1", func() {
 			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).Obj()
@@ -1489,7 +1489,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		restoreConnectionToWorker1 := util.BreakConnection(managerTestCluster.ctx, managerTestCluster.client, workerCluster1)
+		restoreConnectionToWorker1 := util.BreakConnection(managerTestCluster.ctx, managerTestCluster.client, workerCluster1, managersConfigNamespace.Name)
 
 		ginkgo.By("removing the managers job and workload", func() {
 			gomega.Expect(managerTestCluster.client.Delete(managerTestCluster.ctx, job)).Should(gomega.Succeed())
@@ -1562,7 +1562,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		restoreConnectionToWorker1 := util.BreakConnection(managerTestCluster.ctx, managerTestCluster.client, workerCluster1)
+		restoreConnectionToWorker1 := util.BreakConnection(managerTestCluster.ctx, managerTestCluster.client, workerCluster1, managersConfigNamespace.Name)
 
 		ginkgo.By("setting workload reservation in worker2, the workload is admitted and job is created in worker2", func() {
 			util.SetQuotaReservation(worker2TestCluster.ctx, worker2TestCluster.client, wlLookupKey, admission)
@@ -1653,7 +1653,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 
 		admitWorkloadAndCheckWorkerCopies(multiKueueAC.Name, wlLookupKey, admission)
 
-		restoreConnectionToWorker2 := util.BreakConnection(managerTestCluster.ctx, managerTestCluster.client, workerCluster2)
+		restoreConnectionToWorker2 := util.BreakConnection(managerTestCluster.ctx, managerTestCluster.client, workerCluster2, managersConfigNamespace.Name)
 
 		ginkgo.By("waiting for the local workload admission check state to be set to pending and quotaReservatio removed", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -1680,7 +1680,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 	ginkgo.It("Should not evict admitted workloads when the connection to the reserving worker is briefly lost", framework.SlowSpec, func() {
 		keys := admitJobsAndAgeAdmissionCheck(managerNs.Name, managerLq.Name, managerCq.Name, multiKueueAC.Name, 3)
 
-		restoreConnection := util.BreakConnection(managerTestCluster.ctx, managerTestCluster.client, workerCluster2)
+		restoreConnection := util.BreakConnection(managerTestCluster.ctx, managerTestCluster.client, workerCluster2, managersConfigNamespace.Name)
 		restoreConnection()
 
 		ginkgo.By("no admitted workload is evicted after the brief connection loss", func() {
@@ -1688,10 +1688,10 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		})
 	})
 
-	ginkgo.It("Should not immediately evict admitted workloads after a manager restart while the reserving worker is unreachable", framework.SlowSpec, func() {
+	ginkgo.It("Should not immediately evict but eventually retry admitted workloads after a manager restart while the reserving worker is unreachable", framework.SlowSpec, func() {
 		keys := admitJobsAndAgeAdmissionCheck(managerNs.Name, managerLq.Name, managerCq.Name, multiKueueAC.Name, 3)
 
-		restoreConnection := util.BreakConnection(managerTestCluster.ctx, managerTestCluster.client, workerCluster2)
+		restoreConnection := util.BreakConnection(managerTestCluster.ctx, managerTestCluster.client, workerCluster2, managersConfigNamespace.Name)
 
 		ginkgo.By("restarting the manager while worker2 is unreachable", func() {
 			managerTestCluster.fwk.StopManager(managerTestCluster.ctx)
@@ -1702,6 +1702,10 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 
 		ginkgo.By("the restarted manager re-anchors the grace and does not immediately evict", func() {
 			expectNoEviction(keys, multiKueueAC.Name, testingWorkerLostTimeout*2/3)
+		})
+
+		ginkgo.By("the re-anchored grace is finite, so the workloads are eventually retried", func() {
+			expectEventuallyRetried(keys, multiKueueAC.Name, testingWorkerLostTimeout*4)
 		})
 
 		restoreConnection()
@@ -2369,7 +2373,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 
 			admitWorkloadAndCheckWorkerCopies(multiKueueAC.Name, wlLookupKey, admission)
 
-			restoreConnectionToWorker2 := util.BreakConnection(managerTestCluster.ctx, managerTestCluster.client, workerCluster2)
+			restoreConnectionToWorker2 := util.BreakConnection(managerTestCluster.ctx, managerTestCluster.client, workerCluster2, managersConfigNamespace.Name)
 
 			ginkgo.By("waiting for quotaReservation to be removed", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -2513,6 +2517,29 @@ func expectNoEviction(keys []types.NamespacedName, acName string, within time.Du
 			g.Expect(acs).NotTo(gomega.BeNil())
 			g.Expect(acs.State).To(gomega.Equal(kueue.CheckStateReady))
 			g.Expect(ptr.Deref(acs.RetryCount, 0)).To(gomega.BeZero())
+		}
+	}, within, util.Interval).Should(gomega.Succeed())
+}
+
+func expectEventuallyRetried(keys []types.NamespacedName, acName string, within time.Duration) {
+	ginkgo.GinkgoHelper()
+
+	baseRetryCount := make(map[types.NamespacedName]int32, len(keys))
+	for _, key := range keys {
+		wl := &kueue.Workload{}
+		gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, key, wl)).To(gomega.Succeed())
+		acs := admissioncheck.FindAdmissionCheck(wl.Status.AdmissionChecks, kueue.AdmissionCheckReference(acName))
+		gomega.Expect(acs).NotTo(gomega.BeNil())
+		baseRetryCount[key] = ptr.Deref(acs.RetryCount, 0)
+	}
+
+	gomega.Eventually(func(g gomega.Gomega) {
+		for _, key := range keys {
+			wl := &kueue.Workload{}
+			g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, key, wl)).To(gomega.Succeed())
+			acs := admissioncheck.FindAdmissionCheck(wl.Status.AdmissionChecks, kueue.AdmissionCheckReference(acName))
+			g.Expect(acs).NotTo(gomega.BeNil())
+			g.Expect(ptr.Deref(acs.RetryCount, 0)).To(gomega.BeNumerically(">=", baseRetryCount[key]+1))
 		}
 	}, within, util.Interval).Should(gomega.Succeed())
 }
