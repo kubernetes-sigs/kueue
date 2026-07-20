@@ -25,7 +25,6 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/klog/v2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -952,7 +951,7 @@ func TestTASCachingRemainingResourcesFeatureGate(t *testing.T) {
 			g := gomega.NewWithT(t)
 			features.SetFeatureGateDuringTest(t, features.TASCachingRemainingResources, enableCaching)
 
-			log := klog.Background()
+			_, log := utiltesting.ContextWithLog(t)
 			snapshot := newTASFlavorSnapshot(log, "tas-topology", []string{"hostname"})
 			nodeObj := node.MakeNode("node-a").
 				Label("hostname", "node-a").
