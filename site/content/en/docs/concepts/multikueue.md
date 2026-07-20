@@ -116,8 +116,7 @@ subsequent rounds, until the Workload is admitted or all clusters have been nomi
 {{% alert title="Note" color="primary" %}}
 Nominating clusters in the order defined in `MultiKueueConfig.spec.clusters` is controlled by the
 `MultiKueueIncrementalDispatcherRespectConfigOrder` feature gate, which is Beta and enabled by
-default since Kueue v0.19. In v0.17 and v0.18 the gate is Alpha and disabled by default; enable it
-to opt in.
+default since Kueue v0.19.
 
 When the gate is disabled, clusters are nominated in alphabetical order instead. Refer to the
 [Installation guide](/docs/installation/#change-the-feature-gates-configuration)
