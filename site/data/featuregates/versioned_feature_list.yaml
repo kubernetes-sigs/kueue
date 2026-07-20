@@ -437,6 +437,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.18"
+- name: TASCachingRemainingResources
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.18"
 - name: TASFailedNodeReplacement
   versionedSpecs:
   - default: false

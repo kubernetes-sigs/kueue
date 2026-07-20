@@ -17,11 +17,14 @@ limitations under the License.
 package scheduler
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -29,6 +32,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/node"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func TestFreeCapacityPerDomain(t *testing.T) {
@@ -937,6 +941,58 @@ func TestTruncateAssignment(t *testing.T) {
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("TruncateAssignment() mismatch (-want +got):\n%s", diff)
 			}
+		})
+	}
+}
+
+func TestTASCachingRemainingResourcesFeatureGate(t *testing.T) {
+	for _, enableCaching := range []bool{true, false} {
+		t.Run(fmt.Sprintf("enableCaching=%t", enableCaching), func(t *testing.T) {
+			g := gomega.NewWithT(t)
+			features.SetFeatureGateDuringTest(t, features.TASCachingRemainingResources, enableCaching)
+
+			_, log := utiltesting.ContextWithLog(t)
+			snapshot := newTASFlavorSnapshot(log, "tas-topology", []string{"hostname"}, nil)
+			nodeObj := node.MakeNode("node-a").
+				Label("hostname", "node-a").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("8"),
+					corev1.ResourceMemory: resource.MustParse("10Gi"),
+				}).
+				Ready().
+				Obj()
+			domainID := snapshot.addNode(nodeObj)
+
+			leaf := snapshot.leaves[domainID]
+			g.Expect(leaf).ToNot(gomega.BeNil())
+
+			flavorUsage := workload.TASFlavorUsage{
+				{
+					Values: []string{"node-a"},
+					SinglePodRequests: resources.Requests{
+						corev1.ResourceCPU: 5000,
+					},
+					Count: 1,
+				},
+			}
+
+			// Warm the Fits cache before adding TAS usage
+			g.Expect(snapshot.Fits(flavorUsage)).To(gomega.BeTrue())
+
+			// Add TAS usage of 4 CPU (4000m), leaving 4 CPU (8000m - 4000m = 4000m) remaining
+			usage := resources.Requests{
+				corev1.ResourceCPU: 4000,
+			}
+			snapshot.updateTASUsage(domainID, usage, add, 1)
+
+			// Fits should now return false because 5 CPU > 4 CPU remaining
+			g.Expect(snapshot.Fits(flavorUsage)).To(gomega.BeFalse())
+
+			// Remove TAS usage
+			snapshot.updateTASUsage(domainID, usage, subtract, 1)
+
+			// Fits should now return true again after cache invalidation / re-evaluation
+			g.Expect(snapshot.Fits(flavorUsage)).To(gomega.BeTrue())
 		})
 	}
 }
