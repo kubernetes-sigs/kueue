@@ -26,6 +26,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/events"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -37,14 +38,34 @@ import (
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 )
 
+// nativeWorkloadTemplateName is the name of the single PodGroupTemplate that
+// Kueue projects a plain Pod group onto within the native Workload. The
+// PodGroup created for the group references this template by name via
+// spec.podGroupTemplateRef.
+const nativeWorkloadTemplateName = "pods"
+
 func nativePodGroupsAvailability(restMapper apimeta.RESTMapper) (enabled bool, reason string) {
 	if !features.Enabled(features.WASPodGroups) {
 		return false, "feature gate disabled"
 	}
-	if _, err := restMapper.RESTMapping(schedulingv1alpha3.SchemeGroupVersion.WithKind("PodGroup").GroupKind(), schedulingv1alpha3.SchemeGroupVersion.Version); err != nil {
-		return false, fmt.Sprintf("REST mapping unavailable: %v", err)
+	// Both the Workload and the PodGroup kinds must be served: Kueue creates a
+	// Workload holding the PodGroupTemplate and a PodGroup instance referencing it.
+	for _, kind := range []string{"Workload", "PodGroup"} {
+		if _, err := restMapper.RESTMapping(schedulingv1alpha3.SchemeGroupVersion.WithKind(kind).GroupKind(), schedulingv1alpha3.SchemeGroupVersion.Version); err != nil {
+			return false, fmt.Sprintf("REST mapping unavailable for %s: %v", kind, err)
+		}
 	}
 	return true, "native PodGroups supported"
+}
+
+// nativeWASPriority maps the Kueue Workload's resolved priority onto the native
+// scheduling.k8s.io priority. It returns nil (priority 0) when the Kueue
+// Workload has no priority set.
+func nativeWASPriority(wl *kueue.Workload) *int32 {
+	if wl == nil || wl.Spec.Priority == nil {
+		return nil
+	}
+	return ptr.To(*wl.Spec.Priority)
 }
 
 func nativePodGroupNameForPod(p *corev1.Pod) string {
@@ -72,9 +93,77 @@ func (p *Pod) shouldEnsureNativePodGroup() bool {
 	return p.nativePodGroupsEnabled && p.isGroup && wantsWASPodGroup(&p.pod) && nativePodGroupNameForPod(&p.pod) != ""
 }
 
+// ensureNativeWorkload creates (or reuses) the native scheduling.k8s.io Workload
+// that defines the Pod group's scheduling policy via a single PodGroupTemplate.
+// The Workload is the higher-level definition that the created PodGroup
+// references; the PodGroup is its runtime instance. Both are owned by the Kueue
+// Workload so they are garbage collected together.
+func (p *Pod) ensureNativeWorkload(ctx context.Context, c client.Client, wl *kueue.Workload, recorder events.EventRecorder) error {
+	name := nativePodGroupNameForPod(&p.pod)
+	nativeWl := &schedulingv1alpha3.Workload{}
+	key := client.ObjectKey{Namespace: p.pod.Namespace, Name: name}
+	if err := c.Get(ctx, key, nativeWl); err == nil {
+		if nativeWl.Labels[constants.ManagedByKueueLabelKey] != constants.ManagedByKueueLabelValue {
+			ctrl.LoggerFrom(ctx).V(3).Info("Native Workload already exists and is not managed by Kueue, reusing it", "workload", key)
+			if recorder != nil {
+				recorder.Eventf(wl, nil, corev1.EventTypeNormal, podconstants.ReasonNativeWorkloadReused, "NativeWorkloadReused", "Reused existing native Workload %s", name)
+			}
+			return nil
+		}
+		// Kueue-managed Workload exists — verify it belongs to this workload.
+		if !metav1.IsControlledBy(nativeWl, wl) {
+			return fmt.Errorf("native Workload %q is managed by Kueue but owned by a different workload", name)
+		}
+		return nil
+	} else if !apierrors.IsNotFound(err) {
+		return err
+	}
+
+	groupTotalCount, err := p.groupTotalCount()
+	if err != nil {
+		return err
+	}
+
+	nativeWl = &schedulingv1alpha3.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: p.pod.Namespace,
+			Labels: map[string]string{
+				constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
+			},
+		},
+		Spec: schedulingv1alpha3.WorkloadSpec{
+			PodGroupTemplates: []schedulingv1alpha3.PodGroupTemplate{{
+				Name: nativeWorkloadTemplateName,
+				SchedulingPolicy: schedulingv1alpha3.PodGroupSchedulingPolicy{
+					Gang: &schedulingv1alpha3.GangSchedulingPolicy{MinCount: int32(groupTotalCount)},
+				},
+				Priority: nativeWASPriority(wl),
+			}},
+		},
+	}
+	if err := controllerutil.SetControllerReference(wl, nativeWl, c.Scheme()); err != nil {
+		return fmt.Errorf("setting owner reference on native Workload: %w", err)
+	}
+	if err := c.Create(ctx, nativeWl); err != nil && !apierrors.IsAlreadyExists(err) {
+		return err
+	}
+	ctrl.LoggerFrom(ctx).V(3).Info("Created native Workload for plain Pod group", "workload", key)
+	if recorder != nil {
+		recorder.Eventf(wl, nil, corev1.EventTypeNormal, podconstants.ReasonNativeWorkloadCreated, "NativeWorkloadCreated", "Created native Workload %s", name)
+	}
+	return nil
+}
+
 func (p *Pod) ensureNativePodGroup(ctx context.Context, c client.Client, wl *kueue.Workload, recorder events.EventRecorder) error {
 	if !p.shouldEnsureNativePodGroup() {
 		return nil
+	}
+
+	// The native Workload holds the PodGroupTemplate that the PodGroup below
+	// references, so it must exist first.
+	if err := p.ensureNativeWorkload(ctx, c, wl, recorder); err != nil {
+		return fmt.Errorf("ensuring native Workload: %w", err)
 	}
 
 	podGroupName := nativePodGroupNameForPod(&p.pod)
@@ -111,12 +200,21 @@ func (p *Pod) ensureNativePodGroup(ctx context.Context, c client.Client, wl *kue
 			},
 		},
 		Spec: schedulingv1alpha3.PodGroupSpec{
+			// Link the runtime PodGroup back to the template on the native Workload.
+			PodGroupTemplateRef: &schedulingv1alpha3.PodGroupTemplateReference{
+				Workload: &schedulingv1alpha3.WorkloadPodGroupTemplateReference{
+					WorkloadName:         podGroupName,
+					PodGroupTemplateName: nativeWorkloadTemplateName,
+				},
+			},
+			// Controllers are expected to copy these from the PodGroupTemplate.
 			SchedulingPolicy: schedulingv1alpha3.PodGroupSchedulingPolicy{
 				Gang: &schedulingv1alpha3.GangSchedulingPolicy{MinCount: int32(groupTotalCount)},
 			},
+			Priority: nativeWASPriority(wl),
 		},
 	}
-	if err := controllerutil.SetOwnerReference(wl, podGroup, c.Scheme()); err != nil {
+	if err := controllerutil.SetControllerReference(wl, podGroup, c.Scheme()); err != nil {
 		return fmt.Errorf("setting owner reference on native PodGroup: %w", err)
 	}
 	if err := c.Create(ctx, podGroup); err != nil && !apierrors.IsAlreadyExists(err) {

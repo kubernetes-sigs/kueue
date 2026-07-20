@@ -255,11 +255,17 @@ func TestEnsureNativePodGroup(t *testing.T) {
 				}
 			}
 			if tc.wantReason != "" {
-				if len(recorder.RecordedEvents) == 0 {
-					t.Fatalf("expected recorded event with reason %q", tc.wantReason)
+				// A native Workload is ensured before the PodGroup, so its event
+				// may precede the PodGroup event; assert the reason is present.
+				var found bool
+				for _, ev := range recorder.RecordedEvents {
+					if ev.Reason == tc.wantReason {
+						found = true
+						break
+					}
 				}
-				if diff := cmp.Diff(tc.wantReason, recorder.RecordedEvents[0].Reason); diff != "" {
-					t.Fatalf("unexpected event reason (-want,+got):\n%s", diff)
+				if !found {
+					t.Fatalf("expected a recorded event with reason %q, got %+v", tc.wantReason, recorder.RecordedEvents)
 				}
 			}
 		})

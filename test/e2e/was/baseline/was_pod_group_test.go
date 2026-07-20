@@ -112,7 +112,31 @@ var _ = ginkgo.Describe("WAS PodGroups", ginkgo.Label("area:was", "feature:was",
 				g.Expect(k8sClient.Get(ctx, wlKey, createdWl)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			ginkgo.By("Verifying a native scheduling.k8s.io PodGroup is created")
+			ginkgo.By("Verifying a native scheduling.k8s.io Workload is created")
+			nativeWlKey := types.NamespacedName{Namespace: ns.Name, Name: groupName}
+			nativeWl := &schedulingv1alpha3.Workload{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, nativeWlKey, nativeWl)).To(gomega.Succeed())
+				g.Expect(nativeWl.Labels).To(gomega.HaveKeyWithValue(
+					constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue,
+				), "Workload should be managed by Kueue")
+				g.Expect(nativeWl.Spec.PodGroupTemplates).To(gomega.HaveLen(1), "Workload should have one PodGroupTemplate")
+				g.Expect(nativeWl.Spec.PodGroupTemplates[0].SchedulingPolicy.Gang).NotTo(gomega.BeNil(), "template Gang policy should be set")
+				g.Expect(nativeWl.Spec.PodGroupTemplates[0].SchedulingPolicy.Gang.MinCount).To(
+					gomega.Equal(int32(numPods)),
+					"template MinCount should equal the total number of pods in the group",
+				)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verifying the native Workload is owned by the Kueue workload")
+			gomega.Expect(nativeWl.OwnerReferences).To(gomega.ContainElement(
+				gomega.SatisfyAll(
+					gomega.HaveField("Name", createdWl.Name),
+					gomega.HaveField("Kind", "Workload"),
+				),
+			))
+
+			ginkgo.By("Verifying a native scheduling.k8s.io PodGroup is created and linked to the Workload")
 			pgKey := types.NamespacedName{Namespace: ns.Name, Name: groupName}
 			podGroup := &schedulingv1alpha3.PodGroup{}
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -124,6 +148,12 @@ var _ = ginkgo.Describe("WAS PodGroups", ginkgo.Label("area:was", "feature:was",
 				g.Expect(podGroup.Spec.SchedulingPolicy.Gang.MinCount).To(
 					gomega.Equal(int32(numPods)),
 					"MinCount should equal the total number of pods in the group",
+				)
+				g.Expect(podGroup.Spec.PodGroupTemplateRef).NotTo(gomega.BeNil(), "PodGroup should reference a template")
+				g.Expect(podGroup.Spec.PodGroupTemplateRef.Workload).NotTo(gomega.BeNil(), "PodGroup should reference the native Workload")
+				g.Expect(podGroup.Spec.PodGroupTemplateRef.Workload.WorkloadName).To(
+					gomega.Equal(nativeWl.Name),
+					"PodGroup should reference the created native Workload",
 				)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -244,6 +274,59 @@ var _ = ginkgo.Describe("WAS PodGroups", ginkgo.Label("area:was", "feature:was",
 
 			ginkgo.By("Verifying the workload finishes")
 			wlKey := types.NamespacedName{Namespace: ns.Name, Name: groupName}
+			util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlKey, util.LongTimeout)
+		})
+
+		ginkgo.It("should map the Kueue workload priority onto the native Workload and PodGroup", func() {
+			const priorityValue int32 = 12345
+			wpc := utiltestingapi.MakeWorkloadPriorityClass("was-high-" + ns.Name).PriorityValue(priorityValue).Obj()
+			util.MustCreate(ctx, k8sClient, wpc)
+			ginkgo.DeferCleanup(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, wpc, true)
+			})
+
+			groupName := "prio-group"
+			numPods := 2
+			group := podtesting.MakePod(groupName, ns.Name).
+				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
+				Queue(lq.Name).
+				RequestAndLimit(corev1.ResourceCPU, "1").
+				WASPodGroupAnnotation().
+				WorkloadPriorityClass(wpc.Name).
+				MakeGroup(numPods)
+
+			ginkgo.By("Creating the pod group with a workload priority class")
+			for _, p := range group {
+				util.MustCreate(ctx, k8sClient, p)
+			}
+
+			ginkgo.By("Verifying the Kueue workload carries the resolved priority")
+			wlKey := types.NamespacedName{Namespace: ns.Name, Name: groupName}
+			createdWl := &kueue.Workload{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, createdWl)).To(gomega.Succeed())
+				g.Expect(createdWl.Spec.Priority).NotTo(gomega.BeNil())
+				g.Expect(*createdWl.Spec.Priority).To(gomega.Equal(priorityValue))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verifying the native Workload template priority matches")
+			nativeWlKey := types.NamespacedName{Namespace: ns.Name, Name: groupName}
+			gomega.Eventually(func(g gomega.Gomega) {
+				nativeWl := &schedulingv1alpha3.Workload{}
+				g.Expect(k8sClient.Get(ctx, nativeWlKey, nativeWl)).To(gomega.Succeed())
+				g.Expect(nativeWl.Spec.PodGroupTemplates).To(gomega.HaveLen(1))
+				g.Expect(ptr.Deref(nativeWl.Spec.PodGroupTemplates[0].Priority, 0)).To(gomega.Equal(priorityValue))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verifying the native PodGroup priority matches")
+			pgKey := types.NamespacedName{Namespace: ns.Name, Name: groupName}
+			gomega.Eventually(func(g gomega.Gomega) {
+				podGroup := &schedulingv1alpha3.PodGroup{}
+				g.Expect(k8sClient.Get(ctx, pgKey, podGroup)).To(gomega.Succeed())
+				g.Expect(ptr.Deref(podGroup.Spec.Priority, 0)).To(gomega.Equal(priorityValue))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verifying the workload finishes")
 			util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlKey, util.LongTimeout)
 		})
 	})

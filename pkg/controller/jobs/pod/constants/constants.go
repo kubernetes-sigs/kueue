@@ -25,6 +25,8 @@ const (
 
 	ReasonNativePodGroupCreated = "NativePodGroupCreated"
 	ReasonNativePodGroupReused  = "NativePodGroupReused"
+	ReasonNativeWorkloadCreated = "NativeWorkloadCreated"
+	ReasonNativeWorkloadReused  = "NativeWorkloadReused"
 
 	// WASPodGroupAnnotation is the opt-in annotation that must be set to "true"
 	// on a Pod for Kueue to create a native scheduling.k8s.io PodGroup and

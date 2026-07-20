@@ -26,6 +26,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/component-base/featuregate"
+	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -251,9 +253,17 @@ func TestNativePodGroupsAvailability(t *testing.T) {
 			mapperGVKs:   nil,
 			wantEnabled:  false,
 		},
+		"feature gate enabled but only PodGroup served": {
+			featureGates: map[featuregate.Feature]bool{features.WASPodGroups: true},
+			mapperGVKs: []schema.GroupVersionKind{
+				schedulingv1alpha3.SchemeGroupVersion.WithKind("PodGroup"),
+			},
+			wantEnabled: false,
+		},
 		"feature gate enabled and API available": {
 			featureGates: map[featuregate.Feature]bool{features.WASPodGroups: true},
 			mapperGVKs: []schema.GroupVersionKind{
+				schedulingv1alpha3.SchemeGroupVersion.WithKind("Workload"),
 				schedulingv1alpha3.SchemeGroupVersion.WithKind("PodGroup"),
 			},
 			wantEnabled: true,
@@ -295,7 +305,7 @@ func TestEnsureNativePodGroupOwnershipConflict(t *testing.T) {
 				Kind:       "Workload",
 				Name:       "other-workload",
 				UID:        "other-uid",
-				Controller: new(true),
+				Controller: ptr.To(true),
 			}},
 		},
 	}
@@ -316,6 +326,120 @@ func TestEnsureNativePodGroupOwnershipConflict(t *testing.T) {
 	wl := utiltestingapi.MakeWorkload("test-group", metav1.NamespaceDefault).UID("current-uid").Obj()
 
 	gotErr := p.ensureNativePodGroup(ctx, kClient, wl, recorder)
+	if gotErr == nil {
+		t.Fatal("expected error for ownership conflict")
+	}
+	if !strings.Contains(gotErr.Error(), "owned by a different workload") {
+		t.Fatalf("unexpected error: %v", gotErr)
+	}
+}
+
+func TestEnsureNativePodGroupCreatesWorkloadAndPodGroup(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	kClient := utiltesting.NewClientBuilder(schedulingv1alpha3.AddToScheme).Build()
+	recorder := &utiltesting.EventRecorder{}
+
+	p := &Pod{
+		pod: *testingpod.MakePod("driver", metav1.NamespaceDefault).
+			GroupNameLabel("test-group").
+			GroupTotalCount("3").
+			WASPodGroupAnnotation().
+			SchedulingGroupPodGroupName("test-group").
+			Obj(),
+		isGroup:                true,
+		nativePodGroupsEnabled: true,
+	}
+	wl := utiltestingapi.MakeWorkload("test-group", metav1.NamespaceDefault).UID("current-uid").Priority(100).Obj()
+
+	if err := p.ensureNativePodGroup(ctx, kClient, wl, recorder); err != nil {
+		t.Fatalf("ensureNativePodGroup() returned error: %v", err)
+	}
+
+	key := client.ObjectKey{Namespace: metav1.NamespaceDefault, Name: "test-group"}
+
+	gotWl := &schedulingv1alpha3.Workload{}
+	if err := kClient.Get(ctx, key, gotWl); err != nil {
+		t.Fatalf("native Workload was not created: %v", err)
+	}
+	if got := gotWl.Labels[constants.ManagedByKueueLabelKey]; got != constants.ManagedByKueueLabelValue {
+		t.Errorf("native Workload managed-by label = %q, want %q", got, constants.ManagedByKueueLabelValue)
+	}
+	if len(gotWl.Spec.PodGroupTemplates) != 1 {
+		t.Fatalf("native Workload has %d templates, want 1", len(gotWl.Spec.PodGroupTemplates))
+	}
+	tmpl := gotWl.Spec.PodGroupTemplates[0]
+	if tmpl.Name != nativeWorkloadTemplateName {
+		t.Errorf("template name = %q, want %q", tmpl.Name, nativeWorkloadTemplateName)
+	}
+	if tmpl.SchedulingPolicy.Gang == nil || tmpl.SchedulingPolicy.Gang.MinCount != 3 {
+		t.Errorf("template Gang.MinCount = %v, want 3", tmpl.SchedulingPolicy.Gang)
+	}
+	if got := ptr.Deref(tmpl.Priority, 0); got != 100 {
+		t.Errorf("template Priority = %d, want 100", got)
+	}
+	if !metav1.IsControlledBy(gotWl, wl) {
+		t.Errorf("native Workload is not controlled by the Kueue Workload")
+	}
+
+	gotPG := &schedulingv1alpha3.PodGroup{}
+	if err := kClient.Get(ctx, key, gotPG); err != nil {
+		t.Fatalf("native PodGroup was not created: %v", err)
+	}
+	if gotPG.Spec.PodGroupTemplateRef == nil || gotPG.Spec.PodGroupTemplateRef.Workload == nil {
+		t.Fatalf("PodGroup is missing podGroupTemplateRef.workload")
+	}
+	ref := gotPG.Spec.PodGroupTemplateRef.Workload
+	if ref.WorkloadName != "test-group" || ref.PodGroupTemplateName != nativeWorkloadTemplateName {
+		t.Errorf("podGroupTemplateRef = %+v, want workload=test-group template=%s", ref, nativeWorkloadTemplateName)
+	}
+	if gotPG.Spec.SchedulingPolicy.Gang == nil || gotPG.Spec.SchedulingPolicy.Gang.MinCount != 3 {
+		t.Errorf("PodGroup Gang.MinCount = %v, want 3", gotPG.Spec.SchedulingPolicy.Gang)
+	}
+	if got := ptr.Deref(gotPG.Spec.Priority, 0); got != 100 {
+		t.Errorf("PodGroup Priority = %d, want 100", got)
+	}
+	if !metav1.IsControlledBy(gotPG, wl) {
+		t.Errorf("native PodGroup is not controlled by the Kueue Workload")
+	}
+}
+
+func TestEnsureNativeWorkloadOwnershipConflict(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	existingWorkload := &schedulingv1alpha3.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-group",
+			Namespace: metav1.NamespaceDefault,
+			Labels: map[string]string{
+				constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
+			},
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: kueue.SchemeGroupVersion.String(),
+				Kind:       "Workload",
+				Name:       "other-workload",
+				UID:        "other-uid",
+				Controller: ptr.To(true),
+			}},
+		},
+	}
+
+	kClient := utiltesting.NewClientBuilder(schedulingv1alpha3.AddToScheme).WithObjects(existingWorkload).Build()
+	recorder := &utiltesting.EventRecorder{}
+
+	p := &Pod{
+		pod: *testingpod.MakePod("driver", metav1.NamespaceDefault).
+			GroupNameLabel("test-group").
+			GroupTotalCount("2").
+			WASPodGroupAnnotation().
+			SchedulingGroupPodGroupName("test-group").
+			Obj(),
+		isGroup:                true,
+		nativePodGroupsEnabled: true,
+	}
+	wl := utiltestingapi.MakeWorkload("test-group", metav1.NamespaceDefault).UID("current-uid").Obj()
+
+	gotErr := p.ensureNativeWorkload(ctx, kClient, wl, recorder)
 	if gotErr == nil {
 		t.Fatal("expected error for ownership conflict")
 	}

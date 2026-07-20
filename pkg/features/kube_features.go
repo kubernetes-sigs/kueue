@@ -418,8 +418,8 @@ const (
 
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/12385-was-podgroups
 	//
-	// WASPodGroups enables creating native scheduling.k8s.io PodGroups for plain Pod
-	// groups and defaulting pod.spec.schedulingGroup.podGroupName.
+	// WASPodGroups enables creating native scheduling.k8s.io Workloads and PodGroups
+	// for plain Pod groups and defaulting pod.spec.schedulingGroup.podGroupName.
 	WASPodGroups featuregate.Feature = "WASPodGroups"
 
 	// owner: @atosatto
