@@ -106,9 +106,9 @@ type leafDomain struct {
 	tasUsage resources.Requests
 
 	// cachedRemainingCapacity stores the pre-computed remaining capacity (freeCapacity - tasUsage) for this leaf.
-	// It is lazily calculated and invalidated (set to nil) when tasUsage or freeCapacity for this specific leaf
-	// domain changes. This avoids repeated map cloning and resource subtraction during capacity checks (e.g. preemption).
-	cachedRemainingCapacity resources.Requests
+	// It is lazily calculated using LazyRequests and updated incrementally during TAS usage changes, avoiding repeated
+	// map cloning and resource subtraction during capacity checks (e.g. preemption).
+	cachedRemainingCapacity resources.LazyRequests
 
 	// node at the leaf, if the lowest level is a node
 	node *corev1.Node
@@ -295,7 +295,7 @@ func (s *TASFlavorSnapshot) addCapacity(domainID utiltas.TopologyDomainID, capac
 		s.leaves[domainID].freeCapacity = resources.Requests{}
 	}
 	s.leaves[domainID].freeCapacity.Add(capacity)
-	s.leaves[domainID].cachedRemainingCapacity = nil
+	s.leaves[domainID].cachedRemainingCapacity = resources.LazyRequests{}
 }
 
 func (s *TASFlavorSnapshot) addNonTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests) {
@@ -303,7 +303,7 @@ func (s *TASFlavorSnapshot) addNonTASUsage(domainID utiltas.TopologyDomainID, us
 	// least one TAS pod, and so the addCapacity function to initialize
 	// freeCapacity is already called.
 	s.leaves[domainID].freeCapacity.Sub(usage)
-	s.leaves[domainID].cachedRemainingCapacity = nil
+	s.leaves[domainID].cachedRemainingCapacity = resources.LazyRequests{}
 }
 
 func (s *TASFlavorSnapshot) updateTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests, op usageOp, count int32) {
@@ -317,11 +317,13 @@ func (s *TASFlavorSnapshot) updateTASUsage(domainID utiltas.TopologyDomainID, us
 }
 
 func (s *TASFlavorSnapshot) getRemainingCapacity(leaf *leafDomain) resources.Requests {
-	if leaf.cachedRemainingCapacity == nil {
-		leaf.cachedRemainingCapacity = leaf.freeCapacity.Clone()
-		leaf.cachedRemainingCapacity.Sub(leaf.tasUsage)
+	if !leaf.cachedRemainingCapacity.IsValid() {
+		leaf.cachedRemainingCapacity = resources.NewLazyRequests(leaf.freeCapacity)
+		if len(leaf.tasUsage) > 0 {
+			leaf.cachedRemainingCapacity.Sub(leaf.tasUsage)
+		}
 	}
-	return leaf.cachedRemainingCapacity
+	return leaf.cachedRemainingCapacity.Get()
 }
 
 func (s *TASFlavorSnapshot) addTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests) {
@@ -336,7 +338,7 @@ func (s *TASFlavorSnapshot) addTASUsage(domainID utiltas.TopologyDomainID, usage
 		s.leaves[domainID].tasUsage = resources.Requests{}
 	}
 	s.leaves[domainID].tasUsage.Add(usage)
-	s.leaves[domainID].cachedRemainingCapacity = nil
+	s.leaves[domainID].cachedRemainingCapacity = resources.LazyRequests{}
 }
 
 func (s *TASFlavorSnapshot) removeTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests) {
@@ -351,7 +353,7 @@ func (s *TASFlavorSnapshot) removeTASUsage(domainID utiltas.TopologyDomainID, us
 		s.leaves[domainID].tasUsage = resources.Requests{}
 	}
 	s.leaves[domainID].tasUsage.Sub(usage)
-	s.leaves[domainID].cachedRemainingCapacity = nil
+	s.leaves[domainID].cachedRemainingCapacity = resources.LazyRequests{}
 }
 
 func (s *TASFlavorSnapshot) freeCapacityPerDomain() map[utiltas.TopologyDomainID]resources.Requests {
@@ -468,13 +470,7 @@ func (s *TASFlavorSnapshot) Fits(flavorUsage workload.TASFlavorUsage) bool {
 		if !found {
 			return false
 		}
-		var remainingCapacity resources.LazyRequests
-		if cachingEnabled {
-			remainingCapacity = resources.NewLazyRequests(s.getRemainingCapacity(leaf))
-		} else {
-			remainingCapacity = resources.NewLazyRequests(leaf.freeCapacity)
-			remainingCapacity.Sub(leaf.tasUsage)
-		}
+		remainingCapacity := s.remainingCapacityForLeaf(leaf, false, cachingEnabled)
 		if domainUsage.SinglePodRequests.CountIn(remainingCapacity.Get()) < domainUsage.Count {
 			return false
 		}
@@ -1873,6 +1869,20 @@ func (s *TASFlavorSnapshot) matchNode(leaf *leafDomain, requirements *topologyAs
 	return false, affinityScore, nil, exclusionNone
 }
 
+func (s *TASFlavorSnapshot) remainingCapacityForLeaf(leaf *leafDomain, simulateEmpty, cachingRemainingResourcesEnabled bool) resources.LazyRequests {
+	if cachingRemainingResourcesEnabled {
+		if simulateEmpty {
+			return resources.NewLazyRequests(leaf.freeCapacity)
+		}
+		return resources.NewLazyRequests(s.getRemainingCapacity(leaf))
+	}
+	remainingCapacity := resources.NewLazyRequests(leaf.freeCapacity)
+	if !simulateEmpty {
+		remainingCapacity.Sub(leaf.tasUsage)
+	}
+	return remainingCapacity
+}
+
 func (s *TASFlavorSnapshot) fillLeafCounts(leaf *leafDomain, requirements *topologyAssignmentPodRequirements, state *findTopologyAssignmentState, cachingRemainingResourcesEnabled bool) {
 	// While correcting the topologyAssignment with a failed node
 	// check if the leaf belongs to the required domain
@@ -1880,25 +1890,11 @@ func (s *TASFlavorSnapshot) fillLeafCounts(leaf *leafDomain, requirements *topol
 		state.stats.TopologyDomain++
 		return
 	}
-
-	var remainingCapacity resources.LazyRequests
-	if cachingRemainingResourcesEnabled {
-		if requirements.simulateEmpty {
-			remainingCapacity = resources.NewLazyRequests(leaf.freeCapacity)
-		} else {
-			remainingCapacity = resources.NewLazyRequests(s.getRemainingCapacity(leaf))
-		}
-	} else {
-		remainingCapacity = resources.NewLazyRequests(leaf.freeCapacity)
-		if !requirements.simulateEmpty {
-			remainingCapacity.Sub(leaf.tasUsage)
-		}
-	}
+	remainingCapacity := s.remainingCapacityForLeaf(leaf, requirements.simulateEmpty, cachingRemainingResourcesEnabled)
 
 	if leafAssumedUsage, found := requirements.assumedUsage[leaf.id]; found {
 		remainingCapacity.Sub(leafAssumedUsage)
 	}
-
 	var limitingRes corev1.ResourceName
 	leaf.state, limitingRes = requirements.requests.CountInWithLimitingResource(remainingCapacity.Get())
 
