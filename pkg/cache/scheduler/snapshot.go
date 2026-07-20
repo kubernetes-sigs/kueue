@@ -213,7 +213,6 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 			}
 			var err error
 			tasSnapshots[flavor], err = cache.snapshot(
-				ctx,
 				log,
 				c.tasCache.nodesCache.find(cache.flavor.NodeLabels, cache.topology.Levels),
 				aggregatedDomainUsagesForFlavor,

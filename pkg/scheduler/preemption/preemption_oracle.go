@@ -48,7 +48,8 @@ func (p *PreemptionOracle) SimulatePreemption(
 	fr resources.FlavorResource,
 	quantity resources.Amount,
 ) (preemptioncommon.PreemptionPossibility, int) {
-	candidates := p.preemptor.getTargets(ctx, &preemptionCtx{
+	candidates := p.preemptor.getTargets(&preemptionCtx{
+		ctx:               ctx,
 		clock:             p.preemptor.clock,
 		log:               log,
 		preemptor:         wl,

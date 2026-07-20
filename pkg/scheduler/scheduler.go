@@ -37,6 +37,7 @@ import (
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -643,7 +644,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 				}
 			}
 		} else {
-			assignment, targets := s.getAssignments(ctx, log, &e.Info, snap)
+			assignment, targets := s.getAssignments(ctx, &e.Info, snap)
 			e.recordAssignment(assignment, targets)
 			entries = append(entries, e)
 			continue
@@ -653,7 +654,9 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 	return entries, inadmissibleEntries
 }
 
-func (s *Scheduler) updateAssignmentIfNeeded(ctx context.Context, log logr.Logger,
+func (s *Scheduler) updateAssignmentIfNeeded(
+	ctx context.Context,
+	log logr.Logger,
 	e *entry,
 	snapshot *schdcache.Snapshot,
 	cq *schdcache.ClusterQueueSnapshot,
@@ -666,7 +669,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(ctx context.Context, log logr.Logge
 		// reach all flavors from the nomination.
 		e.LastAssignment = nil
 		e.NominationMapping = e.readResourceToFlavorMapping()
-		newAssignment, newTargets := s.getAssignments(ctx, log, &e.Info, snapshot)
+		newAssignment, newTargets := s.getAssignments(ctx, &e.Info, snapshot)
 		e.recordAssignment(newAssignment, newTargets)
 		usage = e.assignmentUsage(log)
 		fitsCheck = fits(snapshot, cq, &usage, preemptedWorkloads, newTargets)
@@ -730,10 +733,10 @@ type partialAssignment struct {
 	preemptionTargets []*preemption.Target
 }
 
-func (s *Scheduler) getAssignments(ctx context.Context, log logr.Logger, wl *workload.Info, snap *schdcache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
-	assignment, targets := s.getInitialAssignments(ctx, log, wl, snap)
+func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap *schdcache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
+	assignment, targets := s.getInitialAssignments(ctx, wl, snap)
 	cq := snap.ClusterQueue(wl.ClusterQueue)
-	updateAssignmentForTAS(ctx, log, snap, cq, wl, &assignment, targets)
+	updateAssignmentForTAS(ctx, snap, cq, wl, &assignment, targets)
 	return assignment, targets
 }
 
@@ -759,12 +762,12 @@ func (s *Scheduler) getAssignments(ctx context.Context, log logr.Logger, wl *wor
 //     identified during scheduling.
 //
 // If no valid assignment can be made, returns the original full assignment with no preemption targets.
-func (s *Scheduler) getInitialAssignments(ctx context.Context, log logr.Logger, wl *workload.Info, snap *schdcache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
+func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info, snap *schdcache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
 	cq := snap.ClusterQueue(wl.ClusterQueue)
 
 	preemptionTargets, replaceableWorkloadSlice := workloadslicing.ReplacedWorkloadSlice(wl, snap)
 	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing), preemption.NewOracle(s.preemptor, snap), replaceableWorkloadSlice, s.quotaCheckStrategy)
-	fullAssignment := flvAssigner.Assign(ctx, log, nil)
+	fullAssignment := flvAssigner.Assign(ctx, nil)
 
 	arm := fullAssignment.RepresentativeMode()
 	if arm == flavorassigner.Fit {
@@ -772,7 +775,7 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, log logr.Logger, 
 	}
 
 	if arm == flavorassigner.Preempt {
-		faPreemptionTargets := s.preemptor.GetTargets(ctx, log, *wl, fullAssignment, snap)
+		faPreemptionTargets := s.preemptor.GetTargets(ctx, *wl, fullAssignment, snap)
 		if len(faPreemptionTargets) > 0 {
 			return fullAssignment, append(preemptionTargets, faPreemptionTargets...)
 		}
@@ -780,14 +783,14 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, log logr.Logger, 
 
 	if features.Enabled(features.PartialAdmission) && wl.CanBePartiallyAdmitted() {
 		reducer := flavorassigner.NewPodSetReducer(wl.Obj.Spec.PodSets, func(nextCounts []int32) (*partialAssignment, bool) {
-			assignment := flvAssigner.Assign(ctx, log, nextCounts)
+			assignment := flvAssigner.Assign(ctx, nextCounts)
 			mode := assignment.RepresentativeMode()
 			if mode == flavorassigner.Fit {
 				return &partialAssignment{assignment: assignment}, true
 			}
 
 			if mode == flavorassigner.Preempt {
-				preemptionTargets := s.preemptor.GetTargets(ctx, log, *wl, assignment, snap)
+				preemptionTargets := s.preemptor.GetTargets(ctx, *wl, assignment, snap)
 				if len(preemptionTargets) > 0 {
 					return &partialAssignment{assignment: assignment, preemptionTargets: preemptionTargets}, true
 				}
@@ -818,13 +821,14 @@ func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, 
 
 func updateAssignmentForTAS(
 	ctx context.Context,
-	log logr.Logger,
 	snapshot *schdcache.Snapshot,
 	cq *schdcache.ClusterQueueSnapshot,
 	wl *workload.Info,
 	assignment *flavorassigner.Assignment,
 	targets []*preemption.Target,
 ) {
+	log := log.FromContext(ctx)
+
 	if features.Enabled(features.TopologyAwareScheduling) && assignment.RepresentativeMode() == flavorassigner.Preempt &&
 		(workload.IsExplicitlyRequestingTAS(wl.Obj.Spec.PodSets...) || cq.IsTASOnly()) && !workload.HasTopologyAssignmentWithUnhealthyNode(wl.Obj) {
 		tasRequests := assignment.WorkloadsTopologyRequests(log, wl, cq)
@@ -839,7 +843,6 @@ func updateAssignmentForTAS(
 			revertUsage := snapshot.SimulateWorkloadRemoval(targetWorkloads)
 			tasResult = cq.FindTopologyAssignmentsForWorkload(
 				ctx,
-				log,
 				tasRequests,
 				schdcache.WithWorkload(wl.Obj),
 			)
@@ -853,7 +856,6 @@ func updateAssignmentForTAS(
 			// assuming the cluster is empty.
 			tasResult = cq.FindTopologyAssignmentsForWorkload(
 				ctx,
-				log,
 				tasRequests,
 				schdcache.WithSimulateEmpty(true),
 				schdcache.WithWorkload(wl.Obj),

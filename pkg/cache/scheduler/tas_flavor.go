@@ -17,7 +17,6 @@ limitations under the License.
 package scheduler
 
 import (
-	"context"
 	"slices"
 	"sync"
 
@@ -92,7 +91,7 @@ type TASFlavorCache struct {
 	// e.g. static Pods or DaemonSet pods.
 	nonTasUsageCache *nonTasUsageCache
 
-	// schedulingSimulator performs the node feasability check
+	// schedulingSimulator performs the node feasibility check
 	// based on topology requirements.
 	schedulingSimulator simulator.SchedulingSimulator
 }
@@ -122,9 +121,7 @@ func (c *TASFlavorCache) TopologyLevels() []string {
 	return c.topology.Levels
 }
 
-func (c *TASFlavorCache) snapshot(
-	ctx context.Context, log logr.Logger, nodes []*corev1.Node, aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests,
-) (*TASFlavorSnapshot, error) {
+func (c *TASFlavorCache) snapshot(log logr.Logger, nodes []*corev1.Node, aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests) (*TASFlavorSnapshot, error) {
 	c.RLock()
 	defer c.RUnlock()
 
@@ -138,7 +135,7 @@ func (c *TASFlavorCache) snapshot(
 	}
 	log.V(3).Info("Constructing TAS snapshot", infoKV...)
 
-	feasibilityChecker, err := c.schedulingSimulator.NewFeasibilityChecker(ctx, nodes)
+	feasibilityChecker, err := c.schedulingSimulator.NewFeasibilityChecker(nodes)
 	if err != nil {
 		return nil, err
 	}

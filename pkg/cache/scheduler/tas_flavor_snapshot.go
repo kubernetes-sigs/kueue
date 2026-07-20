@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/component-helpers/scheduling/corev1/nodeaffinity"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
@@ -61,9 +62,23 @@ type domain struct {
 
 	// state is a temporary state of the topology domains during the
 	// assignment algorithm.
+	//
+	// In the first phase of the algorithm (traversal to the top the topology to
+	// determine the level to fit the workload) it denotes the number of pods
+	// which can fit in a given domain.
+	//
+	// In the second phase of the algorithm (traversal to the bottom to
+	// determine the actual assignments) it denotes the number of pods actually
+	// assigned to the given domain.
 	state int32
 
-	// sliceState is a temporary state of the topology domains during the assignment algorithm.
+	// sliceState is a temporary state of the topology domains during the
+	// assignment algorithm that denotes the number of slices that can fit within
+	// that domain.
+	//
+	// For domains that are below the requested topology level the algorithm
+	// assigns 0 to that field as this field makes no sense for lower level
+	// domains.
 	sliceState int32
 
 	stateWithLeader      int32
@@ -83,6 +98,8 @@ type domain struct {
 type leafDomain struct {
 	domain
 	// freeCapacity represents the total node capacity minus the non-TAS usage,
+	// coming from Pods which are not managed by workloads admitted by TAS
+	// (typically static Pods, DaemonSets, or Deployments).
 	freeCapacity resources.Requests
 
 	// tasUsage represents the usage associated with TAS workloads.
@@ -483,7 +500,8 @@ func WithAggregatedDomainUsages(m map[utiltas.TopologyDomainID]resources.Request
 
 // FindTopologyAssignmentsForFlavor returns TAS assignment, if possible, for all
 // the TAS requests in the flavor handled by the snapshot.
-func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context, log logr.Logger, flavorTASRequests FlavorTASRequests, options ...FindTopologyAssignmentsOption) TASAssignmentsResult {
+func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context, flavorTASRequests FlavorTASRequests, options ...FindTopologyAssignmentsOption) TASAssignmentsResult {
+	log := log.FromContext(ctx)
 	opts := &findTopologyAssignmentsOption{}
 	for _, option := range options {
 		option(opts)
@@ -530,7 +548,7 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 				// We deepCopy the existing TopologyAssignment, so if we delete unwanted domain,
 				// And there is no fit, we have the original newAssignment to retry with
 				existingAssignment := psa.TopologyAssignment
-				newAssignment, replacementAssignment, reason := s.findReplacementAssignment(&tr, utiltas.InternalFrom(existingAssignment), opts.workload, assumedUsage)
+				newAssignment, replacementAssignment, reason := s.findReplacementAssignment(ctx, &tr, utiltas.InternalFrom(existingAssignment), opts.workload, assumedUsage)
 				result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: newAssignment, FailureReason: reason}
 				if reason != "" {
 					return result
@@ -542,9 +560,8 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 		} else {
 			leader, workers := findLeaderAndWorkers(trs)
 
-			// Handle elastic workloads with delta-only placement
 			if features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) {
-				elasticResult := s.handleElasticWorkload(workers, leader, assumedUsage, opts)
+				elasticResult := s.handleElasticWorkload(ctx, workers, leader, assumedUsage, opts)
 				if elasticResult.applied {
 					maps.Copy(result, elasticResult.assignments)
 					if elasticResult.assignments[workers.PodSet.Name].FailureReason != "" {
@@ -555,7 +572,7 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 			}
 
 			// Normal path: no previous assignment or stale assignment
-			assignments, reason := s.findTopologyAssignment(workers, leader, assumedUsage, opts.simulateEmpty, "", opts.workload)
+			assignments, reason := s.findTopologyAssignment(ctx, workers, leader, assumedUsage, opts.simulateEmpty, "", opts.workload)
 			for _, tr := range trs {
 				podSetName := tr.PodSet.Name
 				result[podSetName] = tasPodSetAssignmentResult{TopologyAssignment: assignments[podSetName], FailureReason: reason}
@@ -592,6 +609,7 @@ func findLeaderAndWorkers(trs FlavorTASRequests) (*TASPodSetRequests, TASPodSetR
 // it return new corrected topologyAssignment, a replacement topologyAssignment used to patched the old, faulty one, and
 // reason if finding fails
 func (s *TASFlavorSnapshot) findReplacementAssignment(
+	ctx context.Context,
 	tr *TASPodSetRequests,
 	existingAssignment *utiltas.TopologyAssignment,
 	wl *kueue.Workload,
@@ -627,7 +645,7 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 		trCopy.PodSet.TopologyRequest.PodSetSliceRequiredTopology = effectiveSliceTopology
 		trCopy.PodSet.TopologyRequest.PodSetSliceSize = new(effectiveSliceSize)
 	}
-	replacementAssignment, reason := s.findTopologyAssignment(trCopy, nil, assumedUsage, false, requiredReplacementDomain, wl)
+	replacementAssignment, reason := s.findTopologyAssignment(ctx, trCopy, nil, assumedUsage, false, requiredReplacementDomain, wl)
 	if reason != "" {
 		return nil, nil, reason
 	}
@@ -791,6 +809,7 @@ func (s *TASFlavorSnapshot) findIncompleteSliceDomain(tr *TASPodSetRequests, ta 
 //	domains at each level
 //	d) build the assignment for the lowest level in the hierarchy
 func (s *TASFlavorSnapshot) findTopologyAssignment(
+	ctx context.Context,
 	workersTasPodSetRequests TASPodSetRequests,
 	leaderTasPodSetRequests *TASPodSetRequests,
 	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
@@ -902,7 +921,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	}
 
 	// phase 1 - determine the number of pods and slices which can fit in each topology domain
-	err := s.fillInCounts(requirements, state)
+	err := s.fillInCounts(ctx, requirements, state)
 	if err != nil {
 		return nil, fmt.Sprintf("unable to calculate domain capacities for PodSet %s, error: %s", info.Name, err.Error())
 	}
@@ -1597,7 +1616,7 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool)
 
 // fillInCounts computes per-domain pod, slice, and leader capacities from the
 // pod requirements, then rolls those capacities up the topology tree.
-func (s *TASFlavorSnapshot) fillInCounts(requirements *simulator.TopologyAssignmentPodRequirements, state *findTopologyAssignmentState) error {
+func (s *TASFlavorSnapshot) fillInCounts(ctx context.Context, requirements *simulator.TopologyAssignmentPodRequirements, state *findTopologyAssignmentState) error {
 	for _, domain := range s.domains {
 		// cleanup the state in case some remaining values are present from computing
 		// assignments for previous PodSets.
@@ -1610,7 +1629,7 @@ func (s *TASFlavorSnapshot) fillInCounts(requirements *simulator.TopologyAssignm
 	}
 
 	if features.Enabled(features.TASCacheNodeMatchResults) {
-		matchingLeaves, stats, err := s.getMatchingLeaves(requirements)
+		matchingLeaves, stats, err := s.getMatchingLeaves(ctx, requirements)
 		if err != nil {
 			return err
 		}
@@ -1631,7 +1650,7 @@ func (s *TASFlavorSnapshot) fillInCounts(requirements *simulator.TopologyAssignm
 		if s.isLowestLevelNode {
 			var err error
 			var leafStats *simulator.ExclusionStats
-			feasibleLeaves, leafStats, err = s.feasibilityChecker.FindFeasibleNodes(leaves, requirements)
+			feasibleLeaves, leafStats, err = s.feasibilityChecker.FindFeasibleNodes(ctx, leaves, requirements)
 			if err != nil {
 				return err
 			}
@@ -1657,7 +1676,7 @@ func (s *TASFlavorSnapshot) fillInCounts(requirements *simulator.TopologyAssignm
 	return nil
 }
 
-func (s *TASFlavorSnapshot) getMatchingLeaves(requirements *simulator.TopologyAssignmentPodRequirements) ([]simulator.MatchedCandidate, *simulator.ExclusionStats, error) {
+func (s *TASFlavorSnapshot) getMatchingLeaves(ctx context.Context, requirements *simulator.TopologyAssignmentPodRequirements) ([]simulator.MatchedCandidate, *simulator.ExclusionStats, error) {
 	if !s.isLowestLevelNode {
 		stats := &simulator.ExclusionStats{}
 		stats.TotalNodes += len(s.leaves)
@@ -1675,11 +1694,6 @@ func (s *TASFlavorSnapshot) getMatchingLeaves(requirements *simulator.TopologyAs
 		}
 	}
 
-	entry := &matchingLeavesCacheEntry{
-		leaves: make([]simulator.MatchedCandidate, 0, len(s.leaves)),
-		Stats:  &simulator.ExclusionStats{},
-	}
-
 	leaves := make([]simulator.Candidate, 0, len(s.leaves))
 	for _, leaf := range s.leaves {
 		leaves = append(leaves, leaf)
@@ -1687,14 +1701,14 @@ func (s *TASFlavorSnapshot) getMatchingLeaves(requirements *simulator.TopologyAs
 
 	var leafStats *simulator.ExclusionStats
 	var err error
-	feasibleLeaves, leafStats, err := s.feasibilityChecker.FindFeasibleNodes(leaves, requirements)
+	feasibleLeaves, leafStats, err := s.feasibilityChecker.FindFeasibleNodes(ctx, leaves, requirements)
 	if err != nil {
 		return nil, nil, err
 	}
-	entry.Stats.Add(leafStats)
-	entry.Stats.TotalNodes = len(leaves)
-
-	entry.leaves = append(entry.leaves, feasibleLeaves...)
+	entry := &matchingLeavesCacheEntry{
+		leaves: feasibleLeaves,
+		Stats:  leafStats,
+	}
 
 	if requirements.MatchKey != nil {
 		if s.matchingLeavesCache == nil {

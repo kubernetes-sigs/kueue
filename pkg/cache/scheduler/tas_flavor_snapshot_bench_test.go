@@ -86,7 +86,7 @@ func BenchmarkTASFlavorSnapshot(b *testing.B) {
 			nodes := buildBenchNodes(topo)
 			levels := []string{benchBlockLabel, benchRackLabel, benchHostLabel}
 
-			tasCache := NewTASCache(nil, NewDefaultSimulator())
+			tasCache := NewTASCache(nil, newDefaultSimulator())
 			for i := range nodes {
 				tasCache.SyncNode(&nodes[i])
 			}
@@ -118,7 +118,7 @@ func BenchmarkTASFlavorSnapshot(b *testing.B) {
 
 			for b.Loop() {
 				for i, flavorCache := range flavorCaches {
-					_, _ = flavorCache.snapshot(b.Context(), log, flavorNodes[i], nil)
+					_, _ = flavorCache.snapshot(log, flavorNodes[i], nil)
 				}
 			}
 		})

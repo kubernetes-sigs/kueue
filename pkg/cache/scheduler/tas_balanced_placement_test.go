@@ -22,6 +22,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -235,7 +236,7 @@ func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
 				tc.want,
 				got,
 				cmp.AllowUnexported(domain{}),
-				cmpopts.IgnoreFields(domain{}, "Parent", "Children", "LevelValues"),
+				cmpopts.IgnoreFields(domain{}, "parent", "children", "levelValues"),
 				cmpopts.SortSlices(func(a, b *domain) bool { return a.id < b.id }),
 			); diff != "" {
 				t.Errorf("Unexpected domains (-want,+got):\n%s", diff)
@@ -362,14 +363,14 @@ func TestPruneDomainsBelowThreshold(t *testing.T) {
 
 func TestFindBestDomainsForBalancedPlacement(t *testing.T) {
 	type domainSpec struct {
-		ID                   string
-		ParentID             string
-		LevelValues          []string
-		State                int32
-		SliceState           int32
-		StateWithLeader      int32
-		SliceStateWithLeader int32
-		LeaderState          int32
+		id                   string
+		parentID             string
+		levelValues          []string
+		state                int32
+		sliceState           int32
+		stateWithLeader      int32
+		sliceStateWithLeader int32
+		leaderState          int32
 	}
 
 	testCases := map[string]struct {
@@ -380,11 +381,11 @@ func TestFindBestDomainsForBalancedPlacement(t *testing.T) {
 	}{
 		"falls back after pruning": {
 			domains: []domainSpec{
-				{ID: "b1", LevelValues: []string{"b1"}},
-				{ID: "b2", LevelValues: []string{"b2"}},
-				{ID: "b1/r1", ParentID: "b1", LevelValues: []string{"b1", "r1"}, State: 3, SliceState: 3, StateWithLeader: 2, SliceStateWithLeader: 2, LeaderState: 1},
-				{ID: "b2/r1", ParentID: "b2", LevelValues: []string{"b2", "r1"}, State: 2, SliceState: 2, StateWithLeader: 1, SliceStateWithLeader: 1, LeaderState: 1},
-				{ID: "b2/r2", ParentID: "b2", LevelValues: []string{"b2", "r2"}, State: 4, SliceState: 4, StateWithLeader: 2, SliceStateWithLeader: 2, LeaderState: 1},
+				{id: "b1", levelValues: []string{"b1"}},
+				{id: "b2", levelValues: []string{"b2"}},
+				{id: "b1/r1", parentID: "b1", levelValues: []string{"b1", "r1"}, state: 3, sliceState: 3, stateWithLeader: 2, sliceStateWithLeader: 2, leaderState: 1},
+				{id: "b2/r1", parentID: "b2", levelValues: []string{"b2", "r1"}, state: 2, sliceState: 2, stateWithLeader: 1, sliceStateWithLeader: 1, leaderState: 1},
+				{id: "b2/r2", parentID: "b2", levelValues: []string{"b2", "r2"}, state: 4, sliceState: 4, stateWithLeader: 2, sliceStateWithLeader: 2, leaderState: 1},
 			},
 			params: topologyAssignmentParameters{
 				count:             8,
@@ -398,13 +399,13 @@ func TestFindBestDomainsForBalancedPlacement(t *testing.T) {
 		},
 		"rejects after fallback": {
 			domains: []domainSpec{
-				{ID: "b1", LevelValues: []string{"b1"}},
-				{ID: "b2", LevelValues: []string{"b2"}},
-				{ID: "b3", LevelValues: []string{"b3"}},
-				{ID: "b1/r1", ParentID: "b1", LevelValues: []string{"b1", "r1"}, State: 2, SliceState: 2, StateWithLeader: 1, SliceStateWithLeader: 1, LeaderState: 1},
-				{ID: "b2/r1", ParentID: "b2", LevelValues: []string{"b2", "r1"}, State: 3, SliceState: 3, StateWithLeader: 1, SliceStateWithLeader: 1, LeaderState: 1},
-				{ID: "b2/r2", ParentID: "b2", LevelValues: []string{"b2", "r2"}, State: 4, SliceState: 4, StateWithLeader: 2, SliceStateWithLeader: 2, LeaderState: 1},
-				{ID: "b3/r1", ParentID: "b3", LevelValues: []string{"b3", "r1"}, State: 4, SliceState: 4, StateWithLeader: 3, SliceStateWithLeader: 3, LeaderState: 1},
+				{id: "b1", levelValues: []string{"b1"}},
+				{id: "b2", levelValues: []string{"b2"}},
+				{id: "b3", levelValues: []string{"b3"}},
+				{id: "b1/r1", parentID: "b1", levelValues: []string{"b1", "r1"}, state: 2, sliceState: 2, stateWithLeader: 1, sliceStateWithLeader: 1, leaderState: 1},
+				{id: "b2/r1", parentID: "b2", levelValues: []string{"b2", "r1"}, state: 3, sliceState: 3, stateWithLeader: 1, sliceStateWithLeader: 1, leaderState: 1},
+				{id: "b2/r2", parentID: "b2", levelValues: []string{"b2", "r2"}, state: 4, sliceState: 4, stateWithLeader: 2, sliceStateWithLeader: 2, leaderState: 1},
+				{id: "b3/r1", parentID: "b3", levelValues: []string{"b3", "r1"}, state: 4, sliceState: 4, stateWithLeader: 3, sliceStateWithLeader: 3, leaderState: 1},
 			},
 			params: topologyAssignmentParameters{
 				count:             12,
@@ -425,26 +426,26 @@ func TestFindBestDomainsForBalancedPlacement(t *testing.T) {
 			domainsByID := make(map[string]*domain, len(tc.domains))
 			for _, spec := range tc.domains {
 				d := &domain{
-					id:                   utiltas.TopologyDomainID(spec.ID),
-					levelValues:          spec.LevelValues,
-					state:                spec.State,
-					sliceState:           spec.SliceState,
-					stateWithLeader:      spec.StateWithLeader,
-					sliceStateWithLeader: spec.SliceStateWithLeader,
-					leaderState:          spec.LeaderState,
+					id:                   utiltas.TopologyDomainID(spec.id),
+					levelValues:          spec.levelValues,
+					state:                spec.state,
+					sliceState:           spec.sliceState,
+					stateWithLeader:      spec.stateWithLeader,
+					sliceStateWithLeader: spec.sliceStateWithLeader,
+					leaderState:          spec.leaderState,
 				}
-				if len(spec.ParentID) == 0 {
+				if len(spec.parentID) == 0 {
 					s.domainsPerLevel[0][d.id] = d
 				} else {
-					parent := domainsByID[spec.ParentID]
+					parent := domainsByID[spec.parentID]
 					if parent == nil {
-						t.Fatalf("Unknown parent domain %q", spec.ParentID)
+						t.Fatalf("Unknown parent domain %q", spec.parentID)
 					}
 					d.parent = parent
 					parent.children = append(parent.children, d)
 					s.domainsPerLevel[1][d.id] = d
 				}
-				domainsByID[spec.ID] = d
+				domainsByID[spec.id] = d
 			}
 
 			gotDomains, gotThreshold := findBestDomainsForBalancedPlacement(s, &tc.params)

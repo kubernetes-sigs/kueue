@@ -166,7 +166,7 @@ func New(client client.Client, options ...Option) *Cache {
 		admissionChecks:        make(map[kueue.AdmissionCheckReference]AdmissionCheck),
 		workloadAssignedQueues: make(map[workload.Reference]kueue.ClusterQueueReference),
 		hm:                     hierarchy.NewManager(newCohort),
-		schedulingSimulator:    NewDefaultSimulator(),
+		schedulingSimulator:    newDefaultSimulator(),
 	}
 	for _, option := range options {
 		option(cache)
