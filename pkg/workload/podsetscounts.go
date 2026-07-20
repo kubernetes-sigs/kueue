@@ -19,6 +19,8 @@ package workload
 import (
 	"maps"
 
+	"k8s.io/utils/ptr"
+
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
@@ -86,4 +88,23 @@ func ApplyPodSetCounts(wl *kueue.Workload, counts PodSetsCounts) {
 			wl.Spec.PodSets[i].Count = count
 		}
 	}
+}
+
+// ExtractAdmittedPodSetCounts returns a PodSetsCounts map derived from the admitted pod set counts in the status.
+func ExtractAdmittedPodSetCounts(wl *kueue.Workload) PodSetsCounts {
+	if wl.Status.Admission == nil {
+		return nil
+	}
+	counts := make(PodSetsCounts)
+	for _, assignment := range wl.Status.Admission.PodSetAssignments {
+		var specCount int32
+		for _, ps := range wl.Spec.PodSets {
+			if ps.Name == assignment.Name {
+				specCount = ps.Count
+				break
+			}
+		}
+		counts[assignment.Name] = ptr.Deref(assignment.Count, specCount)
+	}
+	return counts
 }

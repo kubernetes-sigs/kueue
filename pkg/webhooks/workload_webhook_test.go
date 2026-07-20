@@ -410,8 +410,11 @@ func TestValidateWorkload(t *testing.T) {
 				field.Invalid(field.NewPath("metadata", "annotations").Key(constants.AdmissionGatedByAnnotation), "valid.com/gate,invalid gate.com/controller", ""),
 			}.ToAggregate(),
 		},
-		"partial admission and elastic job cannot be used together": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+		"partial admission and elastic job cannot be used together when feature gate is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:  true,
+				features.PartialAdmissionForElasticJob: false,
+			},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				PodSets(*utiltestingapi.MakePodSet("main", 10).SetMinimumCount(5).Obj()).
@@ -432,6 +435,17 @@ func TestValidateWorkload(t *testing.T) {
 			wantWarnings: admission.Warnings{
 				"spec.podSets[0].topologyRequest.subGroupCount: negative value -1 is deprecated and will be rejected in a future release",
 			},
+		},
+		"partial admission and elastic job can be used together when feature gate is enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:  true,
+				features.PartialAdmissionForElasticJob: true,
+			},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet("main", 10).SetMinimumCount(5).Obj()).
+				Obj(),
+			wantErr: nil,
 		},
 	}
 	for name, tc := range testCases {

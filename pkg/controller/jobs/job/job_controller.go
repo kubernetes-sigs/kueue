@@ -43,6 +43,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -276,7 +277,7 @@ func (j *Job) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSetsIn
 
 	info := podSetsInfo[0]
 
-	if j.minPodsCount() != nil {
+	if j.minPodsCount() != nil && !workloadslicing.Enabled(j.Object()) {
 		j.Spec.Parallelism = new(info.Count)
 		if j.syncCompletionWithParallelism() {
 			j.Spec.Completions = j.Spec.Parallelism
@@ -292,7 +293,7 @@ func (j *Job) RestorePodSetsInfo(_ context.Context, podSetsInfo []podset.PodSetI
 
 	changed := false
 	// if the job accepts partial admission
-	if j.minPodsCount() != nil && ptr.Deref(j.Spec.Parallelism, 0) != podSetsInfo[0].Count {
+	if j.minPodsCount() != nil && !workloadslicing.Enabled(j.Object()) && ptr.Deref(j.Spec.Parallelism, 0) != podSetsInfo[0].Count {
 		changed = true
 		j.Spec.Parallelism = new(podSetsInfo[0].Count)
 		if j.syncCompletionWithParallelism() {
