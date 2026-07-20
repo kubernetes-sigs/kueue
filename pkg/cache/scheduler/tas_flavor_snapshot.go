@@ -691,7 +691,7 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(log logr.Logger, fl
 				if reason != "" {
 					return result
 				} else {
-					log.V(3).Info("Found replacement assginment for workload", "existingAssignment", existingAssignment, "newAssignment", newAssignment)
+					log.V(3).Info("Found replacement assignment for workload", "existingAssignment", existingAssignment, "newAssignment", newAssignment)
 				}
 				addAssumedUsage(assumedUsage, replacementAssignment, &tr)
 			}
