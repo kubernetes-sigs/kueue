@@ -302,22 +302,12 @@ func (s *TASFlavorSnapshot) addNonTASUsage(domainID utiltas.TopologyDomainID, us
 }
 
 func (s *TASFlavorSnapshot) updateTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests, op usageOp, count int32) {
-	if features.Enabled(features.TASCachingRemainingResources) {
-		if op == add {
-			s.addTASUsage(domainID, usage)
-			s.addTASUsage(domainID, resources.Requests{corev1.ResourcePods: int64(count)})
-		} else {
-			s.removeTASUsage(domainID, usage)
-			s.removeTASUsage(domainID, resources.Requests{corev1.ResourcePods: int64(count)})
-		}
+	u := usage.Clone()
+	u.Add(resources.Requests{corev1.ResourcePods: int64(count)})
+	if op == add {
+		s.addTASUsage(domainID, u)
 	} else {
-		u := usage.Clone()
-		u.Add(resources.Requests{corev1.ResourcePods: int64(count)})
-		if op == add {
-			s.addTASUsage(domainID, u)
-		} else {
-			s.removeTASUsage(domainID, u)
-		}
+		s.removeTASUsage(domainID, u)
 	}
 }
 
@@ -473,14 +463,14 @@ func (s *TASFlavorSnapshot) Fits(flavorUsage workload.TASFlavorUsage) bool {
 		if !found {
 			return false
 		}
-		var remainingCapacity resources.Requests
+		var remainingCapacity resources.LazyRequests
 		if cachingEnabled {
-			remainingCapacity = s.getRemainingCapacity(leaf)
+			remainingCapacity = resources.NewLazyRequests(s.getRemainingCapacity(leaf))
 		} else {
-			remainingCapacity = leaf.freeCapacity.Clone()
+			remainingCapacity = resources.NewLazyRequests(leaf.freeCapacity)
 			remainingCapacity.Sub(leaf.tasUsage)
 		}
-		if domainUsage.SinglePodRequests.CountIn(remainingCapacity) < domainUsage.Count {
+		if domainUsage.SinglePodRequests.CountIn(remainingCapacity.Get()) < domainUsage.Count {
 			return false
 		}
 	}
@@ -796,16 +786,11 @@ func addAssumedUsage(assumedUsage map[utiltas.TopologyDomainID]resources.Request
 }
 
 func addUsagePerDomain(assumedUsage map[utiltas.TopologyDomainID]resources.Requests, usagePerDomain map[utiltas.TopologyDomainID]resources.Requests) {
-	cachingEnabled := features.Enabled(features.TASCachingRemainingResources)
 	for domainID, usage := range usagePerDomain {
-		if cachingEnabled && assumedUsage[domainID] == nil {
-			assumedUsage[domainID] = usage
-		} else {
-			if assumedUsage[domainID] == nil {
-				assumedUsage[domainID] = resources.Requests{}
-			}
-			assumedUsage[domainID].Add(usage)
+		if assumedUsage[domainID] == nil {
+			assumedUsage[domainID] = resources.Requests{}
 		}
+		assumedUsage[domainID].Add(usage)
 	}
 }
 
@@ -1835,81 +1820,40 @@ func (s *TASFlavorSnapshot) fillLeafCounts(leaf *leafDomain, requirements *topol
 		return
 	}
 
-	var remainingCapacity resources.Requests
+	var remainingCapacity resources.LazyRequests
 	if cachingRemainingResourcesEnabled {
-		leafAssumedUsage, hasAssumedUsage := requirements.assumedUsage[leaf.id]
-		hasLeaderRequests := requirements.leaderRequests != nil
-
-		// This path requires cloning the map because remainingCapacity will be locally mutated
-		// (subtraction of assumed usage or leader pod requests).
-		if hasAssumedUsage || hasLeaderRequests {
-			if requirements.simulateEmpty {
-				remainingCapacity = leaf.freeCapacity.Clone()
-			} else {
-				remainingCapacity = s.getRemainingCapacity(leaf).Clone()
-			}
-			if hasAssumedUsage {
-				remainingCapacity.Sub(leafAssumedUsage)
-			}
-			var limitingRes corev1.ResourceName
-			leaf.state, limitingRes = requirements.requests.CountInWithLimitingResource(remainingCapacity)
-
-			// Track resource exclusions: if this node can't fit even one pod,
-			// identify which resource is the bottleneck.
-			if leaf.state == 0 && limitingRes != "" {
-				state.stats.recordResourceExclusion(limitingRes)
-			}
-
-			leaf.leaderState = 0
-			if hasLeaderRequests && requirements.leaderRequests.CountIn(remainingCapacity) > 0 {
-				leaf.leaderState = 1
-				remainingCapacity.Sub(*requirements.leaderRequests)
-			}
-			leaf.stateWithLeader = requirements.requests.CountIn(remainingCapacity)
+		if requirements.simulateEmpty {
+			remainingCapacity = resources.NewLazyRequests(leaf.freeCapacity)
 		} else {
-			// Fast copy-free path (0 clones / 0 allocations): no local mutations needed,
-			// so remainingCapacity is read directly from the cached map.
-			if requirements.simulateEmpty {
-				remainingCapacity = leaf.freeCapacity
-			} else {
-				remainingCapacity = s.getRemainingCapacity(leaf)
-			}
-			var limitingRes corev1.ResourceName
-			leaf.state, limitingRes = requirements.requests.CountInWithLimitingResource(remainingCapacity)
-
-			// Track resource exclusions: if this node can't fit even one pod,
-			// identify which resource is the bottleneck.
-			if leaf.state == 0 && limitingRes != "" {
-				state.stats.recordResourceExclusion(limitingRes)
-			}
-			leaf.leaderState = 0
-			leaf.stateWithLeader = requirements.requests.CountIn(remainingCapacity)
+			remainingCapacity = resources.NewLazyRequests(s.getRemainingCapacity(leaf))
 		}
 	} else {
-		remainingCapacity = leaf.freeCapacity.Clone()
+		remainingCapacity = resources.NewLazyRequests(leaf.freeCapacity)
 		if !requirements.simulateEmpty {
 			remainingCapacity.Sub(leaf.tasUsage)
 		}
-		if leafAssumedUsage, found := requirements.assumedUsage[leaf.id]; found {
-			remainingCapacity.Sub(leafAssumedUsage)
-		}
-		var limitingRes corev1.ResourceName
-		leaf.state, limitingRes = requirements.requests.CountInWithLimitingResource(remainingCapacity)
-
-		// Track resource exclusions: if this node can't fit even one pod,
-		// identify which resource is the bottleneck.
-		if leaf.state == 0 && limitingRes != "" {
-			state.stats.recordResourceExclusion(limitingRes)
-		}
-
-		leaf.leaderState = 0
-		if requirements.leaderRequests != nil && requirements.leaderRequests.CountIn(remainingCapacity) > 0 {
-			leaf.leaderState = 1
-			remainingCapacity.Sub(*requirements.leaderRequests)
-		}
-
-		leaf.stateWithLeader = requirements.requests.CountIn(remainingCapacity)
 	}
+
+	if leafAssumedUsage, found := requirements.assumedUsage[leaf.id]; found {
+		remainingCapacity.Sub(leafAssumedUsage)
+	}
+
+	var limitingRes corev1.ResourceName
+	leaf.state, limitingRes = requirements.requests.CountInWithLimitingResource(remainingCapacity.Get())
+
+	// Track resource exclusions: if this node can't fit even one pod,
+	// identify which resource is the bottleneck.
+	if leaf.state == 0 && limitingRes != "" {
+		state.stats.recordResourceExclusion(limitingRes)
+	}
+
+	leaf.leaderState = 0
+	if requirements.leaderRequests != nil && requirements.leaderRequests.CountIn(remainingCapacity.Get()) > 0 {
+		leaf.leaderState = 1
+		remainingCapacity.Sub(*requirements.leaderRequests)
+	}
+
+	leaf.stateWithLeader = requirements.requests.CountIn(remainingCapacity.Get())
 }
 
 func belongsToRequiredDomain(leaf *leafDomain, requiredReplacementDomain utiltas.TopologyDomainID) bool {

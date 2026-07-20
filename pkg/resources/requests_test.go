@@ -399,3 +399,103 @@ func TestResourceQuantityRoundTrips(t *testing.T) {
 		})
 	}
 }
+
+func TestLazyRequests(t *testing.T) {
+	cases := map[string]struct {
+		base              Requests
+		op                func(*LazyRequests)
+		wantResult        Requests
+		wantCachedCreated bool
+	}{
+		"no operation preserves base": {
+			base:              Requests{corev1.ResourceCPU: 10, corev1.ResourceMemory: 100},
+			op:                nil,
+			wantResult:        Requests{corev1.ResourceCPU: 10, corev1.ResourceMemory: 100},
+			wantCachedCreated: false,
+		},
+		"subtraction creates clone and updates result": {
+			base: Requests{corev1.ResourceCPU: 10, corev1.ResourceMemory: 100},
+			op: func(l *LazyRequests) {
+				l.Sub(Requests{corev1.ResourceCPU: 3})
+			},
+			wantResult:        Requests{corev1.ResourceCPU: 7, corev1.ResourceMemory: 100},
+			wantCachedCreated: true,
+		},
+		"addition creates clone and updates result": {
+			base: Requests{corev1.ResourceCPU: 10, corev1.ResourceMemory: 100},
+			op: func(l *LazyRequests) {
+				l.Add(Requests{corev1.ResourceCPU: 5})
+			},
+			wantResult:        Requests{corev1.ResourceCPU: 15, corev1.ResourceMemory: 100},
+			wantCachedCreated: true,
+		},
+		"subtraction with empty map short circuits": {
+			base: Requests{corev1.ResourceCPU: 10, corev1.ResourceMemory: 100},
+			op: func(l *LazyRequests) {
+				l.Sub(Requests{})
+			},
+			wantResult:        Requests{corev1.ResourceCPU: 10, corev1.ResourceMemory: 100},
+			wantCachedCreated: false,
+		},
+		"addition with empty map short circuits": {
+			base: Requests{corev1.ResourceCPU: 10, corev1.ResourceMemory: 100},
+			op: func(l *LazyRequests) {
+				l.Add(Requests{})
+			},
+			wantResult:        Requests{corev1.ResourceCPU: 10, corev1.ResourceMemory: 100},
+			wantCachedCreated: false,
+		},
+		"nil base input with non-empty addition": {
+			base: nil,
+			op: func(l *LazyRequests) {
+				l.Add(Requests{corev1.ResourceCPU: 5})
+			},
+			wantResult:        Requests{corev1.ResourceCPU: 5},
+			wantCachedCreated: true,
+		},
+		"nil base input with empty addition short circuits": {
+			base: nil,
+			op: func(l *LazyRequests) {
+				l.Add(Requests{})
+			},
+			wantResult:        nil,
+			wantCachedCreated: false,
+		},
+		"nil base input with non-empty subtraction": {
+			base: nil,
+			op: func(l *LazyRequests) {
+				l.Sub(Requests{corev1.ResourceCPU: 5})
+			},
+			wantResult:        Requests{corev1.ResourceCPU: -5},
+			wantCachedCreated: true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			var originalBase Requests
+			if tc.base != nil {
+				originalBase = tc.base.Clone()
+			}
+
+			lazy := NewLazyRequests(tc.base)
+
+			if tc.op != nil {
+				tc.op(&lazy)
+			}
+
+			if (lazy.cached != nil) != tc.wantCachedCreated {
+				t.Errorf("expected cachedCreated=%t, got cached=%v", tc.wantCachedCreated, lazy.cached)
+			}
+
+			gotResult := lazy.Get()
+			if !cmp.Equal(gotResult, tc.wantResult) {
+				t.Errorf("unexpected Get() result, diff (-got +want):\n%s", cmp.Diff(gotResult, tc.wantResult))
+			}
+
+			if tc.base != nil && !cmp.Equal(tc.base, originalBase) {
+				t.Errorf("base map was mutated! diff (-got +want):\n%s", cmp.Diff(tc.base, originalBase))
+			}
+		})
+	}
+}
