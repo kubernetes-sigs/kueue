@@ -17,6 +17,8 @@ limitations under the License.
 package preemption
 
 import (
+	"context"
+
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/util/sets"
 
@@ -39,13 +41,14 @@ type PreemptionOracle struct {
 // SimulatePreemption runs the preemption algorithm for a given flavor resource to check if
 // preemption and reclaim are possible in this flavor resource.
 func (p *PreemptionOracle) SimulatePreemption(
+	ctx context.Context,
 	log logr.Logger,
 	cq *schdcache.ClusterQueueSnapshot,
 	wl workload.Info,
 	fr resources.FlavorResource,
 	quantity resources.Amount,
 ) (preemptioncommon.PreemptionPossibility, int) {
-	candidates := p.preemptor.getTargets(&preemptionCtx{
+	candidates := p.preemptor.getTargets(ctx, &preemptionCtx{
 		clock:             p.preemptor.clock,
 		log:               log,
 		preemptor:         wl,

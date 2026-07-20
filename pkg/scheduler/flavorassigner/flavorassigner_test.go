@@ -17,6 +17,7 @@ limitations under the License.
 package flavorassigner
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -158,6 +159,7 @@ type testOracle struct {
 }
 
 func (f *testOracle) SimulatePreemption(
+	ctx context.Context,
 	log logr.Logger,
 	cq *schdcache.ClusterQueueSnapshot,
 	wl workload.Info,
@@ -3643,7 +3645,7 @@ func TestAssignFlavors(t *testing.T) {
 					tc.preemptWorkloadSlice,
 					configapi.QuotaCheckBlockUndeclared,
 				)
-				assignment := flvAssigner.Assign(log, nil)
+				assignment := flvAssigner.Assign(t.Context(), log, nil)
 				if repMode := assignment.RepresentativeMode(); repMode != tc.wantRepMode {
 					t.Errorf("e.assignFlavors(_).RepresentativeMode()=%s, want %s", repMode, tc.wantRepMode)
 				}
@@ -3837,7 +3839,7 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 			testClusterQueue.AddUsage(workload.Usage{Quota: tc.testClusterQueueUsage})
 
 			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{tc.simulationResult}, nil, configapi.QuotaCheckBlockUndeclared)
-			assignment := flvAssigner.Assign(log, nil)
+			assignment := flvAssigner.Assign(t.Context(), log, nil)
 			if gotRepMode := assignment.RepresentativeMode(); gotRepMode != tc.wantMode {
 				t.Errorf("Unexpected RepresentativeMode. got %s, want %s", gotRepMode, tc.wantMode)
 			}
@@ -3986,7 +3988,7 @@ func TestDeletedFlavors(t *testing.T) {
 
 				flvAssigner := New(wlInfo, clusterQueue, flavorMap, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared)
 
-				assignment := flvAssigner.Assign(log, nil)
+				assignment := flvAssigner.Assign(t.Context(), log, nil)
 				if repMode := assignment.RepresentativeMode(); repMode != tc.wantRepMode {
 					t.Errorf("e.assignFlavors(_).RepresentativeMode()=%s, want %s", repMode, tc.wantRepMode)
 				}
@@ -4174,7 +4176,7 @@ func TestHierarchical(t *testing.T) {
 			testClusterQueue.AddUsage(workload.Usage{Quota: tc.testClusterQueueUsage})
 
 			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared)
-			assignment := flvAssigner.Assign(log, nil)
+			assignment := flvAssigner.Assign(t.Context(), log, nil)
 			if gotRepMode := assignment.RepresentativeMode(); gotRepMode != tc.wantMode {
 				t.Errorf("Unexpected RepresentativeMode. got %s, want %s", gotRepMode, tc.wantMode)
 			}
@@ -5141,7 +5143,7 @@ func TestAssignFlavorsWithAllowedFlavors(t *testing.T) {
 			cqSnapshot := snapshot.ClusterQueue(kueue.ClusterQueueReference(cq.Name))
 
 			assigner := New(wlInfo, cqSnapshot, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared)
-			gotAssignment := assigner.Assign(log, nil)
+			gotAssignment := assigner.Assign(t.Context(), log, nil)
 
 			if gotAssignment.RepresentativeMode() != tc.wantRepMode {
 				t.Errorf("RepresentativeMode() = %v, want %v", gotAssignment.RepresentativeMode(), tc.wantRepMode)
@@ -5623,7 +5625,7 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 			}
 
 			assigner := New(wlInfo, cqSnapshot, testFlavors, false, &testOracle{simulationResult: tc.simulationResult}, tc.replaceWl, configapi.QuotaCheckBlockUndeclared)
-			gotAssignment := assigner.Assign(log, nil)
+			gotAssignment := assigner.Assign(t.Context(), log, nil)
 
 			if gotAssignment.NoFitReason != tc.wantNoFitReason {
 				t.Errorf("gotAssignment.NoFitReason = %q, want %q", gotAssignment.NoFitReason, tc.wantNoFitReason)
