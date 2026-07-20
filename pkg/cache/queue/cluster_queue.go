@@ -73,12 +73,18 @@ var (
 // considered sticky until it is admitted, unschedulable, or deleted.
 // See Kueue#6929 and Kueue#7101 for motivation.
 //
-// The workloadName field is accessed concurrently: Snapshot sorts a copy of
-// the pending workloads (via baseCompareFunc -> matches) without holding the
-// ClusterQueue's rwm lock, while RequeueIfNotPresent sets it during preemption.
-// It is a single field with only whole-value read/store/clear, so an
-// atomic.Pointer synchronizes every access regardless of the caller's locking
-// (nil means no sticky workload).
+// The workloadName field is accessed concurrently and drives both the CQ heap
+// ordering and the Snapshot ordering used by the visibility server. Two
+// mechanisms keep every sort transitive (see Kueue#12740):
+//   - Writes (set/clear) happen under the ClusterQueue's rwm lock, so heap
+//     operations, which also hold the lock, never observe it changing mid-sort.
+//   - Snapshot sorts a copy of the pending workloads without holding the lock,
+//     so it captures the sticky workload once per sort via capturedMatcher()
+//     instead of re-reading it on every comparison.
+//
+// The field holds a single whole value (nil means no sticky workload), so an
+// atomic.Pointer keeps individual reads and writes memory-safe on top of the
+// ordering guarantees above.
 type stickyWorkload struct {
 	workloadName atomic.Pointer[workload.Reference]
 }
@@ -86,6 +92,21 @@ type stickyWorkload struct {
 func (s *stickyWorkload) matches(workload workload.Reference) bool {
 	name := s.workloadName.Load()
 	return name != nil && *name == workload
+}
+
+// capturedMatcher captures the current sticky workload once and returns a
+// predicate bound to that fixed value. A sort that compares through the returned
+// predicate stays transitive even if set/clear runs concurrently, because every
+// comparison in that sort observes the same sticky workload. See Kueue#12740.
+func (s *stickyWorkload) capturedMatcher() func(workload.Reference) bool {
+	name := s.workloadName.Load()
+	if name == nil {
+		return func(workload.Reference) bool { return false }
+	}
+	captured := *name
+	return func(key workload.Reference) bool {
+		return captured == key
+	}
 }
 
 func (s *stickyWorkload) clear() {
@@ -221,13 +242,15 @@ func newClusterQueueImpl(ctx context.Context, client client.Client, wo workload.
 		opt(options)
 	}
 	sw := stickyWorkload{}
-	log := ctrl.LoggerFrom(ctx)
-	baseCmp := baseCompareFunc(log, wo, &sw)
-	compareFunc := queueOrderingFunc(ctx, client, wo, options.fsResWeights, options.enableAdmissionFs, options.afsEntryPenalties, options.afsConsumedResources, &sw)
+	// The heap comparator reads the sticky workload live on every comparison;
+	// this is safe because sticky writes and heap operations both hold rwm.
+	compareFunc := queueOrderingFunc(ctx, client, wo, options.fsResWeights, options.enableAdmissionFs, options.afsEntryPenalties, options.afsConsumedResources, sw.matches)
 	// Derive lessFunc from compareFunc for the heap.
 	lessFunc := func(a, b *workload.Info) bool { return compareFunc(a, b) < 0 }
+	// Snapshot sorts without the lock, so it captures the sticky workload once
+	// per sort rather than reading it live. See Kueue#12740.
 	snapshotSort := buildSnapshotSort(
-		ctx, compareFunc, baseCmp, client,
+		ctx, wo, &sw, client,
 		options.enableAdmissionFs, options.fsResWeights,
 		options.afsEntryPenalties, options.afsConsumedResources,
 	)
@@ -409,10 +432,20 @@ func (c *ClusterQueue) DeleteFromLocalQueue(log logr.Logger, q *LocalQueue, role
 // or if there was a call to QueueInadmissibleWorkloads after a call to Pop,
 // the workload will be pushed back to heap directly. Otherwise, the workload
 // will be put into the inadmissibleWorkloads.
-func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info, immediate bool) bool {
+func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info, immediate bool, reason RequeueReason) bool {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	key := workload.Key(wInfo.Obj)
+	// When preemptions are in-progress, keep re-attempting the same workload at
+	// the head for BestEffortFIFO queues (see documentation of stickyWorkload).
+	// The sticky workload is set under the lock so heap operations, which also
+	// hold the lock, never observe it changing mid-sort. See Kueue#12740.
+	if reason == RequeueReasonPendingPreemption && c.queueingStrategy == kueue.BestEffortFIFO {
+		if logV := log.V(5); logV.Enabled() {
+			logV.Info("Setting sticky workload", "clusterQueue", wInfo.ClusterQueue, "workload", key)
+		}
+		c.sw.set(key)
+	}
 	c.forgetInflightByKey(key)
 
 	inadmissibleWl := c.inadmissibleWorkloads.get(key)
@@ -623,25 +656,28 @@ func (c *ClusterQueue) Snapshot() []*workload.Info {
 }
 
 // buildSnapshotSort returns a function that sorts workload elements for Snapshot().
-// When fair-sharing is enabled, it pre-computes FS usage per LocalQueue from
+// The sort runs without holding the ClusterQueue lock, so it captures the sticky
+// workload once per sort (via stickyWorkload.capturedMatcher) to keep the comparison
+// transitive even if the sticky workload changes concurrently. See Kueue#12740.
+// When fair-sharing is enabled, it also pre-computes FS usage per LocalQueue from
 // deep-copied AFS state to avoid inconsistent comparisons from concurrent updates.
 func buildSnapshotSort(
 	ctx context.Context,
-	compareFunc func(a, b *workload.Info) int,
-	baseCmp func(a, b *workload.Info) int,
+	wo workload.Ordering,
+	sw *stickyWorkload,
 	cl client.Client,
 	enableAdmissionFs bool,
 	fsResWeights map[corev1.ResourceName]float64,
 	afsEntryPenalties *queueafs.AfsEntryPenalties,
 	afsConsumedResources *queueafs.AfsConsumedResources,
 ) func(elements []*workload.Info) {
+	log := ctrl.LoggerFrom(ctx)
 	if !enableAdmissionFs {
 		return func(elements []*workload.Info) {
-			slices.SortFunc(elements, compareFunc)
+			slices.SortFunc(elements, baseCompareFunc(log, wo, sw.capturedMatcher()))
 		}
 	}
 
-	log := ctrl.LoggerFrom(ctx)
 	getLQWeight := func(lqKey utilqueue.LocalQueueReference) (float64, bool) {
 		if cl == nil {
 			return 1, true
@@ -659,6 +695,9 @@ func buildSnapshotSort(
 	}
 
 	return func(elements []*workload.Info) {
+		// Capture the sticky workload once so the sort stays transitive without
+		// holding the lock. See Kueue#12740.
+		baseCmp := baseCompareFunc(log, wo, sw.capturedMatcher())
 		usageCache := make(map[utilqueue.LocalQueueReference]float64)
 		for _, wInfo := range elements {
 			lqKey := utilqueue.KeyFromWorkload(wInfo.Obj)
@@ -736,17 +775,7 @@ func (c *ClusterQueue) Active() bool {
 // The workload should not be reinserted if it's already in the ClusterQueue.
 // Returns true if the workload was inserted.
 func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.Info, reason RequeueReason) bool {
-	// when preemptions are in-progress, we keep attempting to
-	// schedule the same workload for BestEffortFIFO queues. See
-	// documentation of stickyWorkload for more details
 	log := ctrl.LoggerFrom(ctx)
-	if reason == RequeueReasonPendingPreemption && c.queueingStrategy == kueue.BestEffortFIFO {
-		if logV := log.V(5); logV.Enabled() {
-			logV.Info("Setting sticky workload", "clusterQueue", wInfo.ClusterQueue, "workload", workload.Key(wInfo.Obj))
-		}
-		c.sw.set(workload.Key(wInfo.Obj))
-	}
-
 	var immediate bool
 	if c.queueingStrategy == kueue.StrictFIFO {
 		immediate = reason != RequeueReasonNamespaceMismatch
@@ -755,14 +784,17 @@ func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.
 			reason == RequeueReasonPendingPreemption ||
 			reason == RequeueReasonPreemptionFailed
 	}
-	return c.requeueIfNotPresent(log, wInfo, immediate)
+	return c.requeueIfNotPresent(log, wInfo, immediate, reason)
 }
 
 // baseCompareFunc orders workloads by sticky status, priority, timestamp, and UID.
-func baseCompareFunc(log logr.Logger, wo workload.Ordering, sw *stickyWorkload) func(a, b *workload.Info) int {
+// stickyMatches reports whether a workload is the sticky one; callers pass a
+// live matcher (stickyWorkload.matches) for the heap or a captured one
+// (stickyWorkload.capturedMatcher) for the lock-free Snapshot sort. See Kueue#12740.
+func baseCompareFunc(log logr.Logger, wo workload.Ordering, stickyMatches func(workload.Reference) bool) func(a, b *workload.Info) int {
 	return func(a, b *workload.Info) int {
-		aSticky := sw.matches(workload.Key(a.Obj))
-		bSticky := sw.matches(workload.Key(b.Obj))
+		aSticky := stickyMatches(workload.Key(a.Obj))
+		bSticky := stickyMatches(workload.Key(b.Obj))
 		if aSticky != bSticky {
 			if aSticky {
 				logStickyWorkloadSelectionIfVerbose(log, a.Obj)
@@ -800,10 +832,10 @@ func queueOrderingFunc(
 	enableAdmissionFs bool,
 	afsEntryPenalties *queueafs.AfsEntryPenalties,
 	afsConsumedResources *queueafs.AfsConsumedResources,
-	sw *stickyWorkload,
+	stickyMatches func(workload.Reference) bool,
 ) func(a, b *workload.Info) int {
 	log := ctrl.LoggerFrom(ctx)
-	baseCmp := baseCompareFunc(log, wo, sw)
+	baseCmp := baseCompareFunc(log, wo, stickyMatches)
 	if !enableAdmissionFs {
 		return baseCmp
 	}
