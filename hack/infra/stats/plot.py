@@ -24,6 +24,7 @@ It reads the job folder's raw_series.json and writes, into that same folder:
   dist_peak.png        per-build PEAK CPU & memory histograms    -> sizes memory (worst case)
   dist_mean_new_cpu.png  current vs target-duration per-build mean CPU -> work-conserving reco
   dist_duration.png    per-build duration histogram (mean, percentiles, target marker)
+  dist_peak_duration.png per-build peak above the cutoff: % of duration, minutes, avg CPU
   dist_work.png        per-build CPU work histogram (avg CPU × duration, core-minutes)
   dist_crest.png       per-build crest factor (p95/p50) histogram -> stable vs burst job
   dist_throttle.png    across-build histogram of "% of build time without CPU pressure"
@@ -85,11 +86,13 @@ MIN_SAMPLE_POINTS = 8       # timelines: only highlight sample builds with >= th
 
 # CPU right-sizing (issue #12750). The sizing policy is pluggable: the CPU request is
 # produced by one of the named recommenders in CPU_RECOMMENDERS, selected via
-# --cpu-algorithm. The default, "target-duration", is work-conserving: it assumes each
-# build's CPU work (avg cores x duration) is roughly invariant to the request (CPU is
-# compressible, so fewer cores just stretch the build), so a build given `work / target`
-# cores would finish in about `target` minutes. The knobs below are its defaults, each
-# overridable via CLI.
+# --cpu-algorithm. The recommenders are work-conserving: they assume each build's CPU work
+# (avg cores x duration) is roughly invariant to the request (CPU is compressible, so fewer
+# cores just stretch the build), so a build given `work / target` cores would finish in
+# about `target` minutes. The default, "target-duration-improved", refines this by fitting
+# only the compressible peak work into the target budget (see the recommender's docstring),
+# which keeps burst jobs from being under-provisioned. The knobs below are the defaults,
+# each overridable via CLI.
 CPU_TARGET_MIN = 10.0  # target build duration in minutes to size the request against
 CPU_LEGROOM_FRAC = 0.0  # fractional headroom on top of the p95 target (0 = none; 0.15 = +15%)
 CPU_RESOLUTION = 0.1   # round the recommendation up to this core granularity (100m)
@@ -197,6 +200,25 @@ def per_build_cpu_samples(series, min_dur_min=0.0, exclude=None):
         if (max(ts) - min(ts)) / 60.0 < min_dur_min:
             continue
         out.append(np.array([v for _, v in pts]))
+    return out
+
+
+def per_build_cpu_samples_dur(series, min_dur_min=0.0, exclude=None):
+    """Like per_build_cpu_samples, but pairs each build's CPU sample vector with its
+    duration in minutes. The peak-slice recommender (cpu_reco_target_duration_improved)
+    needs both: the samples to split at the cutoff, and the duration to turn a below-cutoff
+    sample fraction into wall-clock minutes (fixed-step sampling, so fraction x duration is
+    the time the build spent below the cutoff)."""
+    exclude = exclude or set()
+    out = []
+    for bid, pts in series.items():
+        if bid in exclude or len(pts) < 2:
+            continue
+        ts = [t for t, _ in pts]
+        dur = (max(ts) - min(ts)) / 60.0
+        if dur < min_dur_min:
+            continue
+        out.append((np.array([v for _, v in pts]), dur))
     return out
 
 
@@ -345,20 +367,32 @@ def cap_at_limit(data, val):
     return min(val, cpu_lim_cur), val >= cpu_lim_cur
 
 
-def cpu_reco_target_duration(data, min_dur, cfg):
-    """Work-conserving recommender (the default): the single Guaranteed-QoS CPU value that
-    would let builds finish in about cfg.target_min minutes, assuming CPU work
-    (avg x duration) is invariant to the request. Sizes off p95 of the per-build target
-    mean CPU (see target_new_avg_cpus), optionally adds fractional legroom, rounds up to
-    cfg.resolution, and caps at the current limit. Returns (value, stats) or (None, None)
-    when there is too little CPU data; `stats` carries the percentiles that justify it."""
+def target_duration_p95(data, min_dur, cfg):
+    """Shared core of the target-duration recommenders: p95 across builds of the per-build
+    target mean CPU (avg x dur / max(dur, target_min); see target_new_avg_cpus), plus the
+    supporting `new` and `durs` arrays. This p95 is the uncapped, un-rounded work-conserving
+    CPU value — cpu_reco_target_duration rounds and caps it, while the improved recommender
+    reuses it as a cutoff. Returns (p95, new, durs) or (None, None, None) when there are
+    fewer than 2 usable builds."""
     oom = oom_build_ids(data)
     pairs = per_build_cpu_work(data["series"].get("cpu_used_cores", {}), min_dur, exclude=oom)
     if len(pairs) < 2:
-        return None, None
+        return None, None, None
     new = target_new_avg_cpus(pairs, cfg.target_min)
     durs = np.array([d for _, d in pairs])
-    p95 = float(np.percentile(new, 95))
+    return float(np.percentile(new, 95)), new, durs
+
+
+def cpu_reco_target_duration(data, min_dur, cfg):
+    """Work-conserving recommender: the single Guaranteed-QoS CPU value that would let
+    builds finish in about cfg.target_min minutes, assuming CPU work (avg x duration) is
+    invariant to the request. Sizes off p95 of the per-build target mean CPU (see
+    target_new_avg_cpus), optionally adds fractional legroom, rounds up to cfg.resolution,
+    and caps at the current limit. Returns (value, stats) or (None, None) when there is too
+    little CPU data; `stats` carries the percentiles that justify it."""
+    p95, new, durs = target_duration_p95(data, min_dur, cfg)
+    if p95 is None:
+        return None, None
     val, saturated = cap_at_limit(data, round_up_to(p95 * (1 + cfg.legroom_frac), cfg.resolution))
     stats = {
         "algorithm": "target-duration",
@@ -394,13 +428,130 @@ def cpu_reco_p95_mean(data, min_dur, cfg):
     return val, stats
 
 
+def per_build_target_peak_cpu(data, min_dur, cfg):
+    """Per-build peak-adjusted target CPU — the distribution the improved recommender
+    (cpu_reco_target_duration_improved) takes the p95 of. For each build, the compressible
+    above-cutoff (peak) work fitted into the leftover target budget:
+    avg_peak x peak_dur / max(time_remain, peak_dur); a build that never crosses the cutoff
+    contributes its plain per-build target mean (avg x dur / max(dur, target_min)). Also
+    returns the per-build valley/peak/budget splits (only for builds that cross the cutoff,
+    used for diagnostics) and the cutoff itself. Returns
+    (per_reco, below_mins, peak_durs, time_remains, cutoff) or five Nones when the cutoff
+    cannot be computed or fewer than two builds qualify."""
+    cutoff, _, _ = target_duration_p95(data, min_dur, cfg)
+    if cutoff is None:
+        return None, None, None, None, None
+    oom = oom_build_ids(data)
+    builds = per_build_cpu_samples_dur(data["series"].get("cpu_used_cores", {}), min_dur, exclude=oom)
+
+    per_reco = []
+    below_mins, peak_durs, time_remains = [], [], []
+    for samples, dur in builds:
+        peak = samples[samples > cutoff]
+        if len(peak) == 0:
+            # Never exceeds the cutoff: the whole run is "valley", so its own target mean
+            # already fits — contribute the plain per-build value.
+            per_reco.append(float(np.mean(samples)) * dur / max(dur, cfg.target_min))
+            continue
+        below_min = float(np.mean(samples <= cutoff)) * dur
+        peak_dur = dur - below_min
+        time_remain = cfg.target_min - below_min
+        per_reco.append(float(np.mean(peak)) * peak_dur / max(time_remain, peak_dur))
+        below_mins.append(below_min)
+        peak_durs.append(peak_dur)
+        time_remains.append(time_remain)
+
+    if len(per_reco) < 2:
+        return None, None, None, None, None
+    return np.array(per_reco), below_mins, peak_durs, time_remains, cutoff
+
+
+def cpu_reco_target_duration_improved(data, min_dur, cfg):
+    """Peak-aware work-conserving recommender (the default). Plain target-duration sizes off
+    each build's *mean*, which under-provisions burst jobs: their idle valleys (cluster
+    bring-up, network/I-O waits) are incompressible wall-clock that more cores cannot
+    shorten, so folding them into the average hides the true peak demand — and since
+    request == limit is a hard ceiling, the request then clips the peak.
+
+    This variant separates the two. It takes the plain target-duration value as a CPU
+    cutoff, treats each build's below-cutoff time as a fixed cost, and fits only the
+    compressible above-cutoff (peak) work into whatever of the cfg.target_min budget the
+    valleys leave:
+
+        below_min   = (fraction of samples <= cutoff) x duration   # fixed valley time
+        peak_dur    = duration - below_min                         # time spent in peaks
+        time_remain = cfg.target_min - below_min                   # budget left for peaks
+        peak_reco   = avg_peak x peak_dur / max(time_remain, peak_dur)
+
+    max(time_remain, peak_dur) mirrors plain target-duration's max(dur, target_min): never
+    compress the peak below its real duration (and never divide by <= 0 when the valleys
+    alone exceed the target). A build that never crosses the cutoff has no peak slice and
+    contributes its plain per-build value, so on a stable job this collapses back to
+    cpu_reco_target_duration. Aggregates p95 across builds, adds legroom, rounds up, caps at
+    the current limit. Returns (value, stats) or (None, None)."""
+    reco, below_mins, peak_durs, time_remains, cutoff = per_build_target_peak_cpu(data, min_dur, cfg)
+    if reco is None:
+        return None, None
+    p95 = float(np.percentile(reco, 95))
+    val, saturated = cap_at_limit(data, round_up_to(p95 * (1 + cfg.legroom_frac), cfg.resolution))
+
+    def p50(vals):
+        return round(float(np.percentile(vals, 50)), 2) if vals else None
+
+    stats = {
+        "algorithm": "target-duration-improved",
+        "target_min": cfg.target_min,
+        "legroom_frac": cfg.legroom_frac,
+        "resolution": cfg.resolution,
+        "saturated": saturated,
+        "cutoff": round(cutoff, 3),
+        "builds_with_peak": len(below_mins),
+        "peak_reco_p50": round(float(np.percentile(reco, 50)), 3),
+        "peak_reco_p95": round(p95, 3),
+        "peak_reco_p99": round(float(np.percentile(reco, 99)), 3),
+        "below_cutoff_min_p50": p50(below_mins),
+        "peak_duration_min_p50": p50(peak_durs),
+        "time_remain_min_p50": p50(time_remains),
+    }
+    return val, stats
+
+
+def per_build_peak_duration(data, min_dur, cfg):
+    """Per-build peak split at the improved recommender's CPU cutoff (see
+    cpu_reco_target_duration_improved): the cutoff is the plain target-duration value, and a
+    build's "peak" is the samples above it. Returns (peak_pct, peak_min, avg_peak, cutoff):
+      peak_pct  — peak time as a percentage of the build's duration (one entry per build);
+      peak_min  — peak time in minutes, fraction-of-samples-above x duration (per build);
+      avg_peak  — mean of the above-cutoff samples, i.e. the busy-phase average CPU that the
+                  recommender fits into the budget (only builds that cross the cutoff, so
+                  this array is shorter than the other two).
+    Returns (None, None, None, None) when the cutoff cannot be computed. Builds that never
+    cross the cutoff contribute 0 to peak_pct/peak_min (matching the recommender's "whole run
+    is valley" case) and nothing to avg_peak (no peak to average)."""
+    cutoff, _, _ = target_duration_p95(data, min_dur, cfg)
+    if cutoff is None:
+        return None, None, None, None
+    oom = oom_build_ids(data)
+    builds = per_build_cpu_samples_dur(data["series"].get("cpu_used_cores", {}), min_dur, exclude=oom)
+    pct, mins, avg_peak = [], [], []
+    for samples, dur in builds:
+        above = samples > cutoff
+        frac_above = float(np.mean(above))
+        pct.append(100.0 * frac_above)
+        mins.append(frac_above * dur)
+        if frac_above > 0:
+            avg_peak.append(float(np.mean(samples[above])))
+    return np.array(pct), np.array(mins), np.array(avg_peak), cutoff
+
+
 # Pluggable CPU sizing policies. Add an algorithm here and it becomes selectable via
 # --cpu-algorithm with no other wiring. Each maps (data, min_dur, cfg) -> (value, stats).
 CPU_RECOMMENDERS = {
+    "target-duration-improved": cpu_reco_target_duration_improved,
     "target-duration": cpu_reco_target_duration,
     "p95-mean": cpu_reco_p95_mean,
 }
-DEFAULT_CPU_ALGORITHM = "target-duration"
+DEFAULT_CPU_ALGORITHM = "target-duration-improved"
 
 
 def compute_reco(data, min_dur, cfg=None, algorithm=DEFAULT_CPU_ALGORITHM):
@@ -590,7 +741,7 @@ def _draw_duration_hist(ax, durs, target_min, bins=30):
 
 
 def plot_new_cpu_distribution(data, base_dir, reco, bins=30, min_dur=0.0,
-                              target_min=CPU_TARGET_MIN):
+                              target_min=CPU_TARGET_MIN, cfg=None):
     """Render dist_mean_new_cpu.png: three stacked panels.
       top    — each build's CURRENT mean CPU (today's demand);
       middle — each build's TARGET mean CPU = work / max(duration, target_min), i.e. the
@@ -598,8 +749,14 @@ def plot_new_cpu_distribution(data, base_dir, reco, bins=30, min_dur=0.0,
       bottom — the per-build DURATION distribution (minutes), with the target marked, which
                explains the shift above: builds already at/above the target are left alone.
     The top two panels share x and y so the leftward CPU shift is obvious; the duration
-    panel is on its own minutes axis. The middle panel's p50/p95/p99 justify the gold
-    recommended request (reco['cpu_req']). OOM-killed builds are excluded throughout."""
+    panel is on its own minutes axis. The middle panel marks two target-duration sizings at
+    their raw p95 basis (un-rounded, so they land on the distribution's p95): the ORIGIN
+    (plain target-duration) and the peak-ADJUSTED value (the improved recommender, which
+    lifts the origin to cover the compressible peak rather than the whole-build average).
+    Each label shows the actual recommended request — round_up_to resolution, capped at the
+    limit — in parentheses. The gap between the two is what accounting for peaks buys.
+    OOM-killed builds are excluded throughout."""
+    cfg = cfg or CPURecoConfig(target_min=target_min)
     oom = oom_build_ids(data)
     pairs = per_build_cpu_work(data["series"].get("cpu_used_cores", {}), min_dur, exclude=oom)
     if len(pairs) < 2:
@@ -609,22 +766,61 @@ def plot_new_cpu_distribution(data, base_dir, reco, bins=30, min_dur=0.0,
     new = target_new_avg_cpus(pairs, target_min)
     durs = np.array([d for _, d in pairs])
     cpu_req_cur, cpu_lim_cur = const(data, "cpu_request_cores"), const(data, "cpu_limit_cores")
-    rec = (reco or {}).get("cpu_req")
+    # The two target-duration sizings, computed independently of --cpu-algorithm so this
+    # panel always contrasts them: origin (plain) vs peak-adjusted (improved). Each line is
+    # drawn at its RAW p95 basis (with legroom, before round-up/cap) so it lands exactly on
+    # the distribution's p95 rather than at the ceiled 0.1-core recommendation; the actual
+    # recommended request (round_up_to + limit cap) is shown in parentheses.
+    lg = 1 + cfg.legroom_frac
+    origin_val, origin_stats = cpu_reco_target_duration(data, min_dur, cfg)
+    adj_val, adj_stats = cpu_reco_target_duration_improved(data, min_dur, cfg)
+    origin_raw = origin_stats["new_mean_p95"] * lg if origin_stats else None
+    adj_raw = adj_stats["peak_reco_p95"] * lg if adj_stats else None
+    # The per-build peak-adjusted distribution the improved recommender takes p95 of (adj_raw
+    # is its p95, with legroom). Shown as its own panel so the gold line above has a visible
+    # distribution behind it, not just a bare vertical mark.
+    peak_reco = per_build_target_peak_cpu(data, min_dur, cfg)[0]
 
-    # Top two panels share bin edges + x/y so their geometry is identical and comparable;
-    # the duration panel (bottom) lives on its own minutes axis, so it is not shared.
-    xmax = max(old.max(), float(new.max()), cpu_req_cur or 0.0) * 1.05 or 1.0
+    # The three CPU panels share bin edges + x/y so their geometry is identical and
+    # comparable; the duration panel (bottom) lives on its own minutes axis, so it is not
+    # shared.
+    xmax = max(old.max(), float(new.max()), cpu_req_cur or 0.0, origin_raw or 0.0,
+               adj_raw or 0.0, float(peak_reco.max()) if peak_reco is not None else 0.0) * 1.05 or 1.0
     edges = np.linspace(0, xmax, bins + 1)
-    fig = plt.figure(figsize=(11, 5.4 * 3))
-    ax_cur = fig.add_subplot(3, 1, 1)
-    ax_tgt = fig.add_subplot(3, 1, 2, sharex=ax_cur, sharey=ax_cur)
-    ax_dur = fig.add_subplot(3, 1, 3)
+    fig = plt.figure(figsize=(11, 5.4 * 4))
+    ax_cur = fig.add_subplot(4, 1, 1)
+    ax_tgt = fig.add_subplot(4, 1, 2, sharex=ax_cur, sharey=ax_cur)
+    ax_peak = fig.add_subplot(4, 1, 3, sharex=ax_cur, sharey=ax_cur)
+    ax_dur = fig.add_subplot(4, 1, 4)
     _hist_on_ax(ax_cur, old, "per-build average CPU cores",
                 f"current — distribution across {len(old)} builds of each build's average CPU",
                 bins=edges, req=cpu_req_cur, lim=cpu_lim_cur)
     _hist_on_ax(ax_tgt, new, "per-build target-duration CPU cores",
-                f"target {target_min:g} min — each build's work / max(duration, {target_min:g} min)",
-                bins=edges, req=cpu_req_cur, rec_req=rec, rec_lim=rec)
+                f"target {target_min:g} min — origin (plain) vs peak-adjusted p95",
+                bins=edges, req=cpu_req_cur)
+    # Origin (plain target-duration) and peak-adjusted (improved) p95 lines. Drawn here
+    # rather than via _hist_on_ax's single gold rec_req so the two are visually distinct.
+    if origin_raw is not None:
+        ax_tgt.axvline(origin_raw, color="#17BECF", ls="-.", lw=2.4,
+                       label=f"origin p95 = {origin_raw:.3g}  (rec {origin_val:g})")
+    if adj_raw is not None:
+        ax_tgt.axvline(adj_raw, color="gold", ls="-", lw=2.5,
+                       label=f"peak-adjusted p95 = {adj_raw:.3g}  (rec {adj_val:g})")
+    ax_tgt.legend(fontsize=8, framealpha=0.9)  # redraw so the two request lines are included
+
+    # New panel: the per-build peak-adjusted distribution itself, marking its p95 (= the
+    # improved recommendation basis) so the reader sees where the gold line above comes from.
+    if peak_reco is not None:
+        _hist_on_ax(ax_peak, peak_reco, "per-build peak-adjusted CPU cores",
+                    f"target {target_min:g} min — peak-adjusted per-build CPU "
+                    f"(busy-phase work fit into the leftover budget)",
+                    bins=edges, req=cpu_req_cur)
+        if adj_raw is not None:
+            ax_peak.axvline(adj_raw, color="gold", ls="-", lw=2.5,
+                            label=f"peak-adjusted p95 = {adj_raw:.3g}  (rec {adj_val:g})")
+            ax_peak.legend(fontsize=8, framealpha=0.9)  # redraw so the request line is included
+    else:
+        ax_peak.text(0.5, 0.5, "not enough data", ha="center", transform=ax_peak.transAxes)
     ax_cur.set_xlim(0, xmax)
 
     _draw_duration_hist(ax_dur, durs, target_min, bins)
@@ -636,7 +832,9 @@ def plot_new_cpu_distribution(data, base_dir, reco, bins=30, min_dur=0.0,
     fig.savefig(out, dpi=130)
     plt.close(fig)
     print(f"  dist_mean_new_cpu -> {out}"
-          + (f"  (rec target request = {rec:g} cores)" if rec is not None else ""))
+          + (f"  (origin p95 {origin_raw:.3g}→rec {origin_val:g}, "
+             f"peak-adjusted p95 {adj_raw:.3g}→rec {adj_val:g} cores)"
+             if origin_raw is not None and adj_raw is not None else ""))
 
 
 def plot_duration_distribution(data, base_dir, bins=30, min_dur=0.0,
@@ -659,6 +857,46 @@ def plot_duration_distribution(data, base_dir, bins=30, min_dur=0.0,
     fig.savefig(out, dpi=130)
     plt.close(fig)
     print(f"  dist_duration -> {out}")
+
+
+def plot_peak_duration_distribution(data, base_dir, bins=30, min_dur=0.0, cfg=None):
+    """Render dist_peak_duration.png: three stacked histograms describing each build's peak —
+    the samples above the improved recommender's CPU cutoff (see per_build_peak_duration /
+    cpu_reco_target_duration_improved).
+      top    — peak time as a percentage of the build's duration (how bursty the shape is);
+      middle — peak time in minutes (how long the compressible work actually lasts);
+      bottom — average peak CPU (mean of the above-cutoff samples): the busy-phase demand the
+               recommender fits into the remaining budget. Only builds that cross the cutoff
+               appear here (a build entirely in the valley has no peak to average), so its
+               build count can be lower than the top two panels'.
+    Together they show the split the improved algorithm relies on: a low percentage with a
+    short peak means most of the build is incompressible valley. OOM-killed builds are
+    excluded, matching the recommendation."""
+    cfg = cfg or CPURecoConfig()
+    pct, mins, avg_peak, cutoff = per_build_peak_duration(data, min_dur, cfg)
+    if pct is None or len(pct) < 2:
+        print("  dist_peak_duration: skipped (not enough CPU data)")
+        return
+    fig, (ax_pct, ax_min, ax_avg) = plt.subplots(3, 1, figsize=(11, 5.4 * 3))
+    _hist_on_ax(ax_pct, pct, "per-build peak time (% of build duration)",
+                f"distribution across {len(pct)} builds of time spent above the "
+                f"cutoff ({cutoff:.2f} cores)", bins=bins)
+    _hist_on_ax(ax_min, mins, "per-build peak time (minutes)",
+                f"distribution across {len(mins)} builds of peak duration in minutes",
+                bins=bins)
+    _hist_on_ax(ax_avg, avg_peak, "per-build average peak CPU cores",
+                f"distribution across {len(avg_peak)} builds with a peak of the "
+                f"above-cutoff average CPU", bins=bins)
+    ax_avg.axvline(cutoff, color="#8E44AD", ls="-", lw=2.0, alpha=0.85,
+                   label=f"cutoff = {cutoff:.2f}")
+    ax_avg.legend(fontsize=8, framealpha=0.9)  # redraw so the cutoff reference is included
+    fig.suptitle(f"{data.get('job')}  —  peak above {cutoff:.2f}-core cutoff  —  "
+                 f"{data.get('step')}s step, {days_of(data)}d", fontsize=13, y=0.995)
+    fig.tight_layout(rect=[0, 0, 1, 0.99])
+    out = os.path.join(base_dir, "dist_peak_duration.png")
+    fig.savefig(out, dpi=130)
+    plt.close(fig)
+    print(f"  dist_peak_duration -> {out}")
 
 
 def plot_work_distribution(data, base_dir, bins=30, min_dur=0.0):
@@ -1015,9 +1253,10 @@ def main():
         stats = [s.strip() for s in args.stats.split(",") if s.strip()]
         plot_distribution(data, base, reco, args.bins, args.min_duration, stats)
         plot_new_cpu_distribution(data, base, reco, args.bins, args.min_duration,
-                                  args.cpu_target_min)
+                                  args.cpu_target_min, cfg)
         plot_duration_distribution(data, base, args.bins, args.min_duration,
                                    args.cpu_target_min)
+        plot_peak_duration_distribution(data, base, args.bins, args.min_duration, cfg)
         plot_work_distribution(data, base, args.bins, args.min_duration)
         plot_crest_distribution(data, base, args.bins, args.min_duration)
     if "throttle" in which:

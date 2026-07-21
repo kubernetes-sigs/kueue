@@ -55,6 +55,10 @@ def main():
     # accumulate potential savings per metric: sum(current - recommended)
     saved = {"cpu_req": 0.0, "cpu_lim": 0.0, "mem_req": 0.0, "mem_lim": 0.0}
 
+    # the CPU target build duration (minutes) all jobs were sized against
+    target_mins = {r["cpu"].get("stats", {}).get("target_min") for r in rows}
+    target_mins.discard(None)
+
     def add(key, cur, rec):
         if cur is not None and rec is not None:
             saved[key] += cur - rec
@@ -78,6 +82,9 @@ def main():
         f"Potentially saved cpu lim: {saved['cpu_lim']:g} cores",
         f"Potentially saved mem req: {saved['mem_req']:g} GiB",
         f"Potentially saved mem lim: {saved['mem_lim']:g} GiB",
+        "",
+        f"Target duration: {', '.join(f'{t:g}' for t in sorted(target_mins))} min"
+        if target_mins else "Target duration: ? min",
     ]
 
     out = args.out or os.path.join(args.workdir, "recommendation.md")
