@@ -546,6 +546,15 @@ const (
 	// WorkloadValidationForPodSetMetadata enables validation of labels and annotations
 	// in PodSet template metadata during Workload creation and update.
 	WorkloadValidationForPodSetMetadata featuregate.Feature = "WorkloadValidationForPodSetMetadata"
+
+	// owner: @ivnovakov
+	//
+	// pr: https://github.com/kubernetes-sigs/kueue/pull/13279#discussion_r3655384989
+	// Keeps spec.leaderWorkerTemplate.size immutable while a LeaderWorkerSet is managed by
+	// Kueue. Workload updates never recompute PodSets, so growing size would ungate extra
+	// pods per group without accounting for quota. Recreate the LeaderWorkerSet to change
+	// the size, or disable this gate to accept the previous behavior.
+	LWSImmutableGroupSize featuregate.Feature = "LWSImmutableGroupSize"
 )
 
 func init() {
@@ -843,6 +852,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	WorkloadValidationForPodSetMetadata: {
+		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	LWSImmutableGroupSize: {
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
