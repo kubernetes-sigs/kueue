@@ -83,12 +83,18 @@ func (r MapRequests) Mul(f int64) {
 	}
 }
 
+func (r MapRequests) GetValue(name corev1.ResourceName) int64 {
+	return r[name]
+}
+
 func (r MapRequests) Add(other Requests) {
 	if isNil(other) {
 		return
 	}
-	for k, v := range other.ToMapRequests() {
-		r[k] += v
+	if m, ok := other.(MapRequests); ok {
+		for k, v := range m {
+			r[k] += v
+		}
 	}
 }
 
@@ -96,16 +102,14 @@ func (r MapRequests) Sub(other Requests) {
 	if isNil(other) {
 		return
 	}
-	for k, v := range other.ToMapRequests() {
-		r[k] -= v
+	if m, ok := other.(MapRequests); ok {
+		for k, v := range m {
+			r[k] -= v
+		}
 	}
 }
 
-func (r MapRequests) ToMapRequests() MapRequests {
-	return r
-}
-
-func (r MapRequests) CreateEmpty() MapRequests {
+func (r MapRequests) CreateEmpty() Requests {
 	return MapRequests{}
 }
 
@@ -200,16 +204,12 @@ func (r MapRequests) CountInWithLimitingResource(capacity Requests) (int32, core
 	if isNil(capacity) {
 		return 0, ""
 	}
-	capMap := capacity.ToMapRequests()
 	var (
 		result           *int32
 		limitingResource corev1.ResourceName
 	)
 	for rName, rValue := range r {
-		cap, found := capMap[rName]
-		if !found && rValue != 0 {
-			return 0, rName
-		}
+		cap := capacity.GetValue(rName)
 		// find the minimum count matching all the resource quota.
 		var count int32
 		if rValue == 0 {

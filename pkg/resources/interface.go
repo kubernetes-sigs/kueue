@@ -28,23 +28,5 @@ type Requests interface {
 	Sub(other Requests)
 	CountIn(capacity Requests) int32
 	CountInWithLimitingResource(capacity Requests) (int32, corev1.ResourceName)
-	ToMapRequests() MapRequests
-}
-
-// NewRequests creates a Requests interface from a Kubernetes ResourceList.
-func NewRequests(rl corev1.ResourceList) Requests {
-	return NewMapRequests(rl)
-}
-
-// NewRequestsFromMap creates a Requests interface wrapping the provided MapRequests map.
-func NewRequestsFromMap(m MapRequests) Requests {
-	if m == nil {
-		return nil
-	}
-	return m
-}
-
-// NewRequestsFromPodSpec creates a Requests interface from a PodSpec.
-func NewRequestsFromPodSpec(podSpec *corev1.PodSpec) Requests {
-	return NewMapRequestsFromPodSpec(podSpec)
+	GetValue(name corev1.ResourceName) int64
 }
