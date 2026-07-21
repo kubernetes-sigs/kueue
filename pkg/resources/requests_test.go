@@ -532,12 +532,14 @@ func TestLazyRequests(t *testing.T) {
 			}
 
 			gotResult := lazy.Get()
-			if !cmp.Equal(gotResult, wantResult) {
-				t.Errorf("unexpected Get() result, diff (-got +want):\n%s", cmp.Diff(gotResult, wantResult))
+			if diff := cmp.Diff(gotResult, wantResult, cmp.AllowUnexported(ResourceEntry{})); diff != "" {
+				t.Errorf("unexpected Get() result, diff (-got +want):\n%s", diff)
 			}
 
-			if base != nil && !cmp.Equal(base, originalBase) {
-				t.Errorf("base map was mutated! diff (-got +want):\n%s", cmp.Diff(base, originalBase))
+			if base != nil {
+				if diff := cmp.Diff(base, originalBase, cmp.AllowUnexported(ResourceEntry{})); diff != "" {
+					t.Errorf("base map was mutated! diff (-got +want):\n%s", diff)
+				}
 			}
 		})
 	}

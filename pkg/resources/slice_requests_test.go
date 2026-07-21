@@ -17,6 +17,7 @@ limitations under the License.
 package resources
 
 import (
+	"math"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -33,9 +34,9 @@ func NewSliceRequests(req MapRequests) *SliceRequests {
 	for name, val := range req {
 		if val != 0 {
 			sr = append(sr, ResourceEntry{
-				Name:  name,
-				Hash:  HashResourceName(name),
-				Value: val,
+				name:  name,
+				hash:  HashResourceName(name),
+				value: val,
 			})
 		}
 	}
@@ -110,8 +111,8 @@ func TestSliceRequests_EdgeCases(t *testing.T) {
 		t.Errorf("expected MergeWith on empty slices to return nil")
 	}
 
-	e1 := ResourceEntry{Name: "a", Hash: 100, Value: 1}
-	e2 := ResourceEntry{Name: "b", Hash: 100, Value: 1}
+	e1 := ResourceEntry{name: "a", hash: 100, value: 1}
+	e2 := ResourceEntry{name: "b", hash: 100, value: 1}
 	if e1.Cmp(e2) >= 0 {
 		t.Errorf("expected e1 < e2 for same hash but different name")
 	}
@@ -283,7 +284,7 @@ func TestSliceRequests_ScaledUp(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			got := tc.req.ScaledUp(tc.factor)
-			if diff := cmp.Diff(tc.want, got); diff != "" {
+			if diff := cmp.Diff(tc.want, got, cmp.AllowUnexported(ResourceEntry{})); diff != "" {
 				t.Errorf("ScaledUp mismatch (-want +got):\n%s", diff)
 			}
 		})
@@ -308,7 +309,7 @@ func TestSliceRequests_Clone(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			got := tc.req.Clone()
-			if diff := cmp.Diff(tc.want, got); diff != "" {
+			if diff := cmp.Diff(tc.want, got, cmp.AllowUnexported(ResourceEntry{})); diff != "" {
 				t.Errorf("Clone mismatch (-want +got):\n%s", diff)
 			}
 		})
@@ -345,6 +346,12 @@ func TestSliceRequests_CountIn(t *testing.T) {
 			request:  nil,
 			wantCnt:  0,
 			wantRes:  "",
+		},
+		"large ratio overflow clamped to MaxInt32": {
+			capacity: NewSliceRequests(MapRequests{corev1.ResourceMemory: 100_000_000_000}),
+			request:  NewSliceRequests(MapRequests{corev1.ResourceMemory: 1}),
+			wantCnt:  math.MaxInt32,
+			wantRes:  corev1.ResourceMemory,
 		},
 	}
 
