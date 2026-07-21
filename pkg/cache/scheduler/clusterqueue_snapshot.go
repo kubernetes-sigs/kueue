@@ -214,9 +214,9 @@ func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
 		option(opts)
 	}
 
-	var aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.MapRequests
+	var aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests
 	if features.Enabled(features.TASHandleOverlappingFlavors) {
-		aggregatedDomainUsages = make(map[utiltas.TopologyDomainID]resources.MapRequests)
+		aggregatedDomainUsages = make(map[utiltas.TopologyDomainID]resources.Requests)
 	}
 
 	result := make(TASAssignmentsResult)

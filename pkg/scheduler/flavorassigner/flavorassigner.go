@@ -104,7 +104,7 @@ func (a *Assignment) ComputeTASNetUsage(log logr.Logger, cq *schdcache.ClusterQu
 				log.Error(err, "Failed to find TAS flavor while computing TAS net usage", "podSet", psa.Name)
 				continue
 			}
-			singlePodRequests := resources.NewRequestsFromPodSpec(&podSet.Template.Spec)
+			singlePodRequests := resources.NewMapRequestsFromPodSpec(&podSet.Template.Spec)
 			if _, ok := result[*tasFlavor]; !ok {
 				result[*tasFlavor] = make(workload.TASFlavorUsage, 0)
 			}

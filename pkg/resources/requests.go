@@ -33,6 +33,14 @@ import (
 // MapRequests maps ResourceName to flavor to value; for CPU it is tracked in MilliCPU.
 type MapRequests map[corev1.ResourceName]int64
 
+var OnePodRequest = MapRequests{corev1.ResourcePods: 1}
+
+func (r MapRequests) ForEach(fn func(name corev1.ResourceName, val int64)) {
+	for k, v := range r {
+		fn(k, v)
+	}
+}
+
 func NewMapRequests(rl corev1.ResourceList) MapRequests {
 	r := MapRequests{}
 	for name, quant := range rl {
@@ -41,22 +49,22 @@ func NewMapRequests(rl corev1.ResourceList) MapRequests {
 	return r
 }
 
-func NewRequestsFromPodSpec(podSpec *corev1.PodSpec) MapRequests {
+func NewMapRequestsFromPodSpec(podSpec *corev1.PodSpec) MapRequests {
 	return NewMapRequests(resourcehelpers.PodRequests(&corev1.Pod{Spec: *podSpec}, resourcehelpers.PodResourcesOptions{}))
 }
 
-func (r MapRequests) Clone() MapRequests {
+func (r MapRequests) Clone() Requests {
 	return maps.Clone(r)
 }
 
-func (r MapRequests) ScaledUp(f int64) MapRequests {
-	ret := r.Clone()
+func (r MapRequests) ScaledUp(f int64) Requests {
+	ret := maps.Clone(r)
 	ret.Mul(f)
 	return ret
 }
 
 func (r MapRequests) ScaledDown(f int64) MapRequests {
-	ret := r.Clone()
+	ret := maps.Clone(r)
 	ret.Divide(f)
 	return ret
 }
@@ -79,16 +87,32 @@ func (r MapRequests) Mul(f int64) {
 	}
 }
 
-func (r MapRequests) Add(addRequests MapRequests) {
-	for k, v := range addRequests {
-		r[k] += v
-	}
+func (r MapRequests) GetValue(name corev1.ResourceName) int64 {
+	return r[name]
 }
 
-func (r MapRequests) Sub(subRequests MapRequests) {
-	for k, v := range subRequests {
+func (r MapRequests) Len() int {
+	return len(r)
+}
+
+func (r MapRequests) IsEmpty() bool {
+	return len(r) == 0
+}
+
+func (r MapRequests) Add(other Requests) {
+	other.ForEach(func(k corev1.ResourceName, v int64) {
+		r[k] += v
+	})
+}
+
+func (r MapRequests) Sub(other Requests) {
+	other.ForEach(func(k corev1.ResourceName, v int64) {
 		r[k] -= v
-	}
+	})
+}
+
+func (r MapRequests) CreateEmpty() Requests {
+	return MapRequests{}
 }
 
 func (r MapRequests) ToResourceList() corev1.ResourceList {
@@ -169,7 +193,7 @@ func (r MapRequests) GreaterKeysRL(rl corev1.ResourceList) []corev1.ResourceName
 	return r.GreaterKeys(NewMapRequests(rl))
 }
 
-func (r MapRequests) CountIn(capacity MapRequests) int32 {
+func (r MapRequests) CountIn(capacity Requests) int32 {
 	count, _ := r.CountInWithLimitingResource(capacity)
 	return count
 }
@@ -178,16 +202,21 @@ func (r MapRequests) CountIn(capacity MapRequests) int32 {
 // and the resource that is most constraining (i.e., gave the minimum count).
 // When multiple resources have the same count, ties are broken alphabetically
 // by resource name for determinism.
-func (r MapRequests) CountInWithLimitingResource(capacity MapRequests) (int32, corev1.ResourceName) {
+func (r MapRequests) CountInWithLimitingResource(capacity Requests) (int32, corev1.ResourceName) {
+	return CountInWithLimitingResource(r, capacity)
+}
+
+// CountInWithLimitingResource returns how many times requests fit into capacity
+// and the resource that is most constraining (i.e., gave the minimum count).
+// When multiple resources have the same count, ties are broken alphabetically
+// by resource name for determinism.
+func CountInWithLimitingResource(requests Requests, capacity Requests) (int32, corev1.ResourceName) {
 	var (
 		result           *int32
 		limitingResource corev1.ResourceName
 	)
-	for rName, rValue := range r {
-		cap, found := capacity[rName]
-		if !found && rValue != 0 {
-			return 0, rName
-		}
+	requests.ForEach(func(rName corev1.ResourceName, rValue int64) {
+		cap := capacity.GetValue(rName)
 		// find the minimum count matching all the resource quota.
 		var count int32
 		if rValue == 0 {
@@ -210,62 +239,6 @@ func (r MapRequests) CountInWithLimitingResource(capacity MapRequests) (int32, c
 			result = ptr.To(count)
 			limitingResource = rName
 		}
-	}
+	})
 	return ptr.Deref(result, 0), limitingResource
-}
-
-// LazyRequests wraps a base Requests map and performs copy-on-write
-// (lazy cloning) when mutations occur.
-type LazyRequests struct {
-	base   MapRequests
-	cached MapRequests
-}
-
-func NewLazyRequests(base MapRequests) LazyRequests {
-	return LazyRequests{base: base}
-}
-
-// IsValid returns true if either the base or cached map is initialized.
-func (l *LazyRequests) IsValid() bool {
-	return l.base != nil || l.cached != nil
-}
-
-// Get returns the underlying Requests (either the cached clone if mutated, or base).
-func (l *LazyRequests) Get() MapRequests {
-	if l.cached != nil {
-		return l.cached
-	}
-	return l.base
-}
-
-// Sub subtracts subRequests from the underlying Requests map,
-// cloning base on first write.
-func (l *LazyRequests) Sub(subRequests MapRequests) {
-	if len(subRequests) == 0 {
-		return
-	}
-	if l.cached == nil {
-		if l.base == nil {
-			l.cached = MapRequests{}
-		} else {
-			l.cached = l.base.Clone()
-		}
-	}
-	l.cached.Sub(subRequests)
-}
-
-// Add adds addRequests to the underlying Requests map,
-// cloning base on first write.
-func (l *LazyRequests) Add(addRequests MapRequests) {
-	if len(addRequests) == 0 {
-		return
-	}
-	if l.cached == nil {
-		if l.base == nil {
-			l.cached = MapRequests{}
-		} else {
-			l.cached = l.base.Clone()
-		}
-	}
-	l.cached.Add(addRequests)
 }
