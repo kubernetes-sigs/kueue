@@ -34,7 +34,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -42,7 +41,6 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
@@ -389,12 +387,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			// https://github.com/kubernetes-sigs/kueue/issues/8653
-			ginkgo.By("hack to requeue workload", func() {
-				cqs := sets.New[kueue.ClusterQueueReference]("cluster-queue")
-				qcache.NotifyRetryInadmissible(qManager, cqs)
-			})
-
 			ginkgo.By("expect TAS pod to admit", func() {
 				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 				util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 1)
@@ -432,12 +424,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 			ginkgo.By("delete the non-TAS pod", func() {
 				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, nonTasPod, true, 60*time.Second)
-			})
-
-			// https://github.com/kubernetes-sigs/kueue/issues/8653
-			ginkgo.By("hack to requeue workload", func() {
-				cqs := sets.New[kueue.ClusterQueueReference]("cluster-queue")
-				qcache.NotifyRetryInadmissible(qManager, cqs)
 			})
 
 			ginkgo.By("expect TAS pod to admit", func() {
