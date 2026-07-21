@@ -47,24 +47,21 @@ func usesBinaryFormat(name corev1.ResourceName) bool {
 // The following resources calculations are inspired on
 // https://github.com/kubernetes/kubernetes/blob/master/pkg/scheduler/framework/types.go
 
-// IsNil safely checks if a Requests interface instance is nil or wraps a nil backend.
-func IsNil(r Requests) bool {
-	if r == nil {
-		return true
-	}
-	return r.IsNil()
-}
-
-// IsEmpty checks if a Requests interface instance is nil or has 0 resource entries.
-func IsEmpty(r Requests) bool {
-	return IsNil(r) || r.Len() == 0
-}
-
 // MapRequests maps ResourceName to flavor to value; for CPU it is tracked in MilliCPU.
 type MapRequests map[corev1.ResourceName]int64
 
 func (r MapRequests) IsNil() bool {
 	return r == nil
+}
+
+func (r MapRequests) IsEmpty() bool {
+	return len(r) == 0
+}
+
+func (r MapRequests) ForEach(fn func(name corev1.ResourceName, val int64)) {
+	for k, v := range r {
+		fn(k, v)
+	}
 }
 
 func NewMapRequests(rl corev1.ResourceList) MapRequests {
@@ -84,14 +81,6 @@ func (r MapRequests) Clone() Requests {
 		return nil
 	}
 	return maps.Clone(r)
-}
-
-// Clone safely clones r, returning nil if r is nil or empty.
-func Clone(r Requests) Requests {
-	if IsEmpty(r) {
-		return nil
-	}
-	return r.Clone()
 }
 
 func (r MapRequests) ScaledUp(f int64) MapRequests {
@@ -132,28 +121,14 @@ func (r MapRequests) Len() int {
 	return len(r)
 }
 
-func (r MapRequests) ForEach(fn func(name corev1.ResourceName, val int64)) {
-	for k, v := range r {
-		fn(k, v)
-	}
-}
-
-// ForEach safely calls fn for each resource entry in r, no-opting if r is nil or empty.
-func ForEach(r Requests, fn func(name corev1.ResourceName, val int64)) {
-	if IsEmpty(r) || fn == nil {
-		return
-	}
-	r.ForEach(fn)
-}
-
 func (r MapRequests) Add(other Requests) {
-	ForEach(other, func(k corev1.ResourceName, v int64) {
+	other.ForEach(func(k corev1.ResourceName, v int64) {
 		r[k] += v
 	})
 }
 
 func (r MapRequests) Sub(other Requests) {
-	ForEach(other, func(k corev1.ResourceName, v int64) {
+	other.ForEach(func(k corev1.ResourceName, v int64) {
 		r[k] -= v
 	})
 }
@@ -260,14 +235,19 @@ func (r MapRequests) CountIn(capacity Requests) int32 {
 // When multiple resources have the same count, ties are broken alphabetically
 // by resource name for determinism.
 func (r MapRequests) CountInWithLimitingResource(capacity Requests) (int32, corev1.ResourceName) {
-	if IsNil(capacity) {
-		return 0, ""
-	}
+	return CountInWithLimitingResource(r, capacity)
+}
+
+// CountInWithLimitingResource returns how many times requests fit into capacity
+// and the resource that is most constraining (i.e., gave the minimum count).
+// When multiple resources have the same count, ties are broken alphabetically
+// by resource name for determinism.
+func CountInWithLimitingResource(requests Requests, capacity Requests) (int32, corev1.ResourceName) {
 	var (
 		result           *int32
 		limitingResource corev1.ResourceName
 	)
-	for rName, rValue := range r {
+	requests.ForEach(func(rName corev1.ResourceName, rValue int64) {
 		cap := capacity.GetValue(rName)
 		// find the minimum count matching all the resource quota.
 		var count int32
@@ -291,6 +271,6 @@ func (r MapRequests) CountInWithLimitingResource(capacity Requests) (int32, core
 			result = new(count)
 			limitingResource = rName
 		}
-	}
+	})
 	return ptr.Deref(result, 0), limitingResource
 }
