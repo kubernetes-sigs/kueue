@@ -42,7 +42,6 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
-
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
@@ -3404,7 +3403,6 @@ func TestIsExplicitlyRequestingTAS(t *testing.T) {
 	}
 }
 
-
 func TestCalcLocalQueueFSUsage(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	errOther := errors.New("other error")
@@ -3456,4 +3454,3 @@ func TestCalcLocalQueueFSUsage(t *testing.T) {
 		})
 	}
 }
-

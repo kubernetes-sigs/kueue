@@ -439,7 +439,7 @@ func (i *Info) CalcLocalQueueFSUsage(
 	lqObjKey := client.ObjectKey{Namespace: i.Obj.Namespace, Name: string(i.Obj.Spec.QueueName)}
 	if err := c.Get(ctx, lqObjKey, &lq); err != nil {
 		if apierrors.IsNotFound(err) {
-			// If the LocalQueue is missing, gracefully fallback to the default weight (1.0).
+			ctrl.LoggerFrom(ctx).V(3).Info("LocalQueue is missing, gracefully falling back to the default weight (1.0)", "localQueue", lqObjKey)
 			return CalcFSUsageFromResources(consumed, penalty, 1.0, resWeights), nil
 		}
 		return 0, err
