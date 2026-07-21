@@ -581,8 +581,8 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
-		"pre-existing divergent Kueue-managed PodTemplate is replaced": {
-			// Stale ManagedByKueue template: delete and recreate instead of Retry.
+		"pre-existing divergent Kueue-managed PodTemplate triggers Retry": {
+			// Stale ManagedByKueue template: Retry; next attempt uses a new name.
 			workload: baseWorkload.DeepCopy(),
 			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
@@ -595,29 +595,36 @@ func TestReconcile(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: map[string]*kueue.Workload{
-				baseWorkload.GetName(): baseWorkload.DeepCopy(),
+				baseWorkload.GetName(): baseWorkload.
+					Clone().
+					AdmissionChecks(
+						kueue.AdmissionCheckState{
+							Name:                "check1",
+							State:               kueue.CheckStateRetry,
+							Message:             divergentPodTemplateRetryMsg,
+							RequeueAfterSeconds: new(backoffBaseSeconds),
+						},
+						kueue.AdmissionCheckState{
+							Name:  "not-provisioning",
+							State: kueue.CheckStatePending,
+						},
+					).
+					Obj(),
 			},
-			wantRequests: map[string]*autoscaling.ProvisioningRequest{
-				baseRequest.Name: baseRequest.DeepCopy(),
-			},
+			wantRequestsNotFound: []string{baseRequest.Name},
 			wantTemplates: map[string]*corev1.PodTemplate{
 				baseTemplate1.Name: baseTemplate1.Clone().
-					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
-					Obj(),
-				baseTemplate2.Name: baseTemplate2.Clone().
-					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+					NodeSelector("stale", "value").
+					ControllerReference(workloadOwnerGVK, "wl", "").
 					Obj(),
 			},
-			wantPodTemplateOwnershipUpdates: []string{
-				baseTemplate1.Name,
-				baseTemplate2.Name,
-			},
+			wantPodTemplateOwnershipUpdates: []string{},
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       client.ObjectKeyFromObject(baseWorkload),
 					EventType: corev1.EventTypeNormal,
-					Reason:    "ProvisioningRequestCreated",
-					Message:   `Created ProvisioningRequest: "wl-check1-1"`,
+					Reason:    "UpdatedAdmissionCheck",
+					Message:   "Admission check check1 updated state from Pending to Retry with message: " + divergentPodTemplateRetryMsg,
 				},
 			},
 		},
