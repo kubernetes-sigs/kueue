@@ -154,18 +154,9 @@ func TestValidateCreate(t *testing.T) {
 				),
 			}.ToAggregate(),
 		},
-		"multikueue elastic autoscaling - fixed-size worker group is valid": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.WorkloadIdentifierAnnotations: false},
-			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
-				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-				ManagedBy(kueue.MultiKueueControllerName).
-				WithEnableAutoscaling(new(true)).
-				FirstWorkerGroupReplicas(2, 2, 2).
-				ElasticSchedulingGates().
-				Obj(),
-			wantErr: nil,
-		},
-		"multikueue elastic autoscaling - non-fixed-size worker group is rejected": {
+		"multikueue elastic autoscaling - variable-size worker group is valid": {
+			// The autoscaler runs on the worker and its resizes are written back
+			// to the manager, so a range (min < replicas < max) is allowed.
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.WorkloadIdentifierAnnotations: false},
 			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
@@ -174,13 +165,7 @@ func TestValidateCreate(t *testing.T) {
 				FirstWorkerGroupReplicas(1, 1, 5).
 				ElasticSchedulingGates().
 				Obj(),
-			wantErr: field.ErrorList{
-				field.Invalid(
-					field.NewPath("spec", "workerGroupSpecs").Index(0),
-					"workers-group-0",
-					"a MultiKueue-managed elastic RayCluster with in-tree autoscaling requires replicas == minReplicas == maxReplicas until autoscaler-driven resizes are supported (see kubernetes-sigs/kueue#13243)",
-				),
-			}.ToAggregate(),
+			wantErr: nil,
 		},
 		"invalid managed - too many worker groups": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},

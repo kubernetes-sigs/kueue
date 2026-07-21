@@ -352,17 +352,17 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 		},
-		// A MultiKueue-dispatched autoscaling elastic RayCluster keeps
-		// enableInTreeAutoscaling on the remote copy (the sidecar runs on the
-		// worker). A manager-driven scale-down syncs replicas plus min/max so the
-		// worker stays pinned to replicas == minReplicas == maxReplicas and the
-		// remote autoscaler has no room to resize.
-		"elastic sync keeps the remote autoscaler on and syncs min/max with replicas": {
+		// With in-tree autoscaling the worker is the source of truth: an
+		// autoscaler-driven scale-up on the remote copy (3 replicas) is written
+		// back onto the manager's RayCluster (which was at 1), so the manager's
+		// slicing machinery can re-reserve quota. The worker copy is left
+		// untouched by this reconcile.
+		"autoscaling elastic sync writes the worker's autoscaled replicas back to the manager": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.WorkloadIdentifierAnnotations: false},
 			managersRayClusters: []rayv1.RayCluster{
 				*elasticBuilder.Clone().
 					WithEnableAutoscaling(new(true)).
-					FirstWorkerGroupReplicas(1, 1, 1).
+					FirstWorkerGroupReplicas(1, 1, 5).
 					Obj(),
 			},
 			workerRayClusters: []rayv1.RayCluster{
@@ -370,7 +370,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					WithEnableAutoscaling(new(true)).
-					FirstWorkerGroupReplicas(3, 3, 3).
+					FirstWorkerGroupReplicas(3, 1, 5).
 					Obj(),
 			},
 			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
@@ -380,7 +380,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			wantManagersRayClusters: []rayv1.RayCluster{
 				*elasticBuilder.Clone().
 					WithEnableAutoscaling(new(true)).
-					FirstWorkerGroupReplicas(1, 1, 1).
+					FirstWorkerGroupReplicas(3, 1, 5).
 					Obj(),
 			},
 			wantWorkerRayClusters: []rayv1.RayCluster{
@@ -388,7 +388,47 @@ func TestMultiKueueAdapter(t *testing.T) {
 					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					WithEnableAutoscaling(new(true)).
-					FirstWorkerGroupReplicas(1, 1, 1).
+					FirstWorkerGroupReplicas(3, 1, 5).
+					Obj(),
+			},
+		},
+		// A suspended remote copy's replicas were restored by the worker's Kueue
+		// while stopping, not set by the autoscaler, so they must not be written
+		// back to the manager.
+		"autoscaling elastic sync skips write-back while the remote is suspended": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.WorkloadIdentifierAnnotations: false},
+			managersRayClusters: []rayv1.RayCluster{
+				*elasticBuilder.Clone().
+					WithEnableAutoscaling(new(true)).
+					FirstWorkerGroupReplicas(1, 1, 5).
+					Obj(),
+			},
+			workerRayClusters: []rayv1.RayCluster{
+				*elasticBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					WithEnableAutoscaling(new(true)).
+					FirstWorkerGroupReplicas(3, 1, 5).
+					Suspend(true).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "raycluster1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
+			},
+			wantManagersRayClusters: []rayv1.RayCluster{
+				*elasticBuilder.Clone().
+					WithEnableAutoscaling(new(true)).
+					FirstWorkerGroupReplicas(1, 1, 5).
+					Obj(),
+			},
+			wantWorkerRayClusters: []rayv1.RayCluster{
+				*elasticBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					WithEnableAutoscaling(new(true)).
+					FirstWorkerGroupReplicas(3, 1, 5).
+					Suspend(true).
 					Obj(),
 			},
 		},

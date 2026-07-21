@@ -1846,12 +1846,11 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		})
 	})
 
-	// A MultiKueue-dispatched elastic RayCluster with in-tree autoscaling: the
-	// worker group is pinned to replicas == minReplicas == maxReplicas (as the
-	// webhook now requires), so the autoscaler running on the worker has no room
-	// to resize and no slice replacement should ever happen after admission. The
-	// autoscaler sidecar is accounted on both clusters, so the prebuilt workload
-	// stays in sync.
+	// A MultiKueue-dispatched elastic RayCluster with in-tree autoscaling and a
+	// fixed-size worker group (replicas == minReplicas == maxReplicas): the
+	// autoscaler running on the worker has no room to resize, so no slice
+	// replacement should ever happen after admission. The autoscaler sidecar is
+	// accounted on both clusters, so the prebuilt workload stays in sync.
 	ginkgo.It("Should keep an admitted elastic RayCluster with a fixed-size autoscaling worker group stable", func() {
 		manager := managerTestCluster
 		worker2 := worker2TestCluster
@@ -1910,6 +1909,84 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				g.Expect(worker2.client.Get(worker2.ctx, client.ObjectKeyFromObject(raycluster), workerCluster)).To(gomega.Succeed())
 				g.Expect(ptr.Deref(workerCluster.Spec.Suspend, false)).To(gomega.BeFalse(), "the worker RayCluster must not get suspended")
 			}, 10*time.Second, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	// Pending: exercises the worker-to-manager reverse sync. After admission the
+	// autoscaler (simulated here by patching the worker RayCluster) resizes the
+	// worker group; the adapter writes the new size back onto the manager, whose
+	// slicing machinery creates a replacement slice. This cannot pass stably yet:
+	// the worker's own jobframework observes the resized worker RayCluster against
+	// the not-yet-replaced prebuilt workload, judges it OutOfSync and finishes the
+	// remote workload before the new slice is admitted and the prebuilt label is
+	// repointed (the slice-handover ordering gap, kubernetes-sigs/kueue#13243).
+	// The reverse-sync mechanism itself is covered by unit tests in
+	// raycluster_multikueue_adapter_test.go.
+	ginkgo.PIt("Should reflect an autoscaler-driven resize of an elastic RayCluster on the manager", func() {
+		manager := managerTestCluster
+		worker2 := worker2TestCluster
+
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
+
+		rayClusterGVK := rayv1.GroupVersion.WithKind("RayCluster")
+		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).PodSets(
+			utiltestingapi.MakePodSetAssignment("head").Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj(),
+			utiltestingapi.MakePodSetAssignment("workers-group-0").Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj(),
+		)
+
+		raycluster := testingraycluster.MakeCluster("raycluster-autoscale", managerNs.Name).
+			Queue(managerLq.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			WithEnableAutoscaling(ptr.To(true)).
+			FirstWorkerGroupReplicas(1, 1, 3).
+			ElasticSchedulingGates().
+			Obj()
+		util.MustCreate(manager.ctx, manager.client, raycluster)
+
+		createdCluster := &rayv1.RayCluster{}
+		gomega.Expect(manager.client.Get(manager.ctx, client.ObjectKeyFromObject(raycluster), createdCluster)).To(gomega.Succeed())
+		wlKeyForGeneration := func(generation int64) types.NamespacedName {
+			return types.NamespacedName{
+				Name: jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration(
+					createdCluster.Name, createdCluster.UID, rayClusterGVK, generation),
+				Namespace: createdCluster.Namespace,
+			}
+		}
+		wlLookupKey := wlKeyForGeneration(createdCluster.GetGeneration())
+
+		admitWorkloadAndCheckWorkerCopies(multiKueueAC.Name, wlLookupKey, admission)
+
+		ginkgo.By("simulating the Ray autoscaler on the worker: scale workers-group-0 from 1 to 2", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				rc := &rayv1.RayCluster{}
+				g.Expect(worker2.client.Get(worker2.ctx, client.ObjectKeyFromObject(raycluster), rc)).To(gomega.Succeed())
+				rc.Spec.WorkerGroupSpecs[0].Replicas = ptr.To[int32](2)
+				g.Expect(worker2.client.Update(worker2.ctx, rc)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("the autoscaled size is written back onto the manager's RayCluster", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				rc := &rayv1.RayCluster{}
+				g.Expect(manager.client.Get(manager.ctx, client.ObjectKeyFromObject(raycluster), rc)).To(gomega.Succeed())
+				g.Expect(ptr.Deref(rc.Spec.WorkerGroupSpecs[0].Replicas, -1)).To(gomega.BeEquivalentTo(int32(2)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("a new workload slice is admitted and the worker RayCluster keeps the autoscaled size with the repointed prebuilt label", func() {
+			newWlKey := wlKeyForGeneration(createdCluster.GetGeneration() + 1)
+			util.ExpectAdmissionCheckStateWithMessage(
+				manager.ctx, manager.client, newWlKey,
+				multiKueueAC.Name,
+				kueue.CheckStateReady,
+				`The workload was admitted on "worker2"`,
+			)
+			gomega.Eventually(func(g gomega.Gomega) {
+				rc := &rayv1.RayCluster{}
+				g.Expect(worker2.client.Get(worker2.ctx, client.ObjectKeyFromObject(raycluster), rc)).To(gomega.Succeed())
+				g.Expect(ptr.Deref(rc.Spec.WorkerGroupSpecs[0].Replicas, -1)).To(gomega.BeEquivalentTo(int32(2)))
+				g.Expect(jobframework.PrebuiltWorkloadNameFor(rc)).To(gomega.Equal(newWlKey.Name))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 

@@ -83,6 +83,18 @@ type ElasticReplicaSync[PtrT objAsPtr[T], T any] struct {
 	// WorkloadNameExtraPart mirrors ElasticWorkloadNameProvider for the type; it
 	// is used to compute the workload name of the object's current slice.
 	WorkloadNameExtraPart func(PtrT) string
+	// AutoscalingEnabled reports whether the job runs the in-tree autoscaler on
+	// the worker cluster. When it does, the worker is the source of truth for
+	// worker replica counts: autoscaler-driven resizes on the remote copy are
+	// written back onto the manager object (reverse of the manager-driven sync),
+	// letting the manager's workload-slicing machinery re-reserve quota.
+	// Optional; when nil the reverse (worker-to-manager) sync is disabled.
+	AutoscalingEnabled func(PtrT) bool
+	// RemoteSuspended reports whether the remote copy is currently suspended.
+	// A suspended remote's replica counts were restored by the worker's Kueue
+	// while stopping the job, not set by the autoscaler, so they must not be
+	// written back to the manager. Required when AutoscalingEnabled is set.
+	RemoteSuspended func(PtrT) bool
 }
 
 // Option configures a Ray MultiKueue adapter.
@@ -174,6 +186,13 @@ func (a *adapter[PtrT, T]) SyncJob(
 		}); err != nil {
 			return false, err
 		}
+		// When the worker runs the autoscaler, an autoscaler-driven resize on the
+		// remote copy is written back to the manager first; the manager's slicing
+		// machinery then produces a new slice and the next reconcile repoints the
+		// remote via the forward sync below.
+		if a.needReverseElasticSync(localJob, remoteJob) {
+			return false, a.reverseSyncElastic(ctx, localClient, localJob, remoteJob)
+		}
 		if a.needElasticSync(ctx, workloadName, localJob, remoteJob) {
 			return false, a.syncElastic(ctx, remoteClient, workloadName, localJob, remoteJob)
 		}
@@ -202,6 +221,12 @@ func (a *adapter[PtrT, T]) needElasticSync(ctx context.Context, workloadName str
 	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) || !workloadslicing.Enabled(localJob) {
 		return false
 	}
+	// When the worker runs the autoscaler, replica changes flow worker-to-manager
+	// (needReverseElasticSync); the manager must not also push its counts to the
+	// worker or the two directions would fight.
+	if a.elastic.AutoscalingEnabled != nil && a.elastic.AutoscalingEnabled(localJob) {
+		return false
+	}
 
 	oldCounts := a.elastic.WorkerReplicas(remoteJob)
 	newCounts := a.elastic.WorkerReplicas(localJob)
@@ -220,6 +245,40 @@ func (a *adapter[PtrT, T]) needElasticSync(ctx context.Context, workloadName str
 	}
 
 	return !maps.Equal(oldCounts, newCounts) || jobframework.PrebuiltWorkloadNameFor(remoteJob) != workloadName
+}
+
+// needReverseElasticSync reports whether an autoscaler-driven worker replica
+// change on the remote copy must be written back to the manager object. This is
+// the worker-to-manager direction, used only when the job runs the in-tree
+// autoscaler on the worker cluster.
+func (a *adapter[PtrT, T]) needReverseElasticSync(localJob, remoteJob PtrT) bool {
+	if a.elastic == nil || a.elastic.AutoscalingEnabled == nil {
+		return false
+	}
+	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) || !workloadslicing.Enabled(localJob) {
+		return false
+	}
+	if !a.elastic.AutoscalingEnabled(localJob) {
+		return false
+	}
+	// A suspended remote's replicas were restored by the worker's Kueue while
+	// stopping, not set by the autoscaler; do not write them back.
+	if a.elastic.RemoteSuspended(remoteJob) {
+		return false
+	}
+	return !maps.Equal(a.elastic.WorkerReplicas(remoteJob), a.elastic.WorkerReplicas(localJob))
+}
+
+// reverseSyncElastic patches the manager object's worker replicas to match the
+// remote (worker) copy after an autoscaler-driven resize. It should only be
+// called when needReverseElasticSync returns true.
+func (a *adapter[PtrT, T]) reverseSyncElastic(ctx context.Context, localClient client.Client, localJob, remoteJob PtrT) error {
+	if err := clientutil.Patch(ctx, localClient, localJob, func() (bool, error) {
+		return a.elastic.SyncReplicas(localJob, remoteJob), nil
+	}); err != nil {
+		return fmt.Errorf("failed to write back autoscaler-driven replicas to manager %s: %w", a.gvk.Kind, err)
+	}
+	return nil
 }
 
 // syncElastic patches the remote object's worker replicas and prebuilt workload
