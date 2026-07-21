@@ -38,6 +38,7 @@ Kueue follows the [Kubernetes AI Tool Usage Policy](https://www.kubernetes.dev/d
 - **Disclose AI usage** in the PR description.
 - **Disclose AI usage** when commenting or filing issues.
 - **No AI authorship markers.** Do not add AI co-author lines, `assisted-by`, `co-developed`, or similar commit trailers.
+- **No `#` in commit messages.** Prow flags commit messages containing `#` (for example `Fixes #123`) with the `do-not-merge/invalid-commit-message` label. Put issue references in the PR description instead.
 - Always use `PULL_REQUEST_TEMPLATE.md` or `ISSUE_TEMPLATE`, in the .github directory, before creating pull requests or issues.
 
 ## Skills
