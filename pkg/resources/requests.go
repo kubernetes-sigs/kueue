@@ -20,6 +20,7 @@ import (
 	"maps"
 	"math"
 	"strings"
+	"sync"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -35,6 +36,7 @@ import (
 // Register all binary-formatted resources before sharing a formatter with
 // concurrent controller code.
 type ResourceFormatter struct {
+	mu                       sync.RWMutex
 	binaryFormattedResources sets.Set[corev1.ResourceName]
 }
 
@@ -53,6 +55,8 @@ func (f *ResourceFormatter) RegisterBinaryFormattedResource(name corev1.Resource
 	if f == nil {
 		return
 	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.binaryFormattedResources == nil {
 		f.binaryFormattedResources = sets.New[corev1.ResourceName]()
 	}
@@ -63,6 +67,8 @@ func (f *ResourceFormatter) usesBinaryFormat(name corev1.ResourceName) bool {
 	if f == nil {
 		return false
 	}
+	f.mu.RLock()
+	defer f.mu.RUnlock()
 	return f.binaryFormattedResources.Has(name)
 }
 

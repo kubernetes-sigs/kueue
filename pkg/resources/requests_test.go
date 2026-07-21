@@ -19,6 +19,7 @@ package resources
 import (
 	"encoding/json"
 	"math"
+	"sync"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -421,6 +422,43 @@ func TestResourceFormatterIsolation(t *testing.T) {
 	otherQuantity := other.ResourceQuantity("gpu.memory", 9984*1024*1024)
 	if got := otherQuantity.String(); got != "10468982784" {
 		t.Errorf("unconfigured formatter returned %q, want 10468982784", got)
+	}
+}
+
+func TestResourceFormatterConcurrentRegistrationAndFormatting(t *testing.T) {
+	formatter := NewResourceFormatter()
+	resourceName := corev1.ResourceName("example.com/gpu-memory")
+	const iterations = 1000
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			for j := 0; j < iterations; j++ {
+				formatter.RegisterBinaryFormattedResource(resourceName)
+			}
+		}()
+	}
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			for j := 0; j < iterations; j++ {
+				_ = formatter.ResourceQuantity(resourceName, 9984*1024*1024)
+			}
+		}()
+	}
+
+	close(start)
+	wg.Wait()
+
+	quantity := formatter.ResourceQuantity(resourceName, 9984*1024*1024)
+	if got := quantity.String(); got != "9984Mi" {
+		t.Errorf("registered resource formatted as %q, want 9984Mi", got)
 	}
 }
 

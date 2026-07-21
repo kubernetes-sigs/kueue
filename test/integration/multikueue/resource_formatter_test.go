@@ -57,7 +57,11 @@ func workerResourceUsageStrings(c cluster, resources ...corev1.ResourceName) map
 	)
 
 	log := logr.Discard()
-	c.schedulerCache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor(flavorName).Obj())
+	resourceFlavor := utiltestingapi.MakeResourceFlavor(flavorName).Obj()
+	c.schedulerCache.AddOrUpdateResourceFlavor(log, resourceFlavor)
+	ginkgo.DeferCleanup(func() {
+		c.schedulerCache.DeleteResourceFlavor(log, resourceFlavor)
+	})
 
 	flavorQuotas := utiltestingapi.MakeFlavorQuotas(flavorName)
 	podSetAssignment := utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName)
