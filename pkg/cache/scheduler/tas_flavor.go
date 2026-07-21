@@ -125,7 +125,7 @@ func (c *TASFlavorCache) TopologyLevels() []string {
 }
 
 func (c *TASFlavorCache) snapshot(
-	log logr.Logger, nodes []*corev1.Node, aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.MapRequests,
+	log logr.Logger, nodes []*corev1.Node, aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests,
 ) (*TASFlavorSnapshot, error) {
 	c.RLock()
 	defer c.RUnlock()
@@ -153,7 +153,10 @@ func (c *TASFlavorCache) snapshot(
 	}
 	snapshot.initialize()
 
-	tasDomainUsages := c.usage
+	tasDomainUsages := make(map[utiltas.TopologyDomainID]resources.Requests, len(c.usage))
+	for k, v := range c.usage {
+		tasDomainUsages[k] = v
+	}
 	if features.Enabled(features.TASHandleOverlappingFlavors) && aggregatedDomainUsages != nil {
 		tasDomainUsages = aggregatedDomainUsages
 	}

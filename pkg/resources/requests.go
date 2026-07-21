@@ -31,15 +31,12 @@ import (
 // The following resources calculations are inspired on
 // https://github.com/kubernetes/kubernetes/blob/master/pkg/scheduler/framework/types.go
 
-// IsNil safely checks if a Requests interface instance is nil or wraps a nil map.
+// IsNil safely checks if a Requests interface instance is nil or wraps a nil backend.
 func IsNil(r Requests) bool {
 	if r == nil {
 		return true
 	}
-	if m, ok := r.(MapRequests); ok {
-		return m == nil
-	}
-	return false
+	return r.IsNil()
 }
 
 // IsEmpty checks if a Requests interface instance is nil or has 0 resource entries.
@@ -49,6 +46,10 @@ func IsEmpty(r Requests) bool {
 
 // MapRequests maps ResourceName to flavor to value; for CPU it is tracked in MilliCPU.
 type MapRequests map[corev1.ResourceName]int64
+
+func (r MapRequests) IsNil() bool {
+	return r == nil
+}
 
 func NewMapRequests(rl corev1.ResourceList) MapRequests {
 	r := MapRequests{}
@@ -62,22 +63,29 @@ func NewMapRequestsFromPodSpec(podSpec *corev1.PodSpec) MapRequests {
 	return NewMapRequests(resourcehelpers.PodRequests(&corev1.Pod{Spec: *podSpec}, resourcehelpers.PodResourcesOptions{}))
 }
 
-func (r MapRequests) CloneRequests() Requests {
-	return r.Clone()
-}
-
-func (r MapRequests) Clone() MapRequests {
+func (r MapRequests) Clone() Requests {
+	if len(r) == 0 {
+		return nil
+	}
 	return maps.Clone(r)
 }
 
+// Clone safely clones r, returning nil if r is nil or empty.
+func Clone(r Requests) Requests {
+	if IsEmpty(r) {
+		return nil
+	}
+	return r.Clone()
+}
+
 func (r MapRequests) ScaledUp(f int64) MapRequests {
-	ret := r.Clone()
+	ret := maps.Clone(r)
 	ret.Mul(f)
 	return ret
 }
 
 func (r MapRequests) ScaledDown(f int64) MapRequests {
-	ret := r.Clone()
+	ret := maps.Clone(r)
 	ret.Divide(f)
 	return ret
 }
@@ -114,32 +122,22 @@ func (r MapRequests) ForEach(fn func(name corev1.ResourceName, val int64)) {
 	}
 }
 
+// ForEach safely calls fn for each resource entry in r, no-opting if r is nil or empty.
+func ForEach(r Requests, fn func(name corev1.ResourceName, val int64)) {
+	if IsEmpty(r) || fn == nil {
+		return
+	}
+	r.ForEach(fn)
+}
+
 func (r MapRequests) Add(other Requests) {
-	if IsNil(other) {
-		return
-	}
-	if m, ok := other.(MapRequests); ok {
-		for k, v := range m {
-			r[k] += v
-		}
-		return
-	}
-	other.ForEach(func(k corev1.ResourceName, v int64) {
+	ForEach(other, func(k corev1.ResourceName, v int64) {
 		r[k] += v
 	})
 }
 
 func (r MapRequests) Sub(other Requests) {
-	if IsNil(other) {
-		return
-	}
-	if m, ok := other.(MapRequests); ok {
-		for k, v := range m {
-			r[k] -= v
-		}
-		return
-	}
-	other.ForEach(func(k corev1.ResourceName, v int64) {
+	ForEach(other, func(k corev1.ResourceName, v int64) {
 		r[k] -= v
 	})
 }
