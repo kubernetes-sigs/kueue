@@ -25,7 +25,24 @@ type LazyRequests struct {
 
 // isNil safely checks if a Requests interface instance is nil or wraps a nil map.
 func isNil(r Requests) bool {
-	return r == nil || r.ToMapRequests() == nil
+	if r == nil {
+		return true
+	}
+	if m, ok := r.(MapRequests); ok {
+		return m == nil
+	}
+	return false
+}
+
+// isZero checks if a Requests interface instance is nil or has 0 resource entries.
+func isZero(r Requests) bool {
+	if isNil(r) {
+		return true
+	}
+	if m, ok := r.(MapRequests); ok {
+		return len(m) == 0
+	}
+	return false
 }
 
 func NewLazyRequests(base Requests) LazyRequests {
@@ -48,7 +65,7 @@ func (l *LazyRequests) Get() Requests {
 // Sub subtracts subRequests from the underlying Requests interface,
 // cloning base on first write.
 func (l *LazyRequests) Sub(subRequests Requests) {
-	if isNil(subRequests) || len(subRequests.ToMapRequests()) == 0 {
+	if isZero(subRequests) {
 		return
 	}
 	if isNil(l.cached) {
@@ -64,7 +81,7 @@ func (l *LazyRequests) Sub(subRequests Requests) {
 // Add adds addRequests to the underlying Requests interface,
 // cloning base on first write.
 func (l *LazyRequests) Add(addRequests Requests) {
-	if isNil(addRequests) || len(addRequests.ToMapRequests()) == 0 {
+	if isZero(addRequests) {
 		return
 	}
 	if isNil(l.cached) {
