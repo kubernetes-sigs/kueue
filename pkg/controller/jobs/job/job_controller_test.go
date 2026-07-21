@@ -17,7 +17,6 @@ limitations under the License.
 package job
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -4631,9 +4630,9 @@ func TestJob_IsActive(t *testing.T) {
 			j := (*Job)(k8sJob)
 
 			// 3. Inject strategy into context
-			// We must use context.Background() in test and explicitly inject it
+			// We must use t.Context() in test and explicitly inject it
 			// because the production code pulls it out using jobframework.GetQuotaReleaseStrategy
-			ctx := jobframework.ContextWithQuotaReleaseStrategy(context.Background(), tt.strategy)
+			ctx := jobframework.ContextWithQuotaReleaseStrategy(t.Context(), tt.strategy)
 
 			// 4. Assert behavior
 			if got := j.IsActive(ctx); got != tt.want {
