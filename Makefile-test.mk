@@ -296,32 +296,26 @@ test-tas-e2e-extended-helm: test-tas-e2e-extended
 
 # WAS versions of TAS e2e tests
 .PHONY: test-tas-was-e2e-baseline
-test-tas-was-e2e-baseline: WAS_ENABLED=true
 test-tas-was-e2e-baseline: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
 test-tas-was-e2e-baseline: test-tas-e2e-baseline
 
 .PHONY: test-tas-was-e2e-extended
-test-tas-was-e2e-extended: WAS_ENABLED=true
 test-tas-was-e2e-extended: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
 test-tas-was-e2e-extended: test-tas-e2e-extended
 
 .PHONY: test-tas-was-e2e-extended-shard-0
-test-tas-was-e2e-extended-shard-0: WAS_ENABLED=true
 test-tas-was-e2e-extended-shard-0: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
 test-tas-was-e2e-extended-shard-0: test-tas-e2e-extended-shard-0
 
 .PHONY: test-tas-was-e2e-extended-shard-1
-test-tas-was-e2e-extended-shard-1: WAS_ENABLED=true
 test-tas-was-e2e-extended-shard-1: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
 test-tas-was-e2e-extended-shard-1: test-tas-e2e-extended-shard-1
 
 .PHONY: test-tas-was-e2e-baseline-helm
-test-tas-was-e2e-baseline-helm: WAS_ENABLED=true
 test-tas-was-e2e-baseline-helm: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
 test-tas-was-e2e-baseline-helm: test-tas-e2e-baseline-helm
 
 .PHONY: test-tas-was-e2e-extended-helm
-test-tas-was-e2e-extended-helm: WAS_ENABLED=true
 test-tas-was-e2e-extended-helm: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
 test-tas-was-e2e-extended-helm: test-tas-e2e-extended-helm
 
@@ -642,7 +636,6 @@ run-test-e2e-k8s-main-was:
 		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="singlecluster" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
-		WAS_ENABLED=true \
 		./hack/testing/e2e-test.sh
 
 SCALABILITY_RUNNER := $(BIN_DIR)/performance-scheduler-runner
