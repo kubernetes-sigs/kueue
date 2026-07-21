@@ -119,7 +119,7 @@ func BenchmarkTASFlavorSnapshot(b *testing.B) {
 
 			for b.Loop() {
 				for i, flavorCache := range flavorCaches {
-					_, _ = flavorCache.snapshot(log, flavorNodes[i], nil)
+					_, _ = flavorCache.snapshot(b.Context(), log, flavorNodes[i], nil)
 				}
 			}
 		})

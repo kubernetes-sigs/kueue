@@ -7822,6 +7822,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				aggregatedDomainUsage = tc.aggregatedDomainUsages
 			}
 			snapshot, err := tasFlavorCache.snapshot(
+				ctx,
 				log,
 				tasCache.nodesCache.find(tasFlavorCache.flavor.NodeLabels, tasFlavorCache.topology.Levels),
 				aggregatedDomainUsage,
@@ -8297,6 +8298,7 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 				aggregatedDomainUsages = tc.aggregatedDomainUsages
 			}
 			snapshot, err := tasFlavorCache.snapshot(
+				ctx,
 				log,
 				tasCache.nodesCache.find(tasFlavorCache.flavor.NodeLabels, tasFlavorCache.topology.Levels),
 				aggregatedDomainUsages,

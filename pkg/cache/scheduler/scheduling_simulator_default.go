@@ -37,7 +37,7 @@ func newDefaultSimulator() simulator.SchedulingSimulator {
 	return &defaultSimulator{}
 }
 
-func (s *defaultSimulator) NewFeasibilityChecker(nodes []*corev1.Node) (simulator.NodeFeasibilityChecker, error) {
+func (s *defaultSimulator) NewFeasibilityChecker(_ context.Context, nodes []*corev1.Node) (simulator.NodeFeasibilityChecker, error) {
 	return &defaultChecker{}, nil
 }
 

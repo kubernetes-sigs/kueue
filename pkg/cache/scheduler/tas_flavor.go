@@ -17,6 +17,7 @@ limitations under the License.
 package scheduler
 
 import (
+	"context"
 	"slices"
 	"sync"
 
@@ -125,7 +126,7 @@ func (c *TASFlavorCache) TopologyLevels() []string {
 }
 
 func (c *TASFlavorCache) snapshot(
-	log logr.Logger, nodes []*corev1.Node, aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.MapRequests,
+	ctx context.Context, log logr.Logger, nodes []*corev1.Node, aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.MapRequests,
 ) (*TASFlavorSnapshot, error) {
 	c.RLock()
 	defer c.RUnlock()
@@ -140,7 +141,7 @@ func (c *TASFlavorCache) snapshot(
 	}
 	log.V(3).Info("Constructing TAS snapshot", infoKV...)
 
-	feasibilityChecker, err := c.schedulingSimulator.NewFeasibilityChecker(nodes)
+	feasibilityChecker, err := c.schedulingSimulator.NewFeasibilityChecker(ctx, nodes)
 	if err != nil {
 		return nil, err
 	}

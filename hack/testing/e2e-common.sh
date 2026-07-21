@@ -925,6 +925,10 @@ function build_and_apply_kueue_manifests {
         force_conflicts="--force-conflicts"
     fi
 
+    if [[ -n "${E2E_EXTRA_KUEUE_FEATURE_GATES:-}" ]]; then
+        build_output=$(echo "$build_output" | "$YQ" eval '(select(.kind == "Deployment" and .metadata.name == "'"${KUEUE_DEPLOYMENT_NAME}"'").spec.template.spec.containers[] | select(.name == "manager").args) += ["--feature-gates='"${E2E_EXTRA_KUEUE_FEATURE_GATES}"'"]' -)
+    fi
+
     echo "$build_output" | kubectl apply --kubeconfig="$1" --server-side $force_conflicts -f -
 }
 

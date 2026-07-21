@@ -55,6 +55,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/was"
 	"sigs.k8s.io/kueue/pkg/config"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
@@ -344,6 +345,14 @@ func main() {
 	if cfg.AdmissionFairSharing != nil {
 		queueOptions = append(queueOptions, qcache.WithAdmissionFairSharing(cfg.AdmissionFairSharing))
 		cacheOptions = append(cacheOptions, schdcache.WithAdmissionFairSharing(cfg.AdmissionFairSharing))
+	}
+	if features.Enabled(features.SchedulerLibraryIntegration) {
+		sim, err := was.NewWASSimulator(ctx, mgr.GetConfig())
+		if err != nil {
+			setupLog.Error(err, "Failed to initialize scheduling simulator")
+			os.Exit(1)
+		}
+		cacheOptions = append(cacheOptions, schdcache.WithSchedulingSimulator(sim))
 	}
 	cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
 

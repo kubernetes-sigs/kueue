@@ -294,6 +294,37 @@ test-tas-e2e-baseline-helm: test-tas-e2e-baseline
 test-tas-e2e-extended-helm: E2E_USE_HELM=true
 test-tas-e2e-extended-helm: test-tas-e2e-extended
 
+# WAS versions of TAS e2e tests
+.PHONY: test-tas-was-e2e-baseline
+test-tas-was-e2e-baseline: WAS_ENABLED=true
+test-tas-was-e2e-baseline: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
+test-tas-was-e2e-baseline: test-tas-e2e-baseline
+
+.PHONY: test-tas-was-e2e-extended
+test-tas-was-e2e-extended: WAS_ENABLED=true
+test-tas-was-e2e-extended: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
+test-tas-was-e2e-extended: test-tas-e2e-extended
+
+.PHONY: test-tas-was-e2e-extended-shard-0
+test-tas-was-e2e-extended-shard-0: WAS_ENABLED=true
+test-tas-was-e2e-extended-shard-0: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
+test-tas-was-e2e-extended-shard-0: test-tas-e2e-extended-shard-0
+
+.PHONY: test-tas-was-e2e-extended-shard-1
+test-tas-was-e2e-extended-shard-1: WAS_ENABLED=true
+test-tas-was-e2e-extended-shard-1: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
+test-tas-was-e2e-extended-shard-1: test-tas-e2e-extended-shard-1
+
+.PHONY: test-tas-was-e2e-baseline-helm
+test-tas-was-e2e-baseline-helm: WAS_ENABLED=true
+test-tas-was-e2e-baseline-helm: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
+test-tas-was-e2e-baseline-helm: test-tas-e2e-baseline-helm
+
+.PHONY: test-tas-was-e2e-extended-helm
+test-tas-was-e2e-extended-helm: WAS_ENABLED=true
+test-tas-was-e2e-extended-helm: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
+test-tas-was-e2e-extended-helm: test-tas-e2e-extended-helm
+
 .PHONY: test-e2e-certmanager
 test-e2e-certmanager: setup-e2e-env run-test-e2e-certmanager-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the cert-manager e2e test suite.
 
@@ -430,6 +461,8 @@ run-test-tas-e2e-baseline-%:
 		E2E_CONFIG_FOLDER="baseline" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
+		WAS_ENABLED=$(WAS_ENABLED) \
+		E2E_EXTRA_KUEUE_FEATURE_GATES=$(E2E_EXTRA_KUEUE_FEATURE_GATES) \
 		./hack/testing/e2e-test.sh
 
 run-test-tas-e2e-extended-%: K8S_VERSION = $(@:run-test-tas-e2e-extended-%=%)
@@ -445,6 +478,8 @@ run-test-tas-e2e-extended-%:
 		E2E_CONFIG_FOLDER="extended" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
+		WAS_ENABLED=$(WAS_ENABLED) \
+		E2E_EXTRA_KUEUE_FEATURE_GATES=$(E2E_EXTRA_KUEUE_FEATURE_GATES) \
 		./hack/testing/e2e-test.sh
 
 run-test-e2e-sequential-baseline-%: K8S_VERSION = $(@:run-test-e2e-sequential-baseline-%=%)

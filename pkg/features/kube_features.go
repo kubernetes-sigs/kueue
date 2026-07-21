@@ -509,6 +509,12 @@ const (
 	//
 	// Enables caching of remaining capacity and clone reduction in TAS Flavor Snapshot.
 	TASCachingRemainingResources featuregate.Feature = "TASCachingRemainingResources"
+
+	// owner: @kshalot
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/8871
+	// Enable integration of the https://github.com/kubernetes-sigs/scheduler-library.
+	SchedulerLibraryIntegration featuregate.Feature = "SchedulerLibraryIntegration"
 )
 
 func init() {
@@ -782,6 +788,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	TASCachingRemainingResources: {
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	SchedulerLibraryIntegration: {
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 
