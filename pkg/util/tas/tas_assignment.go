@@ -556,8 +556,8 @@ func TruncateAssignment(ta *TopologyAssignment, newCount int32) *TopologyAssignm
 }
 
 // ComputeUsagePerDomain calculates resource usage per topology domain from an assignment.
-func ComputeUsagePerDomain(ta *TopologyAssignment, singlePodRequests resources.MapRequests) map[TopologyDomainID]resources.MapRequests {
-	usage := make(map[TopologyDomainID]resources.MapRequests)
+func ComputeUsagePerDomain(ta *TopologyAssignment, singlePodRequests resources.Requests) map[TopologyDomainID]resources.Requests {
+	usage := make(map[TopologyDomainID]resources.Requests)
 	for _, domain := range ta.Domains {
 		domainID := DomainID(domain.Values)
 		domainUsage := singlePodRequests.ScaledUp(int64(domain.Count))

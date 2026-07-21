@@ -273,12 +273,12 @@ type TopologyRequest struct {
 
 type TopologyDomainRequests struct {
 	Values            []string
-	SinglePodRequests resources.MapRequests
+	SinglePodRequests resources.Requests
 	// Count indicates how many pods are requested in this TopologyDomain.
 	Count int32
 }
 
-func (t *TopologyDomainRequests) TotalRequests() resources.MapRequests {
+func (t *TopologyDomainRequests) TotalRequests() resources.Requests {
 	return t.SinglePodRequests.ScaledUp(int64(t.Count))
 }
 
@@ -673,7 +673,7 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 			}
 			singlePodRequests := setRes.SinglePodRequests()
 			if ps := podset.FindPodSetByName(wl.Spec.PodSets, psa.Name); ps != nil {
-				singlePodRequests = resources.NewRequestsFromPodSpec(&ps.Template.Spec)
+				singlePodRequests = resources.NewMapRequestsFromPodSpec(&ps.Template.Spec)
 			}
 			for req := range tas.InternalSeqFrom(psa.TopologyAssignment) {
 				setRes.TopologyRequest.DomainRequests = append(setRes.TopologyRequest.DomainRequests, TopologyDomainRequests{
