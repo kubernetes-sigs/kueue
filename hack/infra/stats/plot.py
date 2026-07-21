@@ -96,6 +96,10 @@ MIN_SAMPLE_POINTS = 8       # timelines: only highlight sample builds with >= th
 CPU_TARGET_MIN = 10.0  # target build duration in minutes to size the request against
 CPU_LEGROOM_FRAC = 0.0  # fractional headroom on top of the p95 target (0 = none; 0.15 = +15%)
 CPU_RESOLUTION = 0.1   # round the recommendation up to this core granularity (100m)
+CPU_RECURSIVE_PASSES = 5  # target-duration-improved-recursive: per-build refinement passes
+CPU_MAX_CORES = 7.0    # hard ceiling for the recursive reco: a build node has ~7 usable cores
+CPU_MIN_TIME_REMAIN_MIN = 1.0  # recursive: stop refining a build once its leftover target
+                               # budget drops below this (minutes), to guard the peak blow-up
 
 # Burstiness classification. Because request == limit is a hard CPU ceiling, the
 # work-conserving target-avg recommendation is only safe when a build's mean is close to its
@@ -355,6 +359,9 @@ class CPURecoConfig:
     target_min: float = CPU_TARGET_MIN
     legroom_frac: float = CPU_LEGROOM_FRAC
     resolution: float = CPU_RESOLUTION
+    recursive_passes: int = CPU_RECURSIVE_PASSES  # only "target-duration-improved-recursive"
+    max_cores: float = CPU_MAX_CORES              # only "target-duration-improved-recursive"
+    min_time_remain_min: float = CPU_MIN_TIME_REMAIN_MIN  # only the recursive recommenders
 
 
 def cap_at_limit(data, val):
@@ -544,10 +551,79 @@ def per_build_peak_duration(data, min_dur, cfg):
     return np.array(pct), np.array(mins), np.array(avg_peak), cutoff
 
 
+def recursive_target_cpu(samples, dur, cfg):
+    """One build's self-consistent target CPU. cpu_reco_target_duration_improved splits a build
+    into valley (<= cutoff) and peak (> cutoff) once, at the plain target-duration value, and
+    fits the peak work into the leftover target budget; but that cutoff is the CPU it is trying
+    to compute, so the split is only as good as the seed. This iterates it: the recommended CPU
+    becomes the next pass's cutoff, converging the split on the value actually recommended.
+
+    Each pass, at the current cutoff `cpu`:
+        below_min   = (fraction of samples <= cpu) x dur    # incompressible valley time
+        time_remain = target_min - below_min                # budget left for the peak
+        cpu         = avg(samples > cpu) x (dur - below_min) / time_remain
+
+    Seeded from below_min=0 (cpu = avg x dur / target_min, with no max(dur, target_min) floor,
+    so a build slower than target_min is raised rather than left alone). The value climbs
+    monotonically toward the fixed point and the loop stops as soon as a pass no longer raises
+    it. Two guards keep it from running away once the cutoff has eaten most of the build: if
+    nothing is left above the cutoff, or the leftover budget drops below cfg.min_time_remain_min
+    minutes (only an instantaneous spike remains), the climb halts. cfg.max_cores bounds the
+    final value."""
+    cpu = float(np.mean(samples)) * dur / cfg.target_min  # pass 1: below_min = 0
+    for _ in range(max(0, cfg.recursive_passes - 1)):
+        peak = samples[samples > cpu]
+        below_min = float(np.mean(samples <= cpu)) * dur
+        time_remain = cfg.target_min - below_min
+        if len(peak) == 0 or time_remain < cfg.min_time_remain_min:
+            break  # only a spike (or nothing) left above the cutoff; stop before it runs away
+        nxt = float(np.mean(peak)) * (dur - below_min) / time_remain
+        if nxt <= cpu:
+            break  # converged
+        cpu = nxt
+    return min(cpu, cfg.max_cores)
+
+
+def cpu_reco_target_duration_improved_recursive(data, min_dur, cfg):
+    """Recursive peak-aware recommender: like cpu_reco_target_duration_improved, but iterates
+    each build's valley/peak split to a fixed point (see recursive_target_cpu) rather than
+    splitting once, and then aggregates p95 across builds, adds legroom, and rounds up.
+
+    Two deliberate differences from the other recommenders: it is UNCAPPED against the
+    current k8s limit (it does not call cap_at_limit), so it can recommend MORE CPU than the
+    job is allowed today when builds genuinely need it to hit the target; and it drops the
+    downward-only floors so it can raise as well as lower. Runaway is instead prevented per
+    build by the cfg.min_time_remain_min budget guard in recursive_target_cpu; cfg.max_cores
+    (the ~7-core build node) bounds the final value. Returns (value, stats) or (None, None)
+    when there are fewer than two usable builds."""
+    oom = oom_build_ids(data)
+    builds = per_build_cpu_samples_dur(data["series"].get("cpu_used_cores", {}), min_dur, exclude=oom)
+    if len(builds) < 2:
+        return None, None
+    per = np.array([recursive_target_cpu(s, d, cfg) for s, d in builds])
+    p95 = float(np.percentile(per, 95))
+    val = min(round_up_to(p95 * (1 + cfg.legroom_frac), cfg.resolution), cfg.max_cores)
+    stats = {
+        "algorithm": "target-duration-improved-recursive",
+        "target_min": cfg.target_min,
+        "legroom_frac": cfg.legroom_frac,
+        "resolution": cfg.resolution,
+        "passes": cfg.recursive_passes,
+        "max_cores": cfg.max_cores,
+        "saturated": val >= cfg.max_cores,
+        "reco_p50": round(float(np.percentile(per, 50)), 3),
+        "reco_p95": round(p95, 3),
+        "reco_p99": round(float(np.percentile(per, 99)), 3),
+        "builds_at_ceiling": int(np.sum(per >= cfg.max_cores)),
+    }
+    return val, stats
+
+
 # Pluggable CPU sizing policies. Add an algorithm here and it becomes selectable via
 # --cpu-algorithm with no other wiring. Each maps (data, min_dur, cfg) -> (value, stats).
 CPU_RECOMMENDERS = {
     "target-duration-improved": cpu_reco_target_duration_improved,
+    "target-duration-improved-recursive": cpu_reco_target_duration_improved_recursive,
     "target-duration": cpu_reco_target_duration,
     "p95-mean": cpu_reco_p95_mean,
 }
@@ -1229,6 +1305,16 @@ def main():
     ap.add_argument("--cpu-resolution", type=float, default=CPU_RESOLUTION,
                     help="target-duration CPU reco: round the value up to this core "
                          "granularity (default %(default)s = 100m)")
+    ap.add_argument("--cpu-recursive-passes", type=int, default=CPU_RECURSIVE_PASSES,
+                    help="target-duration-improved-recursive CPU reco: per-build refinement "
+                         "passes (default %(default)s)")
+    ap.add_argument("--cpu-max-cores", type=float, default=CPU_MAX_CORES,
+                    help="target-duration-improved-recursive CPU reco: hard ceiling in cores "
+                         "(default %(default)s = one build node)")
+    ap.add_argument("--cpu-min-time-remain-min", type=float, default=CPU_MIN_TIME_REMAIN_MIN,
+                    help="target-duration-improved-recursive CPU reco: stop refining a build "
+                         "once its leftover target budget drops below this many minutes "
+                         "(default %(default)s)")
     ap.add_argument("--threshold", type=float, default=5.0,
                     help="dist_throttle: CPU wait%% at/above this counts as pressured (default 5)")
     ap.add_argument("--samples", type=int, default=3,
@@ -1248,7 +1334,10 @@ def main():
     if "distribution" in which:
         cfg = CPURecoConfig(target_min=args.cpu_target_min,
                             legroom_frac=args.cpu_legroom_frac,
-                            resolution=args.cpu_resolution)
+                            resolution=args.cpu_resolution,
+                            recursive_passes=args.cpu_recursive_passes,
+                            max_cores=args.cpu_max_cores,
+                            min_time_remain_min=args.cpu_min_time_remain_min)
         reco = generate_recommendation(data, base, args.min_duration, cfg, args.cpu_algorithm)
         stats = [s.strip() for s in args.stats.split(",") if s.strip()]
         plot_distribution(data, base, reco, args.bins, args.min_duration, stats)
