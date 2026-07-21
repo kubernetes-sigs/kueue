@@ -236,6 +236,21 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		return reconcile.Result{}, w.updateACS(ctx, wl, mkAc, kueue.CheckStateRejected, rejectionMessage)
 	}
 
+	// If the workload is deleted there is a chance that its owner is also deleted. In that case
+	// we skip calling `IsJobManagedByKueue` as its output would not be reliable.
+	// For active workloads, check management first to give more informative rejection messages
+	// (e.g. "not managed by Kueue" takes priority over "cannot verify ownership").
+	if !isDeleted {
+		managed, unmanagedReason, err := adapter.IsJobManagedByKueue(ctx, w.client, types.NamespacedName{Name: owner.Name, Namespace: wl.Namespace})
+		if err != nil {
+			return reconcile.Result{}, err
+		}
+
+		if !managed {
+			return reconcile.Result{}, w.updateACS(ctx, wl, mkAc, kueue.CheckStateRejected, fmt.Sprintf("The owner is not managed by Kueue: %s", unmanagedReason))
+		}
+	}
+
 	// Verify that this Workload is genuinely owned by the referenced Job to prevent Confused Deputy attacks.
 	// This check runs for both active and deleted workloads to prevent the deletion bypass via spoofed finalizers.
 	if watcher, implements := adapter.(jobframework.MultiKueueWatcher); implements {
@@ -270,44 +285,35 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		} else {
 			keys, err := watcher.WorkloadKeysFor(jobObj)
 			if err != nil {
-				// If the adapter cannot compute keys (e.g. job type doesn't support
-				// prebuilt workload labels), skip the ownership check and allow the
-				// reconcile to continue. This is not a security concern because the
-				// job exists and the adapter simply doesn't implement key derivation.
-				log.V(2).Info("Skipping ownership check: WorkloadKeysFor not supported", "workload", req.NamespacedName, "error", err)
-			} else {
-				ownsWorkload := false
-				for _, k := range keys {
-					if k.Name == wl.Name && k.Namespace == wl.Namespace {
-						ownsWorkload = true
-						break
-					}
+				// If the adapter cannot compute keys, we cannot verify ownership.
+				// We must fail closed to prevent Confused Deputy attacks.
+				if !isDeleted {
+					return reconcile.Result{}, w.updateACS(ctx, wl, mkAc, kueue.CheckStateRejected, fmt.Sprintf("cannot verify ownership: %v", err))
 				}
-				if !ownsWorkload {
-					if !isDeleted {
-						return reconcile.Result{}, w.updateACS(ctx, wl, mkAc, kueue.CheckStateRejected, "Workload is not owned by the referenced Job")
-					}
-					// If deleted and not owned, ignore the deletion to prevent remote Confused Deputy attacks.
-					log.V(2).Info("Spoofed Workload deletion ignored", "workload", req.NamespacedName)
-					w.deletedWlCache.Delete(req.String())
-					return reconcile.Result{}, nil
+				log.V(2).Info("Spoofed Workload deletion ignored due to key derivation error", "workload", req.NamespacedName, "error", err)
+				w.deletedWlCache.Delete(req.String())
+				return reconcile.Result{}, nil
+			}
+
+			ownsWorkload := false
+			for _, k := range keys {
+				if k.Name == wl.Name && k.Namespace == wl.Namespace {
+					ownsWorkload = true
+					break
 				}
+			}
+			if !ownsWorkload {
+				if !isDeleted {
+					return reconcile.Result{}, w.updateACS(ctx, wl, mkAc, kueue.CheckStateRejected, "Workload is not owned by the referenced Job")
+				}
+				// If deleted and not owned, ignore the deletion to prevent remote Confused Deputy attacks.
+				log.V(2).Info("Spoofed Workload deletion ignored", "workload", req.NamespacedName)
+				w.deletedWlCache.Delete(req.String())
+				return reconcile.Result{}, nil
 			}
 		}
 	}
 
-	// If the workload is deleted there is a chance that its owner is also deleted. In that case
-	// we skip calling `IsJobManagedByKueue` as its output would not be reliable.
-	if !isDeleted {
-		managed, unmanagedReason, err := adapter.IsJobManagedByKueue(ctx, w.client, types.NamespacedName{Name: owner.Name, Namespace: wl.Namespace})
-		if err != nil {
-			return reconcile.Result{}, err
-		}
-
-		if !managed {
-			return reconcile.Result{}, w.updateACS(ctx, wl, mkAc, kueue.CheckStateRejected, fmt.Sprintf("The owner is not managed by Kueue: %s", unmanagedReason))
-		}
-	}
 	grp, err := w.readGroup(ctx, wl, mkAc.Name, adapter, owner.Name)
 	if err != nil {
 		return reconcile.Result{}, err

@@ -75,7 +75,8 @@ func TestWlReconcile(t *testing.T) {
 
 	baseWorkloadBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace)
 	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace).Suspend(false)
-	baseJobManagedByKueueBuilder := baseJobBuilder.Clone().ManagedBy(kueue.MultiKueueControllerName)
+	// PrebuiltWorkloadLabel is required for WorkloadKeysFor to succeed in ownership verification.
+	baseJobManagedByKueueBuilder := baseJobBuilder.Clone().ManagedBy(kueue.MultiKueueControllerName).PrebuiltWorkloadLabel("wl1")
 
 	cases := map[string]struct {
 		featureGates map[featuregate.Feature]bool
@@ -2303,7 +2304,9 @@ func TestOrphanedRemoteWorkloadCleanedAfterReconnect(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 
 	baseWorkloadBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace)
-	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace).Suspend(false).ManagedBy(kueue.MultiKueueControllerName)
+	// PrebuiltWorkloadLabel is required so WorkloadKeysFor can derive the owning workload key.
+	// Without it the ownership check fails closed and the test would break.
+	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace).Suspend(false).ManagedBy(kueue.MultiKueueControllerName).PrebuiltWorkloadLabel("wl1")
 
 	managerWl := *baseWorkloadBuilder.Clone().
 		AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
