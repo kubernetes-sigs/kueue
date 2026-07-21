@@ -126,6 +126,60 @@ func TestDefault(t *testing.T) {
 				KueueFinalizer().
 				Obj(),
 		},
+		// A tenant must not be able to dictate the role hash (and therefore the
+		// quota footprint) by pre-setting the role-hash annotation: the webhook
+		// recomputes it from the pod spec for directly-created pods.
+		"managed pod with a spoofed role-hash gets it recomputed from the pod spec": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+			initObjects:  []client.Object{defaultNamespace},
+			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("test-queue").
+				RoleHash("spoofed").
+				Obj(),
+			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("test-queue").
+				ManagedByKueueLabel().
+				KueueSchedulingGate().
+				RoleHash("a9f06f3a").
+				KueueFinalizer().
+				Obj(),
+		},
+		// Pods managed by a Kueue-aware parent carry a PodSet-reference role-hash
+		// set by a trusted reconciler; the webhook must preserve it verbatim.
+		"parent-managed pod keeps its PodSet-reference role-hash": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+			initObjects:  []client.Object{defaultNamespace},
+			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				SuspendedByParent("statefulset").
+				Queue("test-queue").
+				RoleHash("main").
+				Obj(),
+			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				SuspendedByParent("statefulset").
+				Queue("test-queue").
+				KueueSchedulingGate().
+				RoleHash("main").
+				Obj(),
+		},
+		// A pod adopting a prebuilt Workload maps its role-hash onto the PodSet
+		// names the user declared on that Workload, so the webhook must preserve it.
+		"pod adopting a prebuilt workload keeps its declared role-hash": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+			initObjects:  []client.Object{defaultNamespace},
+			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("test-queue").
+				PrebuiltWorkloadLabel("prebuilt-wl").
+				RoleHash("leader").
+				Obj(),
+			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("test-queue").
+				PrebuiltWorkloadLabel("prebuilt-wl").
+				ManagedByKueueLabel().
+				KueueSchedulingGate().
+				RoleHash("leader").
+				KueueFinalizer().
+				Obj(),
+		},
 		"pod with queue matching ns selector": {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			initObjects:  []client.Object{defaultNamespace},
@@ -1022,6 +1076,19 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
 		},
+		"managed pod with a role-hash not matching the pod spec is rejected": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				ManagedByKueueLabel().
+				RoleHash("spoofed").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.annotations[kueue.x-k8s.io/role-hash]",
+				},
+			}.ToAggregate(),
+		},
 	}
 
 	for name, tc := range testCases {
@@ -1337,6 +1404,37 @@ func TestValidateUpdate(t *testing.T) {
 				},
 			}.ToAggregate(),
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+		},
+		// The mutating webhook only runs on CREATE, so a tenant could otherwise
+		// tamper with the role-hash on UPDATE; the validating webhook keeps the
+		// Kueue-managed annotation immutable.
+		"managed pod with a changed role-hash is rejected on update": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			oldPod: testingpod.MakePod("test-pod", "test-ns").
+				ManagedByKueueLabel().
+				RoleHash("a9f06f3a").
+				Obj(),
+			newPod: testingpod.MakePod("test-pod", "test-ns").
+				ManagedByKueueLabel().
+				RoleHash("spoofed").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.annotations[kueue.x-k8s.io/role-hash]",
+				},
+			}.ToAggregate(),
+		},
+		"parent-managed pod with PodSet-reference role-hash is not rejected on update": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			oldPod: testingpod.MakePod("test-pod", "test-ns").
+				SuspendedByParent("statefulset").
+				RoleHash("main").
+				Obj(),
+			newPod: testingpod.MakePod("test-pod", "test-ns").
+				SuspendedByParent("statefulset").
+				RoleHash("main").
+				Obj(),
 		},
 	}
 
