@@ -16,8 +16,7 @@ Please do not remove items from the checklist
   - [ ] Use `/sync-release-notes` to generate and publish the release notes
 - [ ] For major or minor releases (`v$MAJ.$MIN.0`), use the `/create-release-branch` ChatOps command to create a new release branch.
 - [ ] Update the release branch:
-  - [ ] Ensure there are no unstaged changes in your directory (the script adds everything)
-  - [ ] Run `./hack/releasing/prepare_pull.sh --target release $VERSION`
+  - [ ] Run `/prepare-pull release` ChatOps command (or locally: `./hack/releasing/prepare_pull.sh --target release $VERSION`)
   - [ ] Wait for this PR to merge <!-- PREPARE_PULL_RELEASE --> <!-- example #211 -->
 - [ ] Versioned docs are handled automatically during releases -- major, minor, and patch: the
       `main`-update PR from `prepare_pull.sh` runs `hack/releasing/snapshot-docs.py`, which
@@ -45,8 +44,8 @@ Please do not remove items from the checklist
 - [ ] Run the [openvex action](https://github.com/kubernetes-sigs/kueue/actions/workflows/openvex.yaml) to generate openvex data. The action will add the file to the release artifacts.
 - [ ] Run the [SBOM action](https://github.com/kubernetes-sigs/kueue/actions/workflows/sbom.yaml) to generate the SBOM and add it to the release.
 - [ ] Update the `main` branch :
-  - [ ] Run `./hack/releasing/prepare_pull.sh --target main $VERSION`
-        Note: Add --skip-version-updates if a newer minor or major version is already out.
+  - [ ] Run `/prepare-pull main` ChatOps command (or locally: `./hack/releasing/prepare_pull.sh --target main $VERSION`)
+        *Note: The script automatically detects if a newer version is already out and skips version updates if so. Specifying `--skip-version-updates` is not necessary in a default workflow.*
   - [ ] Wait for this PR to merge <!-- PREPARE_PULL_MAIN --> <!-- example #214 -->
   - [ ] Cherry-pick the pull request onto the `website` branch
 - [ ] For major, minor, or patch releases, merge the `main` branch into the `website` branch to publish the updated documentation.
