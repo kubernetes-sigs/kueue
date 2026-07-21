@@ -4469,10 +4469,11 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 			g.Expect(workloads.Items[0].Spec.PodSets[0].Count).Should(gomega.BeEquivalentTo(int32(8)))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-		ginkgo.By("marking part of the job's pods as succeeded")
+		ginkgo.By("marking indexes 0-3 as succeeded")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJob), testJob)).Should(gomega.Succeed())
 			testJob.Status.Succeeded = 4
+			testJob.Status.CompletedIndexes = "0-3"
 			g.Expect(k8sClient.Status().Update(ctx, testJob)).Should(gomega.Succeed())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -4489,36 +4490,96 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 		ginkgo.By("scaling the job down below the succeeded count")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJob), testJob)).Should(gomega.Succeed())
-			testJob.Spec.Parallelism = new(int32(3))
-			testJob.Spec.Completions = new(int32(3))
+			testJob.Spec.Parallelism = ptr.To[int32](3)
+			testJob.Spec.Completions = ptr.To[int32](3)
 			g.Expect(k8sClient.Update(ctx, testJob)).Should(gomega.Succeed())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-		ginkgo.By("the workload converges instead of wedging: podSet shrinks and the scaled-down reclaimable count is corrected to 0")
+		ginkgo.By("the workload converges instead of wedging: podSet shrinks to 3 and the surviving completed indexes (0-2) are reclaimable")
 		gomega.Eventually(func(g gomega.Gomega) {
 			workloads := &kueue.WorkloadList{}
 			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testJob.Namespace))).Should(gomega.Succeed())
 			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
 			wl := &workloads.Items[0]
 			g.Expect(wl.Spec.PodSets[0].Count).Should(gomega.BeEquivalentTo(int32(3)))
-			// Scaling 8->3 removes 5 pods; max(0, 4-5)=0 reclaimable remain, so
-			// quota is charged for the full shrunk podSet rather than leaked
-			// (kueue#12958).
+			// Of the completed indexes 0-3, only 0-2 survive the scale-down to
+			// completions=3, so 3 pods are reclaimable and none are still running
+			// (kueue#13117).
 			g.Expect(wl.Status.ReclaimablePods).Should(gomega.BeComparableTo([]kueue.ReclaimablePod{
-				{Name: kueue.DefaultPodSetName, Count: 0},
+				{Name: kueue.DefaultPodSetName, Count: 3},
 			}))
 			g.Expect(workload.IsAdmitted(wl)).Should(gomega.BeTrue())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 
-	ginkgo.It("Should not release quota for reclaimable pods removed by a scale-down", framework.SlowSpec, func() {
-		// Regression for kueue#12958: scaling a Job down did not lower the
-		// workload's reclaimablePods count by the number of removed pods, so
-		// Kueue kept releasing quota for pods that no longer existed. The Job's
-		// reclaimable count is re-derived from Status.Succeeded on every reconcile,
-		// so the correction must survive that recompute — this reproduces the
-		// exact scenario from the issue (podSet 20, reclaimable 9, scale to 10).
-		testJob := testingjob.MakeJob("scale-down-reclaimable-leak", ns.Name).
+	ginkgo.It("Should not over-reserve quota for a non-indexed Job after a scale-down", framework.SlowSpec, func() {
+		// kueue#13117: for a non-indexed Job status.Succeeded stays accurate across
+		// a scale-down (completed pods are never deleted), so the reclaimable count
+		// must track the pods still running and not over-reserve.
+		testJob := testingjob.MakeJob("scale-down-nonindexed", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Request(corev1.ResourceCPU, "100m").
+			Parallelism(20).
+			Completions(20).
+			Obj()
+
+		ginkgo.By("creating and admitting the job")
+		util.MustCreate(ctx, k8sClient, testJob)
+		gomega.Eventually(func(g gomega.Gomega) {
+			workloads := &kueue.WorkloadList{}
+			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testJob.Namespace))).Should(gomega.Succeed())
+			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
+			g.Expect(workload.IsAdmitted(&workloads.Items[0])).Should(gomega.BeTrue())
+			g.Expect(workloads.Items[0].Spec.PodSets[0].Count).Should(gomega.BeEquivalentTo(int32(20)))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("15 pods succeed -> 5 running, reclaimable 15, quota for 5 pods (500m)")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJob), testJob)).Should(gomega.Succeed())
+			testJob.Status.Succeeded = 15
+			g.Expect(k8sClient.Status().Update(ctx, testJob)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		gomega.Eventually(func(g gomega.Gomega) {
+			workloads := &kueue.WorkloadList{}
+			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testJob.Namespace))).Should(gomega.Succeed())
+			g.Expect(workloads.Items[0].Status.ReclaimablePods).Should(gomega.BeComparableTo([]kueue.ReclaimablePod{
+				{Name: kueue.DefaultPodSetName, Count: 15},
+			}))
+			cq := &kueue.ClusterQueue{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
+			g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total.MilliValue()).Should(gomega.BeEquivalentTo(int64(500)))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("scaling parallelism 20 -> 10; the 5 still-running pods keep exactly their quota (500m), not the full podSet")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJob), testJob)).Should(gomega.Succeed())
+			testJob.Spec.Parallelism = ptr.To[int32](10)
+			g.Expect(k8sClient.Update(ctx, testJob)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		gomega.Eventually(func(g gomega.Gomega) {
+			workloads := &kueue.WorkloadList{}
+			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testJob.Namespace))).Should(gomega.Succeed())
+			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
+			wl := &workloads.Items[0]
+			g.Expect(wl.Spec.PodSets[0].Count).Should(gomega.BeEquivalentTo(int32(10)))
+			g.Expect(wl.Status.ReclaimablePods).Should(gomega.BeComparableTo([]kueue.ReclaimablePod{
+				{Name: kueue.DefaultPodSetName, Count: 5},
+			}))
+			g.Expect(workload.IsAdmitted(wl)).Should(gomega.BeTrue())
+			cq := &kueue.ClusterQueue{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
+			g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total.MilliValue()).Should(gomega.BeEquivalentTo(int64(500)))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("Should derive reclaimable pods from completedIndexes while status.Succeeded is stale after scale-down", framework.SlowSpec, func() {
+		// kueue#13117: shrinking completions makes status.Succeeded briefly
+		// over-count the removed high indexes until the Job controller recounts
+		// it. Deriving the reclaimable count from completedIndexes capped at the
+		// current completions gives the correct value immediately, avoiding a
+		// quota leak for the surviving running pods.
+		testJob := testingjob.MakeJob("scale-down-stale-succeeded", ns.Name).
 			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 			SetAnnotation(workloadjob.JobCompletionsEqualParallelismAnnotation, "true").
 			Queue(kueue.LocalQueueName(localQueue.Name)).
@@ -4528,44 +4589,33 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 			Completions(20).
 			Obj()
 
-		ginkgo.By("creating a job")
+		ginkgo.By("creating and admitting the job")
 		util.MustCreate(ctx, k8sClient, testJob)
-
-		ginkgo.By("admitting the job's workload")
 		gomega.Eventually(func(g gomega.Gomega) {
 			workloads := &kueue.WorkloadList{}
 			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testJob.Namespace))).Should(gomega.Succeed())
 			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
 			g.Expect(workload.IsAdmitted(&workloads.Items[0])).Should(gomega.BeTrue())
-			g.Expect(workloads.Items[0].Spec.PodSets[0].Count).Should(gomega.BeEquivalentTo(int32(20)))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-		ginkgo.By("9 pods succeed -> reclaimable 9, quota released for those 9 (11 pods charged)")
+		ginkgo.By("scaling down to 10; completedIndexes is pruned to 5-9 but status.Succeeded stays stale at 15")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJob), testJob)).Should(gomega.Succeed())
-			testJob.Status.Succeeded = 9
-			g.Expect(k8sClient.Status().Update(ctx, testJob)).Should(gomega.Succeed())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		gomega.Eventually(func(g gomega.Gomega) {
-			workloads := &kueue.WorkloadList{}
-			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testJob.Namespace))).Should(gomega.Succeed())
-			g.Expect(workloads.Items[0].Status.ReclaimablePods).Should(gomega.BeComparableTo([]kueue.ReclaimablePod{
-				{Name: kueue.DefaultPodSetName, Count: 9},
-			}))
-			cq := &kueue.ClusterQueue{}
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
-			g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total.MilliValue()).Should(gomega.BeEquivalentTo(int64(1100)))
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-		ginkgo.By("scaling the job down 20 -> 10 (removing 10 pods)")
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJob), testJob)).Should(gomega.Succeed())
-			testJob.Spec.Parallelism = new(int32(10))
-			testJob.Spec.Completions = new(int32(10))
+			testJob.Spec.Parallelism = ptr.To[int32](10)
+			testJob.Spec.Completions = ptr.To[int32](10)
 			g.Expect(k8sClient.Update(ctx, testJob)).Should(gomega.Succeed())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJob), testJob)).Should(gomega.Succeed())
+			// The Kubernetes API keeps completedIndexes within completions, so the
+			// removed indexes 10-19 are pruned to leave 5-9; status.Succeeded is
+			// deliberately left stale at 15 (the pre-recount over-count).
+			testJob.Status.Succeeded = 15
+			testJob.Status.CompletedIndexes = "5-9"
+			g.Expect(k8sClient.Status().Update(ctx, testJob)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-		ginkgo.By("reclaimable drops to max(0, 9-10)=0 and stays there; full 10 pods are charged")
+		ginkgo.By("reclaimable is 5 (from completedIndexes 5-9), not derived from the stale Succeeded=15; the 5 running pods (0-4) keep quota (500m)")
 		gomega.Eventually(func(g gomega.Gomega) {
 			workloads := &kueue.WorkloadList{}
 			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testJob.Namespace))).Should(gomega.Succeed())
@@ -4573,25 +4623,13 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 			wl := &workloads.Items[0]
 			g.Expect(wl.Spec.PodSets[0].Count).Should(gomega.BeEquivalentTo(int32(10)))
 			g.Expect(wl.Status.ReclaimablePods).Should(gomega.BeComparableTo([]kueue.ReclaimablePod{
-				{Name: kueue.DefaultPodSetName, Count: 0},
+				{Name: kueue.DefaultPodSetName, Count: 5},
 			}))
 			g.Expect(workload.IsAdmitted(wl)).Should(gomega.BeTrue())
 			cq := &kueue.ClusterQueue{}
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
-			g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total.MilliValue()).Should(gomega.BeEquivalentTo(int64(1000)))
+			g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total.MilliValue()).Should(gomega.BeEquivalentTo(int64(500)))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		ginkgo.By("the corrected reclaimable count is stable (not re-inflated by the recompute)")
-		gomega.Consistently(func(g gomega.Gomega) {
-			workloads := &kueue.WorkloadList{}
-			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testJob.Namespace))).Should(gomega.Succeed())
-			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
-			g.Expect(workloads.Items[0].Status.ReclaimablePods).Should(gomega.BeComparableTo([]kueue.ReclaimablePod{
-				{Name: kueue.DefaultPodSetName, Count: 0},
-			}))
-			cq := &kueue.ClusterQueue{}
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
-			g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total.MilliValue()).Should(gomega.BeEquivalentTo(int64(1000)))
-		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("Should cap elastic pod ungating to the granted quota", framework.SlowSpec, func() {
