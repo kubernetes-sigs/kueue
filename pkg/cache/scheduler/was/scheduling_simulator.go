@@ -68,6 +68,11 @@ func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (simulator.Sc
 		return nil, err
 	}
 
+	// Use a fake client to not maintain any informer stores for the integration,
+	// as the plugins that are currently in use do not require any state.
+	// In the future, when using plugins like DRA, which rely on the informers,
+	// the InformerFactory has to be properly populated (for example by passing `nil`
+	// to `NewSchedulingSimulator`, which instantiates the default informers).
 	fakeClient := fake.NewSimpleClientset()
 	informerFactory := informers.NewSharedInformerFactory(fakeClient, 0)
 
