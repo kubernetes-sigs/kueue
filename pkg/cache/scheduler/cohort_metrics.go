@@ -137,7 +137,11 @@ func (c *Cache) applyCohortMetricPoint(p cohortMetricPoint) {
 	if p.reservationsQty <= 0 {
 		metrics.ClearCohortSubtreeResourceReservations(p.cohortName, flavor, resource)
 	} else {
-		metrics.ReportCohortSubtreeResourceReservations(p.cohortName, flavor, resource, resourceFloat(c.resourceFormatter, resource, p.reservationsQty), c.customLabels.CohortGet(p.cohortName), c.roleTracker)
+		metrics.ReportCohortSubtreeResourceReservations(
+			p.cohortName, flavor, resource,
+			resourceFloat(c.resourceFormatter, resource, p.reservationsQty),
+			c.customLabels.CohortGet(p.cohortName), c.roleTracker,
+		)
 	}
 }
 

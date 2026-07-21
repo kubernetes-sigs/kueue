@@ -5623,7 +5623,10 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 				siblingSnapshot.AddUsage(workload.Usage{Quota: usage})
 			}
 
-			assigner := New(wlInfo, cqSnapshot, testFlavors, false, &testOracle{simulationResult: tc.simulationResult}, tc.replaceWl, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter())
+			assigner := New(
+				wlInfo, cqSnapshot, testFlavors, false, &testOracle{simulationResult: tc.simulationResult},
+				tc.replaceWl, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(),
+			)
 			gotAssignment := assigner.Assign(log, nil)
 
 			if gotAssignment.NoFitReason != tc.wantNoFitReason {
