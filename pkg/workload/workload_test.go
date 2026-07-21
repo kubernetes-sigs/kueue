@@ -45,8 +45,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
-	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
@@ -3332,9 +3332,9 @@ func TestCalcLocalQueueFSUsage(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	errOther := errors.New("other error")
 	cases := map[string]struct {
-		err          error
-		wantUsage    float64
-		wantErr      error
+		err       error
+		wantUsage float64
+		wantErr   error
 	}{
 		"not found error": {
 			err:       apierrors.NewNotFound(schema.GroupResource{Resource: "localqueues"}, "lq"),
@@ -3359,20 +3359,20 @@ func TestCalcLocalQueueFSUsage(t *testing.T) {
 				Build()
 
 			info := NewInfo(wl)
-			
+
 			resWeights := map[corev1.ResourceName]float64{corev1.ResourceCPU: 5.0}
-			
+
 			afsConsumed := queueafs.NewAfsConsumedResources()
 			afsConsumed.Set(utilqueue.KeyFromWorkload(wl), corev1.ResourceList{
 				corev1.ResourceCPU: resource.MustParse("10"),
 			}, time.Now())
 
 			usage, err := info.CalcLocalQueueFSUsage(ctx, cl, resWeights, nil, afsConsumed)
-			
+
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
 			}
-			
+
 			if usage != tc.wantUsage {
 				t.Errorf("CalcLocalQueueFSUsage() = %v, want %v", usage, tc.wantUsage)
 			}
