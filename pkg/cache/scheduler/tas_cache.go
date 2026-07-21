@@ -52,7 +52,7 @@ func NewTASCache(client client.Client, resourceFormatter *resources.ResourceForm
 		resourceFormatter: resourceFormatter,
 		nonTasUsageCache: &nonTasUsageCache{
 			podUsage:  make(map[types.NamespacedName]podUsageValue),
-			nodeUsage: make(map[string]resources.Requests),
+			nodeUsage: make(map[string]resources.MapRequests),
 			lock:      sync.RWMutex{},
 		},
 		nodesCache: newNodesCache(),
