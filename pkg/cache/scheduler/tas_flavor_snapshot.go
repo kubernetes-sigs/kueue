@@ -954,11 +954,11 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		stats: &tasExclusionStats{},
 	}
 	requirements.requests = workersTasPodSetRequests.SinglePodRequests.Clone()
-	requirements.requests.Add(resources.MapRequests{corev1.ResourcePods: 1})
+	requirements.requests.Add(resources.OnePodRequest)
 
 	if leaderTasPodSetRequests != nil {
 		requirements.leaderRequests = leaderTasPodSetRequests.SinglePodRequests.Clone()
-		requirements.leaderRequests.Add(resources.MapRequests{corev1.ResourcePods: 1})
+		requirements.leaderRequests.Add(resources.OnePodRequest)
 		state.leaderCount = 1
 	}
 
