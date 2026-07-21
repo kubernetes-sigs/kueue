@@ -541,6 +541,46 @@ func TestLazyRequests(t *testing.T) {
 	}
 }
 
+func TestFloorToZero(t *testing.T) {
+	cases := map[string]struct {
+		requests MapRequests
+		want     MapRequests
+	}{
+		"empty": {
+			requests: MapRequests{},
+			want:     MapRequests{},
+		},
+		"negative floored to zero": {
+			requests: MapRequests{
+				corev1.ResourceCPU:    -100,
+				corev1.ResourceMemory: 1024,
+			},
+			want: MapRequests{
+				corev1.ResourceCPU:    0,
+				corev1.ResourceMemory: 1024,
+			},
+		},
+		"zero and positive unchanged": {
+			requests: MapRequests{
+				corev1.ResourceCPU:    0,
+				corev1.ResourceMemory: 1024,
+			},
+			want: MapRequests{
+				corev1.ResourceCPU:    0,
+				corev1.ResourceMemory: 1024,
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			tc.requests.FloorToZero()
+			if diff := cmp.Diff(tc.want, tc.requests); diff != "" {
+				t.Errorf("unexpected result (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestMapRequestsLen(t *testing.T) {
 	cases := map[string]struct {
 		req  MapRequests
