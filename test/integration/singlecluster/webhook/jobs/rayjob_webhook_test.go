@@ -19,8 +19,11 @@ package jobs
 import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
@@ -105,6 +108,22 @@ var _ = ginkgo.Describe("RayJob Webhook", func() {
 			// no clusterSelector + RayClusterSpec present -> valid, full validation runs
 			// MakeJob() creates a valid RayClusterSpec by default
 			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("should reject removing the queue name from a running RayJob", func() {
+			job := testingjob.MakeJob("rayjob-queue-removal", ns.Name).Queue("queue-name").Obj()
+			util.MustCreate(ctx, k8sClient, job)
+
+			lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
+			createdJob := &rayv1.RayJob{}
+			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+
+			// Simulate a running workload dropping its queue name to escape Kueue.
+			delete(createdJob.Labels, constants.QueueLabel)
+			createdJob.Spec.Suspend = false
+			err := k8sClient.Update(ctx, createdJob)
+			gomega.Expect(err).Should(gomega.HaveOccurred())
+			gomega.Expect(err).Should(utiltesting.BeForbiddenError())
 		})
 	})
 })
