@@ -74,6 +74,10 @@ type JobWithPodLabelSelector interface {
 
 type JobWithReclaimablePods interface {
 	// ReclaimablePods returns the list of reclaimable pods.
+	//
+	// Note: for Jobs with ordered Pods that support elastic scaling, implementations
+	// must account for which ranks remain after scaling down to prevent quota leaks.
+	// See the batch Job implementation and kueue#12958, kueue#13117.
 	ReclaimablePods(ctx context.Context) ([]kueue.ReclaimablePod, error)
 }
 
