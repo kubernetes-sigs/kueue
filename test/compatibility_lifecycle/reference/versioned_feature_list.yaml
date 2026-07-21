@@ -357,6 +357,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.17"
+- name: RetryProvisioningDueInconsistentPodTemplate
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
 - name: SchedulerLibraryIntegration
   versionedSpecs:
   - default: false

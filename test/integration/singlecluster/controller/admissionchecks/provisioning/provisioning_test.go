@@ -27,9 +27,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	eventsv1 "k8s.io/api/events/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -243,6 +245,116 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 				gomega.Consistently(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
 				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("Should Retry the admission check when a pre-existing PodTemplate at the predictable name differs", framework.SlowSpec, func() {
+			ginkgo.By("Configuring short backoff so the next admit can be exercised", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prc), prc)).To(gomega.Succeed())
+					prc.Spec.RetryStrategy.BackoffLimitCount = ptr.To[int32](1)
+					prc.Spec.RetryStrategy.BackoffBaseSeconds = ptr.To[int32](2)
+					g.Expect(k8sClient.Update(ctx, prc)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ptName := fmt.Sprintf("ppt-%s-ps1", provReqKey.Name)
+
+			ginkgo.By("Pre-creating a PodTemplate at the deterministic name with divergent resource requests", func() {
+				foreign := utiltesting.MakePodTemplate(ptName, ns.Name).
+					Containers(corev1.Container{
+						Name:  "c",
+						Image: "image",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								resourceGPU: resource.MustParse("1000"),
+							},
+							Limits: corev1.ResourceList{
+								resourceGPU: resource.MustParse("1000"),
+							},
+						},
+					}).
+					Obj()
+				util.MustCreate(ctx, k8sClient, foreign)
+			})
+
+			ginkgo.By("Setting the quota reservation to the workload", func() {
+				util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+			})
+
+			ginkgo.By("Checking that the admission check is set to Retry and no ProvisioningRequest is created", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
+					state := admissioncheck.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
+					g.Expect(state).NotTo(gomega.BeNil())
+					g.Expect(state.State).To(gomega.Equal(kueue.CheckStateRetry))
+					g.Expect(state.Message).To(gomega.ContainSubstring("differs from the expected Kueue-derived contents"))
+					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(utiltesting.BeNotFoundError())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that the pre-existing PodTemplate was left unchanged", func() {
+				createdTemplate := &corev1.PodTemplate{}
+				templateKey := types.NamespacedName{Namespace: ns.Name, Name: ptName}
+				gomega.Expect(k8sClient.Get(ctx, templateKey, createdTemplate)).Should(gomega.Succeed())
+				gomega.Expect(createdTemplate.Template.Spec.Containers[0].Resources.Requests).To(gomega.HaveKey(resourceGPU))
+			})
+
+			ginkgo.By("Checking the Workload is Evicted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
+					_, evicted := workloadevict.IsEvictedByAdmissionCheck(&updatedWl)
+					g.Expect(evicted).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking the AdmissionCheck reset to Pending", func() {
+				util.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStatePending)
+			})
+
+			ginkgo.By("Simulating job controller clearing quota reservation (Requeued=False, QuotaReserved=False)", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
+					apimeta.SetStatusCondition(&updatedWl.Status.Conditions, metav1.Condition{
+						Type:   kueue.WorkloadRequeued,
+						Status: metav1.ConditionFalse,
+						Reason: kueue.WorkloadEvictedByAdmissionCheck,
+					})
+					apimeta.SetStatusCondition(&updatedWl.Status.Conditions, metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionFalse,
+						Reason: kueue.WorkloadEvictedByAdmissionCheck,
+					})
+					g.Expect(k8sClient.Status().Update(ctx, &updatedWl)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking the workload is requeued after RequeueAfterSeconds", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
+					g.Expect(updatedWl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadRequeued))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Setting the quota reservation to the workload for the next attempt", func() {
+				util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+			})
+
+			provReqKeyAttempt2 := types.NamespacedName{
+				Namespace: wlKey.Namespace,
+				Name:      provisioning.ProvisioningRequestName(wlKey.Name, kueue.AdmissionCheckReference(ac.Name), 2),
+			}
+			ginkgo.By("Checking that the next Admit creates the ProvisioningRequest and PodTemplates successfully", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, provReqKeyAttempt2, &createdRequest)).Should(gomega.Succeed())
+					g.Expect(createdRequest.Spec.PodSets).NotTo(gomega.BeEmpty())
+					for _, ps := range createdRequest.Spec.PodSets {
+						createdTemplate := &corev1.PodTemplate{}
+						templateKey := types.NamespacedName{Namespace: ns.Name, Name: ps.PodTemplateRef.Name}
+						g.Expect(k8sClient.Get(ctx, templateKey, createdTemplate)).Should(gomega.Succeed())
+						g.Expect(createdTemplate.ObjectMeta.GetLabels()).To(gomega.HaveKeyWithValue(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue))
+					}
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 
