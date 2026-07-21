@@ -31,7 +31,7 @@ HELM="$ROOT_DIR/bin/helm"
 echo "Ensuring tools are available..."
 cd "$ROOT_DIR"
 # Pass explicit versions to bypass broken 'go list' in hack/tools
-make kind helm KIND_VERSION=v0.24.0 HELM_VERSION=v3.16.2
+make kind helm KIND_VERSION=v0.32.0 HELM_VERSION=v4.2.0
 cd "$SCRIPT_DIR/.."
 
 function cleanup {
