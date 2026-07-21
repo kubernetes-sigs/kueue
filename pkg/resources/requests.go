@@ -34,14 +34,6 @@ import (
 // MapRequests maps ResourceName to flavor to value; for CPU it is tracked in MilliCPU.
 type MapRequests map[corev1.ResourceName]int64
 
-func (r MapRequests) IsNil() bool {
-	return r == nil
-}
-
-func (r MapRequests) IsEmpty() bool {
-	return len(r) == 0
-}
-
 func (r MapRequests) ForEach(fn func(name corev1.ResourceName, val int64)) {
 	for k, v := range r {
 		fn(k, v)

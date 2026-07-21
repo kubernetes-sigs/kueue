@@ -54,7 +54,7 @@ func NewTASCache(client client.Client, schedulingSimulator simulator.SchedulingS
 		resourceFormatter: resourceFormatter,
 		nonTasUsageCache: &nonTasUsageCache{
 			podUsage:  make(map[types.NamespacedName]podUsageValue),
-			nodeUsage: make(map[string]resources.MapRequests),
+			nodeUsage: make(map[string]resources.Requests),
 			lock:      sync.RWMutex{},
 		},
 		nodesCache:          newNodesCache(),
