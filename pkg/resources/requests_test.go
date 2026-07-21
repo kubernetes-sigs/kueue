@@ -528,3 +528,127 @@ func TestLazyRequests(t *testing.T) {
 		})
 	}
 }
+
+func TestMapRequestsLen(t *testing.T) {
+	cases := map[string]struct {
+		req  MapRequests
+		want int
+	}{
+		"nil map": {
+			req:  nil,
+			want: 0,
+		},
+		"empty map": {
+			req:  MapRequests{},
+			want: 0,
+		},
+		"single resource": {
+			req:  MapRequests{corev1.ResourceCPU: 1000},
+			want: 1,
+		},
+		"multiple resources": {
+			req:  MapRequests{corev1.ResourceCPU: 1000, corev1.ResourceMemory: 1024, corev1.ResourcePods: 1},
+			want: 3,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := tc.req.Len(); got != tc.want {
+				t.Errorf("unexpected Len(), want=%d, got=%d", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestMapRequestsIsEmpty(t *testing.T) {
+	cases := map[string]struct {
+		req  MapRequests
+		want bool
+	}{
+		"nil map": {
+			req:  nil,
+			want: true,
+		},
+		"empty map": {
+			req:  MapRequests{},
+			want: true,
+		},
+		"non-empty map": {
+			req:  MapRequests{corev1.ResourceCPU: 1000},
+			want: false,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := tc.req.IsEmpty(); got != tc.want {
+				t.Errorf("unexpected IsEmpty(), want=%t, got=%t", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestMapRequestsGetValue(t *testing.T) {
+	cases := map[string]struct {
+		req      MapRequests
+		resource corev1.ResourceName
+		want     int64
+	}{
+		"nil map": {
+			req:      nil,
+			resource: corev1.ResourceCPU,
+			want:     0,
+		},
+		"empty map": {
+			req:      MapRequests{},
+			resource: corev1.ResourceCPU,
+			want:     0,
+		},
+		"missing resource": {
+			req:      MapRequests{corev1.ResourceMemory: 1024},
+			resource: corev1.ResourceCPU,
+			want:     0,
+		},
+		"existing resource": {
+			req:      MapRequests{corev1.ResourceCPU: 1000},
+			resource: corev1.ResourceCPU,
+			want:     1000,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := tc.req.GetValue(tc.resource); got != tc.want {
+				t.Errorf("unexpected GetValue(), want=%d, got=%d", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestMapRequestsClone(t *testing.T) {
+	t.Run("nil map clone", func(t *testing.T) {
+		var m MapRequests
+		cloned := m.Clone()
+		if cloned != nil && !cloned.IsEmpty() {
+			t.Errorf("expected empty clone for nil map, got %v", cloned)
+		}
+	})
+
+	t.Run("empty map clone", func(t *testing.T) {
+		m := MapRequests{}
+		cloned := m.Clone()
+		if cloned != nil && !cloned.IsEmpty() {
+			t.Errorf("expected empty clone, got %v", cloned)
+		}
+	})
+
+	t.Run("non-empty map clone", func(t *testing.T) {
+		m := MapRequests{corev1.ResourceCPU: 1000}
+		cloned := m.Clone()
+		if !cmp.Equal(m, cloned) {
+			t.Errorf("cloned map mismatch (-want +got):\n%s", cmp.Diff(m, cloned))
+		}
+		cloned.Add(MapRequests{corev1.ResourceMemory: 1024})
+		if m.GetValue(corev1.ResourceMemory) != 0 {
+			t.Errorf("original map was mutated after modifying clone")
+		}
+	})
+}
