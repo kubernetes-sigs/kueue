@@ -31,7 +31,7 @@ HELM="$ROOT_DIR/bin/helm"
 echo "Ensuring tools are available..."
 cd "$ROOT_DIR"
 # Pass explicit versions to bypass broken 'go list' in hack/tools
-make kind helm KIND_VERSION=v0.24.0 HELM_VERSION=v4.2.0
+make kind helm KIND_VERSION=v0.32.0 HELM_VERSION=v4.2.0
 cd "$SCRIPT_DIR/.."
 
 function cleanup {
@@ -43,7 +43,11 @@ trap cleanup EXIT
 echo "Creating Kind cluster..."
 # Delete existing cluster if any
 "$KIND" delete cluster --name "$KIND_CLUSTER_NAME" 2>/dev/null || true
-"$KIND" create cluster --name "$KIND_CLUSTER_NAME"
+if [[ -n "${E2E_KIND_VERSION:-}" ]]; then
+  "$KIND" create cluster --name "$KIND_CLUSTER_NAME" --image "$E2E_KIND_VERSION"
+else
+  "$KIND" create cluster --name "$KIND_CLUSTER_NAME"
+fi
 
 echo "Building and loading kueue-populator image..."
 make kind-image-build
