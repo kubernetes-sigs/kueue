@@ -48,6 +48,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -80,7 +81,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 		fwk.StartManager(ctx, cfg, managerSetup(
 			jobframework.WithManageJobsWithoutQueueName(true),
 			jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding("unmanaged-ns")),
-			jobframework.WithLabelKeysToCopy([]string{"toCopyKey"}),
+			jobframework.WithLabelKeysToCopy(sets.New("toCopyKey")),
 		))
 		unmanagedNamespace := utiltesting.MakeNamespace("unmanaged-ns")
 		util.MustCreate(ctx, k8sClient, unmanagedNamespace)
@@ -146,7 +147,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 		})
 
 		gomega.Expect(createdWorkload.Labels["toCopyKey"]).Should(gomega.Equal("toCopyValue"))
-		gomega.Expect(createdWorkload.Labels).ShouldNot(gomega.ContainElement("doNotCopyValue"))
+		gomega.Expect(createdWorkload.Labels).ShouldNot(gomega.HaveKey("doNotCopyValue"))
 
 		ginkgo.By("checking the workload is updated with queue name when the job does")
 		var jobQueueName kueue.LocalQueueName = "test-queue"
@@ -5451,5 +5452,72 @@ var _ = ginkgo.Describe("Job reconciliation", ginkgo.Ordered, func() {
 				g.Expect(createdWorkloads.Items).To(gomega.HaveLen(1))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
+	})
+})
+
+var _ = ginkgo.Describe("Job controller with CustomMetricLabels", ginkgo.Label("job:batch", "area:jobs"), func() {
+	var (
+		ns *corev1.Namespace
+	)
+
+	ginkgo.BeforeEach(func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, true)
+		configuration := &configapi.Configuration{
+			ControllerManager: configapi.ControllerManager{
+				Metrics: configapi.ControllerMetrics{
+					CustomLabels: []configapi.ControllerMetricsCustomLabel{
+						{
+							Name:           "custom_label_key",
+							SourceLabelKey: "job-label",
+							SourceKind:     ptr.To(configapi.SourceKindWorkload),
+							TrackedValues:  []string{"label-value"},
+						},
+						{
+							Name:                "custom_annotation_key",
+							SourceAnnotationKey: "job-annotation",
+							SourceKind:          ptr.To(configapi.SourceKindWorkload),
+							TrackedValues:       []string{"annotation-value"},
+						},
+					},
+				},
+			},
+		}
+
+		labelKeysToCopy, annotationsToCopy := metrics.WorkloadCustomLabelSources(configuration.Metrics.CustomLabels)
+		fwk.StartManager(ctx, cfg, managerAndControllersSetup(false, false, configuration,
+			jobframework.WithLabelKeysToCopy(labelKeysToCopy),
+			jobframework.WithAnnotationsToCopy(annotationsToCopy),
+		))
+
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-metric-labels-")
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.It("should create workloads with copied labels and annotations based on CustomMetricLabels configuration", func() {
+		ginkgo.By("creating a job with configured labels and annotations")
+		job := testingjob.MakeJob("test-job-custom-labels", ns.Name).
+			Queue("foo").
+			Label("job-label", "label-value").
+			Label("dont-copy-label", "ignored").
+			SetAnnotation("job-annotation", "annotation-value").
+			SetAnnotation("dont-copy-annotation", "ignored").
+			Obj()
+		gomega.Expect(k8sClient.Create(ctx, job)).To(gomega.Succeed())
+
+		ginkgo.By("verifying the workload is created with the copied label and annotation")
+		wl := &kueue.Workload{}
+		wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: ns.Name}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		gomega.Expect(wl.Labels).Should(gomega.HaveKeyWithValue("job-label", "label-value"))
+		gomega.Expect(wl.Labels).ShouldNot(gomega.HaveKey("dont-copy-label"))
+		gomega.Expect(wl.Annotations).Should(gomega.HaveKeyWithValue("job-annotation", "annotation-value"))
+		gomega.Expect(wl.Annotations).ShouldNot(gomega.HaveKey("dont-copy-annotation"))
 	})
 })

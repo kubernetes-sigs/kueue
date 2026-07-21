@@ -100,7 +100,8 @@ type JobReconciler struct {
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
 	waitForPodsReady             bool
-	labelKeysToCopy              []string
+	labelKeysToCopy              sets.Set[string]
+	annotationsToCopy            sets.Set[string]
 	clock                        clock.Clock
 	workloadRetentionPolicy      WorkloadRetentionPolicy
 	roleTracker                  *roletracker.RoleTracker
@@ -121,7 +122,8 @@ type Options struct {
 	EnabledFrameworks            sets.Set[string]
 	EnabledExternalFrameworks    sets.Set[string]
 	ManagerName                  string
-	LabelKeysToCopy              []string
+	LabelKeysToCopy              sets.Set[string]
+	AnnotationsToCopy            sets.Set[string]
 	Queues                       *qcache.Manager
 	Cache                        *schdcache.Cache
 	Clock                        clock.Clock
@@ -200,9 +202,16 @@ func WithManagerName(n string) Option {
 }
 
 // WithLabelKeysToCopy adds the label keys
-func WithLabelKeysToCopy(n []string) Option {
+func WithLabelKeysToCopy(s sets.Set[string]) Option {
 	return func(o *Options) {
-		o.LabelKeysToCopy = n
+		o.LabelKeysToCopy = s
+	}
+}
+
+// WithAnnotationsToCopy adds the annotation keys
+func WithAnnotationsToCopy(s sets.Set[string]) Option {
+	return func(o *Options) {
+		o.AnnotationsToCopy = s
 	}
 }
 
@@ -276,6 +285,7 @@ func NewReconciler(
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 		waitForPodsReady:             options.WaitForPodsReady,
 		labelKeysToCopy:              options.LabelKeysToCopy,
+		annotationsToCopy:            options.AnnotationsToCopy,
 		clock:                        options.Clock,
 		workloadRetentionPolicy:      options.WorkloadRetentionPolicy,
 		roleTracker:                  options.RoleTracker,
@@ -1413,13 +1423,13 @@ func (r *JobReconciler) finalizeJob(ctx context.Context, job GenericJob) error {
 // constructWorkload will derive a workload from the corresponding job.
 func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob) (*kueue.Workload, error) {
 	if cj, implements := job.(ComposableJob); implements {
-		wl, err := cj.ConstructComposableWorkload(ctx, r.client, r.record, r.labelKeysToCopy)
+		wl, err := cj.ConstructComposableWorkload(ctx, r.client, r.record, r.labelKeysToCopy, r.annotationsToCopy)
 		if err != nil {
 			return nil, err
 		}
 		return wl, nil
 	}
-	return ConstructWorkload(ctx, r.client, job, r.labelKeysToCopy)
+	return ConstructWorkload(ctx, r.client, job, r.labelKeysToCopy, r.annotationsToCopy)
 }
 
 // newWorkloadName generates a new workload name for the given job, incorporating the job's name, UID,
@@ -1439,7 +1449,7 @@ func newWorkloadName(job GenericJob) string {
 	return GetWorkloadNameForOwnerWithGVK(object.GetName(), object.GetUID(), job.GVK())
 }
 
-func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, labelKeysToCopy []string) (*kueue.Workload, error) {
+func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, labelKeysToCopy, annotationsToCopy sets.Set[string]) (*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
 	object := job.Object()
 
@@ -1448,7 +1458,7 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 		return nil, err
 	}
 
-	wl := NewWorkload(newWorkloadName(job), object, podSets, labelKeysToCopy)
+	wl := NewWorkload(newWorkloadName(job), object, podSets, labelKeysToCopy, annotationsToCopy)
 	if wl.Labels == nil {
 		wl.Labels = make(map[string]string)
 	}
