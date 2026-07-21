@@ -50,7 +50,7 @@ func NewTASCache(client client.Client) tasCache {
 		flavorCache: make(map[kueue.ResourceFlavorReference]*TASFlavorCache),
 		nonTasUsageCache: &nonTasUsageCache{
 			podUsage:  make(map[types.NamespacedName]podUsageValue),
-			nodeUsage: make(map[string]resources.Requests),
+			nodeUsage: make(map[string]resources.MapRequests),
 			lock:      sync.RWMutex{},
 		},
 		nodesCache: newNodesCache(),

@@ -34,10 +34,10 @@ import (
 // and verifies it matches the incremental nodeUsage.
 func verifyNodeUsageConsistency(t *testing.T, cache *nonTasUsageCache) {
 	t.Helper()
-	expected := make(map[string]resources.Requests)
+	expected := make(map[string]resources.MapRequests)
 	for _, pv := range cache.podUsage {
 		if _, found := expected[pv.node]; !found {
-			expected[pv.node] = resources.Requests{}
+			expected[pv.node] = resources.MapRequests{}
 		}
 		expected[pv.node].Add(pv.usage)
 		expected[pv.node][corev1.ResourcePods]++
@@ -48,9 +48,9 @@ func verifyNodeUsageConsistency(t *testing.T, cache *nonTasUsageCache) {
 	}
 }
 
-func collectNodeUsage(cache *nonTasUsageCache) map[string]resources.Requests {
-	usage := map[string]resources.Requests{}
-	cache.forEachNodeUsage(func(node string, reqs resources.Requests) {
+func collectNodeUsage(cache *nonTasUsageCache) map[string]resources.MapRequests {
+	usage := map[string]resources.MapRequests{}
+	cache.forEachNodeUsage(func(node string, reqs resources.MapRequests) {
 		usage[node] = reqs.Clone()
 	})
 	return usage
@@ -83,7 +83,7 @@ func TestNonTasUsageCacheIncrementalUpdates(t *testing.T) {
 		// podsDelete is the set of pod keys to delete from the cache after
 		// initialPods are applied (and after podsUpdate, if any).
 		podsDelete    []client.ObjectKey
-		wantNodeUsage map[string]resources.Requests
+		wantNodeUsage map[string]resources.MapRequests
 	}{
 		"add then delete same pod": {
 			initialPods: []*corev1.Pod{makePod("pod1", "ns", "node-a", "2")},
@@ -94,7 +94,7 @@ func TestNonTasUsageCacheIncrementalUpdates(t *testing.T) {
 				makePod("pod1", "ns", "node-a", "1"),
 				makePod("pod2", "ns", "node-a", "2"),
 			},
-			wantNodeUsage: map[string]resources.Requests{
+			wantNodeUsage: map[string]resources.MapRequests{
 				"node-a": {corev1.ResourceCPU: 3000, corev1.ResourcePods: 2},
 			},
 		},
@@ -103,7 +103,7 @@ func TestNonTasUsageCacheIncrementalUpdates(t *testing.T) {
 			podsUpdate: func(pods []*corev1.Pod) {
 				pods[0].Spec.NodeName = "node-b"
 			},
-			wantNodeUsage: map[string]resources.Requests{
+			wantNodeUsage: map[string]resources.MapRequests{
 				"node-b": {corev1.ResourceCPU: 4000, corev1.ResourcePods: 1},
 			},
 		},
@@ -112,7 +112,7 @@ func TestNonTasUsageCacheIncrementalUpdates(t *testing.T) {
 			podsUpdate: func(pods []*corev1.Pod) {
 				pods[0].Spec.Containers[0].Resources.Requests[corev1.ResourceCPU] = resource.MustParse("4")
 			},
-			wantNodeUsage: map[string]resources.Requests{
+			wantNodeUsage: map[string]resources.MapRequests{
 				"node-a": {corev1.ResourceCPU: 4000, corev1.ResourcePods: 1},
 			},
 		},
@@ -124,7 +124,7 @@ func TestNonTasUsageCacheIncrementalUpdates(t *testing.T) {
 			podsUpdate: func(pods []*corev1.Pod) {
 				pods[0].Spec.Containers[0].Resources.Requests[corev1.ResourceCPU] = resource.MustParse("3")
 			},
-			wantNodeUsage: map[string]resources.Requests{
+			wantNodeUsage: map[string]resources.MapRequests{
 				"node-a": {corev1.ResourceCPU: 5000, corev1.ResourcePods: 2},
 			},
 		},
@@ -143,7 +143,7 @@ func TestNonTasUsageCacheIncrementalUpdates(t *testing.T) {
 				makePod("pod2", "ns", "node-a", "1"),
 			},
 			podsDelete: []client.ObjectKey{{Namespace: "ns", Name: "pod1"}},
-			wantNodeUsage: map[string]resources.Requests{
+			wantNodeUsage: map[string]resources.MapRequests{
 				"node-a": {corev1.ResourceCPU: 1000, corev1.ResourcePods: 1},
 			},
 		},
@@ -164,7 +164,7 @@ func TestNonTasUsageCacheIncrementalUpdates(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
 			cache := &nonTasUsageCache{
 				podUsage:  make(map[types.NamespacedName]podUsageValue),
-				nodeUsage: make(map[string]resources.Requests),
+				nodeUsage: make(map[string]resources.MapRequests),
 			}
 
 			for _, pod := range tc.initialPods {
@@ -184,7 +184,7 @@ func TestNonTasUsageCacheIncrementalUpdates(t *testing.T) {
 
 			wantUsage := tc.wantNodeUsage
 			if wantUsage == nil {
-				wantUsage = map[string]resources.Requests{}
+				wantUsage = map[string]resources.MapRequests{}
 			}
 			if diff := cmp.Diff(wantUsage, collectNodeUsage(cache)); diff != "" {
 				t.Errorf("collectNodeUsage() mismatch (-want +got):\n%s", diff)
