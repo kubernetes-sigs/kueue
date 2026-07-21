@@ -7786,7 +7786,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
 			client := clientBuilder.Build()
 
-			tasCache := NewTASCache(client, resources.NewResourceFormatter())
+			tasCache := NewTASCache(client, newDefaultSimulator(), resources.NewResourceFormatter())
 			for i := range tc.nodes {
 				tasCache.SyncNode(&tc.nodes[i])
 			}
@@ -7821,11 +7821,14 @@ func TestFindTopologyAssignments(t *testing.T) {
 			if features.Enabled(features.TASHandleOverlappingFlavors) && tas.IsLowestLevelHostname(tasFlavorCache.topology.Levels) {
 				aggregatedDomainUsage = tc.aggregatedDomainUsages
 			}
-			snapshot := tasFlavorCache.snapshot(
+			snapshot, err := tasFlavorCache.snapshot(
 				log,
 				tasCache.nodesCache.find(tasFlavorCache.flavor.NodeLabels, tasFlavorCache.topology.Levels),
 				aggregatedDomainUsage,
 			)
+			if err != nil {
+				t.Fatalf("TASFlavorSnapshot creation failed: %v", err)
+			}
 			flavorTASRequests := make([]TASPodSetRequests, 0, len(tc.podSets))
 			wantResult := make(TASAssignmentsResult)
 			for _, ps := range tc.podSets {
@@ -7871,7 +7874,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			if tc.workload != nil {
 				findOpts = append(findOpts, WithWorkload(tc.workload))
 			}
-			gotResult := snapshot.FindTopologyAssignmentsForFlavor(log, flavorTASRequests, findOpts...)
+			gotResult := snapshot.FindTopologyAssignmentsForFlavor(ctx, flavorTASRequests, findOpts...)
 			if diff := cmp.Diff(wantResult, gotResult); diff != "" {
 				t.Errorf("unexpected topology assignment (-want,+got): %s", diff)
 			}
@@ -8261,7 +8264,7 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 			_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
 			c := clientBuilder.Build()
 
-			tasCache := NewTASCache(c, resources.NewResourceFormatter())
+			tasCache := NewTASCache(c, newDefaultSimulator(), resources.NewResourceFormatter())
 			for i := range tc.nodes {
 				tasCache.SyncNode(&tc.nodes[i])
 			}
@@ -8293,12 +8296,16 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 			if features.Enabled(features.TASHandleOverlappingFlavors) && tas.IsLowestLevelHostname(tasFlavorCache.topology.Levels) {
 				aggregatedDomainUsages = tc.aggregatedDomainUsages
 			}
-			snapshot := tasFlavorCache.snapshot(
+			snapshot, err := tasFlavorCache.snapshot(
 				log,
 				tasCache.nodesCache.find(tasFlavorCache.flavor.NodeLabels, tasFlavorCache.topology.Levels),
 				aggregatedDomainUsages,
 			)
-			result := snapshot.FindTopologyAssignmentsForFlavor(log, flavorTASRequests, WithWorkload(wl))
+			if err != nil {
+				t.Fatalf("TASFlavorSnapshot creation failed: %v", err)
+			}
+
+			result := snapshot.FindTopologyAssignmentsForFlavor(ctx, flavorTASRequests, WithWorkload(wl))
 
 			psResult, ok := result[podSetName]
 			if !ok {

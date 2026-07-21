@@ -37,6 +37,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -70,6 +71,12 @@ type Option func(*Cache)
 func WithPodsReadyTracking(f bool) Option {
 	return func(c *Cache) {
 		c.podsReadyTracking = f
+	}
+}
+
+func WithSchedulingSimulator(s simulator.SchedulingSimulator) Option {
+	return func(c *Cache) {
+		c.schedulingSimulator = s
 	}
 }
 
@@ -157,6 +164,8 @@ type Cache struct {
 	roleTracker  *roletracker.RoleTracker
 	customLabels *metrics.CustomLabels
 	lqMetrics    *metrics.LocalQueueMetricsConfig
+
+	schedulingSimulator simulator.SchedulingSimulator
 }
 
 func New(client client.Client, options ...Option) *Cache {
@@ -168,11 +177,12 @@ func New(client client.Client, options ...Option) *Cache {
 		workloadAssignedQueues: make(map[workload.Reference]kueue.ClusterQueueReference),
 		hm:                     hierarchy.NewManager(newCohort),
 		resourceFormatter:      resourceFormatter,
-		tasCache:               NewTASCache(client, resourceFormatter),
+		schedulingSimulator:    newDefaultSimulator(),
 	}
 	for _, option := range options {
 		option(cache)
 	}
+	cache.tasCache = NewTASCache(client, cache.schedulingSimulator, resourceFormatter)
 	cache.podsReadyCond.L = &cache.RWMutex
 	return cache
 }
