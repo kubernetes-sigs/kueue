@@ -897,7 +897,7 @@ func validateDeviceClassSource(name, driver string, selector *resourcev1.DeviceS
 	}
 	if driver == "" {
 		allErrs = append(allErrs, field.Required(path.Child("driver"), ""))
-	} else if errs := apimachineryutilvalidation.IsDNS1123Subdomain(strings.ToLower(driver)); len(errs) != 0 {
+	} else if errs := apimachineryutilvalidation.IsDNS1123Subdomain(driver); len(errs) != 0 {
 		allErrs = append(allErrs, field.Invalid(path.Child("driver"), driver, strings.Join(errs, "; ")))
 	}
 	selectorPath := path.Child("deviceSelector", "cel", "expression")

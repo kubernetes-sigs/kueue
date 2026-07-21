@@ -204,7 +204,8 @@ func computeCapacityCharge(
 ) (*resource.Quantity, field.ErrorList) {
 	dimName := resourcev1.QualifiedName(capCfg.resourceName)
 	var maxRounded resource.Quantity
-	foundCapacity := false
+	hasDimension := false
+	hasValidCharge := false
 
 	for i := range matched {
 		dev := &matched[i]
@@ -214,6 +215,7 @@ func computeCapacityCharge(
 				"device", dev.Name, "dimension", capCfg.resourceName)
 			continue
 		}
+		hasDimension = true
 
 		rounded, err := chargeForDevice(capDim, explicitRequest)
 		if err != nil {
@@ -222,16 +224,22 @@ func computeCapacityCharge(
 			continue
 		}
 
-		if !foundCapacity || rounded.Cmp(maxRounded) > 0 {
+		if !hasValidCharge || rounded.Cmp(maxRounded) > 0 {
 			maxRounded = rounded
 		}
-		foundCapacity = true
+		hasValidCharge = true
 	}
 
-	if !foundCapacity {
+	if !hasDimension {
 		return nil, field.ErrorList{field.InternalError(
 			reqPath,
 			fmt.Errorf("matched devices have no capacity dimension %q", capCfg.resourceName),
+		)}
+	}
+	if !hasValidCharge {
+		return nil, field.ErrorList{field.Invalid(
+			reqPath, nil,
+			fmt.Sprintf("capacity request cannot be satisfied by any matched device's RequestPolicy for dimension %q", capCfg.resourceName),
 		)}
 	}
 
