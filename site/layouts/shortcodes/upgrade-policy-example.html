@@ -1,4 +1,4 @@
-{{- $currentVersion := site.Params.version -}}
+{{- $currentVersion := .Page.Param "version" -}}
 {{- $versionParts := split (replaceRE "^v" "" $currentVersion) "." -}}
 {{- $majorVersion := index $versionParts 0 -}}
 {{- $currentMinorVersion := int (index $versionParts 1) -}}

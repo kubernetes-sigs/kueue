@@ -834,6 +834,8 @@ func updateAssignmentForTAS(log logr.Logger, snapshot *schdcache.Snapshot, cq *s
 		(workload.IsExplicitlyRequestingTAS(wl.Obj.Spec.PodSets...) || cq.IsTASOnly()) && !workload.HasTopologyAssignmentWithUnhealthyNode(wl.Obj) {
 		tasRequests := assignment.WorkloadsTopologyRequests(log, wl, cq)
 		var tasResult schdcache.TASAssignmentsResult
+		log = log.WithValues("workload", klog.KRef(wl.Obj.Namespace, wl.Obj.Name))
+
 		if len(targets) > 0 {
 			var targetWorkloads []*workload.Info
 			for _, target := range targets {
@@ -841,6 +843,7 @@ func updateAssignmentForTAS(log logr.Logger, snapshot *schdcache.Snapshot, cq *s
 			}
 			revertUsage := snapshot.SimulateWorkloadRemoval(targetWorkloads)
 			tasResult = cq.FindTopologyAssignmentsForWorkload(
+				log,
 				tasRequests,
 				schdcache.WithWorkload(wl.Obj),
 			)
@@ -853,6 +856,7 @@ func updateAssignmentForTAS(log logr.Logger, snapshot *schdcache.Snapshot, cq *s
 			// a TAS assignment for reserving the resources we run the algorithm
 			// assuming the cluster is empty.
 			tasResult = cq.FindTopologyAssignmentsForWorkload(
+				log,
 				tasRequests,
 				schdcache.WithSimulateEmpty(true),
 				schdcache.WithWorkload(wl.Obj),
@@ -870,7 +874,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 	log := ctrl.LoggerFrom(ctx)
 	admission := &kueue.Admission{
 		ClusterQueue:      e.ClusterQueue,
-		PodSetAssignments: e.assignment.ToAPI(),
+		PodSetAssignments: e.assignment.ToAPI(log),
 	}
 
 	consideredStr := flavorassigner.FormatFlavorAssignmentAttemptsForEvents(e.assignment)

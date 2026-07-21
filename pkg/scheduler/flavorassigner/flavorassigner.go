@@ -202,10 +202,10 @@ func (a *Assignment) Message() string {
 	return builder.String()
 }
 
-func (a *Assignment) ToAPI() []kueue.PodSetAssignment {
+func (a *Assignment) ToAPI(log logr.Logger) []kueue.PodSetAssignment {
 	psFlavors := make([]kueue.PodSetAssignment, len(a.PodSets))
 	for i := range psFlavors {
-		psFlavors[i] = a.PodSets[i].toAPI()
+		psFlavors[i] = a.PodSets[i].toAPI(log)
 	}
 	return psFlavors
 }
@@ -383,7 +383,7 @@ func (psa *PodSetAssignment) error(err error) {
 
 type ResourceAssignment map[corev1.ResourceName]*FlavorAssignment
 
-func (psa *PodSetAssignment) toAPI() kueue.PodSetAssignment {
+func (psa *PodSetAssignment) toAPI(log logr.Logger) kueue.PodSetAssignment {
 	flavors := make(map[corev1.ResourceName]kueue.ResourceFlavorReference, len(psa.Flavors))
 	// Only include resources with assigned flavors (filters out zero-quantity requests for undefined resources).
 	resourceUsage := make(corev1.ResourceList, len(psa.Flavors))
@@ -396,7 +396,7 @@ func (psa *PodSetAssignment) toAPI() kueue.PodSetAssignment {
 		Flavors:                flavors,
 		ResourceUsage:          resourceUsage,
 		Count:                  new(psa.Count),
-		TopologyAssignment:     tas.V1Beta2From(psa.TopologyAssignment),
+		TopologyAssignment:     tas.V1Beta2From(psa.TopologyAssignment, tas.WithLogger(log)),
 		DelayedTopologyRequest: psa.DelayedTopologyRequest,
 	}
 }
@@ -786,7 +786,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 	if features.Enabled(features.TopologyAwareScheduling) {
 		tasRequests := assignment.WorkloadsTopologyRequests(log, a.wl, a.cq)
 		if assignment.RepresentativeMode() == Fit {
-			result := a.cq.FindTopologyAssignmentsForWorkload(tasRequests, schdcache.WithWorkload(a.wl.Obj))
+			result := a.cq.FindTopologyAssignmentsForWorkload(log, tasRequests, schdcache.WithWorkload(a.wl.Obj))
 			if failure := result.Failure(); failure != nil {
 				// There is at least one PodSet which does not fit
 				psAssignment := assignment.podSetAssignmentByName(failure.PodSetName)
@@ -801,6 +801,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 		if assignment.RepresentativeMode() == Preempt && !workload.HasUnhealthyNodes(a.wl.Obj) {
 			// Don't preempt other workloads if looking for a failed node replacement
 			result := a.cq.FindTopologyAssignmentsForWorkload(
+				log,
 				tasRequests,
 				schdcache.WithSimulateEmpty(true),
 				schdcache.WithWorkload(a.wl.Obj),

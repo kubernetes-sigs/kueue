@@ -234,7 +234,7 @@ func ShouldSkipLocalExecution(ctx context.Context, c client.Client, wl *kueue.Wo
 	return ac != nil, nil
 }
 
-func GetRemoteClusters(ctx context.Context, helper *MultiKueueStoreHelper, acName kueue.AdmissionCheckReference) (sets.Set[string], error) {
+func GetRemoteClusters(ctx context.Context, helper *MultiKueueStoreHelper, acName kueue.AdmissionCheckReference) ([]string, error) {
 	cfg, err := helper.ConfigForAdmissionCheck(ctx, acName)
 	if err != nil {
 		return nil, err
@@ -243,5 +243,5 @@ func GetRemoteClusters(ctx context.Context, helper *MultiKueueStoreHelper, acNam
 		return nil, ErrNoActiveClusters
 	}
 
-	return sets.New(cfg.Spec.Clusters...), nil
+	return cfg.Spec.Clusters, nil
 }

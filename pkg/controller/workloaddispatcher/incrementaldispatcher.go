@@ -134,7 +134,7 @@ func (r *IncrementalDispatcherReconciler) Reconcile(ctx context.Context, req ctr
 	return r.nominateWorkers(ctx, wl, remoteClusters, log)
 }
 
-func (r *IncrementalDispatcherReconciler) nominateWorkers(ctx context.Context, wl *kueue.Workload, remoteClusters sets.Set[string], log logr.Logger) (reconcile.Result, error) {
+func (r *IncrementalDispatcherReconciler) nominateWorkers(ctx context.Context, wl *kueue.Workload, remoteClusters []string, log logr.Logger) (reconcile.Result, error) {
 	key := client.ObjectKeyFromObject(wl)
 	roundStart, found := r.getRoundStartTime(key)
 	now := r.clock.Now()
@@ -166,16 +166,19 @@ func (r *IncrementalDispatcherReconciler) nominateWorkers(ctx context.Context, w
 	return reconcile.Result{}, nil
 }
 
-func getNextNominatedWorkers(log logr.Logger, wl *kueue.Workload, remoteClusters sets.Set[string], batchSize int) ([]string, error) {
+func getNextNominatedWorkers(log logr.Logger, wl *kueue.Workload, remoteClusters []string, batchSize int) ([]string, error) {
 	alreadyNominated := sets.New(wl.Status.NominatedClusterNames...)
 
 	workers := make([]string, 0, len(remoteClusters))
-	for remoteWorker := range remoteClusters {
+	for _, remoteWorker := range remoteClusters {
 		if !alreadyNominated.Has(remoteWorker) {
 			workers = append(workers, remoteWorker)
 		}
 	}
-	slices.Sort(workers)
+	// Sorts the local copy, never remoteClusters, which aliases the cached MultiKueueConfig.
+	if !features.Enabled(features.MultiKueueIncrementalDispatcherRespectConfigOrder) {
+		slices.Sort(workers)
+	}
 
 	log.V(5).Info("proceeding worker clusters nomination", "alreadyNominatedClusterNames", alreadyNominated, "remainingClusterNames", workers)
 

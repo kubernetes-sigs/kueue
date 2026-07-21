@@ -82,15 +82,21 @@ spec:
             description: spec is the specification of the MultiKueueConfig.
             properties:
               clusters:
-                description: clusters is a list of MultiKueueClusters names where
-                  the workloads from the ClusterQueue should be distributed.
+                description: |-
+                  clusters is a list of MultiKueueClusters names where the workloads from the ClusterQueue should be distributed.
+                  The order of the list is significant: the Incremental dispatcher nominates clusters
+                  following this order, so the most preferred clusters should be listed first.
                 items:
                   maxLength: 256
                   type: string
                 maxItems: 20
                 minItems: 1
                 type: array
-                x-kubernetes-list-type: set
+                x-kubernetes-list-type: atomic
+                x-kubernetes-validations:
+                - message: must be unique
+                  rule: size(self.filter(i, size(self.filter(j, j == i)) > 1)) ==
+                    0
               quotaManagement:
                 description: |-
                   quotaManagement specifies the management of ClusterQueue quotas

@@ -103,12 +103,59 @@ This approach ensures the fastest possible admission by allowing all clusters to
 
 ### Incremental:
 This mode introduces a gradual dispatching strategy where clusters are nominated in rounds.
-Initially, all worker clusters are sorted in dictionary order, and a batch of clusters (by default, up to 3) is selected from the sorted list.
-The Workload is copied only to these nominated clusters.
+Clusters are considered in the order they are listed in `MultiKueueConfig.spec.clusters`, so
+you control the nomination priority by listing the most preferred clusters first.
+Initially, a batch of clusters (by default, up to 3) is selected from the start of that list,
+and the Workload is copied only to these nominated clusters.
 If none of the nominated clusters admit the Workload within a fixed duration (5 minutes),
-additional batches of clusters are incrementally added in subsequent rounds, following the same dictionary order.
+the next batch of clusters — again following the configured order — is incrementally added in
+subsequent rounds, until the Workload is admitted or all clusters have been nominated.
+
+{{< feature-state state="beta" for_version="v0.19" >}}
+
+{{% alert title="Note" color="primary" %}}
+Nominating clusters in the order defined in `MultiKueueConfig.spec.clusters` is controlled by the
+`MultiKueueIncrementalDispatcherRespectConfigOrder` feature gate, which is Beta and enabled by
+default since Kueue v0.19.
+
+When the gate is disabled, clusters are nominated in alphabetical order instead. Refer to the
+[Installation guide](/docs/installation/#change-the-feature-gates-configuration)
+for instructions on configuring feature gates.
+{{% /alert %}}
 
 The default maximum batch size is 3. This can be configured by enabling the `MultiKueueIncrementalDispatcherConfig` feature gate and setting `.multiKueue.incrementalDispatcherConfig.stepSize` in the Kueue configuration.
+
+#### Example: prioritizing clusters for cost-optimized spillover
+
+Suppose you want to run Workloads on a cheaper on-premises cluster first and only spill over to
+public-cloud clusters when the on-premises cluster is full. List the clusters in priority order
+in the `MultiKueueConfig`:
+
+```yaml
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: MultiKueueConfig
+metadata:
+  name: cost-optimized
+spec:
+  clusters:
+  - worker-onprem   # tried first (most preferred / cheapest)
+  - worker-aws      # tried next if on-prem does not admit
+  - worker-gcp      # tried last
+```
+
+To try one cluster at a time, set the step size to 1 in the Kueue configuration:
+
+```yaml
+multiKueue:
+  incrementalDispatcherConfig:
+    stepSize: 1
+```
+
+With this setup the incremental dispatcher nominates clusters as follows:
+
+- Round 1: `worker-onprem`
+- Round 2 (after 5 minutes without admission): `worker-onprem`, `worker-aws`
+- Round 3 (after another 5 minutes): `worker-onprem`, `worker-aws`, `worker-gcp`
 
 ### External (Custom implementation):
 In this mode, the selection of worker clusters is delegated to an external controller.

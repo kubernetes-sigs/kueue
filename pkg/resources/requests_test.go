@@ -19,7 +19,6 @@ package resources
 import (
 	"encoding/json"
 	"math"
-	"sync"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -410,73 +409,122 @@ func TestResourceQuantityRoundTrips(t *testing.T) {
 	}
 }
 
-func TestResourceFormatterIsolation(t *testing.T) {
-	configured := NewResourceFormatter()
-	configured.RegisterBinaryFormattedResource("gpu.memory")
-	other := NewResourceFormatter()
-
-	configuredQuantity := configured.ResourceQuantity("gpu.memory", 9984*1024*1024)
-	if got := configuredQuantity.String(); got != "9984Mi" {
-		t.Errorf("configured formatter returned %q, want 9984Mi", got)
+func TestLazyRequests(t *testing.T) {
+	cases := map[string]struct {
+		base              Requests
+		op                func(*LazyRequests)
+		wantResult        Requests
+		wantCachedCreated bool
+		wantValid         bool
+	}{
+		"no operation preserves base": {
+			base:              Requests{corev1.ResourceCPU: 10, corev1.ResourceMemory: 100},
+			op:                nil,
+			wantResult:        Requests{corev1.ResourceCPU: 10, corev1.ResourceMemory: 100},
+			wantCachedCreated: false,
+			wantValid:         true,
+		},
+		"subtraction creates clone and updates result": {
+			base: Requests{corev1.ResourceCPU: 10, corev1.ResourceMemory: 100},
+			op: func(l *LazyRequests) {
+				l.Sub(Requests{corev1.ResourceCPU: 3})
+			},
+			wantResult:        Requests{corev1.ResourceCPU: 7, corev1.ResourceMemory: 100},
+			wantCachedCreated: true,
+			wantValid:         true,
+		},
+		"addition creates clone and updates result": {
+			base: Requests{corev1.ResourceCPU: 10, corev1.ResourceMemory: 100},
+			op: func(l *LazyRequests) {
+				l.Add(Requests{corev1.ResourceCPU: 5})
+			},
+			wantResult:        Requests{corev1.ResourceCPU: 15, corev1.ResourceMemory: 100},
+			wantCachedCreated: true,
+			wantValid:         true,
+		},
+		"subtraction with empty map short circuits": {
+			base: Requests{corev1.ResourceCPU: 10, corev1.ResourceMemory: 100},
+			op: func(l *LazyRequests) {
+				l.Sub(Requests{})
+			},
+			wantResult:        Requests{corev1.ResourceCPU: 10, corev1.ResourceMemory: 100},
+			wantCachedCreated: false,
+			wantValid:         true,
+		},
+		"addition with empty map short circuits": {
+			base: Requests{corev1.ResourceCPU: 10, corev1.ResourceMemory: 100},
+			op: func(l *LazyRequests) {
+				l.Add(Requests{})
+			},
+			wantResult:        Requests{corev1.ResourceCPU: 10, corev1.ResourceMemory: 100},
+			wantCachedCreated: false,
+			wantValid:         true,
+		},
+		"nil base input with non-empty addition": {
+			base: nil,
+			op: func(l *LazyRequests) {
+				l.Add(Requests{corev1.ResourceCPU: 5})
+			},
+			wantResult:        Requests{corev1.ResourceCPU: 5},
+			wantCachedCreated: true,
+			wantValid:         true,
+		},
+		"nil base input with empty addition short circuits": {
+			base: nil,
+			op: func(l *LazyRequests) {
+				l.Add(Requests{})
+			},
+			wantResult:        nil,
+			wantCachedCreated: false,
+			wantValid:         false,
+		},
+		"nil base input with non-empty subtraction": {
+			base: nil,
+			op: func(l *LazyRequests) {
+				l.Sub(Requests{corev1.ResourceCPU: 5})
+			},
+			wantResult:        Requests{corev1.ResourceCPU: -5},
+			wantCachedCreated: true,
+			wantValid:         true,
+		},
+		"zero-value LazyRequests is not valid": {
+			base:              nil,
+			op:                nil,
+			wantResult:        nil,
+			wantCachedCreated: false,
+			wantValid:         false,
+		},
 	}
-	otherQuantity := other.ResourceQuantity("gpu.memory", 9984*1024*1024)
-	if got := otherQuantity.String(); got != "10468982784" {
-		t.Errorf("unconfigured formatter returned %q, want 10468982784", got)
-	}
-}
 
-func TestResourceFormatterConcurrentRegistrationAndFormatting(t *testing.T) {
-	formatter := NewResourceFormatter()
-	resourceName := corev1.ResourceName("example.com/gpu-memory")
-	const iterations = 1000
-
-	start := make(chan struct{})
-	var wg sync.WaitGroup
-	for i := 0; i < 4; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			<-start
-			for j := 0; j < iterations; j++ {
-				formatter.RegisterBinaryFormattedResource(resourceName)
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			var originalBase Requests
+			if tc.base != nil {
+				originalBase = tc.base.Clone()
 			}
-		}()
-	}
-	for i := 0; i < 8; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			<-start
-			for j := 0; j < iterations; j++ {
-				_ = formatter.ResourceQuantity(resourceName, 9984*1024*1024)
+
+			lazy := NewLazyRequests(tc.base)
+
+			if tc.op != nil {
+				tc.op(&lazy)
 			}
-		}()
-	}
 
-	close(start)
-	wg.Wait()
+			if gotValid := lazy.IsValid(); gotValid != tc.wantValid {
+				t.Errorf("unexpected IsValid() result, want=%t, got=%t", tc.wantValid, gotValid)
+			}
 
-	quantity := formatter.ResourceQuantity(resourceName, 9984*1024*1024)
-	if got := quantity.String(); got != "9984Mi" {
-		t.Errorf("registered resource formatted as %q, want 9984Mi", got)
-	}
-}
+			if (lazy.cached != nil) != tc.wantCachedCreated {
+				t.Errorf("expected cachedCreated=%t, got cached=%v", tc.wantCachedCreated, lazy.cached)
+			}
 
-func TestNilResourceFormatterUsesDefaultFormatting(t *testing.T) {
-	var formatter *ResourceFormatter
-	quantity := formatter.ResourceQuantity("gpu.memory", 9984*1024*1024)
-	if got := quantity.String(); got != "10468982784" {
-		t.Errorf("nil formatter returned %q, want 10468982784", got)
-	}
-}
+			gotResult := lazy.Get()
+			if !cmp.Equal(gotResult, tc.wantResult) {
+				t.Errorf("unexpected Get() result, diff (-got +want):\n%s", cmp.Diff(gotResult, tc.wantResult))
+			}
 
-func TestRequestsToResourceListUsesFormatter(t *testing.T) {
-	formatter := NewResourceFormatter()
-	formatter.RegisterBinaryFormattedResource("gpu.memory")
-
-	requests := Requests{"gpu.memory": 9984 * 1024 * 1024}
-	quantity := requests.ToResourceList(formatter)["gpu.memory"]
-	if got := quantity.String(); got != "9984Mi" {
-		t.Errorf("ToResourceList() returned %q, want 9984Mi", got)
+			if tc.base != nil && !cmp.Equal(tc.base, originalBase) {
+				t.Errorf("base map was mutated! diff (-got +want):\n%s", cmp.Diff(tc.base, originalBase))
+			}
+		})
 	}
 }
