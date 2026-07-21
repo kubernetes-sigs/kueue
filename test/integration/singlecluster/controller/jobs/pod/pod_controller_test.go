@@ -867,6 +867,44 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				})
 			})
 
+			ginkgo.It("Should not let a spoofed role-hash collapse pods with different requests into one PodSet", func() {
+				ginkgo.By("Creating two pods with different CPU requests but the same, spoofed role-hash")
+				pod1 := testingpod.MakePod("test-pod1", ns.Name).
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					Queue("test-queue").
+					RoleHash("spoofed").
+					Request(corev1.ResourceCPU, "1").
+					Obj()
+				pod2 := testingpod.MakePod("test-pod2", ns.Name).
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					Queue("test-queue").
+					RoleHash("spoofed").
+					Request(corev1.ResourceCPU, "5").
+					Obj()
+
+				util.MustCreate(ctx, k8sClient, pod1)
+				util.MustCreate(ctx, k8sClient, pod2)
+
+				ginkgo.By("checking the workload keeps the two roles in separate PodSets, so both footprints are counted against quota")
+				wlLookupKey := types.NamespacedName{Namespace: pod1.Namespace, Name: "test-group"}
+				createdWorkload := &kueue.Workload{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+					g.Expect(createdWorkload.Spec.PodSets).To(gomega.HaveLen(2))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				gomega.Expect(createdWorkload.Spec.PodSets[0].Count).To(gomega.Equal(int32(1)))
+				gomega.Expect(createdWorkload.Spec.PodSets[1].Count).To(gomega.Equal(int32(1)))
+				gotRequests := []resource.Quantity{
+					createdWorkload.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU],
+					createdWorkload.Spec.PodSets[1].Template.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU],
+				}
+				gomega.Expect(gotRequests).To(gomega.ConsistOf(resource.MustParse("1"), resource.MustParse("5")),
+					"both the 1-CPU and 5-CPU roles must be accounted for, not collapsed onto the first pod's request")
+			})
+
 			ginkgo.It("Should ungate pods when admitted with fast admission", func() {
 				ginkgo.By("Creating pod1 and delaying creation of pod2")
 				pod1 := testingpod.MakePod("test-pod1", ns.Name).
