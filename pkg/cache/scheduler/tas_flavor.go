@@ -88,19 +88,21 @@ type TASFlavorCache struct {
 
 	// nonTasUsageCache maintains the usage coming from non-TAS pods,
 	// e.g. static Pods or DaemonSet pods.
-	nonTasUsageCache  *nonTasUsageCache
+	nonTasUsageCache *nonTasUsageCache
+
 	resourceFormatter *resources.ResourceFormatter
 }
 
 func (t *tasCache) NewTASFlavorCache(topologyInfo topologyInformation,
 	flavorInfo flavorInformation) *TASFlavorCache {
 	return &TASFlavorCache{
-		client:           t.client,
-		topology:         topologyInfo,
-		flavor:           flavorInfo,
-		usage:            make(map[utiltas.TopologyDomainID]resources.MapRequests),
-		wlUsage:          make(map[workload.Reference][]workload.TopologyDomainRequests),
-		nonTasUsageCache: t.nonTasUsageCache,
+		client:            t.client,
+		topology:          topologyInfo,
+		flavor:            flavorInfo,
+		usage:             make(map[utiltas.TopologyDomainID]resources.MapRequests),
+		wlUsage:           make(map[workload.Reference][]workload.TopologyDomainRequests),
+		nonTasUsageCache:  t.nonTasUsageCache,
+		resourceFormatter: t.resourceFormatter,
 	}
 }
 
