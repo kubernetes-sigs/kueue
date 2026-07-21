@@ -2413,7 +2413,7 @@ func setupAdmittedMetricTest(ctx context.Context, t *testing.T, acState kueue.Ch
 	fakeClock := testingclock.NewFakeClock(now)
 
 	baseWorkloadBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace)
-	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace).Suspend(false).ManagedBy(kueue.MultiKueueControllerName)
+	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace).Suspend(false).ManagedBy(kueue.MultiKueueControllerName).PrebuiltWorkloadLabel("wl1")
 
 	managerWl := *baseWorkloadBuilder.Clone().
 		AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: acState}).
