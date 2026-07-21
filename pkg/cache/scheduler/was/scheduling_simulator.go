@@ -7,8 +7,6 @@ import (
 	"errors"
 	"iter"
 
-	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
-
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes/fake"
@@ -18,6 +16,7 @@ import (
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeaffinity"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/queuesort"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/tainttoleration"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 	schedLibSimulator "sigs.k8s.io/scheduler-library/pkg/simulator"
 	schedLibSnapshot "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
@@ -88,7 +87,12 @@ type wasChecker struct {
 	snap *schedLibSnapshot.ClusterSnapshot
 }
 
-func (c *wasChecker) FindFeasibleNodes(ctx context.Context, candidates iter.Seq[simulator.Candidate], requirements *simulator.PodRequirements, stats *simulator.NodeExclusionStats) ([]simulator.MatchedCandidate, error) {
+func (c *wasChecker) FindFeasibleNodes(
+	ctx context.Context,
+	candidates iter.Seq[simulator.Candidate],
+	requirements *simulator.PodRequirements,
+	stats *simulator.NodeExclusionStats,
+) ([]simulator.MatchedCandidate, error) {
 	var candidateLeaves = make(map[string]simulator.MatchedCandidate)
 	var candidateNodeNames []string
 	var feasibleCandidates []simulator.MatchedCandidate
