@@ -88,18 +88,20 @@ type TASFlavorCache struct {
 
 	// nonTasUsageCache maintains the usage coming from non-TAS pods,
 	// e.g. static Pods or DaemonSet pods.
-	nonTasUsageCache *nonTasUsageCache
+	nonTasUsageCache  *nonTasUsageCache
+	resourceFormatter *resources.ResourceFormatter
 }
 
 func (t *tasCache) NewTASFlavorCache(topologyInfo topologyInformation,
 	flavorInfo flavorInformation) *TASFlavorCache {
 	return &TASFlavorCache{
-		client:           t.client,
-		topology:         topologyInfo,
-		flavor:           flavorInfo,
-		usage:            make(map[utiltas.TopologyDomainID]resources.Requests),
-		wlUsage:          make(map[workload.Reference][]workload.TopologyDomainRequests),
-		nonTasUsageCache: t.nonTasUsageCache,
+		client:            t.client,
+		topology:          topologyInfo,
+		flavor:            flavorInfo,
+		usage:             make(map[utiltas.TopologyDomainID]resources.Requests),
+		wlUsage:           make(map[workload.Reference][]workload.TopologyDomainRequests),
+		nonTasUsageCache:  t.nonTasUsageCache,
+		resourceFormatter: t.resourceFormatter,
 	}
 }
 
@@ -131,7 +133,10 @@ func (c *TASFlavorCache) snapshot(
 	}
 	log.V(3).Info("Constructing TAS snapshot", infoKV...)
 
-	snapshot := newTASFlavorSnapshot(log, c.flavor.TopologyName, c.topology.Levels, withTolerations(c.flavor.Tolerations))
+	snapshot := newTASFlavorSnapshot(log, c.flavor.TopologyName, c.topology.Levels,
+		withTolerations(c.flavor.Tolerations),
+		withResourceFormatter(c.resourceFormatter),
+	)
 	nodeToDomain := make(map[string]utiltas.TopologyDomainID)
 	for _, node := range nodes {
 		nodeToDomain[node.Name] = snapshot.addNode(node)
