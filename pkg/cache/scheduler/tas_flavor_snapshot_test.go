@@ -1064,3 +1064,357 @@ func TestTASCachingRemainingResourcesFeatureGate(t *testing.T) {
 		})
 	}
 }
+
+func TestFindTopologyAssignmentsForFlavorSliceSize(t *testing.T) {
+	tests := map[string]struct {
+		topologyRequest *kueue.PodSetTopologyRequest
+		count           int32
+		wantReason      string
+		wantAssignment  *tas.TopologyAssignment
+	}{
+		"annotation-based nil slice size": {
+			topologyRequest: &kueue.PodSetTopologyRequest{
+				PodSetSliceRequiredTopology: new(string(corev1.LabelHostname)),
+			},
+			count:      2,
+			wantReason: sliceSizeNotProvidedReason,
+		},
+		"annotation-based zero slice size": {
+			topologyRequest: &kueue.PodSetTopologyRequest{
+				PodSetSliceRequiredTopology: new(string(corev1.LabelHostname)),
+				PodSetSliceSize:             new(int32(0)),
+			},
+			count:      2,
+			wantReason: sliceSizeNotProvidedReason,
+		},
+		"annotation-based negative slice size": {
+			topologyRequest: &kueue.PodSetTopologyRequest{
+				PodSetSliceRequiredTopology: new(string(corev1.LabelHostname)),
+				PodSetSliceSize:             new(int32(-1)),
+			},
+			count:      2,
+			wantReason: sliceSizeNotProvidedReason,
+		},
+		"annotation-based zero slice size with zero count": {
+			topologyRequest: &kueue.PodSetTopologyRequest{
+				PodSetSliceRequiredTopology: new(string(corev1.LabelHostname)),
+				PodSetSliceSize:             new(int32(0)),
+			},
+			count:      0,
+			wantReason: "",
+			wantAssignment: &tas.TopologyAssignment{
+				Levels:  []string{corev1.LabelHostname},
+				Domains: []tas.TopologyDomainAssignment{},
+			},
+		},
+		"annotation-based positive slice size": {
+			topologyRequest: &kueue.PodSetTopologyRequest{
+				PodSetSliceRequiredTopology: new(string(corev1.LabelHostname)),
+				PodSetSliceSize:             new(int32(2)),
+			},
+			count:      2,
+			wantReason: "",
+			wantAssignment: &tas.TopologyAssignment{
+				Levels: []string{corev1.LabelHostname},
+				Domains: []tas.TopologyDomainAssignment{{
+					Values: []string{"node-a"},
+					Count:  2,
+				}},
+			},
+		},
+		"constraints zero slice size": {
+			topologyRequest: &kueue.PodSetTopologyRequest{
+				PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{{
+					Topology: corev1.LabelHostname,
+					Size:     0,
+				}},
+			},
+			count:      2,
+			wantReason: sliceSizeNotProvidedReason,
+		},
+		"constraints negative slice size": {
+			topologyRequest: &kueue.PodSetTopologyRequest{
+				PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{{
+					Topology: corev1.LabelHostname,
+					Size:     -1,
+				}},
+			},
+			count:      2,
+			wantReason: sliceSizeNotProvidedReason,
+		},
+		"constraints inner layer zero size": {
+			topologyRequest: &kueue.PodSetTopologyRequest{
+				PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{
+					{Topology: benchRackLabel, Size: 4},
+					{Topology: corev1.LabelHostname, Size: 0},
+				},
+			},
+			count:      2,
+			wantReason: sliceSizeNotProvidedReason,
+		},
+		"constraints zero slice size with zero count": {
+			topologyRequest: &kueue.PodSetTopologyRequest{
+				PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{{
+					Topology: corev1.LabelHostname,
+					Size:     0,
+				}},
+			},
+			count:      0,
+			wantReason: "",
+			wantAssignment: &tas.TopologyAssignment{
+				Levels:  []string{corev1.LabelHostname},
+				Domains: []tas.TopologyDomainAssignment{},
+			},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			s := newTASFlavorSnapshot(log, "test", []string{corev1.LabelHostname}, nil, &defaultChecker{})
+			n := node.MakeNode("node-a").
+				Label(corev1.LabelHostname, "node-a").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:  resource.MustParse("10"),
+					corev1.ResourcePods: resource.MustParse("10"),
+				}).Obj()
+			s.addNode(n)
+			s.initialize()
+
+			flavorTASRequests := FlavorTASRequests{{
+				PodSet: &kueue.PodSet{
+					Name:            "main",
+					TopologyRequest: tc.topologyRequest,
+				},
+				SinglePodRequests: resources.MapRequests{corev1.ResourceCPU: 1},
+				Count:             tc.count,
+			}}
+
+			result := s.FindTopologyAssignmentsForFlavor(ctx, flavorTASRequests)
+			psResult, ok := result["main"]
+			if !ok {
+				t.Fatalf("expected result for pod set %q", "main")
+			}
+			if diff := cmp.Diff(tc.wantReason, psResult.FailureReason); diff != "" {
+				t.Errorf("unexpected failure reason (-want,+got):\n%s", diff)
+			}
+			if tc.wantAssignment != nil {
+				if diff := cmp.Diff(*tc.wantAssignment, *psResult.TopologyAssignment); diff != "" {
+					t.Fatalf("unexpected topology assignment (-want,+got):\n%s", diff)
+				}
+			}
+		})
+	}
+}
+
+func TestFindReplacementAssignmentZeroCountSkipsInvalidSliceSize(t *testing.T) {
+	tests := map[string]struct {
+		tr                        *TASPodSetRequests
+		existingAssignment        *tas.TopologyAssignment
+		wl                        *kueue.Workload
+		assumedUsage              map[tas.TopologyDomainID]resources.Requests
+		wantReason                string
+		wantNewAssignment         *tas.TopologyAssignment
+		wantReplacementAssignment *tas.TopologyAssignment
+	}{
+		"annotation-based slice size zero is skipped for zero replacement count": {
+			tr: &TASPodSetRequests{
+				PodSet: &kueue.PodSet{
+					Name: "main",
+					TopologyRequest: &kueue.PodSetTopologyRequest{
+						PodSetSliceRequiredTopology: new(string(corev1.LabelHostname)),
+						PodSetSliceSize:             new(int32(0)),
+					},
+				},
+			},
+			existingAssignment: &tas.TopologyAssignment{
+				Levels: []string{corev1.LabelHostname},
+				Domains: []tas.TopologyDomainAssignment{{
+					Values: []string{"node-a"},
+					Count:  0,
+				}},
+			},
+			wl: &kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					UnhealthyNodes: []kueue.UnhealthyNode{{Name: "node-a"}},
+				},
+			},
+			assumedUsage: make(map[tas.TopologyDomainID]resources.Requests),
+			wantReason:   "",
+			wantNewAssignment: &tas.TopologyAssignment{
+				Levels:  []string{corev1.LabelHostname},
+				Domains: []tas.TopologyDomainAssignment{},
+			},
+			wantReplacementAssignment: &tas.TopologyAssignment{
+				Levels:  []string{corev1.LabelHostname},
+				Domains: []tas.TopologyDomainAssignment{},
+			},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			s := newTASFlavorSnapshot(log, "test", []string{corev1.LabelHostname}, nil, &defaultChecker{})
+
+			newAssignment, replacementAssignment, reason := s.findReplacementAssignment(ctx, tc.tr, tc.existingAssignment, tc.wl, tc.assumedUsage)
+			if diff := cmp.Diff(tc.wantReason, reason); diff != "" {
+				t.Fatalf("unexpected failure reason (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantNewAssignment, newAssignment); diff != "" {
+				t.Fatalf("unexpected new assignment (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantReplacementAssignment, replacementAssignment); diff != "" {
+				t.Fatalf("unexpected replacement assignment (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestResolveSliceSizeOrReason(t *testing.T) {
+	tests := map[string]struct {
+		request    *kueue.PodSetTopologyRequest
+		wantSize   int32
+		wantReason string
+	}{
+		"nil request - should return 1 with no reason": {
+			request:    nil,
+			wantSize:   1,
+			wantReason: "",
+		},
+		"no topology request - should return 1 with no reason": {
+			request:    &kueue.PodSetTopologyRequest{},
+			wantSize:   1,
+			wantReason: "",
+		},
+		"constraints present - should return first constraint size": {
+			request: &kueue.PodSetTopologyRequest{
+				PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{{
+					Topology: corev1.LabelHostname,
+					Size:     4,
+				}},
+			},
+			wantSize:   4,
+			wantReason: "",
+		},
+		"constraints with zero size - should return 0 with reason": {
+			request: &kueue.PodSetTopologyRequest{
+				PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{{
+					Topology: corev1.LabelHostname,
+					Size:     0,
+				}},
+			},
+			wantSize:   0,
+			wantReason: sliceSizeNotProvidedReason,
+		},
+		"constraints with zero size still return reason (count handled by caller)": {
+			request: &kueue.PodSetTopologyRequest{
+				PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{{
+					Topology: corev1.LabelHostname,
+					Size:     0,
+				}},
+			},
+			wantSize:   0,
+			wantReason: sliceSizeNotProvidedReason,
+		},
+		"constraints with negative size - should return 0 with reason": {
+			request: &kueue.PodSetTopologyRequest{
+				PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{{
+					Topology: corev1.LabelHostname,
+					Size:     -2,
+				}},
+			},
+			wantSize:   0,
+			wantReason: sliceSizeNotProvidedReason,
+		},
+		"constraints with invalid inner-layer size - should return 0 with reason": {
+			request: &kueue.PodSetTopologyRequest{
+				PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{
+					{Topology: "rack", Size: 8},
+					{Topology: corev1.LabelHostname, Size: 0},
+				},
+			},
+			wantSize:   0,
+			wantReason: sliceSizeNotProvidedReason,
+		},
+		"annotation-based nil slice size - should return 0 with reason": {
+			request: &kueue.PodSetTopologyRequest{
+				PodSetSliceRequiredTopology: new(string("kubernetes.io/zone")),
+			},
+			wantSize:   0,
+			wantReason: sliceSizeNotProvidedReason,
+		},
+		"annotation-based zero slice size - should return 0 with reason": {
+			request: &kueue.PodSetTopologyRequest{
+				PodSetSliceRequiredTopology: new(string("kubernetes.io/zone")),
+				PodSetSliceSize:             new(int32(0)),
+			},
+			wantSize:   0,
+			wantReason: sliceSizeNotProvidedReason,
+		},
+		"annotation-based negative slice size - should return 0 with reason": {
+			request: &kueue.PodSetTopologyRequest{
+				PodSetSliceRequiredTopology: new(string("kubernetes.io/zone")),
+				PodSetSliceSize:             new(int32(-2)),
+			},
+			wantSize:   0,
+			wantReason: sliceSizeNotProvidedReason,
+		},
+		"annotation-based positive slice size - should accept as-is": {
+			request: &kueue.PodSetTopologyRequest{
+				PodSetSliceRequiredTopology: new(string("kubernetes.io/zone")),
+				PodSetSliceSize:             new(int32(4)),
+			},
+			wantSize:   4,
+			wantReason: "",
+		},
+		"constraints take precedence over legacy positive": {
+			request: &kueue.PodSetTopologyRequest{
+				PodSetSliceRequiredTopology: new(string("kubernetes.io/zone")),
+				PodSetSliceSize:             new(int32(7)),
+				PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{{
+					Topology: corev1.LabelHostname,
+					Size:     3,
+				}},
+			},
+			wantSize:   3,
+			wantReason: "",
+		},
+		"constraints take precedence over legacy negative": {
+			request: &kueue.PodSetTopologyRequest{
+				PodSetSliceRequiredTopology: new(string("kubernetes.io/zone")),
+				PodSetSliceSize:             new(int32(-7)),
+				PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{{
+					Topology: corev1.LabelHostname,
+					Size:     3,
+				}},
+			},
+			wantSize:   3,
+			wantReason: "",
+		},
+		"negative constraints take precedence over legacy zero": {
+			request: &kueue.PodSetTopologyRequest{
+				PodSetSliceRequiredTopology: new(string("kubernetes.io/zone")),
+				PodSetSliceSize:             new(int32(0)),
+				PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{{
+					Topology: corev1.LabelHostname,
+					Size:     -3,
+				}},
+			},
+			wantSize:   0,
+			wantReason: sliceSizeNotProvidedReason,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			gotSize, gotReason := resolveSliceSizeOrReason(tc.request)
+			if diff := cmp.Diff(tc.wantSize, gotSize); diff != "" {
+				t.Errorf("resolveSliceSizeOrReason() size (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantReason, gotReason); diff != "" {
+				t.Errorf("resolveSliceSizeOrReason() reason (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}

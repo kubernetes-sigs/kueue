@@ -49,6 +49,8 @@ var (
 	errCodeAssumptionsViolated = errors.New("code assumptions violated")
 )
 
+const sliceSizeNotProvidedReason = "slice topology requested, but slice size not provided"
+
 // domain holds the static information about placement of a topology
 // domain in the hierarchy of topology domains.
 type domain struct {
@@ -751,12 +753,17 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 	if isStale, staleDomain := s.IsTopologyAssignmentStale(existingAssignment); isStale {
 		return nil, nil, fmt.Sprintf("Cannot replace the node, because the existing topologyAssignment is invalid, as it contains the stale domain %v", staleDomain)
 	}
-	requiredReplacementDomain := s.requiredReplacementDomain(tr, existingAssignment)
-	trCopy := *tr
-	sliceSize, reason := getSliceSizeWithSinglePodAsDefault(tr.PodSet.TopologyRequest)
+	// No pods were assigned to the unhealthy node, so replacement is a no-op.
+	if tr.Count == 0 {
+		return existingAssignment, s.buildAssignment(nil), ""
+	}
+	sliceSize, reason := resolveSliceSizeOrReason(tr.PodSet.TopologyRequest)
 	if reason != "" {
+		s.log.V(2).Info("invalid slice topology request", "reason", reason)
 		return nil, nil, reason
 	}
+	requiredReplacementDomain := s.requiredReplacementDomain(tr, existingAssignment, sliceSize)
+	trCopy := *tr
 	if slicesRequested(tr.PodSet.TopologyRequest) && requiredReplacementDomain != "" && (tr.Count%sliceSize != 0) {
 		trCopy.PodSet = tr.PodSet.DeepCopy()
 		// Find the innermost constraint whose size divides the number of replacement
@@ -813,7 +820,7 @@ func findPSA(wl *kueue.Workload, psName kueue.PodSetReference) *kueue.PodSetAssi
 	return nil
 }
 
-func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta *utiltas.TopologyAssignment) utiltas.TopologyDomainID {
+func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta *utiltas.TopologyAssignment, sliceSize int32) utiltas.TopologyDomainID {
 	key := s.levelKeyWithImpliedFallback(tr)
 	if key == nil {
 		return ""
@@ -829,10 +836,6 @@ func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta 
 		return ""
 	}
 
-	sliceSize, reason := getSliceSizeWithSinglePodAsDefault(tr.PodSet.TopologyRequest)
-	if reason != "" {
-		return ""
-	}
 	if slicesRequested(tr.PodSet.TopologyRequest) && (tr.Count%sliceSize != 0) {
 		// For multi-layer constraints, find the innermost broken constraint's domain.
 		// This ensures the replacement is confined to the tightest topology level
@@ -972,10 +975,23 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 			return nil, fmt.Sprintf("invalid podSetUpdate for PodSet %s, error: %s", workersTasPodSetRequests.PodSet.Name, err.Error())
 		}
 	}
+	// Zero-pod requests are successful no-ops. We still keep topology levels to
+	// preserve the assignment contract shape for downstream consumers,
+	// while skipping slice validation and capacity/fit computations.
+	if workersTasPodSetRequests.Count == 0 {
+		assignments := map[kueue.PodSetReference]*utiltas.TopologyAssignment{
+			workersTasPodSetRequests.PodSet.Name: s.buildAssignment(nil),
+		}
+		if leaderTasPodSetRequests != nil {
+			assignments[leaderTasPodSetRequests.PodSet.Name] = s.buildAssignment(nil)
+		}
+		return assignments, ""
+	}
 
 	// If slice topology is not requested then we can assume that slice is a single pod
-	sliceSize, reason := getSliceSizeWithSinglePodAsDefault(workersTasPodSetRequests.PodSet.TopologyRequest)
-	if len(reason) > 0 {
+	sliceSize, reason := resolveSliceSizeOrReason(workersTasPodSetRequests.PodSet.TopologyRequest)
+	if reason != "" {
+		s.log.V(2).Info("invalid slice topology request", "reason", reason)
 		return nil, reason
 	}
 	state.sliceSize = sliceSize
@@ -1310,16 +1326,17 @@ func slicesRequested(tr *kueue.PodSetTopologyRequest) bool {
 	return len(utiltas.PodSetSliceRequiredTopologyConstraints(tr)) > 0
 }
 
-func getSliceSizeWithSinglePodAsDefault(tr *kueue.PodSetTopologyRequest) (int32, string) {
+func resolveSliceSizeOrReason(tr *kueue.PodSetTopologyRequest) (int32, string) {
 	constraints := utiltas.PodSetSliceRequiredTopologyConstraints(tr)
 	if len(constraints) == 0 {
 		return 1, ""
 	}
-	size := constraints[0].Size
-	if size <= 0 {
-		return 0, "slice topology requested, but slice size not provided"
+	for _, c := range constraints {
+		if c.Size <= 0 {
+			return 0, sliceSizeNotProvidedReason
+		}
 	}
-	return size, ""
+	return constraints[0].Size, ""
 }
 
 // findBestFitDomain finds an index of the first domain with the lowest
@@ -1645,8 +1662,8 @@ func (s *TASFlavorSnapshot) updateCountsToMinimumGeneric(domains []*domain, coun
 func (s *TASFlavorSnapshot) buildTopologyAssignmentForLevels(domains []*domain, levelIdx int) *utiltas.TopologyAssignment {
 	assignment := &utiltas.TopologyAssignment{
 		Domains: make([]utiltas.TopologyDomainAssignment, 0),
+		Levels:  slices.Clone(s.levelKeys[levelIdx:]),
 	}
-	assignment.Levels = s.levelKeys[levelIdx:]
 	for _, domain := range domains {
 		if domain.state == 0 {
 			// It may happen when PodSet count is 0 or when using LeastFreeCapacity algorithm.

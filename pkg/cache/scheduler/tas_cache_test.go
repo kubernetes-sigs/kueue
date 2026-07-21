@@ -4538,7 +4538,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count:      1,
-				wantReason: "slice topology requested, but slice size not provided",
+				wantReason: sliceSizeNotProvidedReason,
 			}},
 		},
 		"cannot request not existing slice topology": {
