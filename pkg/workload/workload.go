@@ -668,7 +668,7 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 			}
 			singlePodRequests := setRes.SinglePodRequests()
 			if ps := podset.FindPodSetByName(wl.Spec.PodSets, psa.Name); ps != nil {
-				singlePodRequests = resources.NewRequestsFromPodSpec(&ps.Template.Spec)
+				singlePodRequests = resources.NewMapRequestsFromPodSpec(&ps.Template.Spec)
 			}
 			for req := range tas.InternalSeqFrom(psa.TopologyAssignment) {
 				setRes.TopologyRequest.DomainRequests = append(setRes.TopologyRequest.DomainRequests, TopologyDomainRequests{
