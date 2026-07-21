@@ -314,9 +314,7 @@ func (s *TASFlavorSnapshot) updateTASUsage(domainID utiltas.TopologyDomainID, us
 func (s *TASFlavorSnapshot) getRemainingCapacity(leaf *leafDomain) resources.Requests {
 	if !leaf.cachedRemainingCapacity.IsValid() {
 		leaf.cachedRemainingCapacity = resources.NewLazyRequests(leaf.freeCapacity)
-		if !leaf.tasUsage.IsEmpty() {
-			leaf.cachedRemainingCapacity.Sub(leaf.tasUsage)
-		}
+		leaf.cachedRemainingCapacity.Sub(leaf.tasUsage)
 	}
 	return leaf.cachedRemainingCapacity.Get()
 }
@@ -355,9 +353,7 @@ func (s *TASFlavorSnapshot) freeCapacityPerDomain() map[utiltas.TopologyDomainID
 	freeCapacityPerDomain := make(map[utiltas.TopologyDomainID]resources.Requests, len(s.leaves))
 
 	for domainID, leaf := range s.leaves {
-		if req := leaf.freeCapacity.Clone(); req != nil {
-			freeCapacityPerDomain[domainID] = req
-		}
+		freeCapacityPerDomain[domainID] = leaf.freeCapacity.Clone()
 	}
 
 	return freeCapacityPerDomain
@@ -367,9 +363,7 @@ func (s *TASFlavorSnapshot) tasUsagePerDomain() map[utiltas.TopologyDomainID]res
 	tasUsagePerDomain := make(map[utiltas.TopologyDomainID]resources.Requests, len(s.leaves))
 
 	for domainID, leaf := range s.leaves {
-		if req := leaf.tasUsage.Clone(); req != nil {
-			tasUsagePerDomain[domainID] = req
-		}
+		tasUsagePerDomain[domainID] = leaf.tasUsage.Clone()
 	}
 
 	return tasUsagePerDomain
@@ -386,23 +380,19 @@ func (s *TASFlavorSnapshot) SerializeFreeCapacityPerDomain() (string, error) {
 
 	details := make(map[utiltas.TopologyDomainID]domainCapacityDetails, len(s.leaves))
 
-	for _, domain := range slices.Sorted(maps.Keys(s.leaves)) {
+	for _, domain := range slices.Sorted(maps.Keys(freeCapacityPerDomain)) {
 		freeCapacity := freeCapacityPerDomain[domain]
 		tasUsage := tasUsagePerDomain[domain]
 
-		freeCapacityDetails := make(map[corev1.ResourceName]string)
-		if freeCapacity != nil {
-			freeCapacity.ForEach(func(resourceName corev1.ResourceName, value int64) {
-				freeCapacityDetails[resourceName] = resources.ResourceQuantityString(resourceName, value)
-			})
-		}
+		freeCapacityDetails := make(map[corev1.ResourceName]string, freeCapacity.Len())
+		freeCapacity.ForEach(func(resourceName corev1.ResourceName, value int64) {
+			freeCapacityDetails[resourceName] = resources.ResourceQuantityString(resourceName, value)
+		})
 
-		tasUsageDetails := make(map[corev1.ResourceName]string)
-		if tasUsage != nil {
-			tasUsage.ForEach(func(resourceName corev1.ResourceName, value int64) {
-				tasUsageDetails[resourceName] = resources.ResourceQuantityString(resourceName, value)
-			})
-		}
+		tasUsageDetails := make(map[corev1.ResourceName]string, tasUsage.Len())
+		tasUsage.ForEach(func(resourceName corev1.ResourceName, value int64) {
+			tasUsageDetails[resourceName] = resources.ResourceQuantityString(resourceName, value)
+		})
 
 		details[domain] = domainCapacityDetails{
 			FreeCapacity: freeCapacityDetails,
