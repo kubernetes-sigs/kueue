@@ -18,7 +18,7 @@ package scheduler
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"iter"
 
 	corev1 "k8s.io/api/core/v1"
@@ -62,7 +62,7 @@ func (c *defaultChecker) FindFeasibleNodes(
 		// 0. Cast to matching candidate
 		matchedCandidate, ok := candidate.(simulator.MatchedCandidate)
 		if !ok {
-			return nil, errors.New("failed to cast")
+			return nil, fmt.Errorf("failed to cast candidate %T to simulator.MatchedCandidate", candidate)
 		}
 
 		if nodeObj == nil {
