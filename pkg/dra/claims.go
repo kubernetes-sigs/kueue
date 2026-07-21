@@ -55,8 +55,8 @@ type celDeviceRequest struct {
 // total number of devices requested for each DeviceClass inside the provided
 // ResourceClaimSpec. Returns field errors for unsupported request features
 // (FirstAvailable, AdminAccess, AllocationMode All).
-func countDevicesPerClass(claimSpec *resourcev1.ResourceClaimSpec) (resources.Requests, field.ErrorList) {
-	out := resources.Requests{}
+func countDevicesPerClass(claimSpec *resourcev1.ResourceClaimSpec) (resources.MapRequests, field.ErrorList) {
+	out := resources.MapRequests{}
 	if claimSpec == nil {
 		return out, nil
 	}
