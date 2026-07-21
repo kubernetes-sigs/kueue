@@ -262,8 +262,9 @@ func (c *Controller) syncOwnedProvisionRequest(
 			continue
 		}
 		ac := admissioncheck.FindAdmissionCheck(wlInfo.checkStates, checkName)
-		if ac != nil && ac.State == kueue.CheckStateReady {
-			log.V(2).Info("Skip syncing of the ProvReq for admission check which is Ready", "workload", klog.KObj(wl), "admissionCheck", checkName)
+		if ac != nil && ac.State != kueue.CheckStatePending {
+			// Skip non-Pending checks (Ready done; Retry/Rejected wait for eviction).
+			log.V(2).Info("Skip syncing of the ProvReq for admission check which is not Pending", "workload", klog.KObj(wl), "admissionCheck", checkName, "state", ac.State)
 			continue
 		}
 
@@ -313,18 +314,50 @@ func (c *Controller) syncOwnedProvisionRequest(
 			for _, mergedPodSet := range mergedPodSets {
 				ptName := getProvisioningRequestPodTemplateName(requestName, mergedPodSet.Name)
 
-				pt := &corev1.PodTemplate{}
-				err := c.client.Get(ctx, types.NamespacedName{Namespace: wl.Namespace, Name: ptName}, pt)
-				if client.IgnoreNotFound(err) != nil {
-					return err
-				}
+				desired, err := c.buildPodTemplate(ctx, wl, ptName, mergedPodSet.PodSet, mergedPodSet.PodSetAssignment)
 				if err != nil {
+					msg := fmt.Sprintf("Error building PodTemplate %q: %v", ptName, err)
+					return c.handleError(ctx, wl, ac, msg, err)
+				}
+
+				existing := &corev1.PodTemplate{}
+				err = c.client.Get(ctx, client.ObjectKeyFromObject(desired), existing)
+				if client.IgnoreNotFound(err) != nil {
+					msg := fmt.Sprintf("Error getting PodTemplate %q: %v", ptName, err)
+					return c.handleError(ctx, wl, ac, msg, err)
+				}
+				switch {
+				case err != nil:
 					// it's a not found, so create it
-					_, err := c.createPodTemplate(ctx, wl, ptName, mergedPodSet.PodSet, mergedPodSet.PodSetAssignment)
-					if err != nil {
+					if err := c.client.Create(ctx, desired); err != nil {
 						msg := fmt.Sprintf("Error creating PodTemplate %q: %v", ptName, err)
 						return c.handleError(ctx, wl, ac, msg, err)
 					}
+					log.V(3).Info("Created PodTemplate", "podTemplate", klog.KObj(desired))
+				case podTemplateEquivalent(existing, desired):
+					// Already matches the Kueue-derived spec; skip the write.
+					log.V(3).Info("PodTemplate already up to date, skipping update", "podTemplate", klog.KObj(desired))
+				default:
+					// Divergent PodTemplate at the deterministic name — avoid Update (immutable fields).
+					// ManagedByKueue: delete and recreate (orphan/stale from a prior ProvReq).
+					// Otherwise: Retry when the feature gate is enabled; else reuse as-is.
+					if existing.Labels[constants.ManagedByKueueLabelKey] == constants.ManagedByKueueLabelValue {
+						if err := c.client.Delete(ctx, existing); err != nil {
+							msg := fmt.Sprintf("Error deleting divergent PodTemplate %q: %v", ptName, err)
+							return c.handleError(ctx, wl, ac, msg, err)
+						}
+						if err := c.client.Create(ctx, desired); err != nil {
+							msg := fmt.Sprintf("Error recreating PodTemplate %q: %v", ptName, err)
+							return c.handleError(ctx, wl, ac, msg, err)
+						}
+						log.V(3).Info("Replaced divergent Kueue-managed PodTemplate", "podTemplate", klog.KObj(desired))
+						break
+					}
+					if features.Enabled(features.RetryProvisioningDueInconsistentPodTemplate) {
+						msg := fmt.Sprintf("Existing PodTemplate %q differs from the expected Kueue-derived contents; retrying", ptName)
+						return c.handleRetry(ctx, log, wl, ac, prc, msg)
+					}
+					log.V(3).Info("PodTemplate differs but RetryProvisioningDueInconsistentPodTemplate is disabled; reusing existing", "podTemplate", klog.KObj(existing))
 				}
 
 				req.Spec.PodSets = append(req.Spec.PodSets, autoscaling.PodSet{
@@ -363,7 +396,8 @@ func (c *Controller) handleError(ctx context.Context, wl *kueue.Workload, ac *ku
 	return errors.Join(err, patchErr)
 }
 
-func (c *Controller) createPodTemplate(ctx context.Context, wl *kueue.Workload, name string, ps *kueue.PodSet, psa *kueue.PodSetAssignment) (*corev1.PodTemplate, error) {
+// buildPodTemplate derives a PodTemplate from the Workload PodSet and admission assignment.
+func (c *Controller) buildPodTemplate(ctx context.Context, wl *kueue.Workload, name string, ps *kueue.PodSet, psa *kueue.PodSetAssignment) (*corev1.PodTemplate, error) {
 	newPt := &corev1.PodTemplate{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -372,7 +406,8 @@ func (c *Controller) createPodTemplate(ctx context.Context, wl *kueue.Workload, 
 				constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
 			},
 		},
-		Template: ps.Template,
+		// Deep-copy: podset.Merge mutates in place and ps.Template aliases wl.Spec.PodSets.
+		Template: *ps.Template.DeepCopy(),
 	}
 
 	// set the controller reference to workload so that the template is not left orphaned
@@ -396,11 +431,78 @@ func (c *Controller) createPodTemplate(ctx context.Context, wl *kueue.Workload, 
 	// copy limits to requests if needed
 	workload.UseLimitsAsMissingRequestsInPod(&newPt.Template.Spec)
 
-	if err := c.client.Create(ctx, newPt); err != nil {
-		return nil, err
+	return newPt, nil
+}
+
+// handleRetry sets the admission check to Retry so the next attempt uses a new name pair.
+func (c *Controller) handleRetry(ctx context.Context, log logr.Logger, wl *kueue.Workload, ac *kueue.AdmissionCheckState, prc *kueue.ProvisioningRequestConfig, msg string) error {
+	prevState := ac.State
+	ac.Message = api.TruncateConditionMessage(msg)
+	setAdmissionCheckRetry(ac, prc, c.clock)
+
+	err := workloadpatching.PatchStatus(ctx, c.client, wl, kueue.ProvisioningRequestControllerName, func(wl *kueue.Workload) (bool, error) {
+		return workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *ac, c.clock), nil
+	})
+	if err != nil {
+		return err
+	}
+	eventMsg := fmt.Sprintf("Admission check %s updated state from %s to %s with message: %s", ac.Name, prevState, ac.State, ac.Message)
+	c.record.Eventf(wl, nil, corev1.EventTypeNormal, "UpdatedAdmissionCheck", "UpdatedAdmissionCheck", api.TruncateEventMessage(eventMsg))
+	log.V(3).Info("Retrying admission check due to divergent PodTemplate", "admissionCheck", ac.Name, "message", msg)
+	return nil
+}
+
+// setAdmissionCheckRetry sets the admission check to Retry using the
+// ProvisioningRequestConfig retry strategy (backoff + requeue state).
+func setAdmissionCheckRetry(ac *kueue.AdmissionCheckState, prc *kueue.ProvisioningRequestConfig, clk clock.Clock) {
+	ac.State = kueue.CheckStateRetry
+	workload.UpdateAdmissionCheckRequeueState(ac,
+		*prc.Spec.RetryStrategy.BackoffBaseSeconds,
+		*prc.Spec.RetryStrategy.BackoffMaxSeconds,
+		clk)
+}
+
+// podTemplateEquivalent compares template and labels, ignoring owners (transferred later)
+// and API-server defaults that would otherwise look like divergence on re-reconcile.
+func podTemplateEquivalent(existing, desired *corev1.PodTemplate) bool {
+	a := existing.DeepCopy()
+	b := desired.DeepCopy()
+	normalizePodTemplateForCompare(a)
+	normalizePodTemplateForCompare(b)
+	return equality.Semantic.DeepEqual(a.Template, b.Template) &&
+		equality.Semantic.DeepEqual(a.Labels, b.Labels)
+}
+
+func normalizePodTemplateForCompare(pt *corev1.PodTemplate) {
+	meta := &pt.Template.ObjectMeta
+	if len(meta.Labels) == 0 {
+		meta.Labels = nil
+	}
+	if len(meta.Annotations) == 0 {
+		meta.Annotations = nil
 	}
 
-	return newPt, nil
+	spec := &pt.Template.Spec
+	spec.RestartPolicy = ""
+	spec.DNSPolicy = ""
+	spec.SchedulerName = ""
+	spec.TerminationGracePeriodSeconds = nil
+	// API server defaults an empty PodSecurityContext; in-memory builds leave it nil.
+	if spec.SecurityContext != nil && equality.Semantic.DeepEqual(spec.SecurityContext, &corev1.PodSecurityContext{}) {
+		spec.SecurityContext = nil
+	}
+	for i := range spec.Containers {
+		normalizeContainerForCompare(&spec.Containers[i])
+	}
+	for i := range spec.InitContainers {
+		normalizeContainerForCompare(&spec.InitContainers[i])
+	}
+}
+
+func normalizeContainerForCompare(c *corev1.Container) {
+	c.ImagePullPolicy = ""
+	c.TerminationMessagePath = ""
+	c.TerminationMessagePolicy = ""
 }
 
 func (c *Controller) syncProvisionRequestsPodTemplates(ctx context.Context, wl *kueue.Workload, request *autoscaling.ProvisioningRequest) error {
@@ -560,8 +662,6 @@ func (c *Controller) syncCheckStates(
 					"accepted", isAccepted(pr),
 					"bookingExpired", isBookingExpired(pr),
 					"capacityRevoked", isCapacityRevoked(pr))
-				backoffBaseSeconds := *prc.Spec.RetryStrategy.BackoffBaseSeconds
-				backoffMaxSeconds := *prc.Spec.RetryStrategy.BackoffMaxSeconds
 				backoffLimitCount := *prc.Spec.RetryStrategy.BackoffLimitCount
 				switch {
 				case isFailed(pr):
@@ -572,8 +672,7 @@ func (c *Controller) syncCheckStates(
 						if getAttempt(log, pr, wl.Name, check) > ptr.Deref(checkState.RetryCount, 0) {
 							// We don't want to Retry on old ProvisioningRequests
 							updated = true
-							updateCheckState(&checkState, kueue.CheckStateRetry)
-							workload.UpdateAdmissionCheckRequeueState(&checkState, backoffBaseSeconds, backoffMaxSeconds, c.clock)
+							setAdmissionCheckRetry(&checkState, prc, c.clock)
 						}
 					} else {
 						updated = true
@@ -596,8 +695,7 @@ func (c *Controller) syncCheckStates(
 							updated = updateCheckMessage(&checkState, message) || updated
 							if getAttempt(log, pr, wl.Name, check) > ptr.Deref(checkState.RetryCount, 0) {
 								updated = true
-								updateCheckState(&checkState, kueue.CheckStateRetry)
-								workload.UpdateAdmissionCheckRequeueState(&checkState, backoffBaseSeconds, backoffMaxSeconds, c.clock)
+								setAdmissionCheckRetry(&checkState, prc, c.clock)
 							}
 						} else {
 							updated = true
@@ -642,7 +740,7 @@ func (c *Controller) syncCheckStates(
 	}
 	if updated {
 		for i := range recorderMessages {
-			c.record.Eventf(wl, nil, corev1.EventTypeNormal, "AdmissionCheckUpdated", "AdmissionCheckUpdated", api.TruncateEventMessage(recorderMessages[i]))
+			c.record.Eventf(wl, nil, corev1.EventTypeNormal, "UpdatedAdmissionCheck", "UpdatedAdmissionCheck", api.TruncateEventMessage(recorderMessages[i]))
 		}
 	}
 	wlInfo.update(wl, c.clock)
