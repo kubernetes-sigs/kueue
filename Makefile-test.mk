@@ -455,8 +455,6 @@ run-test-tas-e2e-baseline-%:
 		E2E_CONFIG_FOLDER="baseline" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
-		WAS_ENABLED=$(WAS_ENABLED) \
-		E2E_EXTRA_KUEUE_FEATURE_GATES=$(E2E_EXTRA_KUEUE_FEATURE_GATES) \
 		./hack/testing/e2e-test.sh
 
 run-test-tas-e2e-extended-%: K8S_VERSION = $(@:run-test-tas-e2e-extended-%=%)
@@ -472,8 +470,6 @@ run-test-tas-e2e-extended-%:
 		E2E_CONFIG_FOLDER="extended" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
-		WAS_ENABLED=$(WAS_ENABLED) \
-		E2E_EXTRA_KUEUE_FEATURE_GATES=$(E2E_EXTRA_KUEUE_FEATURE_GATES) \
 		./hack/testing/e2e-test.sh
 
 run-test-e2e-sequential-baseline-%: K8S_VERSION = $(@:run-test-e2e-sequential-baseline-%=%)
