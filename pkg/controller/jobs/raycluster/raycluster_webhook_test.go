@@ -37,6 +37,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingrayutil "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 func TestValidateDefault(t *testing.T) {
@@ -150,6 +151,34 @@ func TestValidateCreate(t *testing.T) {
 					field.NewPath("spec", "enableInTreeAutoscaling"),
 					new(true),
 					"a kueue managed job can use autoscaling only when the ElasticJobsViaWorkloadSlices feature gate is on and the job is an elastic job",
+				),
+			}.ToAggregate(),
+		},
+		"multikueue elastic autoscaling - fixed-size worker group is valid": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.WorkloadIdentifierAnnotations: false},
+			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				ManagedBy(kueue.MultiKueueControllerName).
+				WithEnableAutoscaling(new(true)).
+				FirstWorkerGroupReplicas(2, 2, 2).
+				ElasticSchedulingGates().
+				Obj(),
+			wantErr: nil,
+		},
+		"multikueue elastic autoscaling - non-fixed-size worker group is rejected": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.WorkloadIdentifierAnnotations: false},
+			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				ManagedBy(kueue.MultiKueueControllerName).
+				WithEnableAutoscaling(new(true)).
+				FirstWorkerGroupReplicas(1, 1, 5).
+				ElasticSchedulingGates().
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(
+					field.NewPath("spec", "workerGroupSpecs").Index(0),
+					"workers-group-0",
+					"a MultiKueue-managed elastic RayCluster with in-tree autoscaling requires replicas == minReplicas == maxReplicas until autoscaler-driven resizes are supported (see kubernetes-sigs/kueue#13243)",
 				),
 			}.ToAggregate(),
 		},

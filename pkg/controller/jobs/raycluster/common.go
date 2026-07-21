@@ -98,13 +98,10 @@ func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec, annotations map[string]s
 	// When in-tree autoscaling is enabled, KubeRay injects an autoscaler sidecar
 	// container into the head Pod. It is added at Pod-build time and is not part
 	// of HeadGroupSpec.Template, so account for it here to keep quota accurate.
-	// The exception is an elastic RayCluster managed by MultiKueue: its remote
-	// copy runs with enableInTreeAutoscaling stripped (the manager owns scaling,
-	// see copyJobSpec in the MultiKueue adapter), so no autoscaler sidecar ever
-	// exists on any cluster. Accounting for one here would make the Workload's
-	// head PodSet permanently disagree with the pod sets derived from the remote
-	// copy on the worker, which the worker reports as an OutOfSync finish.
-	if ptr.Deref(rayClusterSpec.EnableInTreeAutoscaling, false) && !isMultiKueueElasticRayCluster(rayClusterSpec, annotations) {
+	// This also holds for a MultiKueue-dispatched elastic RayCluster: the flag
+	// is copied to the remote copy verbatim, so the sidecar genuinely runs on
+	// the worker cluster and the worker derives the same head PodSet.
+	if ptr.Deref(rayClusterSpec.EnableInTreeAutoscaling, false) {
 		headPodSet.Template.Spec.Containers = append(
 			headPodSet.Template.Spec.Containers,
 			autoscalerContainer(rayClusterSpec.AutoscalerOptions),
@@ -173,16 +170,6 @@ func defaultAutoscalerResources() corev1.ResourceRequirements {
 			corev1.ResourceMemory: resource.MustParse("512Mi"),
 		},
 	}
-}
-
-// isMultiKueueElasticRayCluster reports whether pod sets are being built for an
-// elastic RayCluster dispatched via MultiKueue. Such a RayCluster never runs an
-// in-tree autoscaler: the manager copy is not executed, and the remote copy is
-// created with enableInTreeAutoscaling stripped.
-func isMultiKueueElasticRayCluster(rayClusterSpec *rayv1.RayClusterSpec, annotations map[string]string) bool {
-	return ptr.Deref(rayClusterSpec.ManagedBy, "") == kueue.MultiKueueControllerName &&
-		features.Enabled(features.ElasticJobsViaWorkloadSlices) &&
-		annotations[workloadslicing.EnabledAnnotationKey] == workloadslicing.EnabledAnnotationValue
 }
 
 // autoscalerContainer returns a container mirroring the Ray autoscaler sidecar

@@ -210,6 +210,29 @@ func validateElasticJob(job *rayv1.RayCluster) field.ErrorList {
 		)
 	}
 
+	// A MultiKueue-dispatched elastic RayCluster runs the in-tree autoscaler on
+	// the worker cluster, but autoscaler-driven resizes are not reflected back
+	// into the manager's Workload slices yet (kubernetes-sigs/kueue#13243).
+	// Until they are, the autoscaler must have no room to resize: pin every
+	// worker group to replicas == minReplicas == maxReplicas.
+	if ptr.Deref(job.Spec.EnableInTreeAutoscaling, false) &&
+		ptr.Deref(job.Spec.ManagedBy, "") == kueue.MultiKueueControllerName {
+		for index := range job.Spec.WorkerGroupSpecs {
+			wgs := &job.Spec.WorkerGroupSpecs[index]
+			replicas := ptr.Deref(wgs.Replicas, 1)
+			if wgs.MinReplicas == nil || *wgs.MinReplicas != replicas || wgs.MaxReplicas == nil || *wgs.MaxReplicas != replicas {
+				allErrors = append(
+					allErrors,
+					field.Invalid(
+						specPath.Child("workerGroupSpecs").Index(index),
+						wgs.GroupName,
+						"a MultiKueue-managed elastic RayCluster with in-tree autoscaling requires replicas == minReplicas == maxReplicas until autoscaler-driven resizes are supported (see kubernetes-sigs/kueue#13243)",
+					),
+				)
+			}
+		}
+	}
+
 	return allErrors
 }
 

@@ -397,7 +397,10 @@ func TestBuildPodSets(t *testing.T) {
 					Obj(),
 			},
 		},
-		"autoscaler sidecar is not accounted for a MultiKueue-managed elastic RayCluster": {
+		"autoscaler sidecar is accounted for a MultiKueue-managed elastic RayCluster": {
+			// The remote copy keeps enableInTreeAutoscaling (see copyJobSpec), so
+			// the sidecar genuinely runs on the worker and must be accounted, just
+			// like any other autoscaling RayCluster.
 			elasticJobsViaWorkloadSlices: true,
 			rayClusterSpec: &rayv1.RayClusterSpec{
 				EnableInTreeAutoscaling: new(true),
@@ -427,32 +430,6 @@ func TestBuildPodSets(t *testing.T) {
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
 					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "head"}},
-					}).
-					Obj(),
-				*utiltestingapi.MakePodSet("workers", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "worker"}},
-					}).
-					Obj(),
-			},
-		},
-		"autoscaler sidecar is accounted for a MultiKueue-managed RayCluster that is not elastic": {
-			elasticJobsViaWorkloadSlices: true,
-			rayClusterSpec: &rayv1.RayClusterSpec{
-				EnableInTreeAutoscaling: new(true),
-				ManagedBy:               ptr.To(kueue.MultiKueueControllerName),
-				HeadGroupSpec: rayv1.HeadGroupSpec{
-					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{
-							Containers: []corev1.Container{{Name: "head"}},
-						},
-					},
-				},
-			},
-			wantPodSets: []kueue.PodSet{
-				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
-					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{
 							{Name: "head"},
 							{
@@ -469,6 +446,11 @@ func TestBuildPodSets(t *testing.T) {
 								},
 							},
 						},
+					}).
+					Obj(),
+				*utiltestingapi.MakePodSet("workers", 1).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "worker"}},
 					}).
 					Obj(),
 			},

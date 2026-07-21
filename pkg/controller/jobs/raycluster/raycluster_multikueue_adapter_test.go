@@ -352,21 +352,25 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 		},
-		// The elastic sync path must keep the remote autoscaler off, not just
-		// at create time. Here the worker copy has EnableInTreeAutoscaling set
-		// (e.g. re-enabled out-of-band); a scale-down sync should clear it so the
-		// manager stays the sole replica driver.
-		"elastic sync re-asserts that the remote autoscaler stays off": {
+		// A MultiKueue-dispatched autoscaling elastic RayCluster keeps
+		// enableInTreeAutoscaling on the remote copy (the sidecar runs on the
+		// worker). A manager-driven scale-down syncs replicas plus min/max so the
+		// worker stays pinned to replicas == minReplicas == maxReplicas and the
+		// remote autoscaler has no room to resize.
+		"elastic sync keeps the remote autoscaler on and syncs min/max with replicas": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.WorkloadIdentifierAnnotations: false},
 			managersRayClusters: []rayv1.RayCluster{
-				*elasticBuilder.Clone().ScaleFirstWorkerGroup(1).Obj(),
+				*elasticBuilder.Clone().
+					WithEnableAutoscaling(new(true)).
+					FirstWorkerGroupReplicas(1, 1, 1).
+					Obj(),
 			},
 			workerRayClusters: []rayv1.RayCluster{
 				*elasticBuilder.Clone().
 					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
-					ScaleFirstWorkerGroup(3).
 					WithEnableAutoscaling(new(true)).
+					FirstWorkerGroupReplicas(3, 3, 3).
 					Obj(),
 			},
 			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
@@ -374,13 +378,17 @@ func TestMultiKueueAdapter(t *testing.T) {
 				return err
 			},
 			wantManagersRayClusters: []rayv1.RayCluster{
-				*elasticBuilder.Clone().ScaleFirstWorkerGroup(1).Obj(),
+				*elasticBuilder.Clone().
+					WithEnableAutoscaling(new(true)).
+					FirstWorkerGroupReplicas(1, 1, 1).
+					Obj(),
 			},
 			wantWorkerRayClusters: []rayv1.RayCluster{
 				*elasticBuilder.Clone().
 					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
-					ScaleFirstWorkerGroup(1).
+					WithEnableAutoscaling(new(true)).
+					FirstWorkerGroupReplicas(1, 1, 1).
 					Obj(),
 			},
 		},

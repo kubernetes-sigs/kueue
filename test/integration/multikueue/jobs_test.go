@@ -1846,10 +1846,12 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		})
 	})
 
-	// Repro for the elastic RayCluster × MultiKueue slice-handover issue: the worker
-	// group is pinned to replicas == minReplicas == maxReplicas, so even with
-	// enableInTreeAutoscaling the autoscaler could never request a resize and no
-	// slice replacement should ever happen after admission.
+	// A MultiKueue-dispatched elastic RayCluster with in-tree autoscaling: the
+	// worker group is pinned to replicas == minReplicas == maxReplicas (as the
+	// webhook now requires), so the autoscaler running on the worker has no room
+	// to resize and no slice replacement should ever happen after admission. The
+	// autoscaler sidecar is accounted on both clusters, so the prebuilt workload
+	// stays in sync.
 	ginkgo.It("Should keep an admitted elastic RayCluster with a fixed-size autoscaling worker group stable", func() {
 		manager := managerTestCluster
 		worker2 := worker2TestCluster
