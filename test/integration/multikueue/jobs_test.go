@@ -1912,18 +1912,18 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		})
 	})
 
-	// Pending: exercises the worker-to-manager reverse sync end to end. Two of the
-	// three pieces now work — the autoscaler-driven worker resize is written back
-	// onto the manager RayCluster (replicas reach 2), and the worker's jobframework
-	// tolerates the transient scale-up mismatch instead of finishing the remote
-	// workload OutOfSync (see jobScaledUpBeyondWorkload), so the RayCluster is no
-	// longer torn down mid-handover. What is still missing: after the write-back
-	// the manager does not produce and admit a count-2 replacement slice, so the
-	// prebuilt label is never repointed. The slice set is also polluted by the
-	// spurious slice the unsuspend generation-bump spawns before the resize. This
-	// is the remaining slice-handover work tracked in kubernetes-sigs/kueue#13243;
-	// the write-back and tolerance are covered by unit tests.
-	ginkgo.PIt("Should reflect an autoscaler-driven resize of an elastic RayCluster on the manager", func() {
+	// Exercises the worker-to-manager reverse sync end to end: the autoscaler-driven
+	// worker resize is written back onto the manager RayCluster, the manager's
+	// slicing machinery produces a count-2 replacement slice, and once that slice is
+	// admitted the MultiKueue handover completes — the prebuilt label is repointed
+	// and the worker RayCluster keeps the autoscaled size. The worker's jobframework
+	// tolerates the transient scale-up mismatch during the handover instead of
+	// finishing the remote workload OutOfSync (see jobScaledUpBeyondWorkload).
+	//
+	// This suite has no running scheduler, so the replacement slice is admitted
+	// manually via SetQuotaReservation, exactly as admitWorkloadAndCheckWorkerCopies
+	// does for the initial slice; on a real cluster the scheduler admits it.
+	ginkgo.It("Should reflect an autoscaler-driven resize of an elastic RayCluster on the manager", func() {
 		manager := managerTestCluster
 		worker2 := worker2TestCluster
 
@@ -1974,8 +1974,46 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("a new workload slice is admitted and the worker RayCluster keeps the autoscaled size with the repointed prebuilt label", func() {
-			newWlKey := wlKeyForGeneration(createdCluster.GetGeneration() + 1)
+		// Find the replacement slice the manager's slicing machinery created for the
+		// scaled-up size (the not-finished workload carrying the replacement
+		// annotation).
+		var newWlKey types.NamespacedName
+		ginkgo.By("the manager created a count-2 replacement slice", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				list := &kueue.WorkloadList{}
+				g.Expect(manager.client.List(manager.ctx, list, client.InNamespace(managerNs.Name))).To(gomega.Succeed())
+				found := false
+				for i := range list.Items {
+					w := &list.Items[i]
+					if workloadfinish.IsFinished(w) {
+						continue
+					}
+					if w.Annotations[workloadslicing.WorkloadSliceReplacementFor] == "" {
+						continue
+					}
+					if workload.ExtractPodSetCountsFromWorkload(w)["workers-group-0"] != 2 {
+						continue
+					}
+					newWlKey = client.ObjectKeyFromObject(w)
+					found = true
+				}
+				g.Expect(found).To(gomega.BeTrue(), "expected a not-finished count-2 replacement slice on the manager")
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		// The real scheduler is not running in this suite; admit the replacement
+		// slice manually, exactly as admitWorkloadAndCheckWorkerCopies does for the
+		// initial slice, so the product handover (MultiKueue dispatch, prebuilt
+		// label repoint, old-slice cleanup) can run.
+		ginkgo.By("admitting the replacement slice on the manager and worker2", func() {
+			util.SetQuotaReservation(manager.ctx, manager.client, newWlKey, admission.Obj())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker2.client.Get(worker2.ctx, newWlKey, &kueue.Workload{})).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.SetQuotaReservation(worker2.ctx, worker2.client, newWlKey, admission.Obj())
+		})
+
+		ginkgo.By("the replacement slice is admitted and the worker RayCluster keeps the autoscaled size with the repointed prebuilt label", func() {
 			util.ExpectAdmissionCheckStateWithMessage(
 				manager.ctx, manager.client, newWlKey,
 				multiKueueAC.Name,
