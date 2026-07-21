@@ -549,6 +549,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.19"
+- name: VectorizedResourceRequests
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
 - name: VisibilityOnDemand
   versionedSpecs:
   - default: false

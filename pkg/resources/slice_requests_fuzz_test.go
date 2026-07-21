@@ -34,6 +34,27 @@ var fuzzResourceNames = []corev1.ResourceName{
 	"example.com/rdma",
 }
 
+// parseFuzzData decodes raw fuzz byte slices into two MapRequests maps (m1, m2) and an operation choice byte.
+//
+// Algorithm:
+//  1. Header (1 byte): data[0] is returned as opChoice to select the test operation (opAdd, opSub, opScaledUp, opCountIn).
+//  2. Map 1 parsing:
+//     - The next byte (data[0] % 5) defines len1, the number of resource entries to populate in m1 (0 to 4).
+//     - Each entry consumes 5 bytes:
+//     - Byte 0: Resource name index into fuzzResourceNames array (data[0] % len(fuzzResourceNames)).
+//     - Bytes 1..4: 32-bit unsigned little-endian integer value for the resource quantity.
+//  3. Map 2 parsing:
+//     - If bytes remain, the next byte (data[0] % 5) defines len2 (0 to 4).
+//     - Up to len2 entries are parsed using 5 bytes each, exactly as in m1.
+//
+// Example:
+//
+//	Input data: []byte{0, 2, 0, 100, 0, 0, 0, 1, 50, 0, 0, 0}
+//	- opChoice = 0 (opAdd)
+//	- m1 length = 2 % 5 = 2 entries
+//	  - Entry 1: index 0 -> fuzzResourceNames[0] ("cpu"), val = 100 -> m1["cpu"] = 100
+//	  - Entry 2: index 1 -> fuzzResourceNames[1] ("memory"), val = 50 -> m1["memory"] = 50
+//	- m2 = MapRequests{} (no remaining bytes)
 func parseFuzzData(data []byte) (MapRequests, MapRequests, byte) {
 	if len(data) < 4 {
 		return MapRequests{}, MapRequests{}, 0
@@ -41,34 +62,28 @@ func parseFuzzData(data []byte) (MapRequests, MapRequests, byte) {
 	opChoice := data[0]
 	data = data[1:]
 
-	m1 := make(MapRequests)
-	m2 := make(MapRequests)
+	m1, data := parseFuzzMap(data)
+	m2, _ := parseFuzzMap(data)
 
-	len1 := int(data[0] % 5)
+	return m1, m2, opChoice
+}
+
+func parseFuzzMap(data []byte) (MapRequests, []byte) {
+	if len(data) == 0 {
+		return make(MapRequests), data
+	}
+	m := make(MapRequests)
+	count := int(data[0] % 5)
 	data = data[1:]
-	for i := 0; i < len1 && len(data) >= 5; i++ {
+	for i := 0; i < count && len(data) >= 5; i++ {
 		res := fuzzResourceNames[int(data[0])%len(fuzzResourceNames)]
 		val := int64(data[1]) | int64(data[2])<<8 | int64(data[3])<<16 | int64(data[4])<<24
 		if val != 0 {
-			m1[res] = val
+			m[res] = val
 		}
 		data = data[5:]
 	}
-
-	if len(data) > 0 {
-		len2 := int(data[0] % 5)
-		data = data[1:]
-		for i := 0; i < len2 && len(data) >= 5; i++ {
-			res := fuzzResourceNames[int(data[0])%len(fuzzResourceNames)]
-			val := int64(data[1]) | int64(data[2])<<8 | int64(data[3])<<16 | int64(data[4])<<24
-			if val != 0 {
-				m2[res] = val
-			}
-			data = data[5:]
-		}
-	}
-
-	return m1, m2, opChoice
+	return m, data
 }
 
 func normalizeMap(m MapRequests) MapRequests {
@@ -117,6 +132,13 @@ func resourceIndex(res corev1.ResourceName) byte {
 	return 0
 }
 
+const (
+	opAdd byte = iota
+	opSub
+	opScaledUp
+	opCountIn
+)
+
 type fuzzSeed struct {
 	opChoice byte
 	m1       MapRequests
@@ -140,22 +162,22 @@ func (s fuzzSeed) encode() []byte {
 func FuzzSliceRequestsEquivalence(f *testing.F) {
 	seeds := []fuzzSeed{
 		{
-			opChoice: 0, // Add
+			opChoice: opAdd,
 			m1:       MapRequests{corev1.ResourceCPU: 100, corev1.ResourceMemory: 200},
 			m2:       MapRequests{corev1.ResourceMemory: 50, corev1.ResourcePods: 100},
 		},
 		{
-			opChoice: 1, // Sub
+			opChoice: opSub,
 			m1:       MapRequests{corev1.ResourceCPU: 200},
 			m2:       MapRequests{corev1.ResourceCPU: 100},
 		},
 		{
-			opChoice: 2, // ScaledUp
+			opChoice: opScaledUp,
 			m1:       MapRequests{corev1.ResourcePods: 10},
 			m2:       MapRequests{corev1.ResourcePods: 20},
 		},
 		{
-			opChoice: 3, // CountIn
+			opChoice: opCountIn,
 			m1:       MapRequests{corev1.ResourceCPU: 100, corev1.ResourceMemory: 200},
 			m2:       MapRequests{corev1.ResourceMemory: 50, corev1.ResourcePods: 100},
 		},
@@ -172,7 +194,7 @@ func FuzzSliceRequestsEquivalence(f *testing.F) {
 		s2 := NewSliceRequests(m2)
 
 		switch opChoice % 4 {
-		case 0: // Add
+		case opAdd:
 			m1Copy := m1.Clone()
 			m1Copy.Add(m2)
 
@@ -181,7 +203,7 @@ func FuzzSliceRequestsEquivalence(f *testing.F) {
 
 			checkRequestsEquivalence(t, "Add", m1Copy, s1Copy)
 
-		case 1: // Sub
+		case opSub:
 			m1Copy := m1.Clone()
 			m1Copy.Sub(m2)
 
@@ -190,14 +212,14 @@ func FuzzSliceRequestsEquivalence(f *testing.F) {
 
 			checkRequestsEquivalence(t, "Sub", m1Copy, s1Copy)
 
-		case 2: // ScaledUp
+		case opScaledUp:
 			factor := int64(opChoice%5 + 1)
 			mScaled := m1.ScaledUp(factor)
 			sScaled := s1.ScaledUp(factor)
 
 			checkRequestsEquivalence(t, "ScaledUp", mScaled, sScaled)
 
-		case 3: // CountIn & CountInWithLimitingResource
+		case opCountIn:
 			mCnt, mRes := m1.CountInWithLimitingResource(m2)
 			sCnt, sRes := s1.CountInWithLimitingResource(s2)
 
