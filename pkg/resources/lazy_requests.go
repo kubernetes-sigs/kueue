@@ -23,73 +23,51 @@ type LazyRequests struct {
 	cached Requests
 }
 
-// isNil safely checks if a Requests interface instance is nil or wraps a nil map.
-func isNil(r Requests) bool {
-	if r == nil {
-		return true
-	}
-	if m, ok := r.(MapRequests); ok {
-		return m == nil
-	}
-	return false
-}
-
-// isZero checks if a Requests interface instance is nil or has 0 resource entries.
-func isZero(r Requests) bool {
-	if isNil(r) {
-		return true
-	}
-	if m, ok := r.(MapRequests); ok {
-		return len(m) == 0
-	}
-	return false
-}
-
 func NewLazyRequests(base Requests) LazyRequests {
 	return LazyRequests{base: base}
 }
 
 // IsValid returns true if either the base or cached Requests is initialized.
 func (l *LazyRequests) IsValid() bool {
-	return !isNil(l.base) || !isNil(l.cached)
+	return !IsNil(l.base) || !IsNil(l.cached)
 }
 
 // Get returns the underlying Requests (either the cached clone if mutated, or base).
 func (l *LazyRequests) Get() Requests {
-	if !isNil(l.cached) {
+	if !IsNil(l.cached) {
 		return l.cached
 	}
 	return l.base
 }
 
+func (l *LazyRequests) ensureWritable(other Requests) {
+	if IsNil(l.cached) {
+		if !IsNil(l.base) {
+			l.cached = l.base.CloneRequests()
+		} else if !IsNil(other) {
+			l.cached = other.CreateEmpty()
+		} else {
+			l.cached = MapRequests{}
+		}
+	}
+}
+
 // Sub subtracts subRequests from the underlying Requests interface,
 // cloning base on first write.
 func (l *LazyRequests) Sub(subRequests Requests) {
-	if isZero(subRequests) {
+	if IsEmpty(subRequests) {
 		return
 	}
-	if isNil(l.cached) {
-		if isNil(l.base) {
-			l.cached = MapRequests{}
-		} else {
-			l.cached = l.base.CloneRequests()
-		}
-	}
+	l.ensureWritable(subRequests)
 	l.cached.Sub(subRequests)
 }
 
 // Add adds addRequests to the underlying Requests interface,
 // cloning base on first write.
 func (l *LazyRequests) Add(addRequests Requests) {
-	if isZero(addRequests) {
+	if IsEmpty(addRequests) {
 		return
 	}
-	if isNil(l.cached) {
-		if isNil(l.base) {
-			l.cached = MapRequests{}
-		} else {
-			l.cached = l.base.CloneRequests()
-		}
-	}
+	l.ensureWritable(addRequests)
 	l.cached.Add(addRequests)
 }

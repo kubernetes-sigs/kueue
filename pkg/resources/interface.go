@@ -29,4 +29,6 @@ type Requests interface {
 	CountIn(capacity Requests) int32
 	CountInWithLimitingResource(capacity Requests) (int32, corev1.ResourceName)
 	GetValue(name corev1.ResourceName) int64
+	ForEach(fn func(name corev1.ResourceName, val int64))
+	Len() int
 }
