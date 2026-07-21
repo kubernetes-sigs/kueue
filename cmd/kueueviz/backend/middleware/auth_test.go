@@ -273,7 +273,7 @@ func TestRateLimiterMiddleware(t *testing.T) {
 	}
 }
 
-// TestRateLimiterMiddleware_GlobalLimit verifies that even if requests come from 
+// TestRateLimiterMiddleware_GlobalLimit verifies that even if requests come from
 // different IPs (bypassing the per-IP limit), the global limit is still enforced.
 func TestRateLimiterMiddleware_GlobalLimit(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -286,7 +286,7 @@ func TestRateLimiterMiddleware_GlobalLimit(t *testing.T) {
 	// Send 3 requests from 3 completely different IPs simultaneously.
 	// The first 2 should succeed, but the 3rd should hit the global limit.
 	statuses := make([]int, 3)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		req := httptest.NewRequest(http.MethodGet, "/test", nil)
 		req.Header.Set("X-Forwarded-For", fmt.Sprintf("10.0.0.%d", i))
 		w := httptest.NewRecorder()

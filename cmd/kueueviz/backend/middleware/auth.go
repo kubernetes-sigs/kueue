@@ -92,7 +92,7 @@ func (a *Authenticator) Stop() {
 }
 
 // RateLimiter returns a gin middleware that enforces both a per-client-IP
-// rate limit and a global rate limit. Each source IP gets its own independent 
+// rate limit and a global rate limit. Each source IP gets its own independent
 // bucket so an attacker flooding from one IP cannot drain the budget for legitimate
 // clients. Requests that exceed either limit receive 429 Too Many Requests
 // before they reach the authentication logic, preventing TokenReview amplification.
@@ -123,19 +123,19 @@ func RateLimiter(perIPRate rate.Limit, perIPBurst int, globalRate rate.Limit, gl
 		// Rely on gin's ClientIP() which automatically handles X-Forwarded-For
 		// and securely validates it against trusted proxies.
 		ip := c.ClientIP()
-		
+
 		// Check per-IP limit first so malicious IPs don't consume the global budget.
 		if !getLimiter(ip).Allow() {
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "too many requests"})
 			return
 		}
-		
+
 		// Then check the global limit to protect the backend from distributed attacks.
 		if !globalLimiter.Allow() {
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "too many requests"})
 			return
 		}
-		
+
 		c.Next()
 	}
 }
