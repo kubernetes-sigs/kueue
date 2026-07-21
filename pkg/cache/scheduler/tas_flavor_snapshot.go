@@ -340,7 +340,7 @@ func (s *TASFlavorSnapshot) updateTASUsage(domainID utiltas.TopologyDomainID, us
 func (s *TASFlavorSnapshot) getRemainingCapacity(leaf *leafDomain) resources.Requests {
 	if !leaf.cachedRemainingCapacity.IsValid() {
 		leaf.cachedRemainingCapacity = resources.NewLazyRequests(leaf.freeCapacity)
-		if !resources.IsEmpty(leaf.tasUsage) {
+		if !leaf.tasUsage.IsEmpty() {
 			leaf.cachedRemainingCapacity.Sub(leaf.tasUsage)
 		}
 	}
@@ -370,6 +370,9 @@ func (s *TASFlavorSnapshot) removeTASUsage(domainID utiltas.TopologyDomainID, us
 		s.log.V(3).Info("skip removing TAS usage in domain", "domain", domainID, "usage", usage)
 		return
 	}
+	if s.leaves[domainID].tasUsage == nil {
+		s.leaves[domainID].tasUsage = usage.CreateEmpty()
+	}
 	s.leaves[domainID].tasUsage.Sub(usage)
 	s.leaves[domainID].cachedRemainingCapacity = resources.LazyRequests{}
 }
@@ -378,7 +381,7 @@ func (s *TASFlavorSnapshot) freeCapacityPerDomain() map[utiltas.TopologyDomainID
 	freeCapacityPerDomain := make(map[utiltas.TopologyDomainID]resources.Requests, len(s.leaves))
 
 	for domainID, leaf := range s.leaves {
-		if req := resources.Clone(leaf.freeCapacity); req != nil {
+		if req := leaf.freeCapacity.Clone(); req != nil {
 			freeCapacityPerDomain[domainID] = req
 		}
 	}
@@ -390,7 +393,7 @@ func (s *TASFlavorSnapshot) tasUsagePerDomain() map[utiltas.TopologyDomainID]res
 	tasUsagePerDomain := make(map[utiltas.TopologyDomainID]resources.Requests, len(s.leaves))
 
 	for domainID, leaf := range s.leaves {
-		if req := resources.Clone(leaf.tasUsage); req != nil {
+		if req := leaf.tasUsage.Clone(); req != nil {
 			tasUsagePerDomain[domainID] = req
 		}
 	}
@@ -413,12 +416,12 @@ func (s *TASFlavorSnapshot) SerializeFreeCapacityPerDomain() (string, error) {
 		freeCapacity := freeCapacityPerDomain[domain]
 		tasUsage := tasUsagePerDomain[domain]
 
-		freeCapacityDetails := make(map[corev1.ResourceName]string)
+		freeCapacityDetails := make(map[corev1.ResourceName]string, freeCapacity.Len())
 		resources.ForEach(freeCapacity, func(resourceName corev1.ResourceName, value int64) {
 			freeCapacityDetails[resourceName] = s.resourceFormatter.ResourceQuantityString(resourceName, value)
 		})
 
-		tasUsageDetails := make(map[corev1.ResourceName]string)
+		tasUsageDetails := make(map[corev1.ResourceName]string, freeCapacity.Len())
 		resources.ForEach(tasUsage, func(resourceName corev1.ResourceName, value int64) {
 			tasUsageDetails[resourceName] = s.resourceFormatter.ResourceQuantityString(resourceName, value)
 		})
@@ -956,14 +959,12 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		},
 		stats: &tasExclusionStats{},
 	}
-	podReq := workersTasPodSetRequests.SinglePodRequests.Clone()
-	podReq.Add(resources.MapRequests{corev1.ResourcePods: 1})
-	requirements.requests = podReq
+	requirements.requests = workersTasPodSetRequests.SinglePodRequests.Clone()
+	requirements.requests.Add(resources.MapRequests{corev1.ResourcePods: 1})
 
 	if leaderTasPodSetRequests != nil {
-		leaderReq := leaderTasPodSetRequests.SinglePodRequests.Clone()
-		leaderReq.Add(resources.MapRequests{corev1.ResourcePods: 1})
-		requirements.leaderRequests = leaderReq
+		requirements.leaderRequests = leaderTasPodSetRequests.SinglePodRequests.Clone()
+		requirements.leaderRequests.Add(resources.MapRequests{corev1.ResourcePods: 1})
 		state.leaderCount = 1
 	}
 
