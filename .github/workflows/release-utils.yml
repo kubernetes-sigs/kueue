@@ -479,13 +479,13 @@ jobs:
           UPSTREAM_REMOTE: origin
         run: |
           set +e
-          yes y | ./hack/releasing/prepare_pull.sh --target "$TARGET" "$VERSION" 2>&1 | tee output.log
-          SCRIPT_EXIT_CODE=${PIPESTATUS[0]}
+          yes y | ./hack/releasing/prepare_pull.sh --target "$TARGET" "$VERSION" 2>&1 | tee /tmp/prepare-pull.log
+          SCRIPT_EXIT_CODE=${PIPESTATUS[1]}
           set -e
 
           if [ $SCRIPT_EXIT_CODE -ne 0 ]; then
             # Extract any line starting with !!! as error details
-            ERR_MSG=$(grep -E '^!!!' output.log || true)
+            ERR_MSG=$(grep -E '^!!!' /tmp/prepare-pull.log || true)
             if [ -z "$ERR_MSG" ]; then
               ERR_MSG="Check workflow logs for details."
             fi
