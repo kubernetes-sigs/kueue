@@ -167,10 +167,9 @@ func TestScheduleForAFS(t *testing.T) {
 					Obj(),
 			},
 		},
-		// NOTE: The aim of this test is to document the current implementation.
-		// Rejecting the admission when the LocalQueue is deleted might be desired
-		// in the long term, but it should be handled independently of AFS.
-		"admits workload even if its localqueue was deleted": {
+		// This test shows the expected behavior - deleting another LQ
+		// does not impact scheduling to the existing LQ.
+		"admits workload when another LQ is deleted": {
 			featureGates: map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
 			initialUsage: map[string]corev1.ResourceList{
 				"lq-a": {corev1.ResourceCPU: resource.MustParse("0")},
@@ -250,6 +249,58 @@ func TestScheduleForAFS(t *testing.T) {
 							PodSets(
 								utiltestingapi.MakePodSetAssignment("one").
 									Assignment(corev1.ResourceCPU, "default", "4").
+									Count(1).
+									Obj(),
+							).
+							Obj(),
+					).
+					Obj(),
+			},
+		},
+		// NOTE: The aim of this test is to document the current implementation.
+		// Rejecting the admission when the LocalQueue is deleted might be desired
+		// in the long term, but it should be handled independently of AFS.
+		"admits workload even if its localqueue was deleted": {
+			featureGates: map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
+			initialUsage: map[string]corev1.ResourceList{
+				"lq-a": {corev1.ResourceCPU: resource.MustParse("0")},
+			},
+			deleteQueue: "lq-a",
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-a1", "default").
+					Queue("lq-a").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "8").
+						Obj()).
+					Creation(now).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-a1", "default").
+					Queue("lq-a").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "8").
+						Obj()).
+					Creation(now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "QuotaReserved",
+						Message:            "Quota reserved in ClusterQueue cq1",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Admitted",
+						Message:            "The workload is admitted",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Admission(
+						utiltestingapi.MakeAdmission("cq1").
+							PodSets(
+								utiltestingapi.MakePodSetAssignment("one").
+									Assignment(corev1.ResourceCPU, "default", "8").
 									Count(1).
 									Obj(),
 							).
