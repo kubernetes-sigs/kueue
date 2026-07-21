@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	batchv1 "k8s.io/api/batch/v1"
@@ -4562,6 +4563,78 @@ func TestCleanLabels(t *testing.T) {
 			cleanLabels(pt)
 			if diff := cmp.Diff(tc.wantLabels, pt.Labels); diff != "" {
 				t.Errorf("cleanLabels() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestCompletedIndexesCount(t *testing.T) {
+	cases := map[string]struct {
+		completedIndexes string
+		completions      int32
+		want             int32
+	}{
+		"empty":                         {completedIndexes: "", completions: 10, want: 0},
+		"zero completions":              {completedIndexes: "0-9", completions: 0, want: 0},
+		"single index":                  {completedIndexes: "0", completions: 10, want: 1},
+		"single range":                  {completedIndexes: "0-4", completions: 10, want: 5},
+		"mixed intervals":               {completedIndexes: "0-4,7,9-11", completions: 10, want: 7},
+		"surviving low indexes":         {completedIndexes: "0-8", completions: 10, want: 9},
+		"all completed within range":    {completedIndexes: "0-14", completions: 10, want: 10},
+		"range straddling the cap":      {completedIndexes: "5-19", completions: 10, want: 5},
+		"all removed (above the cap)":   {completedIndexes: "10-19", completions: 10, want: 0},
+		"range capped tighter":          {completedIndexes: "0-4", completions: 3, want: 3},
+		"discrete indexes":              {completedIndexes: "3,5,7", completions: 10, want: 3},
+		"discrete indexes partly above": {completedIndexes: "3,5,12", completions: 10, want: 2},
+		"malformed interval skipped":    {completedIndexes: "abc,0-2", completions: 10, want: 3},
+		"malformed range end skipped":   {completedIndexes: "0-x,4", completions: 10, want: 1},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := completedIndexesCount(logr.Discard(), tc.completedIndexes, tc.completions); got != tc.want {
+				t.Errorf("completedIndexesCount(%q, %d) = %d, want %d", tc.completedIndexes, tc.completions, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestReclaimablePods(t *testing.T) {
+	indexedJob := func(succeeded int32, completedIndexes string) *Job {
+		j := utiltestingjob.MakeJob("job", "ns").
+			Indexed(true).
+			Parallelism(8).
+			Completions(8).
+			Obj()
+		j.Status.Succeeded = succeeded
+		j.Status.CompletedIndexes = completedIndexes
+		return (*Job)(j)
+	}
+	cases := map[string]struct {
+		job  *Job
+		want []kueue.ReclaimablePod
+	}{
+		// An ordinary (non-elastic) Indexed Job must reclaim its completed indexes
+		// exactly as before, now that the count is derived from completedIndexes.
+		"indexed Job reclaims its completed indexes": {
+			job:  indexedJob(4, "0-3"),
+			want: []kueue.ReclaimablePod{{Name: kueue.DefaultPodSetName, Count: 4}},
+		},
+		// Succeeded set without completedIndexes should not happen with the native
+		// Job controller (both are written in one update), but can with a custom
+		// spec.managedBy controller. We trust completedIndexes and hold the quota.
+		"indexed Job with empty completedIndexes holds quota": {
+			job:  indexedJob(4, ""),
+			want: nil,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, err := tc.job.ReclaimablePods(t.Context())
+			if err != nil {
+				t.Fatalf("ReclaimablePods() returned error: %v", err)
+			}
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("ReclaimablePods() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
