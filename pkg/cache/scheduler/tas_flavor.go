@@ -94,12 +94,12 @@ type TASFlavorCache struct {
 func (t *tasCache) NewTASFlavorCache(topologyInfo topologyInformation,
 	flavorInfo flavorInformation) *TASFlavorCache {
 	return &TASFlavorCache{
-		client:              t.client,
-		topology:            topologyInfo,
-		flavor:              flavorInfo,
-		usage:               make(map[utiltas.TopologyDomainID]resources.Requests),
-		wlUsage:             make(map[workload.Reference][]workload.TopologyDomainRequests),
-		nonTasUsageCache:    t.nonTasUsageCache,
+		client:           t.client,
+		topology:         topologyInfo,
+		flavor:           flavorInfo,
+		usage:            make(map[utiltas.TopologyDomainID]resources.Requests),
+		wlUsage:          make(map[workload.Reference][]workload.TopologyDomainRequests),
+		nonTasUsageCache: t.nonTasUsageCache,
 	}
 }
 
@@ -117,7 +117,7 @@ func (c *TASFlavorCache) TopologyLevels() []string {
 
 func (c *TASFlavorCache) snapshot(
 	log logr.Logger, nodes []*corev1.Node, aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests,
-) (*TASFlavorSnapshot, error) {
+) *TASFlavorSnapshot {
 	c.RLock()
 	defer c.RUnlock()
 

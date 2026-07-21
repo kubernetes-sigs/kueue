@@ -491,6 +491,9 @@ type topologyAssignmentPodRequirements struct {
 	requests                  resources.Requests
 	leaderRequests            resources.Requests
 	assumedUsage              map[utiltas.TopologyDomainID]resources.Requests
+	tolerations               []corev1.Toleration
+	selector                  labels.Selector
+	affinitySelector          *nodeaffinity.NodeSelector
 	requiredReplacementDomain utiltas.TopologyDomainID
 	simulateEmpty             bool
 	matchKey                  *podSetMatchKey
