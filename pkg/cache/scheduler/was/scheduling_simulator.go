@@ -81,7 +81,10 @@ func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (simulator.Sc
 
 func (s *wasSimulator) NewFeasibilityChecker(ctx context.Context, nodes []*corev1.Node) (simulator.NodeFeasibilityChecker, error) {
 	clusterSnap, err := s.sim.NewClusterSnapshot(ctx, nil, nodes)
-	return &wasChecker{snap: clusterSnap}, err
+	if err != nil {
+		return nil, err
+	}
+	return &wasChecker{snap: clusterSnap}, nil
 }
 
 type wasChecker struct {
