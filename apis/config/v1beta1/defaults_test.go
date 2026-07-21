@@ -113,7 +113,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				Scheduling: &Scheduling{QuotaReleaseStrategy: ptr.To[QuotaReleaseStrategy](QuotaReleaseOnTermination)},
+				Scheduling: &Scheduling{QuotaReleaseStrategy: new(QuotaReleaseOnTermination)},
 
 				Namespace:         new(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
@@ -139,7 +139,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				Scheduling: &Scheduling{QuotaReleaseStrategy: ptr.To[QuotaReleaseStrategy](QuotaReleaseOnTermination)},
+				Scheduling: &Scheduling{QuotaReleaseStrategy: new(QuotaReleaseOnTermination)},
 
 				Namespace: new(DefaultNamespace),
 				ControllerManager: ControllerManager{
@@ -206,7 +206,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				Integrations: defaultIntegrations,
 			},
 			want: &Configuration{
-				Scheduling: &Scheduling{QuotaReleaseStrategy: ptr.To[QuotaReleaseStrategy](QuotaReleaseOnTermination)},
+				Scheduling: &Scheduling{QuotaReleaseStrategy: new(QuotaReleaseOnTermination)},
 
 				Namespace: new(DefaultNamespace),
 				ControllerManager: ControllerManager{
@@ -254,7 +254,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				Scheduling: &Scheduling{QuotaReleaseStrategy: ptr.To[QuotaReleaseStrategy](QuotaReleaseOnTermination)},
+				Scheduling: &Scheduling{QuotaReleaseStrategy: new(QuotaReleaseOnTermination)},
 
 				Namespace: new(DefaultNamespace),
 				ControllerManager: ControllerManager{
@@ -295,7 +295,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				Namespace: new(overwriteNamespace),
 			},
 			want: &Configuration{
-				Scheduling: &Scheduling{QuotaReleaseStrategy: ptr.To[QuotaReleaseStrategy](QuotaReleaseOnTermination)},
+				Scheduling: &Scheduling{QuotaReleaseStrategy: new(QuotaReleaseOnTermination)},
 
 				Namespace:         new(overwriteNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
@@ -319,7 +319,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				Scheduling: &Scheduling{QuotaReleaseStrategy: ptr.To[QuotaReleaseStrategy](QuotaReleaseOnTermination)},
+				Scheduling: &Scheduling{QuotaReleaseStrategy: new(QuotaReleaseOnTermination)},
 
 				Namespace:         new(overwriteNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
@@ -345,7 +345,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				Scheduling: &Scheduling{QuotaReleaseStrategy: ptr.To[QuotaReleaseStrategy](QuotaReleaseOnTermination)},
+				Scheduling: &Scheduling{QuotaReleaseStrategy: new(QuotaReleaseOnTermination)},
 
 				Namespace:         new(overwriteNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
@@ -371,7 +371,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ClientConnection: &ClientConnection{},
 			},
 			want: &Configuration{
-				Scheduling: &Scheduling{QuotaReleaseStrategy: ptr.To[QuotaReleaseStrategy](QuotaReleaseOnTermination)},
+				Scheduling: &Scheduling{QuotaReleaseStrategy: new(QuotaReleaseOnTermination)},
 
 				Namespace:         new(overwriteNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
@@ -395,7 +395,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				Scheduling: &Scheduling{QuotaReleaseStrategy: ptr.To[QuotaReleaseStrategy](QuotaReleaseOnTermination)},
+				Scheduling: &Scheduling{QuotaReleaseStrategy: new(QuotaReleaseOnTermination)},
 
 				WaitForPodsReady: &WaitForPodsReady{
 					Enable:          true,
@@ -429,7 +429,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				Scheduling: &Scheduling{QuotaReleaseStrategy: ptr.To[QuotaReleaseStrategy](QuotaReleaseOnTermination)},
+				Scheduling: &Scheduling{QuotaReleaseStrategy: new(QuotaReleaseOnTermination)},
 
 				WaitForPodsReady: &WaitForPodsReady{
 					Enable: false,
@@ -462,7 +462,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				Scheduling: &Scheduling{QuotaReleaseStrategy: ptr.To[QuotaReleaseStrategy](QuotaReleaseOnTermination)},
+				Scheduling: &Scheduling{QuotaReleaseStrategy: new(QuotaReleaseOnTermination)},
 
 				WaitForPodsReady: &WaitForPodsReady{
 					Enable:          true,
@@ -496,7 +496,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				Scheduling: &Scheduling{QuotaReleaseStrategy: ptr.To[QuotaReleaseStrategy](QuotaReleaseOnTermination)},
+				Scheduling: &Scheduling{QuotaReleaseStrategy: new(QuotaReleaseOnTermination)},
 
 				Namespace:         new(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
@@ -525,7 +525,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				Scheduling: &Scheduling{QuotaReleaseStrategy: ptr.To[QuotaReleaseStrategy](QuotaReleaseOnTermination)},
+				Scheduling: &Scheduling{QuotaReleaseStrategy: new(QuotaReleaseOnTermination)},
 
 				Namespace:         new(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
@@ -557,7 +557,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				Scheduling: &Scheduling{QuotaReleaseStrategy: ptr.To[QuotaReleaseStrategy](QuotaReleaseOnTermination)},
+				Scheduling: &Scheduling{QuotaReleaseStrategy: new(QuotaReleaseOnTermination)},
 
 				Namespace:         new(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
@@ -587,7 +587,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				Scheduling: &Scheduling{QuotaReleaseStrategy: ptr.To[QuotaReleaseStrategy](QuotaReleaseOnTermination)},
+				Scheduling: &Scheduling{QuotaReleaseStrategy: new(QuotaReleaseOnTermination)},
 
 				Namespace:         new(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
@@ -616,7 +616,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				Scheduling: &Scheduling{QuotaReleaseStrategy: ptr.To[QuotaReleaseStrategy](QuotaReleaseOnTermination)},
+				Scheduling: &Scheduling{QuotaReleaseStrategy: new(QuotaReleaseOnTermination)},
 
 				Namespace:         new(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
@@ -647,7 +647,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				Scheduling: &Scheduling{QuotaReleaseStrategy: ptr.To[QuotaReleaseStrategy](QuotaReleaseOnTermination)},
+				Scheduling: &Scheduling{QuotaReleaseStrategy: new(QuotaReleaseOnTermination)},
 
 				Namespace:         new(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
@@ -681,7 +681,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				Scheduling: &Scheduling{QuotaReleaseStrategy: ptr.To[QuotaReleaseStrategy](QuotaReleaseOnTermination)},
+				Scheduling: &Scheduling{QuotaReleaseStrategy: new(QuotaReleaseOnTermination)},
 
 				Namespace:         new(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
