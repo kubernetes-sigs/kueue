@@ -234,7 +234,7 @@ func (s *TASFlavorSnapshot) addNode(node *corev1.Node) utiltas.TopologyDomainID 
 		}
 		s.leaves[domainID] = &leafDomain
 	}
-	capacity := resources.NewMapRequests(node.Status.Allocatable)
+	capacity := resources.NewRequestsFromResourceList(node.Status.Allocatable)
 	s.addCapacity(domainID, capacity)
 	return domainID
 }
@@ -303,7 +303,7 @@ func (s *TASFlavorSnapshot) addNonTASUsage(domainID utiltas.TopologyDomainID, us
 
 func (s *TASFlavorSnapshot) updateTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests, op usageOp, count int32) {
 	u := usage.Clone()
-	u.Add(resources.MapRequests{corev1.ResourcePods: int64(count)})
+	u.Add(resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourcePods: int64(count)}))
 	if op == add {
 		s.addTASUsage(domainID, u)
 	} else {
