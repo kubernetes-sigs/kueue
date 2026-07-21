@@ -1366,6 +1366,12 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 	if workload.HasQuotaReservation(e.ObjectOld) && (!workload.HasQuotaReservation(e.ObjectNew) || e.ObjectNew.Status.Admission.ClusterQueue != e.ObjectOld.Status.Admission.ClusterQueue) {
 		log = log.WithValues("prevClusterQueue", e.ObjectOld.Status.Admission.ClusterQueue)
 	}
+	if len(e.ObjectNew.Status.UnhealthyNodes) > 0 {
+		nodeNames := utilslices.Map(e.ObjectNew.Status.UnhealthyNodes, func(node *kueue.UnhealthyNode) string {
+			return node.Name
+		})
+		log = log.WithValues("unhealthyNodes", nodeNames)
+	}
 	log.V(2).Info("Workload update event")
 
 	wlCopy := e.ObjectNew.DeepCopy()
