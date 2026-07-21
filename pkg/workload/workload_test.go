@@ -359,12 +359,12 @@ func TestNewInfo(t *testing.T) {
 							Levels: []string{corev1.LabelHostname},
 							DomainRequests: []TopologyDomainRequests{{
 								Values: []string{"node-a"},
-								SinglePodRequests: resources.MapRequests{
+								SinglePodRequests: resources.NewRequestsFromMap(resources.MapRequests{
 									corev1.ResourceCPU:           1000,
 									corev1.ResourceMemory:        1024 * 1024 * 1024,
 									"example.com/gpu":            1,
 									"networking.example.com/vpc": 1,
-								},
+								}),
 								Count: 2,
 							}},
 						},

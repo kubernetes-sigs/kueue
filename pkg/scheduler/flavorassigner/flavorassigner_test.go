@@ -4728,7 +4728,7 @@ func TestAssignment_ComputeTASNetUsage(t *testing.T) {
 			want: workload.TASUsage{
 				"tas": []workload.TopologyDomainRequests{{
 					Values: []string{"node-a"},
-					SinglePodRequests: resources.NewMapRequests(corev1.ResourceList{
+					SinglePodRequests: resources.NewRequestsFromResourceList(corev1.ResourceList{
 						corev1.ResourceCPU:           resource.MustParse("1"),
 						corev1.ResourceMemory:        resource.MustParse("1Gi"),
 						"example.com/gpu":            resource.MustParse("1"),
