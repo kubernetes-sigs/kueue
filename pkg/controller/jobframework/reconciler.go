@@ -945,6 +945,28 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			return wl, nil
 		}
 
+		// Also skip while an elastic prebuilt job has scaled up beyond its
+		// currently pinned workload slice, but the replacement slice has not been
+		// produced and repointed yet. This is the worker side of MultiKueue Ray
+		// autoscaling: the in-tree autoscaler resizes the remote RayCluster
+		// directly, and the manager must still create and admit the replacement
+		// slice and repoint the prebuilt label before the counts match again.
+		// Finishing the workload OutOfSync here would tear the running job down
+		// mid-handover. The scaled-up pods are held by scheduling gates until the
+		// replacement slice is admitted, so tolerating the transient mismatch does
+		// not run pods past quota. Only a pure scale-up is tolerated; any other
+		// drift still fails the in-sync check below.
+		if workloadslicing.Enabled(object) {
+			scaledUp, err := jobScaledUpBeyondWorkload(ctx, r.client, job, wl)
+			if err != nil {
+				return nil, err
+			}
+			if scaledUp {
+				log.V(3).Info("WorkloadSlice: skip in-sync check during scale-up handover")
+				return wl, nil
+			}
+		}
+
 		if inSync, err := r.ensurePrebuiltWorkloadInSync(ctx, wl, job); !inSync || err != nil {
 			return nil, err
 		}
@@ -1200,6 +1222,26 @@ func EnsurePrebuiltWorkloadOwnership(ctx context.Context, c client.Client, wl *k
 		}
 	}
 	return nil
+}
+
+// jobScaledUpBeyondWorkload reports whether the job's pod sets have the same
+// keys as the workload's but every count is at least as large and at least one
+// is strictly larger, i.e. a pure scale-up the pinned workload slice does not
+// yet reflect. A mixed or scale-down change returns false so it still runs the
+// in-sync check.
+func jobScaledUpBeyondWorkload(ctx context.Context, c client.Client, job GenericJob, wl *kueue.Workload) (bool, error) {
+	jobPodSets, err := JobPodSets(ctx, job, c)
+	if err != nil {
+		return false, err
+	}
+	jobCounts := workload.ExtractPodSetCounts(jobPodSets)
+	wlCounts := workload.ExtractPodSetCountsFromWorkload(wl)
+	if !jobCounts.HasSamePodSetKeys(wlCounts) {
+		return false, nil
+	}
+	// wl has fewer replicas than the job somewhere (a scale-up), and the job is
+	// nowhere smaller than wl (not a scale-down or mixed change).
+	return wlCounts.HasFewerReplicasThan(jobCounts) && !jobCounts.HasFewerReplicasThan(wlCounts), nil
 }
 
 func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, wl *kueue.Workload, job GenericJob) (bool, error) {

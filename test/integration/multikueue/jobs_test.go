@@ -1912,16 +1912,17 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		})
 	})
 
-	// Pending: exercises the worker-to-manager reverse sync. After admission the
-	// autoscaler (simulated here by patching the worker RayCluster) resizes the
-	// worker group; the adapter writes the new size back onto the manager, whose
-	// slicing machinery creates a replacement slice. This cannot pass stably yet:
-	// the worker's own jobframework observes the resized worker RayCluster against
-	// the not-yet-replaced prebuilt workload, judges it OutOfSync and finishes the
-	// remote workload before the new slice is admitted and the prebuilt label is
-	// repointed (the slice-handover ordering gap, kubernetes-sigs/kueue#13243).
-	// The reverse-sync mechanism itself is covered by unit tests in
-	// raycluster_multikueue_adapter_test.go.
+	// Pending: exercises the worker-to-manager reverse sync end to end. Two of the
+	// three pieces now work — the autoscaler-driven worker resize is written back
+	// onto the manager RayCluster (replicas reach 2), and the worker's jobframework
+	// tolerates the transient scale-up mismatch instead of finishing the remote
+	// workload OutOfSync (see jobScaledUpBeyondWorkload), so the RayCluster is no
+	// longer torn down mid-handover. What is still missing: after the write-back
+	// the manager does not produce and admit a count-2 replacement slice, so the
+	// prebuilt label is never repointed. The slice set is also polluted by the
+	// spurious slice the unsuspend generation-bump spawns before the resize. This
+	// is the remaining slice-handover work tracked in kubernetes-sigs/kueue#13243;
+	// the write-back and tolerance are covered by unit tests.
 	ginkgo.PIt("Should reflect an autoscaler-driven resize of an elastic RayCluster on the manager", func() {
 		manager := managerTestCluster
 		worker2 := worker2TestCluster

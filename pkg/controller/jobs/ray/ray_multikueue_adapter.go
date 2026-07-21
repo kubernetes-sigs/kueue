@@ -223,9 +223,12 @@ func (a *adapter[PtrT, T]) needElasticSync(ctx context.Context, workloadName str
 	}
 	// When the worker runs the autoscaler, replica changes flow worker-to-manager
 	// (needReverseElasticSync); the manager must not also push its counts to the
-	// worker or the two directions would fight.
+	// worker or the two directions would fight. The manager still has to repoint
+	// the remote's prebuilt-workload label onto the current slice once a
+	// reverse-sync-driven replacement slice is admitted, so fire for a label
+	// mismatch only (syncElastic skips the replica push in this mode).
 	if a.elastic.AutoscalingEnabled != nil && a.elastic.AutoscalingEnabled(localJob) {
-		return false
+		return jobframework.PrebuiltWorkloadNameFor(remoteJob) != workloadName
 	}
 
 	oldCounts := a.elastic.WorkerReplicas(remoteJob)
@@ -286,7 +289,13 @@ func (a *adapter[PtrT, T]) reverseSyncElastic(ctx context.Context, localClient c
 // needElasticSync returns true.
 func (a *adapter[PtrT, T]) syncElastic(ctx context.Context, remoteClient client.Client, workloadName string, localJob, remoteJob PtrT) error {
 	if err := clientutil.Patch(ctx, remoteClient, remoteJob, func() (bool, error) {
-		changed := a.elastic.SyncReplicas(remoteJob, localJob)
+		changed := false
+		// In autoscaling mode the worker owns replicas (see needReverseElasticSync),
+		// so the manager only repoints the prebuilt label; pushing replicas here
+		// would fight the autoscaler.
+		if a.elastic.AutoscalingEnabled == nil || !a.elastic.AutoscalingEnabled(localJob) {
+			changed = a.elastic.SyncReplicas(remoteJob, localJob)
+		}
 		if jobframework.PrebuiltWorkloadNameFor(remoteJob) != workloadName {
 			jobframework.SetPrebuiltWorkloadName(remoteJob, workloadName)
 			changed = true
