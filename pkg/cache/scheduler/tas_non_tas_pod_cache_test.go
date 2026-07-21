@@ -51,7 +51,7 @@ func verifyNodeUsageConsistency(t *testing.T, cache *nonTasUsageCache) {
 func collectNodeUsage(cache *nonTasUsageCache) map[string]resources.MapRequests {
 	usage := map[string]resources.MapRequests{}
 	cache.forEachNodeUsage(func(node string, reqs resources.MapRequests) {
-		usage[node] = reqs.Clone()
+		usage[node] = reqs.Clone().(resources.MapRequests)
 	})
 	return usage
 }

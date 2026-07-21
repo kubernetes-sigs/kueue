@@ -42,11 +42,12 @@ func (l *LazyRequests) Get() Requests {
 
 func (l *LazyRequests) ensureWritable(other Requests) {
 	if IsNil(l.cached) {
-		if !IsNil(l.base) {
-			l.cached = l.base.CloneRequests()
-		} else if !IsNil(other) {
+		switch {
+		case !IsNil(l.base):
+			l.cached = l.base.Clone()
+		case !IsNil(other):
 			l.cached = other.CreateEmpty()
-		} else {
+		default:
 			l.cached = MapRequests{}
 		}
 	}
