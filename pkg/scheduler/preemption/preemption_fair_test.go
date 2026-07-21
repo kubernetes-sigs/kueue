@@ -990,7 +990,7 @@ func TestFairPreemptions(t *testing.T) {
 			}
 			wlInfo := workload.NewInfo(tc.incoming)
 			wlInfo.ClusterQueue = tc.targetCQ
-			targets := preemptor.GetTargets(log, *wlInfo, singlePodSetAssignment(
+			targets := preemptor.GetTargets(ctx, *wlInfo, singlePodSetAssignment(
 				flavorassigner.ResourceAssignment{
 					corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
 						Name: flavorName, Mode: flavorassigner.Preempt,
