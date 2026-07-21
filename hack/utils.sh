@@ -73,6 +73,11 @@ function version_less_than() {
 }
 
 # Returns 0 if the image should be skipped, else 1
+# Skips the image if the release version is older than
+# the image's initial release version.
+# E.g. skip 0.17.7 (< 0.18.0) for kueue-priority-booster.
+# If the image is new (does not have a minimum version defined)
+# it will not be skipped.
 # $1 - image name
 # $2 - release version
 # $3 - images file path
