@@ -131,6 +131,7 @@ var (
 	specPath                      = field.NewPath("spec")
 	replicasPath                  = specPath.Child("replicas")
 	leaderWorkerTemplatePath      = specPath.Child("leaderWorkerTemplate")
+	leaderWorkerTemplateSizePath  = leaderWorkerTemplatePath.Child("size")
 	leaderTemplatePath            = leaderWorkerTemplatePath.Child("leaderTemplate")
 	leaderTemplateMetaPath        = leaderTemplatePath.Child("metadata")
 	workerTemplatePath            = leaderWorkerTemplatePath.Child("workerTemplate")
@@ -204,6 +205,13 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj *leaderwor
 			&newLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate,
 			&oldLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate,
 			workerTemplatePath,
+		)...)
+		// Immutable while managed: Workload updates never recompute PodSets,
+		// so growing Size would ungate extra pods without accounting for quota.
+		allErrs = append(allErrs, apivalidation.ValidateImmutableField(
+			ptr.Deref(newLeaderWorkerSet.Spec.LeaderWorkerTemplate.Size, defaultLeaderWorkerSetSize),
+			ptr.Deref(oldLeaderWorkerSet.Spec.LeaderWorkerTemplate.Size, defaultLeaderWorkerSetSize),
+			leaderWorkerTemplateSizePath,
 		)...)
 	}
 
