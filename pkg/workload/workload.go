@@ -246,7 +246,7 @@ type PodSetResources struct {
 	// Name is the name of the PodSet.
 	Name kueue.PodSetReference
 	// Requests incorporates the requests from all pods in the podset.
-	Requests resources.Requests
+	Requests resources.MapRequests
 	// Count indicates how many pods are in the podset.
 	Count int32
 
@@ -260,7 +260,7 @@ type PodSetResources struct {
 	Flavors map[corev1.ResourceName]kueue.ResourceFlavorReference
 }
 
-func (p *PodSetResources) SinglePodRequests() resources.Requests {
+func (p *PodSetResources) SinglePodRequests() resources.MapRequests {
 	return p.Requests.ScaledDown(int64(p.Count))
 }
 
@@ -271,12 +271,12 @@ type TopologyRequest struct {
 
 type TopologyDomainRequests struct {
 	Values            []string
-	SinglePodRequests resources.Requests
+	SinglePodRequests resources.MapRequests
 	// Count indicates how many pods are requested in this TopologyDomain.
 	Count int32
 }
 
-func (t *TopologyDomainRequests) TotalRequests() resources.Requests {
+func (t *TopologyDomainRequests) TotalRequests() resources.MapRequests {
 	return t.SinglePodRequests.ScaledUp(int64(t.Count))
 }
 
@@ -341,7 +341,7 @@ func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []
 	podSetShapes := make([]map[string]any, 0, len(wl.Spec.PodSets))
 	for i, ps := range wl.Spec.PodSets {
 		effectiveCount := ps.Count
-		var effectiveRequests resources.Requests
+		var effectiveRequests resources.MapRequests
 		if i < len(totalRequests) {
 			effectiveCount = totalRequests[i].Count
 			effectiveRequests = totalRequests[i].Requests
@@ -511,7 +511,7 @@ func (i *Info) TASUsage() TASUsage {
 }
 
 func (i *Info) SumTotalRequests() corev1.ResourceList {
-	reqs := make(resources.Requests)
+	reqs := make(resources.MapRequests)
 	for _, psReqs := range i.TotalRequests {
 		reqs.Add(psReqs.Requests)
 	}
@@ -628,7 +628,7 @@ func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetRes
 		specRequests := resourcehelpers.PodRequests(&corev1.Pod{Spec: ps.Template.Spec}, resourcehelpers.PodResourcesOptions{})
 		effectiveRequests := dropExcludedResources(specRequests, info.excludedResourcePrefixes)
 		effectiveRequests = applyResourceTransformations(effectiveRequests, info.resourceTransformations)
-		setRes.Requests = resources.NewRequests(effectiveRequests)
+		setRes.Requests = resources.NewMapRequests(effectiveRequests)
 		if features.Enabled(features.KueueDRAIntegration) && info.preprocessedDRAResources != nil {
 			// First, remove extended resources that were converted to DRA logical resources
 			if replacedRes, exists := info.replacedExtendedResources[ps.Name]; exists {
@@ -640,7 +640,7 @@ func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetRes
 			if draRes, exists := info.preprocessedDRAResources[ps.Name]; exists {
 				for resName, quantity := range draRes {
 					if setRes.Requests == nil {
-						setRes.Requests = make(resources.Requests)
+						setRes.Requests = make(resources.MapRequests)
 					}
 					setRes.Requests[resName] += resources.ResourceValue(resName, quantity)
 				}
@@ -665,7 +665,7 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 			Name:     psa.Name,
 			Flavors:  psa.Flavors,
 			Count:    ptr.Deref(psa.Count, totalCounts[psa.Name]),
-			Requests: resources.NewRequests(psa.ResourceUsage),
+			Requests: resources.NewMapRequests(psa.ResourceUsage),
 		}
 		if features.Enabled(features.TopologyAwareScheduling) && psa.TopologyAssignment != nil {
 			setRes.TopologyRequest = &TopologyRequest{
