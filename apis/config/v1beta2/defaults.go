@@ -120,7 +120,7 @@ func SetDefaults_Configuration(cfg *Configuration) {
 		cfg.Scheduling = &Scheduling{}
 	}
 	if cfg.Scheduling.QuotaReleaseStrategy == nil {
-		cfg.Scheduling.QuotaReleaseStrategy = ptr.To[QuotaReleaseStrategy](QuotaReleaseOnTermination)
+		cfg.Scheduling.QuotaReleaseStrategy = new(QuotaReleaseOnTermination)
 	}
 
 	cfg.Integrations = cmp.Or(cfg.Integrations, &Integrations{})
