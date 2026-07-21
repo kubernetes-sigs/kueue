@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	configapiv1beta1 "sigs.k8s.io/kueue/apis/config/v1beta1"
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -7113,10 +7114,11 @@ func TestPod_IsActive(t *testing.T) {
 		list corev1.PodList
 	}
 	tests := map[string]struct {
-		fields                 fields
-		enableFastQuotaRelease bool
-		want                   bool
+		fields   fields
+		strategy configapiv1beta1.QuotaReleaseStrategy
+		want     bool
 	}{
+
 		"RegularPod": {
 			want: false,
 		},
@@ -7178,7 +7180,7 @@ func TestPod_IsActive(t *testing.T) {
 			want: true,
 		},
 		"FastQuotaRelease_PodWithDeletionTimestamp_Inactive": {
-			enableFastQuotaRelease: true,
+			strategy: configapiv1beta1.QuotaReleaseOnTermination,
 			fields: fields{
 				list: corev1.PodList{
 					Items: []corev1.Pod{
@@ -7196,7 +7198,7 @@ func TestPod_IsActive(t *testing.T) {
 			want: false,
 		},
 		"FastQuotaRelease_Disabled_PodWithDeletionTimestampWithinGrace_Active": {
-			enableFastQuotaRelease: false,
+			strategy: configapiv1beta1.QuotaReleaseOnTerminalBestEffort,
 			fields: fields{
 				list: corev1.PodList{
 					Items: []corev1.Pod{
@@ -7214,7 +7216,7 @@ func TestPod_IsActive(t *testing.T) {
 			want: true,
 		},
 		"FastQuotaRelease_MixedGroup_SomeTerminating_SomeRunning": {
-			enableFastQuotaRelease: true,
+			strategy: configapiv1beta1.QuotaReleaseOnTermination,
 			fields: fields{
 				list: corev1.PodList{
 					Items: []corev1.Pod{
@@ -7236,7 +7238,7 @@ func TestPod_IsActive(t *testing.T) {
 			want: true,
 		},
 		"FastQuotaRelease_AllTerminating": {
-			enableFastQuotaRelease: true,
+			strategy: configapiv1beta1.QuotaReleaseOnTermination,
 			fields: fields{
 				list: corev1.PodList{
 					Items: []corev1.Pod{
@@ -7262,19 +7264,23 @@ func TestPod_IsActive(t *testing.T) {
 			want: false,
 		},
 	}
+
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.FastQuotaReleaseInPodIntegration, tt.enableFastQuotaRelease)
 			p := &Pod{
 				pod:   tt.fields.pod,
 				list:  tt.fields.list,
 				clock: testingclock.NewFakeClock(now),
 			}
-			if got := p.IsActive(); got != tt.want {
+
+			ctx := jobframework.ContextWithQuotaReleaseStrategy(context.Background(), tt.strategy)
+
+			if got := p.IsActive(ctx); got != tt.want {
 				t.Errorf("IsActive() = %v, want %v", got, tt.want)
 			}
 		})
 	}
+
 }
 
 func TestStop(t *testing.T) {
