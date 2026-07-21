@@ -338,21 +338,8 @@ func (c *Controller) syncOwnedProvisionRequest(
 					// Already matches the Kueue-derived spec; skip the write.
 					log.V(3).Info("PodTemplate already up to date, skipping update", "podTemplate", klog.KObj(desired))
 				default:
-					// Divergent PodTemplate at the deterministic name — avoid Update (immutable fields).
-					// ManagedByKueue: delete and recreate (orphan/stale from a prior ProvReq).
-					// Otherwise: Retry when the feature gate is enabled; else reuse as-is.
-					if existing.Labels[constants.ManagedByKueueLabelKey] == constants.ManagedByKueueLabelValue {
-						if err := c.client.Delete(ctx, existing); err != nil {
-							msg := fmt.Sprintf("Error deleting divergent PodTemplate %q: %v", ptName, err)
-							return c.handleError(ctx, wl, ac, msg, err)
-						}
-						if err := c.client.Create(ctx, desired); err != nil {
-							msg := fmt.Sprintf("Error recreating PodTemplate %q: %v", ptName, err)
-							return c.handleError(ctx, wl, ac, msg, err)
-						}
-						log.V(3).Info("Replaced divergent Kueue-managed PodTemplate", "podTemplate", klog.KObj(desired))
-						break
-					}
+					// Divergent PodTemplate at the deterministic name. Retry uses a new
+					// attempt/name; Background GC cleans up the old object via owner refs.
 					if features.Enabled(features.RetryProvisioningDueInconsistentPodTemplate) {
 						msg := fmt.Sprintf("Existing PodTemplate %q differs from the expected Kueue-derived contents; retrying", ptName)
 						return c.handleRetry(ctx, log, wl, ac, prc, msg)
@@ -462,8 +449,9 @@ func setAdmissionCheckRetry(ac *kueue.AdmissionCheckState, prc *kueue.Provisioni
 		clk)
 }
 
-// podTemplateEquivalent compares template and labels, ignoring owners (transferred later)
-// and API-server defaults that would otherwise look like divergence on re-reconcile.
+// podTemplateEquivalent compares Template and object Labels. Owners are ignored
+// (transferred later). Labels are compared as-is after empty-map normalization,
+// so label hijacking still fails equivalence.
 func podTemplateEquivalent(existing, desired *corev1.PodTemplate) bool {
 	a := existing.DeepCopy()
 	b := desired.DeepCopy()
@@ -473,6 +461,10 @@ func podTemplateEquivalent(existing, desired *corev1.PodTemplate) bool {
 		equality.Semantic.DeepEqual(a.Labels, b.Labels)
 }
 
+// normalizePodTemplateForCompare strips API-server defaults that differ from
+// in-memory builds (RestartPolicy, DNSPolicy, etc.) so re-reconcile does not
+// falsely treat an unchanged PodTemplate as divergent. Empty label/annotation
+// maps are nilled only for empty-vs-nil DeepEqual; non-empty labels are kept.
 func normalizePodTemplateForCompare(pt *corev1.PodTemplate) {
 	meta := &pt.Template.ObjectMeta
 	if len(meta.Labels) == 0 {
