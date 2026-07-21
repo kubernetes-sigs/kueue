@@ -80,7 +80,7 @@ type TASFlavorCache struct {
 	flavor flavorInformation
 
 	// usage maintains the usage per topology domain
-	usage map[utiltas.TopologyDomainID]resources.MapRequests
+	usage map[utiltas.TopologyDomainID]resources.Requests
 
 	// wlUsage tracks the usage coming from workloads, so that we can make the
 	// usage removal indempotent - skip if it was not added.
@@ -94,12 +94,12 @@ type TASFlavorCache struct {
 func (t *tasCache) NewTASFlavorCache(topologyInfo topologyInformation,
 	flavorInfo flavorInformation) *TASFlavorCache {
 	return &TASFlavorCache{
-		client:           t.client,
-		topology:         topologyInfo,
-		flavor:           flavorInfo,
-		usage:            make(map[utiltas.TopologyDomainID]resources.MapRequests),
-		wlUsage:          make(map[workload.Reference][]workload.TopologyDomainRequests),
-		nonTasUsageCache: t.nonTasUsageCache,
+		client:              t.client,
+		topology:            topologyInfo,
+		flavor:              flavorInfo,
+		usage:               make(map[utiltas.TopologyDomainID]resources.Requests),
+		wlUsage:             make(map[workload.Reference][]workload.TopologyDomainRequests),
+		nonTasUsageCache:    t.nonTasUsageCache,
 	}
 }
 
@@ -138,10 +138,7 @@ func (c *TASFlavorCache) snapshot(
 	}
 	snapshot.initialize()
 
-	tasDomainUsages := make(map[utiltas.TopologyDomainID]resources.Requests, len(c.usage))
-	for k, v := range c.usage {
-		tasDomainUsages[k] = v
-	}
+	tasDomainUsages := c.usage
 	if features.Enabled(features.TASHandleOverlappingFlavors) && aggregatedDomainUsages != nil {
 		tasDomainUsages = aggregatedDomainUsages
 	}

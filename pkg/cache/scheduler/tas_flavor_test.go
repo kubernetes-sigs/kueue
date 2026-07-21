@@ -127,7 +127,7 @@ func TestTASFlavorCacheAddAndRemoveUsage(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			cache := &TASFlavorCache{
 				wlUsage: make(map[workload.Reference][]workload.TopologyDomainRequests),
-				usage:   make(map[utiltas.TopologyDomainID]resources.MapRequests),
+				usage:   make(map[utiltas.TopologyDomainID]resources.Requests),
 			}
 
 			tc.operations(cache)
