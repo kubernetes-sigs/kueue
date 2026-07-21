@@ -30,7 +30,7 @@ type NodeFeasibilityChecker interface {
 
 // SchedulingSimulator acts as a factory for the feasibility checker.
 type SchedulingSimulator interface {
-	NewFeasibilityChecker(nodes []*corev1.Node) (NodeFeasibilityChecker, error)
+	NewFeasibilityChecker(ctx context.Context, nodes []*corev1.Node) (NodeFeasibilityChecker, error)
 }
 
 func AsCandidates[C Candidate](seq iter.Seq[C]) iter.Seq[Candidate] {

@@ -928,6 +928,15 @@ function build_and_apply_kueue_manifests {
         force_conflicts="--force-conflicts"
     fi
 
+    if [[ -n "${E2E_EXTRA_KUEUE_FEATURE_GATES:-}" ]]; then
+        IFS=',' read -ra GATES <<< "${E2E_EXTRA_KUEUE_FEATURE_GATES}"
+        for gate in "${GATES[@]}"; do
+            IFS='=' read -r key val <<< "${gate}"
+            build_output="${build_output/    featureGates:/    featureGates:
+      ${key}: ${val}}"
+        done
+    fi
+
     echo "$build_output" | kubectl apply --kubeconfig="$1" --server-side $force_conflicts -f -
 }
 

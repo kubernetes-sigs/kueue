@@ -43,6 +43,10 @@ type NodeExclusionStats struct {
 	NodeSelector int
 	Affinity     int
 	TotalNodes   int
+
+	// Temporary non-granular reason for SchedulerLibraryIntegration, equivalent to the total number of not matching nodes.
+	// TODO(#13283): Long term the granular information should be taken in a structured form from the `scheduler-library`.
+	SchedulerLibraryNoFit int
 }
 
 // PodRequirements stores pod-driven scheduling filters and
@@ -52,6 +56,10 @@ type PodRequirements struct {
 	Selector                 labels.Selector
 	AffinitySelector         *nodeaffinity.NodeSelector
 	PreferredSchedulingTerms *nodeaffinity.PreferredSchedulingTerms
+
+	// Used for SchedulerLibraryIntegration to compose the requirements in
+	// the form of `corev1.Pod`, which is accepted by the `scheduler-library`.
+	PodTemplate *corev1.PodTemplateSpec
 }
 
 type NodeExclusionType int

@@ -1952,6 +1952,8 @@ sigs.k8s.io/randfill
 sigs.k8s.io/randfill/bytesource
 # sigs.k8s.io/scheduler-library v0.1.0-alpha1
 ## explicit; go 1.26.0
+sigs.k8s.io/scheduler-library/pkg/framework
+sigs.k8s.io/scheduler-library/pkg/simulator
 sigs.k8s.io/scheduler-library/pkg/state
 sigs.k8s.io/scheduler-library/pkg/upstreamsync
 sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot
