@@ -36,6 +36,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -616,6 +617,67 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 			)).To(gomega.Succeed())
 			gomega.Expect(workerJob.UID).To(gomega.Equal(preExistingUID),
 				"pre-existing worker-local Job must not be deleted and recreated by MultiKueue's DeleteRemoteObject")
+		})
+	})
+
+	ginkgo.It("Should skip a worker with a pre-existing Job with the same NamespacedName", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueJobNameConflictCheck, true)
+		const jobName = "conflicting-job"
+
+		var preExistingUID types.UID
+		ginkgo.By("creating a pre-existing Job on worker1 not managed by MultiKueue", func() {
+			preExistingJob := testingjob.MakeJob(jobName, worker1Ns.Name).Obj()
+			util.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, preExistingJob)
+			preExistingUID = preExistingJob.UID
+		})
+
+		managerJob := testingjob.MakeJob(jobName, managerNs.Name).
+			ManagedBy(kueue.MultiKueueControllerName).
+			Queue(kueue.LocalQueueName(managerMkLq.Name)).
+			Obj()
+		ginkgo.By("creating a MultiKueue Job on the manager cluster with the same NamespacedName", func() {
+			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerJob)
+		})
+
+		wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(managerJob.Name, managerJob.UID), Namespace: managerNs.Name}
+		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerMkCq.Name)).
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+				Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).Obj()
+
+		ginkgo.By("setting workload quota reservation in the management cluster", func() {
+			util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
+		})
+
+		ginkgo.By("dispatching the workload only to worker2", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				remoteWl := &kueue.Workload{}
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, remoteWl)).To(gomega.Succeed())
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("admitting the workload on worker2", func() {
+			util.SetQuotaReservation(worker2TestCluster.ctx, worker2TestCluster.client, wlLookupKey, admission)
+			util.ExpectAdmissionCheckStateWithMessage(
+				managerTestCluster.ctx, managerTestCluster.client, wlLookupKey,
+				multiKueueAC.Name,
+				kueue.CheckStateReady,
+				`The workload was admitted on "worker2"`,
+			)
+		})
+
+		ginkgo.By("creating the remote Job only on worker2", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				remoteJob := &batchv1.Job{}
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(managerJob), remoteJob)).To(gomega.Succeed())
+				g.Expect(remoteJob.Labels).To(gomega.HaveKey(kueue.MultiKueueOriginLabel))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("preserving the pre-existing worker1 Job", func() {
+			workerJob := &batchv1.Job{}
+			gomega.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, types.NamespacedName{Name: jobName, Namespace: worker1Ns.Name}, workerJob)).To(gomega.Succeed())
+			gomega.Expect(workerJob.UID).To(gomega.Equal(preExistingUID))
 		})
 	})
 })

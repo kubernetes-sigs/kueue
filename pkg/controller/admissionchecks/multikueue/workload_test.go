@@ -453,6 +453,165 @@ func TestWlReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
+		"job name conflict check disabled preserves dispatch to conflicting worker": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadIdentifierAnnotations:  false,
+				features.MultiKueueJobNameConflictCheck: false,
+			},
+			reconcileFor: "wl1",
+			managersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+			worker1Jobs:     []batchv1.Job{*baseJobBuilder.DeepCopy()},
+			useSecondWorker: true,
+
+			wantManagersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					NominatedClusterNames("worker1", "worker2").
+					Obj(),
+			},
+			wantWorker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			wantWorker1Jobs: []batchv1.Job{*baseJobBuilder.DeepCopy()},
+			wantWorker2Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+		},
+		"job name conflict check skips conflicting worker": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadIdentifierAnnotations:  false,
+				features.MultiKueueJobNameConflictCheck: true,
+			},
+			reconcileFor: "wl1",
+			managersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+			worker1Jobs:     []batchv1.Job{*baseJobBuilder.DeepCopy()},
+			useSecondWorker: true,
+
+			wantError:        jobframework.ErrRemoteObjectNotOwnedByMultiKueue,
+			wantManagersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					NominatedClusterNames("worker2").
+					Obj(),
+			},
+			wantWorker1Jobs: []batchv1.Job{*baseJobBuilder.DeepCopy()},
+			wantWorker2Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkloadBuilder.DeepCopy()),
+					EventType: "Warning",
+					Reason:    "MultiKueueJobNameConflict",
+					Message:   `Worker cluster "worker1" contains a conflicting Job "ns/job1" not owned by this MultiKueue manager; skipping the cluster`,
+				},
+			},
+		},
+		"job name conflict check returns error when every worker conflicts": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadIdentifierAnnotations:  false,
+				features.MultiKueueJobNameConflictCheck: true,
+			},
+			reconcileFor: "wl1",
+			managersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+			worker1Jobs: []batchv1.Job{*baseJobBuilder.DeepCopy()},
+
+			wantError:        jobframework.ErrRemoteObjectNotOwnedByMultiKueue,
+			wantManagersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+			wantWorker1Jobs: []batchv1.Job{*baseJobBuilder.DeepCopy()},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkloadBuilder.DeepCopy()),
+					EventType: "Warning",
+					Reason:    "MultiKueueJobNameConflict",
+					Message:   `Worker cluster "worker1" contains a conflicting Job "ns/job1" not owned by this MultiKueue manager; skipping the cluster`,
+				},
+			},
+		},
+		"incremental dispatcher skips conflicting nominated worker without changing nominations": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadIdentifierAnnotations:  false,
+				features.MultiKueueJobNameConflictCheck: true,
+			},
+			dispatcherName: ptr.To(config.MultiKueueDispatcherModeIncremental),
+			reconcileFor:   "wl1",
+			managersJobs:   []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					NominatedClusterNames("worker1", "worker2").
+					Obj(),
+			},
+			worker1Jobs:     []batchv1.Job{*baseJobBuilder.DeepCopy()},
+			useSecondWorker: true,
+
+			wantError:        jobframework.ErrRemoteObjectNotOwnedByMultiKueue,
+			wantManagersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					NominatedClusterNames("worker1", "worker2").
+					Obj(),
+			},
+			wantWorker1Jobs: []batchv1.Job{*baseJobBuilder.DeepCopy()},
+			wantWorker2Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkloadBuilder.DeepCopy()),
+					EventType: "Warning",
+					Reason:    "MultiKueueJobNameConflict",
+					Message:   `Worker cluster "worker1" contains a conflicting Job "ns/job1" not owned by this MultiKueue manager; skipping the cluster`,
+				},
+			},
+		},
 		"remote wl with reservation but not admitted - other workers not deleted": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor: "wl1",
@@ -569,6 +728,63 @@ func TestWlReconcile(t *testing.T) {
 					EventType: "Normal",
 					Reason:    "MultiKueue",
 					Message:   `The workload was admitted on "worker1"`,
+				},
+			},
+		},
+		"admitting remote with job name conflict is removed without deleting alternatives": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadIdentifierAnnotations:  false,
+				features.MultiKueueJobNameConflictCheck: true,
+			},
+			reconcileFor: "wl1",
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+			managersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			worker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadAdmitted,
+						Status: metav1.ConditionTrue,
+						Reason: "Admitted",
+					}).
+					Obj(),
+			},
+			worker1Jobs:     []batchv1.Job{*baseJobBuilder.DeepCopy()},
+			useSecondWorker: true,
+			worker2Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+
+			wantError: jobframework.ErrRemoteObjectNotOwnedByMultiKueue,
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+			wantManagersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			wantWorker1Jobs:  []batchv1.Job{*baseJobBuilder.DeepCopy()},
+			wantWorker2Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkloadBuilder.DeepCopy()),
+					EventType: "Warning",
+					Reason:    "MultiKueueJobNameConflict",
+					Message:   `Worker cluster "worker1" contains a conflicting Job "ns/job1" not owned by this MultiKueue manager; skipping the cluster`,
 				},
 			},
 		},
