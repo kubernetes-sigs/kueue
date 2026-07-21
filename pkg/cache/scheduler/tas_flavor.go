@@ -81,7 +81,7 @@ type TASFlavorCache struct {
 	flavor flavorInformation
 
 	// usage maintains the usage per topology domain
-	usage map[utiltas.TopologyDomainID]resources.Requests
+	usage map[utiltas.TopologyDomainID]resources.MapRequests
 
 	// wlUsage tracks the usage coming from workloads, so that we can make the
 	// usage removal indempotent - skip if it was not added.
@@ -104,7 +104,7 @@ func (t *tasCache) NewTASFlavorCache(topologyInfo topologyInformation,
 		client:              t.client,
 		topology:            topologyInfo,
 		flavor:              flavorInfo,
-		usage:               make(map[utiltas.TopologyDomainID]resources.Requests),
+		usage:               make(map[utiltas.TopologyDomainID]resources.MapRequests),
 		wlUsage:             make(map[workload.Reference][]workload.TopologyDomainRequests),
 		nonTasUsageCache:    t.nonTasUsageCache,
 		schedulingSimulator: t.schedulingSimulator,
@@ -124,7 +124,9 @@ func (c *TASFlavorCache) TopologyLevels() []string {
 	return c.topology.Levels
 }
 
-func (c *TASFlavorCache) snapshot(log logr.Logger, nodes []*corev1.Node, aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests) (*TASFlavorSnapshot, error) {
+func (c *TASFlavorCache) snapshot(
+	log logr.Logger, nodes []*corev1.Node, aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.MapRequests,
+) (*TASFlavorSnapshot, error) {
 	c.RLock()
 	defer c.RUnlock()
 
@@ -158,7 +160,7 @@ func (c *TASFlavorCache) snapshot(log logr.Logger, nodes []*corev1.Node, aggrega
 	for domainID, usage := range tasDomainUsages {
 		snapshot.addTASUsage(domainID, usage)
 	}
-	c.nonTasUsageCache.forEachNodeUsage(func(nodeName string, usage resources.Requests) {
+	c.nonTasUsageCache.forEachNodeUsage(func(nodeName string, usage resources.MapRequests) {
 		if domainID, ok := nodeToDomain[nodeName]; ok {
 			snapshot.addNonTASUsage(domainID, usage)
 		}
@@ -192,14 +194,14 @@ func (c *TASFlavorCache) updateUsage(topologyRequests []workload.TopologyDomainR
 		domainID := utiltas.DomainID(tr.Values)
 		_, found := c.usage[domainID]
 		if !found {
-			c.usage[domainID] = resources.Requests{}
+			c.usage[domainID] = resources.MapRequests{}
 		}
 		if op == subtract {
 			c.usage[domainID].Sub(tr.TotalRequests())
-			c.usage[domainID].Sub(resources.Requests{corev1.ResourcePods: int64(tr.Count)})
+			c.usage[domainID].Sub(resources.MapRequests{corev1.ResourcePods: int64(tr.Count)})
 		} else {
 			c.usage[domainID].Add(tr.TotalRequests())
-			c.usage[domainID].Add(resources.Requests{corev1.ResourcePods: int64(tr.Count)})
+			c.usage[domainID].Add(resources.MapRequests{corev1.ResourcePods: int64(tr.Count)})
 		}
 	}
 }

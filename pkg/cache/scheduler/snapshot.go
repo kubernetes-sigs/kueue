@@ -194,11 +194,11 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 	}
 	tasSnapshots := make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot)
 	if features.Enabled(features.TopologyAwareScheduling) {
-		var aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests
+		var aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.MapRequests
 		flvTASCache := c.tasCache.Clone()
 
 		if features.Enabled(features.TASHandleOverlappingFlavors) {
-			aggregatedDomainUsages = make(map[utiltas.TopologyDomainID]resources.Requests)
+			aggregatedDomainUsages = make(map[utiltas.TopologyDomainID]resources.MapRequests)
 			for _, cache := range flvTASCache {
 				c.snapshotTopologyDomainUsages(cache, aggregatedDomainUsages)
 			}
@@ -207,7 +207,7 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 		for flavor, cache := range flvTASCache {
 			// Only when this flavor is aggregation targets,
 			// we should propagate aggregated domain usages to snapshot constructions.
-			var aggregatedDomainUsagesForFlavor map[utiltas.TopologyDomainID]resources.Requests
+			var aggregatedDomainUsagesForFlavor map[utiltas.TopologyDomainID]resources.MapRequests
 			if features.Enabled(features.TASHandleOverlappingFlavors) && utiltas.IsLowestLevelHostname(cache.topology.Levels) {
 				aggregatedDomainUsagesForFlavor = aggregatedDomainUsages
 			}
@@ -248,7 +248,7 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 }
 
 func (c *Cache) snapshotTopologyDomainUsages(
-	tasFlvCache *TASFlavorCache, aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests,
+	tasFlvCache *TASFlavorCache, aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.MapRequests,
 ) {
 	tasFlvCache.RLock()
 	defer tasFlvCache.RUnlock()

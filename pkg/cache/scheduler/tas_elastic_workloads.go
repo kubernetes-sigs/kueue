@@ -38,7 +38,7 @@ func (s *TASFlavorSnapshot) handleElasticWorkload(
 	ctx context.Context,
 	workers TASPodSetRequests,
 	leader *TASPodSetRequests,
-	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
+	assumedUsage map[utiltas.TopologyDomainID]resources.MapRequests,
 	opts *findTopologyAssignmentsOption,
 ) elasticPlacementResult {
 	if workers.PreviousAssignment == nil {
@@ -73,7 +73,7 @@ func (s *TASFlavorSnapshot) handleScaleUp(
 	leader *TASPodSetRequests,
 	prevAssignment *utiltas.TopologyAssignment,
 	previousCount int32,
-	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
+	assumedUsage map[utiltas.TopologyDomainID]resources.MapRequests,
 	opts *findTopologyAssignmentsOption,
 ) elasticPlacementResult {
 	result := make(map[kueue.PodSetReference]tasPodSetAssignmentResult)
@@ -111,7 +111,7 @@ func (s *TASFlavorSnapshot) handleScaleDown(
 	workers TASPodSetRequests,
 	leader *TASPodSetRequests,
 	prevAssignment *utiltas.TopologyAssignment,
-	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
+	assumedUsage map[utiltas.TopologyDomainID]resources.MapRequests,
 ) elasticPlacementResult {
 	truncatedAssignment := utiltas.TruncateAssignment(prevAssignment, workers.Count)
 	return s.finalizeElasticAssignment(workers, truncatedAssignment, leader, assumedUsage)
@@ -124,7 +124,7 @@ func (s *TASFlavorSnapshot) finalizeElasticAssignment(
 	workers TASPodSetRequests,
 	workersAssignment *utiltas.TopologyAssignment,
 	leader *TASPodSetRequests,
-	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
+	assumedUsage map[utiltas.TopologyDomainID]resources.MapRequests,
 ) elasticPlacementResult {
 	result := make(map[kueue.PodSetReference]tasPodSetAssignmentResult)
 	result[workers.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: workersAssignment}
