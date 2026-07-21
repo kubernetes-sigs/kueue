@@ -43,7 +43,11 @@ trap cleanup EXIT
 echo "Creating Kind cluster..."
 # Delete existing cluster if any
 "$KIND" delete cluster --name "$KIND_CLUSTER_NAME" 2>/dev/null || true
-"$KIND" create cluster --name "$KIND_CLUSTER_NAME"
+if [[ -n "${E2E_KIND_VERSION:-}" ]]; then
+  "$KIND" create cluster --name "$KIND_CLUSTER_NAME" --image "$E2E_KIND_VERSION"
+else
+  "$KIND" create cluster --name "$KIND_CLUSTER_NAME"
+fi
 
 echo "Building and loading kueue-populator image..."
 make kind-image-build
