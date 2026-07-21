@@ -18,6 +18,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"iter"
 
 	corev1 "k8s.io/api/core/v1"
@@ -32,11 +33,11 @@ import (
 
 type defaultSimulator struct{}
 
-func newDefaultSimulator() simulator.SchedulingSimulator[*leafDomain] {
+func newDefaultSimulator() simulator.SchedulingSimulator {
 	return &defaultSimulator{}
 }
 
-func (s *defaultSimulator) NewFeasibilityChecker(nodes []*corev1.Node) (simulator.NodeFeasibilityChecker[*leafDomain], error) {
+func (s *defaultSimulator) NewFeasibilityChecker(nodes []*corev1.Node) (simulator.NodeFeasibilityChecker, error) {
 	return &defaultChecker{}, nil
 }
 
@@ -44,21 +45,28 @@ type defaultChecker struct{}
 
 func (c *defaultChecker) FindFeasibleNodes(
 	ctx context.Context,
-	candidates iter.Seq[*leafDomain],
+	candidates iter.Seq[simulator.Candidate],
 	requirements *simulator.PodRequirements,
 	exclusionStats *simulator.NodeExclusionStats,
-) ([]simulator.MatchedCandidate[*leafDomain], error) {
+) ([]simulator.MatchedCandidate, error) {
 	logger := log.FromContext(ctx)
 
-	var feasibleCandidates []simulator.MatchedCandidate[*leafDomain]
+	var feasibleCandidates []simulator.MatchedCandidate
 	respectNodeAffinityPreferredEnabled := features.Enabled(features.TASRespectNodeAffinityPreferred)
 
 	for candidate := range candidates {
 		exclusionStats.TotalNodes++
 		nodeObj := candidate.GetNode()
 		domainID := candidate.GetID()
+
+		// 0. Cast to matching candidate
+		matchedCandidate, ok := candidate.(simulator.MatchedCandidate)
+		if !ok {
+			return nil, errors.New("failed to cast")
+		}
+
 		if nodeObj == nil {
-			feasibleCandidates = append(feasibleCandidates, simulator.MatchedCandidate[*leafDomain]{Candidate: candidate})
+			feasibleCandidates = append(feasibleCandidates, matchedCandidate)
 			continue
 		}
 		// 1. Check Tolerations against Node Taints
@@ -95,8 +103,8 @@ func (c *defaultChecker) FindFeasibleNodes(
 			affinityScore = requirements.PreferredSchedulingTerms.Score(nodeObj)
 		}
 
-		// 5. Track the matching candidate as feasible
-		feasibleCandidates = append(feasibleCandidates, simulator.MatchedCandidate[*leafDomain]{Candidate: candidate, AffinityScore: affinityScore})
+		matchedCandidate.SetAffinityScore(affinityScore)
+		feasibleCandidates = append(feasibleCandidates, matchedCandidate)
 	}
 	return feasibleCandidates, nil
 }

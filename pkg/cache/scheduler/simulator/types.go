@@ -30,11 +30,11 @@ type Candidate interface {
 	GetNode() *corev1.Node
 }
 
-// MatchedCandidate represents a Candidate that matched the scheduling requirements
-// along with its calculated affinity score.
-type MatchedCandidate[C Candidate] struct {
-	Candidate     C
-	AffinityScore int64
+// Candidate represents an abstract scheduleable domain.
+type MatchedCandidate interface {
+	Candidate
+	GetAffinityScore() int64
+	SetAffinityScore(int64)
 }
 
 // NodeExclusionStats tracks why nodes were excluded during TAS scheduling.

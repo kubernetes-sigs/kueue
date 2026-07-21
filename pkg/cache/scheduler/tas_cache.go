@@ -41,10 +41,10 @@ type tasCache struct {
 
 	nonTasUsageCache    *nonTasUsageCache
 	nodesCache          *nodesCache
-	schedulingSimulator simulator.SchedulingSimulator[*leafDomain]
+	schedulingSimulator simulator.SchedulingSimulator
 }
 
-func NewTASCache(client client.Client, schedulingSimulator simulator.SchedulingSimulator[*leafDomain]) tasCache {
+func NewTASCache(client client.Client, schedulingSimulator simulator.SchedulingSimulator) tasCache {
 	return tasCache{
 		client:      client,
 		flavors:     make(map[kueue.ResourceFlavorReference]flavorInformation),

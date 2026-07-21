@@ -74,7 +74,7 @@ func WithPodsReadyTracking(f bool) Option {
 	}
 }
 
-func WithSchedulingSimulator(s simulator.SchedulingSimulator[*leafDomain]) Option {
+func WithSchedulingSimulator(s simulator.SchedulingSimulator) Option {
 	return func(c *Cache) {
 		c.schedulingSimulator = s
 	}
@@ -156,7 +156,7 @@ type Cache struct {
 	customLabels *metrics.CustomLabels
 	lqMetrics    *metrics.LocalQueueMetricsConfig
 
-	schedulingSimulator simulator.SchedulingSimulator[*leafDomain]
+	schedulingSimulator simulator.SchedulingSimulator
 }
 
 func New(client client.Client, options ...Option) *Cache {

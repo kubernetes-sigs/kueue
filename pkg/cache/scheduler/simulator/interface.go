@@ -24,11 +24,21 @@ import (
 )
 
 // NodeFeasibilityChecker determines which topology leaves can satisfy pod requirements.
-type NodeFeasibilityChecker[C Candidate] interface {
-	FindFeasibleNodes(ctx context.Context, candidates iter.Seq[C], requirements *PodRequirements, stats *NodeExclusionStats) ([]MatchedCandidate[C], error)
+type NodeFeasibilityChecker interface {
+	FindFeasibleNodes(ctx context.Context, candidates iter.Seq[Candidate], requirements *PodRequirements, stats *NodeExclusionStats) ([]MatchedCandidate, error)
 }
 
 // SchedulingSimulator acts as a factory for the feasibility checker.
-type SchedulingSimulator[C Candidate] interface {
-	NewFeasibilityChecker(nodes []*corev1.Node) (NodeFeasibilityChecker[C], error)
+type SchedulingSimulator interface {
+	NewFeasibilityChecker(nodes []*corev1.Node) (NodeFeasibilityChecker, error)
+}
+
+func AsCandidates[C Candidate](seq iter.Seq[C]) iter.Seq[Candidate] {
+	return func(yield func(Candidate) bool) {
+		for candidate := range seq {
+			if !yield(candidate) {
+				return
+			}
+		}
+	}
 }
