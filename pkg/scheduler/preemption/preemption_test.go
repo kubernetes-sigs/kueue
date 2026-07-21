@@ -4141,7 +4141,7 @@ func TestPreemption(t *testing.T) {
 				}
 				wlInfo := workload.NewInfo(tc.incoming)
 				wlInfo.ClusterQueue = tc.targetCQ
-				targets := preemptor.GetTargets(log, *wlInfo, tc.assignment, snapshotWorkingCopy)
+				targets := preemptor.GetTargets(ctx, *wlInfo, tc.assignment, snapshotWorkingCopy)
 				preempted, failed, err := preemptor.IssuePreemptions(ctx, cqCache, wlInfo, targets, snapshotWorkingCopy.ClusterQueue(wlInfo.ClusterQueue))
 				if err != nil {
 					t.Fatalf("Failed doing preemption")
@@ -4358,7 +4358,7 @@ func TestPreemptionWhenWorkloadModifiedConcurrently(t *testing.T) {
 				}
 				wlInfo := workload.NewInfo(tc.incoming)
 				wlInfo.ClusterQueue = kueue.ClusterQueueReference(cq.Name)
-				targets := preemptor.GetTargets(log, *wlInfo, tc.assignment, snapshotWorkingCopy)
+				targets := preemptor.GetTargets(ctx, *wlInfo, tc.assignment, snapshotWorkingCopy)
 				_, _, err = preemptor.IssuePreemptions(ctx, cqCache, wlInfo, targets, snapshotWorkingCopy.ClusterQueue(wlInfo.ClusterQueue))
 				if err != nil {
 					t.Fatalf("Failed doing preemption")
@@ -4575,7 +4575,7 @@ func TestIssuePreemptionsSkipsDuplicate(t *testing.T) {
 				}
 				wlInfo := workload.NewInfo(tc.incoming)
 				wlInfo.ClusterQueue = kueue.ClusterQueueReference(cq.Name)
-				targets := preemptor.GetTargets(log, *wlInfo, tc.assignment, snapshot)
+				targets := preemptor.GetTargets(ctx, *wlInfo, tc.assignment, snapshot)
 
 				if len(targets) == 0 {
 					t.Fatal("Expected preemption targets")

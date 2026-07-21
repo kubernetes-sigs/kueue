@@ -113,12 +113,12 @@ func TestRecordCohortMetrics_Guards(t *testing.T) {
 					{
 						cohort: cohortLeft,
 						fr:     fr,
-						quota:  resourceFloat(fr.Resource, cache.hm.Cohort(cohortLeft).resourceNode.SubtreeQuota[fr].Int64()),
+						quota:  resourceFloat(cache.resourceFormatter, fr.Resource, cache.hm.Cohort(cohortLeft).resourceNode.SubtreeQuota[fr].Int64()),
 					},
 					{
 						cohort: cohortRoot,
 						fr:     fr,
-						quota:  resourceFloat(fr.Resource, cache.hm.Cohort(cohortRoot).resourceNode.SubtreeQuota[fr].Int64()),
+						quota:  resourceFloat(cache.resourceFormatter, fr.Resource, cache.hm.Cohort(cohortRoot).resourceNode.SubtreeQuota[fr].Int64()),
 					},
 				}
 			},

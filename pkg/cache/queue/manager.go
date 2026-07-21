@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/resources"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/queue"
@@ -126,6 +127,13 @@ func WithResourceMetrics(enabled bool) Option {
 	}
 }
 
+// WithResourceFormatter sets the formatter used for resource quantities exposed by the queue manager.
+func WithResourceFormatter(formatter *resources.ResourceFormatter) Option {
+	return func(m *Manager) {
+		m.resourceFormatter = formatter
+	}
+}
+
 func WithDRABackedResources(cache *dra.ExtendedResourceCache) Option {
 	return func(m *Manager) {
 		m.draBackedResources = cache
@@ -181,6 +189,7 @@ type Manager struct {
 	customLabels           *metrics.CustomLabels
 	lqMetrics              *metrics.LocalQueueMetricsConfig
 	resourceMetricsEnabled bool
+	resourceFormatter      *resources.ResourceFormatter
 
 	requeuer inadmissibleRequeuer
 
@@ -214,6 +223,7 @@ func NewManager(client client.Client, checker StatusChecker, requeuer inadmissib
 		AfsEntryPenalties:      queueafs.NewPenaltyMap(),
 		AfsConsumedResources:   queueafs.NewAfsConsumedResources(),
 		requeuer:               requeuer,
+		resourceFormatter:      resources.NewResourceFormatter(),
 	}
 	for _, option := range options {
 		option(m)

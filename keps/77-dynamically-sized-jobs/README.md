@@ -587,6 +587,7 @@ TAS integration is gated separately via `ElasticJobsViaWorkloadSlicesWithTAS`
 * [ ] Re-evaluate in production-like environments with scale-up/scale-down cycles.
 * [ ] Re-evaluate full integration with required/preferred topology modes.
 * [ ] Re-evaluate handling scale-ups and scale-downs during node repair.
+* [ ] Correct handling of rank-based ordering for scale-downs.
 
 ## Implementation History
 

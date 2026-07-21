@@ -82,6 +82,24 @@ if ! command -v crane >/dev/null 2>&1; then
   exit 1
 fi
 
+SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
+# shellcheck source=hack/utils.sh
+source "${SCRIPT_DIR}/../utils.sh"
+
+IMAGES_YAML_URL="https://raw.githubusercontent.com/kubernetes/k8s.io/main/registry.k8s.io/images/k8s-staging-kueue/images.yaml"
+TMP_IMAGES_FILE=$(mktemp)
+declare -r TMP_IMAGES_FILE
+
+function cleanup {
+  rm -f "${TMP_IMAGES_FILE}"
+}
+trap cleanup EXIT
+
+if ! curl -sSLo "${TMP_IMAGES_FILE}" "${IMAGES_YAML_URL}"; then
+  echo "!!! Warning: Failed to download images.yaml from github. Version checks may be skipped."
+  rm -f "${TMP_IMAGES_FILE}"
+fi
+
 # $1 - image name
 # $2 - version
 function check_image() {
@@ -118,6 +136,10 @@ function check_images() {
 
   echo "Images:"
   for image in "${images[@]}"; do
+    if should_skip_image "${image}" "${RELEASE_VERSION}" "${TMP_IMAGES_FILE}"; then
+      echo "  Skipping \"${image}\" check (introduced in later version)."
+      continue
+    fi
     echo ""
     if ! check_image "${image}" "${RELEASE_VERSION}"; then
       return 1
@@ -127,6 +149,10 @@ function check_images() {
   echo ""
   echo "Charts:"
   for chart in "${charts[@]}"; do
+    if should_skip_image "charts/${chart}" "${RELEASE_VERSION}" "${TMP_IMAGES_FILE}"; then
+      echo "  Skipping \"charts/${chart}\" check (introduced in later version)."
+      continue
+    fi
     echo ""
     if ! check_image "charts/${chart}" "${RELEASE_VERSION#v}"; then
       return 1

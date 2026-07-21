@@ -476,7 +476,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 							TotalRequests: []workload.PodSetResources{
 								{
 									Name:     kueue.DefaultPodSetName,
-									Requests: resources.Requests{corev1.ResourceCPU: 5000},
+									Requests: resources.MapRequests{corev1.ResourceCPU: 5000},
 									Count:    1,
 									Flavors:  map[corev1.ResourceName]kueue.ResourceFlavorReference{corev1.ResourceCPU: "default"},
 								},
@@ -920,7 +920,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 							TotalRequests: []workload.PodSetResources{
 								{
 									Name:     kueue.DefaultPodSetName,
-									Requests: resources.Requests{corev1.ResourceCPU: 1000},
+									Requests: resources.MapRequests{corev1.ResourceCPU: 1000},
 									Count:    1,
 									Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 										corev1.ResourceCPU: "f1",
@@ -933,7 +933,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 							TotalRequests: []workload.PodSetResources{
 								{
 									Name:     kueue.DefaultPodSetName,
-									Requests: resources.Requests{corev1.ResourceCPU: 1000},
+									Requests: resources.MapRequests{corev1.ResourceCPU: 1000},
 									Count:    1,
 									Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 										corev1.ResourceCPU: "f1",
@@ -2168,7 +2168,8 @@ func TestGetCacheLQ(t *testing.T) {
 			getLq:          lq,
 			getCQReference: "cq",
 			wantLq: &LocalQueue{
-				key: "ns/lq-a",
+				key:               "ns/lq-a",
+				resourceFormatter: resources.NewResourceFormatter(),
 			}},
 		"LQ doesnt exist": {
 			getLq:          utiltestingapi.MakeLocalQueue("non-existing-lq", "ns").ClusterQueue("cq").Obj(),
@@ -2195,7 +2196,7 @@ func TestGetCacheLQ(t *testing.T) {
 
 			lqKey := queue.Key(tc.getLq)
 			gotLq, gotErr := cache.GetCacheLocalQueue(tc.getCQReference, lqKey)
-			if diff := cmp.Diff(tc.wantLq, gotLq, cmp.AllowUnexported(LocalQueue{}), cmpopts.EquateEmpty(), cmpopts.IgnoreTypes(sync.RWMutex{})); diff != "" {
+			if diff := cmp.Diff(tc.wantLq, gotLq, cmp.AllowUnexported(LocalQueue{}, resources.ResourceFormatter{}), cmpopts.EquateEmpty(), cmpopts.IgnoreTypes(sync.RWMutex{})); diff != "" {
 				t.Errorf("Unexpected localQueues (-want,+got):\n%s", diff)
 			}
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
@@ -2605,6 +2606,11 @@ func TestCacheQueueOperations(t *testing.T) {
 		// Not tested: changing a workload's queue and changing a queue's cluster queue.
 		// These operations should not be allowed by the webhook.
 	}
+	for _, tc := range cases {
+		for _, localQueue := range tc.wantLocalQueues {
+			localQueue.resourceFormatter = resources.NewResourceFormatter()
+		}
+	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			cl := utiltesting.NewFakeClient()
@@ -2625,7 +2631,7 @@ func TestCacheQueueOperations(t *testing.T) {
 				}
 			}
 			cmpOpts := []cmp.Option{
-				cmp.AllowUnexported(LocalQueue{}),
+				cmp.AllowUnexported(LocalQueue{}, resources.ResourceFormatter{}),
 				cmpopts.EquateEmpty(),
 				cmpopts.IgnoreTypes(sync.RWMutex{}),
 				cmp.FilterValues(func(a, b resources.FlavorResourceQuantities) bool { return len(a) != 0 || len(b) != 0 }, cmp.Comparer(equalFlavorResourceQuantitiesIgnoringZero)),

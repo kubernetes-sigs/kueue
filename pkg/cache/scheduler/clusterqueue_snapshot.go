@@ -17,11 +17,11 @@ limitations under the License.
 package scheduler
 
 import (
+	"context"
 	"iter"
 	"maps"
 	"slices"
 
-	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -206,7 +206,7 @@ func (c *ClusterQueueSnapshot) DominantResourceShare() DRS {
 type WorkloadTASRequests map[kueue.ResourceFlavorReference]FlavorTASRequests
 
 func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
-	log logr.Logger,
+	ctx context.Context,
 	tasRequestsByFlavor WorkloadTASRequests,
 	options ...FindTopologyAssignmentsOption,
 ) TASAssignmentsResult {
@@ -215,9 +215,9 @@ func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
 		option(opts)
 	}
 
-	var aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests
+	var aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.MapRequests
 	if features.Enabled(features.TASHandleOverlappingFlavors) {
-		aggregatedDomainUsages = make(map[utiltas.TopologyDomainID]resources.Requests)
+		aggregatedDomainUsages = make(map[utiltas.TopologyDomainID]resources.MapRequests)
 	}
 
 	result := make(TASAssignmentsResult)
@@ -231,7 +231,7 @@ func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
 		if features.Enabled(features.TASHandleOverlappingFlavors) && tasFlavorCache.isLowestLevelNode {
 			flvOpts = append(slices.Clone(options), WithAggregatedDomainUsages(aggregatedDomainUsages))
 		}
-		flvResult := tasFlavorCache.FindTopologyAssignmentsForFlavor(log, flavorTASRequests, flvOpts...)
+		flvResult := tasFlavorCache.FindTopologyAssignmentsForFlavor(ctx, flavorTASRequests, flvOpts...)
 		for psName, res := range flvResult {
 			res.Flavor = tasFlavor
 			result[psName] = res

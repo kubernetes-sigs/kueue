@@ -24,6 +24,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
+	"sigs.k8s.io/kueue/pkg/resources"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
@@ -86,7 +87,7 @@ func BenchmarkTASFlavorSnapshot(b *testing.B) {
 			nodes := buildBenchNodes(topo)
 			levels := []string{benchBlockLabel, benchRackLabel, benchHostLabel}
 
-			tasCache := NewTASCache(nil)
+			tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
 			for i := range nodes {
 				tasCache.SyncNode(&nodes[i])
 			}
@@ -118,7 +119,7 @@ func BenchmarkTASFlavorSnapshot(b *testing.B) {
 
 			for b.Loop() {
 				for i, flavorCache := range flavorCaches {
-					_ = flavorCache.snapshot(log, flavorNodes[i], nil)
+					_, _ = flavorCache.snapshot(log, flavorNodes[i], nil)
 				}
 			}
 		})

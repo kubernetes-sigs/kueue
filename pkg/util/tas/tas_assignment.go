@@ -300,13 +300,13 @@ func compactTopologyAssignmentEncoding(log logr.Logger, ta *TopologyAssignment) 
 
 	singleEncoded := singleCompactTopologyAssignmentEncoding(ta)
 	prefixJSON, prefixErr := json.Marshal(prefixEncoded)
-	singleJSON, singleErr := json.Marshal(singleEncoded)
 	if prefixErr != nil {
 		log.Error(prefixErr, "Failed to marshal hostname-prefix topology assignment while comparing encodings",
 			"domainCount", len(ta.Domains),
 			"sliceCount", len(prefixEncoded.Slices),
 		)
 	}
+	singleJSON, singleErr := json.Marshal(singleEncoded)
 	if singleErr != nil {
 		log.Error(singleErr, "Failed to marshal single-slice topology assignment while comparing encodings",
 			"domainCount", len(ta.Domains),
@@ -556,12 +556,12 @@ func TruncateAssignment(ta *TopologyAssignment, newCount int32) *TopologyAssignm
 }
 
 // ComputeUsagePerDomain calculates resource usage per topology domain from an assignment.
-func ComputeUsagePerDomain(ta *TopologyAssignment, singlePodRequests resources.Requests) map[TopologyDomainID]resources.Requests {
-	usage := make(map[TopologyDomainID]resources.Requests)
+func ComputeUsagePerDomain(ta *TopologyAssignment, singlePodRequests resources.MapRequests) map[TopologyDomainID]resources.MapRequests {
+	usage := make(map[TopologyDomainID]resources.MapRequests)
 	for _, domain := range ta.Domains {
 		domainID := DomainID(domain.Values)
 		domainUsage := singlePodRequests.ScaledUp(int64(domain.Count))
-		domainUsage.Add(resources.Requests{corev1.ResourcePods: int64(domain.Count)})
+		domainUsage.Add(resources.MapRequests{corev1.ResourcePods: int64(domain.Count)})
 		usage[domainID] = domainUsage
 	}
 	return usage
