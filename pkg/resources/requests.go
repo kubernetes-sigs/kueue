@@ -31,6 +31,22 @@ import (
 // The following resources calculations are inspired on
 // https://github.com/kubernetes/kubernetes/blob/master/pkg/scheduler/framework/types.go
 
+// IsNil safely checks if a Requests interface instance is nil or wraps a nil map.
+func IsNil(r Requests) bool {
+	if r == nil {
+		return true
+	}
+	if m, ok := r.(MapRequests); ok {
+		return m == nil
+	}
+	return false
+}
+
+// IsEmpty checks if a Requests interface instance is nil or has 0 resource entries.
+func IsEmpty(r Requests) bool {
+	return IsNil(r) || r.Len() == 0
+}
+
 // MapRequests maps ResourceName to flavor to value; for CPU it is tracked in MilliCPU.
 type MapRequests map[corev1.ResourceName]int64
 
@@ -88,26 +104,44 @@ func (r MapRequests) GetValue(name corev1.ResourceName) int64 {
 	return r[name]
 }
 
+func (r MapRequests) Len() int {
+	return len(r)
+}
+
+func (r MapRequests) ForEach(fn func(name corev1.ResourceName, val int64)) {
+	for k, v := range r {
+		fn(k, v)
+	}
+}
+
 func (r MapRequests) Add(other Requests) {
-	if isNil(other) {
+	if IsNil(other) {
 		return
 	}
 	if m, ok := other.(MapRequests); ok {
 		for k, v := range m {
 			r[k] += v
 		}
+		return
 	}
+	other.ForEach(func(k corev1.ResourceName, v int64) {
+		r[k] += v
+	})
 }
 
 func (r MapRequests) Sub(other Requests) {
-	if isNil(other) {
+	if IsNil(other) {
 		return
 	}
 	if m, ok := other.(MapRequests); ok {
 		for k, v := range m {
 			r[k] -= v
 		}
+		return
 	}
+	other.ForEach(func(k corev1.ResourceName, v int64) {
+		r[k] -= v
+	})
 }
 
 func (r MapRequests) CreateEmpty() Requests {
@@ -163,7 +197,7 @@ func (r MapRequests) CountIn(capacity Requests) int32 {
 // When multiple resources have the same count, ties are broken alphabetically
 // by resource name for determinism.
 func (r MapRequests) CountInWithLimitingResource(capacity Requests) (int32, corev1.ResourceName) {
-	if isNil(capacity) {
+	if IsNil(capacity) {
 		return 0, ""
 	}
 	var (
