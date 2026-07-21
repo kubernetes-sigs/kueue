@@ -23,7 +23,6 @@ import (
 // Requests represents an abstract collection of resource requests.
 type Requests interface {
 	Clone() Requests
-	CreateEmpty() Requests
 	Add(other Requests)
 	Sub(other Requests)
 	CountIn(capacity Requests) int32

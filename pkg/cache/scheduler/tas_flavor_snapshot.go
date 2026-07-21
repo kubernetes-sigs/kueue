@@ -287,7 +287,7 @@ func (s *TASFlavorSnapshot) initializeHelper(dom *domain) {
 
 func (s *TASFlavorSnapshot) addCapacity(domainID utiltas.TopologyDomainID, capacity resources.Requests) {
 	if s.leaves[domainID].freeCapacity == nil {
-		s.leaves[domainID].freeCapacity = capacity.CreateEmpty()
+		s.leaves[domainID].freeCapacity = resources.CreateEmpty()
 	}
 	s.leaves[domainID].freeCapacity.Add(capacity)
 	s.leaves[domainID].cachedRemainingCapacity = resources.LazyRequests{}
@@ -312,7 +312,7 @@ func (s *TASFlavorSnapshot) updateTASUsage(domainID utiltas.TopologyDomainID, us
 }
 
 func (s *TASFlavorSnapshot) getRemainingCapacity(leaf *leafDomain) resources.Requests {
-	if !leaf.cachedRemainingCapacity.IsValid() {
+	if leaf.cachedRemainingCapacity.IsEmpty() {
 		leaf.cachedRemainingCapacity = resources.NewLazyRequests(leaf.freeCapacity)
 		leaf.cachedRemainingCapacity.Sub(leaf.tasUsage)
 	}
@@ -328,7 +328,7 @@ func (s *TASFlavorSnapshot) addTASUsage(domainID utiltas.TopologyDomainID, usage
 		return
 	}
 	if s.leaves[domainID].tasUsage == nil {
-		s.leaves[domainID].tasUsage = usage.CreateEmpty()
+		s.leaves[domainID].tasUsage = resources.CreateEmpty()
 	}
 	s.leaves[domainID].tasUsage.Add(usage)
 	s.leaves[domainID].cachedRemainingCapacity = resources.LazyRequests{}
@@ -343,7 +343,7 @@ func (s *TASFlavorSnapshot) removeTASUsage(domainID utiltas.TopologyDomainID, us
 		return
 	}
 	if s.leaves[domainID].tasUsage == nil {
-		s.leaves[domainID].tasUsage = usage.CreateEmpty()
+		s.leaves[domainID].tasUsage = resources.CreateEmpty()
 	}
 	s.leaves[domainID].tasUsage.Sub(usage)
 	s.leaves[domainID].cachedRemainingCapacity = resources.LazyRequests{}
