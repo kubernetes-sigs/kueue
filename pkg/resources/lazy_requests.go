@@ -27,13 +27,17 @@ func IsEmpty(requests Requests) bool {
 	return requests == nil || requests.Len() == 0
 }
 
+func CreateEmpty() Requests {
+	return MapRequests{}
+}
+
 func NewLazyRequests(base Requests) LazyRequests {
 	return LazyRequests{base: base}
 }
 
-// IsValid returns true if either the base or cached Requests is initialized.
-func (l *LazyRequests) IsValid() bool {
-	return !IsEmpty(l.base) || !IsEmpty(l.cached)
+// IsEmpty returns true if both the base and cached Requests are empty.
+func (l *LazyRequests) IsEmpty() bool {
+	return IsEmpty(l.base) && IsEmpty(l.cached)
 }
 
 // Get returns the underlying Requests (either the cached clone if mutated, or base).
@@ -44,15 +48,13 @@ func (l *LazyRequests) Get() Requests {
 	return l.base
 }
 
-func (l *LazyRequests) ensureWritable(other Requests) {
+func (l *LazyRequests) ensureWritable() {
 	if IsEmpty(l.cached) {
 		switch {
 		case !IsEmpty(l.base):
 			l.cached = l.base.Clone()
-		case !IsEmpty(other):
-			l.cached = other.CreateEmpty()
 		default:
-			l.cached = MapRequests{}
+			l.cached = CreateEmpty()
 		}
 	}
 }
@@ -63,7 +65,7 @@ func (l *LazyRequests) Sub(subRequests Requests) {
 	if IsEmpty(subRequests) {
 		return
 	}
-	l.ensureWritable(subRequests)
+	l.ensureWritable()
 	l.cached.Sub(subRequests)
 }
 
@@ -73,6 +75,6 @@ func (l *LazyRequests) Add(addRequests Requests) {
 	if IsEmpty(addRequests) {
 		return
 	}
-	l.ensureWritable(addRequests)
+	l.ensureWritable()
 	l.cached.Add(addRequests)
 }

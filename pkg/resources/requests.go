@@ -125,10 +125,6 @@ func (r MapRequests) Sub(other Requests) {
 	})
 }
 
-func (r MapRequests) CreateEmpty() Requests {
-	return MapRequests{}
-}
-
 func (r MapRequests) ToResourceList() corev1.ResourceList {
 	ret := make(corev1.ResourceList, len(r))
 	for k, v := range r {
