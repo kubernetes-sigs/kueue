@@ -4597,3 +4597,45 @@ func TestCompletedIndexesCount(t *testing.T) {
 		})
 	}
 }
+
+func TestReclaimablePods(t *testing.T) {
+	indexedJob := func(succeeded int32, completedIndexes string) *Job {
+		j := utiltestingjob.MakeJob("job", "ns").
+			Indexed(true).
+			Parallelism(8).
+			Completions(8).
+			Obj()
+		j.Status.Succeeded = succeeded
+		j.Status.CompletedIndexes = completedIndexes
+		return (*Job)(j)
+	}
+	cases := map[string]struct {
+		job  *Job
+		want []kueue.ReclaimablePod
+	}{
+		// An ordinary (non-elastic) Indexed Job must reclaim its completed indexes
+		// exactly as before, now that the count is derived from completedIndexes.
+		"indexed Job reclaims its completed indexes": {
+			job:  indexedJob(4, "0-3"),
+			want: []kueue.ReclaimablePod{{Name: kueue.DefaultPodSetName, Count: 4}},
+		},
+		// Succeeded set without completedIndexes should not happen with the native
+		// Job controller (both are written in one update), but can with a custom
+		// spec.managedBy controller. We trust completedIndexes and hold the quota.
+		"indexed Job with empty completedIndexes holds quota": {
+			job:  indexedJob(4, ""),
+			want: nil,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, err := tc.job.ReclaimablePods(t.Context(), nil)
+			if err != nil {
+				t.Fatalf("ReclaimablePods() returned error: %v", err)
+			}
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("ReclaimablePods() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

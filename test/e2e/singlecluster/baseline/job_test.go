@@ -1048,7 +1048,7 @@ func clusterQueueReservedMilliCPU(g gomega.Gomega, cqKey client.ObjectKey) int64
 	cq := &kueue.ClusterQueue{}
 	g.Expect(k8sClient.Get(ctx, cqKey, cq)).Should(gomega.Succeed())
 	var total int64
-	for _, fu := range cq.Status.FlavorsUsage {
+	for _, fu := range cq.Status.FlavorsReservation {
 		for _, r := range fu.Resources {
 			if r.Name == corev1.ResourceCPU {
 				total += r.Total.MilliValue()

@@ -217,14 +217,9 @@ func (j *Job) ReclaimablePods(ctx context.Context, _ client.Client) ([]kueue.Rec
 	parallelism := ptr.Deref(j.Spec.Parallelism, 1)
 	completions := ptr.Deref(j.Spec.Completions, parallelism)
 
-	// For an Indexed Job derive the number of completed pods from
-	// completedIndexes rather than Status.Succeeded. After an elastic scale-down
-	// that shrinks completions, Status.Succeeded briefly keeps counting the
-	// removed high indexes until the Job controller recounts it; releasing quota
-	// based on that stale value would let the surviving pods run outside quota
-	// (kueue#13117). Counting only the completed indexes below the current
-	// completions yields the post-recount value immediately and can never
-	// over-credit, since completedIndexes lists real successes.
+	// Indexed Job: derive the succeeded count from completedIndexes, ignoring
+	// indexes >= completions. After an elastic scale-down, Status.Succeeded may
+	// still include the removed indexes (kueue#13117).
 	succeeded := j.Status.Succeeded
 	if ptr.Deref(j.Spec.CompletionMode, batchv1.NonIndexedCompletion) == batchv1.IndexedCompletion {
 		succeeded = completedIndexesCount(log, j.Status.CompletedIndexes, completions)
@@ -239,7 +234,7 @@ func (j *Job) ReclaimablePods(ctx context.Context, _ client.Client) ([]kueue.Rec
 	// does one whose remaining work still fills every parallel slot.
 	reclaimable := int32(0)
 	if parallelism > 1 && succeeded > 0 {
-		if remaining := completions - succeeded; remaining < parallelism {
+		if remaining := max(completions-succeeded, 0); remaining < parallelism {
 			reclaimable = parallelism - remaining
 		}
 	}
