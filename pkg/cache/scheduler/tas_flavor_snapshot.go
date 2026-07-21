@@ -1052,6 +1052,8 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		}
 	}
 
+	requirements.podRequirements.PodTemplate = workersTasPodSetRequests.PodSet.Template.DeepCopy()
+
 	// phase 1 - determine the number of pods and slices which can fit in each topology domain
 	err := s.fillInCounts(ctx, requirements, state)
 	if err != nil {
