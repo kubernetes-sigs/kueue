@@ -392,7 +392,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 		pods                   []corev1.Pod
 		levels                 []string
 		nodeLabels             map[string]string
-		aggregatedDomainUsages map[tas.TopologyDomainID]resources.MapRequests
+		aggregatedDomainUsages map[tas.TopologyDomainID]resources.Requests
 		priorFlavorUsage       []workload.TopologyDomainRequests
 		priorOwnUsage          []workload.TopologyDomainRequests
 		workload               *kueue.Workload
@@ -7817,7 +7817,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				)
 			}
 
-			var aggregatedDomainUsage map[tas.TopologyDomainID]resources.MapRequests
+			var aggregatedDomainUsage map[tas.TopologyDomainID]resources.Requests
 			if features.Enabled(features.TASHandleOverlappingFlavors) && tas.IsLowestLevelHostname(tasFlavorCache.topology.Levels) {
 				aggregatedDomainUsage = tc.aggregatedDomainUsages
 			}
@@ -7902,7 +7902,7 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 		unhealthyNode          string
 		topologyRequest        *kueue.PodSetTopologyRequest
 		count                  int32
-		aggregatedDomainUsages map[tas.TopologyDomainID]resources.MapRequests
+		aggregatedDomainUsages map[tas.TopologyDomainID]resources.Requests
 		priorFlavorUsage       []workload.TopologyDomainRequests
 		wantAssignment         *tas.TopologyAssignment
 		wantReason             string
@@ -8293,7 +8293,7 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 				)
 			}
 
-			var aggregatedDomainUsages map[tas.TopologyDomainID]resources.MapRequests
+			var aggregatedDomainUsages map[tas.TopologyDomainID]resources.Requests
 			if features.Enabled(features.TASHandleOverlappingFlavors) && tas.IsLowestLevelHostname(tasFlavorCache.topology.Levels) {
 				aggregatedDomainUsages = tc.aggregatedDomainUsages
 			}
@@ -8337,8 +8337,8 @@ func aggregatedDomainUsagesForPriorFlavorUsage(
 	flvInfo flavorInformation,
 	priorFlavorUsage []workload.TopologyDomainRequests,
 	cache *tasCache,
-	initialAggregatedDomainUsages map[tas.TopologyDomainID]resources.MapRequests,
-) map[tas.TopologyDomainID]resources.MapRequests {
+	initialAggregatedDomainUsages map[tas.TopologyDomainID]resources.Requests,
+) map[tas.TopologyDomainID]resources.Requests {
 	siblingCache := cache.NewTASFlavorCache(topologyInfo, flvInfo)
 	if len(priorFlavorUsage) > 0 {
 		siblingCache.addUsage(log, "prior-wl", priorFlavorUsage)
@@ -8346,7 +8346,7 @@ func aggregatedDomainUsagesForPriorFlavorUsage(
 
 	aggregatedDomainUsages := maps.Clone(initialAggregatedDomainUsages)
 	if aggregatedDomainUsages == nil {
-		aggregatedDomainUsages = make(map[tas.TopologyDomainID]resources.MapRequests, len(siblingCache.usage))
+		aggregatedDomainUsages = make(map[tas.TopologyDomainID]resources.Requests, len(siblingCache.usage))
 	}
 	for domainID, usage := range siblingCache.usage {
 		aggregatedDomainUsages[domainID] = usage.Clone()

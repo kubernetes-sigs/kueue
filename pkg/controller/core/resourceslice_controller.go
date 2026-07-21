@@ -51,6 +51,9 @@ func NewResourceSliceReconciler(qManager *qcache.Manager, cfg *configapi.Configu
 				if s.Counter != nil {
 					drivers.Insert(s.Counter.Driver)
 				}
+				if s.Capacity != nil {
+					drivers.Insert(s.Capacity.Driver)
+				}
 			}
 		}
 	}

@@ -82,7 +82,7 @@ type TASFlavorCache struct {
 	flavor flavorInformation
 
 	// usage maintains the usage per topology domain
-	usage map[utiltas.TopologyDomainID]resources.MapRequests
+	usage map[utiltas.TopologyDomainID]resources.Requests
 
 	// wlUsage tracks the usage coming from workloads, so that we can make the
 	// usage removal indempotent - skip if it was not added.
@@ -105,7 +105,7 @@ func (t *tasCache) NewTASFlavorCache(topologyInfo topologyInformation,
 		client:              t.client,
 		topology:            topologyInfo,
 		flavor:              flavorInfo,
-		usage:               make(map[utiltas.TopologyDomainID]resources.MapRequests),
+		usage:               make(map[utiltas.TopologyDomainID]resources.Requests),
 		wlUsage:             make(map[workload.Reference][]workload.TopologyDomainRequests),
 		nonTasUsageCache:    t.nonTasUsageCache,
 		schedulingSimulator: t.schedulingSimulator,
@@ -126,7 +126,7 @@ func (c *TASFlavorCache) TopologyLevels() []string {
 }
 
 func (c *TASFlavorCache) snapshot(
-	ctx context.Context, log logr.Logger, nodes []*corev1.Node, aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.MapRequests,
+	ctx context.Context, log logr.Logger, nodes []*corev1.Node, aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests,
 ) (*TASFlavorSnapshot, error) {
 	c.RLock()
 	defer c.RUnlock()
@@ -161,7 +161,7 @@ func (c *TASFlavorCache) snapshot(
 	for domainID, usage := range tasDomainUsages {
 		snapshot.addTASUsage(domainID, usage)
 	}
-	c.nonTasUsageCache.forEachNodeUsage(func(nodeName string, usage resources.MapRequests) {
+	c.nonTasUsageCache.forEachNodeUsage(func(nodeName string, usage resources.Requests) {
 		if domainID, ok := nodeToDomain[nodeName]; ok {
 			snapshot.addNonTASUsage(domainID, usage)
 		}

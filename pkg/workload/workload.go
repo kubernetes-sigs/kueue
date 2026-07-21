@@ -30,6 +30,7 @@ import (
 	"gopkg.in/inf.v0"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -272,12 +273,12 @@ type TopologyRequest struct {
 
 type TopologyDomainRequests struct {
 	Values            []string
-	SinglePodRequests resources.MapRequests
+	SinglePodRequests resources.Requests
 	// Count indicates how many pods are requested in this TopologyDomain.
 	Count int32
 }
 
-func (t *TopologyDomainRequests) TotalRequests() resources.MapRequests {
+func (t *TopologyDomainRequests) TotalRequests() resources.Requests {
 	return t.SinglePodRequests.ScaledUp(int64(t.Count))
 }
 
@@ -461,6 +462,10 @@ func (i *Info) CalcLocalQueueFSUsage(
 	var lq kueue.LocalQueue
 	lqObjKey := client.ObjectKey{Namespace: i.Obj.Namespace, Name: string(i.Obj.Spec.QueueName)}
 	if err := c.Get(ctx, lqObjKey, &lq); err != nil {
+		if apierrors.IsNotFound(err) {
+			// If the LocalQueue is missing, gracefully fallback to the default weight (1.0).
+			return afs.CalculateUsage(consumed, penalty, 1.0, resWeights), nil
+		}
 		return 0, err
 	}
 	lqWeight := afs.LQWeightAsFloat64(&lq)
@@ -668,7 +673,7 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 			}
 			singlePodRequests := setRes.SinglePodRequests()
 			if ps := podset.FindPodSetByName(wl.Spec.PodSets, psa.Name); ps != nil {
-				singlePodRequests = resources.NewRequestsFromPodSpec(&ps.Template.Spec)
+				singlePodRequests = resources.NewMapRequestsFromPodSpec(&ps.Template.Spec)
 			}
 			for req := range tas.InternalSeqFrom(psa.TopologyAssignment) {
 				setRes.TopologyRequest.DomainRequests = append(setRes.TopologyRequest.DomainRequests, TopologyDomainRequests{

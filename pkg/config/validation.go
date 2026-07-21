@@ -25,6 +25,7 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/validate/content"
 	apimachineryvalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -564,45 +565,41 @@ func validateDeviceClassMappings(c *configapi.Configuration) field.ErrorList {
 
 		if len(mapping.Sources) > 0 {
 			sourcesPath := mappingPath.Child("sources")
-			if !features.Enabled(features.KueueDRAIntegrationPartitionableDevices) {
-				allErrs = append(allErrs, field.Invalid(sourcesPath, len(mapping.Sources),
-					"sources require KueueDRAIntegrationPartitionableDevices to be enabled"))
-			} else {
-				if len(mapping.Sources) > 1 {
-					allErrs = append(allErrs, field.TooMany(sourcesPath, len(mapping.Sources), 1))
+			celCache := dracel.NewCache(len(mapping.Sources), dracel.Features{})
+			counterCount := 0
+			hasCapacity := false
+			for sIdx, source := range mapping.Sources {
+				sourcePath := sourcesPath.Index(sIdx)
+				if source.Counter == nil && source.Capacity == nil {
+					allErrs = append(allErrs, field.Required(sourcePath, "exactly one source type must be set per entry"))
+					continue
 				}
-				celCache := dracel.NewCache(len(mapping.Sources), dracel.Features{})
-				for sIdx, source := range mapping.Sources {
-					sourcePath := sourcesPath.Index(sIdx)
-					if source.Counter == nil {
-						allErrs = append(allErrs, field.Required(sourcePath.Child("counter"), "exactly one source type must be set"))
+				if source.Counter != nil && source.Capacity != nil {
+					allErrs = append(allErrs, field.Invalid(sourcePath, "counter+capacity", "exactly one source type must be set per entry"))
+					continue
+				}
+				if source.Counter != nil {
+					counterCount++
+					if !features.Enabled(features.KueueDRAIntegrationPartitionableDevices) {
+						allErrs = append(allErrs, field.Invalid(sourcePath.Child("counter"), true,
+							"counter sources require KueueDRAIntegrationPartitionableDevices to be enabled"))
 						continue
 					}
-					counterPath := sourcePath.Child("counter")
-					if source.Counter.Name == "" {
-						allErrs = append(allErrs, field.Required(counterPath.Child("name"), ""))
-					} else if len(source.Counter.Name) > 63 {
-						allErrs = append(allErrs, field.Invalid(counterPath.Child("name"), source.Counter.Name, "must not exceed 63 characters"))
-					}
-					if source.Counter.Driver == "" {
-						allErrs = append(allErrs, field.Required(counterPath.Child("driver"), ""))
-					} else if len(source.Counter.Driver) > 253 {
-						allErrs = append(allErrs, field.Invalid(counterPath.Child("driver"), source.Counter.Driver, "must not exceed 253 characters"))
-					}
-					selectorPath := counterPath.Child("deviceSelector", "cel", "expression")
-					if source.Counter.DeviceSelector.CEL == nil || source.Counter.DeviceSelector.CEL.Expression == "" {
-						allErrs = append(allErrs, field.Required(selectorPath, ""))
-					} else {
-						result := celCache.GetOrCompile(source.Counter.DeviceSelector.CEL.Expression)
-						if result.Error != nil {
-							allErrs = append(allErrs, field.Invalid(
-								selectorPath,
-								source.Counter.DeviceSelector.CEL.Expression,
-								fmt.Sprintf("CEL compilation failed: %v", result.Error),
-							))
-						}
-					}
+					allErrs = append(allErrs, validateDeviceClassSource(source.Counter.Name, source.Counter.Driver, &source.Counter.DeviceSelector, sourcePath.Child("counter"), celCache)...)
 				}
+				if source.Capacity != nil {
+					hasCapacity = true
+					if !features.Enabled(features.KueueDRAIntegrationConsumableCapacity) {
+						allErrs = append(allErrs, field.Invalid(sourcePath.Child("capacity"), true,
+							"capacity sources require KueueDRAIntegrationConsumableCapacity to be enabled"))
+						continue
+					}
+					allErrs = append(allErrs, validateDeviceClassSource(source.Capacity.Name, source.Capacity.Driver, &source.Capacity.DeviceSelector, sourcePath.Child("capacity"), celCache)...)
+				}
+			}
+			if counterCount > 0 && hasCapacity {
+				allErrs = append(allErrs, field.Invalid(sourcesPath, len(mapping.Sources),
+					"cannot mix counter and capacity sources in the same mapping"))
 			}
 		}
 	}
@@ -725,6 +722,16 @@ func validateDRAFeatureGateDependencies() field.ErrorList {
 				featureGatesPath,
 				"KueueDRAIntegrationPartitionableDevices",
 				"KueueDRAIntegrationPartitionableDevices requires KueueDRAIntegration to be enabled",
+			))
+		}
+	}
+
+	if features.Enabled(features.KueueDRAIntegrationConsumableCapacity) {
+		if !features.Enabled(features.KueueDRAIntegration) {
+			allErrs = append(allErrs, field.Invalid(
+				featureGatesPath,
+				"KueueDRAIntegrationConsumableCapacity",
+				"KueueDRAIntegrationConsumableCapacity requires KueueDRAIntegration to be enabled",
 			))
 		}
 	}
@@ -879,4 +886,29 @@ func counterNameForMapping(mapping configapi.DeviceClassMapping) string {
 		return mapping.Sources[0].Counter.Name
 	}
 	return ""
+}
+
+func validateDeviceClassSource(name, driver string, selector *resourcev1.DeviceSelector, path *field.Path, celCache *dracel.Cache) field.ErrorList {
+	var allErrs field.ErrorList
+	if name == "" {
+		allErrs = append(allErrs, field.Required(path.Child("name"), ""))
+	} else if len(name) > 63 {
+		allErrs = append(allErrs, field.Invalid(path.Child("name"), name, "must not exceed 63 characters"))
+	}
+	if driver == "" {
+		allErrs = append(allErrs, field.Required(path.Child("driver"), ""))
+	} else if errs := apimachineryutilvalidation.IsDNS1123Subdomain(driver); len(errs) != 0 {
+		allErrs = append(allErrs, field.Invalid(path.Child("driver"), driver, strings.Join(errs, "; ")))
+	}
+	selectorPath := path.Child("deviceSelector", "cel", "expression")
+	if selector.CEL == nil || selector.CEL.Expression == "" {
+		allErrs = append(allErrs, field.Required(selectorPath, ""))
+	} else {
+		result := celCache.GetOrCompile(selector.CEL.Expression)
+		if result.Error != nil {
+			allErrs = append(allErrs, field.Invalid(selectorPath, selector.CEL.Expression,
+				fmt.Sprintf("CEL compilation failed: %v", result.Error)))
+		}
+	}
+	return allErrs
 }

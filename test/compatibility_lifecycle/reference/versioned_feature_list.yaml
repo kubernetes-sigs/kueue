@@ -125,6 +125,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.18"
+- name: KueueDRAIntegrationConsumableCapacity
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.19"
 - name: KueueDRAIntegrationExtendedResource
   versionedSpecs:
   - default: false
