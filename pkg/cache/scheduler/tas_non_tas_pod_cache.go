@@ -32,13 +32,13 @@ import (
 // the hot path documented in kueue#8449.
 type nonTasUsageCache struct {
 	podUsage  map[types.NamespacedName]podUsageValue
-	nodeUsage map[string]resources.MapRequests // pre-aggregated per-node totals
+	nodeUsage map[string]resources.Requests // pre-aggregated per-node totals
 	lock      sync.RWMutex
 }
 
 type podUsageValue struct {
 	node  string
-	usage resources.MapRequests
+	usage resources.Requests
 }
 
 // update may add a pod to the cache, or
@@ -85,7 +85,7 @@ func (n *nonTasUsageCache) delete(key client.ObjectKey, log logr.Logger) {
 // forEachNodeUsage invokes fn for each node's usage while holding the read lock.
 // usage is the live cache entry, not a copy: fn must only read it, and must not
 // mutate or retain it beyond the call. Clone it if a longer-lived copy is needed.
-func (n *nonTasUsageCache) forEachNodeUsage(fn func(node string, usage resources.MapRequests)) {
+func (n *nonTasUsageCache) forEachNodeUsage(fn func(node string, usage resources.Requests)) {
 	n.lock.RLock()
 	defer n.lock.RUnlock()
 	for node, reqs := range n.nodeUsage {
@@ -95,24 +95,24 @@ func (n *nonTasUsageCache) forEachNodeUsage(fn func(node string, usage resources
 
 // addNodeUsage increments the pre-aggregated per-node usage.
 // Must be called under write lock.
-func (n *nonTasUsageCache) addNodeUsage(node string, usage resources.MapRequests) {
+func (n *nonTasUsageCache) addNodeUsage(node string, usage resources.Requests) {
 	if _, found := n.nodeUsage[node]; !found {
 		n.nodeUsage[node] = resources.MapRequests{}
 	}
 	n.nodeUsage[node].Add(usage)
-	n.nodeUsage[node][corev1.ResourcePods]++
+	n.nodeUsage[node].Add(resources.MapRequests{corev1.ResourcePods: 1})
 }
 
 // removeNodeUsage decrements the pre-aggregated per-node usage.
 // Must be called under write lock.
-func (n *nonTasUsageCache) removeNodeUsage(node string, usage resources.MapRequests, log logr.Logger) {
+func (n *nonTasUsageCache) removeNodeUsage(node string, usage resources.Requests, log logr.Logger) {
 	existing, found := n.nodeUsage[node]
 	if !found {
 		return
 	}
 	existing.Sub(usage)
-	existing[corev1.ResourcePods]--
-	if pods := existing[corev1.ResourcePods]; pods <= 0 {
+	existing.Sub(resources.MapRequests{corev1.ResourcePods: 1})
+	if pods := existing.GetValue(corev1.ResourcePods); pods <= 0 {
 		if pods < 0 {
 			log.V(0).Info("Unexpected negative pod count in nodeUsage", "node", node, "podCount", pods)
 		}

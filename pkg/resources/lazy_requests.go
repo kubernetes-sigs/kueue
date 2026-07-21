@@ -23,29 +23,33 @@ type LazyRequests struct {
 	cached Requests
 }
 
+func IsEmpty(requests Requests) bool {
+	return requests == nil || requests.Len() == 0
+}
+
 func NewLazyRequests(base Requests) LazyRequests {
 	return LazyRequests{base: base}
 }
 
 // IsValid returns true if either the base or cached Requests is initialized.
 func (l *LazyRequests) IsValid() bool {
-	return l.base.IsEmpty() || !l.cached.IsEmpty()
+	return !IsEmpty(l.base) || !IsEmpty(l.cached)
 }
 
 // Get returns the underlying Requests (either the cached clone if mutated, or base).
 func (l *LazyRequests) Get() Requests {
-	if !l.cached.IsEmpty() {
+	if !IsEmpty(l.cached) {
 		return l.cached
 	}
 	return l.base
 }
 
 func (l *LazyRequests) ensureWritable(other Requests) {
-	if l.cached.IsNil() {
+	if IsEmpty(l.cached) {
 		switch {
-		case l.base.IsNil():
+		case !IsEmpty(l.base):
 			l.cached = l.base.Clone()
-		case other.IsNil():
+		case !IsEmpty(other):
 			l.cached = other.CreateEmpty()
 		default:
 			l.cached = MapRequests{}
@@ -56,7 +60,7 @@ func (l *LazyRequests) ensureWritable(other Requests) {
 // Sub subtracts subRequests from the underlying Requests interface,
 // cloning base on first write.
 func (l *LazyRequests) Sub(subRequests Requests) {
-	if subRequests.IsEmpty() {
+	if IsEmpty(subRequests) {
 		return
 	}
 	l.ensureWritable(subRequests)
@@ -66,7 +70,7 @@ func (l *LazyRequests) Sub(subRequests Requests) {
 // Add adds addRequests to the underlying Requests interface,
 // cloning base on first write.
 func (l *LazyRequests) Add(addRequests Requests) {
-	if addRequests.IsEmpty() {
+	if IsEmpty(addRequests) {
 		return
 	}
 	l.ensureWritable(addRequests)
