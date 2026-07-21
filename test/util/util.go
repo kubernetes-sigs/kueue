@@ -638,6 +638,22 @@ func ExpectWorkloadToFinish(ctx context.Context, k8sClient client.Client, wlKey 
 	ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlKey, MediumTimeout)
 }
 
+func ExpectWorkloadResourceUsage(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, resourceName corev1.ResourceName, expected string) {
+	ginkgo.GinkgoHelper()
+	var wl kueue.Workload
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, wlKey, &wl)).To(gomega.Succeed())
+		g.Expect(workload.HasQuotaReservation(&wl)).To(gomega.BeTrue())
+		g.Expect(wl.Status.Admission).NotTo(gomega.BeNil())
+		g.Expect(wl.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
+
+		assignment := wl.Status.Admission.PodSetAssignments[0]
+		g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(resourceName))
+		usage := assignment.ResourceUsage[resourceName]
+		g.Expect(usage.Cmp(resource.MustParse(expected))).To(gomega.Equal(0))
+	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("workload should have resource usage of "+expected+" for "+string(resourceName), &wl))
+}
+
 func ExpectPodsReadyCondition(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey) {
 	var wl kueue.Workload
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {

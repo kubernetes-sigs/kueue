@@ -133,6 +133,53 @@ func prepareCounterCharge(
 	return classSelectors, requestSelectors, nil
 }
 
+// matchDevicesForSource compiles a source config's deviceSelector, lists
+// ResourceSlices for its driver, and returns matching devices.
+func matchDevicesForSource(
+	ctx context.Context,
+	sliceCache *ResourceSliceCache,
+	driver string,
+	deviceSelector resourcev1.DeviceSelector,
+	classSelectors []dracel.CompilationResult,
+	requestSelectors []dracel.CompilationResult,
+	reqPath *field.Path,
+) ([]resourcev1.Device, field.ErrorList) {
+	log := ctrl.LoggerFrom(ctx)
+
+	selectorSelectors, compErrs := compileCELSelectors(
+		[]resourcev1.DeviceSelector{deviceSelector},
+		reqPath, "deviceSelector CEL compilation failed",
+	)
+	if len(compErrs) > 0 {
+		return nil, compErrs
+	}
+
+	sliceList, err := sliceCache.ListByDriver(ctx, driver)
+	if err != nil {
+		return nil, field.ErrorList{field.InternalError(reqPath, fmt.Errorf("failed to list ResourceSlices: %w", err))}
+	}
+	pools := groupSlicesByPool(sliceList, driver)
+	log.V(4).Info("Listed ResourceSlices for device matching", "driver", driver, "pools", len(pools), "slices", len(sliceList))
+
+	return matchDevicesWithSelectors(ctx, pools, driver, selectorSelectors, classSelectors, requestSelectors, reqPath)
+}
+
+// safeChargeValue converts a driver-published resource.Quantity to a safe int64
+// charge value. Negative values are clamped to 0 with a log message. If count > 1
+// the value is multiplied using saturating arithmetic.
+func safeChargeValue(log logr.Logger, value resource.Quantity, driver, dimension string, count int64) int64 {
+	intVal := utilmath.SafeValue(value)
+	if value.Sign() < 0 {
+		log.V(0).Info("Unexpected negative device value from driver, clamping to 0",
+			"driver", driver, "dimension", dimension, "value", value.String())
+		intVal = 0
+	}
+	if count > 1 {
+		intVal = utilmath.SaturatingMul(intVal, count)
+	}
+	return intVal
+}
+
 func processCounterCharge(
 	ctx context.Context,
 	sliceCache *ResourceSliceCache,
@@ -145,22 +192,7 @@ func processCounterCharge(
 ) (corev1.ResourceList, field.ErrorList) {
 	log := ctrl.LoggerFrom(ctx)
 
-	selectorSelectors, compErrs := compileCELSelectors(
-		[]resourcev1.DeviceSelector{counterConfig.deviceSelector},
-		reqPath, "deviceSelector CEL compilation failed",
-	)
-	if len(compErrs) > 0 {
-		return nil, compErrs
-	}
-
-	sliceList, err := sliceCache.ListByDriver(ctx, counterConfig.driver)
-	if err != nil {
-		return nil, field.ErrorList{field.InternalError(reqPath, fmt.Errorf("failed to list ResourceSlices: %w", err))}
-	}
-	pools := groupSlicesByPool(sliceList, counterConfig.driver)
-	log.V(4).Info("Listed ResourceSlices for counter processing", "driver", counterConfig.driver, "pools", len(pools), "slices", len(sliceList))
-
-	matched, errs := matchDevicesWithSelectors(ctx, pools, counterConfig.driver, selectorSelectors, classSelectors, requestSelectors, reqPath)
+	matched, errs := matchDevicesForSource(ctx, sliceCache, counterConfig.driver, counterConfig.deviceSelector, classSelectors, requestSelectors, reqPath)
 	if len(errs) > 0 {
 		return nil, errs
 	}
@@ -319,29 +351,6 @@ func computeCounterCharges(
 		return nil
 	}
 
-	// A driver-published counter value is an unvalidated resource.Quantity: the
-	// apiserver accepts any parseable value, including negatives and magnitudes
-	// beyond int64 (maxValue.Value() would then truncate or wrap before the
-	// saturating multiply could clamp it). SafeValue keeps the magnitude within
-	// [MinInt64, MaxInt64], and a negative value is then forced to 0 so the
-	// charge stays in [0, MaxInt64] for every count, including count == 1. The
-	// negative check uses maxValue.Sign() so it reflects the driver's value
-	// directly, independent of how Value() maps out-of-range magnitudes (Value()
-	// can even return 0 for MinInt64). A driver publishing a negative counter is
-	// misbehaving and should never happen, so log it at V(0), visible even at the
-	// most restrictive log level, matching how kueue surfaces other "unexpected
-	// negative" values (see the negative pod-count log in the scheduler cache).
-	intVal := utilmath.SafeValue(maxValue)
-	if maxValue.Sign() < 0 {
-		log.V(0).Info("Unexpected negative device counter value from driver, clamping to 0",
-			"driver", counterConfig.driver, "counter", counterConfig.counterName, "value", maxValue.String())
-		intVal = 0
-	}
-	if count > 1 {
-		// Saturate rather than let intVal*count wrap to a negative quantity,
-		// consistent with countDevicesPerClass after #12897.
-		intVal = utilmath.SaturatingMul(intVal, count)
-	}
-	maxValue = *resource.NewQuantity(intVal, maxValue.Format)
-	return corev1.ResourceList{quotaResource: maxValue}
+	intVal := safeChargeValue(log, maxValue, counterConfig.driver, counterConfig.counterName, count)
+	return corev1.ResourceList{quotaResource: *resource.NewQuantity(intVal, maxValue.Format)}
 }

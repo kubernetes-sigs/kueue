@@ -639,6 +639,55 @@ must be named tls.key and tls.crt, respectively.</p>
 </tbody>
 </table>
 
+## `DeviceClassCapacitySource`     {#config-kueue-x-k8s-io-v1beta2-DeviceClassCapacitySource}
+    
+
+**Appears in:**
+
+- [DeviceClassSourceConfig](#config-kueue-x-k8s-io-v1beta2-DeviceClassSourceConfig)
+
+
+<p>DeviceClassCapacitySource configures capacity-based quota tracking
+for devices that allow multiple allocations (KEP-5075).</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>name</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>Name identifies the capacity dimension to track for quota
+(e.g., &quot;gpu.memory&quot;).
+Must not exceed 63 characters.</p>
+</td>
+</tr>
+<tr><td><code>driver</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>Driver is the DRA driver name used to filter relevant ResourceSlices.
+Must match the spec.driver field on ResourceSlice objects.
+Must not exceed 63 characters.</p>
+</td>
+</tr>
+<tr><td><code>deviceSelector</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#deviceselector-v1-resource"><code>k8s.io/api/resource/v1.DeviceSelector</code></a>
+</td>
+<td>
+   <p>DeviceSelector scopes which devices are eligible for quota accounting.
+Matches devices whose capacity dimensions should be tracked against
+the quota pool.
+The selector is compiled at config load time using the upstream dracel
+compiler.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `DeviceClassCounterSource`     {#config-kueue-x-k8s-io-v1beta2-DeviceClassCounterSource}
     
 
@@ -674,7 +723,7 @@ The total length must not exceed 63 characters.</p>
 <td>
    <p>Driver is the DRA driver name used to filter relevant ResourceSlices.
 Must match the spec.driver field on ResourceSlice objects.
-The total length must not exceed 253 characters.</p>
+The total length must not exceed 63 characters.</p>
 </td>
 </tr>
 <tr><td><code>deviceSelector</code> <B>[Required]</B><br/>
@@ -742,10 +791,10 @@ The total length of each name must not exceed 253 characters.</p>
 <td>
    <p>Sources configures resource accounting sources for this mapping.
 Each source defines how quota is tracked for this DeviceClass.
-Currently only counter sources are supported (for partitionable devices).
 Extended resource requests that resolve to a DeviceClass with sources
 configured are marked inadmissible.
-Requires the KueueDRAIntegrationPartitionableDevices feature gate.</p>
+Counter sources require KueueDRAIntegrationPartitionableDevices.
+Capacity sources require KueueDRAIntegrationConsumableCapacity.</p>
 </td>
 </tr>
 </tbody>
@@ -760,7 +809,7 @@ Requires the KueueDRAIntegrationPartitionableDevices feature gate.</p>
 
 
 <p>DeviceClassSourceConfig defines a resource accounting source for a DeviceClassMapping.
-Exactly one of the source types must be set.</p>
+Exactly one of the source types must be set per entry.</p>
 
 
 <table class="table">
@@ -774,6 +823,16 @@ Exactly one of the source types must be set.</p>
 <td>
    <p>Counter configures counter-based quota for partitionable devices.
 Maps a DRA driver counter to the parent DeviceClassMapping's Kueue quota resource.</p>
+</td>
+</tr>
+<tr><td><code>capacity</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-DeviceClassCapacitySource"><code>DeviceClassCapacitySource</code></a>
+</td>
+<td>
+   <p>Capacity configures capacity-based quota for devices that allow
+multiple allocations (consumable capacity, KEP-5075).
+Maps a device capacity dimension to the parent DeviceClassMapping's Kueue quota resource.
+Requires the KueueDRAIntegrationConsumableCapacity feature gate.</p>
 </td>
 </tr>
 </tbody>
