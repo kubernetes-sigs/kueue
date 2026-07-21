@@ -144,7 +144,7 @@ func (a adapter[PtrT, T]) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedN
 
 	prebuiltWorkload := jobframework.PrebuiltWorkloadNameFor(job)
 	if prebuiltWorkload == "" {
-		prebuiltWorkload = jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration(job.GetName(), job.GetUID(), a.gvk, job.GetGeneration())
+		prebuiltWorkload = jobframework.GetWorkloadNameForOwnerWithGVK(job.GetName(), job.GetUID(), a.gvk)
 	}
 
 	return []types.NamespacedName{{Name: prebuiltWorkload, Namespace: job.GetNamespace()}}, nil

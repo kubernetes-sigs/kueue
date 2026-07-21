@@ -111,7 +111,7 @@ func (*multiKueueAdapter) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedN
 
 	prebuiltWorkload := jobframework.PrebuiltWorkloadNameFor(jobSet)
 	if prebuiltWorkload == "" {
-		prebuiltWorkload = jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration(jobSet.GetName(), jobSet.GetUID(), gvk, jobSet.GetGeneration())
+		prebuiltWorkload = jobframework.GetWorkloadNameForOwnerWithGVK(jobSet.GetName(), jobSet.GetUID(), gvk)
 	}
 
 	return []types.NamespacedName{{Name: prebuiltWorkload, Namespace: jobSet.Namespace}}, nil

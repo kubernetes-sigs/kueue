@@ -224,7 +224,11 @@ func (*multiKueueAdapter) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedN
 
 	prebuiltWorkload := jobframework.PrebuiltWorkloadNameFor(job)
 	if prebuiltWorkload == "" {
-		prebuiltWorkload = jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration(job.GetName(), job.GetUID(), gvk, job.GetGeneration())
+		if workloadslicing.Enabled(job) {
+			prebuiltWorkload = jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration(job.GetName(), job.GetUID(), gvk, job.GetGeneration())
+		} else {
+			prebuiltWorkload = jobframework.GetWorkloadNameForOwnerWithGVK(job.GetName(), job.GetUID(), gvk)
+		}
 	}
 
 	return []types.NamespacedName{{Name: prebuiltWorkload, Namespace: job.Namespace}}, nil
