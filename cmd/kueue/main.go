@@ -73,6 +73,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
@@ -293,12 +294,14 @@ func main() {
 	} else {
 		close(certsReady)
 	}
+	resourceFormatter := resources.NewResourceFormatter()
 	cacheOptions := []schdcache.Option{
 		schdcache.WithPodsReadyTracking(blockForPodsReady(&cfg)),
 		schdcache.WithRoleTracker(roleTracker),
 		schdcache.WithResourceMetrics(cfg.Metrics.EnableClusterQueueResources),
 		schdcache.WithCustomLabels(customLabels),
 		schdcache.WithLocalQueueMetrics(lqMetrics),
+		schdcache.WithResourceFormatter(resourceFormatter),
 	}
 	queueOptions := []qcache.Option{
 		qcache.WithPodsReadyRequeuingTimestamp(podsReadyRequeuingTimestamp(&cfg)),
@@ -306,6 +309,7 @@ func main() {
 		qcache.WithCustomLabels(customLabels),
 		qcache.WithLocalQueueMetrics(lqMetrics),
 		qcache.WithResourceMetrics(cfg.Metrics.EnableClusterQueueResources),
+		qcache.WithResourceFormatter(resourceFormatter),
 	}
 	if cfg.Resources != nil && len(cfg.Resources.ExcludeResourcePrefixes) > 0 {
 		cacheOptions = append(
@@ -329,6 +333,9 @@ func main() {
 				os.Exit(1)
 			}
 			setupLog.Info("DRA mapper initialized from configuration")
+			for _, resourceName := range draMapper.CounterBasedResourceNames() {
+				resourceFormatter.RegisterBinaryFormattedResource(resourceName)
+			}
 		}
 	}
 	if cfg.FairSharing != nil {
@@ -392,6 +399,7 @@ func main() {
 		CustomLabels:           customLabels,
 		DRAMapper:              draMapper,
 		DRABackedResources:     draBackedResources,
+		ResourceFormatter:      resourceFormatter,
 	}
 	if err := setupControllers(ctx, mgr, cCache, queues, &cfg, serverVersionFetcher, controllerOpts); err != nil {
 		setupLog.Error(err, "Unable to setup controllers")
@@ -415,7 +423,7 @@ func main() {
 		}()
 	}
 
-	if err := setupScheduler(mgr, cCache, queues, &cfg, roleTracker, preemptionExpectations, customLabels); err != nil {
+	if err := setupScheduler(mgr, cCache, queues, &cfg, roleTracker, preemptionExpectations, customLabels, resourceFormatter); err != nil {
 		setupLog.Error(err, "Could not setup scheduler")
 		os.Exit(1)
 	}
@@ -625,6 +633,7 @@ func setupScheduler(
 	roleTracker *roletracker.RoleTracker,
 	preemptionExpectations *expectations.Store,
 	customLabels *metrics.CustomLabels,
+	resourceFormatter *resources.ResourceFormatter,
 ) error {
 	sched := scheduler.New(
 		queues,
@@ -638,6 +647,7 @@ func setupScheduler(
 		scheduler.WithRoleTracker(roleTracker),
 		scheduler.WithPreemptionExpectations(preemptionExpectations),
 		scheduler.WithCustomLabels(customLabels),
+		scheduler.WithResourceFormatter(resourceFormatter),
 	)
 	if err := mgr.Add(sched); err != nil {
 		return fmt.Errorf("unable to add scheduler to manager: %w", err)

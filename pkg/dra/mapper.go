@@ -17,11 +17,13 @@ limitations under the License.
 package dra
 
 import (
+	"slices"
+
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
-	"sigs.k8s.io/kueue/pkg/resources"
 )
 
 // deviceClassCounterConfig holds counter configuration for a specific DeviceClass.
@@ -64,6 +66,23 @@ func (m *ResourceMapper) getCounterConfigs(deviceClass corev1.ResourceName) []de
 	return m.deviceClassCounters[deviceClass]
 }
 
+// CounterBasedResourceNames returns the quota resources configured with a
+// counter source.
+func (m *ResourceMapper) CounterBasedResourceNames() []corev1.ResourceName {
+	if m == nil {
+		return nil
+	}
+	resourceNames := sets.New[corev1.ResourceName]()
+	for _, configs := range m.deviceClassCounters {
+		for _, config := range configs {
+			resourceNames.Insert(config.quotaResource)
+		}
+	}
+	result := resourceNames.UnsortedList()
+	slices.Sort(result)
+	return result
+}
+
 // PopulateFromConfiguration populates the mapper from Configuration API device class mappings.
 func (m *ResourceMapper) PopulateFromConfiguration(mappings []configapi.DeviceClassMapping) error {
 	if mappings == nil {
@@ -73,9 +92,6 @@ func (m *ResourceMapper) PopulateFromConfiguration(mappings []configapi.DeviceCl
 	dcCounters := make(map[corev1.ResourceName][]deviceClassCounterConfig)
 	for _, mapping := range mappings {
 		isCounter := len(mapping.Sources) > 0 && mapping.Sources[0].Counter != nil
-		if isCounter {
-			resources.RegisterBinaryFormattedResource(mapping.Name)
-		}
 		for _, deviceClassName := range mapping.DeviceClassNames {
 			if _, exists := dcToResource[deviceClassName]; !exists {
 				dcToResource[deviceClassName] = mapping.Name

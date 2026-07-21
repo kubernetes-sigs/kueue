@@ -80,6 +80,10 @@ var (
 	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",cluster="the name of the worker cluster",replica_role="one of `leader`, `follower`, or `standalone`"
 	MultiKueueWorkloadsDispatchedTotal *prometheus.CounterVec
 
+	// +metricsdoc:group=health
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",cluster="the name of the worker cluster",replica_role="one of `leader`, `follower`, or `standalone`"
+	MultiKueueWorkloadsAdmittedTotal *prometheus.CounterVec
+
 	// +metricsdoc:group=clusterqueue
 	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",replica_role="one of `leader`, `follower`, or `standalone`"
 	AdmissionCyclePreemptionSkips *prometheus.GaugeVec
@@ -372,6 +376,14 @@ The label 'result' can have the following values:
 			Subsystem: constants.MultiKueueName,
 			Name:      "workloads_dispatched_total",
 			Help:      `The total number of remote workloads created by the MultiKueue manager on a worker cluster, per 'cluster_queue' and 'cluster'.`,
+		}, []string{"cluster_queue", "cluster", "replica_role"},
+	)
+
+	MultiKueueWorkloadsAdmittedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Subsystem: constants.MultiKueueName,
+			Name:      "workloads_admitted_total",
+			Help:      `The total number of remote workload admissions on a worker cluster, per 'cluster_queue' and 'cluster'. A workload may be counted more than once if it is evicted and re-admitted.`,
 		}, []string{"cluster_queue", "cluster", "replica_role"},
 	)
 
@@ -744,7 +756,7 @@ The label 'reason' can have the following values:
 			Subsystem: constants.KueueName,
 			Name:      "admitted_active_workloads",
 			Help:      "The number of admitted Workloads that are active, per 'cluster_queue'",
-		}, append([]string{"cluster_queue", "replica_role"}, clusterQueueMetricsLabels...),
+		}, append([]string{"cluster_queue", "replica_role"}, cl.LabelNames(configapi.SourceKindClusterQueue, configapi.SourceKindWorkload)...),
 	)
 	trackGaugeVec(AdmittedActiveWorkloads, gaugeCleanupScopeClusterQueueCache)
 
@@ -973,6 +985,10 @@ func AdmissionAttempt(result AdmissionResult, duration time.Duration, tracker *r
 
 func ReportMultiKueueWorkloadDispatched(cqName kueue.ClusterQueueReference, cluster string, tracker *roletracker.RoleTracker) {
 	MultiKueueWorkloadsDispatchedTotal.WithLabelValues(string(cqName), cluster, roletracker.GetRole(tracker)).Inc()
+}
+
+func ReportMultiKueueWorkloadAdmitted(cqName kueue.ClusterQueueReference, cluster string, tracker *roletracker.RoleTracker) {
+	MultiKueueWorkloadsAdmittedTotal.WithLabelValues(string(cqName), cluster, roletracker.GetRole(tracker)).Inc()
 }
 
 func RecordWorkloadCreationLatency(jobKind string, latency time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
@@ -1338,9 +1354,9 @@ func ReportCohortSubtreeAdmittedActiveWorkloads(cohort kueue.CohortReference, co
 	CohortSubtreeAdmittedActiveWorkloads.WithLabelValues(labels...).Set(float64(count))
 }
 
-func ReportAdmittedActiveWorkloads(cqName kueue.ClusterQueueReference, count int, customLabelValues []string, tracker *roletracker.RoleTracker) {
+func ReportAdmittedActiveWorkloads(cqName kueue.ClusterQueueReference, incr int, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	labels := append([]string{string(cqName), roletracker.GetRole(tracker)}, customLabelValues...)
-	AdmittedActiveWorkloads.WithLabelValues(labels...).Set(float64(count))
+	AdmittedActiveWorkloads.WithLabelValues(labels...).Add(float64(incr))
 }
 
 func ReportReservingActiveWorkloads(cqName kueue.ClusterQueueReference, count int, customLabelValues []string, tracker *roletracker.RoleTracker) {
@@ -1439,6 +1455,7 @@ func Register() {
 		AdmissionAttemptsTotal,
 		admissionAttemptDuration,
 		MultiKueueWorkloadsDispatchedTotal,
+		MultiKueueWorkloadsAdmittedTotal,
 		AdmissionCyclePreemptionSkips,
 		PendingWorkloads,
 		FinishedWorkloads,

@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -45,6 +46,7 @@ type SetupControllersOpts struct {
 	CustomLabels           *metrics.CustomLabels
 	DRAMapper              *dra.ResourceMapper
 	DRABackedResources     *dra.ExtendedResourceCache
+	ResourceFormatter      *resources.ResourceFormatter
 }
 
 // SetupControllers sets up the core controllers. It returns the name of the
@@ -110,6 +112,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		WithAdmissionFairSharing(cfg.AdmissionFairSharing),
 		WithDRAMapper(opts.DRAMapper),
 		WithDRABackedResources(opts.DRABackedResources),
+		WithResourceFormatter(opts.ResourceFormatter),
 	)
 	if features.Enabled(features.KueueDRAIntegration) {
 		qManager.SetDRAReconcileChannel(workloadRec.GetDRAReconcileChannel())

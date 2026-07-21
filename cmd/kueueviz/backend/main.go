@@ -85,6 +85,11 @@ func main() {
 
 	protectedRoutes := r.Group("/")
 	if serverConfig.AuthMode == "TokenReview" {
+		// Apply a two-level rate limiter to all protected routes to prevent
+		// TokenReview amplification:
+		// 1. Per-IP: 100 rps sustained, burst of 100
+		// 2. Global: 500 rps sustained, burst of 500
+		protectedRoutes.Use(middleware.RateLimiter(100, 100, 500, 500))
 		slog.Info("Authentication enabled", "mode", serverConfig.AuthMode)
 		auth := middleware.NewAuthenticator(clientset, serverConfig.AuthConfig)
 		protectedRoutes.Use(auth.Middleware())

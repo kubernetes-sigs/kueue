@@ -811,7 +811,7 @@ func TestDominantResourceShare(t *testing.T) {
 			i := 0
 			for fr, v := range tc.usage {
 				admission := utiltestingapi.MakeAdmission("cq")
-				quantity := resources.ResourceQuantity(fr.Resource, v.Int64())
+				quantity := resources.NewResourceFormatter().ResourceQuantity(fr.Resource, v.Int64())
 				admission.PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(fr.Resource, fr.Flavor, quantity.String()).
 					Obj())
@@ -960,7 +960,7 @@ func TestIsBorrowingOn(t *testing.T) {
 			i := 0
 			for fr, v := range tc.usage {
 				admission := utiltestingapi.MakeAdmission("cq")
-				quantity := resources.ResourceQuantity(fr.Resource, v.Int64())
+				quantity := resources.NewResourceFormatter().ResourceQuantity(fr.Resource, v.Int64())
 				admission.PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(fr.Resource, fr.Flavor, quantity.String()).
 					Obj())
