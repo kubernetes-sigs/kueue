@@ -184,6 +184,69 @@ func (g *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error
 	return nil
 }
 
+func (g *wlGroup) hasJobNameConflict(ctx context.Context, cluster string) (bool, error) {
+	remote := g.remoteClients[cluster]
+	_, err := jobframework.ValidateRemoteObjectOwnership(ctx, remote.getClient(), g.controllerKey, g.jobAdapter.GVK(), remote.origin)
+	if errors.Is(err, jobframework.ErrRemoteObjectNotOwnedByMultiKueue) {
+		return true, nil
+	}
+	return false, err
+}
+
+func (w *wlReconciler) reportJobNameConflict(ctx context.Context, group *wlGroup, cluster string) {
+	message := fmt.Sprintf(
+		"Worker cluster %q contains a conflicting %s %q not owned by this MultiKueue manager; skipping the cluster",
+		cluster, group.jobAdapter.GVK().Kind, group.controllerKey.String(),
+	)
+	ctrl.LoggerFrom(ctx).V(2).Info(message)
+	w.recorder.Eventf(group.local, nil, corev1.EventTypeWarning, "MultiKueueJobNameConflict", "SkipWorkerCluster", api.TruncateEventMessage(message))
+}
+
+func jobNameConflictError(clusters []string) error {
+	return fmt.Errorf("job name conflict on worker clusters %q: %w", clusters, jobframework.ErrRemoteObjectNotOwnedByMultiKueue)
+}
+
+func (w *wlReconciler) removeConflictingRemote(ctx context.Context, group *wlGroup, cluster string) (reconcile.Result, error) {
+	w.reportJobNameConflict(ctx, group, cluster)
+	if err := client.IgnoreNotFound(group.RemoveRemoteObjects(ctx, cluster)); err != nil {
+		return reconcile.Result{}, fmt.Errorf("removing remote workload from worker cluster %q after a job name conflict: %w", cluster, err)
+	}
+	return reconcile.Result{}, jobNameConflictError([]string{cluster})
+}
+
+func (w *wlReconciler) syncJob(ctx context.Context, remoteClient client.Client, group *wlGroup) (bool, error) {
+	if features.Enabled(features.MultiKueueJobNameConflictCheck) {
+		return jobframework.SyncJobWithRemoteObjectOwnership(ctx, w.client, remoteClient, group.jobAdapter, group.controllerKey, group.local.Name, w.origin)
+	}
+	return group.jobAdapter.SyncJob(ctx, w.client, remoteClient, group.controllerKey, group.local.Name, w.origin)
+}
+
+func (w *wlReconciler) filterWorkersWithJobNameConflicts(ctx context.Context, group *wlGroup, workers []string) ([]string, []string, error) {
+	if !features.Enabled(features.MultiKueueJobNameConflictCheck) {
+		return workers, nil, nil
+	}
+
+	eligible := make([]string, 0, len(workers))
+	var conflicts []string
+	for _, cluster := range workers {
+		if group.remotes[cluster] != nil || group.remoteClients[cluster] == nil {
+			eligible = append(eligible, cluster)
+			continue
+		}
+		conflict, err := group.hasJobNameConflict(ctx, cluster)
+		if err != nil {
+			return nil, nil, fmt.Errorf("checking worker cluster %q for a job name conflict: %w", cluster, err)
+		}
+		if conflict {
+			conflicts = append(conflicts, cluster)
+			w.reportJobNameConflict(ctx, group, cluster)
+			continue
+		}
+		eligible = append(eligible, cluster)
+	}
+	return eligible, conflicts, nil
+}
+
 func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile Workload")
@@ -429,7 +492,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 			// The deferred flag is irrelevant here: the remote workload is
 			// Finished, so determineStatusUpdate always syncs (never defers).
-			if _, err := group.jobAdapter.SyncJob(ctx, w.client, remoteCl, group.controllerKey, group.local.Name, w.origin); err != nil {
+			if _, err := w.syncJob(ctx, remoteCl, group); err != nil {
 				log.V(2).Error(err, "copying remote controller status", "workerCluster", remote)
 				// we should retry this
 				return reconcile.Result{}, err
@@ -458,7 +521,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 				return reconcile.Result{}, err
 			}
 
-			deferred, err := group.jobAdapter.SyncJob(ctx, w.client, remoteCl, group.controllerKey, group.local.Name, w.origin)
+			deferred, err := w.syncJob(ctx, remoteCl, group)
 			if err != nil {
 				log.Error(err, "Syncing remote controller object")
 				// We'll retry this in the next reconciling.
@@ -574,6 +637,16 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 	// 6b. An admitting remote is visible: converge onto it.
 	if remoteCond != nil {
+		if features.Enabled(features.MultiKueueJobNameConflictCheck) {
+			conflict, err := group.hasJobNameConflict(ctx, admittingRemote)
+			if err != nil {
+				return reconcile.Result{}, fmt.Errorf("checking admitting worker cluster %q for a job name conflict: %w", admittingRemote, err)
+			}
+			if conflict {
+				return w.removeConflictingRemote(ctx, group, admittingRemote)
+			}
+		}
+
 		// remove the non-selected worker workloads
 		for rem, remWl := range group.remotes {
 			if remWl != nil && rem != admittingRemote {
@@ -607,12 +680,18 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		}
 
 		if _, err := jobframework.ValidateRemoteObjectOwnership(ctx, remoteCl, group.controllerKey, group.jobAdapter.GVK(), w.origin); err != nil {
+			if features.Enabled(features.MultiKueueJobNameConflictCheck) && errors.Is(err, jobframework.ErrRemoteObjectNotOwnedByMultiKueue) {
+				return w.removeConflictingRemote(ctx, group, admittingRemote)
+			}
 			log.Error(err, "validating remote controller object", "cluster", admittingRemote)
 			return reconcile.Result{}, err
 		}
 
-		syncDeferred, err := group.jobAdapter.SyncJob(ctx, w.client, remoteCl, group.controllerKey, group.local.Name, w.origin)
+		syncDeferred, err := w.syncJob(ctx, remoteCl, group)
 		if err != nil {
+			if features.Enabled(features.MultiKueueJobNameConflictCheck) && errors.Is(err, jobframework.ErrRemoteObjectNotOwnedByMultiKueue) {
+				return w.removeConflictingRemote(ctx, group, admittingRemote)
+			}
 			log.Error(err, "Syncing remote controller object")
 			// We'll retry this in the next reconciling.
 			return reconcile.Result{}, err
@@ -662,7 +741,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	}
 
 	res, err := w.nominateAndSynchronizeWorkers(ctx, group)
-	if err == nil && (res.RequeueAfter == 0 || requeueAfterSynchronize < res.RequeueAfter) {
+	if err == nil && requeueAfterSynchronize > 0 && (res.RequeueAfter == 0 || requeueAfterSynchronize < res.RequeueAfter) {
 		res.RequeueAfter = requeueAfterSynchronize
 	}
 	return res, err
@@ -814,6 +893,14 @@ func admittedClusterQueue(wl *kueue.Workload) kueue.ClusterQueueReference {
 }
 
 func (w *wlReconciler) syncToSingleCluster(ctx context.Context, log klog.Logger, group *wlGroup, targetCluster string) (reconcile.Result, error) {
+	eligible, conflicts, err := w.filterWorkersWithJobNameConflicts(ctx, group, []string{targetCluster})
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+	if len(conflicts) > 0 && len(eligible) == 0 {
+		return reconcile.Result{}, jobNameConflictError(conflicts)
+	}
+
 	var errs []error
 
 	for clusterName, remoteWl := range group.remotes {
@@ -898,6 +985,7 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 	}
 
 	var nominatedWorkers []string
+	patchNominatedWorkers := false
 
 	// For elastic workloads, retrieve the remote cluster where the original workload was scheduled.
 	// For now, new workload slices will continue to be assigned to the same cluster.
@@ -909,23 +997,31 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 		for workerName := range group.remotes {
 			nominatedWorkers = append(nominatedWorkers, workerName)
 		}
+		patchNominatedWorkers = true
+	} else {
+		// Incremental dispatcher and External dispatcher path
+		nominatedWorkers = group.local.Status.NominatedClusterNames
+	}
 
-		// group.remotes is a map, so iteration order is non-deterministic; sort only
-		// when we are about to persist, for a stable stored nomination.
-		slices.Sort(nominatedWorkers)
+	nominatedWorkers, conflicts, err := w.filterWorkersWithJobNameConflicts(ctx, group, nominatedWorkers)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+
+	if patchNominatedWorkers {
 		if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
 			if sets.New(wl.Status.NominatedClusterNames...).Equal(sets.New(nominatedWorkers...)) {
 				return false, nil
 			}
+			// group.remotes is a map, so iteration order is non-deterministic; sort only
+			// when we are about to persist, for a stable stored nomination.
+			slices.Sort(nominatedWorkers)
 			wl.Status.NominatedClusterNames = nominatedWorkers
 			return true, nil
 		}); err != nil {
 			log.V(2).Error(err, "Failed to patch nominated clusters", "workload", klog.KObj(group.local))
 			return reconcile.Result{}, err
 		}
-	} else {
-		// Incremental dispatcher and External dispatcher path
-		nominatedWorkers = group.local.Status.NominatedClusterNames
 	}
 
 	var errs []error
@@ -957,7 +1053,13 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 			group.remotes[rem] = nil
 		}
 	}
-	return reconcile.Result{}, errors.Join(errs...)
+	if err := errors.Join(errs...); err != nil {
+		return reconcile.Result{}, err
+	}
+	if len(conflicts) > 0 {
+		return reconcile.Result{}, jobNameConflictError(conflicts)
+	}
+	return reconcile.Result{}, nil
 }
 
 func (w *wlReconciler) Create(_ event.CreateEvent) bool {
