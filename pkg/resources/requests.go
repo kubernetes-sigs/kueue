@@ -96,6 +96,10 @@ func (r MapRequests) Len() int {
 	return len(r)
 }
 
+func (r MapRequests) IsEmpty() bool {
+	return len(r) == 0
+}
+
 func (r MapRequests) Add(other Requests) {
 	other.ForEach(func(k corev1.ResourceName, v int64) {
 		r[k] += v

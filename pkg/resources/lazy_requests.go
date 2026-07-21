@@ -24,7 +24,7 @@ type LazyRequests struct {
 }
 
 func isEmpty(requests Requests) bool {
-	return requests == nil || requests.Len() == 0
+	return requests == nil || requests.IsEmpty()
 }
 
 func CreateEmpty() Requests {
