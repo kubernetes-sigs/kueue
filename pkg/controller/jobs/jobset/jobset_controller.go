@@ -91,7 +91,7 @@ func (j *JobSet) IsSuspended() bool {
 	return ptr.Deref(j.Spec.Suspend, false)
 }
 
-func (j *JobSet) IsActive() bool {
+func (j *JobSet) IsActive(_ context.Context) bool {
 	for i := range j.Status.ReplicatedJobsStatus {
 		if j.Status.ReplicatedJobsStatus[i].Active > 0 {
 			return true

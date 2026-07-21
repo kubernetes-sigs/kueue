@@ -17,6 +17,7 @@ limitations under the License.
 package job
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -39,6 +40,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	configapiv1beta1 "sigs.k8s.io/kueue/apis/config/v1beta1"
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
@@ -4568,75 +4570,76 @@ func TestCleanLabels(t *testing.T) {
 		})
 	}
 }
+>>>>>>> 83fa0807d (feat: implement configurable QuotaReleaseStrategy (KEP-6143))
 
-func TestCompletedIndexesCount(t *testing.T) {
-	cases := map[string]struct {
-		completedIndexes string
-		completions      int32
-		want             int32
+func TestJob_IsActive(t *testing.T) {
+	tests := map[string]struct {
+		active      int32
+		terminating *int32
+		strategy    configapiv1beta1.QuotaReleaseStrategy
+		want        bool
 	}{
-		"empty":                         {completedIndexes: "", completions: 10, want: 0},
-		"zero completions":              {completedIndexes: "0-9", completions: 0, want: 0},
-		"single index":                  {completedIndexes: "0", completions: 10, want: 1},
-		"single range":                  {completedIndexes: "0-4", completions: 10, want: 5},
-		"mixed intervals":               {completedIndexes: "0-4,7,9-11", completions: 10, want: 7},
-		"surviving low indexes":         {completedIndexes: "0-8", completions: 10, want: 9},
-		"all completed within range":    {completedIndexes: "0-14", completions: 10, want: 10},
-		"range straddling the cap":      {completedIndexes: "5-19", completions: 10, want: 5},
-		"all removed (above the cap)":   {completedIndexes: "10-19", completions: 10, want: 0},
-		"range capped tighter":          {completedIndexes: "0-4", completions: 3, want: 3},
-		"discrete indexes":              {completedIndexes: "3,5,7", completions: 10, want: 3},
-		"discrete indexes partly above": {completedIndexes: "3,5,12", completions: 10, want: 2},
-		"malformed interval skipped":    {completedIndexes: "abc,0-2", completions: 10, want: 3},
-		"malformed range end skipped":   {completedIndexes: "0-x,4", completions: 10, want: 1},
+		"Active == 0": {
+			active:      0,
+			terminating: nil,
+			strategy:    configapiv1beta1.QuotaReleaseOnTermination,
+			want:        false,
+		},
+		"Active > 0, OnTermination": {
+			active:      2,
+			terminating: ptr.To[int32](1),
+			strategy:    configapiv1beta1.QuotaReleaseOnTermination,
+			want:        true,
+		},
+		"Active > 0, Terminating=nil, OnTerminalBestEffort": {
+			active:      1,
+			terminating: nil,
+			strategy:    configapiv1beta1.QuotaReleaseOnTerminalBestEffort,
+			want:        true,
+		},
+		"Active == Terminating, OnTermination": {
+			active:      2,
+			terminating: ptr.To[int32](2),
+			strategy:    configapiv1beta1.QuotaReleaseOnTermination,
+			want:        false,
+		},
+		"Active == Terminating, OnTerminalBestEffort": {
+			active:      2,
+			terminating: ptr.To[int32](2),
+			strategy:    configapiv1beta1.QuotaReleaseOnTerminalBestEffort,
+			want:        true,
+		},
+		"Active > Terminating, OnTerminalBestEffort": {
+			active:      3,
+			terminating: ptr.To[int32](1),
+			strategy:    configapiv1beta1.QuotaReleaseOnTerminalBestEffort,
+			want:        true,
+		},
 	}
-	for name, tc := range cases {
+
+	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			if got := completedIndexesCount(logr.Discard(), tc.completedIndexes, tc.completions); got != tc.want {
-				t.Errorf("completedIndexesCount(%q, %d) = %d, want %d", tc.completedIndexes, tc.completions, got, tc.want)
+			// 1. Build the raw Kubernetes Job
+			k8sJob := &batchv1.Job{
+				Status: batchv1.JobStatus{
+					Active:      tt.active,
+					Terminating: tt.terminating,
+				},
+			}
+
+			// 2. Cast to Kueue Job wrapper
+			j := (*Job)(k8sJob)
+
+			// 3. Inject strategy into context
+			// We must use context.Background() in test and explicitly inject it
+			// because the production code pulls it out using jobframework.GetQuotaReleaseStrategy
+			ctx := jobframework.ContextWithQuotaReleaseStrategy(context.Background(), tt.strategy)
+
+			// 4. Assert behavior
+			if got := j.IsActive(ctx); got != tt.want {
+				t.Errorf("IsActive() = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
-
-func TestReclaimablePods(t *testing.T) {
-	indexedJob := func(succeeded int32, completedIndexes string) *Job {
-		j := utiltestingjob.MakeJob("job", "ns").
-			Indexed(true).
-			Parallelism(8).
-			Completions(8).
-			Obj()
-		j.Status.Succeeded = succeeded
-		j.Status.CompletedIndexes = completedIndexes
-		return (*Job)(j)
-	}
-	cases := map[string]struct {
-		job  *Job
-		want []kueue.ReclaimablePod
-	}{
-		// An ordinary (non-elastic) Indexed Job must reclaim its completed indexes
-		// exactly as before, now that the count is derived from completedIndexes.
-		"indexed Job reclaims its completed indexes": {
-			job:  indexedJob(4, "0-3"),
-			want: []kueue.ReclaimablePod{{Name: kueue.DefaultPodSetName, Count: 4}},
-		},
-		// Succeeded set without completedIndexes should not happen with the native
-		// Job controller (both are written in one update), but can with a custom
-		// spec.managedBy controller. We trust completedIndexes and hold the quota.
-		"indexed Job with empty completedIndexes holds quota": {
-			job:  indexedJob(4, ""),
-			want: nil,
-		},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			got, err := tc.job.ReclaimablePods(t.Context(), nil)
-			if err != nil {
-				t.Fatalf("ReclaimablePods() returned error: %v", err)
-			}
-			if diff := cmp.Diff(tc.want, got); diff != "" {
-				t.Errorf("ReclaimablePods() mismatch (-want +got):\n%s", diff)
-			}
-		})
-	}
-}
+>>>>>>> 83fa0807d (feat: implement configurable QuotaReleaseStrategy (KEP-6143))

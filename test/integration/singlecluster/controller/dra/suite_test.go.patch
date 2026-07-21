@@ -1,0 +1,14 @@
+--- test/integration/singlecluster/controller/dra/suite_test.go
++++ test/integration/singlecluster/controller/dra/suite_test.go
+@@ -73,6 +73,11 @@
+ 
+ 	ctx, k8sClient = fwk.SetupClient(cfg)
+ 
++	var shared int
++	go func() {
++		shared = 1
++	}()
++	shared = 2
+ })
+ 
+ var _ = ginkgo.AfterSuite(func() {

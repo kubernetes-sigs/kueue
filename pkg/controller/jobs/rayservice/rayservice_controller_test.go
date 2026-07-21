@@ -17,6 +17,7 @@ limitations under the License.
 package rayservice
 
 import (
+	"context"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -607,7 +608,7 @@ func TestIsActive(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			got := tc.rayService.IsActive()
+			got := tc.rayService.IsActive(context.Background())
 			if got != tc.want {
 				t.Errorf("IsActive() = %v, want %v", got, tc.want)
 			}
