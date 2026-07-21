@@ -569,6 +569,9 @@ func (s *tasExclusionStats) formatReasons() string {
 	if s.TopologyDomain > 0 {
 		reasons = append(reasons, fmt.Sprintf("topologyDomain: %d", s.TopologyDomain))
 	}
+	if s.SchedulerLibraryNoFit > 0 {
+		reasons = append(reasons, fmt.Sprintf("schedulerLibraryNoFit: %d", s.SchedulerLibraryNoFit))
+	}
 	for _, taint := range slices.Sorted(maps.Keys(s.Taints)) {
 		reasons = append(reasons, fmt.Sprintf("taint %q: %d", taint, s.Taints[taint]))
 	}
@@ -591,6 +594,7 @@ func (s *tasExclusionStats) add(other *tasExclusionStats) {
 	s.NodeSelector += other.NodeSelector
 	s.Affinity += other.Affinity
 	s.TopologyDomain += other.TopologyDomain
+	s.SchedulerLibraryNoFit += other.SchedulerLibraryNoFit
 	for k, v := range other.Taints {
 		if s.Taints == nil {
 			s.Taints = make(map[string]int)
