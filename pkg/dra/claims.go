@@ -34,10 +34,10 @@ import (
 
 // countDevicesPerClass returns a resources.Requests representing the
 // total number of devices requested for each DeviceClass inside the provided
-// ResourceClaimSpec. It validates that only supported DRA features are used
-// and returns field errors if unsupported features are detected.
-func countDevicesPerClass(claimSpec *resourcev1.ResourceClaimSpec) (resources.Requests, field.ErrorList) {
-	out := resources.Requests{}
+// ResourceClaimSpec. Returns field errors for unsupported request features
+// (FirstAvailable, AdminAccess, AllocationMode All).
+func countDevicesPerClass(claimSpec *resourcev1.ResourceClaimSpec) (resources.MapRequests, field.ErrorList) {
+	out := resources.MapRequests{}
 	if claimSpec == nil {
 		return out, nil
 	}
