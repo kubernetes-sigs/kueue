@@ -1,0 +1,99 @@
+name: Create Release Tag
+description: Validates the changelog, creates an annotated git tag from the changelog, and pushes it to origin.
+
+inputs:
+  version:
+    description: Release version, formatted as vX.Y.Z (X - major, Y - minor, Z - patch; e.g. v0.10.0)
+    required: true
+  changelog:
+    description: Changelog content used as the tag annotation body
+    required: true
+  issue-number:
+    description: GitHub issue number used for posting status comments
+    required: true
+  repo:
+    description: Target repository in owner/name format
+    required: true
+  github-token:
+    description: GitHub token with contents:write and issues:write permissions
+    required: true
+
+outputs:
+  action:
+    description: What happened to the tag — "created" or "updated"
+    value: ${{ steps.tag.outputs.action }}
+
+runs:
+  using: composite
+  steps:
+    - name: Create and Push Tag
+      id: tag
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+        CHANGELOG: ${{ inputs.changelog }}
+        ISSUE_NUMBER: ${{ inputs.issue-number }}
+        TARGET_REPO: ${{ inputs.repo }}
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        RELEASE_STATE=$(gh release view "$VERSION" --repo "$TARGET_REPO" --json isDraft \
+            --jq 'if .isDraft then "draft" else "published" end' 2>/dev/null || echo "")
+        
+        if [ "$RELEASE_STATE" = "published" ]; then
+          BODY="❌ Release \`$VERSION\` is already published. Skipping tag creation/update to avoid overwriting a live release."
+          echo "$BODY"
+          gh issue comment "$ISSUE_NUMBER" --body "$BODY"
+          exit 1
+        fi
+        
+        if [ -z "$CHANGELOG" ]; then
+          gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to create release tag \`$VERSION\`: No changelog found in the issue description. Make sure the issue has the Markdown block under \`## Changelog\`."
+          exit 1
+        fi
+
+        # Prepare tag message
+        NOTES_FILE=$(mktemp)
+        printf "%s\n\n%s\n" "$VERSION" "$CHANGELOG" > "$NOTES_FILE"
+
+        # Configure git identity
+        git config --global user.name "kueue-release-bot"
+        git config --global user.email "kueue-release-bot@kubernetes.io"
+        gh auth setup-git
+
+        # Clear existing tag
+        TAG_EXISTS=false
+        if git tag -l | grep -q "^${VERSION}$" || git ls-remote --tags origin "$VERSION" | grep -q "refs/tags/${VERSION}$"; then
+          TAG_EXISTS=true
+          git tag -d "$VERSION" 2>/dev/null || true
+          git push origin --delete "$VERSION" 2>/dev/null || true
+        fi
+
+        # Create and push the tag
+        PUSH_EXIT=0
+        set +e
+        git tag -a "$VERSION" -F "$NOTES_FILE" 2> err.log
+        TAG_EXIT=$?
+        if [ $TAG_EXIT -eq 0 ]; then
+          git push origin "$VERSION" 2>> err.log
+          PUSH_EXIT=$?
+        fi
+        set -e
+        rm -f "$NOTES_FILE"
+
+        if [ $TAG_EXIT -ne 0 ] || [ $PUSH_EXIT -ne 0 ]; then
+          ERR_MSG=$(cat err.log)
+          gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to create or push release tag \`$VERSION\`.
+
+          **Error details:**
+          \`\`\`text
+          ${ERR_MSG}
+          \`\`\`"
+          exit 1
+        fi
+
+        ACTION="created"
+        if [ "$TAG_EXISTS" = "true" ]; then
+          ACTION="updated"
+        fi
+
+        echo "action=$ACTION" >> "$GITHUB_OUTPUT"
