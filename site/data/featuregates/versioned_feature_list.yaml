@@ -191,6 +191,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.17"
+- name: LWSImmutableGroupSize
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.18"
 - name: ManagedJobsNamespaceSelectorAlwaysRespected
   versionedSpecs:
   - default: false
