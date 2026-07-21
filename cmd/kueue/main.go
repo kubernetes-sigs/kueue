@@ -568,6 +568,13 @@ func setupControllers(
 		}
 	}
 
+	var labelKeysToCopy, annotationsToCopy sets.Set[string]
+	if features.Enabled(features.CustomMetricLabels) {
+		labelKeysToCopy, annotationsToCopy = metrics.WorkloadCustomLabelSources(cfg.Metrics.CustomLabels)
+	} else {
+		labelKeysToCopy, annotationsToCopy = sets.New[string](), sets.New[string]()
+	}
+	labelKeysToCopy.Insert(cfg.Integrations.LabelKeysToCopy...)
 	jfOpts := []jobframework.Option{
 		jobframework.WithManageJobsWithoutQueueName(cfg.ManageJobsWithoutQueueName),
 		jobframework.WithWaitForPodsReady(cfg.WaitForPodsReady),
@@ -575,13 +582,15 @@ func setupControllers(
 		jobframework.WithEnabledFrameworks(cfg.Integrations.Frameworks),
 		jobframework.WithEnabledExternalFrameworks(cfg.Integrations.ExternalFrameworks),
 		jobframework.WithManagerName(constants.KueueName),
-		jobframework.WithLabelKeysToCopy(cfg.Integrations.LabelKeysToCopy),
+		jobframework.WithLabelKeysToCopy(labelKeysToCopy),
+		jobframework.WithAnnotationsToCopy(annotationsToCopy),
 		jobframework.WithCache(cCache),
 		jobframework.WithQueues(queues),
 		jobframework.WithObjectRetentionPolicies(cfg.ObjectRetentionPolicies),
 		jobframework.WithRoleTracker(opts.RoleTracker),
 		jobframework.WithCustomLabels(opts.CustomLabels),
 	}
+
 	nsSelector, err := metav1.LabelSelectorAsSelector(cfg.ManagedJobsNamespaceSelector)
 	if err != nil {
 		return fmt.Errorf("failed to parse managedJobsNamespaceSelector: %w", err)

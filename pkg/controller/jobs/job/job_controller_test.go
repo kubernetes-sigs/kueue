@@ -30,6 +30,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
@@ -1261,7 +1262,7 @@ func TestReconciler(t *testing.T) {
 				Suspend(true).
 				Obj(),
 			reconcilerOptions: []jobframework.Option{
-				jobframework.WithLabelKeysToCopy([]string{"toCopyKey", "redundantToCopyKey"}),
+				jobframework.WithLabelKeysToCopy(sets.New("toCopyKey", "redundantToCopyKey")),
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("job", "ns").

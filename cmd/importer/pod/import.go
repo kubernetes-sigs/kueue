@@ -73,7 +73,7 @@ func Import(ctx context.Context, c client.Client, importCache *cache.ImportCache
 
 		kp := pod.FromObject(p)
 		// Note: the recorder is not used for single pods, we can just pass nil for now.
-		wl, err := kp.ConstructComposableWorkload(ctx, c, nil, nil)
+		wl, err := kp.ConstructComposableWorkload(ctx, c, nil, nil, nil)
 		if err != nil {
 			return false, fmt.Errorf("construct workload: %w", err)
 		}

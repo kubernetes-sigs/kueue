@@ -41,6 +41,24 @@ type SourceKindLabelStore struct {
 	values     *utilmaps.SyncMap[string, []string]
 }
 
+func WorkloadCustomLabelSources(entries []configapi.ControllerMetricsCustomLabel) (labels, annotations sets.Set[string]) {
+	labels, annotations = sets.New[string](), sets.New[string]()
+	for _, entry := range entries {
+		if ptr.Deref(entry.SourceKind, configapi.DefaultCustomMetricLabelSourceKind) != configapi.SourceKindWorkload {
+			continue
+		}
+		switch {
+		case entry.SourceAnnotationKey != "":
+			annotations.Insert(entry.SourceAnnotationKey)
+		case entry.SourceLabelKey != "":
+			labels.Insert(entry.SourceLabelKey)
+		default:
+			labels.Insert(entry.Name)
+		}
+	}
+	return
+}
+
 func NewCustomLabels(entries []configapi.ControllerMetricsCustomLabel) *CustomLabels {
 	if !features.Enabled(features.CustomMetricLabels) || len(entries) == 0 {
 		return nil
