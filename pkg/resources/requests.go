@@ -53,13 +53,10 @@ func NewMapRequestsFromPodSpec(podSpec *corev1.PodSpec) MapRequests {
 }
 
 func (r MapRequests) Clone() Requests {
-	if len(r) == 0 {
-		return nil
-	}
 	return maps.Clone(r)
 }
 
-func (r MapRequests) ScaledUp(f int64) MapRequests {
+func (r MapRequests) ScaledUp(f int64) Requests {
 	ret := maps.Clone(r)
 	ret.Mul(f)
 	return ret

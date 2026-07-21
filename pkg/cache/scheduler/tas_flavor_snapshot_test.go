@@ -701,14 +701,14 @@ func TestComputeAssumedUsageFromAssignment(t *testing.T) {
 
 	cases := map[string]struct {
 		assignment *tas.TopologyAssignment
-		want       map[tas.TopologyDomainID]resources.MapRequests
+		want       map[tas.TopologyDomainID]resources.Requests
 	}{
 		"empty assignment": {
 			assignment: &tas.TopologyAssignment{
 				Levels:  []string{"hostname"},
 				Domains: nil,
 			},
-			want: map[tas.TopologyDomainID]resources.MapRequests{},
+			want: map[tas.TopologyDomainID]resources.Requests{},
 		},
 		"single domain with one pod": {
 			assignment: &tas.TopologyAssignment{
@@ -717,8 +717,8 @@ func TestComputeAssumedUsageFromAssignment(t *testing.T) {
 					{Values: []string{"node-a"}, Count: 1},
 				},
 			},
-			want: map[tas.TopologyDomainID]resources.MapRequests{
-				"node-a": {
+			want: map[tas.TopologyDomainID]resources.Requests{
+				"node-a": resources.MapRequests{
 					corev1.ResourceCPU:    1000,
 					corev1.ResourceMemory: 1024,
 					corev1.ResourcePods:   1,
@@ -733,13 +733,13 @@ func TestComputeAssumedUsageFromAssignment(t *testing.T) {
 					{Values: []string{"node-b"}, Count: 3},
 				},
 			},
-			want: map[tas.TopologyDomainID]resources.MapRequests{
-				"node-a": {
+			want: map[tas.TopologyDomainID]resources.Requests{
+				"node-a": resources.MapRequests{
 					corev1.ResourceCPU:    2000,
 					corev1.ResourceMemory: 2048,
 					corev1.ResourcePods:   2,
 				},
-				"node-b": {
+				"node-b": resources.MapRequests{
 					corev1.ResourceCPU:    3000,
 					corev1.ResourceMemory: 3072,
 					corev1.ResourcePods:   3,
