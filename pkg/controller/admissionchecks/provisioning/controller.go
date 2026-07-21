@@ -27,6 +27,7 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -338,13 +339,29 @@ func (c *Controller) syncOwnedProvisionRequest(
 					// Already matches the Kueue-derived spec; skip the write.
 					log.V(3).Info("PodTemplate already up to date, skipping update", "podTemplate", klog.KObj(desired))
 				default:
-					// Divergent PodTemplate at the deterministic name. Retry uses a new
-					// attempt/name; Background GC cleans up the old object via owner refs.
+					// Divergent PodTemplate at the deterministic name. Replace it with
+					// Kueue-derived contents so the ProvisioningRequest never adopts
+					// foreign/stale specs. Do not Retry the admission check: leftover
+					// templates from a prior admission (e.g. after preemption onto another
+					// flavor) share this name, and Retry would block re-admission.
 					if features.Enabled(features.RetryProvisioningDueInconsistentPodTemplate) {
-						msg := fmt.Sprintf("Existing PodTemplate %q differs from the expected Kueue-derived contents; retrying", ptName)
-						return c.handleRetry(ctx, log, wl, ac, prc, msg)
+						if err := c.client.Delete(ctx, existing); client.IgnoreNotFound(err) != nil {
+							msg := fmt.Sprintf("Error deleting divergent PodTemplate %q: %v", ptName, err)
+							return c.handleError(ctx, wl, ac, msg, err)
+						}
+						if err := c.client.Create(ctx, desired); err != nil {
+							// Delete may still be finalizing; Retry with a new attempt/name.
+							if apierrors.IsAlreadyExists(err) {
+								msg := fmt.Sprintf("Existing PodTemplate %q differs from the expected Kueue-derived contents; retrying", ptName)
+								return c.handleRetry(ctx, log, wl, ac, prc, msg)
+							}
+							msg := fmt.Sprintf("Error recreating PodTemplate %q: %v", ptName, err)
+							return c.handleError(ctx, wl, ac, msg, err)
+						}
+						log.V(3).Info("Replaced divergent PodTemplate", "podTemplate", klog.KObj(desired))
+					} else {
+						log.V(3).Info("PodTemplate differs but RetryProvisioningDueInconsistentPodTemplate is disabled; reusing existing", "podTemplate", klog.KObj(existing))
 					}
-					log.V(3).Info("PodTemplate differs but RetryProvisioningDueInconsistentPodTemplate is disabled; reusing existing", "podTemplate", klog.KObj(existing))
 				}
 
 				req.Spec.PodSets = append(req.Spec.PodSets, autoscaling.PodSet{

@@ -532,8 +532,11 @@ const (
 
 	// owner: @vladikkuzn
 	//
-	// Retry when an existing PodTemplate at the deterministic name differs from the Kueue-derived spec.
-	// Disable to reuse the existing PodTemplate without content validation (previous dangerous behavior).
+	// When an existing PodTemplate at the deterministic name differs from the Kueue-derived
+	// spec, replace it (delete+create) so the ProvisioningRequest never adopts foreign/stale
+	// contents. Falls back to Retrying the admission check if recreate hits AlreadyExists
+	// (delete still finalizing). Disable to reuse the existing PodTemplate without content
+	// validation (previous dangerous behavior).
 	RetryProvisioningDueInconsistentPodTemplate featuregate.Feature = "RetryProvisioningDueInconsistentPodTemplate"
 
 	// owner: @vladikkuzn

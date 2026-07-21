@@ -226,7 +226,7 @@ func TestReconcile(t *testing.T) {
 		}).
 		NodeSelector("f2l1", "v1")
 
-	// Tenant-precreated PodTemplate at the deterministic name; must Retry, not reuse.
+	// Tenant-precreated PodTemplate at the deterministic name; must be replaced, not reused.
 	foreignTemplate1 := utiltesting.MakePodTemplate("ppt-wl-check1-1-ps1", TestNamespace).
 		Containers(corev1.Container{
 			Name: "c",
@@ -253,8 +253,6 @@ func TestReconcile(t *testing.T) {
 		BackoffBaseSeconds: new(backoffBaseSeconds),
 		BackoffMaxSeconds:  ptr.To[int32](1800),
 	})
-
-	const divergentPodTemplateRetryMsg = `Existing PodTemplate "ppt-wl-check1-1-ps1" differs from the expected Kueue-derived contents; retrying`
 
 	baseConfigWithPodSetUpdates := baseConfigWithRetryStrategy.Clone().PodSetUpdate(kueue.ProvisioningRequestPodSetUpdates{
 		NodeSelector: []kueue.ProvisioningRequestPodSetUpdatesNodeSelector{
@@ -504,7 +502,7 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
-		"pre-existing foreign PodTemplate triggers Retry": {
+		"pre-existing foreign PodTemplate is replaced": {
 			workload:  baseWorkload.DeepCopy(),
 			checks:    []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			flavors:   []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
@@ -512,34 +510,29 @@ func TestReconcile(t *testing.T) {
 			requests:  []autoscaling.ProvisioningRequest{},
 			templates: []corev1.PodTemplate{*foreignTemplate1.Clone().Obj()},
 			wantWorkloads: map[string]*kueue.Workload{
-				baseWorkload.GetName(): baseWorkload.
-					Clone().
-					AdmissionChecks(
-						kueue.AdmissionCheckState{
-							Name:                "check1",
-							State:               kueue.CheckStateRetry,
-							Message:             divergentPodTemplateRetryMsg,
-							RequeueAfterSeconds: new(backoffBaseSeconds),
-						},
-						kueue.AdmissionCheckState{
-							Name:  "not-provisioning",
-							State: kueue.CheckStatePending,
-						},
-					).
+				baseWorkload.GetName(): baseWorkload.DeepCopy(),
+			},
+			wantRequests: map[string]*autoscaling.ProvisioningRequest{
+				baseRequest.Name: baseRequest.DeepCopy(),
+			},
+			wantTemplates: map[string]*corev1.PodTemplate{
+				baseTemplate1.Name: baseTemplate1.Clone().
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+					Obj(),
+				baseTemplate2.Name: baseTemplate2.Clone().
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
 					Obj(),
 			},
-			wantRequestsNotFound: []string{baseRequest.Name},
-			// Divergent template left untouched; no ProvisioningRequest created.
-			wantTemplates: map[string]*corev1.PodTemplate{
-				foreignTemplate1.Name: foreignTemplate1.Clone().Obj(),
+			wantPodTemplateOwnershipUpdates: []string{
+				baseTemplate1.Name,
+				baseTemplate2.Name,
 			},
-			wantPodTemplateOwnershipUpdates: []string{},
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       client.ObjectKeyFromObject(baseWorkload),
 					EventType: corev1.EventTypeNormal,
-					Reason:    "UpdatedAdmissionCheck",
-					Message:   "Admission check check1 updated state from Pending to Retry with message: " + divergentPodTemplateRetryMsg,
+					Reason:    "ProvisioningRequestCreated",
+					Message:   `Created ProvisioningRequest: "wl-check1-1"`,
 				},
 			},
 		},
@@ -581,8 +574,8 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
-		"pre-existing divergent Kueue-managed PodTemplate triggers Retry": {
-			// Stale ManagedByKueue template: Retry; next attempt uses a new name.
+		"pre-existing divergent Kueue-managed PodTemplate is replaced": {
+			// Stale ManagedByKueue template from a prior admission: replace in place.
 			workload: baseWorkload.DeepCopy(),
 			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
@@ -595,36 +588,29 @@ func TestReconcile(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: map[string]*kueue.Workload{
-				baseWorkload.GetName(): baseWorkload.
-					Clone().
-					AdmissionChecks(
-						kueue.AdmissionCheckState{
-							Name:                "check1",
-							State:               kueue.CheckStateRetry,
-							Message:             divergentPodTemplateRetryMsg,
-							RequeueAfterSeconds: new(backoffBaseSeconds),
-						},
-						kueue.AdmissionCheckState{
-							Name:  "not-provisioning",
-							State: kueue.CheckStatePending,
-						},
-					).
-					Obj(),
+				baseWorkload.GetName(): baseWorkload.DeepCopy(),
 			},
-			wantRequestsNotFound: []string{baseRequest.Name},
+			wantRequests: map[string]*autoscaling.ProvisioningRequest{
+				baseRequest.Name: baseRequest.DeepCopy(),
+			},
 			wantTemplates: map[string]*corev1.PodTemplate{
 				baseTemplate1.Name: baseTemplate1.Clone().
-					NodeSelector("stale", "value").
-					ControllerReference(workloadOwnerGVK, "wl", "").
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+					Obj(),
+				baseTemplate2.Name: baseTemplate2.Clone().
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
 					Obj(),
 			},
-			wantPodTemplateOwnershipUpdates: []string{},
+			wantPodTemplateOwnershipUpdates: []string{
+				baseTemplate1.Name,
+				baseTemplate2.Name,
+			},
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       client.ObjectKeyFromObject(baseWorkload),
 					EventType: corev1.EventTypeNormal,
-					Reason:    "UpdatedAdmissionCheck",
-					Message:   "Admission check check1 updated state from Pending to Retry with message: " + divergentPodTemplateRetryMsg,
+					Reason:    "ProvisioningRequestCreated",
+					Message:   `Created ProvisioningRequest: "wl-check1-1"`,
 				},
 			},
 		},
@@ -662,7 +648,7 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
-		"pre-existing PodTemplate with forged workload owner triggers Retry": {
+		"pre-existing PodTemplate with forged workload owner is replaced": {
 			workload: baseWorkload.DeepCopy(),
 			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
@@ -678,39 +664,29 @@ func TestReconcile(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: map[string]*kueue.Workload{
-				baseWorkload.GetName(): baseWorkload.
-					Clone().
-					AdmissionChecks(
-						kueue.AdmissionCheckState{
-							Name:                "check1",
-							State:               kueue.CheckStateRetry,
-							Message:             divergentPodTemplateRetryMsg,
-							RequeueAfterSeconds: new(backoffBaseSeconds),
-						},
-						kueue.AdmissionCheckState{
-							Name:  "not-provisioning",
-							State: kueue.CheckStatePending,
-						},
-					).
-					Obj(),
+				baseWorkload.GetName(): baseWorkload.DeepCopy(),
 			},
-			wantRequestsNotFound: []string{baseRequest.Name},
+			wantRequests: map[string]*autoscaling.ProvisioningRequest{
+				baseRequest.Name: baseRequest.DeepCopy(),
+			},
 			wantTemplates: map[string]*corev1.PodTemplate{
-				foreignTemplate1.Name: foreignTemplate1.Clone().
-					ControllerReference(schema.GroupVersionKind{
-						Group:   "kueue.x-k8s.io",
-						Version: "v1beta2",
-						Kind:    "Workload",
-					}, "wl", "").
+				baseTemplate1.Name: baseTemplate1.Clone().
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+					Obj(),
+				baseTemplate2.Name: baseTemplate2.Clone().
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
 					Obj(),
 			},
-			wantPodTemplateOwnershipUpdates: []string{},
+			wantPodTemplateOwnershipUpdates: []string{
+				baseTemplate1.Name,
+				baseTemplate2.Name,
+			},
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       client.ObjectKeyFromObject(baseWorkload),
 					EventType: corev1.EventTypeNormal,
-					Reason:    "UpdatedAdmissionCheck",
-					Message:   "Admission check check1 updated state from Pending to Retry with message: " + divergentPodTemplateRetryMsg,
+					Reason:    "ProvisioningRequestCreated",
+					Message:   `Created ProvisioningRequest: "wl-check1-1"`,
 				},
 			},
 		},
