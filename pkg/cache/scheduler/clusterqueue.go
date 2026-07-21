@@ -489,7 +489,9 @@ func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, w *kueue.Workload) {
 	wi := workload.NewInfo(w, c.workloadInfoOptions...)
 	wi.UpdateSchedulingHash(log)
 	c.Workloads[k] = wi
-	c.customLabels.Store(cfg.SourceKindWorkload, string(k), w.Labels, w.Annotations)
+	if features.Enabled(features.CustomMetricLabels) {
+		c.customLabels.Store(cfg.SourceKindWorkload, string(k), w.Labels, w.Annotations)
+	}
 	c.updateWorkloadUsage(log, wi, add)
 	if c.podsReadyTracking && !apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadPodsReady) {
 		c.WorkloadsNotReady.Insert(k)
@@ -515,7 +517,9 @@ func (c *clusterQueue) deleteWorkload(log logr.Logger, wlKey workload.Reference)
 	c.AllocatableResourceGeneration++
 
 	delete(c.Workloads, wlKey)
-	c.customLabels.Delete(cfg.SourceKindWorkload, string(wlKey))
+	if features.Enabled(features.CustomMetricLabels) {
+		c.customLabels.Delete(cfg.SourceKindWorkload, string(wlKey))
+	}
 	c.reportActiveWorkloads()
 }
 
