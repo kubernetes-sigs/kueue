@@ -1918,7 +1918,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 	// admitted the MultiKueue handover completes — the prebuilt label is repointed
 	// and the worker RayCluster keeps the autoscaled size. The worker's jobframework
 	// tolerates the transient scale-up mismatch during the handover instead of
-	// finishing the remote workload OutOfSync (see jobScaledUpBeyondWorkload).
+	// finishing the remote workload OutOfSync (see jobResizeAgainstWorkloadPending).
 	//
 	// This suite has no running scheduler, so the replacement slice is admitted
 	// manually via SetQuotaReservation, exactly as admitWorkloadAndCheckWorkerCopies
@@ -2026,6 +2026,80 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				g.Expect(ptr.Deref(rc.Spec.WorkerGroupSpecs[0].Replicas, -1)).To(gomega.BeEquivalentTo(int32(2)))
 				g.Expect(jobframework.PrebuiltWorkloadNameFor(rc)).To(gomega.Equal(newWlKey.Name))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	// Scale-DOWN counterpart of the reverse-sync test above. A scale-down is
+	// handled differently by the slicing machinery: the existing slice's count is
+	// updated in place (EnsureWorkloadSlices ScaledDown branch), so no new slice is
+	// created and no prebuilt-label repoint is needed. Verifies the write-back
+	// lowers the manager count on the same admitted slice and the worker RayCluster
+	// stays up.
+	ginkgo.It("Should reflect an autoscaler-driven scale-down of an elastic RayCluster on the manager", func() {
+		manager := managerTestCluster
+		worker2 := worker2TestCluster
+
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
+
+		rayClusterGVK := rayv1.GroupVersion.WithKind("RayCluster")
+		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).PodSets(
+			utiltestingapi.MakePodSetAssignment("head").Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj(),
+			utiltestingapi.MakePodSetAssignment("workers-group-0").Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj(),
+		)
+
+		raycluster := testingraycluster.MakeCluster("raycluster-autoscale-down", managerNs.Name).
+			Queue(managerLq.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			WithEnableAutoscaling(ptr.To(true)).
+			FirstWorkerGroupReplicas(2, 1, 3).
+			ElasticSchedulingGates().
+			Obj()
+		util.MustCreate(manager.ctx, manager.client, raycluster)
+
+		createdCluster := &rayv1.RayCluster{}
+		gomega.Expect(manager.client.Get(manager.ctx, client.ObjectKeyFromObject(raycluster), createdCluster)).To(gomega.Succeed())
+		wlLookupKey := types.NamespacedName{
+			Name: jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration(
+				createdCluster.Name, createdCluster.UID, rayClusterGVK, createdCluster.GetGeneration()),
+			Namespace: createdCluster.Namespace,
+		}
+
+		admitWorkloadAndCheckWorkerCopies(multiKueueAC.Name, wlLookupKey, admission)
+
+		ginkgo.By("simulating the Ray autoscaler on the worker: scale workers-group-0 down from 2 to 1", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				rc := &rayv1.RayCluster{}
+				g.Expect(worker2.client.Get(worker2.ctx, client.ObjectKeyFromObject(raycluster), rc)).To(gomega.Succeed())
+				rc.Spec.WorkerGroupSpecs[0].Replicas = ptr.To[int32](1)
+				g.Expect(worker2.client.Update(worker2.ctx, rc)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("the scaled-down size is written back onto the manager's RayCluster", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				rc := &rayv1.RayCluster{}
+				g.Expect(manager.client.Get(manager.ctx, client.ObjectKeyFromObject(raycluster), rc)).To(gomega.Succeed())
+				g.Expect(ptr.Deref(rc.Spec.WorkerGroupSpecs[0].Replicas, -1)).To(gomega.BeEquivalentTo(int32(1)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("the admitted slice's count is lowered in place (no new slice) and stays admitted", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				wl := &kueue.Workload{}
+				g.Expect(manager.client.Get(manager.ctx, wlLookupKey, wl)).To(gomega.Succeed(), "the originally admitted slice must remain (scale-down updates it in place)")
+				g.Expect(workloadfinish.IsFinished(wl)).To(gomega.BeFalse(), "the slice must not be finished on scale-down")
+				g.Expect(workload.ExtractPodSetCountsFromWorkload(wl)["workers-group-0"]).To(gomega.BeEquivalentTo(int32(1)))
+				g.Expect(workload.HasQuotaReservation(wl)).To(gomega.BeTrue())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("the worker RayCluster keeps running at the scaled-down size", func() {
+			gomega.Consistently(func(g gomega.Gomega) {
+				rc := &rayv1.RayCluster{}
+				g.Expect(worker2.client.Get(worker2.ctx, client.ObjectKeyFromObject(raycluster), rc)).To(gomega.Succeed(), "worker RayCluster must not be torn down on scale-down")
+				g.Expect(ptr.Deref(rc.Spec.Suspend, false)).To(gomega.BeFalse())
+				g.Expect(ptr.Deref(rc.Spec.WorkerGroupSpecs[0].Replicas, -1)).To(gomega.BeEquivalentTo(int32(1)))
+			}, 10*time.Second, util.Interval).Should(gomega.Succeed())
 		})
 	})
 

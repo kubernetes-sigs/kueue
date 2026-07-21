@@ -876,7 +876,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				})
 			})
 
-			ginkgo.It("Should reflect a worker-side autoscaler resize of an elastic RayCluster back on the manager", func() {
+			ginkgo.It("Should reflect worker-side autoscaler resizes (up and down) of an elastic RayCluster back on the manager", func() {
 				kuberayTestImage := util.GetKuberayTestImage()
 				// enableInTreeAutoscaling makes the worker the source of truth for
 				// worker-group replicas: KubeRay's autoscaler resizes the RayCluster on
@@ -939,6 +939,33 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						workerRayCluster := &rayv1.RayCluster{}
 						g.Expect(workerClient.Get(ctx, client.ObjectKeyFromObject(raycluster), workerRayCluster)).To(gomega.Succeed())
 						g.Expect(ptr.Deref(workerRayCluster.Spec.WorkerGroupSpecs[0].Replicas, -1)).To(gomega.BeEquivalentTo(int32(2)))
+						g.Expect(ptr.Deref(workerRayCluster.Spec.Suspend, false)).To(gomega.BeFalse())
+					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Simulating the Ray autoscaler: scale the worker group back down to one on the worker cluster", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						workerRayCluster := &rayv1.RayCluster{}
+						g.Expect(workerClient.Get(ctx, client.ObjectKeyFromObject(raycluster), workerRayCluster)).To(gomega.Succeed())
+						workerRayCluster.Spec.WorkerGroupSpecs[0].Replicas = ptr.To[int32](1)
+						g.Expect(workerClient.Update(ctx, workerRayCluster)).To(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Checking the scaled-down size is reflected back onto the manager's RayCluster", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						createdRayCluster := &rayv1.RayCluster{}
+						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(raycluster), createdRayCluster)).To(gomega.Succeed())
+						g.Expect(ptr.Deref(createdRayCluster.Spec.WorkerGroupSpecs[0].Replicas, -1)).To(gomega.BeEquivalentTo(int32(1)))
+						g.Expect(createdRayCluster.Status.DesiredWorkerReplicas).To(gomega.Equal(int32(1)))
+					}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Checking the worker RayCluster keeps running at the scaled-down size", func() {
+					gomega.Consistently(func(g gomega.Gomega) {
+						workerRayCluster := &rayv1.RayCluster{}
+						g.Expect(workerClient.Get(ctx, client.ObjectKeyFromObject(raycluster), workerRayCluster)).To(gomega.Succeed())
+						g.Expect(ptr.Deref(workerRayCluster.Spec.WorkerGroupSpecs[0].Replicas, -1)).To(gomega.BeEquivalentTo(int32(1)))
 						g.Expect(ptr.Deref(workerRayCluster.Spec.Suspend, false)).To(gomega.BeFalse())
 					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 				})
