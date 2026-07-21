@@ -30,4 +30,5 @@ type Requests interface {
 	GetValue(name corev1.ResourceName) int64
 	ForEach(fn func(name corev1.ResourceName, val int64))
 	Len() int
+	IsEmpty() bool
 }
