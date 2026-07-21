@@ -287,6 +287,11 @@ type Scheduling struct {
 }
 
 // QuotaReleaseStrategy defines when Kueue releases quota for a terminating workload.
+//
+// Valid values are:
+// - "OnTermination" (default): releases quota as soon as all pods have a deletionTimestamp set.
+// - "OnTerminalBestEffort": holds quota until all underlying pods have fully reached a terminal phase (Succeeded or Failed).
+//
 // +enum
 type QuotaReleaseStrategy string
 

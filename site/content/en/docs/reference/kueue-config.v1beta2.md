@@ -1239,6 +1239,11 @@ during admission.</p>
 
 
 <p>QuotaReleaseStrategy defines when Kueue releases quota for a terminating workload.</p>
+<p>Valid values are:</p>
+<ul>
+<li>&quot;OnTermination&quot; (default): releases quota as soon as all pods have a deletionTimestamp set.</li>
+<li>&quot;OnTerminalBestEffort&quot;: holds quota until all underlying pods have fully reached a terminal phase (Succeeded or Failed).</li>
+</ul>
 
 
 
