@@ -82,6 +82,7 @@ func TestScheduleForAFS(t *testing.T) {
 		initialUsage  map[string]corev1.ResourceList
 		workloads     []kueue.Workload
 		wantWorkloads []kueue.Workload
+		deleteQueue   string
 	}{
 		"admits workload from less active localqueue": {
 			featureGates: map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
@@ -139,6 +140,55 @@ func TestScheduleForAFS(t *testing.T) {
 						Request(corev1.ResourceCPU, "8").
 						Obj()).
 					Creation(now.Add(1 * time.Second)).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "QuotaReserved",
+						Message:            "Quota reserved in ClusterQueue cq1",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Admitted",
+						Message:            "The workload is admitted",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Admission(
+						utiltestingapi.MakeAdmission("cq1").
+							PodSets(
+								utiltestingapi.MakePodSetAssignment("one").
+									Assignment(corev1.ResourceCPU, "default", "8").
+									Count(1).
+									Obj(),
+							).
+							Obj(),
+					).
+					Obj(),
+			},
+		},
+		"admits workload even if its localqueue was deleted": {
+			featureGates: map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
+			initialUsage: map[string]corev1.ResourceList{
+				"lq-a": {corev1.ResourceCPU: resource.MustParse("0")},
+			},
+			deleteQueue: "lq-a",
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-a1", "default").
+					Queue("lq-a").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "8").
+						Obj()).
+					Creation(now).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-a1", "default").
+					Queue("lq-a").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "8").
+						Obj()).
+					Creation(now).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionTrue,
@@ -661,6 +711,14 @@ func TestScheduleForAFS(t *testing.T) {
 							t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
 						}
 					}
+					
+					if tc.deleteQueue != "" {
+						err := cl.Delete(ctx, &kueue.LocalQueue{ObjectMeta: metav1.ObjectMeta{Name: tc.deleteQueue, Namespace: "default"}})
+						if err != nil {
+							t.Fatalf("Deleting queue %s: %v", tc.deleteQueue, err)
+						}
+					}
+					
 					recorder := &utiltesting.EventRecorder{}
 					var preemptionFairSharing *config.FairSharing
 					if tc.featureGates[features.AdmissionFairSharing] {
