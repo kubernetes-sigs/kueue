@@ -4189,7 +4189,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					}).
 					Ready().
 					Obj(),
-				*testingnode.MakeNode("b1-r2-x5")
+				*testingnode.MakeNode("b1-r2-x5").
 					Label(tasBlockLabel, "b1").
 					Label(tasRackLabel, "r2").
 					Label(corev1.LabelHostname, "x5").
