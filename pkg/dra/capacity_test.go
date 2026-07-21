@@ -21,6 +21,8 @@ import (
 
 	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/klog/v2/ktesting"
 )
 
 func TestRoundToValidValues(t *testing.T) {
@@ -185,6 +187,122 @@ func TestRoundToValidRange(t *testing.T) {
 			}
 			if got.Cmp(resource.MustParse(tc.want)) != 0 {
 				t.Errorf("got %s, want %s", got.String(), tc.want)
+			}
+		})
+	}
+}
+
+func TestComputeCapacityCharge(t *testing.T) {
+	log := ktesting.NewLogger(t, ktesting.NewConfig())
+	reqPath := field.NewPath("test")
+
+	makeDevice := func(name string, capValue string, policy *resourcev1.CapacityRequestPolicy) resourcev1.Device {
+		return resourcev1.Device{
+			Name: name,
+			Capacity: map[resourcev1.QualifiedName]resourcev1.DeviceCapacity{
+				"memory": {
+					Value:         resource.MustParse(capValue),
+					RequestPolicy: policy,
+				},
+			},
+		}
+	}
+	ptrQty := func(s string) *resource.Quantity {
+		q := resource.MustParse(s)
+		return &q
+	}
+
+	tests := []struct {
+		name            string
+		matched         []resourcev1.Device
+		count           int64
+		explicitRequest *resource.Quantity
+		wantCharge      string
+		wantErrType     field.ErrorType
+	}{
+		{
+			name:            "explicit request with single device",
+			matched:         []resourcev1.Device{makeDevice("gpu-0", "80Gi", nil)},
+			count:           1,
+			explicitRequest: ptrQty("20Gi"),
+			wantCharge:      "20Gi",
+		},
+		{
+			name: "no request uses device Default",
+			matched: []resourcev1.Device{
+				makeDevice("gpu-0", "80Gi", &resourcev1.CapacityRequestPolicy{Default: ptrQty("40Gi")}),
+			},
+			count:      1,
+			wantCharge: "40Gi",
+		},
+		{
+			name: "heterogeneous Defaults uses max",
+			matched: []resourcev1.Device{
+				makeDevice("gpu-0", "80Gi", &resourcev1.CapacityRequestPolicy{Default: ptrQty("40Gi")}),
+				makeDevice("gpu-1", "100Gi", &resourcev1.CapacityRequestPolicy{Default: ptrQty("10Gi")}),
+			},
+			count:      1,
+			wantCharge: "40Gi",
+		},
+		{
+			name:        "no capacity dimension returns InternalError",
+			matched:     []resourcev1.Device{{Name: "gpu-0"}},
+			count:       1,
+			wantErrType: field.ErrorTypeInternal,
+		},
+		{
+			name: "all policies reject returns Invalid not InternalError",
+			matched: []resourcev1.Device{
+				makeDevice("gpu-0", "80Gi", &resourcev1.CapacityRequestPolicy{
+					ValidValues: []resource.Quantity{resource.MustParse("10Gi"), resource.MustParse("20Gi")},
+				}),
+				makeDevice("gpu-1", "80Gi", &resourcev1.CapacityRequestPolicy{
+					ValidValues: []resource.Quantity{resource.MustParse("10Gi"), resource.MustParse("30Gi")},
+				}),
+			},
+			count:           1,
+			explicitRequest: ptrQty("50Gi"),
+			wantErrType:     field.ErrorTypeInvalid,
+		},
+		{
+			name: "mixed devices some without dimension all with-dimension reject",
+			matched: []resourcev1.Device{
+				makeDevice("gpu-0", "80Gi", &resourcev1.CapacityRequestPolicy{
+					ValidValues: []resource.Quantity{resource.MustParse("10Gi")},
+				}),
+				{Name: "gpu-1"},
+			},
+			count:           1,
+			explicitRequest: ptrQty("50Gi"),
+			wantErrType:     field.ErrorTypeInvalid,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &deviceClassCapacityConfig{
+				driver:       "gpu.example.com",
+				resourceName: "memory",
+			}
+			result, errs := computeCapacityCharge(log, cfg, tc.matched, tc.count, tc.explicitRequest, reqPath)
+			if tc.wantErrType != "" {
+				if len(errs) == 0 {
+					t.Fatalf("expected error type %s, got no error (result=%v)", tc.wantErrType, result)
+				}
+				if errs[0].Type != tc.wantErrType {
+					t.Errorf("expected error type %s, got %s: %s", tc.wantErrType, errs[0].Type, errs[0].Detail)
+				}
+				return
+			}
+			if len(errs) > 0 {
+				t.Fatalf("unexpected error: %v", errs)
+			}
+			if result == nil {
+				t.Fatal("expected non-nil result")
+			}
+			want := resource.MustParse(tc.wantCharge)
+			if result.Cmp(want) != 0 {
+				t.Errorf("got %s, want %s", result.String(), tc.wantCharge)
 			}
 		})
 	}

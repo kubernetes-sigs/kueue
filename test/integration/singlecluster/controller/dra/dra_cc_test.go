@@ -592,6 +592,121 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
+		ginkgo.It("Should use max Default across devices with heterogeneous Defaults", func() {
+			ginkgo.By("Creating ResourceSlice with two devices having different Defaults")
+			default40 := resource.MustParse("40Gi")
+			default10 := resource.MustParse("10Gi")
+			slice := utiltesting.MakeResourceSlice("cc-hetdefault-slice", "gpu.example.com").
+				Pool("node1-gpu0", 1, 1).
+				Device("gpu-0").
+				DeviceCapacity("memory", "80Gi", &resourcev1.CapacityRequestPolicy{
+					Default: &default40,
+				}).
+				AllowMultipleAllocations(true).
+				Device("gpu-1").
+				DeviceCapacity("memory", "100Gi", &resourcev1.CapacityRequestPolicy{
+					Default: &default10,
+				}).
+				AllowMultipleAllocations(true).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, slice)).To(gomega.Succeed())
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(k8sClient.Delete(ctx, slice)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("Creating RCT without explicit request (uses per-device Default)")
+			rct := utiltesting.MakeResourceClaimTemplate("cc-hetdefault", ns.Name).
+				DeviceRequest("gpu", "vgpu.example.com", 1).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())
+
+			ginkgo.By("Creating workload")
+			wl := utiltestingapi.MakeWorkload("cc-hetdefault-wl", ns.Name).
+				Queue("cc-lq").
+				Obj()
+			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+				{Name: "gpu", ResourceClaimTemplateName: new("cc-hetdefault")},
+			}
+			wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
+				{Name: "gpu"},
+			}
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			ginkgo.By("Verifying charge uses max(40Gi, 10Gi) = 40Gi (per-device Default)")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeTrue())
+
+				assignment := updatedWl.Status.Admission.PodSetAssignments[0]
+				memUsage := assignment.ResourceUsage["gpu.memory"]
+				g.Expect(memUsage.Cmp(resource.MustParse("40Gi"))).To(gomega.Equal(0),
+					"should be 40Gi (max Default across devices), not 10Gi (max-capacity device's Default)")
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("Should mark inadmissible without retry when all policies reject request", framework.SlowSpec, func() {
+			ginkgo.By("Creating ResourceSlice where all devices have ValidValues that reject 50Gi")
+			defaultQty := resource.MustParse("10Gi")
+			slice := utiltesting.MakeResourceSlice("cc-allreject-slice", "gpu.example.com").
+				Pool("node1-gpu0", 1, 1).
+				Device("gpu-0").
+				DeviceCapacity("memory", "80Gi", &resourcev1.CapacityRequestPolicy{
+					Default:     &defaultQty,
+					ValidValues: []resource.Quantity{resource.MustParse("10Gi"), resource.MustParse("20Gi")},
+				}).
+				AllowMultipleAllocations(true).
+				Device("gpu-1").
+				DeviceCapacity("memory", "80Gi", &resourcev1.CapacityRequestPolicy{
+					Default:     &defaultQty,
+					ValidValues: []resource.Quantity{resource.MustParse("10Gi"), resource.MustParse("30Gi")},
+				}).
+				AllowMultipleAllocations(true).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, slice)).To(gomega.Succeed())
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(k8sClient.Delete(ctx, slice)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("Creating RCT requesting 50Gi (exceeds all devices' ValidValues)")
+			rct := utiltesting.MakeResourceClaimTemplate("cc-allreject", ns.Name).
+				DeviceRequest("gpu", "vgpu.example.com", 1).
+				WithCapacityRequests(map[string]string{"memory": "50Gi"}).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())
+
+			ginkgo.By("Creating workload")
+			wl := utiltestingapi.MakeWorkload("cc-allreject-wl", ns.Name).
+				Queue("cc-lq").
+				Obj()
+			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+				{Name: "gpu", ResourceClaimTemplateName: new("cc-allreject")},
+			}
+			wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
+				{Name: "gpu"},
+			}
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			ginkgo.By("Verifying workload is marked inadmissible with deterministic error")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
+				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
+					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
+					gomega.HaveField("Status", metav1.ConditionFalse),
+					gomega.HaveField("Reason", kueue.WorkloadInadmissible),
+				)))
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verifying workload stays inadmissible (deterministic, no requeue)")
+			gomega.Consistently(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
+			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+		})
+
 		ginkgo.It("Should use max capacity across multiple devices", func() {
 			ginkgo.By("Creating ResourceSlice with two devices having different capacities")
 			slice := utiltesting.MakeResourceSlice("cc-maxcap-slice", "gpu.example.com").
