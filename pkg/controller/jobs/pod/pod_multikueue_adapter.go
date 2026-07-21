@@ -19,14 +19,12 @@ package pod
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -105,7 +103,7 @@ func (*multiKueueAdapter) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedN
 
 	prebuiltWorkload := jobframework.PrebuiltWorkloadNameFor(pod)
 	if prebuiltWorkload == "" {
-		return nil, fmt.Errorf("no prebuilt workload found for pod: %s", klog.KObj(pod))
+		prebuiltWorkload = jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration(pod.GetName(), pod.GetUID(), gvk, pod.GetGeneration())
 	}
 
 	return []types.NamespacedName{{Name: prebuiltWorkload, Namespace: pod.Namespace}}, nil

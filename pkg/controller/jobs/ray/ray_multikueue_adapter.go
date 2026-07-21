@@ -25,7 +25,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -266,7 +265,7 @@ func (a *adapter[PtrT, T]) WorkloadKeysFor(o runtime.Object) ([]types.Namespaced
 
 	prebuiltWorkload := jobframework.PrebuiltWorkloadNameFor(job)
 	if prebuiltWorkload == "" {
-		return nil, fmt.Errorf("no prebuilt workload found for %s: %s", a.gvk.Kind, klog.KObj(job))
+		prebuiltWorkload = jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration(job.GetName(), job.GetUID(), a.gvk, job.GetGeneration())
 	}
 
 	return []types.NamespacedName{{Name: prebuiltWorkload, Namespace: job.GetNamespace()}}, nil
