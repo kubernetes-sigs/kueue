@@ -95,9 +95,14 @@ function should_skip_image() {
     $0 ~ "^-[[:space:]]*name:[[:space:]]*" {
       current_name = $3
     }
-    current_name == name && $0 ~ /\["[^"]+"\]/ {
-      match($0, /\["[^"]+"\]/)
-      print substr($0, RSTART+2, RLENGTH-4)
+    current_name == name && match($0, /\[[^\]]*\]/) {
+      arr = substr($0, RSTART+1, RLENGTH-2)
+      n = split(arr, versions, /,[[:space:]]*/)
+      for (i = 1; i <= n; i++) {
+        v = versions[i]
+        gsub(/^[[:space:]]*"|"[[:space:]]*$/, "", v)
+        if (v != "") print v
+      }
     }
   ' "${images_file_path}" | sed 's/^v//' | sort -t. -k 1,1n -k 2,2n -k 3,3n | head -n 1)
 
