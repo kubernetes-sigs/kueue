@@ -39,7 +39,7 @@ func verifyNodeUsageConsistency(t *testing.T, cache *nonTasUsageCache) {
 			expected[pv.node] = resources.MapRequests{}
 		}
 		expected[pv.node].Add(pv.usage)
-		expected[pv.node].Add(resources.MapRequests{corev1.ResourcePods: 1})
+		expected[pv.node].Add(resources.OnePodRequest)
 	}
 	got := collectNodeUsage(cache)
 	if diff := cmp.Diff(expected, got); diff != "" {

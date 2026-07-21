@@ -100,7 +100,7 @@ func (n *nonTasUsageCache) addNodeUsage(node string, usage resources.Requests) {
 		n.nodeUsage[node] = resources.MapRequests{}
 	}
 	n.nodeUsage[node].Add(usage)
-	n.nodeUsage[node].Add(resources.MapRequests{corev1.ResourcePods: 1})
+	n.nodeUsage[node].Add(resources.OnePodRequest)
 }
 
 // removeNodeUsage decrements the pre-aggregated per-node usage.
@@ -111,7 +111,7 @@ func (n *nonTasUsageCache) removeNodeUsage(node string, usage resources.Requests
 		return
 	}
 	existing.Sub(usage)
-	existing.Sub(resources.MapRequests{corev1.ResourcePods: 1})
+	existing.Sub(resources.OnePodRequest)
 	if pods := existing.GetValue(corev1.ResourcePods); pods <= 0 {
 		if pods < 0 {
 			log.V(0).Info("Unexpected negative pod count in nodeUsage", "node", node, "podCount", pods)

@@ -50,6 +50,8 @@ func usesBinaryFormat(name corev1.ResourceName) bool {
 // MapRequests maps ResourceName to flavor to value; for CPU it is tracked in MilliCPU.
 type MapRequests map[corev1.ResourceName]int64
 
+var OnePodRequest = MapRequests{corev1.ResourcePods: 1}
+
 func (r MapRequests) ForEach(fn func(name corev1.ResourceName, val int64)) {
 	for k, v := range r {
 		fn(k, v)
