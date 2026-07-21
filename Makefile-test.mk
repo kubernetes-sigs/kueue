@@ -636,6 +636,7 @@ run-test-e2e-k8s-main-was:
 		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="singlecluster" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
+		WAS_ENABLED=true \
 		./hack/testing/e2e-test.sh
 
 SCALABILITY_RUNNER := $(BIN_DIR)/performance-scheduler-runner
