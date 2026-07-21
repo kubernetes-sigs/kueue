@@ -301,7 +301,7 @@ func (s *TASFlavorSnapshot) addNonTASUsage(domainID utiltas.TopologyDomainID, us
 	s.leaves[domainID].cachedRemainingCapacity = resources.LazyRequests{}
 }
 
-func (s *TASFlavorSnapshot) updateTASUsage(domainID utiltas.TopologyDomainID, usage resources.MapRequests, op usageOp, count int32) {
+func (s *TASFlavorSnapshot) updateTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests, op usageOp, count int32) {
 	u := usage.Clone()
 	u.Add(resources.MapRequests{corev1.ResourcePods: int64(count)})
 	if op == add {
@@ -411,7 +411,7 @@ func (s *TASFlavorSnapshot) SerializeFreeCapacityPerDomain() (string, error) {
 type TASPodSetRequests struct {
 	PodSet            *kueue.PodSet
 	PodSetUpdates     []*kueue.PodSetUpdate
-	SinglePodRequests resources.MapRequests
+	SinglePodRequests resources.Requests
 	Count             int32
 	Flavor            kueue.ResourceFlavorReference
 	Implied           bool
@@ -421,7 +421,7 @@ type TASPodSetRequests struct {
 	PreviousAssignment *kueue.TopologyAssignment
 }
 
-func (t *TASPodSetRequests) TotalRequests() resources.MapRequests {
+func (t *TASPodSetRequests) TotalRequests() resources.Requests {
 	return t.SinglePodRequests.ScaledUp(int64(t.Count))
 }
 
@@ -774,10 +774,10 @@ func addAssumedUsage(assumedUsage map[utiltas.TopologyDomainID]resources.Request
 	addUsagePerDomain(assumedUsage, utiltas.ComputeUsagePerDomain(ta, tr.SinglePodRequests))
 }
 
-func addUsagePerDomain(assumedUsage map[utiltas.TopologyDomainID]resources.Requests, usagePerDomain map[utiltas.TopologyDomainID]resources.MapRequests) {
+func addUsagePerDomain(assumedUsage map[utiltas.TopologyDomainID]resources.Requests, usagePerDomain map[utiltas.TopologyDomainID]resources.Requests) {
 	for domainID, usage := range usagePerDomain {
 		if assumedUsage[domainID] == nil {
-			assumedUsage[domainID] = resources.MapRequests{}
+			assumedUsage[domainID] = resources.CreateEmpty()
 		}
 		assumedUsage[domainID].Add(usage)
 	}

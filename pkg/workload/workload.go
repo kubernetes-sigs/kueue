@@ -270,12 +270,12 @@ type TopologyRequest struct {
 
 type TopologyDomainRequests struct {
 	Values            []string
-	SinglePodRequests resources.MapRequests
+	SinglePodRequests resources.Requests
 	// Count indicates how many pods are requested in this TopologyDomain.
 	Count int32
 }
 
-func (t *TopologyDomainRequests) TotalRequests() resources.MapRequests {
+func (t *TopologyDomainRequests) TotalRequests() resources.Requests {
 	return t.SinglePodRequests.ScaledUp(int64(t.Count))
 }
 
