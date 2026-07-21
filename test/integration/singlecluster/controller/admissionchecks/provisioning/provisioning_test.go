@@ -259,6 +259,8 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 			})
 
 			ptName := fmt.Sprintf("ppt-%s-ps1", provReqKey.Name)
+			var foreignUID types.UID
+			var foreignGeneration int64
 
 			ginkgo.By("Pre-creating a PodTemplate at the deterministic name with divergent resource requests", func() {
 				foreign := utiltesting.MakePodTemplate(ptName, ns.Name).
@@ -276,6 +278,8 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 					}).
 					Obj()
 				util.MustCreate(ctx, k8sClient, foreign)
+				foreignUID = foreign.UID
+				foreignGeneration = foreign.Generation
 			})
 
 			ginkgo.By("Setting the quota reservation to the workload", func() {
@@ -297,6 +301,8 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 				createdTemplate := &corev1.PodTemplate{}
 				templateKey := types.NamespacedName{Namespace: ns.Name, Name: ptName}
 				gomega.Expect(k8sClient.Get(ctx, templateKey, createdTemplate)).Should(gomega.Succeed())
+				gomega.Expect(createdTemplate.UID).To(gomega.Equal(foreignUID))
+				gomega.Expect(createdTemplate.Generation).To(gomega.Equal(foreignGeneration))
 				gomega.Expect(createdTemplate.Template.Spec.Containers[0].Resources.Requests).To(gomega.HaveKey(resourceGPU))
 			})
 
@@ -355,6 +361,10 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 						g.Expect(createdTemplate.ObjectMeta.GetLabels()).To(gomega.HaveKeyWithValue(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue))
 					}
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that the AdmissionCheck is Pending after the ProvisioningRequest is created", func() {
+				util.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStatePending)
 			})
 		})
 
