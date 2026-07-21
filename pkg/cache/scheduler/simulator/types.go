@@ -45,7 +45,7 @@ type NodeExclusionStats struct {
 	TotalNodes   int
 
 	// Temporary non-granular reason for SchedulerLibraryIntegration, equivalent to the total number of not matching nodes.
-	// TODO: Long term the granular information should be taken in a structured form from the `scheduler-library`.
+	// TODO(#13283): Long term the granular information should be taken in a structured form from the `scheduler-library`.
 	SchedulerLibraryNoFit int
 }
 
