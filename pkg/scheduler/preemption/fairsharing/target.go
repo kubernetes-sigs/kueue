@@ -15,7 +15,10 @@
 package fairsharing
 
 import (
+	"k8s.io/apimachinery/pkg/util/sets"
+
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -53,6 +56,20 @@ func (t *TargetClusterQueue) HasWorkload() bool {
 func (t *TargetClusterQueue) ComputeShares() (PreemptorNewShare, TargetOldShare) {
 	preemptorAlmostLCA, targetAlmostLCA := getAlmostLCAs(t)
 	return PreemptorNewShare(preemptorAlmostLCA.DominantResourceShare()), TargetOldShare(targetAlmostLCA.DominantResourceShare())
+}
+
+// PreemptorWithinNominal reports whether the preemptor's subtree at the
+// candidate target's least-common-ancestor boundary stays within nominal
+// quota for every contested flavor-resource. The incoming workload must
+// already be simulated before calling this method.
+func (t *TargetClusterQueue) PreemptorWithinNominal(frs sets.Set[resources.FlavorResource]) bool {
+	preemptorAlmostLCA, _ := getAlmostLCAs(t)
+	for fr := range frs {
+		if preemptorAlmostLCA.BorrowingWith(fr, resources.NewAmount(0)) {
+			return false
+		}
+	}
+	return true
 }
 
 // ComputeTargetShareAfterRemoval returns DominantResourceShare of the
