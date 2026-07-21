@@ -300,13 +300,13 @@ func compactTopologyAssignmentEncoding(log logr.Logger, ta *TopologyAssignment) 
 
 	singleEncoded := singleCompactTopologyAssignmentEncoding(ta)
 	prefixJSON, prefixErr := json.Marshal(prefixEncoded)
-	singleJSON, singleErr := json.Marshal(singleEncoded)
 	if prefixErr != nil {
 		log.Error(prefixErr, "Failed to marshal hostname-prefix topology assignment while comparing encodings",
 			"domainCount", len(ta.Domains),
 			"sliceCount", len(prefixEncoded.Slices),
 		)
 	}
+	singleJSON, singleErr := json.Marshal(singleEncoded)
 	if singleErr != nil {
 		log.Error(singleErr, "Failed to marshal single-slice topology assignment while comparing encodings",
 			"domainCount", len(ta.Domains),

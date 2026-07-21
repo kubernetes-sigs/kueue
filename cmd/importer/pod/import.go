@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 )
@@ -174,6 +175,7 @@ func createWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) er
 }
 
 func admitWorkload(ctx context.Context, c client.Client, wl *kueue.Workload, cq *kueue.ClusterQueue) error {
+	resourceFormatter := resources.NewResourceFormatter()
 	update := func(wl *kueue.Workload) (bool, error) {
 		// make its admission and update its status
 		info := workload.NewInfo(wl)
@@ -184,7 +186,7 @@ func admitWorkload(ctx context.Context, c client.Client, wl *kueue.Workload, cq 
 				{
 					Name:          info.TotalRequests[0].Name,
 					Flavors:       make(map[corev1.ResourceName]kueue.ResourceFlavorReference),
-					ResourceUsage: info.TotalRequests[0].Requests.ToResourceList(),
+					ResourceUsage: info.TotalRequests[0].Requests.ToResourceList(resourceFormatter),
 					Count:         ptr.To[int32](1),
 				},
 			},

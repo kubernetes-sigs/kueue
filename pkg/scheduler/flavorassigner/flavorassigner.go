@@ -598,6 +598,7 @@ type FlavorAssigner struct {
 	// non-sliced workloads.
 	replaceWorkloadSlice *workload.Info
 	quotaCheckStrategy   configapi.QuotaCheckStrategy
+	resourceFormatter    *resources.ResourceFormatter
 }
 
 func New(
@@ -608,6 +609,7 @@ func New(
 	oracle preemptionOracle,
 	preemptWorkloadSlice *workload.Info,
 	quotaCheckStrategy configapi.QuotaCheckStrategy,
+	resourceFormatter *resources.ResourceFormatter,
 ) *FlavorAssigner {
 	return &FlavorAssigner{
 		wl:                   wl,
@@ -617,6 +619,7 @@ func New(
 		oracle:               oracle,
 		replaceWorkloadSlice: preemptWorkloadSlice,
 		quotaCheckStrategy:   quotaCheckStrategy,
+		resourceFormatter:    resourceFormatter,
 	}
 }
 
@@ -685,7 +688,7 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 		psAssignment := PodSetAssignment{
 			Name:     podSet.Name,
 			Flavors:  make(ResourceAssignment, len(podSet.Requests)),
-			Requests: podSet.Requests.ToResourceList(),
+			Requests: podSet.Requests.ToResourceList(a.resourceFormatter),
 			Count:    podSet.Count,
 		}
 
@@ -1230,9 +1233,9 @@ func (a *FlavorAssigner) fitsResourceQuota(
 			"insufficient quota for %s in flavor %s, previously considered podsets requests (%s) + current podset request (%s) > maximum capacity (%s)",
 			fr.Resource,
 			fr.Flavor,
-			resources.AmountQuantityString(fr.Resource, assumedUsage),
-			resources.ResourceQuantityString(fr.Resource, requestUsage),
-			resources.AmountQuantityString(fr.Resource, maxCapacity),
+			a.resourceFormatter.AmountQuantityString(fr.Resource, assumedUsage),
+			a.resourceFormatter.ResourceQuantityString(fr.Resource, requestUsage),
+			a.resourceFormatter.AmountQuantityString(fr.Resource, maxCapacity),
 		)
 		status.noFitReason = kueue.WorkloadQuotaReservedReasonExceedsMaxQuota
 		return noFit, 0, &status
@@ -1246,7 +1249,7 @@ func (a *FlavorAssigner) fitsResourceQuota(
 
 	// Preempt
 	status.appendf("insufficient unused quota for %s in flavor %s, %s more needed",
-		fr.Resource, fr.Flavor, resources.AmountQuantityString(fr.Resource, val.Sub(available)))
+		fr.Resource, fr.Flavor, a.resourceFormatter.AmountQuantityString(fr.Resource, val.Sub(available)))
 
 	if rQuota.Nominal.Cmp(val) >= 0 || mayReclaimInHierarchy || a.canPreemptWhileBorrowing() {
 		preemptionPossiblity, borrowAfterPreemptions := a.oracle.SimulatePreemption(ctx, a.cq, *a.wl, fr, val)

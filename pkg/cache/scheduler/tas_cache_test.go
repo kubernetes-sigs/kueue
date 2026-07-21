@@ -7786,7 +7786,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
 			client := clientBuilder.Build()
 
-			tasCache := NewTASCache(client, newDefaultSimulator())
+			tasCache := NewTASCache(client, newDefaultSimulator(), resources.NewResourceFormatter())
 			for i := range tc.nodes {
 				tasCache.SyncNode(&tc.nodes[i])
 			}
@@ -8264,7 +8264,7 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 			_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
 			c := clientBuilder.Build()
 
-			tasCache := NewTASCache(c, newDefaultSimulator())
+			tasCache := NewTASCache(c, newDefaultSimulator(), resources.NewResourceFormatter())
 			for i := range tc.nodes {
 				tasCache.SyncNode(&tc.nodes[i])
 			}

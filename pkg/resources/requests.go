@@ -19,8 +19,6 @@ package resources
 import (
 	"maps"
 	"math"
-	"strings"
-	"sync"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -29,20 +27,6 @@ import (
 
 	utilmath "sigs.k8s.io/kueue/pkg/util/math"
 )
-
-var binaryFormattedResources sync.Map
-
-// RegisterBinaryFormattedResource marks a resource name as byte-valued for display.
-// Counter-based DRA logical resources (for example gpu.memory) should be registered
-// at startup so quantities serialize with BinarySI units.
-func RegisterBinaryFormattedResource(name corev1.ResourceName) {
-	binaryFormattedResources.Store(name, struct{}{})
-}
-
-func usesBinaryFormat(name corev1.ResourceName) bool {
-	_, ok := binaryFormattedResources.Load(name)
-	return ok
-}
 
 // The following resources calculations are inspired on
 // https://github.com/kubernetes/kubernetes/blob/master/pkg/scheduler/framework/types.go
@@ -108,10 +92,10 @@ func (r Requests) Sub(subRequests Requests) {
 	}
 }
 
-func (r Requests) ToResourceList() corev1.ResourceList {
+func (r Requests) ToResourceList(formatter *ResourceFormatter) corev1.ResourceList {
 	ret := make(corev1.ResourceList, len(r))
 	for k, v := range r {
-		ret[k] = ResourceQuantity(k, v)
+		ret[k] = formatter.ResourceQuantity(k, v)
 	}
 	return ret
 }
@@ -123,55 +107,6 @@ func ResourceValue(name corev1.ResourceName, q resource.Quantity) int64 {
 		return utilmath.SafeMilliValue(q)
 	}
 	return q.Value()
-}
-
-func ResourceQuantity(name corev1.ResourceName, v int64) resource.Quantity {
-	switch name {
-	case corev1.ResourceCPU:
-		return *resource.NewMilliQuantity(v, resource.DecimalSI)
-	case corev1.ResourceMemory, corev1.ResourceEphemeralStorage:
-		return newCanonicalQuantity(v, resource.BinarySI)
-	default:
-		if strings.HasPrefix(string(name), corev1.ResourceHugePagesPrefix) || usesBinaryFormat(name) {
-			return newCanonicalQuantity(v, resource.BinarySI)
-		}
-		return *resource.NewQuantity(v, resource.DecimalSI)
-	}
-}
-
-// newCanonicalQuantity returns a Quantity that will successfully round-trip.
-//
-// This means the returned quantity can be serialized then deserialized back to
-// an identical quantity.
-//
-// If the value can round-trip using the preferred format, that one will be used.
-// Otherwise, the format will be automatically determined.
-//
-// For example, if preferred format is BinarySI, 128000 will use BinarySI format
-// (because it can be represented as 125Ki), but 100000 will use DecimalSI format.
-func newCanonicalQuantity(v int64, preferredFormat resource.Format) resource.Quantity {
-	preferred := *resource.NewQuantity(v, preferredFormat)
-	final, err := resource.ParseQuantity(preferred.String())
-	if err != nil {
-		// Should never happen
-		return preferred
-	}
-	return final
-}
-
-func ResourceQuantityString(name corev1.ResourceName, v int64) string {
-	rq := ResourceQuantity(name, v)
-	return rq.String()
-}
-
-// AmountQuantityString formats an Amount as a Kubernetes resource quantity
-// string. Unlimited amounts are formatted as "<unlimited>" rather than as
-// the raw math.MaxInt64 sentinel.
-func AmountQuantityString(name corev1.ResourceName, a Amount) string {
-	if a.Equal(Unlimited) {
-		return Unlimited.String()
-	}
-	return ResourceQuantityString(name, a.Int64())
 }
 
 // GreaterKeys returns keys where the receiver is greater than other.

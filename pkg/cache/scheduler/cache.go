@@ -111,6 +111,14 @@ func WithResourceMetrics(enabled bool) Option {
 	}
 }
 
+// WithResourceFormatter sets the formatter used for resource quantities exposed by the cache.
+func WithResourceFormatter(formatter *resources.ResourceFormatter) Option {
+	return func(c *Cache) {
+		c.resourceFormatter = formatter
+		c.tasCache.resourceFormatter = formatter
+	}
+}
+
 // WithRoleTracker sets the roleTracker for HA metrics.
 func WithRoleTracker(tracker *roletracker.RoleTracker) Option {
 	return func(c *Cache) {
@@ -145,6 +153,7 @@ type Cache struct {
 	fairSharingEnabled     bool
 	admissionFairSharing   *config.AdmissionFairSharing
 	resourceMetricsEnabled bool
+	resourceFormatter      *resources.ResourceFormatter
 	// Tracks Workload's ClusterQueue assignment throughout its presence in the cache, which is when they reserve quota (`QuotaReserved=True`).
 	workloadAssignedQueues map[workload.Reference]kueue.ClusterQueueReference
 
@@ -160,18 +169,20 @@ type Cache struct {
 }
 
 func New(client client.Client, options ...Option) *Cache {
+	resourceFormatter := resources.NewResourceFormatter()
 	cache := &Cache{
 		client:                 client,
 		resourceFlavors:        make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor),
 		admissionChecks:        make(map[kueue.AdmissionCheckReference]AdmissionCheck),
 		workloadAssignedQueues: make(map[workload.Reference]kueue.ClusterQueueReference),
 		hm:                     hierarchy.NewManager(newCohort),
+		resourceFormatter:      resourceFormatter,
 		schedulingSimulator:    newDefaultSimulator(),
 	}
 	for _, option := range options {
 		option(cache)
 	}
-	cache.tasCache = NewTASCache(client, cache.schedulingSimulator)
+	cache.tasCache = NewTASCache(client, cache.schedulingSimulator, resourceFormatter)
 	cache.podsReadyCond.L = &cache.RWMutex
 	return cache
 }
@@ -188,6 +199,7 @@ func (c *Cache) newClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) (*clust
 		resourceNode:        NewResourceNode(),
 		tasCache:            &c.tasCache,
 		AdmissionScope:      cq.Spec.AdmissionScope,
+		resourceFormatter:   c.resourceFormatter,
 		roleTracker:         c.roleTracker,
 		lqMetrics:           c.lqMetrics,
 		customLabels:        c.customLabels,
@@ -453,6 +465,7 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 			admittedUsage:      make(resources.FlavorResourceQuantities),
 			labels:             q.GetLabels(),
 			customLabels:       c.customLabels,
+			resourceFormatter:  c.resourceFormatter,
 		}
 		qImpl.customLabels.LQStore(qKey, q.GetLabels(), q.Annotations)
 		qImpl.resetFlavorsAndResources(cqImpl.resourceNode.Usage, cqImpl.AdmittedUsage)
@@ -868,9 +881,9 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) (*ClusterQueueUsageStats, error
 	}
 
 	stats := &ClusterQueueUsageStats{
-		ReservedResources:  getUsage(cq.resourceNode.Usage, cq),
+		ReservedResources:  c.getUsage(cq.resourceNode.Usage, cq),
 		ReservingWorkloads: len(cq.Workloads),
-		AdmittedResources:  getUsage(cq.AdmittedUsage, cq),
+		AdmittedResources:  c.getUsage(cq.AdmittedUsage, cq),
 		AdmittedWorkloads:  cq.admittedWorkloadsCount,
 	}
 
@@ -964,7 +977,7 @@ func (c *Cache) ancestors(cohortName kueue.CohortReference) ([]kueue.CohortRefer
 	return ancestors, nil
 }
 
-func getUsage(frq resources.FlavorResourceQuantities, cq *clusterQueue) []kueue.FlavorUsage {
+func (c *Cache) getUsage(frq resources.FlavorResourceQuantities, cq *clusterQueue) []kueue.FlavorUsage {
 	usage := make([]kueue.FlavorUsage, 0, len(frq))
 	for _, rg := range cq.ResourceGroups {
 		for _, fName := range rg.Flavors {
@@ -978,13 +991,13 @@ func getUsage(frq resources.FlavorResourceQuantities, cq *clusterQueue) []kueue.
 				used := frq[fr]
 				rUsage := kueue.ResourceUsage{
 					Name:  rName,
-					Total: resources.ResourceQuantity(rName, used.Int64()),
+					Total: c.resourceFormatter.ResourceQuantity(rName, used.Int64()),
 				}
 				// Enforce `borrowed=0` if the clusterQueue doesn't belong to a cohort.
 				if cq.HasParent() {
 					borrowed := used.Sub(rQuota.Nominal).Int64()
 					if borrowed > 0 {
-						rUsage.Borrowed = resources.ResourceQuantity(rName, borrowed)
+						rUsage.Borrowed = c.resourceFormatter.ResourceQuantity(rName, borrowed)
 					}
 				}
 				outFlvUsage.Resources = append(outFlvUsage.Resources, rUsage)
@@ -1020,9 +1033,9 @@ func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, 
 	}
 
 	return &LocalQueueUsageStats{
-		ReservedResources:  filterLocalQueueUsage(qImpl.totalReserved, cqImpl.ResourceGroups),
+		ReservedResources:  c.filterLocalQueueUsage(qImpl.totalReserved, cqImpl.ResourceGroups),
 		ReservingWorkloads: qImpl.reservingWorkloads,
-		AdmittedResources:  filterLocalQueueUsage(qImpl.admittedUsage, cqImpl.ResourceGroups),
+		AdmittedResources:  c.filterLocalQueueUsage(qImpl.admittedUsage, cqImpl.ResourceGroups),
 		AdmittedWorkloads:  qImpl.admittedWorkloads,
 	}, nil
 }
@@ -1031,7 +1044,7 @@ func handleTASFlavor(rf *kueue.ResourceFlavor) bool {
 	return features.Enabled(features.TopologyAwareScheduling) && rf.Spec.TopologyName != nil
 }
 
-func filterLocalQueueUsage(orig resources.FlavorResourceQuantities, resourceGroups []ResourceGroup) []kueue.LocalQueueFlavorUsage {
+func (c *Cache) filterLocalQueueUsage(orig resources.FlavorResourceQuantities, resourceGroups []ResourceGroup) []kueue.LocalQueueFlavorUsage {
 	qFlvUsages := make([]kueue.LocalQueueFlavorUsage, 0, len(orig))
 	for _, rg := range resourceGroups {
 		for _, fName := range rg.Flavors {
@@ -1043,7 +1056,7 @@ func filterLocalQueueUsage(orig resources.FlavorResourceQuantities, resourceGrou
 				fr := resources.FlavorResource{Flavor: fName, Resource: rName}
 				outFlvUsage.Resources = append(outFlvUsage.Resources, kueue.LocalQueueResourceUsage{
 					Name:  rName,
-					Total: resources.ResourceQuantity(rName, orig[fr].Int64()),
+					Total: c.resourceFormatter.ResourceQuantity(rName, orig[fr].Int64()),
 				})
 			}
 			// The resourceUsages should be in a stable order to avoid endless creation of update events.
@@ -1140,8 +1153,8 @@ func (c *Cache) ResyncGaugeMetrics(log logr.Logger) {
 	}
 }
 
-func resourceFloat(name corev1.ResourceName, v int64) float64 {
-	q := resources.ResourceQuantity(name, v)
+func resourceFloat(formatter *resources.ResourceFormatter, name corev1.ResourceName, v int64) float64 {
+	q := formatter.ResourceQuantity(name, v)
 	return utilresource.QuantityToFloat(&q)
 }
 

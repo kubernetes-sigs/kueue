@@ -88,6 +88,7 @@ type Scheduler struct {
 	clock                   clock.Clock
 	roleTracker             *roletracker.RoleTracker
 	customLabels            *metrics.CustomLabels
+	resourceFormatter       *resources.ResourceFormatter
 
 	// schedulingCycle identifies the number of scheduling
 	// attempts since the last restart.
@@ -103,6 +104,7 @@ type options struct {
 	roleTracker                 *roletracker.RoleTracker
 	preemptionExpectations      *expectations.Store
 	customLabels                *metrics.CustomLabels
+	resourceFormatter           *resources.ResourceFormatter
 }
 
 // Option configures the reconciler.
@@ -168,10 +170,20 @@ func WithQuotaCheckStrategy(qcs config.QuotaCheckStrategy) Option {
 	}
 }
 
+// WithResourceFormatter sets the formatter used for resource quantities reported by the scheduler.
+func WithResourceFormatter(formatter *resources.ResourceFormatter) Option {
+	return func(o *options) {
+		o.resourceFormatter = formatter
+	}
+}
+
 func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recorder events.EventRecorder, opts ...Option) *Scheduler {
 	options := defaultOptions
 	for _, opt := range opts {
 		opt(&options)
+	}
+	if options.resourceFormatter == nil {
+		options.resourceFormatter = resources.NewResourceFormatter()
 	}
 	wo := workload.Ordering{
 		PodsReadyRequeuingTimestamp: options.podsReadyRequeuingTimestamp,
@@ -200,6 +212,7 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 		quotaCheckStrategy:      options.quotaCheckStrategy,
 		roleTracker:             options.roleTracker,
 		customLabels:            options.customLabels,
+		resourceFormatter:       options.resourceFormatter,
 	}
 	return s
 }
@@ -766,7 +779,11 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info
 	cq := snap.ClusterQueue(wl.ClusterQueue)
 
 	preemptionTargets, replaceableWorkloadSlice := workloadslicing.ReplacedWorkloadSlice(wl, snap)
-	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing), preemption.NewOracle(s.preemptor, snap), replaceableWorkloadSlice, s.quotaCheckStrategy)
+	flvAssigner := flavorassigner.New(
+		wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing),
+		preemption.NewOracle(s.preemptor, snap), replaceableWorkloadSlice,
+		s.quotaCheckStrategy, s.resourceFormatter,
+	)
 	fullAssignment := flvAssigner.Assign(ctx, nil)
 
 	arm := fullAssignment.RepresentativeMode()
@@ -1055,7 +1072,7 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 		condReason := workload.UnadmittedWorkloadReasonWithFallback(e.quotaReservedReason, "Pending")
 		if err := workloadpatching.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
 			updated := workload.UnsetQuotaReservationWithCondition(wl, condReason, e.inadmissibleMsg, s.clock.Now())
-			if workload.PropagateResourceRequests(wl, &e.Info) {
+			if workload.PropagateResourceRequests(wl, &e.Info, s.resourceFormatter) {
 				updated = true
 			}
 			if e.status == preemptionGated {
@@ -1187,7 +1204,7 @@ func filterByNames(requests corev1.ResourceList, allowed sets.Set[corev1.Resourc
 func (s *Scheduler) updateEntryPenalty(log logr.Logger, e *entry, op usageOp) {
 	lqKey := utilqueue.NewLocalQueueReference(e.Obj.Namespace, e.Obj.Spec.QueueName)
 	lqObjRef := klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName))
-	totalRequests := e.SumTotalRequests()
+	totalRequests := e.SumTotalRequests(s.resourceFormatter)
 	if flavorassigner.IgnoreUndeclaredResources(s.quotaCheckStrategy) {
 		totalRequests = filterByNames(totalRequests, allCoveredResources(e.clusterQueueSnapshot.ResourceGroups))
 	}

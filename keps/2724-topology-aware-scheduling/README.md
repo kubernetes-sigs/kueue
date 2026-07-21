@@ -1363,6 +1363,10 @@ hostnames, and decoding preserves domain order and Pod counts. Disabling the fea
 single-slice encoder but does not affect reading existing multi-slice assignments. New assignments must then fit the
 single-slice representation and object-size limit; otherwise they can fail to persist.
 
+On upgrade, existing `TopologyAssignment`s remain unchanged. If the assignment of an admitted Workload is later
+recomputed, for example during node hot swap, Kueue re-encodes the entire assignment using the currently enabled
+algorithm.
+
 When the feature gate is enabled, Kueue builds the hostname-prefix encoding first. If it needs multiple slices but the
 assignment is within the per-slice domain limit, Kueue serializes both encodings and keeps the smaller one. Assignments
 that exceed the per-slice domain limit always use the hostname-prefix encoding. When the lowest topology level is

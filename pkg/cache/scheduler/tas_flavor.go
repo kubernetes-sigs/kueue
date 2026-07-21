@@ -94,6 +94,8 @@ type TASFlavorCache struct {
 	// schedulingSimulator performs the node feasibility check
 	// based on topology requirements.
 	schedulingSimulator simulator.SchedulingSimulator
+
+	resourceFormatter *resources.ResourceFormatter
 }
 
 func (t *tasCache) NewTASFlavorCache(topologyInfo topologyInformation,
@@ -106,6 +108,7 @@ func (t *tasCache) NewTASFlavorCache(topologyInfo topologyInformation,
 		wlUsage:             make(map[workload.Reference][]workload.TopologyDomainRequests),
 		nonTasUsageCache:    t.nonTasUsageCache,
 		schedulingSimulator: t.schedulingSimulator,
+		resourceFormatter:   t.resourceFormatter,
 	}
 }
 
@@ -140,7 +143,8 @@ func (c *TASFlavorCache) snapshot(log logr.Logger, nodes []*corev1.Node, aggrega
 		return nil, err
 	}
 
-	snapshot := newTASFlavorSnapshot(log, c.flavor.TopologyName, c.topology.Levels, c.flavor.Tolerations, feasibilityChecker)
+	snapshot := newTASFlavorSnapshot(log, c.flavor.TopologyName, c.topology.Levels, c.flavor.Tolerations, feasibilityChecker, withResourceFormatter(c.resourceFormatter))
+
 	nodeToDomain := make(map[string]utiltas.TopologyDomainID)
 	for _, node := range nodes {
 		nodeToDomain[node.Name] = snapshot.addNode(node)

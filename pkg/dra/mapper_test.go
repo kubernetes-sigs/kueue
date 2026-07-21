@@ -19,10 +19,10 @@ package dra
 import (
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
-	"sigs.k8s.io/kueue/pkg/resources"
 )
 
 func TestNewDRAResourceMapper(t *testing.T) {
@@ -410,14 +410,28 @@ func TestCreateMapperFromConfiguration(t *testing.T) {
 	}
 }
 
-func TestPopulateFromConfigurationRegistersBinaryFormattedCounterResource(t *testing.T) {
+func TestResourceMapperCounterBasedResourceNames(t *testing.T) {
 	mapper := NewResourceMapper()
 	err := mapper.PopulateFromConfiguration([]configapi.DeviceClassMapping{
 		{
 			Name:             corev1.ResourceName("gpu.memory"),
-			DeviceClassNames: []corev1.ResourceName{"gpu.example.com"},
+			DeviceClassNames: []corev1.ResourceName{"gpu-a.example.com"},
 			Sources: []configapi.DeviceClassSourceConfig{
 				{Counter: &configapi.DeviceClassCounterSource{Driver: "gpu.example.com", Name: "memory"}},
+			},
+		},
+		{
+			Name:             corev1.ResourceName("gpu.memory"),
+			DeviceClassNames: []corev1.ResourceName{"gpu-b.example.com"},
+			Sources: []configapi.DeviceClassSourceConfig{
+				{Counter: &configapi.DeviceClassCounterSource{Driver: "gpu.example.com", Name: "memory"}},
+			},
+		},
+		{
+			Name:             corev1.ResourceName("gpu.compute"),
+			DeviceClassNames: []corev1.ResourceName{"gpu-c.example.com"},
+			Sources: []configapi.DeviceClassSourceConfig{
+				{Counter: &configapi.DeviceClassCounterSource{Driver: "gpu.example.com", Name: "compute"}},
 			},
 		},
 	})
@@ -425,8 +439,8 @@ func TestPopulateFromConfigurationRegistersBinaryFormattedCounterResource(t *tes
 		t.Fatalf("PopulateFromConfiguration failed: %v", err)
 	}
 
-	quantity := resources.ResourceQuantity("gpu.memory", 9984*1024*1024)
-	if quantity.String() != "9984Mi" {
-		t.Fatalf("expected BinarySI formatting, got %s", quantity.String())
+	want := []corev1.ResourceName{"gpu.compute", "gpu.memory"}
+	if diff := cmp.Diff(want, mapper.CounterBasedResourceNames()); diff != "" {
+		t.Errorf("CounterBasedResourceNames() mismatch (-want,+got):\n%s", diff)
 	}
 }
