@@ -83,7 +83,7 @@ func (s Summary) ValidatePodSpec(ps *corev1.PodSpec, path *field.Path) field.Err
 	allErrs = append(allErrs, s.validatePodSpecContainers(ps.InitContainers, path.Child("initContainers"))...)
 	allErrs = append(allErrs, s.validatePodSpecContainers(ps.Containers, path.Child("containers"))...)
 	if podRange, found := s[corev1.LimitTypePod]; found {
-		total := resources.NewRequestsFromPodSpec(ps)
+		total := resources.NewMapRequestsFromPodSpec(ps)
 		if resNames := total.GreaterKeysRL(podRange.Max); len(resNames) > 0 {
 			allErrs = append(allErrs, field.Invalid(path, resNames, RequestsMustNotBeAboveLimitRangeMaxMessage))
 		}

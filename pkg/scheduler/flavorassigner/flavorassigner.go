@@ -115,7 +115,7 @@ func (a *Assignment) ComputeTASNetUsage(log logr.Logger, cq *schdcache.ClusterQu
 			for _, domain := range psa.TopologyAssignment.Domains {
 				result[*tasFlavor] = append(result[*tasFlavor], workload.TopologyDomainRequests{
 					Values:            domain.Values,
-					SinglePodRequests: singlePodRequests.Clone(),
+					SinglePodRequests: singlePodRequests.ToMapRequests().Clone(),
 					Count:             domain.Count,
 				})
 			}
