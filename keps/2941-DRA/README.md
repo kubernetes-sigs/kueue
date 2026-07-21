@@ -1417,6 +1417,7 @@ borrowing only operates within the same resource.
   existence at config load time.
 - `KueueDRAIntegrationPartitionableDevices` requires `KueueDRAIntegration` to be enabled. Validated
   at startup in `pkg/config/validation.go`.
+- Tightened driver name max length from 253 to 63 to match resourcev1.DriverNameMaxLength since Kueue v0.19.0
 
 ### Consumable Capacity
 
@@ -1985,6 +1986,7 @@ tracks adding this). This follows the same pattern as upstream K8s integration t
 - Promoted KueueDRAIntegrationExtendedResource to Beta: July 2026 by @PannagaRao
 - Consumable capacity design: July 2026 by @sohankunkerkar — added KEP-5075 integration
   for software-level device sharing
+- Promoted KueueDRAIntegrationPartitionableDevices to Beta: July 2026 by @PannagaRao
 
 **Key Design Evolution:**
 - **Original Design**: Standalone DynamicResourceAllocationConfig CRD with runtime ambiguity resolution
