@@ -29,7 +29,7 @@ import (
 // deviceClassCounterConfig holds counter configuration for a specific DeviceClass.
 type deviceClassCounterConfig struct {
 	quotaResource  corev1.ResourceName
-	driver         string
+	driver         DriverReference
 	counterName    string
 	deviceSelector resourcev1.DeviceSelector
 }
@@ -132,7 +132,7 @@ func (m *ResourceMapper) PopulateFromConfiguration(mappings []configapi.DeviceCl
 				if source.Counter != nil {
 					dcCounters[deviceClassName] = append(dcCounters[deviceClassName], deviceClassCounterConfig{
 						quotaResource:  mapping.Name,
-						driver:         source.Counter.Driver,
+						driver:         DriverReference(source.Counter.Driver),
 						counterName:    source.Counter.Name,
 						deviceSelector: source.Counter.DeviceSelector,
 					})

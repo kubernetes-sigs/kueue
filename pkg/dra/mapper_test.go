@@ -275,7 +275,7 @@ func TestCreateMapperFromConfiguration(t *testing.T) {
 	type wantCounterConfig struct {
 		quotaResource corev1.ResourceName
 		counterName   string
-		driver        string
+		driver        DriverReference
 	}
 	tests := []struct {
 		name                   string

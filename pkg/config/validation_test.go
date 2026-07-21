@@ -1226,8 +1226,9 @@ func TestValidate(t *testing.T) {
 				Integrations: defaultIntegrations,
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegrationExtendedResource: true,
-				features.KueueDRAIntegration:                 false,
+				features.KueueDRAIntegrationExtendedResource:     true,
+				features.KueueDRAIntegration:                     false,
+				features.KueueDRAIntegrationPartitionableDevices: false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -1458,6 +1459,7 @@ func TestValidate(t *testing.T) {
 					},
 				},
 			},
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: false},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
@@ -1520,6 +1522,93 @@ func TestValidate(t *testing.T) {
 				&field.Error{
 					Type:  field.ErrorTypeRequired,
 					Field: "resources.deviceClassMappings[0].sources[0].counter.name",
+				},
+			},
+		},
+		"sources: invalid counter name format": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"mig.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "INVALID_NAME",
+									Driver: "gpu.nvidia.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[0].sources[0].counter.name",
+				},
+			},
+		},
+		"sources: invalid driver name format": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"mig.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "memory",
+									Driver: "NOT_VALID!!",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[0].sources[0].counter.driver",
+				},
+			},
+		},
+		"sources: driver name exceeds max length": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"mig.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "memory",
+									Driver: "gpu-accelerator.nvidia-corporation.datacenter.example.com.internal",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[0].sources[0].counter.driver",
 				},
 			},
 		},
@@ -1730,9 +1819,10 @@ func TestValidate(t *testing.T) {
 		},
 		"CC gate requires DRA base gate": {
 			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:                   false,
-				features.KueueDRAIntegrationExtendedResource:   false,
-				features.KueueDRAIntegrationConsumableCapacity: true,
+				features.KueueDRAIntegration:                     false,
+				features.KueueDRAIntegrationExtendedResource:     false,
+				features.KueueDRAIntegrationPartitionableDevices: false,
+				features.KueueDRAIntegrationConsumableCapacity:   true,
 			},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
@@ -1768,21 +1858,30 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 			featureGatesCLI: "",
 		},
 		"feature gate cli": {
-			featureGatesCLI: string(features.KueueDRAIntegration) + "=false," + string(features.KueueDRAIntegrationExtendedResource) + "=false",
+			featureGatesCLI: string(
+				features.KueueDRAIntegration,
+			) + "=false," + string(
+				features.KueueDRAIntegrationExtendedResource,
+			) + "=false," + string(
+				features.KueueDRAIntegrationPartitionableDevices,
+			) + "=false",
 			gatesToRestore: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:                 false,
-				features.KueueDRAIntegrationExtendedResource: false,
+				features.KueueDRAIntegration:                     false,
+				features.KueueDRAIntegrationExtendedResource:     false,
+				features.KueueDRAIntegrationPartitionableDevices: false,
 			},
 		},
 		"cannot specify both feature gates": {
 			featureGatesCLI: string(features.KueueDRAIntegration) + "=false",
 			featureGateMap: map[string]bool{
-				string(features.KueueDRAIntegration):                 false,
-				string(features.KueueDRAIntegrationExtendedResource): false,
+				string(features.KueueDRAIntegration):                     false,
+				string(features.KueueDRAIntegrationExtendedResource):     false,
+				string(features.KueueDRAIntegrationPartitionableDevices): false,
 			},
 			gatesToRestore: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:                 false,
-				features.KueueDRAIntegrationExtendedResource: false,
+				features.KueueDRAIntegration:                     false,
+				features.KueueDRAIntegrationExtendedResource:     false,
+				features.KueueDRAIntegrationPartitionableDevices: false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -1962,12 +2061,14 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		},
 		"KueueDRAIntegrationExtendedResource requires KueueDRAIntegration": {
 			featureGateMap: map[string]bool{
-				string(features.KueueDRAIntegrationExtendedResource): true,
-				string(features.KueueDRAIntegration):                 false,
+				string(features.KueueDRAIntegrationExtendedResource):     true,
+				string(features.KueueDRAIntegration):                     false,
+				string(features.KueueDRAIntegrationPartitionableDevices): false,
 			},
 			gatesToRestore: map[featuregate.Feature]bool{
-				features.KueueDRAIntegrationExtendedResource: false,
-				features.KueueDRAIntegration:                 true,
+				features.KueueDRAIntegrationExtendedResource:     false,
+				features.KueueDRAIntegration:                     true,
+				features.KueueDRAIntegrationPartitionableDevices: true,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{

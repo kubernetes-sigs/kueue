@@ -892,13 +892,15 @@ func validateDeviceClassSource(name, driver string, selector *resourcev1.DeviceS
 	var allErrs field.ErrorList
 	if name == "" {
 		allErrs = append(allErrs, field.Required(path.Child("name"), ""))
-	} else if len(name) > 63 {
-		allErrs = append(allErrs, field.Invalid(path.Child("name"), name, "must not exceed 63 characters"))
+	} else if errs := apimachineryutilvalidation.IsDNS1123Label(name); len(errs) != 0 {
+		allErrs = append(allErrs, field.Invalid(path.Child("name"), name, strings.Join(errs, ",")))
 	}
 	if driver == "" {
 		allErrs = append(allErrs, field.Required(path.Child("driver"), ""))
+	} else if len(driver) > resourcev1.DriverNameMaxLength {
+		allErrs = append(allErrs, field.Invalid(path.Child("driver"), driver, fmt.Sprintf("must not exceed %d characters", resourcev1.DriverNameMaxLength)))
 	} else if errs := apimachineryutilvalidation.IsDNS1123Subdomain(driver); len(errs) != 0 {
-		allErrs = append(allErrs, field.Invalid(path.Child("driver"), driver, strings.Join(errs, "; ")))
+		allErrs = append(allErrs, field.Invalid(path.Child("driver"), driver, strings.Join(errs, ",")))
 	}
 	selectorPath := path.Child("deviceSelector", "cel", "expression")
 	if selector.CEL == nil || selector.CEL.Expression == "" {

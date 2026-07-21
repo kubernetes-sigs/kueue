@@ -654,7 +654,7 @@ type DeviceClassMapping struct {
 	// Each source defines how quota is tracked for this DeviceClass.
 	// Extended resource requests that resolve to a DeviceClass with sources
 	// configured are marked inadmissible.
-	// Counter sources require KueueDRAIntegrationPartitionableDevices.
+	// Counter sources require KueueDRAIntegrationPartitionableDevices (enabled by default since v0.19).
 	// Capacity sources require KueueDRAIntegrationConsumableCapacity.
 	// +optional
 	Sources []DeviceClassSourceConfig `json:"sources,omitempty"`
@@ -679,8 +679,8 @@ type DeviceClassSourceConfig struct {
 // DeviceClassCounterSource identifies where to read counter data from and which counter to track.
 type DeviceClassCounterSource struct {
 	// Name is the counter name within the device's consumesCounters
-	// entries to track for quota. Must match a counter name published by
-	// the driver in ResourceSlice devices' consumesCounters field.
+	// entries to track for quota. Must be a DNS label and match a counter
+	// name published by the driver in ResourceSlice devices' consumesCounters field.
 	// Counter set names are per-device identifiers (e.g., gpu-0-counter-set,
 	// gpu-1-counter-set), so name matches across all counter sets
 	// for a given driver without requiring one mapping per device.
@@ -689,7 +689,7 @@ type DeviceClassCounterSource struct {
 	Name string `json:"name"`
 
 	// Driver is the DRA driver name used to filter relevant ResourceSlices.
-	// Must match the spec.driver field on ResourceSlice objects.
+	// Must be a lowercase DNS subdomain and match the spec.driver field on ResourceSlice objects.
 	// The total length must not exceed 63 characters.
 	// +required
 	Driver string `json:"driver"`

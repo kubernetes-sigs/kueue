@@ -138,7 +138,7 @@ func prepareCounterCharge(
 func matchDevicesForSource(
 	ctx context.Context,
 	sliceCache *ResourceSliceCache,
-	driver string,
+	driver DriverReference,
 	deviceSelector resourcev1.DeviceSelector,
 	classSelectors []dracel.CompilationResult,
 	requestSelectors []dracel.CompilationResult,
@@ -158,10 +158,10 @@ func matchDevicesForSource(
 	if err != nil {
 		return nil, field.ErrorList{field.InternalError(reqPath, fmt.Errorf("failed to list ResourceSlices: %w", err))}
 	}
-	pools := groupSlicesByPool(sliceList, driver)
+	pools := groupSlicesByPool(sliceList, string(driver))
 	log.V(4).Info("Listed ResourceSlices for device matching", "driver", driver, "pools", len(pools), "slices", len(sliceList))
 
-	return matchDevicesWithSelectors(ctx, pools, driver, selectorSelectors, classSelectors, requestSelectors, reqPath)
+	return matchDevicesWithSelectors(ctx, pools, string(driver), selectorSelectors, classSelectors, requestSelectors, reqPath)
 }
 
 // safeChargeValue converts a driver-published resource.Quantity to a safe int64
@@ -351,6 +351,6 @@ func computeCounterCharges(
 		return nil
 	}
 
-	intVal := safeChargeValue(log, maxValue, counterConfig.driver, counterConfig.counterName, count)
+	intVal := safeChargeValue(log, maxValue, string(counterConfig.driver), counterConfig.counterName, count)
 	return corev1.ResourceList{quotaResource: *resource.NewQuantity(intVal, maxValue.Format)}
 }
