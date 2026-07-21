@@ -503,7 +503,7 @@ func TestLazyRequests(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			var originalBase MapRequests
+			var originalBase Requests
 			if tc.base != nil {
 				originalBase = tc.base.Clone()
 			}
