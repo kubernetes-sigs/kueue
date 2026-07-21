@@ -148,7 +148,7 @@ func TestNewInfo(t *testing.T) {
 				TotalRequests: []PodSetResources{
 					{
 						Name: kueue.DefaultPodSetName,
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU:    10,
 							corev1.ResourceMemory: 512 * 1024,
 						},
@@ -176,7 +176,7 @@ func TestNewInfo(t *testing.T) {
 				TotalRequests: []PodSetResources{
 					{
 						Name: kueue.DefaultPodSetName,
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU:    3 * 10,
 							corev1.ResourceMemory: 3 * 512 * 1024,
 						},
@@ -204,7 +204,7 @@ func TestNewInfo(t *testing.T) {
 				TotalRequests: []PodSetResources{
 					{
 						Name: kueue.DefaultPodSetName,
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU:    5 * 10,
 							corev1.ResourceMemory: 5 * 512 * 1024,
 						},
@@ -227,7 +227,7 @@ func TestNewInfo(t *testing.T) {
 					{
 						Name:  kueue.DefaultPodSetName,
 						Count: 2147483647,
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU: 9223372036854775807,
 						},
 					},
@@ -277,7 +277,7 @@ func TestNewInfo(t *testing.T) {
 				TotalRequests: []PodSetResources{
 					{
 						Name: "driver",
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU:    10,
 							corev1.ResourceMemory: 512 * 1024,
 						},
@@ -288,7 +288,7 @@ func TestNewInfo(t *testing.T) {
 					},
 					{
 						Name: "workers",
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU:    15,
 							corev1.ResourceMemory: 3 * 1024 * 1024,
 							"ex.com/gpu":          3,
@@ -335,7 +335,7 @@ func TestNewInfo(t *testing.T) {
 							corev1.ResourceMemory:     "tas",
 							"example.com/logical-gpu": "quota",
 						},
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU:        2000,
 							corev1.ResourceMemory:     2 * 1024 * 1024 * 1024,
 							"example.com/logical-gpu": 2,
@@ -345,7 +345,7 @@ func TestNewInfo(t *testing.T) {
 							Levels: []string{corev1.LabelHostname},
 							DomainRequests: []TopologyDomainRequests{{
 								Values: []string{"node-a"},
-								SinglePodRequests: resources.Requests{
+								SinglePodRequests: resources.MapRequests{
 									corev1.ResourceCPU:           1000,
 									corev1.ResourceMemory:        1024 * 1024 * 1024,
 									"example.com/gpu":            1,
@@ -390,7 +390,7 @@ func TestNewInfo(t *testing.T) {
 							corev1.ResourceCPU:    "f1",
 							corev1.ResourceMemory: "f1",
 						},
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU:    3 * 10,
 							corev1.ResourceMemory: 3 * 10 * 1024,
 						},
@@ -431,7 +431,7 @@ func TestNewInfo(t *testing.T) {
 							corev1.ResourceCPU:    "f1",
 							corev1.ResourceMemory: "f1",
 						},
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU:    5 * 10,
 							corev1.ResourceMemory: 5 * 10 * 1024,
 						},
@@ -474,7 +474,7 @@ func TestNewInfo(t *testing.T) {
 							corev1.ResourceCPU:    "f1",
 							corev1.ResourceMemory: "f1",
 						},
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU:    2 * 10,
 							corev1.ResourceMemory: 2 * 10 * 1024,
 						},
@@ -515,7 +515,7 @@ func TestNewInfo(t *testing.T) {
 							corev1.ResourceCPU:    "f1",
 							corev1.ResourceMemory: "f1",
 						},
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU:    0,
 							corev1.ResourceMemory: 0,
 						},
@@ -550,7 +550,7 @@ func TestNewInfo(t *testing.T) {
 							corev1.ResourceCPU:    "f1",
 							corev1.ResourceMemory: "f1",
 						},
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU:    3 * 10,
 							corev1.ResourceMemory: 3 * 10 * 1024,
 						},
@@ -570,7 +570,7 @@ func TestNewInfo(t *testing.T) {
 				TotalRequests: []PodSetResources{
 					{
 						Name: kueue.DefaultPodSetName,
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU:    10,
 							corev1.ResourceMemory: 512 * 1024,
 						},
@@ -649,7 +649,7 @@ func TestNewInfo(t *testing.T) {
 				TotalRequests: []PodSetResources{
 					{
 						Name: "a",
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU: 1000,
 							corev1.ResourceName("example.com/accelerator-memory"): 20 * 1024,
 							corev1.ResourceName("example.com/credits"):            35,
@@ -658,7 +658,7 @@ func TestNewInfo(t *testing.T) {
 					},
 					{
 						Name: "b",
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU: 4 * 1000,
 							corev1.ResourceName("example.com/accelerator-memory"): 80 * 1024,
 							corev1.ResourceName("example.com/credits"):            200,
@@ -668,7 +668,7 @@ func TestNewInfo(t *testing.T) {
 					},
 					{
 						Name: "c",
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceName("nvidia.com/vgpu"):            2,
 							corev1.ResourceName("nvidia.com/total-vgpucores"): 2 * 20,
 							corev1.ResourceName("nvidia.com/total-vgpumem"):   2 * 1024,
@@ -677,7 +677,7 @@ func TestNewInfo(t *testing.T) {
 					},
 					{
 						Name: "d",
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceName("nvidia.com/vgpu"):            2 * 2,
 							corev1.ResourceName("nvidia.com/total-vgpucores"): 2 * 2 * 30,
 							corev1.ResourceName("nvidia.com/total-vgpumem"):   2 * 2 * 2048,
@@ -716,7 +716,7 @@ func TestNewInfo(t *testing.T) {
 				TotalRequests: []PodSetResources{
 					{
 						Name: "",
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							// 100m * 3000 = 300
 							corev1.ResourceName("example.com/cpu-credits"): 300,
 							// 100M * 3m = 300k
@@ -757,7 +757,7 @@ func TestUpdateWithRebuild(t *testing.T) {
 				Request(corev1.ResourceCPU, "200m").Obj(),
 			wantRequests: []PodSetResources{{
 				Name:     kueue.DefaultPodSetName,
-				Requests: resources.Requests{corev1.ResourceCPU: 200},
+				Requests: resources.MapRequests{corev1.ResourceCPU: 200},
 				Count:    1,
 			}},
 		},
@@ -780,7 +780,7 @@ func TestUpdateWithRebuild(t *testing.T) {
 				Request("example.com/gpu", "1").Obj(),
 			wantRequests: []PodSetResources{{
 				Name:     kueue.DefaultPodSetName,
-				Requests: resources.Requests{"example.com/gpu": 1},
+				Requests: resources.MapRequests{"example.com/gpu": 1},
 				Count:    1,
 			}},
 		},
@@ -798,7 +798,7 @@ func TestUpdateWithRebuild(t *testing.T) {
 				Obj(),
 			wantRequests: []PodSetResources{{
 				Name:     kueue.DefaultPodSetName,
-				Requests: resources.Requests{corev1.ResourceCPU: 200},
+				Requests: resources.MapRequests{corev1.ResourceCPU: 200},
 				Count:    1,
 			}},
 		},
@@ -820,7 +820,7 @@ func TestUpdateWithRebuild(t *testing.T) {
 			updateOptions: []InfoOption{WithPreserveTotalRequests()},
 			wantRequests: []PodSetResources{{
 				Name:     kueue.DefaultPodSetName,
-				Requests: resources.Requests{"gpu": 1},
+				Requests: resources.MapRequests{"gpu": 1},
 				Count:    1,
 			}},
 		},
@@ -1307,7 +1307,7 @@ func TestFlavorResourceUsage(t *testing.T) {
 		"one podset, no flavors": {
 			info: &Info{
 				TotalRequests: []PodSetResources{{
-					Requests: resources.Requests{
+					Requests: resources.MapRequests{
 						corev1.ResourceCPU: 1_000,
 						"example.com/gpu":  3,
 					},
@@ -1321,7 +1321,7 @@ func TestFlavorResourceUsage(t *testing.T) {
 		"one podset, multiple flavors": {
 			info: &Info{
 				TotalRequests: []PodSetResources{{
-					Requests: resources.Requests{
+					Requests: resources.MapRequests{
 						corev1.ResourceCPU: 1_000,
 						"example.com/gpu":  3,
 					},
@@ -1340,7 +1340,7 @@ func TestFlavorResourceUsage(t *testing.T) {
 			info: &Info{
 				TotalRequests: []PodSetResources{
 					{
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU: 1_000,
 							"example.com/gpu":  3,
 						},
@@ -1350,7 +1350,7 @@ func TestFlavorResourceUsage(t *testing.T) {
 						},
 					},
 					{
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU:    2_000,
 							corev1.ResourceMemory: 2 * utiltesting.Gi,
 						},
@@ -1360,7 +1360,7 @@ func TestFlavorResourceUsage(t *testing.T) {
 						},
 					},
 					{
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							"example.com/gpu": 1,
 						},
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
@@ -1581,7 +1581,7 @@ func TestPropagateResourceRequests(t *testing.T) {
 			info: &Info{
 				TotalRequests: []PodSetResources{{
 					Name: "ps1",
-					Requests: resources.Requests{
+					Requests: resources.MapRequests{
 						corev1.ResourceCPU:    10000,
 						corev1.ResourceMemory: 10 * 1024 * 1024,
 						"nvidia.com/gpu":      1,
@@ -1608,7 +1608,7 @@ func TestPropagateResourceRequests(t *testing.T) {
 			info: &Info{
 				TotalRequests: []PodSetResources{{
 					Name: "ps1",
-					Requests: resources.Requests{
+					Requests: resources.MapRequests{
 						corev1.ResourceCPU: 5000,
 						"nvidia.com/gpu":   1,
 					},
@@ -1634,7 +1634,7 @@ func TestPropagateResourceRequests(t *testing.T) {
 			info: &Info{
 				TotalRequests: []PodSetResources{{
 					Name: "ps1",
-					Requests: resources.Requests{
+					Requests: resources.MapRequests{
 						corev1.ResourceCPU:    5000,
 						corev1.ResourceMemory: 10 * 1024 * 1024,
 						"nvidia.com/gpu":      1,
@@ -1661,7 +1661,7 @@ func TestPropagateResourceRequests(t *testing.T) {
 			info: &Info{
 				TotalRequests: []PodSetResources{{
 					Name: "ps1",
-					Requests: resources.Requests{
+					Requests: resources.MapRequests{
 						corev1.ResourceCPU:    10000,
 						corev1.ResourceMemory: 10 * 1024 * 1024,
 						"nvidia.com/gpu":      1,
@@ -1688,7 +1688,7 @@ func TestPropagateResourceRequests(t *testing.T) {
 			info: &Info{
 				TotalRequests: []PodSetResources{{
 					Name: "ps1",
-					Requests: resources.Requests{
+					Requests: resources.MapRequests{
 						corev1.ResourceCPU:    10000,
 						corev1.ResourceMemory: 10 * 1024 * 1024,
 						"nvidia.com/gpu":      2,
@@ -1724,7 +1724,7 @@ func TestPropagateResourceRequests(t *testing.T) {
 				TotalRequests: []PodSetResources{
 					{
 						Name: "ps1",
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU:    10000,
 							corev1.ResourceMemory: 10 * 1024 * 1024,
 							"nvidia.com/gpu":      1,
@@ -1732,7 +1732,7 @@ func TestPropagateResourceRequests(t *testing.T) {
 					},
 					{
 						Name: "ps2",
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU:    20000,
 							corev1.ResourceMemory: 20 * 1024 * 1024,
 							"nvidia.com/gpu":      2,
@@ -1745,7 +1745,7 @@ func TestPropagateResourceRequests(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got := PropagateResourceRequests(tc.wl, tc.info)
+			got := PropagateResourceRequests(tc.wl, tc.info, resources.NewResourceFormatter())
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("Unexpected PropagateResourceRequests() result (-want,+got):\n%s", diff)
 			}
@@ -1992,7 +1992,7 @@ func TestWithPreprocessedDRAResources(t *testing.T) {
 					{
 						Name:  "main",
 						Count: 1,
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU: 100,
 							"gpus":             2,
 						},
@@ -2024,7 +2024,7 @@ func TestWithPreprocessedDRAResources(t *testing.T) {
 					{
 						Name:  "main",
 						Count: 1,
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU: 100,
 							"gpus":             2,
 						},
@@ -2032,7 +2032,7 @@ func TestWithPreprocessedDRAResources(t *testing.T) {
 					{
 						Name:  "worker",
 						Count: 2,
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceMemory: 2 * 1024 * 1024 * 1024,
 							"foo-accelerator":     2,
 						},
@@ -2061,7 +2061,7 @@ func TestWithPreprocessedDRAResources(t *testing.T) {
 					{
 						Name:  "main",
 						Count: 1,
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU: 100,
 							"gpus":             1,
 						},
@@ -2069,7 +2069,7 @@ func TestWithPreprocessedDRAResources(t *testing.T) {
 					{
 						Name:  "worker",
 						Count: 1,
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceMemory: 512 * 1024 * 1024,
 						},
 					},
@@ -2118,7 +2118,7 @@ func TestWithPreprocessedDRAResourcesReplacesExtendedResources(t *testing.T) {
 					{
 						Name:  "main",
 						Count: 1,
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU: 100,
 							"gpu":              1,
 						},
@@ -2148,7 +2148,7 @@ func TestWithPreprocessedDRAResourcesReplacesExtendedResources(t *testing.T) {
 					{
 						Name:  "main",
 						Count: 2,
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU: 200,
 							"gpu":              4,
 							"tpu":              2,
@@ -3205,7 +3205,7 @@ func TestSumTotalRequestsWithDRAFromAdmission(t *testing.T) {
 		).Obj()
 
 	info := NewInfo(wl)
-	sumReqs := info.SumTotalRequests()
+	sumReqs := info.SumTotalRequests(resources.NewResourceFormatter())
 
 	// Verify CPU is present
 	cpuVal, hasCPU := sumReqs[corev1.ResourceCPU]

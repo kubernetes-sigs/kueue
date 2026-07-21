@@ -33,24 +33,26 @@ import (
 
 type tasCache struct {
 	sync.RWMutex
-	client      client.Client
-	flavors     map[kueue.ResourceFlavorReference]flavorInformation
-	topologies  map[kueue.TopologyReference]topologyInformation
-	flavorCache map[kueue.ResourceFlavorReference]*TASFlavorCache
+	client            client.Client
+	flavors           map[kueue.ResourceFlavorReference]flavorInformation
+	topologies        map[kueue.TopologyReference]topologyInformation
+	flavorCache       map[kueue.ResourceFlavorReference]*TASFlavorCache
+	resourceFormatter *resources.ResourceFormatter
 
 	nonTasUsageCache *nonTasUsageCache
 	nodesCache       *nodesCache
 }
 
-func NewTASCache(client client.Client) tasCache {
+func NewTASCache(client client.Client, resourceFormatter *resources.ResourceFormatter) tasCache {
 	return tasCache{
-		client:      client,
-		flavors:     make(map[kueue.ResourceFlavorReference]flavorInformation),
-		topologies:  make(map[kueue.TopologyReference]topologyInformation),
-		flavorCache: make(map[kueue.ResourceFlavorReference]*TASFlavorCache),
+		client:            client,
+		flavors:           make(map[kueue.ResourceFlavorReference]flavorInformation),
+		topologies:        make(map[kueue.TopologyReference]topologyInformation),
+		flavorCache:       make(map[kueue.ResourceFlavorReference]*TASFlavorCache),
+		resourceFormatter: resourceFormatter,
 		nonTasUsageCache: &nonTasUsageCache{
 			podUsage:  make(map[types.NamespacedName]podUsageValue),
-			nodeUsage: make(map[string]resources.Requests),
+			nodeUsage: make(map[string]resources.MapRequests),
 			lock:      sync.RWMutex{},
 		},
 		nodesCache: newNodesCache(),

@@ -186,8 +186,9 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 
 		ginkgo.By("creating a config with duplicate clusters should fail", func() {
 			badConfig := utiltestingapi.MakeMultiKueueConfig("bad-config").Clusters("c1", "c2", "c1").Obj()
-			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, badConfig).Error()).Should(gomega.Equal(
-				`MultiKueueConfig.kueue.x-k8s.io "bad-config" is invalid: spec.clusters[2]: Duplicate value: "c1"`))
+			err := managerTestCluster.client.Create(managerTestCluster.ctx, badConfig)
+			gomega.Expect(err).To(gomega.HaveOccurred())
+			gomega.Expect(err.Error()).To(gomega.ContainSubstring("must be unique"))
 		})
 
 		config := utiltestingapi.MakeMultiKueueConfig("testing-config").Clusters("testing-cluster").Obj()

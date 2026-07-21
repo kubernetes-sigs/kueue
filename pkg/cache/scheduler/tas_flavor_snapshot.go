@@ -100,10 +100,15 @@ type leafDomain struct {
 	// freeCapacity represents the total node capacity minus the non-TAS usage,
 	// coming from Pods which are not managed by workloads admitted by TAS
 	// (typically static Pods, DaemonSets, or Deployments).
-	freeCapacity resources.Requests
+	freeCapacity resources.MapRequests
 
 	// tasUsage represents the usage associated with TAS workloads.
-	tasUsage resources.Requests
+	tasUsage resources.MapRequests
+
+	// cachedRemainingCapacity stores the pre-computed remaining capacity (freeCapacity - tasUsage) for this leaf.
+	// It is lazily calculated using LazyRequests and updated incrementally during TAS usage changes, avoiding repeated
+	// map cloning and resource subtraction during capacity checks (e.g. preemption).
+	cachedRemainingCapacity resources.LazyRequests
 
 	// node at the leaf, if the lowest level is a node
 	node *corev1.Node
@@ -145,6 +150,7 @@ type TASFlavorSnapshot struct {
 	// of a Workload to avoid recalculating selectors/taints during preemption simulations or
 	// multiple worker PodSet placements within the same scheduling cycle snapshot.
 	matchingLeavesCache map[podSetMatchKey]*matchingLeavesCacheEntry
+	resourceFormatter   *resources.ResourceFormatter
 }
 
 // podSetMatchKey uniquely identifies a PodSet within a Workload for caching purposes.
@@ -182,7 +188,8 @@ const (
 )
 
 type tasFlavorSnapshotOptions struct {
-	tolerations []corev1.Toleration
+	tolerations       []corev1.Toleration
+	resourceFormatter *resources.ResourceFormatter
 }
 
 type tasFlavorSnapshotOption func(*tasFlavorSnapshotOptions)
@@ -190,6 +197,12 @@ type tasFlavorSnapshotOption func(*tasFlavorSnapshotOptions)
 func withTolerations(tolerations []corev1.Toleration) tasFlavorSnapshotOption {
 	return func(o *tasFlavorSnapshotOptions) {
 		o.tolerations = tolerations
+	}
+}
+
+func withResourceFormatter(formatter *resources.ResourceFormatter) tasFlavorSnapshotOption {
+	return func(o *tasFlavorSnapshotOptions) {
+		o.resourceFormatter = formatter
 	}
 }
 
@@ -217,6 +230,7 @@ func newTASFlavorSnapshot(log logr.Logger, topologyName kueue.TopologyReference,
 		roots:             make(domainByID),
 		domainsPerLevel:   domainsPerLevel,
 		isLowestLevelNode: len(levels) > 0 && levels[len(levels)-1] == corev1.LabelHostname,
+		resourceFormatter: options.resourceFormatter,
 	}
 	return snapshot
 }
@@ -253,7 +267,7 @@ func (s *TASFlavorSnapshot) addNode(node *corev1.Node) utiltas.TopologyDomainID 
 		}
 		s.leaves[domainID] = &leafDomain
 	}
-	capacity := resources.NewRequests(node.Status.Allocatable)
+	capacity := resources.NewMapRequests(node.Status.Allocatable)
 	s.addCapacity(domainID, capacity)
 	return domainID
 }
@@ -304,23 +318,25 @@ func (s *TASFlavorSnapshot) initializeHelper(dom *domain) {
 	parent.children = append(parent.children, dom)
 }
 
-func (s *TASFlavorSnapshot) addCapacity(domainID utiltas.TopologyDomainID, capacity resources.Requests) {
+func (s *TASFlavorSnapshot) addCapacity(domainID utiltas.TopologyDomainID, capacity resources.MapRequests) {
 	if s.leaves[domainID].freeCapacity == nil {
-		s.leaves[domainID].freeCapacity = resources.Requests{}
+		s.leaves[domainID].freeCapacity = resources.MapRequests{}
 	}
 	s.leaves[domainID].freeCapacity.Add(capacity)
+	s.leaves[domainID].cachedRemainingCapacity = resources.LazyRequests{}
 }
 
-func (s *TASFlavorSnapshot) addNonTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests) {
+func (s *TASFlavorSnapshot) addNonTASUsage(domainID utiltas.TopologyDomainID, usage resources.MapRequests) {
 	// The usage for non-TAS pods is only accounted for "TAS" nodes  - with at
 	// least one TAS pod, and so the addCapacity function to initialize
 	// freeCapacity is already called.
 	s.leaves[domainID].freeCapacity.Sub(usage)
+	s.leaves[domainID].cachedRemainingCapacity = resources.LazyRequests{}
 }
 
-func (s *TASFlavorSnapshot) updateTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests, op usageOp, count int32) {
+func (s *TASFlavorSnapshot) updateTASUsage(domainID utiltas.TopologyDomainID, usage resources.MapRequests, op usageOp, count int32) {
 	u := usage.Clone()
-	u.Add(resources.Requests{corev1.ResourcePods: int64(count)})
+	u.Add(resources.MapRequests{corev1.ResourcePods: int64(count)})
 	if op == add {
 		s.addTASUsage(domainID, u)
 	} else {
@@ -328,7 +344,17 @@ func (s *TASFlavorSnapshot) updateTASUsage(domainID utiltas.TopologyDomainID, us
 	}
 }
 
-func (s *TASFlavorSnapshot) addTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests) {
+func (s *TASFlavorSnapshot) getRemainingCapacity(leaf *leafDomain) resources.MapRequests {
+	if !leaf.cachedRemainingCapacity.IsValid() {
+		leaf.cachedRemainingCapacity = resources.NewLazyRequests(leaf.freeCapacity)
+		if len(leaf.tasUsage) > 0 {
+			leaf.cachedRemainingCapacity.Sub(leaf.tasUsage)
+		}
+	}
+	return leaf.cachedRemainingCapacity.Get()
+}
+
+func (s *TASFlavorSnapshot) addTASUsage(domainID utiltas.TopologyDomainID, usage resources.MapRequests) {
 	if s.leaves[domainID] == nil {
 		// this can happen if there is an admitted workload for which the
 		// backing node was deleted or is no longer Ready (so the addCapacity
@@ -337,12 +363,13 @@ func (s *TASFlavorSnapshot) addTASUsage(domainID utiltas.TopologyDomainID, usage
 		return
 	}
 	if s.leaves[domainID].tasUsage == nil {
-		s.leaves[domainID].tasUsage = resources.Requests{}
+		s.leaves[domainID].tasUsage = resources.MapRequests{}
 	}
 	s.leaves[domainID].tasUsage.Add(usage)
+	s.leaves[domainID].cachedRemainingCapacity = resources.LazyRequests{}
 }
 
-func (s *TASFlavorSnapshot) removeTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests) {
+func (s *TASFlavorSnapshot) removeTASUsage(domainID utiltas.TopologyDomainID, usage resources.MapRequests) {
 	if s.leaves[domainID] == nil {
 		// this can happen if there is an admitted workload for which the
 		// backing node was deleted or is no longer Ready (so the addCapacity
@@ -351,13 +378,14 @@ func (s *TASFlavorSnapshot) removeTASUsage(domainID utiltas.TopologyDomainID, us
 		return
 	}
 	if s.leaves[domainID].tasUsage == nil {
-		s.leaves[domainID].tasUsage = resources.Requests{}
+		s.leaves[domainID].tasUsage = resources.MapRequests{}
 	}
 	s.leaves[domainID].tasUsage.Sub(usage)
+	s.leaves[domainID].cachedRemainingCapacity = resources.LazyRequests{}
 }
 
-func (s *TASFlavorSnapshot) freeCapacityPerDomain() map[utiltas.TopologyDomainID]resources.Requests {
-	freeCapacityPerDomain := make(map[utiltas.TopologyDomainID]resources.Requests, len(s.leaves))
+func (s *TASFlavorSnapshot) freeCapacityPerDomain() map[utiltas.TopologyDomainID]resources.MapRequests {
+	freeCapacityPerDomain := make(map[utiltas.TopologyDomainID]resources.MapRequests, len(s.leaves))
 
 	for domainID, leaf := range s.leaves {
 		freeCapacityPerDomain[domainID] = leaf.freeCapacity.Clone()
@@ -366,8 +394,8 @@ func (s *TASFlavorSnapshot) freeCapacityPerDomain() map[utiltas.TopologyDomainID
 	return freeCapacityPerDomain
 }
 
-func (s *TASFlavorSnapshot) tasUsagePerDomain() map[utiltas.TopologyDomainID]resources.Requests {
-	tasUsagePerDomain := make(map[utiltas.TopologyDomainID]resources.Requests, len(s.leaves))
+func (s *TASFlavorSnapshot) tasUsagePerDomain() map[utiltas.TopologyDomainID]resources.MapRequests {
+	tasUsagePerDomain := make(map[utiltas.TopologyDomainID]resources.MapRequests, len(s.leaves))
 
 	for domainID, leaf := range s.leaves {
 		tasUsagePerDomain[domainID] = leaf.tasUsage.Clone()
@@ -394,13 +422,13 @@ func (s *TASFlavorSnapshot) SerializeFreeCapacityPerDomain() (string, error) {
 		freeCapacityDetails := make(map[corev1.ResourceName]string, len(freeCapacity))
 		for _, resourceName := range slices.Sorted(maps.Keys(freeCapacity)) {
 			value := freeCapacity[resourceName]
-			freeCapacityDetails[resourceName] = resources.ResourceQuantityString(resourceName, value)
+			freeCapacityDetails[resourceName] = s.resourceFormatter.ResourceQuantityString(resourceName, value)
 		}
 
 		tasUsageDetails := make(map[corev1.ResourceName]string, len(freeCapacity))
 		for _, resourceName := range slices.Sorted(maps.Keys(tasUsage)) {
 			value := tasUsage[resourceName]
-			tasUsageDetails[resourceName] = resources.ResourceQuantityString(resourceName, value)
+			tasUsageDetails[resourceName] = s.resourceFormatter.ResourceQuantityString(resourceName, value)
 		}
 
 		details[domain] = domainCapacityDetails{
@@ -420,7 +448,7 @@ func (s *TASFlavorSnapshot) SerializeFreeCapacityPerDomain() (string, error) {
 type TASPodSetRequests struct {
 	PodSet            *kueue.PodSet
 	PodSetUpdates     []*kueue.PodSetUpdate
-	SinglePodRequests resources.Requests
+	SinglePodRequests resources.MapRequests
 	Count             int32
 	Flavor            kueue.ResourceFlavorReference
 	Implied           bool
@@ -430,7 +458,7 @@ type TASPodSetRequests struct {
 	PreviousAssignment *kueue.TopologyAssignment
 }
 
-func (t *TASPodSetRequests) TotalRequests() resources.Requests {
+func (t *TASPodSetRequests) TotalRequests() resources.MapRequests {
 	return t.SinglePodRequests.ScaledUp(int64(t.Count))
 }
 
@@ -471,15 +499,15 @@ type FlavorTASRequests []TASPodSetRequests
 
 // Fits checks if the snapshot has enough capacity to accommodate the workload
 func (s *TASFlavorSnapshot) Fits(flavorUsage workload.TASFlavorUsage) bool {
+	cachingEnabled := features.Enabled(features.TASCachingRemainingResources)
 	for _, domainUsage := range flavorUsage {
 		domainID := utiltas.DomainID(domainUsage.Values)
 		leaf, found := s.leaves[domainID]
 		if !found {
 			return false
 		}
-		remainingCapacity := leaf.freeCapacity.Clone()
-		remainingCapacity.Sub(leaf.tasUsage)
-		if domainUsage.SinglePodRequests.CountIn(remainingCapacity) < domainUsage.Count {
+		remainingCapacity := s.remainingCapacityForLeaf(leaf, false, cachingEnabled)
+		if domainUsage.SinglePodRequests.CountIn(remainingCapacity.Get()) < domainUsage.Count {
 			return false
 		}
 	}
@@ -489,7 +517,7 @@ func (s *TASFlavorSnapshot) Fits(flavorUsage workload.TASFlavorUsage) bool {
 type findTopologyAssignmentsOption struct {
 	simulateEmpty          bool
 	workload               *kueue.Workload
-	aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests
+	aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.MapRequests
 }
 
 // ExclusionStats tracks why nodes were excluded during TAS scheduling.
@@ -505,9 +533,9 @@ type ExclusionStats struct {
 // topologyAssignmentPodRequirements stores pod-driven scheduling filters and
 // resource inputs that are only needed while filling per-domain counts.
 type topologyAssignmentPodRequirements struct {
-	requests                  resources.Requests
-	leaderRequests            *resources.Requests
-	assumedUsage              map[utiltas.TopologyDomainID]resources.Requests
+	requests                  resources.MapRequests
+	leaderRequests            *resources.MapRequests
+	assumedUsage              map[utiltas.TopologyDomainID]resources.MapRequests
 	tolerations               []corev1.Toleration
 	selector                  labels.Selector
 	affinitySelector          *nodeaffinity.NodeSelector
@@ -631,7 +659,7 @@ func WithWorkload(wl *kueue.Workload) FindTopologyAssignmentsOption {
 // WithAggregatedDomainUsages supplies a cross-flavor assumedUsage so that
 // per-PodSet TAS placements within a single workload account for reservations
 // already made in sibling flavors sharing the same Topology (hostname leaf).
-func WithAggregatedDomainUsages(m map[utiltas.TopologyDomainID]resources.Requests) FindTopologyAssignmentsOption {
+func WithAggregatedDomainUsages(m map[utiltas.TopologyDomainID]resources.MapRequests) FindTopologyAssignmentsOption {
 	return func(o *findTopologyAssignmentsOption) {
 		o.aggregatedDomainUsages = m
 	}
@@ -639,14 +667,14 @@ func WithAggregatedDomainUsages(m map[utiltas.TopologyDomainID]resources.Request
 
 // FindTopologyAssignmentsForFlavor returns TAS assignment, if possible, for all
 // the TAS requests in the flavor handled by the snapshot.
-func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests FlavorTASRequests, options ...FindTopologyAssignmentsOption) TASAssignmentsResult {
+func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(log logr.Logger, flavorTASRequests FlavorTASRequests, options ...FindTopologyAssignmentsOption) TASAssignmentsResult {
 	opts := &findTopologyAssignmentsOption{}
 	for _, option := range options {
 		option(opts)
 	}
 
 	result := make(map[kueue.PodSetReference]tasPodSetAssignmentResult)
-	assumedUsage := make(map[utiltas.TopologyDomainID]resources.Requests)
+	assumedUsage := make(map[utiltas.TopologyDomainID]resources.MapRequests)
 	if features.Enabled(features.TASHandleOverlappingFlavors) && opts.aggregatedDomainUsages != nil {
 		assumedUsage = opts.aggregatedDomainUsages
 	}
@@ -685,10 +713,13 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(flavorTASRequests F
 				}
 				// We deepCopy the existing TopologyAssignment, so if we delete unwanted domain,
 				// And there is no fit, we have the original newAssignment to retry with
-				newAssignment, replacementAssignment, reason := s.findReplacementAssignment(&tr, utiltas.InternalFrom(psa.TopologyAssignment), opts.workload, assumedUsage)
+				existingAssignment := psa.TopologyAssignment
+				newAssignment, replacementAssignment, reason := s.findReplacementAssignment(&tr, utiltas.InternalFrom(existingAssignment), opts.workload, assumedUsage)
 				result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: newAssignment, FailureReason: reason}
 				if reason != "" {
 					return result
+				} else {
+					log.V(3).Info("Found replacement assignment for workload", "existingAssignment", existingAssignment, "newAssignment", newAssignment)
 				}
 				addAssumedUsage(assumedUsage, replacementAssignment, &tr)
 			}
@@ -748,7 +779,7 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 	tr *TASPodSetRequests,
 	existingAssignment *utiltas.TopologyAssignment,
 	wl *kueue.Workload,
-	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
+	assumedUsage map[utiltas.TopologyDomainID]resources.MapRequests,
 ) (*utiltas.TopologyAssignment, *utiltas.TopologyAssignment, string) {
 	tr.Count = deleteDomain(existingAssignment, wl.Status.UnhealthyNodes[0].Name)
 	if isStale, staleDomain := s.IsTopologyAssignmentStale(existingAssignment); isStale {
@@ -791,14 +822,14 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 	return newAssignment, replacementAssignment[tr.PodSet.Name], ""
 }
 
-func addAssumedUsage(assumedUsage map[utiltas.TopologyDomainID]resources.Requests, ta *utiltas.TopologyAssignment, tr *TASPodSetRequests) {
+func addAssumedUsage(assumedUsage map[utiltas.TopologyDomainID]resources.MapRequests, ta *utiltas.TopologyAssignment, tr *TASPodSetRequests) {
 	addUsagePerDomain(assumedUsage, utiltas.ComputeUsagePerDomain(ta, tr.SinglePodRequests))
 }
 
-func addUsagePerDomain(assumedUsage map[utiltas.TopologyDomainID]resources.Requests, usagePerDomain map[utiltas.TopologyDomainID]resources.Requests) {
+func addUsagePerDomain(assumedUsage map[utiltas.TopologyDomainID]resources.MapRequests, usagePerDomain map[utiltas.TopologyDomainID]resources.MapRequests) {
 	for domainID, usage := range usagePerDomain {
 		if assumedUsage[domainID] == nil {
-			assumedUsage[domainID] = resources.Requests{}
+			assumedUsage[domainID] = resources.MapRequests{}
 		}
 		assumedUsage[domainID].Add(usage)
 	}
@@ -946,7 +977,7 @@ func (s *TASFlavorSnapshot) findIncompleteSliceDomain(tr *TASPodSetRequests, ta 
 func (s *TASFlavorSnapshot) findTopologyAssignment(
 	workersTasPodSetRequests TASPodSetRequests,
 	leaderTasPodSetRequests *TASPodSetRequests,
-	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
+	assumedUsage map[utiltas.TopologyDomainID]resources.MapRequests,
 	simulateEmpty bool, requiredReplacementDomain utiltas.TopologyDomainID, wl *kueue.Workload) (map[kueue.PodSetReference]*utiltas.TopologyAssignment, string) {
 	requirements := &topologyAssignmentPodRequirements{
 		assumedUsage:              assumedUsage,
@@ -960,11 +991,11 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		stats: newExclusionStats(),
 	}
 	requirements.requests = workersTasPodSetRequests.SinglePodRequests.Clone()
-	requirements.requests.Add(resources.Requests{corev1.ResourcePods: 1})
+	requirements.requests.Add(resources.MapRequests{corev1.ResourcePods: 1})
 
 	if leaderTasPodSetRequests != nil {
 		requirements.leaderRequests = new(leaderTasPodSetRequests.SinglePodRequests.Clone())
-		requirements.leaderRequests.Add(resources.Requests{corev1.ResourcePods: 1})
+		requirements.leaderRequests.Add(resources.MapRequests{corev1.ResourcePods: 1})
 		state.leaderCount = 1
 	}
 
@@ -1758,13 +1789,13 @@ func (s *TASFlavorSnapshot) fillInCounts(requirements *topologyAssignmentPodRequ
 		domain.leaderState = 0
 		domain.affinityScore = 0
 	}
-
+	cachingRemainingResourcesEnabled := features.Enabled(features.TASCachingRemainingResources)
 	if features.Enabled(features.TASCacheNodeMatchResults) {
 		matchingLeaves, stats := s.getMatchingLeaves(requirements)
 		state.stats.add(stats)
 		for _, ml := range matchingLeaves {
 			ml.leaf.affinityScore += ml.affinityScore
-			s.fillLeafCounts(ml.leaf, requirements, state)
+			s.fillLeafCounts(ml.leaf, requirements, state, cachingRemainingResourcesEnabled)
 		}
 	} else {
 		for _, leaf := range s.leaves {
@@ -1778,7 +1809,7 @@ func (s *TASFlavorSnapshot) fillInCounts(requirements *topologyAssignmentPodRequ
 				}
 				leaf.affinityScore += affinityScore
 			}
-			s.fillLeafCounts(leaf, requirements, state)
+			s.fillLeafCounts(leaf, requirements, state, cachingRemainingResourcesEnabled)
 		}
 	}
 
@@ -1861,23 +1892,34 @@ func (s *TASFlavorSnapshot) matchNode(leaf *leafDomain, requirements *topologyAs
 	return false, affinityScore, nil, exclusionNone
 }
 
-func (s *TASFlavorSnapshot) fillLeafCounts(leaf *leafDomain, requirements *topologyAssignmentPodRequirements, state *findTopologyAssignmentState) {
+func (s *TASFlavorSnapshot) remainingCapacityForLeaf(leaf *leafDomain, simulateEmpty, cachingRemainingResourcesEnabled bool) resources.LazyRequests {
+	if cachingRemainingResourcesEnabled {
+		if simulateEmpty {
+			return resources.NewLazyRequests(leaf.freeCapacity)
+		}
+		return resources.NewLazyRequests(s.getRemainingCapacity(leaf))
+	}
+	remainingCapacity := resources.NewLazyRequests(leaf.freeCapacity)
+	if !simulateEmpty {
+		remainingCapacity.Sub(leaf.tasUsage)
+	}
+	return remainingCapacity
+}
+
+func (s *TASFlavorSnapshot) fillLeafCounts(leaf *leafDomain, requirements *topologyAssignmentPodRequirements, state *findTopologyAssignmentState, cachingRemainingResourcesEnabled bool) {
 	// While correcting the topologyAssignment with a failed node
 	// check if the leaf belongs to the required domain
 	if !belongsToRequiredDomain(leaf, requirements.requiredReplacementDomain) {
 		state.stats.TopologyDomain++
 		return
 	}
+	remainingCapacity := s.remainingCapacityForLeaf(leaf, requirements.simulateEmpty, cachingRemainingResourcesEnabled)
 
-	remainingCapacity := leaf.freeCapacity.Clone()
-	if !requirements.simulateEmpty {
-		remainingCapacity.Sub(leaf.tasUsage)
-	}
 	if leafAssumedUsage, found := requirements.assumedUsage[leaf.id]; found {
 		remainingCapacity.Sub(leafAssumedUsage)
 	}
 	var limitingRes corev1.ResourceName
-	leaf.state, limitingRes = requirements.requests.CountInWithLimitingResource(remainingCapacity)
+	leaf.state, limitingRes = requirements.requests.CountInWithLimitingResource(remainingCapacity.Get())
 
 	// Track resource exclusions: if this node can't fit even one pod,
 	// identify which resource is the bottleneck.
@@ -1886,12 +1928,12 @@ func (s *TASFlavorSnapshot) fillLeafCounts(leaf *leafDomain, requirements *topol
 	}
 
 	leaf.leaderState = 0
-	if requirements.leaderRequests != nil && requirements.leaderRequests.CountIn(remainingCapacity) > 0 {
+	if requirements.leaderRequests != nil && requirements.leaderRequests.CountIn(remainingCapacity.Get()) > 0 {
 		leaf.leaderState = 1
 		remainingCapacity.Sub(*requirements.leaderRequests)
 	}
 
-	leaf.stateWithLeader = requirements.requests.CountIn(remainingCapacity)
+	leaf.stateWithLeader = requirements.requests.CountIn(remainingCapacity.Get())
 }
 
 func belongsToRequiredDomain(leaf *leafDomain, requiredReplacementDomain utiltas.TopologyDomainID) bool {

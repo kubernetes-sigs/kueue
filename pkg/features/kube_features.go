@@ -175,6 +175,12 @@ const (
 	// before graduation or deprecation.
 	TASBalancedPlacement featuregate.Feature = "TASBalancedPlacement"
 
+	// owner: @ShaanveerS
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
+	//
+	// Enable grouping v1beta2 TopologyAssignments by reusable hostname prefixes.
+	TASAssignmentsEncodingByHostnamePrefix featuregate.Feature = "TASAssignmentsEncodingByHostnamePrefix"
+
 	// owner: @alaypatel07
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2941-DRA
 	//
@@ -396,6 +402,14 @@ const (
 	// Enables configurable stepSize for the MultiKueue Incremental Dispatcher.
 	MultiKueueIncrementalDispatcherConfig featuregate.Feature = "MultiKueueIncrementalDispatcherConfig"
 
+	// owner: @andrewseif
+	//
+	// kep: https://github.com/kubernetes-sigs/kueue/issues/12854
+	// Enables the MultiKueue Incremental Dispatcher to nominate worker clusters in the
+	// order defined in MultiKueueConfig.spec.clusters. When disabled, clusters are
+	// nominated in alphabetical order.
+	MultiKueueIncrementalDispatcherRespectConfigOrder featuregate.Feature = "MultiKueueIncrementalDispatcherRespectConfigOrder"
+
 	// owner: @pbundyra
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/8691-concurrent-admission
 	//
@@ -490,6 +504,11 @@ const (
 	// to be reused within a single scheduling cycle by TAS evaluations corresponding to different
 	// sets of preemption candidates.
 	TASCacheNodeMatchResults featuregate.Feature = "TASCacheNodeMatchResults"
+
+	// owner: @j-skiba
+	//
+	// Enables caching of remaining capacity and clone reduction in TAS Flavor Snapshot.
+	TASCachingRemainingResources featuregate.Feature = "TASCachingRemainingResources"
 )
 
 func init() {
@@ -588,6 +607,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	TASBalancedPlacement: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	TASAssignmentsEncodingByHostnamePrefix: {
+		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
 	},
 	KueueDRAIntegration: {
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
@@ -704,6 +726,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	MultiKueueIncrementalDispatcherConfig: {
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
 	},
+	MultiKueueIncrementalDispatcherRespectConfigOrder: {
+		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+	},
 	ConcurrentAdmission: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
 	},
@@ -752,6 +777,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	TASCacheNodeMatchResults: {
+		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	TASCachingRemainingResources: {
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
