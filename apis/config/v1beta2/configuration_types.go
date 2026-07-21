@@ -319,6 +319,7 @@ type Scheduling struct {
 // - "OnTermination" (default): releases quota as soon as all pods have a deletionTimestamp set.
 // - "OnTerminalBestEffort": holds quota until all underlying pods have fully reached a terminal phase (Succeeded or Failed).
 //
+// +kubebuilder:validation:Enum=OnTermination;OnTerminalBestEffort
 // +enum
 type QuotaReleaseStrategy string
 

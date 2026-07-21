@@ -7273,7 +7273,7 @@ func TestPod_IsActive(t *testing.T) {
 				clock: testingclock.NewFakeClock(now),
 			}
 
-			ctx := jobframework.ContextWithQuotaReleaseStrategy(context.Background(), tt.strategy)
+			ctx := jobframework.ContextWithQuotaReleaseStrategy(t.Context(), tt.strategy)
 
 			if got := p.IsActive(ctx); got != tt.want {
 				t.Errorf("IsActive() = %v, want %v", got, tt.want)
