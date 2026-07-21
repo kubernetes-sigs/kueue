@@ -104,19 +104,26 @@ func (a *Authenticator) Stop() {
 func RateLimiter(perIPRate rate.Limit, perIPBurst int, globalRate rate.Limit, globalBurst int) gin.HandlerFunc {
 	// A bounded, TTL-based cache mapping IP addresses to *rate.Limiter.
 	// This prevents memory exhaustion from spoofed or highly distributed IP addresses.
-	limiters := utilcache.NewLRUExpireCache(10000)
-	var mu sync.Mutex
+	// While utilcache.LRUExpireCache is thread-safe on its own, a mutex is required
+	// here to make the "Get-or-Create" operation atomic, preventing concurrent
+	// requests from the same new IP from creating multiple duplicate rate limiters.
+	limiters := struct {
+		sync.Mutex
+		cache *utilcache.LRUExpireCache
+	}{
+		cache: utilcache.NewLRUExpireCache(10000),
+	}
 
 	globalLimiter := rate.NewLimiter(globalRate, globalBurst)
 
 	getLimiter := func(ip string) *rate.Limiter {
-		mu.Lock()
-		defer mu.Unlock()
-		if l, ok := limiters.Get(ip); ok {
+		limiters.Lock()
+		defer limiters.Unlock()
+		if l, ok := limiters.cache.Get(ip); ok {
 			return l.(*rate.Limiter)
 		}
 		l := rate.NewLimiter(perIPRate, perIPBurst)
-		limiters.Add(ip, l, 10*time.Minute)
+		limiters.cache.Add(ip, l, 10*time.Minute)
 		return l
 	}
 	return func(c *gin.Context) {
