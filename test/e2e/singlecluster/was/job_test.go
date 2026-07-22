@@ -41,7 +41,7 @@ import (
 // The tests require:
 // - A kind cluster built from Kubernetes main (not a release)
 // - The GenericWorkload and WorkloadWithJob feature gates enabled
-// - The scheduling.k8s.io/v1alpha3 API enabled via runtime-config
+// - The scheduling.k8s.io/v1beta1 API enabled via runtime-config
 // See hack/testing/kind-cluster-was.yaml.
 var _ = ginkgo.Describe("WorkloadAwareScheduling Job", ginkgo.Label("area:was", "feature:was", "feature:was-job"), func() {
 	var ns *corev1.Namespace
@@ -135,7 +135,7 @@ var _ = ginkgo.Describe("WorkloadAwareScheduling Job", ginkgo.Label("area:was", 
 				// The Job qualifies for gang scheduling (parallelism > 1, Indexed,
 				// completions == parallelism), so the upstream Job controller creates
 				// a PodGroup owned by the Job. We read it as unstructured data to
-				// avoid vendoring k8s.io/api/scheduling/v1alpha3 into Kueue.
+				// avoid vendoring k8s.io/api/scheduling/v1beta1 into Kueue.
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdWorkload := workloadForJob(g, jobKey)
 					g.Expect(createdWorkload.Spec.PodSets).Should(gomega.HaveLen(1))
@@ -153,16 +153,16 @@ var _ = ginkgo.Describe("WorkloadAwareScheduling Job", ginkgo.Label("area:was", 
 	})
 })
 
-// podGroupListGVK identifies the upstream scheduling.k8s.io/v1alpha3 PodGroup
+// podGroupListGVK identifies the upstream scheduling.k8s.io/v1beta1 PodGroup
 // list kind. We deliberately query it as unstructured data (instead of
-// importing k8s.io/api/scheduling/v1alpha3) so that Kueue does not need to
-// vendor that alpha API just to observe it in this e2e test.
-// TODO: once these APIs graduate (targeting Kubernetes 1.37) and Kueue can
-// depend on a k8s.io/api release that vendors them cleanly, switch this back
-// to a structured client using the typed PodGroup/PodGroupList types.
+// importing k8s.io/api/scheduling/v1beta1) so that Kueue does not need to
+// vendor that API just to observe it in this e2e test.
+// TODO: once Kueue can depend on a k8s.io/api release that vendors the beta
+// types (Kubernetes 1.37), switch this back to a structured client using the
+// typed PodGroup/PodGroupList types.
 var podGroupListGVK = schema.GroupVersionKind{
 	Group:   "scheduling.k8s.io",
-	Version: "v1alpha3",
+	Version: "v1beta1",
 	Kind:    "PodGroupList",
 }
 
