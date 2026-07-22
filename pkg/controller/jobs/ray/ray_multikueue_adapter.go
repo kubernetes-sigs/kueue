@@ -208,7 +208,7 @@ func (a *adapter[PtrT, T]) SyncJob(
 		// changed the manager copy, stop here — the label repoint must wait for
 		// the new slice's own reconcile; otherwise fall through so the forward
 		// sync can still repoint the prebuilt label.
-		if a.reverseSyncGatesOpen(localJob, remoteJob) {
+		if a.autoscalerOwnsReplicas(localJob, remoteJob) {
 			changed, err := a.reverseSync(ctx, localClient, remoteClient, localJob, remoteJob)
 			if err != nil || changed {
 				return false, err
@@ -278,12 +278,14 @@ func (a *adapter[PtrT, T]) needElasticSync(ctx context.Context, workloadName str
 	return !maps.Equal(oldCounts, newCounts) || jobframework.PrebuiltWorkloadNameFor(remoteJob) != workloadName
 }
 
-// reverseSyncGatesOpen reports whether the common preconditions for any
-// worker-to-manager reflection hold: the job is elastic, runs the in-tree
-// autoscaler, and the remote copy is not suspended (a suspended remote's
-// replicas were restored by the worker's Kueue while stopping, not set by the
-// autoscaler, and must not be reflected back).
-func (a *adapter[PtrT, T]) reverseSyncGatesOpen(localJob, remoteJob PtrT) bool {
+// autoscalerOwnsReplicas reports whether the worker-side autoscaler currently
+// owns the job's worker replica counts, in which case worker-side elastic
+// events must be reversed onto the manager (reverseSync). It requires an
+// elastic job with in-tree autoscaling enabled, and the remote copy not being
+// suspended: a suspended remote's replicas were restored by the worker's Kueue
+// while stopping — they are not the autoscaler's values and must not be
+// reflected back.
+func (a *adapter[PtrT, T]) autoscalerOwnsReplicas(localJob, remoteJob PtrT) bool {
 	if a.elastic == nil || a.elastic.AutoscalingEnabled == nil {
 		return false
 	}
