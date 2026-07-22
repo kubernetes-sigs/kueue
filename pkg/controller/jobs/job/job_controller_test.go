@@ -22,7 +22,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	batchv1 "k8s.io/api/batch/v1"
@@ -4975,7 +4974,6 @@ func TestCleanLabels(t *testing.T) {
 			}
 		})
 	}
-}
 func TestTerminalIndexesCount(t *testing.T) {
 	cases := map[string]struct {
 		completedIndexes string
@@ -5150,4 +5148,3 @@ func TestReclaimablePods(t *testing.T) {
 		})
 	}
 }
->>>>>>> 83fa0807d (feat: implement configurable QuotaReleaseStrategy (KEP-6143))
