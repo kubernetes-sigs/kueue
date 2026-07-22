@@ -201,14 +201,7 @@ func (a *adapter[PtrT, T]) SyncJob(
 		}); err != nil {
 			return false, err
 		}
-		// When the worker runs the autoscaler, any elastic event on the worker
-		// side is reversed onto the manager first: the manager's slicing
-		// machinery then produces (or resizes) a slice, and a later reconcile
-		// repoints the remote via the forward sync below. If the reverse pass
-		// changed the manager copy, stop here — the label repoint must wait for
-		// the new slice's own reconcile; otherwise fall through so the forward
-		// sync can still repoint the prebuilt label.
-		if a.autoscalerOwnsReplicas(localJob, remoteJob) {
+		if a.workerClusterOwnsReplicas(localJob, remoteJob) {
 			changed, err := a.reverseSync(ctx, localClient, remoteClient, localJob, remoteJob)
 			if err != nil || changed {
 				return false, err
@@ -278,14 +271,14 @@ func (a *adapter[PtrT, T]) needElasticSync(ctx context.Context, workloadName str
 	return !maps.Equal(oldCounts, newCounts) || jobframework.PrebuiltWorkloadNameFor(remoteJob) != workloadName
 }
 
-// autoscalerOwnsReplicas reports whether the worker-side autoscaler currently
-// owns the job's worker replica counts, in which case worker-side elastic
-// events must be reversed onto the manager (reverseSync). It requires an
-// elastic job with in-tree autoscaling enabled, and the remote copy not being
-// suspended: a suspended remote's replicas were restored by the worker's Kueue
-// while stopping — they are not the autoscaler's values and must not be
-// reflected back.
-func (a *adapter[PtrT, T]) autoscalerOwnsReplicas(localJob, remoteJob PtrT) bool {
+// workerClusterOwnsReplicas reports whether the worker cluster currently owns
+// the job's worker replica counts (the in-tree autoscaler runs there), in
+// which case worker-side elastic events must be reversed onto the manager
+// (reverseSync). It requires an elastic job with in-tree autoscaling enabled,
+// and the remote copy not being suspended: a suspended remote's replicas were
+// restored by the worker's Kueue while stopping — they are not the
+// autoscaler's values and must not be reflected back.
+func (a *adapter[PtrT, T]) workerClusterOwnsReplicas(localJob, remoteJob PtrT) bool {
 	if a.elastic == nil || a.elastic.AutoscalingEnabled == nil {
 		return false
 	}
