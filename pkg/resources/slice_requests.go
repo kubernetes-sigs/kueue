@@ -31,8 +31,8 @@ import (
 
 const emptyResourceName = corev1.ResourceName("")
 
-// HashResourceName computes a 64-bit FNV-1a hash of a ResourceName.
-func HashResourceName(name corev1.ResourceName) uint64 {
+// hashResourceName computes a 64-bit FNV-1a hash of a ResourceName.
+func hashResourceName(name corev1.ResourceName) uint64 {
 	h := fnv.New64a()
 	if _, err := h.Write([]byte(name)); err != nil {
 		ctrl.Log.WithName("resources").Error(err, "Failed to write resource name hash", "resourceName", name)
@@ -80,7 +80,7 @@ func toSliceRequests(r Requests) SliceRequests {
 		if val != 0 {
 			res = append(res, ResourceEntry{
 				name:  name,
-				hash:  HashResourceName(name),
+				hash:  hashResourceName(name),
 				value: val,
 			})
 		}
@@ -100,7 +100,7 @@ func ResourceListToSliceRequests(rl corev1.ResourceList) SliceRequests {
 		if val != 0 {
 			sr = append(sr, ResourceEntry{
 				name:  name,
-				hash:  HashResourceName(name),
+				hash:  hashResourceName(name),
 				value: val,
 			})
 		}
@@ -136,7 +136,7 @@ func (sr *SliceRequests) GetValue(name corev1.ResourceName) int64 {
 	if sr == nil {
 		return 0
 	}
-	target := ResourceEntry{name: name, hash: HashResourceName(name)}
+	target := ResourceEntry{name: name, hash: hashResourceName(name)}
 	idx, found := slices.BinarySearchFunc(*sr, target, ResourceEntry.Cmp)
 	if found {
 		return (*sr)[idx].value
