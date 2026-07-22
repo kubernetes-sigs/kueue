@@ -232,6 +232,9 @@ func (sr *SliceRequests) mergeWithInPlace(other SliceRequests, fn mergeFunc) {
 	}
 
 	// Fallback: allocate a new backing slice when *sr has insufficient capacity.
+	// Note that in the common case of both slices having the same size this will
+	// pre-allocate 2x capacity, so that the following merges will skip allocations
+	// and fall in the fast in-place branch.
 	*sr = mergeInto(make(SliceRequests, 0, totalLen), *sr, other, fn)
 }
 
