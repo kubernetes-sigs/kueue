@@ -47,7 +47,7 @@ func CreateEmpty() Requests {
 
 // NewRequestsFromMap creates a Requests instance from a MapRequests map based on feature gates.
 func NewRequestsFromMap(m MapRequests) Requests {
-	if m == nil {
+	if len(m) == 0 {
 		return nil
 	}
 	if features.Enabled(features.VectorizedResourceRequests) {

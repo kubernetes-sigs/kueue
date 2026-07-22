@@ -56,7 +56,7 @@ var fuzzResourceNames = []corev1.ResourceName{
 //	  - Entry 2: index 1 -> fuzzResourceNames[1] ("memory"), val = 50 -> m1["memory"] = 50
 //	- m2 = MapRequests{} (no remaining bytes)
 func parseFuzzData(data []byte) (MapRequests, MapRequests, byte) {
-	if len(data) < 4 {
+	if len(data) == 0 {
 		return MapRequests{}, MapRequests{}, 0
 	}
 	opChoice := data[0]
