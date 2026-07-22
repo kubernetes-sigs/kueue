@@ -10,7 +10,7 @@
 - [Design Details](#design-details)
   - [Workload API](#workload-api)
   - [Scheduler / Flavorassignment](#scheduler--flavorassignment)
-    - [Priority-Based Policy (<code>priority-based</code>)](#priority-based-policy-priority-based)
+    - [Order-Based Policy (<code>order-based</code>)](#order-based-policy-order-based)
     - [Proportional Policy (<code>proportional</code> - default)](#proportional-policy-proportional---default)
   - [Jobframework](#jobframework)
   - [batch/Job controller](#batchjob-controller)
@@ -84,15 +84,17 @@ In case the workload proposed for the current scheduling cycle does not fit, wit
 
 The policy for shrinking PodSet counts is configured via the `kueue.x-k8s.io/partial-admission-policy` annotation on the Job. The supported policies are:
 - **`proportional` (default)**: Shrinks the counts of all variable PodSets proportionally to their allowable reduction ranges.
-- **`priority-based`**: Shrinks the counts of the PodSets sequentially, assuming they are listed in descending order of priority (i.e., the first PodSet has the highest priority and the last PodSet has the lowest priority).
+- **`order-based`**: Shrinks the counts of the PodSets sequentially starting from the last one (suits for the cases when the podsets are ordered by priority). The Workload PodSet order is usually the same as the order of the PodSet in the Job spec. For the RayCluster the Workload PodSets starting from Head PodSet and following by WorkerGroupPodSets in the same order as in RayCluster.
 
-#### Priority-Based Policy (`priority-based`)
+#### Order-Based Policy (`order-based`)
 
-Under the `priority-based` policy, Kueue assumes that the PodSets are listed in descending order of priority. To preserve the counts of higher-priority PodSets, Kueue shrinks the PodSets starting from the end (lowest priority) and moving towards the beginning (highest priority) as needed.
-
+Under the `order-based` policy, Kueue shrinks the PodSets starting from the last one and moving towards the beginning as needed.
 Specifically, if multiple PodSets have variable counts, Kueue iterates over them in the order they are defined in the Workload spec, starting from the last one. It decreases the count of the current PodSet down to its `minCount` until the workload fits the available quota. If shrinking the last PodSet to its `minCount` is still not enough to fit, Kueue keeps it at its `minCount` and moves to the second-to-last PodSet, decreasing its count down to its `minCount`, and so on.
+As an optimization, we will introduce a second phase (similar to the preemption algorithm): when a workload finds a combination that fits the available quota, Kueue tries to gradually put the reduced counts back. In this phase, Kueue iterates over all PodSets from the first to the last one. For each PodSet that was reduced, Kueue tries to increase its count back to the original count. If that fits, Kueue keeps it. Otherwise, Kueue performs a binary search on the PodSet's count between the current count and the original count to find the maximum count that fits.
 
-**Example:**
+One example when order-based policy is used, is when the RayCluster has identical WorkerGroupPodSets, that have different node selectors that are tight to different node group capacity — for example, reservation/on-demand/spot. In this case, it is preferable to keep workers to run on reservation nodes than on-demand/spot nodes.
+
+**Examples:**
 Consider a Job with three PodSets:
 - `ps0` (highest priority): `count: 1`, no `minCount` (cannot be shrunk).
 - `ps1` (medium priority): `count: 4`, `minCount: 2` (can be reduced by up to 2 pods).
@@ -238,7 +240,7 @@ to implement this enhancement.
     - `partial admission single variable pod set, preempt first`: verifies preemption behavior when a workload can be admitted using partial admission.
     - `partial admission single variable pod set, preempt with partial admission`: verifies that preemption triggers when partial admission alone is not enough.
     - `partial admission multiple variable pod sets, proportional policy`: verifies shrinking order and flavor assignment when multiple variable count PodSets are defined using the default proportional policy.
-    - `partial admission multiple variable pod sets, priority-based policy`: verifies shrinking order when the priority-based policy is set, starting from the last PodSet.
+    - `partial admission multiple variable pod sets, order-based policy`: verifies shrinking order when the order-based policy is set, starting from the last PodSet.
     - `partial admission disabled, multiple variable pod sets`: verifies that no partial admission is performed if features/annotations are not active.
   - `pkg/scheduler/scheduler_tas_test.go`:
     - `TAS workload gets scheduled as trimmed by partial admission`: verifies that Topology Aware Scheduling is compatible with partial admission.
@@ -256,7 +258,7 @@ to implement this enhancement.
   - `test/integration/singlecluster/controller/jobs/job/job_controller_test.go`:
     - `Should schedule jobs with partial admission`: verifies a complete integration flow where a Job with `kueue.x-k8s.io/job-min-parallelism` is suspended, partially admitted with reduced parallelism, and its original parallelism is restored when the workload is stopped.
   - `test/integration/singlecluster/controller/jobs/raycluster/raycluster_controller_test.go`:
-    - `Should schedule RayClusters with partial admission priority policy`: verifies a complete integration flow where a RayCluster with partial admission annotation is admitted with reduced worker count according to priority policy.
+    - `Should schedule RayClusters with partial admission order policy`: verifies a complete integration flow where a RayCluster with partial admission annotation is admitted with reduced worker count according to the order.
 - **Workload Webhook**:
   - `test/integration/singlecluster/webhook/core/workload_test.go`:
     - `invalid podSet minCount (negative)`: verifies negative minCount values are rejected.
