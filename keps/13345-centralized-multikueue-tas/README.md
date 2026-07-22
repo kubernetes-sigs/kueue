@@ -1,7 +1,5 @@
 # KEP-13345: Support centralized scheduling and quota management in MultiKueue
 
-
-
 - [Summary](#summary)
 - [Motivation](#motivation)
   - [Goals](#goals)
@@ -18,8 +16,6 @@
   - [Test Plan](#test-plan)
   - [Graduation Criteria](#graduation-criteria)
 - [Alternatives](#alternatives)
-
-
 
 ## Summary
 
