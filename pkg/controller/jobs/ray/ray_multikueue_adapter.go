@@ -201,20 +201,18 @@ func (a *adapter[PtrT, T]) SyncJob(
 		}); err != nil {
 			return false, err
 		}
-		// When the worker runs the autoscaler, an autoscaler-driven resize is
-		// reflected back to the manager first; the manager's slicing machinery
-		// then produces a new slice and the next reconcile repoints the remote
-		// via the forward sync below. Job types whose worker replicas live on
-		// runtime children in the worker cluster (RayJob) reflect the children's
-		// state onto the manager copy; job types whose replicas live on the job
-		// itself (RayCluster) write the remote spec back.
-		if a.needRuntimeReverseSync(localJob, remoteJob) {
-			changed, err := a.reverseSyncRuntime(ctx, localClient, remoteClient, localJob, remoteJob)
+		// When the worker runs the autoscaler, any elastic event on the worker
+		// side is reversed onto the manager first: the manager's slicing
+		// machinery then produces (or resizes) a slice, and a later reconcile
+		// repoints the remote via the forward sync below. If the reverse pass
+		// changed the manager copy, stop here — the label repoint must wait for
+		// the new slice's own reconcile; otherwise fall through so the forward
+		// sync can still repoint the prebuilt label.
+		if a.reverseSyncGatesOpen(localJob, remoteJob) {
+			changed, err := a.reverseSync(ctx, localClient, remoteClient, localJob, remoteJob)
 			if err != nil || changed {
 				return false, err
 			}
-		} else if a.needReverseElasticSync(localJob, remoteJob) {
-			return false, a.reverseSyncElastic(ctx, localClient, localJob, remoteJob)
 		}
 		if a.needElasticSync(ctx, workloadName, localJob, remoteJob) {
 			return false, a.syncElastic(ctx, remoteClient, workloadName, localJob, remoteJob)
@@ -298,29 +296,31 @@ func (a *adapter[PtrT, T]) reverseSyncGatesOpen(localJob, remoteJob PtrT) bool {
 	return !a.elastic.RemoteSuspended(remoteJob)
 }
 
-// needReverseElasticSync reports whether an autoscaler-driven worker replica
-// change on the remote copy must be written back to the manager object's spec.
-// This is the worker-to-manager direction for job types whose worker replicas
-// live on the job object itself (RayCluster).
-func (a *adapter[PtrT, T]) needReverseElasticSync(localJob, remoteJob PtrT) bool {
-	if a.elastic == nil || a.elastic.WorkerReplicas == nil || a.elastic.SyncReplicas == nil {
-		return false
+// reverseSync reverses a worker-side elastic event onto the manager copy. It
+// runs the steps the job type has wired: a spec write-back for job types whose
+// worker replicas live on the job object itself (RayCluster), and a
+// runtime-children reflection for job types whose worker replicas live on
+// runtime children in the worker cluster (RayJob). Change detection for the
+// spec step is an inline count comparison (both objects are at hand); for the
+// runtime step it happens inside reverseSyncRuntime, since it requires reading
+// the children remotely. Returns whether the manager copy was changed.
+func (a *adapter[PtrT, T]) reverseSync(ctx context.Context, localClient, remoteClient client.Client, localJob, remoteJob PtrT) (bool, error) {
+	changed := false
+	if a.elastic.WorkerReplicas != nil && a.elastic.SyncReplicas != nil &&
+		!maps.Equal(a.elastic.WorkerReplicas(remoteJob), a.elastic.WorkerReplicas(localJob)) {
+		if err := a.reverseSyncElastic(ctx, localClient, localJob, remoteJob); err != nil {
+			return false, err
+		}
+		changed = true
 	}
-	if !a.reverseSyncGatesOpen(localJob, remoteJob) {
-		return false
+	if a.elastic.FetchRuntimeWorkerState != nil && a.elastic.ApplyRuntimeWorkerState != nil {
+		runtimeChanged, err := a.reverseSyncRuntime(ctx, localClient, remoteClient, localJob, remoteJob)
+		if err != nil {
+			return false, err
+		}
+		changed = changed || runtimeChanged
 	}
-	return !maps.Equal(a.elastic.WorkerReplicas(remoteJob), a.elastic.WorkerReplicas(localJob))
-}
-
-// needRuntimeReverseSync reports whether the runtime-derived reflection path
-// applies: job types whose worker replicas live on runtime children in the
-// worker cluster (RayJob). The actual change detection happens inside
-// reverseSyncRuntime, since it requires reading the children remotely.
-func (a *adapter[PtrT, T]) needRuntimeReverseSync(localJob, remoteJob PtrT) bool {
-	if a.elastic == nil || a.elastic.FetchRuntimeWorkerState == nil || a.elastic.ApplyRuntimeWorkerState == nil {
-		return false
-	}
-	return a.reverseSyncGatesOpen(localJob, remoteJob)
+	return changed, nil
 }
 
 // reverseSyncRuntime reads the job's runtime worker state from the worker
