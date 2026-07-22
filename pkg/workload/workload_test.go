@@ -748,7 +748,8 @@ func TestNewInfo(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, fg, enabled)
 			}
 			info := NewInfo(&tc.workload, tc.infoOptions...)
-			if diff := cmp.Diff(info, &tc.wantInfo, cmpopts.IgnoreFields(Info{}, "Obj", "SchedulingHash"), cmp.AllowUnexported(resources.ResourceEntry{})); diff != "" {
+			if diff := cmp.Diff(info, &tc.wantInfo, cmpopts.IgnoreFields(Info{}, "Obj", "SchedulingHash"),
+				cmp.Transformer("requestsToMap", resources.ToMapRequests)); diff != "" {
 				t.Errorf("NewInfo(_) = (-want,+got):\n%s", diff)
 			}
 		})

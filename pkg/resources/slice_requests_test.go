@@ -33,7 +33,7 @@ func NewSliceRequests(req MapRequests) *SliceRequests {
 	sr := make(SliceRequests, 0, len(req))
 	for name, val := range req {
 		if val != 0 {
-			sr = append(sr, ResourceEntry{
+			sr = append(sr, resourceEntry{
 				name:  name,
 				hash:  hashResourceName(name),
 				value: val,
@@ -113,9 +113,9 @@ func TestSliceRequests_EdgeCases(t *testing.T) {
 		t.Errorf("expected MergeWithInPlace on empty slices to leave slice empty")
 	}
 
-	e1 := ResourceEntry{name: "a", hash: 100, value: 1}
-	e2 := ResourceEntry{name: "b", hash: 100, value: 1}
-	if e1.Cmp(e2) >= 0 {
+	e1 := resourceEntry{name: "a", hash: 100, value: 1}
+	e2 := resourceEntry{name: "b", hash: 100, value: 1}
+	if e1.cmp(e2) >= 0 {
 		t.Errorf("expected e1 < e2 for same hash but different name")
 	}
 }
@@ -123,8 +123,8 @@ func TestSliceRequests_EdgeCases(t *testing.T) {
 func TestSliceRequests_MergeWithInPlace(t *testing.T) {
 	t.Run("with sufficient capacity", func(t *testing.T) {
 		base := make(SliceRequests, 0, 4)
-		base = append(base, ResourceEntry{name: corev1.ResourceCPU, hash: hashResourceName(corev1.ResourceCPU), value: 1000})
-		other := SliceRequests{ResourceEntry{name: corev1.ResourceMemory, hash: hashResourceName(corev1.ResourceMemory), value: 2048}}
+		base = append(base, resourceEntry{name: corev1.ResourceCPU, hash: hashResourceName(corev1.ResourceCPU), value: 1000})
+		other := SliceRequests{resourceEntry{name: corev1.ResourceMemory, hash: hashResourceName(corev1.ResourceMemory), value: 2048}}
 
 		base.MergeWithInPlace(other, func(a, b int64) int64 { return a + b })
 		want := MapRequests{corev1.ResourceCPU: 1000, corev1.ResourceMemory: 2048}
@@ -365,7 +365,7 @@ func TestSliceRequests_ScaledUp(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			got := tc.req.ScaledUp(tc.factor)
-			if diff := cmp.Diff(tc.want, got, cmp.AllowUnexported(ResourceEntry{})); diff != "" {
+			if diff := cmp.Diff(ToMapRequests(tc.want), ToMapRequests(got)); diff != "" {
 				t.Errorf("ScaledUp mismatch (-want +got):\n%s", diff)
 			}
 		})
@@ -390,7 +390,7 @@ func TestSliceRequests_Clone(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			got := tc.req.Clone()
-			if diff := cmp.Diff(tc.want, got, cmp.AllowUnexported(ResourceEntry{})); diff != "" {
+			if diff := cmp.Diff(ToMapRequests(tc.want), ToMapRequests(got)); diff != "" {
 				t.Errorf("Clone mismatch (-want +got):\n%s", diff)
 			}
 		})
