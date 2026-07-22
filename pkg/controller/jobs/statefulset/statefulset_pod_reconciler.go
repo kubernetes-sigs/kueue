@@ -29,7 +29,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -87,25 +86,19 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (r
 	log.V(2).Info("Reconcile StatefulSet Pod")
 
 	if utilpod.IsTerminated(pod) || pod.DeletionTimestamp != nil {
-		err = client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
-			removed := controllerutil.RemoveFinalizer(pod, podconstants.PodFinalizer)
-			if removed {
-				log.V(3).Info("Finalizing statefulset pod in group", "pod", klog.KObj(pod), "group", utilpod.GetPodGroupName(pod))
-			}
-			return removed, nil
-		}))
-	} else {
-		err = client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
-			updated, err := r.setDefault(ctx, pod)
-			if err != nil {
-				return false, err
-			}
-			if updated {
-				log.V(3).Info("Updating pod in group", "pod", klog.KObj(pod), "group", utilpod.GetPodGroupName(pod))
-			}
-			return updated, nil
-		}))
+		return ctrl.Result{}, nil
 	}
+
+	err = client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
+		updated, err := r.setDefault(ctx, pod)
+		if err != nil {
+			return false, err
+		}
+		if updated {
+			log.V(3).Info("Updating pod in group", "pod", klog.KObj(pod), "group", utilpod.GetPodGroupName(pod))
+		}
+		return updated, nil
+	}))
 
 	return ctrl.Result{}, err
 }
