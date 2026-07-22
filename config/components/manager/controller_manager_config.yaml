@@ -14,14 +14,14 @@ controller:
   groupKindConcurrency:
     Job.batch: 5
     Pod: 5
-    Workload.kueue.x-k8s.io: 5
-    LocalQueue.kueue.x-k8s.io: 1
+    Workload.kueue.x-k8s.io: 10
+    LocalQueue.kueue.x-k8s.io: 5
     Cohort.kueue.x-k8s.io: 1
-    ClusterQueue.kueue.x-k8s.io: 1
+    ClusterQueue.kueue.x-k8s.io: 5
     ResourceFlavor.kueue.x-k8s.io: 1
 clientConnection:
-  qps: 50
-  burst: 100
+  qps: 300
+  burst: 500
 #pprofBindAddress: :8083
 #waitForPodsReady:
 #  timeout: 5m
@@ -50,11 +50,11 @@ integrations:
   - "ray.io/raycluster"
   - "ray.io/rayservice"
   - "jobset.x-k8s.io/jobset"
-  - "kubeflow.org/paddlejob"
-  - "kubeflow.org/pytorchjob"
-  - "kubeflow.org/tfjob"
-  - "kubeflow.org/xgboostjob"
-  - "kubeflow.org/jaxjob"
+  # - "kubeflow.org/paddlejob"
+  # - "kubeflow.org/pytorchjob"
+  # - "kubeflow.org/tfjob"
+  # - "kubeflow.org/xgboostjob"
+  # - "kubeflow.org/jaxjob"
   - "workload.codeflare.dev/appwrapper"
   - "trainer.kubeflow.org/trainjob"
   # - "sparkoperator.k8s.io/sparkapplication"

@@ -1,0 +1,25 @@
+globalOptions:
+  boilerplatePath: ../../../hack/boilerplate.go.txt
+files:
+  - path: ./config/rbac/*.yaml
+    outputDir: ./charts/kueue-priority-booster/templates
+    removeComments: true
+    excludes:
+      - kustomization.yaml
+    continueOnError: true
+    operations:
+      - type: APPEND
+        key: .metadata.name
+        value: '"{{ .Release.Name }}-"'
+      - type: UPDATE
+        key: .metadata.namespace
+        value: '"{{ .Release.Namespace }}"'
+      - type: APPEND
+        key: .roleRef.name
+        value: '"{{ .Release.Name }}-"'
+      - type: APPEND
+        key: .subjects.[].name
+        value: '"{{ .Release.Name }}-"'
+      - type: UPDATE
+        key: .subjects.[].namespace
+        value: '"{{ .Release.Namespace }}"'

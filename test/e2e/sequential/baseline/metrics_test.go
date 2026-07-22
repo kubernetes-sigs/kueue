@@ -30,7 +30,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("LocalQueue metrics", ginkgo.Label("feature:localqueuemetrics", shard1), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("LocalQueue metrics", ginkgo.Label("feature:localqueuemetrics", util.Shard1), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns             *corev1.Namespace
 		resourceFlavor *kueue.ResourceFlavor
@@ -164,14 +164,8 @@ var _ = ginkgo.Describe("LocalQueue metrics", ginkgo.Label("feature:localqueueme
 			})
 
 			deletedMetrics := [][]string{
-				// LocalQueueMetrics
 				{"kueue_local_queue_reserving_active_workloads", ns.Name, localQueue.Name},
 				{"kueue_local_queue_admitted_active_workloads", ns.Name, localQueue.Name},
-				{"kueue_local_queue_quota_reserved_workloads_total", ns.Name, localQueue.Name},
-				{"kueue_local_queue_quota_reserved_wait_time_seconds", ns.Name, localQueue.Name},
-				{"kueue_local_queue_admitted_workloads_total", ns.Name, localQueue.Name, ""},
-				{"kueue_local_queue_admission_wait_time_seconds", ns.Name, localQueue.Name},
-				{"kueue_local_queue_status", ns.Name, localQueue.Name},
 			}
 
 			ginkgo.By("checking that metrics that should have been deleted are no longer available", func() {
@@ -182,10 +176,37 @@ var _ = ginkgo.Describe("LocalQueue metrics", ginkgo.Label("feature:localqueueme
 				// Cleared metrics with 0 value
 				{"kueue_local_queue_pending_workloads", "active", "0", ns.Name, localQueue.Name},
 				{"kueue_local_queue_pending_workloads", "inadmissible", "0", ns.Name, localQueue.Name},
+
+				// LocalQueue counters persist until the LocalQueue itself is
+				// deleted, and the status metric is re-reported with reason
+				// ClusterQueueDoesNotExist.
+				{"kueue_local_queue_quota_reserved_workloads_total", ns.Name, localQueue.Name},
+				{"kueue_local_queue_quota_reserved_wait_time_seconds", ns.Name, localQueue.Name},
+				{"kueue_local_queue_admitted_workloads_total", ns.Name, localQueue.Name, ""},
+				{"kueue_local_queue_admission_wait_time_seconds", ns.Name, localQueue.Name},
+				{"kueue_local_queue_status", ns.Name, localQueue.Name},
 			}
 
 			ginkgo.By("checking that metrics that should not have been deleted are still available", func() {
 				util.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, notDeletedMetrics)
+			})
+
+			ginkgo.By("deleting the local queue", func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
+			})
+
+			// kueue_local_queue_status is not asserted here: its cleanup is
+			// skipped when the ClusterQueue was already removed from the cache.
+			deletedLocalQueueMetrics := [][]string{
+				{"kueue_local_queue_pending_workloads", ns.Name, localQueue.Name},
+				{"kueue_local_queue_quota_reserved_workloads_total", ns.Name, localQueue.Name},
+				{"kueue_local_queue_quota_reserved_wait_time_seconds", ns.Name, localQueue.Name},
+				{"kueue_local_queue_admitted_workloads_total", ns.Name, localQueue.Name, ""},
+				{"kueue_local_queue_admission_wait_time_seconds", ns.Name, localQueue.Name},
+			}
+
+			ginkgo.By("checking that LocalQueue metrics are no longer available after deleting the local queue", func() {
+				util.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, deletedLocalQueueMetrics)
 			})
 		})
 	})

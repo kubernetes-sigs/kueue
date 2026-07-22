@@ -27,7 +27,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/wait"
 )
 
@@ -41,10 +41,21 @@ func SyncAdmittedCondition(w *kueue.Workload, now time.Time) bool {
 	hasAllChecksReady := HasAllChecksReady(w)
 	isAdmitted := IsAdmitted(w)
 	hasAllTopologyAssignmentsReady := !HasTopologyAssignmentsPending(w)
+	admittedCond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadAdmitted)
+	quotaReservedCond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadQuotaReserved)
 
-	if isAdmitted == (hasReservation && hasAllChecksReady && hasAllTopologyAssignmentsReady) {
-		return false
+	if features.Enabled(features.UnadmittedWorkloadsObservability) {
+		// If QuotaReserved is not set yet, and the UnadmittedWorkloadsExplicitStatus feature gate is disabled,
+		// we don't want to explicitly initialize the Admitted condition either (keeping them both absent).
+		if quotaReservedCond == nil && admittedCond == nil && !features.Enabled(features.UnadmittedWorkloadsExplicitStatus) {
+			return false
+		}
+	} else {
+		if isAdmitted == (hasReservation && hasAllChecksReady && hasAllTopologyAssignmentsReady) {
+			return false
+		}
 	}
+
 	newCondition := metav1.Condition{
 		Type:               kueue.WorkloadAdmitted,
 		Status:             metav1.ConditionTrue,
@@ -56,19 +67,24 @@ func SyncAdmittedCondition(w *kueue.Workload, now time.Time) bool {
 	switch {
 	case !hasReservation && !hasAllChecksReady:
 		newCondition.Status = metav1.ConditionFalse
-		newCondition.Reason = "NoReservationUnsatisfiedChecks"
-		newCondition.Message = "The workload has no reservation and not all checks ready"
+		if features.Enabled(features.UnadmittedWorkloadsObservability) {
+			newCondition.Reason = kueue.WorkloadAdmittedReasonNoReservation
+			newCondition.Message = "The workload has no reservation"
+		} else {
+			newCondition.Reason = "NoReservationUnsatisfiedChecks"
+			newCondition.Message = "The workload has no reservation and not all checks ready"
+		}
 	case !hasReservation:
 		newCondition.Status = metav1.ConditionFalse
-		newCondition.Reason = "NoReservation"
+		newCondition.Reason = kueue.WorkloadAdmittedReasonNoReservation
 		newCondition.Message = "The workload has no reservation"
 	case !hasAllChecksReady:
 		newCondition.Status = metav1.ConditionFalse
-		newCondition.Reason = "UnsatisfiedChecks"
+		newCondition.Reason = UnadmittedWorkloadReasonWithFallback(kueue.WorkloadAdmittedReasonUnsatisfiedAdmissionChecks, "UnsatisfiedChecks")
 		newCondition.Message = "The workload has not all checks ready"
 	case !hasAllTopologyAssignmentsReady:
 		newCondition.Status = metav1.ConditionFalse
-		newCondition.Reason = "PendingDelayedTopologyRequests"
+		newCondition.Reason = kueue.WorkloadAdmittedReasonPendingDelayedTopologyRequests
 		newCondition.Message = "There are pending delayed topology requests"
 	}
 
@@ -86,57 +102,6 @@ func SyncAdmittedCondition(w *kueue.Workload, now time.Time) bool {
 		}
 	}
 	return apimeta.SetStatusCondition(&w.Status.Conditions, newCondition)
-}
-
-// resetChecksOnEviction sets all AdmissionChecks to Pending
-func resetChecksOnEviction(w *kueue.Workload, now time.Time) {
-	checks := w.Status.AdmissionChecks
-	for i := range checks {
-		if checks[i].State == kueue.CheckStatePending {
-			continue
-		}
-		var retryCount *int32
-		if checks[i].State == kueue.CheckStateRetry {
-			tmpRetryCount := ptr.Deref(checks[i].RetryCount, 0) + 1
-			retryCount = new(tmpRetryCount)
-		}
-		checks[i] = kueue.AdmissionCheckState{
-			Name:                checks[i].Name,
-			State:               kueue.CheckStatePending,
-			Message:             "Reset to Pending after eviction. Previously: " + string(checks[i].State),
-			LastTransitionTime:  metav1.NewTime(now),
-			RequeueAfterSeconds: checks[i].RequeueAfterSeconds,
-			RetryCount:          retryCount,
-		}
-	}
-}
-
-// SetAdmissionCheckState - adds or updates newCheck in the provided checks list.
-func SetAdmissionCheckState(checks *[]kueue.AdmissionCheckState, newCheck kueue.AdmissionCheckState, clock clock.Clock) bool {
-	if checks == nil {
-		return false
-	}
-	existingCondition := admissioncheck.FindAdmissionCheck(*checks, newCheck.Name)
-	if existingCondition == nil {
-		if newCheck.LastTransitionTime.IsZero() {
-			newCheck.LastTransitionTime = metav1.NewTime(clock.Now())
-		}
-		*checks = append(*checks, newCheck)
-		return true
-	}
-
-	if existingCondition.State != newCheck.State {
-		existingCondition.State = newCheck.State
-		if !newCheck.LastTransitionTime.IsZero() {
-			existingCondition.LastTransitionTime = newCheck.LastTransitionTime
-		} else {
-			existingCondition.LastTransitionTime = metav1.NewTime(clock.Now())
-		}
-	}
-	existingCondition.Message = newCheck.Message
-	existingCondition.PodSetUpdates = newCheck.PodSetUpdates
-	existingCondition.RequeueAfterSeconds = newCheck.RequeueAfterSeconds
-	return true
 }
 
 // matchingChecks returns the list of admission checks in the given state.

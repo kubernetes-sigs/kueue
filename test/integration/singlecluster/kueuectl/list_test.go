@@ -17,6 +17,7 @@ limitations under the License.
 package kueuectl
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"time"
@@ -110,6 +111,65 @@ very-long-local-queue-name   cq1                            0                   
 				duration.HumanDuration(executeTime.Sub(lq2.CreationTimestamp.Time)),
 				duration.HumanDuration(executeTime.Sub(lq3.CreationTimestamp.Time)),
 			)))
+		})
+
+		ginkgo.It("Should list local queues in the current namespace as JSON", func() {
+			streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
+			configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+			kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+
+			kueuectl.SetArgs([]string{"list", "localqueue", "--namespace", ns.Name, "-o", "json"})
+
+			err := kueuectl.Execute()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
+
+			ginkgo.By("Verify the JSON output round-trips into the LocalQueueList type", func() {
+				var listOut kueue.LocalQueueList
+				gomega.Expect(json.Unmarshal(output.Bytes(), &listOut)).To(gomega.Succeed())
+				gomega.Expect(listOut.Items).To(gomega.HaveLen(3))
+				gomega.Expect(listOut.Items).To(gomega.ContainElement(gomega.SatisfyAll(
+					gomega.HaveField("Name", "lq1"),
+					gomega.HaveField("Spec.ClusterQueue", kueue.ClusterQueueReference("cq1")),
+				)))
+			})
+		})
+
+		ginkgo.It("Should list local queues across all namespaces with -A", func() {
+			otherNs := util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-other-")
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(util.DeleteNamespace(ctx, k8sClient, otherNs)).To(gomega.Succeed())
+			})
+			otherLq := utiltestingapi.MakeLocalQueue("lq-other", otherNs.Name).ClusterQueue("cq1").Obj()
+			util.MustCreate(ctx, k8sClient, otherLq)
+
+			// Create an LQ in the primary namespace so we can assert that both
+			// LQs (primary and other-ns) appear in the cross-namespace list.
+			primaryLq := utiltestingapi.MakeLocalQueue("lq-primary", ns.Name).ClusterQueue("cq1").Obj()
+			util.MustCreate(ctx, k8sClient, primaryLq)
+
+			streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
+			configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+			kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+
+			kueuectl.SetArgs([]string{"list", "localqueue", "-A", "-o", "json"})
+
+			err := kueuectl.Execute()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
+
+			ginkgo.By("Verify the JSON output contains the LQs from both namespaces", func() {
+				var listOut kueue.LocalQueueList
+				gomega.Expect(json.Unmarshal(output.Bytes(), &listOut)).To(gomega.Succeed())
+				gomega.Expect(listOut.Items).To(gomega.ContainElement(gomega.SatisfyAll(
+					gomega.HaveField("Name", "lq-primary"),
+					gomega.HaveField("Namespace", ns.Name),
+				)))
+				gomega.Expect(listOut.Items).To(gomega.ContainElement(gomega.SatisfyAll(
+					gomega.HaveField("Name", "lq-other"),
+					gomega.HaveField("Namespace", otherNs.Name),
+				)))
+			})
 		})
 	})
 

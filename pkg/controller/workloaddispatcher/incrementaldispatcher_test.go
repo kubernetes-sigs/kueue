@@ -18,6 +18,7 @@ package workloaddispatcher
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -28,14 +29,16 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
+	kueueconfig "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -58,7 +61,7 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 	}{
 		"workload not found": {
 			workload: nil,
-			wantErr:  apierrors.NewNotFound(schema.GroupResource{Group: kueue.GroupVersion.Group, Resource: "workloads"}, workloadName),
+			wantErr:  apierrors.NewNotFound(schema.GroupResource{Group: kueue.SchemeGroupVersion.Group, Resource: "workloads"}, workloadName),
 		},
 		"workload deleted": {
 			workload: baseWorkload.Clone().DeletionTimestamp(now).Finalizers("kubernetes").Obj(),
@@ -124,7 +127,7 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 				tc.workload.Status.AdmissionChecks = []kueue.AdmissionCheckState{*tc.mkAcState}
 				ac := utiltestingapi.MakeAdmissionCheck(string(tc.mkAcState.Name)).
 					ControllerName(kueue.MultiKueueControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", string(tc.mkAcState.Name)).
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", string(tc.mkAcState.Name)).
 					Obj()
 
 				objs = append(objs, ac)
@@ -177,98 +180,168 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 			State: kueue.CheckStatePending,
 		})
 
+	// Cluster names are anti-alphabetical throughout, so a configured-order result is
+	// always distinguishable from a sorted one. Unless a case sets orderingGateOff,
+	// MultiKueueIncrementalDispatcherRespectConfigOrder is enabled.
 	testCases := map[string]struct {
-		remoteClusters             sets.Set[string]
-		workload                   *kueue.Workload
-		wantNominatedClustersCount int
-		wantErr                    error
-		advanceRoundTime           bool
-		wantNominatedClusters      []string
+		remoteClusters        []string
+		workload              *kueue.Workload
+		cfg                   *kueueconfig.IncrementalDispatcherConfig
+		featureGates          map[featuregate.Feature]bool
+		orderingGateOff       bool
+		wantErr               error
+		advanceRoundTime      bool
+		wantNominatedClusters []string
 	}{
 		"one remote": {
-			remoteClusters:             sets.New("A"),
-			workload:                   baseWl.DeepCopy(),
-			wantNominatedClustersCount: 1,
-			wantErr:                    nil,
-			advanceRoundTime:           false,
-			wantNominatedClusters:      []string{"A"},
+			remoteClusters:        []string{"A"},
+			workload:              baseWl.DeepCopy(),
+			wantErr:               nil,
+			advanceRoundTime:      false,
+			wantNominatedClusters: []string{"A"},
 		},
 		"two remotes": {
-			remoteClusters:             sets.New("A", "B"),
-			workload:                   baseWl.DeepCopy(),
-			wantNominatedClustersCount: 2,
-			wantErr:                    nil,
-			advanceRoundTime:           false,
-			wantNominatedClusters:      []string{"A", "B"},
+			remoteClusters:        []string{"B", "A"},
+			workload:              baseWl.DeepCopy(),
+			wantErr:               nil,
+			advanceRoundTime:      false,
+			wantNominatedClusters: []string{"B", "A"},
 		},
 		"three remotes": {
-			remoteClusters:             sets.New("A", "B", "C"),
-			workload:                   baseWl.DeepCopy(),
-			wantNominatedClustersCount: 3,
-			wantErr:                    nil,
-			advanceRoundTime:           false,
-			wantNominatedClusters:      []string{"A", "B", "C"},
+			remoteClusters:        []string{"C", "B", "A"},
+			workload:              baseWl.DeepCopy(),
+			wantErr:               nil,
+			advanceRoundTime:      false,
+			wantNominatedClusters: []string{"C", "B", "A"},
 		},
 		"fifteen remotes": {
-			remoteClusters:             sets.New("A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O"),
-			workload:                   baseWl.DeepCopy(),
-			wantNominatedClustersCount: 3,
-			wantErr:                    nil,
-			advanceRoundTime:           false,
-			wantNominatedClusters:      []string{"A", "B", "C"},
+			remoteClusters:        []string{"O", "N", "M", "L", "K", "J", "I", "H", "G", "F", "E", "D", "C", "B", "A"},
+			workload:              baseWl.DeepCopy(),
+			wantErr:               nil,
+			advanceRoundTime:      false,
+			wantNominatedClusters: []string{"O", "N", "M"},
 		},
 		"all already nominated (3)": {
-			remoteClusters:             sets.New("A", "B", "C"),
-			workload:                   baseWl.Clone().NominatedClusterNames("A", "B", "C").Obj(),
-			wantNominatedClustersCount: 3,
-			wantErr:                    ErrNoMoreWorkers,
-			advanceRoundTime:           true,
-			wantNominatedClusters:      []string{"A", "B", "C"},
+			remoteClusters:        []string{"C", "B", "A"},
+			workload:              baseWl.Clone().NominatedClusterNames("C", "B", "A").Obj(),
+			wantErr:               ErrNoMoreWorkers,
+			advanceRoundTime:      true,
+			wantNominatedClusters: []string{"C", "B", "A"},
 		},
 		"all already nominated (1)": {
-			remoteClusters:             sets.New("A"),
-			workload:                   baseWl.Clone().NominatedClusterNames("A").Obj(),
-			wantNominatedClustersCount: 1,
-			wantErr:                    ErrNoMoreWorkers,
-			advanceRoundTime:           true,
-			wantNominatedClusters:      []string{"A"},
+			remoteClusters:        []string{"A"},
+			workload:              baseWl.Clone().NominatedClusterNames("A").Obj(),
+			wantErr:               ErrNoMoreWorkers,
+			advanceRoundTime:      true,
+			wantNominatedClusters: []string{"A"},
 		},
 		"round expired, next set nominated": {
-			remoteClusters:             sets.New("A", "B", "C", "D", "E", "F"),
-			workload:                   baseWl.Clone().NominatedClusterNames("A", "B", "C").Obj(),
-			wantNominatedClustersCount: 6,
-			wantErr:                    nil,
-			advanceRoundTime:           true,
-			wantNominatedClusters:      []string{"A", "B", "C", "D", "E", "F"},
+			remoteClusters:        []string{"F", "E", "D", "C", "B", "A"},
+			workload:              baseWl.Clone().NominatedClusterNames("F", "E", "D").Obj(),
+			wantErr:               nil,
+			advanceRoundTime:      true,
+			wantNominatedClusters: []string{"F", "E", "D", "C", "B", "A"},
 		},
 		"round in progress, keep current": {
-			remoteClusters:             sets.New("A", "B", "C", "D", "E", "F"),
-			workload:                   baseWl.Clone().NominatedClusterNames("A", "B", "C").Obj(),
-			wantNominatedClustersCount: 3,
-			wantErr:                    nil,
-			advanceRoundTime:           false,
-			wantNominatedClusters:      []string{"A", "B", "C"},
+			remoteClusters:        []string{"F", "E", "D", "C", "B", "A"},
+			workload:              baseWl.Clone().NominatedClusterNames("F", "E", "D").Obj(),
+			wantErr:               nil,
+			advanceRoundTime:      false,
+			wantNominatedClusters: []string{"F", "E", "D"},
 		},
 		"round expired, nominate all": {
-			remoteClusters:             sets.New("A", "B", "C", "D", "E", "F", "G", "H"),
-			workload:                   baseWl.Clone().NominatedClusterNames("A", "B", "C", "D", "E", "F").Obj(),
-			wantNominatedClustersCount: 8,
-			wantErr:                    nil,
-			advanceRoundTime:           true,
-			wantNominatedClusters:      []string{"A", "B", "C", "D", "E", "F", "G", "H"},
+			remoteClusters:        []string{"H", "G", "F", "E", "D", "C", "B", "A"},
+			workload:              baseWl.Clone().NominatedClusterNames("H", "G", "F", "E", "D", "C").Obj(),
+			wantErr:               nil,
+			advanceRoundTime:      true,
+			wantNominatedClusters: []string{"H", "G", "F", "E", "D", "C", "B", "A"},
 		},
 		"no remotes": {
-			remoteClusters:             make(sets.Set[string]),
-			workload:                   baseWl.DeepCopy(),
-			wantNominatedClustersCount: 0,
-			wantErr:                    ErrNoMoreWorkers,
-			advanceRoundTime:           false,
-			wantNominatedClusters:      []string{},
+			remoteClusters:        []string{},
+			workload:              baseWl.DeepCopy(),
+			wantErr:               ErrNoMoreWorkers,
+			advanceRoundTime:      false,
+			wantNominatedClusters: []string{},
+		},
+		"stepSize=2, five remotes — first batch is exactly 2": {
+			remoteClusters: []string{"E", "D", "C", "B", "A"},
+			workload:       baseWl.DeepCopy(),
+			cfg: &kueueconfig.IncrementalDispatcherConfig{
+				StepSize: new(int32(2)),
+			},
+			wantErr:               nil,
+			advanceRoundTime:      false,
+			wantNominatedClusters: []string{"E", "D"},
+		},
+		"stepSize=2, round expired — second batch is next 2": {
+			remoteClusters: []string{"E", "D", "C", "B", "A"},
+			workload:       baseWl.Clone().NominatedClusterNames("E", "D").Obj(),
+			cfg: &kueueconfig.IncrementalDispatcherConfig{
+				StepSize: new(int32(2)),
+			},
+			wantErr:               nil,
+			advanceRoundTime:      true,
+			wantNominatedClusters: []string{"E", "D", "C", "B"},
+		},
+		"config gate disabled — ignores stepSize=10, uses default 3": {
+			remoteClusters: []string{"G", "F", "E", "D", "C", "B", "A"},
+			workload:       baseWl.DeepCopy(),
+			cfg: &kueueconfig.IncrementalDispatcherConfig{
+				StepSize: new(int32(10)),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.MultiKueueIncrementalDispatcherConfig: false,
+			},
+			wantErr:               nil,
+			advanceRoundTime:      false,
+			wantNominatedClusters: []string{"G", "F", "E"},
+		},
+		// A subset of the above, re-run with the ordering gate off, expecting the
+		// legacy alphabetical order instead of the configured one.
+		"ordering gate off: three remotes nominated alphabetically": {
+			remoteClusters:        []string{"C", "B", "A"},
+			workload:              baseWl.DeepCopy(),
+			orderingGateOff:       true,
+			wantErr:               nil,
+			advanceRoundTime:      false,
+			wantNominatedClusters: []string{"A", "B", "C"},
+		},
+		"ordering gate off: first batch of fifteen is alphabetical": {
+			remoteClusters:        []string{"O", "N", "M", "L", "K", "J", "I", "H", "G", "F", "E", "D", "C", "B", "A"},
+			workload:              baseWl.DeepCopy(),
+			orderingGateOff:       true,
+			wantErr:               nil,
+			advanceRoundTime:      false,
+			wantNominatedClusters: []string{"A", "B", "C"},
+		},
+		"ordering gate off: prior nomination retained, remainder alphabetical": {
+			remoteClusters:        []string{"F", "E", "D", "C", "B", "A"},
+			workload:              baseWl.Clone().NominatedClusterNames("F", "E", "D").Obj(),
+			orderingGateOff:       true,
+			wantErr:               nil,
+			advanceRoundTime:      true,
+			wantNominatedClusters: []string{"F", "E", "D", "A", "B", "C"},
+		},
+		"ordering gate off: stepSize=2 first batch is alphabetical": {
+			remoteClusters: []string{"E", "D", "C", "B", "A"},
+			workload:       baseWl.DeepCopy(),
+			cfg: &kueueconfig.IncrementalDispatcherConfig{
+				StepSize: new(int32(2)),
+			},
+			orderingGateOff:       true,
+			wantErr:               nil,
+			advanceRoundTime:      false,
+			wantNominatedClusters: []string{"A", "B"},
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			for f, v := range tc.featureGates {
+				features.SetFeatureGateDuringTest(t, f, v)
+			}
+			features.SetFeatureGateDuringTest(t, features.MultiKueueIncrementalDispatcherRespectConfigOrder, !tc.orderingGateOff)
+
 			scheme := runtime.NewScheme()
 			if err := kueue.AddToScheme(scheme); err != nil {
 				t.Fatalf("Fail to add to scheme %s", err)
@@ -287,6 +360,7 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 				client:          client,
 				clock:           fakeClock,
 				roundStartTimes: utilmaps.NewSyncMap[types.NamespacedName, time.Time](0),
+				cfg:             tc.cfg,
 			}
 
 			key := types.NamespacedName{Namespace: tc.workload.Namespace, Name: tc.workload.Name}
@@ -297,6 +371,7 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 			}
 
 			previousRoundNominatedClusters := tc.workload.Status.NominatedClusterNames
+			originalRemoteClusters := slices.Clone(tc.remoteClusters)
 
 			ctx, log := utiltesting.ContextWithLog(t)
 			_, gotErr := reconciler.nominateWorkers(ctx, tc.workload, tc.remoteClusters, log)
@@ -311,12 +386,13 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 				}
 			}
 
-			if tc.advanceRoundTime && tc.wantNominatedClusters != nil {
-				if diff := cmp.Diff(tc.wantNominatedClusters, tc.workload.Status.NominatedClusterNames); diff != "" {
-					t.Errorf("unexpected nominated clusters (-want/+got):\n%s", diff)
-				}
-			} else if len(tc.workload.Status.NominatedClusterNames) != tc.wantNominatedClustersCount {
-				t.Errorf("expected %d nominated clusters, got %d: %v", tc.wantNominatedClustersCount, len(tc.workload.Status.NominatedClusterNames), tc.workload.Status.NominatedClusterNames)
+			if diff := cmp.Diff(tc.wantNominatedClusters, tc.workload.Status.NominatedClusterNames, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("unexpected nominated clusters (-want/+got):\n%s", diff)
+			}
+
+			// remoteClusters aliases the cached MultiKueueConfig, so nominating must not reorder it.
+			if diff := cmp.Diff(originalRemoteClusters, tc.remoteClusters); diff != "" {
+				t.Errorf("nominateWorkers mutated remoteClusters (-want/+got):\n%s", diff)
 			}
 		})
 	}

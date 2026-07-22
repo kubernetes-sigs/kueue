@@ -31,11 +31,6 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-const (
-	shard0 = "shard-0"
-	shard1 = "shard-1"
-)
-
 var (
 	k8sClient       client.WithWatch
 	cfg             *rest.Config
@@ -69,5 +64,7 @@ var _ = ginkgo.BeforeSuite(func() {
 })
 
 var _ = ginkgo.AfterSuite(func() {
-	util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName)
+	if util.IsE2EModeDev() {
+		util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName)
+	}
 })

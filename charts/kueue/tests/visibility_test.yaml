@@ -1,0 +1,35 @@
+suite: test visibility auth-reader RoleBinding
+templates:
+  - visibility/role_binding.yaml
+tests:
+  - it: should render the auth-reader RoleBinding in kube-system by default
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: RoleBinding
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-kueue-visibility-server-auth-reader
+      - equal:
+          path: metadata.namespace
+          value: kube-system
+      - equal:
+          path: roleRef.name
+          value: extension-apiserver-authentication-reader
+
+  - it: should render the auth-reader RoleBinding when explicitly enabled
+    set:
+      enableVisibilityAuthReaderRoleBinding: true
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: RoleBinding
+
+  - it: should not render the auth-reader RoleBinding when disabled
+    set:
+      enableVisibilityAuthReaderRoleBinding: false
+    asserts:
+      - hasDocuments:
+          count: 0

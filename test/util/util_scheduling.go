@@ -27,6 +27,9 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
+	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 )
 
 func FinishRunningWorkloadsInCQ(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue, n int) {
@@ -35,7 +38,7 @@ func FinishRunningWorkloadsInCQ(ctx context.Context, k8sClient client.Client, cq
 	finished := 0
 	for i := 0; i < len(wList.Items) && finished < n; i++ {
 		wl := wList.Items[i]
-		if wl.Status.Admission != nil && string(wl.Status.Admission.ClusterQueue) == cq.Name && !workload.IsFinished(&wl) {
+		if wl.Status.Admission != nil && string(wl.Status.Admission.ClusterQueue) == cq.Name && !workloadfinish.IsFinished(&wl) {
 			FinishWorkloads(ctx, k8sClient, &wl)
 			finished++
 		}
@@ -52,8 +55,8 @@ func FinishEvictionOfWorkloadsInCQ(ctx context.Context, k8sClient client.Client,
 			if wl.Status.Admission == nil || string(wl.Status.Admission.ClusterQueue) != cq.Name {
 				continue
 			}
-			if workload.IsEvicted(&wl) && workload.HasQuotaReservation(&wl) {
-				g.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, &wl, RealClock, func(wl *kueue.Workload) (bool, error) {
+			if workloadevict.IsEvicted(&wl) && workload.HasQuotaReservation(&wl) {
+				g.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, &wl, RealClock, func(wl *kueue.Workload) (bool, error) {
 					return workload.UnsetQuotaReservationWithCondition(wl, "Pending", "Eviction finished by test", time.Now()), nil
 				}),
 				).To(gomega.Succeed())

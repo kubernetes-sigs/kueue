@@ -11,6 +11,7 @@ filters:
       - ahg-g
       - alculquicondor
       - denkensk
+      - gabesaba      
       - kerthcet
 
   # Any directory depth: go.mod or go.sum

@@ -19,6 +19,8 @@ package pod
 import (
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 )
 
 const (
@@ -31,7 +33,7 @@ func IndexPodGroupName(o client.Object) []string {
 		return nil
 	}
 
-	if groupName := GetPodGroupName(pod); groupName != "" {
+	if groupName := utilpod.GetPodGroupName(pod); groupName != "" {
 		return []string{groupName}
 	}
 	return nil

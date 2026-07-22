@@ -34,6 +34,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/api"
 )
 
 // Adapter implements the MultiKueueAdapter interface for external frameworks
@@ -57,13 +58,13 @@ func NewAdapter(gvk schema.GroupVersionKind) jobframework.MultiKueueAdapter {
 // SyncJob synchronizes a job resource between the local and remote clusters.
 // It ensures that the remote cluster has a corresponding object for the local job,
 // creating it if necessary, and updates the status of the local object based on the remote object.
-func (a *Adapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error {
+func (a *Adapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) (deferred bool, err error) {
 	// Get the local object
 	localObj := &unstructured.Unstructured{}
 	localObj.SetGroupVersionKind(a.gvk)
-	err := localClient.Get(ctx, key, localObj)
+	err = localClient.Get(ctx, key, localObj)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	// Check if remote object already exists
@@ -71,24 +72,25 @@ func (a *Adapter) SyncJob(ctx context.Context, localClient client.Client, remote
 	remoteObj.SetGroupVersionKind(a.gvk)
 	err = remoteClient.Get(ctx, key, remoteObj)
 	if err != nil && !apierrors.IsNotFound(err) {
-		return err
+		return false, err
 	}
 
 	if apierrors.IsNotFound(err) {
 		// Create new remote object
-		return a.createRemoteObject(ctx, remoteClient, localObj, workloadName, origin)
+		return false, a.createRemoteObject(ctx, remoteClient, localObj, workloadName, origin)
 	}
 
 	// Update existing remote object status
-	return a.syncStatus(ctx, localClient, localObj, remoteObj)
+	return false, a.syncStatus(ctx, localClient, localObj, remoteObj)
 }
 
 func (a *Adapter) createRemoteObject(ctx context.Context, remoteClient client.Client, localObj *unstructured.Unstructured, workloadName, origin string) error {
 	log := ctrl.LoggerFrom(ctx)
 
-	// Create a copy of the local object for the remote cluster
-	remoteObj := localObj.DeepCopy()
-	remoteObj.SetResourceVersion("")
+	remoteObj, err := cloneUnstructuredForCreation(localObj)
+	if err != nil {
+		return err
+	}
 
 	// Apply default transformation: remove the managedBy field
 	a.removeManagedByField(remoteObj)
@@ -99,6 +101,36 @@ func (a *Adapter) createRemoteObject(ctx context.Context, remoteClient client.Cl
 	// Create the object in the remote cluster
 	log.V(2).Info("Creating remote object", "gvk", a.gvk, "name", remoteObj.GetName(), "namespace", remoteObj.GetNamespace())
 	return remoteClient.Create(ctx, remoteObj)
+}
+
+// cloneUnstructuredForCreation creates a copy of obj containing only the GVK, name,
+// namespace, labels, annotations and spec, the unstructured analogue of
+// api.CloneObjectMetaForCreation, which it reuses for the metadata. Dropping the rest
+// (notably ownerReferences, whose UIDs don't exist remotely) avoids the remote GC
+// deleting the copy in a create-delete loop.
+func cloneUnstructuredForCreation(obj *unstructured.Unstructured) (*unstructured.Unstructured, error) {
+	var meta metav1.ObjectMeta
+	if metaMap, found, err := unstructured.NestedMap(obj.Object, "metadata"); err != nil {
+		return nil, fmt.Errorf("reading metadata: %w", err)
+	} else if found {
+		if err := runtime.DefaultUnstructuredConverter.FromUnstructured(metaMap, &meta); err != nil {
+			return nil, fmt.Errorf("converting metadata to ObjectMeta: %w", err)
+		}
+	}
+
+	cleaned := api.CloneObjectMetaForCreation(&meta)
+	cleanedMeta, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&cleaned)
+	if err != nil {
+		return nil, fmt.Errorf("converting cleaned metadata to unstructured: %w", err)
+	}
+
+	remote := &unstructured.Unstructured{Object: map[string]any{}}
+	remote.SetGroupVersionKind(obj.GroupVersionKind())
+	remote.Object["metadata"] = cleanedMeta
+	if spec, found, _ := unstructured.NestedFieldCopy(obj.Object, "spec"); found {
+		remote.Object["spec"] = spec
+	}
+	return remote, nil
 }
 
 func (a *Adapter) syncStatus(ctx context.Context, localClient client.Client, localObj, remoteObj *unstructured.Unstructured) error {

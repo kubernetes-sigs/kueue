@@ -52,7 +52,3 @@ type WorkloadPriorityClassList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []WorkloadPriorityClass `json:"items"`
 }
-
-func init() {
-	SchemeBuilder.Register(&WorkloadPriorityClass{}, &WorkloadPriorityClassList{})
-}

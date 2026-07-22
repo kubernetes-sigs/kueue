@@ -227,7 +227,11 @@ func (e *entryComparer) computeDRS(rootCohort *schdcache.CohortSnapshot, cqToEnt
 		if !ok {
 			continue
 		}
-		usage := entry.assignmentUsage()
+		log := e.log.WithValues(
+			"workload", klog.KObj(entry.Obj),
+			"clusterQueue", klog.KRef("", string(cq.Name)),
+		)
+		usage := entry.assignmentUsage(log)
 		// We add workload's usage to CQ, so that all
 		// subsequent DRS include the admission of workload.
 		revert := cq.SimulateUsageAddition(usage)
@@ -252,19 +256,20 @@ func (e *entryComparer) computeDRS(rootCohort *schdcache.CohortSnapshot, cqToEnt
 }
 
 type drsLogEntry struct {
-	ParentCohort string  `json:"parentCohort"`
-	Workload     string  `json:"workload"`
-	DRS          float64 `json:"drs"`
+	ParentCohort string `json:"parentCohort"`
+	Workload     string `json:"workload"`
+	DRS          string `json:"drs"`
 }
 
 func (e *entryComparer) logDrsValuesWhenVerbose(log logr.Logger) {
 	if logV := log.V(4); logV.Enabled() {
 		entries := make([]drsLogEntry, 0, len(e.drsValues))
 		for k, v := range e.drsValues {
+			drs := v.PreciseWeightedShareSerialized()
 			entries = append(entries, drsLogEntry{
 				ParentCohort: string(k.parentCohort),
 				Workload:     string(k.workloadKey),
-				DRS:          v.PreciseWeightedShare(),
+				DRS:          drs,
 			})
 		}
 		slices.SortFunc(entries, func(a, b drsLogEntry) int {

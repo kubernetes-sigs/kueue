@@ -81,13 +81,17 @@ Kueue uses the `podSets` resources requests to calculate the quota used by a Wor
 
 Kueue calculates the total resources usage for a Workload as the sum of the resource requests for each `podSet`. The resource usage of a `podSet` is equal to the resource requests of the pod spec multiplied by the `count`.
 
+#### Pod-level resources
+
+When the [`PodLevelResources`](https://kubernetes.io/docs/tasks/configure-pod-container/assign-pod-level-resources/) feature is enabled in the cluster (Kubernetes 1.32+), a pod may declare CPU and memory requests and limits at the pod level via `pod.spec.resources` instead of, or in addition to, the per-container requests. Kueue accounts for these pod-level requests when computing a Workload's quota usage, and the requests-value adjustment and validation described below apply to `pod.spec.resources` as well as to container resources.
+
 #### Requests values adjustment
 
 Depending on the cluster setup, Kueue will adjust the resource usage of a Workload based on:
 
 - The cluster defines default values in [Limit Ranges](https://kubernetes.io/docs/concepts/policy/limit-range/), the default values will be used if not provided in the `spec`.
 - The created pods are subject of a [Runtime Class Overhead](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-overhead/).
-- The spec defines only resource limits, case in which the limit values will be treated as requests.
+- The spec defines only resource limits, case in which the limit values will be treated as requests. This also applies to limits set at the pod level via `pod.spec.resources`.
 
 #### Requests values validation
 
@@ -160,7 +164,7 @@ the requeueState (`.status.requeueState`) will be reset to null.
 
 ## Replicate labels from Jobs into Workloads
 You can configure Kueue to copy labels, at Workload creation, into the new Workload from the underlying Job or Pod objects. This can be useful for Workload identification and debugging.
-You can specify which labels should be copied by setting the `labelKeysToCopy` field in the configuration API (under `integrations`). By default, Kueue does not copy any Job or Pod label into the Workload. 
+You can specify which labels should be copied by setting the `labelKeysToCopy` field in the configuration API (under `integrations`). By default, Kueue does not copy any Job or Pod label into the Workload.
 
 ## Maximum execution time
 
@@ -176,7 +180,7 @@ Once deactivated, the accumulated time spent as active in previous "Admit/Evict"
 
 If `maximumExecutionTimeSeconds` is not specified, the workload has no execution time limit.
 
-You can configure the `maximumExecutionTimeSeconds` of the Workload associated with any supported Kueue Job by specifying the desired value as `kueue.x-k8s.io/max-exec-time-seconds` label of the job. 
+You can configure the `maximumExecutionTimeSeconds` of the Workload associated with any supported Kueue Job by specifying the desired value as `kueue.x-k8s.io/max-exec-time-seconds` label of the job.
 
 ## Workload updates by Kueue
 
@@ -191,13 +195,13 @@ for instructions on configuring feature gates.
 {{% /alert %}}
 
 
-By default Workload status updates are performed by Kueue using the [Server-Side Apply (SSA)](https://kubernetes.io/docs/reference/using-api/server-side-apply/). 
+By default Workload status updates are performed by Kueue using the [Server-Side Apply (SSA)](https://kubernetes.io/docs/reference/using-api/server-side-apply/).
 
 However due to the limitations of SSA ([missing support for duplicated key/value pairs](https://github.com/kubernetes/kubernetes/issues/113482)) we also offer to enable updating the Workload status
-with Merge Patches, by enabling the `WorkloadRequestUseMergePatch` feature gate. 
+with Merge Patches, by enabling the `WorkloadRequestUseMergePatch` feature gate.
 
 In particular, this allows users of Kueue to handle the following two issues:
-- [Add option to disable strict pod spec validation](https://github.com/kubernetes-sigs/kueue/issues/3540) 
+- [Add option to disable strict pod spec validation](https://github.com/kubernetes-sigs/kueue/issues/3540)
 Switching from ServerSideApply to Merge Patch allows partial updates without requiring the entire resource specification.
 This can bypass the strict validation rules causing issues with duplicated environment variables, aligning Kueue's behavior more closely with plain Kubernetes
 - [MultiKueue: remove the limitation that the external dispatches need to use kueue-admission field manager ](https://github.com/kubernetes-sigs/kueue/issues/6185)

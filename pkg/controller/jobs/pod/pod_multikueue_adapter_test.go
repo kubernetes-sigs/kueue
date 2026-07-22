@@ -88,7 +88,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*basePodBuilder.DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: basePodName, Namespace: TestNamespace}, "wl1", "origin1")
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: basePodName, Namespace: TestNamespace}, "wl1", "origin1")
+				return err
 			},
 
 			wantManagersPods: []corev1.Pod{
@@ -115,7 +116,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: basePodName, Namespace: TestNamespace}, "wl1", "origin1")
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: basePodName, Namespace: TestNamespace}, "wl1", "origin1")
+				return err
 			},
 
 			wantManagersPods: []corev1.Pod{
@@ -130,6 +132,119 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					StatusPhase(corev1.PodRunning).
 					StatusConditions(corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionTrue}).
+					Obj(),
+			},
+		},
+		"keeps SchedulingGated condition on gated manager pod (avoids spurious autoscaler scale-up)": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			managersPods: []corev1.Pod{
+				*basePodBuilder.Clone().
+					KueueSchedulingGate().
+					StatusConditions(corev1.PodCondition{
+						Type:   corev1.PodScheduled,
+						Status: corev1.ConditionFalse,
+						Reason: corev1.PodReasonSchedulingGated,
+					}).
+					Obj(),
+			},
+			workerPods: []corev1.Pod{
+				*basePodBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					StatusPhase(corev1.PodPending).
+					StatusConditions(corev1.PodCondition{
+						Type:   corev1.PodScheduled,
+						Status: corev1.ConditionFalse,
+						Reason: corev1.PodReasonUnschedulable,
+					}).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: basePodName, Namespace: TestNamespace}, "wl1", "origin1")
+				return err
+			},
+
+			// The remote PodScheduled=False/Unschedulable condition must not overwrite
+			// the local SchedulingGated one, otherwise the management cluster's
+			// cluster-autoscaler treats the gated Pod as unschedulable and scales up.
+			// Other status (the phase here) is still synced from the worker.
+			wantManagersPods: []corev1.Pod{
+				*basePodBuilder.Clone().
+					KueueSchedulingGate().
+					StatusPhase(corev1.PodPending).
+					StatusConditions(corev1.PodCondition{
+						Type:   corev1.PodScheduled,
+						Status: corev1.ConditionFalse,
+						Reason: corev1.PodReasonSchedulingGated,
+					}).
+					Obj(),
+			},
+			wantWorkerPods: []corev1.Pod{
+				*basePodBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					StatusPhase(corev1.PodPending).
+					StatusConditions(corev1.PodCondition{
+						Type:   corev1.PodScheduled,
+						Status: corev1.ConditionFalse,
+						Reason: corev1.PodReasonUnschedulable,
+					}).
+					Obj(),
+			},
+		},
+		"overwrites SchedulingGated once the remote pod is scheduled": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			// While the worker Pod is unscheduled the manager Pod keeps its local
+			// SchedulingGated condition (see the case above, which avoids a spurious
+			// autoscaler scale-up). Once the worker Pod reports PodScheduled=True, that
+			// condition is synced through to the manager Pod so its status reflects
+			// reality instead of showing SchedulingGated while the phase is Running.
+			// The manager Pod stays gated in its spec.
+			managersPods: []corev1.Pod{
+				*basePodBuilder.Clone().
+					KueueSchedulingGate().
+					StatusConditions(corev1.PodCondition{
+						Type:   corev1.PodScheduled,
+						Status: corev1.ConditionFalse,
+						Reason: corev1.PodReasonSchedulingGated,
+					}).
+					Obj(),
+			},
+			workerPods: []corev1.Pod{
+				*basePodBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					StatusPhase(corev1.PodRunning).
+					StatusConditions(
+						corev1.PodCondition{Type: corev1.PodScheduled, Status: corev1.ConditionTrue},
+						corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+					).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: basePodName, Namespace: TestNamespace}, "wl1", "origin1")
+				return err
+			},
+
+			wantManagersPods: []corev1.Pod{
+				*basePodBuilder.Clone().
+					KueueSchedulingGate().
+					StatusPhase(corev1.PodRunning).
+					StatusConditions(
+						corev1.PodCondition{Type: corev1.PodScheduled, Status: corev1.ConditionTrue},
+						corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+					).
+					Obj(),
+			},
+			wantWorkerPods: []corev1.Pod{
+				*basePodBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					StatusPhase(corev1.PodRunning).
+					StatusConditions(
+						corev1.PodCondition{Type: corev1.PodScheduled, Status: corev1.ConditionTrue},
+						corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+					).
 					Obj(),
 			},
 		},
@@ -168,7 +283,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*podGroup[2].DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: podGroup[0].Obj().Name, Namespace: TestNamespace}, "wl1", "origin1")
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: podGroup[0].Obj().Name, Namespace: TestNamespace}, "wl1", "origin1")
+				return err
 			},
 			wantManagersPods: []corev1.Pod{
 				*podGroup[0].DeepCopy(),
@@ -197,7 +313,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: podGroup[0].Obj().Name, Namespace: TestNamespace}, "wl1", "origin1")
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: podGroup[0].Obj().Name, Namespace: TestNamespace}, "wl1", "origin1")
+				return err
 			},
 			wantManagersPods: []corev1.Pod{
 				*podGroup[0].DeepCopy(),
@@ -243,7 +360,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*basePodBuilder.DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: basePodName, Namespace: TestNamespace}, "wl1", "origin1")
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: basePodName, Namespace: TestNamespace}, "wl1", "origin1")
+				return err
 			},
 			wantManagersPods: []corev1.Pod{
 				*basePodBuilder.DeepCopy(),
@@ -263,7 +381,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*podGroupWithWlAnnotations[2].DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: podGroup[0].Obj().Name, Namespace: TestNamespace}, "wl1", "origin1")
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: podGroup[0].Obj().Name, Namespace: TestNamespace}, "wl1", "origin1")
+				return err
 			},
 			wantManagersPods: []corev1.Pod{
 				*podGroupWithWlAnnotations[0].DeepCopy(),

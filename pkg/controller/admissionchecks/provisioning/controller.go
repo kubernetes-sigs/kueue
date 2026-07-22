@@ -47,12 +47,16 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
+	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 )
 
 const (
@@ -127,13 +131,27 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile Workload")
 
-	if !workload.HasQuotaReservation(wl) || workload.IsFinished(wl) || workload.IsEvicted(wl) {
+	isFinished := workloadfinish.IsFinished(wl)
+	isEvicted := workloadevict.IsEvicted(wl)
+	if !workload.HasQuotaReservation(wl) && !isFinished && !isEvicted {
 		return reconcile.Result{}, nil
 	}
 
 	provReqs := &autoscaling.ProvisioningRequestList{}
 	if err := c.client.List(ctx, provReqs, client.InNamespace(wl.Namespace), client.MatchingFields{RequestsOwnedByWorkloadKey: wl.Name}); client.IgnoreNotFound(err) != nil {
 		return reconcile.Result{}, err
+	}
+
+	if isFinished || (isEvicted && features.Enabled(features.CleanupProvisioningRequestsOnEviction)) {
+		err = c.deleteUnusedProvisioningRequests(ctx, provReqs.Items, nil)
+		if err != nil {
+			log.V(2).Error(err, "failed to delete stale provisioning requests")
+			return reconcile.Result{}, err
+		}
+		return reconcile.Result{}, nil
+	}
+	if isEvicted {
+		return reconcile.Result{}, nil
 	}
 
 	// get the lists of relevant checks
@@ -251,6 +269,11 @@ func (c *Controller) syncOwnedProvisionRequest(
 
 		req, exists := activeOrLastPRForChecks[checkName]
 		attempt := int32(1)
+		if ac != nil {
+			// When cleanup deleted the previous ProvisioningRequest, the Workload
+			// admission check keeps the retry count needed to name the next attempt.
+			attempt = ptr.Deref(ac.RetryCount, 0) + 1
+		}
 		shouldCreatePr := false
 		if exists {
 			if (isFailed(req) || (isBookingExpired(req) && !workload.IsAdmitted(wl))) &&
@@ -332,10 +355,10 @@ func (c *Controller) syncOwnedProvisionRequest(
 
 func (c *Controller) handleError(ctx context.Context, wl *kueue.Workload, ac *kueue.AdmissionCheckState, msg string, err error) error {
 	c.record.Eventf(wl, nil, corev1.EventTypeWarning, "FailedCreate", "FailedCreate", api.TruncateEventMessage(msg))
-	patchErr := workload.PatchStatus(ctx, c.client, wl, kueue.ProvisioningRequestControllerName, func(wl *kueue.Workload) (bool, error) {
+	patchErr := workloadpatching.PatchStatus(ctx, c.client, wl, kueue.ProvisioningRequestControllerName, func(wl *kueue.Workload) (bool, error) {
 		ac.Message = api.TruncateConditionMessage(msg)
 		ac.LastTransitionTime = metav1.NewTime(c.clock.Now())
-		return workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *ac, c.clock), nil
+		return workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *ac, c.clock), nil
 	})
 	return errors.Join(err, patchErr)
 }
@@ -365,7 +388,7 @@ func (c *Controller) createPodTemplate(ctx context.Context, wl *kueue.Workload, 
 		return nil, err
 	}
 
-	err = podset.Merge(&newPt.Template.ObjectMeta, &newPt.Template.Spec, psi)
+	err = podset.Merge(ctrl.LoggerFrom(ctx), &newPt.Template.ObjectMeta, &newPt.Template.Spec, psi)
 	if err != nil {
 		return nil, err
 	}
@@ -485,7 +508,7 @@ func updateCheckState(checkState *kueue.AdmissionCheckState, state kueue.CheckSt
 
 func (wlInfo *workloadInfo) update(wl *kueue.Workload, c clock.Clock) {
 	for _, check := range wl.Status.AdmissionChecks {
-		workload.SetAdmissionCheckState(&wlInfo.checkStates, check, c)
+		workloadpatching.SetAdmissionCheckState(&wlInfo.checkStates, check, c)
 	}
 }
 
@@ -500,7 +523,7 @@ func (c *Controller) syncCheckStates(
 	checksMap := slices.ToRefMap(wl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) kueue.AdmissionCheckReference { return c.Name })
 	recorderMessages := make([]string, 0, len(checkConfig))
 	updated := false
-	err := workload.PatchStatus(ctx, c.client, wl, kueue.ProvisioningRequestControllerName, func(wlPatch *kueue.Workload) (bool, error) {
+	err := workloadpatching.PatchStatus(ctx, c.client, wl, kueue.ProvisioningRequestControllerName, func(wlPatch *kueue.Workload) (bool, error) {
 		// Inside PatchStatus (Apply), we use BaseSSAWorkload() to create the patch.
 		// This patch does not include wl.Status.AdmissionChecks, which leads to errors
 		// in subsequent steps due to the missing field.
@@ -558,7 +581,7 @@ func (c *Controller) syncCheckStates(
 						checkState.Message = apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed).Message
 					}
 				case isCapacityRevoked(pr):
-					if workload.IsActive(wl) && !workload.IsFinished(wl) {
+					if workload.IsActive(wl) && !workloadfinish.IsFinished(wl) {
 						// We mark the admission check as rejected to trigger workload deactivation.
 						// This is needed to prevent replacement pods being stuck in the pending phase indefinitely
 						// as the nodes are already deleted by Cluster Autoscaler.
@@ -610,7 +633,7 @@ func (c *Controller) syncCheckStates(
 				}
 				recorderMessages = append(recorderMessages, message)
 			}
-			workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, checkState, c.clock)
+			workloadpatching.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, checkState, c.clock)
 		}
 		return updated, nil
 	})

@@ -35,7 +35,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, ginkgo.Label("area:tas", "feature:kuberay"), func() {
 	var (
 		ns           *corev1.Namespace
 		topology     *kueue.Topology
@@ -178,6 +178,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, fu
 				}).
 				Image(rayv1.HeadNode, kuberayTestImage).
 				Image(rayv1.WorkerNode, kuberayTestImage).
+				TerminationGracePeriod(1).
 				Obj()
 
 			util.MustCreate(ctx, k8sClient, rayjob)

@@ -192,15 +192,44 @@ E2E_MODE=dev IMAGE_TAG=us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue
 
 This is useful to reproduce issues on a specific released version (e.g. for on-call debugging). For installing a released version into a real cluster (not e2e), see [Install a released version](/docs/getting-started/installation/#install-a-released-version).
 
-### Legacy: interactive attach mode
+### Invoking `e2e-test.sh` directly (without `make`)
 
-Run `E2E_RUN_ONLY_ENV=true make kind-image-build test-multikueue-e2e-baseline` and wait for the `Do you want to cleanup? [Y/n] ` to appear (CI-style behavior).
+`e2e-test.sh` is normally invoked via `make`, which sets `ARTIFACTS`, `IMAGE_TAG`, `E2E_USE_HELM`, and `GINKGO_ARGS` for you. If you (or a tool/agent) invoke it directly, those variables must be set explicitly, since the script has `set -o nounset` and does not default them outside `make`:
 
-The cluster is ready, and now you can run tests from another terminal:
 ```shell
-<your_kueue_path>/bin/ginkgo --json-report ./ginkgo.report -focus "MultiKueue when Creating a multikueue admission check Should run a jobSet on worker if admitted" -r
+ARTIFACTS="$(pwd)/artifacts/my-test" \
+IMAGE_TAG=local/kueue:my-test \
+E2E_USE_HELM=false \
+GINKGO_ARGS="" \
+  ./hack/testing/e2e-test.sh
 ```
-or from VSCode.
+
+Other variables of note when scripting a direct invocation:
+
+| Variable | Purpose |
+|----------|---------|
+| `E2E_KIND_VERSION` | Kind node image to use, e.g. `kindest/node:v1.35.0` or a locally built image name |
+| `E2E_MODE` | Set to `dev` to reuse an existing cluster on re-runs and keep the cluster on exit |
+| `E2E_RUN_ONLY_ENV` | Set to `true` to stand up the cluster and deploy Kueue, then exit before running tests |
+| `KIND_CLUSTER_NAME` | Name of the kind cluster to create/reuse |
+| `KIND_CLUSTER_FILE` | Base kind config file to use, relative to `hack/testing/` |
+| `E2E_TARGET_FOLDER` | Go test package under `test/e2e/` to target |
+
+Without a tty, the "Do you want to cleanup?" prompt reads EOF. `E2E_MODE=dev` still keeps the cluster regardless, since `e2e_should_delete_cluster` returns false in dev mode regardless of the prompt answer. Interactively, answer `n` to keep the cluster.
+
+#### Re-deploy Kueue after code changes (dev mode)
+
+Once a dev-mode cluster is up, you don't need to re-run the full setup to pick up controller code changes:
+
+```shell
+# Rebuild, reload, restart
+make -e IMAGE_TAG=local/kueue:my-test image-build IMAGE_BUILD_EXTRA_OPTS="--load" PLATFORMS="linux/amd64"
+kind load docker-image local/kueue:my-test --name <cluster-name>
+kubectl -n kueue-system rollout restart deploy/kueue-controller-manager
+kubectl -n kueue-system rollout status deploy/kueue-controller-manager --timeout=120s
+```
+
+Or re-run the setup command — `E2E_MODE=dev` makes it idempotent.
 
 ## Running subset of integration or e2e tests
 

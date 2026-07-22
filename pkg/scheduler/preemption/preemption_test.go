@@ -48,6 +48,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 )
 
 var snapCmpOpts = cmp.Options{
@@ -4140,7 +4141,7 @@ func TestPreemption(t *testing.T) {
 				}
 				wlInfo := workload.NewInfo(tc.incoming)
 				wlInfo.ClusterQueue = tc.targetCQ
-				targets := preemptor.GetTargets(log, *wlInfo, tc.assignment, snapshotWorkingCopy)
+				targets := preemptor.GetTargets(ctx, *wlInfo, tc.assignment, snapshotWorkingCopy)
 				preempted, failed, err := preemptor.IssuePreemptions(ctx, cqCache, wlInfo, targets, snapshotWorkingCopy.ClusterQueue(wlInfo.ClusterQueue))
 				if err != nil {
 					t.Fatalf("Failed doing preemption")
@@ -4357,7 +4358,7 @@ func TestPreemptionWhenWorkloadModifiedConcurrently(t *testing.T) {
 				}
 				wlInfo := workload.NewInfo(tc.incoming)
 				wlInfo.ClusterQueue = kueue.ClusterQueueReference(cq.Name)
-				targets := preemptor.GetTargets(log, *wlInfo, tc.assignment, snapshotWorkingCopy)
+				targets := preemptor.GetTargets(ctx, *wlInfo, tc.assignment, snapshotWorkingCopy)
 				_, _, err = preemptor.IssuePreemptions(ctx, cqCache, wlInfo, targets, snapshotWorkingCopy.ClusterQueue(wlInfo.ClusterQueue))
 				if err != nil {
 					t.Fatalf("Failed doing preemption")
@@ -4482,7 +4483,7 @@ func TestIssuePreemptionsCountsFailures(t *testing.T) {
 	if err := cl.Get(ctx, client.ObjectKeyFromObject(targetWl), &gotTarget); err != nil {
 		t.Fatalf("Failed getting target workload: %v", err)
 	}
-	if workload.IsEvicted(&gotTarget) {
+	if workloadevict.IsEvicted(&gotTarget) {
 		t.Error("Target workload should not be marked evicted after failed preemption patch")
 	}
 	if !store.Satisfied(log, client.ObjectKeyFromObject(targetWl)) {
@@ -4574,7 +4575,7 @@ func TestIssuePreemptionsSkipsDuplicate(t *testing.T) {
 				}
 				wlInfo := workload.NewInfo(tc.incoming)
 				wlInfo.ClusterQueue = kueue.ClusterQueueReference(cq.Name)
-				targets := preemptor.GetTargets(log, *wlInfo, tc.assignment, snapshot)
+				targets := preemptor.GetTargets(ctx, *wlInfo, tc.assignment, snapshot)
 
 				if len(targets) == 0 {
 					t.Fatal("Expected preemption targets")

@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
+	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -44,7 +45,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
-	"sigs.k8s.io/kueue/pkg/workload"
+	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 )
 
 var (
@@ -145,7 +146,7 @@ func TestReconcile(t *testing.T) {
 	basePodSet := []autoscaling.PodSet{{PodTemplateRef: autoscaling.Reference{Name: "ppt-wl-check1-1-main"}, Count: 1}}
 
 	baseWorkloadWithCheck1Ready := baseWorkload.DeepCopy()
-	workload.SetAdmissionCheckState(&baseWorkloadWithCheck1Ready.Status.AdmissionChecks, kueue.AdmissionCheckState{
+	workloadpatching.SetAdmissionCheckState(&baseWorkloadWithCheck1Ready.Status.AdmissionChecks, kueue.AdmissionCheckState{
 		Name:  "check1",
 		State: kueue.CheckStateReady,
 	}, fakeClock)
@@ -245,7 +246,7 @@ func TestReconcile(t *testing.T) {
 
 	baseCheck := utiltestingapi.MakeAdmissionCheck("check1").
 		ControllerName(kueue.ProvisioningRequestControllerName).
-		Parameters(kueue.GroupVersion.Group, ConfigKind, "config1").
+		Parameters(kueue.SchemeGroupVersion.Group, ConfigKind, "config1").
 		Obj()
 
 	podSetMergePolicyAssignemnt := []kueue.PodSetAssignment{
@@ -310,6 +311,7 @@ func TestReconcile(t *testing.T) {
 		configs              []kueue.ProvisioningRequestConfig
 		flavors              []kueue.ResourceFlavor
 		workload             *kueue.Workload
+		featureGates         map[featuregate.Feature]bool
 		wantReconcileError   error
 		wantWorkloads        map[string]*kueue.Workload
 		wantRequests         map[string]*autoscaling.ProvisioningRequest
@@ -554,7 +556,126 @@ func TestReconcile(t *testing.T) {
 			configs:              []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
 			requests:             []autoscaling.ProvisioningRequest{*baseRequest.DeepCopy()},
 			templates:            []corev1.PodTemplate{*baseTemplate1.DeepCopy(), *baseTemplate2.DeepCopy()},
-			wantRequestsNotFound: []string{"wl-check1"},
+			wantRequestsNotFound: []string{baseRequest.Name},
+		},
+		"request removed on workload evicted": {
+			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadEvicted,
+					Status: metav1.ConditionTrue,
+					Reason: kueue.WorkloadEvictedByPreemption,
+				}).
+				Obj(),
+
+			checks:               []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors:              []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs:              []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			requests:             []autoscaling.ProvisioningRequest{*baseRequest.DeepCopy()},
+			templates:            []corev1.PodTemplate{*baseTemplate1.DeepCopy(), *baseTemplate2.DeepCopy()},
+			wantRequestsNotFound: []string{baseRequest.Name},
+		},
+		"request removed on workload evicted by admission check": {
+			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadEvicted,
+					Status: metav1.ConditionTrue,
+					Reason: kueue.WorkloadEvictedByAdmissionCheck,
+				}).
+				Obj(),
+
+			checks:               []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors:              []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs:              []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			requests:             []autoscaling.ProvisioningRequest{*baseRequest.DeepCopy()},
+			templates:            []corev1.PodTemplate{*baseTemplate1.DeepCopy(), *baseTemplate2.DeepCopy()},
+			wantRequestsNotFound: []string{baseRequest.Name},
+		},
+		"request preserved on workload evicted when cleanup is disabled": {
+			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadEvicted,
+					Status: metav1.ConditionTrue,
+					Reason: kueue.WorkloadEvictedByAdmissionCheck,
+				}).
+				Obj(),
+
+			checks:    []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors:   []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs:   []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			requests:  []autoscaling.ProvisioningRequest{*baseRequest.DeepCopy()},
+			templates: []corev1.PodTemplate{*baseTemplate1.DeepCopy(), *baseTemplate2.DeepCopy()},
+			featureGates: map[featuregate.Feature]bool{
+				features.CleanupProvisioningRequestsOnEviction: false,
+			},
+			wantRequests: map[string]*autoscaling.ProvisioningRequest{
+				baseRequest.Name: baseRequest.DeepCopy(),
+			},
+		},
+		"when retry count is preserved but provisioning request was cleaned up": {
+			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:       "check1",
+					State:      kueue.CheckStatePending,
+					RetryCount: ptr.To[int32](1),
+				}, kueue.AdmissionCheckState{
+					Name:  "not-provisioning",
+					State: kueue.CheckStatePending,
+				}).
+				Obj(),
+			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs: []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.GetName(): (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+					AdmissionChecks(kueue.AdmissionCheckState{
+						Name:       "check1",
+						State:      kueue.CheckStatePending,
+						RetryCount: ptr.To[int32](1),
+					}, kueue.AdmissionCheckState{
+						Name:  "not-provisioning",
+						State: kueue.CheckStatePending,
+					}).
+					Obj(),
+			},
+			wantRequests: map[string]*autoscaling.ProvisioningRequest{
+				ProvisioningRequestName("wl", kueue.AdmissionCheckReference(baseCheck.Name), 2): {
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: TestNamespace,
+						Name:      ProvisioningRequestName("wl", kueue.AdmissionCheckReference(baseCheck.Name), 2),
+						Labels: map[string]string{
+							constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
+						},
+					},
+					Spec: autoscaling.ProvisioningRequestSpec{
+						PodSets: []autoscaling.PodSet{
+							{
+								PodTemplateRef: autoscaling.Reference{
+									Name: "ppt-wl-check1-2-ps1",
+								},
+								Count: 4,
+							},
+							{
+								PodTemplateRef: autoscaling.Reference{
+									Name: "ppt-wl-check1-2-ps2",
+								},
+								Count: 3,
+							},
+						},
+						ProvisioningClassName: "class1",
+						Parameters: map[string]autoscaling.Parameter{
+							"p1": "v1",
+						},
+					},
+				},
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "ProvisioningRequestCreated",
+					Message:   `Created ProvisioningRequest: "wl-check1-2"`,
+				},
+			},
 		},
 		"when request fails and is retried": {
 			workload: baseWorkload.DeepCopy(),
@@ -1664,7 +1785,10 @@ func TestReconcile(t *testing.T) {
 	for name, tc := range cases {
 		for _, useMergePatch := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, useMergePatch), func(t *testing.T) {
-				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, true)
+				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, useMergePatch)
+				for featureGate, enabled := range tc.featureGates {
+					features.SetFeatureGateDuringTest(t, featureGate, enabled)
+				}
 
 				interceptorFuncs := interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}
 				if tc.interceptorFuncsCreate != nil {
@@ -1824,7 +1948,7 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 
 	baseCheck := utiltestingapi.MakeAdmissionCheck("check").
 		ControllerName(kueue.ProvisioningRequestControllerName).
-		Parameters(kueue.GroupVersion.Group, ConfigKind, "config1").
+		Parameters(kueue.SchemeGroupVersion.Group, ConfigKind, "config1").
 		Obj()
 
 	cases := map[string]struct {

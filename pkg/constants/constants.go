@@ -22,6 +22,7 @@ import (
 
 const (
 	KueueName                    = "kueue"
+	MultiKueueName               = "multikueue"
 	JobControllerName            = KueueName + "-job-controller"
 	WorkloadControllerName       = KueueName + "-workload-controller"
 	PodTerminationControllerName = KueueName + "-pod-termination-controller"
@@ -40,6 +41,12 @@ const (
 	DefaultPriority int32 = 0
 
 	DefaultPendingWorkloadsLimit = 1000
+
+	// MaxPendingWorkloadsLimit is the maximum number of pending workloads the
+	// visibility API will return in a single request. It bounds the size of a
+	// single response (and its allocation) regardless of the user-provided limit,
+	// so an authorized caller cannot request an arbitrarily large page.
+	MaxPendingWorkloadsLimit = 100_000
 
 	// ManagedByKueueLabelKey label that signalize that an object is managed by Kueue
 	ManagedByKueueLabelKey   = "kueue.x-k8s.io/managed"
@@ -74,6 +81,9 @@ const (
 	// until the annotation is removed. The value is a comma-separated list of
 	// controller names (e.g., "example.com/controller1,example.com/controller2").
 	//
-	// This annotation is alpha-level and requires the AdmissionGatedBy feature gate, disabled by default.
+	// This annotation is beta-level and requires the AdmissionGatedBy feature gate, enabled by default.
 	AdmissionGatedByAnnotation = "kueue.x-k8s.io/admission-gated-by"
+
+	// ElasticJobAnnotation is an annotation set on the Job to indicate that it is an elastic job.
+	ElasticJobAnnotation = "kueue.x-k8s.io/elastic-job"
 )

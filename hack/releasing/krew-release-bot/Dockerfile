@@ -1,1 +1,1 @@
-FROM ghcr.io/rajatjindal/krew-release-bot:v0.0.51
+FROM ghcr.io/rajatjindal/krew-release-bot:v0.0.51@sha256:a1990089fb0184801af0b0a24931e1537580e97fe9ab79e840582f6c0d37c00c

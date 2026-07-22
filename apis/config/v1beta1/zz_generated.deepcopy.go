@@ -23,7 +23,7 @@ package v1beta1
 import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1"
-	runtime "k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/component-base/config/v1alpha1"
 	timex "time"
 )
@@ -666,6 +666,11 @@ func (in *TLSOptions) DeepCopyInto(out *TLSOptions) {
 	if in.CipherSuites != nil {
 		in, out := &in.CipherSuites, &out.CipherSuites
 		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
+	if in.CurvePreferences != nil {
+		in, out := &in.CurvePreferences, &out.CurvePreferences
+		*out = make([]int32, len(*in))
 		copy(*out, *in)
 	}
 }

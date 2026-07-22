@@ -17,11 +17,9 @@ limitations under the License.
 package flavorassigner
 
 import (
-	"errors"
 	"fmt"
 	"maps"
 	"slices"
-	"strings"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -58,15 +56,16 @@ func (a *Assignment) WorkloadsTopologyRequests(log logr.Logger, wl *workload.Inf
 			}
 			isTASImplied := isTASImplied(&podSet, cq)
 
-			// Only unconstrained topology is supported with elastic workload slices.
 			var previousAssignment *kueue.TopologyAssignment
-			if features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) {
+
+			// Only unconstrained topology is supported with elastic workload slices.
+			if workload.IsElasticWorkload(wl.Obj) && features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) {
 				if podSet.TopologyRequest != nil && podSet.TopologyRequest.Required != nil {
-					psAssignment.error(errors.New("required topology is not supported with ElasticJobsViaWorkloadSlices"))
+					a.psError(psAssignment, ErrElasticRequiredTopologyNotSupported)
 					continue
 				}
 				if podSet.TopologyRequest != nil && podSet.TopologyRequest.Preferred != nil {
-					psAssignment.error(errors.New("preferred topology is not supported with ElasticJobsViaWorkloadSlices"))
+					a.psError(psAssignment, ErrElasticPreferredTopologyNotSupported)
 					continue
 				}
 				previousAssignment = getPreviousTopologyAssignment(a.replaceWorkloadSlice, podSet.Name)
@@ -74,7 +73,8 @@ func (a *Assignment) WorkloadsTopologyRequests(log logr.Logger, wl *workload.Inf
 
 			psTASRequest, err := podSetTopologyRequest(psAssignment, wl, cq, isTASImplied, i, previousAssignment)
 			if err != nil {
-				psAssignment.error(err)
+				a.psError(psAssignment, err)
+				continue
 			} else if psTASRequest != nil {
 				tasRequests[psTASRequest.Flavor] = append(tasRequests[psTASRequest.Flavor], *psTASRequest)
 			}
@@ -96,7 +96,7 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 	podSetIndex int,
 	previousAssignment *kueue.TopologyAssignment) (*schdcache.TASPodSetRequests, error) {
 	if len(cq.TASFlavors) == 0 {
-		return nil, errors.New("workload requires Topology, but there is no TAS cache information")
+		return nil, ErrNoTASCacheInformation
 	}
 	podCount := psAssignment.Count
 	tasFlvr, err := onlyTASFlavor(psAssignment.Flavors, cq.TASFlavors)
@@ -152,19 +152,14 @@ func onlyTASFlavor(
 	}
 
 	if flavors.Len() == 0 {
-		return nil, errors.New("no TAS flavor assigned")
+		return nil, ErrNoTASFlavorAssigned
 	}
 
 	if flavors.Len() == 1 {
 		return new(sets.List(flavors)[0]), nil
 	}
 
-	list := sets.List(flavors)
-	names := make([]string, len(list))
-	for i, n := range list {
-		names[i] = string(n)
-	}
-	return nil, fmt.Errorf("more than one TAS flavor assigned: %s", strings.Join(names, ", "))
+	return nil, &MultipleTASFlavorsAssignedError{Flavors: sets.List(flavors)}
 }
 
 func checkPodSetAndFlavorMatchForTAS(cq *schdcache.ClusterQueueSnapshot, ps *kueue.PodSet, flavor *kueue.ResourceFlavor, rg *schdcache.ResourceGroup) *string {
@@ -209,7 +204,7 @@ func checkPodSetAndFlavorMatchForTAS(cq *schdcache.ClusterQueueSnapshot, ps *kue
 
 // hasOverlapWithPodRequestedResources checks if the PodSet's resource requests overlap with the specified flavor resources.
 func hasOverlapWithPodRequestedResources(ps *kueue.PodSet, flavorResources sets.Set[corev1.ResourceName]) bool {
-	requests := resources.NewRequestsFromPodSpec(&ps.Template.Spec)
+	requests := resources.NewMapRequestsFromPodSpec(&ps.Template.Spec)
 	return flavorResources.HasAny(slices.Collect(maps.Keys(requests))...)
 }
 

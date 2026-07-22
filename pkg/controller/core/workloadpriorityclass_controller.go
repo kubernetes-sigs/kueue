@@ -160,7 +160,7 @@ func (r *WorkloadPriorityClassReconciler) SetupWithManager(mgr ctrl.Manager, cfg
 		)).
 		WithOptions(controller.Options{
 			NeedLeaderElection:      new(false),
-			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("WorkloadPriorityClass").GroupKind().String()],
+			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.SchemeGroupVersion.WithKind("WorkloadPriorityClass").GroupKind().String()],
 			LogConstructor:          roletracker.NewLogConstructor(r.roleTracker, "workloadpriorityclass-reconciler"),
 		}).
 		Complete(WithLeadingManager(mgr, r, &kueue.WorkloadPriorityClass{}, cfg))

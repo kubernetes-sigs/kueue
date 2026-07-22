@@ -1,0 +1,56 @@
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+metrics:
+  enableClusterQueueResources: true
+leaderElection:
+  leaderElect: true
+  leaseDuration: 60s
+  renewDeadline: 40s
+  retryPeriod: 5s
+controller:
+  groupKindConcurrency:
+    Job.batch: 5
+    Pod: 5
+    Workload.kueue.x-k8s.io: 10
+    LocalQueue.kueue.x-k8s.io: 5
+    ClusterQueue.kueue.x-k8s.io: 5
+    ResourceFlavor.kueue.x-k8s.io: 1
+fairSharing:
+  preemptionStrategies: ["LessThanOrEqualToFinalShare", "LessThanInitialShare"]
+clientConnection:
+  qps: 300
+  burst: 500
+integrations:
+  frameworks:
+  - "batch/job"
+  - "kubeflow.org/mpijob"
+  - "ray.io/rayjob"
+  - "ray.io/raycluster"
+  - "ray.io/rayservice"
+  - "jobset.x-k8s.io/jobset"
+  - "kubeflow.org/paddlejob"
+  - "kubeflow.org/pytorchjob"
+  - "kubeflow.org/tfjob"
+  - "kubeflow.org/xgboostjob"
+  - "kubeflow.org/jaxjob"
+  - "trainer.kubeflow.org/trainjob"
+  - "workload.codeflare.dev/appwrapper"
+  - "pod"
+  - "deployment"
+  - "statefulset"
+  - "leaderworkerset.x-k8s.io/leaderworkerset"
+featureGates:
+  LocalQueueMetrics: true
+  ElasticJobsViaWorkloadSlices: true
+  ConcurrentAdmission: true
+  MultiKueueManagerQuotaAutomation: true
+tls:
+  minVersion: "VersionTLS12"
+  # this is the default ciphersuite for golang 1.26
+  cipherSuites:
+    - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+    - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+    - TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256
+    - TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
+    - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+    - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384

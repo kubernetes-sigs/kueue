@@ -423,6 +423,71 @@ func TestPendingWorkloadsInLQ(t *testing.T) {
 				},
 			},
 		},
+		"negative limit is clamped to zero and returns no workloads without panicking": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue(cqNameA).Obj(),
+			},
+			queues: []*kueue.LocalQueue{
+				utiltestingapi.MakeLocalQueue(lqNameA, nsNameA).ClusterQueue(cqNameA).Obj(),
+			},
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("a", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now).Obj(),
+				utiltestingapi.MakeWorkload("b", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now.Add(time.Second)).Obj(),
+			},
+			req: &req{
+				nsName:    nsNameA,
+				queueName: lqNameA,
+				queryParams: &visibility.PendingWorkloadOptions{
+					Limit: -1,
+				},
+			},
+			wantResp: &resp{},
+		},
+		"excessive limit returns all pending workloads without over-allocating": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue(cqNameA).Obj(),
+			},
+			queues: []*kueue.LocalQueue{
+				utiltestingapi.MakeLocalQueue(lqNameA, nsNameA).ClusterQueue(cqNameA).Obj(),
+			},
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("a", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now).Obj(),
+				utiltestingapi.MakeWorkload("b", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now.Add(time.Second)).Obj(),
+			},
+			req: &req{
+				nsName:    nsNameA,
+				queueName: lqNameA,
+				queryParams: &visibility.PendingWorkloadOptions{
+					Limit: 2000000000,
+				},
+			},
+			wantResp: &resp{
+				wantPendingWorkloads: []visibility.PendingWorkload{
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:              "a",
+							Namespace:         nsNameA,
+							CreationTimestamp: metav1.NewTime(now),
+						},
+						LocalQueueName:         lqNameA,
+						Priority:               highPrio,
+						PositionInClusterQueue: 0,
+						PositionInLocalQueue:   0,
+					},
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:              "b",
+							Namespace:         nsNameA,
+							CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
+						},
+						LocalQueueName:         lqNameA,
+						Priority:               highPrio,
+						PositionInClusterQueue: 1,
+						PositionInLocalQueue:   1,
+					},
+				},
+			},
+		},
 		"nonexistent queue name": {
 			req: &req{
 				queueName:   "nonexistent-queue",

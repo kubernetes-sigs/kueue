@@ -18,12 +18,14 @@ package config
 
 import (
 	"fmt"
+	"maps"
 	"net"
 	"regexp"
 	"slices"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/validate/content"
 	apimachineryvalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -51,29 +53,38 @@ import (
 )
 
 var (
-	integrationsPath                             = field.NewPath("integrations")
-	integrationsFrameworksPath                   = integrationsPath.Child("frameworks")
-	integrationsExternalFrameworkPath            = integrationsPath.Child("externalFrameworks")
-	managedJobsNamespaceSelectorPath             = field.NewPath("managedJobsNamespaceSelector")
-	waitForPodsReadyPath                         = field.NewPath("waitForPodsReady")
-	requeuingStrategyPath                        = waitForPodsReadyPath.Child("requeuingStrategy")
-	multiKueuePath                               = field.NewPath("multiKueue")
-	clusterProfileCredentialProvidersPath        = multiKueuePath.Child("clusterProfile").Child("credentialsProviders")
-	clusterProfileCredentialProvidersExecCfgPath = clusterProfileCredentialProvidersPath.Child("execConfig")
-	fsPreemptionStrategiesPath                   = field.NewPath("fairSharing", "preemptionStrategies")
-	afsResourceWeightsPath                       = field.NewPath("admissionFairSharing", "resourceWeights")
-	afsPath                                      = field.NewPath("admissionFairSharing")
-	internalCertManagementPath                   = field.NewPath("internalCertManagement")
-	resourceTransformationPath                   = field.NewPath("resources", "transformations")
-	dynamicResourceAllocationPath                = field.NewPath("resources", "deviceClassMappings")
-	objectRetentionPoliciesPath                  = field.NewPath("objectRetentionPolicies")
-	objectRetentionPoliciesWorkloadsPath         = objectRetentionPoliciesPath.Child("workloads")
-	tlsPath                                      = field.NewPath("tls")
-	featureGatesPath                             = field.NewPath("featureGates")
-	visibilityServerBindAddressPath              = field.NewPath("visibilityServer", "bindAddress")
-	visibilityServerBindPortPath                 = field.NewPath("visibilityServer", "bindPort")
-	customLabelsPath                             = field.NewPath("metrics", "customLabels")
-	resourceQuotaCheckStrategyPath               = field.NewPath("resources", "quotaCheckStrategy")
+	integrationsPath                      = field.NewPath("integrations")
+	integrationsFrameworksPath            = integrationsPath.Child("frameworks")
+	integrationsExternalFrameworkPath     = integrationsPath.Child("externalFrameworks")
+	managedJobsNamespaceSelectorPath      = field.NewPath("managedJobsNamespaceSelector")
+	waitForPodsReadyPath                  = field.NewPath("waitForPodsReady")
+	requeuingStrategyPath                 = waitForPodsReadyPath.Child("requeuingStrategy")
+	multiKueuePath                        = field.NewPath("multiKueue")
+	clusterProfileAccessProvidersPath     = multiKueuePath.Child("clusterProfile").Child("accessProviders")
+	clusterProfileCredentialProvidersPath = multiKueuePath.Child("clusterProfile").Child("credentialsProviders")
+	fsPreemptionStrategiesPath            = field.NewPath("fairSharing", "preemptionStrategies")
+	afsResourceWeightsPath                = field.NewPath("admissionFairSharing", "resourceWeights")
+	afsPath                               = field.NewPath("admissionFairSharing")
+	internalCertManagementPath            = field.NewPath("internalCertManagement")
+	resourceTransformationPath            = field.NewPath("resources", "transformations")
+	dynamicResourceAllocationPath         = field.NewPath("resources", "deviceClassMappings")
+	objectRetentionPoliciesPath           = field.NewPath("objectRetentionPolicies")
+	objectRetentionPoliciesWorkloadsPath  = objectRetentionPoliciesPath.Child("workloads")
+	tlsPath                               = field.NewPath("tls")
+	featureGatesPath                      = field.NewPath("featureGates")
+	visibilityServerBindAddressPath       = field.NewPath("visibilityServer", "bindAddress")
+	visibilityServerBindPortPath          = field.NewPath("visibilityServer", "bindPort")
+	customLabelsPath                      = field.NewPath("metrics", "customLabels")
+	resourceQuotaCheckStrategyPath        = field.NewPath("resources", "quotaCheckStrategy")
+	maxCustomLabels                       = 20
+	maxTrackedCustomLabelValues           = 16
+	maxTrackedWlCustomLabelValues         = 12
+	maxCustomLabelsPerSourceKind          = map[configapi.SourceKind]int{
+		configapi.SourceKindWorkload:     2,
+		configapi.SourceKindLocalQueue:   6,
+		configapi.SourceKindClusterQueue: 6,
+		configapi.SourceKindCohort:       6,
+	}
 )
 
 // Validate checks the configuration for invalid values.
@@ -94,6 +105,7 @@ func Validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorLis
 	allErrs = append(allErrs, validateCustomLabels(c)...)
 	allErrs = append(allErrs, validateQuotaCheckStrategy(c)...)
 	allErrs = append(allErrs, validateDRAFeatureGateDependencies()...)
+	allErrs = append(allErrs, validateFeatureGateDependency(features.UnadmittedWorkloadsExplicitStatus, features.UnadmittedWorkloadsObservability)...)
 	return allErrs
 }
 
@@ -197,37 +209,64 @@ func validateMultiKueue(c *configapi.Configuration) field.ErrorList {
 		}
 
 		if cp := c.MultiKueue.ClusterProfile; cp != nil {
-			for _, provider := range cp.CredentialsProviders {
-				if len(provider.Name) == 0 {
-					allErrs = append(allErrs, field.Required(clusterProfileCredentialProvidersPath.Child("name"), "must be specified"))
-				}
-
-				// The following execConfig validations almost stolen from
-				// https://github.com/kubernetes/client-go/blob/45e0decafa9b847c983f55c84b4f6ce5617f8f69/tools/clientcmd/validation.go#L308-L335
-				if len(provider.ExecConfig.Command) == 0 {
-					allErrs = append(allErrs, field.Required(clusterProfileCredentialProvidersExecCfgPath.Child("command"), "must be specified"))
-				}
-				if len(provider.ExecConfig.APIVersion) == 0 {
-					allErrs = append(allErrs, field.Required(clusterProfileCredentialProvidersExecCfgPath.Child("apiVersion"), "must be specified"))
-				}
-				for _, v := range provider.ExecConfig.Env {
-					if len(v.Name) == 0 {
-						allErrs = append(allErrs, field.Required(clusterProfileCredentialProvidersExecCfgPath.Child("env").Child("name"), "must be specified"))
-					}
-				}
-				switch provider.ExecConfig.InteractiveMode {
-				case "":
-					allErrs = append(allErrs, field.Required(clusterProfileCredentialProvidersExecCfgPath.Child("interactiveMode"), "must be specified"))
-				case clientcmdapi.NeverExecInteractiveMode, clientcmdapi.IfAvailableExecInteractiveMode, clientcmdapi.AlwaysExecInteractiveMode:
-					// These are valid
-				default:
-					allErrs = append(allErrs, field.NotSupported(
-						clusterProfileCredentialProvidersExecCfgPath.Child("interactiveMode"),
-						provider.ExecConfig.InteractiveMode,
-						[]clientcmdapi.ExecInteractiveMode{clientcmdapi.NeverExecInteractiveMode, clientcmdapi.IfAvailableExecInteractiveMode, clientcmdapi.AlwaysExecInteractiveMode},
-					))
-				}
+			credentialsProviders := cp.CredentialsProviders //nolint:staticcheck // SA1019: CredentialsProviders is validated for backward compatibility.
+			if len(cp.AccessProviders) > 0 && len(credentialsProviders) > 0 {
+				allErrs = append(allErrs, field.Forbidden(clusterProfileCredentialProvidersPath, "must not be specified when accessProviders is specified"))
 			}
+			if len(cp.AccessProviders) > 0 {
+				allErrs = append(allErrs, validateClusterProfileAccessProviders(cp.AccessProviders, clusterProfileAccessProvidersPath)...)
+			} else {
+				allErrs = append(allErrs, validateClusterProfileAccessProviders(credentialsProviders, clusterProfileCredentialProvidersPath)...)
+			}
+		}
+
+		if idc := c.MultiKueue.IncrementalDispatcherConfig; idc != nil {
+			idcPath := multiKueuePath.Child("incrementalDispatcherConfig")
+			if ptr.Deref(c.MultiKueue.DispatcherName, "") != configapi.MultiKueueDispatcherModeIncremental {
+				allErrs = append(allErrs, field.Invalid(idcPath, idc,
+					"incrementalDispatcherConfig is only valid when dispatcherName is set to the incremental dispatcher"))
+			}
+			if idc.StepSize != nil && *idc.StepSize < 1 {
+				allErrs = append(allErrs, field.Invalid(idcPath.Child("stepSize"), *idc.StepSize,
+					"must be greater than or equal to 1"))
+			}
+		}
+	}
+	return allErrs
+}
+
+func validateClusterProfileAccessProviders(providers []configapi.ClusterProfileAccessProvider, providersPath *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	execConfigPath := providersPath.Child("execConfig")
+	for _, provider := range providers {
+		if len(provider.Name) == 0 {
+			allErrs = append(allErrs, field.Required(providersPath.Child("name"), "must be specified"))
+		}
+
+		// The following execConfig validations almost stolen from
+		// https://github.com/kubernetes/client-go/blob/45e0decafa9b847c983f55c84b4f6ce5617f8f69/tools/clientcmd/validation.go#L308-L335
+		if len(provider.ExecConfig.Command) == 0 {
+			allErrs = append(allErrs, field.Required(execConfigPath.Child("command"), "must be specified"))
+		}
+		if len(provider.ExecConfig.APIVersion) == 0 {
+			allErrs = append(allErrs, field.Required(execConfigPath.Child("apiVersion"), "must be specified"))
+		}
+		for _, v := range provider.ExecConfig.Env {
+			if len(v.Name) == 0 {
+				allErrs = append(allErrs, field.Required(execConfigPath.Child("env").Child("name"), "must be specified"))
+			}
+		}
+		switch provider.ExecConfig.InteractiveMode {
+		case "":
+			allErrs = append(allErrs, field.Required(execConfigPath.Child("interactiveMode"), "must be specified"))
+		case clientcmdapi.NeverExecInteractiveMode, clientcmdapi.IfAvailableExecInteractiveMode, clientcmdapi.AlwaysExecInteractiveMode:
+			// These are valid
+		default:
+			allErrs = append(allErrs, field.NotSupported(
+				execConfigPath.Child("interactiveMode"),
+				provider.ExecConfig.InteractiveMode,
+				[]clientcmdapi.ExecInteractiveMode{clientcmdapi.NeverExecInteractiveMode, clientcmdapi.IfAvailableExecInteractiveMode, clientcmdapi.AlwaysExecInteractiveMode},
+			))
 		}
 	}
 	return allErrs
@@ -450,6 +489,7 @@ func validateDeviceClassMappings(c *configapi.Configuration) field.ErrorList {
 
 	seenResourceNames := make(sets.Set[corev1.ResourceName])
 	deviceClassToResource := make(map[corev1.ResourceName]corev1.ResourceName)
+	deviceClassCounterNames := make(map[corev1.ResourceName]sets.Set[string])
 
 	for idx, mapping := range mappings {
 		mappingPath := dynamicResourceAllocationPath.Index(idx)
@@ -496,51 +536,78 @@ func validateDeviceClassMappings(c *configapi.Configuration) field.ErrorList {
 				seenDeviceClassNames.Insert(deviceClass)
 			}
 
+			counterName := counterNameForMapping(mapping)
 			if existingResource, exists := deviceClassToResource[deviceClass]; exists {
 				if existingResource != mapping.Name {
-					allErrs = append(allErrs, field.Invalid(dcPath, deviceClass,
-						fmt.Sprintf("device class already mapped to resource %s", existingResource)))
+					// Allow same DeviceClass in multiple mappings only when both have
+					// counter sources with different counter names — each mapping tracks
+					// a different counter dimension (e.g., gpu.memory and gpu.compute).
+					existingCounters := deviceClassCounterNames[deviceClass]
+					switch {
+					case counterName == "" || existingCounters.Len() == 0:
+						allErrs = append(allErrs, field.Invalid(dcPath, deviceClass,
+							fmt.Sprintf("device class already mapped to resource %s", existingResource)))
+					case existingCounters.Has(counterName):
+						allErrs = append(allErrs, field.Invalid(dcPath, deviceClass,
+							fmt.Sprintf("device class already has a counter source for counter %q", counterName)))
+					default:
+						deviceClassCounterNames[deviceClass].Insert(counterName)
+					}
 				}
 			} else {
 				deviceClassToResource[deviceClass] = mapping.Name
+				deviceClassCounterNames[deviceClass] = sets.New[string]()
+				if counterName != "" {
+					deviceClassCounterNames[deviceClass].Insert(counterName)
+				}
 			}
 		}
 
-		if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) && len(mapping.Sources) > 0 {
-			if len(mapping.Sources) > 1 {
-				allErrs = append(allErrs, field.TooMany(mappingPath.Child("sources"), len(mapping.Sources), 1))
-			}
+		if len(mapping.Sources) > 0 {
+			sourcesPath := mappingPath.Child("sources")
 			celCache := dracel.NewCache(len(mapping.Sources), dracel.Features{})
+			counterCount := 0
+			hasCapacity := false
 			for sIdx, source := range mapping.Sources {
-				sourcePath := mappingPath.Child("sources").Index(sIdx)
-				if source.Counter == nil {
-					allErrs = append(allErrs, field.Required(sourcePath.Child("counter"), "exactly one source type must be set"))
+				sourcePath := sourcesPath.Index(sIdx)
+				if source.Counter == nil && source.Capacity == nil {
+					allErrs = append(allErrs, field.Required(sourcePath, "exactly one source type must be set per entry"))
 					continue
 				}
-				counterPath := sourcePath.Child("counter")
-				if source.Counter.Name == "" {
-					allErrs = append(allErrs, field.Required(counterPath.Child("name"), ""))
-				} else if len(source.Counter.Name) > 63 {
-					allErrs = append(allErrs, field.Invalid(counterPath.Child("name"), source.Counter.Name, "must not exceed 63 characters"))
+				if source.Counter != nil && source.Capacity != nil {
+					allErrs = append(allErrs, field.Invalid(sourcePath, "counter+capacity", "exactly one source type must be set per entry"))
+					continue
 				}
-				if source.Counter.Driver == "" {
-					allErrs = append(allErrs, field.Required(counterPath.Child("driver"), ""))
-				} else if len(source.Counter.Driver) > 253 {
-					allErrs = append(allErrs, field.Invalid(counterPath.Child("driver"), source.Counter.Driver, "must not exceed 253 characters"))
-				}
-				selectorPath := counterPath.Child("deviceSelector", "cel", "expression")
-				if source.Counter.DeviceSelector.CEL == nil || source.Counter.DeviceSelector.CEL.Expression == "" {
-					allErrs = append(allErrs, field.Required(selectorPath, ""))
-				} else {
-					result := celCache.GetOrCompile(source.Counter.DeviceSelector.CEL.Expression)
-					if result.Error != nil {
-						allErrs = append(allErrs, field.Invalid(
-							selectorPath,
-							source.Counter.DeviceSelector.CEL.Expression,
-							fmt.Sprintf("CEL compilation failed: %v", result.Error),
-						))
+				if source.Counter != nil {
+					counterCount++
+					if !features.Enabled(features.KueueDRAIntegrationPartitionableDevices) {
+						allErrs = append(allErrs, field.Invalid(sourcePath.Child("counter"), true,
+							"counter sources require KueueDRAIntegrationPartitionableDevices to be enabled"))
+						continue
 					}
+					counterPath := sourcePath.Child("counter")
+					if source.Counter.Name == "" {
+						allErrs = append(allErrs, field.Required(counterPath.Child("name"), ""))
+					} else if errs := apimachineryutilvalidation.IsDNS1123Label(source.Counter.Name); len(errs) != 0 {
+						allErrs = append(allErrs, field.Invalid(counterPath.Child("name"), source.Counter.Name, strings.Join(errs, ",")))
+					}
+					allErrs = append(allErrs, validateDeviceClassSource(source.Counter.Driver, &source.Counter.DeviceSelector, counterPath, celCache)...)
 				}
+				if source.Capacity != nil {
+					hasCapacity = true
+					if !features.Enabled(features.KueueDRAIntegrationConsumableCapacity) {
+						allErrs = append(allErrs, field.Invalid(sourcePath.Child("capacity"), true,
+							"capacity sources require KueueDRAIntegrationConsumableCapacity to be enabled"))
+						continue
+					}
+					capacityPath := sourcePath.Child("capacity")
+					allErrs = append(allErrs, validateQualifiedName(source.Capacity.Name, capacityPath.Child("name"))...)
+					allErrs = append(allErrs, validateDeviceClassSource(source.Capacity.Driver, &source.Capacity.DeviceSelector, capacityPath, celCache)...)
+				}
+			}
+			if counterCount > 0 && hasCapacity {
+				allErrs = append(allErrs, field.Invalid(sourcesPath, len(mapping.Sources),
+					"cannot mix counter and capacity sources in the same mapping"))
 			}
 		}
 	}
@@ -612,10 +679,12 @@ func LoadAndValidateFeatureGates(featureGateCLI string, featureGateMap map[strin
 	allErrs = append(allErrs, validateFeatureGateDependency(features.TASFailedNodeReplacement, features.TopologyAwareScheduling)...)
 	allErrs = append(allErrs, validateFeatureGateDependency(features.TASFailedNodeReplacementFailFast, features.TopologyAwareScheduling, features.TASFailedNodeReplacement)...)
 	allErrs = append(allErrs, validateFeatureGateDependency(features.TASReplaceNodeOnPodTermination, features.TopologyAwareScheduling, features.TASFailedNodeReplacement)...)
+	allErrs = append(allErrs, validateFeatureGateDependency(features.TASReplaceNodeDueToNotReadyOverFixedTime, features.TopologyAwareScheduling, features.TASFailedNodeReplacement)...)
 	allErrs = append(allErrs, validateFeatureGateDependency(features.TASBalancedPlacement, features.TopologyAwareScheduling)...)
 	allErrs = append(allErrs, validateFeatureGateDependency(features.TASReplaceNodeOnNodeTaints, features.TopologyAwareScheduling)...)
 	allErrs = append(allErrs, validateFeatureGateDependency(features.TASMultiLayerTopology, features.TopologyAwareScheduling)...)
 	allErrs = append(allErrs, validateFeatureGateDependency(features.TASRespectNodeAffinityPreferred, features.TopologyAwareScheduling)...)
+	allErrs = append(allErrs, validateFeatureGateDependency(features.UnadmittedWorkloadsExplicitStatus, features.UnadmittedWorkloadsObservability)...)
 
 	if features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) {
 		if !features.Enabled(features.ElasticJobsViaWorkloadSlices) {
@@ -661,6 +730,16 @@ func validateDRAFeatureGateDependencies() field.ErrorList {
 				featureGatesPath,
 				"KueueDRAIntegrationPartitionableDevices",
 				"KueueDRAIntegrationPartitionableDevices requires KueueDRAIntegration to be enabled",
+			))
+		}
+	}
+
+	if features.Enabled(features.KueueDRAIntegrationConsumableCapacity) {
+		if !features.Enabled(features.KueueDRAIntegration) {
+			allErrs = append(allErrs, field.Invalid(
+				featureGatesPath,
+				"KueueDRAIntegrationConsumableCapacity",
+				"KueueDRAIntegrationConsumableCapacity requires KueueDRAIntegration to be enabled",
 			))
 		}
 	}
@@ -735,6 +814,10 @@ func validateCustomLabels(c *configapi.Configuration) field.ErrorList {
 	}
 	var allErrs field.ErrorList
 	seenNames := sets.New[string]()
+	countPerSourceKind := make(map[configapi.SourceKind]int)
+	if len(c.Metrics.CustomLabels) > maxCustomLabels {
+		allErrs = append(allErrs, field.TooMany(customLabelsPath, len(c.Metrics.CustomLabels), maxCustomLabels))
+	}
 	for i, entry := range c.Metrics.CustomLabels {
 		fldPath := customLabelsPath.Index(i)
 
@@ -753,19 +836,143 @@ func validateCustomLabels(c *configapi.Configuration) field.ErrorList {
 		}
 		switch {
 		case entry.SourceLabelKey != "":
-			allErrs = append(allErrs, validateQualifiedName(fldPath.Child("sourceLabelKey"), entry.SourceLabelKey)...)
+			allErrs = append(allErrs, validateLabelKey(fldPath.Child("sourceLabelKey"), entry.SourceLabelKey)...)
 		case entry.SourceAnnotationKey != "":
-			allErrs = append(allErrs, validateQualifiedName(fldPath.Child("sourceAnnotationKey"), entry.SourceAnnotationKey)...)
+			allErrs = append(allErrs, validateLabelKey(fldPath.Child("sourceAnnotationKey"), entry.SourceAnnotationKey)...)
 		default:
-			allErrs = append(allErrs, validateQualifiedName(fldPath.Child("name"), entry.Name)...)
+			allErrs = append(allErrs, validateLabelKey(fldPath.Child("name"), entry.Name)...)
+		}
+
+		sourceKind := ptr.Deref(entry.SourceKind, configapi.DefaultCustomMetricLabelSourceKind)
+		countPerSourceKind[sourceKind]++
+		if sourceKind == configapi.SourceKindWorkload {
+			if len(entry.TrackedValues) == 0 {
+				allErrs = append(allErrs, field.Invalid(fldPath.Child("trackedValues"), entry.TrackedValues,
+					"must not be empty when sourceKind is 'Workload'"))
+			}
+			if len(entry.TrackedValues) > maxTrackedWlCustomLabelValues {
+				allErrs = append(allErrs, field.Invalid(fldPath.Child("trackedValues"), entry.TrackedValues,
+					fmt.Sprintf("must not be greater than %d when sourceKind is 'Workload'", maxTrackedWlCustomLabelValues)))
+			}
+		} else if len(entry.TrackedValues) > maxTrackedCustomLabelValues {
+			allErrs = append(allErrs, field.TooMany(fldPath.Child("trackedValues"), len(entry.TrackedValues), maxTrackedCustomLabelValues))
+		}
+		if sets.New(entry.TrackedValues...).Len() < len(entry.TrackedValues) {
+			allErrs = append(allErrs, field.Invalid(fldPath.Child("trackedValues"), entry.TrackedValues, "must not contain duplicates"))
+		}
+	}
+
+	for _, kind := range slices.Sorted(maps.Keys(countPerSourceKind)) {
+		labelLimit, kindSupported := maxCustomLabelsPerSourceKind[kind]
+		if !kindSupported {
+			allErrs = append(allErrs, field.Invalid(
+				customLabelsPath,
+				c.Metrics.CustomLabels,
+				fmt.Sprintf("unknown source kind: %s", kind),
+			))
+		} else if count := countPerSourceKind[kind]; count > labelLimit {
+			allErrs = append(allErrs, field.Invalid(
+				customLabelsPath,
+				c.Metrics.CustomLabels,
+				fmt.Sprintf("too many custom labels for source kind %s: found %d, expected <= %d", kind, count, labelLimit),
+			))
+		}
+	}
+
+	return allErrs
+}
+
+func validateLabelKey(fldPath *field.Path, value string) field.ErrorList {
+	if errs := content.IsLabelKey(value); len(errs) > 0 {
+		return field.ErrorList{field.Invalid(fldPath, value, strings.Join(errs, "; "))}
+	}
+	return nil
+}
+
+func counterNameForMapping(mapping configapi.DeviceClassMapping) string {
+	if len(mapping.Sources) > 0 && mapping.Sources[0].Counter != nil {
+		return mapping.Sources[0].Counter.Name
+	}
+	return ""
+}
+
+func validateDeviceClassSource(driver string, selector *resourcev1.DeviceSelector, path *field.Path, celCache *dracel.Cache) field.ErrorList {
+	var allErrs field.ErrorList
+	if driver == "" {
+		allErrs = append(allErrs, field.Required(path.Child("driver"), ""))
+	} else if len(driver) > resourcev1.DriverNameMaxLength {
+		allErrs = append(allErrs, field.Invalid(path.Child("driver"), driver, fmt.Sprintf("must not exceed %d characters", resourcev1.DriverNameMaxLength)))
+	} else if errs := apimachineryutilvalidation.IsDNS1123Subdomain(driver); len(errs) != 0 {
+		allErrs = append(allErrs, field.Invalid(path.Child("driver"), driver, strings.Join(errs, ",")))
+	}
+	selectorPath := path.Child("deviceSelector", "cel", "expression")
+	if selector.CEL == nil || selector.CEL.Expression == "" {
+		allErrs = append(allErrs, field.Required(selectorPath, ""))
+	} else {
+		result := celCache.GetOrCompile(selector.CEL.Expression)
+		if result.Error != nil {
+			allErrs = append(allErrs, field.Invalid(selectorPath, selector.CEL.Expression,
+				fmt.Sprintf("CEL compilation failed: %v", result.Error)))
 		}
 	}
 	return allErrs
 }
 
-func validateQualifiedName(fldPath *field.Path, value string) field.ErrorList {
-	if errs := content.IsLabelKey(value); len(errs) > 0 {
-		return field.ErrorList{field.Invalid(fldPath, value, strings.Join(errs, "; "))}
+// validateQualifiedName is copied from:
+// https://github.com/kubernetes/kubernetes/blob/f5ab85e7c9d716e8bc5cf467ba931d8e8123764f/pkg/apis/resource/validation/validation.go#L1342-L1373
+func validateQualifiedName(name resourcev1.QualifiedName, fldPath *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	parts := strings.Split(string(name), "/")
+	switch len(parts) {
+	case 1:
+		allErrs = append(allErrs, validateCIdentifier(parts[0], fldPath)...)
+	case 2:
+		if len(parts[0]) == 0 {
+			allErrs = append(allErrs, field.Invalid(fldPath, "", "the domain must not be empty"))
+		} else {
+			allErrs = append(allErrs, validateDriverName(parts[0], fldPath)...)
+		}
+		if len(parts[1]) == 0 {
+			allErrs = append(allErrs, field.Invalid(fldPath, "", "the name must not be empty"))
+		} else {
+			allErrs = append(allErrs, validateCIdentifier(parts[1], fldPath)...)
+		}
+		// TODO: This validation is incomplete. It should reject qualified names
+		// that contain more than one slash. Currently, names like "a/b/c" are not
+		// handled and are implicitly accepted.
+		//
+		// This needs to be fixed in two places:
+		// 1. Here in this function.
+		// 2. In the corresponding declarative validation utility `resourcesQualifiedName`
+		//    in `staging/src/k8s.io/apimachinery/pkg/api/validate/strfmt.go`.
+		//
+		// The fix should be introduced carefully, possibly using ratcheting to avoid
+		// breaking existing, non-compliant objects.
 	}
-	return nil
+
+	return allErrs
+}
+
+func validateDriverName(name string, fldPath *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	if len(name) > resourcev1.DeviceMaxDomainLength {
+		allErrs = append(allErrs, field.TooLong(fldPath, "" /*unused*/, resourcev1.DeviceMaxDomainLength))
+	}
+	for _, msg := range apimachineryutilvalidation.IsDNS1123Subdomain(strings.ToLower(name)) {
+		allErrs = append(allErrs, field.Invalid(fldPath, name, msg))
+	}
+	return allErrs
+}
+
+// validateCIdentifier is copied from
+// https://github.com/kubernetes/kubernetes/blob/f5ab85e7c9d716e8bc5cf467ba931d8e8123764f/pkg/apis/resource/validation/validation.go#L1386-L1395
+func validateCIdentifier(id string, fldPath *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	if len(id) > resourcev1.DeviceMaxIDLength {
+		allErrs = append(allErrs, field.TooLong(fldPath, "" /*unused*/, resourcev1.DeviceMaxIDLength))
+	}
+	for _, msg := range content.IsCIdentifier(id) {
+		allErrs = append(allErrs, field.Invalid(fldPath, id, msg))
+	}
+	return allErrs
 }

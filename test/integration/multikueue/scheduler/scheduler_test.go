@@ -40,6 +40,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -132,7 +133,7 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 
 		multiKueueAC = utiltestingapi.MakeAdmissionCheck("ac1").
 			ControllerName(kueue.MultiKueueControllerName).
-			Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", managerMultiKueueConfig.Name).
+			Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", managerMultiKueueConfig.Name).
 			Obj()
 		util.CreateAdmissionChecksAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC)
 
@@ -344,7 +345,7 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 		ginkgo.By("Checking that the low-priority workload is preempted in the manager cluster", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, lowWlKey, managerLowWl)).To(gomega.Succeed())
-				g.Expect(workload.IsEvicted(managerLowWl)).To(gomega.BeTrue())
+				g.Expect(workloadevict.IsEvicted(managerLowWl)).To(gomega.BeTrue())
 				g.Expect(managerLowWl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadPreempted))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -477,7 +478,7 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 		ginkgo.By("Checking that the low-priority workload is preempted in the manager cluster", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, lowWlKey, managerLowWl)).To(gomega.Succeed())
-				g.Expect(workload.IsEvicted(managerLowWl)).To(gomega.BeTrue())
+				g.Expect(workloadevict.IsEvicted(managerLowWl)).To(gomega.BeTrue())
 				g.Expect(managerLowWl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadPreempted))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -537,6 +538,65 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 	ginkgo.When("MultiKueueOrchestratedPreemption is enabled", func() {
 		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueOrchestratedPreemption, true)
+		})
+
+		ginkgo.It("Should treat manager-level and worker-level preemption gates independently", func() {
+			job := testingjob.MakeJob("job-with-gates", managerNs.Name).
+				Queue(kueue.LocalQueueName(managerLq.Name)).
+				RequestAndLimit(corev1.ResourceCPU, "0.1").
+				RequestAndLimit(corev1.ResourceMemory, "0.1G").
+				TerminationGracePeriod(1).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Obj()
+
+			ginkgo.By("Creating the job", func() {
+				util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, job)
+			})
+
+			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
+
+			managerWl := &kueue.Workload{}
+			ginkgo.By("Waiting for the workload to be created", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			dummyGateName := "dummy-gate"
+			ginkgo.By("Adding a dummy preemption gate to the workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
+					managerWl.Spec.PreemptionGates = []kueue.PreemptionGate{{Name: dummyGateName}}
+					g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, managerWl)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			workerWl := &kueue.Workload{}
+			ginkgo.By("Checking that the workload gets admitted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
+					selectedWorker := util.GetClientForSelectedWorkerCluster(
+						g,
+						managerWl,
+						util.DefaultClusterInfosForTests(
+							worker1TestCluster.ctx,
+							worker1TestCluster.client,
+							worker2TestCluster.ctx,
+							worker2TestCluster.client,
+						)...,
+					)
+
+					// When the gates are not treated independently, a mismatch between the gates will cause
+					// the workload to never get admitted and be continuously recreated.
+					// See: https://github.com/kubernetes-sigs/kueue/issues/12543
+					g.Expect(selectedWorker.Client.Get(selectedWorker.Ctx, wlLookupKey, workerWl)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(workerWl)).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that the remote workload does not contain the manager workload's dummy gate", func() {
+				gomega.Expect(workerWl.Spec.PreemptionGates).To(gomega.Not(gomega.ContainElement(kueue.PreemptionGate{Name: dummyGateName})))
+			})
 		})
 
 		ginkgo.It("should not trigger concurrent preemptions", func() {
@@ -654,12 +714,12 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 
 					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, unaffectedWlKey, unaffectedWl)).To(gomega.Succeed())
 					g.Expect(unaffectedWl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
-					g.Expect(workload.IsEvicted(unaffectedWl)).To(gomega.BeFalse())
+					g.Expect(workloadevict.IsEvicted(unaffectedWl)).To(gomega.BeFalse())
 
 					g.Expect(unaffectedWorkerCluster.client.Get(unaffectedWorkerCluster.ctx, unaffectedWlKey, unaffectedWl)).To(gomega.Succeed())
 					g.Expect(unaffectedWl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
-					g.Expect(workload.IsEvicted(unaffectedWl)).To(gomega.BeFalse())
-				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+					g.Expect(workloadevict.IsEvicted(unaffectedWl)).To(gomega.BeFalse())
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking the evicted workload was requeued successfully", func() {

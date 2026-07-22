@@ -4,7 +4,7 @@
   used_on: |
     Kueue-managed Jobs.
   description: |
-    This annotation requires the `AdmissionGatedBy` feature that is disabled by default.
+    This annotation requires the `AdmissionGatedBy` feature that is enabled by default.
     
     When it contains a value, the annotation prevents the Job from entering the Quota Reservation
     phase of Kueue's Admission Flow.

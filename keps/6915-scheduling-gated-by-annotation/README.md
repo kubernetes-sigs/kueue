@@ -228,7 +228,7 @@ Validation enforces:
 - For each controller name, the characters before the first "/" must be a
   valid subdomain as defined by RFC 1123 and all characters trailing the
   first "/" must follow RFC 3986.
-- Feature gate: `AdmissionGatedBy` (Alpha, default off)
+- Feature gate: `AdmissionGatedBy` (Beta, default on)
 
 ### Implementation Overview
 

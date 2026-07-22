@@ -74,7 +74,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*baseJobManagedByKueueBuilder.DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}, "wl1", "origin1")
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
 			},
 
 			wantManagersJobs: []batchv1.Job{
@@ -100,7 +101,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}, "wl1", "origin1")
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
 			},
 
 			wantManagersJobs: []batchv1.Job{
@@ -130,7 +132,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}, "wl1", "origin1")
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
 			},
 			wantManagersJobs: []batchv1.Job{
 				*baseJobManagedByKueueBuilder.Clone().
@@ -160,7 +163,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}, "wl1", "origin1")
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
 			},
 
 			wantManagersJobs: []batchv1.Job{
@@ -234,7 +238,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*baseJobManagedByKueueBuilder.DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}, "wl1", "origin1")
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
 			},
 			wantManagersJobs: []batchv1.Job{
 				*baseJobManagedByKueueBuilder.DeepCopy(),
@@ -303,6 +308,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 	}
 	type want struct {
 		err       bool
+		deferred  bool
 		localJob  *batchv1.Job
 		remoteJob *batchv1.Job
 	}
@@ -607,6 +613,39 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 					Obj(),
 			},
 		},
+		// Regression test for #11115: when an elastic sync is needed AND the local
+		// Job is still suspended (remote unsuspended and not finished), SyncJob must
+		// still report deferred=true — the deferred flag must not be dropped on the
+		// elastic-sync return path.
+		"ElasticJob_DeferredWhenLocalSuspended": {
+			fields: fields{
+				featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			},
+			args: args{
+				// local: suspended (default), elastic, parallelism 22.
+				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
+					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Parallelism(22).
+					Condition(runningJobCondition).
+					Obj()).Build(),
+				// remote: unsuspended and not finished, elastic, parallelism unset
+				// (mismatch with local -> needElasticJobSync is true).
+				remoteClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
+					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Suspend(false).
+					PrebuiltWorkloadLabel("test-workload").
+					Condition(runningJobCondition).
+					Obj()).Build(),
+				key:          client.ObjectKeyFromObject(newJob().Obj()),
+				workloadName: jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration("test", "", gvk, 0),
+			},
+			// localJob/remoteJob left nil: the deferred path patches the local
+			// JobSuspended condition with a wall-clock timestamp not worth asserting
+			// here. This case guards the deferred flag, not the patched objects.
+			want: want{
+				deferred: true,
+			},
+		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -616,9 +655,45 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 			adapter := &multiKueueAdapter{}
 			ctx, _ := utiltesting.ContextWithLog(t)
 
-			// Function call under test with result (error) assertion.
-			if err := adapter.SyncJob(ctx, tt.args.localClient, tt.args.remoteClient, tt.args.key, tt.args.workloadName, tt.args.origin); (err != nil) != tt.want.err {
-				t.Errorf("SyncJob() error = %v, wantErr %v", err, tt.want.err)
+			origin := tt.args.origin
+			if origin == "" {
+				origin = "origin1"
+			}
+
+			if tt.args.remoteClient != nil {
+				remoteJobs := &batchv1.JobList{}
+				if err := tt.args.remoteClient.List(ctx, remoteJobs); err == nil {
+					for i := range remoteJobs.Items {
+						j := &remoteJobs.Items[i]
+						if j.Labels == nil {
+							j.Labels = make(map[string]string)
+						}
+						if j.Labels[kueue.MultiKueueOriginLabel] == "" {
+							j.Labels[kueue.MultiKueueOriginLabel] = origin
+							if err := tt.args.remoteClient.Update(ctx, j); err != nil {
+								t.Fatalf("failed to prepare remote job origin label: %v", err)
+							}
+						}
+					}
+				}
+			}
+
+			if tt.want.remoteJob != nil {
+				if tt.want.remoteJob.Labels == nil {
+					tt.want.remoteJob.Labels = make(map[string]string)
+				}
+				if tt.want.remoteJob.Labels[kueue.MultiKueueOriginLabel] == "" {
+					tt.want.remoteJob.Labels[kueue.MultiKueueOriginLabel] = origin
+				}
+			}
+
+			// Function call under test with result (deferred, error) assertion.
+			gotDeferred, gotErr := adapter.SyncJob(ctx, tt.args.localClient, tt.args.remoteClient, tt.args.key, tt.args.workloadName, origin)
+			if (gotErr != nil) != tt.want.err {
+				t.Errorf("SyncJob() error = %v, wantErr %v", gotErr, tt.want.err)
+			}
+			if gotDeferred != tt.want.deferred {
+				t.Errorf("SyncJob() deferred = %v, want %v for case %q", gotDeferred, tt.want.deferred, name)
 			}
 
 			// Side effect assertion: changes to the local job. Must have (not nil) both the client and the job.
@@ -627,7 +702,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 				if err := tt.args.localClient.Get(ctx, client.ObjectKeyFromObject(tt.want.localJob), got); err != nil {
 					t.Errorf("SyncJob() unexpected assertion error retrieving local job: %v", err)
 				}
-				if diff := cmp.Diff(tt.want.localJob, got, cmpopts.EquateEmpty()); diff != "" {
+				if diff := cmp.Diff(tt.want.localJob, got, cmpopts.EquateEmpty(), cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion")); diff != "" {
 					t.Errorf("SyncJob() localJob (-want,+got):\n%s", diff)
 				}
 			}
@@ -637,10 +712,51 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 				if err := tt.args.remoteClient.Get(ctx, client.ObjectKeyFromObject(tt.want.remoteJob), got); err != nil {
 					t.Errorf("SyncJob() unexpected assertion error retrieving remote job: %v", err)
 				}
-				if diff := cmp.Diff(tt.want.remoteJob, got, cmpopts.EquateEmpty()); diff != "" {
+				if diff := cmp.Diff(tt.want.remoteJob, got, cmpopts.EquateEmpty(), cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion")); diff != "" {
 					t.Errorf("SyncJob() remoteJob (-want,+got):\n%s", diff)
 				}
 			}
 		})
+	}
+}
+
+// Test_multiKueueAdapter_SyncJob_DeferredWhenLocalSuspended covers the race
+// observed in https://github.com/kubernetes-sigs/kueue/issues/11115. When the
+// remote Job is already unsuspended (and not finished) but the local Job is
+// still suspended, SyncJob cannot propagate status.Active to the local Job
+// without violating K8s 1.36 suspend-validation rules. In that case SyncJob
+// must report deferred=true so the multikueue reconciler can requeue on a
+// short timer; without that signal the workload reconciler waits its default
+// workerLostTimeout requeue and the manager Job's status.Active never catches up.
+func Test_multiKueueAdapter_SyncJob_DeferredWhenLocalSuspended(t *testing.T) {
+	schema := runtime.NewScheme()
+	_ = scheme.AddToScheme(schema)
+	_ = kueue.AddToScheme(schema)
+
+	newJob := func() *utiltestingjob.JobWrapper {
+		return utiltestingjob.MakeJob("test", TestNamespace).ResourceVersion("1")
+	}
+
+	localJob := newJob().Obj() // Suspend defaults to true on JobWrapper
+	const origin = "origin1"
+	remoteJob := newJob().
+		Label(kueue.MultiKueueOriginLabel, origin).
+		Suspend(false).
+		Active(1).
+		Obj()
+
+	localClient := fake.NewClientBuilder().WithScheme(schema).WithObjects(localJob).Build()
+	remoteClient := fake.NewClientBuilder().WithScheme(schema).WithObjects(remoteJob).Build()
+
+	adapter := &multiKueueAdapter{}
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	deferred, err := adapter.SyncJob(ctx, localClient, remoteClient,
+		client.ObjectKeyFromObject(localJob), "" /*workloadName*/, origin)
+	if err != nil {
+		t.Fatalf("SyncJob() unexpected error = %v", err)
+	}
+	if !deferred {
+		t.Fatalf("SyncJob() deferred = false; want true (local suspended, remote unsuspended and not finished)")
 	}
 }

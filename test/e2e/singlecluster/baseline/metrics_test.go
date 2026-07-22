@@ -22,7 +22,6 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
-	schedulingv1 "k8s.io/api/scheduling/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -92,7 +91,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, metricsReaderClusterRoleBinding, true)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, curlPod, true, util.MediumTimeout)
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, curlPod, true, util.LongTimeout)
 		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
@@ -194,14 +193,10 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 				{"kueue_cluster_queue_borrowing_limit", clusterQueue.Name},
 				{"kueue_cluster_queue_lending_limit", clusterQueue.Name},
 
-				// LocalQueueMetrics
+				// LocalQueue metrics reported by the scheduler cache,
+				// cleared when the ClusterQueue is deleted.
 				{"kueue_local_queue_reserving_active_workloads", ns.Name, localQueue.Name},
 				{"kueue_local_queue_admitted_active_workloads", ns.Name, localQueue.Name},
-				{"kueue_local_queue_quota_reserved_workloads_total", ns.Name, localQueue.Name},
-				{"kueue_local_queue_quota_reserved_wait_time_seconds", ns.Name, localQueue.Name},
-				{"kueue_local_queue_admitted_workloads_total", ns.Name, localQueue.Name, ""},
-				{"kueue_local_queue_admission_wait_time_seconds", ns.Name, localQueue.Name},
-				{"kueue_local_queue_status", ns.Name, localQueue.Name},
 			}
 
 			ginkgo.By("checking that metrics that should have been deleted are no longer available", func() {
@@ -216,10 +211,37 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 				// Cleared metrics with 0 value
 				{"kueue_local_queue_pending_workloads", "active", "0", ns.Name, localQueue.Name},
 				{"kueue_local_queue_pending_workloads", "inadmissible", "0", ns.Name, localQueue.Name},
+
+				// LocalQueue counters persist until the LocalQueue itself is
+				// deleted, and the status metric is re-reported with reason
+				// ClusterQueueDoesNotExist.
+				{"kueue_local_queue_quota_reserved_workloads_total", ns.Name, localQueue.Name},
+				{"kueue_local_queue_quota_reserved_wait_time_seconds", ns.Name, localQueue.Name},
+				{"kueue_local_queue_admitted_workloads_total", ns.Name, localQueue.Name, ""},
+				{"kueue_local_queue_admission_wait_time_seconds", ns.Name, localQueue.Name},
+				{"kueue_local_queue_status", ns.Name, localQueue.Name},
 			}
 
 			ginkgo.By("checking that metrics that should not have been deleted are still available", func() {
 				util.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, notDeletedMetrics)
+			})
+
+			ginkgo.By("deleting the local queue", func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
+			})
+
+			// kueue_local_queue_status is not asserted here: its cleanup is
+			// skipped when the ClusterQueue was already removed from the cache.
+			deletedLocalQueueMetrics := [][]string{
+				{"kueue_local_queue_pending_workloads", ns.Name, localQueue.Name},
+				{"kueue_local_queue_quota_reserved_workloads_total", ns.Name, localQueue.Name},
+				{"kueue_local_queue_quota_reserved_wait_time_seconds", ns.Name, localQueue.Name},
+				{"kueue_local_queue_admitted_workloads_total", ns.Name, localQueue.Name, ""},
+				{"kueue_local_queue_admission_wait_time_seconds", ns.Name, localQueue.Name},
+			}
+
+			ginkgo.By("checking that LocalQueue metrics are no longer available after deleting the local queue", func() {
+				util.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, deletedLocalQueueMetrics)
 			})
 		})
 	})
@@ -320,7 +342,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 			localQueue1 *kueue.LocalQueue
 			localQueue2 *kueue.LocalQueue
 
-			highPriorityClass *schedulingv1.PriorityClass
+			highWorkloadPriorityClass *kueue.WorkloadPriorityClass
 
 			lowerJob1         *batchv1.Job
 			lowerWorkload1Key types.NamespacedName
@@ -383,8 +405,8 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 				Obj()
 			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue1, localQueue2)
 
-			highPriorityClass = utiltesting.MakePriorityClass("high-" + ns.Name).PriorityValue(100).Obj()
-			util.MustCreate(ctx, k8sClient, highPriorityClass)
+			highWorkloadPriorityClass = utiltestingapi.MakeWorkloadPriorityClass("high-" + ns.Name).PriorityValue(100).Obj()
+			util.MustCreate(ctx, k8sClient, highWorkloadPriorityClass)
 
 			lowerJob1 = testingjob.MakeJob("lower-job-1", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue1.Name)).
@@ -431,7 +453,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 			blockerJob = testingjob.MakeJob("blocker", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue2.Name)).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
-				PriorityClass(highPriorityClass.Name).
+				WorkloadPriorityClass(highWorkloadPriorityClass.Name).
 				RequestAndLimit(corev1.ResourceCPU, "3").
 				TerminationGracePeriod(1).
 				Obj()
@@ -453,7 +475,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 			higherJob1 = testingjob.MakeJob("high-large-1", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue1.Name)).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
-				PriorityClass(highPriorityClass.Name).
+				WorkloadPriorityClass(highWorkloadPriorityClass.Name).
 				RequestAndLimit(corev1.ResourceCPU, "4").
 				TerminationGracePeriod(1).
 				Obj()
@@ -462,7 +484,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 			higherJob2 = testingjob.MakeJob("high-large-2", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue2.Name)).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
-				PriorityClass(highPriorityClass.Name).
+				WorkloadPriorityClass(highWorkloadPriorityClass.Name).
 				RequestAndLimit(corev1.ResourceCPU, "4").
 				TerminationGracePeriod(1).
 				Obj()
@@ -476,7 +498,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, lowerJob1, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, lowerJob2, true)
 			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, highPriorityClass, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, highWorkloadPriorityClass, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue1, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue2, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue1, true)

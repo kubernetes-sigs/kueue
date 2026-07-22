@@ -199,8 +199,17 @@ Add "A job is suspended when its maximum execution time expires"
 
 ### Graduation Criteria
 
+The feature has been Beta (enabled by default) since v0.9. It has been stable for
+10+ releases with no reported issues. The API surface (`maximumExecutionTimeSeconds`
+on WorkloadSpec and the `kueue.x-k8s.io/max-exec-time-seconds` label) has not
+changed since introduction. Unit and integration tests provide comprehensive
+coverage of the core controller logic, job framework integration, and webhook
+validation.
 
 ## Implementation History
+
+- v0.9: Beta (enabled by default)
+- v0.19: GA
 
 
 ## Drawbacks

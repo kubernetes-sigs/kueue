@@ -63,7 +63,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "statefulset1", Namespace: TestNamespace}, "wl1", "origin1")
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "statefulset1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
 			},
 			wantManagersStatefulSets: []appsv1.StatefulSet{
 				*utiltestingstatefulset.MakeStatefulSet("statefulset1", TestNamespace).
@@ -92,7 +93,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "statefulset1", Namespace: TestNamespace}, "wl1", "origin1")
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "statefulset1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
 			},
 			wantManagersStatefulSets: []appsv1.StatefulSet{
 				*utiltestingstatefulset.MakeStatefulSet("statefulset1", TestNamespace).
@@ -148,7 +150,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "statefulset1", Namespace: TestNamespace}, "wl1", "origin1")
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "statefulset1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
 			},
 			wantManagersStatefulSets: []appsv1.StatefulSet{
 				*utiltestingstatefulset.MakeStatefulSet("statefulset1", TestNamespace).

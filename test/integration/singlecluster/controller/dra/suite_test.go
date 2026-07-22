@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/webhooks"
@@ -56,6 +57,7 @@ var _ = ginkgo.BeforeSuite(func() {
 	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegration, true)
 	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegrationExtendedResource, true)
 	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegrationPartitionableDevices, true)
+	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegrationConsumableCapacity, true)
 
 	fwk = &framework.Framework{
 		WebhookPath: util.WebhookPath,
@@ -123,10 +125,19 @@ func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSet
 		draMapper := dra.NewResourceMapper()
 		err = draMapper.PopulateFromConfiguration(controllersCfg.Resources.DeviceClassMappings)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		resourceFormatter := resources.NewResourceFormatter()
+		for _, resourceName := range draMapper.CounterBasedResourceNames() {
+			resourceFormatter.RegisterBinaryFormattedResource(resourceName)
+		}
 
-		cCache := schdcache.New(mgr.GetClient())
+		cCache := schdcache.New(mgr.GetClient(), schdcache.WithResourceFormatter(resourceFormatter))
 		preemptionExpectations := preemptexpectations.New()
-		queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
+		draBackedResources := dra.NewExtendedResourceCache()
+		queueOptions := []qcache.Option{
+			qcache.WithPreemptionExpectations(preemptionExpectations),
+			qcache.WithDRABackedResources(draBackedResources),
+			qcache.WithResourceFormatter(resourceFormatter),
+		}
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
 
 		// Core controllers
@@ -135,7 +146,12 @@ func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSet
 			queues,
 			cCache,
 			controllersCfg,
-			core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations, DRAMapper: draMapper, DRABackedResources: dra.NewExtendedResourceCache()},
+			core.SetupControllersOpts{
+				PreemptionExpectations: preemptionExpectations,
+				DRAMapper:              draMapper,
+				DRABackedResources:     draBackedResources,
+				ResourceFormatter:      resourceFormatter,
+			},
 		)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
@@ -146,6 +162,7 @@ func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSet
 			mgr.GetClient(),
 			mgr.GetEventRecorder("kueue-admission"),
 			scheduler.WithPreemptionExpectations(preemptionExpectations),
+			scheduler.WithResourceFormatter(resourceFormatter),
 		)
 		err = mgr.Add(sched)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

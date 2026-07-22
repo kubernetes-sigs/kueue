@@ -189,13 +189,13 @@ func (r *cqReconciler) aggregateWorkerQuotas(ctx context.Context, cq *kueue.Clus
 			ctrl.LoggerFrom(ctx).V(3).Info("Worker cluster client not found, skipping it in quota aggregation", "workerCluster", workerName)
 			continue
 		}
-		if rc.connecting.Load() {
-			ctrl.LoggerFrom(ctx).V(3).Info("Worker cluster client still connecting, skipping it in quota aggregation", "workerCluster", workerName)
+		if !rc.connState.isConnected() {
+			ctrl.LoggerFrom(ctx).V(3).Info("Worker cluster client not connected, skipping it in quota aggregation", "workerCluster", workerName)
 			continue
 		}
 		remoteLQList := &kueue.LocalQueueList{}
 		// This List is cached (by the selectivelyCachingClient).
-		if err := rc.client.List(ctx, remoteLQList); err != nil {
+		if err := rc.getClient().List(ctx, remoteLQList); err != nil {
 			return nil, err
 		}
 		remoteCQKeys := sets.New[types.NamespacedName]()
@@ -207,7 +207,7 @@ func (r *cqReconciler) aggregateWorkerQuotas(ctx context.Context, cq *kueue.Clus
 
 		remoteCQList := &kueue.ClusterQueueList{}
 		// This List is cached (by the selectivelyCachingClient).
-		if err := rc.client.List(ctx, remoteCQList); err != nil {
+		if err := rc.getClient().List(ctx, remoteCQList); err != nil {
 			return nil, err
 		}
 

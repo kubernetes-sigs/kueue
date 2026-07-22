@@ -38,13 +38,18 @@ import (
 // For extended resources, checks the provided cache to confirm the resource
 // is backed by a DeviceClass before triggering DRA reconciliation.
 func NeedsDRAReconcile(wl *kueue.Workload, erCache *ExtendedResourceCache) bool {
+	if workload.IsOnHold(wl) {
+		return false
+	}
 	if !features.Enabled(features.KueueDRAIntegration) {
 		return features.Enabled(features.KueueDRARejectWorkloadsWhenDRADisabled) && workload.HasDRA(wl)
 	}
 	if workload.HasDRA(wl) {
 		return true
 	}
-	if !features.Enabled(features.KueueDRAIntegrationExtendedResource) {
+	// erCache is always set when the gate is enabled; nil only occurs in tests
+	// that don't configure the full DRA stack.
+	if !features.Enabled(features.KueueDRAIntegrationExtendedResource) || erCache == nil {
 		return false
 	}
 	for i := range wl.Spec.PodSets {
@@ -120,13 +125,25 @@ func resolveContainerExtendedResources(
 		for _, dc := range dcList.Items {
 			if logicalName, found := mapper.Lookup(corev1.ResourceName(dc.Name)); found {
 				quotaKey = logicalName
-				if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) && mapper.getCounterConfig(corev1.ResourceName(dc.Name)) != nil {
+				if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) && len(mapper.getCounterConfigs(corev1.ResourceName(dc.Name))) > 0 {
 					errs = append(errs, field.Invalid(
 						containerPath,
 						resourceName,
 						fmt.Sprintf(
 							"extended resource %s resolves to DeviceClass %s with counters configured;"+
 								" use ResourceClaimTemplates with CEL selectors for counter-based quota",
+							resourceName, dc.Name,
+						),
+					))
+					continue
+				}
+				if features.Enabled(features.KueueDRAIntegrationConsumableCapacity) && len(mapper.getCapacityConfigs(corev1.ResourceName(dc.Name))) > 0 {
+					errs = append(errs, field.Invalid(
+						containerPath,
+						resourceName,
+						fmt.Sprintf(
+							"extended resource %s resolves to DeviceClass %s with capacity sources configured;"+
+								" use ResourceClaimTemplates with capacity.requests for capacity-based quota",
 							resourceName, dc.Name,
 						),
 					))

@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -58,10 +59,28 @@ import (
 var (
 	errPendingUngateOps      = errors.New("pending ungate operations")
 	errParseOffsetAnnotation = errors.New("failed to parse offset annotation")
+	errInvalidSubGroupCount  = errors.New("invalid subgroup count for podset with subgroup index label")
 )
+
+type topologyUngaterOptions struct {
+	clock clock.Clock
+}
+
+type topologyUngaterOption func(options *topologyUngaterOptions)
+
+func WithClock(clock clock.Clock) topologyUngaterOption {
+	return func(opts *topologyUngaterOptions) {
+		opts.clock = clock
+	}
+}
+
+var defaultOptions = topologyUngaterOptions{
+	clock: clock.RealClock{},
+}
 
 type topologyUngater struct {
 	client            client.Client
+	clock             clock.Clock
 	expectationsStore *expectations.Store
 	roleTracker       *roletracker.RoleTracker
 }
@@ -83,9 +102,14 @@ var _ predicate.TypedPredicate[*kueue.Workload] = (*topologyUngater)(nil)
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get
 
-func newTopologyUngater(c client.Client, roleTracker *roletracker.RoleTracker) *topologyUngater {
+func newTopologyUngater(c client.Client, roleTracker *roletracker.RoleTracker, opts ...topologyUngaterOption) *topologyUngater {
+	options := defaultOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
 	return &topologyUngater{
 		client:            c,
+		clock:             options.clock,
 		expectationsStore: expectations.NewStore(TASTopologyUngater),
 		roleTracker:       roleTracker,
 	}
@@ -106,7 +130,7 @@ func (r *topologyUngater) setupWithManager(mgr ctrl.Manager, cfg *configapi.Conf
 		Watches(&corev1.Pod{}, &podHandler).
 		WithOptions(controller.Options{
 			NeedLeaderElection:      new(false),
-			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("Workload").GroupKind().String()],
+			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.SchemeGroupVersion.WithKind("Workload").GroupKind().String()],
 		}).
 		WithLogConstructor(roletracker.NewLogConstructor(r.roleTracker, TASTopologyUngater)).
 		Complete(core.WithLeadingManager(mgr, r, &kueue.Workload{}, cfg))
@@ -280,6 +304,8 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 		if !ungated {
 			// We don't expect an event in this case.
 			r.expectationsStore.ObservedUID(log, req.NamespacedName, podWithUngateInfo.pod.UID)
+		} else {
+			utilpod.RecordPodSchedulingGateRemovalSeconds(r.clock, kueue.TopologySchedulingGate, wl, utilpod.IsPodGroup(podWithUngateInfo.pod))
 		}
 		return e
 	})
@@ -429,15 +455,29 @@ func readRanksIfAvailable(log logr.Logger,
 	}
 	result, err := readRanksForLabels(psa, pods, psReq, offset, maxRank)
 	if err != nil {
-		if errors.Is(err, utilpod.ErrLabelNotFound) {
+		switch {
+		case errors.Is(err, utilpod.ErrLabelNotFound):
 			log.V(5).Info("pods missing index label for rank ordering", "error", err)
-		} else {
+		case errors.Is(err, errInvalidSubGroupCount):
+			log.V(3).Info("invalid subGroupCount, falling back to greedy assignment", "error", err)
+		default:
 			log.Error(err, "failed to read rank information from pods")
 		}
 		return nil, false
 	}
 
 	for rank, pod := range result {
+		if rank >= len(rankToDomainID) {
+			// The assignment can cover fewer pods than the PodSet count (e.g. a slice size
+			// that does not evenly divide it), so a valid rank may have no domain.
+			// Fall back to greedy assignment for the whole PodSet.
+			//
+			// TODO: this may require adjustments to support ElasticJobs with TAS,
+			// tracked by the ElasticJobsViaWorkloadSlicesWithTAS feature gate.
+			log.V(3).Info("pod rank is out of range for the assigned topology domains, falling back to greedy assignment",
+				"pod", klog.KObj(pod), "rank", rank, "assignedPodCount", len(rankToDomainID))
+			return nil, false
+		}
 		if utilpod.HasGate(pod, kueue.TopologySchedulingGate) {
 			continue
 		}
@@ -466,6 +506,9 @@ func readRanksForLabels(
 	podSetSize := int(*psa.Count)
 	singleJobSize := podSetSize
 	if psReq.SubGroupIndexLabel != nil {
+		if psReq.SubGroupCount == nil || *psReq.SubGroupCount <= 0 {
+			return nil, fmt.Errorf("%w %q: must be set and greater than 0", errInvalidSubGroupCount, *psReq.SubGroupIndexLabel)
+		}
 		singleJobSize = podSetSize / int(*psReq.SubGroupCount)
 	}
 

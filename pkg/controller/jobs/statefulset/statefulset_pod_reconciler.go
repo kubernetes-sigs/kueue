@@ -90,7 +90,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (r
 		err = client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
 			removed := controllerutil.RemoveFinalizer(pod, podconstants.PodFinalizer)
 			if removed {
-				log.V(3).Info("Finalizing statefulset pod in group", "pod", klog.KObj(pod), "group", podcontroller.GetPodGroupName(pod))
+				log.V(3).Info("Finalizing statefulset pod in group", "pod", klog.KObj(pod), "group", utilpod.GetPodGroupName(pod))
 			}
 			return removed, nil
 		}))
@@ -101,7 +101,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (r
 				return false, err
 			}
 			if updated {
-				log.V(3).Info("Updating pod in group", "pod", klog.KObj(pod), "group", podcontroller.GetPodGroupName(pod))
+				log.V(3).Info("Updating pod in group", "pod", klog.KObj(pod), "group", utilpod.GetPodGroupName(pod))
 			}
 			return updated, nil
 		}))
@@ -138,7 +138,7 @@ func (r *PodReconciler) setDefault(ctx context.Context, pod *corev1.Pod) (bool, 
 		pod.Annotations = make(map[string]string)
 	}
 
-	if groupName := podcontroller.GetPodGroupName(pod); groupName == wlName {
+	if groupName := utilpod.GetPodGroupName(pod); groupName == wlName {
 		if queueName != "" && pod.Labels[ctrlconstants.QueueLabel] != string(queueName) {
 			pod.Labels[ctrlconstants.QueueLabel] = string(queueName)
 			return true, nil

@@ -96,7 +96,7 @@ footer {
       }
     }
 
-    @include media-breakpoint-down(lg) {
+    @include media-breakpoint-down(md) {
       font-size: .875rem;
       align-items: flex-start;
       .dropdown {
@@ -144,6 +144,14 @@ footer {
 @media (min-width: 768px) {
   .td-sidebar-nav {
     max-height: calc(100vh - 12.5rem) !important;
+  }
+}
+
+// Structural layout override: Constrain the navigation scroll container height
+// on desktop so the scrollbar and links never overlap the full-width footer.
+@media (min-width: 768px) {
+  .td-sidebar-nav {
+    max-height: calc(100vh - 14.5rem) !important;
   }
 }
 

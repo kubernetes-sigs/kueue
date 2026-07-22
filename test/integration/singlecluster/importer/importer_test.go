@@ -38,42 +38,64 @@ import (
 
 var _ = ginkgo.Describe("Importer", func() {
 	var (
-		ns     *corev1.Namespace
 		flavor *kueue.ResourceFlavor
-		cq     *kueue.ClusterQueue
-		lq     *kueue.LocalQueue
+		lqName string
+		ns1    *corev1.Namespace
+		ns2    *corev1.Namespace
+		lq1    *kueue.LocalQueue
+		lq2    *kueue.LocalQueue
+		cq1    *kueue.ClusterQueue
+		cq2    *kueue.ClusterQueue
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "import-")
+		lqName = "shared-lq-name"
 
-		flavor = utiltestingapi.MakeResourceFlavor("f1").Obj()
+		flavor = utiltestingapi.MakeResourceFlavor("f").Obj()
 		util.MustCreate(ctx, k8sClient, flavor)
 
-		cq = utiltestingapi.MakeClusterQueue("cq1").
+		ns1 = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "import-ns1-")
+
+		cq1 = utiltestingapi.MakeClusterQueue("cq1").
 			ResourceGroup(
-				*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "4").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("f").Resource(corev1.ResourceCPU, "4").Obj(),
 			).
 			Obj()
-		util.MustCreate(ctx, k8sClient, cq)
+		util.MustCreate(ctx, k8sClient, cq1)
 
-		lq = utiltestingapi.MakeLocalQueue("lq1", ns.Name).ClusterQueue("cq1").Obj()
-		util.MustCreate(ctx, k8sClient, lq)
+		lq1 = utiltestingapi.MakeLocalQueue(lqName, ns1.Name).ClusterQueue("cq1").Obj()
+		util.MustCreate(ctx, k8sClient, lq1)
+
+		ns2 = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "import-ns2-")
+
+		cq2 = utiltestingapi.MakeClusterQueue("cq2").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("f").Resource(corev1.ResourceCPU, "4").Obj(),
+			).
+			Obj()
+		util.MustCreate(ctx, k8sClient, cq2)
+
+		lq2 = utiltestingapi.MakeLocalQueue(lqName, ns2.Name).ClusterQueue("cq2").Obj()
+		util.MustCreate(ctx, k8sClient, lq2)
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, lq1, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, lq2, true)
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns1)).To(gomega.Succeed())
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns2)).To(gomega.Succeed())
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq1, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq2, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
 	})
 
 	ginkgo.When("Kueue is started after import", func() {
 		ginkgo.It("Should keep the imported pods admitted", framework.SlowSpec, func() {
-			pod1 := utiltestingpod.MakePod("pod1", ns.Name).
+			pod1 := utiltestingpod.MakePod("pod1", ns1.Name).
 				Label("src.lbl", "src-val").
 				Request(corev1.ResourceCPU, "2").
 				Obj()
-			pod2 := utiltestingpod.MakePod("pod2", ns.Name).
+			pod2 := utiltestingpod.MakePod("pod2", ns1.Name).
 				Label("src.lbl", "src-val").
 				Request(corev1.ResourceCPU, "2").
 				Obj()
@@ -84,7 +106,7 @@ var _ = ginkgo.Describe("Importer", func() {
 			})
 
 			ginkgo.By("Running the import", func() {
-				mapping, err := importercache.Load(ctx, k8sClient, []string{ns.Name}, importermapping.RulesForLabel("src.lbl", map[string]string{"src-val": "lq1"}), nil)
+				mapping, err := importercache.Load(ctx, k8sClient, []string{ns1.Name}, importermapping.RulesForLabel("src.lbl", map[string]string{"src-val": lqName}), nil)
 				gomega.Expect(err).ToNot(gomega.HaveOccurred())
 				gomega.Expect(mapping).ToNot(gomega.BeNil())
 
@@ -92,8 +114,8 @@ var _ = ginkgo.Describe("Importer", func() {
 				gomega.Expect(importerpod.Import(ctx, k8sClient, mapping, 8)).To(gomega.Succeed())
 			})
 
-			wl1LookupKey := types.NamespacedName{Name: pod.GetWorkloadNameForPod(pod1.Name, pod1.UID), Namespace: ns.Name}
-			wl2LookupKey := types.NamespacedName{Name: pod.GetWorkloadNameForPod(pod2.Name, pod2.UID), Namespace: ns.Name}
+			wl1LookupKey := types.NamespacedName{Name: pod.GetWorkloadNameForPod(pod1.Name, pod1.UID), Namespace: ns1.Name}
+			wl2LookupKey := types.NamespacedName{Name: pod.GetWorkloadNameForPod(pod2.Name, pod2.UID), Namespace: ns1.Name}
 			wl1 := &kueue.Workload{}
 			wl2 := &kueue.Workload{}
 
@@ -111,16 +133,16 @@ var _ = ginkgo.Describe("Importer", func() {
 			ginkgo.By("Starting kueue, the cluster queue status should account for the imported Workloads", func() {
 				fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
 
-				util.ExpectClusterQueueStatusMetric(cq, metrics.CQStatusActive)
+				util.ExpectClusterQueueStatusMetric(cq1, metrics.CQStatusActive)
 				gomega.Eventually(func(g gomega.Gomega) {
 					updatedQueue := &kueue.ClusterQueue{}
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), updatedQueue)).To(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq1), updatedQueue)).To(gomega.Succeed())
 					g.Expect(updatedQueue.Status.AdmittedWorkloads).To(gomega.Equal(int32(2)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			pod3 := utiltestingpod.MakePod("pod3", ns.Name).
-				Queue("lq1").
+			pod3 := utiltestingpod.MakePod("pod3", ns1.Name).
+				Queue(lqName).
 				Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).
 				Request(corev1.ResourceCPU, "2").
 				KueueSchedulingGate().
@@ -130,7 +152,7 @@ var _ = ginkgo.Describe("Importer", func() {
 				util.MustCreate(ctx, k8sClient, pod3)
 			})
 
-			wl3LookupKey := types.NamespacedName{Name: pod.GetWorkloadNameForPod(pod3.Name, pod3.UID), Namespace: ns.Name}
+			wl3LookupKey := types.NamespacedName{Name: pod.GetWorkloadNameForPod(pod3.Name, pod3.UID), Namespace: ns1.Name}
 			wl3 := &kueue.Workload{}
 
 			ginkgo.By("Checking the Workload is created and pending while the old ones remain admitted", func() {
@@ -155,6 +177,30 @@ var _ = ginkgo.Describe("Importer", func() {
 				gomega.Expect(k8sClient.Get(ctx, wl2LookupKey, wl2)).To(gomega.Succeed())
 				gomega.Expect(wl2.UID).To(gomega.Equal(wl2UID))
 			})
+		})
+	})
+
+	ginkgo.It("Should assign local queues to appropriate namespaces", framework.SlowSpec, func() {
+		var mapping *importercache.ImportCache
+		var err error
+
+		ginkgo.By("Importing across all namespaces", func() {
+			mapping, err = importercache.Load(ctx, k8sClient, []string{ns1.Name, ns2.Name}, importermapping.RulesForLabel("src.lbl", map[string]string{"src-val": lqName}), nil)
+			gomega.Expect(err).ToNot(gomega.HaveOccurred())
+			gomega.Expect(mapping).ToNot(gomega.BeNil())
+		})
+
+		ginkgo.By("Checking the local queues are assigned correctly", func() {
+			gomega.Expect(mapping.LocalQueues).To(gomega.HaveLen(2))
+
+			gomega.Expect(mapping.LocalQueues[ns1.Name]).To(gomega.HaveLen(1))
+			gomega.Expect(mapping.LocalQueues[ns2.Name]).To(gomega.HaveLen(1))
+
+			gomega.Expect(mapping.LocalQueues[ns1.Name]).To(gomega.HaveKey(lqName))
+			gomega.Expect(mapping.LocalQueues[ns2.Name]).To(gomega.HaveKey(lqName))
+
+			gomega.Expect(mapping.LocalQueues[ns1.Name][lqName].Namespace).To(gomega.Equal(ns1.Name))
+			gomega.Expect(mapping.LocalQueues[ns2.Name][lqName].Namespace).To(gomega.Equal(ns2.Name))
 		})
 	})
 })

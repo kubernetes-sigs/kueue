@@ -32,10 +32,12 @@ import (
 
 	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -44,7 +46,7 @@ var ns *corev1.Namespace
 
 const (
 	workloadName    = "workload-test"
-	podSetsMaxItems = 10
+	podSetsMaxItems = jobframework.MaxPodSets
 )
 
 var _ = ginkgo.Describe("Workload defaulting webhook", func() {
@@ -132,7 +134,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 		},
 			ginkgo.Entry("podSets count less than 1", 0, 1, true),
 			ginkgo.Entry("podSets count at the maximum", podSetsMaxItems, 1, false),
-			ginkgo.Entry("podSets count more than 10", podSetsMaxItems+1, 1, true),
+			ginkgo.Entry("podSets count more than the maximum", podSetsMaxItems+1, 1, true),
 			ginkgo.Entry("valid podSet, count can be 0", 3, 0, false),
 			ginkgo.Entry("valid podSet", 3, 3, false),
 		)
@@ -353,7 +355,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
-				err := workload.PatchAdmissionStatus(ctx, k8sClient, wl, util.RealClock, func(wl *kueue.Workload) (bool, error) {
+				err := workloadpatching.PatchAdmissionStatus(ctx, k8sClient, wl, util.RealClock, func(wl *kueue.Workload) (bool, error) {
 					return workload.SetQuotaReservation(wl, a, util.RealClock), nil
 				})
 				g.Expect(err).Should(matcher)
@@ -463,7 +465,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
-				workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, acs, util.RealClock)
+				workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, acs, util.RealClock)
 				g.Expect(k8sClient.Status().Update(ctx, wl)).Should(utiltesting.BeForbiddenError())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		},
@@ -1031,6 +1033,28 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
+		// Regression test for issue #12552.
+		// https://github.com/kubernetes-sigs/kueue/issues/12552
+		// The CEL rule guarding queueName immutability uses a ternary that short-
+		// circuits to true whenever either side of the comparison lacks the field.
+		// An attacker can bypass the check by removing queueName:
+		//   PATCH remove /spec/queueName  → has(self.spec.queueName)==false  → true (allowed)
+		// This operation must be rejected while QuotaReserved=True.
+		ginkgo.It("Should prevent removing queueName on admitted workload (issue 12552)", func() {
+			ginkgo.By("Creating and admitting a Workload with queueName 'queue1'")
+			workload := utiltestingapi.MakeWorkload(workloadName, ns.Name).Queue("queue1").Obj()
+			util.MustCreate(ctx, k8sClient, workload)
+			util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(workload), utiltestingapi.MakeAdmission("cq").Obj())
+
+			ginkgo.By("Removing queueName from the admitted workload (must be rejected)")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var wl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &wl)).To(gomega.Succeed())
+				wl.Spec.QueueName = "" // omitempty omits the field → has(self.spec.queueName)==false
+				g.Expect(k8sClient.Update(ctx, &wl)).Should(utiltesting.BeInvalidError())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
 		ginkgo.It("Should forbid the change of status.admission", func() {
 			ginkgo.By("Creating a new Workload")
 			workload := utiltestingapi.MakeWorkload(workloadName, ns.Name).Obj()
@@ -1182,7 +1206,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			ginkgo.By("Setting admission check state")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
-				workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+				workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, kueue.AdmissionCheckState{
 					Name:               "ac1",
 					Message:            "old",
 					LastTransitionTime: metav1.NewTime(time.Now()),
@@ -1195,7 +1219,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			ginkgo.By("Updating admission check state")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
-				workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+				workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, kueue.AdmissionCheckState{
 					Name:               "ac1",
 					Message:            "new",
 					LastTransitionTime: metav1.NewTime(time.Now()),
@@ -1269,6 +1293,65 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
 				wl.Spec.PodSets[0].Count = 5 // Decrease from 10 -> 5.
 				g.Expect(k8sClient.Update(ctx, wl)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("Should allow elastic workload reclaimable pod count to decrease after a scale-down below the admitted count", func() {
+			// Regression for kueue#12958: after a Job scale-down the controller
+			// lowers the workload's reclaimable pod counts in a follow-up status
+			// update whose spec is already shrunk. The webhook used to reject
+			// that update, so the stale count kept releasing quota for pods
+			// removed by the scale-down. The scale-down is detected via the
+			// admission count, which stays at the admitted size (20) while the
+			// podSet is shrunk (10).
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
+
+			ginkgo.By("Creating a new elastic Workload")
+			wl := utiltestingapi.MakeWorkload(workloadName, ns.Name).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 20).
+					Request(corev1.ResourceCPU, "1").
+					Obj()).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+
+			ginkgo.By("Admitting the Workload at 20 pods")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				admission := utiltestingapi.MakeAdmission("default").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "default", "1").
+						Count(20).
+						Obj()).
+					Obj()
+				workload.SetQuotaReservation(wl, admission, util.RealClock)
+				wl.Status.Admission = admission
+
+				g.Expect(k8sClient.Status().Update(ctx, wl)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Reporting 9 reclaimable pods")
+			util.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: kueue.DefaultPodSetName, Count: 9}})
+
+			ginkgo.By("Scaling the podSet down to 10 (admission count stays at 20)")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				wl.Spec.PodSets[0].Count = 10
+				g.Expect(k8sClient.Update(ctx, wl)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Decreasing the reclaimable pod count while the podSet (10) still exceeds it")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				wl.Status.ReclaimablePods = []kueue.ReclaimablePod{{Name: kueue.DefaultPodSetName, Count: 0}}
+				g.Expect(k8sClient.Status().Update(ctx, wl)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Removing the reclaimable pod entry entirely")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				wl.Status.ReclaimablePods = nil
+				g.Expect(k8sClient.Status().Update(ctx, wl)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})

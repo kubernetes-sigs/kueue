@@ -55,7 +55,9 @@ import (
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	workloadtrainjob "sigs.k8s.io/kueue/pkg/controller/jobs/trainjob"
 	"sigs.k8s.io/kueue/pkg/controller/workloaddispatcher"
+	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/resources"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -69,13 +71,19 @@ const (
 )
 
 type cluster struct {
-	cfg    *rest.Config
-	client client.Client
-	ctx    context.Context
-	fwk    *framework.Framework
-
-	miniJobConroller util.MiniJobController
+	cfg            *rest.Config
+	client         client.Client
+	ctx            context.Context
+	fwk            *framework.Framework
+	schedulerCache *schdcache.Cache
 }
+
+type managerSetupOptions struct {
+	resourceFormatter *resources.ResourceFormatter
+	cacheSink         func(*schdcache.Cache)
+}
+
+type managerSetupOptionsKey struct{}
 
 func (c *cluster) kubeConfigBytes() ([]byte, error) {
 	return utiltesting.RestConfigToKubeConfig(c.cfg)
@@ -83,7 +91,6 @@ func (c *cluster) kubeConfigBytes() ([]byte, error) {
 
 func (c *cluster) StopAndTeardown() {
 	c.fwk.StopManager(c.ctx)
-	c.miniJobConroller.Stop()
 	c.fwk.Teardown()
 }
 
@@ -123,8 +130,6 @@ func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) c
 	mu.Lock()
 	c.cfg = c.fwk.Init()
 	c.ctx, c.client = c.fwk.SetupClient(c.cfg)
-	c.miniJobConroller = util.NewMiniJobController(c.ctx, c.client)
-	c.miniJobConroller.Start()
 	mu.Unlock()
 
 	// skip the manager setup if setup func is not provided
@@ -135,13 +140,57 @@ func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) c
 	return c
 }
 
+func managerSetupWithResourceFormatter(formatter *resources.ResourceFormatter, cacheSink func(*schdcache.Cache)) framework.ManagerSetup {
+	return func(ctx context.Context, mgr manager.Manager) {
+		ctx = context.WithValue(ctx, managerSetupOptionsKey{}, managerSetupOptions{
+			resourceFormatter: formatter,
+			cacheSink:         cacheSink,
+		})
+		managerSetup(ctx, mgr)
+	}
+}
+
+func resourceFormatterForCounterResource(resourceName corev1.ResourceName) *resources.ResourceFormatter {
+	mapper := dra.NewResourceMapper()
+	gomega.Expect(mapper.PopulateFromConfiguration([]config.DeviceClassMapping{
+		{
+			Name:             resourceName,
+			DeviceClassNames: []corev1.ResourceName{"example.com/worker-device"},
+			Sources: []config.DeviceClassSourceConfig{{
+				Counter: &config.DeviceClassCounterSource{
+					Name:   "memory",
+					Driver: "example.com/driver",
+				},
+			}},
+		},
+	})).To(gomega.Succeed())
+
+	formatter := resources.NewResourceFormatter()
+	for _, name := range mapper.CounterBasedResourceNames() {
+		formatter.RegisterBinaryFormattedResource(name)
+	}
+	return formatter
+}
+
 func managerSetup(ctx context.Context, mgr manager.Manager) {
+	options, _ := ctx.Value(managerSetupOptionsKey{}).(managerSetupOptions)
+	resourceFormatter := options.resourceFormatter
+	if resourceFormatter == nil {
+		resourceFormatter = resources.NewResourceFormatter()
+	}
+
 	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	cCache := schdcache.New(mgr.GetClient())
+	cCache := schdcache.New(mgr.GetClient(), schdcache.WithResourceFormatter(resourceFormatter))
+	if options.cacheSink != nil {
+		options.cacheSink(cCache)
+	}
 	preemptionExpecations := preemptexpectations.New()
-	queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpecations)}
+	queueOptions := []qcache.Option{
+		qcache.WithPreemptionExpectations(preemptionExpecations),
+		qcache.WithResourceFormatter(resourceFormatter),
+	}
 	queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
 
 	configuration := &config.Configuration{}
@@ -152,7 +201,10 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 		queues,
 		cCache,
 		configuration,
-		core.SetupControllersOpts{PreemptionExpectations: preemptionExpecations},
+		core.SetupControllersOpts{
+			PreemptionExpectations: preemptionExpecations,
+			ResourceFormatter:      resourceFormatter,
+		},
 	)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
@@ -426,11 +478,21 @@ var _ = ginkgo.BeforeSuite(func() {
 		})
 		wg.Go(func() {
 			defer ginkgo.GinkgoRecover()
-			worker1TestCluster = createCluster(managerSetup)
+			formatter := resourceFormatterForCounterResource(worker1CounterResource)
+			var schedulerCache *schdcache.Cache
+			worker1TestCluster = createCluster(managerSetupWithResourceFormatter(formatter, func(cache *schdcache.Cache) {
+				schedulerCache = cache
+			}))
+			worker1TestCluster.schedulerCache = schedulerCache
 		})
 		wg.Go(func() {
 			defer ginkgo.GinkgoRecover()
-			worker2TestCluster = createCluster(managerSetup)
+			formatter := resourceFormatterForCounterResource(worker2CounterResource)
+			var schedulerCache *schdcache.Cache
+			worker2TestCluster = createCluster(managerSetupWithResourceFormatter(formatter, func(cache *schdcache.Cache) {
+				schedulerCache = cache
+			}))
+			worker2TestCluster.schedulerCache = schedulerCache
 		})
 		wg.Wait()
 	})

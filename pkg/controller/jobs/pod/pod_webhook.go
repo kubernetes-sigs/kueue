@@ -227,8 +227,8 @@ func (w *PodWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *corev1.
 	allErrs = append(allErrs, validateCommon(newPod)...)
 	allErrs = append(allErrs, validateUpdateForRetriableInGroupAnnotation(oldPod, newPod)...)
 
-	if oldGroupName := GetPodGroupName(&oldPod.pod); oldGroupName != "" {
-		newGroupName := GetPodGroupName(&newPod.pod)
+	if oldGroupName := utilpod.GetPodGroupName(&oldPod.pod); oldGroupName != "" {
+		newGroupName := utilpod.GetPodGroupName(&newPod.pod)
 		allErrs = append(allErrs, validation.ValidateImmutableField(newGroupName, oldGroupName, getGroupNamePath(&newPod.pod))...)
 	}
 
@@ -285,7 +285,7 @@ func validatePodGroupMetadata(p *Pod) field.ErrorList {
 		errorDetail = fmt.Sprintf("both the '%s' annotation and the '%s' annotation should be set", podconstants.GroupTotalCountAnnotation, podconstants.GroupNameAnnotation)
 	}
 
-	if groupName := GetPodGroupName(&p.pod); groupName == "" {
+	if groupName := utilpod.GetPodGroupName(&p.pod); groupName == "" {
 		if gtcExists {
 			return append(allErrs, field.Required(getGroupNamePath(&p.pod), errorDetail))
 		}
@@ -309,7 +309,7 @@ func validateTopologyRequest(pod *Pod) field.ErrorList {
 }
 
 func validateUpdateForRetriableInGroupAnnotation(oldPod, newPod *Pod) field.ErrorList {
-	if groupName := GetPodGroupName(&newPod.pod); groupName != "" && isUnretriablePod(oldPod.pod) && !isUnretriablePod(newPod.pod) {
+	if groupName := utilpod.GetPodGroupName(&newPod.pod); groupName != "" && isUnretriablePod(oldPod.pod) && !isUnretriablePod(newPod.pod) {
 		return field.ErrorList{
 			field.Forbidden(retriableInGroupAnnotationPath, "unretriable pod group can't be converted to retriable"),
 		}
@@ -321,7 +321,7 @@ func validateUpdateForRetriableInGroupAnnotation(oldPod, newPod *Pod) field.Erro
 func validatePrebuiltWorkloadName(pod *Pod) field.ErrorList {
 	var allErrs field.ErrorList
 
-	groupName := GetPodGroupName(&pod.pod)
+	groupName := utilpod.GetPodGroupName(&pod.pod)
 	prebuiltWorkload := jobframework.PrebuiltWorkloadNameFor(&pod.pod)
 	if groupName != "" && prebuiltWorkload != "" && prebuiltWorkload != groupName {
 		allErrs = append(allErrs, field.Invalid(jobframework.GetPrebuiltWorkloadPath(&pod.pod), prebuiltWorkload, "prebuilt workload and pod group should be equal"))

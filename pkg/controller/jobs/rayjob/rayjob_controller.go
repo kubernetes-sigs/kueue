@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -131,7 +132,7 @@ func (j *RayJob) PodLabelSelector() string {
 
 func (j *RayJob) PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet, error) {
 	// Always build PodSets from RayJob spec first
-	podSets, err := raycluster.BuildPodSets(j.Spec.RayClusterSpec)
+	podSets, err := raycluster.BuildPodSets(j.Spec.RayClusterSpec, j.Annotations)
 	if err != nil {
 		return nil, err
 	}
@@ -140,6 +141,8 @@ func (j *RayJob) PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet, 
 	if err != nil {
 		return nil, err
 	}
+
+	j.addSidecarSubmitterToHeadPodSet(podSets)
 
 	rayClusterName := j.Status.RayClusterName
 	podSets, err = raycluster.UpdatePodSets(ctx, podSets, c, j.Object(), j.Spec.RayClusterSpec.EnableInTreeAutoscaling, rayClusterName)
@@ -150,19 +153,26 @@ func (j *RayJob) PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet, 
 	return podSets, nil
 }
 
-func (j *RayJob) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSetsInfo []podset.PodSetInfo) error {
-	expectedLen := len(j.Spec.RayClusterSpec.WorkerGroupSpecs) + 1
+// expectedPodSetsCount returns the number of pod sets for the RayJob:
+// the RayCluster pod sets plus the submitter pod set when submissionMode is K8sJobMode.
+func (j *RayJob) expectedPodSetsCount() int {
+	count := raycluster.ExpectedPodSetsCount(j.Spec.RayClusterSpec)
 	if j.Spec.SubmissionMode == rayv1.K8sJobMode {
-		expectedLen++
+		count++
 	}
+	return count
+}
 
+func (j *RayJob) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSetsInfo []podset.PodSetInfo) error {
+	expectedLen := j.expectedPodSetsCount()
 	if len(podSetsInfo) != expectedLen {
 		return podset.BadPodSetsInfoLenError(expectedLen, len(podSetsInfo))
 	}
 
 	j.Spec.Suspend = false
 
-	err := raycluster.UpdateRayClusterSpecToRunWithPodSetsInfo(j.Spec.RayClusterSpec, podSetsInfo)
+	log := ctrl.LoggerFrom(ctx)
+	err := raycluster.UpdateRayClusterSpecToRunWithPodSetsInfo(log, j.Spec.RayClusterSpec, podSetsInfo)
 	if err != nil {
 		return err
 	}
@@ -171,30 +181,35 @@ func (j *RayJob) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSet
 	if j.Spec.SubmissionMode == rayv1.K8sJobMode {
 		submitterPod := getSubmitterTemplate(j)
 		info := podSetsInfo[expectedLen-1]
-		if err := podset.Merge(&submitterPod.ObjectMeta, &submitterPod.Spec, info); err != nil {
+		if err := podset.Merge(log, &submitterPod.ObjectMeta, &submitterPod.Spec, info); err != nil {
 			return err
+		}
+		if j.Spec.SubmitterPodTemplate == nil {
+			j.Spec.SubmitterPodTemplate = submitterPod
 		}
 	}
 
 	return nil
 }
 
-func (j *RayJob) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
-	expectedLen := len(j.Spec.RayClusterSpec.WorkerGroupSpecs) + 1
-	if j.Spec.SubmissionMode == rayv1.K8sJobMode {
-		expectedLen++
-	}
-
-	if len(podSetsInfo) != expectedLen {
+func (j *RayJob) RestorePodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) bool {
+	if expected := j.expectedPodSetsCount(); len(podSetsInfo) != expected {
+		ctrl.LoggerFrom(ctx).V(2).Info(
+			"Skipping pod set info restore because the pod set count does not match the admitted workload",
+			"expectedCount", expected,
+			"gotCount", len(podSetsInfo),
+		)
 		return false
 	}
 
-	changed := raycluster.RestorePodSetsInfo(j.Spec.RayClusterSpec, podSetsInfo)
+	// RayCluster pod sets come first, the optional submitter pod set is last.
+	rayClusterLen := raycluster.ExpectedPodSetsCount(j.Spec.RayClusterSpec)
+	changed := raycluster.RestorePodSetsInfo(ctx, j.Spec.RayClusterSpec, podSetsInfo[:rayClusterLen])
 
 	// submitter
 	if j.Spec.SubmissionMode == rayv1.K8sJobMode {
 		submitterPod := getSubmitterTemplate(j)
-		info := podSetsInfo[expectedLen-1]
+		info := podSetsInfo[len(podSetsInfo)-1]
 		changed = podset.RestorePodSpec(&submitterPod.ObjectMeta, &submitterPod.Spec, info) || changed
 	}
 
@@ -228,6 +243,22 @@ func GetWorkloadNameForRayJob(jobName string, jobUID types.UID) string {
 	return jobframework.GetWorkloadNameForOwnerWithGVK(jobName, jobUID, gvk)
 }
 
+// defaultSubmitterResources mirrors the resources KubeRay assigns to the Ray job
+// submitter container by default (ray-operator/controllers/ray/common/job.go:
+// GetDefaultSubmitterContainer).
+func defaultSubmitterResources() corev1.ResourceRequirements {
+	return corev1.ResourceRequirements{
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("1"),
+			corev1.ResourceMemory: resource.MustParse("1Gi"),
+		},
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("500m"),
+			corev1.ResourceMemory: resource.MustParse("200Mi"),
+		},
+	}
+}
+
 // getSubmitterTemplate returns the PodTemplteSpec of the submitter Job used for RayJob when submissionMode=K8sJobMode
 func getSubmitterTemplate(rayJob *RayJob) *corev1.PodTemplateSpec {
 	if rayJob.Spec.SubmitterPodTemplate != nil {
@@ -240,19 +271,10 @@ func getSubmitterTemplate(rayJob *RayJob) *corev1.PodTemplateSpec {
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{
 				{
-					Name: "ray-job-submitter",
+					Name: rayutils.SubmitterContainerName,
 					// Use the image of the Ray head to be defensive against version mismatch issues
-					Image: rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Image,
-					Resources: corev1.ResourceRequirements{
-						Limits: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("1"),
-							corev1.ResourceMemory: resource.MustParse("1Gi"),
-						},
-						Requests: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("500m"),
-							corev1.ResourceMemory: resource.MustParse("200Mi"),
-						},
-					},
+					Image:     rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Image,
+					Resources: defaultSubmitterResources(),
 				},
 			},
 			RestartPolicy: corev1.RestartPolicyNever,
@@ -283,6 +305,27 @@ func (j *RayJob) addSubmitterPodSet(podSets []kueue.PodSet) ([]kueue.PodSet, err
 	}
 
 	return append(podSets, submitterJobPodSet), nil
+}
+
+// addSidecarSubmitterToHeadPodSet accounts for the submitter container that
+// KubeRay injects into the head Pod when submissionMode=SidecarMode. KubeRay
+// always uses the default submitter resources in this mode and ignores
+// SubmitterPodTemplate (ray-operator/controllers/ray/rayjob_controller.go:
+// getSubmitterContainer), so mirror those defaults on the head PodSet to keep
+// quota accurate.
+func (j *RayJob) addSidecarSubmitterToHeadPodSet(podSets []kueue.PodSet) {
+	if j.Spec.SubmissionMode != rayv1.SidecarMode {
+		return
+	}
+	for i := range podSets {
+		if podSets[i].Name == headGroupPodSetName {
+			podSets[i].Template.Spec.Containers = append(podSets[i].Template.Spec.Containers, corev1.Container{
+				Name:      rayutils.SubmitterContainerName,
+				Resources: defaultSubmitterResources(),
+			})
+			return
+		}
+	}
 }
 
 func (j *RayJob) CanDefaultManagedBy() bool {

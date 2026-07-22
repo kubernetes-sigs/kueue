@@ -17,6 +17,7 @@ limitations under the License.
 package scheduler
 
 import (
+	"context"
 	"iter"
 	"maps"
 	"slices"
@@ -32,6 +33,20 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
+)
+
+// FitsCheck represents the result of the "fits" check during scheduling cycle.
+type FitsCheck int
+
+const (
+	// FitsCheckOk indicates workload fits on both quota and TAS.
+	FitsCheckOk FitsCheck = iota
+
+	// FitsCheckNoQuota indicates the workload does not fit due to quota.
+	FitsCheckNoQuota
+
+	// FitsCheckNoTAS indicates the workload fits within quota, but TAS rejects.
+	FitsCheckNoTAS
 )
 
 type ClusterQueueSnapshot struct {
@@ -120,10 +135,10 @@ func (c *ClusterQueueSnapshot) updateTASUsage(usage workload.TASUsage, op usageO
 	}
 }
 
-func (c *ClusterQueueSnapshot) Fits(usage workload.Usage) bool {
+func (c *ClusterQueueSnapshot) Fits(usage workload.Usage) FitsCheck {
 	for fr, q := range usage.Quota {
 		if c.Available(fr).Cmp(q) < 0 {
-			return false
+			return FitsCheckNoQuota
 		}
 	}
 	for tasFlavor, flvUsage := range usage.TAS {
@@ -131,10 +146,10 @@ func (c *ClusterQueueSnapshot) Fits(usage workload.Usage) bool {
 		// already checked earlier during flavor assignment, and the set of
 		// flavors is immutable in snapshot.
 		if !c.TASFlavors[tasFlavor].Fits(flvUsage) {
-			return false
+			return FitsCheckNoTAS
 		}
 	}
-	return true
+	return FitsCheckOk
 }
 
 func (c *ClusterQueueSnapshot) QuotaFor(fr resources.FlavorResource) ResourceQuota {
@@ -191,6 +206,7 @@ func (c *ClusterQueueSnapshot) DominantResourceShare() DRS {
 type WorkloadTASRequests map[kueue.ResourceFlavorReference]FlavorTASRequests
 
 func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
+	ctx context.Context,
 	tasRequestsByFlavor WorkloadTASRequests,
 	options ...FindTopologyAssignmentsOption,
 ) TASAssignmentsResult {
@@ -215,8 +231,11 @@ func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
 		if features.Enabled(features.TASHandleOverlappingFlavors) && tasFlavorCache.isLowestLevelNode {
 			flvOpts = append(slices.Clone(options), WithAggregatedDomainUsages(aggregatedDomainUsages))
 		}
-		flvResult := tasFlavorCache.FindTopologyAssignmentsForFlavor(flavorTASRequests, flvOpts...)
-		maps.Copy(result, flvResult)
+		flvResult := tasFlavorCache.FindTopologyAssignmentsForFlavor(ctx, flavorTASRequests, flvOpts...)
+		for psName, res := range flvResult {
+			res.Flavor = tasFlavor
+			result[psName] = res
+		}
 	}
 	return result
 }

@@ -28,7 +28,6 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -41,26 +40,19 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
 var (
-	errTest         = errors.New("test error")
-	errTestNotFound = apierrors.NewNotFound(
-		schema.GroupResource{Group: "kueue.x-k8s.io", Resource: "workloads"},
-		"test",
-	)
-	errTestConflict = apierrors.NewConflict(
-		schema.GroupResource{Group: "kueue.x-k8s.io", Resource: "workloads"},
-		"test",
-		errors.New("object was modified"),
-	)
+	errTest = errors.New("test error")
 )
 
 func TestFromQuotaReservedOrAdmittedToPending(t *testing.T) {
@@ -92,6 +84,57 @@ func TestFromQuotaReservedOrAdmittedToPending(t *testing.T) {
 	}
 }
 
+func TestIsOnHold(t *testing.T) {
+	cases := map[string]struct {
+		wl   kueue.Workload
+		want bool
+	}{
+		"false without QuotaReserved condition": {
+			wl:   *utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+			want: false,
+		},
+		"true with QuotaReserved=False and reason OnHold": {
+			wl: *utiltestingapi.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadOnHold,
+					Message: "StatefulSet scaled to zero; workload on hold",
+				}).
+				Obj(),
+			want: true,
+		},
+		"false when QuotaReserved=False with other reason": {
+			wl: *utiltestingapi.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadQuotaReserved,
+					Status: metav1.ConditionFalse,
+					Reason: kueue.WorkloadInadmissible,
+				}).
+				Obj(),
+			want: false,
+		},
+		"false when QuotaReserved=True": {
+			wl: *utiltestingapi.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadQuotaReserved,
+					Status: metav1.ConditionTrue,
+					Reason: kueue.WorkloadOnHold,
+				}).
+				Obj(),
+			want: false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := IsOnHold(&tc.wl); got != tc.want {
+				t.Fatalf("IsOnHold() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestNewInfo(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	cases := map[string]struct {
@@ -109,7 +152,7 @@ func TestNewInfo(t *testing.T) {
 				TotalRequests: []PodSetResources{
 					{
 						Name: kueue.DefaultPodSetName,
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU:    10,
 							corev1.ResourceMemory: 512 * 1024,
 						},
@@ -137,7 +180,7 @@ func TestNewInfo(t *testing.T) {
 				TotalRequests: []PodSetResources{
 					{
 						Name: kueue.DefaultPodSetName,
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU:    3 * 10,
 							corev1.ResourceMemory: 3 * 512 * 1024,
 						},
@@ -165,7 +208,7 @@ func TestNewInfo(t *testing.T) {
 				TotalRequests: []PodSetResources{
 					{
 						Name: kueue.DefaultPodSetName,
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU:    5 * 10,
 							corev1.ResourceMemory: 5 * 512 * 1024,
 						},
@@ -188,7 +231,7 @@ func TestNewInfo(t *testing.T) {
 					{
 						Name:  kueue.DefaultPodSetName,
 						Count: 2147483647,
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU: 9223372036854775807,
 						},
 					},
@@ -238,7 +281,7 @@ func TestNewInfo(t *testing.T) {
 				TotalRequests: []PodSetResources{
 					{
 						Name: "driver",
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU:    10,
 							corev1.ResourceMemory: 512 * 1024,
 						},
@@ -249,12 +292,72 @@ func TestNewInfo(t *testing.T) {
 					},
 					{
 						Name: "workers",
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU:    15,
 							corev1.ResourceMemory: 3 * 1024 * 1024,
 							"ex.com/gpu":          3,
 						},
 						Count: 3,
+					},
+				},
+			},
+		},
+		"admitted with TAS and transformed resources": {
+			workload: *utiltestingapi.MakeWorkload("tas", "").
+				PodSets(
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+						// The admitted usage below transforms example.com/gpu to
+						// example.com/logical-gpu and excludes networking.example.com/vpc.
+						Request(corev1.ResourceCPU, "1").
+						Request(corev1.ResourceMemory, "1Gi").
+						Request("example.com/gpu", "1").
+						Request("networking.example.com/vpc", "1").
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Obj(),
+				).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("tas-cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "tas", "2").
+							Assignment(corev1.ResourceMemory, "tas", "2Gi").
+							Assignment("example.com/logical-gpu", "quota", "2").
+							Count(2).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(utiltestingapi.MakeDefaultOneLevelTopology("default"))).
+								Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 2).Obj()).
+								Obj()).
+							Obj()).
+						Obj(), now,
+				).
+				Obj(),
+			wantInfo: Info{
+				ClusterQueue: "tas-cq",
+				TotalRequests: []PodSetResources{
+					{
+						Name: kueue.DefaultPodSetName,
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU:        "tas",
+							corev1.ResourceMemory:     "tas",
+							"example.com/logical-gpu": "quota",
+						},
+						Requests: resources.MapRequests{
+							corev1.ResourceCPU:        2000,
+							corev1.ResourceMemory:     2 * 1024 * 1024 * 1024,
+							"example.com/logical-gpu": 2,
+						},
+						Count: 2,
+						TopologyRequest: &TopologyRequest{
+							Levels: []string{corev1.LabelHostname},
+							DomainRequests: []TopologyDomainRequests{{
+								Values: []string{"node-a"},
+								SinglePodRequests: resources.NewRequestsFromMap(resources.MapRequests{
+									corev1.ResourceCPU:           1000,
+									corev1.ResourceMemory:        1024 * 1024 * 1024,
+									"example.com/gpu":            1,
+									"networking.example.com/vpc": 1,
+								}),
+								Count: 2,
+							}},
+						},
 					},
 				},
 			},
@@ -291,7 +394,7 @@ func TestNewInfo(t *testing.T) {
 							corev1.ResourceCPU:    "f1",
 							corev1.ResourceMemory: "f1",
 						},
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU:    3 * 10,
 							corev1.ResourceMemory: 3 * 10 * 1024,
 						},
@@ -332,7 +435,7 @@ func TestNewInfo(t *testing.T) {
 							corev1.ResourceCPU:    "f1",
 							corev1.ResourceMemory: "f1",
 						},
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU:    5 * 10,
 							corev1.ResourceMemory: 5 * 10 * 1024,
 						},
@@ -375,11 +478,52 @@ func TestNewInfo(t *testing.T) {
 							corev1.ResourceCPU:    "f1",
 							corev1.ResourceMemory: "f1",
 						},
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU:    2 * 10,
 							corev1.ResourceMemory: 2 * 10 * 1024,
 						},
 						Count: 2,
+					},
+				},
+			},
+		},
+		"admitted with stale reclaim exceeding scaled-down podSet count": {
+			workload: *utiltestingapi.MakeWorkload("", "").
+				PodSets(
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+						Request(corev1.ResourceCPU, "10m").
+						Request(corev1.ResourceMemory, "10Ki").
+						Obj(),
+				).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "f1", "50m").
+							Assignment(corev1.ResourceMemory, "f1", "50Ki").
+							Count(5).
+							Obj()).
+						Obj(), now,
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{
+						Name:  kueue.DefaultPodSetName,
+						Count: 5,
+					},
+				).
+				Obj(),
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name: kueue.DefaultPodSetName,
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU:    "f1",
+							corev1.ResourceMemory: "f1",
+						},
+						Requests: resources.MapRequests{
+							corev1.ResourceCPU:    0,
+							corev1.ResourceMemory: 0,
+						},
+						Count: 0,
 					},
 				},
 			},
@@ -410,7 +554,7 @@ func TestNewInfo(t *testing.T) {
 							corev1.ResourceCPU:    "f1",
 							corev1.ResourceMemory: "f1",
 						},
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU:    3 * 10,
 							corev1.ResourceMemory: 3 * 10 * 1024,
 						},
@@ -430,7 +574,7 @@ func TestNewInfo(t *testing.T) {
 				TotalRequests: []PodSetResources{
 					{
 						Name: kueue.DefaultPodSetName,
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU:    10,
 							corev1.ResourceMemory: 512 * 1024,
 						},
@@ -509,7 +653,7 @@ func TestNewInfo(t *testing.T) {
 				TotalRequests: []PodSetResources{
 					{
 						Name: "a",
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU: 1000,
 							corev1.ResourceName("example.com/accelerator-memory"): 20 * 1024,
 							corev1.ResourceName("example.com/credits"):            35,
@@ -518,7 +662,7 @@ func TestNewInfo(t *testing.T) {
 					},
 					{
 						Name: "b",
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU: 4 * 1000,
 							corev1.ResourceName("example.com/accelerator-memory"): 80 * 1024,
 							corev1.ResourceName("example.com/credits"):            200,
@@ -528,7 +672,7 @@ func TestNewInfo(t *testing.T) {
 					},
 					{
 						Name: "c",
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceName("nvidia.com/vgpu"):            2,
 							corev1.ResourceName("nvidia.com/total-vgpucores"): 2 * 20,
 							corev1.ResourceName("nvidia.com/total-vgpumem"):   2 * 1024,
@@ -537,12 +681,52 @@ func TestNewInfo(t *testing.T) {
 					},
 					{
 						Name: "d",
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceName("nvidia.com/vgpu"):            2 * 2,
 							corev1.ResourceName("nvidia.com/total-vgpucores"): 2 * 2 * 30,
 							corev1.ResourceName("nvidia.com/total-vgpumem"):   2 * 2 * 2048,
 						},
 						Count: 2,
+					},
+				},
+			},
+		},
+		"transformMilliValues": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(
+					*utiltestingapi.MakePodSet("", 1).
+						Request(corev1.ResourceCPU, "100m").
+						Request(corev1.ResourceMemory, "100M").
+						Obj(),
+				).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
+				{
+					Input:    corev1.ResourceCPU,
+					Strategy: ptr.To(config.Replace),
+					Outputs: corev1.ResourceList{
+						"example.com/cpu-credits": resource.MustParse("3000"),
+					},
+				},
+				{
+					Input:    corev1.ResourceMemory,
+					Strategy: ptr.To(config.Replace),
+					Outputs: corev1.ResourceList{
+						"example.com/memory-credits": resource.MustParse("3m"),
+					},
+				},
+			})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name: "",
+						Requests: resources.MapRequests{
+							// 100m * 3000 = 300
+							corev1.ResourceName("example.com/cpu-credits"): 300,
+							// 100M * 3m = 300k
+							corev1.ResourceName("example.com/memory-credits"): 300 * 1000,
+						},
+						Count: 1,
 					},
 				},
 			},
@@ -554,8 +738,110 @@ func TestNewInfo(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, fg, enabled)
 			}
 			info := NewInfo(&tc.workload, tc.infoOptions...)
-			if diff := cmp.Diff(info, &tc.wantInfo, cmpopts.IgnoreFields(Info{}, "Obj", "SchedulingHash")); diff != "" {
+			if diff := cmp.Diff(info, &tc.wantInfo, cmpopts.IgnoreFields(Info{}, "Obj", "SchedulingHash"),
+				cmp.Transformer("requestsToMap", resources.ToMapRequests)); diff != "" {
 				t.Errorf("NewInfo(_) = (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestUpdateWithRebuild(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	cases := map[string]struct {
+		initial        *kueue.Workload
+		initialOptions []InfoOption
+		updated        *kueue.Workload
+		updateOptions  []InfoOption
+		wantRequests   []PodSetResources
+	}{
+		"pending workload with changed requests": {
+			initial: utiltestingapi.MakeWorkload("wl", "ns").
+				Request(corev1.ResourceCPU, "100m").Obj(),
+			updated: utiltestingapi.MakeWorkload("wl", "ns").
+				Request(corev1.ResourceCPU, "200m").Obj(),
+			wantRequests: []PodSetResources{{
+				Name:     kueue.DefaultPodSetName,
+				Requests: resources.MapRequests{corev1.ResourceCPU: 200},
+				Count:    1,
+			}},
+		},
+		"stale DRA TotalRequests cleared on rebuild": {
+			initial: utiltestingapi.MakeWorkload("wl", "ns").
+				Request("example.com/gpu", "1").Obj(),
+			initialOptions: []InfoOption{
+				WithPreprocessedDRAResources(
+					map[kueue.PodSetReference]corev1.ResourceList{
+						kueue.DefaultPodSetName: {
+							"gpu": resource.MustParse("1"),
+						},
+					},
+					map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{
+						kueue.DefaultPodSetName: sets.New[corev1.ResourceName]("example.com/gpu"),
+					},
+				),
+			},
+			updated: utiltestingapi.MakeWorkload("wl", "ns").
+				Request("example.com/gpu", "1").Obj(),
+			wantRequests: []PodSetResources{{
+				Name:     kueue.DefaultPodSetName,
+				Requests: resources.MapRequests{"example.com/gpu": 1},
+				Count:    1,
+			}},
+		},
+		"admitted workload recomputes from admission": {
+			initial: utiltestingapi.MakeWorkload("wl", "ns").
+				Request(corev1.ResourceCPU, "100m").Obj(),
+			updated: utiltestingapi.MakeWorkload("wl", "ns").
+				Request(corev1.ResourceCPU, "100m").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(kueue.PodSetAssignment{
+						Name:          kueue.DefaultPodSetName,
+						ResourceUsage: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("200m")},
+						Count:         ptr.To[int32](1),
+					}).Obj(), now).
+				Obj(),
+			wantRequests: []PodSetResources{{
+				Name:     kueue.DefaultPodSetName,
+				Requests: resources.MapRequests{corev1.ResourceCPU: 200},
+				Count:    1,
+			}},
+		},
+		"WithPreserveTotalRequests keeps DRA-translated requests": {
+			initial: utiltestingapi.MakeWorkload("wl", "ns").
+				Request("example.com/gpu", "1").Obj(),
+			initialOptions: []InfoOption{
+				WithPreprocessedDRAResources(
+					map[kueue.PodSetReference]corev1.ResourceList{
+						kueue.DefaultPodSetName: {"gpu": resource.MustParse("1")},
+					},
+					map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{
+						kueue.DefaultPodSetName: sets.New[corev1.ResourceName]("example.com/gpu"),
+					},
+				),
+			},
+			updated: utiltestingapi.MakeWorkload("wl", "ns").
+				Request("example.com/gpu", "1").Obj(),
+			updateOptions: []InfoOption{WithPreserveTotalRequests()},
+			wantRequests: []PodSetResources{{
+				Name:     kueue.DefaultPodSetName,
+				Requests: resources.MapRequests{"gpu": 1},
+				Count:    1,
+			}},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			info := NewInfo(tc.initial, tc.initialOptions...)
+			if len(tc.updateOptions) == 0 {
+				if diff := cmp.Diff(tc.wantRequests, info.TotalRequests, cmpopts.IgnoreFields(PodSetResources{}, "Flavors")); diff == "" {
+					t.Fatal("precondition failed: initial TotalRequests should differ from expected post-rebuild state")
+				}
+			}
+			info.Update(logr.Discard(), tc.updated, tc.updateOptions...)
+			if diff := cmp.Diff(tc.wantRequests, info.TotalRequests,
+				cmpopts.IgnoreFields(PodSetResources{}, "Flavors")); diff != "" {
+				t.Errorf("TotalRequests after Update (-want,+got):\n%s", diff)
 			}
 		})
 	}
@@ -866,6 +1152,41 @@ func TestReclaimablePodsAreEqual(t *testing.T) {
 	}
 }
 
+func TestLimitReclaimablePodsToPodSetSizes(t *testing.T) {
+	wl := utiltestingapi.MakeWorkload("wl", "ns").
+		PodSets(
+			*utiltestingapi.MakePodSet("ps1", 3).Obj(),
+			*utiltestingapi.MakePodSet("ps2", 5).Obj(),
+		).
+		Obj()
+	cases := map[string]struct {
+		reclaimablePods []kueue.ReclaimablePod
+		want            []kueue.ReclaimablePod
+	}{
+		"empty": {},
+		"within podSet sizes": {
+			reclaimablePods: []kueue.ReclaimablePod{{Name: "ps1", Count: 3}, {Name: "ps2", Count: 1}},
+			want:            []kueue.ReclaimablePod{{Name: "ps1", Count: 3}, {Name: "ps2", Count: 1}},
+		},
+		"count exceeding its podSet size is lowered": {
+			reclaimablePods: []kueue.ReclaimablePod{{Name: "ps1", Count: 4}, {Name: "ps2", Count: 6}},
+			want:            []kueue.ReclaimablePod{{Name: "ps1", Count: 3}, {Name: "ps2", Count: 5}},
+		},
+		"unknown podSet is left as is": {
+			reclaimablePods: []kueue.ReclaimablePod{{Name: "ps3", Count: 10}},
+			want:            []kueue.ReclaimablePod{{Name: "ps3", Count: 10}},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := LimitReclaimablePodsToPodSetSizes(wl, tc.reclaimablePods)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("Unexpected reclaimable pods (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestAssignmentClusterQueueState(t *testing.T) {
 	cases := map[string]struct {
 		state              *AssignmentClusterQueueState
@@ -927,111 +1248,6 @@ func TestAssignmentClusterQueueState(t *testing.T) {
 	}
 }
 
-func TestIsEvictedByDeactivation(t *testing.T) {
-	cases := map[string]struct {
-		workload *kueue.Workload
-		want     bool
-	}{
-		"evicted condition doesn't exist": {
-			workload: utiltestingapi.MakeWorkload("test", "test").Obj(),
-		},
-		"evicted condition with false status": {
-			workload: utiltestingapi.MakeWorkload("test", "test").
-				Condition(metav1.Condition{
-					Type:   kueue.WorkloadEvicted,
-					Reason: kueue.WorkloadDeactivated,
-					Status: metav1.ConditionFalse,
-				}).
-				Obj(),
-		},
-		"evicted condition with PodsReadyTimeout reason": {
-			workload: utiltestingapi.MakeWorkload("test", "test").
-				Condition(metav1.Condition{
-					Type:   kueue.WorkloadEvicted,
-					Reason: kueue.WorkloadEvictedByPodsReadyTimeout,
-					Status: metav1.ConditionTrue,
-				}).
-				Obj(),
-		},
-		"evicted condition with Deactivated reason": {
-			workload: utiltestingapi.MakeWorkload("test", "test").
-				Condition(metav1.Condition{
-					Type:   kueue.WorkloadEvicted,
-					Reason: kueue.WorkloadDeactivated,
-					Status: metav1.ConditionTrue,
-				}).
-				Obj(),
-			want: true,
-		},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			got := IsEvictedByDeactivation(tc.workload)
-			if tc.want != got {
-				t.Errorf("Unexpected result from IsEvictedByDeactivation\nwant:%v\ngot:%v\n", tc.want, got)
-			}
-		})
-	}
-}
-
-func TestIsEvictedByPodsReadyTimeout(t *testing.T) {
-	cases := map[string]struct {
-		workload             *kueue.Workload
-		wantEvictedByTimeout bool
-		wantCondition        *metav1.Condition
-	}{
-		"evicted condition doesn't exist": {
-			workload: utiltestingapi.MakeWorkload("test", "test").Obj(),
-		},
-		"evicted condition with false status": {
-			workload: utiltestingapi.MakeWorkload("test", "test").
-				Condition(metav1.Condition{
-					Type:   kueue.WorkloadEvicted,
-					Reason: kueue.WorkloadEvictedByPodsReadyTimeout,
-					Status: metav1.ConditionFalse,
-				}).
-				Obj(),
-		},
-		"evicted condition with Preempted reason": {
-			workload: utiltestingapi.MakeWorkload("test", "test").
-				Condition(metav1.Condition{
-					Type:   kueue.WorkloadEvicted,
-					Reason: kueue.WorkloadEvictedByPreemption,
-					Status: metav1.ConditionTrue,
-				}).
-				Obj(),
-		},
-		"evicted condition with PodsReadyTimeout reason": {
-			workload: utiltestingapi.MakeWorkload("test", "test").
-				Condition(metav1.Condition{
-					Type:   kueue.WorkloadEvicted,
-					Reason: kueue.WorkloadEvictedByPodsReadyTimeout,
-					Status: metav1.ConditionTrue,
-				}).
-				Obj(),
-			wantEvictedByTimeout: true,
-			wantCondition: &metav1.Condition{
-				Type:   kueue.WorkloadEvicted,
-				Reason: kueue.WorkloadEvictedByPodsReadyTimeout,
-				Status: metav1.ConditionTrue,
-			},
-		},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			gotCondition, gotEvictedByTimeout := IsEvictedByPodsReadyTimeout(tc.workload)
-			if tc.wantEvictedByTimeout != gotEvictedByTimeout {
-				t.Errorf("Unexpected evictedByTimeout from IsEvictedByPodsReadyTimeout\nwant:%v\ngot:%v\n",
-					tc.wantEvictedByTimeout, gotEvictedByTimeout)
-			}
-			if diff := cmp.Diff(tc.wantCondition, gotCondition,
-				cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")); len(diff) != 0 {
-				t.Errorf("Unexpected condition from IsEvictedByPodsReadyTimeout: (-want,+got):\n%s", diff)
-			}
-		})
-	}
-}
-
 func TestFlavorResourceUsage(t *testing.T) {
 	cases := map[string]struct {
 		info *Info
@@ -1043,7 +1259,7 @@ func TestFlavorResourceUsage(t *testing.T) {
 		"one podset, no flavors": {
 			info: &Info{
 				TotalRequests: []PodSetResources{{
-					Requests: resources.Requests{
+					Requests: resources.MapRequests{
 						corev1.ResourceCPU: 1_000,
 						"example.com/gpu":  3,
 					},
@@ -1057,7 +1273,7 @@ func TestFlavorResourceUsage(t *testing.T) {
 		"one podset, multiple flavors": {
 			info: &Info{
 				TotalRequests: []PodSetResources{{
-					Requests: resources.Requests{
+					Requests: resources.MapRequests{
 						corev1.ResourceCPU: 1_000,
 						"example.com/gpu":  3,
 					},
@@ -1076,7 +1292,7 @@ func TestFlavorResourceUsage(t *testing.T) {
 			info: &Info{
 				TotalRequests: []PodSetResources{
 					{
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU: 1_000,
 							"example.com/gpu":  3,
 						},
@@ -1086,7 +1302,7 @@ func TestFlavorResourceUsage(t *testing.T) {
 						},
 					},
 					{
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU:    2_000,
 							corev1.ResourceMemory: 2 * utiltesting.Gi,
 						},
@@ -1096,7 +1312,7 @@ func TestFlavorResourceUsage(t *testing.T) {
 						},
 					},
 					{
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							"example.com/gpu": 1,
 						},
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
@@ -1317,7 +1533,7 @@ func TestPropagateResourceRequests(t *testing.T) {
 			info: &Info{
 				TotalRequests: []PodSetResources{{
 					Name: "ps1",
-					Requests: resources.Requests{
+					Requests: resources.MapRequests{
 						corev1.ResourceCPU:    10000,
 						corev1.ResourceMemory: 10 * 1024 * 1024,
 						"nvidia.com/gpu":      1,
@@ -1344,7 +1560,7 @@ func TestPropagateResourceRequests(t *testing.T) {
 			info: &Info{
 				TotalRequests: []PodSetResources{{
 					Name: "ps1",
-					Requests: resources.Requests{
+					Requests: resources.MapRequests{
 						corev1.ResourceCPU: 5000,
 						"nvidia.com/gpu":   1,
 					},
@@ -1370,7 +1586,7 @@ func TestPropagateResourceRequests(t *testing.T) {
 			info: &Info{
 				TotalRequests: []PodSetResources{{
 					Name: "ps1",
-					Requests: resources.Requests{
+					Requests: resources.MapRequests{
 						corev1.ResourceCPU:    5000,
 						corev1.ResourceMemory: 10 * 1024 * 1024,
 						"nvidia.com/gpu":      1,
@@ -1397,7 +1613,7 @@ func TestPropagateResourceRequests(t *testing.T) {
 			info: &Info{
 				TotalRequests: []PodSetResources{{
 					Name: "ps1",
-					Requests: resources.Requests{
+					Requests: resources.MapRequests{
 						corev1.ResourceCPU:    10000,
 						corev1.ResourceMemory: 10 * 1024 * 1024,
 						"nvidia.com/gpu":      1,
@@ -1424,7 +1640,7 @@ func TestPropagateResourceRequests(t *testing.T) {
 			info: &Info{
 				TotalRequests: []PodSetResources{{
 					Name: "ps1",
-					Requests: resources.Requests{
+					Requests: resources.MapRequests{
 						corev1.ResourceCPU:    10000,
 						corev1.ResourceMemory: 10 * 1024 * 1024,
 						"nvidia.com/gpu":      2,
@@ -1460,7 +1676,7 @@ func TestPropagateResourceRequests(t *testing.T) {
 				TotalRequests: []PodSetResources{
 					{
 						Name: "ps1",
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU:    10000,
 							corev1.ResourceMemory: 10 * 1024 * 1024,
 							"nvidia.com/gpu":      1,
@@ -1468,7 +1684,7 @@ func TestPropagateResourceRequests(t *testing.T) {
 					},
 					{
 						Name: "ps2",
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU:    20000,
 							corev1.ResourceMemory: 20 * 1024 * 1024,
 							"nvidia.com/gpu":      2,
@@ -1481,7 +1697,7 @@ func TestPropagateResourceRequests(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got := PropagateResourceRequests(tc.wl, tc.info)
+			got := PropagateResourceRequests(tc.wl, tc.info, resources.NewResourceFormatter())
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("Unexpected PropagateResourceRequests() result (-want,+got):\n%s", diff)
 			}
@@ -1665,6 +1881,34 @@ func TestNeedsSecondPass(t *testing.T) {
 				Obj(),
 			want: false,
 		},
+		"on-hold workload with UnhealthyNode": {
+			wl: utiltestingapi.MakeWorkload("foo", "default").
+				UnhealthyNodes("x0").
+				Queue("tas-main").
+				PodSets(*utiltestingapi.MakePodSet("one", 1).
+					PreferredTopologyRequest(corev1.LabelHostname).
+					Request(corev1.ResourceCPU, "1").
+					Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("tas-main").
+						PodSets(utiltestingapi.MakePodSetAssignment("one").
+							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
+								Obj()).
+							Obj()).
+						Obj(), now,
+				).
+				AdmittedAt(true, now).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadOnHold,
+					Message: "On hold",
+				}).
+				Obj(),
+			want: false,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -1700,7 +1944,7 @@ func TestWithPreprocessedDRAResources(t *testing.T) {
 					{
 						Name:  "main",
 						Count: 1,
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU: 100,
 							"gpus":             2,
 						},
@@ -1732,7 +1976,7 @@ func TestWithPreprocessedDRAResources(t *testing.T) {
 					{
 						Name:  "main",
 						Count: 1,
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU: 100,
 							"gpus":             2,
 						},
@@ -1740,7 +1984,7 @@ func TestWithPreprocessedDRAResources(t *testing.T) {
 					{
 						Name:  "worker",
 						Count: 2,
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceMemory: 2 * 1024 * 1024 * 1024,
 							"foo-accelerator":     2,
 						},
@@ -1769,7 +2013,7 @@ func TestWithPreprocessedDRAResources(t *testing.T) {
 					{
 						Name:  "main",
 						Count: 1,
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU: 100,
 							"gpus":             1,
 						},
@@ -1777,7 +2021,7 @@ func TestWithPreprocessedDRAResources(t *testing.T) {
 					{
 						Name:  "worker",
 						Count: 1,
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceMemory: 512 * 1024 * 1024,
 						},
 					},
@@ -1826,7 +2070,7 @@ func TestWithPreprocessedDRAResourcesReplacesExtendedResources(t *testing.T) {
 					{
 						Name:  "main",
 						Count: 1,
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU: 100,
 							"gpu":              1,
 						},
@@ -1856,7 +2100,7 @@ func TestWithPreprocessedDRAResourcesReplacesExtendedResources(t *testing.T) {
 					{
 						Name:  "main",
 						Count: 2,
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU: 200,
 							"gpu":              4,
 							"tpu":              2,
@@ -1971,407 +2215,6 @@ func TestSetQuotaReservation(t *testing.T) {
 				t.Errorf("SetQuotaReservation() (-want +got):\n%s", diff)
 			}
 		})
-	}
-}
-
-func TestPatchStatus(t *testing.T) {
-	now := time.Now().Truncate(time.Second)
-
-	baseWl := utiltestingapi.MakeWorkload("test", metav1.NamespaceDefault).ResourceVersion("2")
-
-	baseCond := metav1.Condition{
-		Type:               "TestCondition",
-		Status:             metav1.ConditionTrue,
-		ObservedGeneration: 1,
-		LastTransitionTime: metav1.NewTime(now),
-		Reason:             "By test",
-		Message:            "By test",
-	}
-
-	type args struct {
-		wl     *kueue.Workload
-		update func(wl *kueue.Workload) (bool, error)
-		opts   []PatchStatusOption
-	}
-
-	type want struct {
-		wl  *kueue.Workload
-		err error
-	}
-
-	tests := map[string]struct {
-		skipApplyPatch bool
-		skipMergePatch bool
-		conflict       bool
-		args           args
-		want           want
-	}{
-		"update returns true": {
-			args: args{
-				wl: baseWl.DeepCopy(),
-				update: func(wl *kueue.Workload) (bool, error) {
-					apimeta.SetStatusCondition(&wl.Status.Conditions, baseCond)
-					return true, nil
-				},
-			},
-			want: want{
-				wl: baseWl.Clone().ResourceVersion("3").Condition(baseCond).Obj(),
-			},
-		},
-		"update returns true with conflict error": {
-			conflict: true,
-			args: args{
-				wl: baseWl.DeepCopy(),
-				update: func(wl *kueue.Workload) (bool, error) {
-					apimeta.SetStatusCondition(&wl.Status.Conditions, baseCond)
-					return true, nil
-				},
-			},
-			want: want{
-				wl:  baseWl.Clone().ResourceVersion("3").Obj(),
-				err: errTestConflict,
-			},
-		},
-		"update returns true with conflict error and WithLooseOnApply options": {
-			skipMergePatch: true,
-			conflict:       true,
-			args: args{
-				wl: baseWl.DeepCopy(),
-				update: func(wl *kueue.Workload) (bool, error) {
-					apimeta.SetStatusCondition(&wl.Status.Conditions, baseCond)
-					return true, nil
-				},
-				opts: []PatchStatusOption{WithLooseOnApply()},
-			},
-			want: want{
-				wl: baseWl.Clone().ResourceVersion("4").Condition(baseCond).Obj(),
-			},
-		},
-		"update returns true with conflict error and WithRetryOnConflictForPatch options": {
-			skipApplyPatch: true,
-			conflict:       true,
-			args: args{
-				wl: baseWl.DeepCopy(),
-				update: func(wl *kueue.Workload) (bool, error) {
-					apimeta.SetStatusCondition(&wl.Status.Conditions, baseCond)
-					return true, nil
-				},
-				opts: []PatchStatusOption{WithRetryOnConflictForPatch()},
-			},
-			want: want{
-				wl: baseWl.Clone().ResourceVersion("4").Condition(baseCond).Obj(),
-			},
-		},
-		"update returns false": {
-			args: args{
-				wl: baseWl.DeepCopy(),
-				update: func(wl *kueue.Workload) (bool, error) {
-					apimeta.SetStatusCondition(&wl.Status.Conditions, baseCond)
-					return false, nil
-				},
-			},
-			want: want{
-				wl: baseWl.DeepCopy(),
-			},
-		},
-		"update returns true with not found error": {
-			conflict: true,
-			args: args{
-				wl: baseWl.DeepCopy(),
-				update: func(wl *kueue.Workload) (bool, error) {
-					apimeta.SetStatusCondition(&wl.Status.Conditions, baseCond)
-					return false, errTestNotFound
-				},
-			},
-			want: want{
-				wl:  baseWl.DeepCopy(),
-				err: errTestNotFound,
-			},
-		},
-		"update returns false with not found error": {
-			conflict: true,
-			args: args{
-				wl: baseWl.DeepCopy(),
-				update: func(wl *kueue.Workload) (bool, error) {
-					apimeta.SetStatusCondition(&wl.Status.Conditions, baseCond)
-					return false, errTestNotFound
-				},
-			},
-			want: want{
-				wl:  baseWl.DeepCopy(),
-				err: errTestNotFound,
-			},
-		},
-	}
-	for name, tc := range tests {
-		if tc.skipMergePatch && tc.skipApplyPatch {
-			t.Fatalf("skipMergePatch and skipApplyPatch both enabled")
-		}
-
-		for _, useMergePatch := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s with WorkloadRequestUseMergePatch enabled: %t", name, useMergePatch), func(t *testing.T) {
-				switch {
-				case tc.skipMergePatch && useMergePatch:
-					t.Skip("Skipping test due to skipMergePatch being enabled")
-				case tc.skipApplyPatch && !useMergePatch:
-					t.Skip("Skipping test due to skipApplyPatch being enabled")
-				}
-
-				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, useMergePatch)
-				ctx, _ := utiltesting.ContextWithLog(t)
-				wl := tc.args.wl.DeepCopy()
-				patched := false
-
-				cl := utiltesting.NewClientBuilder().
-					WithObjects(wl).
-					WithStatusSubresource(&kueue.Workload{}).
-					WithInterceptorFuncs(interceptor.Funcs{
-						SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-							if tc.conflict {
-								if _, ok := obj.(*kueue.Workload); ok && subResourceName == "status" && !patched {
-									patched = true
-									// Simulate concurrent modification by another controller
-									wlCopy := wl.DeepCopy()
-									if wlCopy.Labels == nil {
-										wlCopy.Labels = make(map[string]string, 1)
-									}
-									wlCopy.Labels["test.kueue.x-k8s.io/timestamp"] = time.Now().String()
-									if err := c.Update(ctx, wlCopy); err != nil {
-										return err
-									}
-								}
-							}
-							return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
-						},
-					}).
-					Build()
-
-				gotErr := PatchStatus(ctx, cl, wl, "test-owner", tc.args.update, tc.args.opts...)
-				if diff := cmp.Diff(tc.want.err, gotErr); diff != "" {
-					t.Errorf("Unexpected error (-want/+got)\n%s", diff)
-				}
-
-				updatedWl := &kueue.Workload{}
-				if err := cl.Get(ctx, client.ObjectKeyFromObject(wl), updatedWl); err != nil {
-					t.Fatalf("Failed obtaining updated object: %v", err)
-				}
-
-				if diff := cmp.Diff(tc.want.wl, updatedWl, cmpopts.EquateEmpty(), cmpopts.IgnoreFields(metav1.ObjectMeta{}, "Labels")); diff != "" {
-					t.Errorf("Unexpected status after updating (-want,+got):\n%s", diff)
-				}
-			})
-		}
-	}
-}
-
-func TestPatchAdmissionStatus(t *testing.T) {
-	now := time.Now().Truncate(time.Second)
-	fakeClock := testingclock.NewFakeClock(now)
-
-	baseWl := utiltestingapi.MakeWorkload("test", metav1.NamespaceDefault).ResourceVersion("2")
-
-	baseCond := metav1.Condition{
-		Type:               kueue.WorkloadQuotaReserved,
-		Status:             metav1.ConditionTrue,
-		ObservedGeneration: 1,
-		LastTransitionTime: metav1.NewTime(now),
-		Reason:             "By test",
-		Message:            "By test",
-	}
-
-	type args struct {
-		wl     *kueue.Workload
-		update func(wl *kueue.Workload) (bool, error)
-		opts   []PatchStatusOption
-	}
-
-	type want struct {
-		wl  *kueue.Workload
-		err error
-	}
-
-	tests := map[string]struct {
-		skipApplyPatch bool
-		skipMergePatch bool
-		conflict       bool
-		args           args
-		want           want
-	}{
-		"update returns true": {
-			args: args{
-				wl: baseWl.DeepCopy(),
-				update: func(wl *kueue.Workload) (bool, error) {
-					apimeta.SetStatusCondition(&wl.Status.Conditions, baseCond)
-					return true, nil
-				},
-			},
-			want: want{
-				wl: baseWl.Clone().ResourceVersion("3").Condition(baseCond).Obj(),
-			},
-		},
-		"update returns true with unmanaged condition": {
-			skipMergePatch: true,
-			args: args{
-				wl: baseWl.DeepCopy(),
-				update: func(wl *kueue.Workload) (bool, error) {
-					apimeta.SetStatusCondition(&wl.Status.Conditions, metav1.Condition{
-						Type:               "TestCondition",
-						Status:             metav1.ConditionTrue,
-						ObservedGeneration: 1,
-						LastTransitionTime: metav1.NewTime(now),
-						Reason:             "By test",
-						Message:            "By test",
-					})
-					return true, nil
-				},
-			},
-			want: want{
-				wl: baseWl.Clone().ResourceVersion("3").Obj(),
-			},
-		},
-		"update returns true with conflict error": {
-			conflict: true,
-			args: args{
-				wl: baseWl.DeepCopy(),
-				update: func(wl *kueue.Workload) (bool, error) {
-					apimeta.SetStatusCondition(&wl.Status.Conditions, baseCond)
-					return true, nil
-				},
-			},
-			want: want{
-				wl:  baseWl.Clone().ResourceVersion("3").Obj(),
-				err: errTestConflict,
-			},
-		},
-		"update returns true with conflict error and WithLooseOnApply options": {
-			skipMergePatch: true,
-			conflict:       true,
-			args: args{
-				wl: baseWl.DeepCopy(),
-				update: func(wl *kueue.Workload) (bool, error) {
-					apimeta.SetStatusCondition(&wl.Status.Conditions, baseCond)
-					return true, nil
-				},
-				opts: []PatchStatusOption{WithLooseOnApply()},
-			},
-			want: want{
-				wl: baseWl.Clone().ResourceVersion("4").Condition(baseCond).Obj(),
-			},
-		},
-		"update returns true with conflict error and WithRetryOnConflictForPatch options": {
-			skipApplyPatch: true,
-			conflict:       true,
-			args: args{
-				wl: baseWl.DeepCopy(),
-				update: func(wl *kueue.Workload) (bool, error) {
-					apimeta.SetStatusCondition(&wl.Status.Conditions, baseCond)
-					return true, nil
-				},
-				opts: []PatchStatusOption{WithRetryOnConflictForPatch()},
-			},
-			want: want{
-				wl: baseWl.Clone().ResourceVersion("4").Condition(baseCond).Obj(),
-			},
-		},
-		"update returns false": {
-			args: args{
-				wl: baseWl.DeepCopy(),
-				update: func(wl *kueue.Workload) (bool, error) {
-					apimeta.SetStatusCondition(&wl.Status.Conditions, baseCond)
-					return false, nil
-				},
-			},
-			want: want{
-				wl: baseWl.DeepCopy(),
-			},
-		},
-		"update returns true with not found error": {
-			conflict: true,
-			args: args{
-				wl: baseWl.DeepCopy(),
-				update: func(wl *kueue.Workload) (bool, error) {
-					apimeta.SetStatusCondition(&wl.Status.Conditions, baseCond)
-					return false, errTestNotFound
-				},
-			},
-			want: want{
-				wl:  baseWl.DeepCopy(),
-				err: errTestNotFound,
-			},
-		},
-		"update returns false with not found error": {
-			conflict: true,
-			args: args{
-				wl: baseWl.DeepCopy(),
-				update: func(wl *kueue.Workload) (bool, error) {
-					apimeta.SetStatusCondition(&wl.Status.Conditions, baseCond)
-					return false, errTestNotFound
-				},
-			},
-			want: want{
-				wl:  baseWl.DeepCopy(),
-				err: errTestNotFound,
-			},
-		},
-	}
-	for name, tc := range tests {
-		if tc.skipMergePatch && tc.skipApplyPatch {
-			t.Fatalf("skipMergePatch and skipApplyPatch both enabled")
-		}
-
-		for _, useMergePatch := range []bool{false, true} {
-			switch {
-			case tc.skipMergePatch && useMergePatch:
-				t.Skip("Skipping test due to skipMergePatch being enabled")
-			case tc.skipApplyPatch && !useMergePatch:
-				t.Skip("Skipping test due to skipApplyPatch being enabled")
-			}
-
-			t.Run(fmt.Sprintf("%s with WorkloadRequestUseMergePatch enabled: %t", name, useMergePatch), func(t *testing.T) {
-				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, useMergePatch)
-				ctx, _ := utiltesting.ContextWithLog(t)
-				wl := tc.args.wl.DeepCopy()
-				patched := false
-
-				cl := utiltesting.NewClientBuilder().
-					WithObjects(wl).
-					WithStatusSubresource(&kueue.Workload{}).
-					WithInterceptorFuncs(interceptor.Funcs{
-						SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-							if tc.conflict {
-								if _, ok := obj.(*kueue.Workload); ok && subResourceName == "status" && !patched {
-									patched = true
-									// Simulate concurrent modification by another controller
-									wlCopy := wl.DeepCopy()
-									if wlCopy.Labels == nil {
-										wlCopy.Labels = make(map[string]string, 1)
-									}
-									wlCopy.Labels["test.kueue.x-k8s.io/timestamp"] = time.Now().String()
-									if err := c.Update(ctx, wlCopy); err != nil {
-										return err
-									}
-								}
-							}
-							return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
-						},
-					}).
-					Build()
-
-				gotErr := PatchAdmissionStatus(ctx, cl, wl, fakeClock, tc.args.update, tc.args.opts...)
-				if diff := cmp.Diff(tc.want.err, gotErr); diff != "" {
-					t.Errorf("Unexpected error (-want/+got)\n%s", diff)
-				}
-
-				updatedWl := &kueue.Workload{}
-				if err := cl.Get(ctx, client.ObjectKeyFromObject(wl), updatedWl); err != nil {
-					t.Fatalf("Failed obtaining updated object: %v", err)
-				}
-
-				if diff := cmp.Diff(tc.want.wl, updatedWl, cmpopts.EquateEmpty(), cmpopts.IgnoreFields(metav1.ObjectMeta{}, "Labels")); diff != "" {
-					t.Errorf("Unexpected status after updating (-want,+got):\n%s", diff)
-				}
-			})
-		}
 	}
 }
 
@@ -2627,110 +2470,6 @@ func TestWorkloadPriorityClassChanged(t *testing.T) {
 			gotChanged := PriorityChanged(log, tc.oldWorkload, tc.newWorkload)
 			if gotChanged != tc.wantChanged {
 				t.Errorf("workloadPriorityChanged() = %v, want %v", gotChanged, tc.wantChanged)
-			}
-		})
-	}
-}
-
-func TestFinish(t *testing.T) {
-	const (
-		baseReason  = "TestReason"
-		baseMessage = "Test Message"
-	)
-
-	now := time.Now().Truncate(time.Second)
-
-	baseWl := utiltestingapi.MakeWorkload("wl", metav1.NamespaceDefault).ResourceVersion("1")
-
-	type args struct {
-		wl       *kueue.Workload
-		reason   string
-		message  string
-		patchErr error
-	}
-
-	type want struct {
-		wl  *kueue.Workload
-		err error
-	}
-
-	tests := map[string]struct {
-		args args
-		want want
-	}{
-		"finish workload": {
-			args: args{
-				wl:      baseWl.DeepCopy(),
-				reason:  baseReason,
-				message: baseMessage,
-			},
-			want: want{
-				wl: baseWl.Clone().
-					ResourceVersion("2").
-					Condition(metav1.Condition{
-						Type:               kueue.WorkloadFinished,
-						Status:             metav1.ConditionTrue,
-						LastTransitionTime: metav1.NewTime(now),
-						Reason:             baseReason,
-						Message:            baseMessage,
-					}).
-					Obj(),
-			},
-		},
-		"already finished workload": {
-			args: args{
-				wl:      baseWl.Clone().FinishedAt(now).Obj(),
-				reason:  "OtherReason",
-				message: "Other Message",
-			},
-			want: want{
-				wl: baseWl.Clone().FinishedAt(now).Obj(),
-			},
-		},
-		"error on finish": {
-			args: args{
-				wl:       baseWl.DeepCopy(),
-				reason:   baseReason,
-				message:  baseMessage,
-				patchErr: errTest,
-			},
-			want: want{
-				wl:  baseWl.DeepCopy(),
-				err: errTest,
-			},
-		},
-	}
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			ctx, _ := utiltesting.ContextWithLog(t)
-
-			cl := utiltesting.NewClientBuilder().
-				WithObjects(tc.args.wl).
-				WithStatusSubresource(&kueue.Workload{}).
-				WithInterceptorFuncs(interceptor.Funcs{
-					SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-						if tc.args.patchErr != nil {
-							return tc.args.patchErr
-						}
-						return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
-					},
-				}).
-				Build()
-
-			fakeClock := testingclock.NewFakeClock(now)
-
-			gotErr := Finish(ctx, cl, tc.args.wl, tc.args.reason, tc.args.message, fakeClock)
-			if diff := cmp.Diff(tc.want.err, gotErr, cmpopts.EquateErrors()); diff != "" {
-				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
-			}
-
-			updatedWl := &kueue.Workload{}
-			if err := cl.Get(ctx, client.ObjectKeyFromObject(tc.args.wl), updatedWl); err != nil {
-				t.Fatalf("Failed obtaining updated object: %v", err)
-			}
-
-			if diff := cmp.Diff(tc.want.wl, updatedWl, cmpopts.EquateEmpty()); diff != "" {
-				t.Errorf("Unexpected workload (-want,+got):\n%s", diff)
 			}
 		})
 	}
@@ -3397,92 +3136,6 @@ func TestIsExplicitlyRequestingTAS(t *testing.T) {
 	}
 }
 
-func TestCalcFSUsageFromResourcesWithDRA(t *testing.T) {
-	tests := map[string]struct {
-		consumed   corev1.ResourceList
-		penalty    corev1.ResourceList
-		lqWeight   float64
-		resWeights map[corev1.ResourceName]float64
-		wantUsage  float64
-	}{
-		"DRA resource with default weight": {
-			consumed: corev1.ResourceList{
-				"gpu-logical": resource.MustParse("2"),
-			},
-			penalty:    corev1.ResourceList{},
-			lqWeight:   1,
-			resWeights: map[corev1.ResourceName]float64{},
-			wantUsage:  2, // default weight is 1, so 1 * 2 / 1 = 2
-		},
-		"DRA resource with explicit weight": {
-			consumed: corev1.ResourceList{
-				"gpu-logical": resource.MustParse("2"),
-			},
-			penalty:  corev1.ResourceList{},
-			lqWeight: 1,
-			resWeights: map[corev1.ResourceName]float64{
-				"gpu-logical": 3.0,
-			},
-			wantUsage: 6, // 3 * 2 / 1 = 6
-		},
-		"mixed CPU and DRA resources": {
-			consumed: corev1.ResourceList{
-				corev1.ResourceCPU: resource.MustParse("4"),
-				"gpu-logical":      resource.MustParse("2"),
-			},
-			penalty:  corev1.ResourceList{},
-			lqWeight: 1,
-			resWeights: map[corev1.ResourceName]float64{
-				corev1.ResourceCPU: 1.0,
-				"gpu-logical":      5.0,
-			},
-			wantUsage: 14, // (1*4 + 5*2) / 1 = 14
-		},
-		"DRA resource with weight zero contributes nothing": {
-			consumed: corev1.ResourceList{
-				"gpu-logical": resource.MustParse("10"),
-			},
-			penalty:  corev1.ResourceList{},
-			lqWeight: 1,
-			resWeights: map[corev1.ResourceName]float64{
-				"gpu-logical": 0,
-			},
-			wantUsage: 0,
-		},
-		"DRA resource in penalty only": {
-			consumed: corev1.ResourceList{},
-			penalty: corev1.ResourceList{
-				"gpu-logical": resource.MustParse("3"),
-			},
-			lqWeight:   1,
-			resWeights: map[corev1.ResourceName]float64{},
-			wantUsage:  3, // default weight 1, 1 * 3 / 1 = 3
-		},
-		"DRA resource in both consumed and penalty": {
-			consumed: corev1.ResourceList{
-				"gpu-logical": resource.MustParse("2"),
-			},
-			penalty: corev1.ResourceList{
-				"gpu-logical": resource.MustParse("1"),
-			},
-			lqWeight: 2,
-			resWeights: map[corev1.ResourceName]float64{
-				"gpu-logical": 4.0,
-			},
-			wantUsage: 6, // 4 * (2+1) / 2 = 6
-		},
-	}
-
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			got := CalcFSUsageFromResources(tc.consumed, tc.penalty, tc.lqWeight, tc.resWeights)
-			if got != tc.wantUsage {
-				t.Errorf("CalcFSUsageFromResources() = %v, want %v", got, tc.wantUsage)
-			}
-		})
-	}
-}
-
 func TestSumTotalRequestsWithDRAFromAdmission(t *testing.T) {
 	fakeClock := testingclock.NewFakeClock(time.Now())
 	now := fakeClock.Now()
@@ -3504,7 +3157,7 @@ func TestSumTotalRequestsWithDRAFromAdmission(t *testing.T) {
 		).Obj()
 
 	info := NewInfo(wl)
-	sumReqs := info.SumTotalRequests()
+	sumReqs := info.SumTotalRequests(resources.NewResourceFormatter())
 
 	// Verify CPU is present
 	cpuVal, hasCPU := sumReqs[corev1.ResourceCPU]
@@ -3618,6 +3271,58 @@ func TestShouldSkipClusterNomination(t *testing.T) {
 			got := ShouldSkipClusterNomination(tc.acs, tc.wl, tc.isElastic)
 			if got != tc.want {
 				t.Errorf("ShouldSkipClusterNomination() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCalcLocalQueueFSUsage(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	errOther := errors.New("other error")
+	cases := map[string]struct {
+		err       error
+		wantUsage float64
+		wantErr   error
+	}{
+		"not found error": {
+			err:       apierrors.NewNotFound(schema.GroupResource{Resource: "localqueues"}, "lq"),
+			wantUsage: 50.0, // (10 cpu * 5 weight) / 1.0 default weight = 50.0
+			wantErr:   nil,
+		},
+		"other error": {
+			err:       errOther,
+			wantUsage: 0,
+			wantErr:   errOther,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			wl := utiltestingapi.MakeWorkload("wl", "ns").Queue("lq").Obj()
+			cl := utiltesting.NewClientBuilder().
+				WithInterceptorFuncs(interceptor.Funcs{
+					Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+						return tc.err
+					},
+				}).
+				Build()
+
+			info := NewInfo(wl)
+
+			resWeights := map[corev1.ResourceName]float64{corev1.ResourceCPU: 5.0}
+
+			afsConsumed := queueafs.NewAfsConsumedResources()
+			afsConsumed.Set(utilqueue.KeyFromWorkload(wl), corev1.ResourceList{
+				corev1.ResourceCPU: resource.MustParse("10"),
+			}, time.Now())
+
+			usage, err := info.CalcLocalQueueFSUsage(ctx, cl, resWeights, nil, afsConsumed)
+
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+			}
+
+			if usage != tc.wantUsage {
+				t.Errorf("CalcLocalQueueFSUsage() = %v, want %v", usage, tc.wantUsage)
 			}
 		})
 	}

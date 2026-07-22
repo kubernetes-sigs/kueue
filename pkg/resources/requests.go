@@ -19,7 +19,6 @@ package resources
 import (
 	"maps"
 	"math"
-	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -32,38 +31,46 @@ import (
 // The following resources calculations are inspired on
 // https://github.com/kubernetes/kubernetes/blob/master/pkg/scheduler/framework/types.go
 
-// Requests maps ResourceName to flavor to value; for CPU it is tracked in MilliCPU.
-type Requests map[corev1.ResourceName]int64
+// MapRequests maps ResourceName to flavor to value; for CPU it is tracked in MilliCPU.
+type MapRequests map[corev1.ResourceName]int64
 
-func NewRequests(rl corev1.ResourceList) Requests {
-	r := Requests{}
+var OnePodRequest = MapRequests{corev1.ResourcePods: 1}
+
+func (r MapRequests) ForEach(fn func(name corev1.ResourceName, val int64)) {
+	for k, v := range r {
+		fn(k, v)
+	}
+}
+
+func NewMapRequests(rl corev1.ResourceList) MapRequests {
+	r := MapRequests{}
 	for name, quant := range rl {
 		r[name] = ResourceValue(name, quant)
 	}
 	return r
 }
 
-func NewRequestsFromPodSpec(podSpec *corev1.PodSpec) Requests {
-	return NewRequests(resourcehelpers.PodRequests(&corev1.Pod{Spec: *podSpec}, resourcehelpers.PodResourcesOptions{}))
+func NewMapRequestsFromPodSpec(podSpec *corev1.PodSpec) MapRequests {
+	return NewMapRequests(resourcehelpers.PodRequests(&corev1.Pod{Spec: *podSpec}, resourcehelpers.PodResourcesOptions{}))
 }
 
-func (r Requests) Clone() Requests {
+func (r MapRequests) Clone() Requests {
 	return maps.Clone(r)
 }
 
-func (r Requests) ScaledUp(f int64) Requests {
-	ret := r.Clone()
+func (r MapRequests) ScaledUp(f int64) Requests {
+	ret := maps.Clone(r)
 	ret.Mul(f)
 	return ret
 }
 
-func (r Requests) ScaledDown(f int64) Requests {
-	ret := r.Clone()
+func (r MapRequests) ScaledDown(f int64) MapRequests {
+	ret := maps.Clone(r)
 	ret.Divide(f)
 	return ret
 }
 
-func (r Requests) Divide(f int64) {
+func (r MapRequests) Divide(f int64) {
 	for k := range r {
 		if r[k] == 0 && f == 0 {
 			// Skip dividing by 0 when resources are 0.
@@ -75,28 +82,40 @@ func (r Requests) Divide(f int64) {
 	}
 }
 
-func (r Requests) Mul(f int64) {
+func (r MapRequests) Mul(f int64) {
 	for k := range r {
 		r[k] = utilmath.SaturatingMul(r[k], f)
 	}
 }
 
-func (r Requests) Add(addRequests Requests) {
-	for k, v := range addRequests {
+func (r MapRequests) GetValue(name corev1.ResourceName) int64 {
+	return r[name]
+}
+
+func (r MapRequests) Len() int {
+	return len(r)
+}
+
+func (r MapRequests) IsEmpty() bool {
+	return len(r) == 0
+}
+
+func (r MapRequests) Add(other Requests) {
+	other.ForEach(func(k corev1.ResourceName, v int64) {
 		r[k] += v
-	}
+	})
 }
 
-func (r Requests) Sub(subRequests Requests) {
-	for k, v := range subRequests {
+func (r MapRequests) Sub(other Requests) {
+	other.ForEach(func(k corev1.ResourceName, v int64) {
 		r[k] -= v
-	}
+	})
 }
 
-func (r Requests) ToResourceList() corev1.ResourceList {
+func (r MapRequests) ToResourceList(formatter *ResourceFormatter) corev1.ResourceList {
 	ret := make(corev1.ResourceList, len(r))
 	for k, v := range r {
-		ret[k] = ResourceQuantity(k, v)
+		ret[k] = formatter.ResourceQuantity(k, v)
 	}
 	return ret
 }
@@ -110,57 +129,8 @@ func ResourceValue(name corev1.ResourceName, q resource.Quantity) int64 {
 	return q.Value()
 }
 
-func ResourceQuantity(name corev1.ResourceName, v int64) resource.Quantity {
-	switch name {
-	case corev1.ResourceCPU:
-		return *resource.NewMilliQuantity(v, resource.DecimalSI)
-	case corev1.ResourceMemory, corev1.ResourceEphemeralStorage:
-		return newCanonicalQuantity(v, resource.BinarySI)
-	default:
-		if strings.HasPrefix(string(name), corev1.ResourceHugePagesPrefix) {
-			return newCanonicalQuantity(v, resource.BinarySI)
-		}
-		return *resource.NewQuantity(v, resource.DecimalSI)
-	}
-}
-
-// newCanonicalQuantity returns a Quantity that will successfully round-trip.
-//
-// This means the returned quantity can be serialized then deserialized back to
-// an identical quantity.
-//
-// If the value can round-trip using the preferred format, that one will be used.
-// Otherwise, the format will be automatically determined.
-//
-// For example, if preferred format is BinarySI, 128000 will use BinarySI format
-// (because it can be represented as 125Ki), but 100000 will use DecimalSI format.
-func newCanonicalQuantity(v int64, preferredFormat resource.Format) resource.Quantity {
-	preferred := *resource.NewQuantity(v, preferredFormat)
-	final, err := resource.ParseQuantity(preferred.String())
-	if err != nil {
-		// Should never happen
-		return preferred
-	}
-	return final
-}
-
-func ResourceQuantityString(name corev1.ResourceName, v int64) string {
-	rq := ResourceQuantity(name, v)
-	return rq.String()
-}
-
-// AmountQuantityString formats an Amount as a Kubernetes resource quantity
-// string. Unlimited amounts are formatted as "<unlimited>" rather than as
-// the raw math.MaxInt64 sentinel.
-func AmountQuantityString(name corev1.ResourceName, a Amount) string {
-	if a.Equal(Unlimited) {
-		return Unlimited.String()
-	}
-	return ResourceQuantityString(name, a.Int64())
-}
-
 // GreaterKeys returns keys where the receiver is greater than other.
-func (r Requests) GreaterKeys(other Requests) []corev1.ResourceName {
+func (r MapRequests) GreaterKeys(other MapRequests) []corev1.ResourceName {
 	if len(r) == 0 || len(other) == 0 {
 		return nil
 	}
@@ -177,11 +147,11 @@ func (r Requests) GreaterKeys(other Requests) []corev1.ResourceName {
 }
 
 // GreaterKeysRL compares against a ResourceList and returns larger keys.
-func (r Requests) GreaterKeysRL(rl corev1.ResourceList) []corev1.ResourceName {
-	return r.GreaterKeys(NewRequests(rl))
+func (r MapRequests) GreaterKeysRL(rl corev1.ResourceList) []corev1.ResourceName {
+	return r.GreaterKeys(NewMapRequests(rl))
 }
 
-func (r Requests) CountIn(capacity Requests) int32 {
+func (r MapRequests) CountIn(capacity Requests) int32 {
 	count, _ := r.CountInWithLimitingResource(capacity)
 	return count
 }
@@ -190,16 +160,21 @@ func (r Requests) CountIn(capacity Requests) int32 {
 // and the resource that is most constraining (i.e., gave the minimum count).
 // When multiple resources have the same count, ties are broken alphabetically
 // by resource name for determinism.
-func (r Requests) CountInWithLimitingResource(capacity Requests) (int32, corev1.ResourceName) {
+func (r MapRequests) CountInWithLimitingResource(capacity Requests) (int32, corev1.ResourceName) {
+	return CountInWithLimitingResource(r, capacity)
+}
+
+// CountInWithLimitingResource returns how many times requests fit into capacity
+// and the resource that is most constraining (i.e., gave the minimum count).
+// When multiple resources have the same count, ties are broken alphabetically
+// by resource name for determinism.
+func CountInWithLimitingResource(requests Requests, capacity Requests) (int32, corev1.ResourceName) {
 	var (
 		result           *int32
 		limitingResource corev1.ResourceName
 	)
-	for rName, rValue := range r {
-		cap, found := capacity[rName]
-		if !found && rValue != 0 {
-			return 0, rName
-		}
+	requests.ForEach(func(rName corev1.ResourceName, rValue int64) {
+		cap := capacity.GetValue(rName)
 		// find the minimum count matching all the resource quota.
 		var count int32
 		if rValue == 0 {
@@ -222,6 +197,6 @@ func (r Requests) CountInWithLimitingResource(capacity Requests) (int32, corev1.
 			result = new(count)
 			limitingResource = rName
 		}
-	}
+	})
 	return ptr.Deref(result, 0), limitingResource
 }

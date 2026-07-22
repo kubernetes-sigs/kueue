@@ -95,7 +95,9 @@ func (t *TargetClusterQueueOrdering) Iter() iter.Seq[*TargetClusterQueue] {
 				targetCq: t.preemptorCq,
 			}
 
-			for targetCq.HasWorkload() {
+			// Respect DropQueue: a caller may drop the queue without
+			// popping a workload, which would otherwise loop forever.
+			for !t.prunedClusterQueues.Has(t.preemptorCq) && targetCq.HasWorkload() {
 				if !yield(targetCq) {
 					return
 				}

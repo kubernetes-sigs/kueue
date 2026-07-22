@@ -48,14 +48,6 @@ $google_font_family: "Inter:wght@300;400;500;600;700&display=swap" !default;
     radial-gradient(circle at 1px 1px, #e2e8f0 1px, transparent 0);
   background-size: 40px 40px;
   background-position: 0 0, 20px 20px;
-  
-  padding-top: 3.5rem;
-  padding-bottom: 2.5rem;
-
-  @media (min-width: 768px) {
-    padding-top: 7rem;
-    padding-bottom: 3.5rem;
-  }
 }
 
 .feature-card {

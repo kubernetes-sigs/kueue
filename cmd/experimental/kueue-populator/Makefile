@@ -23,7 +23,7 @@ ENVTEST_K8S_VERSION ?= 1.36
 ENVTEST_RETRY_ATTEMPTS ?= 4
 ENVTEST_RETRY_DELAY ?= 5
 KUBEBUILDER_ASSETS = $(or \
-	$(shell $(ROOT_DIR)/hack/retry.sh --attempts $(ENVTEST_RETRY_ATTEMPTS) --delay $(ENVTEST_RETRY_DELAY) -- $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path), \
+	$(shell $(ROOT_DIR)/hack/testing/retry.sh --attempts $(ENVTEST_RETRY_ATTEMPTS) --delay $(ENVTEST_RETRY_DELAY) -- $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path), \
 	$(error setup-envtest failed to download binaries. KUBEBUILDER_ASSETS is empty))
 INTEGRATION_NPROCS ?= 4
 CONTROLLER_GEN := $(BIN_DIR)/controller-gen
@@ -119,7 +119,7 @@ test-integration: compile-crd-manifests $(ENVTEST) $(GINKGO)
 	GOWORK=off $(GINKGO) -procs=$(INTEGRATION_NPROCS) -v ./test/integration/...
 
 .PHONY: test-e2e
-test-e2e: helm-verify-install
+test-e2e: helm-verify-lifecycle
 	./run-e2e.sh
 
 .PHONY: test
@@ -168,6 +168,6 @@ helm-chart-package: $(HELM) $(YQ) ## Package a chart into a versioned chart arch
 helm-chart-push: HELM_CHART_PUSH=true
 helm-chart-push: helm-chart-package
 
-.PHONY: helm-verify-install
-helm-verify-install: ## Run Helm install verification script.
-	./test/verify-helm-install.sh
+.PHONY: helm-verify-lifecycle
+helm-verify-lifecycle: ## Run Helm install/uninstall lifecycle verification script.
+	E2E_KIND_VERSION=$(E2E_KIND_VERSION) ./test/verify-helm-lifecycle.sh

@@ -27,6 +27,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
@@ -82,6 +83,14 @@ const (
 	DefaultMetricsServiceName = "kueue-controller-manager-metrics-service"
 )
 
+// IsE2EModeDev returns true when E2E_MODE is set to "dev".
+// Use this to skip teardown steps that only make sense when the cluster
+// is kept around after the test run (local development), but are
+// unnecessary in CI where the cluster is ephemeral.
+func IsE2EModeDev() bool {
+	return os.Getenv("E2E_MODE") == "dev"
+}
+
 func GetKueueNamespace() string {
 	if ns := os.Getenv("KUEUE_NAMESPACE"); ns != "" {
 		return ns
@@ -98,17 +107,48 @@ func GetAgnHostImageOld() string {
 }
 
 func GetAgnHostImage() string {
-	if image := os.Getenv("E2E_TEST_AGNHOST_IMAGE"); image != "" {
-		return image
+	return getCachedDockerImage(&agnHostImageOnce, &agnHostImage, "E2E_TEST_AGNHOST_IMAGE", "agnhost")
+}
+
+func GetSparkTestImage() string {
+	return getCachedDockerImage(&sparkTestImageOnce, &sparkTestImage, "E2E_TEST_SPARK_IMAGE", "spark")
+}
+
+func GetRedisTestImage() string {
+	return getCachedDockerImage(&redisTestImageOnce, &redisTestImage, "E2E_TEST_REDIS_IMAGE", "redis")
+}
+
+// getCachedDockerImage resolves a test image exactly once via the supplied sync.Once,
+// caching the result in *cache. It returns the value of envVar if set, otherwise the
+// image parsed from hack/testing/<dir>/Dockerfile.
+func getCachedDockerImage(once *sync.Once, cache *string, envVar, dir string) string {
+	once.Do(func() {
+		if image := os.Getenv(envVar); image != "" {
+			*cache = image
+			return
+		}
+
+		dockerfilePath := filepath.Join(ProjectBaseDir, "hack", "testing", dir, "Dockerfile")
+		image, err := getDockerImageFromDockerfile(dockerfilePath)
+		if err != nil {
+			panic(fmt.Errorf("failed to get %s image: %w", dir, err))
+		}
+
+		*cache = image
+	})
+	return *cache
+}
+
+// VersionFromImage extracts the version tag from an image reference,
+func VersionFromImage(image string) string {
+	if at := strings.IndexByte(image, '@'); at != -1 {
+		image = image[:at]
 	}
 
-	agnhostDockerfilePath := filepath.Join(ProjectBaseDir, "hack", "testing", "agnhost", "Dockerfile")
-	agnhostImage, err := getDockerImageFromDockerfile(agnhostDockerfilePath)
-	if err != nil {
-		panic(fmt.Errorf("failed to get agnhost image: %v", err))
+	if colon := strings.LastIndexByte(image, ':'); colon > strings.LastIndexByte(image, '/') {
+		return image[colon+1:]
 	}
-
-	return agnhostImage
+	return ""
 }
 
 func getDockerImageFromDockerfile(filePath string) (string, error) {
@@ -304,19 +344,27 @@ func waitForDeploymentAvailability(ctx context.Context, k8sClient client.Client,
 			cmpopts.IgnoreFields(appsv1.DeploymentCondition{}, "Reason", "Message", "LastUpdateTime", "LastTransitionTime")),
 		))
 
+		selector, err := metav1.LabelSelectorAsSelector(deployment.Spec.Selector)
+		g.Expect(err).NotTo(gomega.HaveOccurred())
+		pods := &corev1.PodList{}
+		g.Expect(k8sClient.List(ctx, pods,
+			client.InNamespace(key.Namespace),
+			client.MatchingLabelsSelector{Selector: selector},
+		)).To(gomega.Succeed())
 		if checkNoRestarts {
 			ginkgo.By(fmt.Sprintf("Checking no restarts for the controller: %q", key))
-			selector, err := metav1.LabelSelectorAsSelector(deployment.Spec.Selector)
-			g.Expect(err).NotTo(gomega.HaveOccurred())
-			pods := &corev1.PodList{}
-			g.Expect(k8sClient.List(ctx, pods,
-				client.InNamespace(key.Namespace),
-				client.MatchingLabelsSelector{Selector: selector},
-			)).To(gomega.Succeed())
 			for _, pod := range pods.Items {
 				for _, cs := range pod.Status.ContainerStatuses {
 					if cs.RestartCount > 0 {
 						gomega.StopTrying(fmt.Sprintf("%q in %q has restarted %d times", cs.Name, pod.Name, cs.RestartCount)).Now()
+					}
+				}
+			}
+		} else {
+			for _, pod := range pods.Items {
+				for _, cs := range pod.Status.ContainerStatuses {
+					if cs.RestartCount > 0 {
+						ginkgo.GinkgoLogr.Info("Container restarted (tolerated)", "deployment", key, "pod", pod.Name, "container", cs.Name, "restartCount", cs.RestartCount)
 					}
 				}
 			}
@@ -470,6 +518,16 @@ func waitForKueueControllerReadyWithWebhookEndpoints(ctx context.Context, k8sCli
 		g.Expect(endpointIPs).To(gomega.Equal(readyPodIPs))
 	}, LongTimeout, Interval).Should(gomega.Succeed())
 
+	// EndpointSlice readiness does not guarantee that the apiserver has dropped
+	// stale webhook connections, so verify the webhook path itself.
+	ginkgo.By(fmt.Sprintf("Probing the webhook data path: %q", key))
+	gomega.Eventually(func(g gomega.Gomega) {
+		probeRF := &kueue.ResourceFlavor{
+			ObjectMeta: metav1.ObjectMeta{GenerateName: "webhook-probe-"},
+		}
+		g.Expect(k8sClient.Create(ctx, probeRF, client.DryRunAll)).To(gomega.Succeed())
+	}, LongTimeout, Interval).Should(gomega.Succeed())
+
 	ginkgo.GinkgoLogr.Info("Ready pods and webhook endpoints verified", "deployment", key, "waitingTime", time.Since(waitStart))
 }
 
@@ -554,6 +612,9 @@ func ForceLeaderFailover(ctx context.Context, k8sClient client.Client) {
 		g.Expect(newHolder).NotTo(gomega.BeEmpty())
 		g.Expect(newHolder).NotTo(gomega.Equal(holderIdentity))
 	}, LongTimeout, Interval).Should(gomega.Succeed())
+
+	kcmKey := types.NamespacedName{Namespace: kueueNS, Name: "kueue-controller-manager"}
+	waitForKueueControllerReadyWithWebhookEndpoints(ctx, k8sClient, kcmKey)
 }
 
 // waitForLeaderElection waits for the kueue controller to acquire the leader lease
@@ -615,6 +676,7 @@ func GetKuberayTestImage() string {
 }
 
 func GetClusterProfilePluginImage() string {
+	ginkgo.GinkgoHelper()
 	clusterProfilePluginImage, found := os.LookupEnv("CLUSTERPROFILE_PLUGIN_IMAGE")
 	gomega.Expect(found).To(gomega.BeTrue())
 	return clusterProfilePluginImage

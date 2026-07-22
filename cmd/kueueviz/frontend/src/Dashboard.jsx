@@ -66,11 +66,13 @@ const Dashboard = () => {
           toast.error(`Workload ${workload.metadata?.name} was preempted: ${workload.preemption.reason}`);
         }
       });
+      setLoading(false);
     }
-    if (kueueError || namespacesError) setError(kueueError || namespacesError);
-
-    setLoading(false);
-  }, [kueueData, kueueError]);
+    if (kueueError || namespacesError) {
+      setError(kueueError || namespacesError);
+      setLoading(false);
+    }
+  }, [kueueData, kueueError, namespacesError]);
 
   if (error) {
     return <ErrorMessage error={error} />;

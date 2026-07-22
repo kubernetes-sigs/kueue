@@ -19,6 +19,8 @@ certManager:
   #   group: cert-manager.io
 # -- Enable API Priority and Fairness configuration for the visibility API
 enableVisibilityAPF: false
+# -- Enable the visibility server's auth-reader RoleBinding. It is always created in the kube-system namespace because it binds to the built-in extension-apiserver-authentication-reader Role, which only exists there. Disable when deploying under a GitOps project that cannot target kube-system, then create the RoleBinding out-of-band.
+enableVisibilityAuthReaderRoleBinding: true
 # -- Enable KueueViz dashboard
 enableKueueViz: false
 # -- Kubernetes cluster's domain
@@ -120,13 +122,13 @@ managerConfig:
       groupKindConcurrency:
         Job.batch: 5
         Pod: 5
-        Workload.kueue.x-k8s.io: 5
-        LocalQueue.kueue.x-k8s.io: 1
-        ClusterQueue.kueue.x-k8s.io: 1
+        Workload.kueue.x-k8s.io: 10
+        LocalQueue.kueue.x-k8s.io: 5
+        ClusterQueue.kueue.x-k8s.io: 5
         ResourceFlavor.kueue.x-k8s.io: 1
     clientConnection:
-      qps: 50
-      burst: 100
+      qps: 300
+      burst: 500
     #pprofBindAddress: :8083
     #waitForPodsReady:
     #  timeout: 5m
@@ -158,11 +160,11 @@ managerConfig:
       - "ray.io/raycluster"
       - "jobset.x-k8s.io/jobset"
       - "trainer.kubeflow.org/trainjob"
-      - "kubeflow.org/paddlejob"
-      - "kubeflow.org/pytorchjob"
-      - "kubeflow.org/tfjob"
-      - "kubeflow.org/xgboostjob"
-      - "kubeflow.org/jaxjob"
+    #  - "kubeflow.org/paddlejob"
+    #  - "kubeflow.org/pytorchjob"
+    #  - "kubeflow.org/tfjob"
+    #  - "kubeflow.org/xgboostjob"
+    #  - "kubeflow.org/jaxjob"
       - "workload.codeflare.dev/appwrapper"
     #  - "sparkoperator.k8s.io/sparkapplication"
       - "pod"
@@ -310,9 +312,18 @@ kueueViz:
         cpu: 500m
         memory: 512Mi
     # -- KueueViz frontend pod securityContext
-    podSecurityContext: {}
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+      seccompProfile:
+        type: RuntimeDefault
     # -- KueueViz frontend container securityContext
-    containerSecurityContext: {}
+    containerSecurityContext:
+      readOnlyRootFilesystem: true
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
     # -- Environment variables for KueueViz frontend deployment
     env: []
     ingress:

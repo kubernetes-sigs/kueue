@@ -185,10 +185,9 @@ type ControllerMetrics struct {
 	EnableClusterQueueResources bool `json:"enableClusterQueueResources,omitempty"`
 
 	// CustomLabels is a list of entries whose values will be added as extra
-	// Prometheus labels on ClusterQueue, LocalQueue, and Cohort metrics.
-	// Requires the CustomMetricLabels feature gate.
+	// Prometheus labels on supported metrics.
+	// A maximum of 6 labels are allowed per SourceKind (2 for Workloads), with up to 20 labels defined in total.
 	// +optional
-	// +kubebuilder:validation:MaxItems=8
 	CustomLabels []ControllerMetricsCustomLabel `json:"customLabels,omitempty"`
 
 	// LocalQueueMetrics is a configuration that provides LocalQueue metrics options.
@@ -196,12 +195,24 @@ type ControllerMetrics struct {
 	LocalQueueMetrics *LocalQueueMetrics `json:"localQueueMetrics,omitempty"`
 }
 
+type SourceKind string
+
+const (
+	SourceKindCohort       SourceKind = "Cohort"
+	SourceKindLocalQueue   SourceKind = "LocalQueue"
+	SourceKindClusterQueue SourceKind = "ClusterQueue"
+	SourceKindWorkload     SourceKind = "Workload"
+)
+
+const UntrackedCustomLabelValue = "kueue.x-k8s.io/_UNTRACKED_VALUE_"
+
 // ControllerMetricsCustomLabel defines a Kubernetes label or annotation to promote
 // as a Prometheus metric label with a "custom_" prefix.
 type ControllerMetricsCustomLabel struct {
-	// Name is used as a suffix to build the Prometheus label: Kueue
-	// automatically prepends "custom_" (e.g., name: "team" becomes label "custom_team").
-	// Must follow Prometheus label naming conventions: [a-zA-Z_][a-zA-Z0-9_]*.
+	// Name is the Prometheus metric label name suffix.
+	// Prepended with "custom_" to form the full Prometheus label name
+	// (e.g., "team" becomes "custom_team").
+	// Must contain only [a-zA-Z0-9_] characters and start with a letter.
 	Name string `json:"name"`
 
 	// SourceLabelKey is the Kubernetes label key to read the value from.
@@ -216,6 +227,24 @@ type ControllerMetricsCustomLabel struct {
 	// Mutually exclusive with SourceLabelKey.
 	// +optional
 	SourceAnnotationKey string `json:"sourceAnnotationKey,omitempty"`
+
+	// SourceKind is the object kind from which the label value should be sourced.
+	// Up to 2 labels are allowed for Workloads and up to 6 for other source kinds.
+	// Defaults to ClusterQueue.
+	// The possible values are:
+	// - Cohort
+	// - LocalQueue
+	// - ClusterQueue
+	// - Workload
+	// +optional
+	SourceKind *SourceKind `json:"sourceKind,omitempty"`
+
+	// TrackedValues is a list of the label's allowed values.
+	// When SourceKind is Workload, a closed list of 1-12 TrackedValues is required.
+	// Non-workload source kinds can have 0-16 TrackedValues. If the list is empty, any value is allowed.
+	// Label values not allowed by this field will be reported as "kueue.x-k8s.io/_UNTRACKED_VALUE_".
+	// +optional
+	TrackedValues []string `json:"trackedValues,omitempty"`
 }
 
 // LocalQueueMetrics defines the configuration options for local queue metrics.
@@ -335,6 +364,21 @@ type MultiKueue struct {
 	// ClusterProfile defines configuration for using the ClusterProfile API.
 	// +optional
 	ClusterProfile *ClusterProfile `json:"clusterProfile,omitempty"`
+
+	// IncrementalDispatcherConfig contains the configuration for the incremental dispatcher.
+	// This field is only valid when DispatcherName is set to the incremental dispatcher.
+	// Note: This field is going to be ignored when the MultiKueueIncrementalDispatcherConfig feature gate is disabled.
+	// +optional
+	IncrementalDispatcherConfig *IncrementalDispatcherConfig `json:"incrementalDispatcherConfig,omitempty"`
+}
+
+// IncrementalDispatcherConfig holds configuration for the MultiKueue Incremental Dispatcher.
+type IncrementalDispatcherConfig struct {
+	// StepSize defines the number of worker clusters the Incremental Dispatcher
+	// will query simultaneously.
+	// Minimum value is 1. If not set, it defaults to 3.
+	// +optional
+	StepSize *int32 `json:"stepSize,omitempty"`
 }
 
 // MultiKueueExternalFramework defines a framework that is not built-in.
@@ -443,20 +487,38 @@ type TLSOptions struct {
 	// The default would be to not set this value and inherit golang settings.
 	// +optional
 	CipherSuites []string `json:"cipherSuites,omitempty"`
+
+	// curvePreferences is the list of allowed TLS key exchange mechanisms (curves)
+	// for the server, specified as numeric IANA TLS Supported Group IDs.
+	// See https://pkg.go.dev/crypto/tls#CurveID for values supported by the current Go version.
+	// If omitted, Go defaults are used.
+	// +optional
+	CurvePreferences []int32 `json:"curvePreferences,omitempty"`
 }
 
 // ClusterProfile defines configuration for using the ClusterProfile API in MultiKueue.
 type ClusterProfile struct {
+	// AccessProviders defines a list of providers to obtain access to worker clusters
+	// using the ClusterProfile API.
+	// +optional
+	AccessProviders []ClusterProfileAccessProvider `json:"accessProviders,omitempty"`
+
 	// CredentialsProviders defines a list of providers to obtain credentials of worker clusters
 	// using the ClusterProfile API.
+	//
+	// Deprecated: Use AccessProviders instead. AccessProviders and CredentialsProviders
+	// are mutually exclusive.
+	//
+	// +optional
+	// +deprecated
 	CredentialsProviders []ClusterProfileCredentialsProvider `json:"credentialsProviders,omitempty"`
 }
 
-// ClusterProfileCredentialsProvider defines a credentials provider in the ClusterProfile API.
-type ClusterProfileCredentialsProvider struct {
+// ClusterProfileAccessProvider defines an access provider in the ClusterProfile API.
+type ClusterProfileAccessProvider struct {
 	// Name is the name of the provider.
 	Name string `json:"name"`
-	//  ExecConfig is the exec configuration to obtain credentials.
+	// ExecConfig is the exec configuration to obtain credentials.
 	ExecConfig clientcmdapi.ExecConfig `json:"execConfig"`
 }
 
@@ -590,28 +652,35 @@ type DeviceClassMapping struct {
 
 	// Sources configures resource accounting sources for this mapping.
 	// Each source defines how quota is tracked for this DeviceClass.
-	// Currently only counter sources are supported (for partitionable devices).
 	// Extended resource requests that resolve to a DeviceClass with sources
 	// configured are marked inadmissible.
-	// Requires the KueueDRAIntegrationPartitionableDevices feature gate.
+	// Counter sources require KueueDRAIntegrationPartitionableDevices (enabled by default since v0.19).
+	// Capacity sources require KueueDRAIntegrationConsumableCapacity.
 	// +optional
 	Sources []DeviceClassSourceConfig `json:"sources,omitempty"`
 }
 
 // DeviceClassSourceConfig defines a resource accounting source for a DeviceClassMapping.
-// Exactly one of the source types must be set.
+// Exactly one of the source types must be set per entry.
 type DeviceClassSourceConfig struct {
 	// Counter configures counter-based quota for partitionable devices.
 	// Maps a DRA driver counter to the parent DeviceClassMapping's Kueue quota resource.
 	// +optional
 	Counter *DeviceClassCounterSource `json:"counter,omitempty"`
+
+	// Capacity configures capacity-based quota for devices that allow
+	// multiple allocations (consumable capacity, KEP-5075).
+	// Maps a device capacity dimension to the parent DeviceClassMapping's Kueue quota resource.
+	// Requires the KueueDRAIntegrationConsumableCapacity feature gate.
+	// +optional
+	Capacity *DeviceClassCapacitySource `json:"capacity,omitempty"`
 }
 
 // DeviceClassCounterSource identifies where to read counter data from and which counter to track.
 type DeviceClassCounterSource struct {
 	// Name is the counter name within the device's consumesCounters
-	// entries to track for quota. Must match a counter name published by
-	// the driver in ResourceSlice devices' consumesCounters field.
+	// entries to track for quota. Must be a DNS label and match a counter
+	// name published by the driver in ResourceSlice devices' consumesCounters field.
 	// Counter set names are per-device identifiers (e.g., gpu-0-counter-set,
 	// gpu-1-counter-set), so name matches across all counter sets
 	// for a given driver without requiring one mapping per device.
@@ -620,8 +689,8 @@ type DeviceClassCounterSource struct {
 	Name string `json:"name"`
 
 	// Driver is the DRA driver name used to filter relevant ResourceSlices.
-	// Must match the spec.driver field on ResourceSlice objects.
-	// The total length must not exceed 253 characters.
+	// Must be a lowercase DNS subdomain and match the spec.driver field on ResourceSlice objects.
+	// The total length must not exceed 63 characters.
 	// +required
 	Driver string `json:"driver"`
 
@@ -630,6 +699,30 @@ type DeviceClassCounterSource struct {
 	// so all partition profiles on that model share one quota pool.
 	// Per-workload charging is determined by the workload's own
 	// ResourceClaimTemplate selector, which narrows to the requested profile.
+	// The selector is compiled at config load time using the upstream dracel
+	// compiler.
+	// +required
+	DeviceSelector resourcev1.DeviceSelector `json:"deviceSelector"`
+}
+
+// DeviceClassCapacitySource configures capacity-based quota tracking
+// for devices that allow multiple allocations (KEP-5075).
+type DeviceClassCapacitySource struct {
+	// Name identifies the capacity dimension to track for quota
+	// (e.g., "gpu.example.com/memory").
+	// Must be a valid DRA QualifiedName.
+	// +required
+	Name resourcev1.QualifiedName `json:"name"`
+
+	// Driver is the DRA driver name used to filter relevant ResourceSlices.
+	// Must match the spec.driver field on ResourceSlice objects.
+	// Must not exceed 63 characters.
+	// +required
+	Driver string `json:"driver"`
+
+	// DeviceSelector scopes which devices are eligible for quota accounting.
+	// Matches devices whose capacity dimensions should be tracked against
+	// the quota pool.
 	// The selector is compiled at config load time using the upstream dracel
 	// compiler.
 	// +required

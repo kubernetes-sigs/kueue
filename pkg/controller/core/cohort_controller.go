@@ -18,7 +18,6 @@ package core
 
 import (
 	"context"
-	"slices"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -124,7 +123,7 @@ func (r *CohortReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Config
 		)).
 		WithOptions(controller.Options{
 			NeedLeaderElection:      new(false),
-			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("Cohort").GroupKind().String()],
+			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.SchemeGroupVersion.WithKind("Cohort").GroupKind().String()],
 			LogConstructor:          roletracker.NewLogConstructor(r.roleTracker, "cohort-reconciler"),
 		}).
 		WatchesRawSource(source.Channel(r.cqUpdateCh, cqHandler)).
@@ -141,16 +140,14 @@ func (r *CohortReconciler) Create(e event.TypedCreateEvent[*kueue.Cohort]) bool 
 func (r *CohortReconciler) Update(e event.TypedUpdateEvent[*kueue.Cohort]) bool {
 	log := r.logger().WithValues("cohort", klog.KObj(e.ObjectNew))
 
-	var customLabelsChanged bool
-	if features.Enabled(features.CustomMetricLabels) {
-		// Store in Reconcile so labelsUpdated remains true for clear-and-resync.
-		customLabelsChanged = !slices.Equal(
-			r.customLabels.CohortGet(kueue.CohortReference(e.ObjectNew.GetName())),
-			r.customLabels.ExtractValues(e.ObjectNew.GetLabels(), e.ObjectNew.GetAnnotations()),
-		)
-	}
+	clUpdateRequired := features.Enabled(features.CustomMetricLabels) && r.customLabels.UpdateRequired(
+		config.SourceKindCohort,
+		e.ObjectNew.GetName(),
+		e.ObjectNew.GetLabels(),
+		e.ObjectNew.GetAnnotations(),
+	)
 
-	if equality.Semantic.DeepEqual(e.ObjectOld.Spec, e.ObjectNew.Spec) && !customLabelsChanged {
+	if equality.Semantic.DeepEqual(e.ObjectOld.Spec, e.ObjectNew.Spec) && !clUpdateRequired {
 		log.V(2).Info("Skip Cohort update event as Cohort unchanged")
 		return false
 	}
@@ -169,7 +166,7 @@ func (r *CohortReconciler) Generic(event.TypedGenericEvent[*kueue.Cohort]) bool 
 	return true
 }
 
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=cohorts,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=cohorts,verbs=get;list;watch
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=cohorts/status,verbs=get;update;patch
 
 func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {

@@ -253,7 +253,7 @@ spec:
                         required:
                         - name
                         type: object
-                      maxItems: 16
+                      maxItems: 64
                       type: array
                       x-kubernetes-list-map-keys:
                       - name
@@ -262,7 +262,7 @@ spec:
                   - name
                   - resources
                   type: object
-                maxItems: 16
+                maxItems: 64
                 type: array
                 x-kubernetes-list-map-keys:
                 - name
@@ -331,7 +331,7 @@ spec:
                         description: ResourceName is the name identifying various
                           resources in a ResourceList.
                         type: string
-                      maxItems: 16
+                      maxItems: 64
                       type: array
                       x-kubernetes-list-type: set
                     topology:
@@ -361,7 +361,7 @@ spec:
                   required:
                   - name
                   type: object
-                maxItems: 16
+                maxItems: 64
                 type: array
                 x-kubernetes-list-map-keys:
                 - name
@@ -395,7 +395,7 @@ spec:
                         required:
                         - name
                         type: object
-                      maxItems: 16
+                      maxItems: 64
                       type: array
                       x-kubernetes-list-map-keys:
                       - name
@@ -404,7 +404,7 @@ spec:
                   - name
                   - resources
                   type: object
-                maxItems: 16
+                maxItems: 64
                 type: array
                 x-kubernetes-list-map-keys:
                 - name
@@ -661,7 +661,7 @@ spec:
                         required:
                         - name
                         type: object
-                      maxItems: 16
+                      maxItems: 64
                       type: array
                       x-kubernetes-list-map-keys:
                       - name
@@ -670,7 +670,7 @@ spec:
                   - name
                   - resources
                   type: object
-                maxItems: 16
+                maxItems: 64
                 type: array
                 x-kubernetes-list-map-keys:
                 - name
@@ -704,7 +704,7 @@ spec:
                         required:
                         - name
                         type: object
-                      maxItems: 16
+                      maxItems: 64
                       type: array
                       x-kubernetes-list-map-keys:
                       - name
@@ -713,7 +713,7 @@ spec:
                   - name
                   - resources
                   type: object
-                maxItems: 16
+                maxItems: 64
                 type: array
                 x-kubernetes-list-map-keys:
                 - name

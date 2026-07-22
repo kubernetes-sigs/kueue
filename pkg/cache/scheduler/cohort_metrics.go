@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
-	"sigs.k8s.io/kueue/pkg/workload"
+	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 )
 
 type cohortMetricPoint struct {
@@ -131,13 +131,17 @@ func (c *Cache) applyCohortMetricPoint(p cohortMetricPoint) {
 	if p.quotaQty <= 0 {
 		metrics.ClearCohortSubtreeQuota(p.cohortName, flavor, resource)
 	} else {
-		metrics.ReportCohortSubtreeQuota(p.cohortName, flavor, resource, resourceFloat(resource, p.quotaQty), c.customLabels.CohortGet(p.cohortName), c.roleTracker)
+		metrics.ReportCohortSubtreeQuota(p.cohortName, flavor, resource, resourceFloat(c.resourceFormatter, resource, p.quotaQty), c.customLabels.CohortGet(p.cohortName), c.roleTracker)
 	}
 
 	if p.reservationsQty <= 0 {
 		metrics.ClearCohortSubtreeResourceReservations(p.cohortName, flavor, resource)
 	} else {
-		metrics.ReportCohortSubtreeResourceReservations(p.cohortName, flavor, resource, resourceFloat(resource, p.reservationsQty), c.customLabels.CohortGet(p.cohortName), c.roleTracker)
+		metrics.ReportCohortSubtreeResourceReservations(
+			p.cohortName, flavor, resource,
+			resourceFloat(c.resourceFormatter, resource, p.reservationsQty),
+			c.customLabels.CohortGet(p.cohortName), c.roleTracker,
+		)
 	}
 }
 
@@ -190,7 +194,7 @@ func (c *Cache) ReportCohortSubtreeAdmittedWorkload(log logr.Logger, wl *kueue.W
 	for _, ancestor := range ancestors {
 		metrics.ReportCohortSubtreeAdmittedWorkload(
 			ancestor,
-			workload.PriorityClassName(wl),
+			workloadpatching.PriorityClassName(wl),
 			c.customLabels.CohortGet(ancestor),
 			c.roleTracker,
 		)

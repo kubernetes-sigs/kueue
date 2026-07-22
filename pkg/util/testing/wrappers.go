@@ -478,6 +478,22 @@ func (b *ResourceClaimSpecBuilder) WithAdminAccess(enabled bool) *ResourceClaimS
 	return b
 }
 
+func (b *ResourceClaimSpecBuilder) WithCapacityRequests(requests map[string]string) *ResourceClaimSpecBuilder {
+	if len(b.spec.Devices.Requests) > 0 {
+		lastIdx := len(b.spec.Devices.Requests) - 1
+		if b.spec.Devices.Requests[lastIdx].Exactly != nil {
+			reqs := make(map[resourcev1.QualifiedName]resource.Quantity, len(requests))
+			for k, v := range requests {
+				reqs[resourcev1.QualifiedName(k)] = resource.MustParse(v)
+			}
+			b.spec.Devices.Requests[lastIdx].Exactly.Capacity = &resourcev1.CapacityRequirements{
+				Requests: reqs,
+			}
+		}
+	}
+	return b
+}
+
 // WithDeviceConstraints adds device constraints to the spec
 func (b *ResourceClaimSpecBuilder) WithDeviceConstraints(requestNames []string, matchAttribute string) *ResourceClaimSpecBuilder {
 	constraint := resourcev1.DeviceConstraint{
@@ -573,6 +589,14 @@ func (r *ResourceClaimTemplateWrapper) WithAdminAccess(enabled bool) *ResourceCl
 	builder := NewResourceClaimSpecBuilder()
 	builder.spec = r.Spec.Spec
 	builder.WithAdminAccess(enabled)
+	r.Spec.Spec = builder.Build()
+	return r
+}
+
+func (r *ResourceClaimTemplateWrapper) WithCapacityRequests(requests map[string]string) *ResourceClaimTemplateWrapper {
+	builder := NewResourceClaimSpecBuilder()
+	builder.spec = r.Spec.Spec
+	builder.WithCapacityRequests(requests)
 	r.Spec.Spec = builder.Build()
 	return r
 }
@@ -888,6 +912,70 @@ func (w *ResourceSliceWrapper) CounterConsumption(counterSet, counterName, value
 	return w
 }
 
+func (w *ResourceSliceWrapper) DeviceCapacity(name, value string, policy *resourcev1.CapacityRequestPolicy) *ResourceSliceWrapper {
+	if len(w.Spec.Devices) > 0 {
+		last := &w.Spec.Devices[len(w.Spec.Devices)-1]
+		if last.Capacity == nil {
+			last.Capacity = make(map[resourcev1.QualifiedName]resourcev1.DeviceCapacity)
+		}
+		last.Capacity[resourcev1.QualifiedName(name)] = resourcev1.DeviceCapacity{
+			Value:         resource.MustParse(value),
+			RequestPolicy: policy,
+		}
+	}
+	return w
+}
+
+func (w *ResourceSliceWrapper) AllowMultipleAllocations(allow bool) *ResourceSliceWrapper {
+	if len(w.Spec.Devices) > 0 {
+		last := &w.Spec.Devices[len(w.Spec.Devices)-1]
+		last.AllowMultipleAllocations = &allow
+	}
+	return w
+}
+
 func (w *ResourceSliceWrapper) Obj() *resourcev1.ResourceSlice {
 	return &w.ResourceSlice
+}
+
+// DeviceClassWrapper wraps a resourcev1.DeviceClass.
+type DeviceClassWrapper struct {
+	resourcev1.DeviceClass
+}
+
+// MakeDeviceClass creates a DeviceClassWrapper with basic metadata.
+func MakeDeviceClass(name string) *DeviceClassWrapper {
+	return &DeviceClassWrapper{
+		resourcev1.DeviceClass{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: name,
+			},
+		},
+	}
+}
+
+// ExtendedResourceName sets the extended resource name on the DeviceClass.
+func (d *DeviceClassWrapper) ExtendedResourceName(name string) *DeviceClassWrapper {
+	d.Spec.ExtendedResourceName = new(name)
+	return d
+}
+
+// GeneratedName sets the generate name on the DeviceClass and clears the name.
+func (d *DeviceClassWrapper) GeneratedName(name string) *DeviceClassWrapper {
+	d.GenerateName = name
+	d.Name = ""
+	return d
+}
+
+// CELSelector adds a CEL device selector to the DeviceClass.
+func (d *DeviceClassWrapper) CELSelector(expression string) *DeviceClassWrapper {
+	d.Spec.Selectors = append(d.Spec.Selectors, resourcev1.DeviceSelector{
+		CEL: &resourcev1.CELDeviceSelector{Expression: expression},
+	})
+	return d
+}
+
+// Obj returns the inner DeviceClass.
+func (d *DeviceClassWrapper) Obj() *resourcev1.DeviceClass {
+	return &d.DeviceClass
 }

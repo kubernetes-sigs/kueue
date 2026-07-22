@@ -95,7 +95,7 @@ const (
 
 	// Enables feature where the group will be restarted after pod failure if and only if
 	// all pods in the group are not pending
-	RecreateGroupAfterStart string = "leaderworkerset.sigs.k8s.io/experimental-recreate-group-after-start"
+	RecreateGroupAfterStartAnnotationKey string = "leaderworkerset.sigs.k8s.io/experimental-recreate-group-after-start"
 )
 
 // One group consists of a single leader and M workers, and the total number of pods in a group is M+1.
@@ -109,7 +109,7 @@ const (
 // gets a workerIndex, and it is always set to 0.
 // Worker pods are named using the format: leaderWorkerSetName-leaderIndex-workerIndex.
 type LeaderWorkerSetSpec struct {
-	// Number of leader-workers groups. A scale subresource is available to enable HPA. The
+	// replicas is the number of leader-workers groups. A scale subresource is available to enable HPA. The
 	// selector for HPA will be that of the leader pod, and so practically HPA will be looking up the
 	// leader pod metrics. Note that the leader pod could aggregate metrics from
 	// the rest of the group and expose them as a summary custom metric representing the whole
@@ -121,21 +121,21 @@ type LeaderWorkerSetSpec struct {
 	// +kubebuilder:default=1
 	Replicas *int32 `json:"replicas,omitempty"`
 
-	// LeaderWorkerTemplate defines the template for leader/worker pods
+	// leaderWorkerTemplate defines the template for leader/worker pods
 	LeaderWorkerTemplate LeaderWorkerTemplate `json:"leaderWorkerTemplate"`
 
-	// RolloutStrategy defines the strategy that will be applied to update replicas
+	// rolloutStrategy defines the strategy that will be applied to update replicas
 	// when a revision is made to the leaderWorkerTemplate.
 	// +optional
 	RolloutStrategy RolloutStrategy `json:"rolloutStrategy,omitempty"`
 
-	// StartupPolicy determines the startup policy for the worker statefulset.
+	// startupPolicy determines the startup policy for the worker statefulset.
 	// +kubebuilder:default=LeaderCreated
 	// +kubebuilder:validation:Enum={LeaderCreated,LeaderReady}
 	// +optional
 	StartupPolicy StartupPolicyType `json:"startupPolicy"`
 
-	// NetworkConfig defines the network configuration of the group
+	// networkConfig defines the network configuration of the group
 	// +optional
 	NetworkConfig *NetworkConfig `json:"networkConfig,omitempty"`
 }
@@ -147,13 +147,13 @@ type LeaderWorkerSetSpec struct {
 // index within the group. For this reason, users should depend on the labels injected by this
 // API whenever possible.
 type LeaderWorkerTemplate struct {
-	// LeaderTemplate defines the pod template for leader pods.
+	// leaderTemplate defines the pod template for leader pods.
 	LeaderTemplate *corev1.PodTemplateSpec `json:"leaderTemplate,omitempty"`
 
-	// WorkerTemplate defines the pod template for worker pods.
+	// workerTemplate defines the pod template for worker pods.
 	WorkerTemplate corev1.PodTemplateSpec `json:"workerTemplate"`
 
-	// Number of pods to create. It is the total number of pods in each group.
+	// size is the number of pods to create. It is the total number of pods in each group.
 	// The minimum is 1 which represent the leader. When set to 1, the leader
 	// pod is created for each group as well as a 0-replica StatefulSet for the workers.
 	// Default to 1.
@@ -162,27 +162,27 @@ type LeaderWorkerTemplate struct {
 	// +kubebuilder:default=1
 	Size *int32 `json:"size,omitempty"`
 
-	// RestartPolicy defines the restart policy when pod failures happen.
+	// restartPolicy defines the restart policy when pod failures happen.
 	// The former named Default policy is deprecated, will be removed in the future,
 	// replace with None policy for the same behavior.
 	// +kubebuilder:default=RecreateGroupOnPodRestart
-	// +kubebuilder:validation:Enum={Default,RecreateGroupOnPodRestart,None}
+	// +kubebuilder:validation:Enum={Default,RecreateGroupOnPodRestart,RecreateGroupAfterStart,None}
 	// +optional
 	RestartPolicy RestartPolicyType `json:"restartPolicy,omitempty"`
 
-	// SubGroupPolicy describes the policy that will be applied when creating subgroups
+	// subGroupPolicy describes the policy that will be applied when creating subgroups
 	// in each replica.
 	// +optional
 	SubGroupPolicy *SubGroupPolicy `json:"subGroupPolicy,omitempty"`
 
-	// VolumeClaimTemplates is a list of claims that pods are allowed to reference.
+	// volumeClaimTemplates is a list of claims that pods are allowed to reference.
 	// Every claim in this list must have at least one matching (by name) volumeMount
 	// in one container in the template. A claim in this list takes precedence over
 	// any volumes in the template, with the same name.
 	// +optional
 	VolumeClaimTemplates []corev1.PersistentVolumeClaim `json:"volumeClaimTemplates,omitempty"`
 
-	// PersistentVolumeClaimRetentionPolicy describes the policy used for PVCs created from
+	// persistentVolumeClaimRetentionPolicy describes the policy used for PVCs created from
 	// the VolumeClaimTemplates.
 	// +optional
 	PersistentVolumeClaimRetentionPolicy *appsv1.StatefulSetPersistentVolumeClaimRetentionPolicy `json:"persistentVolumeClaimRetentionPolicy,omitempty"`
@@ -191,13 +191,13 @@ type LeaderWorkerTemplate struct {
 // RolloutStrategy defines the strategy that the leaderWorkerSet controller
 // will use to perform replica updates.
 type RolloutStrategy struct {
-	// Type defines the rollout strategy, it can only be “RollingUpdate” for now.
+	// type defines the rollout strategy, it can only be “RollingUpdate” for now.
 	//
 	// +kubebuilder:validation:Enum={RollingUpdate}
 	// +kubebuilder:default=RollingUpdate
 	Type RolloutStrategyType `json:"type"`
 
-	// RollingUpdateConfiguration defines the parameters to be used when type is RollingUpdateStrategyType.
+	// rollingUpdateConfiguration defines the parameters to be used when type is RollingUpdateStrategyType.
 	// +optional
 	RollingUpdateConfiguration *RollingUpdateConfiguration `json:"rollingUpdateConfiguration,omitempty"`
 }
@@ -205,7 +205,7 @@ type RolloutStrategy struct {
 // SubGroupPolicy describes the policy that will be applied when creating subgroups.
 type SubGroupPolicy struct {
 
-	// Defines what type of Subgroups to create. Defaults to
+	// subGroupPolicyType defines what type of Subgroups to create. Defaults to
 	// LeaderWorker
 	//
 	// +kubebuilder:validation:Enum={LeaderWorker,LeaderExcluded}
@@ -213,7 +213,7 @@ type SubGroupPolicy struct {
 	// +optional
 	Type *SubGroupPolicyType `json:"subGroupPolicyType,omitempty"`
 
-	// The number of pods per subgroup. This value is immutable,
+	// subGroupSize is the number of pods per subgroup. This value is immutable,
 	// and must not be greater than LeaderWorkerSet.Spec.Size.
 	// Size must be divisible by subGroupSize in which case the
 	// subgroups will be of equal size. Or size - 1 is divisible
@@ -242,7 +242,7 @@ const (
 )
 
 type NetworkConfig struct {
-	// SubdomainPolicy determines the policy that will be used when creating
+	// subdomainPolicy determines the policy that will be used when creating
 	// the headless service, defaults to shared
 	// +kubebuilder:validation:Enum={Shared,UniquePerReplica}
 	SubdomainPolicy *SubdomainPolicy `json:"subdomainPolicy"`
@@ -265,7 +265,7 @@ const (
 
 // RollingUpdateConfiguration defines the parameters to be used for RollingUpdateStrategyType.
 type RollingUpdateConfiguration struct {
-	// Partition indicates the ordinal at which the lws should be partitioned for updates.
+	// partition indicates the ordinal at which the lws should be partitioned for updates.
 	// During a rolling update, all the groups from ordinal Partition to Replicas-1 will be updated.
 	// The groups from 0 to Partition-1 will not be updated.
 	// This is helpful in incremental rollout strategies like canary deployments
@@ -279,7 +279,7 @@ type RollingUpdateConfiguration struct {
 	// +kubebuilder:default=0
 	Partition *int32 `json:"partition,omitempty"`
 
-	// The maximum number of replicas that can be unavailable during the update.
+	// maxUnavailable is the maximum number of replicas that can be unavailable during the update.
 	// Value can be an absolute number (ex: 5) or a percentage of total replicas at the start of update (ex: 10%).
 	// Absolute number is calculated from percentage by rounding down.
 	// This can not be 0 if MaxSurge is 0.
@@ -294,7 +294,7 @@ type RollingUpdateConfiguration struct {
 	// +kubebuilder:default=1
 	MaxUnavailable intstr.IntOrString `json:"maxUnavailable,omitempty"`
 
-	// The maximum number of replicas that can be scheduled above the original number of
+	// maxSurge is the maximum number of replicas that can be scheduled above the original number of
 	// replicas.
 	// Value can be an absolute number (ex: 5) or a percentage of total replicas at
 	// the start of the update (ex: 10%).
@@ -329,6 +329,14 @@ const (
 	// started in the same time.
 	RecreateGroupOnPodRestart RestartPolicyType = "RecreateGroupOnPodRestart"
 
+	// RecreateGroupAfterStart will recreate all the pods in the group if
+	// 1. Any individual pod in the group is recreated; 2. Any containers/init-containers
+	// in a pod is restarted.
+	// But this will only happen if all pods in the group have been started
+	// (i.e., are not in Pending phase). Effectively, this is a synchronized
+	// version of RecreateGroupOnPodRestart that waits for initial deployment stability.
+	RecreateGroupAfterStart RestartPolicyType = "RecreateGroupAfterStart"
+
 	// Default will follow the same behavior as the StatefulSet where only the failed pod
 	// will be restarted on failure and other pods in the group will not be impacted.
 	//
@@ -352,22 +360,33 @@ const (
 
 // LeaderWorkerSetStatus defines the observed state of LeaderWorkerSet
 type LeaderWorkerSetStatus struct {
-	// Conditions track the condition of the leaderworkerset.
+	// conditions track the condition of the leaderworkerset.
+	// +listType=map
+	// +listMapKey=type
+	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
-	// ReadyReplicas track the number of groups that are in ready state (updated or not).
+	// readyReplicas track the number of groups that are in ready state (updated or not).
+	// +optional
 	ReadyReplicas int32 `json:"readyReplicas,omitempty"`
 
-	// UpdatedReplicas track the number of groups that have been updated (ready or not).
+	// updatedReplicas track the number of groups that have been updated (ready or not).
+	// +optional
 	UpdatedReplicas int32 `json:"updatedReplicas,omitempty"`
 
-	// Replicas track the total number of groups that have been created (updated or not, ready or not)
+	// replicas track the total number of groups that have been created (updated or not, ready or not)
+	// +optional
 	Replicas int32 `json:"replicas,omitempty"`
 
-	// HPAPodSelector for pods that belong to the LeaderWorkerSet object, this is
+	// hpaPodSelector for pods that belong to the LeaderWorkerSet object, this is
 	// needed for HPA to know what pods belong to the LeaderWorkerSet object. Here
 	// we only select the leader pods.
+	// +optional
 	HPAPodSelector string `json:"hpaPodSelector,omitempty"`
+
+	// observedGeneration is the most recent generation observed for this LeaderWorkerSet.
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 
 type LeaderWorkerSetConditionType string
@@ -403,10 +422,13 @@ const (
 
 // LeaderWorkerSet is the Schema for the leaderworkersets API
 type LeaderWorkerSet struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
+	// metadata is the standard object's metadata.
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   LeaderWorkerSetSpec   `json:"spec,omitempty"`
+	// spec defines the desired behavior of LeaderWorkerSet.
+	Spec LeaderWorkerSetSpec `json:"spec,omitempty"`
+	// status represents the current status of LeaderWorkerSet.
 	Status LeaderWorkerSetStatus `json:"status,omitempty"`
 }
 
@@ -417,6 +439,17 @@ type LeaderWorkerSetList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []LeaderWorkerSet `json:"items"`
+}
+
+// LeaderWorkerSetTemplateSpec describes the data an LWS should have when created from a template.
+type LeaderWorkerSetTemplateSpec struct {
+	// metadata of the LWS created from this template.
+	// +optional
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	// spec defines the behavior of an LWS.
+	// +optional
+	Spec LeaderWorkerSetSpec `json:"spec,omitempty"`
 }
 
 func init() {

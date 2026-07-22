@@ -22,8 +22,13 @@ if [ -n "${CI}" ] && [ -n "${PROW_JOB_ID}" ]; then
   echo "Running in prow: Disabling color to have readable logs: NO_COLOR=${NO_COLOR}"
 fi
 
+# Retry network-dependent install steps to tolerate transient registry/network
+# failures (e.g. ECONNRESET) that would otherwise flake the e2e job.
+RETRY="${PROJECT_DIR}/hack/testing/retry.sh"
+
 # Install missing dependencies
-apt-get update && apt-get install -y curl make xdg-utils
+"${RETRY}" --attempts 5 --delay 5 --stream --exponential -- apt-get update
+"${RETRY}" --attempts 5 --delay 5 --stream --exponential -- apt-get install -y curl make xdg-utils
 
 # Function to clean up background processes
 cleanup() {
@@ -33,7 +38,7 @@ cleanup() {
 
 # Run frontend unit tests before starting the app
 cd "${PROJECT_DIR}/cmd/kueueviz/frontend"
-npm install
+"${RETRY}" --attempts 5 --delay 5 --stream --exponential -- npm install
 npm test
 
 # Start kueueviz frontend
@@ -41,8 +46,8 @@ npm start & FRONTEND_PID=$!
 
 # Run Cypress tests for kueueviz frontend
 cd "${PROJECT_DIR}/test/e2e/kueueviz"
-npm install
-npx cypress install
+"${RETRY}" --attempts 5 --delay 5 --stream --exponential -- npm install
+"${RETRY}" --attempts 5 --delay 5 --stream --exponential -- npx cypress install
 npm run cypress:run --headless --config-file cypress.config.js
 
 # The trap will handle cleanup 

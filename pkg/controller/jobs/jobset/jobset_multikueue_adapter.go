@@ -39,22 +39,22 @@ type multiKueueAdapter struct{}
 
 var _ jobframework.MultiKueueAdapter = (*multiKueueAdapter)(nil)
 
-func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error {
+func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) (bool, error) {
 	localJob := jobset.JobSet{}
 	err := localClient.Get(ctx, key, &localJob)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	remoteJob := jobset.JobSet{}
 	err = remoteClient.Get(ctx, key, &remoteJob)
 	if client.IgnoreNotFound(err) != nil {
-		return err
+		return false, err
 	}
 
 	// if the remote exists, just copy the status
 	if err == nil {
-		return clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
+		return false, clientutil.PatchStatus(ctx, localClient, &localJob, func() (bool, error) {
 			localJob.Status = remoteJob.Status
 			return true, nil
 		})
@@ -71,7 +71,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	// clear the managedBy enables the JobSet controller to take over
 	remoteJob.Spec.ManagedBy = nil
 
-	return remoteClient.Create(ctx, &remoteJob)
+	return false, remoteClient.Create(ctx, &remoteJob)
 }
 
 func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {

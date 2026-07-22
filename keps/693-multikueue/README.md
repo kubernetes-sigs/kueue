@@ -152,6 +152,23 @@ deployments with very high job throughput (above 1M jobs per day).
     learning the state of the world from the worker clusters (not covered
     by this KEP).
 
+* **Arbitrary file read via `locationType=Path`**: When `KubeConfig.LocationType`
+  is set to `Path`, the controller reads the file at the user-supplied location
+  using `os.ReadFile`. Without path restrictions, any principal with
+  `create`/`update` access to `MultiKueueCluster` resources could read arbitrary
+  files from the controller pod's filesystem (e.g. the projected service account
+  token). This is mitigated by:
+  * Gating safe path validation behind the `MultiKueueKubeConfigPathValidation` feature
+    gate (Alpha, default disabled). When the gate is on, only
+    paths under the hardcoded prefix `/etc/multikueue/kubeconfigs/` are
+    accepted. When disabled, the controller falls back to the legacy
+    behavior of allowing any path.
+  * Canonicalizing and validating the path: the controller cleans the path,
+    rejects `..` segments, resolves symlinks, and requires the resolved absolute
+    path to reside under the prefix directory.
+  * Recommended deployment practice is to use `locationType=Secret` or
+    `ClusterProfile` instead of `Path` in production environments.
+
 ## Design Details
 MultiKueue will be enabled on a cluster queue using the admission check fields.
 Just like ProvisioningRequest, MultiKueue will have its own configuration, 
@@ -258,7 +275,7 @@ The controller obtains cluster credentials based on the `MultiKueueCluster` spec
 
   The authentication flow is as follows:
   1. The controller reads the `ClusterProfile` object referenced by the `MultiKueueCluster`. The `ClusterProfile` contains a list of access providers.
-  2. The controller uses this configuration to match the access provider with the credentials provider and invoke the credential plugin binary. The list of credentials providers is configured in the `CredentialsProviders` section under `ClusterProfile` in the `MultiKueue` in the Configuration API.
+  2. The controller uses this configuration to match the cluster access provider with a configured access provider and invoke the credential plugin binary. The list of access providers is configured in the `accessProviders` section under `clusterProfile` in the `MultiKueue` Configuration API.
 
 ```go
 type MultiKueue struct {
@@ -270,19 +287,33 @@ type MultiKueue struct {
 
 // ClusterProfile defines configuration for using the ClusterProfile API in MultiKueue.
 type ClusterProfile struct {
+	// AccessProviders defines a list of providers to obtain access to worker clusters
+	// using the ClusterProfile API.
+	AccessProviders []ClusterProfileAccessProvider `json:"accessProviders,omitempty"`
+
 	// CredentialsProviders defines a list of providers to obtain credentials of worker clusters
 	// using the ClusterProfile API.
+	// Deprecated: Use AccessProviders instead. AccessProviders and CredentialsProviders
+	// are mutually exclusive.
 	CredentialsProviders []ClusterProfileCredentialsProvider `json:"credentialsProviders,omitempty"`
 }
 
-// ClusterProfileCredentialsProvider defines a credentials provider in the ClusterProfile API.
-type ClusterProfileCredentialsProvider struct {
+// ClusterProfileAccessProvider defines an access provider in the ClusterProfile API.
+type ClusterProfileAccessProvider struct {
 	// Name is the name of the provider.
 	Name string `json:"name"`
-	//  ExecConfig is the exec configuration to obtain credentials.
+	// ExecConfig is the exec configuration to obtain credentials.
 	ExecConfig clientcmdapi.ExecConfig `json:"execConfig"`
 }
+
+// ClusterProfileCredentialsProvider defines a credentials provider in the ClusterProfile API.
+// Deprecated: Use ClusterProfileAccessProvider instead.
+type ClusterProfileCredentialsProvider = ClusterProfileAccessProvider
 ```
+
+  The `credentialsProviders` field remains accepted for backwards compatibility when `accessProviders` is not configured. The `accessProviders` and `credentialsProviders` fields are mutually exclusive, so users should migrate existing `credentialsProviders` entries to `accessProviders`. The deprecated `credentialsProviders` field and `ClusterProfileCredentialsProvider` alias will be removed in the `v1beta3` Configuration API.
+
+  On the ClusterProfile API side, Kueue uses `status.accessProviders` as the preferred source of cluster access information. The deprecated `status.credentialProviders` field remains supported by the ClusterProfile API compatibility layer.
 
   3. The plugin is responsible for the actual authentication process. This might involve calling an external HTTP endpoint (e.g., a cloud provider's metadata service or an OIDC provider) to generate a short-lived authentication token. The details of this process are specific to the plugin and are opaque to Kueue. It returns the credentials, including the token, to the controller.
   4. The controller uses these credentials to configure a Kubernetes client for the worker cluster.
@@ -525,6 +556,7 @@ Graduation to beta criteria:
 * Roadmap for missing features is defined.
 
 ## Implementation History
+* 2026-06-09 Add ClusterProfile accessProviders configuration and deprecate credentialsProviders.
 * 2023-11-28 Initial KEP.
 
 ## Drawbacks
@@ -538,4 +570,3 @@ MultiKueue has some drawbacks.
 ## Alternatives
 * Use Armada or Multi Cluster App Dispatcher.
 * Use multicluster-specific Job APIs.
-

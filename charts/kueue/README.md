@@ -1,6 +1,6 @@
 # kueue
 
-![Version: 0.18.3](https://img.shields.io/badge/Version-0.18.3-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: v0.18.3](https://img.shields.io/badge/AppVersion-v0.18.3-informational?style=flat-square)
+![Version: 0.19.0](https://img.shields.io/badge/Version-0.19.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: v0.19.0](https://img.shields.io/badge/AppVersion-v0.19.0-informational?style=flat-square)
 
 Kueue is a set of APIs and controllers for job queueing. It is a job-level manager that decides when a job should be admitted to start (as in pods can be created) and when it should stop (as in active pods should be deleted).
 
@@ -28,7 +28,7 @@ $ helm install kueue kueue/ --create-namespace --namespace kueue-system
 Or use the charts pushed to `oci://registry.k8s.io/kueue/charts/kueue`:
 
 ```bash
-helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.18.3" --create-namespace --namespace=kueue-system
+helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.19.0" --create-namespace --namespace=kueue-system
 ```
 
 For more advanced parametrization of Kueue, we recommend using a local overrides file, passed via the `--values` flag. For example:
@@ -50,7 +50,7 @@ controllerManager:
 ```
 
 ```bash
-helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.18.3" \
+helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.19.0" \
   --create-namespace --namespace=kueue-system \
   --values overrides.yaml
 ```
@@ -58,7 +58,7 @@ helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.18.3" \
 You can also use the `--set` flag. For example, to enable a feature gate (e.g., `TopologyAwareScheduling`):
 
 ```bash
-helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.18.3" \
+helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.19.0" \
   --create-namespace --namespace=kueue-system \
   --set "controllerManager.featureGates[0].name=TopologyAwareScheduling" \
   --set "controllerManager.featureGates[0].enabled=true"
@@ -143,6 +143,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | enableKueueViz | bool | `false` | Enable KueueViz dashboard |
 | enablePrometheus | bool | `false` | Enable Prometheus |
 | enableVisibilityAPF | bool | `false` | Enable API Priority and Fairness configuration for the visibility API |
+| enableVisibilityAuthReaderRoleBinding | bool | `true` | Enable the visibility server's auth-reader RoleBinding. It is always created in the kube-system namespace because it binds to the built-in extension-apiserver-authentication-reader Role, which only exists there. Disable when deploying under a GitOps project that cannot target kube-system, then create the RoleBinding out-of-band. |
 | fullnameOverride | string | `""` | Override the resource name |
 | kubernetesClusterDomain | string | `"cluster.local"` | Kubernetes cluster's domain |
 | kueueViz.backend.auth.mode | string | `"Disabled"` | Authentication mode: "Disabled" or "TokenReview" (Alpha, disabled by default) |
@@ -166,7 +167,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | kueueViz.backend.priorityClassName | string | `nil` | Enable PriorityClass for KueueViz dashboard backend deployments |
 | kueueViz.backend.resources | object | `{"limits":{"cpu":"500m","memory":"512Mi"},"requests":{"cpu":"500m","memory":"512Mi"}}` | KueueViz backend pod resources |
 | kueueViz.backend.tolerations | list | `[]` | KueueViz backend tolerations |
-| kueueViz.frontend.containerSecurityContext | object | `{}` | KueueViz frontend container securityContext |
+| kueueViz.frontend.containerSecurityContext | object | `{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true}` | KueueViz frontend container securityContext |
 | kueueViz.frontend.env | list | `[]` | Environment variables for KueueViz frontend deployment |
 | kueueViz.frontend.image.pullPolicy | string | `"Always"` | KueueViz dashboard frontend image pullPolicy. This should be set to 'IfNotPresent' for released version |
 | kueueViz.frontend.image.repository | string | `"us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueueviz-frontend"` | KueueViz dashboard frontend image repository |
@@ -178,7 +179,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | kueueViz.frontend.ingress.ingressClassName | string | `nil` | KueueViz dashboard frontend ingress class name |
 | kueueViz.frontend.ingress.tlsSecretName | string | `"kueueviz-frontend-tls"` | KueueViz dashboard frontend ingress tls secret name |
 | kueueViz.frontend.nodeSelector | object | `{}` | KueueViz frontend nodeSelector |
-| kueueViz.frontend.podSecurityContext | object | `{}` | KueueViz frontend pod securityContext |
+| kueueViz.frontend.podSecurityContext | object | `{"runAsNonRoot":true,"runAsUser":1000,"seccompProfile":{"type":"RuntimeDefault"}}` | KueueViz frontend pod securityContext |
 | kueueViz.frontend.priorityClassName | string | `nil` | Enable PriorityClass for KueueViz dashboard frontend deployments |
 | kueueViz.frontend.resources | object | `{"limits":{"cpu":"500m","memory":"512Mi"},"requests":{"cpu":"500m","memory":"512Mi"}}` | KueueViz frontend pod resources |
 | kueueViz.frontend.tolerations | list | `[]` | KueueViz frontend tolerations |

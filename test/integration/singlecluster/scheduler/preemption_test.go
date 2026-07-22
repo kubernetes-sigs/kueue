@@ -154,7 +154,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 		ginkgo.It("Should retry on failed preemptions", func() {
 			var attempt atomic.Int32
 			var allowPreemption atomic.Bool
-			fakeSubResourcePatchSpec = func(obj client.Object) (fakeClientUsage, error) {
+			setFakeSubResourcePatchSpec(func(obj client.Object) (fakeClientUsage, error) {
 				wl, ok := obj.(*kueue.Workload)
 				if !ok {
 					return fallThrough, nil
@@ -172,7 +172,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 					return emitResponse, errors.New("simulate API server error while preempting workload")
 				}
 				return fallThrough, nil
-			}
+			})
 			ginkgo.By("Creating a low priority Workload")
 			lowWl := utiltestingapi.MakeWorkload("low-wl", ns.Name).
 				Queue(kueue.LocalQueueName(q.Name)).
@@ -316,7 +316,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 					})
 					g.Expect(err).NotTo(gomega.HaveOccurred())
 					g.Expect(events).To(gomega.HaveLen(1))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Finishing the first high priority workload")
@@ -1376,7 +1376,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 					g.Expect(workload.HasQuotaReservation(lowWl)).To(gomega.BeTrue())
 					g.Expect(workload.HasQuotaReservation(highWl)).To(gomega.BeFalse())
-				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 
 			lowWl2 := utiltestingapi.MakeWorkload("low2", ns.Name).

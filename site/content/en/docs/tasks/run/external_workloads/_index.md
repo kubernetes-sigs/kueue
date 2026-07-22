@@ -19,4 +19,5 @@ You can use AppWrapper, job-based workloads and pod-based workloads.
 - [Run an Argo Workflow using pod integration](/docs/tasks/run/external_workloads/argo_workflow).
 - [Run a tekton cd pipeline using pod integration](/docs/tasks/run/external_workloads/tektoncd)
 - [Run a Sandbox using pod integration](/docs/tasks/run/external_workloads/sandbox)
+- [Run Spark with spark-submit using pod integration](/docs/tasks/run/external_workloads/spark_submit_plain_pod)
 

@@ -31,7 +31,18 @@ import (
 type MultiKueueAdapter interface {
 	// SyncJob creates the Job object in the worker cluster using remote client, if not already created.
 	// Copy the status from the remote job if already exists.
-	SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error
+	//
+	// The returned deferred flag reports that the adapter intentionally skipped
+	// propagating the remote Job's status to the local Job (typically because the
+	// local Job is still suspended and a status patch would violate K8s
+	// suspend-validation rules). It is not an error: the caller should requeue the
+	// workload on a short timer so the sync can be retried once the local Job is
+	// unsuspended. Without that requeue the next reconcile may be up to
+	// workerLostTimeout away and the local Job's status.Active will not catch up.
+	// See https://github.com/kubernetes-sigs/kueue/issues/11115; for the design
+	// discussion see
+	// https://github.com/kubernetes-sigs/kueue/pull/11730#issuecomment-4566063844.
+	SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) (deferred bool, err error)
 	// DeleteRemoteObject deletes the Job in the worker cluster.
 	DeleteRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName) error
 	// IsJobManagedByKueue returns:

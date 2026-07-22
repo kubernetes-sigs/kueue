@@ -34,6 +34,7 @@ import (
 	kueuev1beta2 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta2"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/completion"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/dryrun"
 )
 
 var (
@@ -50,6 +51,7 @@ type LocalQueueOptions struct {
 
 	LocalQueueName string
 	Namespace      string
+	DryRunStrategy dryrun.Strategy
 
 	Client kueuev1beta2.KueueV1beta2Interface
 
@@ -77,7 +79,7 @@ func NewLocalQueueCmd(clientGetter clientgetter.ClientGetter, streams genericioo
 		ValidArgsFunction:     completion.LocalQueueNameFunc(clientGetter, new(false)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cmd.SilenceUsage = true
-			err := o.Complete(clientGetter, args)
+			err := o.Complete(clientGetter, cmd, args)
 			if err != nil {
 				return err
 			}
@@ -91,7 +93,7 @@ func NewLocalQueueCmd(clientGetter clientgetter.ClientGetter, streams genericioo
 }
 
 // Complete completes all the required options
-func (o *LocalQueueOptions) Complete(clientGetter clientgetter.ClientGetter, args []string) error {
+func (o *LocalQueueOptions) Complete(clientGetter clientgetter.ClientGetter, cmd *cobra.Command, args []string) error {
 	o.LocalQueueName = args[0]
 
 	namespace, _, err := clientGetter.ToRawKubeConfigLoader().Namespace()
@@ -100,6 +102,16 @@ func (o *LocalQueueOptions) Complete(clientGetter clientgetter.ClientGetter, arg
 	}
 
 	o.Namespace = namespace
+
+	o.DryRunStrategy, err = dryrun.GetStrategy(cmd)
+	if err != nil {
+		return err
+	}
+
+	err = dryrun.PrintFlagsWithStrategy(o.PrintFlags, o.DryRunStrategy)
+	if err != nil {
+		return err
+	}
 
 	clientset, err := clientGetter.KueueClientSet()
 	if err != nil {
@@ -128,16 +140,21 @@ func (o *LocalQueueOptions) Run(ctx context.Context) error {
 	lqOriginal := lq.DeepCopy()
 	lq.Spec.StopPolicy = ptr.To(kueue.None)
 
-	opts := metav1.PatchOptions{}
-	patch := client.MergeFrom(lqOriginal)
-	data, err := patch.Data(lq)
-	if err != nil {
-		return err
-	}
-	lq, err = o.Client.LocalQueues(o.Namespace).
-		Patch(ctx, o.LocalQueueName, types.MergePatchType, data, opts)
-	if err != nil {
-		return err
+	if o.DryRunStrategy != dryrun.Client {
+		opts := metav1.PatchOptions{}
+		if o.DryRunStrategy == dryrun.Server {
+			opts.DryRun = []string{metav1.DryRunAll}
+		}
+		patch := client.MergeFrom(lqOriginal)
+		data, err := patch.Data(lq)
+		if err != nil {
+			return err
+		}
+		lq, err = o.Client.LocalQueues(o.Namespace).
+			Patch(ctx, o.LocalQueueName, types.MergePatchType, data, opts)
+		if err != nil {
+			return err
+		}
 	}
 
 	return o.PrintObj(lq, o.Out)

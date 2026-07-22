@@ -29,17 +29,12 @@ import (
 type ResourceGroup struct {
 	CoveredResources sets.Set[corev1.ResourceName]
 	Flavors          []kueue.ResourceFlavorReference
-	// The set of key labels from all flavors.
-	// Those keys define the affinity terms of a workload
-	// that can be matched against the flavors.
-	LabelKeys sets.Set[string]
 }
 
 func (rg *ResourceGroup) Clone() ResourceGroup {
 	return ResourceGroup{
 		CoveredResources: rg.CoveredResources.Clone(),
 		Flavors:          rg.Flavors,
-		LabelKeys:        rg.LabelKeys.Clone(),
 	}
 }
 

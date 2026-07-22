@@ -41,16 +41,18 @@ const (
 	DefaultLeaderElectionLeaseDuration            = 15 * time.Second
 	DefaultLeaderElectionRenewDeadline            = 10 * time.Second
 	DefaultLeaderElectionRetryPeriod              = 2 * time.Second
-	DefaultClientConnectionQPS            float32 = 20.0
-	DefaultClientConnectionBurst          int32   = 30
+	DefaultClientConnectionQPS            float32 = 300.0
+	DefaultClientConnectionBurst          int32   = 500
 	defaultJobFrameworkName                       = "batch/job"
 	DefaultMultiKueueGCInterval                   = time.Minute
+	DefaultWaitForPodsReadyTimeout                = 30 * time.Minute
 	DefaultMultiKueueOrigin                       = "multikueue"
 	DefaultMultiKueueWorkerLostTimeout            = 15 * time.Minute
 	DefaultRequeuingBackoffBaseSeconds            = 60
 	DefaultRequeuingBackoffMaxSeconds             = 3600
 	DefaultResourceTransformationStrategy         = Retain
 	DefaultVisibilityBindPort                     = 8082
+	DefaultCustomMetricLabelSourceKind            = SourceKindClusterQueue
 )
 
 func getOperatorNamespace() string {
@@ -94,6 +96,17 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	cfg.ClientConnection.QPS = cmp.Or(cfg.ClientConnection.QPS, new(DefaultClientConnectionQPS))
 	cfg.ClientConnection.Burst = cmp.Or(cfg.ClientConnection.Burst, new(DefaultClientConnectionBurst))
 
+	cfg.WaitForPodsReady = cmp.Or(
+		cfg.WaitForPodsReady,
+		&WaitForPodsReady{},
+	)
+
+	if cfg.WaitForPodsReady.Timeout.Duration == 0 {
+		cfg.WaitForPodsReady.Timeout = metav1.Duration{
+			Duration: DefaultWaitForPodsReadyTimeout,
+		}
+	}
+
 	if cfg.WaitForPodsReady != nil {
 		cfg.WaitForPodsReady.BlockAdmission = cmp.Or(cfg.WaitForPodsReady.BlockAdmission, new(false))
 		cfg.WaitForPodsReady.RecoveryTimeout = cmp.Or(cfg.WaitForPodsReady.RecoveryTimeout, &cfg.WaitForPodsReady.Timeout)
@@ -123,6 +136,11 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	cfg.MultiKueue.Origin = new(cmp.Or(ptr.Deref(cfg.MultiKueue.Origin, ""), DefaultMultiKueueOrigin))
 	cfg.MultiKueue.WorkerLostTimeout = cmp.Or(cfg.MultiKueue.WorkerLostTimeout, &metav1.Duration{Duration: DefaultMultiKueueWorkerLostTimeout})
 	cfg.MultiKueue.DispatcherName = cmp.Or(cfg.MultiKueue.DispatcherName, new(MultiKueueDispatcherModeAllAtOnce))
+
+	if ptr.Deref(cfg.MultiKueue.DispatcherName, "") == MultiKueueDispatcherModeIncremental {
+		cfg.MultiKueue.IncrementalDispatcherConfig = cmp.Or(cfg.MultiKueue.IncrementalDispatcherConfig, &IncrementalDispatcherConfig{})
+		cfg.MultiKueue.IncrementalDispatcherConfig.StepSize = cmp.Or(cfg.MultiKueue.IncrementalDispatcherConfig.StepSize, new(int32(3)))
+	}
 
 	if afs := cfg.AdmissionFairSharing; afs != nil {
 		afs.UsageSamplingInterval.Duration = cmp.Or(afs.UsageSamplingInterval.Duration, 5*time.Minute)

@@ -24,6 +24,7 @@ import (
 	"github.com/onsi/gomega"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -218,7 +219,7 @@ var _ = ginkgo.Describe(
 
 				multiKueueAC = utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", managerMultiKueueConfig.Name).
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", managerMultiKueueConfig.Name).
 					Obj()
 				util.CreateAdmissionChecksAndWaitForActive(
 					managerTestCluster.ctx,
@@ -352,6 +353,44 @@ var _ = ginkgo.Describe(
 				// })
 			})
 
+			ginkgo.It("Should create the remote RayCluster without the manager's ownerReferences", func() {
+				admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).PodSets(
+					utiltestingapi.MakePodSetAssignment("head").Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj(),
+					utiltestingapi.MakePodSetAssignment("workers-group-0").
+						Flavor(corev1.ResourceCPU, multikueueTestFlavor).
+						Obj(),
+				)
+				raycluster := testingraycluster.MakeCluster("raycluster1", managerNs.Name).
+					Queue(managerLq.Name).
+					Obj()
+				// The owner UID exists only on the manager, so a worker GC would delete a copy that kept it.
+				raycluster.OwnerReferences = []metav1.OwnerReference{{
+					APIVersion: "example.com/v1",
+					Kind:       "FakeOwner",
+					Name:       "fake-owner",
+					UID:        "11111111-1111-1111-1111-111111111111",
+				}}
+				util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, raycluster)
+				wlLookupKey := types.NamespacedName{
+					Name:      workloadraycluster.GetWorkloadNameForRayCluster(raycluster.Name, raycluster.UID),
+					Namespace: managerNs.Name,
+				}
+
+				admitWorkloadAndCheckWorkerCopies(multiKueueAC.Name, wlLookupKey, admission)
+
+				// uid/resourceVersion are server-assigned, so only owner-refs/finalizers/status are checked.
+				ginkgo.By("checking the remote RayCluster carries no source-cluster metadata", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						createdRayCluster := rayv1.RayCluster{}
+						g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(raycluster), &createdRayCluster)).
+							To(gomega.Succeed())
+						g.Expect(createdRayCluster.OwnerReferences).To(gomega.BeEmpty())
+						g.Expect(createdRayCluster.Finalizers).To(gomega.BeEmpty())
+						g.Expect(createdRayCluster.Status).To(gomega.BeZero())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+			})
+
 			ginkgo.It("Should run a RayCluster on worker if admitted (ManagedBy)", func() {
 				admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).PodSets(
 					utiltestingapi.MakePodSetAssignment("head").Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj(),
@@ -469,6 +508,7 @@ var _ = ginkgo.Describe(
 						managerTestCluster.ctx,
 						managerTestCluster.client,
 						workerCluster2,
+						managersConfigNamespace.Name,
 					)
 
 					ginkgo.By("setting workload reservation in worker1, the raycluster is created in worker1", func() {
@@ -502,6 +542,7 @@ var _ = ginkgo.Describe(
 						managerTestCluster.ctx,
 						managerTestCluster.client,
 						workerCluster1,
+						managersConfigNamespace.Name,
 					)
 
 					ginkgo.By("removing the managers raycluster and workload", func() {

@@ -115,7 +115,7 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 			cq = utiltestingapi.MakeClusterQueue(clusterQueueName).
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas(resourceFlavorName).
-						Resource(corev1.ResourceCPU, "200m").
+						Resource(corev1.ResourceCPU, "1").
 						Resource(corev1.ResourceMemory, "1Gi").
 						Obj(),
 				).
@@ -137,12 +137,15 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 		})
 
 		ginkgo.It("should run if admitted", func() {
+			sparkImage := util.GetSparkTestImage()
 			sparkApp := sparkapplicationtesting.MakeSparkApplication("sparkapplication-simple", ns.Name).
+				Image(sparkImage).
+				SparkVersion(util.VersionFromImage(sparkImage)).
 				DriverServiceAccount(sa.Name).
-				DriverCoreRequest("0.1").
+				DriverCoreRequest("500m").
 				DriverMemoryRequest("512m"). // 512MB
 				ExecutorServiceAccount(sa.Name).
-				ExecutorCoreRequest("0.1").
+				ExecutorCoreRequest("500m").
 				ExecutorMemoryRequest("512m"). // 512MB
 				ExecutorInstances(1).
 				Queue(lq.Name).
@@ -234,18 +237,21 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 		})
 
 		ginkgo.It("should admit a SparkApplication via TAS", func() {
+			sparkImage := util.GetSparkTestImage()
 			sparkApp := sparkapplicationtesting.MakeSparkApplication("test-sparkapplication-tas", ns.Name).
+				Image(sparkImage).
+				SparkVersion(util.VersionFromImage(sparkImage)).
 				DriverAnnotation(
 					kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname,
 				).
 				DriverServiceAccount(sa.Name).
-				DriverCoreRequest("0.1").
+				DriverCoreRequest("500m").
 				DriverMemoryRequest("512m"). // 512MB
 				ExecutorAnnotation(
 					kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname,
 				).
 				ExecutorServiceAccount(sa.Name).
-				ExecutorCoreRequest("0.1").
+				ExecutorCoreRequest("500m").
 				ExecutorMemoryRequest("512m"). // 512MB
 				ExecutorInstances(1).
 				Queue(lq.Name).
@@ -315,7 +321,7 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 					g.Expect(workload.HasQuotaReservation(createdWorkload)).Should(gomega.BeTrue())
 					g.Expect(createdWorkload.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 	})

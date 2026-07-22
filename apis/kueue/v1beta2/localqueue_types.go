@@ -104,7 +104,7 @@ type LocalQueueStatus struct {
 	// workloads assigned to this LocalQueue.
 	// +listType=map
 	// +listMapKey=name
-	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:MaxItems=64
 	// +optional
 	FlavorsReservation []LocalQueueFlavorUsage `json:"flavorsReservation,omitempty"`
 
@@ -112,7 +112,7 @@ type LocalQueueStatus struct {
 	// workloads assigned to this LocalQueue.
 	// +listType=map
 	// +listMapKey=name
-	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:MaxItems=64
 	// +optional
 	FlavorsUsage []LocalQueueFlavorUsage `json:"flavorsUsage,omitempty"`
 
@@ -164,7 +164,7 @@ type LocalQueueFlavorUsage struct {
 	// resources lists the quota usage for the resources in this flavor.
 	// +listType=map
 	// +listMapKey=name
-	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:MaxItems=64
 	// +required
 	Resources []LocalQueueResourceUsage `json:"resources,omitempty"`
 }
@@ -210,10 +210,6 @@ type LocalQueueList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []LocalQueue `json:"items"`
-}
-
-func init() {
-	SchemeBuilder.Register(&LocalQueue{}, &LocalQueueList{})
 }
 
 func (*LocalQueue) Hub() {}

@@ -31,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -57,6 +58,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utilstatefulset "sigs.k8s.io/kueue/pkg/util/statefulset"
@@ -79,7 +81,8 @@ type Reconciler struct {
 	client                       client.Client
 	logName                      string
 	record                       events.EventRecorder
-	labelKeysToCopy              []string
+	labelKeysToCopy              sets.Set[string]
+	annotationsToCopy            sets.Set[string]
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
 	roleTracker                  *roletracker.RoleTracker
@@ -96,6 +99,7 @@ func NewReconciler(_ context.Context, client client.Client, _ client.FieldIndexe
 		logName:                      "leaderworkerset-reconciler",
 		record:                       eventRecorder,
 		labelKeysToCopy:              options.LabelKeysToCopy,
+		annotationsToCopy:            options.AnnotationsToCopy,
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 		roleTracker:                  options.RoleTracker,
@@ -258,7 +262,7 @@ func (r *Reconciler) filterWorkloads(lws *leaderworkersetv1.LeaderWorkerSet, exi
 		toDelete = utilslices.ToRefMap(existingWorkloads, func(e *kueue.Workload) string {
 			return e.Name
 		})
-		replicas = ptr.Deref(lws.Spec.Replicas, 1)
+		replicas = ptr.Deref(lws.Spec.Replicas, defaultLeaderWorkerSetReplicas)
 	)
 
 	// During normal scale-down, status.Replicas lags behind spec.Replicas,
@@ -288,7 +292,7 @@ func isRollingUpdateWithSurge(lws *leaderworkersetv1.LeaderWorkerSet) bool {
 		return false
 	}
 	maxSurge := int32(lws.Spec.RolloutStrategy.RollingUpdateConfiguration.MaxSurge.IntValue())
-	return maxSurge > 0 && lws.Status.UpdatedReplicas < ptr.Deref(lws.Spec.Replicas, 1)
+	return maxSurge > 0 && lws.Status.UpdatedReplicas < ptr.Deref(lws.Spec.Replicas, defaultLeaderWorkerSetReplicas)
 }
 
 func (r *Reconciler) createWorkload(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, workloadName string, index int) error {
@@ -331,7 +335,7 @@ func (r *Reconciler) constructWorkload(lws *leaderworkersetv1.LeaderWorkerSet, w
 	if err != nil {
 		return nil, err
 	}
-	createdWorkload := podcontroller.NewGroupWorkload(workloadName, lws, podSets, r.labelKeysToCopy)
+	createdWorkload := podcontroller.NewGroupWorkload(workloadName, lws, podSets, r.labelKeysToCopy, r.annotationsToCopy)
 
 	if createdWorkload.Labels == nil {
 		createdWorkload.Labels = make(map[string]string, 1)
@@ -479,7 +483,7 @@ func (r *Reconciler) reconcilePod(ctx context.Context, lws *leaderworkersetv1.Le
 	log := ctrl.LoggerFrom(ctx).WithValues(
 		"pod", klog.KObj(pod),
 		"podRevision", pod.Labels[appsv1.ControllerRevisionHashLabelKey],
-		"group", podcontroller.GetPodGroupName(pod))
+		"group", utilpod.GetPodGroupName(pod))
 	if sts != nil {
 		log = log.WithValues(
 			"statefulset", klog.KObj(sts),

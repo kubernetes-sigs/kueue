@@ -22,7 +22,6 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
-	prometheusv1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	"github.com/prometheus/common/model"
 	corev1 "k8s.io/api/core/v1"
 
@@ -38,21 +37,7 @@ const (
 
 var _ = ginkgo.Describe("Prometheus", ginkgo.Label("area:prometheus", "feature:prometheus"), func() {
 	ginkgo.It("should discover Kueue target and report it as up", func() {
-		gomega.Eventually(func(g gomega.Gomega) {
-			result, err := prometheusClient.Targets(ctx)
-			g.Expect(err).NotTo(gomega.HaveOccurred())
-
-			hasKueueTarget := false
-			for _, t := range result.Active {
-				if t.Labels["job"] == model.LabelValue(util.DefaultMetricsServiceName) &&
-					t.Labels["namespace"] == model.LabelValue(util.GetKueueNamespace()) {
-					hasKueueTarget = true
-					g.Expect(t.Health).To(gomega.Equal(prometheusv1.HealthGood))
-					break
-				}
-			}
-			g.Expect(hasKueueTarget).To(gomega.BeTrue(), "Kueue target not found. Active targets: %v", result.Active)
-		}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+		util.ExpectPrometheusTargetForKueue(ctx, prometheusClient)
 	})
 
 	ginkgo.It("should scrape kueue_build_info metric via PromQL", func() {
@@ -64,7 +49,7 @@ var _ = ginkgo.Describe("Prometheus", ginkgo.Label("area:prometheus", "feature:p
 			g.Expect(ok).To(gomega.BeTrue())
 			g.Expect(vector).NotTo(gomega.BeEmpty())
 			g.Expect(string(vector[0].Metric[model.MetricNameLabel])).To(gomega.Equal(kueueBuildInfoMetric))
-		}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+		}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("should report workload admission metrics via PromQL", func() {
@@ -123,6 +108,6 @@ var _ = ginkgo.Describe("Prometheus", ginkgo.Label("area:prometheus", "feature:p
 			vector, ok := result.(model.Vector)
 			g.Expect(ok).To(gomega.BeTrue())
 			g.Expect(vector).NotTo(gomega.BeEmpty())
-		}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+		}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 	})
 })

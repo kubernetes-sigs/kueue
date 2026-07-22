@@ -34,6 +34,7 @@ import (
 	kueuev1beta2 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta2"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/completion"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/dryrun"
 )
 
 var (
@@ -47,6 +48,7 @@ var (
 type ClusterQueueOptions struct {
 	ClusterQueueName   string
 	KeepAlreadyRunning bool
+	DryRunStrategy     dryrun.Strategy
 	Client             kueuev1beta2.KueueV1beta2Interface
 	PrintFlags         *genericclioptions.PrintFlags
 	PrintObj           printers.ResourcePrinterFunc
@@ -74,7 +76,7 @@ func NewClusterQueueCmd(clientGetter clientgetter.ClientGetter, streams generici
 		ValidArgsFunction:     completion.ClusterQueueNameFunc(clientGetter, new(true)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cmd.SilenceUsage = true
-			err := o.Complete(clientGetter, args)
+			err := o.Complete(clientGetter, cmd, args)
 			if err != nil {
 				return err
 			}
@@ -90,8 +92,19 @@ func NewClusterQueueCmd(clientGetter clientgetter.ClientGetter, streams generici
 }
 
 // Complete completes all the required options
-func (o *ClusterQueueOptions) Complete(clientGetter clientgetter.ClientGetter, args []string) error {
+func (o *ClusterQueueOptions) Complete(clientGetter clientgetter.ClientGetter, cmd *cobra.Command, args []string) error {
 	o.ClusterQueueName = args[0]
+
+	var err error
+	o.DryRunStrategy, err = dryrun.GetStrategy(cmd)
+	if err != nil {
+		return err
+	}
+
+	err = dryrun.PrintFlagsWithStrategy(o.PrintFlags, o.DryRunStrategy)
+	if err != nil {
+		return err
+	}
 
 	clientset, err := clientGetter.KueueClientSet()
 	if err != nil {
@@ -124,16 +137,21 @@ func (o *ClusterQueueOptions) Run(ctx context.Context) error {
 	cqOriginal := cq.DeepCopy()
 	o.stopClusterQueue(cq)
 
-	opts := metav1.PatchOptions{}
-	patch := client.MergeFrom(cqOriginal)
-	data, err := patch.Data(cq)
-	if err != nil {
-		return err
-	}
-	cq, err = o.Client.ClusterQueues().
-		Patch(ctx, o.ClusterQueueName, types.MergePatchType, data, opts)
-	if err != nil {
-		return err
+	if o.DryRunStrategy != dryrun.Client {
+		opts := metav1.PatchOptions{}
+		if o.DryRunStrategy == dryrun.Server {
+			opts.DryRun = []string{metav1.DryRunAll}
+		}
+		patch := client.MergeFrom(cqOriginal)
+		data, err := patch.Data(cq)
+		if err != nil {
+			return err
+		}
+		cq, err = o.Client.ClusterQueues().
+			Patch(ctx, o.ClusterQueueName, types.MergePatchType, data, opts)
+		if err != nil {
+			return err
+		}
 	}
 
 	return o.PrintObj(cq, o.Out)

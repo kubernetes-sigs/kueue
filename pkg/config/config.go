@@ -19,6 +19,7 @@ package config
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -41,6 +42,9 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/tlsconfig"
 )
+
+// ErrWebhookTLSParse is returned when TLS options for the webhook server cannot be parsed.
+var ErrWebhookTLSParse = errors.New("unable to parse TLS options for webhook server")
 
 var (
 	objectKeySecret         = new(corev1.Secret)
@@ -164,7 +168,7 @@ func addLeaderElectionTo(o *ctrl.Options, cfg *configapi.Configuration) {
 
 // AddWebhookSettingsTo is used to add settings to the webhook
 // This is separated to a exported function as we need to call this function after the feature gates are parsed.
-func AddWebhookSettingsTo(o *ctrl.Options, cfg *configapi.Configuration) {
+func AddWebhookSettingsTo(o *ctrl.Options, cfg *configapi.Configuration) error {
 	if o.WebhookServer == nil && cfg.Webhook.Port != nil {
 		wo := webhook.Options{}
 		if cfg.Webhook.Port != nil {
@@ -182,14 +186,16 @@ func AddWebhookSettingsTo(o *ctrl.Options, cfg *configapi.Configuration) {
 		if features.Enabled(features.TLSOptions) {
 			if cfg.TLS != nil {
 				tlsOpts, err := tlsconfig.ParseTLSOptions(cfg.TLS)
-				if err == nil {
-					tlsOpts := tlsconfig.BuildTLSOptions(tlsOpts)
-					wo.TLSOpts = append(wo.TLSOpts, tlsOpts...)
+				if err != nil {
+					return fmt.Errorf("%w: %w", ErrWebhookTLSParse, err)
 				}
+				builtOpts := tlsconfig.BuildTLSOptions(tlsOpts)
+				wo.TLSOpts = append(wo.TLSOpts, builtOpts...)
 			}
 		}
 		o.WebhookServer = webhook.NewServer(wo)
 	}
+	return nil
 }
 
 func Encode(scheme *runtime.Scheme, cfg *configapi.Configuration) (string, error) {
@@ -200,7 +206,7 @@ func Encode(scheme *runtime.Scheme, cfg *configapi.Configuration) (string, error
 		return "", fmt.Errorf("unable to locate encoder -- %q is not a supported media type", mediaType)
 	}
 
-	encoder := codecs.EncoderForVersion(info.Serializer, configapi.GroupVersion)
+	encoder := codecs.EncoderForVersion(info.Serializer, configapi.SchemeGroupVersion)
 	buf := new(bytes.Buffer)
 	if err := encoder.Encode(cfg, buf); err != nil {
 		return "", err

@@ -139,3 +139,15 @@ func (n *NodeWrapper) ManagedFields(fields []metav1.ManagedFieldsEntry) *NodeWra
 	n.ObjectMeta.ManagedFields = fields
 	return n
 }
+
+// RuntimeHandlers sets the runtime handlers in the node's status.
+func (n *NodeWrapper) RuntimeHandlers(nodeRunTimeHandles []corev1.NodeRuntimeHandler) *NodeWrapper {
+	n.Status.RuntimeHandlers = nodeRunTimeHandles
+	return n
+}
+
+// Images sets the container images in the node's status.
+func (n *NodeWrapper) Images(images []corev1.ContainerImage) *NodeWrapper {
+	n.Status.Images = images
+	return n
+}

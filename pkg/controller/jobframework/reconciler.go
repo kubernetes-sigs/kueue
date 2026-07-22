@@ -58,6 +58,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
@@ -67,6 +68,9 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
+	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -96,7 +100,8 @@ type JobReconciler struct {
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
 	waitForPodsReady             bool
-	labelKeysToCopy              []string
+	labelKeysToCopy              sets.Set[string]
+	annotationsToCopy            sets.Set[string]
 	clock                        clock.Clock
 	workloadRetentionPolicy      WorkloadRetentionPolicy
 	roleTracker                  *roletracker.RoleTracker
@@ -117,7 +122,8 @@ type Options struct {
 	EnabledFrameworks            sets.Set[string]
 	EnabledExternalFrameworks    sets.Set[string]
 	ManagerName                  string
-	LabelKeysToCopy              []string
+	LabelKeysToCopy              sets.Set[string]
+	AnnotationsToCopy            sets.Set[string]
 	Queues                       *qcache.Manager
 	Cache                        *schdcache.Cache
 	Clock                        clock.Clock
@@ -196,9 +202,16 @@ func WithManagerName(n string) Option {
 }
 
 // WithLabelKeysToCopy adds the label keys
-func WithLabelKeysToCopy(n []string) Option {
+func WithLabelKeysToCopy(s sets.Set[string]) Option {
 	return func(o *Options) {
-		o.LabelKeysToCopy = n
+		o.LabelKeysToCopy = s
+	}
+}
+
+// WithAnnotationsToCopy adds the annotation keys
+func WithAnnotationsToCopy(s sets.Set[string]) Option {
+	return func(o *Options) {
+		o.AnnotationsToCopy = s
 	}
 }
 
@@ -272,6 +285,7 @@ func NewReconciler(
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 		waitForPodsReady:             options.WaitForPodsReady,
 		labelKeysToCopy:              options.LabelKeysToCopy,
+		annotationsToCopy:            options.AnnotationsToCopy,
 		clock:                        options.Clock,
 		workloadRetentionPolicy:      options.WorkloadRetentionPolicy,
 		roleTracker:                  options.RoleTracker,
@@ -306,23 +320,21 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, nil
 	}
 
-	if features.Enabled(features.ManagedJobsNamespaceSelectorAlwaysRespected) {
-		ns := corev1.Namespace{}
-		if err := r.client.Get(ctx, client.ObjectKey{Name: req.Namespace}, &ns); err != nil {
-			if apierrors.IsNotFound(err) {
-				log.V(2).Info("Namespace not found; skipping selector check", "namespace", req.Namespace)
-				return ctrl.Result{}, nil
-			}
-			log.Error(err, "failed to get namespace for selector check")
-			return ctrl.Result{}, err
-		}
-
-		if r.managedJobsNamespaceSelector == nil {
-			log.V(2).Info("ManagedJobsNamespaceSelector is nil; skipping selector enforcement")
-		} else if !r.managedJobsNamespaceSelector.Matches(labels.Set(ns.GetLabels())) {
-			log.V(2).Info("Namespace not opted in for Kueue management", "namespace", ns.Name)
+	ns := corev1.Namespace{}
+	if err := r.client.Get(ctx, client.ObjectKey{Name: req.Namespace}, &ns); err != nil {
+		if apierrors.IsNotFound(err) {
+			log.V(2).Info("Namespace not found; skipping selector check", "namespace", req.Namespace)
 			return ctrl.Result{}, nil
 		}
+		log.Error(err, "failed to get namespace for selector check")
+		return ctrl.Result{}, err
+	}
+
+	if r.managedJobsNamespaceSelector == nil {
+		log.V(2).Info("ManagedJobsNamespaceSelector is nil; skipping selector enforcement")
+	} else if !r.managedJobsNamespaceSelector.Matches(labels.Set(ns.GetLabels())) {
+		log.V(2).Info("Namespace not opted in for Kueue management", "namespace", ns.Name)
+		return ctrl.Result{}, nil
 	}
 
 	var (
@@ -402,7 +414,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// Update workload conditions if implemented JobWithCustomWorkloadConditions interface.
 	if jobCond, ok := job.(JobWithCustomWorkloadConditions); wl != nil && ok {
 		if conditions, updated := jobCond.CustomWorkloadConditions(wl); updated {
-			return reconcile.Result{}, workload.PatchStatus(
+			return reconcile.Result{}, workloadpatching.PatchStatus(
 				ctx, r.client, wl,
 				client.FieldOwner(fmt.Sprintf("%s-%s-controller", constants.KueueName, strings.ToLower(job.GVK().Kind))),
 				func(wl *kueue.Workload) (bool, error) {
@@ -424,7 +436,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		}
 	}
 
-	if wl != nil && workload.IsFinished(wl) {
+	if wl != nil && workloadfinish.IsFinished(wl) {
 		if err := r.finalizeJob(ctx, job); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -450,12 +462,12 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// 2. handle job is finished.
 	if message, success, finished := job.Finished(ctx); finished {
 		log.V(3).Info("The workload is already finished")
-		if wl != nil && !workload.IsFinished(wl) {
+		if wl != nil && !workloadfinish.IsFinished(wl) {
 			reason := kueue.WorkloadFinishedReasonSucceeded
 			if !success {
 				reason = kueue.WorkloadFinishedReasonFailed
 			}
-			err := workload.Finish(ctx, r.client, wl, reason, message, r.clock)
+			err := workloadfinish.Finish(ctx, r.client, wl, reason, message, r.clock)
 			if err != nil && !apierrors.IsNotFound(err) {
 				return ctrl.Result{}, err
 			}
@@ -477,8 +489,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		err := r.handleJobWithNoWorkload(ctx, job, object)
 		if err != nil {
 			if apierrors.IsAlreadyExists(err) {
-				log.V(3).Info("Handling job with no workload found an existing workload")
-				return ctrl.Result{RequeueAfter: time.Nanosecond}, nil
+				return ctrl.Result{}, err
 			}
 			if IsUnretryableError(err) {
 				log.V(3).Info("Handling job with no workload", "unretryableError", err)
@@ -496,6 +507,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			log.Error(err, "Getting reclaimable pods")
 			return ctrl.Result{}, err
 		}
+		reclPods = workload.LimitReclaimablePodsToPodSetSizes(wl, reclPods)
 
 		if !workload.ReclaimablePodsAreEqual(reclPods, wl.Status.ReclaimablePods) {
 			err = workload.UpdateReclaimablePods(ctx, r.client, wl, reclPods)
@@ -524,7 +536,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			// update the metrics only when PodsReady condition status is true
 			if condition.Status == metav1.ConditionTrue {
 				cqName := wl.Status.Admission.ClusterQueue
-				priorityClassName := workload.PriorityClassName(wl)
+				priorityClassName := workloadpatching.PriorityClassName(wl)
 				queuedUntilReadyWaitTime := workload.QueuedWaitTime(wl, r.clock)
 				metrics.ReadyWaitTime(cqName, priorityClassName, queuedUntilReadyWaitTime, r.customLabels.CQGet(cqName), r.roleTracker)
 				admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
@@ -552,11 +564,25 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		if workload.HasQuotaReservation(wl) {
 			if !job.IsActive() {
 				log.V(6).Info("The job is no longer active, clear the workloads admission")
-				err := workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+				err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 					// The requeued condition status set to true only on EvictedByPreemption
 					setRequeued := (evCond.Reason == kueue.WorkloadEvictedByPreemption) || (evCond.Reason == kueue.WorkloadEvictedDueToNodeFailures)
+					// A pod-owned Workload dies with its pod; requeuing it would
+					// recompute an assignment nothing can consume (placement drift).
+					if features.Enabled(features.SkipReassignmentForPodOwnedWorkloads) && workload.OwnedBySinglePod(wl) {
+						setRequeued = false
+					}
 					updated := workload.SetRequeuedCondition(wl, evCond.Reason, evCond.Message, setRequeued)
-					if workload.UnsetQuotaReservationWithCondition(wl, "Pending", evCond.Message, r.clock.Now()) {
+					reason := workload.UnadmittedWorkloadReasonWithFallback(
+						kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+						kueue.WorkloadPending, //nolint:staticcheck // SA1019: fallback
+					)
+					if workload.UnsetQuotaReservationWithCondition(
+						wl,
+						reason,
+						evCond.Message,
+						r.clock.Now(),
+					) {
 						updated = true
 					}
 					return updated, nil
@@ -580,7 +606,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 				log.Error(err, "Unsuspending job")
 				if podset.IsPermanent(err) {
 					// Mark the workload as finished with failure since the is no point to retry.
-					errUpdateStatus := workload.Finish(ctx, r.client, wl, FailedToStartFinishedReason, err.Error(), r.clock)
+					errUpdateStatus := workloadfinish.Finish(ctx, r.client, wl, FailedToStartFinishedReason, err.Error(), r.clock)
 					if errUpdateStatus != nil {
 						log.Error(errUpdateStatus, "Updating workload status, on start failure", "err", err)
 					}
@@ -730,7 +756,7 @@ func (r *JobReconciler) shouldSuspendChildJob(ctx context.Context, childJob Gene
 				// With workload slicing, during autoscaling-up, there will be two workloads at certain time for workload slice
 				// replacement. The old one was finished, the new one is going to be admitted. There is no admitted workload in
 				// this case, and we should not suspend the job. As a workaround, check evicted status instead.
-				return workload.IsEvicted(ancestorNotFinishedWorkload), nil
+				return workloadevict.IsEvicted(ancestorNotFinishedWorkload), nil
 			}
 			// For none workload slicing, suspend the job if workload not admitted
 			return !workload.IsAdmitted(ancestorNotFinishedWorkload), nil
@@ -740,7 +766,7 @@ func (r *JobReconciler) shouldSuspendChildJob(ctx context.Context, childJob Gene
 }
 
 func (r *JobReconciler) shouldHandleDeletionOfDeactivatedWorkload(wl *kueue.Workload) bool {
-	return r.workloadRetentionPolicy.AfterDeactivatedByKueue != nil && !workload.IsActive(wl) && workload.IsEvictedDueToDeactivationByKueue(wl)
+	return r.workloadRetentionPolicy.AfterDeactivatedByKueue != nil && !workload.IsActive(wl) && workloadevict.IsEvictedDueToDeactivationByKueue(wl)
 }
 
 func (r *JobReconciler) handleWorkloadAfterDeactivatedPolicy(ctx context.Context, job GenericJob, wl *kueue.Workload) (time.Duration, error) {
@@ -787,10 +813,10 @@ func (r *JobReconciler) recordAdmissionCheckUpdate(wl *kueue.Workload, job Gener
 	if message != "" {
 		if cJob, isComposable := job.(ComposableJob); isComposable {
 			cJob.ForEach(func(obj runtime.Object) {
-				r.record.Eventf(obj, nil, corev1.EventTypeNormal, ReasonUpdatedAdmissionCheck, "UpdatedAdmissionCheck", message)
+				r.record.Eventf(obj, nil, corev1.EventTypeNormal, ReasonUpdatedAdmissionCheck, "UpdatedAdmissionCheck", api.TruncateEventMessage(message))
 			})
 		} else {
-			r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonUpdatedAdmissionCheck, "UpdatedAdmissionCheck", message)
+			r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonUpdatedAdmissionCheck, "UpdatedAdmissionCheck", api.TruncateEventMessage(message))
 		}
 	}
 }
@@ -1118,7 +1144,7 @@ func PropagateAdmissionGatedByAnnotation(obj client.Object, wl *kueue.Workload) 
 // UpdateWorkloadPriority updates workload priority if object's kueue.x-k8s.io/priority-class label changed.
 func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object, wl *kueue.Workload, customPriorityClassFunc func() string) error {
 	jobPriorityClassName := WorkloadPriorityClassName(obj)
-	wlPriorityClassName := workload.PriorityClassName(wl)
+	wlPriorityClassName := workloadpatching.PriorityClassName(wl)
 
 	// This handles both: changing priority (old -> new) AND adding priority (none -> new)
 	if (workload.HasNoPriority(wl) || workload.IsWorkloadPriorityClass(wl)) && jobPriorityClassName != wlPriorityClassName {
@@ -1200,7 +1226,7 @@ func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, wl *ku
 		}
 		// mark the workload as finished
 		msg := "The prebuilt workload is out of sync with its user job"
-		return false, workload.Finish(ctx, r.client, wl, kueue.WorkloadFinishedReasonOutOfSync, msg, r.clock)
+		return false, workloadfinish.Finish(ctx, r.client, wl, kueue.WorkloadFinishedReasonOutOfSync, msg, r.clock)
 	}
 	return true, nil
 }
@@ -1224,7 +1250,7 @@ func expectedRunningPodSets(ctx context.Context, c client.Client, wl *kueue.Work
 		if !found {
 			return nil
 		}
-		err := podset.Merge(&ps.Template.ObjectMeta, &ps.Template.Spec, *psi)
+		err := podset.Merge(ctrl.LoggerFrom(ctx), &ps.Template.ObjectMeta, &ps.Template.Spec, *psi)
 		if err != nil {
 			return nil
 		}
@@ -1322,7 +1348,7 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 	}
 
 	if cj, implements := job.(ComposableJob); implements {
-		if err := cj.Run(ctx, r.client, info, r.record, msg); err != nil {
+		if err := cj.Run(ctx, r.client, wl, info, r.record, msg); err != nil {
 			return err
 		}
 	} else {
@@ -1347,7 +1373,7 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.W
 	if jws, implements := job.(JobWithCustomStop); implements {
 		stoppedNow, err := jws.Stop(ctx, r.client, info, stopReason, eventMsg)
 		if stoppedNow {
-			r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonStopped, "Stopped", eventMsg)
+			r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonStopped, "Stopped", api.TruncateEventMessage(eventMsg))
 		}
 		return err
 	}
@@ -1361,7 +1387,7 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.W
 		}
 		stoppedNow, err := jws.Stop(ctx, r.client, info, reason, eventMsg)
 		for _, objStoppedNow := range stoppedNow {
-			r.record.Eventf(objStoppedNow, nil, corev1.EventTypeNormal, ReasonStopped, "Stopped", eventMsg)
+			r.record.Eventf(objStoppedNow, nil, corev1.EventTypeNormal, ReasonStopped, "Stopped", api.TruncateEventMessage(eventMsg))
 		}
 		return err
 	}
@@ -1373,14 +1399,14 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.W
 	if err := clientutil.Patch(ctx, r.client, object, func() (bool, error) {
 		job.Suspend()
 		if info != nil {
-			job.RestorePodSetsInfo(info)
+			job.RestorePodSetsInfo(ctx, info)
 		}
 		return true, nil
 	}); err != nil {
 		return err
 	}
 
-	r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonStopped, "Stopped", eventMsg)
+	r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonStopped, "Stopped", api.TruncateEventMessage(eventMsg))
 	return nil
 }
 
@@ -1397,13 +1423,13 @@ func (r *JobReconciler) finalizeJob(ctx context.Context, job GenericJob) error {
 // constructWorkload will derive a workload from the corresponding job.
 func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob) (*kueue.Workload, error) {
 	if cj, implements := job.(ComposableJob); implements {
-		wl, err := cj.ConstructComposableWorkload(ctx, r.client, r.record, r.labelKeysToCopy)
+		wl, err := cj.ConstructComposableWorkload(ctx, r.client, r.record, r.labelKeysToCopy, r.annotationsToCopy)
 		if err != nil {
 			return nil, err
 		}
 		return wl, nil
 	}
-	return ConstructWorkload(ctx, r.client, job, r.labelKeysToCopy)
+	return ConstructWorkload(ctx, r.client, job, r.labelKeysToCopy, r.annotationsToCopy)
 }
 
 // newWorkloadName generates a new workload name for the given job, incorporating the job's name, UID,
@@ -1423,7 +1449,7 @@ func newWorkloadName(job GenericJob) string {
 	return GetWorkloadNameForOwnerWithGVK(object.GetName(), object.GetUID(), job.GVK())
 }
 
-func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, labelKeysToCopy []string) (*kueue.Workload, error) {
+func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, labelKeysToCopy, annotationsToCopy sets.Set[string]) (*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
 	object := job.Object()
 
@@ -1432,7 +1458,7 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 		return nil, err
 	}
 
-	wl := NewWorkload(newWorkloadName(job), object, podSets, labelKeysToCopy)
+	wl := NewWorkload(newWorkloadName(job), object, podSets, labelKeysToCopy, annotationsToCopy)
 	if wl.Labels == nil {
 		wl.Labels = make(map[string]string)
 	}

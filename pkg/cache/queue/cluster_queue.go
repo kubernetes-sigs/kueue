@@ -22,6 +22,7 @@ import (
 	"maps"
 	"slices"
 	"sync"
+	"sync/atomic"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -66,6 +67,20 @@ const (
 	RequeueReasonPreemptionNoCandidates RequeueReason = "PreemptionNoCandidates"
 )
 
+// QuotaReservedReason represents the reason for the WorkloadQuotaReserved condition
+// computed by the scheduler or queue manager during evaluation.
+type QuotaReservedReason string
+
+const (
+	QuotaReservedReasonGeneric                      QuotaReservedReason = ""
+	QuotaReservedReasonPendingEvaluation            QuotaReservedReason = kueue.WorkloadQuotaReservedReasonPendingEvaluation
+	QuotaReservedReasonWaitingForQuota              QuotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForQuota
+	QuotaReservedReasonWaitingForPreemptedWorkloads QuotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
+	QuotaReservedReasonSuspended                    QuotaReservedReason = kueue.WorkloadQuotaReservedReasonSuspended
+	QuotaReservedReasonMisconfigured                QuotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
+	QuotaReservedReasonAdmissionGated               QuotaReservedReason = kueue.WorkloadAdmissionGated
+)
+
 var (
 	realClock = clock.RealClock{}
 )
@@ -76,20 +91,49 @@ var (
 // workloads from going back to the head of the queue.  A workload is
 // considered sticky until it is admitted, unschedulable, or deleted.
 // See Kueue#6929 and Kueue#7101 for motivation.
+//
+// The workloadName field is accessed concurrently and drives both the CQ heap
+// ordering and the Snapshot ordering used by the visibility server. Two
+// mechanisms keep every sort transitive (see Kueue#12740):
+//   - Writes (set/clear) happen under the ClusterQueue's rwm lock, so heap
+//     operations, which also hold the lock, never observe it changing mid-sort.
+//   - Snapshot sorts a copy of the pending workloads without holding the lock,
+//     so it captures the sticky workload once per sort via capturedMatcher()
+//     instead of re-reading it on every comparison.
+//
+// The field holds a single whole value (nil means no sticky workload), so an
+// atomic.Pointer keeps individual reads and writes memory-safe on top of the
+// ordering guarantees above.
 type stickyWorkload struct {
-	workloadName workload.Reference
+	workloadName atomic.Pointer[workload.Reference]
 }
 
 func (s *stickyWorkload) matches(workload workload.Reference) bool {
-	return s.workloadName == workload
+	name := s.workloadName.Load()
+	return name != nil && *name == workload
+}
+
+// capturedMatcher captures the current sticky workload once and returns a
+// predicate bound to that fixed value. A sort that compares through the returned
+// predicate stays transitive even if set/clear runs concurrently, because every
+// comparison in that sort observes the same sticky workload. See Kueue#12740.
+func (s *stickyWorkload) capturedMatcher() func(workload.Reference) bool {
+	name := s.workloadName.Load()
+	if name == nil {
+		return func(workload.Reference) bool { return false }
+	}
+	captured := *name
+	return func(key workload.Reference) bool {
+		return captured == key
+	}
 }
 
 func (s *stickyWorkload) clear() {
-	s.workloadName = ""
+	s.workloadName.Store(nil)
 }
 
 func (s *stickyWorkload) set(workload workload.Reference) {
-	s.workloadName = workload
+	s.workloadName.Store(&workload)
 }
 
 func logStickyWorkloadSelectionIfVerbose(log logr.Logger, wl *kueue.Workload) {
@@ -108,9 +152,10 @@ type ClusterQueue struct {
 	// inadmissibleWorkloads are workloads that have been tried at least once and couldn't be admitted.
 	inadmissibleWorkloads inadmissibleWorkloads
 
-	// noFitSchedulingHashes tracks scheduling equivalence classes that received
-	// NoFit or PreemptionNoCandidates. Cleared when queueInadmissibleWorkloads runs.
-	noFitSchedulingHashes sets.Set[string]
+	// hashToBulkMoveReason tracks scheduling equivalence classes and the reason
+	// why workloads with that hash were bulk-moved to inadmissibleWorkloads.
+	// Cleared when queueInadmissibleWorkloads runs.
+	hashToBulkMoveReason map[workload.EquivalenceHash]QuotaReservedReason
 
 	finishedWorkloads sets.Set[workload.Reference]
 
@@ -226,20 +271,22 @@ func newClusterQueueImpl(ctx context.Context, client client.Client, wo workload.
 		opt(options)
 	}
 	sw := stickyWorkload{}
-	log := ctrl.LoggerFrom(ctx)
-	baseCmp := baseCompareFunc(log, wo, &sw)
-	compareFunc := queueOrderingFunc(ctx, client, wo, options.fsResWeights, options.enableAdmissionFs, options.afsEntryPenalties, options.afsConsumedResources, &sw)
+	// The heap comparator reads the sticky workload live on every comparison;
+	// this is safe because sticky writes and heap operations both hold rwm.
+	compareFunc := queueOrderingFunc(ctx, client, wo, options.fsResWeights, options.enableAdmissionFs, options.afsEntryPenalties, options.afsConsumedResources, sw.matches)
 	// Derive lessFunc from compareFunc for the heap.
 	lessFunc := func(a, b *workload.Info) bool { return compareFunc(a, b) < 0 }
+	// Snapshot sorts without the lock, so it captures the sticky workload once
+	// per sort rather than reading it live. See Kueue#12740.
 	snapshotSort := buildSnapshotSort(
-		ctx, compareFunc, baseCmp, client,
+		ctx, wo, &sw, client,
 		options.enableAdmissionFs, options.fsResWeights,
 		options.afsEntryPenalties, options.afsConsumedResources,
 	)
 	return &ClusterQueue{
 		heap:                      *heap.New(workloadKey, lessFunc),
 		inadmissibleWorkloads:     make(inadmissibleWorkloads),
-		noFitSchedulingHashes:     sets.New[string](),
+		hashToBulkMoveReason:      make(map[workload.EquivalenceHash]QuotaReservedReason),
 		finishedWorkloads:         sets.New[workload.Reference](),
 		queueInadmissibleCycle:    -1,
 		compareFunc:               compareFunc,
@@ -368,11 +415,13 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 		c.insertInadmissible(key, wInfo)
 		return
 	}
-	// Skip to inadmissible if the workload's equivalence class is already known to be NoFit
+	// Skip to inadmissible if the workload's equivalence class was already bulk-moved to inadmissible
 	// (only for BestEffortFIFO; StrictFIFO preserves strict ordering).
-	if c.queueingStrategy == kueue.BestEffortFIFO && c.heap.GetByKey(key) == nil && wInfo.SchedulingHash != workload.SchedulingHashUnknown && c.noFitSchedulingHashes.Has(wInfo.SchedulingHash) {
-		c.insertInadmissible(key, wInfo)
-		return
+	if c.queueingStrategy == kueue.BestEffortFIFO && c.heap.GetByKey(key) == nil && wInfo.SchedulingHash != workload.SchedulingHashUnknown {
+		if _, has := c.hashToBulkMoveReason[wInfo.SchedulingHash]; has {
+			c.insertInadmissible(key, wInfo)
+			return
+		}
 	}
 	// Subtract the old entry's resources before overwriting; requests may have changed.
 	if oldHeapInfo := c.heap.GetByKey(key); oldHeapInfo != nil {
@@ -397,6 +446,17 @@ func draRequestsChanged(oldInfo, newInfo *workload.Info) bool {
 		return false
 	}
 	return !equality.Semantic.DeepEqual(oldInfo.TotalRequests, newInfo.TotalRequests)
+}
+
+func (c *ClusterQueue) GetNoFitReason(wl workload.Reference) (string, bool) {
+	c.rwm.RLock()
+	defer c.rwm.RUnlock()
+	wlInfo := c.inadmissibleWorkloads.get(wl)
+	if wlInfo == nil {
+		return "", false
+	}
+	reason, ok := c.hashToBulkMoveReason[wlInfo.SchedulingHash]
+	return string(reason), ok
 }
 
 func (c *ClusterQueue) RebuildLocalQueue(lqName string) {
@@ -491,6 +551,19 @@ func (c *ClusterQueue) DeleteFromLocalQueue(log logr.Logger, q *LocalQueue, role
 	reportCQFinishedWorkloads(c, roleTracker, cl)
 }
 
+// resolveQuotaReservedReason returns statusReason if set, or defaults to
+// WorkloadQuotaReservedReasonPendingEvaluation when empty.
+// We do not feature-gate the fallback here because this function only computes
+// the reason string stored in the ClusterQueue's in-memory hashToBulkMoveReason map.
+// Whether status conditions are actually written to the Workload API object is
+// governed by the workload controller (shouldCheckEquivalenceHash).
+func resolveQuotaReservedReason(reason QuotaReservedReason) QuotaReservedReason {
+	if reason == "" {
+		return QuotaReservedReasonPendingEvaluation
+	}
+	return reason
+}
+
 // requeueIfNotPresent inserts a workload that cannot be admitted into
 // ClusterQueue, unless it is already in the queue. If immediate is true
 // or if there was a call to QueueInadmissibleWorkloads after a call to Pop,
@@ -499,10 +572,20 @@ func (c *ClusterQueue) DeleteFromLocalQueue(log logr.Logger, q *LocalQueue, role
 // When SchedulingEquivalenceHashing is enabled and the reason is NoFit or
 // PreemptionNoCandidates, equivalent workloads in the heap are bulk-moved
 // to inadmissible.
-func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info, immediate bool, reason RequeueReason) bool {
+func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info, immediate bool, reason RequeueReason, quotaReservedReason QuotaReservedReason) bool {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	key := workload.Key(wInfo.Obj)
+	// When preemptions are in-progress, keep re-attempting the same workload at
+	// the head for BestEffortFIFO queues (see documentation of stickyWorkload).
+	// The sticky workload is set under the lock so heap operations, which also
+	// hold the lock, never observe it changing mid-sort. See Kueue#12740.
+	if (reason == RequeueReasonPendingPreemption || reason == RequeueReasonPendingMigration) && c.queueingStrategy == kueue.BestEffortFIFO {
+		if logV := log.V(5); logV.Enabled() {
+			logV.Info("Setting sticky workload", "clusterQueue", wInfo.ClusterQueue, "workload", key)
+		}
+		c.sw.set(key)
+	}
 	// wasTracked records whether the workload is already counted in pendingResourcesTotal before inflight state is cleared.
 	// Guards addPendingResources below to prevent double-counting if the workload was concurrently re-added to the heap or inadmissible.
 	wasTracked := c.inadmissibleWorkloads.hasKey(key) || c.heap.GetByKey(key) != nil
@@ -544,7 +627,7 @@ func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info
 
 	if features.Enabled(features.SchedulingEquivalenceHashing) && wInfo.SchedulingHash != workload.SchedulingHashUnknown &&
 		(reason == RequeueReasonNoFit || reason == RequeueReasonPreemptionNoCandidates) {
-		if moved := c.handleInadmissibleHash(wInfo.SchedulingHash); moved > 0 {
+		if moved := c.handleInadmissibleHash(wInfo.SchedulingHash, resolveQuotaReservedReason(quotaReservedReason)); moved > 0 {
 			log.V(2).Info("Bulk-moved equivalent workloads to inadmissible", "hash", wInfo.SchedulingHash, "movedCount", moved)
 		}
 	}
@@ -562,11 +645,11 @@ func (c *ClusterQueue) forgetInflightByKey(key workload.Reference) {
 // scheduling hash to inadmissibleWorkloads. Returns the number moved.
 // Only applies to BestEffortFIFO queues; in StrictFIFO the head workload
 // stays in the heap and must not cause equivalent workloads to be skipped.
-func (c *ClusterQueue) handleInadmissibleHash(hash string) int {
+func (c *ClusterQueue) handleInadmissibleHash(hash workload.EquivalenceHash, reason QuotaReservedReason) int {
 	if c.queueingStrategy != kueue.BestEffortFIFO {
 		return 0
 	}
-	c.noFitSchedulingHashes.Insert(hash)
+	c.hashToBulkMoveReason[hash] = reason
 	moved := 0
 	for _, wInfo := range c.heap.List() {
 		if wInfo.SchedulingHash == hash {
@@ -742,25 +825,28 @@ func (c *ClusterQueue) Snapshot() []*workload.Info {
 }
 
 // buildSnapshotSort returns a function that sorts workload elements for Snapshot().
-// When fair-sharing is enabled, it pre-computes FS usage per LocalQueue from
+// The sort runs without holding the ClusterQueue lock, so it captures the sticky
+// workload once per sort (via stickyWorkload.capturedMatcher) to keep the comparison
+// transitive even if the sticky workload changes concurrently. See Kueue#12740.
+// When fair-sharing is enabled, it also pre-computes FS usage per LocalQueue from
 // deep-copied AFS state to avoid inconsistent comparisons from concurrent updates.
 func buildSnapshotSort(
 	ctx context.Context,
-	compareFunc func(a, b *workload.Info) int,
-	baseCmp func(a, b *workload.Info) int,
+	wo workload.Ordering,
+	sw *stickyWorkload,
 	cl client.Client,
 	enableAdmissionFs bool,
 	fsResWeights map[corev1.ResourceName]float64,
 	afsEntryPenalties *queueafs.AfsEntryPenalties,
 	afsConsumedResources *queueafs.AfsConsumedResources,
 ) func(elements []*workload.Info) {
+	log := ctrl.LoggerFrom(ctx)
 	if !enableAdmissionFs {
 		return func(elements []*workload.Info) {
-			slices.SortFunc(elements, compareFunc)
+			slices.SortFunc(elements, baseCompareFunc(log, wo, sw.capturedMatcher()))
 		}
 	}
 
-	log := ctrl.LoggerFrom(ctx)
 	getLQWeight := func(lqKey utilqueue.LocalQueueReference) (float64, bool) {
 		if cl == nil {
 			return 1, true
@@ -771,13 +857,13 @@ func buildSnapshotSort(
 			log.V(2).Error(err, "Failed to get LocalQueue for FS weight", "localQueue", klog.KRef(ns, string(name)))
 			return 0, false
 		}
-		if lq.Spec.FairSharing != nil && lq.Spec.FairSharing.Weight != nil {
-			return lq.Spec.FairSharing.Weight.AsApproximateFloat64(), true
-		}
-		return 1, true
+		return afs.LQWeightAsFloat64(&lq), true
 	}
 
 	return func(elements []*workload.Info) {
+		// Capture the sticky workload once so the sort stays transitive without
+		// holding the lock. See Kueue#12740.
+		baseCmp := baseCompareFunc(log, wo, sw.capturedMatcher())
 		usageCache := make(map[utilqueue.LocalQueueReference]float64)
 		for _, wInfo := range elements {
 			lqKey := utilqueue.KeyFromWorkload(wInfo.Obj)
@@ -797,7 +883,7 @@ func buildSnapshotSort(
 			if !ok {
 				continue
 			}
-			usageCache[lqKey] = workload.CalcFSUsageFromResources(consumed, penalty, lqWeight, fsResWeights)
+			usageCache[lqKey] = afs.CalculateUsage(consumed, penalty, lqWeight, fsResWeights)
 		}
 
 		slices.SortFunc(elements, func(a, b *workload.Info) int {
@@ -853,19 +939,10 @@ func (c *ClusterQueue) Active() bool {
 // in the latter case the implementation may choose to keep the workload in "inadmissible workloads"
 // where it doesn't compete with other workloads, until cluster events free up quota.
 // The workload should not be reinserted if it's already in the ClusterQueue.
+// quotaReservedReason represents the WorkloadQuotaReserved condition reason computed by the scheduler.
 // Returns true if the workload was inserted.
-func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.Info, reason RequeueReason) bool {
-	// when preemptions are in-progress, we keep attempting to
-	// schedule the same workload for BestEffortFIFO queues. See
-	// documentation of stickyWorkload for more details
+func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.Info, reason RequeueReason, quotaReservedReason QuotaReservedReason) bool {
 	log := ctrl.LoggerFrom(ctx)
-	if (reason == RequeueReasonPendingPreemption || reason == RequeueReasonPendingMigration) && c.queueingStrategy == kueue.BestEffortFIFO {
-		if logV := log.V(5); logV.Enabled() {
-			logV.Info("Setting sticky workload", "clusterQueue", wInfo.ClusterQueue, "workload", workload.Key(wInfo.Obj))
-		}
-		c.sw.set(workload.Key(wInfo.Obj))
-	}
-
 	var immediate bool
 	if c.queueingStrategy == kueue.StrictFIFO {
 		immediate = reason != RequeueReasonNamespaceMismatch
@@ -875,14 +952,17 @@ func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.
 			reason == RequeueReasonPendingMigration ||
 			reason == RequeueReasonPreemptionFailed
 	}
-	return c.requeueIfNotPresent(log, wInfo, immediate, reason)
+	return c.requeueIfNotPresent(log, wInfo, immediate, reason, quotaReservedReason)
 }
 
 // baseCompareFunc orders workloads by sticky status, priority, timestamp, and UID.
-func baseCompareFunc(log logr.Logger, wo workload.Ordering, sw *stickyWorkload) func(a, b *workload.Info) int {
+// stickyMatches reports whether a workload is the sticky one; callers pass a
+// live matcher (stickyWorkload.matches) for the heap or a captured one
+// (stickyWorkload.capturedMatcher) for the lock-free Snapshot sort. See Kueue#12740.
+func baseCompareFunc(log logr.Logger, wo workload.Ordering, stickyMatches func(workload.Reference) bool) func(a, b *workload.Info) int {
 	return func(a, b *workload.Info) int {
-		aSticky := sw.matches(workload.Key(a.Obj))
-		bSticky := sw.matches(workload.Key(b.Obj))
+		aSticky := stickyMatches(workload.Key(a.Obj))
+		bSticky := stickyMatches(workload.Key(b.Obj))
 		if aSticky != bSticky {
 			if aSticky {
 				logStickyWorkloadSelectionIfVerbose(log, a.Obj)
@@ -920,10 +1000,10 @@ func queueOrderingFunc(
 	enableAdmissionFs bool,
 	afsEntryPenalties *queueafs.AfsEntryPenalties,
 	afsConsumedResources *queueafs.AfsConsumedResources,
-	sw *stickyWorkload,
+	stickyMatches func(workload.Reference) bool,
 ) func(a, b *workload.Info) int {
 	log := ctrl.LoggerFrom(ctx)
-	baseCmp := baseCompareFunc(log, wo, sw)
+	baseCmp := baseCompareFunc(log, wo, stickyMatches)
 	if !enableAdmissionFs {
 		return baseCmp
 	}

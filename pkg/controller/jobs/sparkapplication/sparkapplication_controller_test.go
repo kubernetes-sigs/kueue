@@ -356,6 +356,41 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		"should apply different node selectors per role when global nodeSelector is set": {
+			sparkApp: testSparkApp.Clone().
+				NodeSelector(map[string]string{"zone": "us-east"}).
+				Obj(),
+			podsetsInfo: []podset.PodSetInfo{
+				{
+					Name:         "driver",
+					NodeSelector: map[string]string{"zone": "us-east", "node-type": "cpu"},
+				},
+				{
+					Name:         "executor",
+					NodeSelector: map[string]string{"zone": "us-east", "node-type": "gpu"},
+				},
+			},
+			wantSparkApp: testSparkApp.Clone().
+				Suspend(false).
+				DriverNodeSelector(map[string]string{"zone": "us-east", "node-type": "cpu"}).
+				DriverTemplate(&corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{Name: sparkcommon.SparkDriverContainerName},
+						},
+					},
+				}).
+				ExecutorNodeSelector(map[string]string{"zone": "us-east", "node-type": "gpu"}).
+				ExecutorTemplate(&corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{Name: sparkcommon.Spark3DefaultExecutorContainerName},
+						},
+					},
+				}).
+				Obj(),
+			wantErr: false,
+		},
 		"should raise error if the wrong number of PodSet infos is provided": {
 			sparkApp: testSparkApp.DeepCopy(),
 			podsetsInfo: []podset.PodSetInfo{
@@ -519,6 +554,42 @@ func TestRestorePodSetsInfo(t *testing.T) {
 				Obj(),
 			wantChanged: false,
 		},
+		"should restore per-role node selectors when global nodeSelector is set": {
+			sparkApp: testSparkApp.Clone().
+				NodeSelector(map[string]string{"zone": "us-east"}).
+				Obj(),
+			podsetsInfo: []podset.PodSetInfo{
+				{
+					Name:         "driver",
+					NodeSelector: map[string]string{"zone": "us-east", "node-type": "cpu"},
+				},
+				{
+					Name:         "executor",
+					NodeSelector: map[string]string{"zone": "us-east", "node-type": "gpu"},
+					Count:        3,
+				},
+			},
+			wantSparkApp: testSparkApp.Clone().
+				DriverNodeSelector(map[string]string{"zone": "us-east", "node-type": "cpu"}).
+				DriverTemplate(&corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{Name: sparkcommon.SparkDriverContainerName},
+						},
+					},
+				}).
+				ExecutorNodeSelector(map[string]string{"zone": "us-east", "node-type": "gpu"}).
+				ExecutorTemplate(&corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{Name: sparkcommon.Spark3DefaultExecutorContainerName},
+						},
+					},
+				}).
+				ExecutorInstances(3).
+				Obj(),
+			wantChanged: true,
+		},
 		"should not modify the SparkApplication  if the wrong number of PodSet infos is provided": {
 			sparkApp: testSparkApp.DeepCopy(),
 			podsetsInfo: []podset.PodSetInfo{
@@ -537,7 +608,7 @@ func TestRestorePodSetsInfo(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			kSparkApp := (*SparkApplication)(tc.sparkApp)
-			changed := kSparkApp.RestorePodSetsInfo(tc.podsetsInfo)
+			changed := kSparkApp.RestorePodSetsInfo(t.Context(), tc.podsetsInfo)
 			if diff := cmp.Diff(tc.wantChanged, changed); diff != "" {
 				t.Errorf("changed mismatch (-want,+got):\n%s", diff)
 				return

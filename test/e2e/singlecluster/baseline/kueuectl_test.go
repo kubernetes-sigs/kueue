@@ -17,19 +17,22 @@ limitations under the License.
 package baseline
 
 import (
+	"bytes"
+	"encoding/json"
 	"os/exec"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Label("area:singlecluster", "feature:kueuectl"), func() {
+// Sanity check that the compiled kueuectl binary works end-to-end.
+// The remaining 7 cases live in the integration suite.
+var _ = ginkgo.Describe("Kueuectl", ginkgo.Label("area:singlecluster", "feature:kueuectl"), func() {
 	var (
 		ns *corev1.Namespace
 		cq *kueue.ClusterQueue
@@ -41,47 +44,37 @@ var _ = ginkgo.Describe("Kueuectl Create", ginkgo.Label("area:singlecluster", "f
 		cq = utiltestingapi.MakeClusterQueue("e2e-cq-" + ns.Name).Obj()
 		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 	})
-
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
-	ginkgo.When("Creating a LocalQueue", func() {
-		ginkgo.It("Should create local queue", func() {
-			lqName := "e2e-lq"
+	ginkgo.It("Should create a local queue and list it back", func() {
+		lqName := "e2e-lq-sanity"
 
-			ginkgo.By("Create local queue by kueuectl", func() {
-				cmd := exec.Command(kueuectlPath, "create", "localqueue", lqName, "--clusterqueue", cq.Name, "--namespace", ns.Name)
-				output, err := cmd.CombinedOutput()
-				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
-			})
-
-			ginkgo.By("Check that the local queue successfully created", func() {
-				var createdQueue kueue.LocalQueue
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: lqName, Namespace: ns.Name}, &createdQueue)).To(gomega.Succeed())
-					g.Expect(createdQueue.Name).Should(gomega.Equal(lqName))
-					g.Expect(createdQueue.Spec.ClusterQueue).Should(gomega.Equal(kueue.ClusterQueueReference(cq.Name)))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
+		ginkgo.By("Create local queue via the kueuectl binary", func() {
+			cmd := exec.Command(kueuectlPath, "create", "localqueue", lqName,
+				"--clusterqueue", cq.Name, "--namespace", ns.Name)
+			output, err := cmd.CombinedOutput()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
 		})
 
-		ginkgo.It("Shouldn't create local queue with unknown cluster queue", func() {
-			lqName := "e2e-lq"
-			cqName := "e2e-cq-unknown"
+		ginkgo.By("List local queues via the kueuectl binary and verify the new one appears", func() {
+			var stdout, stderr bytes.Buffer
+			cmd := exec.Command(kueuectlPath, "list", "localqueue",
+				"--namespace", ns.Name, "-o", "json")
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+			err := cmd.Run()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "stderr: %s", stderr.String())
 
-			ginkgo.By("Create local queue by kueuectl", func() {
-				cmd := exec.Command(kueuectlPath, "create", "localqueue", lqName, "--clusterqueue", cqName, "--namespace", ns.Name)
-				_, err := cmd.CombinedOutput()
-				gomega.Expect(err).To(gomega.HaveOccurred())
-			})
-
-			ginkgo.By("Check that the local queue did not create", func() {
-				var createdQueue kueue.LocalQueue
-				gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: lqName, Namespace: ns.Name}, &createdQueue)).ToNot(gomega.Succeed())
-			})
+			var list kueue.LocalQueueList
+			gomega.Expect(json.Unmarshal(stdout.Bytes(), &list)).To(gomega.Succeed())
+			gomega.Expect(list.Items).To(gomega.ContainElement(gomega.SatisfyAll(
+				gomega.HaveField("Name", lqName),
+				gomega.HaveField("Spec.ClusterQueue", kueue.ClusterQueueReference(cq.Name)),
+			)))
 		})
 	})
 })

@@ -35,7 +35,7 @@ const FlavorTable = ({ title, flavorData, linkToFlavor, showBorrowingColumn }) =
         <TableBody>
           {flavorData?.map((flavor, index) => (
             <React.Fragment key={flavor.name}>
-              {flavor.resources.map((resource, resIndex) => (
+              {flavor.resources?.map((resource, resIndex) => (
                 <TableRow key={`${index}-${resIndex}`}>
                   {/* Display Flavor Name with rowSpan across all its resources */}
                   {resIndex === 0 && (

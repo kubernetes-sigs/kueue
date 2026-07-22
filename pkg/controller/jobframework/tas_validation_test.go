@@ -119,6 +119,9 @@ func TestValidateSliceRequiredTopologyConstraintsAnnotation(t *testing.T) {
 			wantErrNum: 1, // podset-group-name forbidden with constraints
 		},
 		"invalid: feature gate disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology: false, // explicitly disable since it's now Beta (enabled by default)
+			},
 			annotations: map[string]string{
 				kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
 				kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/rack","size":16}]`,

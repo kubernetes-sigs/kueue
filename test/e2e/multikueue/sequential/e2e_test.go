@@ -19,6 +19,7 @@ package sequential
 import (
 	"fmt"
 	"os/exec"
+	"sync"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
@@ -31,7 +32,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	versionutil "k8s.io/apimachinery/pkg/util/version"
-	"k8s.io/apimachinery/pkg/version"
 	"k8s.io/client-go/tools/clientcmd/api"
 	apiv1 "k8s.io/client-go/tools/clientcmd/api/v1"
 	"k8s.io/utils/ptr"
@@ -46,8 +46,25 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	"sigs.k8s.io/kueue/test/util"
 )
+
+// updateAndRestartConcurrently runs the given functions in parallel goroutines,
+// each guarded with GinkgoRecover so that gomega assertions propagate failures
+// back to the calling Ginkgo node.
+func updateAndRestartConcurrently(fns ...func()) {
+	var wg sync.WaitGroup
+	wg.Add(len(fns))
+	for _, fn := range fns {
+		go func() {
+			defer ginkgo.GinkgoRecover()
+			defer wg.Done()
+			fn()
+		}()
+	}
+	wg.Wait()
+}
 
 var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 	var (
@@ -94,7 +111,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 
 		multiKueueAc = utiltestingapi.MakeAdmissionCheck("ac1").
 			ControllerName(kueue.MultiKueueControllerName).
-			Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", multiKueueConfig.Name).
+			Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", multiKueueConfig.Name).
 			Obj()
 		util.CreateAdmissionChecksAndWaitForActive(ctx, k8sManagerClient, multiKueueAc)
 
@@ -207,7 +224,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sWorker2Client, worker2Ns)
 	})
 
-	ginkgo.Describe("Incremental mode", ginkgo.Label(shard0), ginkgo.Ordered, func() {
+	ginkgo.Describe("Incremental mode", ginkgo.Label(util.Shard0), ginkgo.Ordered, func() {
 		var defaultManagerKueueCfg *kueueconfig.Configuration
 
 		ginkgo.BeforeAll(func() {
@@ -297,7 +314,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 		})
 	})
 
-	ginkgo.Describe("The connection to a worker cluster is unreliable", ginkgo.Label(shard1), func() {
+	ginkgo.Describe("The connection to a worker cluster is unreliable", ginkgo.Label(util.Shard1), func() {
 		ginkgo.It("Should update the cluster status to reflect the connection state", func() {
 			worker1Cq2 := utiltestingapi.MakeClusterQueue("q2").
 				ResourceGroup(
@@ -368,7 +385,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 		})
 	})
 
-	ginkgo.Describe("Connection via ClusterProfile no plugins", ginkgo.Label(shard0), ginkgo.Ordered, func() {
+	ginkgo.Describe("Connection via ClusterProfile no plugins", ginkgo.Label(util.Shard0), ginkgo.Ordered, func() {
 		var (
 			workerCluster3         *kueue.MultiKueueCluster
 			defaultManagerKueueCfg *kueueconfig.Configuration
@@ -458,7 +475,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 							Type:    kueue.MultiKueueClusterActive,
 							Status:  metav1.ConditionFalse,
 							Reason:  "BadClusterProfile",
-							Message: "load client config failed: no credentials provider configured",
+							Message: "load client config failed: no access provider configured",
 						},
 						util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
@@ -466,12 +483,17 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 		})
 	})
 
-	ginkgo.Describe("Connection via ClusterProfile with plugins", ginkgo.Label(shard0), ginkgo.Ordered, func() {
+	ginkgo.Describe("Connection via ClusterProfile with plugins", ginkgo.Label(util.Shard0), ginkgo.Ordered, func() {
 		const (
-			secretReaderPath    = "/plugins/secretreader-plugin"
 			volumeName          = "plugins"
 			volumeMountPath     = "/plugins"
 			pluginContainerName = "secretreader-plugin-init"
+			// secretReaderPath is the plugin executable path inside the shared volume. Both the
+			// official and self-built images ship the binary at /bin/secretreader-plugin, so when
+			// the image is mounted as an image volume at /plugins (k8s >= 1.35) the binary is at
+			// /plugins/bin/secretreader-plugin; the init-container fallback copies it to the same
+			// path, keeping the exec command independent of the k8s version.
+			secretReaderPath = "/plugins/bin/secretreader-plugin"
 		)
 		var (
 			defaultManagerKueueCfg  *kueueconfig.Configuration
@@ -479,12 +501,21 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 			secretReaderRole        *rbacv1.Role
 
 			defaultManagerDeployment = &appsv1.Deployment{}
-			clusterProfileSecrets    = make([]*corev1.Secret, 0)
-			clusterProfiles          = make([]*inventoryv1alpha1.ClusterProfile, 0)
+			clusterProfileSecrets    []*corev1.Secret
+			clusterProfiles          []*inventoryv1alpha1.ClusterProfile
 			deploymentKey            = types.NamespacedName{Namespace: kueueNS, Name: "kueue-controller-manager"}
 		)
 
 		ginkgo.BeforeAll(func() {
+			defaultManagerKueueCfg = util.GetKueueConfiguration(ctx, k8sManagerClient)
+
+			// Image volumes are Beta and enabled by default from k8s 1.35, so the official secretreader
+			// image can be mounted directly. On older versions we keep the init container that copies the
+			// binary from the self-built image, because the official image does not ship a "cp" command.
+			serverVersion, err := versionutil.ParseGeneric(util.GetKubernetesVersion(managerCfg))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			useImageVolume := serverVersion.AtLeast(versionutil.MustParseGeneric("v1.35.0"))
+
 			ginkgo.By("Creating Role and RoleBinding for secretreader-plugin", func() {
 				secretReaderRole = utiltesting.MakeRole("secretreader", kueueNS).
 					Rule([]string{""}, []string{"secrets"}, []string{"get", "list", "watch"}).
@@ -516,14 +547,12 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 						}
 					}
 
-					kubeVer := util.GetKubernetesVersion(managerCfg)
-					if version.CompareKubeAwareVersionStrings(kubeVer, versionutil.MustParseGeneric("v1.35.0").String()) >= 0 {
+					if useImageVolume {
 						updatedDeployment.Spec.Template.Spec.Volumes = append(
 							updatedDeployment.Spec.Template.Spec.Volumes,
 							corev1.Volume{
 								Name: volumeName,
 								VolumeSource: corev1.VolumeSource{
-									EmptyDir: &corev1.EmptyDirVolumeSource{},
 									Image: &corev1.ImageVolumeSource{
 										Reference:  util.GetClusterProfilePluginImage(),
 										PullPolicy: corev1.PullIfNotPresent,
@@ -537,7 +566,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 								Name(pluginContainerName).
 								Image(util.GetClusterProfilePluginImage()).
 								ImagePullPolicy(corev1.PullIfNotPresent).
-								Command("cp", "/secretreader-plugin", secretReaderPath).
+								Command("sh", "-c", fmt.Sprintf("mkdir -p %s/bin && cp /bin/secretreader-plugin %s", volumeMountPath, secretReaderPath)).
 								VolumeMount(volumeName, volumeMountPath).
 								Obj(),
 						}
@@ -553,32 +582,20 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 					}
 					g.Expect(k8sManagerClient.Update(ctx, updatedDeployment)).Should(gomega.Succeed())
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
-				// We will wait for Kueue after setting the configuration
-			})
-
-			ginkgo.By("Updating MultiKueue configuration with CredentialsProviders", func() {
-				defaultManagerKueueCfg = util.GetKueueConfiguration(ctx, k8sManagerClient)
-				util.UpdateKueueConfigurationAndRestart(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName, func(cfg *kueueconfig.Configuration) {
-					cfg.FeatureGates[string(features.MultiKueueClusterProfile)] = true
-					if cfg.MultiKueue == nil {
-						cfg.MultiKueue = &kueueconfig.MultiKueue{}
-					}
-					cfg.MultiKueue.ClusterProfile = &kueueconfig.ClusterProfile{
-						CredentialsProviders: []kueueconfig.ClusterProfileCredentialsProvider{
-							{
-								Name: "secretreader",
-								ExecConfig: api.ExecConfig{
-									APIVersion:         "client.authentication.k8s.io/v1",
-									Command:            secretReaderPath,
-									ProvideClusterInfo: true,
-									InteractiveMode:    api.NeverExecInteractiveMode,
-								},
-							},
-						},
-					}
-				})
 			})
 		})
+		ginkgo.AfterEach(func() {
+			for _, s := range clusterProfileSecrets {
+				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, s, true, util.Timeout)
+			}
+			clusterProfileSecrets = nil
+
+			for _, c := range clusterProfiles {
+				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, c, true, util.Timeout)
+			}
+			clusterProfiles = nil
+		})
+
 		ginkgo.AfterAll(func() {
 			ginkgo.By("setting back the configuration", func() {
 				// Just update Kueue configuration. We will restart Kueue later.
@@ -597,19 +614,33 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 				util.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sManagerClient)
 			})
 
-			for _, s := range clusterProfileSecrets {
-				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, s, true, util.Timeout)
-			}
-
-			for _, c := range clusterProfiles {
-				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, c, true, util.Timeout)
-			}
-
 			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, secretReaderRoleBinding, true, util.MediumTimeout)
 			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, secretReaderRole, true, util.MediumTimeout)
 		})
 
 		ginkgo.It("Should be able to use ClusterProfile as way to connect worker cluster", func() {
+			ginkgo.By("Updating MultiKueue configuration with AccessProviders", func() {
+				clusterProfileAccessProvider := kueueconfig.ClusterProfileAccessProvider{
+					Name: "secretreader",
+					ExecConfig: api.ExecConfig{
+						APIVersion:         "client.authentication.k8s.io/v1",
+						Command:            secretReaderPath,
+						ProvideClusterInfo: true,
+						InteractiveMode:    api.NeverExecInteractiveMode,
+					},
+				}
+
+				util.UpdateKueueConfigurationAndRestart(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName, func(cfg *kueueconfig.Configuration) {
+					cfg.FeatureGates[string(features.MultiKueueClusterProfile)] = true
+					if cfg.MultiKueue == nil {
+						cfg.MultiKueue = &kueueconfig.MultiKueue{}
+					}
+					cfg.MultiKueue.ClusterProfile = &kueueconfig.ClusterProfile{
+						AccessProviders: []kueueconfig.ClusterProfileAccessProvider{clusterProfileAccessProvider},
+					}
+				})
+			})
+
 			ginkgo.By("creating secrets with tokens to read from", func() {
 				worker1AuthInfo := util.GetAuthInfoFromKubeConfig(worker1KConfig)
 				worker2AuthInfo := util.GetAuthInfoFromKubeConfig(worker2KConfig)
@@ -697,7 +728,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 		})
 	})
 
-	ginkgo.Describe("MultiKueueOrchestratedPreemption is enabled", ginkgo.Label(shard1), ginkgo.Ordered, func() {
+	ginkgo.Describe("MultiKueueOrchestratedPreemption is enabled", ginkgo.Label(util.Shard1), ginkgo.Ordered, func() {
 		var defaultManagerKueueCfg, defaultWorker1KueueCfg, defaultWorker2KueueCfg *kueueconfig.Configuration
 
 		ginkgo.BeforeAll(func() {
@@ -710,16 +741,34 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 					cfg.FeatureGates[string(features.MultiKueueOrchestratedPreemption)] = true
 				}
 
+				// Restart the manager first: its new leader needs time to
+				// re-establish the MultiKueue remote clients, and a workload
+				// reconciled before any cluster is connected is not requeued
+				// when the clusters connect. The worker restarts below provide
+				// that warm-up window.
 				util.UpdateKueueConfigurationAndRestart(ctx, k8sManagerClient, defaultManagerKueueCfg.DeepCopy(), managerClusterName, updateCfg)
-				util.UpdateKueueConfigurationAndRestart(ctx, k8sWorker1Client, defaultWorker1KueueCfg.DeepCopy(), worker1ClusterName, updateCfg)
-				util.UpdateKueueConfigurationAndRestart(ctx, k8sWorker2Client, defaultWorker2KueueCfg.DeepCopy(), worker2ClusterName, updateCfg)
+				updateAndRestartConcurrently(
+					func() {
+						util.UpdateKueueConfigurationAndRestart(ctx, k8sWorker1Client, defaultWorker1KueueCfg.DeepCopy(), worker1ClusterName, updateCfg)
+					},
+					func() {
+						util.UpdateKueueConfigurationAndRestart(ctx, k8sWorker2Client, defaultWorker2KueueCfg.DeepCopy(), worker2ClusterName, updateCfg)
+					},
+				)
 			})
 		})
 		ginkgo.AfterAll(func() {
 			ginkgo.By("reverting the configuration", func() {
+				// Manager first, for the same reason as in BeforeAll.
 				util.UpdateKueueConfigurationAndRestart(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName)
-				util.UpdateKueueConfigurationAndRestart(ctx, k8sWorker1Client, defaultWorker1KueueCfg, worker1ClusterName)
-				util.UpdateKueueConfigurationAndRestart(ctx, k8sWorker2Client, defaultWorker2KueueCfg, worker2ClusterName)
+				updateAndRestartConcurrently(
+					func() {
+						util.UpdateKueueConfigurationAndRestart(ctx, k8sWorker1Client, defaultWorker1KueueCfg, worker1ClusterName)
+					},
+					func() {
+						util.UpdateKueueConfigurationAndRestart(ctx, k8sWorker2Client, defaultWorker2KueueCfg, worker2ClusterName)
+					},
+				)
 			})
 		})
 
@@ -849,12 +898,12 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 
 					g.Expect(k8sManagerClient.Get(ctx, unaffectedWlKey, unaffectedWl)).To(gomega.Succeed())
 					g.Expect(unaffectedWl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
-					g.Expect(workload.IsEvicted(unaffectedWl)).To(gomega.BeFalse())
+					g.Expect(workloadevict.IsEvicted(unaffectedWl)).To(gomega.BeFalse())
 
 					g.Expect(unaffectedWorkerClient.Get(ctx, unaffectedWlKey, unaffectedWl)).To(gomega.Succeed())
 					g.Expect(unaffectedWl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
-					g.Expect(workload.IsEvicted(unaffectedWl)).To(gomega.BeFalse())
-				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+					g.Expect(workloadevict.IsEvicted(unaffectedWl)).To(gomega.BeFalse())
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking the evicted workload was requeued successfully", func() {

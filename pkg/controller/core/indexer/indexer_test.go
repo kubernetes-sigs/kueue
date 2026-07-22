@@ -271,7 +271,7 @@ func TestIndexWorkloadClusterQueue(t *testing.T) {
 	}
 }
 
-func TestIndexLimitRangeHasContainerType(t *testing.T) {
+func TestIndexLimitRangeHasContainerOrPodType(t *testing.T) {
 	cases := map[string]struct {
 		obj  client.Object
 		want []string
@@ -286,7 +286,7 @@ func TestIndexLimitRangeHasContainerType(t *testing.T) {
 		},
 		"LimitRange with only Pod type returns nil": {
 			obj:  makeLimitRange("lr", "ns", corev1.LimitTypePod),
-			want: nil,
+			want: []string{"true"},
 		},
 		"LimitRange with Container type returns true": {
 			obj:  makeLimitRange("lr", "ns", corev1.LimitTypeContainer),
@@ -300,7 +300,7 @@ func TestIndexLimitRangeHasContainerType(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got := IndexLimitRangeHasContainerType(tc.obj)
+			got := IndexLimitRangeHasContainerOrPodType(tc.obj)
 			if diff := cmp.Diff(tc.want, got, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("mismatch (-want +got):\n%s", diff)
 			}

@@ -111,8 +111,4 @@ type CohortList struct {
 	Items           []Cohort `json:"items"`
 }
 
-func init() {
-	SchemeBuilder.Register(&Cohort{}, &CohortList{})
-}
-
 func (src *Cohort) Hub() {}

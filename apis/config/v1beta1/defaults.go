@@ -41,8 +41,8 @@ const (
 	DefaultLeaderElectionLeaseDuration            = 15 * time.Second
 	DefaultLeaderElectionRenewDeadline            = 10 * time.Second
 	DefaultLeaderElectionRetryPeriod              = 2 * time.Second
-	DefaultClientConnectionQPS            float32 = 20.0
-	DefaultClientConnectionBurst          int32   = 30
+	DefaultClientConnectionQPS            float32 = 300.0
+	DefaultClientConnectionBurst          int32   = 500
 	defaultPodsReadyTimeout                       = 5 * time.Minute
 	defaultJobFrameworkName                       = "batch/job"
 	DefaultMultiKueueGCInterval                   = time.Minute

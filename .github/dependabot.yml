@@ -45,16 +45,25 @@ updates:
   # Maintain Dockerfiles
   - package-ecosystem: "docker"
     directories:
+      - "/"
+      - "/cmd/importer"
+      - "/cmd/experimental/kueue-populator"
+      - "/cmd/experimental/kueue-priority-booster"
+      - "/cmd/kueueviz/backend"
       - "/cmd/kueueviz/frontend"
+      - "/hack/debugpod"
       - "/hack/releasing/krew-release-bot"
       - "/hack/testing/agnhost"
       - "/hack/testing/cypress"
-      - "/hack/testing/linkchecker"
       - "/hack/testing/depcheck"
+      - "/hack/testing/linkchecker"
       - "/hack/testing/ray"
       - "/hack/testing/ray-mini"
+      - "/hack/testing/redis"
       - "/hack/testing/secretreader"
       - "/hack/testing/shellcheck"
+      - "/hack/testing/skillsaw"
+      - "/hack/testing/spark"
     schedule:
       interval: "weekly"
     labels:

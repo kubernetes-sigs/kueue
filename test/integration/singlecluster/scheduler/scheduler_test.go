@@ -842,7 +842,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			queue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
 			util.MustCreate(ctx, k8sClient, queue)
 
-			fakeSubResourcePatchSpec = func(obj client.Object) (fakeClientUsage, error) {
+			setFakeSubResourcePatchSpec(func(obj client.Object) (fakeClientUsage, error) {
 				wl, ok := obj.(*kueue.Workload)
 				if !ok {
 					return fallThrough, nil
@@ -852,12 +852,12 @@ var _ = ginkgo.Describe("Scheduler", func() {
 					return emitResponse, errors.New("simulated admission patch failure")
 				}
 				return fallThrough, nil
-			}
+			})
 		})
 
 		ginkgo.AfterEach(func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-			fakeSubResourcePatchSpec = nil
+			setFakeSubResourcePatchSpec(nil)
 		})
 
 		ginkgo.It("Should not reserve quota", func() {
@@ -2133,7 +2133,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 		ginkgo.It("Should not admit new created workloads", func() {
 			ginkgo.By("Create clusterQueue")
-			cq = utiltestingapi.MakeClusterQueue("cluster-queue").Obj()
+			cq = utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj()).Obj()
 			util.MustCreate(ctx, k8sClient, cq)
 			queue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
 			util.MustCreate(ctx, k8sClient, queue)
@@ -2255,6 +2256,185 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			),
 			ginkgo.Entry("valid", testParams{reqCPU: "2", limitCPU: "3", minCPU: "1", maxCPU: "4", shouldBeAdmitted: true}),
 		)
+	})
+
+	ginkgo.When("The workload's podSet pod-level resource requests are not valid", func() {
+		var (
+			cq    *kueue.ClusterQueue
+			queue *kueue.LocalQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			cq = utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
+				).
+				Obj()
+			util.MustCreate(ctx, k8sClient, cq)
+			queue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+			util.MustCreate(ctx, k8sClient, queue)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		})
+
+		expectQuotaReservedConditionMessage := func(wl *kueue.Workload, wantedStatus string) {
+			ginkgo.GinkgoHelper()
+			gomega.Eventually(func(g gomega.Gomega) {
+				rwl := kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &rwl)).Should(gomega.Succeed())
+				cond := meta.FindStatusCondition(rwl.Status.Conditions, kueue.WorkloadQuotaReserved)
+				g.Expect(cond).ShouldNot(gomega.BeNil())
+				g.Expect(cond.Message).Should(gomega.ContainSubstring(wantedStatus))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}
+
+		ginkgo.It("blocks workloads when pod-level requests exceed pod-level limits", func() {
+			wl := utiltestingapi.MakeWorkload("pod-request-over-limit", ns.Name).
+				Queue(kueue.LocalQueueName(queue.Name)).
+				PodSets(
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "1").
+						Limit(corev1.ResourceCPU, "2").
+						PodLevelRequest(corev1.ResourceCPU, "3").
+						PodLevelLimit(corev1.ResourceCPU, "2").
+						Obj(),
+				).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+			expectQuotaReservedConditionMessage(wl, "resources validation failed:")
+		})
+
+		ginkgo.It("blocks workloads when pod-level requests exceed the pod LimitRange max", func() {
+			lr := utiltesting.MakeLimitRange("pod-max-limit", ns.Name).
+				WithType(corev1.LimitTypePod).
+				WithValue("Max", corev1.ResourceCPU, "1").
+				Obj()
+			util.MustCreate(ctx, k8sClient, lr)
+
+			wl := utiltestingapi.MakeWorkload("pod-request-over-max", ns.Name).
+				Queue(kueue.LocalQueueName(queue.Name)).
+				PodSets(
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "500m").
+						Limit(corev1.ResourceCPU, "500m").
+						PodLevelRequest(corev1.ResourceCPU, "2").
+						PodLevelLimit(corev1.ResourceCPU, "3").
+						Obj(),
+				).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+			expectQuotaReservedConditionMessage(wl, "resources didn't satisfy LimitRange constraints:")
+		})
+
+		ginkgo.It("blocks workloads when pod-level requests are below the pod LimitRange min", func() {
+			lr := utiltesting.MakeLimitRange("pod-min-limit", ns.Name).
+				WithType(corev1.LimitTypePod).
+				WithValue("Min", corev1.ResourceCPU, "3").
+				Obj()
+			util.MustCreate(ctx, k8sClient, lr)
+
+			wl := utiltestingapi.MakeWorkload("pod-request-under-min", ns.Name).
+				Queue(kueue.LocalQueueName(queue.Name)).
+				PodSets(
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "500m").
+						Limit(corev1.ResourceCPU, "500m").
+						PodLevelRequest(corev1.ResourceCPU, "2").
+						PodLevelLimit(corev1.ResourceCPU, "3").
+						Obj(),
+				).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+			expectQuotaReservedConditionMessage(wl, "resources didn't satisfy LimitRange constraints:")
+		})
+
+		ginkgo.It("admits workloads when pod-level resources satisfy the pod LimitRange", func() {
+			lr := utiltesting.MakeLimitRange("pod-resource-range", ns.Name).
+				WithType(corev1.LimitTypePod).
+				WithValue("Min", corev1.ResourceCPU, "1").
+				WithValue("Max", corev1.ResourceCPU, "4").
+				Obj()
+			util.MustCreate(ctx, k8sClient, lr)
+			wl := utiltestingapi.MakeWorkload("valid-pod-resources", ns.Name).
+				Queue(kueue.LocalQueueName(queue.Name)).
+				PodSets(
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "500m").
+						Limit(corev1.ResourceCPU, "500m").
+						PodLevelRequest(corev1.ResourceCPU, "2").
+						PodLevelLimit(corev1.ResourceCPU, "3").
+						Obj(),
+				).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, wl)
+		})
+	})
+
+	ginkgo.When("Pod-level resources are counted against ClusterQueue quota", func() {
+		var (
+			cq    *kueue.ClusterQueue
+			queue *kueue.LocalQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			cq = utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "3").Obj(),
+				).
+				Obj()
+			util.MustCreate(ctx, k8sClient, cq)
+			queue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+			util.MustCreate(ctx, k8sClient, queue)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		})
+		// Each workload has container-level req=500m (both would fit in 3 CPU if the
+		// scheduler used container values) and pod-level req=2 CPU (only one fits in 3
+		// CPU). The test verifies the scheduler accounts for the pod-level value.
+		ginkgo.It("Should block a second workload when pod-level requests exhaust quota", func() {
+			ginkgo.By("creating the first workload with pod-level CPU request of 2")
+			wl1 := utiltestingapi.MakeWorkload("wl1", ns.Name).
+				Queue(kueue.LocalQueueName(queue.Name)).
+				PodSets(
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "500m").
+						Limit(corev1.ResourceCPU, "500m").
+						PodLevelRequest(corev1.ResourceCPU, "2").
+						PodLevelLimit(corev1.ResourceCPU, "2").
+						Obj(),
+				).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl1)
+
+			ginkgo.By("verifying the first workload is admitted")
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, wl1)
+
+			ginkgo.By("creating the second workload with the same pod-level CPU request")
+			wl2 := utiltestingapi.MakeWorkload("wl2", ns.Name).
+				Queue(kueue.LocalQueueName(queue.Name)).
+				PodSets(
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "500m").
+						Limit(corev1.ResourceCPU, "500m").
+						PodLevelRequest(corev1.ResourceCPU, "2").
+						PodLevelLimit(corev1.ResourceCPU, "2").
+						Obj(),
+				).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl2)
+
+			ginkgo.By("verifying the second workload is pending due to insufficient quota")
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
+			util.ExpectPendingWorkloadsMetric(cq, 0, 1)
+			util.ExpectAdmittedWorkloadsTotalMetric(cq, "", 1)
+		})
 	})
 
 	ginkgo.When("Using clusterQueue stop policy", func() {
@@ -3254,6 +3434,183 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl3), createdWl)).Should(gomega.Succeed())
 				g.Expect(workload.IsAdmitted(createdWl)).Should(gomega.BeFalse())
 			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.When("The admission goroutine races with preemptions in the next scheduling cycle", func() {
+		// This deterministically reproduces a race condition in the scheduler, where the asynchronous
+		// admission goroutine does not finish before the next scheduling cycle starts.
+		// See: https://github.com/kubernetes-sigs/kueue/issues/11480
+		//
+		// The exact order of events that this is testing is as follows:
+		// 1. wl1 is created.
+		// 2. schedulingCycle 1 begins.
+		// 3. wl1 is admitted in the scheduling cycle and assumed in the cache.
+		// 4. admissionRoutine for wl1 starts, signals `admissionPatchStarted` and waits for `allowAdmissionPatch`.
+		// 5. wl2 is created after `admissionPatchStarted`.
+		// 6. schedulingCycle 2 begins.
+		// 7. wl2 evicts wl1 - issues a patch to the API server to set the `Evicted` condition and sets `preemptionExpectations`.
+		// 8. schedulingCycle 2 hangs on `continueSchedulingAfterAdmissionPatch`.
+		// 9. wl1 now has the `Evicted` condition which unblocks `allowAdmissionPatch`.
+		// 10. admissionRoutine for wl1 issues a patch to the API server to set `Admitted` condition.
+		// 11. wl1 now does not have the `Evicted` condition (overwritten by patch in step 9).
+		// 12. admissionRoutine signals `continueSchedulingAfterAdmissionPatch`, allowing schedulingCycle 2 to continue.
+		// 13. schedulingCycle 2 finishes.
+		// 14. schedulingCycle 3 begins.
+		// 15. wl2 does nothing to wl1, as it's waiting on the unsatisfied `preemptionExpectations`.
+		// 16. schedulingCycle 4 begins.
+		// 17. wl2 does nothing to wl1, as it's waiting on the unsatisfied `preemptionExpectations`.
+		// 18. ...forever
+		//
+		// https://github.com/kubernetes-sigs/kueue/pull/11502 fixes this by adding step 10.2:
+		// 10.2. admissionRoutine for wl1 satisfies the `preemptionExpectations` after the patch,
+		// which allows wl2 to issue the eviction again in step 15.
+		//
+		// In natural language, this test forces an order of events, where the next scheduling cycle after
+		// wl2 evicts wl1 sees a state where the admissionRoutine has overwritten the eviction, i.e. we are still expecting
+		// an eviction to happen (`preemptionExpectations`), but we lost the `Evicted` condition.
+		// The fix in #11502 allows the scheduler to re-trigger eviction by clearing the `preemptionExpectation`.
+		var (
+			cq      *kueue.ClusterQueue
+			q       *kueue.LocalQueue
+			lowWPC  *kueue.WorkloadPriorityClass
+			highWPC *kueue.WorkloadPriorityClass
+		)
+
+		ginkgo.BeforeEach(func() {
+			lowWPC = utiltestingapi.MakeWorkloadPriorityClass("low-wpc").PriorityValue(-10).Obj()
+			gomega.Expect(k8sClient.Create(ctx, lowWPC)).To(gomega.Succeed())
+
+			highWPC = utiltestingapi.MakeWorkloadPriorityClass("high-wpc").PriorityValue(10).Obj()
+			gomega.Expect(k8sClient.Create(ctx, highWPC)).To(gomega.Succeed())
+
+			cq = utiltestingapi.MakeClusterQueue("cq-race").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "1").Obj()).
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+				}).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
+
+			q = utiltestingapi.MakeLocalQueue("q-race", ns.Name).ClusterQueue(cq.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, q)).To(gomega.Succeed())
+
+			ginkgo.By("Waiting for cluster queue to become active")
+			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
+		})
+
+		ginkgo.AfterEach(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, lowWPC, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, highWPC, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, q, true)
+		})
+
+		ginkgo.It("Should not deadlock the preempting workloads", func() {
+			admissionPatchStarted := make(chan struct{}, 1)
+			allowAdmissionPatch := make(chan struct{})
+			admissionPatchReleased := false
+			continueSchedulingAfterAdmissionPatch := make(chan struct{})
+			schedulingReleased := false
+
+			var admissionPatchCount atomic.Int32
+
+			wl1 := utiltestingapi.MakeWorkload("wl1", ns.Name).
+				Queue(kueue.LocalQueueName(q.Name)).
+				WorkloadPriorityClassRef(lowWPC.Name).
+				Priority(-10).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+			wl2 := utiltestingapi.MakeWorkload("wl2", ns.Name).
+				Queue(kueue.LocalQueueName(q.Name)).
+				WorkloadPriorityClassRef(highWPC.Name).
+				Priority(10).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+
+			setFakeSubResourcePatchSpec(func(obj client.Object) (fakeClientUsage, error) {
+				wl, ok := obj.(*kueue.Workload)
+				if !ok {
+					return fallThrough, nil
+				}
+
+				// Intercept wl1 admission patch
+				if wl.Name == wl1.Name && meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadQuotaReserved) && !meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
+					if admissionPatchCount.Add(1) == 1 {
+						admissionPatchStarted <- struct{}{}
+					}
+					<-allowAdmissionPatch
+					return fallThrough, nil
+				}
+
+				return fallThrough, nil
+			})
+
+			setFakeSubResourcePatchResponseHookSpec(func(obj client.Object, err error) (fakeClientUsage, error) {
+				wl, ok := obj.(*kueue.Workload)
+				if !ok {
+					return fallThrough, nil
+				}
+				if wl.Name == wl1.Name && meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadQuotaReserved) && meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
+					// The first request evicting wl1 will set both the quota reservation and eviction, as this status is assumed in the cache.
+					// We wait here until the admission patch overwrites the eviction and only then continue with the next scheduling cycle.
+					<-continueSchedulingAfterAdmissionPatch
+					return fallThrough, nil
+				}
+				return fallThrough, nil
+			})
+
+			defer func() {
+				if !admissionPatchReleased {
+					close(allowAdmissionPatch)
+				}
+				if !schedulingReleased {
+					close(continueSchedulingAfterAdmissionPatch)
+				}
+			}()
+
+			ginkgo.By("Creating a low priority workload wl1")
+			gomega.Expect(k8sClient.Create(ctx, wl1)).To(gomega.Succeed())
+
+			ginkgo.By("Waiting for the async admission patch to start and get paused")
+			gomega.Eventually(admissionPatchStarted, util.Timeout, util.Interval).Should(gomega.Receive())
+
+			ginkgo.By("Creating a high priority workload wl2")
+			gomega.Expect(k8sClient.Create(ctx, wl2)).To(gomega.Succeed())
+
+			wl1Created := &kueue.Workload{}
+			ginkgo.By("Waiting for wl1 to be evicted")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1Created)).To(gomega.Succeed())
+				g.Expect(meta.IsStatusConditionTrue(wl1Created.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeTrue())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Unblocking wl1 admission patch to overwrite the simulated eviction")
+			admissionPatchReleased = true
+			close(allowAdmissionPatch)
+
+			ginkgo.By("Waiting for wl1 eviction to be overwritten")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1Created)).To(gomega.Succeed())
+				g.Expect(meta.IsStatusConditionTrue(wl1Created.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeFalse())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Unblocking the next scheduling cycle for wl2")
+			schedulingReleased = true
+			close(continueSchedulingAfterAdmissionPatch)
+
+			// When the race condition occurs, the test would most likely fail here.
+			// This is because the `Evicted` condition is overwritten by the previous patch
+			// and is never re-added because of the unsatisfied `preemptionExpectations` entry.
+			ginkgo.By("Simulating the job controller unsetting wl1's QuotaReserved after eviction")
+			util.FinishEvictionForWorkloads(ctx, k8sClient, wl1Created)
+
+			ginkgo.By("Verifying wl2 eventually gets admitted")
+			gomega.Eventually(func(g gomega.Gomega) {
+				wl2Created := &kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), wl2Created)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(wl2Created)).To(gomega.BeTrue())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })

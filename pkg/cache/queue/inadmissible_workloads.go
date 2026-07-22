@@ -170,8 +170,8 @@ func queueInadmissibleWorkloads(ctx context.Context, c *ClusterQueue, client cli
 	defer c.rwm.Unlock()
 	log := ctrl.LoggerFrom(ctx)
 	c.queueInadmissibleCycle = c.popCycle
-	// Clear NoFit scheduling hashes so re-queued workloads are re-evaluated fresh.
-	c.noFitSchedulingHashes = sets.New[string]()
+	// Clear bulk-move scheduling hashes so re-queued workloads are re-evaluated fresh.
+	c.hashToBulkMoveReason = make(map[workload.EquivalenceHash]QuotaReservedReason)
 	if c.inadmissibleWorkloads.empty() {
 		return 0
 	}

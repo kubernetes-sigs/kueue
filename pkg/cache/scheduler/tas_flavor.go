@@ -17,15 +17,16 @@ limitations under the License.
 package scheduler
 
 import (
+	"context"
 	"slices"
 	"sync"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
@@ -90,17 +91,25 @@ type TASFlavorCache struct {
 	// nonTasUsageCache maintains the usage coming from non-TAS pods,
 	// e.g. static Pods or DaemonSet pods.
 	nonTasUsageCache *nonTasUsageCache
+
+	// schedulingSimulator performs the node feasibility check
+	// based on topology requirements.
+	schedulingSimulator simulator.SchedulingSimulator
+
+	resourceFormatter *resources.ResourceFormatter
 }
 
 func (t *tasCache) NewTASFlavorCache(topologyInfo topologyInformation,
 	flavorInfo flavorInformation) *TASFlavorCache {
 	return &TASFlavorCache{
-		client:           t.client,
-		topology:         topologyInfo,
-		flavor:           flavorInfo,
-		usage:            make(map[utiltas.TopologyDomainID]resources.Requests),
-		wlUsage:          make(map[workload.Reference][]workload.TopologyDomainRequests),
-		nonTasUsageCache: t.nonTasUsageCache,
+		client:              t.client,
+		topology:            topologyInfo,
+		flavor:              flavorInfo,
+		usage:               make(map[utiltas.TopologyDomainID]resources.Requests),
+		wlUsage:             make(map[workload.Reference][]workload.TopologyDomainRequests),
+		nonTasUsageCache:    t.nonTasUsageCache,
+		schedulingSimulator: t.schedulingSimulator,
+		resourceFormatter:   t.resourceFormatter,
 	}
 }
 
@@ -117,8 +126,8 @@ func (c *TASFlavorCache) TopologyLevels() []string {
 }
 
 func (c *TASFlavorCache) snapshot(
-	log logr.Logger, nodes []*nodeInfo, aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests,
-) *TASFlavorSnapshot {
+	ctx context.Context, log logr.Logger, nodes []*corev1.Node, aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests,
+) (*TASFlavorSnapshot, error) {
 	c.RLock()
 	defer c.RUnlock()
 
@@ -132,7 +141,13 @@ func (c *TASFlavorCache) snapshot(
 	}
 	log.V(3).Info("Constructing TAS snapshot", infoKV...)
 
-	snapshot := newTASFlavorSnapshot(log, c.flavor.TopologyName, c.topology.Levels, c.flavor.Tolerations)
+	feasibilityChecker, err := c.schedulingSimulator.NewFeasibilityChecker(ctx, nodes)
+	if err != nil {
+		return nil, err
+	}
+
+	snapshot := newTASFlavorSnapshot(log, c.flavor.TopologyName, c.topology.Levels, c.flavor.Tolerations, feasibilityChecker, withResourceFormatter(c.resourceFormatter))
+
 	nodeToDomain := make(map[string]utiltas.TopologyDomainID)
 	for _, node := range nodes {
 		nodeToDomain[node.Name] = snapshot.addNode(node)
@@ -146,22 +161,27 @@ func (c *TASFlavorCache) snapshot(
 	for domainID, usage := range tasDomainUsages {
 		snapshot.addTASUsage(domainID, usage)
 	}
-	for nodeName, usage := range c.nonTasUsageCache.usagePerNode() {
+	c.nonTasUsageCache.forEachNodeUsage(func(nodeName string, usage resources.Requests) {
 		if domainID, ok := nodeToDomain[nodeName]; ok {
 			snapshot.addNonTASUsage(domainID, usage)
 		}
-	}
-	return snapshot
+	})
+	return snapshot, nil
 }
 
-func (c *TASFlavorCache) addUsage(key workload.Reference, topologyRequests []workload.TopologyDomainRequests) {
+func (c *TASFlavorCache) addUsage(log logr.Logger, key workload.Reference, topologyRequests []workload.TopologyDomainRequests) {
+	if _, found := c.wlUsage[key]; found {
+		log.V(2).Info("Workload usage already exists in TAS flavor cache, self-healing by replacing it", "workload", key)
+		c.removeUsage(log, key)
+	}
 	c.wlUsage[key] = slices.Clone(topologyRequests)
 	c.updateUsage(topologyRequests, add)
 }
 
-func (c *TASFlavorCache) removeUsage(key workload.Reference) {
+func (c *TASFlavorCache) removeUsage(log logr.Logger, key workload.Reference) {
 	value, found := c.wlUsage[key]
 	if !found {
+		log.V(2).Info("Workload usage not found during removal from TAS flavor cache", "workload", key)
 		return
 	}
 	c.updateUsage(value, subtract)
@@ -175,52 +195,14 @@ func (c *TASFlavorCache) updateUsage(topologyRequests []workload.TopologyDomainR
 		domainID := utiltas.DomainID(tr.Values)
 		_, found := c.usage[domainID]
 		if !found {
-			c.usage[domainID] = resources.Requests{}
+			c.usage[domainID] = resources.MapRequests{}
 		}
 		if op == subtract {
 			c.usage[domainID].Sub(tr.TotalRequests())
-			c.usage[domainID].Sub(resources.Requests{corev1.ResourcePods: int64(tr.Count)})
+			c.usage[domainID].Sub(resources.MapRequests{corev1.ResourcePods: int64(tr.Count)})
 		} else {
 			c.usage[domainID].Add(tr.TotalRequests())
-			c.usage[domainID].Add(resources.Requests{corev1.ResourcePods: int64(tr.Count)})
+			c.usage[domainID].Add(resources.MapRequests{corev1.ResourcePods: int64(tr.Count)})
 		}
-	}
-}
-
-type nodeInfo struct {
-	// Name holds the node's name, used to evaluate node affinity.
-	Name string
-
-	// Labels are used to match Topology levels and NodeSelectors.
-	Labels map[string]string
-
-	// Taints are used to check tolerations.
-	Taints []corev1.Taint
-
-	// Allocatable capacity from Status.Allocatable.
-	Allocatable corev1.ResourceList
-}
-
-func newNodeInfo(node *corev1.Node) *nodeInfo {
-	return &nodeInfo{
-		Name:        node.Name,
-		Labels:      node.Labels,
-		Taints:      node.Spec.Taints,
-		Allocatable: node.Status.Allocatable,
-	}
-}
-
-func (ni *nodeInfo) toNode() *corev1.Node {
-	return &corev1.Node{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:   ni.Name,
-			Labels: ni.Labels,
-		},
-		Spec: corev1.NodeSpec{
-			Taints: ni.Taints,
-		},
-		Status: corev1.NodeStatus{
-			Allocatable: ni.Allocatable,
-		},
 	}
 }

@@ -19,11 +19,16 @@ package raycluster
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 
+	"github.com/go-logr/logr"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -36,6 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	utilpodset "sigs.k8s.io/kueue/pkg/util/podset"
+	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -51,8 +57,23 @@ const (
 	RayClusterGenerationAnnotation = "kueue.x-k8s.io/raycluster-generation"
 )
 
-// BuildPodSets builds PodSets from RayClusterSpec
-func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec) ([]kueue.PodSet, error) {
+// effectiveWorkerCount returns the effective worker pod count for a worker
+// group: Replicas scaled by NumOfHosts, with Replicas defaulting to 1 when
+// unset. BuildPodSets, UpdatePodSets, and the MultiKueue elastic replica sync
+// all call this so the per-group count derivation stays in one place.
+func effectiveWorkerCount(wgs *rayv1.WorkerGroupSpec) int32 {
+	count := int32(1)
+	if wgs.Replicas != nil {
+		count = *wgs.Replicas
+	}
+	if wgs.NumOfHosts > 1 {
+		count *= wgs.NumOfHosts
+	}
+	return count
+}
+
+// BuildPodSets builds PodSets from RayClusterSpec.
+func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec, annotations map[string]string) ([]kueue.PodSet, error) {
 	podSets := make([]kueue.PodSet, 0)
 
 	// head
@@ -69,22 +90,29 @@ func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec) ([]kueue.PodSet, error) 
 		}
 		headPodSet.TopologyRequest = topologyRequest
 	}
+	if shouldAccountForRedisCleanup(rayClusterSpec, annotations) {
+		if err := accountForRedisCleanupInHeadPodSet(&headPodSet); err != nil {
+			return nil, err
+		}
+	}
+	// When in-tree autoscaling is enabled, KubeRay injects an autoscaler sidecar
+	// container into the head Pod. It is added at Pod-build time and is not part
+	// of HeadGroupSpec.Template, so account for it here to keep quota accurate.
+	if ptr.Deref(rayClusterSpec.EnableInTreeAutoscaling, false) {
+		headPodSet.Template.Spec.Containers = append(
+			headPodSet.Template.Spec.Containers,
+			autoscalerContainer(rayClusterSpec.AutoscalerOptions),
+		)
+	}
 	podSets = append(podSets, headPodSet)
 
 	// workers
 	for index := range rayClusterSpec.WorkerGroupSpecs {
 		wgs := &rayClusterSpec.WorkerGroupSpecs[index]
-		count := int32(1)
-		if wgs.Replicas != nil {
-			count = *wgs.Replicas
-		}
-		if wgs.NumOfHosts > 1 {
-			count *= wgs.NumOfHosts
-		}
 		workerPodSet := kueue.PodSet{
 			Name:     kueue.NewPodSetReference(wgs.GroupName),
 			Template: *wgs.Template.DeepCopy(),
-			Count:    count,
+			Count:    effectiveWorkerCount(wgs),
 		}
 		if features.Enabled(features.TopologyAwareScheduling) {
 			topologyRequest, err := jobframework.NewPodSetTopologyRequest(&wgs.Template.ObjectMeta).Build()
@@ -97,6 +125,67 @@ func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec) ([]kueue.PodSet, error) 
 	}
 
 	return podSets, nil
+}
+
+func accountForRedisCleanupInHeadPodSet(headPodSet *kueue.PodSet) error {
+	if len(headPodSet.Template.Spec.Containers) <= rayutils.RayContainerIndex {
+		return errors.New("cannot account for Redis cleanup resources: head pod template must include the Ray container")
+	}
+
+	headContainer := &headPodSet.Template.Spec.Containers[rayutils.RayContainerIndex]
+	headContainer.Resources.Requests = utilresource.MergeResourceListKeepMax(headContainer.Resources.Requests, redisCleanupResourceRequests())
+	return nil
+}
+
+func redisCleanupResourceRequests() corev1.ResourceList {
+	// KubeRay hardcodes the Redis cleanup Job CPU and memory requests/limits:
+	// https://github.com/ray-project/kuberay/blob/24442570686d81b9e056315bd08df689887a0d8c/ray-operator/controllers/ray/raycluster_controller.go#L1481
+	return corev1.ResourceList{
+		corev1.ResourceCPU:    resource.MustParse("200m"),
+		corev1.ResourceMemory: resource.MustParse("256Mi"),
+	}
+}
+
+func shouldAccountForRedisCleanup(rayClusterSpec *rayv1.RayClusterSpec, annotations map[string]string) bool {
+	return rayutils.IsGCSFaultToleranceEnabled(rayClusterSpec, annotations)
+}
+
+// autoscalerContainerName is the name KubeRay gives the autoscaler sidecar.
+const autoscalerContainerName = "autoscaler"
+
+// defaultAutoscalerResources mirrors the resources KubeRay assigns to the Ray
+// autoscaler sidecar container when AutoscalerOptions.Resources is not set
+// (ray-operator/controllers/ray/common/pod.go: BuildAutoscalerContainer).
+func defaultAutoscalerResources() corev1.ResourceRequirements {
+	return corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("500m"),
+			corev1.ResourceMemory: resource.MustParse("512Mi"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("500m"),
+			corev1.ResourceMemory: resource.MustParse("512Mi"),
+		},
+	}
+}
+
+// autoscalerContainer returns a container mirroring the Ray autoscaler sidecar
+// that KubeRay injects into the head Pod when in-tree autoscaling is enabled.
+// It uses AutoscalerOptions.Resources when provided, otherwise KubeRay's
+// defaults, matching how KubeRay builds the actual container.
+func autoscalerContainer(opts *rayv1.AutoscalerOptions) corev1.Container {
+	resources := defaultAutoscalerResources()
+	if opts != nil && opts.Resources != nil {
+		resources = *opts.Resources.DeepCopy()
+	}
+	return corev1.Container{
+		Name:      autoscalerContainerName,
+		Resources: resources,
+	}
+}
+
+func ExpectedPodSetsCount(rayClusterSpec *rayv1.RayClusterSpec) int {
+	return len(rayClusterSpec.WorkerGroupSpecs) + 1
 }
 
 func UpdatePodSets(ctx context.Context, podSets []kueue.PodSet, c client.Client, object client.Object, enableInTreeAutoscaling *bool, rayClusterName string) ([]kueue.PodSet, error) {
@@ -142,11 +231,7 @@ func UpdatePodSets(ctx context.Context, podSets []kueue.PodSet, c client.Client,
 						continue
 					}
 
-					// Calculate the count based on RayCluster's worker group replicas
-					count := *wgs.Replicas
-					if wgs.NumOfHosts > 1 {
-						count *= wgs.NumOfHosts
-					}
+					count := effectiveWorkerCount(wgs)
 
 					// Update the count in the PodSet only if it's different
 					if podSet.Count != count {
@@ -166,11 +251,11 @@ func UpdatePodSets(ctx context.Context, podSets []kueue.PodSet, c client.Client,
 	return podSets, nil
 }
 
-func UpdateRayClusterSpecToRunWithPodSetsInfo(rayClusterSpec *rayv1.RayClusterSpec, podSetsInfo []podset.PodSetInfo) error {
+func UpdateRayClusterSpecToRunWithPodSetsInfo(log logr.Logger, rayClusterSpec *rayv1.RayClusterSpec, podSetsInfo []podset.PodSetInfo) error {
 	// head
 	headPod := &rayClusterSpec.HeadGroupSpec.Template
 	info := podSetsInfo[0]
-	if err := podset.Merge(&headPod.ObjectMeta, &headPod.Spec, info); err != nil {
+	if err := podset.Merge(log, &headPod.ObjectMeta, &headPod.Spec, info); err != nil {
 		return err
 	}
 
@@ -178,7 +263,7 @@ func UpdateRayClusterSpecToRunWithPodSetsInfo(rayClusterSpec *rayv1.RayClusterSp
 	for index := range rayClusterSpec.WorkerGroupSpecs {
 		workerPod := &rayClusterSpec.WorkerGroupSpecs[index].Template
 		info := podSetsInfo[index+1]
-		if err := podset.Merge(&workerPod.ObjectMeta, &workerPod.Spec, info); err != nil {
+		if err := podset.Merge(log, &workerPod.ObjectMeta, &workerPod.Spec, info); err != nil {
 			return err
 		}
 	}
@@ -186,7 +271,16 @@ func UpdateRayClusterSpecToRunWithPodSetsInfo(rayClusterSpec *rayv1.RayClusterSp
 	return nil
 }
 
-func RestorePodSetsInfo(rayClusterSpec *rayv1.RayClusterSpec, podSetsInfo []podset.PodSetInfo) bool {
+func RestorePodSetsInfo(ctx context.Context, rayClusterSpec *rayv1.RayClusterSpec, podSetsInfo []podset.PodSetInfo) bool {
+	if expected := ExpectedPodSetsCount(rayClusterSpec); len(podSetsInfo) != expected {
+		ctrl.LoggerFrom(ctx).V(2).Info(
+			"Skipping pod set info restore because the pod set count does not match the admitted workload",
+			"expectedCount", expected,
+			"gotCount", len(podSetsInfo),
+		)
+		return false
+	}
+
 	// head
 	headPod := &rayClusterSpec.HeadGroupSpec.Template
 	changed := podset.RestorePodSpec(&headPod.ObjectMeta, &headPod.Spec, podSetsInfo[0])
@@ -216,9 +310,9 @@ func ValidateCreate(object client.Object, rayClusterSpec *rayv1.RayClusterSpec, 
 		)
 	}
 
-	// Should limit the worker count to max PodSets minus the cluster head.
-	if len(rayClusterSpec.WorkerGroupSpecs) > jobframework.MaxPodSets-1 {
-		allErrors = append(allErrors, field.TooMany(rayClusterSpecPath.Child("workerGroupSpecs"), len(rayClusterSpec.WorkerGroupSpecs), jobframework.MaxPodSets-1))
+	// Should limit the generated PodSet count to the maximum supported by Workloads.
+	if podSetsCount := ExpectedPodSetsCount(rayClusterSpec); podSetsCount > jobframework.MaxPodSets {
+		allErrors = append(allErrors, field.TooMany(rayClusterSpecPath.Child("workerGroupSpecs"), podSetsCount, jobframework.MaxPodSets))
 	}
 
 	// None of the workerGroups should be named "head"

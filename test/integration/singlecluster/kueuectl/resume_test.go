@@ -125,6 +125,43 @@ var _ = ginkgo.Describe("Kueuectl Resume", func() {
 				kueue.Hold,
 			),
 		)
+
+		ginkgo.DescribeTable("Should not resume a LocalQueue with --dry-run",
+			func(name, dryRunStrategy string) {
+				lq := utiltestingapi.MakeLocalQueue(name, ns.Name).StopPolicy(kueue.HoldAndDrain).Obj()
+
+				ginkgo.By("Create a LocalQueue", func() {
+					util.MustCreate(ctx, k8sClient, lq)
+				})
+
+				createdLocalQueue := &kueue.LocalQueue{}
+				ginkgo.By("Get created LocalQueue", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), createdLocalQueue)).To(gomega.Succeed())
+						g.Expect(ptr.Deref(createdLocalQueue.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(kueue.HoldAndDrain))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Resume with --dry-run="+dryRunStrategy, func() {
+					streams, _, output, _ := genericiooptions.NewTestIOStreams()
+					configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+					kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+
+					kueuectl.SetArgs([]string{"resume", "localqueue", createdLocalQueue.Name, "--namespace", ns.Name, "--dry-run", dryRunStrategy})
+					err := kueuectl.Execute()
+					gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+				})
+
+				ginkgo.By("Check that the LocalQueue is still stopped", func() {
+					gomega.Consistently(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdLocalQueue), createdLocalQueue)).To(gomega.Succeed())
+						g.Expect(ptr.Deref(createdLocalQueue.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(kueue.HoldAndDrain))
+					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+				})
+			},
+			ginkgo.Entry("client", "lq-dry-run-client", "client"),
+			ginkgo.Entry("server", "lq-dry-run-server", "server"),
+		)
 	})
 
 	ginkgo.When("Resuming a ClusterQueue", func() {
@@ -170,6 +207,51 @@ var _ = ginkgo.Describe("Kueuectl Resume", func() {
 			ginkgo.Entry("Hold",
 				utiltestingapi.MakeClusterQueue("cq-2").StopPolicy(kueue.Hold).Obj(),
 				kueue.Hold,
+			),
+		)
+
+		ginkgo.DescribeTable("Should not resume a ClusterQueue with --dry-run",
+			func(cq *kueue.ClusterQueue, dryRunStrategy string) {
+				ginkgo.By("Create a ClusterQueue", func() {
+					util.MustCreate(ctx, k8sClient, cq)
+				})
+
+				ginkgo.DeferCleanup(func() {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+				})
+
+				createdClusterQueue := &kueue.ClusterQueue{}
+				ginkgo.By("Get created ClusterQueue", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), createdClusterQueue)).To(gomega.Succeed())
+						g.Expect(ptr.Deref(createdClusterQueue.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(kueue.HoldAndDrain))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Resume with --dry-run="+dryRunStrategy, func() {
+					streams, _, output, _ := genericiooptions.NewTestIOStreams()
+					configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+					kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+
+					kueuectl.SetArgs([]string{"resume", "clusterqueue", createdClusterQueue.Name, "--dry-run", dryRunStrategy})
+					err := kueuectl.Execute()
+					gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+				})
+
+				ginkgo.By("Check that the ClusterQueue is still stopped", func() {
+					gomega.Consistently(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdClusterQueue), createdClusterQueue)).To(gomega.Succeed())
+						g.Expect(ptr.Deref(createdClusterQueue.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(kueue.HoldAndDrain))
+					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+				})
+			},
+			ginkgo.Entry("client",
+				utiltestingapi.MakeClusterQueue("cq-dry-run-client").StopPolicy(kueue.HoldAndDrain).Obj(),
+				"client",
+			),
+			ginkgo.Entry("server",
+				utiltestingapi.MakeClusterQueue("cq-dry-run-server").StopPolicy(kueue.HoldAndDrain).Obj(),
+				"server",
 			),
 		)
 	})

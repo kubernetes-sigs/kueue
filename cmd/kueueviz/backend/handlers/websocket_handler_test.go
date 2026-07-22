@@ -42,6 +42,43 @@ var closedChan = func() <-chan struct{} {
 	return ch
 }()
 
+const (
+	// testTokenRevalidationInterval is a short interval used in tests to quickly
+	// trigger the token re-validation ticker without waiting 30 seconds.
+	testTokenRevalidationInterval = 100 * time.Millisecond
+
+	// testPollInterval is the polling frequency used in waitUntil calls.
+	testPollInterval = 10 * time.Millisecond
+
+	// testTimeout is the maximum duration tests will wait for an async condition.
+	testTimeout = 2 * time.Second
+)
+
+type mockTokenValidator struct {
+	mu    sync.Mutex
+	valid bool
+	calls int
+}
+
+func (m *mockTokenValidator) ValidateToken(ctx context.Context, token string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.calls++
+	return m.valid, nil
+}
+
+func (m *mockTokenValidator) getCalls() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.calls
+}
+
+func (m *mockTokenValidator) setValid(valid bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.valid = valid
+}
+
 type alwaysDone struct{}
 
 func (alwaysDone) Name() string {
@@ -226,6 +263,63 @@ func TestWebSocketHandleInformerUpdates(t *testing.T) {
 				}
 			},
 		},
+		"closes connection when token becomes invalid": {
+			run: func(t *testing.T) {
+				gvk := schema.GroupVersionKind{Group: "group", Version: "v1", Kind: "Kind"}
+				informer := newMockInformer()
+				client := newMockClient(map[schema.GroupVersionKind]*mockInformer{gvk: informer})
+
+				validator := &mockTokenValidator{valid: true}
+
+				var fetchCalls atomic.Int64
+				dataFetcher := func(_ context.Context) (any, error) {
+					return map[string]int64{"call": fetchCalls.Add(1)}, nil
+				}
+
+				h := &Handlers{
+					client:                    client,
+					validator:                 validator,
+					tokenRevalidationInterval: testTokenRevalidationInterval,
+				}
+				conn, closeServer := newTestWebSocketConnectionWithToken(t, h, "test-token", dataFetcher, gvk)
+				defer closeServer()
+
+				// Read initial message
+				readMessage(t, conn)
+
+				// Token should be validated successfully initially (by the ticker)
+				waitUntil(t, testTimeout, testPollInterval, func() bool {
+					return validator.getCalls() >= 1
+				}, "expected token validator to be called")
+
+				// Now simulate token expiration/revocation
+				validator.setValid(false)
+
+				// The connection should be closed by the server
+				errChan := make(chan error, 1)
+				go func() {
+					_, _, err := conn.ReadMessage()
+					errChan <- err
+				}()
+
+				select {
+				case err := <-errChan:
+					if err == nil {
+						t.Fatalf("expected read error due to connection closure, but got none")
+					}
+					var closeErr *websocket.CloseError
+					if errors.As(err, &closeErr) {
+						if closeErr.Code != websocket.ClosePolicyViolation {
+							t.Fatalf("expected close code %d, got %d", websocket.ClosePolicyViolation, closeErr.Code)
+						}
+					} else {
+						t.Fatalf("expected CloseError, got %v", err)
+					}
+				case <-time.After(testTimeout):
+					t.Fatalf("timeout waiting for connection to close after token expiration")
+				}
+			},
+		},
 		"removes event handlers on context cancellation": {
 			run: func(t *testing.T) {
 				gvkA := schema.GroupVersionKind{Group: "group-a", Version: "v1", Kind: "KindA"}
@@ -316,8 +410,47 @@ func TestWebSocketHandleInformerUpdates(t *testing.T) {
 				}
 				select {
 				case <-drainDone:
-				case <-time.After(2 * time.Second):
+				case <-time.After(testTimeout):
 					t.Fatalf("reader goroutine did not exit after connection close")
+				}
+			},
+		},
+		"enforces websocket read limit": {
+			run: func(t *testing.T) {
+				gvk := schema.GroupVersionKind{Group: "group", Version: "v1", Kind: "Kind"}
+
+				informer := newMockInformer()
+				client := newMockClient(map[schema.GroupVersionKind]*mockInformer{gvk: informer})
+
+				dataFetcher := func(_ context.Context) (any, error) {
+					return map[string]string{"status": "ok"}, nil
+				}
+
+				conn, closeServer := newTestWebSocketConnection(t, &Handlers{client: client}, dataFetcher, gvk)
+				defer closeServer()
+				defer conn.Close()
+
+				readMessage(t, conn)
+
+				payload := make([]byte, 9000)
+
+				err := conn.WriteMessage(websocket.BinaryMessage, payload)
+				if err != nil {
+					t.Fatalf("failed to write 9KB message to server: %v", err)
+				}
+
+				if err := conn.SetReadDeadline(time.Now().Add(testTimeout)); err != nil {
+					t.Fatalf("set read deadline: %v", err)
+				}
+
+				_, _, err = conn.ReadMessage()
+
+				if err == nil {
+					t.Fatalf("expected read error due to limit, but got nil")
+				}
+
+				if !websocket.IsCloseError(err, websocket.CloseMessageTooBig) && !strings.Contains(err.Error(), "close 1009") {
+					t.Fatalf("expected CloseMessageTooBig (1009), got: %v", err)
 				}
 			},
 		},
@@ -331,15 +464,22 @@ func TestWebSocketHandleInformerUpdates(t *testing.T) {
 	}
 }
 
-func newTestWebSocketConnection(
+func newTestWebSocketConnectionWithToken(
 	t *testing.T,
 	handlers *Handlers,
+	token string,
 	dataFetcher func(ctx context.Context) (any, error),
 	gvks ...schema.GroupVersionKind,
 ) (*websocket.Conn, func()) {
 	t.Helper()
 
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		if token != "" {
+			c.Set("token", token)
+		}
+		c.Next()
+	})
 	router.GET("/ws/test", handlers.GenericWebSocketHandler(dataFetcher, gvks...))
 
 	server := httptest.NewServer(router)
@@ -359,10 +499,19 @@ func newTestWebSocketConnection(
 	return conn, closeServer
 }
 
+func newTestWebSocketConnection(
+	t *testing.T,
+	handlers *Handlers,
+	dataFetcher func(ctx context.Context) (any, error),
+	gvks ...schema.GroupVersionKind,
+) (*websocket.Conn, func()) {
+	return newTestWebSocketConnectionWithToken(t, handlers, "", dataFetcher, gvks...)
+}
+
 func readMessage(t *testing.T, conn *websocket.Conn) {
 	t.Helper()
 
-	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+	if err := conn.SetReadDeadline(time.Now().Add(testTimeout)); err != nil {
 		t.Fatalf("set read deadline: %v", err)
 	}
 	if _, _, err := conn.ReadMessage(); err != nil {

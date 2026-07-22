@@ -28,17 +28,15 @@ const ClusterQueueDetail = () => {
   const url = `/ws/cluster-queue/${clusterQueueName}`;
   const { data: clusterQueueData, error } = useWebSocket(url);
 
-  const [clusterQueue, setClusterQueue] = useState(null);
   const [showReservation, setShowReservation] = useState(false);
 
-  useEffect(() => {
-    if (clusterQueueData) {
-      const sorted = { ...clusterQueueData };
-      if (sorted.queues) {
-        sorted.queues = [...sorted.queues].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-      }
-      setClusterQueue(sorted);
+  const clusterQueue = React.useMemo(() => {
+    if (!clusterQueueData) return null;
+    const sorted = { ...clusterQueueData };
+    if (sorted.queues) {
+      sorted.queues = [...sorted.queues].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     }
+    return sorted;
   }, [clusterQueueData]);
 
   if (error) return <ErrorMessage error={error} />;
@@ -141,7 +139,7 @@ const ClusterQueueDetail = () => {
                   <React.Fragment key={`resourceGroup-${groupIndex}`}>
                     {group.flavors.map((flavor, flavorIndex) => (
                       <React.Fragment key={`${groupIndex}-${flavor.name}`}>
-                        {flavor.resources.map((resource, resourceIndex) => {
+                        {flavor.resources?.map((resource, resourceIndex) => {
                           const usageFlavor = clusterQueue.status?.flavorsUsage?.find(f => f.name === flavor.name);
                           const usageRes = usageFlavor?.resources?.find(r => r.name === resource.name);
                           const usageVal = toNumber(usageRes?.total);

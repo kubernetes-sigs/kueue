@@ -59,15 +59,5 @@ if [[ -n ${PROMETHEUS_OPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:promethe
     deploy_kueue_prometheus_config ""
 fi
 
-if [ "$E2E_RUN_ONLY_ENV" = "true" ]; then
-  read -rp "Do you want to cleanup? [Y/n] " reply
-  if [[ "$reply" =~ ^[nN]$ ]]; then
-    trap - EXIT
-    echo "Skipping cleanup for kind cluster."
-    echo -e "\nKind cluster cleanup:\n  kind delete clusters $KIND_CLUSTER_NAME"
-  fi
-  exit 0
-fi
-
 run_e2e_ginkgo --json-report=e2e.json --output-dir="$ARTIFACTS" -v ./test/e2e/"${E2E_TARGET_FOLDER}"/...
 "$ROOT_DIR/bin/ginkgo-top" -i "$ARTIFACTS/e2e.json" > "$ARTIFACTS/e2e-top.yaml"

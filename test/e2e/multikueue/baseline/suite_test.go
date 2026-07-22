@@ -59,7 +59,7 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	util.RunE2ESuite(t, "End To End MultiKueue Suite")
+	util.RunE2ESuite(t, "End To End Baseline MultiKueue Suite")
 }
 
 var _ = ginkgo.SynchronizedBeforeSuite(
@@ -79,29 +79,6 @@ var _ = ginkgo.SynchronizedBeforeSuite(
 		util.WaitForKueueAvailability(ctx, k8sManagerClient)
 		util.WaitForKueueAvailability(ctx, k8sWorker1Client)
 		util.WaitForKueueAvailability(ctx, k8sWorker2Client)
-
-		util.WaitForJobSetAvailability(ctx, k8sManagerClient)
-		util.WaitForJobSetAvailability(ctx, k8sWorker1Client)
-		util.WaitForJobSetAvailability(ctx, k8sWorker2Client)
-
-		util.WaitForKubeFlowTrainingOperatorAvailability(ctx, k8sManagerClient)
-		util.WaitForKubeFlowTrainingOperatorAvailability(ctx, k8sWorker1Client)
-		util.WaitForKubeFlowTrainingOperatorAvailability(ctx, k8sWorker2Client)
-
-		util.WaitForKubeFlowMPIOperatorAvailability(ctx, k8sWorker1Client)
-		util.WaitForKubeFlowMPIOperatorAvailability(ctx, k8sWorker2Client)
-
-		util.WaitForAppWrapperAvailability(ctx, k8sManagerClient)
-		util.WaitForAppWrapperAvailability(ctx, k8sWorker1Client)
-		util.WaitForAppWrapperAvailability(ctx, k8sWorker2Client)
-
-		util.WaitForKubeRayOperatorAvailability(ctx, k8sManagerClient)
-		util.WaitForKubeRayOperatorAvailability(ctx, k8sWorker1Client)
-		util.WaitForKubeRayOperatorAvailability(ctx, k8sWorker2Client)
-
-		util.WaitForLeaderWorkerSetAvailability(ctx, k8sManagerClient)
-		util.WaitForLeaderWorkerSetAvailability(ctx, k8sWorker1Client)
-		util.WaitForLeaderWorkerSetAvailability(ctx, k8sWorker2Client)
 
 		ginkgo.GinkgoLogr.Info(
 			"Kueue and all required operators are available in all the clusters",
@@ -153,8 +130,10 @@ func createSharedMultiKueueSecrets(ctx context.Context) {
 }
 
 func cleanupSharedMultiKueueSecrets(ctx context.Context) {
-	gomega.Expect(util.CleanMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue1")).NotTo(gomega.HaveOccurred())
-	gomega.Expect(util.CleanMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue2")).NotTo(gomega.HaveOccurred())
-	gomega.Expect(util.CleanKubeconfigForMultiKueueSA(ctx, k8sWorker1Client, kueueNS, "mksa")).NotTo(gomega.HaveOccurred())
-	gomega.Expect(util.CleanKubeconfigForMultiKueueSA(ctx, k8sWorker2Client, kueueNS, "mksa")).NotTo(gomega.HaveOccurred())
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(util.CleanMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue1")).To(gomega.Succeed())
+		g.Expect(util.CleanMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue2")).To(gomega.Succeed())
+		g.Expect(util.CleanKubeconfigForMultiKueueSA(ctx, k8sWorker1Client, kueueNS, "mksa")).To(gomega.Succeed())
+		g.Expect(util.CleanKubeconfigForMultiKueueSA(ctx, k8sWorker2Client, kueueNS, "mksa")).To(gomega.Succeed())
+	}, util.Timeout, util.Interval).Should(gomega.Succeed())
 }

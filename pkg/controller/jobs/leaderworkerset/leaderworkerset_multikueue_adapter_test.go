@@ -62,7 +62,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).UID("manager-uid-123").Obj(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "lws1", Namespace: TestNamespace}, "wl1", "origin1")
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "lws1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
 			},
 			wantManagersLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
 				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).UID("manager-uid-123").Obj(),
@@ -87,7 +88,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "lws1", Namespace: TestNamespace}, "wl1", "origin1")
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "lws1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
 			},
 			wantManagersLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
 				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).
@@ -172,13 +174,60 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).Obj(),
 			},
 		},
+		"GetExpectedWorkloadCount rejects negative replicas": {
+			managersLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).Replicas(-1).Obj(),
+			},
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				_, err := adapter.GetExpectedWorkloadCount(ctx, managerClient, types.NamespacedName{Name: "lws1", Namespace: TestNamespace})
+				return err
+			},
+			wantError: errInvalidLeaderWorkerSetReplicas,
+			wantManagersLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).Replicas(-1).Obj(),
+			},
+		},
+		"GetExpectedWorkloadCount rejects replicas above maximum": {
+			managersLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).Replicas(maxLeaderWorkerSetReplicas + 1).Obj(),
+			},
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				_, err := adapter.GetExpectedWorkloadCount(ctx, managerClient, types.NamespacedName{Name: "lws1", Namespace: TestNamespace})
+				return err
+			},
+			wantError: errInvalidLeaderWorkerSetReplicas,
+			wantManagersLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).Replicas(maxLeaderWorkerSetReplicas + 1).Obj(),
+			},
+		},
+		"WorkloadKeysFor rejects negative replicas": {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				_, err := adapter.WorkloadKeysFor(utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).
+					Annotation(kueue.MultiKueueOriginUIDAnnotation, "manager-uid-123").
+					Replicas(-1).
+					Obj())
+				return err
+			},
+			wantError: errInvalidLeaderWorkerSetReplicas,
+		},
+		"WorkloadKeysFor rejects replicas above maximum": {
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				_, err := adapter.WorkloadKeysFor(utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).
+					Annotation(kueue.MultiKueueOriginUIDAnnotation, "manager-uid-123").
+					Replicas(maxLeaderWorkerSetReplicas + 1).
+					Obj())
+				return err
+			},
+			wantError: errInvalidLeaderWorkerSetReplicas,
+		},
 		"sync creates missing remote leaderworkerset, WorkloadIdentifierAnnotations enabled": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
 			managersLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
 				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).UID("manager-uid-123").Obj(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "lws1", Namespace: TestNamespace}, "wl1", "origin1")
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "lws1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
 			},
 			wantManagersLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
 				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).UID("manager-uid-123").Obj(),

@@ -34,7 +34,9 @@ fi
 # Function to clean up background processes
 cleanup() {
   echo "Cleaning up kueueviz processes"
-  kill "${BACKEND_PID}"
+  # BACKEND_PID may be unset if we exit before the backend starts (e.g. while
+  # waiting for the Kueue webhook), so guard against an empty kill argument.
+  [ -n "${BACKEND_PID:-}" ] && kill "${BACKEND_PID}"
   cluster_collect_artifacts "${KIND_CLUSTER_NAME}" ""
   cluster_cleanup "${KIND_CLUSTER_NAME}"
 }
@@ -48,9 +50,6 @@ echo Waiting for kind cluster "${KIND_CLUSTER_NAME}" to start...
 prepare_docker_images
 cluster_kind_load "${KIND_CLUSTER_NAME}"
 kueue_deploy
-kubectl wait deploy/kueue-controller-manager -n"$KUEUE_NAMESPACE" --for=condition=available --timeout=5m
-
-# Deploy KueueViz resources
 kubectl create -f "${ROOT_DIR}/cmd/kueueviz/examples/"
 
 # Start KueueViz backend

@@ -65,7 +65,7 @@ func (n *nonTasUsageCache) update(pod *corev1.Pod, log logr.Logger) {
 	}
 
 	log.V(5).Info("Adding non-TAS pod to the cache")
-	requests := resources.NewRequestsFromPodSpec(&pod.Spec)
+	requests := resources.NewMapRequestsFromPodSpec(&pod.Spec)
 	n.podUsage[key] = podUsageValue{
 		node:  pod.Spec.NodeName,
 		usage: requests,
@@ -82,24 +82,25 @@ func (n *nonTasUsageCache) delete(key client.ObjectKey, log logr.Logger) {
 	delete(n.podUsage, key)
 }
 
-func (n *nonTasUsageCache) usagePerNode() map[string]resources.Requests {
+// forEachNodeUsage invokes fn for each node's usage while holding the read lock.
+// usage is the live cache entry, not a copy: fn must only read it, and must not
+// mutate or retain it beyond the call. Clone it if a longer-lived copy is needed.
+func (n *nonTasUsageCache) forEachNodeUsage(fn func(node string, usage resources.Requests)) {
 	n.lock.RLock()
 	defer n.lock.RUnlock()
-	usage := make(map[string]resources.Requests, len(n.nodeUsage))
 	for node, reqs := range n.nodeUsage {
-		usage[node] = reqs.Clone()
+		fn(node, reqs)
 	}
-	return usage
 }
 
 // addNodeUsage increments the pre-aggregated per-node usage.
 // Must be called under write lock.
 func (n *nonTasUsageCache) addNodeUsage(node string, usage resources.Requests) {
 	if _, found := n.nodeUsage[node]; !found {
-		n.nodeUsage[node] = resources.Requests{}
+		n.nodeUsage[node] = resources.MapRequests{}
 	}
 	n.nodeUsage[node].Add(usage)
-	n.nodeUsage[node][corev1.ResourcePods]++
+	n.nodeUsage[node].Add(resources.OnePodRequest)
 }
 
 // removeNodeUsage decrements the pre-aggregated per-node usage.
@@ -110,8 +111,8 @@ func (n *nonTasUsageCache) removeNodeUsage(node string, usage resources.Requests
 		return
 	}
 	existing.Sub(usage)
-	existing[corev1.ResourcePods]--
-	if pods := existing[corev1.ResourcePods]; pods <= 0 {
+	existing.Sub(resources.OnePodRequest)
+	if pods := existing.GetValue(corev1.ResourcePods); pods <= 0 {
 		if pods < 0 {
 			log.V(0).Info("Unexpected negative pod count in nodeUsage", "node", node, "podCount", pods)
 		}

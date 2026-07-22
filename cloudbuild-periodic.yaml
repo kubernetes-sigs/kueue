@@ -1,0 +1,23 @@
+# See https://cloud.google.com/cloud-build/docs/build-config
+timeout: 3600s
+# A build step specifies an action that you want cloudbuild to perform.
+# For each build step, cloudbuild executes a docker container.
+steps:
+  # see https://github.com/kubernetes/test-infra/tree/master/config/jobs/image-pushing
+  - name: 'gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:v20260127-c1affcc8de'
+    entrypoint: make
+    args:
+      - image-pushing-periodic
+    env:
+      - DOCKER_BUILDX_CMD=/buildx-entrypoint
+      - GOTOOLCHAIN=auto
+substitutions:
+  # _GIT_TAG will be filled with a git-based tag for the image, of the form vYYYYMMDD-hash, and
+  # can be used as a substitution
+  _GIT_TAG: '0.0.0'
+  # _PULL_BASE_REF will contain the ref that was pushed to trigger this build -
+  # a branch like 'main' or 'release-0.2', or a tag like 'v0.2'.
+  _PULL_BASE_REF: 'main'
+options:
+  substitution_option: ALLOW_LOOSE
+  machineType: 'E2_HIGHCPU_32'

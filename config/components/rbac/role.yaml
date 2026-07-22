@@ -221,15 +221,11 @@ rules:
   resources:
   - admissionchecks
   - clusterqueues
-  - cohorts
-  - localqueues
-  - workloads
+  - resourceflavors
+  - topologies
   verbs:
-  - create
-  - delete
   - get
   - list
-  - patch
   - update
   - watch
 - apiGroups:
@@ -237,7 +233,6 @@ rules:
   resources:
   - admissionchecks/finalizers
   - clusterqueues/finalizers
-  - localqueues/finalizers
   - resourceflavors/finalizers
   - topologies/finalizers
   - workloads/finalizers
@@ -259,6 +254,8 @@ rules:
 - apiGroups:
   - kueue.x-k8s.io
   resources:
+  - cohorts
+  - localqueues
   - multikueueclusters
   - multikueueconfigs
   - provisioningrequestconfigs
@@ -270,20 +267,13 @@ rules:
 - apiGroups:
   - kueue.x-k8s.io
   resources:
-  - resourceflavors
+  - workloads
   verbs:
+  - create
   - delete
   - get
   - list
-  - update
-  - watch
-- apiGroups:
-  - kueue.x-k8s.io
-  resources:
-  - topologies
-  verbs:
-  - get
-  - list
+  - patch
   - update
   - watch
 - apiGroups:

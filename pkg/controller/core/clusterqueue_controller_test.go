@@ -17,6 +17,7 @@ limitations under the License.
 package core
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -310,6 +311,7 @@ func TestReconcileRemovesFinalizerWithFinishedWorkloads(t *testing.T) {
 type cqMetrics struct {
 	NominalDPs   []testingmetrics.MetricDataPoint
 	BorrowingDPs []testingmetrics.MetricDataPoint
+	LendingDPs   []testingmetrics.MetricDataPoint
 	UsageDPs     []testingmetrics.MetricDataPoint
 }
 
@@ -317,6 +319,7 @@ func allMetricsForQueue(name string) cqMetrics {
 	return cqMetrics{
 		NominalDPs:   testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourceNominalQuota, map[string]string{"cluster_queue": name}),
 		BorrowingDPs: testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourceBorrowingLimit, map[string]string{"cluster_queue": name}),
+		LendingDPs:   testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourceLendingLimit, map[string]string{"cluster_queue": name}),
 		UsageDPs:     testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourceReservations, map[string]string{"cluster_queue": name}),
 	}
 }
@@ -408,6 +411,9 @@ func TestRecordResourceMetrics(t *testing.T) {
 				BorrowingDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 2),
 				},
+				LendingDPs: []testingmetrics.MetricDataPoint{
+					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), math.Inf(1)),
+				},
 				UsageDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 2),
 				},
@@ -422,6 +428,9 @@ func TestRecordResourceMetrics(t *testing.T) {
 				BorrowingDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 2),
 				},
+				LendingDPs: []testingmetrics.MetricDataPoint{
+					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), math.Inf(1)),
+				},
 				UsageDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 2),
 				},
@@ -430,6 +439,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 				ret := baseQueue.DeepCopy()
 				ret.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("2")
 				ret.Spec.ResourceGroups[0].Flavors[0].Resources[0].BorrowingLimit = new(resource.MustParse("1"))
+				ret.Spec.ResourceGroups[0].Flavors[0].Resources[0].LendingLimit = new(resource.MustParse("3"))
 				ret.Status.FlavorsReservation[0].Resources[0].Total = resource.MustParse("3")
 				return ret
 			}(),
@@ -439,6 +449,9 @@ func TestRecordResourceMetrics(t *testing.T) {
 				},
 				BorrowingDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 1),
+				},
+				LendingDPs: []testingmetrics.MetricDataPoint{
+					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 3),
 				},
 				UsageDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 3),
@@ -453,6 +466,9 @@ func TestRecordResourceMetrics(t *testing.T) {
 				},
 				BorrowingDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 2),
+				},
+				LendingDPs: []testingmetrics.MetricDataPoint{
+					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), math.Inf(1)),
 				},
 				UsageDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 2),
@@ -470,6 +486,9 @@ func TestRecordResourceMetrics(t *testing.T) {
 				BorrowingDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort2", "name", "flavor", string(corev1.ResourceCPU), 2),
 				},
+				LendingDPs: []testingmetrics.MetricDataPoint{
+					resourceDataPoint("cohort2", "name", "flavor", string(corev1.ResourceCPU), math.Inf(1)),
+				},
 				UsageDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort2", "name", "flavor", string(corev1.ResourceCPU), 2),
 				},
@@ -483,6 +502,9 @@ func TestRecordResourceMetrics(t *testing.T) {
 				},
 				BorrowingDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 2),
+				},
+				LendingDPs: []testingmetrics.MetricDataPoint{
+					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), math.Inf(1)),
 				},
 				UsageDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 2),
@@ -501,6 +523,9 @@ func TestRecordResourceMetrics(t *testing.T) {
 				BorrowingDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor2", string(corev1.ResourceCPU), 2),
 				},
+				LendingDPs: []testingmetrics.MetricDataPoint{
+					resourceDataPoint("cohort", "name", "flavor2", string(corev1.ResourceCPU), math.Inf(1)),
+				},
 				UsageDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor2", string(corev1.ResourceCPU), 2),
 				},
@@ -514,6 +539,9 @@ func TestRecordResourceMetrics(t *testing.T) {
 				},
 				BorrowingDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 2),
+				},
+				LendingDPs: []testingmetrics.MetricDataPoint{
+					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), math.Inf(1)),
 				},
 				UsageDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 2),
@@ -532,6 +560,9 @@ func TestRecordResourceMetrics(t *testing.T) {
 				BorrowingDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceMemory), 2),
 				},
+				LendingDPs: []testingmetrics.MetricDataPoint{
+					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceMemory), math.Inf(1)),
+				},
 				UsageDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceMemory), 2),
 				},
@@ -545,6 +576,9 @@ func TestRecordResourceMetrics(t *testing.T) {
 				},
 				BorrowingDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 2),
+				},
+				LendingDPs: []testingmetrics.MetricDataPoint{
+					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), math.Inf(1)),
 				},
 				UsageDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 2),
@@ -561,6 +595,9 @@ func TestRecordResourceMetrics(t *testing.T) {
 				},
 				BorrowingDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 2),
+				},
+				LendingDPs: []testingmetrics.MetricDataPoint{
+					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), math.Inf(1)),
 				},
 				UsageDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 0),

@@ -64,8 +64,10 @@ import (
 
 // Builder builds a new Scheme for mapping go types to Kubernetes GroupVersionKinds.
 type Builder struct {
-	GroupVersion schema.GroupVersion
-	runtime.SchemeBuilder
+	// groupVersion is the group and version for this builder.
+	GroupVersion schema.GroupVersion `json:"groupVersion"`
+	// schemeBuilder is the runtime scheme builder.
+	runtime.SchemeBuilder `json:"schemeBuilder"`
 }
 
 // Register adds one or more objects to the SchemeBuilder so they can be added to a Scheme.  Register mutates bld.

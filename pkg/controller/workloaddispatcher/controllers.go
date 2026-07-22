@@ -34,7 +34,7 @@ func SetupControllers(mgr ctrl.Manager, cfg *configapi.Configuration, roleTracke
 		return "", err
 	}
 
-	idRec := NewIncrementalDispatcherReconciler(mgr.GetClient(), helper, roleTracker)
+	idRec := NewIncrementalDispatcherReconciler(mgr.GetClient(), helper, roleTracker, cfg.MultiKueue.IncrementalDispatcherConfig)
 	err = idRec.SetupWithManager(mgr, cfg)
 	if err != nil {
 		return "multikueue-incremental-dispatcher", err

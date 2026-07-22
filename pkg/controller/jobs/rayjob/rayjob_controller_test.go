@@ -85,6 +85,50 @@ func TestPodSets(t *testing.T) {
 			},
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
+		"with gcs fault tolerance": {
+			rayJob: func() *RayJob {
+				job := testingrayutil.MakeJob("rayjob", "ns").
+					WithHeadGroupSpec(
+						rayv1.HeadGroupSpec{
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
+							},
+						},
+					).
+					WithWorkerGroups(
+						rayv1.WorkerGroupSpec{
+							GroupName: "group1",
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
+							},
+						},
+					).
+					Obj()
+				job.Spec.RayClusterSpec.GcsFaultToleranceOptions = &rayv1.GcsFaultToleranceOptions{RedisAddress: "redis:6379"}
+				return (*RayJob)(job)
+			}(),
+			wantPodSets: func(rayJob *RayJob) []kueue.PodSet {
+				return []kueue.PodSet{
+					*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+						PodSpec(corev1.PodSpec{
+							Containers: []corev1.Container{{
+								Name: "head_c",
+								Resources: corev1.ResourceRequirements{
+									Requests: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("200m"),
+										corev1.ResourceMemory: resource.MustParse("256Mi"),
+									},
+								},
+							}},
+						}).
+						Obj(),
+					*utiltestingapi.MakePodSet("group1", 1).
+						PodSpec(*rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
+						Obj(),
+				}
+			},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+		},
 		"with required topology annotation": {
 			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
 				WithHeadGroupSpec(
@@ -521,6 +565,54 @@ func TestPodSets(t *testing.T) {
 			},
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
+		"with sidecar submission mode accounts for the injected submitter on the head podSet": {
+			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
+				WithSubmissionMode(rayv1.SidecarMode).
+				WithHeadGroupSpec(
+					rayv1.HeadGroupSpec{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
+						},
+					},
+				).
+				WithWorkerGroups(
+					rayv1.WorkerGroupSpec{
+						GroupName: "group1",
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
+						},
+					},
+				).
+				Obj()),
+			wantPodSets: func(rayJob *RayJob) []kueue.PodSet {
+				return []kueue.PodSet{
+					*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+						PodSpec(corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Name: "head_c"},
+								{
+									Name: "ray-job-submitter",
+									Resources: corev1.ResourceRequirements{
+										Limits: corev1.ResourceList{
+											corev1.ResourceCPU:    resource.MustParse("1"),
+											corev1.ResourceMemory: resource.MustParse("1Gi"),
+										},
+										Requests: corev1.ResourceList{
+											corev1.ResourceCPU:    resource.MustParse("500m"),
+											corev1.ResourceMemory: resource.MustParse("200Mi"),
+										},
+									},
+								},
+							},
+						}).
+						Obj(),
+					*utiltestingapi.MakePodSet("group1", 1).
+						PodSpec(*rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
+						Obj(),
+				}
+			},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
@@ -641,6 +733,140 @@ func TestNodeSelectors(t *testing.T) {
 
 			wantFinal: baseJob.DeepCopy(),
 		},
+		"K8sJobMode with nil SubmitterPodTemplate persists admission constraints": {
+			job: func() *rayv1.RayJob {
+				j := testingrayutil.MakeJob("job", "ns").
+					WithSubmissionMode(rayv1.K8sJobMode).
+					Obj()
+				j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.NodeSelector = map[string]string{}
+				j.Spec.RayClusterSpec.WorkerGroupSpecs = baseJob.Spec.RayClusterSpec.WorkerGroupSpecs
+				return j
+			}(),
+			runInfo: []podset.PodSetInfo{
+				{
+					NodeSelector: map[string]string{
+						"newKey": "newValue",
+					},
+				},
+				{
+					NodeSelector: map[string]string{
+						"key-wg1": "value-wg1",
+					},
+				},
+				{
+					NodeSelector: map[string]string{},
+				},
+				{
+					NodeSelector: map[string]string{
+						"submitter-key": "submitter-value",
+					},
+				},
+			},
+			restoreInfo: []podset.PodSetInfo{
+				{
+					NodeSelector: map[string]string{},
+				},
+				{
+					NodeSelector: map[string]string{
+						"key-wg1": "value-wg1",
+					},
+				},
+				{
+					NodeSelector: map[string]string{
+						"key-wg2": "value-wg2",
+					},
+				},
+				{
+					NodeSelector: map[string]string{},
+				},
+			},
+			wantAfterRun: func() *rayv1.RayJob {
+				j := testingrayutil.MakeJob("job", "ns").
+					Suspend(false).
+					WithSubmissionMode(rayv1.K8sJobMode).
+					Obj()
+				headImage := j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Image
+				j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.NodeSelector = map[string]string{
+					"newKey": "newValue",
+				}
+				j.Spec.RayClusterSpec.WorkerGroupSpecs = []rayv1.WorkerGroupSpec{
+					{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								NodeSelector: map[string]string{
+									"key-wg1": "value-wg1",
+								},
+							},
+						},
+					},
+					{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								NodeSelector: map[string]string{
+									"key-wg2": "value-wg2",
+								},
+							},
+						},
+					},
+				}
+				j.Spec.SubmitterPodTemplate = &corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:  "ray-job-submitter",
+								Image: headImage,
+								Resources: corev1.ResourceRequirements{
+									Limits: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("1"),
+										corev1.ResourceMemory: resource.MustParse("1Gi"),
+									},
+									Requests: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("500m"),
+										corev1.ResourceMemory: resource.MustParse("200Mi"),
+									},
+								},
+							},
+						},
+						RestartPolicy: corev1.RestartPolicyNever,
+						NodeSelector: map[string]string{
+							"submitter-key": "submitter-value",
+						},
+					},
+				}
+				return j
+			}(),
+			wantFinal: func() *rayv1.RayJob {
+				j := testingrayutil.MakeJob("job", "ns").
+					WithSubmissionMode(rayv1.K8sJobMode).
+					Obj()
+				headImage := j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Image
+				j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.NodeSelector = map[string]string{}
+				j.Spec.RayClusterSpec.WorkerGroupSpecs = baseJob.Spec.RayClusterSpec.WorkerGroupSpecs
+				j.Spec.SubmitterPodTemplate = &corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:  "ray-job-submitter",
+								Image: headImage,
+								Resources: corev1.ResourceRequirements{
+									Limits: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("1"),
+										corev1.ResourceMemory: resource.MustParse("1Gi"),
+									},
+									Requests: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("500m"),
+										corev1.ResourceMemory: resource.MustParse("200Mi"),
+									},
+								},
+							},
+						},
+						RestartPolicy: corev1.RestartPolicyNever,
+						NodeSelector:  map[string]string{},
+					},
+				}
+				return j
+			}(),
+		},
 		"invalid runInfo": {
 			job: baseJob.DeepCopy(),
 			runInfo: []podset.PodSetInfo{
@@ -675,10 +901,73 @@ func TestNodeSelectors(t *testing.T) {
 
 			if tc.wantRunError == nil {
 				genJob.Suspend()
-				genJob.RestorePodSetsInfo(tc.restoreInfo)
+				genJob.RestorePodSetsInfo(t.Context(), tc.restoreInfo)
 				if diff := cmp.Diff(tc.wantFinal, tc.job); diff != "" {
 					t.Errorf("Unexpected job after restore (-want/+got): %s", diff)
 				}
+			}
+		})
+	}
+}
+
+func TestRestorePodSetsInfo(t *testing.T) {
+	// head + 2 worker groups => ExpectedPodSetsCount is 3; with K8sJobMode a
+	// submitter pod set is appended, so the expected length becomes 4.
+	baseJob := testingrayutil.MakeJob("rayjob", "ns").
+		WithHeadGroupSpec(rayv1.HeadGroupSpec{Template: corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head", Image: "ray:latest"}}},
+		}}).
+		WithWorkerGroups(
+			rayv1.WorkerGroupSpec{GroupName: "group1", Template: corev1.PodTemplateSpec{}},
+			rayv1.WorkerGroupSpec{GroupName: "group2", Template: corev1.PodTemplateSpec{}},
+		)
+
+	testCases := map[string]struct {
+		job         *rayv1.RayJob
+		podSetsInfo []podset.PodSetInfo
+		wantChanged bool
+	}{
+		"fewer podSetsInfo than expected is a no-op": {
+			job:         baseJob.Clone().Obj(),
+			podSetsInfo: []podset.PodSetInfo{{}, {}},
+			wantChanged: false,
+		},
+		"more podSetsInfo than expected is a no-op": {
+			job:         baseJob.Clone().Obj(),
+			podSetsInfo: []podset.PodSetInfo{{}, {}, {}, {}},
+			wantChanged: false,
+		},
+		"matching length without submitter restores pod sets": {
+			job: baseJob.Clone().Obj(),
+			podSetsInfo: []podset.PodSetInfo{
+				{NodeSelector: map[string]string{"restored": "true"}},
+				{NodeSelector: map[string]string{"restored": "true"}},
+				{NodeSelector: map[string]string{"restored": "true"}},
+			},
+			wantChanged: true,
+		},
+		"K8sJobMode with a missing submitter pod set is a no-op": {
+			job:         baseJob.Clone().WithSubmissionMode(rayv1.K8sJobMode).Obj(),
+			podSetsInfo: []podset.PodSetInfo{{}, {}, {}},
+			wantChanged: false,
+		},
+		"K8sJobMode with matching length restores pod sets including the submitter": {
+			job: baseJob.Clone().WithSubmissionMode(rayv1.K8sJobMode).Obj(),
+			podSetsInfo: []podset.PodSetInfo{
+				{NodeSelector: map[string]string{"restored": "true"}},
+				{NodeSelector: map[string]string{"restored": "true"}},
+				{NodeSelector: map[string]string{"restored": "true"}},
+				{NodeSelector: map[string]string{"restored": "true"}},
+			},
+			wantChanged: true,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			genJob := (*RayJob)(tc.job)
+			if gotChanged := genJob.RestorePodSetsInfo(t.Context(), tc.podSetsInfo); gotChanged != tc.wantChanged {
+				t.Errorf("RestorePodSetsInfo() = %v, want %v", gotChanged, tc.wantChanged)
 			}
 		})
 	}

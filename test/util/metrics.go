@@ -17,10 +17,16 @@ limitations under the License.
 package util
 
 import (
+	"context"
+	"strconv"
+	"time"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	gomegatypes "github.com/onsi/gomega/types"
+	prometheusv1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/common/model"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/metrics/testutil"
 
@@ -107,10 +113,34 @@ func ExpectReservingActiveWorkloadsMetric(cq *kueue.ClusterQueue, value int) {
 	expectGaugeMetric(metrics.ReservingActiveWorkloads, lvs, gomega.Equal(float64(value)))
 }
 
+// ExpectAdmittedWorkloadsTotalMetricWithTimeout asserts that the total number of admitted
+// workloads in a specific ClusterQueue equals the expected value within a custom timeout window.
+// This method provides an explicit configuration override for heavily throttled CI environments.
+func ExpectAdmittedWorkloadsTotalMetricWithTimeout(cq *kueue.ClusterQueue, priorityClass string, v int, timeout time.Duration, customLabels ...string) {
+	ginkgo.GinkgoHelper()
+	expectCounterMetricWithTimeout(metrics.AdmittedWorkloadsTotal, v,
+		timeout, append([]string{cq.Name, priorityClass, roletracker.RoleStandalone}, customLabels...)...)
+}
+
 func ExpectAdmittedWorkloadsTotalMetric(cq *kueue.ClusterQueue, priorityClass string, v int, customLabels ...string) {
 	ginkgo.GinkgoHelper()
-	expectCounterMetric(metrics.AdmittedWorkloadsTotal, v,
-		append([]string{cq.Name, priorityClass, roletracker.RoleStandalone}, customLabels...)...)
+	ExpectAdmittedWorkloadsTotalMetricWithTimeout(cq, priorityClass, v, Timeout, customLabels...)
+}
+
+// GetMultiKueueWorkloadsAdmittedTotal reads the current value of the
+// multikueue_workloads_admitted_total counter, so tests can assert on the
+// delta and stay independent of metrics accumulated by earlier specs.
+func GetMultiKueueWorkloadsAdmittedTotal(cq *kueue.ClusterQueue, cluster string) int {
+	ginkgo.GinkgoHelper()
+	v, err := testutil.GetCounterMetricValue(metrics.MultiKueueWorkloadsAdmittedTotal.WithLabelValues(cq.Name, cluster, roletracker.RoleStandalone))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return int(v)
+}
+
+func ExpectMultiKueueWorkloadsAdmittedTotalMetric(cq *kueue.ClusterQueue, cluster string, v int) {
+	ginkgo.GinkgoHelper()
+	expectCounterMetric(metrics.MultiKueueWorkloadsAdmittedTotal, v,
+		cq.Name, cluster, roletracker.RoleStandalone)
 }
 
 func ExpectAdmissionWaitTimeMetric(cq *kueue.ClusterQueue, priorityClass string, count int) {
@@ -223,13 +253,21 @@ func ExpectLQFinishedWorkloadsGaugeMetric(lq *kueue.LocalQueue, count int) {
 	expectGaugeMetric(metrics.LocalQueueFinishedWorkloads, lvs, gomega.Equal(float64(count)))
 }
 
-func expectCounterMetric(metric *prometheus.CounterVec, count int, lvs ...string) {
+// expectCounterMetricWithTimeout polls a Prometheus counter metric until its value
+// matches the expected count or the custom timeout duration expires. It utilizes
+// gomega.Eventually to gracefully retry assertions without crashing the test harness.
+func expectCounterMetricWithTimeout(metric *prometheus.CounterVec, count int, timeout time.Duration, lvs ...string) {
 	ginkgo.GinkgoHelper()
 	gomega.Eventually(func(g gomega.Gomega) {
 		v, err := testutil.GetCounterMetricValue(metric.WithLabelValues(lvs...))
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		g.Expect(int(v)).Should(gomega.Equal(count))
-	}, Timeout, Interval).Should(gomega.Succeed())
+	}, timeout, Interval).Should(gomega.Succeed())
+}
+
+func expectCounterMetric(metric *prometheus.CounterVec, count int, lvs ...string) {
+	ginkgo.GinkgoHelper()
+	expectCounterMetricWithTimeout(metric, count, Timeout, lvs...)
 }
 
 func ExpectLQAdmissionWaitTimeMetric(lq *kueue.LocalQueue, priorityClass string, count int) {
@@ -337,9 +375,9 @@ func ExpectCohortSubtreeResourceReservationsGaugeMetricCleaned(cohortName, flavo
 	ExpectCohortSubtreeResourceReservationsGaugeMetric(cohortName, flavor, resource, 0, customLabels...)
 }
 
-func ExpectAdmittedActiveWorkloadsGaugeMetric(clusterQueue kueue.ClusterQueueReference, count float64) {
+func ExpectAdmittedActiveWorkloadsGaugeMetric(clusterQueue kueue.ClusterQueueReference, count float64, customLabels ...string) {
 	ginkgo.GinkgoHelper()
-	lvs := []string{string(clusterQueue), roletracker.RoleStandalone}
+	lvs := append([]string{string(clusterQueue), roletracker.RoleStandalone}, customLabels...)
 	expectGaugeMetric(metrics.AdmittedActiveWorkloads, lvs, gomega.Equal(count))
 }
 
@@ -359,4 +397,29 @@ func ExpectClusterQueueInfoMetric(cqName, parentCohort, rootCohort string, count
 	ginkgo.GinkgoHelper()
 	lvs := append([]string{cqName, parentCohort, rootCohort, roletracker.RoleStandalone}, customLabels...)
 	expectGaugeMetric(metrics.ClusterQueueInfo, lvs, gomega.Equal(count))
+}
+
+func ExpectPodSchedulingGateRemovalSecondsMetricLessOrEqual(name string, cqName kueue.ClusterQueueReference, isGroup bool, count int) {
+	ginkgo.GinkgoHelper()
+	matcher := gomega.Equal(count)
+	expectHistogramMetric(metrics.PodSchedulingGateRemovalSeconds, matcher, name, string(cqName), strconv.FormatBool(isGroup))
+}
+
+func ExpectPrometheusTargetForKueue(ctx context.Context, prometheusClient prometheusv1.API) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
+		result, err := prometheusClient.Targets(ctx)
+		g.Expect(err).NotTo(gomega.HaveOccurred())
+
+		hasKueueTarget := false
+		for _, t := range result.Active {
+			if t.Labels["job"] == model.LabelValue(DefaultMetricsServiceName) &&
+				t.Labels["namespace"] == model.LabelValue(GetKueueNamespace()) {
+				hasKueueTarget = true
+				g.Expect(t.Health).To(gomega.Equal(prometheusv1.HealthGood))
+				break
+			}
+		}
+		g.Expect(hasKueueTarget).To(gomega.BeTrue(), "Kueue target not found. Active targets: %v", result.Active)
+	}, VeryLongTimeout, Interval).Should(gomega.Succeed())
 }

@@ -39,22 +39,22 @@ type multiKueueAdapter struct{}
 
 var _ jobframework.MultiKueueAdapter = (*multiKueueAdapter)(nil)
 
-func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error {
+func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) (bool, error) {
 	localAppWrapper := awv1beta2.AppWrapper{}
 	err := localClient.Get(ctx, key, &localAppWrapper)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	remoteAppWrapper := awv1beta2.AppWrapper{}
 	err = remoteClient.Get(ctx, key, &remoteAppWrapper)
 	if client.IgnoreNotFound(err) != nil {
-		return err
+		return false, err
 	}
 
 	// if the remote exists, just copy the status
 	if err == nil {
-		return clientutil.PatchStatus(ctx, localClient, &localAppWrapper, func() (bool, error) {
+		return false, clientutil.PatchStatus(ctx, localClient, &localAppWrapper, func() (bool, error) {
 			localAppWrapper.Status = remoteAppWrapper.Status
 			return true, nil
 		})
@@ -72,7 +72,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	// clear the managedBy to enable the remote AppWrapper controller to take over
 	remoteAppWrapper.Spec.ManagedBy = nil
 
-	return remoteClient.Create(ctx, &remoteAppWrapper)
+	return false, remoteClient.Create(ctx, &remoteAppWrapper)
 }
 
 func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {

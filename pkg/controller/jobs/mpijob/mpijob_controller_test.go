@@ -33,6 +33,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/podset"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
@@ -353,6 +354,43 @@ var (
 		cmpopts.IgnoreFields(kueue.PodSet{}, "Template"),
 	}
 )
+
+func TestRestorePodSetsInfo(t *testing.T) {
+	baseJob := testingmpijob.MakeMPIJob("mpijob", "ns").GenericLauncherAndWorker()
+
+	testCases := map[string]struct {
+		job         *MPIJob
+		podSetsInfo []podset.PodSetInfo
+		wantChanged bool
+	}{
+		"more podSetsInfo than replica types is a no-op": {
+			job:         (*MPIJob)(baseJob.Clone().Obj()),
+			podSetsInfo: []podset.PodSetInfo{{}, {}, {}},
+			wantChanged: false,
+		},
+		"fewer podSetsInfo than replica types is a no-op": {
+			job:         (*MPIJob)(baseJob.Clone().Obj()),
+			podSetsInfo: []podset.PodSetInfo{{}},
+			wantChanged: false,
+		},
+		"matching length restores pod sets": {
+			job: (*MPIJob)(baseJob.Clone().Obj()),
+			podSetsInfo: []podset.PodSetInfo{
+				{NodeSelector: map[string]string{"restored": "true"}},
+				{NodeSelector: map[string]string{"restored": "true"}},
+			},
+			wantChanged: true,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			if gotChanged := tc.job.RestorePodSetsInfo(t.Context(), tc.podSetsInfo); gotChanged != tc.wantChanged {
+				t.Errorf("RestorePodSetsInfo() = %v, want %v", gotChanged, tc.wantChanged)
+			}
+		})
+	}
+}
 
 func TestReconciler(t *testing.T) {
 	baseWPCWrapper := utiltestingapi.MakeWorkloadPriorityClass("test-wpc").

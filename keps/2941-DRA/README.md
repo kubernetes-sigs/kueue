@@ -63,6 +63,14 @@ tags, and then generate with `hack/update-toc.sh`.
     - [Path Interactions](#path-interactions)
     - [Counter Lifecycle Scenarios](#counter-lifecycle-scenarios)
     - [Validation](#validation)
+  - [Consumable Capacity](#consumable-capacity)
+    - [ResourceSlice Structure](#resourceslice-structure-1)
+    - [User Workload](#user-workload-1)
+    - [Configuration](#configuration-2)
+    - [Processing Flow](#processing-flow-2)
+    - [Path Interactions](#path-interactions-1)
+    - [Capacity Lifecycle Scenarios](#capacity-lifecycle-scenarios)
+    - [Validation](#validation-1)
   - [Architecture Details](#architecture-details)
     - [Queue Manager Extensions](#queue-manager-extensions)
   - [Integration with Admission Fair Sharing](#integration-with-admission-fair-sharing)
@@ -78,12 +86,16 @@ tags, and then generate with `hack/update-toc.sh`.
       - [KueueDRAIntegrationExtendedResource (v0.17)](#kueuedraintegrationextendedresource-v017)
       - [KueueDRAIntegrationExtendedResource (v0.18)](#kueuedraintegrationextendedresource-v018)
       - [KueueDRAIntegrationPartitionableDevices (v0.18)](#kueuedraintegrationpartitionabledevices-v018)
+      - [KueueDRAIntegrationConsumableCapacity (v0.19)](#kueuedraintegrationconsumablecapacity-v019)
     - [Beta](#beta)
       - [KueueDRAIntegration (v0.18)](#kueuedraintegration-v018)
       - [KueueDRAIntegrationExtendedResource](#kueuedraintegrationextendedresource)
+      - [KueueDRAIntegrationPartitionableDevices](#kueuedraintegrationpartitionabledevices)
+      - [KueueDRAIntegrationConsumableCapacity](#kueuedraintegrationconsumablecapacity)
     - [GA](#ga)
       - [KueueDRAIntegration](#kueuedraintegration)
       - [KueueDRAIntegrationExtendedResource](#kueuedraintegrationextendedresource-1)
+      - [KueueDRAIntegrationPartitionableDevices](#kueuedraintegrationpartitionabledevices-1)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
@@ -99,7 +111,8 @@ tags, and then generate with `hack/update-toc.sh`.
   - [Device-Count Quota with Dual Tracking](#device-count-quota-with-dual-tracking)
   - [Auto-discovery of Counters Without Configuration](#auto-discovery-of-counters-without-configuration)
 - [Appendix](#appendix)
-  - [Consumable Capacity Compatibility](#consumable-capacity-compatibility)
+  - [KEP-5941 Shared Consumable Capacity](#kep-5941-shared-consumable-capacity)
+  - [KEP-5963 Device Compatibility Groups](#kep-5963-device-compatibility-groups)
 <!-- /toc -->
 
 ## Summary
@@ -107,13 +120,17 @@ tags, and then generate with `hack/update-toc.sh`.
 [Dynamic Resource Allocation (DRA)](https://kubernetes.io/docs/concepts/scheduling-eviction/dynamic-resource-allocation/)
 is a major effort to improve device support in Kubernetes. It changes how one can request resources in a myriad of ways.
 
-This KEP supports three approaches for DRA integration with Kueue:
+This KEP supports four approaches for DRA integration with Kueue:
 1. **ResourceClaimTemplates**: Pods explicitly reference ResourceClaimTemplates that specify device requests.
 2. **Extended Resources**: Pods request DRA devices via standard `resources.requests` (e.g., `example.com/gpu: 1`), and kube-scheduler automatically creates ResourceClaims when the DeviceClass has an `extendedResourceName` field set.
 3. **Partitionable Devices**: Counter-based quota for devices that can be dynamically
    partitioned (e.g., NVIDIA MIG). Instead of counting devices, Kueue tracks counter
    consumption (e.g., GPU memory) from the `SharedCounters` and `ConsumesCounters` fields
    defined by [KEP-4815](https://github.com/kubernetes/enhancements/issues/4815).
+4. **Consumable Capacity**: Capacity-based quota for devices that allow software-level
+   sharing. Kueue tracks consumed capacity dimensions such as GPU memory and compute
+   cores from the device's `Capacity` field as defined by
+   [KEP-5075](https://github.com/kubernetes/enhancements/issues/5075).
 
 ## Motivation
 
@@ -215,6 +232,8 @@ a simple device class named `gpu.example.com`. This will be the way to enforce q
 - Admins can enforce the quota for number of devices for a given DeviceClass.
 - Admins can enforce counter-based quota for partitionable devices (e.g., GPU memory quota
   instead of device count quota for MIG profiles).
+- Admins can enforce capacity-based quota for devices that allow software-level sharing
+  (e.g., GPU memory and compute cores quota for time-sliced or fractional GPU devices).
 
 ### Non-Goals
 
@@ -224,11 +243,6 @@ a simple device class named `gpu.example.com`. This will be the way to enforce q
 - Support for DRA features like DRADeviceTaints is not included.
 - Multi-host partitionable devices (e.g., NVLink fabrics spanning multiple nodes) are not
   supported.
-- Support for DRAConsumableCapacity (alpha in K8s 1.34, beta targeting K8s 1.36) is not
-  included. Consumable capacity enables software-level device sharing (e.g., MPS, time-slicing)
-  where multiple claims share one device. This requires different quota semantics as Kueue
-  would need to read the cost from the claim's capacity request rather than the device's
-  counters. No GPU driver ships consumable capacity yet.
 - This design does not work with Topology Aware Scheduling feature of Kueue. It is a significant
   amount of work, will be addressed in the future with a separate body of work.
 
@@ -249,6 +263,10 @@ scheduling. This includes:
    partitionable devices (requires Kubernetes `DRAPartitionableDevices` feature gate, beta in
    K8s 1.36). This builds on CEL expression support which adds ResourceSlice access and
    device matching to Kueue.
+7. Supporting capacity-based quota for devices that allow multiple allocations via the
+   `capacity` source type on `deviceClassMappings` (requires Kubernetes
+   `DRAConsumableCapacity` feature gate, beta in K8s 1.36). Kueue charges the workload's
+   `capacity.requests` rounded per the device's `RequestPolicy`.
 
 More details are documented in [Design Details](#design-details)
 
@@ -299,7 +317,7 @@ GPU memory quota, while a team requesting a 7g.80gb profile should consume 80Gi.
 - **Extended Resources** requires DeviceClasses to have `spec.extendedResourceName` set.
   This depends on the Kubernetes `DRAExtendedResource` feature gate (alpha in k8s 1.35).
   When enabled, kube-scheduler automatically creates ResourceClaims for pods requesting extended resources.
-  Extended resources support in Kueue is gated behind the `DRAExtendedResources` feature gate.
+  Extended resources support in Kueue is gated behind the `KueueDRAIntegrationExtendedResource` feature gate.
 - **GPU time-slicing and MPS via extended resources are not supported in Alpha.**
   Time-slicing and MPS sharing modes require opaque parameters on the DeviceClass
   (e.g., `GpuConfig` with `sharing.strategy: TimeSlicing`). When kube-scheduler creates
@@ -372,24 +390,36 @@ is documented here:
    - Post-scheduling quota reconciliation will be evaluated for Beta.
    - TAS + DRA is the longer-term path to closing this admission-scheduling gap.
 
+**Consumable capacity under-charge on exclusive devices**: if the `deviceSelector` matches
+devices without `AllowMultipleAllocations`, the scheduler consumes the entire device while
+Kueue charges only the partial `capacity.requests` amount. This is specific to capacity
+sources because the charge comes from the workload's request, not the device (counter
+sources charge from the device's `consumesCounters` and do not have this issue).
+Mitigation: include `device.allowMultipleAllocations == true` in the `deviceSelector`.
+The general admission-scheduling timing gap applies equally to all DRA source types.
+`waitForPodsReady` catches scheduling failures and evicts the workload so quota is
+released.
+
 ## Design Details
 
-Three feature gates control DRA support in Kueue:
-- `DynamicResourceAllocation`: gates ResourceClaimTemplate-based DRA quota accounting.
-  Uses `deviceClassMappings` for DeviceClass-to-quota-resource mapping.
-- `DRAExtendedResources`: gates extended resources support, including DeviceClass
-  auto-discovery via `extendedResourceName`. Does not use `deviceClassMappings`.
-  Requires `DynamicResourceAllocation` to also be enabled.
-- `KueueDRAIntegrationPartitionableDevices`: gates counter-based quota for partitionable
-  devices. Enables the `sources` field on `deviceClassMappings` entries. Requires
-  `DynamicResourceAllocation` to also be enabled. Also requires the Kubernetes
-  `DRAPartitionableDevices` feature gate (beta in K8s 1.36).
-- `KueueDRARejectWorkloadsWhenDRADisabled` (default: enabled, Beta since v0.18): rejects workloads that
-  use DRA resources (ResourceClaimTemplates or ResourceClaims) when the
-  `DynamicResourceAllocation` feature gate is disabled. Without this gate, DRA workloads
-  submitted while `DynamicResourceAllocation` is off are silently admitted with zero
-  device resource usage, bypassing quota enforcement entirely. See
-  [Workload Rejection When DRA Is Disabled](#workload-rejection-when-dra-is-disabled).
+Feature gates controlling DRA support in Kueue:
+- `KueueDRAIntegration` (Beta, default on since v0.18): gates ResourceClaimTemplate-based
+  DRA quota accounting. Uses `deviceClassMappings` for DeviceClass-to-quota-resource mapping.
+- `KueueDRAIntegrationExtendedResource` (Alpha): gates extended resources support, including
+  DeviceClass auto-discovery via `extendedResourceName`. Requires `KueueDRAIntegration`.
+- `KueueDRAIntegrationPartitionableDevices` (Alpha): gates counter-based quota for
+  partitionable devices. Enables the `counter` source type on `deviceClassMappings` entries.
+  Requires `KueueDRAIntegration`. Also requires the Kubernetes `DRAPartitionableDevices`
+  feature gate (beta in K8s 1.36).
+- `KueueDRAIntegrationConsumableCapacity` (Alpha): gates capacity-based quota for devices
+  that allow multiple allocations. Enables the `capacity` source type on
+  `deviceClassMappings` entries. Requires `KueueDRAIntegration`. Also requires the
+  Kubernetes `DRAConsumableCapacity` feature gate (beta in K8s 1.36).
+- `KueueDRARejectWorkloadsWhenDRADisabled` (Beta, default on since v0.18): rejects workloads
+  that use DRA resources (ResourceClaimTemplates or ResourceClaims) when `KueueDRAIntegration`
+  is disabled. Without this gate, DRA workloads submitted while `KueueDRAIntegration` is off
+  are silently admitted with zero device resource usage, bypassing quota enforcement entirely.
+  See [Workload Rejection When DRA Is Disabled](#workload-rejection-when-dra-is-disabled).
 
 The following sections will explain the design in detail.
 
@@ -540,7 +570,13 @@ data:
         - fast-gpus.example.com      # Different device class
 ```
 
-This validation approach eliminates ambiguity at configuration time rather than requiring complex runtime resolution logic, ensuring predictable and efficient workload admission.
+This validation approach eliminates ambiguity at configuration time rather than requiring
+complex runtime resolution logic, ensuring predictable and efficient workload admission.
+
+**Note**: A single mapping can have multiple capacity sources that sum into one quota
+resource, which does not violate this constraint. Tracking independent capacity
+dimensions as separate quota resources (same DeviceClass, different resource names)
+requires relaxing this uniqueness constraint and is deferred to beta.
 
 ### RBAC Requirements
 
@@ -681,7 +717,7 @@ When a user submits a workload and DynamicResourceAllocation feature gate is ena
 8. Status Update: Once the quota is reserved, the workload status reflects the assigned flavors and resource usage, including DRA resources.
 
 Note: The flow above applies to the ResourceClaimTemplate path (`DynamicResourceAllocation` gate).
-When the `DRAExtendedResources` gate is also enabled, workloads with extended resources in
+When the `KueueDRAIntegrationExtendedResource` gate is also enabled, workloads with extended resources in
 `resources.requests` follow a separate resolution path through the ExtendedResourceCache.
 See [Extended Resources](#extended-resources) for details. Both paths can be active simultaneously
 for workloads that use both ResourceClaimTemplates and extended resources.
@@ -811,7 +847,7 @@ status:
 
 ### Extended Resources
 
-This section is gated behind the `DRAExtendedResources` Kueue feature gate.
+This section is gated behind the `KueueDRAIntegrationExtendedResource` Kueue feature gate.
 
 Kueue also supports workloads requesting DRA devices via `resources.requests` (e.g., `example.com/gpu: 1`).
 When a DeviceClass has `spec.extendedResourceName` set, kube-scheduler automatically creates ResourceClaims.
@@ -861,7 +897,7 @@ continues to use `deviceClassMappings`.
 #### Path Separation
 
 The two DRA paths resolve quota independently:
-1. **Extended resources** (`DRAExtendedResources` gate): auto-discovers DeviceClass via
+1. **Extended resources** (`KueueDRAIntegrationExtendedResource` gate): auto-discovers DeviceClass via
    field indexer. Uses `extendedResourceName` as the default quota key. If the resolved
    DeviceClass is also present in `deviceClassMappings`, Kueue uses the mapped logical
    name instead to unify quota with the ResourceClaimTemplate path. If the mapping has
@@ -1087,10 +1123,10 @@ type DeviceClassMapping struct {
 
     // Sources configures resource accounting sources for this mapping.
     // Each source defines how quota is tracked for this DeviceClass.
-    // Currently only counter sources are supported (for partitionable devices).
+    // Counter sources require KueueDRAIntegrationPartitionableDevices.
+    // Capacity sources require KueueDRAIntegrationConsumableCapacity.
     // Extended resource requests that resolve to a DeviceClass with sources
     // configured are marked inadmissible.
-    // Requires the KueueDRAIntegrationPartitionableDevices feature gate.
     // +optional
     Sources []DeviceClassSourceConfig `json:"sources,omitempty"`
 }
@@ -1102,29 +1138,56 @@ type DeviceClassSourceConfig struct {
     // Maps a DRA driver counter to the parent DeviceClassMapping's Kueue quota resource.
     // +optional
     Counter *DeviceClassCounterSource `json:"counter,omitempty"`
+
+    // Capacity configures capacity-based quota for devices that allow
+    // multiple allocations (consumable capacity).
+    // +optional
+    Capacity *DeviceClassCapacitySource `json:"capacity,omitempty"`
 }
 
-// DeviceClassCounterSource identifies where to read counter data from and which counter to track.
+// DeviceClassCounterSource configures counter-based quota tracking
+// for partitionable devices (KEP-4815).
 type DeviceClassCounterSource struct {
-    // Name is the counter name within the device's consumesCounters
-    // entries to track for quota. Must match a counter name published by
-    // the driver in ResourceSlice devices' consumesCounters field.
-    // Counter set names are per-device identifiers (e.g., gpu-0-counter-set,
-    // gpu-1-counter-set), so name matches across all counter sets
-    // for a given driver without requiring one mapping per device.
+    // Name identifies the counter dimension to track for quota
+    // (e.g., "gpu.memory").
+    // Must be a valid QualifiedName; the name part must not exceed
+    // 63 characters.
     // +required
     Name string `json:"name"`
 
     // Driver is the DRA driver name used to filter relevant ResourceSlices.
     // Must match the spec.driver field on ResourceSlice objects.
+    // Must not exceed 63 characters (DriverNameMaxLength).
     // +required
     Driver string `json:"driver"`
 
-    // DeviceSelector scopes which devices are eligible for counter-based
-    // quota accounting. Typically matches a GPU model (e.g., productName)
-    // so all partition profiles on that model share one quota pool.
-    // Per-workload charging is determined by the workload's own
-    // ResourceClaimTemplate selector, which narrows to the requested profile.
+    // DeviceSelector scopes which devices are eligible for quota accounting.
+    // Typically matches a GPU model (e.g., productName) so all partition
+    // profiles on that model share one quota pool.
+    // The selector is compiled at config load time using the upstream dracel
+    // compiler.
+    // +required
+    DeviceSelector resourcev1.DeviceSelector `json:"deviceSelector"`
+}
+
+// DeviceClassCapacitySource configures capacity-based quota tracking
+// for devices that allow multiple allocations (KEP-5075).
+type DeviceClassCapacitySource struct {
+    // Name identifies the capacity dimension to track for quota
+    // (e.g., "gpu.example.com/memory").
+    // Must be a valid DRA QualifiedName.
+    // +required
+    Name resourcev1.QualifiedName `json:"name"`
+
+    // Driver is the DRA driver name used to filter relevant ResourceSlices.
+    // Must match the spec.driver field on ResourceSlice objects.
+    // Must not exceed 63 characters (DriverNameMaxLength).
+    // +required
+    Driver string `json:"driver"`
+
+    // DeviceSelector scopes which devices are eligible for quota accounting.
+    // Matches devices whose capacity dimensions should be tracked against
+    // the quota pool.
     // The selector is compiled at config load time using the upstream dracel
     // compiler.
     // +required
@@ -1330,16 +1393,17 @@ borrowing only operates within the same resource.
    the workload finishes.
 
 4. **Driver restart**: ResourceSlices may temporarily disappear. Workloads submitted during
-   this window are marked inadmissible. Kueue does not currently have a ResourceSlice
-   informer, so inadmissible workloads are only re-evaluated when the ClusterQueue is
-   notified through other events. Event-driven requeuing on ResourceSlice changes is an
-   Alpha graduation criterion.
+   this window are marked inadmissible. The ResourceSlice controller watches for
+   create/update/delete events on ResourceSlices matching configured drivers and
+   triggers requeuing of inadmissible workloads when device availability changes.
 
 #### Validation
 
-- At config load time: when `sources` is present on a `deviceClassMappings` entry, the
-  `KueueDRAIntegrationPartitionableDevices` feature gate must be enabled. `sources` must have exactly
-  one entry in Alpha, and it must be a counter source. Each counter source is validated for
+- At config load time: each counter source requires the `KueueDRAIntegrationPartitionableDevices`
+  feature gate; each capacity source requires `KueueDRAIntegrationConsumableCapacity`.
+  At most one counter source is allowed per mapping; multiple capacity sources are allowed
+  (see [Consumable Capacity Validation](#validation-1) for the full cardinality rules).
+  Counter and capacity sources must not be mixed within the same mapping. Each source is validated for
   required fields (`name`, `driver`, `deviceSelector`). The `deviceSelector` CEL expression
   is compiled at config load time using the upstream `dracel` compiler to catch syntax
   and type errors early. Exactly one source type must be set per entry.
@@ -1352,6 +1416,283 @@ borrowing only operates within the same resource.
   existence at config load time.
 - `KueueDRAIntegrationPartitionableDevices` requires `KueueDRAIntegration` to be enabled. Validated
   at startup in `pkg/config/validation.go`.
+- Tightened driver name max length from 253 to 63 to match resourcev1.DriverNameMaxLength since Kueue v0.19.0
+
+### Consumable Capacity
+
+This section is gated behind the `KueueDRAIntegrationConsumableCapacity` Kueue feature gate.
+
+Kueue supports capacity-based quota for DRA devices that allow software-level sharing as
+defined by Kubernetes [KEP-5075](https://github.com/kubernetes/enhancements/issues/5075).
+Kueue tracks consumed capacity dimensions such as GPU memory and compute cores from the
+device's `Capacity` field and the workload's `capacity.requests` on `ExactDeviceRequest`.
+
+Only `ExactDeviceRequest` with `count` is supported. `FirstAvailable` subrequests with
+`capacity.requests` are not supported, consistent with the existing exclusion for
+partitionable devices.
+
+#### ResourceSlice Structure
+
+Unlike partitionable devices where `SharedCounters` and `Devices` are in separate
+ResourceSlices, consumable capacity puts `Capacity` directly on the `Device` alongside
+`AllowMultipleAllocations` in a single ResourceSlice:
+
+```yaml
+# ResourceSlice: GPU devices with consumable capacity
+spec:
+  driver: gpu.example.com
+  pool:
+    name: node1-gpu0
+    generation: 1
+    resourceSliceCount: 1
+  nodeName: node1
+  devices:
+  - name: gpu-0
+    attributes:
+      gpu.example.com/model:
+        string: "A100-80GB"
+    allowMultipleAllocations: true
+    capacity:
+      gpu.example.com/memory:
+        value: "80Gi"
+        requestPolicy:
+          default: "80Gi"
+          validRange:
+            min: "1Mi"
+            max: "80Gi"
+      gpu.example.com/cores:
+        value: "100"
+        requestPolicy:
+          default: "100"
+          validValues: ["10", "20", "30", "50", "100"]
+```
+
+The `Capacity` field on each device defines the total capacity per dimension. A device
+may publish multiple capacity dimensions (memory, cores), but Kueue only tracks the
+dimensions explicitly configured in `deviceClassMappings` sources. The `RequestPolicy`
+constrains how workloads consume that capacity:
+- `Default`: the charge applied when a workload's request omits this capacity dimension
+- `ValidValues`: a discrete set of acceptable request amounts (max 10, sorted ascending)
+- `ValidRange`: a continuous range with optional `Step` for rounding granularity
+
+#### User Workload
+
+Users request shared capacity via `capacity.requests` on the `ExactDeviceRequest` within
+a ResourceClaimTemplate:
+
+```yaml
+apiVersion: resource.k8s.io/v1
+kind: ResourceClaimTemplate
+metadata:
+  name: gpu-share-small
+spec:
+  spec:
+    devices:
+      requests:
+      - name: gpu
+        exactly:
+          deviceClassName: gpu.example.com
+          count: 1
+          selectors:
+          - cel:
+              expression: "device.attributes['gpu.example.com'].model == 'A100-80GB'"
+          capacity:
+            requests:
+              gpu.example.com/memory: "4Gi"
+              gpu.example.com/cores: "30"
+```
+
+If `capacity.requests` is omitted, the kube-scheduler applies the `RequestPolicy.Default`
+value for each capacity dimension, or charges the full `Capacity.Value` if no policy is
+set. Kueue applies the same defaults for accurate quota charging.
+
+#### Configuration
+
+The `DeviceClassSourceConfig` struct includes both `Counter` and `Capacity` fields
+(see [Partitionable Devices Configuration](#configuration-1) for the full type
+definitions). When a capacity source is present, Kueue tracks quota in capacity
+units instead of device count.
+
+GPU fractional sharing setup with capacity-based `gpu.memory` quota:
+
+```yaml
+# Kueue Configuration
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+featureGates:
+  KueueDRAIntegrationConsumableCapacity: true
+resources:
+  deviceClassMappings:
+  - name: gpu.memory
+    deviceClassNames: [gpu.example.com]
+    sources:
+    - capacity:
+        name: "gpu.example.com/memory"
+        driver: gpu.example.com
+        deviceSelector:
+          cel:
+            expression: "device.driver == 'gpu.example.com'"
+---
+# ClusterQueue: 10 GPUs worth of memory (80Gi each)
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: gpu-queue
+spec:
+  resourceGroups:
+  - coveredResources: ["gpu.memory"]
+    flavors:
+    - name: a100-pool
+      resources:
+      - name: gpu.memory
+        nominalQuota: "800Gi"
+```
+
+Quota usage examples against `gpu.memory: 800Gi`:
+
+| Workload | capacity.requests | RequestPolicy (from device) | Effective Charge | Quota Charge |
+|----------|-------------------|-----------------------------|------------------|--------------|
+| A | `memory: 4Gi` | ValidRange(min=1Mi, max=80Gi) | `4Gi` | `gpu.memory: 4Gi` |
+| B | `memory: 20Gi` | ValidRange(min=1Mi, max=80Gi) | `20Gi` | `gpu.memory: 20Gi` |
+| C | (omitted) | Default=80Gi | `80Gi` | `gpu.memory: 80Gi` |
+| D | `memory: 90Gi` | ValidRange(min=1Mi, max=80Gi) | inadmissible | (rejected) |
+
+When `sources` is absent on a mapping, the mapping behaves exactly as today (device-count
+quota). This is backward compatible.
+
+A single mapping can have multiple capacity sources, whose charges are summed into the
+mapping's quota resource. Each source should track the same dimension (e.g., `gpu.memory`)
+with different `deviceSelector` scopes, for example, aggregating memory from two GPU
+models into one pool. Mixing different dimensions (e.g., memory + cores) into one mapping
+produces a meaningless sum and is not a supported use case. Independent dimensions require
+separate mappings with distinct resource names.
+
+Independent dimension tracking (same DeviceClass, different resource names, different
+mappings) requires relaxing the DeviceClass uniqueness validation. This is deferred to
+beta, consistent with the same deferral for partitionable devices multi-counter support.
+
+#### Processing Flow
+
+The device matching pipeline (steps 1-6) is identical to partitionable devices. Only
+the charge computation (step 7) differs: capacity reads the charge from the workload's
+request, while counters read it from the device's `consumesCounters`.
+
+Each PodSet in the workload is processed independently. Multi-PodSet workloads (e.g.,
+RayJob with head and worker PodSets) can have different capacity requests per PodSet,
+and each PodSet's charges are tracked separately in `resourceUsage`.
+
+1. Kueue looks up the ResourceClaimTemplate's DeviceClass in `deviceClassMappings`
+2. If the mapping has a capacity source configured, enters the capacity-based path
+3. Reads the workload's `capacity.requests` from the `ExactDeviceRequest` for the
+   configured capacity dimension name
+4. Lists ResourceSlices for the configured driver, groups them by pool and checks
+   completeness. Device listing is needed to read `RequestPolicy` for rounding and
+   `Default` for omitted requests
+5. Filters devices by `deviceSelector` to narrow the candidate pool
+6. From filtered devices, matches using DeviceClass selectors and the workload's
+   ResourceClaimTemplate request selectors using the `dracel` compiler
+7. Resolves the effective charge per device independently, then takes the
+   maximum across all matched devices:
+   - For each matched device with the capacity dimension, determines the
+     base charge: `capacity.requests[<name>]` if specified, otherwise the
+     device's own `RequestPolicy.Default` if set, otherwise the device's
+     `Capacity.Value`
+   - Rounds the base charge against the device's own `RequestPolicy`.
+     If the device has no `RequestPolicy`, the base charge is used as-is.
+     `ValidValues` rounds up to the smallest valid value >= base;
+     `ValidRange` rounds up to `Min` if below, aligns to `Min + n*Step`
+     if `Step` is set. If the rounded value exceeds `Max` or all valid
+     values, the device is skipped (it cannot satisfy the request)
+   - Takes the maximum rounded charge across all devices. This ensures
+     Kueue never under-charges even if the `deviceSelector` matches
+     heterogeneous devices with different Defaults or policies
+   - If no matched device has the capacity dimension or can satisfy the
+     request, the workload is marked inadmissible
+8. For `count > 1`, multiplies per-device charge by count using saturating
+   arithmetic (capped at `MaxInt64` rather than wrapping)
+
+The rounded charge (not the raw request) appears in
+`status.admission.podSetAssignments[].resourceUsage`, preserving the quantity format
+from the rounded value. Rounding prevents under-charging: the kube-scheduler rounds
+requests per `RequestPolicy` before allocating, so Kueue must apply the same rounding
+to keep quota charges aligned with actual device consumption.
+
+Inadmissibility rules follow the same pattern as partitionable devices: insufficient
+matched devices, unavailable ResourceSlice data, and incomplete pools (latest generation,
+`resourceSliceCount` check) all result in inadmissible status.
+
+#### Path Interactions
+
+A `deviceClassMappings` entry uses either device-count, counter-based, or capacity-based
+quota, determined by whether and what type of `sources` is set. When counter or capacity
+sources are configured for a DeviceClass, the device-count charge is skipped for that
+class to avoid double-counting.
+
+**Consumable capacity and partitionable devices:**
+
+`DeviceClassSourceConfig` enforces exactly one source type per entry. Counter sources
+track partitioned devices via `consumesCounters`, capacity sources track shared devices
+via `Capacity`. These serve different device types and are not combined on a single
+mapping entry.
+
+In [Alpha](#alpha), each mapping must have a unique resource name and counter and
+capacity sources cannot be mixed within the same mapping. This means a unified
+quota pool across both device types (e.g., partitioned and time-sliced GPUs both
+charging `gpu.memory`) is not supported. Relaxing the resource name uniqueness
+to allow separate counter and capacity mappings to share a quota resource is to
+be evaluated for [Beta](#beta). The same DeviceClass cannot appear in two different
+mappings due to the DeviceClass uniqueness constraint across mappings.
+
+**Extended resources and capacity sources are not supported together:**
+
+Same rationale as partitionable devices. Extended resource requests carry only a device
+count without `capacity.requests`, so Kueue cannot determine an accurate capacity charge.
+
+**Cohort and borrowing:**
+
+Capacity resources participate in Cohort borrowing and lending like any other resource.
+`nominalQuota`, `borrowingLimit`, and `lendingLimit` are all in capacity units.
+
+#### Capacity Lifecycle Scenarios
+
+1. **No capacity data on matched devices**: the driver published devices without the
+   configured capacity dimension. The workload is marked inadmissible.
+
+2. **RequestPolicy violation**: the workload requests more capacity than
+   `ValidRange.Max` or exceeds all `ValidValues`. The workload is marked inadmissible.
+
+3. **Request omits capacity**: For each matched device, Kueue charges the device's
+   own `RequestPolicy.Default` if set, or the device's full `Capacity.Value` if
+   `Default` is unset or no `RequestPolicy` exists. The maximum charge across all
+   devices is used.
+
+4. **AllowMultipleAllocations not set**: the apiserver enforces that `RequestPolicy`
+   requires `AllowMultipleAllocations: true`. If the `deviceSelector` also matches
+   exclusive devices, the kube-scheduler consumes the entire device while Kueue charges
+   only the partial request. Admins should include
+   `device.allowMultipleAllocations == true` in the `deviceSelector`.
+
+Scenarios for ResourceSlice changes after admission and driver restart are the same as
+[Counter Lifecycle Scenarios](#counter-lifecycle-scenarios) 3-4. The existing ResourceSlice
+controller is reused: capacity source drivers are added to the watched driver set at
+startup, so create/update/delete events on those ResourceSlices trigger the same
+inadmissible workload requeuing. No new controller logic is needed.
+
+#### Validation
+
+- At config load time: when a `capacity` source is present on a `deviceClassMappings`
+  entry, the `KueueDRAIntegrationConsumableCapacity` feature gate must be enabled.
+  Each source entry must be either a counter or a capacity source (not both). At most
+  one counter source is allowed per mapping. Multiple capacity sources are allowed per
+  mapping (summed into one quota resource). Counter and capacity sources must not be
+  mixed within the same mapping. Each source is validated for required fields (`name`,
+  `driver`, `deviceSelector`). The `deviceSelector` CEL expression is compiled at config
+  load time using the upstream `dracel` compiler to catch syntax and type errors early.
+- At runtime: no cross-validation between `name` and actual ResourceSlice capacity keys.
+  This is consistent with how `deviceClassMappings` does not validate DeviceClass
+  existence at config load time.
+- `KueueDRAIntegrationConsumableCapacity` requires `KueueDRAIntegration` to be enabled.
+  Validated at startup in `pkg/config/validation.go`.
 
 ### Architecture Details
 
@@ -1490,6 +1831,17 @@ using mock ResourceClaimTemplates and DeviceClasses to simulate DRA workloads. K
   `consumesCounters` not present on matched device
 - ResourceSlice handling: Pool completeness via generation and resourceSliceCount,
   correct filtering by driver name
+- Consumable capacity: Explicit capacity request charged correctly, default charge
+  when no capacity request specified, rounding per `ValidValues` policy,
+  `ValidRange` with `Step` alignment, `Max`/`ValidValues` exceeded marked inadmissible,
+  count multiplication for `count > 1`, negative and overflow clamping
+- Capacity validation: Capacity source rejected when CC gate disabled, valid
+  multi-dimension capacity sources accepted, counter+capacity mixing rejected,
+  capacity source field validation (name, driver, deviceSelector)
+- Extended resources with capacity sources rejection: extended resource request
+  resolved to a DeviceClass with capacity sources is marked inadmissible
+- Capacity device-count skip: device-count charge skipped when capacity sources
+  are configured for the DeviceClass (prevents double-counting)
 
 #### E2E Test
 
@@ -1530,6 +1882,16 @@ tracks adding this). This follows the same pattern as upstream K8s integration t
 - CEL expression validation against ResourceSlice devices
 - event-driven requeuing of inadmissible workloads on ResourceSlice changes
 
+##### KueueDRAIntegrationConsumableCapacity (v0.19)
+
+- support for consumable capacity devices via capacity-based quota (KEP-5075, beta in k8s 1.36)
+- rounding per RequestPolicy (ValidValues and ValidRange with Step) to prevent quota gaming
+- multiple capacity sources on a single mapping (same dimension, different device
+  selectors, summed into one quota resource)
+- reuses the existing ResourceSlice controller from partitionable devices; capacity
+  source drivers are added to the watched driver set at startup
+- integration and e2e tests
+
 #### Beta
 
 ##### KueueDRAIntegration (v0.18)
@@ -1538,19 +1900,41 @@ tracks adding this). This follows the same pattern as upstream K8s integration t
 - support integration with MultiKueue
 - e2e tests
 - CEL expression validation against ResourceSlice devices
+- re-evaluate post-scheduling quota reconciliation for DeviceClass drift
 
 ##### KueueDRAIntegrationExtendedResource
 
-- re-evaluate post-scheduling quota reconciliation for DeviceClass drift
-- re-evaluate the need for indexing of resourceSlices for CEL performance lookups
-- re-evaluate pool-aware flavor assignment for counter resources
-- re-evaluate caching `deviceSelector` evaluation results to avoid repeated ResourceSlice
-  evaluation
-- re-evaluate consolidating ResourceSlice listing between CEL validation and counter
+- feature gate enabled by default
+
+##### KueueDRAIntegrationPartitionableDevices
+
+- feature gate enabled by default
+- consolidate ResourceSlice listing between CEL validation and counter processing
+  into a shared request-scoped cache, eliminating duplicate API calls within a
+  single workload reconciliation.
+- extend CEL validation path to use driver-based indexed ResourceSlice listing for
+  DeviceClasses with counter sources, instead of listing all ResourceSlices
+  unfiltered. When a broader listing is already cached, per-driver requests filter
+  from cached results.
+- iterate all ConsumesCounters entries per device, consistent with the upstream K8s
+  allocator behavior. Takes MAX across all matching counter sets per device.
+- support multi-counter tracking by relaxing the DeviceClass uniqueness constraint
+  across mappings when both have counter sources with different counter names,
+  allowing memory and compute as separate quota resources for the same DeviceClass
+
+##### KueueDRAIntegrationConsumableCapacity
+
+- feature gate enabled by default
+- re-evaluate independent dimension tracking (same DeviceClass, different resource names
+  across mappings) by relaxing the DeviceClass uniqueness constraint. Same relaxation
+  deferred for partitionable devices multi-counter support
+- re-evaluate unified quota pools across counter and capacity mappings by relaxing the
+  resource name uniqueness constraint
+- re-evaluate consolidating ResourceSlice listing between CEL, counter, and capacity
   processing into a shared layer
-- re-evaluate multi-counter tracking (e.g., memory and compute as separate quota resources
-  for the same DeviceClass) by relaxing the DeviceClass uniqueness constraint when mappings
-  have different counter sources configured
+- re-evaluate caching `deviceSelector` and `RequestPolicy` evaluation results
+- re-evaluate surfacing the rounded charge vs raw request in a workload condition or
+  event for operator visibility
 
 #### GA
 
@@ -1558,12 +1942,29 @@ tracks adding this). This follows the same pattern as upstream K8s integration t
 
 - the feature gate in stable
 - TAS + DRA integration and testing
+- re-evaluate support for AdminAccess requests
+- re-evaluate support for FirstAvailable device selection
+- re-evaluate support for AllocationMode All
+- re-evaluate closing the admission-scheduling timing gap via scheduler-library
+  integration
 
 ##### KueueDRAIntegrationExtendedResource
 
 - the feature gate in stable
 - user adoption feedback confirms stability
 - re-evaluate DeviceClass watcher performance at scale
+
+##### KueueDRAIntegrationPartitionableDevices
+
+- the feature gate in stable
+- user adoption feedback with MIG workloads confirms counter-based quota accuracy
+- re-evaluate MAX-based counter charging for heterogeneous device profiles. Accurate
+  charging requires knowing which device the scheduler will allocate. Depends on
+  scheduler-library integration ([#12422](https://github.com/kubernetes-sigs/kueue/issues/12422)).
+- re-evaluate pool-aware flavor assignment for counter resources. Connecting
+  ResourceSlice pools to flavors requires scheduler-library awareness of which
+  node a workload will land on. Depends on scheduler-library integration
+  ([#12422](https://github.com/kubernetes-sigs/kueue/issues/12422)).
 
 ## Implementation History
 
@@ -1581,6 +1982,10 @@ tracks adding this). This follows the same pattern as upstream K8s integration t
 - `KueueDRARejectWorkloadsWhenDRADisabled` feature gate added: May 2026 by @kannon92 — rejects DRA workloads
   when the `DynamicResourceAllocation` feature gate is disabled to prevent silent quota bypass
   (see [#10504](https://github.com/kubernetes-sigs/kueue/issues/10504))
+- Promoted KueueDRAIntegrationExtendedResource to Beta: July 2026 by @PannagaRao
+- Consumable capacity design: July 2026 by @sohankunkerkar — added KEP-5075 integration
+  for software-level device sharing
+- Promoted KueueDRAIntegrationPartitionableDevices to Beta: July 2026 by @PannagaRao
 
 **Key Design Evolution:**
 - **Original Design**: Standalone DynamicResourceAllocationConfig CRD with runtime ambiguity resolution
@@ -1859,11 +2264,22 @@ resource names in the ClusterQueue (e.g., `gpu.memory`) without an explicit mapp
 
 ## Appendix
 
-### Consumable Capacity Compatibility
+### KEP-5941 Shared Consumable Capacity
 
-[KEP-5075 (Consumable Capacity)](https://github.com/kubernetes/enhancements/issues/5075)
-enables software-level device sharing where multiple ResourceClaims share one physical
-device. Kueue's `(Flavor, Resource)` quota model supports adding Consumable Capacity in
-the future. Both partitionable devices and consumable capacity produce a
-`resource.Quantity` charge that fits the existing quota tracking, borrowing, preemption,
-and fair sharing without changes.
+[KEP-5941](https://github.com/kubernetes/enhancements/issues/5941) (alpha in K8s 1.37)
+adds request-driven consumption against shared counter sets via a `valueFrom` mapping on
+`consumesCounters`. This is different from KEP-5075: KEP-5075 tracks capacity on the
+device itself via `Device.Capacity`, while KEP-5941 tracks request-driven amounts against
+parent-scoped `SharedCounters`. When KEP-5941 ships, Kueue can extend the existing
+counter source to understand `valueFrom` mappings since the charge still flows through
+`consumesCounters`. The capacity source designed in this KEP is not affected.
+
+### KEP-5963 Device Compatibility Groups
+
+[KEP-5963](https://github.com/kubernetes/enhancements/issues/5963) (alpha in K8s 1.37)
+adds `compatibilityGroups` on `consumesCounters` entries to express mutual exclusion
+between partitioning schemes on the same counter set. This is a partitionable devices
+concern: it lives on `DeviceCounterConsumption` and only applies to devices sharing a
+counter set. Consumable capacity devices that use `Device.Capacity` without
+`consumesCounters` are not affected. Kueue would handle compatibility groups as part
+of the counter source path.

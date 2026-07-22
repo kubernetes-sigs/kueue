@@ -126,6 +126,7 @@ var _ jobframework.GenericJob = (*RayService)(nil)
 var _ jobframework.JobWithCustomAnnotations = (*RayService)(nil)
 var _ jobframework.JobWithManagedBy = (*RayService)(nil)
 var _ jobframework.ElasticWorkloadNameProvider = (*RayService)(nil)
+var _ jobframework.JobWithSkip = (*RayService)(nil)
 
 func (j *RayService) Object() client.Object {
 	return (*rayv1.RayService)(j)
@@ -143,6 +144,17 @@ func (j *RayService) Suspend() {
 	j.Spec.RayClusterSpec.Suspend = new(true)
 }
 
+// If GCS fault tolerance is enabled, a Redis cleanup K8s Job may be created to clean up the RayCluster's Redis namespace.
+// Defer the finalization of the RayService's Workload until the cleanup Job completes, to avoid the Redis cleanup Job hanging.
+//
+// TODO(#12820): this is gated by DeferRayServiceFinalizationForRedisCleanup as a temporary workaround. Remove the gate
+// once the generic FinishOrphanedWorkloads owner-deletion check lands.
+func (j *RayService) Skip(context.Context) bool {
+	return features.Enabled(features.DeferRayServiceFinalizationForRedisCleanup) &&
+		!j.DeletionTimestamp.IsZero() &&
+		rayutils.IsGCSFaultToleranceEnabled(&j.Spec.RayClusterSpec, j.Annotations)
+}
+
 func (j *RayService) GVK() schema.GroupVersionKind {
 	return gvk
 }
@@ -156,7 +168,7 @@ func (j *RayService) PodLabelSelector() string {
 
 func (j *RayService) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, error) {
 	// Always build PodSets from RayService spec first
-	podSets, err := raycluster.BuildPodSets(&j.Spec.RayClusterSpec)
+	podSets, err := raycluster.BuildPodSets(&j.Spec.RayClusterSpec, j.Annotations)
 	if err != nil {
 		return nil, err
 	}
@@ -171,7 +183,7 @@ func (j *RayService) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodS
 }
 
 func (j *RayService) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSetsInfo []podset.PodSetInfo) error {
-	expectedLen := len(j.Spec.RayClusterSpec.WorkerGroupSpecs) + 1
+	expectedLen := raycluster.ExpectedPodSetsCount(&j.Spec.RayClusterSpec)
 	if len(podSetsInfo) != expectedLen {
 		return podset.BadPodSetsInfoLenError(expectedLen, len(podSetsInfo))
 	}
@@ -179,7 +191,7 @@ func (j *RayService) RunWithPodSetsInfo(ctx context.Context, _ client.Client, po
 	j.Spec.RayClusterSpec.Suspend = new(false)
 
 	rayClusterSpec := &j.Spec.RayClusterSpec
-	err := raycluster.UpdateRayClusterSpecToRunWithPodSetsInfo(rayClusterSpec, podSetsInfo)
+	err := raycluster.UpdateRayClusterSpecToRunWithPodSetsInfo(ctrl.LoggerFrom(ctx), rayClusterSpec, podSetsInfo)
 	if err != nil {
 		return err
 	}
@@ -187,12 +199,8 @@ func (j *RayService) RunWithPodSetsInfo(ctx context.Context, _ client.Client, po
 	return nil
 }
 
-func (j *RayService) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
-	if len(podSetsInfo) != len(j.Spec.RayClusterSpec.WorkerGroupSpecs)+1 {
-		return false
-	}
-
-	return raycluster.RestorePodSetsInfo(&j.Spec.RayClusterSpec, podSetsInfo)
+func (j *RayService) RestorePodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) bool {
+	return raycluster.RestorePodSetsInfo(ctx, &j.Spec.RayClusterSpec, podSetsInfo)
 }
 
 func (j *RayService) Finished(ctx context.Context) (message string, success, finished bool) {

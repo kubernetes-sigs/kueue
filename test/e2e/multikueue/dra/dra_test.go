@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	draconsts "sigs.k8s.io/dra-example-driver/pkg/consts"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
@@ -79,7 +78,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 
 		multiKueueAc = utiltestingapi.MakeAdmissionCheck("ac1").
 			ControllerName(kueue.MultiKueueControllerName).
-			Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", multiKueueConfig.Name).
+			Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", multiKueueConfig.Name).
 			Obj()
 		util.CreateAdmissionChecksAndWaitForActive(ctx, k8sManagerClient, multiKueueAc)
 
@@ -162,17 +161,17 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 			// Manager: 1, Worker1: 2, Worker2: 3
 			ginkgo.By("Creating ResourceClaimTemplate on manager and both workers with different device counts")
 			managerRct := utiltesting.MakeResourceClaimTemplate("gpu-template", managerNs.Name).
-				DeviceRequest("gpu-request", draconsts.DriverName, 1).
+				DeviceRequest("gpu-request", util.DRAExampleDriverName, 1).
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, managerRct)
 
 			worker1Rct := utiltesting.MakeResourceClaimTemplate("gpu-template", worker1Ns.Name).
-				DeviceRequest("gpu-request", draconsts.DriverName, 2).
+				DeviceRequest("gpu-request", util.DRAExampleDriverName, 2).
 				Obj()
 			util.MustCreate(ctx, k8sWorker1Client, worker1Rct)
 
 			worker2Rct := utiltesting.MakeResourceClaimTemplate("gpu-template", worker2Ns.Name).
-				DeviceRequest("gpu-request", draconsts.DriverName, 3).
+				DeviceRequest("gpu-request", util.DRAExampleDriverName, 3).
 				Obj()
 			util.MustCreate(ctx, k8sWorker2Client, worker2Rct)
 
@@ -222,7 +221,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 				ctx, k8sManagerClient, wlLookupKey,
 				multiKueueAc.Name,
 				kueue.CheckStateReady,
-				fmt.Sprintf(`The workload got reservation on "%s"`, assignedClusterName),
+				fmt.Sprintf(`The workload was admitted on "%s"`, assignedClusterName),
 			)
 
 			ginkgo.By(fmt.Sprintf("Verifying workload admitted on %s has correct DRA resource usage (expecting %d devices)", assignedClusterName, expectedDeviceCount))
@@ -275,7 +274,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 		ginkgo.It("Should handle workload when ResourceClaimTemplate is missing on worker", func() {
 			ginkgo.By("Creating ResourceClaimTemplate only on manager (NOT on workers)")
 			managerRct := utiltesting.MakeResourceClaimTemplate("missing-rct", managerNs.Name).
-				DeviceRequest("gpu-request", draconsts.DriverName, 1).
+				DeviceRequest("gpu-request", util.DRAExampleDriverName, 1).
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, managerRct)
 
@@ -312,12 +311,12 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 		ginkgo.It("Should route DRA job to worker that has ResourceClaimTemplate", func() {
 			ginkgo.By("Creating ResourceClaimTemplate only on manager and worker1 (NOT on worker2)")
 			managerRct := utiltesting.MakeResourceClaimTemplate("worker1-only-rct", managerNs.Name).
-				DeviceRequest("gpu-request", draconsts.DriverName, 1).
+				DeviceRequest("gpu-request", util.DRAExampleDriverName, 1).
 				Obj()
 			util.MustCreate(ctx, k8sManagerClient, managerRct)
 
 			worker1Rct := utiltesting.MakeResourceClaimTemplate("worker1-only-rct", worker1Ns.Name).
-				DeviceRequest("gpu-request", draconsts.DriverName, 1).
+				DeviceRequest("gpu-request", util.DRAExampleDriverName, 1).
 				Obj()
 			util.MustCreate(ctx, k8sWorker1Client, worker1Rct)
 
@@ -349,7 +348,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 				ctx, k8sManagerClient, wlLookupKey,
 				multiKueueAc.Name,
 				kueue.CheckStateReady,
-				fmt.Sprintf(`The workload got reservation on "%s"`, workerCluster1.Name),
+				fmt.Sprintf(`The workload was admitted on "%s"`, workerCluster1.Name),
 			)
 
 			ginkgo.By("Verifying workload is admitted on worker1 with correct DRA resource usage")
@@ -393,7 +392,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 			// All clusters use the same namespace name (manager namespace name is used on workers)
 			for _, c := range []client.Client{k8sManagerClient, k8sWorker1Client, k8sWorker2Client} {
 				rct := utiltesting.MakeResourceClaimTemplate("multi-pod-gpu-template", managerNs.Name).
-					DeviceRequest("gpu-request", draconsts.DriverName, 1).
+					DeviceRequest("gpu-request", util.DRAExampleDriverName, 1).
 					Obj()
 				util.MustCreate(ctx, c, rct)
 			}
@@ -415,27 +414,27 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 				Namespace: managerNs.Name,
 			}
 
-			var assignedWorkerCluster client.Client
-			var assignedClusterName string
-
+			var selectedWorker util.ClusterInfo
 			ginkgo.By("Waiting for workload to be admitted")
 			gomega.Eventually(func(g gomega.Gomega) {
 				managerWl := &kueue.Workload{}
 				g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
-				g.Expect(managerWl.Status.ClusterName).NotTo(gomega.BeNil())
-
-				assignedClusterName = *managerWl.Status.ClusterName
-				if assignedClusterName == workerCluster1.Name {
-					assignedWorkerCluster = k8sWorker1Client
-				} else {
-					assignedWorkerCluster = k8sWorker2Client
-				}
+				selectedWorker = util.GetClientForSelectedWorkerCluster(
+					g,
+					managerWl,
+					util.DefaultClusterInfosForTests(
+						ctx,
+						k8sWorker1Client,
+						ctx,
+						k8sWorker2Client,
+					)...,
+				)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			ginkgo.By(fmt.Sprintf("Verifying workload on %s has 2 GPU resource usage (1 per pod)", assignedClusterName))
+			ginkgo.By(fmt.Sprintf("Verifying workload on %s has 2 GPU resource usage (1 per pod)", selectedWorker.Name))
 			workerWl := &kueue.Workload{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(assignedWorkerCluster.Get(ctx, wlLookupKey, workerWl)).To(gomega.Succeed())
+				g.Expect(selectedWorker.Client.Get(selectedWorker.Ctx, wlLookupKey, workerWl)).To(gomega.Succeed())
 				g.Expect(workload.HasQuotaReservation(workerWl)).To(gomega.BeTrue())
 				g.Expect(workerWl.Status.Admission).NotTo(gomega.BeNil())
 
@@ -446,7 +445,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 
 			ginkgo.By("Finishing the job's pods")
 			listOpts := util.GetListOptsFromLabel(fmt.Sprintf("batch.kubernetes.io/job-name=%s", job.Name))
-			if assignedClusterName == workerCluster1.Name {
+			if selectedWorker.Name == workerCluster1.Name {
 				util.WaitForActivePodsAndTerminate(ctx, k8sWorker1Client, worker1RestClient, worker1Cfg, job.Namespace, 2, 0, listOpts)
 			} else {
 				util.WaitForActivePodsAndTerminate(ctx, k8sWorker2Client, worker2RestClient, worker2Cfg, job.Namespace, 2, 0, listOpts)

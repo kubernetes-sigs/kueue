@@ -17,6 +17,7 @@ limitations under the License.
 package kueuectl
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -131,6 +132,122 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 					g.Expect(createdQueue.Name).Should(gomega.Equal(lqName))
 					g.Expect(createdQueue.Spec.ClusterQueue).Should(gomega.Equal(kueue.ClusterQueueReference(cq.Name)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("Should not create a local queue with unknown cluster queue", func() {
+			lqName := "lq"
+			cqName := "cq-unknown"
+
+			ginkgo.By("Create a local queue with unknown cluster queue (no bypass flag)", func() {
+				streams, _, output, _ := genericiooptions.NewTestIOStreams()
+				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+				kueuectl.SetOut(output)
+				kueuectl.SetErr(output)
+
+				kueuectl.SetArgs([]string{"create", "localqueue", lqName, "--clusterqueue", cqName, "--namespace", ns.Name})
+				err := kueuectl.Execute()
+				gomega.Expect(err).To(gomega.HaveOccurred(), "%s: %s", err, output)
+			})
+
+			ginkgo.By("Check that the local queue was not created", func() {
+				var createdQueue kueue.LocalQueue
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: lqName, Namespace: ns.Name}, &createdQueue)).To(utiltesting.BeNotFoundError())
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("Should print the created local queue as YAML", func() {
+			lqName := "lq-yaml"
+
+			var output string
+			ginkgo.By("Create a local queue and capture YAML output", func() {
+				streams, _, out, _ := genericiooptions.NewTestIOStreams()
+				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+				kueuectl.SetOut(out)
+				kueuectl.SetErr(out)
+
+				kueuectl.SetArgs([]string{"create", "localqueue", lqName, "--clusterqueue", cq.Name, "--namespace", ns.Name, "-o", "yaml"})
+				err := kueuectl.Execute()
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, out)
+				output = out.String()
+			})
+
+			ginkgo.By("Verify the YAML output contains the resource", func() {
+				gomega.Expect(output).To(gomega.ContainSubstring("kind: LocalQueue"))
+				gomega.Expect(output).To(gomega.ContainSubstring("name: " + lqName))
+				gomega.Expect(output).To(gomega.ContainSubstring("clusterQueue: " + cq.Name))
+			})
+
+			ginkgo.By("Check that the local queue is persisted in the cluster", func() {
+				var createdQueue kueue.LocalQueue
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: lqName, Namespace: ns.Name}, &createdQueue)).To(gomega.Succeed())
+					g.Expect(createdQueue.Name).Should(gomega.Equal(lqName))
+					g.Expect(createdQueue.Spec.ClusterQueue).Should(gomega.Equal(kueue.ClusterQueueReference(cq.Name)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("Should print the created local queue as JSON", func() {
+			lqName := "lq-json"
+
+			ginkgo.By("Create a local queue and capture JSON output", func() {
+				streams, _, out, _ := genericiooptions.NewTestIOStreams()
+				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+				kueuectl.SetOut(out)
+				kueuectl.SetErr(out)
+
+				kueuectl.SetArgs([]string{"create", "localqueue", lqName, "--clusterqueue", cq.Name, "--namespace", ns.Name, "-o", "json"})
+				err := kueuectl.Execute()
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, out)
+
+				ginkgo.By("Verify the JSON output round-trips into the LocalQueue type", func() {
+					var created kueue.LocalQueue
+					gomega.Expect(json.Unmarshal(out.Bytes(), &created)).To(gomega.Succeed())
+					gomega.Expect(created.Name).To(gomega.Equal(lqName))
+					gomega.Expect(string(created.Spec.ClusterQueue)).To(gomega.Equal(cq.Name))
+				})
+			})
+
+			ginkgo.By("Check that the local queue is persisted in the cluster", func() {
+				var createdQueue kueue.LocalQueue
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: lqName, Namespace: ns.Name}, &createdQueue)).To(gomega.Succeed())
+					g.Expect(createdQueue.Name).Should(gomega.Equal(lqName))
+					g.Expect(createdQueue.Spec.ClusterQueue).Should(gomega.Equal(kueue.ClusterQueueReference(cq.Name)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("Should not create a local queue with --dry-run=client", func() {
+			lqName := "lq-dryrun"
+
+			ginkgo.By("Create a local queue with --dry-run=client", func() {
+				streams, _, out, _ := genericiooptions.NewTestIOStreams()
+				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+				kueuectl.SetOut(out)
+				kueuectl.SetErr(out)
+
+				kueuectl.SetArgs([]string{"create", "localqueue", lqName, "--clusterqueue", cq.Name, "--namespace", ns.Name, "--dry-run=client"})
+				err := kueuectl.Execute()
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, out)
+
+				ginkgo.By("Verify the local queue was NOT created in the cluster", func() {
+					var createdQueue kueue.LocalQueue
+					gomega.Consistently(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: lqName, Namespace: ns.Name}, &createdQueue)).To(utiltesting.BeNotFoundError())
+					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Verify the local queue object is still printed to stdout", func() {
+					gomega.Expect(out.String()).To(gomega.ContainSubstring(lqName))
+				})
 			})
 		})
 	})

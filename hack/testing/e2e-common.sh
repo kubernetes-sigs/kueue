@@ -21,6 +21,7 @@ export YQ="$ROOT_DIR"/bin/yq
 export HELM="$ROOT_DIR"/bin/helm
 export KUEUE_NAMESPACE="${KUEUE_NAMESPACE:-kueue-system}"
 export KUEUE_DEPLOYMENT_NAME="kueue-controller-manager"
+export KUEUE_WEBHOOK_SERVICE_NAME="${KUEUE_WEBHOOK_SERVICE_NAME:-kueue-webhook-service}"
 
 # E2E_MODE controls e2e cluster lifecycle behavior:
 # - ci  (default): create cluster(s), run tests, delete cluster(s)
@@ -41,7 +42,7 @@ export E2E_SKIP_REINSTALL="${E2E_SKIP_REINSTALL:-false}"
 # when they already exist locally / on kind worker nodes. CI mode always pulls and loads.
 export E2E_SKIP_IMAGE_RELOAD="${E2E_SKIP_IMAGE_RELOAD:-false}"
 
-export KIND_VERSION="${E2E_KIND_VERSION/"kindest/node:v"/}"
+export KIND_VERSION="${E2E_KIND_VERSION#kindest/node:v}"
 
 function build_kind_node_image {
     if [[ "$E2E_KIND_VERSION" != kindest/node:v* ]]; then
@@ -57,7 +58,8 @@ function build_kind_node_image {
     fi
 
     echo "Building kind node image: $E2E_KIND_VERSION (K8s v$KIND_VERSION)"
-    $KIND build node-image "v$KIND_VERSION" --image "$E2E_KIND_VERSION"
+    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 7 --delay 2 --exponential --stream -- \
+        "$KIND" build node-image "v$KIND_VERSION" --image "$E2E_KIND_VERSION"
 }
 
 function e2e_is_truthy {
@@ -65,6 +67,12 @@ function e2e_is_truthy {
         1|true|TRUE|True|yes|YES|Yes|y|Y|on|ON|On) return 0 ;;
         *) return 1 ;;
     esac
+}
+
+# Returns success when the kind node Kubernetes version supports image volumes,
+# which are Beta and enabled by default from v1.35.
+function e2e_supports_image_volume {
+    [[ "$(printf '%s\n' "1.35.0" "${KIND_VERSION#v}" | sort -V | head -n1)" == "1.35.0" ]]
 }
 
 # $1 image reference
@@ -75,32 +83,22 @@ function e2e_docker_pull_if_needed {
         return 0
     fi
 
-    local max_retries=7
-    local retry_delay=2
-    local attempt output
-    for attempt in $(seq 1 "$max_retries"); do
-        if output=$(docker pull "$image" 2>&1); then
-            echo "$output"
-            return 0
-        fi
-        echo "$output"
+    local non_retriable_errors="manifest (unknown|for .* not found)|repository does not exist|not found|pull access denied|unauthorized|denied: requested access|no space left on device"
 
-        if echo "$output" | grep -qiE 'manifest (unknown|for .* not found)|repository does not exist|not found|pull access denied|unauthorized|denied: requested access|no space left on device'; then
-            echo "ERROR: docker pull '$image' failed with a non-retriable error."
-            return 1
-        fi
+    "${ROOT_DIR}/hack/testing/retry.sh" \
+        --attempts 7 --delay 2 --exponential --stream \
+        --continue-if "! grep -qiE '${non_retriable_errors}' {output}" \
+        -- docker pull "$image"
+}
 
-        if [ "$attempt" -eq "$max_retries" ]; then
-            break
-        fi
+function e2e_kubectl_apply_url {
+    local url="$1"
+    shift
+    local extra_args=("$@")
+    local manifest
 
-        echo "WARNING: docker pull '$image' failed (attempt $attempt/$max_retries). Retrying in ${retry_delay}s..."
-        sleep "$retry_delay"
-        retry_delay=$((retry_delay * 2))
-    done
-
-    echo "ERROR: Failed to pull '$image' after $max_retries attempts."
-    return 1
+    manifest=$("${ROOT_DIR}/hack/testing/retry.sh" --attempts 7 --delay 2 --exponential -- curl -fsSL "${url}") || return 1
+    echo "${manifest}" | kubectl apply --server-side -f - "${extra_args[@]}"
 }
 
 function e2e_wait_for_operator_in_install {
@@ -116,6 +114,63 @@ function e2e_wait_for_operator_in_install {
 
   kubectl --kubeconfig="${kubeconfig}" wait deploy/"${deployment_name}" \
     -n "${ns}" --for=condition=available --timeout=5m
+}
+
+function e2e_check_deployment_webhook_endpoints_once {
+    local kubeconfig=$1
+    local ns=$2
+    local deployment_name=$3
+    local service_name=$4
+    local -a kubectl_args=()
+    if [[ -n "${kubeconfig}" ]]; then
+        kubectl_args+=(--kubeconfig="${kubeconfig}")
+    fi
+
+    local desired_replicas
+    desired_replicas=$(kubectl "${kubectl_args[@]}" -n "${ns}" get deployment "${deployment_name}" -o jsonpath="{.spec.replicas}" 2>/dev/null)
+    desired_replicas=${desired_replicas:-1}
+    if [[ "${desired_replicas}" -lt 1 ]]; then
+        echo "Deployment ${ns}/${deployment_name} has ${desired_replicas} desired replicas; cannot serve webhook traffic." >&2
+        return 1
+    fi
+
+    local ready_endpoint_keys
+    ready_endpoint_keys=$(kubectl "${kubectl_args[@]}" -n "${ns}" get endpointslices \
+        -l "kubernetes.io/service-name=${service_name}" \
+        -o go-template="{{range .items}}{{range .endpoints}}{{if ne .conditions.ready false}}{{if .targetRef}}{{if .targetRef.uid}}{{println .targetRef.uid}}{{else}}{{range .addresses}}{{println .}}{{end}}{{end}}{{else}}{{range .addresses}}{{println .}}{{end}}{{end}}{{end}}{{end}}{{end}}" 2>/dev/null || true)
+    ready_endpoint_keys=$(printf "%s\n" "${ready_endpoint_keys}" | sort -u)
+    local ready_endpoint_count
+    ready_endpoint_count=$(printf "%s\n" "${ready_endpoint_keys}" | grep -c . || true)
+    echo "Ready webhook endpoints for service/${service_name}: ${ready_endpoint_count}/${desired_replicas}" >&2
+    if [[ "${ready_endpoint_count}" -ge "${desired_replicas}" && "${ready_endpoint_count}" -gt 0 ]]; then
+        echo "Webhook endpoints for service/${service_name} are ready:" >&2
+        printf "%s\n" "${ready_endpoint_keys}" >&2
+        return 0
+    fi
+
+    kubectl "${kubectl_args[@]}" -n "${ns}" get endpointslices \
+        -l "kubernetes.io/service-name=${service_name}" -o wide >&2 || true
+    return 1
+}
+
+function e2e_wait_for_deployment_webhook_endpoints {
+    local kubeconfig=$1
+    local ns=$2
+    local deployment_name=$3
+    local service_name=$4
+    local -a kubectl_args=()
+    if [[ -n "${kubeconfig}" ]]; then
+        kubectl_args+=(--kubeconfig="${kubeconfig}")
+    fi
+
+    kubectl "${kubectl_args[@]}" wait deploy/"${deployment_name}" \
+        -n "${ns}" --for=condition=available --timeout=5m
+
+    export -f e2e_check_deployment_webhook_endpoints_once
+    # shellcheck disable=SC2016 # the $@ expansion is evaluated by the inner bash -c
+    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 150 --delay 2 --stream -- \
+        bash -c 'e2e_check_deployment_webhook_endpoints_once "$@"' _ \
+        "${kubeconfig}" "${ns}" "${deployment_name}" "${service_name}"
 }
 
 function e2e_deployment_exists {
@@ -194,7 +249,7 @@ if [[ -n ${KUBEFLOW_TRAINER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(tas|trainj
     export KF_TRAINER_IMAGE=ghcr.io/kubeflow/trainer/trainer-controller-manager:${KF_TRAINER_IMAGE_VERSION}
 fi
 
-if [[ -n ${KUBEFLOW_MPI_VERSION:-} ]]; then
+if [[ -n ${KUBEFLOW_MPI_VERSION:-} && ("$GINKGO_ARGS" =~ feature:mpijob || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     export KUBEFLOW_MPI_MANIFEST="https://raw.githubusercontent.com/kubeflow/mpi-operator/${KUBEFLOW_MPI_VERSION}/deploy/v2beta1/mpi-operator.yaml"
     export KUBEFLOW_MPI_IMAGE=mpioperator/mpi-operator:${KUBEFLOW_MPI_VERSION/#v}
 fi
@@ -202,6 +257,10 @@ fi
 if [[ -n ${KUBERAY_VERSION:-} && ("$GINKGO_ARGS" =~ feature:kuberay || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     export KUBERAY_MANIFEST="${ROOT_DIR}/dep-crds/ray-operator/default/"
     export KUBERAY_IMAGE=quay.io/kuberay/operator:${KUBERAY_VERSION}
+    # Redis backend for the GCS fault-tolerance e2e test. Pull by digest and strip it
+    # only for the tag referenced by kind and the pod spec.
+    E2E_TEST_REDIS_IMAGE_WITH_SHA=$(grep '^FROM' "${ROOT_DIR}/hack/testing/redis/Dockerfile" | awk '{print $2}')
+    export E2E_TEST_REDIS_IMAGE=${E2E_TEST_REDIS_IMAGE_WITH_SHA%%@*}
 fi
 
 if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename|workloadidentifierannotations) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
@@ -219,7 +278,15 @@ fi
 
 if [[ -n "${CLUSTERPROFILE_VERSION:-}" ]]; then
     export CLUSTERPROFILE_CRD=${ROOT_DIR}/dep-crds/clusterprofile/multicluster.x-k8s.io_clusterprofiles.yaml
-    export CLUSTERPROFILE_PLUGIN_IMAGE=us-central1-docker.pkg.dev/k8s-staging-images/kueue/secretreader-plugin:${CLUSTERPROFILE_PLUGIN_IMAGE_VERSION}
+    # Only one secretreader image is ever needed per suite. From k8s 1.35 image volumes are
+    # enabled by default, so the official image can be mounted directly; on older versions we
+    # use the self-built image whose binary an init container copies into a shared volume,
+    # because the official image does not ship a "cp" command.
+    if e2e_supports_image_volume; then
+        export CLUSTERPROFILE_PLUGIN_IMAGE=registry.k8s.io/cluster-inventory-api/secretreader:${CLUSTERPROFILE_VERSION}
+    else
+        export CLUSTERPROFILE_PLUGIN_IMAGE=us-central1-docker.pkg.dev/k8s-staging-images/kueue/secretreader-plugin:${CLUSTERPROFILE_PLUGIN_IMAGE_VERSION}
+    fi
 fi
 
 if [[ -n "${PROMETHEUS_OPERATOR_VERSION:-}" ]]; then
@@ -245,6 +312,10 @@ export E2E_TEST_AGNHOST_IMAGE_OLD=${E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA%%@*}
 E2E_TEST_AGNHOST_IMAGE_WITH_SHA=$(grep '^FROM' "${SOURCE_DIR}/agnhost/Dockerfile" | awk '{print $2}')
 export E2E_TEST_AGNHOST_IMAGE=${E2E_TEST_AGNHOST_IMAGE_WITH_SHA%%@*}
 
+if [ -z "${E2E_TEST_SPARK_IMAGE:-}" ]; then
+  E2E_TEST_SPARK_IMAGE=$(grep '^FROM' "${ROOT_DIR}/hack/testing/spark/Dockerfile" | awk '{print $2}')
+  export E2E_TEST_SPARK_IMAGE=${E2E_TEST_SPARK_IMAGE%%@*}
+fi
 
 # $1 cluster name
 function cluster_cleanup {
@@ -370,8 +441,30 @@ function patch_kind_config_for_dra {
     $YQ -i '.featureGates.DynamicResourceAllocation = true' "$patched_config"
     # Enable Extended Resources (alpha feature in k8s 1.35)
     $YQ -i '.featureGates.DRAExtendedResource = true' "$patched_config"
+    $YQ -i '.featureGates.DRAPartitionableDevices = true' "$patched_config"
+    $YQ -i '.featureGates.DRAConsumableCapacity = true' "$patched_config"
     $YQ -i '.containerdConfigPatches += ["[plugins.\"io.containerd.grpc.v1.cri\"]\n  enable_cdi = true"]' "$patched_config"
     $YQ -i '(.nodes[] | select(.role == "control-plane")).kubeadmConfigPatches[0] = "kind: ClusterConfiguration
+apiVersion: kubeadm.k8s.io/v1beta4
+scheduler:
+  extraArgs:
+  - name: v
+    value: \"3\"
+controllerManager:
+  extraArgs:
+  - name: v
+    value: \"3\"
+apiServer:
+  extraArgs:
+  - name: enable-aggregator-routing
+    value: \"true\"
+  - name: runtime-config
+    value: \"resource.k8s.io/v1=true\"
+  - name: v
+    value: \"3\"
+"' "$patched_config"
+    # v1beta3 variant for k8s <=1.35, where kind ignores the v1beta4 patch above.
+    $YQ -i '(.nodes[] | select(.role == "control-plane")).kubeadmConfigPatches += ["kind: ClusterConfiguration
 apiVersion: kubeadm.k8s.io/v1beta3
 scheduler:
   extraArgs:
@@ -384,7 +477,7 @@ apiServer:
     enable-aggregator-routing: \"true\"
     runtime-config: \"resource.k8s.io/v1=true\"
     v: \"3\"
-"' "$patched_config"
+"]' "$patched_config"
 
     echo "$patched_config"
 }
@@ -396,8 +489,28 @@ function patch_kind_config_for_was {
     cp "$1" "$patched_config"
 
     $YQ -i '.featureGates.GenericWorkload = true' "$patched_config"
-    $YQ -i '.featureGates.GangScheduling = true' "$patched_config"
+    $YQ -i '.featureGates.WorkloadWithJob = true' "$patched_config"
     $YQ -i '(.nodes[] | select(.role == "control-plane")).kubeadmConfigPatches[0] = "kind: ClusterConfiguration
+apiVersion: kubeadm.k8s.io/v1beta4
+scheduler:
+  extraArgs:
+  - name: v
+    value: \"3\"
+controllerManager:
+  extraArgs:
+  - name: v
+    value: \"3\"
+apiServer:
+  extraArgs:
+  - name: enable-aggregator-routing
+    value: \"true\"
+  - name: runtime-config
+    value: \"scheduling.k8s.io/v1beta1=true\"
+  - name: v
+    value: \"3\"
+"' "$patched_config"
+    # v1beta3 variant for k8s <=1.35, where kind ignores the v1beta4 patch above (#12022).
+    $YQ -i '(.nodes[] | select(.role == "control-plane")).kubeadmConfigPatches += ["kind: ClusterConfiguration
 apiVersion: kubeadm.k8s.io/v1beta3
 scheduler:
   extraArgs:
@@ -408,9 +521,9 @@ controllerManager:
 apiServer:
   extraArgs:
     enable-aggregator-routing: \"true\"
-    runtime-config: \"scheduling.k8s.io/v1alpha3=true\"
+    runtime-config: \"scheduling.k8s.io/v1beta1=true\"
     v: \"3\"
-"' "$patched_config"
+"]' "$patched_config"
 
     echo "$patched_config"
 }
@@ -443,13 +556,16 @@ function cluster_create {
 
     local log_file="$ARTIFACTS/$cluster-create.log"
     local create_cmd="$KIND create cluster --name \"$cluster\" --image \"$E2E_KIND_VERSION\" --config \"$kind_config\" --kubeconfig=\"$kubeconfig\" --wait 5m -v 5 > \"$log_file\" 2>&1"
-    local continue_if="grep -q 'port is already allocated' \"$log_file\""
+    # Retry only known-transient failures so real bugs still fail fast (#11586, #12307, #12984).
+    local retriable_errors="port is already allocated|error execution phase wait-control-plane|could not find a log line that matches"
+    local continue_if="grep -qE '${retriable_errors}' \"$log_file\""
     local cleanup_cmd="if [ -f \"$log_file\" ]; then mv \"$log_file\" \"${log_file}.failed-\$(date +%s)\"; fi; $KIND delete cluster --name \"$cluster\" 2>/dev/null || true"
 
     echo "Creating kind cluster '$cluster'..."
-    if ! "${ROOT_DIR}/hack/retry.sh" \
+    if ! "${ROOT_DIR}/hack/testing/retry.sh" \
         --attempts 3 \
         --delay 3 \
+        --exponential \
         --continue-if "$continue_if" \
         --cleanup "$cleanup_cmd" \
         -- bash -c "$create_cmd"; then
@@ -498,14 +614,21 @@ function prepare_docker_images {
         e2e_docker_pull_if_needed "${KF_TRAINER_IMAGE}"
     fi
 
-    if [[ -n ${KUBEFLOW_MPI_VERSION:-} ]]; then
+    if [[ -n ${KUBEFLOW_MPI_VERSION:-} && ("$GINKGO_ARGS" =~ feature:mpijob || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_docker_pull_if_needed "${KUBEFLOW_MPI_IMAGE}"
     fi
     if [[ -n ${KUBERAY_VERSION:-} && ("$GINKGO_ARGS" =~ feature:kuberay || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_docker_pull_if_needed "${KUBERAY_IMAGE}"
+        e2e_docker_pull_if_needed "${E2E_TEST_REDIS_IMAGE_WITH_SHA}"
+        docker tag "${E2E_TEST_REDIS_IMAGE_WITH_SHA}" "${E2E_TEST_REDIS_IMAGE}"
         determine_kuberay_ray_image
-        if [[ ${USE_RAY_FOR_TESTS:-} == "ray" ]]; then
+        if [[ "${USE_RAY_FOR_TESTS:-}" == "ray" ]]; then
             e2e_docker_pull_if_needed "${KUBERAY_RAY_IMAGE}"
+        elif docker manifest inspect "${KUBERAY_RAY_IMAGE}" >/dev/null 2>&1; then
+            e2e_docker_pull_if_needed "${KUBERAY_RAY_IMAGE}"
+        else
+            echo "Raymini image not available in registry, building locally..."
+            E2E_KIND_VERSION='' make -C "${ROOT_DIR}" kind-ray-project-mini-image-build
         fi
     fi
     if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename|workloadidentifierannotations) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
@@ -516,10 +639,14 @@ function prepare_docker_images {
     fi
     if [[ -n ${SPARKOPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:spark || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_docker_pull_if_needed "${SPARKOPERATOR_IMAGE}"
+        e2e_docker_pull_if_needed "${E2E_TEST_SPARK_IMAGE}"
     fi
     if [[ -n ${PROMETHEUS_OPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:prometheus || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_docker_pull_if_needed "${PROMETHEUS_OPERATOR_IMAGE}"
         e2e_docker_pull_if_needed "${PROMETHEUS_CONFIG_RELOADER_IMAGE}"
+    fi
+    if [[ -n ${CLUSTERPROFILE_VERSION:-} ]]; then
+        e2e_docker_pull_if_needed "${CLUSTERPROFILE_PLUGIN_IMAGE}"
     fi
 }
 
@@ -569,7 +696,7 @@ function kind_load {
         install_kubeflow_trainer "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
 
-    if [[ -n ${KUBEFLOW_MPI_VERSION:-} ]]; then
+    if [[ -n ${KUBEFLOW_MPI_VERSION:-} && ("$GINKGO_ARGS" =~ feature:mpijob || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         install_mpi "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
     if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename|workloadidentifierannotations) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
@@ -699,6 +826,37 @@ function deploy_with_certmanager() {
     printf "%s\n" "$default_backup" > "$default_kust"
 }
 
+# Wait for the Kueue deployment and webhook endpoint to be ready.
+# $1 kubeconfig path (pass "" to use the default kubeconfig)
+function wait_for_kueue_controller_operator {
+    local kubeconfig="${1:-}"
+
+    local -a kubectl_args=()
+    if [[ -n "${kubeconfig}" ]]; then
+        kubectl_args+=(--kubeconfig="${kubeconfig}")
+    fi
+
+    e2e_wait_for_deployment_webhook_endpoints \
+        "${kubeconfig}" \
+        "${KUEUE_NAMESPACE}" \
+        "${KUEUE_DEPLOYMENT_NAME}" \
+        "${KUEUE_WEBHOOK_SERVICE_NAME}"
+
+    # Dry run to make sure that at least one webhook correctly handles the new flavors.
+    local probe_manifest
+    probe_manifest=$(mktemp)
+    # shellcheck disable=SC2064 # Intentionally expand now to capture the temp file path
+    trap "rm -f '$probe_manifest'" RETURN
+    cat >"${probe_manifest}" <<'EOF'
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ResourceFlavor
+metadata:
+  name: webhook-probe
+EOF
+    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 10 --delay 5 --stream -- \
+        kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} create --dry-run=server -f "${probe_manifest}"
+}
+
 # $1 kubeconfig
 function cluster_kueue_deploy {
     # Handle upgrade test mode
@@ -726,12 +884,20 @@ function cluster_kueue_deploy {
             deploy_with_certmanager "$1"
         fi
     elif [[ -n ${DRA_EXAMPLE_DRIVER_VERSION:-} ]]; then
-        build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/dra/baseline"
+        if [[ ${E2E_TARGET_FOLDER:-} == "dra/counter" ]]; then
+            build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/dra/counter"
+        elif [[ ${E2E_TARGET_FOLDER:-} == "dra/capacity" ]]; then
+            build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/dra/capacity"
+        else
+            build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/dra/whole-device"
+        fi
     elif [ "$E2E_USE_HELM" == 'true' ]; then
         helm_install "$1" "${ROOT_DIR}/test/e2e/config/default/values.yaml"
     else
         build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/${E2E_CONFIG_FOLDER:-default}"
     fi
+
+    wait_for_kueue_controller_operator "$1"
 }
 
 # $1 kubeconfig
@@ -760,6 +926,15 @@ function build_and_apply_kueue_manifests {
     if kubectl get deployment "${KUEUE_DEPLOYMENT_NAME}" -n "${KUEUE_NAMESPACE}" --kubeconfig="$1" >/dev/null 2>&1; then
         echo "Kueue controller already exists, using --force-conflicts"
         force_conflicts="--force-conflicts"
+    fi
+
+    if [[ -n "${E2E_EXTRA_KUEUE_FEATURE_GATES:-}" ]]; then
+        IFS=',' read -ra GATES <<< "${E2E_EXTRA_KUEUE_FEATURE_GATES}"
+        for gate in "${GATES[@]}"; do
+            IFS='=' read -r key val <<< "${gate}"
+            build_output="${build_output/    featureGates:/    featureGates:
+      ${key}: ${val}}"
+        done
     fi
 
     echo "$build_output" | kubectl apply --kubeconfig="$1" --server-side $force_conflicts -f -
@@ -837,7 +1012,7 @@ function install_jobset {
     fi
 
     cluster_kind_load_image "${name}" "${JOBSET_IMAGE}"
-    kubectl apply --kubeconfig="${kubeconfig}" --server-side -f "${JOBSET_MANIFEST}"
+    e2e_kubectl_apply_url "${JOBSET_MANIFEST}" --kubeconfig="${kubeconfig}"
     e2e_wait_for_operator_in_install "${kubeconfig}" "${ns}" "${deployment_name}"
 }
 
@@ -918,8 +1093,9 @@ function install_kubeflow_trainer {
         fi
         kubectl apply --kubeconfig="${kubeconfig}" --server-side -k "$manifests_temp_dir/overlays/manager"
     )
-    # In order to install the training runtimes we need to wait for the ClusterTrainingRuntime webhook to be ready
-    kubectl wait --kubeconfig="${kubeconfig}" deploy/"${deployment_name}" -n "${ns}" --for=condition=available --timeout=5m
+    # Installing runtimes creates ClusterTrainingRuntime objects, so wait until
+    # the webhook service has ready endpoints, not just an Available deployment.
+    e2e_wait_for_deployment_webhook_endpoints "${kubeconfig}" "${ns}" "${deployment_name}" "${deployment_name}"
     kubectl apply --kubeconfig="${kubeconfig}" --server-side -k "${KUBEFLOW_TRAINER_MANIFEST}/overlays/runtimes"
 }
 
@@ -962,8 +1138,8 @@ function install_mpi {
     cluster_kind_load_image "${name}" "${KUBEFLOW_MPI_IMAGE/#v}"
     curl -sSL "${KUBEFLOW_MPI_MANIFEST}" \
         | kubectl apply --kubeconfig="${kubeconfig}" --server-side -f -
-    e2e_wait_for_operator_in_install "${kubeconfig}" "${ns}" "${deployment_name}"
 
+    e2e_wait_for_operator_in_install "${kubeconfig}" "${ns}" "${deployment_name}"
 }
 
 # $1 cluster name
@@ -1004,6 +1180,7 @@ function install_kuberay {
 
     cluster_kind_load_image "$name" "${KUBERAY_RAY_IMAGE}"
     cluster_kind_load_image "$name" "${KUBERAY_IMAGE}"
+    cluster_kind_load_image "$name" "${E2E_TEST_REDIS_IMAGE}"
     # In E2E_MODE=dev we keep and reuse the kind cluster between runs.
     #
     # "kubectl create -k" is used instead of apply (https://github.com/ray-project/kuberay/issues/504),
@@ -1053,7 +1230,7 @@ function install_lws {
     fi
 
     cluster_kind_load_image "${name}" "${LEADERWORKERSET_IMAGE/#v}"
-    kubectl apply --kubeconfig="${kubeconfig}" --server-side -f "${LEADERWORKERSET_MANIFEST}"
+    e2e_kubectl_apply_url "${LEADERWORKERSET_MANIFEST}" --kubeconfig="${kubeconfig}"
     e2e_wait_for_operator_in_install "${kubeconfig}" "${ns}" "${deployment_name}"
 }
 
@@ -1064,12 +1241,12 @@ function install_sparkoperator {
     local kubeconfig=${2:-}
     local ns="${SPARKOPERATOR_NAMESPACE:-spark-operator}"
     local helm_release_name="${SPARKOPERATOR_HELM_RELEASE_NAME:-spark-operator}"
+    local helm_chart="${SPARKOPERATOR_HELM_CHART:-oci://ghcr.io/kubeflow/helm-charts/spark-operator}"
     local expected_version="${SPARKOPERATOR_VERSION:-}"
     expected_version="${expected_version#v}"
     local install_cmd="install"
     cluster_kind_load_image "${cluster_name}" "${SPARKOPERATOR_IMAGE}"
-
-    ${HELM} repo add --force-update spark-operator https://kubeflow.github.io/spark-operator
+    cluster_kind_load_image "${cluster_name}" "${E2E_TEST_SPARK_IMAGE}"
 
     if [[ "${E2E_MODE}" == "dev" ]] && ! e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
         if helm list --namespace "${ns}" | grep -q "${helm_release_name}"; then
@@ -1090,14 +1267,18 @@ function install_sparkoperator {
         fi
     fi
 
-    ${HELM} --kubeconfig="${kubeconfig}" \
-    ${install_cmd} "${helm_release_name}" spark-operator/spark-operator \
-    --version "${expected_version}" \
-    --namespace "${ns}" \
-    --create-namespace \
-    --wait \
-    --set image.tag="${expected_version}" \
-    --set 'spark.jobNamespaces[0]='
+    local install_args=(
+        --kubeconfig="${kubeconfig}"
+        "${install_cmd}" "${helm_release_name}" "${helm_chart}"
+        --version "${expected_version}"
+        --namespace "${ns}"
+        --create-namespace
+        --wait
+        --set image.tag="${expected_version}"
+        --set 'spark.jobNamespaces[0]='
+    )
+    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 7 --delay 2 --exponential --stream -- \
+        "${HELM}" "${install_args[@]}"
 }
 
 # $1 kubeconfig option
@@ -1133,7 +1314,7 @@ function install_cert_manager {
         fi
     fi
 
-    kubectl apply --kubeconfig="${kubeconfig}" --server-side -f "${CERTMANAGER_MANIFEST}"
+    e2e_kubectl_apply_url "${CERTMANAGER_MANIFEST}" --kubeconfig="${kubeconfig}"
     kubectl wait --kubeconfig="${kubeconfig}" deploy/cert-manager -n "${ns}" --for=condition=available --timeout=5m
     kubectl wait --kubeconfig="${kubeconfig}" deploy/cert-manager-webhook -n "${ns}" --for=condition=available --timeout=5m || true
     kubectl wait --kubeconfig="${kubeconfig}" deploy/cert-manager-cainjector -n "${ns}" --for=condition=available --timeout=5m || true
@@ -1171,7 +1352,7 @@ function install_prometheus_operator {
 
     cluster_kind_load_image "${name}" "${PROMETHEUS_OPERATOR_IMAGE}"
     cluster_kind_load_image "${name}" "${PROMETHEUS_CONFIG_RELOADER_IMAGE}"
-    kubectl apply --kubeconfig="${kubeconfig}" --server-side -f "${PROMETHEUS_OPERATOR_BUNDLE}"
+    e2e_kubectl_apply_url "${PROMETHEUS_OPERATOR_BUNDLE}" --kubeconfig="${kubeconfig}"
     kubectl wait deploy/"${deployment_name}" -n "${ns}" \
         --for=condition=available --timeout=5m --kubeconfig="${kubeconfig}"
     kubectl apply --kubeconfig="${kubeconfig}" --server-side \
@@ -1248,12 +1429,20 @@ function install_dra_example_driver {
     sed 's/CGO_LDFLAGS_ALLOW/CGO_ENABLED=0 CGO_LDFLAGS_ALLOW/' "$dra_driver_temp_dir/Makefile" > "$dra_driver_temp_dir/Makefile.tmp" \
         && mv "$dra_driver_temp_dir/Makefile.tmp" "$dra_driver_temp_dir/Makefile"
     docker build -t "${dra_image_repo}:${dra_image_tag}" \
-        --build-arg GOLANG_VERSION="${go_version}" \
+        --build-arg GO_VERSION="${go_version}" \
         --build-arg BASE_IMAGE=gcr.io/distroless/static:latest \
         -f "$dra_driver_temp_dir/deployments/container/Dockerfile" \
         "$dra_driver_temp_dir"
 
     cluster_kind_load_image "${name}" "${dra_image_repo}:${dra_image_tag}"
+
+    local -a extra_helm_args=()
+    if [[ -n ${DRA_GPU_PARTITIONS:-} ]]; then
+        extra_helm_args+=(--set "kubeletPlugin.gpuPartitions=${DRA_GPU_PARTITIONS}")
+    fi
+    if [[ "${DRA_GPU_ALLOW_MULTIPLE_ALLOCATIONS:-}" == "true" ]]; then
+        extra_helm_args+=(--set "gpuAllowMultipleAllocations=true")
+    fi
 
     $HELM upgrade -i \
       --create-namespace \
@@ -1262,6 +1451,7 @@ function install_dra_example_driver {
       --set image.repository="${dra_image_repo}" \
       --set image.tag="${dra_image_tag}" \
       --set kubeletPlugin.containers.plugin.securityContext.privileged=true \
+      "${extra_helm_args[@]}" \
       --wait \
       dra-example-driver \
       "$dra_driver_temp_dir/deployments/helm/dra-example-driver"
@@ -1347,9 +1537,9 @@ function upgrade_test_flow {
       sed 's|imagePullPolicy: Always|imagePullPolicy: IfNotPresent|g' | \
       kubectl apply --server-side -f -
 
-    kubectl wait --for=condition=available --timeout=180s deployment/"${KUEUE_DEPLOYMENT_NAME}" -n kueue-system
+    wait_for_kueue_controller_operator "$1"
     echo "✓ $old_version ready"
-    
+
     # Step 2: Create test resources
     echo "Creating test resources..."
     
@@ -1411,7 +1601,7 @@ EOF
     
     # Wait for the rolling update to complete.
     echo "Waiting for rolling update to complete..."
-    kubectl wait --for=condition=available --timeout=300s deployment/"${KUEUE_DEPLOYMENT_NAME}" -n "${KUEUE_NAMESPACE}"
+    wait_for_kueue_controller_operator "$1"
     echo "Upgrade complete (rolling update finished)"
     echo "========================================="
 }

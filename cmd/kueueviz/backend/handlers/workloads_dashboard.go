@@ -18,7 +18,7 @@ package handlers
 
 import (
 	"context"
-	"log/slog"
+	"fmt"
 
 	"github.com/gin-gonic/gin"
 	corev1 "k8s.io/api/core/v1"
@@ -53,10 +53,22 @@ func (h *Handlers) WorkloadsDashboardWebSocketHandler() gin.HandlerFunc {
 }
 
 func (h *Handlers) fetchDashboardData(ctx context.Context, namespace string) (map[string]any, error) {
-	resourceFlavors, _ := h.fetchResourceFlavors(ctx)
-	clusterQueues, _ := h.fetchClusterQueues(ctx)
-	localQueues, _ := h.fetchLocalQueues(ctx)
-	workloads := h.fetchWorkloadsDashboardData(ctx, namespace)
+	resourceFlavors, err := h.fetchResourceFlavors(ctx)
+	if err != nil {
+		return nil, err
+	}
+	clusterQueues, err := h.fetchClusterQueues(ctx)
+	if err != nil {
+		return nil, err
+	}
+	localQueues, err := h.fetchLocalQueues(ctx)
+	if err != nil {
+		return nil, err
+	}
+	workloads, err := h.fetchWorkloadsDashboardData(ctx, namespace)
+	if err != nil {
+		return nil, err
+	}
 	result := map[string]any{
 		"flavors":       resourceFlavors,
 		"clusterQueues": clusterQueues,
@@ -66,43 +78,27 @@ func (h *Handlers) fetchDashboardData(ctx context.Context, namespace string) (ma
 	return result, nil
 }
 
-func (h *Handlers) fetchWorkloadsDashboardData(ctx context.Context, namespace string) any {
+func (h *Handlers) fetchWorkloadsDashboardData(ctx context.Context, namespace string) (any, error) {
 	wql := &kueueapi.WorkloadList{}
 	err := h.client.List(ctx, wql, ctrlclient.InNamespace(namespace))
 
 	if err != nil {
-		slog.Error("Error fetching workloads", "namespace", namespace, "error", err)
-		return nil
+		return nil, fmt.Errorf("error fetching workloads in namespace %s: %w", namespace, err)
 	}
 
-	workloadsByUID := make(map[types.UID]string)
-	var processedWorkloads []workloadResult
+	workloadsByUID := make(map[types.UID]string, len(wql.Items))
+	processedWorkloads := make([]workloadResult, 0, len(wql.Items))
+
+	podIndex, err := buildWorkloadPodsIndex(ctx, h.client, wql.Items)
+	if err != nil {
+		return nil, err
+	}
 
 	for _, workload := range wql.Items {
-		namespace := workload.Namespace
 		workloadName := workload.Name
 		workloadUID := workload.UID
 		jobUID := workload.Labels["kueue.x-k8s.io/job-uid"]
-
-		pl := &corev1.PodList{}
-		err = h.client.List(ctx, pl, ctrlclient.InNamespace(namespace))
-		if err != nil {
-			slog.Error("Error fetching pods", "namespace", namespace, "error", err)
-			return nil
-		}
-
-		var workloadPods []map[string]any
-		for _, pod := range pl.Items {
-			podLabels := pod.GetLabels()
-			controllerUID := podLabels["controller-uid"]
-			if controllerUID == jobUID {
-				podDetails := map[string]any{
-					"name":   pod.GetName(),
-					"status": pod.Status,
-				}
-				workloadPods = append(workloadPods, podDetails)
-			}
-		}
+		workloadPods := podIndex.podsFor(workload.Namespace, jobUID)
 
 		cond := meta.FindStatusCondition(workload.Status.Conditions, kueueapi.WorkloadPreempted)
 
@@ -124,5 +120,48 @@ func (h *Handlers) fetchWorkloadsDashboardData(ctx context.Context, namespace st
 		"workloads_by_uid": workloadsByUID,
 	}
 
-	return workloads
+	return workloads, nil
+}
+
+// workloadPodsIndex stores dashboard pod details by namespace and controller UID.
+// The namespace key preserves the All namespaces dashboard view semantics.
+type workloadPodsIndex struct {
+	podsByNamespace map[string]map[string][]map[string]any
+}
+
+// buildWorkloadPodsIndex lists pods once per workload namespace and indexes them
+// for lookup by each workload's job UID.
+func buildWorkloadPodsIndex(ctx context.Context, client Client, workloads []kueueapi.Workload) (workloadPodsIndex, error) {
+	workloadNamespaces := make(map[string]struct{})
+	for i := range workloads {
+		workloadNamespaces[workloads[i].Namespace] = struct{}{}
+	}
+
+	index := workloadPodsIndex{
+		podsByNamespace: make(map[string]map[string][]map[string]any, len(workloadNamespaces)),
+	}
+	for namespace := range workloadNamespaces {
+		pl := &corev1.PodList{}
+		if err := client.List(ctx, pl, ctrlclient.InNamespace(namespace)); err != nil {
+			return workloadPodsIndex{}, fmt.Errorf("error fetching pods in namespace %s: %w", namespace, err)
+		}
+
+		podsByControllerUID := make(map[string][]map[string]any)
+		for _, pod := range pl.Items {
+			podLabels := pod.GetLabels()
+			controllerUID := podLabels["controller-uid"]
+			podDetails := map[string]any{
+				"name":   pod.GetName(),
+				"status": pod.Status,
+			}
+			podsByControllerUID[controllerUID] = append(podsByControllerUID[controllerUID], podDetails)
+		}
+		index.podsByNamespace[namespace] = podsByControllerUID
+	}
+	return index, nil
+}
+
+// podsFor returns the pod details matching the workload namespace and job UID.
+func (i workloadPodsIndex) podsFor(namespace, jobUID string) []map[string]any {
+	return i.podsByNamespace[namespace][jobUID]
 }

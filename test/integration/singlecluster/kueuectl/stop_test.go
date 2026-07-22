@@ -127,6 +127,43 @@ var _ = ginkgo.Describe("Kueuectl Stop", func() {
 				kueue.Hold,
 			),
 		)
+
+		ginkgo.DescribeTable("Should not stop a LocalQueue with --dry-run",
+			func(name, dryRunStrategy string) {
+				lq := utiltestingapi.MakeLocalQueue(name, ns.Name).Obj()
+
+				ginkgo.By("Create a LocalQueue", func() {
+					util.MustCreate(ctx, k8sClient, lq)
+				})
+
+				createdLocalQueue := &kueue.LocalQueue{}
+				ginkgo.By("Get created LocalQueue", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), createdLocalQueue)).To(gomega.Succeed())
+						g.Expect(ptr.Deref(createdLocalQueue.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(kueue.None))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Stop with --dry-run="+dryRunStrategy, func() {
+					streams, _, output, _ := genericiooptions.NewTestIOStreams()
+					configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+					kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+
+					kueuectl.SetArgs([]string{"stop", "localqueue", createdLocalQueue.Name, "--namespace", ns.Name, "--dry-run", dryRunStrategy})
+					err := kueuectl.Execute()
+					gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+				})
+
+				ginkgo.By("Check that the LocalQueue is still active", func() {
+					gomega.Consistently(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdLocalQueue), createdLocalQueue)).To(gomega.Succeed())
+						g.Expect(ptr.Deref(createdLocalQueue.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(kueue.None))
+					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+				})
+			},
+			ginkgo.Entry("client", "lq-dry-run-client", "client"),
+			ginkgo.Entry("server", "lq-dry-run-server", "server"),
+		)
 	})
 
 	ginkgo.When("Stopping a ClusterQueue", func() {
@@ -174,6 +211,51 @@ var _ = ginkgo.Describe("Kueuectl Stop", func() {
 				utiltestingapi.MakeClusterQueue("cq-2").Obj(),
 				[]string{"--keep-already-running"},
 				kueue.Hold,
+			),
+		)
+
+		ginkgo.DescribeTable("Should not stop a ClusterQueue with --dry-run",
+			func(cq *kueue.ClusterQueue, dryRunStrategy string) {
+				ginkgo.By("Create a ClusterQueue", func() {
+					util.MustCreate(ctx, k8sClient, cq)
+				})
+
+				ginkgo.DeferCleanup(func() {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+				})
+
+				createdClusterQueue := &kueue.ClusterQueue{}
+				ginkgo.By("Get created ClusterQueue", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), createdClusterQueue)).To(gomega.Succeed())
+						g.Expect(ptr.Deref(createdClusterQueue.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(kueue.None))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Stop with --dry-run="+dryRunStrategy, func() {
+					streams, _, output, _ := genericiooptions.NewTestIOStreams()
+					configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+					kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+
+					kueuectl.SetArgs([]string{"stop", "clusterqueue", createdClusterQueue.Name, "--dry-run", dryRunStrategy})
+					err := kueuectl.Execute()
+					gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+				})
+
+				ginkgo.By("Check that the ClusterQueue is still active", func() {
+					gomega.Consistently(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdClusterQueue), createdClusterQueue)).To(gomega.Succeed())
+						g.Expect(ptr.Deref(createdClusterQueue.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(kueue.None))
+					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+				})
+			},
+			ginkgo.Entry("client",
+				utiltestingapi.MakeClusterQueue("cq-dry-run-client").Obj(),
+				"client",
+			),
+			ginkgo.Entry("server",
+				utiltestingapi.MakeClusterQueue("cq-dry-run-server").Obj(),
+				"server",
 			),
 		)
 	})

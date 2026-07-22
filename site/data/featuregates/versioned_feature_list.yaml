@@ -17,12 +17,22 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.17"
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
 - name: AssignQueueLabelsForPods
   versionedSpecs:
   - default: true
     lockToDefault: false
     preRelease: Beta
     version: "0.17"
+- name: CleanupProvisioningRequestsOnEviction
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
 - name: ConcurrentAdmission
   versionedSpecs:
   - default: false
@@ -35,26 +45,18 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.17"
-- name: DRAExtendedResources
+- name: DeferRayServiceFinalizationForRedisCleanup
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
+- name: DisableWaitForPodsReady
   versionedSpecs:
   - default: false
     lockToDefault: false
     preRelease: Alpha
-    version: "0.17"
-  - default: false
-    lockToDefault: true
-    preRelease: Deprecated
-    version: "0.18"
-- name: DynamicResourceAllocation
-  versionedSpecs:
-  - default: false
-    lockToDefault: false
-    preRelease: Alpha
-    version: "0.14"
-  - default: false
-    lockToDefault: true
-    preRelease: Deprecated
-    version: "0.18"
+    version: "0.19"
 - name: ElasticJobsViaWorkloadSlices
   versionedSpecs:
   - default: false
@@ -123,52 +125,38 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.18"
+- name: KueueDRAIntegrationConsumableCapacity
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.19"
 - name: KueueDRAIntegrationExtendedResource
   versionedSpecs:
   - default: false
     lockToDefault: false
     preRelease: Alpha
     version: "0.18"
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
 - name: KueueDRAIntegrationPartitionableDevices
   versionedSpecs:
   - default: false
     lockToDefault: false
     preRelease: Alpha
     version: "0.18"
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
 - name: KueueDRARejectWorkloadsWhenDRADisabled
   versionedSpecs:
   - default: true
     lockToDefault: false
     preRelease: Beta
     version: "0.18"
-- name: LendingLimit
-  versionedSpecs:
-  - default: false
-    lockToDefault: false
-    preRelease: Alpha
-    version: "0.6"
-  - default: true
-    lockToDefault: false
-    preRelease: Beta
-    version: "0.9"
-  - default: true
-    lockToDefault: true
-    preRelease: GA
-    version: "0.17"
-- name: LocalQueueDefaulting
-  versionedSpecs:
-  - default: false
-    lockToDefault: false
-    preRelease: Alpha
-    version: "0.10"
-  - default: true
-    lockToDefault: false
-    preRelease: Beta
-    version: "0.12"
-  - default: true
-    lockToDefault: true
-    preRelease: GA
-    version: "0.17"
 - name: LocalQueueMetrics
   versionedSpecs:
   - default: false
@@ -189,6 +177,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.15"
+  - default: true
+    lockToDefault: true
+    preRelease: GA
+    version: "0.19"
 - name: MetricForWorkloadCreationLatency
   versionedSpecs:
   - default: true
@@ -231,26 +223,34 @@
     lockToDefault: false
     preRelease: Deprecated
     version: "0.17"
-- name: MultiKueueBatchJobWithManagedBy
-  versionedSpecs:
   - default: false
-    lockToDefault: false
-    preRelease: Alpha
-    version: "0.8"
-  - default: true
-    lockToDefault: false
-    preRelease: Beta
-    version: "0.15"
-  - default: true
     lockToDefault: true
-    preRelease: GA
-    version: "0.17"
+    preRelease: Deprecated
+    version: "0.19"
 - name: MultiKueueClusterProfile
   versionedSpecs:
   - default: false
     lockToDefault: false
     preRelease: Alpha
     version: "0.15"
+- name: MultiKueueIncrementalDispatcherConfig
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
+- name: MultiKueueIncrementalDispatcherRespectConfigOrder
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
+- name: MultiKueueKubeConfigPathValidation
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.19"
 - name: MultiKueueManagerQuotaAutomation
   versionedSpecs:
   - default: false
@@ -335,6 +335,10 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.18"
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
 - name: ReclaimablePods
   versionedSpecs:
   - default: true
@@ -353,16 +357,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.17"
-- name: SanitizePodSets
+- name: SchedulerLibraryIntegration
   versionedSpecs:
-  - default: true
+  - default: false
     lockToDefault: false
-    preRelease: Beta
-    version: "0.13"
-  - default: true
-    lockToDefault: true
-    preRelease: GA
-    version: "0.17"
+    preRelease: Alpha
+    version: "0.19"
 - name: SchedulerLongRequeueInterval
   versionedSpecs:
   - default: false
@@ -401,18 +401,42 @@
     lockToDefault: true
     preRelease: GA
     version: "0.18"
+- name: SkipReassignmentForPodOwnedWorkloads
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
 - name: SparkApplicationIntegration
   versionedSpecs:
   - default: false
     lockToDefault: false
     preRelease: Alpha
     version: "0.17"
+- name: TASAssignmentsEncodingByHostnamePrefix
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
 - name: TASBalancedPlacement
   versionedSpecs:
   - default: false
     lockToDefault: false
     preRelease: Alpha
     version: "0.15"
+- name: TASCacheNodeMatchResults
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
+- name: TASCachingRemainingResources
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
 - name: TASFailedNodeReplacement
   versionedSpecs:
   - default: false
@@ -445,6 +469,10 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.17"
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
 - name: TASProfileMixed
   versionedSpecs:
   - default: false
@@ -455,6 +483,22 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.15"
+- name: TASRecomputeAssignmentWithinSchedulingCycle
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
+- name: TASReplaceNodeDueToNotReadyOverFixedTime
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.17"
+  - default: false
+    lockToDefault: false
+    preRelease: Deprecated
+    version: "0.19"
 - name: TASReplaceNodeOnNodeTaints
   versionedSpecs:
   - default: true
@@ -493,6 +537,24 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.14"
+- name: UnadmittedWorkloadsExplicitStatus
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
+- name: UnadmittedWorkloadsObservability
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
+- name: VectorizedResourceRequests
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
 - name: VisibilityOnDemand
   versionedSpecs:
   - default: false

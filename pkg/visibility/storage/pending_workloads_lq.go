@@ -67,8 +67,7 @@ func (m *pendingWorkloadsInLqREST) Get(ctx context.Context, name string, opts ru
 	if !ok {
 		return nil, fmt.Errorf("invalid options object: %#v", opts)
 	}
-	limit := pendingWorkloadOpts.Limit
-	offset := pendingWorkloadOpts.Offset
+	limit, offset := boundedLimitOffset(pendingWorkloadOpts.Limit, pendingWorkloadOpts.Offset)
 
 	namespace := genericapirequest.NamespaceValue(ctx)
 	lqName := kueue.LocalQueueName(name)
@@ -77,9 +76,10 @@ func (m *pendingWorkloadsInLqREST) Get(ctx context.Context, name string, opts ru
 		return nil, errors.NewNotFound(visibility.Resource("localqueue"), name)
 	}
 
-	wls := make([]visibility.PendingWorkload, 0, limit)
+	pendingWorkloadsInfo := m.queueMgr.PendingWorkloadsInfo(cqName)
+	wls := make([]visibility.PendingWorkload, 0, min(limit, int64(len(pendingWorkloadsInfo))))
 	skippedWls := 0
-	for index, wlInfo := range m.queueMgr.PendingWorkloadsInfo(cqName) {
+	for index, wlInfo := range pendingWorkloadsInfo {
 		if len(wls) >= int(limit) {
 			break
 		}

@@ -17,6 +17,8 @@ limitations under the License.
 package controller
 
 import (
+	"context"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -29,7 +31,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -45,6 +49,11 @@ type Event struct {
 }
 
 func TestKueuePopulatorReconciler(t *testing.T) {
+	// errCreateFailedForTest simulates a transient API error (or a TOCTOU race
+	// where a conflicting object is created between Get and Create) when
+	// injected via the fake client's interceptor.
+	errCreateFailedForTest := errors.New("create failed")
+
 	cases := map[string]struct {
 		clusterQueues       []*kueue.ClusterQueue
 		namespaces          []*corev1.Namespace
@@ -53,6 +62,7 @@ func TestKueuePopulatorReconciler(t *testing.T) {
 		localQueueName      string
 		localQueueNameMode  kueuepopulatorconfig.LocalQueueNameMode
 		req                 reconcile.Request
+		createErr           error
 		wantError           error
 		wantLQs             []kueue.LocalQueue
 		wantEvents          []Event
@@ -517,6 +527,37 @@ func TestKueuePopulatorReconciler(t *testing.T) {
 				},
 			},
 		},
+
+		"should return an error and requeue when LocalQueue creation fails": {
+			clusterQueues: []*kueue.ClusterQueue{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "cq"},
+					Spec: kueue.ClusterQueueSpec{
+						NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"dep": "eng"}},
+					},
+				},
+			},
+			namespaces: []*corev1.Namespace{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:   "ns",
+						Labels: map[string]string{"dep": "eng"},
+					},
+				},
+			},
+			localQueueName: "default-lq",
+			req:            reconcile.Request{NamespacedName: types.NamespacedName{Name: "ns"}},
+			createErr:      errCreateFailedForTest,
+			wantError:      errCreateFailedForTest,
+			wantLQs:        []kueue.LocalQueue{},
+			wantEvents: []Event{
+				{
+					EventType: corev1.EventTypeWarning,
+					Reason:    "LocalQueueCreationFailed",
+					Message:   "Failed to create LocalQueue default-lq in namespace ns: create failed",
+				},
+			},
+		},
 	}
 
 	for name, tc := range cases {
@@ -526,6 +567,13 @@ func TestKueuePopulatorReconciler(t *testing.T) {
 			_ = kueue.AddToScheme(scheme)
 
 			builder := fake.NewClientBuilder().WithScheme(scheme)
+			if tc.createErr != nil {
+				builder = builder.WithInterceptorFuncs(interceptor.Funcs{
+					Create: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+						return tc.createErr
+					},
+				})
+			}
 
 			for _, cq := range tc.clusterQueues {
 				builder.WithObjects(cq)

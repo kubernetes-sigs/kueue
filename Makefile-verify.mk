@@ -16,14 +16,20 @@
 
 GO_FMT ?= gofmt
 CONTAINER_ENGINE ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
-SKILLSAW_IMAGE ?= ghcr.io/stbenjam/skillsaw:0.9.2
+SKILLSAW_VERSION := $(shell grep '^FROM' "${TESTING_DIR}/skillsaw/Dockerfile" | cut -d: -f2 | cut -d@ -f1)
+SKILLSAW_IMAGE := "ghcr.io/stbenjam/skillsaw:${SKILLSAW_VERSION}"
 VERIFY_NPROCS ?= 8
 # Output sync mode for parallel verification. Set to empty to disable.
 # Requires GNU Make 4.0+. Values: target, line, recurse, or empty.
 ifeq ($(shell uname),Darwin)
     VERIFY_OUTPUT_SYNC ?=
+    # SELinux :Z relabeling and label confinement are Linux-only.
+    VOLUME_FLAGS ?=
+    CONTAINER_SECURITY_OPTS ?= --security-opt label=disable
 else
     VERIFY_OUTPUT_SYNC ?= target
+    VOLUME_FLAGS ?= :Z
+    CONTAINER_SECURITY_OPTS ?=
 endif
 # Paths whose content is expected to be fully reproducible from sources.
 # The final step of `make verify` enforces that these paths have:
@@ -91,7 +97,7 @@ verify-tree-prereqs: verify-go-prereqs verify-docs-prereqs verify-helm-prereqs
 ## Read-only verification targets that should not mutate the repo.
 ## Add new check-only targets here.
 verify-checks: ## Phase 2 (parallel): checks that should run after generation completes.
-verify-checks: verify-ci-lint verify-lint-api verify-fmt-verify verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-skills-lint
+verify-checks: verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-skills-lint
 
 # ---- Shared check recipes -------------------------------------------------
 # Each recipe is stored in a variable so that both the lightweight standalone
@@ -130,6 +136,10 @@ define _shell_lint_recipe
 $(PROJECT_DIR)/hack/testing/shellcheck/verify.sh
 endef
 
+define _e2e_common_test_recipe
+bash $(PROJECT_DIR)/hack/testing/e2e-common_test.sh
+endef
+
 define _helm_verify_recipe
 $(HELM) lint charts/kueue
 $(HELM) template charts/kueue > /dev/null
@@ -159,7 +169,7 @@ endef
 # Validates skills against https://agentskills.io/specification
 define _skills_lint_recipe
 mkdir -p $(ARTIFACTS)
-$(CONTAINER_ENGINE) run --rm -v $(PROJECT_DIR):/workspace:Z -v $(ARTIFACTS):/out:Z $(SKILLSAW_IMAGE) --output /out/skillsaw-summary.html
+$(CONTAINER_ENGINE) run --rm $(CONTAINER_SECURITY_OPTS) -v $(PROJECT_DIR):/workspace$(VOLUME_FLAGS) -v $(ARTIFACTS):/out$(VOLUME_FLAGS) $(SKILLSAW_IMAGE) --output /out/skillsaw-summary.html
 endef
 
 
@@ -180,6 +190,10 @@ verify-fmt-verify: verify-tree-prereqs ## Verify formatting after generation
 .PHONY: verify-shell-lint
 verify-shell-lint: verify-tree-prereqs ## Shell lint after generation
 	$(_shell_lint_recipe)
+
+.PHONY: verify-e2e-common-test
+verify-e2e-common-test: verify-tree-prereqs ## e2e-common shell helper tests after generation
+	$(_e2e_common_test_recipe)
 
 .PHONY: verify-helm-verify
 verify-helm-verify: verify-tree-prereqs helm ## Helm verification after generation
@@ -235,6 +249,10 @@ fmt-verify: ## Verify Go code formatting (no changes allowed).
 shell-lint: ## Run shell script linting (via shellcheck).
 	$(_shell_lint_recipe)
 
+.PHONY: e2e-common-test
+e2e-common-test: ## Run e2e-common shell helper tests.
+	$(_e2e_common_test_recipe)
+
 .PHONY: helm-verify
 helm-verify: helm helm-lint ## Validate Helm chart rendering with various configuration combinations.
 	$(_helm_verify_recipe)
@@ -258,6 +276,10 @@ skills-lint: ## Lint agent skills with skillsaw.
 .PHONY: verify-website-links
 verify-website-links: ## Check for broken internal links on the public website.
 	$(PROJECT_DIR)/hack/testing/linkchecker/verify.sh
+
+.PHONY: verify-website-links-preview
+verify-website-links-preview: ## Check links on a PR Netlify deploy preview; skips if no fresh same-commit preview exists.
+	$(PROJECT_DIR)/hack/testing/linkchecker/verify-preview.sh
 
 .PHONY: i18n-verify
 i18n-verify: ## Verify localized docs are in sync with English. Usage: make i18n-verify [TARGET_LANG=zh-CN]

@@ -22,6 +22,10 @@ ENVTEST_K8S_VERSION ?= 1.35
 KUBEBUILDER_ASSETS = $(or $(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path),$(error setup-envtest failed to download binaries. KUBEBUILDER_ASSETS is empty))
 INTEGRATION_NPROCS ?= 4
 CONTROLLER_GEN := $(BIN_DIR)/controller-gen
+YAML_PROCESSOR := $(BIN_DIR)/yaml-processor
+YAML_PROCESSOR_LOG_LEVEL ?= info
+HELM := $(BIN_DIR)/helm
+YQ := $(BIN_DIR)/yq
 
 GIT_TAG ?= $(shell git describe --tags --dirty --always)
 GIT_COMMIT ?= $(shell git rev-parse HEAD)
@@ -52,6 +56,15 @@ $(GINKGO):
 
 $(CONTROLLER_GEN):
 	cd $(ROOT_DIR) && $(MAKE) controller-gen
+
+$(YAML_PROCESSOR):
+	cd $(ROOT_DIR) && $(MAKE) yaml-processor
+
+$(HELM):
+	cd $(ROOT_DIR) && $(MAKE) helm
+
+$(YQ):
+	cd $(ROOT_DIR) && $(MAKE) yq
 
 .PHONY: all
 all: fmt vet build
@@ -109,3 +122,23 @@ test: $(GOTESTSUM) ## Run unit tests.
 	mkdir -p $(ARTIFACTS)
 	GOWORK=off $(GOTESTSUM) --junitfile $(ARTIFACTS)/junit-unit.xml -- \
 		-race -coverpkg=./... -coverprofile $(ARTIFACTS)/cover-unit.out ./pkg/...
+
+.PHONY: update-helm
+update-helm: manifests $(YAML_PROCESSOR) ## Generate the Helm chart templates from config/.
+	$(YAML_PROCESSOR) -zap-log-level=$(YAML_PROCESSOR_LOG_LEVEL) hack/processing-plan.yaml
+
+.PHONY: helm-dep-build
+helm-dep-build: $(HELM)
+	$(HELM) dependency build charts/kueue-priority-booster
+
+.PHONY: helm-lint
+helm-lint: $(HELM) helm-dep-build ## Run Helm chart lint test.
+	$(HELM) lint charts/kueue-priority-booster
+
+.PHONY: helm-verify
+helm-verify: $(HELM) helm-dep-build ## Verify the Helm chart renders.
+	$(HELM) template charts/kueue-priority-booster > /dev/null
+	$(HELM) template charts/kueue-priority-booster --set kueuePriorityBooster.image.repository=my-repo --set kueuePriorityBooster.image.tag=v0.1.0 > /dev/null
+
+.PHONY: verify
+verify: vet helm-verify ## Run all verification tests.

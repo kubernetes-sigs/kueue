@@ -17,6 +17,7 @@ limitations under the License.
 package queue
 
 import (
+	"fmt"
 	"slices"
 	"testing"
 	"time"
@@ -288,7 +289,7 @@ func TestPushOrUpdateGenerationChanged(t *testing.T) {
 			// Simulate RequeueWorkload with info.Update: inadmissible entry gets new generation.
 			updatedInfo := workload.NewInfo(tc.updatedWorkload)
 			updatedInfo.LastEvaluatedGeneration = head.LastEvaluatedGeneration
-			cq.requeueIfNotPresent(log, updatedInfo, false, RequeueReasonGeneric)
+			cq.requeueIfNotPresent(log, updatedInfo, false, RequeueReasonGeneric, "")
 
 			// PushOrUpdate from informer event with the updated workload.
 			cq.PushOrUpdate(workload.NewInfo(tc.updatedWorkload))
@@ -400,7 +401,7 @@ func TestSnapshotDeterministicOrder(t *testing.T) {
 				cq.PushOrUpdate(workload.NewInfo(w))
 			}
 			for _, w := range tc.inadmissibleWorkloads {
-				cq.requeueIfNotPresent(log, workload.NewInfo(w), false, RequeueReasonGeneric)
+				cq.requeueIfNotPresent(log, workload.NewInfo(w), false, RequeueReasonGeneric, "")
 			}
 
 			firstSnap := cq.Snapshot()
@@ -478,6 +479,153 @@ func TestSnapshotStableWithConcurrentFSUpdates(t *testing.T) {
 	}
 }
 
+// TestSnapshotConcurrentWithRequeueNoDataRace guards against a data race on the
+// sticky workload: Snapshot sorts a copy of the pending workloads through the
+// comparator (which reads stickyWorkload.workloadName) without holding the
+// ClusterQueue lock, while RequeueIfNotPresent writes that field during a
+// BestEffortFIFO preemption requeue. Run with -race to detect regressions.
+func TestSnapshotConcurrentWithRequeueNoDataRace(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	cq, err := newClusterQueue(ctx, nil,
+		&kueue.ClusterQueue{
+			Spec: kueue.ClusterQueueSpec{
+				QueueingStrategy: kueue.BestEffortFIFO,
+			},
+		},
+		defaultOrdering,
+		nil, nil, nil)
+	if err != nil {
+		t.Fatalf("failed to create ClusterQueue: %v", err)
+	}
+
+	// At least two workloads so Snapshot's sort actually invokes the
+	// comparator that reads the sticky workload.
+	wls := []*kueue.Workload{
+		utiltestingapi.MakeWorkload("wl1", defaultNamespace).Obj(),
+		utiltestingapi.MakeWorkload("wl2", defaultNamespace).Obj(),
+		utiltestingapi.MakeWorkload("wl3", defaultNamespace).Obj(),
+	}
+	for _, wl := range wls {
+		cq.PushOrUpdate(workload.NewInfo(wl))
+	}
+
+	// Writer: continuously set the sticky workload via a preemption requeue.
+	stop := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				for _, wl := range wls {
+					cq.RequeueIfNotPresent(ctx, workload.NewInfo(wl), RequeueReasonPendingPreemption, "")
+				}
+			}
+		}
+	}()
+	defer close(stop)
+
+	// Reader: Snapshot reads the sticky workload through the comparator.
+	for range 1000 {
+		cq.Snapshot()
+	}
+}
+
+// TestSnapshotConsistentUnderConcurrentStickyChange guards against Kueue#12740:
+// Snapshot sorts a copy of the pending workloads without holding the
+// ClusterQueue lock, so the comparator must observe a single, consistent sticky
+// workload for the whole sort. If it re-read the sticky workload on every
+// comparison, a concurrent change could make the ordering non-transitive and
+// corrupt the Snapshot order. This is a logic bug, not a data race: the atomic
+// pointer already makes each access memory-safe, so -race does not catch it.
+//
+// With equal priority and creation timestamp, every valid Snapshot is either the
+// pure UID order or exactly one workload (the sticky one) pulled to the front
+// followed by the rest in UID order. Any other permutation means the sort
+// observed the sticky workload changing mid-sort.
+func TestSnapshotConsistentUnderConcurrentStickyChange(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	cq, err := newClusterQueue(ctx, nil,
+		&kueue.ClusterQueue{
+			Spec: kueue.ClusterQueueSpec{
+				QueueingStrategy: kueue.BestEffortFIFO,
+			},
+		},
+		defaultOrdering,
+		nil, nil, nil)
+	if err != nil {
+		t.Fatalf("failed to create ClusterQueue: %v", err)
+	}
+
+	now := time.Now().Truncate(time.Second)
+	// Names are listed in UID order; equal priority and creation timestamp make
+	// UID the only tiebreak once stickiness is accounted for.
+	names := []string{"wl1", "wl2", "wl3", "wl4", "wl5", "wl6"}
+	keys := make([]workload.Reference, len(names))
+	for i, name := range names {
+		wl := utiltestingapi.MakeWorkload(name, defaultNamespace).
+			Creation(now).UID(types.UID(fmt.Sprintf("uid-%d", i))).Obj()
+		cq.PushOrUpdate(workload.NewInfo(wl))
+		keys[i] = workload.Key(wl)
+	}
+
+	// Valid orderings: pure UID order, or any single workload pulled to the front.
+	valid := [][]string{slices.Clone(names)}
+	for i := range names {
+		order := []string{names[i]}
+		for j := range names {
+			if j != i {
+				order = append(order, names[j])
+			}
+		}
+		valid = append(valid, order)
+	}
+	isValid := func(got []string) bool {
+		for _, v := range valid {
+			if slices.Equal(got, v) {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Writer: continuously churn the sticky workload so it can change while a
+	// Snapshot sort is in flight. It sets the field directly (bypassing the
+	// lock) to force a change mid-sort, which the lock-free Snapshot must
+	// tolerate; the fix makes it capture the value once per sort.
+	stop := make(chan struct{})
+	started := make(chan struct{})
+	go func() {
+		close(started)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				for _, k := range keys {
+					cq.sw.set(k)
+				}
+				cq.sw.clear()
+			}
+		}
+	}()
+	// Block until the writer is scheduled, so the loop below cannot finish before
+	// any churn has happened and pass vacuously.
+	<-started
+	defer close(stop)
+
+	for i := range 2000 {
+		snap := cq.Snapshot()
+		got := make([]string, len(snap))
+		for j, wInfo := range snap {
+			got[j] = wInfo.Obj.Name
+		}
+		if !isValid(got) {
+			t.Fatalf("call %d: non-transitive Snapshot ordering %v; sticky workload changed mid-sort", i+1, got)
+		}
+	}
+}
+
 func TestPendingResources(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	now := time.Now()
@@ -503,7 +651,7 @@ func TestPendingResources(t *testing.T) {
 
 	cq.PushOrUpdate(wl1)
 	cq.PushOrUpdate(wl3)
-	cq.requeueIfNotPresent(log, wl2, false, RequeueReasonGeneric)
+	cq.requeueIfNotPresent(log, wl2, false, RequeueReasonGeneric, "")
 
 	// Pop wl1 or wl3 to make it inflight (heap pops in creation order).
 	inflight := cq.Pop()
@@ -591,7 +739,7 @@ func Test_DeleteFromLocalQueue(t *testing.T) {
 
 	for _, w := range inadmissibleWorkloads {
 		wInfo := workload.NewInfo(w)
-		cq.requeueIfNotPresent(log, wInfo, false, RequeueReasonGeneric)
+		cq.requeueIfNotPresent(log, wInfo, false, RequeueReasonGeneric, "")
 		qImpl.AddOrUpdate(wInfo)
 	}
 
@@ -778,10 +926,10 @@ func TestClusterQueueImpl(t *testing.T) {
 			}
 
 			for _, w := range test.inadmissibleWorkloadsToRequeue {
-				cq.requeueIfNotPresent(log, w, false, RequeueReasonGeneric)
+				cq.requeueIfNotPresent(log, w, false, RequeueReasonGeneric, "")
 			}
 			for _, w := range test.admissibleWorkloadsToRequeue {
-				cq.requeueIfNotPresent(log, w, true, RequeueReasonGeneric)
+				cq.requeueIfNotPresent(log, w, true, RequeueReasonGeneric, "")
 			}
 
 			for _, w := range test.workloadsToUpdate {
@@ -828,7 +976,7 @@ func TestQueueInadmissibleWorkloadsDuringScheduling(t *testing.T) {
 	// Simulate requeuing during scheduling attempt.
 	head := cq.Pop()
 	queueInadmissibleWorkloads(ctx, cq, cl)
-	cq.requeueIfNotPresent(log, head, false, RequeueReasonGeneric)
+	cq.requeueIfNotPresent(log, head, false, RequeueReasonGeneric, "")
 
 	activeWorkloads, _ = cq.Dump()
 	wantActiveWorkloads = []workload.Reference{workload.Key(wl)}
@@ -838,7 +986,7 @@ func TestQueueInadmissibleWorkloadsDuringScheduling(t *testing.T) {
 
 	// Simulating scheduling again without requeuing.
 	head = cq.Pop()
-	cq.requeueIfNotPresent(log, head, false, RequeueReasonGeneric)
+	cq.requeueIfNotPresent(log, head, false, RequeueReasonGeneric, "")
 	activeWorkloads, _ = cq.Dump()
 	wantActiveWorkloads = nil
 	if diff := cmp.Diff(wantActiveWorkloads, activeWorkloads, cmpDump...); diff != "" {
@@ -983,7 +1131,7 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 			wl := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).Obj()
 			info := workload.NewInfo(wl)
 			info.LastAssignment = tc.lastAssignment
-			if ok := cq.RequeueIfNotPresent(ctx, info, tc.reason); !ok {
+			if ok := cq.RequeueIfNotPresent(ctx, info, tc.reason, ""); !ok {
 				t.Error("failed to requeue nonexistent workload")
 			}
 
@@ -997,7 +1145,7 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 				t.Errorf("Unexpected sticky status (-want,+got):\n%s", diff)
 			}
 
-			if ok := cq.RequeueIfNotPresent(ctx, workload.NewInfo(wl), tc.reason); ok {
+			if ok := cq.RequeueIfNotPresent(ctx, workload.NewInfo(wl), tc.reason, ""); ok {
 				t.Error("Re-queued a workload that was already present")
 			}
 		})
@@ -1217,7 +1365,7 @@ func TestStrictFIFORequeueIfNotPresent(t *testing.T) {
 				workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
 				nil, nil, nil)
 			wl := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).Obj()
-			if ok := cq.RequeueIfNotPresent(ctx, workload.NewInfo(wl), reason); !ok {
+			if ok := cq.RequeueIfNotPresent(ctx, workload.NewInfo(wl), reason, ""); !ok {
 				t.Error("failed to requeue nonexistent workload")
 			}
 
@@ -1226,7 +1374,7 @@ func TestStrictFIFORequeueIfNotPresent(t *testing.T) {
 				t.Errorf("Got inadmissible after requeue %t, want %t", gotInadmissible, test.wantInadmissible)
 			}
 
-			if ok := cq.RequeueIfNotPresent(ctx, workload.NewInfo(wl), reason); ok {
+			if ok := cq.RequeueIfNotPresent(ctx, workload.NewInfo(wl), reason, ""); ok {
 				t.Error("Re-queued a workload that was already present")
 			}
 		})
@@ -1407,15 +1555,15 @@ func TestFsAdmission(t *testing.T) {
 
 func TestRecordInadmissibleHash(t *testing.T) {
 	cases := map[string]struct {
-		hashToRecord     string
-		heapWorkloads    map[string]string // name -> schedulingHash
+		hashToRecord     workload.EquivalenceHash
+		heapWorkloads    map[string]workload.EquivalenceHash // name -> schedulingHash
 		wantMoved        int
 		wantActive       int
 		wantInadmissible int
 	}{
 		"bulk-moves matching workloads": {
 			hashToRecord: "gpu-class",
-			heapWorkloads: map[string]string{
+			heapWorkloads: map[string]workload.EquivalenceHash{
 				"gpu-1": "gpu-class",
 				"gpu-2": "gpu-class",
 				"gpu-3": "gpu-class",
@@ -1428,7 +1576,7 @@ func TestRecordInadmissibleHash(t *testing.T) {
 		},
 		"no-op for empty hash": {
 			hashToRecord: "",
-			heapWorkloads: map[string]string{
+			heapWorkloads: map[string]workload.EquivalenceHash{
 				"wl-1": "some-hash",
 			},
 			wantMoved:        0,
@@ -1437,7 +1585,7 @@ func TestRecordInadmissibleHash(t *testing.T) {
 		},
 		"no-op when no workloads match": {
 			hashToRecord: "nonexistent",
-			heapWorkloads: map[string]string{
+			heapWorkloads: map[string]workload.EquivalenceHash{
 				"wl-1": "hash-a",
 				"wl-2": "hash-b",
 			},
@@ -1464,7 +1612,7 @@ func TestRecordInadmissibleHash(t *testing.T) {
 				i++
 			}
 
-			moved := cq.handleInadmissibleHash(tc.hashToRecord)
+			moved := cq.handleInadmissibleHash(tc.hashToRecord, "dummy-reason")
 			if moved != tc.wantMoved {
 				t.Errorf("handleInadmissibleHash moved %d, want %d", moved, tc.wantMoved)
 			}
@@ -1482,22 +1630,22 @@ func TestRecordInadmissibleHash(t *testing.T) {
 
 func TestPushOrUpdateRespectsInadmissibleHashes(t *testing.T) {
 	cases := map[string]struct {
-		noFitSchedulingHashes []string
-		pushHash              string
-		wantActive            int
-		wantInadmissible      int
+		inadmissibleHashes []workload.EquivalenceHash
+		pushHash           workload.EquivalenceHash
+		wantActive         int
+		wantInadmissible   int
 	}{
 		"workload with blocked hash goes to inadmissible": {
-			noFitSchedulingHashes: []string{"blocked"},
-			pushHash:              "blocked",
-			wantActive:            0,
-			wantInadmissible:      1,
+			inadmissibleHashes: []workload.EquivalenceHash{"blocked"},
+			pushHash:           "blocked",
+			wantActive:         0,
+			wantInadmissible:   1,
 		},
 		"workload with non-blocked hash goes to heap": {
-			noFitSchedulingHashes: []string{"blocked"},
-			pushHash:              "allowed",
-			wantActive:            1,
-			wantInadmissible:      0,
+			inadmissibleHashes: []workload.EquivalenceHash{"blocked"},
+			pushHash:           "allowed",
+			wantActive:         1,
+			wantInadmissible:   0,
 		},
 	}
 	for name, tc := range cases {
@@ -1506,8 +1654,8 @@ func TestPushOrUpdateRespectsInadmissibleHashes(t *testing.T) {
 			cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()))
 			cq.queueingStrategy = kueue.BestEffortFIFO
 
-			for _, h := range tc.noFitSchedulingHashes {
-				cq.noFitSchedulingHashes.Insert(h)
+			for _, h := range tc.inadmissibleHashes {
+				cq.hashToBulkMoveReason[h] = "dummy-reason"
 			}
 
 			wl := utiltestingapi.MakeWorkload("wl", defaultNamespace).
@@ -1538,9 +1686,9 @@ func TestQueueInadmissibleWorkloadsClearsHashes(t *testing.T) {
 	info := workload.NewInfo(wl)
 	info.SchedulingHash = "test-hash"
 	cq.PushOrUpdate(info)
-	cq.handleInadmissibleHash("test-hash")
+	cq.handleInadmissibleHash("test-hash", "dummy-reason")
 
-	if !cq.noFitSchedulingHashes.Has("test-hash") {
+	if _, has := cq.hashToBulkMoveReason["test-hash"]; !has {
 		t.Fatal("hash should be recorded before clearing")
 	}
 
@@ -1548,8 +1696,8 @@ func TestQueueInadmissibleWorkloadsClearsHashes(t *testing.T) {
 		wl, utiltesting.MakeNamespace(defaultNamespace),
 	))
 
-	if cq.noFitSchedulingHashes.Has("test-hash") {
-		t.Error("noFitSchedulingHashes should be cleared after queueInadmissibleWorkloads")
+	if _, has := cq.hashToBulkMoveReason["test-hash"]; has {
+		t.Error("hashToBulkMoveReason should be cleared after queueInadmissibleWorkloads")
 	}
 
 	active, inadmissible := cq.Pending()
@@ -1602,11 +1750,89 @@ func TestRequeueHashTriggerByReason(t *testing.T) {
 				Request(corev1.ResourceCPU, "1").Obj()
 			info := workload.NewInfo(wl)
 			info.SchedulingHash = "test-hash-abc"
-			cq.RequeueIfNotPresent(ctx, info, tc.reason)
+			cq.RequeueIfNotPresent(ctx, info, tc.reason, "WaitingForQuota")
 
-			gotHash := cq.noFitSchedulingHashes.Has("test-hash-abc")
+			_, gotHash := cq.hashToBulkMoveReason["test-hash-abc"]
 			if gotHash != tc.wantHash {
-				t.Errorf("noFitSchedulingHashes.Has(hash) = %v, want %v", gotHash, tc.wantHash)
+				t.Errorf("hashToBulkMoveReason.Has(hash) = %v, want %v", gotHash, tc.wantHash)
+			}
+		})
+	}
+}
+
+func TestGetNoFitReason(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
+	cases := map[string]struct {
+		conditionReason        string
+		requeueReason          RequeueReason
+		deleteFromInadmissible bool
+		wantReason             string
+		wantOk                 bool
+	}{
+		"records status reason when requeued as NoFit": {
+			conditionReason: kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
+			requeueReason:   RequeueReasonNoFit,
+			wantReason:      kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
+			wantOk:          true,
+		},
+		"records status reason when requeued as PreemptionNoCandidates": {
+			conditionReason: kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+			requeueReason:   RequeueReasonPreemptionNoCandidates,
+			wantReason:      kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+			wantOk:          true,
+		},
+		"falls back to PendingEvaluation if no status condition is present": {
+			conditionReason: "",
+			requeueReason:   RequeueReasonNoFit,
+			wantReason:      kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+			wantOk:          true,
+		},
+		"returns false if workload is not in inadmissibleWorkloads": {
+			conditionReason:        kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
+			requeueReason:          RequeueReasonNoFit,
+			deleteFromInadmissible: true,
+			wantOk:                 false,
+		},
+		"returns false if requeued with non-capacity reason": {
+			conditionReason: kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
+			requeueReason:   RequeueReasonNamespaceMismatch,
+			wantOk:          false,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()))
+			cq.queueingStrategy = kueue.BestEffortFIFO
+
+			wlBuilder := utiltestingapi.MakeWorkload("wl", defaultNamespace)
+			if tc.conditionReason != "" {
+				wlBuilder.Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  tc.conditionReason,
+					Message: "failed",
+				})
+			}
+			wl := wlBuilder.Obj()
+			info := workload.NewInfo(wl)
+			info.SchedulingHash = "test-hash"
+
+			cq.RequeueIfNotPresent(ctx, info, tc.requeueReason, QuotaReservedReason(tc.conditionReason))
+
+			wlKey := workload.Key(wl)
+			if tc.deleteFromInadmissible {
+				cq.rwm.Lock()
+				cq.inadmissibleWorkloads.delete(wlKey)
+				cq.rwm.Unlock()
+			}
+
+			reason, ok := cq.GetNoFitReason(wlKey)
+			if ok != tc.wantOk {
+				t.Errorf("GetNoFitReason() ok = %v, want %v", ok, tc.wantOk)
+			}
+			if ok && reason != tc.wantReason {
+				t.Errorf("GetNoFitReason() reason = %q, want %q", reason, tc.wantReason)
 			}
 		})
 	}

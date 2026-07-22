@@ -106,10 +106,3 @@ type PendingWorkloadOptions struct {
 	// Limit indicates max number of pending workloads that should be fetched. 1000 by default
 	Limit int64 `json:"limit,omitempty"`
 }
-
-func init() {
-	SchemeBuilder.Register(
-		&PendingWorkloadsSummary{},
-		&PendingWorkloadOptions{},
-	)
-}

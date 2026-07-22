@@ -21,6 +21,6 @@ clusterQueueClassesMinUsage:
 
 wlClassesMaxAvgTimeToAdmissionMs:
   # mean×1.2 rounded up to nearest 1000ms
-  large: 119_000   # mean=98803ms
+  large: 128_000   # mean=105604ms
   medium: 308_000  # mean=256413ms
   small: 841_000   # mean=700379ms
