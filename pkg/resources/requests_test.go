@@ -498,12 +498,16 @@ func TestLazyRequests(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			var originalBase Requests
+			var base Requests
 			if tc.base != nil {
-				originalBase = tc.base.Clone()
+				base = NewRequestsFromMap(tc.base)
+			}
+			var originalBase Requests
+			if base != nil {
+				originalBase = base.Clone()
 			}
 
-			lazy := NewLazyRequests(tc.base)
+			lazy := NewLazyRequests(base)
 
 			if tc.op != nil {
 				tc.op(&lazy)
@@ -517,13 +521,16 @@ func TestLazyRequests(t *testing.T) {
 				t.Errorf("expected cachedCreated=%t, got cached=%v", tc.wantCachedCreated, lazy.cached)
 			}
 
-			gotResult := lazy.Get()
-			if !cmp.Equal(gotResult, tc.wantResult) {
-				t.Errorf("unexpected Get() result, diff (-got +want):\n%s", cmp.Diff(gotResult, tc.wantResult))
+			gotResult := ToMapRequests(lazy.Get())
+			wantResult := tc.wantResult
+			if diff := cmp.Diff(wantResult, gotResult); diff != "" {
+				t.Errorf("unexpected Get() result, diff (-want +got):\n%s", diff)
 			}
 
-			if tc.base != nil && !cmp.Equal(tc.base, originalBase) {
-				t.Errorf("base map was mutated! diff (-got +want):\n%s", cmp.Diff(tc.base, originalBase))
+			if base != nil {
+				if diff := cmp.Diff(ToMapRequests(originalBase), ToMapRequests(base)); diff != "" {
+					t.Errorf("base map was mutated! diff (-want +got):\n%s", diff)
+				}
 			}
 		})
 	}

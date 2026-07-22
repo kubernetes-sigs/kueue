@@ -4877,7 +4877,7 @@ func TestAssignment_ComputeTASNetUsage(t *testing.T) {
 			want: workload.TASUsage{
 				"tas": []workload.TopologyDomainRequests{{
 					Values: []string{"node-a"},
-					SinglePodRequests: resources.NewMapRequests(corev1.ResourceList{
+					SinglePodRequests: resources.NewRequestsFromResourceList(corev1.ResourceList{
 						corev1.ResourceCPU:           resource.MustParse("1"),
 						corev1.ResourceMemory:        resource.MustParse("1Gi"),
 						"example.com/gpu":            resource.MustParse("1"),
@@ -4937,7 +4937,7 @@ func TestAssignment_ComputeTASNetUsage(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			got := tt.assignment.ComputeTASNetUsage(testr.New(t), tt.cq, tt.wl, tt.prevAdmission)
 
-			if diff := cmp.Diff(tt.want, got, cmpopts.EquateEmpty()); diff != "" {
+			if diff := cmp.Diff(tt.want, got, cmpopts.EquateEmpty(), cmp.Transformer("requestsToMap", resources.ToMapRequests)); diff != "" {
 				t.Errorf("Unexpected TAS usage (-want,+got):\n%s", diff)
 			}
 		})
