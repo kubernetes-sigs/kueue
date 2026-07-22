@@ -174,7 +174,7 @@ func TestNewInfo(t *testing.T) {
 				TotalRequests: []PodSetResources{
 					{
 						Name: kueue.DefaultPodSetName,
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU:    0,
 							corev1.ResourceMemory: 2 * 512 * 1024,
 						},
