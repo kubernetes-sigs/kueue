@@ -84,7 +84,7 @@ func TestReconciler(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
 		},
-		"statefulset with finished pods": {
+		"statefulset does not remove finalizers from finished pods": {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
@@ -116,10 +116,12 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*testingjobspod.MakePod("pod1", "ns").
 					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
+					KueueFinalizer().
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
 				*testingjobspod.MakePod("pod2", "ns").
 					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
+					KueueFinalizer().
 					StatusPhase(corev1.PodFailed).
 					Obj(),
 				*testingjobspod.MakePod("pod3", "ns").
@@ -164,10 +166,12 @@ func TestReconciler(t *testing.T) {
 				*testingjobspod.MakePod("pod1", "ns").
 					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					Label(appsv1.ControllerRevisionHashLabelKey, "1").
+					KueueFinalizer().
 					Obj(),
 				*testingjobspod.MakePod("pod2", "ns").
 					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					Label(appsv1.ControllerRevisionHashLabelKey, "1").
+					KueueFinalizer().
 					Obj(),
 				*testingjobspod.MakePod("pod3", "ns").
 					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
@@ -403,6 +407,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*testingjobspod.MakePod("pod1", "ns").
 					GroupNameLabel(GetWorkloadName("", "sts")).
+					KueueFinalizer().
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
 			},
@@ -411,7 +416,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
-		"should finalize deleted pod": {
+		"should ignore deleted pod": {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
@@ -431,7 +436,13 @@ func TestReconciler(t *testing.T) {
 					DeletionTimestamp(now).
 					Obj(),
 			},
-			wantPods: nil,
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("pod1", "ns").
+					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
+					KueueFinalizer().
+					DeletionTimestamp(now).
+					Obj(),
+			},
 		},
 		"statefulset with single AdmissionGatedBy gate should propagate to workload": {
 			featureGates: map[featuregate.Feature]bool{
