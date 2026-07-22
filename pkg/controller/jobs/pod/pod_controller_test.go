@@ -7280,7 +7280,6 @@ func TestPod_IsActive(t *testing.T) {
 			}
 		})
 	}
-
 }
 
 func TestStop(t *testing.T) {
