@@ -61,7 +61,7 @@ var _ = ginkgo.Describe("Job controller with QuotaReleaseStrategy OnTerminalBest
 		ginkgo.By("mark the job as active and having terminating pods", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
-				job.Status.Active = 2
+				job.Status.Active = 0
 				job.Status.Terminating = ptr.To[int32](2)
 				g.Expect(k8sClient.Status().Update(ctx, job)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
