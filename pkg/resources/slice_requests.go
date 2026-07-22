@@ -319,3 +319,12 @@ func (sr *SliceRequests) CountInWithLimitingResource(capacity Requests) (int32, 
 func (sr *SliceRequests) IsEmpty() bool {
 	return sr == nil || len(*sr) == 0
 }
+
+func (sr *SliceRequests) FloorToZero() {
+	if sr == nil {
+		return
+	}
+	for i := range *sr {
+		(*sr)[i].value = max((*sr)[i].value, 0)
+	}
+}

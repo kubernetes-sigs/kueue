@@ -573,7 +573,8 @@ func TestFloorToZero(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			tc.requests.FloorToZero()
+			var r Requests = tc.requests
+			r.FloorToZero()
 			if diff := cmp.Diff(tc.want, tc.requests); diff != "" {
 				t.Errorf("unexpected result (-want +got):\n%s", diff)
 			}
