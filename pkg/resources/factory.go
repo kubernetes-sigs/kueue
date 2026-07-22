@@ -63,3 +63,23 @@ func NewRequestsFromPodSpec(podSpec *corev1.PodSpec) Requests {
 	rl := resourcehelpers.PodRequests(&corev1.Pod{Spec: *podSpec}, resourcehelpers.PodResourcesOptions{})
 	return NewRequestsFromResourceList(rl)
 }
+
+// ToMapRequests converts any Requests instance into a MapRequests map.
+func ToMapRequests(r Requests) MapRequests {
+	if isEmpty(r) {
+		return nil
+	}
+	if mr, ok := r.(MapRequests); ok {
+		return mr
+	}
+	if sr, ok := r.(*SliceRequests); ok {
+		return sr.ToMapRequests()
+	}
+	res := make(MapRequests, r.Len())
+	r.ForEach(func(name corev1.ResourceName, val int64) {
+		if val != 0 {
+			res[name] = val
+		}
+	})
+	return res
+}

@@ -24,7 +24,6 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
-	ctrl "sigs.k8s.io/controller-runtime"
 
 	utilmath "sigs.k8s.io/kueue/pkg/util/math"
 )
@@ -34,35 +33,36 @@ const emptyResourceName = corev1.ResourceName("")
 // hashResourceName computes a 64-bit FNV-1a hash of a ResourceName.
 func hashResourceName(name corev1.ResourceName) uint64 {
 	h := fnv.New64a()
-	if _, err := h.Write([]byte(name)); err != nil {
-		ctrl.Log.WithName("resources").Error(err, "Failed to write resource name hash", "resourceName", name)
-		return 0
-	}
+	// Write cannot fail: this is guaranteed by the hash.Hash interface contract:
+	// https://github.com/golang/go/blob/go1.26.5/src/hash/hash.go#L26-L29
+	// and by the fnv.New64a implementation, which always returns len(data), nil.
+	// https://github.com/golang/go/blob/go1.26.5/src/hash/fnv/fnv.go#L56-L115
+	_, _ = h.Write([]byte(name))
 	return h.Sum64()
 }
 
-// ResourceEntry encapsulates a single resource name, its pre-computed 64-bit hash, and its value.
-type ResourceEntry struct {
+// resourceEntry encapsulates a single resource name, its pre-computed 64-bit hash, and its value.
+type resourceEntry struct {
 	name  corev1.ResourceName
 	hash  uint64
 	value int64
 }
 
-// Cmp compares two ResourceEntry structs by Hash, then Name.
-// Returns 0 if both Hash and Name match.
-func (e ResourceEntry) Cmp(other ResourceEntry) int {
+// cmp compares two resourceEntry structs by hash, then name.
+// Returns 0 if both hash and name match.
+func (e resourceEntry) cmp(other resourceEntry) int {
 	if c := cmp.Compare(e.hash, other.hash); c != 0 {
 		return c
 	}
 	return strings.Compare(string(e.name), string(other.name))
 }
 
-// SliceRequests represents resource requests as a single sorted slice of ResourceEntry structs.
-// Sorted by uint64 Hash to enable fast O(M+N) two-pointer merge operations.
-type SliceRequests []ResourceEntry
+// SliceRequests represents resource requests as a single sorted slice of resourceEntry structs.
+// Sorted by uint64 hash to enable fast O(M+N) two-pointer merge operations.
+type SliceRequests []resourceEntry
 
 func (sr SliceRequests) sort() {
-	slices.SortFunc(sr, ResourceEntry.Cmp)
+	slices.SortFunc(sr, resourceEntry.cmp)
 }
 
 func toSliceRequests(r Requests) SliceRequests {
@@ -78,7 +78,7 @@ func toSliceRequests(r Requests) SliceRequests {
 	res := make(SliceRequests, 0, r.Len())
 	r.ForEach(func(name corev1.ResourceName, val int64) {
 		if val != 0 {
-			res = append(res, ResourceEntry{
+			res = append(res, resourceEntry{
 				name:  name,
 				hash:  hashResourceName(name),
 				value: val,
@@ -98,7 +98,7 @@ func ResourceListToSliceRequests(rl corev1.ResourceList) SliceRequests {
 	for name, q := range rl {
 		val := ResourceValue(name, q)
 		if val != 0 {
-			sr = append(sr, ResourceEntry{
+			sr = append(sr, resourceEntry{
 				name:  name,
 				hash:  hashResourceName(name),
 				value: val,
@@ -136,8 +136,8 @@ func (sr *SliceRequests) GetValue(name corev1.ResourceName) int64 {
 	if sr == nil {
 		return 0
 	}
-	target := ResourceEntry{name: name, hash: hashResourceName(name)}
-	idx, found := slices.BinarySearchFunc(*sr, target, ResourceEntry.Cmp)
+	target := resourceEntry{name: name, hash: hashResourceName(name)}
+	idx, found := slices.BinarySearchFunc(*sr, target, resourceEntry.cmp)
 	if found {
 		return (*sr)[idx].value
 	}
@@ -165,7 +165,7 @@ func (sr *SliceRequests) ScaledUp(f int64) Requests {
 	}
 	res := make(SliceRequests, len(*sr))
 	for i, entry := range *sr {
-		res[i] = ResourceEntry{
+		res[i] = resourceEntry{
 			name:  entry.name,
 			hash:  entry.hash,
 			value: utilmath.SaturatingMul(entry.value, f),
@@ -235,7 +235,7 @@ func (sr *SliceRequests) MergeWithInPlace(other SliceRequests, fn MergeFunc) {
 func mergeInto(dst, a, b SliceRequests, fn MergeFunc) SliceRequests {
 	i, j := 0, 0
 	for i < len(a) && j < len(b) {
-		c := a[i].Cmp(b[j])
+		c := a[i].cmp(b[j])
 		switch {
 		case c == 0:
 			dst = appendEntry(dst, a[i], fn(a[i].value, b[j].value))
@@ -260,9 +260,9 @@ func mergeInto(dst, a, b SliceRequests, fn MergeFunc) SliceRequests {
 	return dst
 }
 
-func appendEntry(dst SliceRequests, entry ResourceEntry, val int64) SliceRequests {
+func appendEntry(dst SliceRequests, entry resourceEntry, val int64) SliceRequests {
 	if val != 0 {
-		return append(dst, ResourceEntry{
+		return append(dst, resourceEntry{
 			name:  entry.name,
 			hash:  entry.hash,
 			value: val,
@@ -287,10 +287,10 @@ func (sr *SliceRequests) CountInWithLimitingResource(capacity Requests) (int32, 
 	for i, entry := range *sr {
 		var capVal int64
 		if isSlice && capSR != nil {
-			for j < len(*capSR) && (*capSR)[j].Cmp(entry) < 0 {
+			for j < len(*capSR) && (*capSR)[j].cmp(entry) < 0 {
 				j++
 			}
-			if j < len(*capSR) && (*capSR)[j].Cmp(entry) == 0 {
+			if j < len(*capSR) && (*capSR)[j].cmp(entry) == 0 {
 				capVal = (*capSR)[j].value
 			}
 		} else {
