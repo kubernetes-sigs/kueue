@@ -822,10 +822,21 @@ func TestAddAssumedUsage(t *testing.T) {
 		},
 	}
 
+	equateRequests := cmp.Transformer("Requests", func(r resources.Requests) map[corev1.ResourceName]int64 {
+		if r == nil {
+			return nil
+		}
+		m := make(map[corev1.ResourceName]int64)
+		r.ForEach(func(name corev1.ResourceName, val int64) {
+			m[name] = val
+		})
+		return m
+	})
+
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			addAssumedUsage(tc.assumedUsage, tc.assignment, tc.tasRequests)
-			if diff := cmp.Diff(tc.want, tc.assumedUsage); diff != "" {
+			if diff := cmp.Diff(tc.want, tc.assumedUsage, equateRequests); diff != "" {
 				t.Errorf("addAssumedUsage() mismatch (-want +got):\n%s", diff)
 			}
 		})
