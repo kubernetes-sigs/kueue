@@ -3556,37 +3556,49 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 			features.WorkloadRequestUseMergePatch: false,
 			features.TASCacheNodeMatchResults:     true,
 			features.TASCachingRemainingResources: true,
+			features.VectorizedResourceRequests:   false,
 		},
 		{
 			features.WorkloadRequestUseMergePatch: false,
 			features.TASCacheNodeMatchResults:     true,
 			features.TASCachingRemainingResources: true,
+			features.VectorizedResourceRequests:   true,
+		},
+		{
+			features.WorkloadRequestUseMergePatch: false,
+			features.TASCacheNodeMatchResults:     true,
+			features.TASCachingRemainingResources: true,
+			features.VectorizedResourceRequests:   true,
 		},
 		{
 			features.WorkloadRequestUseMergePatch: true,
 			features.TASCacheNodeMatchResults:     true,
 			features.TASCachingRemainingResources: true,
+			features.VectorizedResourceRequests:   true,
 		},
 		{
 			features.WorkloadRequestUseMergePatch: true,
 			features.TASCacheNodeMatchResults:     true,
 			features.TASCachingRemainingResources: true,
+			features.VectorizedResourceRequests:   true,
 		},
 		{
 			features.WorkloadRequestUseMergePatch: false,
 			features.TASCacheNodeMatchResults:     false,
 			features.TASCachingRemainingResources: false,
+			features.VectorizedResourceRequests:   true,
 		},
 	}
 
 	for name, tc := range cases {
 		for _, scenario := range scenarios {
 			t.Run(
-				fmt.Sprintf("%s WorkloadRequestUseMergePatch:%t cacheMatchResults:%t cachingRemainingResources:%t",
+				fmt.Sprintf("%s WorkloadRequestUseMergePatch:%t cacheMatchResults:%t cachingRemainingResources:%t vectorizedRequests:%t",
 					name,
 					scenario[features.WorkloadRequestUseMergePatch],
 					scenario[features.TASCacheNodeMatchResults],
 					scenario[features.TASCachingRemainingResources],
+					scenario[features.VectorizedResourceRequests],
 				),
 				func(t *testing.T) {
 					features.SetFeatureGatesDuringTest(t, scenario)
