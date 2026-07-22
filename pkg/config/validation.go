@@ -585,7 +585,13 @@ func validateDeviceClassMappings(c *configapi.Configuration) field.ErrorList {
 							"counter sources require KueueDRAIntegrationPartitionableDevices to be enabled"))
 						continue
 					}
-					allErrs = append(allErrs, validateDeviceClassSource(source.Counter.Name, source.Counter.Driver, &source.Counter.DeviceSelector, sourcePath.Child("counter"), celCache)...)
+					counterPath := sourcePath.Child("counter")
+					if source.Counter.Name == "" {
+						allErrs = append(allErrs, field.Required(counterPath.Child("name"), ""))
+					} else if errs := apimachineryutilvalidation.IsDNS1123Label(source.Counter.Name); len(errs) != 0 {
+						allErrs = append(allErrs, field.Invalid(counterPath.Child("name"), source.Counter.Name, strings.Join(errs, ",")))
+					}
+					allErrs = append(allErrs, validateDeviceClassSource(source.Counter.Driver, &source.Counter.DeviceSelector, counterPath, celCache)...)
 				}
 				if source.Capacity != nil {
 					hasCapacity = true
@@ -594,7 +600,9 @@ func validateDeviceClassMappings(c *configapi.Configuration) field.ErrorList {
 							"capacity sources require KueueDRAIntegrationConsumableCapacity to be enabled"))
 						continue
 					}
-					allErrs = append(allErrs, validateDeviceClassSource(source.Capacity.Name, source.Capacity.Driver, &source.Capacity.DeviceSelector, sourcePath.Child("capacity"), celCache)...)
+					capacityPath := sourcePath.Child("capacity")
+					allErrs = append(allErrs, validateQualifiedName(source.Capacity.Name, capacityPath.Child("name"))...)
+					allErrs = append(allErrs, validateDeviceClassSource(source.Capacity.Driver, &source.Capacity.DeviceSelector, capacityPath, celCache)...)
 				}
 			}
 			if counterCount > 0 && hasCapacity {
@@ -828,11 +836,11 @@ func validateCustomLabels(c *configapi.Configuration) field.ErrorList {
 		}
 		switch {
 		case entry.SourceLabelKey != "":
-			allErrs = append(allErrs, validateQualifiedName(fldPath.Child("sourceLabelKey"), entry.SourceLabelKey)...)
+			allErrs = append(allErrs, validateLabelKey(fldPath.Child("sourceLabelKey"), entry.SourceLabelKey)...)
 		case entry.SourceAnnotationKey != "":
-			allErrs = append(allErrs, validateQualifiedName(fldPath.Child("sourceAnnotationKey"), entry.SourceAnnotationKey)...)
+			allErrs = append(allErrs, validateLabelKey(fldPath.Child("sourceAnnotationKey"), entry.SourceAnnotationKey)...)
 		default:
-			allErrs = append(allErrs, validateQualifiedName(fldPath.Child("name"), entry.Name)...)
+			allErrs = append(allErrs, validateLabelKey(fldPath.Child("name"), entry.Name)...)
 		}
 
 		sourceKind := ptr.Deref(entry.SourceKind, configapi.DefaultCustomMetricLabelSourceKind)
@@ -874,7 +882,7 @@ func validateCustomLabels(c *configapi.Configuration) field.ErrorList {
 	return allErrs
 }
 
-func validateQualifiedName(fldPath *field.Path, value string) field.ErrorList {
+func validateLabelKey(fldPath *field.Path, value string) field.ErrorList {
 	if errs := content.IsLabelKey(value); len(errs) > 0 {
 		return field.ErrorList{field.Invalid(fldPath, value, strings.Join(errs, "; "))}
 	}
@@ -888,13 +896,8 @@ func counterNameForMapping(mapping configapi.DeviceClassMapping) string {
 	return ""
 }
 
-func validateDeviceClassSource(name, driver string, selector *resourcev1.DeviceSelector, path *field.Path, celCache *dracel.Cache) field.ErrorList {
+func validateDeviceClassSource(driver string, selector *resourcev1.DeviceSelector, path *field.Path, celCache *dracel.Cache) field.ErrorList {
 	var allErrs field.ErrorList
-	if name == "" {
-		allErrs = append(allErrs, field.Required(path.Child("name"), ""))
-	} else if errs := apimachineryutilvalidation.IsDNS1123Label(name); len(errs) != 0 {
-		allErrs = append(allErrs, field.Invalid(path.Child("name"), name, strings.Join(errs, ",")))
-	}
 	if driver == "" {
 		allErrs = append(allErrs, field.Required(path.Child("driver"), ""))
 	} else if len(driver) > resourcev1.DriverNameMaxLength {
@@ -911,6 +914,65 @@ func validateDeviceClassSource(name, driver string, selector *resourcev1.DeviceS
 			allErrs = append(allErrs, field.Invalid(selectorPath, selector.CEL.Expression,
 				fmt.Sprintf("CEL compilation failed: %v", result.Error)))
 		}
+	}
+	return allErrs
+}
+
+// validateQualifiedName is copied from:
+// https://github.com/kubernetes/kubernetes/blob/f5ab85e7c9d716e8bc5cf467ba931d8e8123764f/pkg/apis/resource/validation/validation.go#L1342-L1373
+func validateQualifiedName(name resourcev1.QualifiedName, fldPath *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	parts := strings.Split(string(name), "/")
+	switch len(parts) {
+	case 1:
+		allErrs = append(allErrs, validateCIdentifier(parts[0], fldPath)...)
+	case 2:
+		if len(parts[0]) == 0 {
+			allErrs = append(allErrs, field.Invalid(fldPath, "", "the domain must not be empty"))
+		} else {
+			allErrs = append(allErrs, validateDriverName(parts[0], fldPath)...)
+		}
+		if len(parts[1]) == 0 {
+			allErrs = append(allErrs, field.Invalid(fldPath, "", "the name must not be empty"))
+		} else {
+			allErrs = append(allErrs, validateCIdentifier(parts[1], fldPath)...)
+		}
+		// TODO: This validation is incomplete. It should reject qualified names
+		// that contain more than one slash. Currently, names like "a/b/c" are not
+		// handled and are implicitly accepted.
+		//
+		// This needs to be fixed in two places:
+		// 1. Here in this function.
+		// 2. In the corresponding declarative validation utility `resourcesQualifiedName`
+		//    in `staging/src/k8s.io/apimachinery/pkg/api/validate/strfmt.go`.
+		//
+		// The fix should be introduced carefully, possibly using ratcheting to avoid
+		// breaking existing, non-compliant objects.
+	}
+
+	return allErrs
+}
+
+func validateDriverName(name string, fldPath *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	if len(name) > resourcev1.DeviceMaxDomainLength {
+		allErrs = append(allErrs, field.TooLong(fldPath, "" /*unused*/, resourcev1.DeviceMaxDomainLength))
+	}
+	for _, msg := range apimachineryutilvalidation.IsDNS1123Subdomain(strings.ToLower(name)) {
+		allErrs = append(allErrs, field.Invalid(fldPath, name, msg))
+	}
+	return allErrs
+}
+
+// validateCIdentifier is copied from
+// https://github.com/kubernetes/kubernetes/blob/f5ab85e7c9d716e8bc5cf467ba931d8e8123764f/pkg/apis/resource/validation/validation.go#L1386-L1395
+func validateCIdentifier(id string, fldPath *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	if len(id) > resourcev1.DeviceMaxIDLength {
+		allErrs = append(allErrs, field.TooLong(fldPath, "" /*unused*/, resourcev1.DeviceMaxIDLength))
+	}
+	for _, msg := range content.IsCIdentifier(id) {
+		allErrs = append(allErrs, field.Invalid(fldPath, id, msg))
 	}
 	return allErrs
 }

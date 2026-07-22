@@ -1174,11 +1174,10 @@ type DeviceClassCounterSource struct {
 // for devices that allow multiple allocations (KEP-5075).
 type DeviceClassCapacitySource struct {
     // Name identifies the capacity dimension to track for quota
-    // (e.g., "gpu.memory").
-    // Must be a valid QualifiedName; the name part must not exceed
-    // 63 characters.
+    // (e.g., "gpu.example.com/memory").
+    // Must be a valid DRA QualifiedName.
     // +required
-    Name string `json:"name"`
+    Name resourcev1.QualifiedName `json:"name"`
 
     // Driver is the DRA driver name used to filter relevant ResourceSlices.
     // Must match the spec.driver field on ResourceSlice objects.
