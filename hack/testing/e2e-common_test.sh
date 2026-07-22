@@ -72,12 +72,60 @@ case "$*" in
   *" create --dry-run=server -f "*)
     exit 0
     ;;
+  "wait --kubeconfig="*" --for=condition=Ready node --all"*)
+    attempts=$(cat "${NODE_WAIT_FAKE_STATE:?}")
+    attempts=$((attempts + 1))
+    printf '%s' "${attempts}" >"${NODE_WAIT_FAKE_STATE}"
+    if [[ "${attempts}" -lt "${NODE_WAIT_FAKE_READY_AFTER:-2}" ]]; then
+      printf 'timed out waiting for the condition on nodes/kind-control-plane\n'
+      exit 1
+    fi
+    printf 'node/kind-control-plane condition met\n'
+    exit 0
+    ;;
+  "config "*)
+    exit 0
+    ;;
+  "get nodes"*)
+    printf 'fake node list\n'
+    exit 0
+    ;;
+  "describe pods"*)
+    exit 0
+    ;;
 esac
 
 printf 'unexpected kubectl call: %s\n' "$*" >&2
 exit 1
 EOF
 chmod +x "${test_dir}/kubectl"
+
+cat >"${test_dir}/kind" <<'EOF'
+#!/usr/bin/env bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+printf '%s\n' "$*" >>"${KIND_FAKE_LOG:?}"
+
+case "$*" in
+  "create cluster "*)
+    if [[ -n "${KIND_FAKE_CREATE_ERROR:-}" ]]; then
+      printf '%s\n' "${KIND_FAKE_CREATE_ERROR}"
+      exit 1
+    fi
+    printf 'Creating cluster ...\n'
+    exit 0
+    ;;
+  "delete cluster "*)
+    exit 0
+    ;;
+esac
+
+printf 'unexpected kind call: %s\n' "$*" >&2
+exit 1
+EOF
+chmod +x "${test_dir}/kind"
 
 # shellcheck source=hack/testing/e2e-common.sh
 source "${ROOT_DIR}/hack/testing/e2e-common.sh"
@@ -116,6 +164,83 @@ if [[ -z "${endpoint_line}" || -z "${probe_line}" ]]; then
 fi
 if [[ "${endpoint_line}" -ge "${probe_line}" ]]; then
   echo "expected Kueue EndpointSlice check to run before the dry-run webhook probe" >&2
+  exit 1
+fi
+
+# cluster_create retries the bring-up when the node readiness wait times out.
+export KIND="${test_dir}/kind"
+KIND_FAKE_LOG="${test_dir}/kind.log"
+NODE_WAIT_FAKE_STATE="${test_dir}/node-wait-state"
+export KIND_FAKE_LOG NODE_WAIT_FAKE_STATE
+: >"${KIND_FAKE_LOG}"
+printf '0' >"${NODE_WAIT_FAKE_STATE}"
+export ARTIFACTS="${test_dir}/artifacts"
+mkdir -p "${ARTIFACTS}"
+
+cluster_create "flake-test" "unused-kind-config.yaml" ""
+
+create_attempts=$(grep -c "^create cluster" "${KIND_FAKE_LOG}" || true)
+if [[ "${create_attempts}" != "2" ]]; then
+  echo "expected cluster creation to be retried after a node readiness timeout; got ${create_attempts} attempt(s)" >&2
+  exit 1
+fi
+
+node_wait_attempts=$(cat "${NODE_WAIT_FAKE_STATE}")
+if [[ "${node_wait_attempts}" != "2" ]]; then
+  echo "expected the node readiness wait to run once per bring-up attempt; got ${node_wait_attempts} run(s)" >&2
+  exit 1
+fi
+
+if ! ls "${ARTIFACTS}"/flake-test-create.log.failed-* >/dev/null 2>&1; then
+  echo "expected the failed bring-up log to be archived before the retry" >&2
+  exit 1
+fi
+
+# A bring-up failure matching no retriable error aborts after a single attempt.
+: >"${KIND_FAKE_LOG}"
+export KIND_FAKE_CREATE_ERROR="node(s) already exist for a cluster with the name"
+if cluster_create "failfast-test" "unused-kind-config.yaml" ""; then
+  echo "expected cluster_create to fail on a non-retriable error" >&2
+  exit 1
+fi
+unset KIND_FAKE_CREATE_ERROR
+
+create_attempts=$(grep -c "^create cluster" "${KIND_FAKE_LOG}" || true)
+if [[ "${create_attempts}" != "1" ]]; then
+  echo "expected a non-retriable failure to fail fast without retrying; got ${create_attempts} attempt(s)" >&2
+  exit 1
+fi
+
+# A persistent node readiness timeout exhausts all bring-up attempts and fails.
+: >"${KIND_FAKE_LOG}"
+printf '0' >"${NODE_WAIT_FAKE_STATE}"
+export NODE_WAIT_FAKE_READY_AFTER=99
+if cluster_create "persistent-test" "unused-kind-config.yaml" ""; then
+  echo "expected cluster_create to fail when nodes never become ready" >&2
+  exit 1
+fi
+unset NODE_WAIT_FAKE_READY_AFTER
+
+create_attempts=$(grep -c "^create cluster" "${KIND_FAKE_LOG}" || true)
+if [[ "${create_attempts}" != "3" ]]; then
+  echo "expected a persistent readiness timeout to exhaust all attempts; got ${create_attempts} attempt(s)" >&2
+  exit 1
+fi
+
+node_wait_attempts=$(cat "${NODE_WAIT_FAKE_STATE}")
+if [[ "${node_wait_attempts}" != "3" ]]; then
+  echo "expected the node readiness wait to run once per bring-up attempt; got ${node_wait_attempts} run(s)" >&2
+  exit 1
+fi
+
+archived_count=$(find "${ARTIFACTS}" -name "persistent-test-create.log.failed-*" | wc -l | tr -d ' ')
+if [[ "${archived_count}" != "2" ]]; then
+  echo "expected the first two attempts' logs to be archived; got ${archived_count}" >&2
+  exit 1
+fi
+
+if [[ ! -f "${ARTIFACTS}/persistent-test-create.log" ]]; then
+  echo "expected the final attempt's log to remain for failure reporting" >&2
   exit 1
 fi
 

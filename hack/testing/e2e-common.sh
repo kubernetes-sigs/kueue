@@ -555,9 +555,13 @@ function cluster_create {
     fi
 
     local log_file="$ARTIFACTS/$cluster-create.log"
-    local create_cmd="$KIND create cluster --name \"$cluster\" --image \"$E2E_KIND_VERSION\" --config \"$kind_config\" --kubeconfig=\"$kubeconfig\" --wait 5m -v 5 > \"$log_file\" 2>&1"
-    # Retry only known-transient failures so real bugs still fail fast (#11586, #12307, #12984).
-    local retriable_errors="port is already allocated|error execution phase wait-control-plane|could not find a log line that matches"
+    # Include node readiness in each cluster bring-up attempt so transient
+    # readiness delays can reuse the existing cleanup and recreation path.
+    local create_cmd="$KIND create cluster --name \"$cluster\" --image \"$E2E_KIND_VERSION\" --config \"$kind_config\" --kubeconfig=\"$kubeconfig\" --wait 5m -v 5 > \"$log_file\" 2>&1 && kubectl wait --kubeconfig=\"$kubeconfig\" --for=condition=Ready node --all --timeout=5m >> \"$log_file\" 2>&1"
+    # Retry recognized bring-up failures (#11586, #12307, #12984). Persistent
+    # failures producing a matching error will exhaust the configured retries
+    # before failing.
+    local retriable_errors="port is already allocated|error execution phase wait-control-plane|could not find a log line that matches|timed out waiting for the condition on nodes/"
     local continue_if="grep -qE '${retriable_errors}' \"$log_file\""
     local cleanup_cmd="if [ -f \"$log_file\" ]; then mv \"$log_file\" \"${log_file}.failed-\$(date +%s)\"; fi; $KIND delete cluster --name \"$cluster\" 2>/dev/null || true"
 
@@ -576,8 +580,6 @@ function cluster_create {
     fi
 
     kubectl config --kubeconfig="$kubeconfig" use-context "kind-$cluster"
-    # wait for nodes to become ready before loading images or deploying components
-    kubectl wait --kubeconfig="$kubeconfig" --for=condition=Ready node --all --timeout=5m
     kubectl get nodes --kubeconfig="$kubeconfig" > "$ARTIFACTS/$cluster-nodes.log" || true
     kubectl describe pods --kubeconfig="$kubeconfig" -n kube-system > "$ARTIFACTS/$cluster-system-pods.log" || true
 }
