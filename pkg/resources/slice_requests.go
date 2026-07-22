@@ -24,8 +24,6 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
-
-	utilmath "sigs.k8s.io/kueue/pkg/util/math"
 )
 
 const emptyResourceName = corev1.ResourceName("")
@@ -168,7 +166,7 @@ func (sr *SliceRequests) ScaledUp(f int64) Requests {
 		res[i] = resourceEntry{
 			name:  entry.name,
 			hash:  entry.hash,
-			value: utilmath.SaturatingMul(entry.value, f),
+			value: entry.value * f,
 		}
 	}
 	return &res
