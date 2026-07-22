@@ -207,6 +207,14 @@ func (a *adapter[PtrT, T]) SyncJob(
 				return false, err
 			}
 		}
+		if a.autoscalingEnabled(localJob) {
+			// In autoscaling mode the forward direction never touches replicas;
+			// the manager's only remaining duty is slice-identity bookkeeping.
+			if jobframework.PrebuiltWorkloadNameFor(remoteJob) != workloadName {
+				return false, a.repointPrebuiltWorkload(ctx, remoteClient, workloadName, remoteJob)
+			}
+			return false, nil
+		}
 		if a.needElasticSync(ctx, workloadName, localJob, remoteJob) {
 			return false, a.syncElastic(ctx, remoteClient, workloadName, localJob, remoteJob)
 		}
@@ -235,16 +243,6 @@ func (a *adapter[PtrT, T]) needElasticSync(ctx context.Context, workloadName str
 	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) || !workloadslicing.Enabled(localJob) {
 		return false
 	}
-	// When the worker runs the autoscaler, replica changes flow worker-to-manager
-	// (needReverseElasticSync); the manager must not also push its counts to the
-	// worker or the two directions would fight. The manager still has to repoint
-	// the remote's prebuilt-workload label onto the current slice once a
-	// reverse-sync-driven replacement slice is admitted, so fire for a label
-	// mismatch only (syncElastic skips the replica push in this mode).
-	if a.elastic.AutoscalingEnabled != nil && a.elastic.AutoscalingEnabled(localJob) {
-		return jobframework.PrebuiltWorkloadNameFor(remoteJob) != workloadName
-	}
-
 	// Without the spec-based hooks the manager-driven replica push is not
 	// supported for this job type (RayJob keeps its create-once behavior when
 	// not autoscaling).
@@ -271,24 +269,43 @@ func (a *adapter[PtrT, T]) needElasticSync(ctx context.Context, workloadName str
 	return !maps.Equal(oldCounts, newCounts) || jobframework.PrebuiltWorkloadNameFor(remoteJob) != workloadName
 }
 
-// workerClusterOwnsReplicas reports whether the worker cluster currently owns
-// the job's worker replica counts (the in-tree autoscaler runs there), in
-// which case worker-side elastic events must be reversed onto the manager
-// (reverseSync). It requires an elastic job with in-tree autoscaling enabled,
-// and the remote copy not being suspended: a suspended remote's replicas were
-// restored by the worker's Kueue while stopping — they are not the
-// autoscaler's values and must not be reflected back.
-func (a *adapter[PtrT, T]) workerClusterOwnsReplicas(localJob, remoteJob PtrT) bool {
+// autoscalingEnabled reports whether the job is an elastic job that runs the
+// in-tree autoscaler on the worker cluster. In this mode the forward direction
+// never pushes replicas (the worker cluster owns them); the manager's only
+// forward-direction duty is repointing the remote's prebuilt-workload marker.
+func (a *adapter[PtrT, T]) autoscalingEnabled(localJob PtrT) bool {
 	if a.elastic == nil || a.elastic.AutoscalingEnabled == nil {
 		return false
 	}
 	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) || !workloadslicing.Enabled(localJob) {
 		return false
 	}
-	if !a.elastic.AutoscalingEnabled(localJob) {
-		return false
+	return a.elastic.AutoscalingEnabled(localJob)
+}
+
+// workerClusterOwnsReplicas reports whether the worker cluster currently owns
+// the job's worker replica counts, in which case worker-side elastic events
+// must be reversed onto the manager (reverseSync). On top of autoscaling being
+// enabled, the remote copy must not be suspended: a suspended remote's
+// replicas were restored by the worker's Kueue while stopping — they are not
+// the autoscaler's values and must not be reflected back.
+func (a *adapter[PtrT, T]) workerClusterOwnsReplicas(localJob, remoteJob PtrT) bool {
+	return a.autoscalingEnabled(localJob) && !a.elastic.RemoteSuspended(remoteJob)
+}
+
+// repointPrebuiltWorkload points the remote copy's prebuilt-workload marker at
+// the currently reconciled workload slice. This is slice-identity bookkeeping,
+// not a replica sync: after a scale-up replacement slice is admitted, the
+// remote must be repointed onto it or the worker's jobframework would keep
+// looking up the finished slice.
+func (a *adapter[PtrT, T]) repointPrebuiltWorkload(ctx context.Context, remoteClient client.Client, workloadName string, remoteJob PtrT) error {
+	if err := clientutil.Patch(ctx, remoteClient, remoteJob, func() (bool, error) {
+		jobframework.SetPrebuiltWorkloadName(remoteJob, workloadName)
+		return true, nil
+	}); err != nil {
+		return fmt.Errorf("failed to repoint the prebuilt workload of remote %s: %w", a.gvk.Kind, err)
 	}
-	return !a.elastic.RemoteSuspended(remoteJob)
+	return nil
 }
 
 // reverseSync reverses a worker-side elastic event onto the manager copy. It
@@ -358,13 +375,7 @@ func (a *adapter[PtrT, T]) reverseSyncElastic(ctx context.Context, localClient c
 // needElasticSync returns true.
 func (a *adapter[PtrT, T]) syncElastic(ctx context.Context, remoteClient client.Client, workloadName string, localJob, remoteJob PtrT) error {
 	if err := clientutil.Patch(ctx, remoteClient, remoteJob, func() (bool, error) {
-		changed := false
-		// In autoscaling mode the worker owns replicas (see needReverseElasticSync),
-		// so the manager only repoints the prebuilt label; pushing replicas here
-		// would fight the autoscaler.
-		if a.elastic.SyncReplicas != nil && (a.elastic.AutoscalingEnabled == nil || !a.elastic.AutoscalingEnabled(localJob)) {
-			changed = a.elastic.SyncReplicas(remoteJob, localJob)
-		}
+		changed := a.elastic.SyncReplicas(remoteJob, localJob)
 		if jobframework.PrebuiltWorkloadNameFor(remoteJob) != workloadName {
 			jobframework.SetPrebuiltWorkloadName(remoteJob, workloadName)
 			changed = true
