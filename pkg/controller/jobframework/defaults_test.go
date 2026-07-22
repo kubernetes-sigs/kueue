@@ -112,6 +112,61 @@ func TestWorkloadShouldBeSuspended(t *testing.T) {
 	}
 }
 
+func TestApplyDefaultLocalQueue(t *testing.T) {
+	managedNamespace := utiltesting.MakeNamespaceWrapper("managed-ns").Label(corev1.LabelMetadataName, "managed-ns").Obj()
+	unmanagedNamespace := utiltesting.MakeNamespaceWrapper("unmanaged-ns").Label(corev1.LabelMetadataName, "unmanaged-ns").Obj()
+	ls := &metav1.LabelSelector{
+		MatchExpressions: []metav1.LabelSelectorRequirement{
+			{
+				Key:      corev1.LabelMetadataName,
+				Operator: metav1.LabelSelectorOpNotIn,
+				Values:   []string{unmanagedNamespace.Name},
+			},
+		},
+	}
+	namespaceSelector, _ := metav1.LabelSelectorAsSelector(ls)
+
+	cases := map[string]struct {
+		job            *batchv1.Job
+		wantQueueLabel string
+	}{
+		"job in managed namespace gets default queue label": {
+			job:            utiltestingjob.MakeJob("test-job", managedNamespace.Name).Obj(),
+			wantQueueLabel: "default",
+		},
+		"job in unmanaged namespace does not get default queue label": {
+			job:            utiltestingjob.MakeJob("test-job", unmanagedNamespace.Name).Obj(),
+			wantQueueLabel: "",
+		},
+		"job in managed namespace with existing queue label is not overwritten": {
+			job:            utiltestingjob.MakeJob("test-job", managedNamespace.Name).Queue("other").Obj(),
+			wantQueueLabel: "other",
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			builder := utiltesting.NewClientBuilder()
+			builder.WithObjects(managedNamespace, unmanagedNamespace)
+			cl := builder.Build()
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			defaultQueueExist := func(ns string) bool {
+				return true
+			}
+
+			if err := ApplyDefaultLocalQueue(ctx, cl, tc.job, defaultQueueExist, namespaceSelector); err != nil {
+				t.Fatalf("ApplyDefaultLocalQueue() returned error: %v", err)
+			}
+
+			got := tc.job.Labels[constants.QueueLabel]
+			if got != tc.wantQueueLabel {
+				t.Errorf("queue label: got %q, want %q", got, tc.wantQueueLabel)
+			}
+		})
+	}
+}
+
 func TestApplyDefaultWorkloadPriorityClass(t *testing.T) {
 	t.Cleanup(EnableIntegrationsForTest(t, "batch/job"))
 	parent := utiltestingjob.MakeJob("parent", "default").UID("parent").Queue("default").Obj()
