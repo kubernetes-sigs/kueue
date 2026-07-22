@@ -22,6 +22,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -44,6 +45,7 @@ import (
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 type AllAtOnceDispatcherReconciler struct {
@@ -80,6 +82,12 @@ func (r *AllAtOnceDispatcherReconciler) Reconcile(ctx context.Context, req ctrl.
 	log := ctrl.LoggerFrom(ctx)
 	wl := &kueue.Workload{}
 	if err := r.client.Get(ctx, req.NamespacedName, wl); err != nil {
+		if apierrors.IsNotFound(err) {
+			// The Workload was deleted between enqueue and reconcile; nothing to
+			// nominate. Return without error to avoid needless requeue/backoff.
+			log.V(3).Info("Workload not found, skip the reconciliation")
+			return reconcile.Result{}, nil
+		}
 		log.Error(err, "Failed to retrieve Workload, skip the reconciliation")
 		return reconcile.Result{}, err
 	}
@@ -95,14 +103,8 @@ func (r *AllAtOnceDispatcherReconciler) Reconcile(ctx context.Context, req ctrl.
 		return reconcile.Result{}, err
 	}
 
-	if mkAc == nil || mkAc.State != kueue.CheckStatePending {
-		log.V(3).Info("MultiKueue AdmissionCheckState is not Pending, skip the reconciliation")
-		return reconcile.Result{}, nil
-	}
-
-	// The workload is already assigned to a cluster, no need to nominate workers.
-	if wl.Status.ClusterName != nil {
-		log.V(3).Info("The workload is already assigned to a cluster, no need to nominate workers")
+	if workload.ShouldSkipClusterNomination(mkAc, wl, workloadslicing.IsElasticWorkload(wl)) {
+		log.V(3).Info("Skipping cluster nomination phase")
 		return reconcile.Result{}, nil
 	}
 
