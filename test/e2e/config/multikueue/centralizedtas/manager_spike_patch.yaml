@@ -1,0 +1,14 @@
+# Enable the centralized-TAS spike on the manager controller (non-production).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kueue-controller-manager
+  namespace: kueue-system
+spec:
+  template:
+    spec:
+      containers:
+      - name: manager
+        env:
+        - name: KUEUE_CENTRALIZED_TAS_SPIKE
+          value: "true"

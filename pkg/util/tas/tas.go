@@ -22,6 +22,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 )
 
 type TopologyDomainID string
@@ -38,6 +39,28 @@ func IsTAS(pod *corev1.Pod) bool {
 		return true
 	}
 	return false
+}
+
+// BelongsToNonTASCache reports whether a Pod's resource usage must be tracked
+// in the TAS cache as non-TAS (external) usage on its node: it is scheduled,
+// not managed by TAS itself, and not terminated. It is shared by the
+// single-cluster non-TAS usage controller and the centralized-TAS remote
+// inventory ingest so both apply identical accounting.
+func BelongsToNonTASCache(pod *corev1.Pod) bool {
+	if pod == nil {
+		return false
+	}
+	if IsTAS(pod) {
+		return false
+	}
+	if len(pod.Spec.NodeName) == 0 {
+		// Skip unscheduled pods as they don't use any capacity.
+		return false
+	}
+	if utilpod.IsTerminated(pod) {
+		return false
+	}
+	return true
 }
 
 func IsExplicitTAS(annots map[string]string) bool {

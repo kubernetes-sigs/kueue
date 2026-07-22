@@ -30,6 +30,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/util/centralizedtas"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -103,7 +104,11 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 	if err != nil {
 		return nil, err
 	}
-	if cq.HasMultiKueueAdmissionCheck() || (!workload.HasQuotaReservation(wl.Obj) && cq.HasProvRequestAdmissionCheck(*tasFlvr)) {
+	// Centralized-TAS spike: the manager is globally authoritative and computes
+	// the full node-level assignment itself (worker as the top topology level),
+	// so we must NOT delay TAS even though a MultiKueue admission check is present.
+	delayForMultiKueue := cq.HasMultiKueueAdmissionCheck() && !centralizedtas.Enabled()
+	if delayForMultiKueue || (!workload.HasQuotaReservation(wl.Obj) && cq.HasProvRequestAdmissionCheck(*tasFlvr)) {
 		// Delay TAS when MultiKueue is used (topology always assigned on worker cluster).
 		// For ProvisioningRequest, delay TAS on first scheduling pass only (topology assigned after provisioning).
 		psAssignment.DelayedTopologyRequest = ptr.To(kueue.DelayedTopologyRequestStatePending)

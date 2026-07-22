@@ -1,0 +1,37 @@
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+metrics:
+  enableClusterQueueResources: true
+leaderElection:
+  leaderElect: true
+controller:
+  groupKindConcurrency:
+    Job.batch: 5
+    Pod: 5
+    Workload.kueue.x-k8s.io: 10
+    LocalQueue.kueue.x-k8s.io: 5
+    ClusterQueue.kueue.x-k8s.io: 5
+    ResourceFlavor.kueue.x-k8s.io: 1
+clientConnection:
+  qps: 300
+  burst: 500
+# Restrict integrations to batch/job so the MultiKueue manager only watches Jobs
+# (and Workloads) on the workers. Otherwise it tries to watch AppWrapper/JobSet/
+# etc. CRDs that a minimal worker cluster doesn't have, failing the connection.
+integrations:
+  frameworks:
+  - "batch/job"
+  - "pod"
+fairSharing:
+  preemptionStrategies:
+  - LessThanOrEqualToFinalShare
+  - LessThanInitialShare
+tls:
+  minVersion: "VersionTLS12"
+  cipherSuites:
+    - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+    - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+    - TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256
+    - TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
+    - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+    - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
