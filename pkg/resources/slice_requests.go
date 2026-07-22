@@ -29,6 +29,8 @@ import (
 	utilmath "sigs.k8s.io/kueue/pkg/util/math"
 )
 
+const emptyResourceName = corev1.ResourceName("")
+
 // HashResourceName computes a 64-bit FNV-1a hash of a ResourceName.
 func HashResourceName(name corev1.ResourceName) uint64 {
 	h := fnv.New64a()
@@ -177,7 +179,7 @@ func (sr *SliceRequests) Add(other Requests) {
 	if isEmpty(other) || sr == nil {
 		return
 	}
-	*sr = sr.MergeWith(toSliceRequests(other), func(a, b int64) int64 {
+	sr.MergeWithInPlace(toSliceRequests(other), func(a, b int64) int64 {
 		return a + b
 	})
 }
@@ -187,7 +189,7 @@ func (sr *SliceRequests) Sub(other Requests) {
 	if isEmpty(other) || sr == nil {
 		return
 	}
-	*sr = sr.MergeWith(toSliceRequests(other), func(a, b int64) int64 {
+	sr.MergeWithInPlace(toSliceRequests(other), func(a, b int64) int64 {
 		return a - b
 	})
 }
@@ -195,51 +197,78 @@ func (sr *SliceRequests) Sub(other Requests) {
 // MergeFunc defines a computation lambda between matching or missing values in two SliceRequests.
 type MergeFunc func(valA, valB int64) int64
 
-// MergeWith performs a linear O(N+M) out-of-place merge into a fresh SliceRequests.
-func (sr SliceRequests) MergeWith(other SliceRequests, fn MergeFunc) SliceRequests {
-	if len(sr) == 0 && len(other) == 0 {
-		return nil
+// MergeWithInPlace performs a linear O(N+M) in-place merge of other into *sr.
+func (sr *SliceRequests) MergeWithInPlace(other SliceRequests, fn MergeFunc) {
+	if sr == nil {
+		return
 	}
-	result := make(SliceRequests, 0, max(len(sr), len(other)))
-	i, j := 0, 0
+	s := *sr
+	n, m := len(s), len(other)
+	if n == 0 && m == 0 {
+		return
+	}
 
-	for i < len(sr) && j < len(other) {
-		c := sr[i].Cmp(other[j])
+	// For self-merging (&s[0] == &other[0]), all keys match 1-to-1 and output size is at most n.
+	totalLen := n + m
+	if n > 0 && m > 0 && &s[0] == &other[0] {
+		totalLen = n
+	}
+
+	if cap(s) >= totalLen {
+		// When cap(s) >= totalLen, we merge in-place with 0 heap allocations.
+		// Shifting s to the right by m slots ensures the write pointer (starting at 0)
+		// never overtakes the read pointer of s (starting at offset m).
+		// Because each written entry consumes at least one input (i++ or j++),
+		// the invariant w <= m + i guarantees write safety.
+		if n > 0 && m > 0 && &s[0] != &other[0] {
+			copy(s[:totalLen][m:], s)
+			s = s[:totalLen][m:]
+		}
+		*sr = mergeInto((*sr)[:0], s, other, fn)
+		return
+	}
+
+	// Fallback: allocate the exact required capacity and merge in a single pass.
+	*sr = mergeInto(make(SliceRequests, 0, totalLen), s, other, fn)
+}
+
+func mergeInto(dst, a, b SliceRequests, fn MergeFunc) SliceRequests {
+	i, j := 0, 0
+	for i < len(a) && j < len(b) {
+		c := a[i].Cmp(b[j])
 		switch {
 		case c == 0:
-			appendEntry(&result, sr[i], fn(sr[i].value, other[j].value))
+			dst = appendEntry(dst, a[i], fn(a[i].value, b[j].value))
 			i++
 			j++
 		case c < 0:
-			appendEntry(&result, sr[i], fn(sr[i].value, 0))
+			dst = appendEntry(dst, a[i], fn(a[i].value, 0))
 			i++
 		default:
-			appendEntry(&result, other[j], fn(0, other[j].value))
+			dst = appendEntry(dst, b[j], fn(0, b[j].value))
 			j++
 		}
 	}
-
-	for i < len(sr) {
-		appendEntry(&result, sr[i], fn(sr[i].value, 0))
+	for i < len(a) {
+		dst = appendEntry(dst, a[i], fn(a[i].value, 0))
 		i++
 	}
-
-	for j < len(other) {
-		appendEntry(&result, other[j], fn(0, other[j].value))
+	for j < len(b) {
+		dst = appendEntry(dst, b[j], fn(0, b[j].value))
 		j++
 	}
-
-	return result
+	return dst
 }
 
-func appendEntry(result *SliceRequests, entry ResourceEntry, val int64) {
+func appendEntry(dst SliceRequests, entry ResourceEntry, val int64) SliceRequests {
 	if val != 0 {
-		*result = append(*result, ResourceEntry{
+		return append(dst, ResourceEntry{
 			name:  entry.name,
 			hash:  entry.hash,
 			value: val,
 		})
 	}
+	return dst
 }
 
 func (sr *SliceRequests) CountIn(capacity Requests) int32 {
@@ -253,7 +282,7 @@ func (sr *SliceRequests) CountInWithLimitingResource(capacity Requests) (int32, 
 	}
 
 	capSR, isSlice := capacity.(*SliceRequests)
-	minCount, limitingRes, j := int32(math.MaxInt32), corev1.ResourceName(""), 0
+	minCount, limitingRes, j := int32(math.MaxInt32), emptyResourceName, 0
 	found := false
 
 	for _, entry := range *sr {
