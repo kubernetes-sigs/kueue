@@ -4576,38 +4576,44 @@ func TestJob_IsActive(t *testing.T) {
 		strategy    configapiv1beta1.QuotaReleaseStrategy
 		want        bool
 	}{
-		"Active == 0": {
+		"Active == 0, Terminating == nil, OnTermination": {
 			active:      0,
 			terminating: nil,
 			strategy:    configapiv1beta1.QuotaReleaseOnTermination,
 			want:        false,
 		},
-		"Active > 0, OnTermination": {
+		"Active == 0, Terminating == 0, OnTermination": {
+			active:      0,
+			terminating: ptr.To[int32](0),
+			strategy:    configapiv1beta1.QuotaReleaseOnTermination,
+			want:        false,
+		},
+		"Active > 0, Terminating == 0, OnTermination": {
 			active:      2,
-			terminating: ptr.To[int32](1),
+			terminating: ptr.To[int32](0),
 			strategy:    configapiv1beta1.QuotaReleaseOnTermination,
 			want:        true,
 		},
-		"Active > 0, Terminating=nil, OnTerminalBestEffort": {
+		"Active > 0, Terminating == nil, OnTerminalBestEffort": {
 			active:      1,
 			terminating: nil,
 			strategy:    configapiv1beta1.QuotaReleaseOnTerminalBestEffort,
 			want:        true,
 		},
-		"Active == Terminating, OnTermination": {
-			active:      2,
+		"Active == 0, Terminating > 0, OnTermination": {
+			active:      0,
 			terminating: ptr.To[int32](2),
 			strategy:    configapiv1beta1.QuotaReleaseOnTermination,
 			want:        false,
 		},
-		"Active == Terminating, OnTerminalBestEffort": {
-			active:      2,
+		"Active == 0, Terminating > 0, OnTerminalBestEffort": {
+			active:      0,
 			terminating: ptr.To[int32](2),
 			strategy:    configapiv1beta1.QuotaReleaseOnTerminalBestEffort,
 			want:        true,
 		},
-		"Active > Terminating, OnTerminalBestEffort": {
-			active:      3,
+		"Active > 0, Terminating > 0, OnTerminalBestEffort": {
+			active:      1,
 			terminating: ptr.To[int32](1),
 			strategy:    configapiv1beta1.QuotaReleaseOnTerminalBestEffort,
 			want:        true,
