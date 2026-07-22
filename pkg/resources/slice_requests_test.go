@@ -193,6 +193,21 @@ func TestSliceRequests_AddAndSub(t *testing.T) {
 		opSr.Add(nil)
 		opSr.Sub(nil)
 	})
+
+	t.Run("add and sub with MapRequests operand", func(t *testing.T) {
+		sr := NewSliceRequests(MapRequests{corev1.ResourceCPU: 1000})
+		sr.Add(MapRequests{corev1.ResourceMemory: 2048})
+		want := MapRequests{corev1.ResourceCPU: 1000, corev1.ResourceMemory: 2048}
+		if diff := cmp.Diff(want, sr.ToMapRequests()); diff != "" {
+			t.Errorf("Add MapRequests mismatch (-want +got):\n%s", diff)
+		}
+
+		sr.Sub(MapRequests{corev1.ResourceCPU: 500})
+		wantSub := MapRequests{corev1.ResourceCPU: 500, corev1.ResourceMemory: 2048}
+		if diff := cmp.Diff(wantSub, sr.ToMapRequests()); diff != "" {
+			t.Errorf("Sub MapRequests mismatch (-want +got):\n%s", diff)
+		}
+	})
 }
 
 func TestSliceRequests_GetValue(t *testing.T) {
@@ -330,8 +345,8 @@ func TestSliceRequests_CountIn(t *testing.T) {
 			wantRes:  corev1.ResourceCPU,
 		},
 		"missing resource": {
-			capacity: NewSliceRequests(MapRequests{corev1.ResourceCPU: 10000}),
-			request:  NewSliceRequests(MapRequests{corev1.ResourceCPU: 1000, "nvidia.com/gpu": 1}),
+			capacity: NewSliceRequests(MapRequests{corev1.ResourcePods: 500}),
+			request:  NewSliceRequests(MapRequests{corev1.ResourcePods: 1000, "nvidia.com/gpu": 1}),
 			wantCnt:  0,
 			wantRes:  "nvidia.com/gpu",
 		},
@@ -352,6 +367,24 @@ func TestSliceRequests_CountIn(t *testing.T) {
 			request:  NewSliceRequests(MapRequests{corev1.ResourceMemory: 1}),
 			wantCnt:  math.MaxInt32,
 			wantRes:  corev1.ResourceMemory,
+		},
+		"non-slice capacity (MapRequests)": {
+			capacity: MapRequests{corev1.ResourceCPU: 10000, corev1.ResourceMemory: 20480},
+			request:  NewSliceRequests(MapRequests{corev1.ResourceCPU: 2000, corev1.ResourceMemory: 2048}),
+			wantCnt:  5,
+			wantRes:  corev1.ResourceCPU,
+		},
+		"non-slice capacity missing resource": {
+			capacity: MapRequests{corev1.ResourceCPU: 10000},
+			request:  NewSliceRequests(MapRequests{corev1.ResourceCPU: 2000, corev1.ResourceMemory: 2048}),
+			wantCnt:  0,
+			wantRes:  corev1.ResourceMemory,
+		},
+		"empty request": {
+			capacity: NewSliceRequests(MapRequests{corev1.ResourceCPU: 10000}),
+			request:  &SliceRequests{},
+			wantCnt:  0,
+			wantRes:  "",
 		},
 	}
 
