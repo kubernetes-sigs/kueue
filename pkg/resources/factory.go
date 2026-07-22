@@ -72,9 +72,6 @@ func ToMapRequests(r Requests) MapRequests {
 	if mr, ok := r.(MapRequests); ok {
 		return mr
 	}
-	if sr, ok := r.(*SliceRequests); ok {
-		return sr.ToMapRequests()
-	}
 	res := make(MapRequests, r.Len())
 	r.ForEach(func(name corev1.ResourceName, val int64) {
 		if val != 0 {
