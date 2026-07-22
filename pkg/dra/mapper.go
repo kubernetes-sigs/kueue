@@ -37,7 +37,7 @@ type deviceClassCounterConfig struct {
 // deviceClassCapacityConfig holds capacity configuration for a specific DeviceClass.
 type deviceClassCapacityConfig struct {
 	driver         string
-	resourceName   string
+	resourceName   resourcev1.QualifiedName
 	deviceSelector resourcev1.DeviceSelector
 }
 
