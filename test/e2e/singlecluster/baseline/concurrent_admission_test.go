@@ -108,9 +108,6 @@ var _ = ginkgo.Describe("ConcurrentAdmission", ginkgo.Label("area:singlecluster"
 			}
 
 			ginkgo.By("Verifying the Parent Workload is labeled correctly", func() {
-				// Use LongTimeout as a safety margin: the ConcurrentAdmission parent flow only proceeds
-				// once a gate-enabled controller is the active leader, so a controller restart or
-				// leader-election handoff during this spec must not flake it.
 				gomega.Eventually(func(g gomega.Gomega) {
 					var parentWl kueue.Workload
 					g.Expect(k8sClient.Get(ctx, parentWlKey, &parentWl)).To(gomega.Succeed())
@@ -172,9 +169,6 @@ var _ = ginkgo.Describe("ConcurrentAdmission", ginkgo.Label("area:singlecluster"
 			}
 
 			ginkgo.By("Verifying Parent Workload is admitted on spot flavor", func() {
-				// Use LongTimeout as a safety margin: the ConcurrentAdmission parent flow only proceeds
-				// once a gate-enabled controller is the active leader, so a controller restart or
-				// leader-election handoff during this spec must not flake it.
 				gomega.Eventually(func(g gomega.Gomega) {
 					var parentWl kueue.Workload
 					g.Expect(k8sClient.Get(ctx, parentWlKey, &parentWl)).To(gomega.Succeed())
