@@ -108,11 +108,14 @@ var _ = ginkgo.Describe("ConcurrentAdmission", ginkgo.Label("area:singlecluster"
 			}
 
 			ginkgo.By("Verifying the Parent Workload is labeled correctly", func() {
+				// Use LongTimeout as a safety margin: the ConcurrentAdmission parent flow only proceeds
+				// once a gate-enabled controller is the active leader, so a controller restart or
+				// leader-election handoff during this spec must not flake it.
 				gomega.Eventually(func(g gomega.Gomega) {
 					var parentWl kueue.Workload
 					g.Expect(k8sClient.Get(ctx, parentWlKey, &parentWl)).To(gomega.Succeed())
 					g.Expect(parentWl.Labels[controllerconstants.ConcurrentAdmissionParentLabelKey]).To(gomega.Equal("true"))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Verifying one Variant Workload is created per flavor (2 variants + 1 parent = 3 total)", func() {
@@ -169,6 +172,9 @@ var _ = ginkgo.Describe("ConcurrentAdmission", ginkgo.Label("area:singlecluster"
 			}
 
 			ginkgo.By("Verifying Parent Workload is admitted on spot flavor", func() {
+				// Use LongTimeout as a safety margin: the ConcurrentAdmission parent flow only proceeds
+				// once a gate-enabled controller is the active leader, so a controller restart or
+				// leader-election handoff during this spec must not flake it.
 				gomega.Eventually(func(g gomega.Gomega) {
 					var parentWl kueue.Workload
 					g.Expect(k8sClient.Get(ctx, parentWlKey, &parentWl)).To(gomega.Succeed())
@@ -177,7 +183,7 @@ var _ = ginkgo.Describe("ConcurrentAdmission", ginkgo.Label("area:singlecluster"
 					g.Expect(parentWl.Status.Admission.PodSetAssignments).ToNot(gomega.BeEmpty())
 					g.Expect(parentWl.Status.Admission.PodSetAssignments[0].Flavors[corev1.ResourceCPU]).To(
 						gomega.Equal(kueue.ResourceFlavorReference(spotFlavor)))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Verifying spot Variant is admitted and reservation Variant is pending", func() {
