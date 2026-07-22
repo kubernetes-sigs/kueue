@@ -24,7 +24,9 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"go.uber.org/mock/gomock"
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
@@ -44,11 +46,13 @@ import (
 
 func TestBaseWebhookDefault(t *testing.T) {
 	testcases := map[string]struct {
-		manageJobsWithoutQueueName bool
-		defaultLqExist             bool
-		featureGates               map[featuregate.Feature]bool
-		job                        *batchv1.Job
-		want                       *batchv1.Job
+		manageJobsWithoutQueueName   bool
+		managedJobsNamespaceSelector labels.Selector
+		defaultLqExist               bool
+		featureGates                 map[featuregate.Feature]bool
+		job                          *batchv1.Job
+		want                         *batchv1.Job
+		namespaces                   []*corev1.Namespace
 	}{
 		"update the suspend field with 'manageJobsWithoutQueueName=false'": {
 			job:  utiljob.MakeJob("job", metav1.NamespaceDefault).Queue("queue").Obj(),
@@ -104,6 +108,27 @@ func TestBaseWebhookDefault(t *testing.T) {
 				Obj(),
 			featureGates: map[featuregate.Feature]bool{features.MultiKueue: true},
 		},
+		"job in unmanaged namespace with default lq should not get queue label or be suspended": {
+			defaultLqExist: true,
+			managedJobsNamespaceSelector: func() labels.Selector {
+				ls := &metav1.LabelSelector{
+					MatchExpressions: []metav1.LabelSelectorRequirement{
+						{
+							Key:      corev1.LabelMetadataName,
+							Operator: metav1.LabelSelectorOpNotIn,
+							Values:   []string{"unmanaged-ns"},
+						},
+					},
+				}
+				sel, _ := metav1.LabelSelectorAsSelector(ls)
+				return sel
+			}(),
+			job:  utiljob.MakeJob("job", "unmanaged-ns").Obj(),
+			want: utiljob.MakeJob("job", "unmanaged-ns").Obj(),
+			namespaces: []*corev1.Namespace{
+				utiltesting.MakeNamespaceWrapper("unmanaged-ns").Label(corev1.LabelMetadataName, "unmanaged-ns").Obj(),
+			},
+		},
 	}
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
@@ -113,6 +138,9 @@ func TestBaseWebhookDefault(t *testing.T) {
 				WithObjects(
 					utiltesting.MakeNamespace(metav1.NamespaceDefault),
 				)
+			for _, ns := range tc.namespaces {
+				clientBuilder.WithObjects(ns)
+			}
 			cl := clientBuilder.Build()
 			cqCache := schdcache.New(cl)
 			queueManager := qcache.NewManagerForUnitTests(cl, cqCache)
@@ -172,7 +200,9 @@ func TestBaseWebhookDefault(t *testing.T) {
 				AnyTimes()
 
 			w := &jobframework.BaseWebhook[*mockJob]{
-				ManageJobsWithoutQueueName: tc.manageJobsWithoutQueueName,
+				Client:                       cl,
+				ManageJobsWithoutQueueName:   tc.manageJobsWithoutQueueName,
+				ManagedJobsNamespaceSelector: tc.managedJobsNamespaceSelector,
 				FromObject: func(object *mockJob) jobframework.GenericJob {
 					return object
 				},
