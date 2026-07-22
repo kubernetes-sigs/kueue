@@ -53,12 +53,12 @@ const (
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
-		SetupIndexes:      SetupIndexes,
-		NewJob:            newJob,
-		NewReconciler:     NewReconciler,
-		SetupWebhook:      SetupRayJobWebhook,
-		JobType:           &rayv1.RayJob{},
-		AddToScheme:       rayv1.AddToScheme,
+		SetupIndexes:  SetupIndexes,
+		NewJob:        newJob,
+		NewReconciler: NewReconciler,
+		SetupWebhook:  SetupRayJobWebhook,
+		JobType:       &rayv1.RayJob{},
+		AddToScheme:   rayv1.AddToScheme,
 		MultiKueueAdapter: ray.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy,
 			ray.WithElasticReplicaSync(elasticRuntimeSync()),
 		),
