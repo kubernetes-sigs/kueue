@@ -1,0 +1,13 @@
+title: Support centralized scheduling and quota management in MultiKueue
+kep-number: 13345
+authors:
+  - "@mukund-wayve"
+owning-sig: sig-scheduling
+status: provisional
+creation-date: "2026-07-22"
+reviewers:
+  - "@alculquicondor"
+  - "@mimowo"
+approvers:
+  - "@alculquicondor"
+  - "@mimowo"
