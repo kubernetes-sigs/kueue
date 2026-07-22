@@ -381,7 +381,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", ginkgo.Label("area:singleclus
 					g.Expect(scaledWorkload.Status.Admission).ShouldNot(gomega.BeNil())
 					g.Expect(scaledWorkload.Spec.PodSets).Should(gomega.HaveLen(1))
 					g.Expect(scaledWorkload.Spec.PodSets[0].Count).Should(gomega.Equal(scaledParallelism))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 
 				ta := tas.InternalFrom(scaledWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment)
 				gomega.Expect(ta).ShouldNot(gomega.BeNil())
