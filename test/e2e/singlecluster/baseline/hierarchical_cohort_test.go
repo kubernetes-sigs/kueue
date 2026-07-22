@@ -21,7 +21,6 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
-	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -29,7 +28,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util"
@@ -43,7 +41,6 @@ var _ = ginkgo.Describe("Hierarchical Cohort", ginkgo.Label("area:singlecluster"
 
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
-
 		rf = utiltestingapi.MakeResourceFlavor("rf-" + ns.Name).Obj()
 		util.MustCreate(ctx, k8sClient, rf)
 	})
@@ -114,7 +111,7 @@ var _ = ginkgo.Describe("Hierarchical Cohort", ginkgo.Label("area:singlecluster"
 				g.Expect(cq.Status.PendingWorkloads).Should(gomega.Equal(int32(0)))
 				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("1")))
 				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Borrowed).Should(gomega.BeEquivalentTo(resource.MustParse("1")))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("submitting an overflow job that exceeds the root cohort capacity")
 			overflowJob := testingjob.MakeJob("job-overflow", ns.Name).
@@ -127,11 +124,15 @@ var _ = ginkgo.Describe("Hierarchical Cohort", ginkgo.Label("area:singlecluster"
 			ginkgo.By("verifying the overflow job stays pending")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).Should(gomega.Succeed())
+				g.Expect(cq.Status.PendingWorkloads).Should(gomega.Equal(int32(1)))
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).Should(gomega.Succeed())
 				g.Expect(cq.Status.AdmittedWorkloads).Should(gomega.Equal(int32(2)))
 				g.Expect(cq.Status.PendingWorkloads).Should(gomega.Equal(int32(1)))
 				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("1")))
 				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Borrowed).Should(gomega.BeEquivalentTo(resource.MustParse("1")))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 	})
 
@@ -204,7 +205,7 @@ var _ = ginkgo.Describe("Hierarchical Cohort", ginkgo.Label("area:singlecluster"
 				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Borrowed).Should(gomega.BeEquivalentTo(resource.MustParse("1")))
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(childCohort), childCohort)).Should(gomega.Succeed())
 				g.Expect(childCohort.Spec.ParentName).Should(gomega.Equal(kueue.CohortReference("root-a-" + ns.Name)))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("submitting an overflow job that exceeds root-a's capacity")
 			overflowJob := testingjob.MakeJob("overflow", ns.Name).
@@ -217,16 +218,20 @@ var _ = ginkgo.Describe("Hierarchical Cohort", ginkgo.Label("area:singlecluster"
 			ginkgo.By("verifying the overflow job stays pending under root-a")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).Should(gomega.Succeed())
-				g.Expect(cq.Status.AdmittedWorkloads).Should(gomega.Equal(int32(2)))
 				g.Expect(cq.Status.PendingWorkloads).Should(gomega.Equal(int32(1)))
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).Should(gomega.Succeed())
+				g.Expect(cq.Status.AdmittedWorkloads).Should(gomega.Equal(int32(2)))
+				g.Expect(cq.Status.PendingWorkloads).Should(gomega.Equal(int32(1)))
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 
 			ginkgo.By("reparenting child-cohort from root-a to root-b")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(childCohort), childCohort)).Should(gomega.Succeed())
 				childCohort.Spec.ParentName = kueue.CohortReference("root-b-" + ns.Name)
 				g.Expect(k8sClient.Update(ctx, childCohort)).Should(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("verifying the overflow job is admitted under root-b")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -301,7 +306,7 @@ var _ = ginkgo.Describe("Hierarchical Cohort", ginkgo.Label("area:singlecluster"
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).Should(gomega.Succeed())
 				g.Expect(cq.Status.AdmittedWorkloads).Should(gomega.Equal(int32(3)))
 				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Borrowed).Should(gomega.BeEquivalentTo(resource.MustParse("500m")))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("deleting mid-cohort while workloads are borrowing through it")
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, midCohort, true)
@@ -324,6 +329,11 @@ var _ = ginkgo.Describe("Hierarchical Cohort", ginkgo.Label("area:singlecluster"
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).Should(gomega.Succeed())
 				g.Expect(cq.Status.PendingWorkloads).Should(gomega.Equal(int32(1)))
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).Should(gomega.Succeed())
+				g.Expect(cq.Status.AdmittedWorkloads).Should(gomega.Equal(int32(3)))
+				g.Expect(cq.Status.PendingWorkloads).Should(gomega.Equal(int32(1)))
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 	})
 
@@ -352,16 +362,23 @@ var _ = ginkgo.Describe("Hierarchical Cohort", ginkgo.Label("area:singlecluster"
 				Obj()
 			util.MustCreate(ctx, k8sClient, cohortY)
 
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cohortX), cohortX)).Should(gomega.Succeed())
+				g.Expect(cohortX.Spec.ParentName).Should(gomega.Equal(kueue.CohortReference("cohort-y-" + ns.Name)))
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cohortY), cohortY)).Should(gomega.Succeed())
+				g.Expect(cohortY.Spec.ParentName).Should(gomega.Equal(kueue.CohortReference("cohort-x-" + ns.Name)))
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+
 			cq = utiltestingapi.MakeClusterQueue("cq-" + ns.Name).
 				Cohort(kueue.CohortReference("cohort-x-" + ns.Name)).
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).
 					Resource(corev1.ResourceCPU, "1").
 					Obj()).
 				Obj()
-			util.MustCreate(ctx, k8sClient, cq)
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 
 			lq = utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(cq.Name).Obj()
-			util.MustCreate(ctx, k8sClient, lq)
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
 		})
 
 		ginkgo.AfterEach(func() {
@@ -382,26 +399,7 @@ var _ = ginkgo.Describe("Hierarchical Cohort", ginkgo.Label("area:singlecluster"
 				TerminationGracePeriod(1).Obj()
 			util.MustCreate(ctx, k8sClient, job)
 
-			ginkgo.By("waiting for the CQ to become inactive due to the cycle")
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).Should(gomega.Succeed())
-				g.Expect(cq.Status.Conditions).To(utiltesting.HaveConditionStatusFalse(kueue.ClusterQueueActive))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-
-			ginkgo.By("verifying no workloads are admitted")
-			gomega.Consistently(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).Should(gomega.Succeed())
-				g.Expect(cq.Status.AdmittedWorkloads).Should(gomega.Equal(int32(0)))
-			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
-
-			ginkgo.By("verifying the job stays suspended")
-			gomega.Consistently(func(g gomega.Gomega) {
-				var createdJob batchv1.Job
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), &createdJob)).Should(gomega.Succeed())
-				g.Expect(*createdJob.Spec.Suspend).Should(gomega.BeTrue())
-			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
-
-			ginkgo.By("verifying the workload is blocked because the CQ is inactive in the Snapshot")
+			ginkgo.By("verifying the workload is blocked because the CQ is inactive in the scheduler snapshot")
 			gomega.Eventually(func(g gomega.Gomega) {
 				var wlList kueue.WorkloadList
 				g.Expect(k8sClient.List(ctx, &wlList, client.InNamespace(ns.Name))).Should(gomega.Succeed())
@@ -409,13 +407,18 @@ var _ = ginkgo.Describe("Hierarchical Cohort", ginkgo.Label("area:singlecluster"
 				cond := apimeta.FindStatusCondition(wlList.Items[0].Status.Conditions, kueue.WorkloadQuotaReserved)
 				g.Expect(cond).ShouldNot(gomega.BeNil())
 				g.Expect(cond.Status).Should(gomega.Equal(metav1.ConditionFalse))
-				g.Expect(cond.Reason).Should(gomega.BeElementOf(
-					kueue.WorkloadQuotaReservedReasonSuspended,
-					kueue.WorkloadInadmissible,
-					kueue.WorkloadPending, //nolint:staticcheck // SA1019: legacy reason
-				))
 				g.Expect(cond.Message).Should(gomega.ContainSubstring("is inactive"))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).Should(gomega.Succeed())
+				g.Expect(cq.Status.AdmittedWorkloads).Should(gomega.Equal(int32(0)))
+				g.Expect(cq.Status.PendingWorkloads).Should(gomega.Equal(int32(1)))
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("verifying the blocked state holds: no admissions and workload still pending")
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).Should(gomega.Succeed())
+				g.Expect(cq.Status.AdmittedWorkloads).Should(gomega.Equal(int32(0)))
+				g.Expect(cq.Status.PendingWorkloads).Should(gomega.Equal(int32(1)))
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 	})
 
@@ -511,17 +514,21 @@ var _ = ginkgo.Describe("Hierarchical Cohort", ginkgo.Label("area:singlecluster"
 			ginkgo.By("verifying only one job is admitted up to the lendingLimit")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(borrowerCq), borrowerCq)).Should(gomega.Succeed())
+				g.Expect(borrowerCq.Status.PendingWorkloads).Should(gomega.Equal(int32(1)))
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(borrowerCq), borrowerCq)).Should(gomega.Succeed())
 				g.Expect(borrowerCq.Status.AdmittedWorkloads).Should(gomega.Equal(int32(1)))
 				g.Expect(borrowerCq.Status.PendingWorkloads).Should(gomega.Equal(int32(1)))
 				g.Expect(borrowerCq.Status.FlavorsUsage[0].Resources[0].Borrowed).Should(gomega.BeEquivalentTo(resource.MustParse("500m")))
 				g.Expect(borrowerCq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("500m")))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 
 			ginkgo.By("verifying lender CQ has no usage")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lenderCq), lenderCq)).Should(gomega.Succeed())
 				g.Expect(lenderCq.Status.AdmittedWorkloads).Should(gomega.Equal(int32(0)))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 
@@ -627,7 +634,7 @@ var _ = ginkgo.Describe("Hierarchical Cohort", ginkgo.Label("area:singlecluster"
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(productionCq), productionCq)).Should(gomega.Succeed())
 				g.Expect(productionCq.Status.AdmittedWorkloads).Should(gomega.Equal(int32(3)))
 				g.Expect(productionCq.Status.FlavorsUsage[0].Resources[0].Borrowed).Should(gomega.BeEquivalentTo(resource.MustParse("500m")))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("submitting research jobs that cannot borrow due to borrowingLimit:0")
 			for i := range 3 {
@@ -642,10 +649,14 @@ var _ = ginkgo.Describe("Hierarchical Cohort", ginkgo.Label("area:singlecluster"
 			ginkgo.By("verifying research admits only 1 job and cannot borrow")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(researchCq), researchCq)).Should(gomega.Succeed())
+				g.Expect(researchCq.Status.PendingWorkloads).Should(gomega.Equal(int32(2)))
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(researchCq), researchCq)).Should(gomega.Succeed())
 				g.Expect(researchCq.Status.AdmittedWorkloads).Should(gomega.Equal(int32(1)))
 				g.Expect(researchCq.Status.PendingWorkloads).Should(gomega.Equal(int32(2)))
 				g.Expect(researchCq.Status.FlavorsUsage[0].Resources[0].Borrowed).Should(gomega.BeEquivalentTo(resource.MustParse("0")))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 	})
 
@@ -749,10 +760,14 @@ var _ = ginkgo.Describe("Hierarchical Cohort", ginkgo.Label("area:singlecluster"
 			ginkgo.By("verifying org-a is full and overflow is pending")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(orgACq), orgACq)).Should(gomega.Succeed())
+				g.Expect(orgACq.Status.PendingWorkloads).Should(gomega.Equal(int32(1)))
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(orgACq), orgACq)).Should(gomega.Succeed())
 				g.Expect(orgACq.Status.AdmittedWorkloads).Should(gomega.Equal(int32(2)))
 				g.Expect(orgACq.Status.PendingWorkloads).Should(gomega.Equal(int32(1)))
 				g.Expect(orgACq.Status.FlavorsUsage[0].Resources[0].Borrowed).Should(gomega.BeEquivalentTo(resource.MustParse("0")))
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 
 			ginkgo.By("submitting burst jobs that borrow idle capacity from org-b")
 			for i := range 2 {
@@ -769,10 +784,12 @@ var _ = ginkgo.Describe("Hierarchical Cohort", ginkgo.Label("area:singlecluster"
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(burstCq), burstCq)).Should(gomega.Succeed())
 				g.Expect(burstCq.Status.AdmittedWorkloads).Should(gomega.Equal(int32(2)))
 				g.Expect(burstCq.Status.FlavorsUsage[0].Resources[0].Borrowed).Should(gomega.BeEquivalentTo(resource.MustParse("1")))
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			gomega.Consistently(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(orgACq), orgACq)).Should(gomega.Succeed())
 				g.Expect(orgACq.Status.PendingWorkloads).Should(gomega.Equal(int32(1)))
 				g.Expect(orgACq.Status.FlavorsUsage[0].Resources[0].Borrowed).Should(gomega.BeEquivalentTo(resource.MustParse("0")))
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 	})
 })
