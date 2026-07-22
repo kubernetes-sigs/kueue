@@ -179,7 +179,7 @@ func (sr *SliceRequests) Add(other Requests) {
 	if isEmpty(other) || sr == nil {
 		return
 	}
-	sr.MergeWithInPlace(toSliceRequests(other), func(a, b int64) int64 {
+	sr.mergeWithInPlace(toSliceRequests(other), func(a, b int64) int64 {
 		return a + b
 	})
 }
@@ -189,38 +189,41 @@ func (sr *SliceRequests) Sub(other Requests) {
 	if isEmpty(other) || sr == nil {
 		return
 	}
-	sr.MergeWithInPlace(toSliceRequests(other), func(a, b int64) int64 {
+	sr.mergeWithInPlace(toSliceRequests(other), func(a, b int64) int64 {
 		return a - b
 	})
 }
 
-// MergeFunc defines a computation lambda between matching or missing values in two SliceRequests.
-type MergeFunc func(valA, valB int64) int64
+// mergeFunc defines a computation lambda between matching or missing values in two SliceRequests.
+type mergeFunc func(valA, valB int64) int64
 
-// MergeWithInPlace performs a linear O(N+M) in-place merge of other into *sr.
-func (sr *SliceRequests) MergeWithInPlace(other SliceRequests, fn MergeFunc) {
+// mergeWithInPlace performs a linear O(N+M) in-place merge of other into *sr.
+func (sr *SliceRequests) mergeWithInPlace(other SliceRequests, fn mergeFunc) {
 	if sr == nil {
 		return
 	}
-	s := *sr
-	n, m := len(s), len(other)
+	n, m := len(*sr), len(other)
 	if n == 0 && m == 0 {
 		return
 	}
 
-	// For self-merging (&s[0] == &other[0]), all keys match 1-to-1 and output size is at most n.
 	totalLen := n + m
-	if n > 0 && m > 0 && &s[0] == &other[0] {
-		totalLen = n
-	}
-
-	if cap(s) >= totalLen {
-		// When cap(s) >= totalLen, we merge in-place with 0 heap allocations.
-		// Shifting s to the right by m slots ensures the write pointer (starting at 0)
-		// never overtakes the read pointer of s (starting at offset m).
-		// Because each written entry consumes at least one input (i++ or j++),
-		// the invariant w <= m + i guarantees write safety.
+	if cap(*sr) >= totalLen {
+		// Capture the input slice header by value into s before right-shifting.
+		// This preserves the input read view and allows reslicing s to offset m independently
+		// while keeping the destination (*sr)[:0] anchored at offset 0.
+		s := *sr
 		if n > 0 && m > 0 && &s[0] != &other[0] {
+			// Why we shift 's' to the right by m slots:
+			// mergeInto writes results into (*sr)[:0] starting at index 0. If 'other' has elements
+			// that sort before s (e.g. other[0] < s[0]), writing other[0] to index 0 would overwrite
+			// s[0] before it has been read and compared.
+			//
+			// Shifting s to start at offset m (index range [m .. m+n-1]) creates m slots of head-room.
+			// Since each merged entry written advances the write pointer w by 1 while consuming at
+			// least one input from s (advancing read pointer i) or other (advancing j), the write
+			// pointer w is guaranteed to never overtake the read pointer of s (m + i). This allows
+			// merging directly into (*sr)[:0] in-place with 0 heap allocations without data corruption.
 			copy(s[:totalLen][m:], s)
 			s = s[:totalLen][m:]
 		}
@@ -228,11 +231,11 @@ func (sr *SliceRequests) MergeWithInPlace(other SliceRequests, fn MergeFunc) {
 		return
 	}
 
-	// Fallback: allocate the exact required capacity and merge in a single pass.
-	*sr = mergeInto(make(SliceRequests, 0, totalLen), s, other, fn)
+	// Fallback: allocate a new backing slice when *sr has insufficient capacity.
+	*sr = mergeInto(make(SliceRequests, 0, totalLen), *sr, other, fn)
 }
 
-func mergeInto(dst, a, b SliceRequests, fn MergeFunc) SliceRequests {
+func mergeInto(dst, a, b SliceRequests, fn mergeFunc) SliceRequests {
 	i, j := 0, 0
 	for i < len(a) && j < len(b) {
 		c := a[i].cmp(b[j])
