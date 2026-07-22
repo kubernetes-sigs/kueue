@@ -233,7 +233,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install Crane
-        uses: imjasonh/setup-crane@v0.7
+        uses: imjasonh/setup-crane@feee3b6bb0d4c68370f256a4502498c9227e5c6b # v0.7
 
       - name: Run Wait for Images Script
         env:
