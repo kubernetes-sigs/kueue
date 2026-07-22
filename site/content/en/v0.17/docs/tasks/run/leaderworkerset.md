@@ -129,7 +129,7 @@ a group suffix to the LeaderWorkerSet name, the effective LWS name limit is
 **39 characters**.
 
 Enable the alpha
-[`WorkloadIdentifierAnnotations`](/v0.17/docs/installation/#feature-gates-for-alpha-and-beta-features)
+[`WorkloadIdentifierAnnotations`](/v0.17/docs/getting-started/installation/#feature-gates-for-alpha-and-beta-features)
 feature gate to store the identifier in an annotation instead, removing
 Kueue's label-length constraint. With the feature gate enabled, the effective
 limit shifts to the upstream LWS constraint of **51 characters**
