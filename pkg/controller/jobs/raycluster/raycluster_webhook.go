@@ -210,6 +210,18 @@ func validateElasticJob(job *rayv1.RayCluster) field.ErrorList {
 		)
 	}
 
+	// MultiKueue does not support Ray autoscaling yet.
+	if ptr.Deref(job.Spec.EnableInTreeAutoscaling, false) &&
+		ptr.Deref(job.Spec.ManagedBy, "") == kueue.MultiKueueControllerName {
+		allErrors = append(
+			allErrors,
+			field.Forbidden(
+				specPath.Child("enableInTreeAutoscaling"),
+				"in-tree autoscaling is not supported for a MultiKueue-managed elastic RayCluster",
+			),
+		)
+	}
+
 	return allErrors
 }
 

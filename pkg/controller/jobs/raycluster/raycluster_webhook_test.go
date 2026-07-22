@@ -37,6 +37,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingrayutil "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 func TestValidateDefault(t *testing.T) {
@@ -152,6 +153,30 @@ func TestValidateCreate(t *testing.T) {
 					"a kueue managed job can use autoscaling only when the ElasticJobsViaWorkloadSlices feature gate is on and the job is an elastic job",
 				),
 			}.ToAggregate(),
+		},
+		"invalid managed - elastic MultiKueue job with auto scaler": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				ManagedBy(kueue.MultiKueueControllerName).
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
+				WithEnableAutoscaling(new(true)).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(
+					field.NewPath("spec", "enableInTreeAutoscaling"),
+					"in-tree autoscaling is not supported for a MultiKueue-managed elastic RayCluster",
+				),
+			}.ToAggregate(),
+		},
+		"valid managed - elastic MultiKueue job without auto scaler": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				ManagedBy(kueue.MultiKueueControllerName).
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
+				Obj(),
+			wantErr: nil,
 		},
 		"invalid managed - too many worker groups": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
