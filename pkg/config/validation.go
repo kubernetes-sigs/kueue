@@ -700,6 +700,14 @@ func LoadAndValidateFeatureGates(featureGateCLI string, featureGateMap map[strin
 	return allErrs
 }
 
+func validateDRAFeatureGateDependencies() field.ErrorList {
+	var allErrs field.ErrorList
+	allErrs = append(allErrs, validateFeatureGateDependency(features.KueueDRAIntegrationExtendedResource, features.KueueDRAIntegration)...)
+	allErrs = append(allErrs, validateFeatureGateDependency(features.KueueDRAIntegrationPartitionableDevices, features.KueueDRAIntegration)...)
+	allErrs = append(allErrs, validateFeatureGateDependency(features.KueueDRAIntegrationConsumableCapacity, features.KueueDRAIntegration)...)
+	return allErrs
+}
+
 // validateFeatureGateDependency returns an error for each dependency feature gate that is
 // disabled while gate is enabled. A gate has no effect unless all its dependencies are enabled.
 func validateFeatureGateDependency(gate featuregate.Feature, dependencies ...featuregate.Feature) field.ErrorList {
@@ -713,37 +721,6 @@ func validateFeatureGateDependency(gate featuregate.Feature, dependencies ...fea
 				fmt.Sprintf("%s requires %s to be enabled", gate, dep)))
 		}
 	}
-	return allErrs
-}
-
-func validateDRAFeatureGateDependencies() field.ErrorList {
-	var allErrs field.ErrorList
-	if features.Enabled(features.KueueDRAIntegrationExtendedResource) {
-		if !features.Enabled(features.KueueDRAIntegration) {
-			allErrs = append(allErrs, field.Invalid(featureGatesPath, "KueueDRAIntegrationExtendedResource", "KueueDRAIntegrationExtendedResource requires KueueDRAIntegration to be enabled"))
-		}
-	}
-
-	if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) {
-		if !features.Enabled(features.KueueDRAIntegration) {
-			allErrs = append(allErrs, field.Invalid(
-				featureGatesPath,
-				"KueueDRAIntegrationPartitionableDevices",
-				"KueueDRAIntegrationPartitionableDevices requires KueueDRAIntegration to be enabled",
-			))
-		}
-	}
-
-	if features.Enabled(features.KueueDRAIntegrationConsumableCapacity) {
-		if !features.Enabled(features.KueueDRAIntegration) {
-			allErrs = append(allErrs, field.Invalid(
-				featureGatesPath,
-				"KueueDRAIntegrationConsumableCapacity",
-				"KueueDRAIntegrationConsumableCapacity requires KueueDRAIntegration to be enabled",
-			))
-		}
-	}
-
 	return allErrs
 }
 
