@@ -105,10 +105,12 @@ func TestSliceRequests_EdgeCases(t *testing.T) {
 		t.Errorf("expected ForEach on nilSR to not execute callback")
 	}
 
+	nilSR.MergeWithInPlace(nil, func(a, b int64) int64 { return a + b })
+
 	var emptySR SliceRequests
-	merged := emptySR.MergeWith(emptySR, func(a, b int64) int64 { return a + b })
-	if merged != nil {
-		t.Errorf("expected MergeWith on empty slices to return nil")
+	emptySR.MergeWithInPlace(emptySR, func(a, b int64) int64 { return a + b })
+	if emptySR != nil {
+		t.Errorf("expected MergeWithInPlace on empty slices to leave slice empty")
 	}
 
 	e1 := ResourceEntry{name: "a", hash: 100, value: 1}
@@ -116,6 +118,70 @@ func TestSliceRequests_EdgeCases(t *testing.T) {
 	if e1.Cmp(e2) >= 0 {
 		t.Errorf("expected e1 < e2 for same hash but different name")
 	}
+}
+
+func TestSliceRequests_MergeWithInPlace(t *testing.T) {
+	t.Run("with sufficient capacity", func(t *testing.T) {
+		base := make(SliceRequests, 0, 4)
+		base = append(base, ResourceEntry{name: corev1.ResourceCPU, hash: HashResourceName(corev1.ResourceCPU), value: 1000})
+		other := SliceRequests{ResourceEntry{name: corev1.ResourceMemory, hash: HashResourceName(corev1.ResourceMemory), value: 2048}}
+
+		base.MergeWithInPlace(other, func(a, b int64) int64 { return a + b })
+		want := MapRequests{corev1.ResourceCPU: 1000, corev1.ResourceMemory: 2048}
+		if diff := cmp.Diff(want, base.ToMapRequests()); diff != "" {
+			t.Errorf("mismatch with sufficient capacity (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("with insufficient capacity", func(t *testing.T) {
+		sr := NewSliceRequests(MapRequests{corev1.ResourceCPU: 1000})
+		other := *NewSliceRequests(MapRequests{corev1.ResourceMemory: 2048})
+
+		sr.MergeWithInPlace(other, func(a, b int64) int64 { return a + b })
+		want := MapRequests{corev1.ResourceCPU: 1000, corev1.ResourceMemory: 2048}
+		if diff := cmp.Diff(want, sr.ToMapRequests()); diff != "" {
+			t.Errorf("mismatch with insufficient capacity (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("self merge", func(t *testing.T) {
+		sr := NewSliceRequests(MapRequests{corev1.ResourceCPU: 1000, corev1.ResourceMemory: 2048})
+		sr.MergeWithInPlace(*sr, func(a, b int64) int64 { return a + b })
+		want := MapRequests{corev1.ResourceCPU: 2000, corev1.ResourceMemory: 4096}
+		if diff := cmp.Diff(want, sr.ToMapRequests()); diff != "" {
+			t.Errorf("mismatch on self merge (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("merge resulting in zeros dropped", func(t *testing.T) {
+		sr := NewSliceRequests(MapRequests{corev1.ResourceCPU: 1000, corev1.ResourceMemory: 2048})
+		other := *NewSliceRequests(MapRequests{corev1.ResourceCPU: 1000})
+		sr.MergeWithInPlace(other, func(a, b int64) int64 { return a - b })
+		want := MapRequests{corev1.ResourceMemory: 2048}
+		if diff := cmp.Diff(want, sr.ToMapRequests()); diff != "" {
+			t.Errorf("mismatch on zero drop merge (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("empty receiver with non-empty operand", func(t *testing.T) {
+		var sr SliceRequests
+		other := *NewSliceRequests(MapRequests{corev1.ResourceCPU: 1000})
+		sr.MergeWithInPlace(other, func(a, b int64) int64 { return a + b })
+		want := MapRequests{corev1.ResourceCPU: 1000}
+		if diff := cmp.Diff(want, sr.ToMapRequests()); diff != "" {
+			t.Errorf("mismatch on empty receiver merge (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("non-empty receiver with empty operand", func(t *testing.T) {
+		sr := NewSliceRequests(MapRequests{corev1.ResourceCPU: 1000})
+		var other SliceRequests
+		sr.MergeWithInPlace(other, func(a, b int64) int64 { return a + b })
+		want := MapRequests{corev1.ResourceCPU: 1000}
+		if diff := cmp.Diff(want, sr.ToMapRequests()); diff != "" {
+			t.Errorf("mismatch on empty operand merge (-want +got):\n%s", diff)
+		}
+	})
 }
 
 func TestSliceRequests_ResourceList(t *testing.T) {
