@@ -19,6 +19,7 @@ package multikueue
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -2100,6 +2101,146 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				g.Expect(ptr.Deref(rc.Spec.Suspend, false)).To(gomega.BeFalse())
 				g.Expect(ptr.Deref(rc.Spec.WorkerGroupSpecs[0].Replicas, -1)).To(gomega.BeEquivalentTo(int32(1)))
 			}, 10*time.Second, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	// Worker-side autoscaling for a RayJob: the autoscaler resizes the child
+	// RayCluster KubeRay created on the worker (both simulated here, since
+	// KubeRay does not run in this suite). The MultiKueue workload controller
+	// reads the child's per-group counts and generation and reflects them onto
+	// the manager RayJob as annotations; the manager's PodSet derivation falls
+	// back to them (the child never exists on the manager) and produces a
+	// count-2 replacement slice. The suite runs no scheduler, so the replacement
+	// slice is admitted manually, after which the prebuilt label is repointed.
+	ginkgo.It("Should reflect an autoscaler-driven resize of a RayJob's child RayCluster on the manager", func() {
+		manager := managerTestCluster
+		worker2 := worker2TestCluster
+
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
+
+		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).PodSets(
+			utiltestingapi.MakePodSetAssignment("head").Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj(),
+			utiltestingapi.MakePodSetAssignment("workers-group-0").Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj(),
+		)
+
+		rayjob := testingrayjob.MakeJob("rayjob-autoscale", managerNs.Name).
+			WithSubmissionMode(rayv1.InteractiveMode).
+			Queue(managerLq.Name).
+			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			EnableInTreeAutoscaling().
+			MaxWorkerReplicas(3).
+			Obj()
+		util.MustCreate(manager.ctx, manager.client, rayjob)
+
+		createdRayJob := &rayv1.RayJob{}
+		gomega.Expect(manager.client.Get(manager.ctx, client.ObjectKeyFromObject(rayjob), createdRayJob)).To(gomega.Succeed())
+		wlLookupKey := types.NamespacedName{
+			Name: jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration(
+				createdRayJob.Name, createdRayJob.UID, rayv1.GroupVersion.WithKind("RayJob"), createdRayJob.GetGeneration()),
+			Namespace: createdRayJob.Namespace,
+		}
+
+		admitWorkloadAndCheckWorkerCopies(multiKueueAC.Name, wlLookupKey, admission)
+
+		childKey := types.NamespacedName{Name: "rayjob-autoscale-raycluster", Namespace: managerNs.Name}
+		ginkgo.By("simulating KubeRay on worker2: create the child RayCluster and record it in the RayJob status", func() {
+			child := testingraycluster.MakeCluster(childKey.Name, childKey.Namespace).
+				FirstWorkerGroupReplicas(1, 1, 3).
+				Obj()
+			util.MustCreate(worker2.ctx, worker2.client, child)
+			gomega.Eventually(func(g gomega.Gomega) {
+				workerRayJob := &rayv1.RayJob{}
+				g.Expect(worker2.client.Get(worker2.ctx, client.ObjectKeyFromObject(rayjob), workerRayJob)).To(gomega.Succeed())
+				workerRayJob.Status.RayClusterName = childKey.Name
+				g.Expect(worker2.client.Status().Update(worker2.ctx, workerRayJob)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		var childGeneration int64
+		ginkgo.By("simulating the Ray autoscaler on worker2: scale the child's workers-group-0 from 1 to 2", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				child := &rayv1.RayCluster{}
+				g.Expect(worker2.client.Get(worker2.ctx, childKey, child)).To(gomega.Succeed())
+				child.Spec.WorkerGroupSpecs[0].Replicas = ptr.To[int32](2)
+				g.Expect(worker2.client.Update(worker2.ctx, child)).To(gomega.Succeed())
+				childGeneration = child.Generation
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		// KubeRay reflects the child's status into the RayJob's
+		// status.rayClusterStatus; that RayJob update is what triggers the
+		// MultiKueue remote watch (the child itself carries no prebuilt-workload
+		// marker, so its events do not map to a workload). Simulate it.
+		ginkgo.By("simulating KubeRay on worker2: reflect the child's status into the RayJob status", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				workerRayJob := &rayv1.RayJob{}
+				g.Expect(worker2.client.Get(worker2.ctx, client.ObjectKeyFromObject(rayjob), workerRayJob)).To(gomega.Succeed())
+				workerRayJob.Status.RayClusterStatus.DesiredWorkerReplicas = 2
+				g.Expect(worker2.client.Status().Update(worker2.ctx, workerRayJob)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("the child's counts and generation are reflected onto the manager RayJob as annotations", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				managerRayJob := &rayv1.RayJob{}
+				g.Expect(manager.client.Get(manager.ctx, client.ObjectKeyFromObject(rayjob), managerRayJob)).To(gomega.Succeed())
+				g.Expect(managerRayJob.Annotations[workloadraycluster.MultiKueueRuntimePodSetReplicaSizesAnnotation]).
+					To(gomega.Equal(`[{"name":"workers-group-0","count":2}]`))
+				g.Expect(managerRayJob.Annotations[workloadraycluster.RayClusterGenerationAnnotation]).
+					To(gomega.Equal(strconv.FormatInt(childGeneration, 10)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		var newWlKey types.NamespacedName
+		ginkgo.By("the manager created a count-2 replacement slice", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				list := &kueue.WorkloadList{}
+				g.Expect(manager.client.List(manager.ctx, list, client.InNamespace(managerNs.Name))).To(gomega.Succeed())
+				found := false
+				for i := range list.Items {
+					w := &list.Items[i]
+					if workloadfinish.IsFinished(w) {
+						continue
+					}
+					if w.Annotations[workloadslicing.WorkloadSliceReplacementFor] == "" {
+						continue
+					}
+					if workload.ExtractPodSetCountsFromWorkload(w)["workers-group-0"] != 2 {
+						continue
+					}
+					newWlKey = client.ObjectKeyFromObject(w)
+					found = true
+				}
+				g.Expect(found).To(gomega.BeTrue(), "expected a not-finished count-2 replacement slice on the manager")
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		// The real scheduler is not running in this suite; admit the replacement
+		// slice manually so the product handover can run.
+		ginkgo.By("admitting the replacement slice on the manager and worker2", func() {
+			util.SetQuotaReservation(manager.ctx, manager.client, newWlKey, admission.Obj())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker2.client.Get(worker2.ctx, newWlKey, &kueue.Workload{})).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.SetQuotaReservation(worker2.ctx, worker2.client, newWlKey, admission.Obj())
+		})
+
+		ginkgo.By("the replacement slice is admitted and the worker RayJob keeps its child with the repointed prebuilt label", func() {
+			util.ExpectAdmissionCheckStateWithMessage(
+				manager.ctx, manager.client, newWlKey,
+				multiKueueAC.Name,
+				kueue.CheckStateReady,
+				`The workload was admitted on "worker2"`,
+			)
+			gomega.Eventually(func(g gomega.Gomega) {
+				workerRayJob := &rayv1.RayJob{}
+				g.Expect(worker2.client.Get(worker2.ctx, client.ObjectKeyFromObject(rayjob), workerRayJob)).To(gomega.Succeed())
+				g.Expect(jobframework.PrebuiltWorkloadNameFor(workerRayJob)).To(gomega.Equal(newWlKey.Name))
+				g.Expect(workerRayJob.Spec.Suspend).To(gomega.BeFalse(), "the worker RayJob must not get suspended mid-handover")
+				child := &rayv1.RayCluster{}
+				g.Expect(worker2.client.Get(worker2.ctx, childKey, child)).To(gomega.Succeed(), "the child RayCluster must survive the handover")
+				g.Expect(ptr.Deref(child.Spec.WorkerGroupSpecs[0].Replicas, -1)).To(gomega.BeEquivalentTo(int32(2)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 

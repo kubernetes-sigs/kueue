@@ -524,6 +524,37 @@ func TestUpdatePodSets(t *testing.T) {
 				*utiltestingapi.MakePodSet("workers", 3).Obj(),
 			},
 		},
+		// On a MultiKueue manager the child RayCluster only exists on the worker
+		// cluster; its counts are reflected as an annotation by the MultiKueue
+		// workload controller and used as the fallback source.
+		"raycluster absent - counts fall back to the MultiKueue runtime annotation": {
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
+				*utiltestingapi.MakePodSet("workers", 3).Obj(),
+			},
+			object: testingrayutil.MakeCluster("rayjob-owner", "ns").
+				SetAnnotation("kueue.x-k8s.io/elastic-job", "true").
+				SetAnnotation(MultiKueueRuntimePodSetReplicaSizesAnnotation, `[{"name":"workers","count":5}]`).
+				Obj(),
+			enableInTreeAutoscaling: new(true),
+			rayClusterName:          "nonexistent-child",
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
+				*utiltestingapi.MakePodSet("workers", 5).Obj(),
+			},
+		},
+		"raycluster absent - malformed MultiKueue runtime annotation returns an error": {
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("workers", 3).Obj(),
+			},
+			object: testingrayutil.MakeCluster("rayjob-owner", "ns").
+				SetAnnotation("kueue.x-k8s.io/elastic-job", "true").
+				SetAnnotation(MultiKueueRuntimePodSetReplicaSizesAnnotation, `not-json`).
+				Obj(),
+			enableInTreeAutoscaling: new(true),
+			rayClusterName:          "nonexistent-child",
+			wantErr:                 true,
+		},
 		"empty rayClusterName - no update": {
 			podSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
@@ -1470,7 +1501,10 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"worker","count":5}]`,
 			},
 		},
-		"raycluster not found returns annotations with empty generation": {
+		// On a MultiKueue manager the child RayCluster only exists on the worker
+		// cluster; the generation annotation is maintained by the MultiKueue
+		// workload controller there and must not be clobbered with an empty value.
+		"raycluster not found preserves the generation annotation": {
 			annotations: map[string]string{
 				workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
 			},
@@ -1481,7 +1515,6 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 			rayClusterName:  "nonexistent-raycluster",
 			registerRayType: true,
 			wantAnnotation: map[string]string{
-				RayClusterGenerationAnnotation:         "",
 				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"worker","count":3}]`,
 			},
 		},

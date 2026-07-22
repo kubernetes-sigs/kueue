@@ -367,6 +367,13 @@ func (j *JobWrapper) MaxWorkerReplicas(count int32) *JobWrapper {
 	return j
 }
 
+// RayClusterNameStatus sets status.rayClusterName, the name of the child
+// RayCluster KubeRay created for this RayJob.
+func (j *JobWrapper) RayClusterNameStatus(name string) *JobWrapper {
+	j.Status.RayClusterName = name
+	return j
+}
+
 // RayStartParam sets a Ray start param for the specified ray node type.
 func (j *JobWrapper) RayStartParam(rayType rayv1.RayNodeType, key, value string) *JobWrapper {
 	switch rayType {
