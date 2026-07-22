@@ -1668,6 +1668,29 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"valid capacity source": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationConsumableCapacity: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"vgpu.example.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Capacity: &configapi.DeviceClassCapacitySource{
+									Name:   "memory",
+									Driver: "gpu.example.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.example.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+		},
 		"valid capacity source with qualified name": {
 			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationConsumableCapacity: true},
 			cfg: &configapi.Configuration{
