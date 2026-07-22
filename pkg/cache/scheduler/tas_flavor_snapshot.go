@@ -1662,7 +1662,7 @@ func (s *TASFlavorSnapshot) buildTopologyAssignmentForLevels(domains []*domain, 
 
 func (s *TASFlavorSnapshot) buildAssignment(domains []*domain) *utiltas.TopologyAssignment {
 	// lex sort domains by their levelValues instead of IDs, as leaves' IDs can only contain the hostname
-	slices.SortFunc(domains, compareDomainLevelValues)
+	slices.SortFunc(domains, s.compareDomainLevelValues)
 	levelIdx := 0
 	// assign only hostname values if topology defines it
 	if s.isLowestLevelNode {
@@ -1679,8 +1679,15 @@ func (s *TASFlavorSnapshot) lowerLevelDomains(domains []*domain) []*domain {
 	return result
 }
 
+func (s *TASFlavorSnapshot) compareDomainLevelValues(a, b *domain) int {
+	if s.isLowestLevelNode && a.parent == b.parent {
+		return strings.Compare(a.levelValues[len(a.levelValues)-1], b.levelValues[len(b.levelValues)-1])
+	}
+	return compareDomainLevelValues(a, b)
+}
+
 func compareDomainLevelValues(a, b *domain) int {
-	return slices.Compare(a.levelValues, b.levelValues)
+	return slices.CompareFunc(a.levelValues, b.levelValues, strings.Compare)
 }
 
 func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstrained bool) []*domain {
@@ -1709,7 +1716,7 @@ func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstra
 			return cmp.Compare(a.stateWithLeader, b.stateWithLeader)
 		}
 
-		return compareDomainLevelValues(a, b)
+		return s.compareDomainLevelValues(a, b)
 	})
 	return result
 }
@@ -1743,7 +1750,7 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool)
 			return cmp.Compare(a.state, b.state)
 		}
 
-		return compareDomainLevelValues(a, b)
+		return s.compareDomainLevelValues(a, b)
 	})
 	return result
 }
