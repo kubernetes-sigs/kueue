@@ -22,10 +22,8 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	testingclock "k8s.io/utils/clock/testing"
@@ -55,8 +53,9 @@ func TestAllAtOnceDispatcherReconciler_Reconcile(t *testing.T) {
 		clusters       []kueue.MultiKueueCluster
 	}{
 		"workload not found": {
+			// Deleted between enqueue and reconcile: treated as a no-op, not an error.
 			workload: nil,
-			wantErr:  apierrors.NewNotFound(schema.GroupResource{Group: kueue.SchemeGroupVersion.Group, Resource: "workloads"}, workloadName),
+			wantErr:  nil,
 		},
 		"workload deleted": {
 			workload: baseWorkload.Clone().DeletionTimestamp(now).Finalizers("kubernetes").Obj(),

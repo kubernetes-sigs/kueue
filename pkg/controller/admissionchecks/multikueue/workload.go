@@ -30,6 +30,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -920,14 +921,19 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 		for workerName := range group.remotes {
 			nominatedWorkers = append(nominatedWorkers, workerName)
 		}
-		if !nominatedClusterSetsEqual(group.local.Status.NominatedClusterNames, nominatedWorkers) {
-			if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
-				wl.Status.NominatedClusterNames = nominatedWorkers
-				return true, nil
-			}); err != nil {
-				log.V(2).Error(err, "Failed to patch nominated clusters", "workload", klog.KObj(group.local))
-				return reconcile.Result{}, err
+
+		// group.remotes is a map, so iteration order is non-deterministic; sort only
+		// when we are about to persist, for a stable stored nomination.
+		slices.Sort(nominatedWorkers)
+		if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
+			if sets.New(wl.Status.NominatedClusterNames...).Equal(sets.New(nominatedWorkers...)) {
+				return false, nil
 			}
+			wl.Status.NominatedClusterNames = nominatedWorkers
+			return true, nil
+		}); err != nil {
+			log.V(2).Error(err, "Failed to patch nominated clusters", "workload", klog.KObj(group.local))
+			return reconcile.Result{}, err
 		}
 	} else {
 		// A dispatcher placed outside this file (AllAtOnce when MultiKueueAllAtOnceExternal=true,
@@ -958,14 +964,13 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 				}
 			}
 		} else if remoteWl != nil {
-			// Preserve a remote workload that is currently Evicted: reconcileGroup
-			// needs it (with WorkloadEvicted=True) to call SyncJob and
-			// propagate the remote job's termination back to the manager Job.
-			// Deleting it here breaks the eviction-recovery flow because
-			// bestMatchByCondition(WorkloadEvicted) becomes nil, SyncJob is no
-			// longer called, and the manager Job's Status.Active is never updated.
-			// The remote will be cleaned up later, once the local workload is
-			// re-admitted (or finishes / loses its quota reservation).
+			// Keep a remote that still carries WorkloadEvicted=True. reconcileGroup's
+			// eviction handling keys off bestMatchByCondition(WorkloadEvicted) to drive
+			// recovery: SyncJob for a manager-side eviction, or resetting the
+			// AdmissionCheck for re-admission after a worker-side eviction. Deleting the
+			// remote here erases that signal, so neither path runs and the eviction is
+			// never processed. It is cleaned up later, once the local workload is
+			// re-admitted, finishes, or loses its quota reservation.
 			if workloadevict.IsEvicted(remoteWl) {
 				log.V(3).Info("Preserving evicted remote workload to allow eviction-recovery sync", "remote", rem)
 				continue
