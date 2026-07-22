@@ -463,7 +463,7 @@ func (i *Info) CalcLocalQueueFSUsage(
 	lqObjKey := client.ObjectKey{Namespace: i.Obj.Namespace, Name: string(i.Obj.Spec.QueueName)}
 	if err := c.Get(ctx, lqObjKey, &lq); err != nil {
 		if apierrors.IsNotFound(err) {
-			log.FromContext(ctx).V(3).Info("LocalQueue is missing, gracefully falling back to the default weight (1.0)", "localQueue", klog.KRef(lqObjKey.Namespace, lqObjKey.Name))
+			ctrl.LoggerFrom(ctx).V(3).Info("LocalQueue is missing, gracefully falling back to the default weight (1.0)", "localQueue", lqObjKey)
 			return afs.CalculateUsage(consumed, penalty, 1.0, resWeights), nil
 		}
 		return 0, err
