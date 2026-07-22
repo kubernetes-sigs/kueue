@@ -35,7 +35,7 @@ func NewSliceRequests(req MapRequests) *SliceRequests {
 		if val != 0 {
 			sr = append(sr, ResourceEntry{
 				name:  name,
-				hash:  HashResourceName(name),
+				hash:  hashResourceName(name),
 				value: val,
 			})
 		}
@@ -123,8 +123,8 @@ func TestSliceRequests_EdgeCases(t *testing.T) {
 func TestSliceRequests_MergeWithInPlace(t *testing.T) {
 	t.Run("with sufficient capacity", func(t *testing.T) {
 		base := make(SliceRequests, 0, 4)
-		base = append(base, ResourceEntry{name: corev1.ResourceCPU, hash: HashResourceName(corev1.ResourceCPU), value: 1000})
-		other := SliceRequests{ResourceEntry{name: corev1.ResourceMemory, hash: HashResourceName(corev1.ResourceMemory), value: 2048}}
+		base = append(base, ResourceEntry{name: corev1.ResourceCPU, hash: hashResourceName(corev1.ResourceCPU), value: 1000})
+		other := SliceRequests{ResourceEntry{name: corev1.ResourceMemory, hash: hashResourceName(corev1.ResourceMemory), value: 2048}}
 
 		base.MergeWithInPlace(other, func(a, b int64) int64 { return a + b })
 		want := MapRequests{corev1.ResourceCPU: 1000, corev1.ResourceMemory: 2048}
