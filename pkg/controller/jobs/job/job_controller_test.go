@@ -22,7 +22,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	batchv1 "k8s.io/api/batch/v1"
@@ -4569,7 +4568,6 @@ func TestCleanLabels(t *testing.T) {
 		})
 	}
 }
->>>>>>> 83fa0807d (feat: implement configurable QuotaReleaseStrategy (KEP-6143))
 
 func TestJob_IsActive(t *testing.T) {
 	tests := map[string]struct {
@@ -4641,4 +4639,3 @@ func TestJob_IsActive(t *testing.T) {
 		})
 	}
 }
->>>>>>> 83fa0807d (feat: implement configurable QuotaReleaseStrategy (KEP-6143))

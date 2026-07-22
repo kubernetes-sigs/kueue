@@ -575,7 +575,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			return ctrl.Result{}, err
 		}
 		if workload.HasQuotaReservation(wl) {
-			ctx = context.WithValue(ctx, quotaReleaseStrategyKey, r.quotaReleaseStrategy)
+			ctx = ContextWithQuotaReleaseStrategy(ctx, configapi1.QuotaReleaseStrategy(r.quotaReleaseStrategy))
 			if !job.IsActive(ctx) {
 				log.V(6).Info("The job is no longer active, clear the workloads admission")
 				err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
@@ -1666,7 +1666,7 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 	// Wait until there are no active pods, unless this is a workload-slice job.
 	// For workload-slice enabled jobs, we allow the job to remain "Active" to accommodate
 	// the scale-up case, where the new workload slice replaces the old workload slice.
-	ctx = context.WithValue(ctx, quotaReleaseStrategyKey, r.quotaReleaseStrategy)
+	ctx = ContextWithQuotaReleaseStrategy(ctx, configapi1.QuotaReleaseStrategy(r.quotaReleaseStrategy))
 	if job.IsActive(ctx) && !WorkloadSliceEnabled(job) {
 		log.V(2).Info("Job is suspended but still has active pods, waiting")
 		return nil
