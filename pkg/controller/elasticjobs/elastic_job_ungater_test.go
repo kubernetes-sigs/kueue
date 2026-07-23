@@ -54,16 +54,55 @@ var podCmpOpts = []gocmp.Option{
 
 var rayClusterGVK = schema.GroupVersionKind{Group: "ray.io", Version: "v1", Kind: "RayCluster"}
 
+const (
+	headPodSet    kueue.PodSetReference = "head"
+	workersPodSet kueue.PodSetReference = "workers"
+)
+
+func makeAdmittedTwoPodSetWorkload(now time.Time) *kueue.Workload {
+	return utiltestingapi.MakeWorkload("wl", "ns").
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+		ControllerReference(rayClusterGVK, "ray", "ray-uid").
+		PodSets(
+			*utiltestingapi.MakePodSet(headPodSet, 1).Request(corev1.ResourceCPU, "1").Obj(),
+			*utiltestingapi.MakePodSet(workersPodSet, 2).Request(corev1.ResourceCPU, "1").Obj(),
+		).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("cq").
+				PodSets(
+					utiltestingapi.MakePodSetAssignment(headPodSet).
+						Assignment(corev1.ResourceCPU, "flavor", "1").
+						Obj(),
+					utiltestingapi.MakePodSetAssignment(workersPodSet).
+						Assignment(corev1.ResourceCPU, "flavor", "2").
+						Obj(),
+				).
+				Obj(), now,
+		).
+		AdmittedAt(true, now).
+		Obj()
+}
+
+func makeElasticPodForPodSet(name string, podSet kueue.PodSetReference) *testingpod.PodWrapper {
+	return testingpod.MakePod(name, "ns").
+		Annotation(kueue.WorkloadAnnotation, "wl").
+		Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+		Label(constants.PodSetLabel, string(podSet))
+}
+
 func TestReconcile(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 	now := time.Now().Truncate(time.Second)
 
 	testCases := map[string]struct {
-		expectUIDs []types.UID
-		workloads  []kueue.Workload
-		pods       []corev1.Pod
-		wantPods   []corev1.Pod
-		wantErr    error
+		workloads []kueue.Workload
+		pods      []corev1.Pod
+		// skipDefaultPodSetLabels prevents default PodSet labeling so tests can verify that unlabeled Pods remain gated.
+		skipDefaultPodSetLabels bool
+		expectUIDs              []types.UID
+		wantPods                []corev1.Pod
+		wantErr                 error
 	}{
 		"ungate single pod": {
 			workloads: []kueue.Workload{
@@ -142,6 +181,117 @@ func TestReconcile(t *testing.T) {
 				*testingpod.MakePod("pod-2", "ns").
 					Annotation(kueue.WorkloadAnnotation, "wl").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Obj(),
+			},
+		},
+		"ungate pods independently per podset": {
+			workloads: []kueue.Workload{
+				*makeAdmittedTwoPodSetWorkload(now),
+			},
+			pods: []corev1.Pod{
+				*makeElasticPodForPodSet("head-0", headPodSet).
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+				*makeElasticPodForPodSet("head-1", headPodSet).
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+				*makeElasticPodForPodSet("worker-0", workersPodSet).
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+				*makeElasticPodForPodSet("worker-1", workersPodSet).
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+				*makeElasticPodForPodSet("worker-2", workersPodSet).
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*makeElasticPodForPodSet("head-0", headPodSet).Obj(),
+				*makeElasticPodForPodSet("head-1", headPodSet).
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+				*makeElasticPodForPodSet("worker-0", workersPodSet).Obj(),
+				*makeElasticPodForPodSet("worker-1", workersPodSet).Obj(),
+				*makeElasticPodForPodSet("worker-2", workersPodSet).
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+		},
+		"do not share spare capacity between podsets": {
+			workloads: []kueue.Workload{
+				*makeAdmittedTwoPodSetWorkload(now),
+			},
+			pods: []corev1.Pod{
+				*makeElasticPodForPodSet("head-running", headPodSet).Obj(),
+				*makeElasticPodForPodSet("head-waiting", headPodSet).
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+				*makeElasticPodForPodSet("worker-waiting", workersPodSet).
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*makeElasticPodForPodSet("head-running", headPodSet).Obj(),
+				*makeElasticPodForPodSet("head-waiting", headPodSet).
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+				*makeElasticPodForPodSet("worker-waiting", workersPodSet).Obj(),
+			},
+		},
+		"terminal pod frees capacity only in its podset": {
+			workloads: []kueue.Workload{
+				*makeAdmittedTwoPodSetWorkload(now),
+			},
+			pods: []corev1.Pod{
+				*makeElasticPodForPodSet("head-succeeded", headPodSet).
+					StatusPhase(corev1.PodSucceeded).
+					Obj(),
+				*makeElasticPodForPodSet("head-waiting", headPodSet).
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+				*makeElasticPodForPodSet("worker-running-0", workersPodSet).
+					StatusPhase(corev1.PodRunning).
+					Obj(),
+				*makeElasticPodForPodSet("worker-running-1", workersPodSet).
+					StatusPhase(corev1.PodRunning).
+					Obj(),
+				*makeElasticPodForPodSet("worker-waiting", workersPodSet).
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*makeElasticPodForPodSet("head-succeeded", headPodSet).
+					StatusPhase(corev1.PodSucceeded).
+					Obj(),
+				*makeElasticPodForPodSet("head-waiting", headPodSet).Obj(),
+				*makeElasticPodForPodSet("worker-running-0", workersPodSet).
+					StatusPhase(corev1.PodRunning).
+					Obj(),
+				*makeElasticPodForPodSet("worker-running-1", workersPodSet).
+					StatusPhase(corev1.PodRunning).
+					Obj(),
+				*makeElasticPodForPodSet("worker-waiting", workersPodSet).
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+		},
+		"do not ungate pod without podset label": {
+			skipDefaultPodSetLabels: true,
+			workloads: []kueue.Workload{
+				*makeAdmittedTwoPodSetWorkload(now),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Gate(kueue.ElasticJobSchedulingGate).
 					Obj(),
 			},
 		},
@@ -678,11 +828,13 @@ func TestReconcile(t *testing.T) {
 
 			// Real elastic pods always carry the PodSet label; default it here so the
 			// per-PodSet ungating cap has a key to match against.
-			for i := range tc.pods {
-				ensureDefaultPodSetLabel(&tc.pods[i])
-			}
-			for i := range tc.wantPods {
-				ensureDefaultPodSetLabel(&tc.wantPods[i])
+			if !tc.skipDefaultPodSetLabels {
+				for i := range tc.pods {
+					ensureDefaultPodSetLabel(&tc.pods[i])
+				}
+				for i := range tc.wantPods {
+					ensureDefaultPodSetLabel(&tc.wantPods[i])
+				}
 			}
 
 			clientBuilder := utiltesting.NewClientBuilder().

@@ -1,11 +1,11 @@
 header:
   schema-version: 1.0.0
   expiration-date: '2027-07-10T01:00:00.000Z'
-  last-updated: '2026-07-10'
-  last-reviewed: '2026-07-10'
-  commit-hash: "afd60c37e0c86de83dc0e708f76016b8debe1498"
+  last-updated: '2026-07-14'
+  last-reviewed: '2026-07-14'
+  commit-hash: "2a3069690648920bed30457eb3231f94d8f30d77"
   project-url: 'https://github.com/kubernetes-sigs/kueue'
-  project-release: "0.18.3"
+  project-release: "0.19.0"
   changelog: 'https://github.com/kubernetes-sigs/kueue/tree/main/CHANGELOG'
   license: 'https://github.com/kubernetes-sigs/kueue/blob/main/LICENSE'
 project-lifecycle:
@@ -28,7 +28,7 @@ documentation:
   - 'https://kueue.sigs.k8s.io/docs/'
 distribution-points:
   - >-
-    https://github.com/kubernetes-sigs/kueue/releases/download/v0.18.3/manifests.yaml
+    https://github.com/kubernetes-sigs/kueue/releases/download/v0.19.0/manifests.yaml
 security-artifacts:
   threat-model:
     threat-model-created: false
@@ -58,22 +58,13 @@ vulnerability-reporting:
   bug-bounty-available: true
   bug-bounty-url: 'https://hackerone.com/kubernetes'
   in-scope:
-    - Privilege escalation or RBAC bypass allowing viewing or editing of
-      restricted information managed by Kueue (for example, viewing restricted
-      information via KueueViz)
-    - Workload quota bypass at admission time or post-admission (for example,
-      admitting a workload within quota and later increasing its resource usage
-      beyond what was admitted)
-    - Quota hijacking, or otherwise consuming resources that were not granted,
-      without admin access, even when other tenants' quotas and workloads are
-      not affected
-    - Tenant isolation breakout across ClusterQueues, LocalQueues, and Cohorts
-      (for example, quota borrowing or preemption affecting workloads of another
-      tenant)
+    - Privilege escalation or RBAC bypass allowing viewing or editing of restricted information managed by Kueue (for example, viewing restricted information via KueueViz)
+    - Workload quota bypass at admission time or post-admission (for example, admitting a workload within quota and later increasing its resource usage beyond what was admitted)
+    - Quota hijacking, or otherwise consuming resources that were not granted, without admin access, even when other tenants' quotas and workloads are not affected
+    - Tenant isolation breakout across ClusterQueues, LocalQueues, and Cohorts (for example, quota borrowing or preemption affecting workloads of another tenant)
     - Insecure RBAC defaults in the shipped manifests or Helm chart
   out-scope:
-    - Vulnerabilities in Kubernetes core, which are delegated to the upstream
-      Kubernetes security process at https://kubernetes.io/security/
+    - Vulnerabilities in Kubernetes core, which are delegated to the upstream Kubernetes security process at https://kubernetes.io/security/
     - Issues that only affect unsupported Kueue releases
     - Insecure configuration in a consuming cluster
     - Reports that require pre-existing privileged (cluster-admin) access
@@ -82,7 +73,7 @@ dependencies:
   dependencies-lists:
     - 'https://github.com/kubernetes-sigs/kueue/blob/main/go.mod'
   sbom:
-    - sbom-file: https://github.com/kubernetes-sigs/kueue/releases/download/v0.18.3/kueue-v0.18.3.spdx.json
+    - sbom-file: https://github.com/kubernetes-sigs/kueue/releases/download/v0.19.0/kueue-v0.19.0.spdx.json
       sbom-format: SPDX
   dependencies-lifecycle:
     policy-url: 'https://github.com/kubernetes-sigs/kueue/blob/main/DEPENDENCY_LIFECYCLE.md'
