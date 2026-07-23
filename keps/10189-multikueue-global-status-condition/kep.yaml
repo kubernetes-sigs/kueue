@@ -1,0 +1,37 @@
+title: MultiKueue Global Status Condition
+kep-number: 10189
+authors:
+  - "@Singularity23x0"
+status: implementable
+creation-date: 2026-03-30
+reviewers:
+  - @kshalot 
+  - @olekzabl 
+  - @tenzen-y 
+approvers:
+  - @tenzen-y 
+
+# The target maturity stage in the current dev cycle for this KEP.
+stage: "KEP Merged"
+
+# The most recent milestone for which work toward delivery of this KEP has been
+# done. This can be the current (upcoming) milestone, if it is being actively
+# worked on.
+latest-milestone: TBD
+
+# The milestone at which this feature was, or is targeted to be, at each stage.
+milestone:
+  alpha-1: TBD
+  alpha-2: TBD
+  beta: TBD
+  stable: TBD
+
+# The following PRR answers are required at alpha release
+# List the feature gate name and the components for which it must be enabled
+feature-gates:
+  - name: MultiKueueGlobalStatusCondition
+disable-supported: true
+
+# The following PRR answers are required at beta release
+# metrics:
+#   - my_feature_metric
