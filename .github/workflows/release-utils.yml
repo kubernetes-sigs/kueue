@@ -57,6 +57,7 @@ jobs:
         id: parse
         env:
           BODY: ${{ github.event.comment.body }}
+          COMMENT: ${{ github.event.comment.html_url }}
           TITLE: ${{ github.event.issue.title }}
           ISSUE_BODY: ${{ github.event.issue.body }}
         run: |
@@ -95,7 +96,7 @@ jobs:
           elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/publish-release[[:space:]]*$'; then
             COMMAND="publish-release"
           else
-            echo "error_message=❌ Invalid command format." >> "$GITHUB_OUTPUT"
+            echo "error_message=❌ Invalid command format in comment: $COMMENT." >> "$GITHUB_OUTPUT"
             exit 1
           fi
           echo "command=$COMMAND" >> "$GITHUB_OUTPUT"
