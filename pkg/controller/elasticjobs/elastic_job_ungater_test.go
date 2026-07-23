@@ -96,12 +96,14 @@ func TestReconcile(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 
 	testCases := map[string]struct {
+		workloads []kueue.Workload
+		pods      []corev1.Pod
+		// skipDefaultPodSetLabels keeps the Pod fixtures unlabeled so a test can
+		// verify that Pods without a PodSet label remain gated.
+		skipDefaultPodSetLabels bool
 		expectUIDs              []types.UID
-		workloads               []kueue.Workload
-		pods                    []corev1.Pod
 		wantPods                []corev1.Pod
 		wantErr                 error
-		skipDefaultPodSetLabels bool
 	}{
 		"ungate single pod": {
 			workloads: []kueue.Workload{
