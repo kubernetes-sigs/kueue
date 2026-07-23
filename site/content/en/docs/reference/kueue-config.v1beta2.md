@@ -665,12 +665,12 @@ for devices that allow multiple allocations (KEP-5075).</p>
     
   
 <tr><td><code>name</code> <B>[Required]</B><br/>
-<code>string</code>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#qualifiedname-v1-resource"><code>k8s.io/api/resource/v1.QualifiedName</code></a>
 </td>
 <td>
    <p>Name identifies the capacity dimension to track for quota
-(e.g., &quot;gpu.memory&quot;).
-Must not exceed 63 characters.</p>
+(e.g., &quot;gpu.example.com/memory&quot;).
+Must be a valid DRA QualifiedName.</p>
 </td>
 </tr>
 <tr><td><code>driver</code> <B>[Required]</B><br/>

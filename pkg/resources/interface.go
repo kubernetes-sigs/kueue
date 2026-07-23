@@ -32,4 +32,6 @@ type Requests interface {
 	ForEach(fn func(name corev1.ResourceName, val int64))
 	Len() int
 	IsEmpty() bool
+	// FloorToZero replaces negative resource values with zero.
+	FloorToZero()
 }

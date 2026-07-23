@@ -161,6 +161,28 @@ func TestNewInfo(t *testing.T) {
 				},
 			},
 		},
+		"negative request floored to zero in total requests": {
+			workload: *utiltestingapi.MakeWorkload("", "").
+				PodSets(
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+						Request(corev1.ResourceCPU, "-10m").
+						Request(corev1.ResourceMemory, "512Ki").
+						Obj(),
+				).
+				Obj(),
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name: kueue.DefaultPodSetName,
+						Requests: resources.MapRequests{
+							corev1.ResourceCPU:    0,
+							corev1.ResourceMemory: 2 * 512 * 1024,
+						},
+						Count: 2,
+					},
+				},
+			},
+		},
 		"pending with reclaim; reclaimablePods on": {
 			workload: *utiltestingapi.MakeWorkload("", "").
 				PodSets(

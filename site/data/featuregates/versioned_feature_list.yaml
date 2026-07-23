@@ -527,6 +527,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.16"
+  - default: true
+    lockToDefault: true
+    preRelease: GA
+    version: "0.20"
 - name: TopologyAwareScheduling
   versionedSpecs:
   - default: false
@@ -583,3 +587,9 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.14"
+- name: WorkloadValidateResourcesAreNonNegative
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"

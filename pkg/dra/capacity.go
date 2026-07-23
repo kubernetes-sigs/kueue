@@ -171,7 +171,7 @@ func processCapacityCharge(
 		// Resolve the explicit capacity request from the claim, if any.
 		var explicitRequest *resource.Quantity
 		if exactly.Capacity != nil {
-			if reqVal, ok := exactly.Capacity.Requests[resourcev1.QualifiedName(capCfg.resourceName)]; ok {
+			if reqVal, ok := exactly.Capacity.Requests[capCfg.resourceName]; ok {
 				explicitRequest = &reqVal
 			}
 		}
@@ -202,14 +202,13 @@ func computeCapacityCharge(
 	explicitRequest *resource.Quantity,
 	reqPath *field.Path,
 ) (*resource.Quantity, field.ErrorList) {
-	dimName := resourcev1.QualifiedName(capCfg.resourceName)
 	var maxRounded resource.Quantity
 	hasDimension := false
 	hasValidCharge := false
 
 	for i := range matched {
 		dev := &matched[i]
-		capDim, ok := dev.Capacity[dimName]
+		capDim, ok := dev.Capacity[capCfg.resourceName]
 		if !ok {
 			log.V(4).Info("Device has no capacity dimension, skipping",
 				"device", dev.Name, "dimension", capCfg.resourceName)
@@ -243,7 +242,7 @@ func computeCapacityCharge(
 		)}
 	}
 
-	chargeValue := safeChargeValue(log, maxRounded, capCfg.driver, capCfg.resourceName, count)
+	chargeValue := safeChargeValue(log, maxRounded, capCfg.driver, string(capCfg.resourceName), count)
 	result := resource.NewQuantity(chargeValue, maxRounded.Format)
 	return result, nil
 }
