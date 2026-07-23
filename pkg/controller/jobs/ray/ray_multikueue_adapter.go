@@ -202,8 +202,6 @@ func (a *adapter[PtrT, T]) SyncJob(
 			return false, err
 		}
 		if a.autoscalingEnabled(localJob) {
-			// A suspended remote's replicas were restored by the worker's Kueue
-			// while stopping, not set by the autoscaler; do not reflect them back.
 			if !a.elastic.RemoteSuspended(remoteJob) {
 				changed, err := a.reverseSync(ctx, localClient, remoteClient, localJob, remoteJob)
 				if err != nil || changed {
