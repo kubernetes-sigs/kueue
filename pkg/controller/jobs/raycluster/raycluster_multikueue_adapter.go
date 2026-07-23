@@ -97,11 +97,14 @@ func reflectWorkerReplicas(dst, src *rayv1.RayCluster) bool {
 	return changed
 }
 
-// syncWorkerReplicas is the manager-driven push onto the remote copy in dst:
-// it copies each worker group's Replicas, MinReplicas, MaxReplicas and
-// NumOfHosts from src, matching groups by name, and returns whether dst
-// changed. Replicas and NumOfHosts feed the effective per-group pod count
-// that needElasticSync compares (see WorkerGroupPodCounts).
+// syncWorkerReplicas copies each worker group's Replicas, MinReplicas,
+// MaxReplicas and NumOfHosts from src into dst, matching groups by name, and
+// returns whether dst changed. Replicas and NumOfHosts feed the effective
+// per-group pod count that needElasticSync compares (see workerReplicaCounts).
+// MinReplicas and MaxReplicas must follow Replicas so a manager-driven resize
+// keeps the remote within the webhook-enforced
+// replicas == minReplicas == maxReplicas pin; otherwise the remote autoscaler
+// would see replicas outside its [min, max] range and resize on its own.
 func syncWorkerReplicas(dst, src *rayv1.RayCluster) bool {
 	type groupSize struct {
 		replicas    *int32
