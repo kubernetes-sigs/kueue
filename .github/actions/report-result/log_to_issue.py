@@ -4,6 +4,12 @@ import re
 import os
 from datetime import datetime
 
+MARKER = "<!-- release-log-comment -->"
+LOG_HEADER = "# Log"
+HISTORY_HEADER = "# History"
+DETAILS_START = "<details>\n<summary>History</summary>"
+DETAILS_END = "</details>"
+
 def main():
     command = os.environ.get("INPUT_COMMAND", "").strip()
     message = os.environ.get("INPUT_MESSAGE", "").strip()
@@ -18,20 +24,19 @@ def main():
 
     comment_body = os.environ.get("COMMENT_BODY", "").strip()
 
-    new_entry = f"## {command}\nCommand: {command}\nTriggered by: {actor}\nTimestamp: {timestamp}\nAction link: {action_link}\n\n{message}"
+    title = command.replace("-", " ").capitalize()
+    new_entry = f"## {title}\nCommand: /{command}\nTriggered by: {actor}\nTimestamp: {timestamp}\nAction link: {action_link}\n\n{message}"
 
-    marker = "<!-- release-log-comment -->"
-
-    if not comment_body or marker not in comment_body:
+    if not comment_body or MARKER not in comment_body:
         if not cleanup:
-            body = f"{marker}\n# Log\n\n{new_entry}"
+            body = f"{MARKER}\n{LOG_HEADER}\n\n{new_entry}"
             print(body)
         else:
-            print(f"{marker}\n# Log")
+            print(f"{MARKER}\n{LOG_HEADER}")
         return
 
     # Split Log and History
-    history_match = re.search(r'^# History\b', comment_body, re.MULTILINE | re.IGNORECASE)
+    history_match = re.search(r'^' + re.escape(HISTORY_HEADER) + r'\b', comment_body, re.MULTILINE | re.IGNORECASE)
     
     if history_match:
         log_part = comment_body[:history_match.start()].strip()
@@ -41,7 +46,7 @@ def main():
         history_part = ""
 
     # Find if an entry for command exists in the Log section
-    entry_pattern = r'(^## ' + re.escape(command) + r'\b.*?)(?=\n## |\n# |$)'
+    entry_pattern = r'(^## ' + re.escape(title) + r'\b.*?)(?=\n## |\n# |$)'
     entry_match = re.search(entry_pattern, log_part, re.DOTALL | re.MULTILINE)
 
     old_entry = ""
@@ -53,14 +58,14 @@ def main():
 
     # Append new entry to Log section if not cleanup
     if not cleanup:
-        if not re.search(r'^# Log\b', log_part, re.MULTILINE | re.IGNORECASE):
-            log_part = f"# Log\n\n{log_part}".strip()
+        if not re.search(r'^' + re.escape(LOG_HEADER) + r'\b', log_part, re.MULTILINE | re.IGNORECASE):
+            log_part = f"{LOG_HEADER}\n\n{log_part}".strip()
         log_part = f"{log_part}\n\n{new_entry}".strip()
 
     # Handle History
     if old_entry:
         if not history_part:
-            history_part = f"# History\n\n<details>\n<summary>History</summary>\n\n{old_entry}\n</details>"
+            history_part = f"{HISTORY_HEADER}\n\n{DETAILS_START}\n\n{old_entry}\n{DETAILS_END}"
         else:
             # Prepend old entry to details block
             details_pattern = r'(<details>\s*<summary>History</summary>\s*)(.*?)(\s*</details>)'
@@ -72,15 +77,15 @@ def main():
                 new_content = f"{old_entry}\n\n{content}" if content else old_entry
                 history_part = history_part[:details_match.start()] + f"{prefix}\n{new_content}\n{suffix}" + history_part[details_match.end():]
             else:
-                history_part = history_part.rstrip() + f"\n\n<details>\n<summary>History</summary>\n\n{old_entry}\n</details>"
+                history_part = history_part.rstrip() + f"\n\n{DETAILS_START}\n\n{old_entry}\n{DETAILS_END}"
 
     # Reconstruct final comment
     final_body = log_part
     if history_part:
         final_body += f"\n\n{history_part}"
 
-    if not final_body.startswith(marker):
-        final_body = f"{marker}\n{final_body}"
+    if not final_body.startswith(MARKER):
+        final_body = f"{MARKER}\n{final_body}"
 
     print(final_body)
 
