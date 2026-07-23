@@ -1,0 +1,58 @@
+name: 'Report result'
+description: 'Logs command execution details to a dedicated release issue comment'
+inputs:
+  command:
+    description: 'The command name'
+    required: true
+  version:
+    description: 'The release version (e.g. v1.31.0)'
+    required: true
+  message:
+    description: 'The message/log content to post'
+    required: true
+  github-token:
+    description: 'GitHub Token'
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Log Execution Details
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        INPUT_COMMAND: ${{ inputs.command }}
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_MESSAGE: ${{ inputs.message }}
+      run: |
+        # Find the issue matching "Release <version>"
+        ISSUE_NUMBER=$(gh issue list --repo "${GITHUB_REPOSITORY}" --search "Release ${INPUT_VERSION} in:title" --json number --jq '.[0].number')
+        if [ -z "$ISSUE_NUMBER" ]; then
+          echo "Error: No issue found with title 'Release ${INPUT_VERSION}'" >&2
+          exit 1
+        fi
+
+        # Find the dedicated comment containing the marker
+        COMMENT_JSON=$(gh api repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}/comments --paginate --jq 'if type == "array" then .[] else . end | select(.body | contains("<!-- release-log-comment -->")) | {id: .id, body: .body}' | head -n 1)
+
+        if [ -n "$COMMENT_JSON" ]; then
+          COMMENT_ID=$(echo "$COMMENT_JSON" | jq -r '.id')
+          COMMENT_BODY=$(echo "$COMMENT_JSON" | jq -r '.body')
+        else
+          COMMENT_ID=""
+          COMMENT_BODY=""
+        fi
+
+        export COMMENT_BODY
+        
+        # Run python script to build the new comment body
+        python3 "${{ github.action_path }}/log_to_issue.py" > new_comment.md
+
+        if [ -n "$COMMENT_ID" ]; then
+          # Update existing comment
+          gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}" -F body=@new_comment.md
+        else
+          # Create new comment
+          gh issue comment "$ISSUE_NUMBER" --body-file new_comment.md
+        fi
