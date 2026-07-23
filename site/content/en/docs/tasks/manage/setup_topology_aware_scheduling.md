@@ -244,5 +244,5 @@ kind delete cluster
 
 - Learn about all [PodSet annotations](/docs/tasks/run/topology_aware_scheduling/) available to batch users.
 - Explore advanced features like Node Hotswap and failure recovery in [Topology-Aware Scheduling Concepts](/docs/concepts/topology_aware_scheduling).
-- Combine TAS with [MultiKueue](/docs/tasks/manage/setup_multikueue/#setup-with-topology-aware-scheduling-tas).
+- Combine TAS with [MultiKueue](/docs/tasks/manage/setup_multikueue/#create-a-sample-setup-with-tas).
 - Read about [TAS drawbacks](/docs/concepts/topology_aware_scheduling/#drawbacks).
