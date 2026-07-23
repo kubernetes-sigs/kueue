@@ -807,8 +807,15 @@ func constructGroupPodSetsFast(pods []corev1.Pod, groupTotalCount int) ([]kueue.
 
 // podExceedsRequests reports whether the pod requests more of any resource than reserved
 // for its role. Unreserved resources count as zero.
+// NewRequestsFromPodSpec may return a nil Requests for empty specs; treat that as zero.
 func podExceedsRequests(pod *corev1.Pod, reserved resources.Requests) bool {
 	actual := resources.NewRequestsFromPodSpec(&pod.Spec)
+	if actual == nil {
+		return false
+	}
+	if reserved == nil {
+		reserved = resources.CreateEmpty()
+	}
 	exceeds := false
 	actual.ForEach(func(name corev1.ResourceName, value int64) {
 		if value > reserved.GetValue(name) {

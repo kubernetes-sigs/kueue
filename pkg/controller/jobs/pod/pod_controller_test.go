@@ -7188,6 +7188,16 @@ func TestPodExceedsRequests(t *testing.T) {
 			reserved: testingpod.MakePod("r", "ns").Request(corev1.ResourceCPU, "1").Obj(),
 			want:     true,
 		},
+		"empty pod and empty reserved do not exceed": {
+			pod:      testingpod.MakePod("p", "ns").Obj(),
+			reserved: testingpod.MakePod("r", "ns").Obj(),
+			want:     false,
+		},
+		"empty reserved treats missing resources as zero": {
+			pod:      testingpod.MakePod("p", "ns").Request(corev1.ResourceCPU, "1").Obj(),
+			reserved: testingpod.MakePod("r", "ns").Obj(),
+			want:     true,
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
