@@ -209,6 +209,16 @@ func (j *ServiceWrapper) WithServeConfigV2(config string) *ServiceWrapper {
 	return j
 }
 
+// GCSFaultTolerance enables GCS fault tolerance backed by the Redis instance at
+// redisAddress. On deletion KubeRay runs a Redis cleanup Job to purge the RayCluster's
+// GCS metadata namespace.
+func (j *ServiceWrapper) GCSFaultTolerance(redisAddress string) *ServiceWrapper {
+	j.Spec.RayClusterSpec.GcsFaultToleranceOptions = &rayv1.GcsFaultToleranceOptions{
+		RedisAddress: redisAddress,
+	}
+	return j
+}
+
 // Clone returns a deep copy of the RayService.
 func (j *ServiceWrapper) Clone() *ServiceWrapper {
 	return &ServiceWrapper{*j.DeepCopy()}

@@ -204,7 +204,7 @@ func checkPodSetAndFlavorMatchForTAS(cq *schdcache.ClusterQueueSnapshot, ps *kue
 
 // hasOverlapWithPodRequestedResources checks if the PodSet's resource requests overlap with the specified flavor resources.
 func hasOverlapWithPodRequestedResources(ps *kueue.PodSet, flavorResources sets.Set[corev1.ResourceName]) bool {
-	requests := resources.NewRequestsFromPodSpec(&ps.Template.Spec)
+	requests := resources.NewMapRequestsFromPodSpec(&ps.Template.Spec)
 	return flavorResources.HasAny(slices.Collect(maps.Keys(requests))...)
 }
 

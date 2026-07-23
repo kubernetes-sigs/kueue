@@ -46,6 +46,10 @@ const (
 	// Enables Kueue visibility on demand
 	VisibilityOnDemand featuregate.Feature = "VisibilityOnDemand"
 
+	// Allows disabling WaitForPodsReady during the migration period.
+	//
+	// Deprecated: planned to be removed in 0.21. Temporary option while WaitForPodsReady is enabled by default.
+	DisableWaitForPodsReady featuregate.Feature = "DisableWaitForPodsReady"
 	// owner: @yaroslava-serdiuk
 	// kep: https://github.com/kubernetes-sigs/kueue/issues/1283
 	//
@@ -72,18 +76,6 @@ const (
 	//
 	// Enables MultiKueue support.
 	MultiKueue featuregate.Feature = "MultiKueue"
-
-	// owners: @B1F030, @kerthcet
-	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/1224-lending-limit
-	//
-	// Enables lending limit.
-	LendingLimit featuregate.Feature = "LendingLimit"
-
-	// owner: @trasc
-	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/693-multikueue
-	//
-	// Enable the usage of batch.Job spec.managedBy field its MultiKueue integration.
-	MultiKueueBatchJobWithManagedBy featuregate.Feature = "MultiKueueBatchJobWithManagedBy"
 
 	// owner: @mimowo
 	//
@@ -152,6 +144,23 @@ const (
 	// In TAS, treat node as failed if the node is not ready and the pods assigned to this node terminate.
 	TASReplaceNodeOnPodTermination featuregate.Feature = "TASReplaceNodeOnPodTermination"
 
+	// owner: @yakticus
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
+	//
+	// Skip TAS assignment recomputation (failed-node replacement and
+	// post-eviction requeue) for Workloads owned by a single Pod; the pod
+	// cannot relocate and the Workload cannot outlive it, so a recomputed
+	// topologyAssignment only diverges from the node the pod runs on.
+	SkipReassignmentForPodOwnedWorkloads featuregate.Feature = "SkipReassignmentForPodOwnedWorkloads"
+
+	// owner: @yakticus
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
+	//
+	// Mark a TAS node as failed once it has been NotReady for NodeFailureDelay,
+	// regardless of pod state. When disabled, node replacement is driven solely
+	// by pod termination. Sunset gate: deprecated and off by default from 0.19.
+	TASReplaceNodeDueToNotReadyOverFixedTime featuregate.Feature = "TASReplaceNodeDueToNotReadyOverFixedTime"
+
 	// owner: @PannagaRao
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/3589-manage-jobs-selectively
 	//
@@ -165,6 +174,12 @@ const (
 	// Use balanced placement algorithm in TAS. This feature gate is going to be replaced by an API
 	// before graduation or deprecation.
 	TASBalancedPlacement featuregate.Feature = "TASBalancedPlacement"
+
+	// owner: @ShaanveerS
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
+	//
+	// Enable grouping v1beta2 TopologyAssignments by reusable hostname prefixes.
+	TASAssignmentsEncodingByHostnamePrefix featuregate.Feature = "TASAssignmentsEncodingByHostnamePrefix"
 
 	// owner: @alaypatel07
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2941-DRA
@@ -197,6 +212,14 @@ const (
 	// Enable counter-based quota for partitionable DRA devices (e.g., MIG). Tracks
 	// counter consumption from ResourceSlice devices via consumesCounters configuration.
 	KueueDRAIntegrationPartitionableDevices featuregate.Feature = "KueueDRAIntegrationPartitionableDevices"
+
+	// owner: @sohankunkerkar
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2941-DRA
+	//
+	// Enable capacity-based quota for DRA devices that allow multiple allocations
+	// (consumable capacity, KEP-5075). Tracks consumed capacity dimensions from the
+	// device's Capacity field and the workload's capacity.requests.
+	KueueDRAIntegrationConsumableCapacity featuregate.Feature = "KueueDRAIntegrationConsumableCapacity"
 
 	// owner: @khrm
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2349-multikueue-external-custom-job-support
@@ -387,6 +410,14 @@ const (
 	// Enables configurable stepSize for the MultiKueue Incremental Dispatcher.
 	MultiKueueIncrementalDispatcherConfig featuregate.Feature = "MultiKueueIncrementalDispatcherConfig"
 
+	// owner: @andrewseif
+	//
+	// kep: https://github.com/kubernetes-sigs/kueue/issues/12854
+	// Enables the MultiKueue Incremental Dispatcher to nominate worker clusters in the
+	// order defined in MultiKueueConfig.spec.clusters. When disabled, clusters are
+	// nominated in alphabetical order.
+	MultiKueueIncrementalDispatcherRespectConfigOrder featuregate.Feature = "MultiKueueIncrementalDispatcherRespectConfigOrder"
+
 	// owner: @pbundyra
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/8691-concurrent-admission
 	//
@@ -463,6 +494,46 @@ const (
 	// to False during a workload's first reconciliation.
 	// This feature gate requires UnadmittedWorkloadsObservability to be enabled to take effect.
 	UnadmittedWorkloadsExplicitStatus featuregate.Feature = "UnadmittedWorkloadsExplicitStatus"
+
+	// owner: @kevin85421
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/12820
+	// Defers finalizing a deleting GCS fault-tolerant RayService's Workload until
+	// KubeRay's Redis cleanup Job completes, so the cleanup Job is not gated forever
+	// and can purge the RayCluster's Redis metadata namespace.
+	//
+	// TODO(#12820): temporary workaround in the RayService integration. Remove once
+	// the generic FinishOrphanedWorkloads owner-deletion check lands.
+	DeferRayServiceFinalizationForRedisCleanup featuregate.Feature = "DeferRayServiceFinalizationForRedisCleanup"
+
+	// owner: @j-skiba
+	//
+	// Enable caching node matching results (NodeSelector, Tolerations, Affinity) per workload/PodSet
+	// to be reused within a single scheduling cycle by TAS evaluations corresponding to different
+	// sets of preemption candidates.
+	TASCacheNodeMatchResults featuregate.Feature = "TASCacheNodeMatchResults"
+
+	// owner: @j-skiba
+	//
+	// Enables caching of remaining capacity and clone reduction in TAS Flavor Snapshot.
+	TASCachingRemainingResources featuregate.Feature = "TASCachingRemainingResources"
+
+	// owner: @kshalot
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/8871
+	// Enable integration of the https://github.com/kubernetes-sigs/scheduler-library.
+	SchedulerLibraryIntegration featuregate.Feature = "SchedulerLibraryIntegration"
+
+	// owner: @j-skiba
+	//
+	// VectorizedResourceRequests enables slice-based indexing for resource requests in TAS snapshots,
+	// replacing map lookups for higher performance during scheduling and preemption.
+	VectorizedResourceRequests featuregate.Feature = "VectorizedResourceRequests"
+
+	// owner: @vladikkuzn
+	//
+	// Rejects Workloads with negative container or pod-level resource requests/limits.
+	WorkloadValidateResourcesAreNonNegative featuregate.Feature = "WorkloadValidateResourcesAreNonNegative"
 )
 
 func init() {
@@ -471,18 +542,20 @@ func init() {
 }
 
 var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Feature{
-	TASFailedNodeReplacement:                {TopologyAwareScheduling},
-	TASFailedNodeReplacementFailFast:        {TopologyAwareScheduling, TASFailedNodeReplacement},
-	TASReplaceNodeOnPodTermination:          {TopologyAwareScheduling, TASFailedNodeReplacement},
-	TASBalancedPlacement:                    {TopologyAwareScheduling},
-	TASReplaceNodeOnNodeTaints:              {TopologyAwareScheduling},
-	TASMultiLayerTopology:                   {TopologyAwareScheduling},
-	TASRespectNodeAffinityPreferred:         {TopologyAwareScheduling},
-	UnadmittedWorkloadsExplicitStatus:       {UnadmittedWorkloadsObservability},
-	TASHandleOverlappingFlavors:             {TopologyAwareScheduling},
-	ElasticJobsViaWorkloadSlicesWithTAS:     {ElasticJobsViaWorkloadSlices, TopologyAwareScheduling},
-	KueueDRAIntegrationExtendedResource:     {KueueDRAIntegration},
-	KueueDRAIntegrationPartitionableDevices: {KueueDRAIntegration},
+	TASFailedNodeReplacement:                   {TopologyAwareScheduling},
+	TASFailedNodeReplacementFailFast:           {TopologyAwareScheduling, TASFailedNodeReplacement},
+	TASReplaceNodeOnPodTermination:             {TopologyAwareScheduling, TASFailedNodeReplacement},
+	TASReplaceNodeDueToNotReadyOverFixedTime:   {TopologyAwareScheduling, TASFailedNodeReplacement},
+	TASBalancedPlacement:                       {TopologyAwareScheduling},
+	TASReplaceNodeOnNodeTaints:                 {TopologyAwareScheduling},
+	TASMultiLayerTopology:                      {TopologyAwareScheduling},
+	TASRespectNodeAffinityPreferred:            {TopologyAwareScheduling},
+	UnadmittedWorkloadsExplicitStatus:          {UnadmittedWorkloadsObservability},
+	TASHandleOverlappingFlavors:                {TopologyAwareScheduling},
+	ElasticJobsViaWorkloadSlicesWithTAS:        {ElasticJobsViaWorkloadSlices, TopologyAwareScheduling},
+	KueueDRAIntegrationExtendedResource:        {KueueDRAIntegration},
+	KueueDRAIntegrationPartitionableDevices:    {KueueDRAIntegration},
+	KueueDRAIntegrationConsumableCapacity:      {KueueDRAIntegration},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.
@@ -503,6 +576,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.6"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.9"), Default: true, PreRelease: featuregate.Beta},
 	},
+	DisableWaitForPodsReady: {
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
+	},
 	PrioritySortingWithinCohort: {
 		{Version: version.MustParse("0.6"), Default: true, PreRelease: featuregate.Beta},
 	},
@@ -515,16 +591,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	MultiKueue: {
 		{Version: version.MustParse("0.6"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.9"), Default: true, PreRelease: featuregate.Beta},
-	},
-	LendingLimit: {
-		{Version: version.MustParse("0.6"), Default: false, PreRelease: featuregate.Alpha},
-		{Version: version.MustParse("0.9"), Default: true, PreRelease: featuregate.Beta},
-		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.19
-	},
-	MultiKueueBatchJobWithManagedBy: {
-		{Version: version.MustParse("0.8"), Default: false, PreRelease: featuregate.Alpha},
-		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
-		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.19
 	},
 	TopologyAwareScheduling: {
 		{Version: version.MustParse("0.9"), Default: false, PreRelease: featuregate.Alpha},
@@ -570,18 +636,30 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.14"), Default: true, PreRelease: featuregate.Beta},
 	},
+	SkipReassignmentForPodOwnedWorkloads: {
+		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+	},
+	TASReplaceNodeDueToNotReadyOverFixedTime: {
+		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Deprecated},
+	},
 	ManagedJobsNamespaceSelectorAlwaysRespected: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.GA, LockToDefault: true},
 	},
 	TASBalancedPlacement: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	TASAssignmentsEncodingByHostnamePrefix: {
+		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
 	},
 	KueueDRAIntegration: {
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
 	},
 	KueueDRAIntegrationExtendedResource: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
 	},
 
 	KueueDRARejectWorkloadsWhenDRADisabled: {
@@ -590,6 +668,11 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	KueueDRAIntegrationPartitionableDevices: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	KueueDRAIntegrationConsumableCapacity: {
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	MultiKueueAdaptersForCustomJobs: {
@@ -635,7 +718,8 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.20
 	},
 	TLSOptions: {
-		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.20 (https://github.com/kubernetes-sigs/kueue/issues/10704)
+		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta},                    // GA in 0.20
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.22
 	},
 	RemoveFinalizersWithStrictPatch: {
 		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
@@ -691,11 +775,15 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	MultiKueueIncrementalDispatcherConfig: {
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
 	},
+	MultiKueueIncrementalDispatcherRespectConfigOrder: {
+		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+	},
 	ConcurrentAdmission: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	QuotaCheckStrategy: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
 	},
 	MetricForWorkloadCreationLatency: {
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.21
@@ -731,6 +819,30 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	UnadmittedWorkloadsExplicitStatus: {
 		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Beta},
+	},
+
+	DeferRayServiceFinalizationForRedisCleanup: {
+		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	TASCacheNodeMatchResults: {
+		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	TASCachingRemainingResources: {
+		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	SchedulerLibraryIntegration: {
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	VectorizedResourceRequests: {
+		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	WorkloadValidateResourcesAreNonNegative: {
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 

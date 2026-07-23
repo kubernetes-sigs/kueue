@@ -72,26 +72,15 @@ Configure the `managedJobsNamespaceSelector` in your Kueue Configuration with `m
 
    Exclusion of `kube-system` and `kueue-system` is the default behaviour of kueue. For production environments consider explicitly selecting the namespaces you want kueue to manage, otherwise you have to exclude all system components your cluster (CNI, CSI, monitoring, gitops, etc).
 
-### Step 3: Enable the Feature Gate
+## How It Works
 
-This step is optional if you're using Kueue v0.15 or later, as the `ManagedJobsNamespaceSelectorAlwaysRespected` feature gate is enabled by default. If you're using an older version of Kueue, you need to explicitly enable this feature gate. See the [feature gates for alpha and beta features](/docs/installation/#feature-gates-for-alpha-and-beta-features) section for the feature gate status.
+The `managedJobsNamespaceSelector` restricts the reconciliation of all workloads, regardless of whether they have a `kueue.x-k8s.io/queue-name` label.
 
-## Feature Gate Details
-
-The `ManagedJobsNamespaceSelectorAlwaysRespected` feature gate controls whether the `managedJobsNamespaceSelector` restricts the reconciliation of all workloads, regardless of whether they have a `kueue.x-k8s.io/queue-name` label.
-
-### How It Works
-
-When this feature gate is **enabled**:
 - The namespace selector check happens **first**, before any other reconciliation logic.
 - If a workload's namespace does not match the `managedJobsNamespaceSelector` (and the selector is not nil), the workload will not be reconciled by Kueue — regardless of whether it has a `queue-name` label or the value of `manageJobsWithoutQueueName`.
 - If a workload's namespace matches the selector (or if `managedJobsNamespaceSelector` is nil), normal reconciliation logic applies:
   - If `manageJobsWithoutQueueName=false`: Kueue will manage exactly those instances of supported Kinds that have a `queue-name` label.
   - If `manageJobsWithoutQueueName=true`: Kueue will manage all instances of supported Kinds with or without `queue-name` label.
-
-When this feature gate is **disabled** (default behavior prior to v0.13):
-- If `manageJobsWithoutQueueName` is false, `managedJobsNamespaceSelector` has no effect: Kueue will manage exactly those instances of supported Kinds that have a `queue-name` label.
-- If `manageJobsWithoutQueueName` is true, then Kueue will (a) manage all instances of supported Kinds that have a `queue-name` label and (b) will manage all instances of supported Kinds that do not have a `queue-name` label if they are in namespaces that match `managedJobsNamespaceSelector`.
 
 ## Related Documentation
 

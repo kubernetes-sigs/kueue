@@ -356,7 +356,7 @@ func TestRestorePodSetsInfo(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			kTrainJob := (*TrainJob)(tc.trainJob)
-			ret := kTrainJob.RestorePodSetsInfo([]podset.PodSetInfo{})
+			ret := kTrainJob.RestorePodSetsInfo(t.Context(), []podset.PodSetInfo{})
 			if ret != tc.wantReturn {
 				t.Errorf("RunWithPodSetsInfo() unexpected return value. got: %v. want :%v", ret, tc.wantReturn)
 			}

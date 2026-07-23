@@ -984,6 +984,7 @@ const (
 
 	// WorkloadAdmittedReasonPendingDelayedTopologyRequests indicates that there are pending delayed topology requests.
 	WorkloadAdmittedReasonPendingDelayedTopologyRequests = "PendingDelayedTopologyRequests"
+
 	// WorkloadFinished means that the workload associated to the
 	// ResourceClaim finished running (failed or succeeded).
 	WorkloadFinished = "Finished"

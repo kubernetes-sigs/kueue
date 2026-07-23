@@ -55,6 +55,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
@@ -62,6 +63,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/resources"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
@@ -116,6 +118,61 @@ func hasInternalError(errs field.ErrorList) bool {
 		}
 	}
 	return false
+}
+
+// handleDRAConsumableCapacity processes capacity-based resources for consumable
+// capacity devices and merges them into draResources.
+// On success it returns the updated map and done=false.
+// On failure it marks the workload inadmissible and returns done=true: the
+// caller must return (result, err) immediately. Internal (retryable) errors
+// return a non-nil err so the reconciler retries with backoff; deterministic
+// errors return nil err (no retry).
+func (r *WorkloadReconciler) handleDRAConsumableCapacity(
+	ctx context.Context,
+	wl *kueue.Workload,
+	sliceCache *dra.ResourceSliceCache,
+	draResources map[kueue.PodSetReference]corev1.ResourceList,
+) (updated map[kueue.PodSetReference]corev1.ResourceList, done bool, result ctrl.Result, err error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	capacityResources, ccFieldErrs := dra.DetermineCapacityResourcesForWorkload(ctx, r.client, sliceCache, r.draMapper, wl)
+	if len(ccFieldErrs) > 0 {
+		aggErr := ccFieldErrs.ToAggregate()
+		log.Error(aggErr, "Failed to process DRA capacity resources for workload")
+		updateErr := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+			reason := workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonMisconfigured, kueue.WorkloadInadmissible)
+			updated := workload.UnsetQuotaReservationWithCondition(wl, reason, aggErr.Error(), r.clock.Now())
+			if updated && workload.SetRequeuedCondition(wl, kueue.WorkloadInadmissible, aggErr.Error(), false) {
+				updated = true
+			}
+			return updated, nil
+		})
+		if updateErr != nil {
+			return nil, true, ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA capacity resources error: %w", updateErr)
+		}
+		if hasInternalError(ccFieldErrs) {
+			return nil, true, ctrl.Result{}, aggErr
+		}
+		return nil, true, ctrl.Result{}, nil
+	}
+
+	return mergeDRAResources(draResources, capacityResources), false, ctrl.Result{}, nil
+}
+
+// mergeDRAResources merges src into dst, summing resource quantities for
+// PodSets that appear in both maps. Returns the (possibly newly allocated) dst.
+func mergeDRAResources(dst, src map[kueue.PodSetReference]corev1.ResourceList) map[kueue.PodSetReference]corev1.ResourceList {
+	for podSetName, resources := range src {
+		if existing, ok := dst[podSetName]; ok {
+			dst[podSetName] = resource.MergeResourceListKeepSum(existing, resources)
+		} else {
+			if dst == nil {
+				dst = make(map[kueue.PodSetReference]corev1.ResourceList)
+			}
+			dst[podSetName] = resources
+		}
+	}
+	return dst
 }
 
 type waitForPodsReadyConfig struct {
@@ -195,6 +252,13 @@ func WithDRABackedResources(value *dra.ExtendedResourceCache) Option {
 	}
 }
 
+// WithResourceFormatter sets the formatter used for resource quantities written by the controller.
+func WithResourceFormatter(value *resources.ResourceFormatter) Option {
+	return func(r *WorkloadReconciler) {
+		r.resourceFormatter = value
+	}
+}
+
 type WorkloadUpdateWatcher interface {
 	NotifyWorkloadUpdate(oldWl, newWl *kueue.Workload)
 }
@@ -217,6 +281,7 @@ type WorkloadReconciler struct {
 	roleTracker            *roletracker.RoleTracker
 	preemptionExpectations *expectations.Store
 	customLabels           *metrics.CustomLabels
+	resourceFormatter      *resources.ResourceFormatter
 }
 
 var _ reconcile.Reconciler = (*WorkloadReconciler)(nil)
@@ -231,6 +296,7 @@ func NewWorkloadReconciler(client client.Client, queues *qcache.Manager, cache *
 		recorder:            recorder,
 		clock:               realClock,
 		draReconcileChannel: make(chan event.TypedGenericEvent[*kueue.Workload], updateChBuffer),
+		resourceFormatter:   resources.NewResourceFormatter(),
 	}
 	for _, option := range options {
 		option(r)
@@ -253,14 +319,27 @@ func (r *WorkloadReconciler) logger() logr.Logger {
 // +kubebuilder:rbac:groups=resource.k8s.io,resources=deviceclasses,verbs=get;list;watch
 // +kubebuilder:rbac:groups=resource.k8s.io,resources=resourceslices,verbs=get;list;watch
 
-func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
+	log := ctrl.LoggerFrom(ctx)
 	var wl kueue.Workload
-	if err := r.client.Get(ctx, req.NamespacedName, &wl); err != nil {
+	var getErr error
+	wlKey := workload.NewReference(req.Namespace, req.Name)
+	defer func() {
+		if features.Enabled(features.UnadmittedWorkloadsObservability) {
+			if getErr == nil && retErr == nil {
+				r.queues.UpdateUnadmittedWorkload(log, &wl)
+			} else if apierrors.IsNotFound(getErr) {
+				r.queues.RemoveUnadmittedWorkload(log, wlKey)
+			}
+		}
+	}()
+
+	getErr = r.client.Get(ctx, req.NamespacedName, &wl)
+	if getErr != nil {
 		// we'll ignore not-found errors, since there is nothing to do.
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+		return ctrl.Result{}, client.IgnoreNotFound(getErr)
 	}
 
-	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile Workload")
 
 	if isOrphanedWorkload(&wl) {
@@ -379,8 +458,10 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 		log.V(3).Info("Processing DRA resources for workload")
 
+		sliceCache := dra.NewResourceSliceCache(r.client)
+
 		// Process ResourceClaimTemplates (existing DRA path)
-		draResources, fieldErrs := dra.GetResourceRequestsForResourceClaimTemplates(ctx, r.client, r.draMapper, &wl)
+		draResources, fieldErrs := dra.GetResourceRequestsForResourceClaimTemplates(ctx, r.client, sliceCache, r.draMapper, &wl)
 		if len(fieldErrs) > 0 {
 			err := fieldErrs.ToAggregate()
 			log.Error(err, "Failed to process DRA resources for workload")
@@ -431,21 +512,11 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		// Merge extended resources into draResources.
 		// When a DeviceClass appears in both paths, the extended resources path uses
 		// the deviceClassMappings logical name as the quota key, unifying quota accounting.
-		for podSetName, resources := range extendedResources {
-			if existing, ok := draResources[podSetName]; ok {
-				// Merge resources for the same podset
-				draResources[podSetName] = resource.MergeResourceListKeepSum(existing, resources)
-			} else {
-				if draResources == nil {
-					draResources = make(map[kueue.PodSetReference]corev1.ResourceList)
-				}
-				draResources[podSetName] = resources
-			}
-		}
+		draResources = mergeDRAResources(draResources, extendedResources)
 
 		// Process counter-based resources for partitionable devices
 		if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) {
-			counterResources, counterFieldErrs := dra.GetCounterResourcesForWorkload(ctx, r.client, r.draMapper, &wl)
+			counterResources, counterFieldErrs := dra.GetCounterResourcesForWorkload(ctx, r.client, sliceCache, r.draMapper, &wl)
 			if len(counterFieldErrs) > 0 {
 				err := counterFieldErrs.ToAggregate()
 				log.Error(err, "Failed to process DRA counter resources for workload")
@@ -465,16 +536,16 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				}
 				return ctrl.Result{}, nil
 			}
-			for podSetName, resources := range counterResources {
-				if existing, ok := draResources[podSetName]; ok {
-					draResources[podSetName] = resource.MergeResourceListKeepSum(existing, resources)
-				} else {
-					if draResources == nil {
-						draResources = make(map[kueue.PodSetReference]corev1.ResourceList)
-					}
-					draResources[podSetName] = resources
-				}
+			draResources = mergeDRAResources(draResources, counterResources)
+		}
+
+		// Process capacity-based resources for consumable capacity devices
+		if features.Enabled(features.KueueDRAIntegrationConsumableCapacity) {
+			ccResources, done, result, ccErr := r.handleDRAConsumableCapacity(ctx, &wl, sliceCache, draResources)
+			if done {
+				return result, ccErr
 			}
+			draResources = ccResources
 		}
 
 		quotaReservedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
@@ -1295,6 +1366,12 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 	if workload.HasQuotaReservation(e.ObjectOld) && (!workload.HasQuotaReservation(e.ObjectNew) || e.ObjectNew.Status.Admission.ClusterQueue != e.ObjectOld.Status.Admission.ClusterQueue) {
 		log = log.WithValues("prevClusterQueue", e.ObjectOld.Status.Admission.ClusterQueue)
 	}
+	if len(e.ObjectNew.Status.UnhealthyNodes) > 0 {
+		nodeNames := utilslices.Map(e.ObjectNew.Status.UnhealthyNodes, func(node *kueue.UnhealthyNode) string {
+			return node.Name
+		})
+		log = log.WithValues("unhealthyNodes", nodeNames)
+	}
 	log.V(2).Info("Workload update event")
 
 	wlCopy := e.ObjectNew.DeepCopy()
@@ -1330,7 +1407,8 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 	case prevStatus == workload.StatusPending && status == workload.StatusPending:
 		switch {
 		case onHold:
-			log.V(2).Info("Skipping queue update for workload on hold")
+			log.V(2).Info("Removing workload from queue because it is on-hold")
+			r.queues.DeleteWorkload(log, wlKey)
 		case dra.NeedsDRAReconcile(e.ObjectNew, r.draBackedResources):
 			log.V(2).Info("Skipping queue update for DRA workload - handled in Reconcile")
 		default:
@@ -1415,31 +1493,43 @@ func (r *WorkloadReconciler) Generic(e event.TypedGenericEvent[*kueue.Workload])
 
 func (r *WorkloadReconciler) updateAfsConsumedUsage(log logr.Logger, wl *kueue.Workload) {
 	lqKey := qutil.KeyFromWorkload(wl)
-	penalty := afs.CalculateEntryPenalty(workload.NewInfo(wl).SumTotalRequests(), r.admissionFSConfig)
+	penalty := afs.CalculateEntryPenalty(workload.NewInfo(wl).SumTotalRequests(r.resourceFormatter), r.admissionFSConfig)
 	now := r.clock.Now()
-
-	oldEntry, found := r.queues.AfsConsumedResources.Get(lqKey)
-	if !found {
-		oldEntry.LastUpdate = now
-	}
 
 	cacheLq, err := r.cache.GetCacheLocalQueue(wl.Status.Admission.ClusterQueue, lqKey)
 	if err != nil {
 		log.V(2).Info("Failed to get cache LocalQueue", "error", err)
 		return
 	}
-
-	oldUsage := oldEntry.Resources
+	// Read live usage before taking the entry lock: the scheduler snapshot reads
+	// AfsConsumedResources while holding the scheduler-cache lock, so the Update
+	// closure must not call back into the cache.
 	newUsage := cacheLq.GetAdmittedUsage()
-	elapsed := now.Sub(oldEntry.LastUpdate).Seconds()
-	newConsumed := afs.CalculateDecayedConsumed(oldUsage, newUsage, elapsed, r.admissionFSConfig.UsageHalfLifeTime.Seconds())
-	newConsumed = resource.MergeResourceListKeepSum(newConsumed, penalty)
 
-	r.queues.AfsConsumedResources.Set(lqKey, newConsumed, now)
+	updated := r.queues.AfsConsumedResources.Update(lqKey, func(old queueafs.ConsumedResourcesEntry, found bool) queueafs.ConsumedResourcesEntry {
+		lastUpdate := old.LastUpdate
+		if !found {
+			lastUpdate = now
+		}
+		// Clamp elapsed and keep the stored timestamp monotonic against a
+		// concurrent writer stamping a future LastUpdate; see the canonical note
+		// in reconcileConsumedUsage (localqueue_controller.go).
+		elapsed := max(0, now.Sub(lastUpdate).Seconds())
+		storedLastUpdate := now
+		if lastUpdate.After(now) {
+			storedLastUpdate = lastUpdate
+		}
+		newConsumed := afs.CalculateDecayedConsumed(old.Resources, newUsage, elapsed, r.admissionFSConfig.UsageHalfLifeTime.Seconds())
+		return queueafs.ConsumedResourcesEntry{
+			Resources:       resource.MergeResourceListKeepSum(newConsumed, penalty),
+			LastUpdate:      storedLastUpdate,
+			StatusAccounted: old.StatusAccounted,
+		}
+	})
 	r.queues.AfsEntryPenalties.Sub(lqKey, penalty)
 	log.V(3).Info("Entry penalty subtracted from localQueue", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)), "penalty", penalty, "remaining", r.queues.AfsEntryPenalties.Peek(lqKey))
 
-	log.V(2).Info("Updated AFS consumed usage", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)), "consumed", newConsumed)
+	log.V(2).Info("Updated AFS consumed usage", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)), "consumed", updated.Resources)
 }
 
 func (r *WorkloadReconciler) notifyWatchers(oldWl, newWl *kueue.Workload) {

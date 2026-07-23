@@ -113,10 +113,10 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					*utiltestingapi.MakeFlavorQuotas(flavorOnDemand).Resource(resourceGPU, "5", "5").Obj()).
 				Cohort("cohort").
 				Obj()
-			util.MustCreate(ctx, k8sClient, clusterQueue)
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 			localQueue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-			util.MustCreate(ctx, k8sClient, localQueue)
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 		})
 
 		ginkgo.AfterEach(func() {
@@ -1116,7 +1116,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 				g.Expect(cond).ToNot(gomega.BeNil())
 				g.Expect(cond.Reason).To(gomega.Equal(kueue.WorkloadQuotaReservedReasonWaitingForQuota))
 				g.Expect(cond.Message).To(gomega.Equal(detailedMsg))
-			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 	})
 })

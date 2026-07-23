@@ -148,11 +148,14 @@ type MultiKueueClusterList struct {
 // MultiKueueConfigSpec defines the desired state of MultiKueueConfig
 type MultiKueueConfigSpec struct {
 	// clusters is a list of MultiKueueClusters names where the workloads from the ClusterQueue should be distributed.
+	// The order of the list is significant: the Incremental dispatcher nominates clusters
+	// following this order, so the most preferred clusters should be listed first.
 	//
-	// +listType=set
+	// +listType=atomic
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=20
 	// +kubebuilder:validation:items:MaxLength=256
+	// +kubebuilder:validation:XValidation:rule="size(self.filter(i, size(self.filter(j, j == i)) > 1)) == 0",message="must be unique"
 	// +required
 	Clusters []string `json:"clusters,omitempty,omitzero"`
 

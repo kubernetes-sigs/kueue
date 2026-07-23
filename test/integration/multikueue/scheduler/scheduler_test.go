@@ -719,7 +719,7 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 					g.Expect(unaffectedWorkerCluster.client.Get(unaffectedWorkerCluster.ctx, unaffectedWlKey, unaffectedWl)).To(gomega.Succeed())
 					g.Expect(unaffectedWl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
 					g.Expect(workloadevict.IsEvicted(unaffectedWl)).To(gomega.BeFalse())
-				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking the evicted workload was requeued successfully", func() {

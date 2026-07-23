@@ -38,6 +38,7 @@ import (
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -1303,7 +1304,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing", "featur
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(
 			&config.AdmissionFairSharing{
 				UsageHalfLifeTime: metav1.Duration{
-					Duration: 1 * time.Second,
+					Duration: 2 * time.Second,
 				},
 				UsageSamplingInterval: metav1.Duration{
 					Duration: 1 * time.Second,
@@ -1411,18 +1412,120 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing", "featur
 		ginkgo.It("should preempt a workload from LQ with higher recent usage", func() {
 			ginkgo.By("Creating workloads in CQ1 that borrow from CQ2")
 			wlHighA := createWorkloadWithPriority("lq-a", "20", 10)
-			_ = createWorkloadWithPriority("lq-b", "12", 1)
+			wlLowB := createWorkloadWithPriority("lq-b", "12", 1)
 			util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 2)
 			util.ExpectReservingActiveWorkloadsMetric(cq1, 2)
 
-			ginkgo.By("Checking that LQs' resource usage is updated")
-			util.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqA), ">", 12_000)
+			wlHighAInfo := workload.NewInfo(wlHighA)
+			wlLowBInfo := workload.NewInfo(wlLowB)
+			ginkgo.By("Checking that the scheduler sees higher recent usage for lq-a")
+			gomega.Eventually(func(g gomega.Gomega) {
+				lqAUsage, err := wlHighAInfo.CalcLocalQueueFSUsage(
+					ctx,
+					k8sClient,
+					nil,
+					qManager.AfsEntryPenalties,
+					qManager.AfsConsumedResources,
+				)
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				lqBUsage, err := wlLowBInfo.CalcLocalQueueFSUsage(
+					ctx,
+					k8sClient,
+					nil,
+					qManager.AfsEntryPenalties,
+					qManager.AfsConsumedResources,
+				)
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(lqAUsage).To(gomega.BeNumerically(">", lqBUsage),
+					"expected scheduler usage for lq-a (%v) > lq-b usage (%v) before creating reclaiming workload",
+					lqAUsage, lqBUsage)
+			}, util.Timeout, util.Interval).MustPassRepeatedly(int(time.Second/util.Interval) + 2).Should(gomega.Succeed())
 
 			ginkgo.By("Creating a workload in CQ2 that reclaims the quota")
 			_ = createWorkload("lq-c", "10")
 
 			ginkgo.By("Checking that the workload from lq-A is preempted despite having bigger priority")
 			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, wlHighA)
+		})
+	})
+
+	ginkgo.When("Restarting the manager", func() {
+		var (
+			cq *kueue.ClusterQueue
+			lq *kueue.LocalQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			cq = utiltestingapi.MakeClusterQueue("cq-restart").
+				Cohort("all").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).Resource(corev1.ResourceCPU, "16").Obj()).
+				AdmissionMode(kueue.UsageBasedAdmissionFairSharing).
+				Obj()
+			util.MustCreate(ctx, k8sClient, cq)
+			cqs = append(cqs, cq)
+
+			lq = utiltestingapi.MakeLocalQueue("lq-restart", ns.Name).
+				FairSharing(&kueue.FairSharing{Weight: new(resource.MustParse("1"))}).
+				ClusterQueue(cq.Name).Obj()
+			util.MustCreate(ctx, k8sClient, lq)
+			lqs = append(lqs, lq)
+			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
+		})
+
+		ginkgo.It("should retain the LocalQueue's historical usage across a restart", func() {
+			ginkgo.By("Accumulating usage on the LocalQueue")
+			wl1 := createWorkload("lq-restart", "8")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+			util.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lq), ">", 7_000)
+
+			ginkgo.By("Finishing the workload and stopping the manager")
+			util.FinishWorkloads(ctx, k8sClient, wl1)
+			fwk.StopManager(ctx)
+
+			ginkgo.By("Reading the persisted usage frozen by the shutdown")
+			frozenLq := &kueue.LocalQueue{}
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), frozenLq)).To(gomega.Succeed())
+			gomega.Expect(frozenLq.Status.FairSharing).NotTo(gomega.BeNil())
+			gomega.Expect(frozenLq.Status.FairSharing.AdmissionFairSharingStatus).NotTo(gomega.BeNil())
+			frozenUsage := frozenLq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources[corev1.ResourceCPU]
+			gomega.Expect(frozenUsage.MilliValue()).To(gomega.BeNumerically(">", 2_000),
+				"persisted usage decayed too much before the manager stopped")
+
+			// The long half-life freezes the accounting for the assertion
+			// window, and the finished workload is gone from live usage: a
+			// status written after the restart can only stay near the frozen
+			// value if the seed recovered the persisted history.
+			ginkgo.By("Restarting the manager with a long half-life")
+			restartTime := time.Now()
+			fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(
+				afsConfig(metav1.Duration{Duration: time.Second}, metav1.Duration{Duration: time.Hour}),
+			))
+
+			ginkgo.By("Admitting a new workload right after the restart")
+			wl2 := createWorkload("lq-restart", "1")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl2)
+
+			ginkgo.By("Checking that a status written after the restart retains the historical usage")
+			gomega.Eventually(func(g gomega.Gomega) {
+				updatedLq := &kueue.LocalQueue{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), updatedLq)).To(gomega.Succeed())
+				afsStatus := updatedLq.Status.FairSharing.AdmissionFairSharingStatus
+				g.Expect(afsStatus).NotTo(gomega.BeNil())
+				// LastUpdate is second-granular, so writes within restartTime's
+				// own second are rejected here; the 1s ticks converge right after.
+				g.Expect(afsStatus.LastUpdate.Time).To(gomega.BeTemporally(">", restartTime),
+					"the status was not written by the restarted manager yet")
+				usage := afsStatus.ConsumedResources[corev1.ResourceCPU]
+				g.Expect(usage.MilliValue()).To(gomega.BeNumerically(">", frozenUsage.MilliValue()*7/10))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Checking that the recovered usage is retained rather than overwritten later")
+			gomega.Consistently(func(g gomega.Gomega) {
+				updatedLq := &kueue.LocalQueue{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), updatedLq)).To(gomega.Succeed())
+				usage := updatedLq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources[corev1.ResourceCPU]
+				g.Expect(usage.MilliValue()).To(gomega.BeNumerically(">", frozenUsage.MilliValue()*7/10))
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 	})
 
@@ -1468,7 +1571,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing", "featur
 				cpu := lqObj.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources[corev1.ResourceCPU]
 				g.Expect(cpu.Cmp(resource.MustParse("0"))).To(gomega.BeNumerically(">", 0),
 					"ConsumedResources CPU should remain > 0, got %v", cpu.String())
-			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 	})
 })

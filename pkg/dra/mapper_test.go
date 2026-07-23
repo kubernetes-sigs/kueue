@@ -19,6 +19,7 @@ package dra
 import (
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -271,11 +272,16 @@ func TestDRAResourceMapper_PopulateFromConfiguration(t *testing.T) {
 }
 
 func TestCreateMapperFromConfiguration(t *testing.T) {
+	type wantCounterConfig struct {
+		quotaResource corev1.ResourceName
+		counterName   string
+		driver        DriverReference
+	}
 	tests := []struct {
-		name                string
-		deviceClassMappings []configapi.DeviceClassMapping
-		wantDeviceLookup    map[corev1.ResourceName]corev1.ResourceName
-		wantCounterConfigs  map[corev1.ResourceName]string
+		name                   string
+		deviceClassMappings    []configapi.DeviceClassMapping
+		wantDeviceLookup       map[corev1.ResourceName]corev1.ResourceName
+		wantCounterConfigsList map[corev1.ResourceName][]wantCounterConfig
 	}{
 		{
 			name:             "nil mappings",
@@ -304,8 +310,35 @@ func TestCreateMapperFromConfiguration(t *testing.T) {
 			wantDeviceLookup: map[corev1.ResourceName]corev1.ResourceName{
 				"mig.nvidia.com": "gpu.memory",
 			},
-			wantCounterConfigs: map[corev1.ResourceName]string{
-				"mig.nvidia.com": "gpu.nvidia.com",
+			wantCounterConfigsList: map[corev1.ResourceName][]wantCounterConfig{
+				"mig.nvidia.com": {
+					{quotaResource: "gpu.memory", counterName: "memory", driver: "gpu.nvidia.com"},
+				},
+			},
+		},
+		{
+			name: "multi-counter tracking for same DeviceClass",
+			deviceClassMappings: []configapi.DeviceClassMapping{
+				{
+					Name:             "gpu.memory",
+					DeviceClassNames: []corev1.ResourceName{"mig.nvidia.com"},
+					Sources: []configapi.DeviceClassSourceConfig{
+						{Counter: &configapi.DeviceClassCounterSource{Name: "memory", Driver: "gpu.nvidia.com"}},
+					},
+				},
+				{
+					Name:             "gpu.compute",
+					DeviceClassNames: []corev1.ResourceName{"mig.nvidia.com"},
+					Sources: []configapi.DeviceClassSourceConfig{
+						{Counter: &configapi.DeviceClassCounterSource{Name: "multiprocessors", Driver: "gpu.nvidia.com"}},
+					},
+				},
+			},
+			wantCounterConfigsList: map[corev1.ResourceName][]wantCounterConfig{
+				"mig.nvidia.com": {
+					{quotaResource: "gpu.memory", counterName: "memory", driver: "gpu.nvidia.com"},
+					{quotaResource: "gpu.compute", counterName: "multiprocessors", driver: "gpu.nvidia.com"},
+				},
 			},
 		},
 		{
@@ -323,9 +356,13 @@ func TestCreateMapperFromConfiguration(t *testing.T) {
 				"gpu.nvidia.com": "gpu.memory",
 				"mig.nvidia.com": "gpu.memory",
 			},
-			wantCounterConfigs: map[corev1.ResourceName]string{
-				"gpu.nvidia.com": "gpu.nvidia.com",
-				"mig.nvidia.com": "gpu.nvidia.com",
+			wantCounterConfigsList: map[corev1.ResourceName][]wantCounterConfig{
+				"gpu.nvidia.com": {
+					{quotaResource: "gpu.memory", counterName: "memory", driver: "gpu.nvidia.com"},
+				},
+				"mig.nvidia.com": {
+					{quotaResource: "gpu.memory", counterName: "memory", driver: "gpu.nvidia.com"},
+				},
 			},
 		},
 	}
@@ -345,21 +382,65 @@ func TestCreateMapperFromConfiguration(t *testing.T) {
 					t.Errorf("Device class %s: want %s, got %s", dc, wantResource, got)
 				}
 			}
-			for dc, wantDriver := range tt.wantCounterConfigs {
-				cc := mapper.getCounterConfig(dc)
-				if cc == nil {
-					t.Errorf("Expected counter config for %s, got nil", dc)
-				} else if cc.driver != wantDriver {
-					t.Errorf("Counter config for %s: want driver %s, got %s", dc, wantDriver, cc.driver)
+			if tt.wantCounterConfigsList == nil {
+				for dc := range tt.wantDeviceLookup {
+					if ccs := mapper.getCounterConfigs(dc); len(ccs) > 0 {
+						t.Errorf("Expected no counter config for %s, got %+v", dc, ccs)
+					}
 				}
 			}
-			if tt.wantCounterConfigs == nil {
-				for dc := range tt.wantDeviceLookup {
-					if cc := mapper.getCounterConfig(dc); cc != nil {
-						t.Errorf("Expected no counter config for %s, got %+v", dc, cc)
+			for dc, wantConfigs := range tt.wantCounterConfigsList {
+				ccs := mapper.getCounterConfigs(dc)
+				if len(ccs) != len(wantConfigs) {
+					t.Fatalf("Counter configs for %s: want %d, got %d", dc, len(wantConfigs), len(ccs))
+				}
+				for i, want := range wantConfigs {
+					if ccs[i].quotaResource != want.quotaResource {
+						t.Errorf("Counter config[%d] for %s: want quotaResource %s, got %s", i, dc, want.quotaResource, ccs[i].quotaResource)
+					}
+					if ccs[i].counterName != want.counterName {
+						t.Errorf("Counter config[%d] for %s: want counterName %s, got %s", i, dc, want.counterName, ccs[i].counterName)
+					}
+					if ccs[i].driver != want.driver {
+						t.Errorf("Counter config[%d] for %s: want driver %s, got %s", i, dc, want.driver, ccs[i].driver)
 					}
 				}
 			}
 		})
+	}
+}
+
+func TestResourceMapperCounterBasedResourceNames(t *testing.T) {
+	mapper := NewResourceMapper()
+	err := mapper.PopulateFromConfiguration([]configapi.DeviceClassMapping{
+		{
+			Name:             corev1.ResourceName("gpu.memory"),
+			DeviceClassNames: []corev1.ResourceName{"gpu-a.example.com"},
+			Sources: []configapi.DeviceClassSourceConfig{
+				{Counter: &configapi.DeviceClassCounterSource{Driver: "gpu.example.com", Name: "memory"}},
+			},
+		},
+		{
+			Name:             corev1.ResourceName("gpu.memory"),
+			DeviceClassNames: []corev1.ResourceName{"gpu-b.example.com"},
+			Sources: []configapi.DeviceClassSourceConfig{
+				{Counter: &configapi.DeviceClassCounterSource{Driver: "gpu.example.com", Name: "memory"}},
+			},
+		},
+		{
+			Name:             corev1.ResourceName("gpu.compute"),
+			DeviceClassNames: []corev1.ResourceName{"gpu-c.example.com"},
+			Sources: []configapi.DeviceClassSourceConfig{
+				{Counter: &configapi.DeviceClassCounterSource{Driver: "gpu.example.com", Name: "compute"}},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("PopulateFromConfiguration failed: %v", err)
+	}
+
+	want := []corev1.ResourceName{"gpu.compute", "gpu.memory"}
+	if diff := cmp.Diff(want, mapper.CounterBasedResourceNames()); diff != "" {
+		t.Errorf("CounterBasedResourceNames() mismatch (-want,+got):\n%s", diff)
 	}
 }

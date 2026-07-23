@@ -176,7 +176,7 @@ func (r *nodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return ctrl.Result{}, err
 	}
 
-	if timerExpired {
+	if features.Enabled(features.TASReplaceNodeDueToNotReadyOverFixedTime) && timerExpired {
 		log.V(3).Info("Node is not ready and NodeFailureDelay timer expired, marking as failed")
 		evictedWorkloads, err := r.handleUnhealthyNode(ctx, req.Name, affectedWorkloads)
 		if err != nil {
@@ -450,7 +450,7 @@ func (r *nodeReconciler) podSetsWithEffectiveTolerationsOnNode(ctx context.Conte
 				}
 			}
 		}
-		if err := podsetinfo.Merge(&effective.Template.ObjectMeta, &effective.Template.Spec, info); err != nil {
+		if err := podsetinfo.Merge(ctrl.LoggerFrom(ctx), &effective.Template.ObjectMeta, &effective.Template.Spec, info); err != nil {
 			return nil, err
 		}
 		result = append(result, *effective)
@@ -486,10 +486,10 @@ func (r *nodeReconciler) checkPodsOnNode(
 
 // evictWorkloadIfNeeded idempotently evicts the workload when the node has failed.
 // It returns whether the node was evicted, and whether an error was encountered.
-func (r *nodeReconciler) evictWorkloadIfNeeded(ctx context.Context, wl *kueue.Workload, nodeName string) (bool, error) {
+func (r *nodeReconciler) evictWorkloadIfNeeded(ctx context.Context, log logr.Logger, wl *kueue.Workload, nodeName string) (bool, error) {
 	if workload.HasUnhealthyNodes(wl) && !workload.HasUnhealthyNode(wl, nodeName) && !workloadevict.IsEvicted(wl) {
 		unhealthyNodeNames := workload.UnhealthyNodeNames(wl)
-		log := ctrl.LoggerFrom(ctx).WithValues("unhealthyNodes", unhealthyNodeNames)
+		log = log.WithValues("unhealthyNodes", unhealthyNodeNames)
 		log.V(3).Info("Evicting workload due to multiple node failures")
 		allUnhealthyNodeNames := append(unhealthyNodeNames, nodeName)
 		evictionMsg := fmt.Sprintf(nodeMultipleFailuresEvictionMessageFormat, strings.Join(allUnhealthyNodeNames, ", "))
@@ -529,7 +529,7 @@ func (r *nodeReconciler) handleUnhealthyNode(ctx context.Context, nodeName strin
 			continue
 		}
 		// evict workload when workload already has a different node marked for replacement
-		evictedNow, err := r.evictWorkloadIfNeeded(ctx, &wl, nodeName)
+		evictedNow, err := r.evictWorkloadIfNeeded(ctx, wlLog, &wl, nodeName)
 		if err != nil {
 			workloadProcessingErrors = append(workloadProcessingErrors, err)
 			continue

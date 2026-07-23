@@ -1,0 +1,23 @@
+# Sample Job for the shared quota setup
+# This job requests 3 CPUs, which will generate 3 cpu_credits
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: sample-job-
+  namespace: default
+  labels:
+    kueue.x-k8s.io/queue-name: team-queue
+spec:
+  parallelism: 1
+  completions: 1
+  suspend: true
+  template:
+    spec:
+      containers:
+      - name: worker
+        image: registry.k8s.io/e2e-test-images/agnhost:2.53
+        args: ["sleep", "300"]
+        resources:
+          requests:
+            cpu: "3"
+      restartPolicy: Never

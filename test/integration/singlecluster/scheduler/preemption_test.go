@@ -1376,7 +1376,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 					g.Expect(workload.HasQuotaReservation(lowWl)).To(gomega.BeTrue())
 					g.Expect(workload.HasQuotaReservation(highWl)).To(gomega.BeFalse())
-				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 
 			lowWl2 := utiltestingapi.MakeWorkload("low2", ns.Name).

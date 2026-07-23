@@ -100,6 +100,17 @@ func (dwc *SyncMap[K, V]) Add(k K, v V) {
 	dwc.m[k] = v
 }
 
+func (dwc *SyncMap[K, V]) UpdateOrDelete(k K, f func(existing V) (V, bool)) {
+	dwc.lock.Lock()
+	defer dwc.lock.Unlock()
+	newVal, canClear := f(dwc.m[k])
+	if canClear {
+		delete(dwc.m, k)
+	} else {
+		dwc.m[k] = newVal
+	}
+}
+
 func (dwc *SyncMap[K, V]) Get(k K) (V, bool) {
 	dwc.lock.RLock()
 	defer dwc.lock.RUnlock()
@@ -131,4 +142,17 @@ func (dwc *SyncMap[K, V]) Swap(k K, v V) (V, bool) {
 	old, existed := dwc.m[k]
 	dwc.m[k] = v
 	return old, existed
+}
+
+// Update atomically replaces the value for k with the result of fn. fn
+// receives the current value (the zero value if absent) and whether it was
+// present; its result is stored and returned. fn runs under the map's write
+// lock, so it must not acquire other locks or block.
+func (dwc *SyncMap[K, V]) Update(k K, fn func(v V, found bool) V) V {
+	dwc.lock.Lock()
+	defer dwc.lock.Unlock()
+	old, found := dwc.m[k]
+	updated := fn(old, found)
+	dwc.m[k] = updated
+	return updated
 }

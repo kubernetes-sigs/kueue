@@ -21,6 +21,31 @@ import useWebSocket from './useWebSocket';
 import './App.css';
 import ErrorMessage from './ErrorMessage';
 
+export const formatEventTimestamp = (timestamp) => {
+  if (!timestamp) return 'N/A';
+
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return 'N/A';
+
+  return `${date.toISOString().replace('T', '@').slice(0, 19)} UTC`;
+};
+
+export const getEventTimestamp = (event) =>
+  event?.firstTimestamp || event?.eventTime || event?.lastTimestamp || '';
+
+export const compareEvents = (a, b) => {
+  const aTime = new Date(getEventTimestamp(a)).getTime();
+  const bTime = new Date(getEventTimestamp(b)).getTime();
+  const aHasValidTime = !Number.isNaN(aTime);
+  const bHasValidTime = !Number.isNaN(bTime);
+
+  if (aHasValidTime !== bHasValidTime) return aHasValidTime ? -1 : 1;
+  if (aHasValidTime && aTime !== bTime) return bTime - aTime;
+
+  return (a.reason || '').localeCompare(b.reason || '') ||
+    (a.metadata?.name || '').localeCompare(b.metadata?.name || '');
+};
+
 const WorkloadDetail = () => {
   const { namespace, workloadName } = useParams();
   const workloadUrl = `/ws/workload/${namespace}/${workloadName}`;
@@ -33,10 +58,7 @@ const WorkloadDetail = () => {
 
   useEffect(() => {
     if (eventData && Array.isArray(eventData)) {
-      const sortedEvents = [...eventData].sort((a, b) =>
-        new Date(b.firstTimestamp) - new Date(a.firstTimestamp) || (a.reason || '').localeCompare(b.reason || '') || (a.name || '').localeCompare(b.name || '')
-      );
-      setEvents(sortedEvents);
+      setEvents([...eventData].sort(compareEvents));
     }
   }, [eventData]);
 
@@ -90,7 +112,7 @@ const WorkloadDetail = () => {
               {events.map((event) => (
                 <TableRow key={event.name}>
                   <TableCell>
-                    {new Date(event.firstTimestamp).toISOString().replace('T', '@').slice(0, 19)} UTC
+                    {formatEventTimestamp(getEventTimestamp(event))}
                   </TableCell>
                   <TableCell>{event.type}</TableCell>
                   <TableCell>{event.reason}</TableCell>

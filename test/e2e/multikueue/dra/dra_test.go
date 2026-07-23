@@ -221,7 +221,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 				ctx, k8sManagerClient, wlLookupKey,
 				multiKueueAc.Name,
 				kueue.CheckStateReady,
-				fmt.Sprintf(`The workload got reservation on "%s"`, assignedClusterName),
+				fmt.Sprintf(`The workload was admitted on "%s"`, assignedClusterName),
 			)
 
 			ginkgo.By(fmt.Sprintf("Verifying workload admitted on %s has correct DRA resource usage (expecting %d devices)", assignedClusterName, expectedDeviceCount))
@@ -348,7 +348,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 				ctx, k8sManagerClient, wlLookupKey,
 				multiKueueAc.Name,
 				kueue.CheckStateReady,
-				fmt.Sprintf(`The workload got reservation on "%s"`, workerCluster1.Name),
+				fmt.Sprintf(`The workload was admitted on "%s"`, workerCluster1.Name),
 			)
 
 			ginkgo.By("Verifying workload is admitted on worker1 with correct DRA resource usage")

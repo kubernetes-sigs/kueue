@@ -4,7 +4,7 @@
   command = "npm install && hugo --gc --minify && npx -y pagefind --site public"
 
 [build.environment]
-  HUGO_VERSION = "0.163.3"
+  HUGO_VERSION = "0.164.0"
   NODE_VERSION = "23"
 
 [context.production.environment]
@@ -18,3 +18,9 @@
 
 [context.branch-deploy]
   command = "hugo --enableGitInfo --buildFuture -b $DEPLOY_PRIME_URL && npx -y pagefind --site public"
+
+[[redirects]]
+  from = "/api/medium-feed"
+  to = "https://medium.com/feed/tag/kueue"
+  status = 200
+  force = true

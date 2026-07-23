@@ -3454,7 +3454,7 @@ func TestScheduleForFairSharing(t *testing.T) {
 				utiltesting.MakeEventRecord("default", "nc-low", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "nc-low", "Preempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "nc-high", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
-				utiltesting.MakeEventRecord("default", "nc-high", "Pending", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "nc-high", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, corev1.EventTypeWarning).Obj(),
 			},
 		},
 		"PreemptionOverBorrowing with fair sharing: preempt in first flavor instead of borrowing in second": {
@@ -3580,7 +3580,7 @@ func TestScheduleForFairSharing(t *testing.T) {
 				utiltesting.MakeEventRecord("default", "fs-low-pob", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "fs-low-pob", "Preempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "fs-high-pob", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
-				utiltesting.MakeEventRecord("default", "fs-high-pob", "Pending", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "fs-high-pob", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, corev1.EventTypeWarning).Obj(),
 			},
 		},
 	}

@@ -1,0 +1,25 @@
+apiVersion: kubeflow.org/v1
+kind: JAXJob
+metadata:
+  name: jax-simple
+  namespace: default
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+spec:
+  jaxReplicaSpecs:
+    Worker:
+      replicas: 2
+      restartPolicy: OnFailure
+      template:
+        spec:
+          containers:
+            - name: jax
+              image: docker.io/kubeflow/jaxjob-simple:latest
+              command:
+                - "python3"
+                - "train.py"
+              imagePullPolicy: Always
+              resources:
+                requests:
+                  cpu: 1
+                  memory: "200Mi"

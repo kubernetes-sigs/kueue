@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/ptr"
 
+	cfg "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -83,6 +84,7 @@ type clusterQueue struct {
 	admittedWorkloadsCount             int
 	isStopped                          bool
 	workloadInfoOptions                []workload.InfoOption
+	resourceFormatter                  *resources.ResourceFormatter
 
 	resourceNode resourceNode
 	hierarchy.ClusterQueue[*cohort]
@@ -101,14 +103,18 @@ type clusterQueue struct {
 
 	roleTracker *roletracker.RoleTracker
 
-	// values extracted from K8s labels/annotations, used as custom Prometheus metric labels
-	customMetricLabelValues []string
+	// allows access to values extracted from K8s labels/annotations, used as custom Prometheus metric labels
+	customLabels *metrics.CustomLabels
 
 	lqMetrics *metrics.LocalQueueMetricsConfig
 }
 
 func (c *clusterQueue) GetName() kueue.ClusterQueueReference {
 	return c.Name
+}
+
+func (c *clusterQueue) GetCustomLabelValues() []string {
+	return c.customLabels.CQGet(c.Name)
 }
 
 // parentAndRootCohort returns the names of the CQ's parent cohort and root cohort.
@@ -262,7 +268,7 @@ func (c *clusterQueue) updateQueueStatus(log logr.Logger) {
 	if status != c.Status {
 		log.V(3).Info("Updating status in cache", "clusterQueue", c.Name, "newStatus", status, "oldStatus", c.Status)
 		c.Status = status
-		metrics.ReportClusterQueueStatus(c.Name, c.Status, c.customMetricLabelValues, c.roleTracker)
+		metrics.ReportClusterQueueStatus(c.Name, c.Status, c.GetCustomLabelValues(), c.roleTracker)
 	}
 }
 
@@ -484,6 +490,9 @@ func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, w *kueue.Workload) {
 	wi := workload.NewInfo(w, c.workloadInfoOptions...)
 	wi.UpdateSchedulingHash(log)
 	c.Workloads[k] = wi
+	if features.Enabled(features.CustomMetricLabels) {
+		c.customLabels.Store(cfg.SourceKindWorkload, string(k), w.Labels, w.Annotations)
+	}
 	c.updateWorkloadUsage(log, wi, add)
 	if c.podsReadyTracking && !apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadPodsReady) {
 		c.WorkloadsNotReady.Insert(k)
@@ -509,15 +518,26 @@ func (c *clusterQueue) deleteWorkload(log logr.Logger, wlKey workload.Reference)
 	c.AllocatableResourceGeneration++
 
 	delete(c.Workloads, wlKey)
+	if features.Enabled(features.CustomMetricLabels) {
+		c.customLabels.Delete(cfg.SourceKindWorkload, string(wlKey))
+	}
 	c.reportActiveWorkloads()
 }
 
 func (c *clusterQueue) reportActiveWorkloads() {
+	clVals := c.GetCustomLabelValues()
 	for ancestor := range c.Parent().PathSelfToRoot() {
-		metrics.ReportCohortSubtreeAdmittedActiveWorkloads(ancestor.Name, ancestor.admittedWorkloadsCount, c.customMetricLabelValues, c.roleTracker)
+		metrics.ReportCohortSubtreeAdmittedActiveWorkloads(ancestor.Name, ancestor.admittedWorkloadsCount, clVals, c.roleTracker)
 	}
-	metrics.ReportAdmittedActiveWorkloads(c.Name, c.admittedWorkloadsCount, c.customMetricLabelValues, c.roleTracker)
-	metrics.ReportReservingActiveWorkloads(c.Name, len(c.Workloads), c.customMetricLabelValues, c.roleTracker)
+	metrics.ReportReservingActiveWorkloads(c.Name, len(c.Workloads), clVals, c.roleTracker)
+}
+
+func (c *clusterQueue) resyncAdmittedActiveWorkloads() {
+	for wlRef, wl := range c.Workloads {
+		if workload.IsActive(wl.Obj) && workload.IsAdmitted(wl.Obj) {
+			metrics.ReportAdmittedActiveWorkloads(c.Name, 1, c.getLabelValuesFor(wlRef), c.roleTracker)
+		}
+	}
 }
 
 func (c *clusterQueue) reportResourceMetrics(fairSharingEnabled bool) {
@@ -526,23 +546,24 @@ func (c *clusterQueue) reportResourceMetrics(fairSharingEnabled bool) {
 		cohort = c.Parent().GetName()
 	}
 	cqName := string(c.Name)
+	clVals := c.GetCustomLabelValues()
 	for fr, quota := range c.resourceNode.Quotas {
 		fName, rName := string(fr.Flavor), string(fr.Resource)
-		nominal := resourceFloat(fr.Resource, quota.Nominal.Int64())
+		nominal := resourceFloat(c.resourceFormatter, fr.Resource, quota.Nominal.Int64())
 		var borrowing, lending float64
 		if quota.BorrowingLimit == nil {
 			borrowing = math.Inf(1)
 		} else {
-			borrowing = resourceFloat(fr.Resource, quota.BorrowingLimit.Int64())
+			borrowing = resourceFloat(c.resourceFormatter, fr.Resource, quota.BorrowingLimit.Int64())
 		}
 		if quota.LendingLimit == nil {
 			lending = math.Inf(1)
 		} else {
-			lending = resourceFloat(fr.Resource, quota.LendingLimit.Int64())
+			lending = resourceFloat(c.resourceFormatter, fr.Resource, quota.LendingLimit.Int64())
 		}
-		metrics.ReportClusterQueueQuotas(cohort, cqName, fName, rName, nominal, borrowing, lending, c.customMetricLabelValues, c.roleTracker)
-		metrics.ReportClusterQueueResourceReservations(cohort, cqName, fName, rName, resourceFloat(fr.Resource, c.resourceNode.Usage[fr].Int64()), c.customMetricLabelValues, c.roleTracker)
-		metrics.ReportClusterQueueResourceUsage(cohort, cqName, fName, rName, resourceFloat(fr.Resource, c.AdmittedUsage[fr].Int64()), c.customMetricLabelValues, c.roleTracker)
+		metrics.ReportClusterQueueQuotas(cohort, cqName, fName, rName, nominal, borrowing, lending, clVals, c.roleTracker)
+		metrics.ReportClusterQueueResourceReservations(cohort, cqName, fName, rName, resourceFloat(c.resourceFormatter, fr.Resource, c.resourceNode.Usage[fr].Int64()), clVals, c.roleTracker)
+		metrics.ReportClusterQueueResourceUsage(cohort, cqName, fName, rName, resourceFloat(c.resourceFormatter, fr.Resource, c.AdmittedUsage[fr].Int64()), clVals, c.roleTracker)
 	}
 	if fairSharingEnabled {
 		c.reportWeightedShare(cohort)
@@ -555,7 +576,7 @@ func (c *clusterQueue) reportWeightedShare(cohort kueue.CohortReference) {
 	if weightedShare == math.Inf(1) {
 		weightedShare = math.NaN()
 	}
-	metrics.ReportClusterQueueWeightedShare(c.Name, cohort, weightedShare, c.customMetricLabelValues, c.roleTracker)
+	metrics.ReportClusterQueueWeightedShare(c.Name, cohort, weightedShare, c.GetCustomLabelValues(), c.roleTracker)
 }
 
 // updateWorkloadUsage updates the usage of the ClusterQueue for the workload
@@ -574,8 +595,13 @@ func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, o
 	c.updateWorkloadTASUsage(log, wi, op)
 	if admitted {
 		updateFlavorUsage(frUsage, c.AdmittedUsage, op)
-		c.Parent().updateAdmittedWorkloadsCount(op.asSignedOne())
-		c.admittedWorkloadsCount += op.asSignedOne()
+
+		incr := op.asSignedOne()
+		c.Parent().updateAdmittedWorkloadsCount(incr)
+		c.admittedWorkloadsCount += incr
+
+		wlRef := workload.Key(wi.Obj)
+		metrics.ReportAdmittedActiveWorkloads(c.Name, incr, c.getLabelValuesFor(wlRef), c.roleTracker)
 	}
 	qKey := queue.KeyFromWorkload(wi.Obj)
 	if lq, ok := c.localQueues[qKey]; ok {
@@ -589,6 +615,13 @@ func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, o
 			lq.reportActiveWorkloads(c.roleTracker)
 		}
 	}
+}
+
+func (c *clusterQueue) getLabelValuesFor(wlRef workload.Reference) []string {
+	return c.customLabels.GetFor(map[cfg.SourceKind]string{
+		cfg.SourceKindWorkload:     string(wlRef),
+		cfg.SourceKindClusterQueue: string(c.Name),
+	})
 }
 
 func (c *clusterQueue) updateWorkloadTASUsage(log logr.Logger, wi *workload.Info, op usageOp) {
@@ -617,7 +650,7 @@ func updateFlavorUsage(newUsage resources.FlavorResourceQuantities, oldUsage res
 	}
 }
 
-func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue, customLabelValues []string) error {
+func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 	qKey := queueKey(q)
 	if _, ok := c.localQueues[qKey]; ok {
 		return errQueueAlreadyExists
@@ -625,11 +658,15 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue, customLabelValues []st
 	// We need to count the workloads, because they could have been added before
 	// receiving the queue add event.
 	qImpl := &LocalQueue{
-		key:                     qKey,
-		reservingWorkloads:      0,
-		totalReserved:           make(resources.FlavorResourceQuantities),
-		customMetricLabelValues: customLabelValues,
-		labels:                  q.GetLabels(),
+		key:                qKey,
+		reservingWorkloads: 0,
+		totalReserved:      make(resources.FlavorResourceQuantities),
+		customLabels:       c.customLabels,
+		labels:             q.GetLabels(),
+		resourceFormatter:  c.resourceFormatter,
+	}
+	if features.Enabled(features.CustomMetricLabels) {
+		c.customLabels.LQStore(qKey, q.Labels, q.Annotations)
 	}
 	qImpl.resetFlavorsAndResources(c.resourceNode.Usage, c.AdmittedUsage)
 	for _, wl := range c.Workloads {

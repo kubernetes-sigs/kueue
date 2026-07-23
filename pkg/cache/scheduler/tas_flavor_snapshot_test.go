@@ -17,11 +17,14 @@ limitations under the License.
 package scheduler
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -29,28 +32,29 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/node"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func TestFreeCapacityPerDomain(t *testing.T) {
 	snapshot := &TASFlavorSnapshot{
 		leaves: leafDomainByID{
 			"domain2": &leafDomain{
-				freeCapacity: resources.Requests{
+				freeCapacity: resources.MapRequests{
 					corev1.ResourceCPU:    1000,
 					corev1.ResourceMemory: 2 * 1024 * 1024 * 1024, // 2 GiB
 				},
-				tasUsage: resources.Requests{
+				tasUsage: resources.MapRequests{
 					corev1.ResourceMemory: 1 * 1024 * 1024 * 1024, // 1 GiB
 					corev1.ResourceCPU:    500,
 				},
 			},
 			"domain1": &leafDomain{
-				freeCapacity: resources.Requests{
+				freeCapacity: resources.MapRequests{
 					corev1.ResourceMemory: 4 * 1024 * 1024 * 1024, // 4 GiB
 					corev1.ResourceCPU:    2000,
 					"nvidia.com/gpu":      1,
 				},
-				tasUsage: resources.Requests{
+				tasUsage: resources.MapRequests{
 					corev1.ResourceCPU:    500,
 					"nvidia.com/gpu":      1,
 					corev1.ResourceMemory: 2 * 1024 * 1024 * 1024, // 1 GiB
@@ -346,9 +350,9 @@ func TestMergeTopologyAssignments(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "dummy", levels)
+			s := newTASFlavorSnapshot(log, "dummy", levels, nil, &defaultChecker{})
 			for i := range nodes {
-				s.addNode(newNodeInfo(&nodes[i]))
+				s.addNode(&nodes[i])
 			}
 			s.initialize()
 
@@ -421,7 +425,7 @@ func TestHasLevel(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "dummy", levels)
+			s := newTASFlavorSnapshot(log, "dummy", levels, nil, &defaultChecker{})
 			got := s.HasLevel(tc.podSetTopologyRequest)
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("unexpected HasLevel result (-want,+got): %s", diff)
@@ -530,7 +534,7 @@ func TestSortedDomainsWithLeader(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TASRespectNodeAffinityPreferred, tc.enableTASPreferredSchedulingAffinity)
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "test", levels)
+			s := newTASFlavorSnapshot(log, "test", levels, nil, &defaultChecker{})
 
 			sorted := s.sortedDomainsWithLeader(tc.domains, tc.unconstrained)
 
@@ -629,7 +633,7 @@ func TestSortedDomains(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TASRespectNodeAffinityPreferred, tc.enableTASPreferredSchedulingAffinity)
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "test", levels)
+			s := newTASFlavorSnapshot(log, "test", levels, nil, &defaultChecker{})
 
 			sorted := s.sortedDomains(tc.domains, tc.unconstrained)
 
@@ -640,6 +644,63 @@ func TestSortedDomains(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantOrder, gotOrder); diff != "" {
 				t.Errorf("unexpected domain order (-want,+got): %s", diff)
+			}
+		})
+	}
+}
+
+func TestCompareDomainLevelValues(t *testing.T) {
+	_, log := utiltesting.ContextWithLog(t)
+	hostnameLevels := []string{"block", "rack", corev1.LabelHostname}
+	nonHostnameLevels := []string{"block", "rack"}
+
+	parent1 := &domain{id: "b1-r1", levelValues: []string{"b1", "r1"}}
+	parent2 := &domain{id: "b1-r2", levelValues: []string{"b1", "r2"}}
+
+	testCases := map[string]struct {
+		levels []string
+		a      *domain
+		b      *domain
+		want   int
+	}{
+		"isLowestLevelNode with same-parent sibling domains: ascending by hostname": {
+			levels: hostnameLevels,
+			a:      &domain{id: "node-a", parent: parent1, levelValues: []string{"b1", "r1", "node-a"}},
+			b:      &domain{id: "node-b", parent: parent1, levelValues: []string{"b1", "r1", "node-b"}},
+			want:   -1,
+		},
+		"isLowestLevelNode with same-parent sibling domains: descending by hostname": {
+			levels: hostnameLevels,
+			a:      &domain{id: "node-b", parent: parent1, levelValues: []string{"b1", "r1", "node-b"}},
+			b:      &domain{id: "node-a", parent: parent1, levelValues: []string{"b1", "r1", "node-a"}},
+			want:   1,
+		},
+		"isLowestLevelNode with same-parent sibling domains: equal hostname": {
+			levels: hostnameLevels,
+			a:      &domain{id: "node-a", parent: parent1, levelValues: []string{"b1", "r1", "node-a"}},
+			b:      &domain{id: "node-a", parent: parent1, levelValues: []string{"b1", "r1", "node-a"}},
+			want:   0,
+		},
+		"fallback comparator: multi-level inputs with different parents sorted lexicographically across levels": {
+			levels: hostnameLevels,
+			a:      &domain{id: "node-z", parent: parent1, levelValues: []string{"b1", "r1", "node-z"}},
+			b:      &domain{id: "node-a", parent: parent2, levelValues: []string{"b1", "r2", "node-a"}},
+			want:   -1,
+		},
+		"fallback comparator: non-hostname levels sorted lexicographically across levels": {
+			levels: nonHostnameLevels,
+			a:      &domain{id: "b1-r1", levelValues: []string{"b1", "r1"}},
+			b:      &domain{id: "b1-r2", levelValues: []string{"b1", "r2"}},
+			want:   -1,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			s := newTASFlavorSnapshot(log, "test", tc.levels, nil, &defaultChecker{})
+			got := s.compareDomainLevelValues(tc.a, tc.b)
+			if (got < 0 && tc.want >= 0) || (got > 0 && tc.want <= 0) || (got == 0 && tc.want != 0) {
+				t.Errorf("compareDomainLevelValues() = %d, want sign matching %d", got, tc.want)
 			}
 		})
 	}
@@ -690,7 +751,7 @@ func TestCountPodsInAssignment(t *testing.T) {
 }
 
 func TestComputeAssumedUsageFromAssignment(t *testing.T) {
-	singlePodRequests := resources.Requests{
+	singlePodRequests := resources.MapRequests{
 		corev1.ResourceCPU:    1000,
 		corev1.ResourceMemory: 1024,
 	}
@@ -714,7 +775,7 @@ func TestComputeAssumedUsageFromAssignment(t *testing.T) {
 				},
 			},
 			want: map[tas.TopologyDomainID]resources.Requests{
-				"node-a": {
+				"node-a": resources.MapRequests{
 					corev1.ResourceCPU:    1000,
 					corev1.ResourceMemory: 1024,
 					corev1.ResourcePods:   1,
@@ -730,12 +791,12 @@ func TestComputeAssumedUsageFromAssignment(t *testing.T) {
 				},
 			},
 			want: map[tas.TopologyDomainID]resources.Requests{
-				"node-a": {
+				"node-a": resources.MapRequests{
 					corev1.ResourceCPU:    2000,
 					corev1.ResourceMemory: 2048,
 					corev1.ResourcePods:   2,
 				},
-				"node-b": {
+				"node-b": resources.MapRequests{
 					corev1.ResourceCPU:    3000,
 					corev1.ResourceMemory: 3072,
 					corev1.ResourcePods:   3,
@@ -763,7 +824,7 @@ func TestAddAssumedUsage(t *testing.T) {
 	}{
 		"includes pod count for existing and new domains": {
 			assumedUsage: map[tas.TopologyDomainID]resources.Requests{
-				"node-a": {
+				"node-a": resources.MapRequests{
 					corev1.ResourceCPU:  1000,
 					corev1.ResourcePods: 1,
 				},
@@ -776,18 +837,18 @@ func TestAddAssumedUsage(t *testing.T) {
 				},
 			},
 			tasRequests: &TASPodSetRequests{
-				SinglePodRequests: resources.Requests{
+				SinglePodRequests: resources.MapRequests{
 					corev1.ResourceCPU:    500,
 					corev1.ResourceMemory: 2048,
 				},
 			},
 			want: map[tas.TopologyDomainID]resources.Requests{
-				"node-a": {
+				"node-a": resources.MapRequests{
 					corev1.ResourceCPU:    1500,
 					corev1.ResourceMemory: 2048,
 					corev1.ResourcePods:   2,
 				},
-				"node-b": {
+				"node-b": resources.MapRequests{
 					corev1.ResourceCPU:    1000,
 					corev1.ResourceMemory: 4096,
 					corev1.ResourcePods:   2,
@@ -803,13 +864,13 @@ func TestAddAssumedUsage(t *testing.T) {
 				},
 			},
 			tasRequests: &TASPodSetRequests{
-				SinglePodRequests: resources.Requests{
+				SinglePodRequests: resources.MapRequests{
 					corev1.ResourceCPU:    250,
 					corev1.ResourceMemory: 512,
 				},
 			},
 			want: map[tas.TopologyDomainID]resources.Requests{
-				"node-a": {
+				"node-a": resources.MapRequests{
 					corev1.ResourceCPU:    750,
 					corev1.ResourceMemory: 1536,
 					corev1.ResourcePods:   3,
@@ -818,10 +879,21 @@ func TestAddAssumedUsage(t *testing.T) {
 		},
 	}
 
+	equateRequests := cmp.Transformer("Requests", func(r resources.Requests) map[corev1.ResourceName]int64 {
+		if r == nil {
+			return nil
+		}
+		m := make(map[corev1.ResourceName]int64)
+		r.ForEach(func(name corev1.ResourceName, val int64) {
+			m[name] = val
+		})
+		return m
+	})
+
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			addAssumedUsage(tc.assumedUsage, tc.assignment, tc.tasRequests)
-			if diff := cmp.Diff(tc.want, tc.assumedUsage); diff != "" {
+			if diff := cmp.Diff(tc.want, tc.assumedUsage, equateRequests); diff != "" {
 				t.Errorf("addAssumedUsage() mismatch (-want +got):\n%s", diff)
 			}
 		})
@@ -937,6 +1009,58 @@ func TestTruncateAssignment(t *testing.T) {
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("TruncateAssignment() mismatch (-want +got):\n%s", diff)
 			}
+		})
+	}
+}
+
+func TestTASCachingRemainingResourcesFeatureGate(t *testing.T) {
+	for _, enableCaching := range []bool{true, false} {
+		t.Run(fmt.Sprintf("enableCaching=%t", enableCaching), func(t *testing.T) {
+			g := gomega.NewWithT(t)
+			features.SetFeatureGateDuringTest(t, features.TASCachingRemainingResources, enableCaching)
+
+			_, log := utiltesting.ContextWithLog(t)
+			snapshot := newTASFlavorSnapshot(log, "tas-topology", []string{"hostname"}, nil, &defaultChecker{})
+			nodeObj := node.MakeNode("node-a").
+				Label("hostname", "node-a").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("8"),
+					corev1.ResourceMemory: resource.MustParse("10Gi"),
+				}).
+				Ready().
+				Obj()
+			domainID := snapshot.addNode(nodeObj)
+
+			leaf := snapshot.leaves[domainID]
+			g.Expect(leaf).ToNot(gomega.BeNil())
+
+			flavorUsage := workload.TASFlavorUsage{
+				{
+					Values: []string{"node-a"},
+					SinglePodRequests: resources.MapRequests{
+						corev1.ResourceCPU: 5000,
+					},
+					Count: 1,
+				},
+			}
+
+			// Warm the Fits cache before adding TAS usage
+			g.Expect(snapshot.Fits(flavorUsage)).To(gomega.BeTrue())
+
+			// Add TAS usage of 4 CPU (4000m), leaving 4 CPU (8000m - 4000m = 4000m) remaining
+			usage := resources.MapRequests{
+				corev1.ResourceCPU: 4000,
+			}
+			snapshot.updateTASUsage(domainID, usage, add, 1)
+
+			// Fits should now return false because 5 CPU > 4 CPU remaining
+			g.Expect(snapshot.Fits(flavorUsage)).To(gomega.BeFalse())
+
+			// Remove TAS usage
+			snapshot.updateTASUsage(domainID, usage, subtract, 1)
+
+			// Fits should now return true again after cache invalidation / re-evaluation
+			g.Expect(snapshot.Fits(flavorUsage)).To(gomega.BeTrue())
 		})
 	}
 }

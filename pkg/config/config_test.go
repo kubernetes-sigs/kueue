@@ -58,6 +58,21 @@ import (
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
 )
 
+var defaultWaitForPodsReady = &configapi.WaitForPodsReady{
+	Timeout: metav1.Duration{
+		Duration: 30 * time.Minute,
+	},
+	BlockAdmission: new(false),
+	RecoveryTimeout: &metav1.Duration{
+		Duration: 30 * time.Minute,
+	},
+	RequeuingStrategy: &configapi.RequeuingStrategy{
+		Timestamp:          ptr.To(configapi.EvictionTimestamp),
+		BackoffBaseSeconds: ptr.To[int32](configapi.DefaultRequeuingBackoffBaseSeconds),
+		BackoffMaxSeconds:  ptr.To[int32](configapi.DefaultRequeuingBackoffMaxSeconds),
+	},
+}
+
 func defaultControlCacheOptions(namespace string) ctrlcache.Options {
 	return ctrlcache.Options{
 		ByObject: map[ctrlclient.Object]ctrlcache.ByObject{
@@ -463,6 +478,7 @@ objectRetentionPolicies:
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
+				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -481,6 +497,7 @@ objectRetentionPolicies:
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
+				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -519,6 +536,7 @@ objectRetentionPolicies:
 					},
 				},
 				VisibilityServer: defaultVisibility,
+				WaitForPodsReady: defaultWaitForPodsReady,
 			},
 			wantOptions: defaultControlOptions("kueue-tenant-a"),
 		},
@@ -538,6 +556,7 @@ objectRetentionPolicies:
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
+				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: ctrl.Options{
 				Cache:                  defaultControlCacheOptions(configapi.DefaultNamespace),
@@ -574,6 +593,7 @@ objectRetentionPolicies:
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
+				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -595,6 +615,7 @@ objectRetentionPolicies:
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
+				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -614,6 +635,7 @@ objectRetentionPolicies:
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
+				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: ctrl.Options{
 				Cache:                  defaultControlCacheOptions("kueue-system"),
@@ -679,6 +701,7 @@ objectRetentionPolicies:
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
+				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -701,6 +724,7 @@ objectRetentionPolicies:
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
+				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: ctrl.Options{
 				Cache:                  defaultControlCacheOptions(configapi.DefaultNamespace),
@@ -748,6 +772,7 @@ objectRetentionPolicies:
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
+				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -792,6 +817,7 @@ objectRetentionPolicies:
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
+				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -831,6 +857,7 @@ objectRetentionPolicies:
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
+				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -850,6 +877,7 @@ objectRetentionPolicies:
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
+				WaitForPodsReady:             defaultWaitForPodsReady,
 				Resources: &configapi.Resources{
 					Transformations: []configapi.ResourceTransformation{
 						{
@@ -904,6 +932,7 @@ objectRetentionPolicies:
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
+				WaitForPodsReady:             defaultWaitForPodsReady,
 				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
 						AfterFinished:           &metav1.Duration{Duration: 30 * time.Minute},
@@ -940,7 +969,7 @@ objectRetentionPolicies:
 	}
 }
 
-func TestTLSOptionsFeatureGate(t *testing.T) {
+func TestTLSOptions(t *testing.T) {
 	testScheme := runtime.NewScheme()
 	err := configapi.AddToScheme(testScheme)
 	if err != nil {
@@ -991,15 +1020,12 @@ webhook:
 	testcases := []struct {
 		name              string
 		configFile        string
-		featureGates      map[featuregate.Feature]bool
 		wantConfiguration configapi.Configuration
-		verifyTLSApplied  bool
 		wantError         error
 	}{
 		{
-			name:         "TLS config applied when feature gate enabled",
-			configFile:   tlsConfigWithCipherSuites,
-			featureGates: map[featuregate.Feature]bool{features.TLSOptions: true},
+			name:       "TLS config with cipher suites is applied",
+			configFile: tlsConfigWithCipherSuites,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: configapi.SchemeGroupVersion.String(),
@@ -1012,6 +1038,7 @@ webhook:
 					WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
 					WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
 				},
+				WaitForPodsReady: defaultWaitForPodsReady,
 				ClientConnection: &configapi.ClientConnection{
 					QPS:   ptr.To(configapi.DefaultClientConnectionQPS),
 					Burst: ptr.To(configapi.DefaultClientConnectionBurst),
@@ -1044,12 +1071,10 @@ webhook:
 					},
 				},
 			},
-			verifyTLSApplied: true,
 		},
 		{
-			name:         "TLS config NOT applied when feature gate disabled",
-			configFile:   tlsConfigWithCipherSuites,
-			featureGates: map[featuregate.Feature]bool{features.TLSOptions: false},
+			name:       "TLS 1.3 config is applied",
+			configFile: tlsConfigTLS13,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: configapi.SchemeGroupVersion.String(),
@@ -1062,56 +1087,8 @@ webhook:
 					WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
 					WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
 				},
-				ClientConnection: &configapi.ClientConnection{
-					QPS:   ptr.To(configapi.DefaultClientConnectionQPS),
-					Burst: ptr.To(configapi.DefaultClientConnectionBurst),
-				},
-				Integrations: &configapi.Integrations{
-					Frameworks: []string{job.FrameworkName},
-				},
-				MultiKueue: &configapi.MultiKueue{
-					GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
-					Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
-					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
-					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
-				},
-				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
-					MatchExpressions: []metav1.LabelSelectorRequirement{
-						{
-							Key:      corev1.LabelMetadataName,
-							Operator: metav1.LabelSelectorOpNotIn,
-							Values:   []string{"kube-system", "kueue-system"},
-						},
-					},
-				},
-				ControllerManager: configapi.ControllerManager{
-					TLS: &configapi.TLSOptions{
-						MinVersion: "VersionTLS12",
-						CipherSuites: []string{
-							"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
-							"TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
-						},
-					},
-				},
-			},
-			verifyTLSApplied: false,
-		},
-		{
-			name:         "TLS 1.3 config applied when feature gate enabled",
-			configFile:   tlsConfigTLS13,
-			featureGates: map[featuregate.Feature]bool{features.TLSOptions: true},
-			wantConfiguration: configapi.Configuration{
-				TypeMeta: metav1.TypeMeta{
-					APIVersion: configapi.SchemeGroupVersion.String(),
-					Kind:       "Configuration",
-				},
-				Namespace:                  ptr.To(configapi.DefaultNamespace),
-				ManageJobsWithoutQueueName: false,
-				InternalCertManagement: &configapi.InternalCertManagement{
-					Enable:             new(true),
-					WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
-					WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
-				},
+				WaitForPodsReady: defaultWaitForPodsReady,
+
 				ClientConnection: &configapi.ClientConnection{
 					QPS:   ptr.To(configapi.DefaultClientConnectionQPS),
 					Burst: ptr.To(configapi.DefaultClientConnectionBurst),
@@ -1140,113 +1117,16 @@ webhook:
 					},
 				},
 			},
-			verifyTLSApplied: true,
 		},
 		{
-			name:         "invalid TLS config returns error when feature gate enabled",
-			configFile:   tlsConfigInvalid,
-			featureGates: map[featuregate.Feature]bool{features.TLSOptions: true},
-			wantError:    ErrWebhookTLSParse,
-		},
-		{
-			name:         "invalid TLS config ignored when feature gate disabled",
-			configFile:   tlsConfigInvalid,
-			featureGates: map[featuregate.Feature]bool{features.TLSOptions: false},
-			wantConfiguration: configapi.Configuration{
-				TypeMeta: metav1.TypeMeta{
-					APIVersion: configapi.SchemeGroupVersion.String(),
-					Kind:       "Configuration",
-				},
-				Namespace:                  ptr.To(configapi.DefaultNamespace),
-				ManageJobsWithoutQueueName: false,
-				InternalCertManagement: &configapi.InternalCertManagement{
-					Enable:             new(true),
-					WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
-					WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
-				},
-				ClientConnection: &configapi.ClientConnection{
-					QPS:   ptr.To(configapi.DefaultClientConnectionQPS),
-					Burst: ptr.To(configapi.DefaultClientConnectionBurst),
-				},
-				Integrations: &configapi.Integrations{
-					Frameworks: []string{job.FrameworkName},
-				},
-				MultiKueue: &configapi.MultiKueue{
-					GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
-					Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
-					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
-					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
-				},
-				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
-					MatchExpressions: []metav1.LabelSelectorRequirement{
-						{
-							Key:      corev1.LabelMetadataName,
-							Operator: metav1.LabelSelectorOpNotIn,
-							Values:   []string{"kube-system", "kueue-system"},
-						},
-					},
-				},
-				ControllerManager: configapi.ControllerManager{
-					TLS: &configapi.TLSOptions{
-						MinVersion: "InvalidVersion",
-					},
-				},
-			},
-			verifyTLSApplied: false,
-		},
-		{
-			name:         "TLS 1.3 config NOT applied when feature gate disabled",
-			configFile:   tlsConfigTLS13,
-			featureGates: map[featuregate.Feature]bool{features.TLSOptions: false},
-			wantConfiguration: configapi.Configuration{
-				TypeMeta: metav1.TypeMeta{
-					APIVersion: configapi.SchemeGroupVersion.String(),
-					Kind:       "Configuration",
-				},
-				Namespace:                  ptr.To(configapi.DefaultNamespace),
-				ManageJobsWithoutQueueName: false,
-				InternalCertManagement: &configapi.InternalCertManagement{
-					Enable:             new(true),
-					WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
-					WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
-				},
-				ClientConnection: &configapi.ClientConnection{
-					QPS:   ptr.To(configapi.DefaultClientConnectionQPS),
-					Burst: ptr.To(configapi.DefaultClientConnectionBurst),
-				},
-				Integrations: &configapi.Integrations{
-					Frameworks: []string{job.FrameworkName},
-				},
-				MultiKueue: &configapi.MultiKueue{
-					GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
-					Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
-					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
-					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
-				},
-				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
-					MatchExpressions: []metav1.LabelSelectorRequirement{
-						{
-							Key:      corev1.LabelMetadataName,
-							Operator: metav1.LabelSelectorOpNotIn,
-							Values:   []string{"kube-system", "kueue-system"},
-						},
-					},
-				},
-				ControllerManager: configapi.ControllerManager{
-					TLS: &configapi.TLSOptions{
-						MinVersion: "VersionTLS13",
-					},
-				},
-			},
-			verifyTLSApplied: false,
+			name:       "invalid TLS config returns error",
+			configFile: tlsConfigInvalid,
+			wantError:  ErrWebhookTLSParse,
 		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Set the feature gate for this test
-			features.SetFeatureGatesDuringTest(t, tc.featureGates)
-
 			options, cfg, err := Load(testScheme, tc.configFile)
 			if err != nil {
 				t.Fatalf("Unexpected error loading config: %v", err)
@@ -1277,21 +1157,13 @@ webhook:
 				t.Fatal("Expected WebhookServer to be created, but it was nil")
 			}
 
-			// Verify TLS options application based on feature gate
 			defaultServer, ok := options.WebhookServer.(*webhook.DefaultServer)
 			if !ok {
 				t.Fatalf("Expected WebhookServer to be *webhook.DefaultServer, got %T", options.WebhookServer)
 			}
 
-			// Check if TLSOpts are applied or not based on feature gate
-			if tc.verifyTLSApplied {
-				if len(defaultServer.Options.TLSOpts) == 0 {
-					t.Error("Expected TLSOpts to be applied when feature gate is enabled, but got none")
-				}
-			} else {
-				if len(defaultServer.Options.TLSOpts) > 0 {
-					t.Errorf("Expected TLSOpts NOT to be applied when feature gate is disabled, but got %d options", len(defaultServer.Options.TLSOpts))
-				}
+			if len(defaultServer.Options.TLSOpts) == 0 {
+				t.Error("Expected TLSOpts to be applied, but got none")
 			}
 		})
 	}
@@ -1386,6 +1258,16 @@ func TestEncode(t *testing.T) {
 				"visibilityServer": map[string]any{
 					"bindPort": int64(8082),
 				},
+				"waitForPodsReady": map[string]any{
+					"blockAdmission":  false,
+					"recoveryTimeout": "30m0s",
+					"requeuingStrategy": map[string]any{
+						"backoffBaseSeconds": int64(60),
+						"backoffMaxSeconds":  int64(3600),
+						"timestamp":          "Eviction",
+					},
+					"timeout": "30m0s",
+				},
 			},
 		},
 	}
@@ -1409,21 +1291,41 @@ func TestEncode(t *testing.T) {
 
 func TestWaitForPodsReadyIsEnabled(t *testing.T) {
 	cases := map[string]struct {
-		cfg  *configapi.Configuration
-		want bool
+		cfg          *configapi.Configuration
+		featureGates map[featuregate.Feature]bool
+		want         bool
 	}{
-		"waitforpodsready.Enabled() is false": {
+		"waitforpodsready.Enabled() is false when WaitForPodsReady config is nil": {
 			cfg: &configapi.Configuration{},
+			featureGates: map[featuregate.Feature]bool{
+				features.DisableWaitForPodsReady: false,
+			},
+			want: false,
 		},
-		"waitforpodsready.Enabled() is true": {
+
+		"waitforpodsready.Enabled() is false when DisableWaitForPodsReady feature gate is enabled": {
 			cfg: &configapi.Configuration{
-				WaitForPodsReady: &configapi.WaitForPodsReady{},
+				WaitForPodsReady: defaultWaitForPodsReady,
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.DisableWaitForPodsReady: true,
+			},
+			want: false,
+		},
+
+		"waitforpodsready.Enabled() is true when DisableWaitForPodsReady feature gate is disabled": {
+			cfg: &configapi.Configuration{
+				WaitForPodsReady: defaultWaitForPodsReady,
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.DisableWaitForPodsReady: false,
 			},
 			want: true,
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			got := waitforpodsready.Enabled(tc.cfg.WaitForPodsReady)
 			if tc.want != got {
 				t.Errorf("Unexpected result from waitforpodsready.Enabled()\nwant:\n%v\ngot:%v\n", tc.want, got)

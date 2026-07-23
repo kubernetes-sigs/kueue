@@ -45,14 +45,14 @@ func TestTASFlavorCacheAddAndRemoveUsage(t *testing.T) {
 					{
 						Values: []string{"domain1"},
 						Count:  2,
-						SinglePodRequests: resources.Requests{
+						SinglePodRequests: resources.MapRequests{
 							corev1.ResourceCPU: 2,
 						},
 					},
 				})
 			},
 			wantUsage: map[utiltas.TopologyDomainID]resources.Requests{
-				"domain1": {
+				"domain1": resources.MapRequests{
 					corev1.ResourceCPU:  4,
 					corev1.ResourcePods: 2,
 				},
@@ -66,7 +66,7 @@ func TestTASFlavorCacheAddAndRemoveUsage(t *testing.T) {
 					{
 						Values: []string{"domain1"},
 						Count:  1,
-						SinglePodRequests: resources.Requests{
+						SinglePodRequests: resources.MapRequests{
 							corev1.ResourceCPU: 1,
 						},
 					},
@@ -76,18 +76,18 @@ func TestTASFlavorCacheAddAndRemoveUsage(t *testing.T) {
 					{
 						Values: []string{"domain2"},
 						Count:  2,
-						SinglePodRequests: resources.Requests{
+						SinglePodRequests: resources.MapRequests{
 							corev1.ResourceCPU: 3,
 						},
 					},
 				})
 			},
 			wantUsage: map[utiltas.TopologyDomainID]resources.Requests{
-				"domain1": {
+				"domain1": resources.MapRequests{
 					corev1.ResourceCPU:  0,
 					corev1.ResourcePods: 0,
 				},
-				"domain2": {
+				"domain2": resources.MapRequests{
 					corev1.ResourceCPU:  6,
 					corev1.ResourcePods: 2,
 				},
@@ -100,7 +100,7 @@ func TestTASFlavorCacheAddAndRemoveUsage(t *testing.T) {
 					{
 						Values: []string{"domain1"},
 						Count:  1,
-						SinglePodRequests: resources.Requests{
+						SinglePodRequests: resources.MapRequests{
 							corev1.ResourceCPU: 1,
 						},
 					},
@@ -108,7 +108,7 @@ func TestTASFlavorCacheAddAndRemoveUsage(t *testing.T) {
 				cache.removeUsage(logr, wlKey)
 			},
 			wantUsage: map[utiltas.TopologyDomainID]resources.Requests{
-				"domain1": {
+				"domain1": resources.MapRequests{
 					corev1.ResourceCPU:  0,
 					corev1.ResourcePods: 0,
 				},

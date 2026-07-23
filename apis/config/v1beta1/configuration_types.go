@@ -276,13 +276,13 @@ type ControllerConfigurationSpec struct {
 // which is used to ensure that all Pods are ready within the specified time.
 type WaitForPodsReady struct {
 	// Enable indicates whether to enable wait for pods ready feature.
-	// Defaults to false.
+	// WaitForPodsReady is enabled by default.
 	Enable bool `json:"enable,omitempty"`
 
 	// Timeout defines the time for an admitted workload to reach the
 	// PodsReady=true condition. When the timeout is exceeded, the workload
-	// evicted and requeued in the same cluster queue.
-	// Defaults to 5min.
+	// is evicted and requeued in the same cluster queue.
+	// Defaults to 30min.
 	// +optional
 	Timeout *metav1.Duration `json:"timeout,omitempty"`
 
@@ -300,7 +300,7 @@ type WaitForPodsReady struct {
 	// Such a transition may happen when a Pod failed and the replacement Pod
 	// is awaited to be scheduled.
 	// After exceeding the timeout the corresponding job gets suspended again
-	// and requeued after the backoff delay. The timeout is enforced only if waitForPodsReady.enable=true.
+	// and requeued after the backoff delay.
 	// Defaults to the value of timeout. Setting to "0s" disables recovery timeout checking.
 	// +optional
 	RecoveryTimeout *metav1.Duration `json:"recoveryTimeout,omitempty"`

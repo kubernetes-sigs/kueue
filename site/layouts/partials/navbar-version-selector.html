@@ -1,8 +1,16 @@
+{{/* Determine which documentation version the current page belongs to, from its
+     path (e.g. /v0.18/docs/... or /zh-cn/v0.18/docs/...); defaults to "main". */}}
+{{ $current := "main" }}
+{{ range .Site.Params.versions }}
+	{{ if and (ne .version "main") (in $.RelPermalink (printf "/%s/" .version)) }}
+		{{ $current = .version }}
+	{{ end }}
+{{ end }}
 <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
-	{{ .Site.Params.version_menu }}
+	{{ .Site.Params.version_menu }}: {{ $current }}
 </a>
 <div class="dropdown-menu dropdown-menu-md-right dropdown-menu-lg-left" aria-labelledby="navbarDropdownMenuLink">
 	{{ range .Site.Params.versions }}
-	<a class="dropdown-item" href="{{ .url }}">{{ .version }}</a>
+	<a class="dropdown-item{{ if eq .version $current }} active{{ end }}" href="{{ .url }}">{{ .version }}</a>
 	{{ end }}
 </div>

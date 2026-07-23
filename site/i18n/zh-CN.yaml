@@ -173,6 +173,8 @@
   translation: "Medium 博客动态暂时不可用，请稍后再试！"
 - id: community_medium_no_articles
   translation: "未找到最近的博客文章，请稍后再试！"
+- id: community_medium_loading
+  translation: "加载中..."
 
 # ==============================================================================
 # Talks & Case Studies Page Strings (Chinese)

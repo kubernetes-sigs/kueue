@@ -218,7 +218,7 @@ func metricFromCall(expr ast.Expr) (Metric, bool) {
 	if !ok {
 		return Metric{}, false
 	}
-	var name, help string
+	name, help, subsystem := "", "", "kueue"
 	for _, elt := range opts.Elts {
 		kv, ok := elt.(*ast.KeyValueExpr)
 		if !ok {
@@ -238,15 +238,38 @@ func metricFromCall(expr ast.Expr) (Metric, bool) {
 			name = stringLiteral(kv.Value)
 		case "Help":
 			help = stringLiteral(kv.Value)
+		case "Subsystem":
+			subsystem = subsystemValue(kv.Value)
 		}
 	}
 	labels := parseLabels(call.Args[1])
 	return Metric{
-		FullName: "kueue_" + name,
+		FullName: subsystem + "_" + name,
 		Type:     map[string]string{"NewCounterVec": "Counter", "NewGaugeVec": "Gauge", "NewHistogramVec": "Histogram"}[fun],
 		Help:     normalizeHelp(help),
 		Labels:   labels,
 	}, true
+}
+
+// subsystemValue resolves the Subsystem field to the metric name prefix.
+// The known constants from pkg/constants are resolved by identifier name,
+// since the tool parses the metrics package without type information.
+func subsystemValue(e ast.Expr) string {
+	var constName string
+	switch v := e.(type) {
+	case *ast.SelectorExpr:
+		constName = v.Sel.Name
+	case *ast.Ident:
+		constName = v.Name
+	default:
+		if s := stringLiteral(e); s != "" {
+			return s
+		}
+	}
+	if constName == "MultiKueueName" {
+		return "multikueue"
+	}
+	return "kueue"
 }
 
 func parseLabels(arg ast.Expr) []string {

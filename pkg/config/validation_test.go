@@ -18,6 +18,7 @@ package config
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1170,9 +1171,6 @@ func TestValidate(t *testing.T) {
 					ExcludeResourcePrefixes: []string{"foo.com/device"},
 				},
 			},
-			featureGates: map[featuregate.Feature]bool{
-				features.QuotaCheckStrategy: true,
-			},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:   field.ErrorTypeInvalid,
@@ -1187,9 +1185,6 @@ func TestValidate(t *testing.T) {
 				Resources: &configapi.Resources{
 					QuotaCheckStrategy: ptr.To(configapi.QuotaCheckIgnoreUndeclared),
 				},
-			},
-			featureGates: map[featuregate.Feature]bool{
-				features.QuotaCheckStrategy: true,
 			},
 		},
 		"quotaCheckStrategy with value blockundeclared allowed with excludeResourcePrefixes": {
@@ -1208,9 +1203,6 @@ func TestValidate(t *testing.T) {
 					QuotaCheckStrategy: ptr.To(configapi.QuotaCheckStrategy("test")),
 				},
 			},
-			featureGates: map[featuregate.Feature]bool{
-				features.QuotaCheckStrategy: true,
-			},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeNotSupported,
@@ -1225,8 +1217,10 @@ func TestValidate(t *testing.T) {
 					QuotaCheckStrategy: ptr.To(configapi.QuotaCheckStrategy("test")),
 				},
 			},
+			featureGates: map[featuregate.Feature]bool{
+				features.QuotaCheckStrategy: false,
+			},
 		},
-
 		"valid counter source on deviceClassMapping": {
 			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
 			cfg: &configapi.Configuration{
@@ -1247,6 +1241,150 @@ func TestValidate(t *testing.T) {
 							},
 						},
 					},
+				},
+			},
+		},
+		"multi-counter: same DeviceClass with different counter names allowed": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"mig.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "memory",
+									Driver: "gpu.nvidia.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+							},
+						},
+						{
+							Name:             "gpu.compute",
+							DeviceClassNames: []corev1.ResourceName{"mig.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "multiprocessors",
+									Driver: "gpu.nvidia.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+		},
+		"multi-counter: same DeviceClass with same counter name rejected": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"mig.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "memory",
+									Driver: "gpu.nvidia.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+							},
+						},
+						{
+							Name:             "gpu.memory2",
+							DeviceClassNames: []corev1.ResourceName{"mig.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "memory",
+									Driver: "gpu.nvidia.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[1].deviceClassNames[0]",
+				},
+			},
+		},
+		"multi-counter: whole-device and counter for same DeviceClass rejected": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu",
+							DeviceClassNames: []corev1.ResourceName{"gpu.nvidia.com"},
+						},
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"gpu.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "memory",
+									Driver: "gpu.nvidia.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[1].deviceClassNames[0]",
+				},
+			},
+		},
+		"multi-counter: counter then whole-device for same DeviceClass rejected": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"gpu.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "memory",
+									Driver: "gpu.nvidia.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+							},
+						},
+						{
+							Name:             "gpu",
+							DeviceClassNames: []corev1.ResourceName{"gpu.nvidia.com"},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[1].deviceClassNames[0]",
 				},
 			},
 		},
@@ -1271,10 +1409,11 @@ func TestValidate(t *testing.T) {
 					},
 				},
 			},
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: false},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
-					Field: "resources.deviceClassMappings[0].sources",
+					Field: "resources.deviceClassMappings[0].sources[0].counter",
 				},
 			},
 		},
@@ -1336,6 +1475,93 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"sources: invalid counter name format": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"mig.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "INVALID_NAME",
+									Driver: "gpu.nvidia.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[0].sources[0].counter.name",
+				},
+			},
+		},
+		"sources: invalid driver name format": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"mig.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "memory",
+									Driver: "NOT_VALID!!",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[0].sources[0].counter.driver",
+				},
+			},
+		},
+		"sources: driver name exceeds max length": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"mig.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "memory",
+									Driver: "gpu-accelerator.nvidia-corporation.datacenter.example.com.internal",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[0].sources[0].counter.driver",
+				},
+			},
+		},
 		"sources: missing deviceSelector": {
 			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
 			cfg: &configapi.Configuration{
@@ -1362,7 +1588,7 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
-		"sources: too many entries in alpha": {
+		"sources: multiple counter entries valid": {
 			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
@@ -1391,10 +1617,176 @@ func TestValidate(t *testing.T) {
 					},
 				},
 			},
+		},
+		"valid capacity source": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationConsumableCapacity: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"vgpu.example.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Capacity: &configapi.DeviceClassCapacitySource{
+									Name:   "memory",
+									Driver: "gpu.example.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.example.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+		},
+		"valid capacity source with qualified name": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationConsumableCapacity: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"vgpu.example.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Capacity: &configapi.DeviceClassCapacitySource{
+									Name:   "gpu.example.com/memory",
+									Driver: "gpu.example.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.example.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+		},
+		"capacity source with CC gate disabled": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"vgpu.example.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Capacity: &configapi.DeviceClassCapacitySource{
+									Name:   "memory",
+									Driver: "gpu.example.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.example.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeTooMany,
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[0].sources[0].capacity",
+				},
+			},
+		},
+		"multiple capacity sources (multi-dimension)": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationConsumableCapacity: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"vgpu.example.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Capacity: &configapi.DeviceClassCapacitySource{
+									Name:   "memory",
+									Driver: "gpu.example.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.example.com'"},
+									},
+								}},
+								{Capacity: &configapi.DeviceClassCapacitySource{
+									Name:   "cores",
+									Driver: "gpu.example.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.example.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+		},
+		"counter and capacity mixing rejected": {
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegrationPartitionableDevices: true,
+				features.KueueDRAIntegrationConsumableCapacity:   true,
+			},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"mig.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "memory",
+									Driver: "gpu.nvidia.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+								{Capacity: &configapi.DeviceClassCapacitySource{
+									Name:   "cores",
+									Driver: "gpu.nvidia.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
 					Field: "resources.deviceClassMappings[0].sources",
+				},
+			},
+		},
+		"capacity source with mixed-case driver rejected": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationConsumableCapacity: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"vgpu.example.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Capacity: &configapi.DeviceClassCapacitySource{
+									Name:   "memory",
+									Driver: "Gpu.Example.Com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.example.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[0].sources[0].capacity.driver",
 				},
 			},
 		},
@@ -1420,13 +1812,22 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 			featureGatesCLI: "",
 		},
 		"feature gate cli": {
-			featureGatesCLI: string(features.KueueDRAIntegration) + "=false",
+			featureGatesCLI: string(
+				features.KueueDRAIntegration,
+			) + "=false," + string(
+				features.KueueDRAIntegrationExtendedResource,
+			) + "=false," + string(
+				features.KueueDRAIntegrationPartitionableDevices,
+			) + "=false",
 		},
 		"cannot specify both feature gates": {
 			featureGatesCLI: string(features.KueueDRAIntegration) + "=false",
 			featureGateMap: map[string]bool{
-				string(features.KueueDRAIntegration): false,
+				string(features.KueueDRAIntegration):                     false,
+				string(features.KueueDRAIntegrationExtendedResource):     false,
+				string(features.KueueDRAIntegrationPartitionableDevices): false,
 			},
+
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:   field.ErrorTypeInvalid,
@@ -1451,6 +1852,23 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 					Type:   field.ErrorTypeInvalid,
 					Field:  "featureGates",
 					Detail: "TASProfileMixed is enabled, but depends on features that are disabled: [TopologyAwareScheduling]",
+				},
+			},
+		},
+		"TASReplaceNodeDueToNotReadyOverFixedTime requires TASFailedNodeReplacement": {
+			featureGateMap: map[string]bool{
+				string(features.TASReplaceNodeDueToNotReadyOverFixedTime): true,
+				string(features.TopologyAwareScheduling):                  true,
+				string(features.TASFailedNodeReplacement):                 false,
+				string(features.TASFailedNodeReplacementFailFast):         false,
+				string(features.TASReplaceNodeOnPodTermination):           false,
+				string(features.TASProfileMixed):                          false,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "TASReplaceNodeDueToNotReadyOverFixedTime requires TASFailedNodeReplacement to be enabled",
 				},
 			},
 		},
@@ -1734,6 +2152,8 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 }
 
 func TestValidateDeviceClassMappings(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationConsumableCapacity, true)
+
 	testCases := map[string]struct {
 		cfg     *configapi.Configuration
 		wantErr field.ErrorList
@@ -1762,6 +2182,198 @@ func TestValidateDeviceClassMappings(t *testing.T) {
 							DeviceClassNames: []corev1.ResourceName{"foo.com/device"},
 						},
 					},
+				},
+			},
+		},
+		"valid capacity unqualified name": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"vgpu.example.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Capacity: &configapi.DeviceClassCapacitySource{
+									Name:   "memory",
+									Driver: "gpu.example.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.example.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+		},
+		"valid capacity qualified name": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"vgpu.example.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Capacity: &configapi.DeviceClassCapacitySource{
+									Name:   "gpu.example.com/memory",
+									Driver: "gpu.example.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.example.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+		},
+		"valid capacity C identifier": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"vgpu.example.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Capacity: &configapi.DeviceClassCapacitySource{
+									Name:   "gpu.example.com/Memory_Bytes",
+									Driver: "gpu.example.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.example.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+		},
+		"valid capacity name with uppercase domain": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"vgpu.example.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Capacity: &configapi.DeviceClassCapacitySource{
+									Name:   "GPU.example.com/memory",
+									Driver: "gpu.example.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.example.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+		},
+		"capacity name with empty domain": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"vgpu.example.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Capacity: &configapi.DeviceClassCapacitySource{
+									Name:   "/memory",
+									Driver: "gpu.example.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.example.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[0].sources[0].capacity.name",
+				},
+			},
+		},
+		"capacity name with invalid C identifier": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"vgpu.example.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Capacity: &configapi.DeviceClassCapacitySource{
+									Name:   "gpu.example.com/memory-bytes",
+									Driver: "gpu.example.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.example.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[0].sources[0].capacity.name",
+				},
+			},
+		},
+		"capacity name domain exceeds max length": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"vgpu.example.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Capacity: &configapi.DeviceClassCapacitySource{
+									Name:   resourcev1.QualifiedName(strings.Repeat("a", resourcev1.DeviceMaxDomainLength+1) + "/memory"),
+									Driver: "gpu.example.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.example.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeTooLong,
+					Field: "resources.deviceClassMappings[0].sources[0].capacity.name",
+				},
+			},
+		},
+		"capacity name identifier exceeds max length": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"vgpu.example.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Capacity: &configapi.DeviceClassCapacitySource{
+									Name:   resourcev1.QualifiedName("gpu.example.com/" + strings.Repeat("a", resourcev1.DeviceMaxIDLength+1)),
+									Driver: "gpu.example.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.example.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeTooLong,
+					Field: "resources.deviceClassMappings[0].sources[0].capacity.name",
 				},
 			},
 		},
@@ -2188,6 +2800,30 @@ func TestValidateCustomLabels(t *testing.T) {
 				},
 			},
 		},
+		"name with underscore valid as k8s label key": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{Name: "has_underscore"},
+						},
+					},
+				},
+			},
+		},
+		"valid multiple entries": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{Name: "team"},
+							{Name: "env", SourceLabelKey: "environment"},
+							{Name: "cost", SourceAnnotationKey: "billing/cost"},
+						},
+					},
+				},
+			},
+		},
 		"valid with sourceLabelKey": {
 			cfg: &configapi.Configuration{
 				ControllerManager: configapi.ControllerManager{
@@ -2210,14 +2846,31 @@ func TestValidateCustomLabels(t *testing.T) {
 				},
 			},
 		},
-		"valid multiple entries": {
+		"valid workload with tracked values": {
 			cfg: &configapi.Configuration{
 				ControllerManager: configapi.ControllerManager{
 					Metrics: configapi.ControllerMetrics{
 						CustomLabels: []configapi.ControllerMetricsCustomLabel{
-							{Name: "team"},
-							{Name: "env", SourceLabelKey: "environment"},
-							{Name: "cost", SourceAnnotationKey: "billing/cost"},
+							{
+								Name:          "team",
+								SourceKind:    ptr.To(configapi.SourceKindWorkload),
+								TrackedValues: []string{"a"},
+							},
+						},
+					},
+				},
+			},
+		},
+		"valid cohort with tracked values": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{
+								Name:          "team",
+								SourceKind:    ptr.To(configapi.SourceKindCohort),
+								TrackedValues: []string{"a"},
+							},
 						},
 					},
 				},
@@ -2235,8 +2888,9 @@ func TestValidateCustomLabels(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "metrics.customLabels[0].name",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "metrics.customLabels[0].name",
+					Detail: "must match ^[a-zA-Z][a-zA-Z0-9_]*$",
 				},
 			},
 		},
@@ -2252,8 +2906,9 @@ func TestValidateCustomLabels(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "metrics.customLabels[0].name",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "metrics.customLabels[0].name",
+					Detail: "must match ^[a-zA-Z][a-zA-Z0-9_]*$",
 				},
 			},
 		},
@@ -2269,12 +2924,14 @@ func TestValidateCustomLabels(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "metrics.customLabels[0].name",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "metrics.customLabels[0].name",
+					Detail: "must match ^[a-zA-Z][a-zA-Z0-9_]*$",
 				},
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "metrics.customLabels[0].name",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "metrics.customLabels[0].name",
+					Detail: "name part must be non-empty; name part must consist of alphanumeric characters, '-', '_' or '.', and must start and end with an alphanumeric character (e.g. 'MyName',  or 'my.name',  or '123-abc', regex used for validation is '([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9]')",
 				},
 			},
 		},
@@ -2308,8 +2965,9 @@ func TestValidateCustomLabels(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "metrics.customLabels[0]",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "metrics.customLabels[0]",
+					Detail: "sourceLabelKey and sourceAnnotationKey are mutually exclusive",
 				},
 			},
 		},
@@ -2325,8 +2983,9 @@ func TestValidateCustomLabels(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "metrics.customLabels[0].sourceLabelKey",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "metrics.customLabels[0].sourceLabelKey",
+					Detail: "name part must consist of alphanumeric characters, '-', '_' or '.', and must start and end with an alphanumeric character (e.g. 'MyName',  or 'my.name',  or '123-abc', regex used for validation is '([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9]')",
 				},
 			},
 		},
@@ -2342,19 +3001,170 @@ func TestValidateCustomLabels(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "metrics.customLabels[0].sourceAnnotationKey",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "metrics.customLabels[0].sourceAnnotationKey",
+					Detail: "name part must consist of alphanumeric characters, '-', '_' or '.', and must start and end with an alphanumeric character (e.g. 'MyName',  or 'my.name',  or '123-abc', regex used for validation is '([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9]')",
 				},
 			},
 		},
-		"name with underscore valid as k8s label key": {
+		"unknown source kind": {
 			cfg: &configapi.Configuration{
 				ControllerManager: configapi.ControllerManager{
 					Metrics: configapi.ControllerMetrics{
 						CustomLabels: []configapi.ControllerMetricsCustomLabel{
-							{Name: "has_underscore"},
+							{
+								Name:       "team",
+								SourceKind: ptr.To(configapi.SourceKind("Unknown")),
+							},
 						},
 					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "metrics.customLabels",
+					Detail: "unknown source kind: Unknown",
+				},
+			},
+		},
+		"too many custom labels in total": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{Name: "c1"}, {Name: "c2"}, {Name: "c3"}, {Name: "c4"}, {Name: "c5"},
+							{Name: "c6"}, {Name: "c7"}, {Name: "c8"}, {Name: "c9"}, {Name: "c10"},
+							{Name: "c11"}, {Name: "c12"}, {Name: "c13"}, {Name: "c14"}, {Name: "c15"},
+							{Name: "c16"}, {Name: "c17"}, {Name: "c18"}, {Name: "c19"}, {Name: "c20"},
+							{Name: "c21"},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeTooMany,
+					Field:  "metrics.customLabels",
+					Detail: "must have at most 20 items",
+				},
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "metrics.customLabels",
+					Detail: "too many custom labels for source kind ClusterQueue: found 21, expected <= 6",
+				},
+			},
+		},
+		"too many custom labels": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{Name: "c1", SourceKind: ptr.To(configapi.SourceKindCohort)},
+							{Name: "c2", SourceKind: ptr.To(configapi.SourceKindCohort)},
+							{Name: "c3", SourceKind: ptr.To(configapi.SourceKindCohort)},
+							{Name: "c4", SourceKind: ptr.To(configapi.SourceKindCohort)},
+							{Name: "c5", SourceKind: ptr.To(configapi.SourceKindCohort)},
+							{Name: "c6", SourceKind: ptr.To(configapi.SourceKindCohort)},
+							{Name: "c7", SourceKind: ptr.To(configapi.SourceKindCohort)},
+							{Name: "c8", SourceKind: ptr.To(configapi.SourceKindCohort)},
+							{Name: "c9", SourceKind: ptr.To(configapi.SourceKindCohort)},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "metrics.customLabels",
+					Detail: "too many custom labels for source kind Cohort: found 9, expected <= 6",
+				},
+			},
+		},
+		"workload without tracked values": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{
+								Name:       "team",
+								SourceKind: ptr.To(configapi.SourceKindWorkload),
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "metrics.customLabels[0].trackedValues",
+					Detail: "must not be empty when sourceKind is 'Workload'",
+				},
+			},
+		},
+		"too many tracked values": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{
+								Name:          "team",
+								SourceKind:    ptr.To(configapi.SourceKindCohort),
+								TrackedValues: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17"},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeTooMany,
+					Field:  "metrics.customLabels[0].trackedValues",
+					Detail: "must have at most 16 items",
+				},
+			},
+		},
+		"too many tracked values for workload": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{
+								Name:          "team",
+								SourceKind:    ptr.To(configapi.SourceKindWorkload),
+								TrackedValues: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13"},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "metrics.customLabels[0].trackedValues",
+					Detail: "must not be greater than 12 when sourceKind is 'Workload'",
+				},
+			},
+		},
+		"duplicate tracked values": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{
+								Name:          "team",
+								SourceKind:    ptr.To(configapi.SourceKindCohort),
+								TrackedValues: []string{"a", "b", "a"},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "metrics.customLabels[0].trackedValues",
+					Detail: "must not contain duplicates",
 				},
 			},
 		},
@@ -2363,9 +3173,67 @@ func TestValidateCustomLabels(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			got := validateCustomLabels(tc.cfg)
-			if diff := cmp.Diff(tc.wantErr, got, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
+			if diff := cmp.Diff(tc.wantErr, got, cmpopts.IgnoreFields(field.Error{}, "BadValue")); diff != "" {
 				t.Errorf("validateCustomLabels() returned unexpected error (-want,+got):\n%s", diff)
 			}
 		})
 	}
+
+	t.Run("too many custom labels message detail", func(t *testing.T) {
+		cfg := &configapi.Configuration{
+			ControllerManager: configapi.ControllerManager{
+				Metrics: configapi.ControllerMetrics{
+					CustomLabels: []configapi.ControllerMetricsCustomLabel{
+						{Name: "c1", SourceKind: ptr.To(configapi.SourceKindCohort)},
+						{Name: "c2", SourceKind: ptr.To(configapi.SourceKindCohort)},
+						{Name: "c3", SourceKind: ptr.To(configapi.SourceKindCohort)},
+						{Name: "c4", SourceKind: ptr.To(configapi.SourceKindCohort)},
+						{Name: "c5", SourceKind: ptr.To(configapi.SourceKindCohort)},
+						{Name: "c6", SourceKind: ptr.To(configapi.SourceKindCohort)},
+						{Name: "c7", SourceKind: ptr.To(configapi.SourceKindCohort)},
+						{Name: "c8", SourceKind: ptr.To(configapi.SourceKindCohort)},
+						{Name: "c9", SourceKind: ptr.To(configapi.SourceKindCohort)},
+						{Name: "l1", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
+						{Name: "l2", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
+						{Name: "l3", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
+						{Name: "l4", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
+						{Name: "l5", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
+						{Name: "l6", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
+						{Name: "l7", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
+						{Name: "l8", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
+						{Name: "l9", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
+						{Name: "l10", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
+						{Name: "w1", SourceKind: ptr.To(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
+						{Name: "w2", SourceKind: ptr.To(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
+						{Name: "w3", SourceKind: ptr.To(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
+						{Name: "w4", SourceKind: ptr.To(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
+						{Name: "w5", SourceKind: ptr.To(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
+					},
+				},
+			},
+		}
+		wantDetails := []string{
+			"too many custom labels for source kind Cohort: found 9, expected <= 6",
+			"too many custom labels for source kind LocalQueue: found 10, expected <= 6",
+			"too many custom labels for source kind Workload: found 5, expected <= 2",
+		}
+
+		got := validateCustomLabels(cfg)
+
+		var gotDetails []string
+		for _, err := range got {
+			if err.Type != field.ErrorTypeTooMany {
+				gotDetails = append(gotDetails, err.Detail)
+			}
+		}
+
+		if len(gotDetails) != 3 {
+			t.Fatalf("expected 3 errors, got %d", len(gotDetails))
+		}
+
+		slices.Sort(gotDetails)
+		if diff := cmp.Diff(wantDetails, gotDetails); diff != "" {
+			t.Errorf("unexpected error details (-want,+got):\n%s", diff)
+		}
+	})
 }

@@ -23,27 +23,43 @@ ROOT_DIR=$(realpath "$SCRIPT_DIR/../../../..")
 KIND_CLUSTER_NAME="kueue-populator-verify-helm"
 GIT_TAG=$(git describe --tags --dirty --always)
 
-# Use tools from the root project
-KIND="$ROOT_DIR/bin/kind"
-HELM="$ROOT_DIR/bin/helm"
+# E2E_KIND_VERSION is the kind node image (e.g. kindest/node:v1.36.1) and selects
+# the Kubernetes version of the cluster. Like every other cluster-creating path in
+# the repo, it is provided by the build system (the Makefile derives it from the
+# K8s version). A fallback keeps direct execution working. See #13296 / #13291.
+export E2E_KIND_VERSION="${E2E_KIND_VERSION:-kindest/node:v1.36.1}"
+# ARTIFACTS is where the shared helpers write cluster logs.
+export ARTIFACTS="${ARTIFACTS:-$ROOT_DIR/artifacts}"
+mkdir -p "$ARTIFACTS"
 
-# Ensure tools are built
+# Build the tools the shared helpers need before sourcing them: e2e-common.sh
+# reads config/components/manager/kustomization.yaml with yq at source time, so
+# it must run from ROOT_DIR with yq and kustomize already present. Tool versions
+# are resolved via the root Makefile (go list), consistent with the rest of the repo.
 echo "Ensuring tools are available..."
 cd "$ROOT_DIR"
-# Pass explicit versions to bypass broken 'go list' in hack/tools
-make kind helm KIND_VERSION=v0.24.0 HELM_VERSION=v4.2.0
+make kind helm yq kustomize
+
+# Reuse the common cluster lifecycle helpers so tooling versions and cluster
+# creation stay consistent with the rest of the build system. e2e-common.sh
+# resolves some paths relative to SOURCE_DIR (its own directory) and the current
+# working directory (ROOT_DIR).
+SOURCE_DIR="$ROOT_DIR/hack/testing"
+# shellcheck source=/dev/null
+source "$SOURCE_DIR/e2e-common.sh"
+
+KIND_CONFIG="$SOURCE_DIR/kind-cluster.yaml"
+
 cd "$SCRIPT_DIR/.."
 
 function cleanup {
   echo "Cleaning up Kind cluster..."
-  "$KIND" delete cluster --name "$KIND_CLUSTER_NAME" 2>/dev/null || true
+  cluster_cleanup "$KIND_CLUSTER_NAME"
 }
 trap cleanup EXIT
 
-echo "Creating Kind cluster..."
-# Delete existing cluster if any
-"$KIND" delete cluster --name "$KIND_CLUSTER_NAME" 2>/dev/null || true
-"$KIND" create cluster --name "$KIND_CLUSTER_NAME"
+echo "Creating Kind cluster (node image: $E2E_KIND_VERSION)..."
+ensure_kind_cluster "$KIND_CLUSTER_NAME" "$KIND_CONFIG" ""
 
 echo "Building and loading kueue-populator image..."
 make kind-image-build

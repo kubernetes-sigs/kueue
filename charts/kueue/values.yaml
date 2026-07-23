@@ -19,6 +19,8 @@ certManager:
   #   group: cert-manager.io
 # -- Enable API Priority and Fairness configuration for the visibility API
 enableVisibilityAPF: false
+# -- Enable the visibility server's auth-reader RoleBinding. It is always created in the kube-system namespace because it binds to the built-in extension-apiserver-authentication-reader Role, which only exists there. Disable when deploying under a GitOps project that cannot target kube-system, then create the RoleBinding out-of-band.
+enableVisibilityAuthReaderRoleBinding: true
 # -- Enable KueueViz dashboard
 enableKueueViz: false
 # -- Kubernetes cluster's domain
@@ -157,13 +159,13 @@ managerConfig:
       - "ray.io/rayservice"
       - "ray.io/raycluster"
       - "jobset.x-k8s.io/jobset"
-      - "trainer.kubeflow.org/trainjob"
     #  - "kubeflow.org/paddlejob"
     #  - "kubeflow.org/pytorchjob"
     #  - "kubeflow.org/tfjob"
     #  - "kubeflow.org/xgboostjob"
     #  - "kubeflow.org/jaxjob"
       - "workload.codeflare.dev/appwrapper"
+      - "trainer.kubeflow.org/trainjob"
     #  - "sparkoperator.k8s.io/sparkapplication"
       - "pod"
       - "deployment"

@@ -27,9 +27,12 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"gopkg.in/inf.v0"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	resourcehelpers "k8s.io/component-helpers/resource"
@@ -46,6 +49,7 @@ import (
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
@@ -244,7 +248,7 @@ type PodSetResources struct {
 	// Name is the name of the PodSet.
 	Name kueue.PodSetReference
 	// Requests incorporates the requests from all pods in the podset.
-	Requests resources.Requests
+	Requests resources.MapRequests
 	// Count indicates how many pods are in the podset.
 	Count int32
 
@@ -258,7 +262,7 @@ type PodSetResources struct {
 	Flavors map[corev1.ResourceName]kueue.ResourceFlavorReference
 }
 
-func (p *PodSetResources) SinglePodRequests() resources.Requests {
+func (p *PodSetResources) SinglePodRequests() resources.MapRequests {
 	return p.Requests.ScaledDown(int64(p.Count))
 }
 
@@ -352,7 +356,7 @@ func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []
 	podSetShapes := make([]map[string]any, 0, len(wl.Spec.PodSets))
 	for i, ps := range wl.Spec.PodSets {
 		effectiveCount := ps.Count
-		var effectiveRequests resources.Requests
+		var effectiveRequests resources.MapRequests
 		if i < len(totalRequests) {
 			effectiveCount = totalRequests[i].Count
 			effectiveRequests = totalRequests[i].Requests
@@ -458,6 +462,10 @@ func (i *Info) CalcLocalQueueFSUsage(
 	var lq kueue.LocalQueue
 	lqObjKey := client.ObjectKey{Namespace: i.Obj.Namespace, Name: string(i.Obj.Spec.QueueName)}
 	if err := c.Get(ctx, lqObjKey, &lq); err != nil {
+		if apierrors.IsNotFound(err) {
+			ctrl.LoggerFrom(ctx).V(3).Info("LocalQueue is missing, gracefully falling back to the default weight (1.0)", "localQueue", lqObjKey)
+			return afs.CalculateUsage(consumed, penalty, 1.0, resWeights), nil
+		}
 		return 0, err
 	}
 	lqWeight := afs.LQWeightAsFloat64(&lq)
@@ -502,12 +510,12 @@ func (i *Info) TASUsage() TASUsage {
 	return result
 }
 
-func (i *Info) SumTotalRequests() corev1.ResourceList {
-	reqs := make(resources.Requests)
+func (i *Info) SumTotalRequests(formatter *resources.ResourceFormatter) corev1.ResourceList {
+	reqs := make(resources.MapRequests)
 	for _, psReqs := range i.TotalRequests {
 		reqs.Add(psReqs.Requests)
 	}
-	return reqs.ToResourceList()
+	return reqs.ToResourceList(formatter)
 }
 
 func applyResourceTransformations(input corev1.ResourceList, transforms map[corev1.ResourceName]*config.ResourceTransformation) corev1.ResourceList {
@@ -528,13 +536,12 @@ func applyResourceTransformations(input corev1.ResourceList, transforms map[core
 			// the value of the resource specified in MultiplyBy.
 			if mapping.MultiplyBy != "" {
 				if q, ok := input[mapping.MultiplyBy]; ok {
-					inputQuantity.Mul(q.Value())
+					inputQuantity = multiplyResourceQuantities(inputQuantity, q)
 				}
 			}
 
 			for outputName, baseFactor := range mapping.Outputs {
-				outputQuantity := baseFactor.DeepCopy()
-				outputQuantity.Mul(inputQuantity.Value())
+				outputQuantity := multiplyResourceQuantities(inputQuantity, baseFactor)
 				if accumulated, ok := output[outputName]; ok {
 					outputQuantity.Add(accumulated)
 				}
@@ -548,6 +555,14 @@ func applyResourceTransformations(input corev1.ResourceList, transforms map[core
 		}
 	}
 	return output
+}
+
+func multiplyResourceQuantities(value, mul resource.Quantity) resource.Quantity {
+	value = value.DeepCopy()
+	mul = mul.DeepCopy()
+	product := inf.Dec{}
+	product.Mul(value.AsDec(), mul.AsDec())
+	return *resource.NewDecimalQuantity(product, value.Format)
 }
 
 func CanBePartiallyAdmitted(wl *kueue.Workload) bool {
@@ -584,7 +599,9 @@ func podSetsCountsAfterReclaim(wl *kueue.Workload) map[kueue.PodSetReference]int
 	reclaimCounts := reclaimableCounts(wl)
 	for podSetName := range totalCounts {
 		if rc, found := reclaimCounts[podSetName]; found {
-			totalCounts[podSetName] -= rc
+			// The reclaimable count can transiently exceed the podSet count after an
+			// elastic scale-down (see kueue#12670); never let usage go negative.
+			totalCounts[podSetName] -= min(rc, totalCounts[podSetName])
 		}
 	}
 	return totalCounts
@@ -611,7 +628,7 @@ func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetRes
 		specRequests := resourcehelpers.PodRequests(&corev1.Pod{Spec: ps.Template.Spec}, resourcehelpers.PodResourcesOptions{})
 		effectiveRequests := dropExcludedResources(specRequests, info.excludedResourcePrefixes)
 		effectiveRequests = applyResourceTransformations(effectiveRequests, info.resourceTransformations)
-		setRes.Requests = resources.NewRequests(effectiveRequests)
+		setRes.Requests = resources.NewMapRequests(effectiveRequests)
 		if features.Enabled(features.KueueDRAIntegration) && info.preprocessedDRAResources != nil {
 			// First, remove extended resources that were converted to DRA logical resources
 			if replacedRes, exists := info.replacedExtendedResources[ps.Name]; exists {
@@ -623,12 +640,13 @@ func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetRes
 			if draRes, exists := info.preprocessedDRAResources[ps.Name]; exists {
 				for resName, quantity := range draRes {
 					if setRes.Requests == nil {
-						setRes.Requests = make(resources.Requests)
+						setRes.Requests = make(resources.MapRequests)
 					}
 					setRes.Requests[resName] += resources.ResourceValue(resName, quantity)
 				}
 			}
 		}
+		setRes.Requests.FloorToZero()
 		setRes.Requests.Mul(int64(count))
 		res = append(res, setRes)
 	}
@@ -648,13 +666,13 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 			Name:     psa.Name,
 			Flavors:  psa.Flavors,
 			Count:    ptr.Deref(psa.Count, totalCounts[psa.Name]),
-			Requests: resources.NewRequests(psa.ResourceUsage),
+			Requests: resources.NewMapRequests(psa.ResourceUsage),
 		}
 		if features.Enabled(features.TopologyAwareScheduling) && psa.TopologyAssignment != nil {
 			setRes.TopologyRequest = &TopologyRequest{
 				Levels: psa.TopologyAssignment.Levels,
 			}
-			singlePodRequests := setRes.SinglePodRequests()
+			var singlePodRequests resources.Requests = setRes.SinglePodRequests()
 			if ps := podset.FindPodSetByName(wl.Spec.PodSets, psa.Name); ps != nil {
 				singlePodRequests = resources.NewRequestsFromPodSpec(&ps.Template.Spec)
 			}
@@ -1042,12 +1060,12 @@ func BlockedOnPreemptionGatesCondition(w *kueue.Workload) *metav1.Condition {
 
 // PropagateResourceRequests synchronizes w.Status.ResourceRequests to
 // with info.TotalRequests if the feature gate is enabled and returns true if w was updated
-func PropagateResourceRequests(w *kueue.Workload, info *Info) bool {
+func PropagateResourceRequests(w *kueue.Workload, info *Info, formatter *resources.ResourceFormatter) bool {
 	if len(w.Status.ResourceRequests) == len(info.TotalRequests) {
 		match := true
 		for idx := range w.Status.ResourceRequests {
 			if w.Status.ResourceRequests[idx].Name != info.TotalRequests[idx].Name ||
-				!equality.Semantic.DeepEqual(w.Status.ResourceRequests[idx].Resources, info.TotalRequests[idx].Requests.ToResourceList()) {
+				!equality.Semantic.DeepEqual(w.Status.ResourceRequests[idx].Resources, info.TotalRequests[idx].Requests.ToResourceList(formatter)) {
 				match = false
 				break
 			}
@@ -1060,7 +1078,7 @@ func PropagateResourceRequests(w *kueue.Workload, info *Info) bool {
 	res := make([]kueue.PodSetRequest, len(info.TotalRequests))
 	for idx := range info.TotalRequests {
 		res[idx].Name = info.TotalRequests[idx].Name
-		res[idx].Resources = info.TotalRequests[idx].Requests.ToResourceList()
+		res[idx].Resources = info.TotalRequests[idx].Requests.ToResourceList(formatter)
 	}
 	w.Status.ResourceRequests = res
 	return true
@@ -1131,6 +1149,24 @@ func UpdateReclaimablePods(ctx context.Context, c client.Client, wl *kueue.Workl
 		wl.Status.ReclaimablePods = reclaimablePods
 		return true, nil
 	})
+}
+
+// LimitReclaimablePodsToPodSetSizes returns a copy of reclaimablePods with every
+// count lowered, if needed, to the matching PodSet's count in wl.
+//
+// A job can report a reclaimable count derived from monotonic state (e.g. a
+// batch/Job's Status.Succeeded), which after an elastic scale-down can exceed
+// the shrunk PodSet's count; persisting such a value would violate the
+// webhook invariant reclaimablePods[i].count <= podSets[i].count.
+func LimitReclaimablePodsToPodSetSizes(wl *kueue.Workload, reclaimablePods []kueue.ReclaimablePod) []kueue.ReclaimablePod {
+	sizes := ExtractPodSetCountsFromWorkload(wl)
+	limited := slices.Clone(reclaimablePods)
+	for i := range limited {
+		if size, found := sizes[limited[i].Name]; found {
+			limited[i].Count = min(limited[i].Count, size)
+		}
+	}
+	return limited
 }
 
 // ReclaimablePodsAreEqual checks if two Reclaimable pods are semantically equal
@@ -1230,6 +1266,22 @@ func HasConditionWithTypeAndReason(w *kueue.Workload, cond *metav1.Condition) bo
 		}
 	}
 	return false
+}
+
+// OwnedBySinglePod reports whether the Workload is owned by exactly one Pod
+// (bare-Pod / Deployment-replica pod integration). Such a Workload cannot
+// outlive its pod, so no future pod can consume a recomputed assignment.
+// Pod-group Workloads are excluded: a group of size 1 also has a single Pod
+// owner, but can receive replacement pods into the same Workload.
+func OwnedBySinglePod(w *kueue.Workload) bool {
+	if w == nil || len(w.OwnerReferences) != 1 {
+		return false
+	}
+	if w.Annotations[podconstants.IsGroupWorkloadAnnotationKey] == podconstants.IsGroupWorkloadAnnotationValue {
+		return false
+	}
+	ref := w.OwnerReferences[0]
+	return ref.Kind == "Pod" && ref.APIVersion == "v1"
 }
 
 func HasUnhealthyNodes(w *kueue.Workload) bool {

@@ -269,6 +269,22 @@ function prepare_local_branch() {
     fi
   fi
 
+  # Freeze the release's docs into a path-based snapshot (site/content/*/v0.X/docs)
+  # and add it to the version dropdown. Runs on the main PR for major, minor, AND
+  # patch releases -- kept independent of the version-string bump above (which is
+  # skipped for older lines via --skip-version-updates) so patch releases still
+  # refresh their docs: a new minor creates the snapshot, and a patch to a still-
+  # retained minor re-freezes it to the new patch version (e.g. v0.17.7 -> v0.17.8).
+  # Skipped only when the line is neither the newest nor an already-retained
+  # snapshot (i.e. an out-of-window/unsupported version). Sourced from the release
+  # branch; committed on main and flows to the live website branch via the usual
+  # main->website merge.
+  if [ "$1" = "main" ]; then
+    if [[ MAJOR -gt LATEST_MAJOR ]] || [[ MAJOR -eq LATEST_MAJOR && MINOR -ge LATEST_MINOR ]] || [[ -d "site/content/en/v${MAJOR_MINOR}" ]]; then
+      hack/releasing/snapshot-docs.py "v${MAJOR_MINOR}" "${UPSTREAM_REMOTE}/${RELEASE_BRANCH}"
+    fi
+  fi
+
   git add .
   git commit -m "$3"
 }

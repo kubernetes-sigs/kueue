@@ -24,7 +24,7 @@ kueue-populator-test-integration: ## Run integration tests for kueue-populator.
 
 .PHONY: kueue-populator-test-e2e
 kueue-populator-test-e2e: ## Run e2e tests for kueue-populator.
-	$(MAKE) -C cmd/experimental/kueue-populator test-e2e
+	$(MAKE) -C cmd/experimental/kueue-populator test-e2e E2E_KIND_VERSION=$(E2E_KIND_VERSION)
 
 .PHONY: kueue-populator-verify
 kueue-populator-verify: ## Run all verification tests for kueue-populator.

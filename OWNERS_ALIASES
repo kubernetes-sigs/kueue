@@ -34,3 +34,6 @@ aliases:
     - mbobrovskyi
   infra-approvers:
     - mbobrovskyi
+  release-team:
+    - mbobrovskyi
+    - Singularity23x0

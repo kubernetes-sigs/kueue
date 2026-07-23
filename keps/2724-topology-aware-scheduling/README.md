@@ -43,9 +43,12 @@
     - [Topology assignment representation](#topology-assignment-representation)
       - [Until v1beta1](#until-v1beta1)
       - [Since v1beta2](#since-v1beta2)
+      - [Encoding assignments by hostname prefix](#encoding-assignments-by-hostname-prefix)
     - [Node failures](#node-failures)
       - [Until v0.13](#until-v013)
       - [Since v0.14](#since-v014)
+      - [Sunsetting fixed-time marking (since v0.19)](#sunsetting-fixed-time-marking-since-v019)
+      - [Workloads owned by a single Pod](#workloads-owned-by-a-single-pod)
     - [Tainted nodes treatment](#tainted-nodes-treatment)
       - [User stories](#user-stories-1)
   - [Implicit defaulting of TAS annotations](#implicit-defaulting-of-tas-annotations)
@@ -1343,12 +1346,60 @@ The main motivation behind the new format is the etcd size limit of 1.5MiB per s
   
   - Multiple slices allow optimizing even further, if desired. \
     Our simulations of more complex algorithms (e.g. heuristic pruning of prefix tree) allowed fitting over 100k nodes. \
-    (However, at that point we reached a tradeoff between bytesize, encoding time, and conceptual simplicity. Resolving that tradeoff is out of scope of this design; the important thing is that the proposed data format supports various specific algorithms).
+    (However, at that point we reached a tradeoff between byte size, encoding time, and conceptual simplicity. \
+    Fully resolving that tradeoff is out of scope of this design; the important thing is that the proposed data format
+    supports various specific algorithms. The hostname-prefix algorithm currently used by Kueue is described below.)
 
 - In the long term, as the number of nodes grows, at some point we'll inevitably hit the 1.5MiB limit anyway. \
   When this happens, we foresee a need to store the slices as separate CRD instances (see [description](#topologyassignmentslices-as-separate-crd-instances) in the "Alternatives" section). \
   While the v1beta2 format does not yet do that, by introducing `Slices` we come much closer to this. \
   Once there is a need, we can promote (some of) `Slices` to instances of a standalone CRD - but the appropriate type system is already there.
+
+##### Encoding assignments by hostname prefix
+
+The `TASAssignmentsEncodingByHostnamePrefix` feature gate is Beta (enabled by default) starting in v0.19. It only
+changes how v1beta2 `TopologyAssignment` objects are encoded: no node-pool or topology meaning is inferred from
+hostnames, and decoding preserves domain order and Pod counts. Disabling the feature gate restores the previous
+single-slice encoder but does not affect reading existing multi-slice assignments. New assignments must then fit the
+single-slice representation and object-size limit; otherwise they can fail to persist.
+
+On upgrade, existing `TopologyAssignment`s remain unchanged. If the assignment of an admitted Workload is later
+recomputed, for example during node hot swap, Kueue re-encodes the entire assignment using the currently enabled
+algorithm.
+
+When the feature gate is enabled, Kueue builds the hostname-prefix encoding first. If it needs multiple slices but the
+assignment is within the per-slice domain limit, Kueue serializes both encodings and keeps the smaller one. Assignments
+that exceed the per-slice domain limit always use the hostname-prefix encoding. When the lowest topology level is
+`kubernetes.io/hostname`, Kueue:
+
+1. Finds reusable hostname prefixes ending in `-`, preferring the longest prefix shared by multiple domains.
+2. Splits consecutive domains with the same selected prefix into runs without reordering domains.
+3. Backs off to shorter prefixes when the runs would exceed the `TopologyAssignment` slice-count limit, and chunks
+   every run at the per-slice domain limit.
+4. Compacts each resulting slice independently, including common prefixes and suffixes, universal topology values,
+   and universal Pod counts.
+
+The encoder does not sort domains. The scheduler orders domains by their full topology values before producing
+hostname-only assignments, and the encoder preserves that order so encoding and decoding remain mutually inverse.
+When the lowest topology level is not `kubernetes.io/hostname`, no prefix is reusable, or no prefix selection fits the
+slice limit, Kueue forms a single compact slice until the per-slice domain limit requires domain-count chunking.
+
+For example, the consecutive domains
+`gke-c-pool-a-hash1-aa: 3`, `gke-c-pool-a-hash1-bb: 3`,
+`gke-c-pool-b-hash2-cc: 4`, and `gke-c-pool-b-hash2-dd: 5` become two slices:
+
+```text
+prefix: gke-c-pool-a-hash1-, roots: [aa, bb], podCounts.universal: 3
+prefix: gke-c-pool-b-hash2-, roots: [cc, dd], podCounts.individual: [4, 5]
+```
+
+The grouping phase is intentionally prefix-only. Per-slice compaction can still extract a common suffix, such as the
+DNS suffix in AWS EKS node names, but suffixes do not define runs. Symmetric grouping would require evaluating both
+prefix- and suffix-based results, increasing encoding latency and complexity, so it is out of scope.
+
+The strategy is most effective when ordered hostnames share reusable `-`-delimited prefixes. Names without that
+structure, including UUID-style names, may not reduce the encoded size beyond required chunking while still incurring
+the prefix-analysis cost.
 
 #### Node failures
 
@@ -1404,17 +1455,64 @@ Sometimes node failures are only transient and the node might recover, and so re
 immediately to NotReady condition could result in unnecessary node replacements.
 
 For that reason we introduce two heuristics for marking nodes to replace for a given workload:
-1. when the node is NotReady for over 30s (used by default)
+1. when the node is NotReady for over 30s (the default until v0.19; see
+[Sunsetting fixed-time marking](#sunsetting-fixed-time-marking-since-v019))
 2. when the node is NotReady and all of the workload's Pods scheduled on that node are terminated
 or terminating (used when the `TASReplaceNodeOnPodTermination` feature gate is enabled which is
-available starting with Kueue v0.13)
+available starting with Kueue v0.13; the only heuristic since v0.19)
 
 For the future releases we are going to consider API configuration for the approach, but first we
 would like to collect more user feedback using the feature gates while in Alpha.
 
+##### Sunsetting fixed-time marking (since v0.19)
+
+Marking a node failed after a fixed NotReady duration is premature in principle: a
+node can become Ready again after an arbitrary amount of time, and while the
+workload's Pods are still running on it, a recomputed assignment diverges from where
+the Pods actually run and corrupts per-node capacity accounting. Heuristic 2 (pod
+termination) is therefore the only marking trigger since v0.19.
+
+The fixed-time heuristic is retained behind the
+`TASReplaceNodeDueToNotReadyOverFixedTime` feature gate: Beta (enabled by default)
+in v0.17 and v0.18 backports, Deprecated (disabled by default) since v0.19, with
+removal planned in v0.21. While that gate is enabled, the interplay with
+`TASReplaceNodeOnPodTermination` is unchanged from v0.14; once it is disabled,
+disabling `TASReplaceNodeOnPodTermination` retains the fixed-time marking. Nodes that are deleted or lack a Ready condition are still marked
+immediately in all configurations.
+
 Kueue tries to find a replacement for a failed node until success (or until it gets
 evicted by e.g. `waitForPodsReady.recoveryTimeout`). One can limit the number of retries
 to only one, by setting the `TASFailedNodeReplacementFailFast` feature gate to `true`.
+
+##### Workloads owned by a single Pod
+
+Node replacement assumes the Workload's controller re-creates pods within the same
+Workload (Job, JobSet, LeaderWorkerSet), so that replacement pods can consume the
+updated topology assignment. Workloads owned by a single Pod (the pod integration:
+bare pods and e.g. Deployment replicas) do not have this property: the Workload is
+deleted together with its pod, so no future pod can ever consume a replacement
+assignment. Rewriting the assignment of such a Workload only makes it diverge from
+the node the (immutable, still-running) pod occupies, which corrupts the per-node
+capacity accounting in both directions: the pod's real node is treated as free
+(over-admission), and the replacement node is blocked for other admissions.
+
+The `SkipReassignmentForPodOwnedWorkloads` feature gate (Beta from v0.19, Alpha in
+backports) makes the scheduler keep the existing topology assignment of a Workload
+owned by exactly one Pod instead of computing a replacement. The node is still
+tracked in `.status.unhealthyNodes` and the field is cleared on the next successful
+scheduling pass. Recovery for such workloads happens through the pod lifecycle: when
+the pod terminates, the owning controller (e.g. ReplicaSet) creates a new pod, which
+arrives as a new Workload and is admitted with a fresh assignment. Workloads with
+any other owner, including pod groups (which can receive user-created replacement
+pods into the same Workload), keep the existing replacement behavior.
+
+The same futility applies to the eviction requeue path. When a pod-owned Workload is
+evicted (e.g. by preemption), requeuing it re-admits the Workload with a freshly
+computed assignment while the evicted pod is still draining its termination grace
+period on the original node — an assignment no pod can ever consume, occupying the
+newly assigned node for the full grace period. With the gate enabled, evicted
+pod-owned Workloads get `Requeued=False` instead: the Workload is parked, finishes
+with its pod, and the owning controller's replacement pod arrives as a new Workload.
 
 #### Tainted nodes treatment
 

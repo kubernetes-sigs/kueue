@@ -241,6 +241,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 			flavor2 *kueue.ResourceFlavor
 			check1  *kueue.AdmissionCheck
 			check2  *kueue.AdmissionCheck
+			check3  *kueue.AdmissionCheck
 		)
 
 		ginkgo.BeforeEach(func() {
@@ -258,6 +259,10 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 			util.MustCreate(ctx, k8sClient, check2)
 			util.SetAdmissionCheckActive(ctx, k8sClient, check2, metav1.ConditionTrue)
 
+			check3 = utiltestingapi.MakeAdmissionCheck("check3").ControllerName("ctrl").Obj()
+			util.MustCreate(ctx, k8sClient, check3)
+			util.SetAdmissionCheckActive(ctx, k8sClient, check3, metav1.ConditionTrue)
+
 			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavorOnDemand).Resource(resourceGPU, "5", "5").Obj()).
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavorSpot).Resource(corev1.ResourceMemory, "5", "5").Obj()).
@@ -273,13 +278,14 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 					},
 				).
 				Obj()
-			util.MustCreate(ctx, k8sClient, clusterQueue)
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 			localQueue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-			util.MustCreate(ctx, k8sClient, localQueue)
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, check3, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, check2, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, check1, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor2, true)

@@ -18,12 +18,14 @@ package config
 
 import (
 	"fmt"
+	"maps"
 	"net"
 	"regexp"
 	"slices"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/validate/content"
 	apimachineryvalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -73,6 +75,15 @@ var (
 	visibilityServerBindPortPath          = field.NewPath("visibilityServer", "bindPort")
 	customLabelsPath                      = field.NewPath("metrics", "customLabels")
 	resourceQuotaCheckStrategyPath        = field.NewPath("resources", "quotaCheckStrategy")
+	maxCustomLabels                       = 20
+	maxTrackedCustomLabelValues           = 16
+	maxTrackedWlCustomLabelValues         = 12
+	maxCustomLabelsPerSourceKind          = map[configapi.SourceKind]int{
+		configapi.SourceKindWorkload:     2,
+		configapi.SourceKindLocalQueue:   6,
+		configapi.SourceKindClusterQueue: 6,
+		configapi.SourceKindCohort:       6,
+	}
 )
 
 // Validate checks the configuration for invalid values.
@@ -475,6 +486,7 @@ func validateDeviceClassMappings(c *configapi.Configuration) field.ErrorList {
 
 	seenResourceNames := make(sets.Set[corev1.ResourceName])
 	deviceClassToResource := make(map[corev1.ResourceName]corev1.ResourceName)
+	deviceClassCounterNames := make(map[corev1.ResourceName]sets.Set[string])
 
 	for idx, mapping := range mappings {
 		mappingPath := dynamicResourceAllocationPath.Index(idx)
@@ -521,57 +533,78 @@ func validateDeviceClassMappings(c *configapi.Configuration) field.ErrorList {
 				seenDeviceClassNames.Insert(deviceClass)
 			}
 
+			counterName := counterNameForMapping(mapping)
 			if existingResource, exists := deviceClassToResource[deviceClass]; exists {
 				if existingResource != mapping.Name {
-					allErrs = append(allErrs, field.Invalid(dcPath, deviceClass,
-						fmt.Sprintf("device class already mapped to resource %s", existingResource)))
+					// Allow same DeviceClass in multiple mappings only when both have
+					// counter sources with different counter names — each mapping tracks
+					// a different counter dimension (e.g., gpu.memory and gpu.compute).
+					existingCounters := deviceClassCounterNames[deviceClass]
+					switch {
+					case counterName == "" || existingCounters.Len() == 0:
+						allErrs = append(allErrs, field.Invalid(dcPath, deviceClass,
+							fmt.Sprintf("device class already mapped to resource %s", existingResource)))
+					case existingCounters.Has(counterName):
+						allErrs = append(allErrs, field.Invalid(dcPath, deviceClass,
+							fmt.Sprintf("device class already has a counter source for counter %q", counterName)))
+					default:
+						deviceClassCounterNames[deviceClass].Insert(counterName)
+					}
 				}
 			} else {
 				deviceClassToResource[deviceClass] = mapping.Name
+				deviceClassCounterNames[deviceClass] = sets.New[string]()
+				if counterName != "" {
+					deviceClassCounterNames[deviceClass].Insert(counterName)
+				}
 			}
 		}
 
 		if len(mapping.Sources) > 0 {
 			sourcesPath := mappingPath.Child("sources")
-			if !features.Enabled(features.KueueDRAIntegrationPartitionableDevices) {
-				allErrs = append(allErrs, field.Invalid(sourcesPath, len(mapping.Sources),
-					"sources require KueueDRAIntegrationPartitionableDevices to be enabled"))
-			} else {
-				if len(mapping.Sources) > 1 {
-					allErrs = append(allErrs, field.TooMany(sourcesPath, len(mapping.Sources), 1))
+			celCache := dracel.NewCache(len(mapping.Sources), dracel.Features{})
+			counterCount := 0
+			hasCapacity := false
+			for sIdx, source := range mapping.Sources {
+				sourcePath := sourcesPath.Index(sIdx)
+				if source.Counter == nil && source.Capacity == nil {
+					allErrs = append(allErrs, field.Required(sourcePath, "exactly one source type must be set per entry"))
+					continue
 				}
-				celCache := dracel.NewCache(len(mapping.Sources), dracel.Features{})
-				for sIdx, source := range mapping.Sources {
-					sourcePath := sourcesPath.Index(sIdx)
-					if source.Counter == nil {
-						allErrs = append(allErrs, field.Required(sourcePath.Child("counter"), "exactly one source type must be set"))
+				if source.Counter != nil && source.Capacity != nil {
+					allErrs = append(allErrs, field.Invalid(sourcePath, "counter+capacity", "exactly one source type must be set per entry"))
+					continue
+				}
+				if source.Counter != nil {
+					counterCount++
+					if !features.Enabled(features.KueueDRAIntegrationPartitionableDevices) {
+						allErrs = append(allErrs, field.Invalid(sourcePath.Child("counter"), true,
+							"counter sources require KueueDRAIntegrationPartitionableDevices to be enabled"))
 						continue
 					}
 					counterPath := sourcePath.Child("counter")
 					if source.Counter.Name == "" {
 						allErrs = append(allErrs, field.Required(counterPath.Child("name"), ""))
-					} else if len(source.Counter.Name) > 63 {
-						allErrs = append(allErrs, field.Invalid(counterPath.Child("name"), source.Counter.Name, "must not exceed 63 characters"))
+					} else if errs := apimachineryutilvalidation.IsDNS1123Label(source.Counter.Name); len(errs) != 0 {
+						allErrs = append(allErrs, field.Invalid(counterPath.Child("name"), source.Counter.Name, strings.Join(errs, ",")))
 					}
-					if source.Counter.Driver == "" {
-						allErrs = append(allErrs, field.Required(counterPath.Child("driver"), ""))
-					} else if len(source.Counter.Driver) > 253 {
-						allErrs = append(allErrs, field.Invalid(counterPath.Child("driver"), source.Counter.Driver, "must not exceed 253 characters"))
-					}
-					selectorPath := counterPath.Child("deviceSelector", "cel", "expression")
-					if source.Counter.DeviceSelector.CEL == nil || source.Counter.DeviceSelector.CEL.Expression == "" {
-						allErrs = append(allErrs, field.Required(selectorPath, ""))
-					} else {
-						result := celCache.GetOrCompile(source.Counter.DeviceSelector.CEL.Expression)
-						if result.Error != nil {
-							allErrs = append(allErrs, field.Invalid(
-								selectorPath,
-								source.Counter.DeviceSelector.CEL.Expression,
-								fmt.Sprintf("CEL compilation failed: %v", result.Error),
-							))
-						}
-					}
+					allErrs = append(allErrs, validateDeviceClassSource(source.Counter.Driver, &source.Counter.DeviceSelector, counterPath, celCache)...)
 				}
+				if source.Capacity != nil {
+					hasCapacity = true
+					if !features.Enabled(features.KueueDRAIntegrationConsumableCapacity) {
+						allErrs = append(allErrs, field.Invalid(sourcePath.Child("capacity"), true,
+							"capacity sources require KueueDRAIntegrationConsumableCapacity to be enabled"))
+						continue
+					}
+					capacityPath := sourcePath.Child("capacity")
+					allErrs = append(allErrs, validateQualifiedName(source.Capacity.Name, capacityPath.Child("name"))...)
+					allErrs = append(allErrs, validateDeviceClassSource(source.Capacity.Driver, &source.Capacity.DeviceSelector, capacityPath, celCache)...)
+				}
+			}
+			if counterCount > 0 && hasCapacity {
+				allErrs = append(allErrs, field.Invalid(sourcesPath, len(mapping.Sources),
+					"cannot mix counter and capacity sources in the same mapping"))
 			}
 		}
 	}
@@ -632,6 +665,7 @@ func LoadAndValidateFeatureGates(featureGateCLI string, featureGateMap map[strin
 	if !features.Enabled(features.TopologyAwareScheduling) && enabledProfilesCount > 0 {
 		allErrs = append(allErrs, field.Invalid(featureGatesPath, enabledProfilesCount, "cannot use a TAS profile with TAS disabled"))
 	}
+
 
 	return allErrs
 }
@@ -703,6 +737,10 @@ func validateCustomLabels(c *configapi.Configuration) field.ErrorList {
 	}
 	var allErrs field.ErrorList
 	seenNames := sets.New[string]()
+	countPerSourceKind := make(map[configapi.SourceKind]int)
+	if len(c.Metrics.CustomLabels) > maxCustomLabels {
+		allErrs = append(allErrs, field.TooMany(customLabelsPath, len(c.Metrics.CustomLabels), maxCustomLabels))
+	}
 	for i, entry := range c.Metrics.CustomLabels {
 		fldPath := customLabelsPath.Index(i)
 
@@ -721,19 +759,143 @@ func validateCustomLabels(c *configapi.Configuration) field.ErrorList {
 		}
 		switch {
 		case entry.SourceLabelKey != "":
-			allErrs = append(allErrs, validateQualifiedName(fldPath.Child("sourceLabelKey"), entry.SourceLabelKey)...)
+			allErrs = append(allErrs, validateLabelKey(fldPath.Child("sourceLabelKey"), entry.SourceLabelKey)...)
 		case entry.SourceAnnotationKey != "":
-			allErrs = append(allErrs, validateQualifiedName(fldPath.Child("sourceAnnotationKey"), entry.SourceAnnotationKey)...)
+			allErrs = append(allErrs, validateLabelKey(fldPath.Child("sourceAnnotationKey"), entry.SourceAnnotationKey)...)
 		default:
-			allErrs = append(allErrs, validateQualifiedName(fldPath.Child("name"), entry.Name)...)
+			allErrs = append(allErrs, validateLabelKey(fldPath.Child("name"), entry.Name)...)
+		}
+
+		sourceKind := ptr.Deref(entry.SourceKind, configapi.DefaultCustomMetricLabelSourceKind)
+		countPerSourceKind[sourceKind]++
+		if sourceKind == configapi.SourceKindWorkload {
+			if len(entry.TrackedValues) == 0 {
+				allErrs = append(allErrs, field.Invalid(fldPath.Child("trackedValues"), entry.TrackedValues,
+					"must not be empty when sourceKind is 'Workload'"))
+			}
+			if len(entry.TrackedValues) > maxTrackedWlCustomLabelValues {
+				allErrs = append(allErrs, field.Invalid(fldPath.Child("trackedValues"), entry.TrackedValues,
+					fmt.Sprintf("must not be greater than %d when sourceKind is 'Workload'", maxTrackedWlCustomLabelValues)))
+			}
+		} else if len(entry.TrackedValues) > maxTrackedCustomLabelValues {
+			allErrs = append(allErrs, field.TooMany(fldPath.Child("trackedValues"), len(entry.TrackedValues), maxTrackedCustomLabelValues))
+		}
+		if sets.New(entry.TrackedValues...).Len() < len(entry.TrackedValues) {
+			allErrs = append(allErrs, field.Invalid(fldPath.Child("trackedValues"), entry.TrackedValues, "must not contain duplicates"))
+		}
+	}
+
+	for _, kind := range slices.Sorted(maps.Keys(countPerSourceKind)) {
+		labelLimit, kindSupported := maxCustomLabelsPerSourceKind[kind]
+		if !kindSupported {
+			allErrs = append(allErrs, field.Invalid(
+				customLabelsPath,
+				c.Metrics.CustomLabels,
+				fmt.Sprintf("unknown source kind: %s", kind),
+			))
+		} else if count := countPerSourceKind[kind]; count > labelLimit {
+			allErrs = append(allErrs, field.Invalid(
+				customLabelsPath,
+				c.Metrics.CustomLabels,
+				fmt.Sprintf("too many custom labels for source kind %s: found %d, expected <= %d", kind, count, labelLimit),
+			))
+		}
+	}
+
+	return allErrs
+}
+
+func validateLabelKey(fldPath *field.Path, value string) field.ErrorList {
+	if errs := content.IsLabelKey(value); len(errs) > 0 {
+		return field.ErrorList{field.Invalid(fldPath, value, strings.Join(errs, "; "))}
+	}
+	return nil
+}
+
+func counterNameForMapping(mapping configapi.DeviceClassMapping) string {
+	if len(mapping.Sources) > 0 && mapping.Sources[0].Counter != nil {
+		return mapping.Sources[0].Counter.Name
+	}
+	return ""
+}
+
+func validateDeviceClassSource(driver string, selector *resourcev1.DeviceSelector, path *field.Path, celCache *dracel.Cache) field.ErrorList {
+	var allErrs field.ErrorList
+	if driver == "" {
+		allErrs = append(allErrs, field.Required(path.Child("driver"), ""))
+	} else if len(driver) > resourcev1.DriverNameMaxLength {
+		allErrs = append(allErrs, field.Invalid(path.Child("driver"), driver, fmt.Sprintf("must not exceed %d characters", resourcev1.DriverNameMaxLength)))
+	} else if errs := apimachineryutilvalidation.IsDNS1123Subdomain(driver); len(errs) != 0 {
+		allErrs = append(allErrs, field.Invalid(path.Child("driver"), driver, strings.Join(errs, ",")))
+	}
+	selectorPath := path.Child("deviceSelector", "cel", "expression")
+	if selector.CEL == nil || selector.CEL.Expression == "" {
+		allErrs = append(allErrs, field.Required(selectorPath, ""))
+	} else {
+		result := celCache.GetOrCompile(selector.CEL.Expression)
+		if result.Error != nil {
+			allErrs = append(allErrs, field.Invalid(selectorPath, selector.CEL.Expression,
+				fmt.Sprintf("CEL compilation failed: %v", result.Error)))
 		}
 	}
 	return allErrs
 }
 
-func validateQualifiedName(fldPath *field.Path, value string) field.ErrorList {
-	if errs := content.IsLabelKey(value); len(errs) > 0 {
-		return field.ErrorList{field.Invalid(fldPath, value, strings.Join(errs, "; "))}
+// validateQualifiedName is copied from:
+// https://github.com/kubernetes/kubernetes/blob/f5ab85e7c9d716e8bc5cf467ba931d8e8123764f/pkg/apis/resource/validation/validation.go#L1342-L1373
+func validateQualifiedName(name resourcev1.QualifiedName, fldPath *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	parts := strings.Split(string(name), "/")
+	switch len(parts) {
+	case 1:
+		allErrs = append(allErrs, validateCIdentifier(parts[0], fldPath)...)
+	case 2:
+		if len(parts[0]) == 0 {
+			allErrs = append(allErrs, field.Invalid(fldPath, "", "the domain must not be empty"))
+		} else {
+			allErrs = append(allErrs, validateDriverName(parts[0], fldPath)...)
+		}
+		if len(parts[1]) == 0 {
+			allErrs = append(allErrs, field.Invalid(fldPath, "", "the name must not be empty"))
+		} else {
+			allErrs = append(allErrs, validateCIdentifier(parts[1], fldPath)...)
+		}
+		// TODO: This validation is incomplete. It should reject qualified names
+		// that contain more than one slash. Currently, names like "a/b/c" are not
+		// handled and are implicitly accepted.
+		//
+		// This needs to be fixed in two places:
+		// 1. Here in this function.
+		// 2. In the corresponding declarative validation utility `resourcesQualifiedName`
+		//    in `staging/src/k8s.io/apimachinery/pkg/api/validate/strfmt.go`.
+		//
+		// The fix should be introduced carefully, possibly using ratcheting to avoid
+		// breaking existing, non-compliant objects.
 	}
-	return nil
+
+	return allErrs
+}
+
+func validateDriverName(name string, fldPath *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	if len(name) > resourcev1.DeviceMaxDomainLength {
+		allErrs = append(allErrs, field.TooLong(fldPath, "" /*unused*/, resourcev1.DeviceMaxDomainLength))
+	}
+	for _, msg := range apimachineryutilvalidation.IsDNS1123Subdomain(strings.ToLower(name)) {
+		allErrs = append(allErrs, field.Invalid(fldPath, name, msg))
+	}
+	return allErrs
+}
+
+// validateCIdentifier is copied from
+// https://github.com/kubernetes/kubernetes/blob/f5ab85e7c9d716e8bc5cf467ba931d8e8123764f/pkg/apis/resource/validation/validation.go#L1386-L1395
+func validateCIdentifier(id string, fldPath *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	if len(id) > resourcev1.DeviceMaxIDLength {
+		allErrs = append(allErrs, field.TooLong(fldPath, "" /*unused*/, resourcev1.DeviceMaxIDLength))
+	}
+	for _, msg := range content.IsCIdentifier(id) {
+		allErrs = append(allErrs, field.Invalid(fldPath, id, msg))
+	}
+	return allErrs
 }

@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingrayutil "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
@@ -806,7 +807,7 @@ func TestUpdateRayClusterSpecToRunWithPodSetsInfo(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			err := UpdateRayClusterSpecToRunWithPodSetsInfo(tc.rayClusterSpec, tc.podSetsInfo)
+			err := UpdateRayClusterSpecToRunWithPodSetsInfo(utiltesting.NewLogger(t), tc.rayClusterSpec, tc.podSetsInfo)
 
 			if tc.wantErr {
 				if err == nil {
@@ -932,11 +933,71 @@ func TestRestorePodSetsInfo(t *testing.T) {
 				},
 			},
 		},
+		"no restore when podSetsInfo is shorter than the pod set count": {
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{Name: "head"}},
+						},
+					},
+				},
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName: "group1",
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker1"}},
+							},
+						},
+					},
+					{
+						GroupName: "group2",
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker2"}},
+							},
+						},
+					},
+				},
+			},
+			// Expected 3 pod sets (head + 2 worker groups) but only 2 are provided, as
+			// happens when a running RayCluster's spec drifts from its admitted Workload.
+			podSetsInfo: []podset.PodSetInfo{{}, {}},
+			wantChanged: false,
+			wantSpec: &rayv1.RayClusterSpec{
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{Name: "head"}},
+						},
+					},
+				},
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName: "group1",
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker1"}},
+							},
+						},
+					},
+					{
+						GroupName: "group2",
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker2"}},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			gotChanged := RestorePodSetsInfo(tc.rayClusterSpec, tc.podSetsInfo)
+			gotChanged := RestorePodSetsInfo(t.Context(), tc.rayClusterSpec, tc.podSetsInfo)
 
 			if gotChanged != tc.wantChanged {
 				t.Errorf("Expected changed=%v, got changed=%v", tc.wantChanged, gotChanged)

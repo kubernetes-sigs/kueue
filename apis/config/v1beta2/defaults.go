@@ -45,12 +45,14 @@ const (
 	DefaultClientConnectionBurst          int32   = 500
 	defaultJobFrameworkName                       = "batch/job"
 	DefaultMultiKueueGCInterval                   = time.Minute
+	DefaultWaitForPodsReadyTimeout                = 30 * time.Minute
 	DefaultMultiKueueOrigin                       = "multikueue"
 	DefaultMultiKueueWorkerLostTimeout            = 15 * time.Minute
 	DefaultRequeuingBackoffBaseSeconds            = 60
 	DefaultRequeuingBackoffMaxSeconds             = 3600
 	DefaultResourceTransformationStrategy         = Retain
 	DefaultVisibilityBindPort                     = 8082
+	DefaultCustomMetricLabelSourceKind            = SourceKindClusterQueue
 )
 
 func getOperatorNamespace() string {
@@ -93,6 +95,17 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	cfg.ClientConnection = cmp.Or(cfg.ClientConnection, &ClientConnection{})
 	cfg.ClientConnection.QPS = cmp.Or(cfg.ClientConnection.QPS, new(DefaultClientConnectionQPS))
 	cfg.ClientConnection.Burst = cmp.Or(cfg.ClientConnection.Burst, new(DefaultClientConnectionBurst))
+
+	cfg.WaitForPodsReady = cmp.Or(
+		cfg.WaitForPodsReady,
+		&WaitForPodsReady{},
+	)
+
+	if cfg.WaitForPodsReady.Timeout.Duration == 0 {
+		cfg.WaitForPodsReady.Timeout = metav1.Duration{
+			Duration: DefaultWaitForPodsReadyTimeout,
+		}
+	}
 
 	if cfg.WaitForPodsReady != nil {
 		cfg.WaitForPodsReady.BlockAdmission = cmp.Or(cfg.WaitForPodsReady.BlockAdmission, new(false))

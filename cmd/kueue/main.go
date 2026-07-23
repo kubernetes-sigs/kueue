@@ -55,6 +55,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/was"
 	"sigs.k8s.io/kueue/pkg/config"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
@@ -73,6 +74,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
@@ -293,12 +295,14 @@ func main() {
 	} else {
 		close(certsReady)
 	}
+	resourceFormatter := resources.NewResourceFormatter()
 	cacheOptions := []schdcache.Option{
 		schdcache.WithPodsReadyTracking(blockForPodsReady(&cfg)),
 		schdcache.WithRoleTracker(roleTracker),
 		schdcache.WithResourceMetrics(cfg.Metrics.EnableClusterQueueResources),
 		schdcache.WithCustomLabels(customLabels),
 		schdcache.WithLocalQueueMetrics(lqMetrics),
+		schdcache.WithResourceFormatter(resourceFormatter),
 	}
 	queueOptions := []qcache.Option{
 		qcache.WithPodsReadyRequeuingTimestamp(podsReadyRequeuingTimestamp(&cfg)),
@@ -306,6 +310,7 @@ func main() {
 		qcache.WithCustomLabels(customLabels),
 		qcache.WithLocalQueueMetrics(lqMetrics),
 		qcache.WithResourceMetrics(cfg.Metrics.EnableClusterQueueResources),
+		qcache.WithResourceFormatter(resourceFormatter),
 	}
 	if cfg.Resources != nil && len(cfg.Resources.ExcludeResourcePrefixes) > 0 {
 		cacheOptions = append(
@@ -329,6 +334,12 @@ func main() {
 				os.Exit(1)
 			}
 			setupLog.Info("DRA mapper initialized from configuration")
+			for _, resourceName := range draMapper.CounterBasedResourceNames() {
+				resourceFormatter.RegisterBinaryFormattedResource(resourceName)
+			}
+			for _, resourceName := range draMapper.CapacityBasedResourceNames() {
+				resourceFormatter.RegisterBinaryFormattedResource(resourceName)
+			}
 		}
 	}
 	if cfg.FairSharing != nil {
@@ -337,6 +348,14 @@ func main() {
 	if cfg.AdmissionFairSharing != nil {
 		queueOptions = append(queueOptions, qcache.WithAdmissionFairSharing(cfg.AdmissionFairSharing))
 		cacheOptions = append(cacheOptions, schdcache.WithAdmissionFairSharing(cfg.AdmissionFairSharing))
+	}
+	if features.Enabled(features.SchedulerLibraryIntegration) {
+		sim, err := was.NewWASSimulator(ctx, mgr.GetConfig())
+		if err != nil {
+			setupLog.Error(err, "Failed to initialize scheduling simulator")
+			os.Exit(1)
+		}
+		cacheOptions = append(cacheOptions, schdcache.WithSchedulingSimulator(sim))
 	}
 	cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
 
@@ -392,6 +411,7 @@ func main() {
 		CustomLabels:           customLabels,
 		DRAMapper:              draMapper,
 		DRABackedResources:     draBackedResources,
+		ResourceFormatter:      resourceFormatter,
 	}
 	if err := setupControllers(ctx, mgr, cCache, queues, &cfg, serverVersionFetcher, controllerOpts); err != nil {
 		setupLog.Error(err, "Unable to setup controllers")
@@ -415,7 +435,7 @@ func main() {
 		}()
 	}
 
-	if err := setupScheduler(mgr, cCache, queues, &cfg, roleTracker, preemptionExpectations, customLabels); err != nil {
+	if err := setupScheduler(mgr, cCache, queues, &cfg, roleTracker, preemptionExpectations, customLabels, resourceFormatter); err != nil {
 		setupLog.Error(err, "Could not setup scheduler")
 		os.Exit(1)
 	}
@@ -455,7 +475,7 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 		}
 	}
 
-	if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) {
+	if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) || features.Enabled(features.KueueDRAIntegrationConsumableCapacity) {
 		if err := core.SetupResourceSliceIndexer(ctx, mgr.GetFieldIndexer()); err != nil {
 			return fmt.Errorf("could not setup ResourceSlice indexer: %w", err)
 		}
@@ -557,6 +577,7 @@ func setupControllers(
 		}
 	}
 
+	labelKeysToCopy, annotationsToCopy := getLabelsAndAnnotationsToCopy(cfg)
 	jfOpts := []jobframework.Option{
 		jobframework.WithManageJobsWithoutQueueName(cfg.ManageJobsWithoutQueueName),
 		jobframework.WithWaitForPodsReady(cfg.WaitForPodsReady),
@@ -564,13 +585,15 @@ func setupControllers(
 		jobframework.WithEnabledFrameworks(cfg.Integrations.Frameworks),
 		jobframework.WithEnabledExternalFrameworks(cfg.Integrations.ExternalFrameworks),
 		jobframework.WithManagerName(constants.KueueName),
-		jobframework.WithLabelKeysToCopy(cfg.Integrations.LabelKeysToCopy),
+		jobframework.WithLabelKeysToCopy(labelKeysToCopy),
+		jobframework.WithAnnotationsToCopy(annotationsToCopy),
 		jobframework.WithCache(cCache),
 		jobframework.WithQueues(queues),
 		jobframework.WithObjectRetentionPolicies(cfg.ObjectRetentionPolicies),
 		jobframework.WithRoleTracker(opts.RoleTracker),
 		jobframework.WithCustomLabels(opts.CustomLabels),
 	}
+
 	nsSelector, err := metav1.LabelSelectorAsSelector(cfg.ManagedJobsNamespaceSelector)
 	if err != nil {
 		return fmt.Errorf("failed to parse managedJobsNamespaceSelector: %w", err)
@@ -586,6 +609,15 @@ func setupControllers(
 	}
 
 	return nil
+}
+
+func getLabelsAndAnnotationsToCopy(cfg *configapi.Configuration) (labelKeysToCopy sets.Set[string], annotationsToCopy sets.Set[string]) {
+	if !features.Enabled(features.CustomMetricLabels) {
+		return sets.New(cfg.Integrations.LabelKeysToCopy...), sets.New[string]()
+	}
+	labelKeysToCopy, annotationsToCopy = metrics.WorkloadCustomLabelSources(cfg.Metrics.CustomLabels)
+	labelKeysToCopy.Insert(cfg.Integrations.LabelKeysToCopy...)
+	return
 }
 
 // setupProbeEndpoints registers the health endpoints
@@ -625,6 +657,7 @@ func setupScheduler(
 	roleTracker *roletracker.RoleTracker,
 	preemptionExpectations *expectations.Store,
 	customLabels *metrics.CustomLabels,
+	resourceFormatter *resources.ResourceFormatter,
 ) error {
 	sched := scheduler.New(
 		queues,
@@ -638,6 +671,7 @@ func setupScheduler(
 		scheduler.WithRoleTracker(roleTracker),
 		scheduler.WithPreemptionExpectations(preemptionExpectations),
 		scheduler.WithCustomLabels(customLabels),
+		scheduler.WithResourceFormatter(resourceFormatter),
 	)
 	if err := mgr.Add(sched); err != nil {
 		return fmt.Errorf("unable to add scheduler to manager: %w", err)

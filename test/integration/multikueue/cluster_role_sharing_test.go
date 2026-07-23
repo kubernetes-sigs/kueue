@@ -263,13 +263,13 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 				managerTestCluster.ctx, managerTestCluster.client, wlMkLookupKey,
 				multiKueueAC.Name,
 				kueue.CheckStateReady,
-				`The workload got reservation on "worker1"`,
+				`The workload was admitted on "worker1"`,
 			)
 
 			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, eventsv1.Event{
 				Reason: "MultiKueue",
 				Type:   corev1.EventTypeNormal,
-				Note:   `The workload got reservation on "worker1"`,
+				Note:   `The workload was admitted on "worker1"`,
 			})
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -446,13 +446,13 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 				managerTestCluster.ctx, managerTestCluster.client, wlMkLookupKey,
 				multiKueueAC.Name,
 				kueue.CheckStateReady,
-				`The workload got reservation on "worker1"`,
+				`The workload was admitted on "worker1"`,
 			)
 
 			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, eventsv1.Event{
 				Reason: "MultiKueue",
 				Type:   corev1.EventTypeNormal,
-				Note:   `The workload got reservation on "worker1"`,
+				Note:   `The workload was admitted on "worker1"`,
 			})
 
 			gomega.Eventually(func(g gomega.Gomega) {

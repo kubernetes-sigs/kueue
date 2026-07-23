@@ -19,6 +19,7 @@ package scheduler
 import (
 	"cmp"
 	"math"
+	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
 
@@ -94,6 +95,14 @@ func (d DRS) PreciseWeightedShare() float64 {
 		return math.Inf(1)
 	}
 	return d.unweightedRatio / d.fairWeight
+}
+
+// PreciseWeightedShareSerialized returns the DRS value
+// as a string, marshallable into JSON. Specifically, it handles
+// DRS being +Infinity, which is not a valid numeric value in JSON.
+func (d DRS) PreciseWeightedShareSerialized() string {
+	drs := d.PreciseWeightedShare()
+	return strconv.FormatFloat(drs, 'f', -1, 64)
 }
 
 // CompareDRS compares two DRS values. A lower value

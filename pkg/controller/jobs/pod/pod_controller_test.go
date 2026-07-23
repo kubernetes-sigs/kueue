@@ -32,6 +32,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/component-base/metrics/testutil"
 	testingclock "k8s.io/utils/clock/testing"
@@ -208,7 +209,7 @@ func TestConstructComposableWorkloadPodGroupRoleLimit(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			kClient := utiltesting.NewClientBuilder().Build()
 
-			wl, gotErr := makePodGroup(tc.roleCount).ConstructComposableWorkload(ctx, kClient, nil, nil)
+			wl, gotErr := makePodGroup(tc.roleCount).ConstructComposableWorkload(ctx, kClient, nil, nil, nil)
 
 			if tc.wantErr == "" && gotErr != nil {
 				t.Fatalf("unexpected error: %v", gotErr)
@@ -2459,6 +2460,7 @@ func TestReconciler(t *testing.T) {
 					).
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+					Annotations(map[string]string{podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue}).
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmittedAt(true, now.Add(-time.Second)).
 					Condition(metav1.Condition{
@@ -2486,6 +2488,7 @@ func TestReconciler(t *testing.T) {
 					).
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+					Annotations(map[string]string{podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue}).
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					PastAdmittedTime(1).
 					Condition(metav1.Condition{
@@ -4629,7 +4632,7 @@ func TestReconciler(t *testing.T) {
 				Obj()},
 			wantPods: nil,
 			reconcilerOptions: []jobframework.Option{
-				jobframework.WithLabelKeysToCopy([]string{"toCopyKey", "keyAbsentInThePod"}),
+				jobframework.WithLabelKeysToCopy(sets.New("toCopyKey", "keyAbsentInThePod")),
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload(GetWorkloadNameForPod(basePodWrapper.GetName(), basePodWrapper.GetUID()), "ns").Finalizers(kueue.ResourceInUseFinalizerName).
@@ -4689,7 +4692,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantPods: nil,
 			reconcilerOptions: []jobframework.Option{
-				jobframework.WithLabelKeysToCopy([]string{"toCopyKey1", "toCopyKey2"}),
+				jobframework.WithLabelKeysToCopy(sets.New("toCopyKey1", "toCopyKey2")),
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
@@ -4780,11 +4783,283 @@ func TestReconciler(t *testing.T) {
 			},
 			wantPods: nil,
 			reconcilerOptions: []jobframework.Option{
-				jobframework.WithLabelKeysToCopy([]string{"toCopyKey1", "toCopyKey2"}),
+				jobframework.WithLabelKeysToCopy(sets.New("toCopyKey1", "toCopyKey2")),
 			},
 			wantWorkloads:   nil,
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 			wantErr:         errPodGroupLabelsMismatch,
+		},
+		"workload is created with correct annotations for a single pod": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadIdentifierAnnotations: false,
+				features.CustomMetricLabels:            true,
+			},
+			pods: []corev1.Pod{*basePodWrapper.
+				Clone().
+				ManagedByKueueLabel().
+				Annotation("toCopyAnn", "toCopyValue").
+				Annotation("dontCopyAnn", "dontCopyValue").
+				KueueFinalizer().
+				KueueSchedulingGate().
+				Queue(localTestQueueName).
+				Obj()},
+			wantPods: nil,
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithAnnotationsToCopy(sets.New("toCopyAnn", "keyAbsentInThePod")),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadNameForPod(basePodWrapper.GetName(), basePodWrapper.GetUID()), "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							Request(corev1.ResourceCPU, "1").
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
+							PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
+							Obj(),
+					).
+					Queue(localTestQueueName).
+					Priority(0).
+					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+					Label(controllerconsts.JobUIDLabel, "test-uid").
+					Annotations(map[string]string{
+						"toCopyAnn": "toCopyValue",
+					}).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/" + GetWorkloadNameForPod(basePodWrapper.GetName(), basePodWrapper.GetUID()),
+				},
+			},
+		},
+		"workload is created with correct annotations for pod group": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadIdentifierAnnotations: false,
+				features.CustomMetricLabels:            true,
+			},
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					ManagedByKueueLabel().
+					Annotation("toCopyAnn1", "toCopyValue1").
+					Annotation("dontCopyAnn", "dontCopyValue").
+					KueueFinalizer().
+					KueueSchedulingGate().
+					GroupNameLabel("test-group").
+					GroupIndex("0").
+					GroupTotalCount("2").
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					ManagedByKueueLabel().
+					Annotation("toCopyAnn1", "toCopyValue1").
+					Annotation("toCopyAnn2", "toCopyValue2").
+					Annotation("dontCopyAnn", "dontCopyValue").
+					KueueFinalizer().
+					KueueSchedulingGate().
+					GroupNameLabel("test-group").
+					GroupIndex("1").
+					GroupTotalCount("2").
+					Obj(),
+			},
+			wantPods: nil,
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithAnnotationsToCopy(sets.New("toCopyAnn1", "toCopyAnn2")),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+							Request(corev1.ResourceCPU, "1").
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
+							PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
+							Obj(),
+					).
+					Queue(localUserQueueName).
+					Priority(0).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
+					Annotations(map[string]string{
+						podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue,
+						"toCopyAnn1": "toCopyValue1",
+						"toCopyAnn2": "toCopyValue2",
+					}).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/test-group",
+				},
+			},
+		},
+		"workload is created without annotations for pod group when CustomMetricLabels is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadIdentifierAnnotations: false,
+				features.CustomMetricLabels:            false,
+			},
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					ManagedByKueueLabel().
+					Annotation("toCopyAnn1", "toCopyValue1").
+					Annotation("dontCopyAnn", "dontCopyValue").
+					KueueFinalizer().
+					KueueSchedulingGate().
+					GroupNameLabel("test-group").
+					GroupIndex("0").
+					GroupTotalCount("2").
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					ManagedByKueueLabel().
+					Annotation("toCopyAnn1", "toCopyValue1").
+					Annotation("toCopyAnn2", "toCopyValue2").
+					Annotation("dontCopyAnn", "dontCopyValue").
+					KueueFinalizer().
+					KueueSchedulingGate().
+					GroupNameLabel("test-group").
+					GroupIndex("1").
+					GroupTotalCount("2").
+					Obj(),
+			},
+			wantPods: nil,
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithAnnotationsToCopy(sets.New("toCopyAnn1", "toCopyAnn2")),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+							Request(corev1.ResourceCPU, "1").
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
+							PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
+							Obj(),
+					).
+					Queue(localUserQueueName).
+					Priority(0).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
+					Annotations(map[string]string{
+						podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue,
+					}).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/test-group",
+				},
+			},
+		},
+		"reconciler returns error in case of annotation mismatch in pod group": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadIdentifierAnnotations: false,
+				features.CustomMetricLabels:            true,
+			},
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					ManagedByKueueLabel().
+					Annotation("toCopyAnn1", "toCopyValue1").
+					Annotation("dontCopyAnn", "dontCopyValue").
+					KueueFinalizer().
+					KueueSchedulingGate().
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					ManagedByKueueLabel().
+					Annotation("toCopyAnn1", "otherValue").
+					Annotation("toCopyAnn2", "toCopyValue2").
+					Annotation("dontCopyAnn", "dontCopyValue").
+					KueueFinalizer().
+					KueueSchedulingGate().
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					Obj(),
+			},
+			wantPods: nil,
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithAnnotationsToCopy(sets.New("toCopyAnn1", "toCopyAnn2")),
+			},
+			wantWorkloads:   nil,
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantErr:         errPodGroupAnnotationsMismatch,
+		},
+		"annotations mismatch is ignored for pod group when CustomMetricLabels is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadIdentifierAnnotations: false,
+				features.CustomMetricLabels:            false,
+			},
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					ManagedByKueueLabel().
+					Annotation("toCopyAnn1", "toCopyValue1").
+					Annotation("dontCopyAnn", "dontCopyValue").
+					KueueFinalizer().
+					KueueSchedulingGate().
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					ManagedByKueueLabel().
+					Annotation("toCopyAnn1", "otherValue").
+					Annotation("toCopyAnn2", "toCopyValue2").
+					Annotation("dontCopyAnn", "dontCopyValue").
+					KueueFinalizer().
+					KueueSchedulingGate().
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					Obj(),
+			},
+			wantPods: nil,
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithAnnotationsToCopy(sets.New("toCopyAnn1", "toCopyAnn2")),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+							Request(corev1.ResourceCPU, "1").
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
+							PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
+							Obj(),
+					).
+					Queue(localUserQueueName).
+					Priority(0).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
+					Annotations(map[string]string{
+						podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue,
+					}).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/test-group",
+				},
+			},
 		},
 		"admission check message is recorded as event for a single pod": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},

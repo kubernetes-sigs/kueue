@@ -144,9 +144,10 @@ If the Workload stays in `Pending` state:
 ### Double counting (extended resource path)
 
 If quota usage shows double the expected value (e.g., `2` instead of `1` for
-a single GPU), the `KueueDRAIntegrationExtendedResource` feature gate may not be enabled.
-Ask your administrator to verify the
-[DRA setup](/docs/tasks/manage/setup_dra).
+a single GPU), verify that `KueueDRAIntegrationExtendedResource` has not been
+explicitly disabled. This gate is enabled by default since v0.19 and ensures
+Kueue charges quota only once for extended resources backed by DRA, instead of
+counting them as both a standard resource request and a DRA device.
 
 ### Missing DeviceClass
 

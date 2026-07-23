@@ -162,7 +162,7 @@ func ValidateResources(wi *Info) field.ErrorList {
 		podSpecPath := PodSetsPath.Index(i).Child("template").Child("spec")
 		for i := range ps.Template.Spec.InitContainers {
 			c := ps.Template.Spec.InitContainers[i]
-			if resNames := resources.NewRequests(c.Resources.Requests).GreaterKeys(resources.NewRequests(c.Resources.Limits)); len(resNames) > 0 {
+			if resNames := resources.NewMapRequests(c.Resources.Requests).GreaterKeys(resources.NewMapRequests(c.Resources.Limits)); len(resNames) > 0 {
 				allErrors = append(
 					allErrors,
 					field.Invalid(podSpecPath.Child("initContainers").Index(i), resNames, RequestsMustNotExceedLimitMessage),
@@ -172,7 +172,7 @@ func ValidateResources(wi *Info) field.ErrorList {
 
 		for i := range ps.Template.Spec.Containers {
 			c := ps.Template.Spec.Containers[i]
-			if resNames := resources.NewRequests(c.Resources.Requests).GreaterKeys(resources.NewRequests(c.Resources.Limits)); len(resNames) > 0 {
+			if resNames := resources.NewMapRequests(c.Resources.Requests).GreaterKeys(resources.NewMapRequests(c.Resources.Limits)); len(resNames) > 0 {
 				allErrors = append(
 					allErrors,
 					field.Invalid(podSpecPath.Child("containers").Index(i), resNames, RequestsMustNotExceedLimitMessage),
@@ -183,7 +183,7 @@ func ValidateResources(wi *Info) field.ErrorList {
 		// Pod-level resources (KEP-2837) are an optional pointer, only set when the
 		// PodLevelResources feature is enabled and used.
 		if podResources := ps.Template.Spec.Resources; podResources != nil {
-			if resNames := resources.NewRequests(podResources.Requests).GreaterKeys(resources.NewRequests(podResources.Limits)); len(resNames) > 0 {
+			if resNames := resources.NewMapRequests(podResources.Requests).GreaterKeys(resources.NewMapRequests(podResources.Limits)); len(resNames) > 0 {
 				allErrors = append(
 					allErrors,
 					field.Invalid(podSpecPath.Child("resources"), resNames, RequestsMustNotExceedLimitMessage),

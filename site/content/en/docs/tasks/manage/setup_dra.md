@@ -100,28 +100,17 @@ field in `deviceClassMappings`. Each device request referencing a mapped
 
 ## Set up the extended resource path
 
-{{< feature-state state="alpha" for_version="v0.18" >}}
+{{< feature-state state="beta" for_version="v0.19" >}}
 
 Use this path when your users submit workloads using the standard
 `resources.requests` syntax (e.g., `nvidia.com/gpu: 1`) and a `DeviceClass`
-with `spec.extendedResourceName` exists in the cluster.
+with `spec.extendedResourceName` exists in the cluster. Both
+`KueueDRAIntegration` and `KueueDRAIntegrationExtendedResource` feature gates
+are enabled by default since v0.19. The Kubernetes cluster also needs the
+`DRAExtendedResource` feature gate enabled on kube-apiserver and kube-scheduler
+(beta in Kubernetes 1.36).
 
-### 1. Enable the feature gates
-
-Install or reconfigure Kueue with both feature gates enabled:
-
-```yaml
-apiVersion: config.kueue.x-k8s.io/v1beta2
-kind: Configuration
-featureGates:
-  KueueDRAIntegration: true
-  KueueDRAIntegrationExtendedResource: true
-```
-
-The Kubernetes cluster also needs the `DRAExtendedResource` feature gate
-enabled on kube-apiserver and kube-scheduler (beta in Kubernetes 1.36).
-
-### 2. Verify the DeviceClass
+### 1. Verify the DeviceClass
 
 Ensure the `DeviceClass` has `spec.extendedResourceName` set. This is
 typically configured by the DRA driver or cluster administrator:
@@ -148,7 +137,7 @@ spec:
 No `deviceClassMappings` configuration is needed for this path. Kueue
 auto-discovers the mapping by indexing `DeviceClass` objects.
 
-### 3. Add the extended resource to your ClusterQueue
+### 2. Add the extended resource to your ClusterQueue
 
 The `coveredResources` must include the extended resource name that matches
 `spec.extendedResourceName` on the `DeviceClass`:
@@ -180,31 +169,30 @@ name in the ClusterQueue, so the workload stays inadmissible.
 
 ### Why this path exists
 
-Without the `KueueDRAIntegrationExtendedResource` feature gate, Kueue charges quota for both
-the `resources.requests` entry and the auto-created `ResourceClaim`, double
-counting the same device. With the feature gate enabled, Kueue detects the
-matching `DeviceClass` and charges quota only for the extended resource.
+When a Pod requests an extended resource backed by DRA, the kube-scheduler
+auto-creates a `ResourceClaim`. Kueue detects the matching `DeviceClass` and
+charges quota only for the extended resource backed by DRA, preventing double
+counting of both the `resources.requests` entry and the auto-created claim.
 
 ## Set up counter-based quota (partitionable devices)
 
-{{< feature-state state="alpha" for_version="v0.18" >}}
+{{< feature-state state="beta" for_version="v0.19" >}}
 
 Use this when your cluster has partitionable devices and you want quota to
 reflect actual device capacity rather than device count. This requires
 Kubernetes 1.35+ with the `DRAPartitionableDevices` feature gate enabled
 and a DRA driver that publishes `consumesCounters` in `ResourceSlice` objects.
+Both `KueueDRAIntegration` and `KueueDRAIntegrationPartitionableDevices`
+feature gates are enabled by default since v0.19.
 
-### 1. Enable the feature gate and configure counter sources
+### 1. Configure counter sources
 
-Install or reconfigure Kueue with the `KueueDRAIntegrationPartitionableDevices`
-feature gate enabled and a `sources` entry in `deviceClassMappings`. Follow the
+Configure a `sources` entry in `deviceClassMappings`. Follow the
 [custom configuration installation instructions](/docs/installation/#install-a-custom-configured-released-version).
 
 ```yaml
 apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
-featureGates:
-  KueueDRAIntegrationPartitionableDevices: true
 resources:
   deviceClassMappings:
   - name: gpu.memory

@@ -17,6 +17,7 @@ limitations under the License.
 package flavorassigner
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -158,7 +159,7 @@ type testOracle struct {
 }
 
 func (f *testOracle) SimulatePreemption(
-	log logr.Logger,
+	ctx context.Context,
 	cq *schdcache.ClusterQueueSnapshot,
 	wl workload.Info,
 	fr resources.FlavorResource,
@@ -3327,7 +3328,7 @@ func TestAssignFlavors(t *testing.T) {
 				TotalRequests: []workload.PodSetResources{
 					{
 						Name: "main",
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU:    2000,
 							corev1.ResourceMemory: 10 * utiltesting.Mi,
 						},
@@ -3393,7 +3394,7 @@ func TestAssignFlavors(t *testing.T) {
 				TotalRequests: []workload.PodSetResources{
 					{
 						Name: "main",
-						Requests: resources.Requests{
+						Requests: resources.MapRequests{
 							corev1.ResourceCPU:    2000,
 							corev1.ResourceMemory: 10 * utiltesting.Mi,
 						},
@@ -3642,8 +3643,9 @@ func TestAssignFlavors(t *testing.T) {
 					&testOracle{simulationResult: tc.simulationResult},
 					tc.preemptWorkloadSlice,
 					configapi.QuotaCheckBlockUndeclared,
+					resources.NewResourceFormatter(),
 				)
-				assignment := flvAssigner.Assign(log, nil)
+				assignment := flvAssigner.Assign(ctx, nil)
 				if repMode := assignment.RepresentativeMode(); repMode != tc.wantRepMode {
 					t.Errorf("e.assignFlavors(_).RepresentativeMode()=%s, want %s", repMode, tc.wantRepMode)
 				}
@@ -3836,8 +3838,8 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 			testClusterQueue := snapshot.ClusterQueue("test-clusterqueue")
 			testClusterQueue.AddUsage(workload.Usage{Quota: tc.testClusterQueueUsage})
 
-			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{tc.simulationResult}, nil, configapi.QuotaCheckBlockUndeclared)
-			assignment := flvAssigner.Assign(log, nil)
+			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{tc.simulationResult}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter())
+			assignment := flvAssigner.Assign(ctx, nil)
 			if gotRepMode := assignment.RepresentativeMode(); gotRepMode != tc.wantMode {
 				t.Errorf("Unexpected RepresentativeMode. got %s, want %s", gotRepMode, tc.wantMode)
 			}
@@ -3984,9 +3986,9 @@ func TestDeletedFlavors(t *testing.T) {
 				cache.DeleteResourceFlavor(log, flavorMap["deleted-flavor"])
 				delete(flavorMap, "deleted-flavor")
 
-				flvAssigner := New(wlInfo, clusterQueue, flavorMap, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared)
+				flvAssigner := New(wlInfo, clusterQueue, flavorMap, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter())
 
-				assignment := flvAssigner.Assign(log, nil)
+				assignment := flvAssigner.Assign(ctx, nil)
 				if repMode := assignment.RepresentativeMode(); repMode != tc.wantRepMode {
 					t.Errorf("e.assignFlavors(_).RepresentativeMode()=%s, want %s", repMode, tc.wantRepMode)
 				}
@@ -4173,8 +4175,8 @@ func TestHierarchical(t *testing.T) {
 			testClusterQueue := snapshot.ClusterQueue("test-clusterqueue")
 			testClusterQueue.AddUsage(workload.Usage{Quota: tc.testClusterQueueUsage})
 
-			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared)
-			assignment := flvAssigner.Assign(log, nil)
+			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter())
+			assignment := flvAssigner.Assign(ctx, nil)
 			if gotRepMode := assignment.RepresentativeMode(); gotRepMode != tc.wantMode {
 				t.Errorf("Unexpected RepresentativeMode. got %s, want %s", gotRepMode, tc.wantMode)
 			}
@@ -4875,7 +4877,7 @@ func TestAssignment_ComputeTASNetUsage(t *testing.T) {
 			want: workload.TASUsage{
 				"tas": []workload.TopologyDomainRequests{{
 					Values: []string{"node-a"},
-					SinglePodRequests: resources.NewRequests(corev1.ResourceList{
+					SinglePodRequests: resources.NewRequestsFromResourceList(corev1.ResourceList{
 						corev1.ResourceCPU:           resource.MustParse("1"),
 						corev1.ResourceMemory:        resource.MustParse("1Gi"),
 						"example.com/gpu":            resource.MustParse("1"),
@@ -4935,7 +4937,7 @@ func TestAssignment_ComputeTASNetUsage(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			got := tt.assignment.ComputeTASNetUsage(testr.New(t), tt.cq, tt.wl, tt.prevAdmission)
 
-			if diff := cmp.Diff(tt.want, got, cmpopts.EquateEmpty()); diff != "" {
+			if diff := cmp.Diff(tt.want, got, cmpopts.EquateEmpty(), cmp.Transformer("requestsToMap", resources.ToMapRequests)); diff != "" {
 				t.Errorf("Unexpected TAS usage (-want,+got):\n%s", diff)
 			}
 		})
@@ -5140,8 +5142,8 @@ func TestAssignFlavorsWithAllowedFlavors(t *testing.T) {
 			}
 			cqSnapshot := snapshot.ClusterQueue(kueue.ClusterQueueReference(cq.Name))
 
-			assigner := New(wlInfo, cqSnapshot, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared)
-			gotAssignment := assigner.Assign(log, nil)
+			assigner := New(wlInfo, cqSnapshot, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter())
+			gotAssignment := assigner.Assign(ctx, nil)
 
 			if gotAssignment.RepresentativeMode() != tc.wantRepMode {
 				t.Errorf("RepresentativeMode() = %v, want %v", gotAssignment.RepresentativeMode(), tc.wantRepMode)
@@ -5622,8 +5624,11 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 				siblingSnapshot.AddUsage(workload.Usage{Quota: usage})
 			}
 
-			assigner := New(wlInfo, cqSnapshot, testFlavors, false, &testOracle{simulationResult: tc.simulationResult}, tc.replaceWl, configapi.QuotaCheckBlockUndeclared)
-			gotAssignment := assigner.Assign(log, nil)
+			assigner := New(
+				wlInfo, cqSnapshot, testFlavors, false, &testOracle{simulationResult: tc.simulationResult},
+				tc.replaceWl, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(),
+			)
+			gotAssignment := assigner.Assign(ctx, nil)
 
 			if gotAssignment.NoFitReason != tc.wantNoFitReason {
 				t.Errorf("gotAssignment.NoFitReason = %q, want %q", gotAssignment.NoFitReason, tc.wantNoFitReason)

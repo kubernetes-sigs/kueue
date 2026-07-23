@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -223,9 +224,14 @@ func (j *SparkApplication) RunWithPodSetsInfo(ctx context.Context, _ client.Clie
 	return nil
 }
 
-func (j *SparkApplication) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
+func (j *SparkApplication) RestorePodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) bool {
 	expectedLength := 2 // driver + executor
 	if len(podSetsInfo) != expectedLength {
+		ctrl.LoggerFrom(ctx).V(2).Info(
+			"Skipping pod set info restore because the pod set count does not match the admitted workload",
+			"expectedCount", expectedLength,
+			"gotCount", len(podSetsInfo),
+		)
 		return false
 	}
 

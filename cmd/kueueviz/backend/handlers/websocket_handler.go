@@ -51,12 +51,20 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
+const (
+	tokenValidationTimeout = 5 * time.Second
+)
+
 // GenericWebSocketHandler creates a WebSocket endpoint with informer-based real-time updates
 // Accepts one or more GroupVersionKinds to watch for changes
 func (h *Handlers) GenericWebSocketHandler(dataFetcher func(ctx context.Context) (any, error), gvks ...schema.GroupVersionKind) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		startTime := time.Now()
 		slog.Debug("WebSocket handler started")
+
+		// Extract the bearer token stored by auth.Middleware (empty when auth is disabled).
+		token, _ := c.Get("token")
+		tokenStr, _ := token.(string)
 
 		// Upgrade the HTTP connection to a WebSocket connection
 		connStart := time.Now()
@@ -91,7 +99,7 @@ func (h *Handlers) GenericWebSocketHandler(dataFetcher func(ctx context.Context)
 		}
 
 		// Use informer-based updates for real-time streaming
-		h.handleInformerUpdates(ctx, conn, dataFetcher, gvks...)
+		h.handleInformerUpdates(ctx, conn, tokenStr, dataFetcher, gvks...)
 
 		slog.Debug("WebSocket handler completed", "duration", time.Since(startTime))
 	}
@@ -129,7 +137,7 @@ func (h *Handlers) sendData(ctx context.Context, conn *websocket.Conn, dataFetch
 
 // handleInformerUpdates uses Kubernetes informers to stream real-time changes
 // Supports watching multiple resource types by registering handlers for all provided GVKs
-func (h *Handlers) handleInformerUpdates(ctx context.Context, conn *websocket.Conn, dataFetcher func(ctx context.Context) (any, error), gvks ...schema.GroupVersionKind) {
+func (h *Handlers) handleInformerUpdates(ctx context.Context, conn *websocket.Conn, token string, dataFetcher func(ctx context.Context) (any, error), gvks ...schema.GroupVersionKind) {
 	// Channel to signal when debounced update should be sent
 	updateChan := make(chan struct{}, 1)
 
@@ -192,11 +200,41 @@ func (h *Handlers) handleInformerUpdates(ctx context.Context, conn *websocket.Co
 		registrations = append(registrations, registrationInfo{gvk: gvk, reg: registration})
 	}
 
+	// Periodic token re-validation: close the connection if the bearer token
+	// is revoked or has expired. Only active when a TokenValidator is wired in.
+	var authTicker *time.Ticker
+	var authTickerC <-chan time.Time
+	if h.validator != nil && token != "" {
+		authTicker = time.NewTicker(h.tokenRevalidationInterval)
+		defer authTicker.Stop()
+		authTickerC = authTicker.C
+	}
+
 	// Handle updates from the informers
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-authTickerC:
+			// Use a short timeout so a slow or unavailable API server cannot
+			// block this goroutine indefinitely.
+			validateCtx, validateCancel := context.WithTimeout(ctx, tokenValidationTimeout)
+			ok, err := h.validator.ValidateToken(validateCtx, token)
+			validateCancel()
+			if err != nil {
+				slog.Warn("Token re-validation failed; closing WebSocket", "error", err)
+			} else if !ok {
+				slog.Info("Bearer token is no longer valid; closing WebSocket")
+			}
+			if err != nil || !ok {
+				// Set a write deadline so the close-frame write cannot block indefinitely.
+				_ = conn.SetWriteDeadline(time.Now().Add(writeDeadlineExtension))
+				_ = conn.WriteMessage(
+					websocket.CloseMessage,
+					websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "token expired or revoked"),
+				)
+				return
+			}
 		case <-updateChan:
 			if err := h.sendData(ctx, conn, dataFetcher); err != nil {
 				slog.Error("Error sending update", "error", err)

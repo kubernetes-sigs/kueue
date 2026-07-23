@@ -26,7 +26,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/apimachinery/pkg/util/sets"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -285,7 +284,7 @@ func TestGetRemoteClusters(t *testing.T) {
 	acTest := "test-admission-check"
 	cases := map[string]struct {
 		multiKueueConfig *kueue.MultiKueueConfig
-		wantResult       sets.Set[string]
+		wantResult       []string
 		wantErr          error
 	}{
 		"no clusters": {
@@ -309,7 +308,18 @@ func TestGetRemoteClusters(t *testing.T) {
 					Clusters: []string{"cluster1", "cluster2"},
 				},
 			},
-			wantResult: sets.New("cluster1", "cluster2"),
+			wantResult: []string{"cluster1", "cluster2"},
+		},
+		"preserves configured (non-alphabetical) order": {
+			multiKueueConfig: &kueue.MultiKueueConfig{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: acTest,
+				},
+				Spec: kueue.MultiKueueConfigSpec{
+					Clusters: []string{"onprem", "aws", "gcp"},
+				},
+			},
+			wantResult: []string{"onprem", "aws", "gcp"},
 		},
 		"error fetching config": {
 			multiKueueConfig: nil,

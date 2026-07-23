@@ -27,33 +27,38 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
 type tasCache struct {
 	sync.RWMutex
-	client      client.Client
-	flavors     map[kueue.ResourceFlavorReference]flavorInformation
-	topologies  map[kueue.TopologyReference]topologyInformation
-	flavorCache map[kueue.ResourceFlavorReference]*TASFlavorCache
+	client            client.Client
+	flavors           map[kueue.ResourceFlavorReference]flavorInformation
+	topologies        map[kueue.TopologyReference]topologyInformation
+	flavorCache       map[kueue.ResourceFlavorReference]*TASFlavorCache
+	resourceFormatter *resources.ResourceFormatter
 
-	nonTasUsageCache *nonTasUsageCache
-	nodesCache       *nodesCache
+	nonTasUsageCache    *nonTasUsageCache
+	nodesCache          *nodesCache
+	schedulingSimulator simulator.SchedulingSimulator
 }
 
-func NewTASCache(client client.Client) tasCache {
+func NewTASCache(client client.Client, schedulingSimulator simulator.SchedulingSimulator, resourceFormatter *resources.ResourceFormatter) tasCache {
 	return tasCache{
-		client:      client,
-		flavors:     make(map[kueue.ResourceFlavorReference]flavorInformation),
-		topologies:  make(map[kueue.TopologyReference]topologyInformation),
-		flavorCache: make(map[kueue.ResourceFlavorReference]*TASFlavorCache),
+		client:            client,
+		flavors:           make(map[kueue.ResourceFlavorReference]flavorInformation),
+		topologies:        make(map[kueue.TopologyReference]topologyInformation),
+		flavorCache:       make(map[kueue.ResourceFlavorReference]*TASFlavorCache),
+		resourceFormatter: resourceFormatter,
 		nonTasUsageCache: &nonTasUsageCache{
 			podUsage:  make(map[types.NamespacedName]podUsageValue),
 			nodeUsage: make(map[string]resources.Requests),
 			lock:      sync.RWMutex{},
 		},
-		nodesCache: newNodesCache(),
+		nodesCache:          newNodesCache(),
+		schedulingSimulator: schedulingSimulator,
 	}
 }
 

@@ -260,7 +260,7 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 					ctx, k8sManagerClient, wlLookupKey,
 					multiKueueAc.Name,
 					kueue.CheckStateReady,
-					fmt.Sprintf(`The workload got reservation on "%s"`, assignedClusterName),
+					fmt.Sprintf(`The workload was admitted on "%s"`, assignedClusterName),
 				)
 			})
 

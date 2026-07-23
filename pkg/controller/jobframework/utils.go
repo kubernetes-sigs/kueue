@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -223,14 +224,18 @@ func SetMultiKueueMeta(obj client.Object, workloadName, origin string) {
 
 // NewWorkload creates a new Workload object with the specified name,
 // associated object, pod sets, and label keys to copy.
-func NewWorkload(name string, obj client.Object, podSets []kueue.PodSet, labelKeysToCopy []string) *kueue.Workload {
+func NewWorkload(name string, obj client.Object, podSets []kueue.PodSet, labelKeysToCopy, annotationsToCopy sets.Set[string]) *kueue.Workload {
+	annotations := admissioncheck.FilterProvReqAnnotations(obj.GetAnnotations())
+	if features.Enabled(features.CustomMetricLabels) {
+		maps.Copy(&annotations, maps.FilterKeys(obj.GetAnnotations(), annotationsToCopy.UnsortedList()))
+	}
 	return &kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
 			Namespace:   obj.GetNamespace(),
-			Labels:      maps.FilterKeys(obj.GetLabels(), labelKeysToCopy),
+			Labels:      maps.FilterKeys(obj.GetLabels(), labelKeysToCopy.UnsortedList()),
 			Finalizers:  []string{kueue.ResourceInUseFinalizerName},
-			Annotations: admissioncheck.FilterProvReqAnnotations(obj.GetAnnotations()),
+			Annotations: annotations,
 		},
 		Spec: kueue.WorkloadSpec{
 			QueueName:                   QueueNameForObject(obj),

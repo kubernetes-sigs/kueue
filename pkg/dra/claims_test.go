@@ -18,6 +18,7 @@ package dra
 
 import (
 	"errors"
+	"math"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -526,6 +527,32 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 		},
 		{
+			name: "Exactly and FirstAvailable are nil returns error",
+			extraObjects: []runtime.Object{
+				&resourcev1.ResourceClaimTemplate{
+					ObjectMeta: metav1.ObjectMeta{Name: "claim-tmpl-empty", Namespace: "ns1"},
+					Spec: resourcev1.ResourceClaimTemplateSpec{
+						Spec: resourcev1.ResourceClaimSpec{
+							Devices: resourcev1.DeviceClaim{
+								Requests: []resourcev1.DeviceRequest{
+									{Name: "req"},
+								},
+							},
+						},
+					},
+				},
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-empty", ResourceClaimTemplateName: new("claim-tmpl-empty")},
+				}
+			},
+			lookup: defaultLookup,
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(0), "", ""),
+			},
+		},
+		{
 			name: "AdminAccess returns error",
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-admin", "ns1").
@@ -675,7 +702,11 @@ func Test_GetResourceRequests(t *testing.T) {
 					objs = append(objs, o.(client.Object))
 				}
 			}
-			baseClient := utiltesting.NewClientBuilder().WithObjects(objs...).Build()
+			baseClient := utiltesting.NewClientBuilder().
+				WithIndex(&resourcev1.ResourceSlice{}, "spec.driver", func(obj client.Object) []string {
+					return []string{obj.(*resourcev1.ResourceSlice).Spec.Driver}
+				}).
+				WithObjects(objs...).Build()
 
 			wlCopy := wl.DeepCopy()
 			if tc.modifyWL != nil {
@@ -686,7 +717,8 @@ func Test_GetResourceRequests(t *testing.T) {
 			if testMapper == nil {
 				testMapper = NewResourceMapper()
 			}
-			got, err := GetResourceRequestsForResourceClaimTemplates(ctx, baseClient, testMapper, wlCopy)
+			sliceCache := NewResourceSliceCache(baseClient)
+			got, err := GetResourceRequestsForResourceClaimTemplates(ctx, baseClient, sliceCache, testMapper, wlCopy)
 
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
 				t.Errorf("GetResourceRequestsForResourceClaimTemplates() error mismatch (-want +got):\n%s", diff)
@@ -696,6 +728,45 @@ func Test_GetResourceRequests(t *testing.T) {
 				if diff := cmp.Diff(tc.want, got, cmpopts.EquateEmpty()); diff != "" {
 					t.Errorf("GetResourceRequestsForResourceClaimTemplates() result mismatch (-want +got):\n%s", diff)
 				}
+			}
+		})
+	}
+}
+
+func exactReq(name, deviceClass string, count int64) resourcev1.DeviceRequest {
+	return resourcev1.DeviceRequest{
+		Name: name,
+		Exactly: &resourcev1.ExactDeviceRequest{
+			DeviceClassName: deviceClass,
+			AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
+			Count:           count,
+		},
+	}
+}
+
+func Test_countDevicesPerClass_overflow(t *testing.T) {
+	cases := map[string]struct {
+		requests  []resourcev1.DeviceRequest
+		wantCount int64
+	}{
+		"normal sum across requests": {
+			requests:  []resourcev1.DeviceRequest{exactReq("r0", "gpu", 2), exactReq("r1", "gpu", 3)},
+			wantCount: 5,
+		},
+		"sum saturates at MaxInt64 instead of wrapping negative": {
+			requests:  []resourcev1.DeviceRequest{exactReq("r0", "gpu", math.MaxInt64), exactReq("r1", "gpu", math.MaxInt64)},
+			wantCount: math.MaxInt64,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			spec := &resourcev1.ResourceClaimSpec{Devices: resourcev1.DeviceClaim{Requests: tc.requests}}
+			out, errs := countDevicesPerClass(spec)
+			if len(errs) != 0 {
+				t.Fatalf("unexpected errors: %v", errs)
+			}
+			if got := out["gpu"]; got != tc.wantCount {
+				t.Errorf("count = %d, want %d", got, tc.wantCount)
 			}
 		})
 	}
