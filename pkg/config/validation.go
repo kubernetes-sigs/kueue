@@ -57,6 +57,7 @@ var (
 	integrationsFrameworksPath            = integrationsPath.Child("frameworks")
 	integrationsExternalFrameworkPath     = integrationsPath.Child("externalFrameworks")
 	managedJobsNamespaceSelectorPath      = field.NewPath("managedJobsNamespaceSelector")
+	quotaReleaseStrategyPath              = field.NewPath("scheduling", "quotaReleaseStrategy")
 	waitForPodsReadyPath                  = field.NewPath("waitForPodsReady")
 	requeuingStrategyPath                 = waitForPodsReadyPath.Child("requeuingStrategy")
 	multiKueuePath                        = field.NewPath("multiKueue")
@@ -128,6 +129,24 @@ func validateQuotaCheckStrategy(c *configapi.Configuration) field.ErrorList {
 				[]configapi.QuotaCheckStrategy{
 					configapi.QuotaCheckIgnoreUndeclared,
 					configapi.QuotaCheckBlockUndeclared,
+				},
+			))
+		}
+	}
+	return allErrs
+}
+
+func validateQuotaReleaseStrategy(c *configapi.Configuration) field.ErrorList {
+	var allErrs field.ErrorList
+	if c.Scheduling != nil && c.Scheduling.QuotaReleaseStrategy != nil {
+		strategy := *c.Scheduling.QuotaReleaseStrategy
+		if strategy != configapi.QuotaReleaseOnTermination && strategy != configapi.QuotaReleaseOnTerminalBestEffort {
+			allErrs = append(allErrs, field.NotSupported(
+				quotaReleaseStrategyPath,
+				strategy,
+				[]configapi.QuotaReleaseStrategy{
+					configapi.QuotaReleaseOnTermination,
+					configapi.QuotaReleaseOnTerminalBestEffort,
 				},
 			))
 		}
