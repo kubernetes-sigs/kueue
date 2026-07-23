@@ -19,15 +19,13 @@ package extended
 import (
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	kuberayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -43,6 +41,7 @@ import (
 	workloadrayservice "sigs.k8s.io/kueue/pkg/controller/jobs/rayservice"
 	utilpodset "sigs.k8s.io/kueue/pkg/util/podset"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingjobspod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	testingrayservice "sigs.k8s.io/kueue/pkg/util/testingjobs/rayservice"
@@ -124,6 +123,28 @@ var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:k
 		)).To(gomega.Succeed())
 		g.Expect(pods.Items).NotTo(gomega.BeEmpty())
 		return pods.Items[0]
+	}
+
+	createCurlPod := func(name string) *corev1.Pod {
+		pod := testingjobspod.MakePod(name, ns.Name).
+			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+			TerminationGracePeriod(1).
+			Obj()
+		util.MustCreate(ctx, k8sClient, pod)
+		util.WaitForPodRunning(ctx, k8sClient, pod)
+		return pod
+	}
+
+	requestRayService := func(curlPod *corev1.Pod, rayService *rayv1.RayService, path string) ([]byte, []byte, error) {
+		return util.KExecute(ctx, cfg, restClient, ns.Name, curlPod.Name, curlPod.Spec.Containers[0].Name, []string{
+			"curl",
+			"--fail",
+			"--silent",
+			"--show-error",
+			"--max-time",
+			"60",
+			fmt.Sprintf("http://%s:8000%s", kuberayutils.GenerateServeServiceName(rayService.Name), path),
+		})
 	}
 
 	ginkgo.BeforeEach(func() {
@@ -931,24 +952,11 @@ app = HelloWorld.bind()`,
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsg("RayService did not become ready", createdRayService))
 		})
 
-		ginkgo.By("Verifying the RayService responds to HTTP requests via port-forward", func() {
+		curlPod := createCurlPod("curl-rayservice")
+		ginkgo.By("Verifying the RayService responds through the Serve service", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				headPodName := getRayHeadPod(g).Name
-
-				// Port-forward to the head pod on port 8000 (Ray Serve default)
-				localPort, stopChan, err := util.KPortForward(cfg, restClient, ns.Name, headPodName, 8000)
-				g.Expect(err).NotTo(gomega.HaveOccurred())
-				defer close(stopChan)
-
-				// Send HTTP GET to the Ray Serve endpoint
-				resp, err := http.Get(fmt.Sprintf("http://localhost:%d/", localPort))
-				g.Expect(err).NotTo(gomega.HaveOccurred())
-				defer resp.Body.Close()
-
-				g.Expect(resp.StatusCode).To(gomega.Equal(http.StatusOK))
-
-				body, err := io.ReadAll(resp.Body)
-				g.Expect(err).NotTo(gomega.HaveOccurred())
+				body, stderr, err := requestRayService(curlPod, rayService, "/")
+				g.Expect(err).NotTo(gomega.HaveOccurred(), "stderr: %s", string(stderr))
 				g.Expect(strings.TrimSpace(string(body))).To(gomega.ContainSubstring("Hello, World!"))
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -1190,25 +1198,11 @@ app = HelloWorld.bind()`,
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		// Set up port-forwarding to the head pod for sending HTTP requests
-		var localPort int
-		var stopChan chan struct{}
-		gomega.Eventually(func(g gomega.Gomega) {
-			headPodName := getRayHeadPod(g).Name
-			var err error
-			localPort, stopChan, err = util.KPortForward(cfg, restClient, ns.Name, headPodName, 8000)
-			g.Expect(err).NotTo(gomega.HaveOccurred())
-		}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
-		defer close(stopChan)
-
-		ginkgo.By("Verifying the RayService responds to HTTP requests via port-forward", func() {
+		curlPod := createCurlPod("curl-rayservice-autoscale")
+		ginkgo.By("Verifying the RayService responds through the Serve service", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				resp, err := http.Get(fmt.Sprintf("http://localhost:%d/", localPort))
-				g.Expect(err).NotTo(gomega.HaveOccurred())
-				defer resp.Body.Close()
-				g.Expect(resp.StatusCode).To(gomega.Equal(http.StatusOK))
-				body, err := io.ReadAll(resp.Body)
-				g.Expect(err).NotTo(gomega.HaveOccurred())
+				body, stderr, err := requestRayService(curlPod, rayService, "/")
+				g.Expect(err).NotTo(gomega.HaveOccurred(), "stderr: %s", string(stderr))
 				g.Expect(strings.TrimSpace(string(body))).To(gomega.ContainSubstring("Hello, World!"))
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -1227,11 +1221,7 @@ app = HelloWorld.bind()`,
 			// nodes, which triggers the RayCluster autoscaler to add workers.
 			for range 10 {
 				go func() {
-					reqClient := &http.Client{Timeout: 60 * time.Second}
-					resp, err := reqClient.Get(fmt.Sprintf("http://localhost:%d/?delay=10", localPort))
-					if err == nil && resp != nil {
-						resp.Body.Close()
-					}
+					_, _, _ = requestRayService(curlPod, rayService, "/?delay=10")
 				}()
 			}
 		})
