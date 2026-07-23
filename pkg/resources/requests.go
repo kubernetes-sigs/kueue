@@ -100,6 +100,16 @@ func (r MapRequests) IsEmpty() bool {
 	return len(r) == 0
 }
 
+// FloorToZero replaces negative resource values with zero.
+// Defense-in-depth for pre-existing negative Workloads while
+// WorkloadValidateResourcesAreNonNegative rolls out.
+// TODO: remove ~2 releases after WorkloadValidateResourcesAreNonNegative locks to GA.
+func (r MapRequests) FloorToZero() {
+	for k, v := range r {
+		r[k] = max(v, 0)
+	}
+}
+
 func (r MapRequests) Add(other Requests) {
 	other.ForEach(func(k corev1.ResourceName, v int64) {
 		r[k] += v

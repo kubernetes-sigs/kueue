@@ -1,6 +1,6 @@
 {
   "name": "kueueviz-frontend",
-  "version": "0.18.3",
+  "version": "0.19.0",
   "private": true,
   "description": "Frontend dashboard for visualizing Kueue status",
   "main": "src/index.jsx",
