@@ -4,12 +4,18 @@ inputs:
   command:
     description: 'The command name'
     required: true
-  version:
-    description: 'The release version (e.g. v1.31.0)'
-    required: true
   message:
     description: 'The message/log content to post'
-    required: true
+    required: false
+    default: ''
+  cleanup:
+    description: 'If true, move the command from Log to History without adding a new entry'
+    required: false
+    default: 'false'
+  issue-number:
+    description: 'The issue number to post the comment to'
+    required: false
+    default: ${{ github.event.issue.number }}
   github-token:
     description: 'GitHub Token'
     required: false
@@ -23,13 +29,12 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.github-token }}
         INPUT_COMMAND: ${{ inputs.command }}
-        INPUT_VERSION: ${{ inputs.version }}
         INPUT_MESSAGE: ${{ inputs.message }}
+        INPUT_CLEANUP: ${{ inputs.cleanup }}
       run: |
-        # Find the issue matching "Release <version>"
-        ISSUE_NUMBER=$(gh issue list --repo "${GITHUB_REPOSITORY}" --search "Release ${INPUT_VERSION} in:title" --json number --jq '.[0].number')
+        ISSUE_NUMBER="${{ inputs.issue-number }}"
         if [ -z "$ISSUE_NUMBER" ]; then
-          echo "Error: No issue found with title 'Release ${INPUT_VERSION}'" >&2
+          echo "Error: No issue found" >&2
           exit 1
         fi
 

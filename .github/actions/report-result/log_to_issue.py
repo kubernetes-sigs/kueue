@@ -6,8 +6,8 @@ from datetime import datetime
 
 def main():
     command = os.environ.get("INPUT_COMMAND", "").strip()
-    version = os.environ.get("INPUT_VERSION", "").strip()
     message = os.environ.get("INPUT_MESSAGE", "").strip()
+    cleanup = os.environ.get("INPUT_CLEANUP", "").strip().lower() == "true"
     actor = os.environ.get("GITHUB_ACTOR", "").strip()
     run_id = os.environ.get("GITHUB_RUN_ID", "").strip()
     repository = os.environ.get("GITHUB_REPOSITORY", "").strip()
@@ -23,8 +23,11 @@ def main():
     marker = "<!-- release-log-comment -->"
 
     if not comment_body or marker not in comment_body:
-        body = f"{marker}\n# Log\n\n{new_entry}"
-        print(body)
+        if not cleanup:
+            body = f"{marker}\n# Log\n\n{new_entry}"
+            print(body)
+        else:
+            print(f"{marker}\n# Log")
         return
 
     # Split Log and History
@@ -48,11 +51,11 @@ def main():
         log_part = log_part[:entry_match.start()].rstrip() + "\n\n" + log_part[entry_match.end():].lstrip()
         log_part = log_part.strip()
 
-    # Append new entry to Log section
-    if not re.search(r'^# Log\b', log_part, re.MULTILINE | re.IGNORECASE):
-        log_part = f"# Log\n\n{log_part}".strip()
-    
-    log_part = f"{log_part}\n\n{new_entry}".strip()
+    # Append new entry to Log section if not cleanup
+    if not cleanup:
+        if not re.search(r'^# Log\b', log_part, re.MULTILINE | re.IGNORECASE):
+            log_part = f"# Log\n\n{log_part}".strip()
+        log_part = f"{log_part}\n\n{new_entry}".strip()
 
     # Handle History
     if old_entry:

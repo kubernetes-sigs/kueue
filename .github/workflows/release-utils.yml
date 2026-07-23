@@ -58,12 +58,11 @@ jobs:
         env:
           BODY: ${{ github.event.comment.body }}
           TITLE: ${{ github.event.issue.title }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
           ISSUE_BODY: ${{ github.event.issue.body }}
         run: |
           if [[ ! "$TITLE" =~ ^Release\ (v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
-            gh issue comment "$ISSUE_NUMBER" --body "❌ Invalid issue title: \`$TITLE\`. Expected format: \`Release vX.Y.Z\`."
+            echo "failed=true" >> "$GITHUB_OUTPUT"
+            echo "error_message=❌ Invalid issue title: \`$TITLE\`. Expected format: \`Release vX.Y.Z\`." >> "$GITHUB_OUTPUT"
             exit 0
           fi
           VERSION="${BASH_REMATCH[1]}"
@@ -90,14 +89,16 @@ jobs:
             COMMAND="prepare-pull"
             TARGET=$(printf '%s' "$BODY" | tr -d '\r' | grep -oE '^/prepare-pull([[:space:]]+(release|main))?[[:space:]]*$' | head -n 1 | awk '{print $2}')
             if [ -z "$TARGET" ]; then
-              gh issue comment "$ISSUE_NUMBER" --body "❌ Invalid command: \`/prepare-pull\` requires a parameter: \`release\` or \`main\`."
+              echo "failed=true" >> "$GITHUB_OUTPUT"
+              echo "error_message=❌ Invalid command: \`/prepare-pull\` requires a parameter: \`release\` or \`main\`." >> "$GITHUB_OUTPUT"
               exit 0
             fi
             echo "target=$TARGET" >> "$GITHUB_OUTPUT"
           elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/publish-release[[:space:]]*$'; then
             COMMAND="publish-release"
           else
-            gh issue comment "$ISSUE_NUMBER" --body "❌ Invalid command format."
+            echo "failed=true" >> "$GITHUB_OUTPUT"
+            echo "error_message=❌ Invalid command format." >> "$GITHUB_OUTPUT"
             exit 0
           fi
           echo "command=$COMMAND" >> "$GITHUB_OUTPUT"
@@ -109,6 +110,20 @@ jobs:
             printf '%s\n' "$CHANGELOG"
             echo "${EOF_DELIM}"
           } >> "$GITHUB_OUTPUT"
+
+      - name: Report Parse Failure
+        if: ${{ steps.parse.outputs.failed == 'true' }}
+        uses: ./.github/actions/report-result
+        with:
+          command: Authorization
+          message: ${{ steps.parse.outputs.error_message }}
+
+      - name: Clear Authorization Log
+        if: ${{ steps.parse.outputs.failed != 'true' }}
+        uses: ./.github/actions/report-result
+        with:
+          command: Authorization
+          cleanup: true
 
   sync-notes:
     name: Sync Release Notes
@@ -138,16 +153,51 @@ jobs:
       - name: Run Sync Notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
           UPSTREAM_REMOTE: origin
           VERSION: ${{ needs.authorize.outputs.version }}
         run: |
           # Configure git identity
           git config --global user.name "kueue-release-bot"
           git config --global user.email "kueue-release-bot@kubernetes.io"
-          yes y | ./hack/releasing/sync-notes.sh "$VERSION"
-          gh issue comment "$ISSUE_NUMBER" --body "✅ Release notes for version $VERSION have been synced."
+          
+          set +e
+          yes y | ./hack/releasing/sync-notes.sh "$VERSION" 2> err.log
+          EXIT_CODE=$?
+          set -e
+          
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "Error running sync-notes.sh" >&2
+            cat err.log >&2
+            
+            EOF_DELIM="$(openssl rand -hex 16)"
+            echo "error_message<<${EOF_DELIM}" >> "$GITHUB_OUTPUT"
+            cat err.log >> "$GITHUB_OUTPUT"
+            echo "${EOF_DELIM}" >> "$GITHUB_OUTPUT"
+            
+            exit $EXIT_CODE
+          fi
 
+      - name: Report Success
+        if: ${{ success() }}
+        uses: ./.github/actions/report-result
+        with:
+          command: "Sync release notes"
+          message: "✅ Release notes for version ${{ needs.authorize.outputs.version }} have been synced."
+
+      - name: Report Failure
+        if: ${{ failure() }}
+        uses: ./.github/actions/report-result
+        env:
+          VERSION: 
+        with:
+          command: "Sync release notes"
+          message: |
+            ❌ Failed to sync release notes for version `${{ needs.authorize.outputs.version }}`.
+            
+            **Error log:**
+            ```text
+            ${{ steps.sync.outputs.error_message }}
+            ```
   create-release-branch:
     name: Create Release Branch
     runs-on: ubuntu-latest
