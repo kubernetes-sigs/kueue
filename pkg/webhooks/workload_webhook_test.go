@@ -130,7 +130,7 @@ func TestValidateWorkload(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(firstPodSetSpecPath.Child("initContainers").Index(0).Child("resources", "limits").Key(string(corev1.ResourcePods)), nil, ""),
 				field.Invalid(firstPodSetSpecPath.Child("containers").Index(0).Child("resources", "limits").Key(string(corev1.ResourcePods)), nil, ""),
-			}.ToAggregate(),
+			},
 		},
 		"should reject negative container resource request": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -144,7 +144,7 @@ func TestValidateWorkload(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(firstPodSetSpecPath.Child("containers").Index(0).Child("resources", "requests").Key(string(corev1.ResourceCPU)), nil, ""),
-			}.ToAggregate(),
+			},
 		},
 		"should reject negative initContainer resource request": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -158,7 +158,7 @@ func TestValidateWorkload(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(firstPodSetSpecPath.Child("initContainers").Index(0).Child("resources", "requests").Key(string(corev1.ResourceCPU)), nil, ""),
-			}.ToAggregate(),
+			},
 		},
 		"should reject negative container resource limit": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -176,7 +176,7 @@ func TestValidateWorkload(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(firstPodSetSpecPath.Child("containers").Index(0).Child("resources", "limits").Key(string(corev1.ResourceCPU)), nil, ""),
-			}.ToAggregate(),
+			},
 		},
 		"should reject negative resource among multiple valid requests and limits": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -200,7 +200,7 @@ func TestValidateWorkload(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(firstPodSetSpecPath.Child("containers").Index(0).Child("resources", "requests").Key(string(corev1.ResourceMemory)), nil, ""),
 				field.Invalid(firstPodSetSpecPath.Child("containers").Index(0).Child("resources", "limits").Key(string(corev1.ResourceMemory)), nil, ""),
-			}.ToAggregate(),
+			},
 		},
 		"should reject negative pod-level resource request": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -212,7 +212,7 @@ func TestValidateWorkload(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(firstPodSetSpecPath.Child("resources", "requests").Key(string(corev1.ResourceCPU)), nil, ""),
-			}.ToAggregate(),
+			},
 		},
 		"should reject negative pod-level resource limit": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -224,7 +224,7 @@ func TestValidateWorkload(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(firstPodSetSpecPath.Child("resources", "limits").Key(string(corev1.ResourceMemory)), nil, ""),
-			}.ToAggregate(),
+			},
 		},
 		"should accept negative container resource request when WorkloadValidateResourcesAreNonNegative is disabled": {
 			featureGates: map[featuregate.Feature]bool{
