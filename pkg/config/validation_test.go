@@ -1221,56 +1221,6 @@ func TestValidate(t *testing.T) {
 				features.QuotaCheckStrategy: false,
 			},
 		},
-		"KueueDRAIntegrationExtendedResource requires KueueDRAIntegration": {
-			cfg: &configapi.Configuration{
-				Integrations: defaultIntegrations,
-			},
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegrationExtendedResource:     true,
-				features.KueueDRAIntegration:                     false,
-				features.KueueDRAIntegrationPartitionableDevices: false,
-			},
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  "featureGates",
-					Detail: "KueueDRAIntegrationExtendedResource requires KueueDRAIntegration to be enabled",
-				},
-			},
-		},
-		"UnadmittedWorkloadsExplicitStatus requires UnadmittedWorkloadsObservability": {
-			cfg: &configapi.Configuration{
-				Integrations: defaultIntegrations,
-			},
-			featureGates: map[featuregate.Feature]bool{
-				features.UnadmittedWorkloadsExplicitStatus: true,
-				features.UnadmittedWorkloadsObservability:  false,
-			},
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  "featureGates",
-					Detail: "UnadmittedWorkloadsExplicitStatus requires UnadmittedWorkloadsObservability to be enabled",
-				},
-			},
-		},
-		"KueueDRAIntegrationPartitionableDevices requires KueueDRAIntegration": {
-			cfg: &configapi.Configuration{
-				Integrations: defaultIntegrations,
-			},
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegrationPartitionableDevices: true,
-				features.KueueDRAIntegration:                     false,
-				features.KueueDRAIntegrationExtendedResource:     false,
-			},
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  "featureGates",
-					Detail: "KueueDRAIntegrationPartitionableDevices requires KueueDRAIntegration to be enabled",
-				},
-			},
-		},
 		"valid counter source on deviceClassMapping": {
 			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
 			cfg: &configapi.Configuration{
@@ -1840,24 +1790,6 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
-		"CC gate requires DRA base gate": {
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:                     false,
-				features.KueueDRAIntegrationExtendedResource:     false,
-				features.KueueDRAIntegrationPartitionableDevices: false,
-				features.KueueDRAIntegrationConsumableCapacity:   true,
-			},
-			cfg: &configapi.Configuration{
-				Integrations: defaultIntegrations,
-			},
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  "featureGates",
-					Detail: "KueueDRAIntegrationConsumableCapacity requires KueueDRAIntegration to be enabled",
-				},
-			},
-		},
 	}
 
 	for name, tc := range testCases {
@@ -2098,6 +2030,46 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 					Type:   field.ErrorTypeInvalid,
 					Field:  "featureGates",
 					Detail: "KueueDRAIntegrationExtendedResource requires KueueDRAIntegration to be enabled",
+				},
+			},
+		},
+		"KueueDRAIntegrationPartitionableDevices requires KueueDRAIntegration": {
+			featureGateMap: map[string]bool{
+				string(features.KueueDRAIntegrationPartitionableDevices): true,
+				string(features.KueueDRAIntegration):                     false,
+				string(features.KueueDRAIntegrationExtendedResource):     false,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.KueueDRAIntegrationPartitionableDevices: false,
+				features.KueueDRAIntegration:                     true,
+				features.KueueDRAIntegrationExtendedResource:     true,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "KueueDRAIntegrationPartitionableDevices requires KueueDRAIntegration to be enabled",
+				},
+			},
+		},
+		"KueueDRAIntegrationConsumableCapacity requires KueueDRAIntegration": {
+			featureGateMap: map[string]bool{
+				string(features.KueueDRAIntegrationConsumableCapacity):   true,
+				string(features.KueueDRAIntegration):                     false,
+				string(features.KueueDRAIntegrationExtendedResource):     false,
+				string(features.KueueDRAIntegrationPartitionableDevices): false,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.KueueDRAIntegrationConsumableCapacity:   false,
+				features.KueueDRAIntegration:                     true,
+				features.KueueDRAIntegrationExtendedResource:     true,
+				features.KueueDRAIntegrationPartitionableDevices: true,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "KueueDRAIntegrationConsumableCapacity requires KueueDRAIntegration to be enabled",
 				},
 			},
 		},
