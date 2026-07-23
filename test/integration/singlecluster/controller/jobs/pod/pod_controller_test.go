@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -28,6 +29,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	eventsv1 "k8s.io/api/events/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -934,6 +936,62 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 					util.ExpectPodsJustFinalized(ctx, k8sClient, pod1LookupKey, pod2LookupKey)
+				})
+			})
+
+			ginkgo.It("Should surface diverging pod roles in a fast admission group as an unretryable error instead of composing a hijacked workload", func() {
+				ginkgo.By("Creating the first fast admission pod, which forms the group workload on its own")
+				pod1 := testingpod.MakePod("test-pod1", ns.Name).
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					Annotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue).
+					Queue("test-queue").
+					Obj()
+				util.MustCreate(ctx, k8sClient, pod1)
+
+				wlLookupKey := types.NamespacedName{Namespace: ns.Name, Name: "test-group"}
+				ginkgo.By("checking that the group workload is created from the first pod with a single role", func() {
+					createdWorkload := &kueue.Workload{}
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+						g.Expect(createdWorkload.Spec.PodSets).Should(gomega.HaveLen(1))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				// pod2 diverges in role hash (nodeSelector) but not resource requests.
+				// Create after pod1's workload exists so both are seen on the next reconcile.
+				ginkgo.By("Adding a second pod whose role hash diverges from the first")
+				pod2 := testingpod.MakePod("test-pod2", ns.Name).
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					Annotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue).
+					NodeSelector("kubernetes.io/os", "linux").
+					Queue("test-queue").
+					Obj()
+				util.MustCreate(ctx, k8sClient, pod2)
+
+				ginkgo.By("checking that the diverging roles are surfaced as an ErrWorkloadCompose warning event", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						ok, err := utiltesting.HasMatchingEventAppeared(ctx, k8sClient, func(e *eventsv1.Event) bool {
+							return e.Reason == jobframework.ReasonErrWorkloadCompose &&
+								e.Type == corev1.EventTypeWarning &&
+								strings.Contains(e.Note, "fast admission requires all pods to have the same role")
+						})
+						g.Expect(err).NotTo(gomega.HaveOccurred())
+						g.Expect(ok).To(gomega.BeTrue(), "expected an ErrWorkloadCompose warning event for the diverging roles")
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("checking that the divergent role is never composed into the workload, so the controller does not hijack quota", func() {
+					gomega.Consistently(func(g gomega.Gomega) {
+						wl := &kueue.Workload{}
+						err := k8sClient.Get(ctx, wlLookupKey, wl)
+						if apierrors.IsNotFound(err) {
+							return
+						}
+						g.Expect(err).NotTo(gomega.HaveOccurred())
+						g.Expect(wl.Spec.PodSets).Should(gomega.HaveLen(1), "the divergent role must never be composed into the group workload")
+					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 				})
 			})
 

@@ -902,6 +902,16 @@ func FindAncestorJobManagedByKueue(ctx context.Context, c client.Client, jobObj 
 		if err := c.Get(ctx, client.ObjectKey{Name: owner.Name, Namespace: jobObj.GetNamespace()}, parentObj); err != nil {
 			return nil, errors.Join(ErrWorkloadOwnerNotFound, err)
 		}
+		if parentObj.GetUID() != owner.UID {
+			// Stop: owner reference UID does not match the referenced object.
+			// Per-hop UID checks catch stale/mismatched refs; same-namespace ownership spoofing is out of scope.
+			log.V(3).Info(
+				"stop walking up as the owner reference UID does not match the referenced object",
+				"currentObj", klog.KObj(currentObj),
+				"owner", klog.KRef(jobObj.GetNamespace(), owner.Name),
+			)
+			return topLevelJob, nil
+		}
 		if managed && (manageJobsWithoutQueueName || QueueNameForObject(parentObj) != "") {
 			topLevelJob = parentObj
 		}
@@ -1222,6 +1232,11 @@ func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, wl *ku
 
 	if !equivalent || err != nil {
 		if err != nil {
+			// Emit a Warning for unretryable compose errors so the rejection is user-visible,
+			// matching ConstructComposableWorkload on the creation path.
+			if IsUnretryableError(err) {
+				r.record.Eventf(job.Object(), nil, corev1.EventTypeWarning, ReasonErrWorkloadCompose, "ErrWorkloadCompose", api.TruncateEventMessage(err.Error()))
+			}
 			return false, err
 		}
 		// mark the workload as finished

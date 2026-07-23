@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
@@ -86,8 +87,25 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 
 var _ admission.Defaulter[*corev1.Pod] = &PodWebhook{}
 
-// addRoleHash calculates the role hash and adds it to the pod's annotations
+// addRoleHash recomputes the role hash from the pod spec and writes it to annotations.
+// Do not trust a tenant-supplied role-hash annotation.
 func (p *Pod) addRoleHash() error {
+	if p.pod.Annotations == nil {
+		p.pod.Annotations = make(map[string]string)
+	}
+
+	hash, err := utilpod.GenerateRoleHash(&p.pod.Spec)
+	if err != nil {
+		return err
+	}
+
+	p.pod.Annotations[podconstants.RoleHashAnnotation] = hash
+	return nil
+}
+
+// preserveRoleHashAnnotation keeps the existing role hash (via getRoleHash) for parent-managed
+// or prebuilt pods whose role hash is assigned by a trusted integration.
+func (p *Pod) preserveRoleHashAnnotation() error {
 	if p.pod.Annotations == nil {
 		p.pod.Annotations = make(map[string]string)
 	}
@@ -101,14 +119,55 @@ func (p *Pod) addRoleHash() error {
 	return nil
 }
 
+func (w *PodWebhook) shouldPreserveRoleHash(ctx context.Context, pod *Pod) (bool, error) {
+	// Prebuilt Workloads keep the user-assigned role hash so pods match the Workload's PodSet names.
+	// Ownership is verified separately; per-role request limits still apply at group construction.
+	if jobframework.PrebuiltWorkloadNameFor(pod.Object()) != "" {
+		return true, nil
+	}
+
+	frameworkName, suspendByParent := pod.pod.GetAnnotations()[podconstants.SuspendedByParentAnnotation]
+	if !suspendByParent {
+		// Standalone/untrusted pod: do not trust a tenant-supplied role-hash; recompute.
+		return false, nil
+	}
+
+	integration, found := jobframework.GetIntegration(frameworkName)
+	if !found {
+		return false, nil
+	}
+
+	ancestorJob, err := jobframework.FindAncestorJobManagedByKueue(ctx, w.client, pod.Object(), w.manageJobsWithoutQueueName)
+	if err != nil || ancestorJob == nil {
+		return false, err
+	}
+
+	ancestorGVK, err := apiutil.GVKForObject(ancestorJob, w.client.Scheme())
+	if err != nil {
+		return false, err
+	}
+	integrationGVK, err := apiutil.GVKForObject(integration.JobType, w.client.Scheme())
+	if err != nil {
+		return false, err
+	}
+
+	// Only StatefulSet/Deployment/LeaderWorkerSet set SuspendedByParent and may preserve when ancestor GVK matches.
+	return ancestorGVK == integrationGVK, nil
+}
+
 func (w *PodWebhook) Default(ctx context.Context, obj *corev1.Pod) error {
 	pod := FromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook")
 	log.V(5).Info("Applying defaults")
 
 	_, suspendByParent := pod.pod.GetAnnotations()[podconstants.SuspendedByParentAnnotation]
-
 	suspend := suspendByParent
+
+	preserveRoleHash, err := w.shouldPreserveRoleHash(ctx, pod)
+	if err != nil {
+		return err
+	}
+
 	if !suspend {
 		// Namespace filtering
 		ns := corev1.Namespace{}
@@ -184,7 +243,11 @@ func (w *PodWebhook) Default(ctx context.Context, obj *corev1.Pod) error {
 			}
 			utilpod.Gate(&pod.pod, kueue.TopologySchedulingGate)
 		}
-		if err := pod.addRoleHash(); err != nil {
+		if preserveRoleHash {
+			if err := pod.preserveRoleHashAnnotation(); err != nil {
+				return err
+			}
+		} else if err := pod.addRoleHash(); err != nil {
 			return err
 		}
 		// copy back changes to the object
