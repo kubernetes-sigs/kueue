@@ -3349,3 +3349,76 @@ func TestCalcLocalQueueFSUsage(t *testing.T) {
 		})
 	}
 }
+
+func TestTotalExecutionTime(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	admission := utiltestingapi.MakeAdmission("cq").Obj()
+
+	cases := map[string]struct {
+		wl   *kueue.Workload
+		want *time.Duration
+	}{
+		"admitted and finished": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(admission, now).
+				AdmittedAt(true, now).
+				FinishedAt(now.Add(10 * time.Second)).
+				Obj(),
+			want: ptr.To(10 * time.Second),
+		},
+		"not admitted": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+		},
+		"admitted but not finished": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(admission, now).
+				AdmittedAt(true, now).
+				Obj(),
+		},
+		"admitted false": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(admission, now).
+				AdmittedAt(false, now).
+				FinishedAt(now.Add(10 * time.Second)).
+				Obj(),
+		},
+		"finished condition false": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(admission, now).
+				AdmittedAt(true, now).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadFinished,
+					Status:             metav1.ConditionFalse,
+					LastTransitionTime: metav1.NewTime(now.Add(10 * time.Second)),
+					Reason:             "ByTest",
+				}).
+				Obj(),
+		},
+		"with accumulated past execution time": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(admission, now).
+				AdmittedAt(true, now).
+				FinishedAt(now.Add(5 * time.Second)).
+				PastAdmittedTime(30).
+				Obj(),
+			want: ptr.To(35 * time.Second),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := TotalExecutionTime(tc.wl)
+			if tc.want == nil {
+				if got != nil {
+					t.Errorf("TotalExecutionTime() = %v, want nil", *got)
+				}
+			} else {
+				if got == nil {
+					t.Fatalf("TotalExecutionTime() = nil, want %v", *tc.want)
+				}
+				if *got != *tc.want {
+					t.Errorf("TotalExecutionTime() = %v, want %v", *got, *tc.want)
+				}
+			}
+		})
+	}
+}
