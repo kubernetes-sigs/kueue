@@ -95,7 +95,7 @@ For a step-by-step administrator guide on setting up a cluster with TAS, see [Se
 Once TAS is configured and ready to be used, you can create Jobs with the
 following annotations set at the PodTemplate level:
 - `kueue.x-k8s.io/podset-preferred-topology` - indicates that a PodSet requires
-	Topology-Aware Scheduling, but scheduling all pods within pods on nodes
+	Topology-Aware Scheduling, but scheduling all pods on nodes
 	within the same topology domain is a preference rather than requirement.
 	The levels are evaluated one-by-one going up from the level indicated by
 	the annotation. If the PodSet cannot fit within a given topology domain
