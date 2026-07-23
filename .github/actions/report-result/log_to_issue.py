@@ -6,9 +6,6 @@ from datetime import datetime
 
 MARKER = "<!-- release-log-comment -->"
 LOG_HEADER = "# Release log"
-HISTORY_HEADER = "# History"
-DETAILS_START = "<details>\n<summary>History</summary>"
-DETAILS_END = "</details>"
 
 def main():
     command = os.environ.get("INPUT_COMMAND", "").strip()
@@ -18,15 +15,8 @@ def main():
         sys.exit(1)
     message = os.environ.get("INPUT_MESSAGE", "").strip()
     cleanup = os.environ.get("INPUT_CLEANUP", "").strip().lower() == "true"
-    
-    if cleanup:
-        if message:
-            print("Error: message must be empty when cleanup is true.", file=sys.stderr)
-            sys.exit(1)
-    else:
-        if not message:
-            print("Error: message cannot be empty when cleanup is false.", file=sys.stderr)
-            sys.exit(1)
+    if not message:
+        cleanup = True
 
     actor = os.environ.get("GITHUB_ACTOR", "").strip()
     run_id = os.environ.get("GITHUB_RUN_ID", "").strip()
@@ -56,8 +46,8 @@ def main():
             print(f"{MARKER}\n{LOG_HEADER}")
         return
 
-    # Split Details and History
-    history_match = re.search(r'^' + re.escape(HISTORY_HEADER) + r'\b', comment_body, re.MULTILINE | re.IGNORECASE)
+    # Split Details and History using the first <details> tag as boundary
+    history_match = re.search(r'<details>', comment_body, re.IGNORECASE)
     
     if history_match:
         details = comment_body[:history_match.start()].strip()
@@ -67,7 +57,7 @@ def main():
         history = ""
 
     # Find if an entry for command exists in the Details section
-    entry_pattern = r'(^## ' + re.escape(title) + r'\b.*?)(?=\n## |\n# |$)'
+    entry_pattern = r'(^## ' + re.escape(title) + r'\b.*?)(?=\n## |\Z)'
     entry_match = re.search(entry_pattern, details, re.DOTALL | re.MULTILINE)
 
     old_entry = ""
@@ -85,20 +75,25 @@ def main():
 
     # Handle History
     if old_entry:
-        if not history:
-            history = f"{HISTORY_HEADER}\n\n{DETAILS_START}\n\n{old_entry}\n{DETAILS_END}"
+        # Strip header and command line from old_entry to avoid redundancy in history
+        old_entry_clean = re.sub(r'^## ' + re.escape(title) + r'\b\s*', '', old_entry, flags=re.MULTILINE)
+        old_entry_clean = re.sub(r'^Command:.*?\n\s*', '', old_entry_clean, flags=re.MULTILINE).strip()
+
+        details_pattern = r'(<details>\s*<summary>\s*<b>' + re.escape(title) + r'\s+history</b>\s*</summary>\s*)(.*?)(\s*</details>)'
+        details_match = re.search(details_pattern, history, re.DOTALL | re.IGNORECASE)
+        if details_match:
+            prefix = details_match.group(1)
+            content = details_match.group(2).strip()
+            suffix = details_match.group(3)
+            # Use horizontal rules to separate multiple archived runs of the same command
+            new_content = f"{old_entry_clean}\n\n---\n\n{content}" if content else old_entry_clean
+            history = history[:details_match.start()] + f"{prefix}\n{new_content}\n{suffix}" + history[details_match.end():]
         else:
-            # Prepend old entry to details block
-            details_pattern = r'(<details>\s*<summary>History</summary>\s*)(.*?)(\s*</details>)'
-            details_match = re.search(details_pattern, history, re.DOTALL | re.IGNORECASE)
-            if details_match:
-                prefix = details_match.group(1)
-                content = details_match.group(2).strip()
-                suffix = details_match.group(3)
-                new_content = f"{old_entry}\n\n{content}" if content else old_entry
-                history = history[:details_match.start()] + f"{prefix}\n{new_content}\n{suffix}" + history[details_match.end():]
+            new_details_block = f"<details>\n<summary><b>{title} history</b></summary>\n\n{old_entry_clean}\n</details>"
+            if history:
+                history = history.rstrip() + f"\n\n{new_details_block}"
             else:
-                history = history.rstrip() + f"\n\n{DETAILS_START}\n\n{old_entry}\n{DETAILS_END}"
+                history = new_details_block
 
     # Reconstruct final comment
     final_body = details
