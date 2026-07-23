@@ -318,11 +318,14 @@ var _ = ginkgo.Describe("Hierarchical Cohort", ginkgo.Label("area:singlecluster"
 			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 
 			ginkgo.By("submitting a new job that would require borrowing")
-			util.MustCreate(ctx, k8sClient, testingjob.MakeJob("after-delete", ns.Name).
+			afterDeleteJob := testingjob.MakeJob("after-delete", ns.Name).
 				Queue(kueue.LocalQueueName(lq.Name)).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "500m").
-				TerminationGracePeriod(1).Obj())
+				TerminationGracePeriod(1).Obj()
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(client.IgnoreAlreadyExists(k8sClient.Create(ctx, afterDeleteJob))).Should(gomega.Succeed())
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("verifying new borrowing is blocked after mid-tree deletion")
 			gomega.Eventually(func(g gomega.Gomega) {
