@@ -587,3 +587,9 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.14"
+- name: WorkloadValidateResourcesAreNonNegative
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"

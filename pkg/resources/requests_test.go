@@ -18,6 +18,7 @@ package resources
 
 import (
 	"encoding/json"
+	"maps"
 	"math"
 	"testing"
 
@@ -532,6 +533,76 @@ func TestLazyRequests(t *testing.T) {
 					t.Errorf("base map was mutated! diff (-want +got):\n%s", diff)
 				}
 			}
+		})
+	}
+}
+
+func TestFloorToZero(t *testing.T) {
+	cases := map[string]struct {
+		requests MapRequests
+		want     MapRequests
+	}{
+		"empty": {
+			requests: MapRequests{},
+			want:     MapRequests{},
+		},
+		"negative floored to zero": {
+			requests: MapRequests{
+				corev1.ResourceCPU:    -100,
+				corev1.ResourceMemory: 1024,
+			},
+			want: MapRequests{
+				corev1.ResourceCPU:    0,
+				corev1.ResourceMemory: 1024,
+			},
+		},
+		"zero and positive unchanged": {
+			requests: MapRequests{
+				corev1.ResourceCPU:    0,
+				corev1.ResourceMemory: 1024,
+			},
+			want: MapRequests{
+				corev1.ResourceCPU:    0,
+				corev1.ResourceMemory: 1024,
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run("MapRequests/"+name, func(t *testing.T) {
+			requests := maps.Clone(tc.requests)
+			var r Requests = requests
+			r.FloorToZero()
+			if diff := cmp.Diff(tc.want, requests); diff != "" {
+				t.Errorf("unexpected result (-want +got):\n%s", diff)
+			}
+		})
+		t.Run("SliceRequests/"+name, func(t *testing.T) {
+			r := NewSliceRequests(tc.requests)
+			if r == nil {
+				// NewSliceRequests returns nil for empty/all-zero maps.
+				r = &SliceRequests{}
+			}
+			r.FloorToZero()
+			// SliceRequests omits zero values on conversion; compare non-zero
+			// entries and assert no negatives remain.
+			got := ToMapRequests(r)
+			want := MapRequests{}
+			for k, v := range tc.want {
+				if v != 0 {
+					want[k] = v
+				}
+			}
+			if len(want) == 0 {
+				want = nil
+			}
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Errorf("unexpected result (-want +got):\n%s", diff)
+			}
+			r.ForEach(func(_ corev1.ResourceName, val int64) {
+				if val < 0 {
+					t.Errorf("negative value %d remains after FloorToZero", val)
+				}
+			})
 		})
 	}
 }
