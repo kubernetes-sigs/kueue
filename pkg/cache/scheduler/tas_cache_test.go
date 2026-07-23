@@ -45,9 +45,10 @@ import (
 
 // PodSetTestCase defines a test case for a single podset in the consolidated test.
 type PodSetTestCase struct {
-	podSetName         string
-	topologyRequest    *kueue.PodSetTopologyRequest
-	requests           resources.MapRequests
+	podSetName      string
+	topologyRequest *kueue.PodSetTopologyRequest
+	requests        resources.Requests
+
 	count              int32
 	tolerations        []corev1.Toleration
 	nodeSelector       map[string]string
@@ -1623,6 +1624,38 @@ func TestFindTopologyAssignments(t *testing.T) {
 				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "cpu": 1`,
 			}},
 		},
+		"node allocatable capacity completely used by non-TAS pod; empty remainingCapacity": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x3").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("running1", "test-ns").NodeName("x3").
+					StatusPhase(corev1.PodRunning).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+			},
+			levels: defaultOneLevel,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Required: new(corev1.LabelHostname),
+				},
+				requests: func() resources.Requests {
+					sr := resources.ResourceListToSliceRequests(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m")})
+					return &sr
+				}(),
+
+				count:      1,
+				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "cpu": 1`,
+			}},
+		},
+
 		"include usage from non-TAS pods; pod usage": {
 			// this test case ensures we are counting pods properly
 			// when aggregating non-tas pod usage by node.
