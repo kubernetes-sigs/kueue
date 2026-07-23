@@ -44,6 +44,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingrayutil "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
+	testingrayjobutil "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -532,9 +533,10 @@ func TestUpdatePodSets(t *testing.T) {
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
 				*utiltestingapi.MakePodSet("workers", 3).Obj(),
 			},
-			object: testingrayutil.MakeCluster("rayjob-owner", "ns").
-				SetAnnotation("kueue.x-k8s.io/elastic-job", "true").
-				SetAnnotation(MultiKueueRuntimePodSetReplicaSizesAnnotation, `[{"name":"workers","count":5}]`).
+			object: testingrayjobutil.MakeJob("rayjob-owner", "ns").
+				ManagedBy(kueue.MultiKueueControllerName).
+				Annotation("kueue.x-k8s.io/elastic-job", "true").
+				Annotation(MultiKueueRuntimePodSetReplicaSizesAnnotation, `[{"name":"workers","count":5}]`).
 				Obj(),
 			enableInTreeAutoscaling: new(true),
 			rayClusterName:          "nonexistent-child",
@@ -547,9 +549,10 @@ func TestUpdatePodSets(t *testing.T) {
 			podSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet("workers", 3).Obj(),
 			},
-			object: testingrayutil.MakeCluster("rayjob-owner", "ns").
-				SetAnnotation("kueue.x-k8s.io/elastic-job", "true").
-				SetAnnotation(MultiKueueRuntimePodSetReplicaSizesAnnotation, `not-json`).
+			object: testingrayjobutil.MakeJob("rayjob-owner", "ns").
+				ManagedBy(kueue.MultiKueueControllerName).
+				Annotation("kueue.x-k8s.io/elastic-job", "true").
+				Annotation(MultiKueueRuntimePodSetReplicaSizesAnnotation, `not-json`).
 				Obj(),
 			enableInTreeAutoscaling: new(true),
 			rayClusterName:          "nonexistent-child",

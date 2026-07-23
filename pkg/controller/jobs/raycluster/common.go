@@ -223,7 +223,12 @@ func UpdatePodSets(ctx context.Context, podSets []kueue.PodSet, c client.Client,
 					// On a MultiKueue manager the child RayCluster only exists on
 					// the worker cluster; its per-group counts are reflected here
 					// as an annotation by the MultiKueue workload controller.
-					return applyRuntimeCountsAnnotation(log, podSets, object), nil
+					// Anywhere else NotFound is transient (the child is not
+					// created yet) and the spec-derived counts stand.
+					if isManagedByMultiKueue(object) {
+						return applyRuntimeCountsAnnotation(log, podSets, object), nil
+					}
+					return podSets, nil
 				}
 				return nil, fmt.Errorf("failed to get RayCluster %s: %w", rayClusterName, err)
 			} else {
@@ -414,6 +419,13 @@ func ComparePodSetCounts(podSets []kueue.PodSet, referenceCounts map[kueue.PodSe
 		}
 	}
 	return false
+}
+
+// isManagedByMultiKueue reports whether the job is the manager cluster's copy
+// of a MultiKueue-dispatched job. Worker copies have spec.managedBy cleared.
+func isManagedByMultiKueue(object client.Object) bool {
+	rj, ok := object.(*rayv1.RayJob)
+	return ok && ptr.Deref(rj.Spec.ManagedBy, "") == kueue.MultiKueueControllerName
 }
 
 // applyRuntimeCountsAnnotation overrides worker-group PodSet counts from the
