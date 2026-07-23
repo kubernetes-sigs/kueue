@@ -75,7 +75,7 @@ jobs:
 
           COMMAND=""
           if printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/sync-release-notes[[:space:]]*$'; then
-            COMMAND="sync-notes"
+            COMMAND="sync-release-notes"
           elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/create-release-branch[[:space:]]*$'; then
             COMMAND="create-release-branch"
           elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/tag-release[[:space:]]*$'; then
@@ -124,12 +124,12 @@ jobs:
           alias: "Authorization"
           cleanup: true
 
-  sync-notes:
+  sync-release-notes:
     name: Sync Release Notes
     runs-on: ubuntu-latest
     needs: authorize
     timeout-minutes: 30
-    if: ${{ needs.authorize.outputs.command == 'sync-notes' }}
+    if: ${{ needs.authorize.outputs.command == 'sync-release-notes' }}
     permissions:
       contents: read
       issues: write
