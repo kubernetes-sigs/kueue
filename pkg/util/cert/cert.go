@@ -37,9 +37,12 @@ const (
 	webhookServiceSuffix = "-webhook-service"
 )
 
-// +kubebuilder:rbac:groups="admissionregistration.k8s.io",resources=mutatingwebhookconfigurations,verbs=get;list;watch;update
-// +kubebuilder:rbac:groups="admissionregistration.k8s.io",resources=validatingwebhookconfigurations,verbs=get;list;watch;update
-// +kubebuilder:rbac:groups="apiextensions.k8s.io",resources=customresourcedefinitions,verbs=get;list;watch;update
+// +kubebuilder:rbac:groups="admissionregistration.k8s.io",resources=mutatingwebhookconfigurations,verbs=list;watch
+// +kubebuilder:rbac:groups="admissionregistration.k8s.io",resources=mutatingwebhookconfigurations,resourceNames=kueue-mutating-webhook-configuration,verbs=get;update
+// +kubebuilder:rbac:groups="admissionregistration.k8s.io",resources=validatingwebhookconfigurations,verbs=list;watch
+// +kubebuilder:rbac:groups="admissionregistration.k8s.io",resources=validatingwebhookconfigurations,resourceNames=kueue-validating-webhook-configuration,verbs=get;update
+// +kubebuilder:rbac:groups="apiextensions.k8s.io",resources=customresourcedefinitions,verbs=list;watch
+// +kubebuilder:rbac:groups="apiextensions.k8s.io",resources=customresourcedefinitions,resourceNames=clusterqueues.kueue.x-k8s.io;cohorts.kueue.x-k8s.io;localqueues.kueue.x-k8s.io;multikueueclusters.kueue.x-k8s.io;workloads.kueue.x-k8s.io,verbs=get;update
 
 // BootstrapCerts creates a minimal manager to generate certificates and inject CA bundles.
 // This function blocks until certificates are ready and CA bundles are injected into CRDs.
