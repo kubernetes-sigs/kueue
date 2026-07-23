@@ -210,11 +210,6 @@ func (a *adapter[PtrT, T]) SyncJob(
 					return false, err
 				}
 			}
-			// The forward direction never touches replicas in this mode; the
-			// manager's only remaining duty is slice-identity bookkeeping. This is
-			// deliberately not gated on the remote's suspension: repointing is the
-			// recovery path when a remote got stopped while pointing at a finished
-			// slice.
 			return false, a.repointPrebuiltWorkload(ctx, remoteClient, workloadName, remoteJob)
 		}
 		if a.needElasticSync(ctx, workloadName, localJob, remoteJob) {
