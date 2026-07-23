@@ -963,6 +963,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	if leaderTasPodSetRequests != nil {
 		requirements.leaderRequests = leaderTasPodSetRequests.SinglePodRequests.Clone()
 		requirements.leaderRequests.Add(resources.OnePodRequest)
+		// PodSet grouping validation requires the leader PodSet to have one replica.
 		state.leaderCount = 1
 	}
 
@@ -1448,6 +1449,9 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(
 		results := []*domain{}
 		remainingSliceCount := sliceCount
 		remainingLeaderCount := state.leaderCount
+		// Prioritize before selecting the fitting set, since later descent cannot
+		// recover a feasible leader domain omitted here. updateCountsToMinimumGeneric
+		// repeats this for each newly produced domain set during descent.
 		sortedDomain = prioritizeLeaderDomain(sortedDomain, state.count, state.leaderCount, state.sliceSize, true)
 
 		// Assign leaders first from a domain that preserves total worker capacity.
@@ -1579,10 +1583,9 @@ func (s *TASFlavorSnapshot) consumeWithLeadersGeneric(
 	return domain, false
 }
 
-// fillInCountsHelper summarizes parent capacity using the smallest child
-// leader penalty. Whenever placement selects a leader domain, its penalty must
-// fit within the available slack, or the summarized worker capacity cannot be
-// realized.
+// prioritizeLeaderDomain preserves the capacity summarized by fillInCountsHelper.
+// That summary subtracts the smallest eligible child leader penalty, so descent
+// must select a leader-capable domain whose penalty fits within the available slack.
 func prioritizeLeaderDomain(domains []*domain, count, leaderCount, sliceSize int32, slicesEnabled bool) []*domain {
 	if leaderCount == 0 || len(domains) < 2 {
 		return domains
