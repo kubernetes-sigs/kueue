@@ -4864,6 +4864,288 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			},
 		},
+		"find topology assignment for grouped podsets preserves worker capacity when placing leader": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("h1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "h1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("h2").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "h2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("h3").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "h3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("3"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: []string{tasRackLabel, corev1.LabelHostname},
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required: ptr.To(tasRackLabel),
+					},
+					requests: resources.MapRequests{
+						corev1.ResourceCPU: 1000,
+					},
+					podSetGroupName: new("sameGroup"),
+					count:           1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{
+								Count:  1,
+								Values: []string{"h3"},
+							},
+						},
+					},
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required: ptr.To(tasRackLabel),
+					},
+					requests: resources.MapRequests{
+						corev1.ResourceCPU: 2000,
+					},
+					podSetGroupName: new("sameGroup"),
+					count:           4,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{
+								Count:  1,
+								Values: []string{"h1"},
+							},
+							{
+								Count:  2,
+								Values: []string{"h2"},
+							},
+							{
+								Count:  1,
+								Values: []string{"h3"},
+							},
+						},
+					},
+				},
+			},
+		},
+		"find topology assignment for preferred grouped podsets preserves capacity across domains": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("h1").
+					Label(corev1.LabelHostname, "h1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("8"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("h2").
+					Label(corev1.LabelHostname, "h2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("3"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultOneLevel,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Preferred: ptr.To(corev1.LabelHostname),
+					},
+					requests: resources.MapRequests{
+						corev1.ResourceCPU: 1000,
+					},
+					podSetGroupName: new("sameGroup"),
+					count:           1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{
+								Count:  1,
+								Values: []string{"h2"},
+							},
+						},
+					},
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Preferred: ptr.To(corev1.LabelHostname),
+					},
+					requests: resources.MapRequests{
+						corev1.ResourceCPU: 2000,
+					},
+					podSetGroupName: new("sameGroup"),
+					count:           5,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{
+								Count:  4,
+								Values: []string{"h1"},
+							},
+							{
+								Count:  1,
+								Values: []string{"h2"},
+							},
+						},
+					},
+				},
+			},
+		},
+		"find topology assignment for unconstrained grouped podsets accounts for leader capacity with TASProfileMixed": {
+			featureGates: map[featuregate.Feature]bool{features.TASProfileMixed: true},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("h1").
+					Label(corev1.LabelHostname, "h1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("h2").
+					Label(corev1.LabelHostname, "h2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("3"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultOneLevel,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Unconstrained: ptr.To(true),
+					},
+					requests: resources.MapRequests{
+						corev1.ResourceCPU: 1000,
+					},
+					podSetGroupName: new("sameGroup"),
+					count:           1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{
+								Count:  1,
+								Values: []string{"h2"},
+							},
+						},
+					},
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Unconstrained: ptr.To(true),
+					},
+					requests: resources.MapRequests{
+						corev1.ResourceCPU: 2000,
+					},
+					podSetGroupName: new("sameGroup"),
+					count:           1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{
+								Count:  1,
+								Values: []string{"h2"},
+							},
+						},
+					},
+				},
+			},
+		},
+		"find topology assignment for grouped podsets preserves leader below the slice level": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("leader-host").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "leader-host").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("worker-host").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "worker-host").
+					StatusAllocatable(corev1.ResourceList{
+						"example.com/gpu":   resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: []string{tasRackLabel, corev1.LabelHostname},
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required:                    ptr.To(tasRackLabel),
+						PodSetSliceRequiredTopology: ptr.To(tasRackLabel),
+						PodSetSliceSize:             new(int32(1)),
+					},
+					requests: resources.MapRequests{
+						corev1.ResourceCPU: 1000,
+					},
+					podSetGroupName: new("sameGroup"),
+					count:           1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{
+								Count:  1,
+								Values: []string{"leader-host"},
+							},
+						},
+					},
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required:                    ptr.To(tasRackLabel),
+						PodSetSliceRequiredTopology: ptr.To(tasRackLabel),
+						PodSetSliceSize:             new(int32(1)),
+					},
+					requests: resources.MapRequests{
+						"example.com/gpu": 1,
+					},
+					podSetGroupName: new("sameGroup"),
+					count:           1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{
+								Count:  1,
+								Values: []string{"worker-host"},
+							},
+						},
+					},
+				},
+			},
+		},
 		"find topology assignment for two podsets with the same group with domains that can tightly fit leader and workers": {
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1").

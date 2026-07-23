@@ -1322,10 +1322,11 @@ func getSliceSizeWithSinglePodAsDefault(tr *kueue.PodSetTopologyRequest) (int32,
 	return size, ""
 }
 
-// findBestFitDomain finds an index of the first domain with the lowest
-// value of state, higher or equal than count.
-// If such a domain doesn't exist, it returns first domain as it's the domain with the
-// most available resources
+// findBestFitDomain returns the first domain with the smallest state that is
+// greater than or equal to count.
+// When leaders are requested, domains that cannot fit them are ignored.
+// If no domain fits, it returns the first domain to preserve the caller's
+// established ordering.
 func findBestFitDomain(domains []*domain, count int32, leaderCount int32) *domain {
 	getState := func(d *domain) int32 {
 		return d.state
@@ -1335,13 +1336,14 @@ func findBestFitDomain(domains []*domain, count int32, leaderCount int32) *domai
 			return d.stateWithLeader
 		}
 	}
-	return findBestFitDomainBy(domains, count, getState)
+	return findBestFitDomainBy(domains, count, getState, leaderCount)
 }
 
-// findBestFitDomainForSlices finds an index of the first domain with the lowest
-// value of sliceState, higher or equal than sliceCount.
-// If such a domain doesn't exist, it returns first domain as it's the domain with the
-// most available resources
+// findBestFitDomainForSlices returns the first domain with the smallest
+// sliceState that is greater than or equal to sliceCount.
+// When leaders are requested, domains that cannot fit them are ignored.
+// If no domain fits, it returns the first domain to preserve the caller's
+// established ordering.
 func findBestFitDomainForSlices(domains []*domain, sliceCount int32, leaderCount int32) *domain {
 	getState := func(d *domain) int32 {
 		return d.sliceState
@@ -1351,25 +1353,33 @@ func findBestFitDomainForSlices(domains []*domain, sliceCount int32, leaderCount
 			return d.sliceStateWithLeader
 		}
 	}
-	return findBestFitDomainBy(domains, sliceCount, getState)
+	return findBestFitDomainBy(domains, sliceCount, getState, leaderCount)
 }
 
 type domainState func(d *domain) int32
 
-func findBestFitDomainBy(domains []*domain, needed int32, state domainState) *domain {
+func findBestFitDomainBy(domains []*domain, needed int32, state domainState, leaderCount int32) *domain {
 	candidates := topAffinityTierDomains(domains)
 	bestDomain := candidates[0]
-	bestDomainState := state(bestDomain)
+	bestDomainState := int32(math.MaxInt32)
+	found := false
 
 	for _, domain := range candidates {
+		if domain.leaderState < leaderCount {
+			continue
+		}
 		domainState := state(domain)
 
 		if domainState >= needed && domainState < bestDomainState {
 			// choose the first occurrence of fitting domains
 			// to make it consecutive with other podSet's
 			bestDomain = domain
-			bestDomainState = state(bestDomain)
+			bestDomainState = domainState
+			found = true
 		}
+	}
+	if !found {
+		return candidates[0]
 	}
 	return bestDomain
 }
@@ -1403,7 +1413,14 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(
 
 	if useLeastFreeCapacityAlgorithm(state.unconstrained) {
 		for _, candidateDomain := range sortedDomain {
-			if candidateDomain.sliceState >= sliceCount {
+			candidateCapacity := candidateDomain.sliceState
+			if state.leaderCount > 0 {
+				if candidateDomain.leaderState < state.leaderCount {
+					continue
+				}
+				candidateCapacity = candidateDomain.sliceStateWithLeader
+			}
+			if candidateCapacity >= sliceCount {
 				return searchLevelIdx, []*domain{candidateDomain}, ""
 			}
 		}
@@ -1431,11 +1448,11 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(
 		results := []*domain{}
 		remainingSliceCount := sliceCount
 		remainingLeaderCount := state.leaderCount
+		sortedDomain = prioritizeLeaderDomain(sortedDomain, state.count, state.leaderCount, state.sliceSize, true)
 
-		// Domains are sorted in a way that prioritizes domains with higher leader capacity.
-		// We want to assign leaders first. After we are assign all leaders, we sort the remaining
-		// "unused" domains based on worker capacity (sliceState, state and then levelValues) and
-		// try to assign remaining workers.
+		// Assign leaders first from a domain that preserves total worker capacity.
+		// After assigning all leaders, sort the remaining domains by worker capacity
+		// and assign the remaining workers.
 		idx := 0
 		for ; remainingLeaderCount > 0 && idx < len(sortedDomain) && sortedDomain[idx].leaderState > 0; idx++ {
 			domain := sortedDomain[idx]
@@ -1549,33 +1566,66 @@ func (s *TASFlavorSnapshot) consumeWithLeadersGeneric(
 		return domain, true
 	}
 
-	if slices {
-		// Clamp to remaining before consuming and compute state from slice count
-		if *withLeader > *remainingPrimary {
-			*withLeader = *remainingPrimary
-		}
-		if domain.leaderState > *remainingLeaderCount {
-			domain.leaderState = *remainingLeaderCount
-		}
-		domain.state = *withLeader * sliceSize
-		*remainingLeaderCount -= domain.leaderState
-		*remainingPrimary -= *withLeader
-		return domain, false
-	}
-
-	// Pods: subtract first, then clamp fields
-	*remainingPrimary -= *withLeader
-	*remainingLeaderCount -= domain.leaderState
 	if *withLeader > *remainingPrimary {
 		*withLeader = *remainingPrimary
 	}
 	if domain.leaderState > *remainingLeaderCount {
 		domain.leaderState = *remainingLeaderCount
 	}
+	*primary = *withLeader
+	domain.state = *withLeader * sliceSize
+	*remainingLeaderCount -= domain.leaderState
+	*remainingPrimary -= *withLeader
 	return domain, false
 }
 
+// fillInCountsHelper summarizes parent capacity using the smallest child
+// leader penalty. Whenever placement selects a leader domain, its penalty must
+// fit within the available slack, or the summarized worker capacity cannot be
+// realized.
+func prioritizeLeaderDomain(domains []*domain, count, leaderCount, sliceSize int32, slicesEnabled bool) []*domain {
+	if leaderCount == 0 || len(domains) < 2 {
+		return domains
+	}
+
+	requiredCapacity := count
+	availableCapacity := int32(0)
+	if slicesEnabled {
+		requiredCapacity /= sliceSize
+		for _, domain := range domains {
+			availableCapacity += domain.sliceState
+		}
+	} else {
+		for _, domain := range domains {
+			availableCapacity += domain.state
+		}
+	}
+
+	for i, domain := range domains {
+		if domain.leaderState < leaderCount {
+			continue
+		}
+		leaderPenalty := domain.state - domain.stateWithLeader
+		if slicesEnabled {
+			leaderPenalty = domain.sliceState - domain.sliceStateWithLeader
+		}
+		if availableCapacity-leaderPenalty < requiredCapacity {
+			continue
+		}
+		if i == 0 {
+			return domains
+		}
+
+		result := slices.Clone(domains)
+		copy(result[1:i+1], result[:i])
+		result[0] = domain
+		return result
+	}
+	return domains
+}
+
 func (s *TASFlavorSnapshot) updateCountsToMinimumGeneric(domains []*domain, count int32, leaderCount int32, sliceSize int32, unconstrained bool, slices bool) []*domain {
+	domains = prioritizeLeaderDomain(domains, count, leaderCount, sliceSize, slices)
 	result := make([]*domain, 0)
 	remainingPrimary := count
 	if slices {
