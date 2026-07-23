@@ -53,4 +53,6 @@ When a skill is triggered, read the corresponding SKILL.md file directly and fol
 
 Code review patterns are in [cmd/experimental/skills/reviewer/README.md](cmd/experimental/skills/reviewer/README.md). Apply these proactively when reviewing any kueue PR or code change.
 
-@cmd/experimental/skills/reviewer/README.md
+## Coding Guidelines
+
+Follow the project's coding conventions for product and test code: [Coding Guidelines](site/content/en/community/contribution_guidelines/coding_guidelines.md). Ensure that you follow the core Kubernetes guidelines on deprecation policy, API changes, and feature gates as detailed in the document.

@@ -29,9 +29,12 @@ import (
 )
 
 const (
-	TinyTimeout  = 10 * time.Millisecond
+	// TinyTimeout is meant for negative assertions (should NOT happen).
+	TinyTimeout = 10 * time.Millisecond
+	// ShortTimeout is meant for quick convergence checks.
 	ShortTimeout = time.Second
-	Timeout      = 10 * time.Second
+	// Timeout is meant for standard async assertions.
+	Timeout = 10 * time.Second
 	// MediumTimeout is meant for E2E tests when waiting for complex operations
 	// such as running pods to completion.
 	MediumTimeout = 45 * time.Second
@@ -43,11 +46,13 @@ const (
 	VeryLongTimeout         = 5 * time.Minute
 	ConsistentDuration      = 1 * time.Second
 	ShortConsistentDuration = 100 * time.Millisecond
-	ShortInterval           = 10 * time.Millisecond
-	Interval                = time.Millisecond * 250
-	LongInterval            = time.Second * 1
 	// DRAExampleDriverName is the DeviceClass name registered by the dra-example-driver.
 	DRAExampleDriverName = "gpu.example.com"
+	// ShortInterval is meant for fast polling.
+	ShortInterval = 10 * time.Millisecond
+	// Interval is meant for standard polling.
+	Interval     = time.Millisecond * 250
+	LongInterval = time.Second * 1
 )
 
 var (
