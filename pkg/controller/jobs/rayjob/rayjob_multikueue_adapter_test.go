@@ -37,7 +37,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
-	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	utiltestingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	utiltestingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
@@ -75,7 +74,6 @@ func TestMultiKueueAdapter(t *testing.T) {
 
 	cases := map[string]struct {
 		managersRayJobs   []rayv1.RayJob
-		managersWorkloads []kueue.Workload
 		workerRayJobs     []rayv1.RayJob
 		workerRayClusters []rayv1.RayCluster
 
@@ -258,9 +256,6 @@ func TestMultiKueueAdapter(t *testing.T) {
 			managersRayJobs: []rayv1.RayJob{
 				*elasticRayJobBuilder.DeepCopy(),
 			},
-			managersWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("wl1", TestNamespace).Obj(),
-			},
 			workerRayJobs: []rayv1.RayJob{
 				*elasticRayJobBuilder.Clone().
 					PrebuiltWorkloadLabel("wl1").
@@ -296,9 +291,6 @@ func TestMultiKueueAdapter(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.WorkloadIdentifierAnnotations: false},
 			managersRayJobs: []rayv1.RayJob{
 				*elasticRayJobBuilder.DeepCopy(),
-			},
-			managersWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("wl1", TestNamespace).Obj(),
 			},
 			workerRayJobs: []rayv1.RayJob{
 				*elasticRayJobBuilder.Clone().
@@ -337,9 +329,6 @@ func TestMultiKueueAdapter(t *testing.T) {
 			managersRayJobs: []rayv1.RayJob{
 				*elasticRayJobBuilder.DeepCopy(),
 			},
-			managersWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("wl2", TestNamespace).Obj(),
-			},
 			workerRayJobs: []rayv1.RayJob{
 				*elasticRayJobBuilder.Clone().
 					PrebuiltWorkloadLabel("stale-wl").
@@ -365,7 +354,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			managerBuilder := utiltesting.NewClientBuilder(rayv1.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
-			managerBuilder = managerBuilder.WithLists(&rayv1.RayJobList{Items: tc.managersRayJobs}, &kueue.WorkloadList{Items: tc.managersWorkloads})
+			managerBuilder = managerBuilder.WithLists(&rayv1.RayJobList{Items: tc.managersRayJobs})
 			managerBuilder = managerBuilder.WithStatusSubresource(slices.Map(tc.managersRayJobs, func(w *rayv1.RayJob) client.Object { return w })...)
 			managerClient := managerBuilder.Build()
 

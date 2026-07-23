@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"maps"
 
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -217,12 +216,6 @@ func (a *adapter[PtrT, T]) SyncJob(
 			return false, err
 		}
 		if a.workerOwnsReplicas(localJob) {
-			live, err := a.sliceIsLive(ctx, localClient, types.NamespacedName{Namespace: key.Namespace, Name: workloadName})
-			if err != nil || !live {
-				// A finished or deleted slice's reconcile must not touch the
-				// remote: repointing here would name the replaced slice.
-				return false, err
-			}
 			if !a.elastic.RemoteSuspended(remoteJob) {
 				changed, err := a.reverseSync(ctx, localClient, remoteClient, localJob, remoteJob)
 				if err != nil {
@@ -303,17 +296,6 @@ func (a *adapter[PtrT, T]) workerOwnsReplicas(localJob PtrT) bool {
 		return false
 	}
 	return a.elastic.AutoscalingEnabled(localJob)
-}
-
-// sliceIsLive reports whether the local workload slice this reconcile is for
-// still exists and is not finished. During a scale-up handover the old slice's
-// group may still reconcile after its replacement was created.
-func (a *adapter[PtrT, T]) sliceIsLive(ctx context.Context, localClient client.Client, key types.NamespacedName) (bool, error) {
-	wl := &kueue.Workload{}
-	if err := localClient.Get(ctx, key, wl); err != nil {
-		return false, client.IgnoreNotFound(err)
-	}
-	return !apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished), nil
 }
 
 // repointPrebuiltWorkload ensures the remote copy's prebuilt-workload marker
