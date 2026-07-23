@@ -552,6 +552,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	TASRespectNodeAffinityPreferred:            {TopologyAwareScheduling},
 	UnadmittedWorkloadsExplicitStatus:          {UnadmittedWorkloadsObservability},
 	TASHandleOverlappingFlavors:                {TopologyAwareScheduling},
+	TASProfileMixed:                            {TopologyAwareScheduling},
 	ElasticJobsViaWorkloadSlicesWithTAS:        {ElasticJobsViaWorkloadSlices, TopologyAwareScheduling},
 	KueueDRAIntegrationExtendedResource:        {KueueDRAIntegration},
 	KueueDRAIntegrationPartitionableDevices:    {KueueDRAIntegration},
@@ -877,11 +878,15 @@ func SetFeatureGatesDuringTest(tb testing.TB, featureGates map[featuregate.Featu
 		}
 	}
 
+	// Populate stringMap deterministically
+	for fg, enable := range featureGates {
+		if !enable {
+			disableWithDependents(fg)
+		}
+	}
 	for fg, enable := range featureGates {
 		if enable {
 			enableWithDependencies(fg)
-		} else {
-			disableWithDependents(fg)
 		}
 	}
 
