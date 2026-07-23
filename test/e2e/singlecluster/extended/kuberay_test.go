@@ -831,7 +831,8 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 		// container that KubeRay actually injects into the head Pod.
 		ginkgo.By("Checking the accounted autoscaler resources match the real head Pod", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				headPod := getRayHeadPod(g)
+				headPod, err := util.GetRayClusterHeadPod(ctx, k8sClient, raycluster)
+				g.Expect(err).NotTo(gomega.HaveOccurred())
 				var autoscaler *corev1.Container
 				for i := range headPod.Spec.Containers {
 					if headPod.Spec.Containers[i].Name == "autoscaler" {
