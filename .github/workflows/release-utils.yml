@@ -34,12 +34,13 @@ jobs:
           fetch-depth: 0
 
       - name: Verify Actor Authorization
+        id: auth
         env:
           ACTOR: ${{ github.actor }}
           OWNERS_FILE: OWNERS_ALIASES
         run: |
           if [ ! -f "$OWNERS_FILE" ]; then
-            echo "Error: $OWNERS_FILE not found."
+            echo "error_message=❌ $OWNERS_FILE not found." >> "$GITHUB_OUTPUT"
             exit 1
           fi
           if ! python3 -c "
@@ -49,7 +50,7 @@ jobs:
           authorized = set(aliases.get('release-team', [])) | set(aliases.get('kueue-approvers', []))
           raise SystemExit(0 if os.environ['ACTOR'] in authorized else 1)
           "; then
-            echo "Error: Actor $ACTOR is not authorized."
+            echo "error_message=❌ Actor $ACTOR is not authorized." >> "$GITHUB_OUTPUT"
             exit 1
           fi
 
@@ -125,6 +126,7 @@ jobs:
 
   sync-notes:
     name: Sync Release Notes
+    id: sync
     runs-on: ubuntu-latest
     needs: authorize
     timeout-minutes: 30
