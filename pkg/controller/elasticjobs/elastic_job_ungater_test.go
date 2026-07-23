@@ -98,7 +98,7 @@ func TestReconcile(t *testing.T) {
 	testCases := map[string]struct {
 		workloads []kueue.Workload
 		pods      []corev1.Pod
-		// skipDefaultPodSetLabels keeps the Pod fixtures unlabeled so a test can
+		// skipDefaultPodSetLabels prevents default PodSet labeling so tests can verify that unlabeled Pods remain gated
 		// verify that Pods without a PodSet label remain gated.
 		skipDefaultPodSetLabels bool
 		expectUIDs              []types.UID
