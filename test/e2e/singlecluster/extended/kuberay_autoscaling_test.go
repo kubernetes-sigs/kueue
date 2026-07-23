@@ -35,8 +35,15 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
+// Detached actors are scoped to a Ray namespace, so creation and termination
+// scripts must use the same namespace.
 const rayActorNamespace = "kueue-e2e"
 
+// createDetachedActorScript holds one unit of a custom Ray resource with a
+// detached actor. Because every Ray node advertises zero CPUs, the actor can
+// only run in the worker group that exports the requested custom resource,
+// forcing the autoscaler to scale that group. Looking up the actor first makes
+// the script safe to retry after a transient pod exec failure.
 func createDetachedActorScript(actorName, resourceName string) string {
 	return fmt.Sprintf(`import ray
 
@@ -46,15 +53,23 @@ ray.init(namespace=%q)
 class Actor:
     pass
 
-Actor.options(name=%q, lifetime="detached").remote()
-`, rayActorNamespace, resourceName, actorName)
+try:
+    ray.get_actor(%q)
+except ValueError:
+    Actor.options(name=%q, lifetime="detached").remote()
+`, rayActorNamespace, resourceName, actorName, actorName)
 }
 
 func terminateDetachedActorScript(actorName string) string {
 	return fmt.Sprintf(`import ray
 
 ray.init(namespace=%q)
-ray.kill(ray.get_actor(%q))
+try:
+    actor = ray.get_actor(%q)
+except ValueError:
+    pass
+else:
+    ray.kill(actor)
 `, rayActorNamespace, actorName)
 }
 
@@ -73,6 +88,8 @@ var _ = ginkgo.Describe("KubeRay multi-PodSet autoscaling", ginkgo.Label("area:s
 			Obj()
 		gomega.Expect(k8sClient.Create(ctx, rf)).To(gomega.Succeed())
 
+		// At peak the RayCluster requests 1 CPU for the head, 500m for the
+		// autoscaler sidecar, and 400m for each of the two workers.
 		cq = utiltestingapi.MakeClusterQueue("kuberay-autoscaling-cq-" + ns.Name).
 			ResourceGroup(
 				*utiltestingapi.MakeFlavorQuotas(rf.Name).
@@ -108,6 +125,7 @@ var _ = ginkgo.Describe("KubeRay multi-PodSet autoscaling", ginkgo.Label("area:s
 
 		kuberayTestImage := util.GetKuberayTestImage()
 		rayCluster := testingraycluster.MakeCluster("raycluster-multi-podset", ns.Name).
+			Suspend(true).
 			Queue(lq.Name).
 			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 			WithEnableAutoscaling(new(true)).
@@ -118,6 +136,7 @@ var _ = ginkgo.Describe("KubeRay multi-PodSet autoscaling", ginkgo.Label("area:s
 			Image(rayv1.HeadNode, kuberayTestImage, []string{}).
 			Image(rayv1.WorkerNode, kuberayTestImage, []string{}).
 			Obj()
+		// Keep scale-down transitions within the e2e test timeout.
 		rayCluster.Spec.AutoscalerOptions = &rayv1.AutoscalerOptions{IdleTimeoutSeconds: ptr.To[int32](10)}
 
 		workerA := rayCluster.Spec.WorkerGroupSpecs[0].DeepCopy()
@@ -161,8 +180,10 @@ var _ = ginkgo.Describe("KubeRay multi-PodSet autoscaling", ginkgo.Label("area:s
 
 		runOnHead := func(script string) {
 			gomega.Expect(headPod.Spec.Containers).NotTo(gomega.BeEmpty())
-			_, _, err := util.KExecute(ctx, cfg, restClient, ns.Name, headPod.Name, headPod.Spec.Containers[0].Name, []string{"python", "-c", script})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Eventually(func(g gomega.Gomega) {
+				_, stderr, err := util.KExecute(ctx, cfg, restClient, ns.Name, headPod.Name, headPod.Spec.Containers[0].Name, []string{"python", "-c", script})
+				g.Expect(err).NotTo(gomega.HaveOccurred(), "stderr: %s", string(stderr))
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		}
 
 		expectWorkerGroups := func(expected map[string]int32) {
@@ -208,7 +229,7 @@ var _ = ginkgo.Describe("KubeRay multi-PodSet autoscaling", ginkgo.Label("area:s
 					podSetCounts[string(podSet.Name)] = podSet.Count
 				}
 				for groupName, count := range expected {
-					g.Expect(podSetCounts[groupName]).To(gomega.Equal(count))
+					g.Expect(podSetCounts).To(gomega.HaveKeyWithValue(groupName, count))
 				}
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgObjList("Kueue did not account for the worker groups independently", workloadList))
 		}
