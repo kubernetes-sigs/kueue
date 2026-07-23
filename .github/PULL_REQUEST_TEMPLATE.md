@@ -34,6 +34,7 @@ Please also consider setting the area:
 /area localization
 /area testing
 /area website
+/area release
 -->
 
 #### What this PR does / why we need it:
