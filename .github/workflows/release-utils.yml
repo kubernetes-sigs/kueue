@@ -115,7 +115,7 @@ jobs:
         uses: ./.github/actions/report-result
         with:
           alias: "Authorization"
-          message: ${{ steps.parse.outputs.error_message }}
+          message: ${{ steps.parse.outputs.error_message || steps.auth.outputs.error_message }}
 
       - name: Clear Authorization Log
         if: ${{ success() }}

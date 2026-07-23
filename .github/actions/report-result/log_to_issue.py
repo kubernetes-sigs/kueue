@@ -6,6 +6,7 @@ from datetime import datetime
 
 MARKER = "<!-- release-log-comment -->"
 LOG_HEADER = "# Release log"
+HISTORY_SECTION_MARKER = "<!-- history-section-start -->"
 
 def main():
     command = os.environ.get("INPUT_COMMAND", "").strip()
@@ -31,10 +32,13 @@ def main():
     else:
         title = command.replace("-", " ").capitalize()
     
-    new_entry = f"## {title}"
+    new_entry = (
+        f"<!-- entry-start title=\"{title}\" -->\n"
+        f"## {title}"
+    )
     if command:
         new_entry += f"\nCommand: /{command}"
-    new_entry += f"\nTriggered by: @{actor}\nTimestamp: {timestamp}\nAction link: {action_link}\n\n{message}"
+    new_entry += f"\nTriggered by: @{actor}\nTimestamp: {timestamp}\nAction link: {action_link}\n\n{message}\n<!-- entry-end -->"
 
     if not comment_body or MARKER not in comment_body:
         if not cleanup:
@@ -44,19 +48,19 @@ def main():
             print(f"{MARKER}\n{LOG_HEADER}")
         return
 
-    # Split Details and History using the first <details> tag as boundary
-    history_match = re.search(r'<details>', comment_body, re.IGNORECASE)
+    # Split Details and History using the history section marker
+    history_match = re.search(re.escape(HISTORY_SECTION_MARKER), comment_body)
     
     if history_match:
         details = comment_body[:history_match.start()].strip()
-        history = comment_body[history_match.start():].strip()
+        history = comment_body[history_match.end():].strip()
     else:
         details = comment_body.strip()
         history = ""
 
     # Find if an entry for command exists in the Details section
-    entry_pattern = r'(^## ' + re.escape(title) + r'\b.*?)(?=\n## |\Z)'
-    entry_match = re.search(entry_pattern, details, re.DOTALL | re.MULTILINE)
+    entry_pattern = r'(<!-- entry-start title="' + re.escape(title) + r'" -->.*?<!-- entry-end -->)'
+    entry_match = re.search(entry_pattern, details, re.DOTALL)
 
     old_entry = ""
     if entry_match:
@@ -73,11 +77,17 @@ def main():
 
     # Handle History
     if old_entry:
-        # Strip header and command line from old_entry to avoid redundancy in history
-        old_entry_clean = re.sub(r'^## ' + re.escape(title) + r'\b\s*', '', old_entry, flags=re.MULTILINE)
+        # Strip markers, header, and command from old_entry to avoid redundancy in history
+        old_entry_clean = re.sub(r'<!-- entry-start title=".*?" -->\s*', '', old_entry)
+        old_entry_clean = re.sub(r'\s*<!-- entry-end -->', '', old_entry_clean)
+        old_entry_clean = re.sub(r'^## ' + re.escape(title) + r'\b\s*', '', old_entry_clean, flags=re.MULTILINE)
         old_entry_clean = re.sub(r'^Command:.*?\n\s*', '', old_entry_clean, flags=re.MULTILINE).strip()
 
-        details_pattern = r'(<details>\s*<summary>\s*<b>' + re.escape(title) + r'\s+history</b>\s*</summary>\s*)(.*?)(\s*</details>)'
+        details_pattern = (
+            r'(<!-- history-start title="' + re.escape(title) + r'" -->\s*<details>\s*<summary>\s*<b>' + re.escape(title) + r'\s+history</b>\s*</summary>\s*)'
+            r'(.*?)'
+            r'(\s*</details>\s*<!-- history-end -->)'
+        )
         details_match = re.search(details_pattern, history, re.DOTALL | re.IGNORECASE)
         if details_match:
             prefix = details_match.group(1)
@@ -87,7 +97,14 @@ def main():
             new_content = f"{old_entry_clean}\n\n---\n\n{content}" if content else old_entry_clean
             history = history[:details_match.start()] + f"{prefix}\n{new_content}\n{suffix}" + history[details_match.end():]
         else:
-            new_details_block = f"<details>\n<summary><b>{title} history</b></summary>\n\n{old_entry_clean}\n</details>"
+            new_details_block = (
+                f"<!-- history-start title=\"{title}\" -->\n"
+                f"<details>\n"
+                f"<summary><b>{title} history</b></summary>\n\n"
+                f"{old_entry_clean}\n"
+                f"</details>\n"
+                f"<!-- history-end -->"
+            )
             if history:
                 history = history.rstrip() + f"\n\n{new_details_block}"
             else:
@@ -96,7 +113,7 @@ def main():
     # Reconstruct final comment
     final_body = details
     if history:
-        final_body += f"\n\n{history}"
+        final_body += f"\n\n{HISTORY_SECTION_MARKER}\n\n{history}"
 
     if not final_body.startswith(MARKER):
         final_body = f"{MARKER}\n{final_body}"
