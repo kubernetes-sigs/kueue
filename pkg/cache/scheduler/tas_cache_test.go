@@ -5068,7 +5068,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				{
 					podSetName: "leader",
 					topologyRequest: &kueue.PodSetTopologyRequest{
-						Unconstrained: ptr.To(true),
+						Unconstrained: new(true),
 					},
 					requests: resources.MapRequests{
 						corev1.ResourceCPU: 1000,
@@ -5088,7 +5088,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				{
 					podSetName: "workers",
 					topologyRequest: &kueue.PodSetTopologyRequest{
-						Unconstrained: ptr.To(true),
+						Unconstrained: new(true),
 					},
 					requests: resources.MapRequests{
 						corev1.ResourceCPU: 2000,

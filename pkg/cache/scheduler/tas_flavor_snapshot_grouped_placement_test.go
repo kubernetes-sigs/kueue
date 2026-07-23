@@ -241,13 +241,37 @@ func checkGroupedPlacementConfiguration(t *testing.T, configuration []groupedPla
 				t.Fatalf("unknown domain returned: slicesEnabled=%t, count=%d, configuration=%+v, domain=%s", slicesEnabled, count, configuration, assignedDomain.id)
 			}
 			if assignedDomain.state < 0 || assignedDomain.leaderState < 0 {
-				t.Fatalf("negative assignment returned: slicesEnabled=%t, count=%d, configuration=%+v, domain=%s, assignedWorkers=%d, assignedLeaders=%d", slicesEnabled, count, configuration, assignedDomain.id, assignedDomain.state, assignedDomain.leaderState)
+				t.Fatalf(
+					"negative assignment returned: slicesEnabled=%t, count=%d, configuration=%+v, domain=%s, assignedWorkers=%d, assignedLeaders=%d",
+					slicesEnabled,
+					count,
+					configuration,
+					assignedDomain.id,
+					assignedDomain.state,
+					assignedDomain.leaderState,
+				)
 			}
 			if assignedDomain.state > capacity.capacity {
-				t.Fatalf("worker assignment exceeds capacity: slicesEnabled=%t, count=%d, configuration=%+v, domain=%s, assigned=%d, capacity=%d", slicesEnabled, count, configuration, assignedDomain.id, assignedDomain.state, capacity.capacity)
+				t.Fatalf(
+					"worker assignment exceeds capacity: slicesEnabled=%t, count=%d, configuration=%+v, domain=%s, assigned=%d, capacity=%d",
+					slicesEnabled,
+					count,
+					configuration,
+					assignedDomain.id,
+					assignedDomain.state,
+					capacity.capacity,
+				)
 			}
 			if assignedDomain.leaderState > 0 && assignedDomain.state > capacity.capacityWithLeader {
-				t.Fatalf("worker assignment exceeds capacity with leader: slicesEnabled=%t, count=%d, configuration=%+v, domain=%s, assigned=%d, capacityWithLeader=%d", slicesEnabled, count, configuration, assignedDomain.id, assignedDomain.state, capacity.capacityWithLeader)
+				t.Fatalf(
+					"worker assignment exceeds capacity with leader: slicesEnabled=%t, count=%d, configuration=%+v, domain=%s, assigned=%d, capacityWithLeader=%d",
+					slicesEnabled,
+					count,
+					configuration,
+					assignedDomain.id,
+					assignedDomain.state,
+					capacity.capacityWithLeader,
+				)
 			}
 			if assignedDomain.leaderState > 0 && !capacity.leaderFits {
 				t.Fatalf("leader assigned to infeasible domain: slicesEnabled=%t, count=%d, configuration=%+v, domain=%s", slicesEnabled, count, configuration, assignedDomain.id)
@@ -260,7 +284,14 @@ func checkGroupedPlacementConfiguration(t *testing.T, configuration []groupedPla
 		}
 
 		if assignedWorkers != count || assignedLeaders != 1 {
-			t.Fatalf("incomplete grouped placement: slicesEnabled=%t, count=%d, configuration=%+v, assignedWorkers=%d, assignedLeaders=%d", slicesEnabled, count, configuration, assignedWorkers, assignedLeaders)
+			t.Fatalf(
+				"incomplete grouped placement: slicesEnabled=%t, count=%d, configuration=%+v, assignedWorkers=%d, assignedLeaders=%d",
+				slicesEnabled,
+				count,
+				configuration,
+				assignedWorkers,
+				assignedLeaders,
+			)
 		}
 	}
 }
