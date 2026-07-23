@@ -201,19 +201,21 @@ func (a *adapter[PtrT, T]) SyncJob(
 		}); err != nil {
 			return false, err
 		}
-		if a.workerClusterOwnsReplicas(localJob, remoteJob) {
-			changed, err := a.reverseSync(ctx, localClient, remoteClient, localJob, remoteJob)
-			if err != nil || changed {
-				return false, err
-			}
-		}
 		if a.autoscalingEnabled(localJob) {
-			// In autoscaling mode the forward direction never touches replicas;
-			// the manager's only remaining duty is slice-identity bookkeeping.
-			if jobframework.PrebuiltWorkloadNameFor(remoteJob) != workloadName {
-				return false, a.repointPrebuiltWorkload(ctx, remoteClient, workloadName, remoteJob)
+			// A suspended remote's replicas were restored by the worker's Kueue
+			// while stopping, not set by the autoscaler; do not reflect them back.
+			if !a.elastic.RemoteSuspended(remoteJob) {
+				changed, err := a.reverseSync(ctx, localClient, remoteClient, localJob, remoteJob)
+				if err != nil || changed {
+					return false, err
+				}
 			}
-			return false, nil
+			// The forward direction never touches replicas in this mode; the
+			// manager's only remaining duty is slice-identity bookkeeping. This is
+			// deliberately not gated on the remote's suspension: repointing is the
+			// recovery path when a remote got stopped while pointing at a finished
+			// slice.
+			return false, a.repointPrebuiltWorkload(ctx, remoteClient, workloadName, remoteJob)
 		}
 		if a.needElasticSync(ctx, workloadName, localJob, remoteJob) {
 			return false, a.syncElastic(ctx, remoteClient, workloadName, localJob, remoteJob)
@@ -283,23 +285,16 @@ func (a *adapter[PtrT, T]) autoscalingEnabled(localJob PtrT) bool {
 	return a.elastic.AutoscalingEnabled(localJob)
 }
 
-// workerClusterOwnsReplicas reports whether the worker cluster currently owns
-// the job's worker replica counts, in which case worker-side elastic events
-// must be reversed onto the manager (reverseSync). On top of autoscaling being
-// enabled, the remote copy must not be suspended: a suspended remote's
-// replicas were restored by the worker's Kueue while stopping — they are not
-// the autoscaler's values and must not be reflected back.
-func (a *adapter[PtrT, T]) workerClusterOwnsReplicas(localJob, remoteJob PtrT) bool {
-	return a.autoscalingEnabled(localJob) && !a.elastic.RemoteSuspended(remoteJob)
-}
-
-// repointPrebuiltWorkload points the remote copy's prebuilt-workload marker at
-// the currently reconciled workload slice. This is slice-identity bookkeeping,
-// not a replica sync: after a scale-up replacement slice is admitted, the
-// remote must be repointed onto it or the worker's jobframework would keep
-// looking up the finished slice.
+// repointPrebuiltWorkload ensures the remote copy's prebuilt-workload marker
+// points at the currently reconciled workload slice, no-oping when it already
+// does. This is slice-identity bookkeeping, not a replica sync: after a
+// scale-up replacement slice is admitted, the remote must be repointed onto it
+// or the worker's jobframework would keep looking up the finished slice.
 func (a *adapter[PtrT, T]) repointPrebuiltWorkload(ctx context.Context, remoteClient client.Client, workloadName string, remoteJob PtrT) error {
 	if err := clientutil.Patch(ctx, remoteClient, remoteJob, func() (bool, error) {
+		if jobframework.PrebuiltWorkloadNameFor(remoteJob) == workloadName {
+			return false, nil
+		}
 		jobframework.SetPrebuiltWorkloadName(remoteJob, workloadName)
 		return true, nil
 	}); err != nil {
