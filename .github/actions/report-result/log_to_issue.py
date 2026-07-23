@@ -54,6 +54,8 @@ def main():
     if history_match:
         details = comment_body[:history_match.start()].strip()
         history = comment_body[history_match.end():].strip()
+        # Strip any leading ## History header to avoid duplicating it on reconstruction
+        history = re.sub(r'^## History\s*', '', history, flags=re.IGNORECASE | re.MULTILINE).strip()
     else:
         details = comment_body.strip()
         history = ""
@@ -113,7 +115,7 @@ def main():
     # Reconstruct final comment
     final_body = details
     if history:
-        final_body += f"\n\n{HISTORY_SECTION_MARKER}\n\n{history}"
+        final_body += f"\n\n{HISTORY_SECTION_MARKER}\n\n## History\n\n{history}"
 
     if not final_body.startswith(MARKER):
         final_body = f"{MARKER}\n{final_body}"
