@@ -27,19 +27,19 @@ import (
 )
 
 // GetRayClusterHeadPod returns the only head Pod associated with the RayCluster.
-func GetRayClusterHeadPod(ctx context.Context, c client.Client, rayCluster *rayv1.RayCluster) (*corev1.Pod, error) {
+func GetRayClusterHeadPod(ctx context.Context, c client.Client, rayClusterKey client.ObjectKey) (*corev1.Pod, error) {
 	pods := &corev1.PodList{}
 	if err := c.List(ctx, pods,
-		client.InNamespace(rayCluster.Namespace),
+		client.InNamespace(rayClusterKey.Namespace),
 		client.MatchingLabels{
-			kuberayutils.RayClusterLabelKey:  rayCluster.Name,
+			kuberayutils.RayClusterLabelKey:  rayClusterKey.Name,
 			kuberayutils.RayNodeTypeLabelKey: string(rayv1.HeadNode),
 		},
 	); err != nil {
 		return nil, err
 	}
 	if len(pods.Items) != 1 {
-		return nil, fmt.Errorf("expected exactly one head Pod for RayCluster %s/%s, got %d", rayCluster.Namespace, rayCluster.Name, len(pods.Items))
+		return nil, fmt.Errorf("expected exactly one head Pod for RayCluster %s, got %d", rayClusterKey, len(pods.Items))
 	}
 	return &pods.Items[0], nil
 }
