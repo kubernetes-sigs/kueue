@@ -58,16 +58,14 @@ func elasticReplicaSync() *ray.ElasticReplicaSync[*rayv1.RayCluster, rayv1.RayCl
 		Spec: &ray.SpecReplicaSync[*rayv1.RayCluster]{
 			Push:    syncWorkerReplicas,
 			Reflect: reflectWorkerReplicas,
-			Counts:  workerReplicaCounts,
+			Counts: func(rc *rayv1.RayCluster) map[kueue.PodSetReference]int32 {
+				return WorkerGroupPodCounts(&rc.Spec)
+			},
 		},
 		WorkloadNameExtraPart: func(rc *rayv1.RayCluster) string { return GetWorkloadNameExtraPart(rc) },
 		AutoscalingEnabled:    func(rc *rayv1.RayCluster) bool { return ptr.Deref(rc.Spec.EnableInTreeAutoscaling, false) },
 		RemoteSuspended:       func(rc *rayv1.RayCluster) bool { return ptr.Deref(rc.Spec.Suspend, false) },
 	}
-}
-
-func workerReplicaCounts(rc *rayv1.RayCluster) map[kueue.PodSetReference]int32 {
-	return WorkerGroupPodCounts(&rc.Spec)
 }
 
 // reflectWorkerReplicas copies autoscaler-driven Replicas from the remote
@@ -104,7 +102,7 @@ func reflectWorkerReplicas(dst, src *rayv1.RayCluster) bool {
 // NumOfHosts from src, matching groups by name, re-asserts src's
 // enableInTreeAutoscaling, and returns whether dst changed. Replicas and
 // NumOfHosts feed the effective per-group pod count that needElasticSync
-// compares (see workerReplicaCounts); the bounds and the autoscaling flag
+// compares (see WorkerGroupPodCounts); the bounds and the autoscaling flag
 // follow so an out-of-band edit on the worker cannot leave an autoscaler
 // running against a manager that expects to own the replica counts.
 func syncWorkerReplicas(dst, src *rayv1.RayCluster) bool {
