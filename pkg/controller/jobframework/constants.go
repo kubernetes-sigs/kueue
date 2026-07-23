@@ -16,7 +16,29 @@ limitations under the License.
 
 package jobframework
 
+import (
+	"context"
+
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
+)
+
+type contextKey int
+
 const (
 	// MaxPodSets is the maximum number of PodSets allowed in a Workload.
 	MaxPodSets = 18
 )
+const (
+	quotaReleaseStrategyKey contextKey = iota
+)
+
+func GetQuotaReleaseStrategy(ctx context.Context) configapi.QuotaReleaseStrategy {
+	strategy, ok := ctx.Value(quotaReleaseStrategyKey).(configapi.QuotaReleaseStrategy)
+	if !ok {
+		return configapi.QuotaReleaseOnTermination
+	}
+	return strategy
+}
+func ContextWithQuotaReleaseStrategy(ctx context.Context, strategy configapi.QuotaReleaseStrategy) context.Context {
+	return context.WithValue(ctx, quotaReleaseStrategyKey, strategy)
+}

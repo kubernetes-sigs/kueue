@@ -607,7 +607,7 @@ func TestIsActive(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			got := tc.rayService.IsActive()
+			got := tc.rayService.IsActive(t.Context())
 			if got != tc.want {
 				t.Errorf("IsActive() = %v, want %v", got, tc.want)
 			}

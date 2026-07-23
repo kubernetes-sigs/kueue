@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -156,8 +157,12 @@ func (j *Job) IsSuspended() bool {
 	return j.Spec.Suspend != nil && *j.Spec.Suspend && j.Annotations[StoppingAnnotation] != "true"
 }
 
-func (j *Job) IsActive() bool {
-	return j.Status.Active != 0
+func (j *Job) IsActive(ctx context.Context) bool {
+	if j.Status.Active != 0 {
+		return true
+	}
+	return jobframework.GetQuotaReleaseStrategy(ctx) == configapi.QuotaReleaseOnTerminalBestEffort &&
+		ptr.Deref(j.Status.Terminating, 0) > 0
 }
 
 func (j *Job) Suspend() {

@@ -114,6 +114,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
+				Scheduling: &Scheduling{QuotaReleaseStrategy: new(QuotaReleaseOnTermination)},
+
 				Namespace:         new(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
@@ -138,6 +140,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
+				Scheduling: &Scheduling{QuotaReleaseStrategy: new(QuotaReleaseOnTermination)},
+
 				Namespace: new(DefaultNamespace),
 				ControllerManager: ControllerManager{
 					Webhook: ControllerWebhook{
@@ -203,6 +207,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				Integrations: defaultIntegrations,
 			},
 			want: &Configuration{
+				Scheduling: &Scheduling{QuotaReleaseStrategy: new(QuotaReleaseOnTermination)},
+
 				Namespace: new(DefaultNamespace),
 				ControllerManager: ControllerManager{
 					Webhook: ControllerWebhook{
@@ -249,6 +255,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
+				Scheduling: &Scheduling{QuotaReleaseStrategy: new(QuotaReleaseOnTermination)},
+
 				Namespace: new(DefaultNamespace),
 				ControllerManager: ControllerManager{
 					Webhook: ControllerWebhook{
@@ -288,6 +296,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				Namespace: new(overwriteNamespace),
 			},
 			want: &Configuration{
+				Scheduling: &Scheduling{QuotaReleaseStrategy: new(QuotaReleaseOnTermination)},
+
 				Namespace:         new(overwriteNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
@@ -310,6 +320,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
+				Scheduling: &Scheduling{QuotaReleaseStrategy: new(QuotaReleaseOnTermination)},
+
 				Namespace:         new(overwriteNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
@@ -334,6 +346,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
+				Scheduling: &Scheduling{QuotaReleaseStrategy: new(QuotaReleaseOnTermination)},
+
 				Namespace:         new(overwriteNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
@@ -358,6 +372,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ClientConnection: &ClientConnection{},
 			},
 			want: &Configuration{
+				Scheduling: &Scheduling{QuotaReleaseStrategy: new(QuotaReleaseOnTermination)},
+
 				Namespace:         new(overwriteNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
@@ -380,6 +396,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
+				Scheduling: &Scheduling{QuotaReleaseStrategy: new(QuotaReleaseOnTermination)},
+
 				WaitForPodsReady: &WaitForPodsReady{
 					Enable:          true,
 					BlockAdmission:  new(true),
@@ -412,6 +430,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
+				Scheduling: &Scheduling{QuotaReleaseStrategy: new(QuotaReleaseOnTermination)},
+
 				WaitForPodsReady: &WaitForPodsReady{
 					Enable: false,
 				},
@@ -443,6 +463,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
+				Scheduling: &Scheduling{QuotaReleaseStrategy: new(QuotaReleaseOnTermination)},
+
 				WaitForPodsReady: &WaitForPodsReady{
 					Enable:          true,
 					BlockAdmission:  new(true),
@@ -475,6 +497,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
+				Scheduling: &Scheduling{QuotaReleaseStrategy: new(QuotaReleaseOnTermination)},
+
 				Namespace:         new(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
@@ -502,6 +526,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
+				Scheduling: &Scheduling{QuotaReleaseStrategy: new(QuotaReleaseOnTermination)},
+
 				Namespace:         new(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
@@ -532,6 +558,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
+				Scheduling: &Scheduling{QuotaReleaseStrategy: new(QuotaReleaseOnTermination)},
+
 				Namespace:         new(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
@@ -560,6 +588,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
+				Scheduling: &Scheduling{QuotaReleaseStrategy: new(QuotaReleaseOnTermination)},
+
 				Namespace:         new(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
@@ -587,6 +617,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
+				Scheduling: &Scheduling{QuotaReleaseStrategy: new(QuotaReleaseOnTermination)},
+
 				Namespace:         new(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
@@ -616,6 +648,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
+				Scheduling: &Scheduling{QuotaReleaseStrategy: new(QuotaReleaseOnTermination)},
+
 				Namespace:         new(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
@@ -648,6 +682,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
+				Scheduling: &Scheduling{QuotaReleaseStrategy: new(QuotaReleaseOnTermination)},
+
 				Namespace:         new(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{

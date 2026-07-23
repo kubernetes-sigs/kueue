@@ -81,7 +81,7 @@ func (j *SparkApplication) IsSuspended() bool {
 	return ptr.Deref(j.Spec.Suspend, false)
 }
 
-func (j *SparkApplication) IsActive() bool {
+func (j *SparkApplication) IsActive(_ context.Context) bool {
 	return j.Status.AppState.State == sparkv1beta2.ApplicationStateRunning
 }
 
