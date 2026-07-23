@@ -1,0 +1,60 @@
+# Centralized-TAS spike — WORKER cluster config (non-production).
+#
+# Workers are pass-through compute pools: no project quota (quota is huge so it
+# never binds) and no local scheduling decision. The manager stamps the
+# admission (with a host-exact TopologyAssignment) directly onto the mirrored
+# workload; the worker's topology ungater then applies the manager's node
+# selectors verbatim.
+#
+# Run each worker kueue-controller-manager with:
+#   - feature gates: TopologyAwareScheduling=true  (needed for the ungater)
+#
+# Apply this to every worker cluster (worker1, worker2, ...).
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: Topology
+metadata:
+  name: "host"
+spec:
+  levels:
+  # The manager projects its assignment down to the host level, so the worker
+  # only needs the (always-present) hostname label for the ungater.
+  - nodeLabel: "kubernetes.io/hostname"
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: "tas-flavor"
+spec:
+  # A TAS flavor must carry at least one nodeLabel; every node has this one.
+  nodeLabels:
+    kubernetes.io/os: linux
+  topologyName: "host"
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  # Same name as the manager CQ so the manager-stamped admission
+  # (admission.clusterQueue: central-cq) also resolves on the worker.
+  name: "central-cq"
+spec:
+  namespaceSelector: {} # match all.
+  # Effectively-infinite quota: the worker never makes an admission decision of
+  # its own; it just executes the manager's pre-stamped admission.
+  resourceGroups:
+  - coveredResources: ["cpu", "memory"]
+    flavors:
+    - name: "tas-flavor"
+      resources:
+      - name: "cpu"
+        nominalQuota: 1000000
+      - name: "memory"
+        nominalQuota: 1000000Gi
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: LocalQueue
+metadata:
+  namespace: "default"
+  name: "user-queue"
+spec:
+  clusterQueue: "central-cq"

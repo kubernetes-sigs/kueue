@@ -23,6 +23,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -45,6 +46,7 @@ type SetupOptions struct {
 	dispatcherName       string
 	clusterProfileConfig *configapi.ClusterProfile
 	roleTracker          *roletracker.RoleTracker
+	schedulerCache       *schdcache.Cache
 }
 
 type SetupOption func(o *SetupOptions)
@@ -108,6 +110,15 @@ func WithRoleTracker(tracker *roletracker.RoleTracker) SetupOption {
 	}
 }
 
+// WithSchedulerCache provides the manager's scheduler cache so the
+// centralized-TAS spike can feed remote worker Node/Pod inventory into its TAS
+// cache. It is a no-op unless the spike is enabled.
+func WithSchedulerCache(c *schdcache.Cache) SetupOption {
+	return func(o *SetupOptions) {
+		o.schedulerCache = c
+	}
+}
+
 func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) error {
 	options := &SetupOptions{
 		gcInterval:        defaultGCInterval,
@@ -156,6 +167,7 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		mgr.GetClient(), namespace, options.gcInterval, options.origin, fsWatcher,
 		options.adapters, cpAccessProvider, options.roleTracker,
 		mgr.GetEventRecorder("multikueue-cluster"),
+		options.schedulerCache,
 	)
 	err = cRec.setupWithManager(mgr)
 	if err != nil {

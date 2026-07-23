@@ -179,6 +179,10 @@ test-e2e-extended-helm: test-e2e-extended
 test-multikueue-e2e-baseline: E2E_NPROCS := 5
 test-multikueue-e2e-baseline: setup-e2e-env run-test-multikueue-e2e-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the baseline MultiKueue e2e test suite.
 
+.PHONY: test-multikueue-e2e-centralizedtas
+test-multikueue-e2e-centralizedtas: E2E_NPROCS := 1
+test-multikueue-e2e-centralizedtas: setup-e2e-env run-test-multikueue-e2e-centralizedtas-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the centralized-TAS spike MultiKueue e2e test suite.
+
 # Assign shard-0 operator versions (all operators except KubeRay) to the shard-0 target
 TEST_MULTIKUEUE_E2E_EXTENDED_SHARD_0_TARGETS := test-multikueue-e2e-extended test-multikueue-e2e-extended-shard-0
 $(TEST_MULTIKUEUE_E2E_EXTENDED_SHARD_0_TARGETS): export JOBSET_VERSION := $(JOBSET_VERSION)
@@ -431,6 +435,19 @@ run-test-multikueue-e2e-baseline-%:
 		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
 		E2E_TARGET_FOLDER="multikueue/baseline" \
 		E2E_CONFIG_FOLDER="multikueue/baseline" \
+		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		E2E_USE_HELM=$(E2E_USE_HELM) \
+		./hack/testing/e2e-multikueue-test.sh
+
+run-test-multikueue-e2e-centralizedtas-%: K8S_VERSION = $(@:run-test-multikueue-e2e-centralizedtas-%=%)
+run-test-multikueue-e2e-centralizedtas-%:
+	@echo Running centralized-TAS multikueue e2e for k8s ${K8S_VERSION}
+	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(E2E_GINKGO_ARGS)" \
+		E2E_MODE=$(E2E_MODE) \
+		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
+		E2E_TARGET_FOLDER="multikueue/centralizedtas" \
+		E2E_CONFIG_FOLDER="multikueue/centralizedtas" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
 		./hack/testing/e2e-multikueue-test.sh

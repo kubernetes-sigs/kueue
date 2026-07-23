@@ -849,6 +849,16 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 	log := ctrl.LoggerFrom(ctx).WithValues("op", "nominateAndSynchronizeWorkers")
 	log.V(3).Info("Nominate and Synchronize Worker Clusters")
 
+	// Centralized-TAS spike: when the manager has already computed a node-level
+	// assignment, it dispatches to the single chosen cluster and pushes the
+	// admission for the worker to execute verbatim, rather than letting the
+	// worker schedule.
+	if centralizedTASSpikeEnabled() {
+		if res, handled, err := w.centralizedTASNominate(ctx, group); handled {
+			return res, err
+		}
+	}
+
 	componentWorkloads, err := w.listComponentWorkloads(ctx, group.local)
 	if err != nil {
 		return reconcile.Result{}, err

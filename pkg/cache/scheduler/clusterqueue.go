@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
+	"sigs.k8s.io/kueue/pkg/util/centralizedtas"
 	utilmath "sigs.k8s.io/kueue/pkg/util/math"
 	"sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -366,7 +367,9 @@ func (c *clusterQueue) isTASViolated() bool {
 		return false
 	}
 	// Skip TAS cache validation when MultiKueue is enabled; topology runs on worker clusters.
-	if c.hasMultiKueueAdmissionCheck() {
+	// Under the centralized-TAS spike the manager is authoritative for topology, so it must
+	// require its own TAS cache to be initialized instead of skipping validation.
+	if c.hasMultiKueueAdmissionCheck() && !centralizedtas.Enabled() {
 		return false
 	}
 	if !c.isTASInitialized() {

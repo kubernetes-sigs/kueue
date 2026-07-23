@@ -1,0 +1,30 @@
+# Centralized-TAS spike — sample workload submitted to the MANAGER.
+#
+# The manager reserves central quota, computes a host-exact TAS assignment
+# across the union of all workers' nodes (cluster = top topology level), picks a
+# single worker, and pushes the assignment there for execution.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: centralized-tas-demo
+  namespace: default
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+  annotations:
+    # Require topology per-node so the manager produces a node-level assignment.
+    kueue.x-k8s.io/podset-required-topology: "kubernetes.io/hostname"
+spec:
+  parallelism: 3
+  completions: 3
+  suspend: true
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: sleep
+        image: registry.k8s.io/e2e-test-images/agnhost:2.53
+        args: ["pause"]
+        resources:
+          requests:
+            cpu: "1"
+            memory: "1Gi"

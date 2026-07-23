@@ -1,0 +1,101 @@
+# Centralized-TAS spike — MANAGER cluster config (non-production).
+#
+# The manager is globally authoritative: it holds a cluster-qualified view of
+# every worker's nodes and computes a full node-level TAS assignment, treating
+# each worker cluster as the top (literal) topology level.
+#
+# Run the manager kueue-controller-manager with:
+#   - feature gates: TopologyAwareScheduling=true,MultiKueue=true
+#   - env: KUEUE_CENTRALIZED_TAS_SPIKE=true
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: Topology
+metadata:
+  name: "cluster-and-host"
+spec:
+  levels:
+  # Level 0 is the worker cluster. The spike stamps this label onto every
+  # remote Node copy fed into the manager TAS cache (see centralizedtas.ClusterLabel).
+  - nodeLabel: "kueue.x-k8s.io/multikueue-cluster"
+  # Lowest level is the node; the manager pins the workload host-exact.
+  - nodeLabel: "kubernetes.io/hostname"
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: "tas-flavor"
+spec:
+  # A TAS flavor must carry at least one nodeLabel. Remote node copies fed into
+  # the manager TAS cache keep their original labels, so this matches them too.
+  nodeLabels:
+    kubernetes.io/os: linux
+  topologyName: "cluster-and-host"
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: "central-cq"
+spec:
+  namespaceSelector: {} # match all.
+  # Central quota: projects are given quota once, at the manager. Workers carry
+  # no project quota; they are pure compute pools.
+  resourceGroups:
+  - coveredResources: ["cpu", "memory"]
+    flavors:
+    - name: "tas-flavor"
+      resources:
+      - name: "cpu"
+        nominalQuota: 100
+      - name: "memory"
+        nominalQuota: 400Gi
+  admissionChecksStrategy:
+    admissionChecks:
+    - name: centralized-tas-multikueue
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: LocalQueue
+metadata:
+  namespace: "default"
+  name: "user-queue"
+spec:
+  clusterQueue: "central-cq"
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: AdmissionCheck
+metadata:
+  name: centralized-tas-multikueue
+spec:
+  controllerName: kueue.x-k8s.io/multikueue
+  parameters:
+    apiGroup: kueue.x-k8s.io
+    kind: MultiKueueConfig
+    name: centralized-tas
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: MultiKueueConfig
+metadata:
+  name: centralized-tas
+spec:
+  clusters:
+  - worker1
+  - worker2
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: MultiKueueCluster
+metadata:
+  name: worker1
+spec:
+  clusterSource:
+    kubeConfig:
+      locationType: Secret
+      location: worker1-secret
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: MultiKueueCluster
+metadata:
+  name: worker2
+spec:
+  clusterSource:
+    kubeConfig:
+      locationType: Secret
+      location: worker2-secret
