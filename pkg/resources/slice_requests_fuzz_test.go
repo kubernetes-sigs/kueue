@@ -181,6 +181,16 @@ func FuzzSliceRequestsEquivalence(f *testing.F) {
 			m1:       MapRequests{corev1.ResourceCPU: 100, corev1.ResourceMemory: 200},
 			m2:       MapRequests{corev1.ResourceMemory: 50, corev1.ResourcePods: 100},
 		},
+		{
+			opChoice: opCountIn,
+			m1:       MapRequests{corev1.ResourceCPU: 100, corev1.ResourceMemory: 200},
+			m2:       MapRequests{},
+		},
+		{
+			opChoice: opCountIn,
+			m1:       MapRequests{},
+			m2:       MapRequests{corev1.ResourceCPU: 100},
+		},
 	}
 
 	for _, s := range seeds {
