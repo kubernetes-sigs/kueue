@@ -15,8 +15,6 @@ def main():
         sys.exit(1)
     message = os.environ.get("INPUT_MESSAGE", "").strip()
     cleanup = os.environ.get("INPUT_CLEANUP", "").strip().lower() == "true"
-    if not message:
-        cleanup = True
 
     actor = os.environ.get("GITHUB_ACTOR", "").strip()
     run_id = os.environ.get("GITHUB_RUN_ID", "").strip()
