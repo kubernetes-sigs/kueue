@@ -377,6 +377,8 @@ func TestReconciler(t *testing.T) {
 		excessPodsExpectations []keyUIDs
 		// If true, the test will delete workloads before running reconcile
 		deleteWorkloads bool
+		// When true, skip stamping is-group-workload (e.g. to simulate a foreign Workload).
+		keepWorkloadsUnmarked bool
 
 		wantEvents        []utiltesting.EventRecord
 		reconcilerOptions []jobframework.Option
@@ -1435,6 +1437,61 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
+		"pod group does not adopt a workload that is not a pod group workload": {
+			featureGates:          map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			keepWorkloadsUnmarked: true,
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					KueueSchedulingGate().
+					GroupNameLabel("test-group").
+					GroupTotalCount("1").
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					KueueSchedulingGate().
+					GroupNameLabel("test-group").
+					GroupTotalCount("1").
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue(localUserQueueName).
+					Priority(0).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue(localUserQueueName).
+					Priority(0).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Warning",
+					Reason:    ReasonWorkloadNameConflict,
+					Message:   `A Workload named "test-group" already exists but is not a pod group workload; this pod group cannot be admitted`,
+				},
+			},
 		},
 		"scheduling gate is removed for all pods in the group if workload is admitted": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
@@ -6373,6 +6430,32 @@ func TestReconciler(t *testing.T) {
 				features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
 				ctx, log := utiltesting.ContextWithLog(t)
+
+				// Stamp is-group-workload on group Workloads so FindMatchingWorkloads adopts them
+				// (fixtures omit it; production sets it via NewGroupWorkload).
+				if !tc.keepWorkloadsUnmarked {
+					groupNames := map[string]bool{}
+					for i := range tc.pods {
+						if gn := utilpod.GetPodGroupName(&tc.pods[i]); gn != "" {
+							groupNames[gn] = true
+						}
+					}
+					markGroupWorkload := func(wl *kueue.Workload) {
+						if groupNames[wl.Name] {
+							if wl.Annotations == nil {
+								wl.Annotations = map[string]string{}
+							}
+							wl.Annotations[podconstants.IsGroupWorkloadAnnotationKey] = podconstants.IsGroupWorkloadAnnotationValue
+						}
+					}
+					for i := range tc.workloads {
+						markGroupWorkload(&tc.workloads[i])
+					}
+					for i := range tc.wantWorkloads {
+						markGroupWorkload(&tc.wantWorkloads[i])
+					}
+				}
+
 				clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 				indexer := utiltesting.AsIndexer(clientBuilder)
 				if err := SetupIndexes(ctx, indexer); err != nil {
@@ -6710,6 +6793,16 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 
+			// Stamp is-group-workload so FindMatchingWorkloads adopts group Workloads.
+			if tc.isGroup {
+				for i := range tc.workloads {
+					if tc.workloads[i].Annotations == nil {
+						tc.workloads[i].Annotations = map[string]string{}
+					}
+					tc.workloads[i].Annotations[podconstants.IsGroupWorkloadAnnotationKey] = podconstants.IsGroupWorkloadAnnotationValue
+				}
+			}
+
 			clientBuilder := utiltesting.NewClientBuilder().
 				WithObjects(utiltesting.MakeNamespace(metav1.NamespaceDefault)).
 				WithObjects(utiltestingapi.MakeResourceFlavor(rfName).NodeLabel(corev1.LabelArchStable, "arm64").Obj()).
@@ -7021,6 +7114,7 @@ func TestReconciler_DeletePodAfterTransientErrorsOnUpdateOrDeleteOps(t *testing.
 	}
 
 	wl := *utiltestingapi.MakeWorkload("test-group", "ns").
+		Annotations(map[string]string{podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue}).
 		PodSets(
 			*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 				Request(corev1.ResourceCPU, "1").
