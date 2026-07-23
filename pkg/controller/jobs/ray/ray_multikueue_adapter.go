@@ -331,11 +331,6 @@ func (a *adapter[PtrT, T]) reverseSync(ctx context.Context, localClient, remoteC
 		}); err != nil {
 			return false, fmt.Errorf("failed to write back autoscaler-driven replicas to manager %s: %w", a.gvk.Kind, err)
 		}
-		if !changed && a.elastic.WorkerReplicas != nil &&
-			!maps.Equal(a.elastic.WorkerReplicas(remoteJob), a.elastic.WorkerReplicas(localJob)) {
-			ctrl.LoggerFrom(ctx).V(2).Info("Remote worker replica counts were not reflected on the manager",
-				"kind", a.gvk.Kind, "name", localJob.GetName())
-		}
 	}
 	if a.elastic.FetchRuntimeWorkerState != nil {
 		runtimeChanged, err := a.reverseSyncRuntime(ctx, localClient, remoteClient, localJob, remoteJob)
