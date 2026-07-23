@@ -283,7 +283,7 @@ func (sr *SliceRequests) CountIn(capacity Requests) int32 {
 }
 
 func (sr *SliceRequests) CountInWithLimitingResource(capacity Requests) (int32, corev1.ResourceName) {
-	if sr.IsEmpty() || isEmpty(capacity) {
+	if sr.IsEmpty() {
 		return 0, emptyResourceName
 	}
 
@@ -299,7 +299,7 @@ func (sr *SliceRequests) CountInWithLimitingResource(capacity Requests) (int32, 
 			if j < len(*capSR) && (*capSR)[j].cmp(entry) == 0 {
 				capVal = (*capSR)[j].value
 			}
-		} else {
+		} else if capacity != nil {
 			capVal = capacity.GetValue(entry.name)
 		}
 

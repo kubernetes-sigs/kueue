@@ -420,7 +420,13 @@ func TestSliceRequests_CountIn(t *testing.T) {
 			capacity: nil,
 			request:  NewSliceRequests(MapRequests{corev1.ResourceCPU: 1000}),
 			wantCnt:  0,
-			wantRes:  "",
+			wantRes:  corev1.ResourceCPU,
+		},
+		"empty capacity": {
+			capacity: &SliceRequests{},
+			request:  NewSliceRequests(MapRequests{corev1.ResourceCPU: 1000}),
+			wantCnt:  0,
+			wantRes:  corev1.ResourceCPU,
 		},
 		"nil receiver": {
 			capacity: NewSliceRequests(MapRequests{corev1.ResourceCPU: 10000}),
