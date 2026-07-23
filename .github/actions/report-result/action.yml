@@ -2,8 +2,13 @@ name: 'Report result'
 description: 'Logs command execution details to a dedicated release issue comment'
 inputs:
   command:
-    description: 'The command name'
-    required: true
+    description: 'The triggering command, e.g. sync-release-notes'
+    required: false
+    default: ''
+  alias:
+    description: 'Command alias'
+    required: false
+    default: ''
   message:
     description: 'The message/log content to post'
     required: false
@@ -28,13 +33,29 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github-token }}
+        ISSUE_NUMBER: ${{ inputs.issue-number }}
         INPUT_COMMAND: ${{ inputs.command }}
+        INPUT_ALIAS: ${{ inputs.alias }}
         INPUT_MESSAGE: ${{ inputs.message }}
         INPUT_CLEANUP: ${{ inputs.cleanup }}
       run: |
-        ISSUE_NUMBER="${{ inputs.issue-number }}"
         if [ -z "$ISSUE_NUMBER" ]; then
           echo "Error: No issue found" >&2
+          exit 1
+        fi
+
+        if [ -z "$INPUT_COMMAND" ] && [ -z "$INPUT_ALIAS" ]; then
+          echo "Error: Neither command nor alias was provided." >&2
+          exit 1
+        fi
+
+        if [ "$INPUT_CLEANUP" = "true" ] && [ -n "$INPUT_MESSAGE" ]; then
+          echo "Error: message must be empty when cleanup is true." >&2
+          exit 1
+        fi
+
+        if [ "$INPUT_CLEANUP" = "false" ] && [ -z "$INPUT_MESSAGE" ]; then
+          echo "Error: message cannot be empty when cleanup is false." >&2
           exit 1
         fi
 

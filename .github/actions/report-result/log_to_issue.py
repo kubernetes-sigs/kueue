@@ -12,8 +12,22 @@ DETAILS_END = "</details>"
 
 def main():
     command = os.environ.get("INPUT_COMMAND", "").strip()
+    alias = os.environ.get("INPUT_ALIAS", "").strip()
+    if not command and not alias:
+        print("Error: Neither command nor alias was provided.", file=sys.stderr)
+        sys.exit(1)
     message = os.environ.get("INPUT_MESSAGE", "").strip()
     cleanup = os.environ.get("INPUT_CLEANUP", "").strip().lower() == "true"
+    
+    if cleanup:
+        if message:
+            print("Error: message must be empty when cleanup is true.", file=sys.stderr)
+            sys.exit(1)
+    else:
+        if not message:
+            print("Error: message cannot be empty when cleanup is false.", file=sys.stderr)
+            sys.exit(1)
+
     actor = os.environ.get("GITHUB_ACTOR", "").strip()
     run_id = os.environ.get("GITHUB_RUN_ID", "").strip()
     repository = os.environ.get("GITHUB_REPOSITORY", "").strip()
@@ -24,8 +38,15 @@ def main():
 
     comment_body = os.environ.get("COMMENT_BODY", "").strip()
 
-    title = command.replace("-", " ").capitalize()
-    new_entry = f"## {title}\nCommand: /{command}\nTriggered by: {actor}\nTimestamp: {timestamp}\nAction link: {action_link}\n\n{message}"
+    if alias:
+        title = alias
+    else:
+        title = command.replace("-", " ").capitalize()
+    
+    new_entry = f"## {title}"
+    if command:
+        new_entry += f"\nCommand: /{command}"
+    new_entry += f"\nTriggered by: @{actor}\nTimestamp: {timestamp}\nAction link: {action_link}\n\n{message}"
 
     if not comment_body or MARKER not in comment_body:
         if not cleanup:
@@ -35,54 +56,54 @@ def main():
             print(f"{MARKER}\n{LOG_HEADER}")
         return
 
-    # Split Log and History
+    # Split Details and History
     history_match = re.search(r'^' + re.escape(HISTORY_HEADER) + r'\b', comment_body, re.MULTILINE | re.IGNORECASE)
     
     if history_match:
-        log_part = comment_body[:history_match.start()].strip()
-        history_part = comment_body[history_match.start():].strip()
+        details = comment_body[:history_match.start()].strip()
+        history = comment_body[history_match.start():].strip()
     else:
-        log_part = comment_body.strip()
-        history_part = ""
+        details = comment_body.strip()
+        history = ""
 
-    # Find if an entry for command exists in the Log section
+    # Find if an entry for command exists in the Details section
     entry_pattern = r'(^## ' + re.escape(title) + r'\b.*?)(?=\n## |\n# |$)'
-    entry_match = re.search(entry_pattern, log_part, re.DOTALL | re.MULTILINE)
+    entry_match = re.search(entry_pattern, details, re.DOTALL | re.MULTILINE)
 
     old_entry = ""
     if entry_match:
         old_entry = entry_match.group(1).strip()
         # Remove old entry from log_part
-        log_part = log_part[:entry_match.start()].rstrip() + "\n\n" + log_part[entry_match.end():].lstrip()
-        log_part = log_part.strip()
+        details = details[:entry_match.start()].rstrip() + "\n\n" + details[entry_match.end():].lstrip()
+        details = details.strip()
 
-    # Append new entry to Log section if not cleanup
+    # Append new entry to Details section if not cleanup
     if not cleanup:
-        if not re.search(r'^' + re.escape(LOG_HEADER) + r'\b', log_part, re.MULTILINE | re.IGNORECASE):
-            log_part = f"{LOG_HEADER}\n\n{log_part}".strip()
-        log_part = f"{log_part}\n\n{new_entry}".strip()
+        if not re.search(r'^' + re.escape(LOG_HEADER) + r'\b', details, re.MULTILINE | re.IGNORECASE):
+            details = f"{LOG_HEADER}\n\n{details}".strip()
+        details = f"{details}\n\n{new_entry}".strip()
 
     # Handle History
     if old_entry:
-        if not history_part:
-            history_part = f"{HISTORY_HEADER}\n\n{DETAILS_START}\n\n{old_entry}\n{DETAILS_END}"
+        if not history:
+            history = f"{HISTORY_HEADER}\n\n{DETAILS_START}\n\n{old_entry}\n{DETAILS_END}"
         else:
             # Prepend old entry to details block
             details_pattern = r'(<details>\s*<summary>History</summary>\s*)(.*?)(\s*</details>)'
-            details_match = re.search(details_pattern, history_part, re.DOTALL | re.IGNORECASE)
+            details_match = re.search(details_pattern, history, re.DOTALL | re.IGNORECASE)
             if details_match:
                 prefix = details_match.group(1)
                 content = details_match.group(2).strip()
                 suffix = details_match.group(3)
                 new_content = f"{old_entry}\n\n{content}" if content else old_entry
-                history_part = history_part[:details_match.start()] + f"{prefix}\n{new_content}\n{suffix}" + history_part[details_match.end():]
+                history = history[:details_match.start()] + f"{prefix}\n{new_content}\n{suffix}" + history[details_match.end():]
             else:
-                history_part = history_part.rstrip() + f"\n\n{DETAILS_START}\n\n{old_entry}\n{DETAILS_END}"
+                history = history.rstrip() + f"\n\n{DETAILS_START}\n\n{old_entry}\n{DETAILS_END}"
 
     # Reconstruct final comment
-    final_body = log_part
-    if history_part:
-        final_body += f"\n\n{history_part}"
+    final_body = details
+    if history:
+        final_body += f"\n\n{history}"
 
     if not final_body.startswith(MARKER):
         final_body = f"{MARKER}\n{final_body}"

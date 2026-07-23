@@ -61,9 +61,8 @@ jobs:
           ISSUE_BODY: ${{ github.event.issue.body }}
         run: |
           if [[ ! "$TITLE" =~ ^Release\ (v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
-            echo "failed=true" >> "$GITHUB_OUTPUT"
             echo "error_message=❌ Invalid issue title: \`$TITLE\`. Expected format: \`Release vX.Y.Z\`." >> "$GITHUB_OUTPUT"
-            exit 0
+            exit 1
           fi
           VERSION="${BASH_REMATCH[1]}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
@@ -89,17 +88,15 @@ jobs:
             COMMAND="prepare-pull"
             TARGET=$(printf '%s' "$BODY" | tr -d '\r' | grep -oE '^/prepare-pull([[:space:]]+(release|main))?[[:space:]]*$' | head -n 1 | awk '{print $2}')
             if [ -z "$TARGET" ]; then
-              echo "failed=true" >> "$GITHUB_OUTPUT"
               echo "error_message=❌ Invalid command: \`/prepare-pull\` requires a parameter: \`release\` or \`main\`." >> "$GITHUB_OUTPUT"
-              exit 0
+              exit 1
             fi
             echo "target=$TARGET" >> "$GITHUB_OUTPUT"
           elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/publish-release[[:space:]]*$'; then
             COMMAND="publish-release"
           else
-            echo "failed=true" >> "$GITHUB_OUTPUT"
             echo "error_message=❌ Invalid command format." >> "$GITHUB_OUTPUT"
-            exit 0
+            exit 1
           fi
           echo "command=$COMMAND" >> "$GITHUB_OUTPUT"
           
@@ -112,17 +109,17 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Report Parse Failure
-        if: ${{ steps.parse.outputs.failed == 'true' }}
+        if: ${{ failure() }}
         uses: ./.github/actions/report-result
         with:
-          command: Authorization
+          alias: "Authorization"
           message: ${{ steps.parse.outputs.error_message }}
 
       - name: Clear Authorization Log
-        if: ${{ steps.parse.outputs.failed != 'true' }}
+        if: ${{ success() }}
         uses: ./.github/actions/report-result
         with:
-          command: Authorization
+          alias: "Authorization"
           cleanup: true
 
   sync-notes:
@@ -181,16 +178,14 @@ jobs:
         if: ${{ success() }}
         uses: ./.github/actions/report-result
         with:
-          command: "Sync release notes"
+          command: ${{ steps.parse.outputs.command }}
           message: "✅ Release notes for version ${{ needs.authorize.outputs.version }} have been synced."
 
       - name: Report Failure
         if: ${{ failure() }}
         uses: ./.github/actions/report-result
-        env:
-          VERSION: 
         with:
-          command: "Sync release notes"
+          command: ${{ steps.parse.outputs.command }}
           message: |
             ❌ Failed to sync release notes for version `${{ needs.authorize.outputs.version }}`.
             
