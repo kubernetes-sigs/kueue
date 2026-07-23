@@ -348,17 +348,17 @@ func (a *adapter[PtrT, T]) reverseSync(ctx context.Context, localClient, remoteC
 		return changed, nil
 	}
 	if a.elastic.Runtime != nil {
-		return a.reverseSyncRuntime(ctx, localClient, remoteClient, localJob, remoteJob)
+		return a.reflectRuntimeState(ctx, localClient, remoteClient, localJob, remoteJob)
 	}
 	return false, nil
 }
 
-// reverseSyncRuntime reads the job's runtime worker state from the worker
+// reflectRuntimeState reads the job's runtime worker state from the worker
 // cluster (via Runtime.Fetch) and records it onto the manager copy (via
 // Runtime.Apply), so the manager's PodSets derivation and
 // workload-slice naming can follow autoscaler-driven resizes of children that
 // do not exist on the manager. Returns whether the manager copy was changed.
-func (a *adapter[PtrT, T]) reverseSyncRuntime(ctx context.Context, localClient, remoteClient client.Client, localJob, remoteJob PtrT) (bool, error) {
+func (a *adapter[PtrT, T]) reflectRuntimeState(ctx context.Context, localClient, remoteClient client.Client, localJob, remoteJob PtrT) (bool, error) {
 	counts, revision, found, err := a.elastic.Runtime.Fetch(ctx, remoteClient, remoteJob)
 	if err != nil {
 		return false, fmt.Errorf("failed to fetch runtime worker state for %s: %w", a.gvk.Kind, err)
