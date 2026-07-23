@@ -576,6 +576,7 @@ func TestReconcile(t *testing.T) {
 		},
 		"pre-existing divergent Kueue-managed PodTemplate is replaced": {
 			// Stale ManagedByKueue template from a prior admission: replace in place.
+			// Divergence must be in containers/tolerations (ComparePodTemplate strategy).
 			workload: baseWorkload.DeepCopy(),
 			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
@@ -583,7 +584,14 @@ func TestReconcile(t *testing.T) {
 			requests: []autoscaling.ProvisioningRequest{},
 			templates: []corev1.PodTemplate{
 				*baseTemplate1.Clone().
-					NodeSelector("stale", "value").
+					Containers(corev1.Container{
+						Name: "c",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("999"),
+							},
+						},
+					}).
 					ControllerReference(workloadOwnerGVK, "wl", "").
 					Obj(),
 			},
@@ -2167,10 +2175,16 @@ func TestPodTemplateEquivalent(t *testing.T) {
 			desired:  base.Clone().Obj(),
 			want:     true,
 		},
-		"identical ignoring API defaults": {
-			// API-server defaulted fields that the in-memory desired build leaves unset.
+		"identical ignoring fields outside ComparePodTemplate": {
+			// Same strategy as Job ↔ Workload: only containers/initContainers/tolerations
+			// are compared. Labels, owners, nodeSelector, and API-defaulted PodSpec fields
+			// are ignored.
 			existing: func() *corev1.PodTemplate {
-				pt := base.Clone().Obj()
+				pt := base.Clone().
+					Label("extra", "v").
+					NodeSelector("f2l1", "v2").
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "pr", "").
+					Obj()
 				pt.Template.Labels = map[string]string{}
 				pt.Template.Annotations = map[string]string{}
 				pt.Template.Spec.RestartPolicy = corev1.RestartPolicyAlways
@@ -2178,39 +2192,31 @@ func TestPodTemplateEquivalent(t *testing.T) {
 				pt.Template.Spec.SchedulerName = "default-scheduler"
 				pt.Template.Spec.TerminationGracePeriodSeconds = ptr.To[int64](30)
 				pt.Template.Spec.SecurityContext = &corev1.PodSecurityContext{}
-				pt.Template.Spec.Containers[0].ImagePullPolicy = corev1.PullIfNotPresent
-				pt.Template.Spec.Containers[0].TerminationMessagePath = "/dev/termination-log"
-				pt.Template.Spec.Containers[0].TerminationMessagePolicy = corev1.TerminationMessageReadFile
 				return pt
 			}(),
 			desired: base.Clone().Obj(),
 			want:    true,
 		},
-		"different template spec": {
-			existing: base.Clone().NodeSelector("f2l1", "v2").Obj(),
-			desired:  base.Clone().Obj(),
-			want:     false,
-		},
-		"different labels": {
-			existing: base.Clone().Label("extra", "v").Obj(),
-			desired:  base.Clone().Obj(),
-			want:     false,
-		},
-		"different owner references": {
-			// Owners ignored; template+labels match is enough.
-			existing: base.Clone().Obj(),
-			desired:  base.Clone().ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "pr", "").Obj(),
-			want:     true,
-		},
-		"missing ManagedByKueue label": {
+		"different container resources": {
 			existing: utiltesting.MakePodTemplate("ppt", TestNamespace).
 				Containers(corev1.Container{
 					Name: "c",
 					Resources: corev1.ResourceRequirements{
-						Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+						Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
 					},
 				}).
-				NodeSelector("f1l1", "v1").
+				Obj(),
+			desired: base.Clone().Obj(),
+			want:    false,
+		},
+		"different tolerations": {
+			existing: base.Clone().
+				Toleration(corev1.Toleration{
+					Key:      "k",
+					Value:    "v",
+					Operator: corev1.TolerationOpEqual,
+					Effect:   corev1.TaintEffectNoSchedule,
+				}).
 				Obj(),
 			desired: base.Clone().Obj(),
 			want:    false,

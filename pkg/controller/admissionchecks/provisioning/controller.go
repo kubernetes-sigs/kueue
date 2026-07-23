@@ -52,6 +52,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
+	equalityutil "sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -466,52 +467,11 @@ func setAdmissionCheckRetry(ac *kueue.AdmissionCheckState, prc *kueue.Provisioni
 		clk)
 }
 
-// podTemplateEquivalent compares Template and object Labels. Owners are ignored
-// (transferred later). Labels are compared as-is after empty-map normalization,
-// so label hijacking still fails equivalence.
+// podTemplateEquivalent uses the same PodSpec comparison strategy as Job ↔ Workload
+// (containers, init containers, tolerations). Owners, labels, and API-defaulted
+// fields are ignored so re-reconcile does not treat an unchanged template as divergent.
 func podTemplateEquivalent(existing, desired *corev1.PodTemplate) bool {
-	a := existing.DeepCopy()
-	b := desired.DeepCopy()
-	normalizePodTemplateForCompare(a)
-	normalizePodTemplateForCompare(b)
-	return equality.Semantic.DeepEqual(a.Template, b.Template) &&
-		equality.Semantic.DeepEqual(a.Labels, b.Labels)
-}
-
-// normalizePodTemplateForCompare strips API-server defaults that differ from
-// in-memory builds (RestartPolicy, DNSPolicy, etc.) so re-reconcile does not
-// falsely treat an unchanged PodTemplate as divergent. Empty label/annotation
-// maps are nilled only for empty-vs-nil DeepEqual; non-empty labels are kept.
-func normalizePodTemplateForCompare(pt *corev1.PodTemplate) {
-	meta := &pt.Template.ObjectMeta
-	if len(meta.Labels) == 0 {
-		meta.Labels = nil
-	}
-	if len(meta.Annotations) == 0 {
-		meta.Annotations = nil
-	}
-
-	spec := &pt.Template.Spec
-	spec.RestartPolicy = ""
-	spec.DNSPolicy = ""
-	spec.SchedulerName = ""
-	spec.TerminationGracePeriodSeconds = nil
-	// API server defaults an empty PodSecurityContext; in-memory builds leave it nil.
-	if spec.SecurityContext != nil && equality.Semantic.DeepEqual(spec.SecurityContext, &corev1.PodSecurityContext{}) {
-		spec.SecurityContext = nil
-	}
-	for i := range spec.Containers {
-		normalizeContainerForCompare(&spec.Containers[i])
-	}
-	for i := range spec.InitContainers {
-		normalizeContainerForCompare(&spec.InitContainers[i])
-	}
-}
-
-func normalizeContainerForCompare(c *corev1.Container) {
-	c.ImagePullPolicy = ""
-	c.TerminationMessagePath = ""
-	c.TerminationMessagePolicy = ""
+	return equalityutil.ComparePodTemplate(&existing.Template.Spec, &desired.Template.Spec)
 }
 
 func (c *Controller) syncProvisionRequestsPodTemplates(ctx context.Context, wl *kueue.Workload, request *autoscaling.ProvisioningRequest) error {
