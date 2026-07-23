@@ -75,6 +75,14 @@ YAML_PROCESSOR_LOG_LEVEL ?= info
 
 IMAGE_PUSH_RETRY = $(PROJECT_DIR)/hack/testing/retry.sh --attempts 7 --delay 2 --exponential --stream --continue-if "grep -qiE 'context deadline exceeded' {output}" -- env
 
+IMAGE_BUILD_RETRY = $(PROJECT_DIR)/hack/testing/retry.sh \
+	--attempts 3 \
+	--delay 2 \
+	--exponential \
+	--stream \
+	--continue-if "grep -qiE '(context deadline exceeded|unexpected status from HEAD request to .*: 401 Unauthorized)' {output}" \
+	-- env
+
 MAKE_TIMING ?= $(if $(filter 1 true TRUE yes YES on ON,$(CI)),1,0)
 MAKE_TIMING_MIN_SECONDS ?= 1
 MAKE_TIMING_COMMANDS ?= 0
@@ -244,6 +252,7 @@ image-local-push: PUSH=--push
 image-local-push: image-local-build
 
 .PHONY: image-build
+image-build: IMAGE_BUILD_CMD := $(IMAGE_BUILD_RETRY) $(IMAGE_BUILD_CMD)
 image-build:
 	$(IMAGE_BUILD_CMD) \
 		-t $(IMAGE_TAG) \
