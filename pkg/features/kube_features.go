@@ -523,6 +523,13 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/8871
 	// Enable integration of the https://github.com/kubernetes-sigs/scheduler-library.
 	SchedulerLibraryIntegration featuregate.Feature = "SchedulerLibraryIntegration"
+
+	// owner: @pajakd
+	//
+	// When reclaiming nominal quota in Hierarchical Fair Sharing, prefer
+	// candidates that are closer to the preemptor CQ.
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/13320
+	PreferCloseCandidatesInHFSReclamation featuregate.Feature = "PreferCloseCandidatesInHFSReclamation"
 )
 
 func init() {
@@ -805,6 +812,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	SchedulerLibraryIntegration: {
 		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	PreferCloseCandidatesInHFSReclamation: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 

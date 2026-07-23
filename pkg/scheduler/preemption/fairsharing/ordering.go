@@ -49,6 +49,8 @@ type TargetClusterQueueOrdering struct {
 	// ancestor Cohorts of the preemptor ClusterQueue.
 	preemptorAncestors sets.Set[*schdcache.CohortSnapshot]
 
+	preferCloseCandidates bool
+
 	clusterQueueToTarget map[kueue.ClusterQueueReference][]*workload.Info
 
 	// pruned nodes are nodes which we are certain will never
@@ -61,12 +63,14 @@ type TargetClusterQueueOrdering struct {
 	log                 logr.Logger
 }
 
-func MakeClusterQueueOrdering(cq *schdcache.ClusterQueueSnapshot, candidates []*workload.Info, log logr.Logger, clk clock.Clock) TargetClusterQueueOrdering {
+func MakeClusterQueueOrdering(cq *schdcache.ClusterQueueSnapshot, candidates []*workload.Info, preferCloseCandidates bool, log logr.Logger, clk clock.Clock) TargetClusterQueueOrdering {
 	t := TargetClusterQueueOrdering{
 		clock: clk,
 
 		preemptorCq:        cq,
 		preemptorAncestors: sets.New[*schdcache.CohortSnapshot](),
+
+		preferCloseCandidates: preferCloseCandidates,
 
 		clusterQueueToTarget: make(map[kueue.ClusterQueueReference][]*workload.Info),
 
@@ -108,7 +112,19 @@ func (t *TargetClusterQueueOrdering) Iter() iter.Seq[*TargetClusterQueue] {
 		root := t.preemptorCq.Parent().Root()
 		// we stop once we have marked the root as pruned.
 		for !t.prunedCohorts.Has(root) {
-			targetCq := t.nextTarget(root)
+			var targetCq *TargetClusterQueue
+			if t.preferCloseCandidates {
+				for ancestor := range t.preemptorCq.PathParentToRoot() {
+					if t.prunedCohorts.Has(ancestor) {
+						continue
+					}
+					if targetCq = t.nextTarget(ancestor); targetCq != nil {
+						break
+					}
+				}
+			} else {
+				targetCq = t.nextTarget(root)
+			}
 
 			// an iteration which just pruned some node(s).
 			if targetCq == nil {
@@ -173,6 +189,10 @@ func (t *TargetClusterQueueOrdering) nextTarget(cohort *schdcache.CohortSnapshot
 	var highestCohort *schdcache.CohortSnapshot = nil
 	highestCohortDrs := schdcache.NegativeDRS()
 	for _, cohort := range cohort.ChildCohorts() {
+		if t.preferCloseCandidates && t.onPathFromRootToPreemptorCQ(cohort) {
+			continue
+		}
+
 		if t.prunedCohorts.Has(cohort) {
 			continue
 		}

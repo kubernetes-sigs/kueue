@@ -38,6 +38,7 @@ import (
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -535,6 +536,116 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			util.ExpectReservingActiveWorkloadsMetric(chemistryQueue, 2)
 			util.ExpectReservingActiveWorkloadsMetric(physicsQueue, 2)
 			util.ExpectReservingActiveWorkloadsMetric(llmQueue, 4)
+		})
+	})
+
+	ginkgo.When("using PreferCloseCandidatesInHFSReclamation", func() {
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PreferCloseCandidatesInHFSReclamation, true)
+		})
+
+		ginkgo.It("should prioritize workload whose leaf CQ is not borrowing over workload in borrowing leaf CQ", framework.SlowSpec, func() {
+			createCohort(utiltestingapi.MakeCohort("root-cohort").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+						Resource(corev1.ResourceCPU, "10").Obj(),
+				).Obj())
+			createCohort(utiltestingapi.MakeCohort("parent-cohort-a").Parent("root-cohort").Obj())
+			createCohort(utiltestingapi.MakeCohort("parent-cohort-b").Parent("root-cohort").Obj())
+
+			createQueue(utiltestingapi.MakeClusterQueue("cq-hero").
+				Cohort("parent-cohort-a").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+					Resource(corev1.ResourceCPU, "3000").Obj()).
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				}).
+				Obj())
+
+			createQueue(utiltestingapi.MakeClusterQueue("cq-noisy").
+				Cohort("parent-cohort-a").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+					Resource(corev1.ResourceCPU, "0", "3000").Obj()).
+				Obj())
+
+			createQueue(utiltestingapi.MakeClusterQueue("cq-tiny").
+				Cohort("parent-cohort-b").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+					Resource(corev1.ResourceCPU, "50", "50").Obj()).
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				}).
+				Obj())
+
+			ginkgo.By("Creating and admitting the background workloads")
+			wlHeroAdmitted := createWorkload("cq-hero", "500")
+			wlNoisyAdmitted := createWorkloadWithPriority("cq-noisy", "2500", -10)
+			wlTinyAdmitted := createWorkload("cq-tiny", "60")
+
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlHeroAdmitted, wlNoisyAdmitted, wlTinyAdmitted)
+
+			ginkgo.By("Creating pending workloads to trigger FairSharing tie-breaker")
+			wlHeroPending := createWorkloadWithPriority("cq-hero", "2500", 10)
+			wlTinyPending := createWorkloadWithPriority("cq-tiny", "8", 10)
+
+			ginkgo.By("Waiting for preemption and admission")
+			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, wlNoisyAdmitted)
+			util.FinishEvictionForWorkloads(ctx, k8sClient, wlNoisyAdmitted)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlHeroPending)
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wlTinyPending)
+		})
+
+		ginkgo.It("should prioritize close candidates even if distant candidates have higher DRS and are sufficient", framework.SlowSpec, func() {
+			createCohort(utiltestingapi.MakeCohort("root-cohort").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+						Resource(corev1.ResourceCPU, "500").Obj(),
+				).Obj())
+			createCohort(utiltestingapi.MakeCohort("parent-cohort-a").Parent("root-cohort").Obj())
+			createCohort(utiltestingapi.MakeCohort("parent-cohort-b").Parent("root-cohort").Obj())
+
+			createQueue(utiltestingapi.MakeClusterQueue("cq-hero").
+				Cohort("parent-cohort-a").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+					Resource(corev1.ResourceCPU, "2000", "5000").Obj()).
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				}).
+				Obj())
+
+			createQueue(utiltestingapi.MakeClusterQueue("cq-noisy").
+				Cohort("parent-cohort-a").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+					Resource(corev1.ResourceCPU, "1000", "5000").Obj()).
+				Obj())
+
+			createQueue(utiltestingapi.MakeClusterQueue("cq-distant").
+				Cohort("parent-cohort-b").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+					Resource(corev1.ResourceCPU, "500", "2000").Obj()).
+				Obj())
+
+			ginkgo.By("Creating and admitting the background workloads")
+			wlNoisyAdmitted := createWorkloadWithPriority("cq-noisy", "2000", -10)
+			wlDistantAdmitted := createWorkloadWithPriority("cq-distant", "2000", -10)
+
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlNoisyAdmitted, wlDistantAdmitted)
+
+			ginkgo.By("Creating pending workload to trigger preemption")
+			wlHeroPending := createWorkloadWithPriority("cq-hero", "2000", 10)
+
+			ginkgo.By("Waiting for preemption and admission")
+			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, wlNoisyAdmitted)
+			util.FinishEvictionForWorkloads(ctx, k8sClient, wlNoisyAdmitted)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlHeroPending)
+
+			ginkgo.By("Ensuring distant is not preempted")
+			var wl kueue.Workload
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlDistantAdmitted), &wl)).To(gomega.Succeed())
+			gomega.Expect(workload.IsAdmitted(&wl)).To(gomega.BeTrue())
 		})
 	})
 
