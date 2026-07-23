@@ -19,6 +19,7 @@ export GINKGO="$ROOT_DIR"/bin/ginkgo
 export KIND="$ROOT_DIR"/bin/kind
 export YQ="$ROOT_DIR"/bin/yq
 export HELM="$ROOT_DIR"/bin/helm
+export PATH="$ROOT_DIR/bin:$PATH"
 export KUEUE_NAMESPACE="${KUEUE_NAMESPACE:-kueue-system}"
 export KUEUE_DEPLOYMENT_NAME="kueue-controller-manager"
 export KUEUE_WEBHOOK_SERVICE_NAME="${KUEUE_WEBHOOK_SERVICE_NAME:-kueue-webhook-service}"
