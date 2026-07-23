@@ -133,6 +133,9 @@ type Option[PtrT objAsPtr[T], T any] func(*adapter[PtrT, T])
 // for job types that support it (see ElasticReplicaSync). An incomplete wiring
 // panics here so the mistake fails at startup, not at reconcile time.
 func WithElasticReplicaSync[PtrT objAsPtr[T], T any](e *ElasticReplicaSync[PtrT, T]) Option[PtrT, T] {
+	if e.Spec != nil && e.Runtime != nil {
+		panic("ElasticReplicaSync: Spec and Runtime are mutually exclusive")
+	}
 	if e.AutoscalingEnabled != nil && e.RemoteSuspended == nil {
 		panic("ElasticReplicaSync: RemoteSuspended is required when AutoscalingEnabled is set")
 	}
@@ -328,30 +331,26 @@ func (a *adapter[PtrT, T]) repointPrebuiltWorkload(ctx context.Context, remoteCl
 	return nil
 }
 
-// reverseSync reverses a worker-side elastic event onto the manager copy. It
-// runs the steps the job type has wired: a spec write-back for job types whose
-// worker replicas live on the job object itself (RayCluster), and a
-// runtime-children reflection for job types whose worker replicas live on
-// runtime children in the worker cluster (RayJob). Returns whether the manager
-// copy was changed.
+// reverseSync reverses a worker-side elastic event onto the manager copy,
+// through whichever mechanism the job type wired: a spec write-back when the
+// worker replicas live on the job object itself (RayCluster), or a
+// runtime-children reflection when they live on runtime children in the worker
+// cluster (RayJob). Returns whether the manager copy was changed.
 func (a *adapter[PtrT, T]) reverseSync(ctx context.Context, localClient, remoteClient client.Client, localJob, remoteJob PtrT) (bool, error) {
-	changed := false
 	if a.elastic.Spec != nil {
+		changed := false
 		if err := clientutil.Patch(ctx, localClient, localJob, func() (bool, error) {
 			changed = a.elastic.Spec.Reflect(localJob, remoteJob)
 			return changed, nil
 		}); err != nil {
 			return false, fmt.Errorf("failed to write back autoscaler-driven replicas to manager %s: %w", a.gvk.Kind, err)
 		}
+		return changed, nil
 	}
 	if a.elastic.Runtime != nil {
-		runtimeChanged, err := a.reverseSyncRuntime(ctx, localClient, remoteClient, localJob, remoteJob)
-		if err != nil {
-			return false, err
-		}
-		changed = changed || runtimeChanged
+		return a.reverseSyncRuntime(ctx, localClient, remoteClient, localJob, remoteJob)
 	}
-	return changed, nil
+	return false, nil
 }
 
 // reverseSyncRuntime reads the job's runtime worker state from the worker
