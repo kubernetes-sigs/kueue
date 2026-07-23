@@ -35,15 +35,8 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-// Detached actors are scoped to a Ray namespace, so creation and termination
-// scripts must use the same namespace.
 const rayActorNamespace = "kueue-e2e"
 
-// createDetachedActorScript holds one unit of a custom Ray resource with a
-// detached actor. Because every Ray node advertises zero CPUs, the actor can
-// only run in the worker group that exports the requested custom resource,
-// forcing the autoscaler to scale that group. Looking up the actor first makes
-// the script safe to retry after a transient pod exec failure.
 func createDetachedActorScript(actorName, resourceName string) string {
 	return fmt.Sprintf(`import ray
 
