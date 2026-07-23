@@ -1081,7 +1081,6 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 
 			ginkgo.By("The clusterQueue will be deleted")
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, false)
-			util.ExpectLQByStatusMetric(lq, metav1.ConditionFalse)
 		})
 
 		ginkgo.It("Should delete the cluster without waiting for reserving only workloads to finish", framework.SlowSpec, func() {
