@@ -94,8 +94,7 @@ func TestReconcile(t *testing.T) {
 	testCases := map[string]struct {
 		workloads []kueue.Workload
 		pods      []corev1.Pod
-		// skipDefaultPodSetLabels prevents default PodSet labeling so tests can verify that unlabeled Pods remain gated
-		// verify that Pods without a PodSet label remain gated.
+		// skipDefaultPodSetLabels prevents default PodSet labeling so tests can verify that unlabeled Pods remain gated.
 		skipDefaultPodSetLabels bool
 		expectUIDs              []types.UID
 		wantPods                []corev1.Pod
@@ -273,6 +272,7 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		"do not ungate pod without podset label": {
+			skipDefaultPodSetLabels: true,
 			workloads: []kueue.Workload{
 				*makeAdmittedTwoPodSetWorkload(now),
 			},
@@ -290,7 +290,6 @@ func TestReconcile(t *testing.T) {
 					Gate(kueue.ElasticJobSchedulingGate).
 					Obj(),
 			},
-			skipDefaultPodSetLabels: true,
 		},
 		"skip already ungated pods": {
 			workloads: []kueue.Workload{
