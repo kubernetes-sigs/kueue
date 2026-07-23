@@ -5,7 +5,7 @@ import os
 from datetime import datetime
 
 MARKER = "<!-- release-log-comment -->"
-LOG_HEADER = "# Log"
+LOG_HEADER = "# Release log"
 HISTORY_HEADER = "# History"
 DETAILS_START = "<details>\n<summary>History</summary>"
 DETAILS_END = "</details>"

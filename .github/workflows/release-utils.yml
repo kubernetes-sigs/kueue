@@ -178,14 +178,14 @@ jobs:
         if: ${{ success() }}
         uses: ./.github/actions/report-result
         with:
-          command: ${{ steps.parse.outputs.command }}
+          command: ${{ needs.authorize.outputs.command }}
           message: "✅ Release notes for version ${{ needs.authorize.outputs.version }} have been synced."
 
       - name: Report Failure
         if: ${{ failure() }}
         uses: ./.github/actions/report-result
         with:
-          command: ${{ steps.parse.outputs.command }}
+          command: ${{ needs.authorize.outputs.command }}
           message: |
             ❌ Failed to sync release notes for version `${{ needs.authorize.outputs.version }}`.
             
