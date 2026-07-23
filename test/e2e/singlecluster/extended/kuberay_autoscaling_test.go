@@ -23,6 +23,7 @@ import (
 	"github.com/onsi/gomega"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -109,7 +110,7 @@ var _ = ginkgo.Describe("KubeRay multi-PodSet autoscaling", ginkgo.Label("area:s
 		rayCluster := testingraycluster.MakeCluster("raycluster-multi-podset", ns.Name).
 			Queue(lq.Name).
 			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-			WithEnableAutoscaling(ptr.To(true)).
+			WithEnableAutoscaling(new(true)).
 			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
 			RayStartParam(rayv1.HeadNode, "num-cpus", "0").
 			RayStartParam(rayv1.HeadNode, "object-store-memory", objectStoreMemory).
@@ -144,7 +145,7 @@ var _ = ginkgo.Describe("KubeRay multi-PodSet autoscaling", ginkgo.Label("area:s
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayCluster), createdRayCluster)).To(gomega.Succeed())
 				g.Expect(ptr.Deref(createdRayCluster.Spec.Suspend, true)).To(gomega.BeFalse())
-				g.Expect(createdRayCluster.Status.State).To(gomega.Equal(rayv1.Ready))
+				g.Expect(meta.IsStatusConditionTrue(createdRayCluster.Status.Conditions, string(rayv1.HeadPodReady))).To(gomega.BeTrue())
 				g.Expect(createdRayCluster.Status.DesiredWorkerReplicas).To(gomega.Equal(int32(0)))
 
 				headPods := &corev1.PodList{}
