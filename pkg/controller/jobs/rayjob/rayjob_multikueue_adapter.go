@@ -43,17 +43,19 @@ var _ jobframework.MultiKueueAdapter = ray.NewMKAdapter(
 // RayCluster KubeRay creates on the worker cluster, so the runtime state is
 // fetched from that child and reflected onto the manager RayJob as
 // annotations (consumed by UpdatePodSets and the workload-slice naming).
-// The spec-based hooks (SyncReplicas/WorkerReplicas) are left unset: without
-// autoscaling a RayJob keeps its create-once behavior.
+// Spec is left unset: a RayJob's own spec carries no live replicas, so without
+// autoscaling it keeps its create-once behavior.
 func elasticRuntimeSync() *ray.ElasticReplicaSync[*rayv1.RayJob, rayv1.RayJob] {
 	return &ray.ElasticReplicaSync[*rayv1.RayJob, rayv1.RayJob]{
 		WorkloadNameExtraPart: func(j *rayv1.RayJob) string { return raycluster.GetWorkloadNameExtraPart(j.GetObjectMeta()) },
 		AutoscalingEnabled: func(j *rayv1.RayJob) bool {
 			return j.Spec.RayClusterSpec != nil && ptr.Deref(j.Spec.RayClusterSpec.EnableInTreeAutoscaling, false)
 		},
-		RemoteSuspended:         func(j *rayv1.RayJob) bool { return j.Spec.Suspend },
-		FetchRuntimeWorkerState: fetchChildWorkerState,
-		ApplyRuntimeWorkerState: applyChildWorkerState,
+		RemoteSuspended: func(j *rayv1.RayJob) bool { return j.Spec.Suspend },
+		Runtime: &ray.RuntimeReplicaSync[*rayv1.RayJob]{
+			Fetch: fetchChildWorkerState,
+			Apply: applyChildWorkerState,
+		},
 	}
 }
 

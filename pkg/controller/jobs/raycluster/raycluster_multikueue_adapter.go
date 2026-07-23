@@ -55,9 +55,11 @@ func copyJobSpec(dst, src *rayv1.RayCluster) {
 // MultiKueue adapter to propagate manager-driven worker replica changes.
 func elasticReplicaSync() *ray.ElasticReplicaSync[*rayv1.RayCluster, rayv1.RayCluster] {
 	return &ray.ElasticReplicaSync[*rayv1.RayCluster, rayv1.RayCluster]{
-		SyncReplicas:          syncWorkerReplicas,
-		WorkerReplicas:        workerReplicaCounts,
-		ReflectReplicas:       reflectWorkerReplicas,
+		Spec: &ray.SpecReplicaSync[*rayv1.RayCluster]{
+			Push:    syncWorkerReplicas,
+			Reflect: reflectWorkerReplicas,
+			Counts:  workerReplicaCounts,
+		},
 		WorkloadNameExtraPart: func(rc *rayv1.RayCluster) string { return GetWorkloadNameExtraPart(rc) },
 		AutoscalingEnabled:    func(rc *rayv1.RayCluster) bool { return ptr.Deref(rc.Spec.EnableInTreeAutoscaling, false) },
 		RemoteSuspended:       func(rc *rayv1.RayCluster) bool { return ptr.Deref(rc.Spec.Suspend, false) },
