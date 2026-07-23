@@ -714,6 +714,11 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}); err != nil {
 		return err
 	}
+	if err := s.AddConversionFunc((*FairSharingStatus)(nil), (*v1beta2.LocalQueueFairSharingStatus)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta1_FairSharingStatus_To_v1beta2_LocalQueueFairSharingStatus(a.(*FairSharingStatus), b.(*v1beta2.LocalQueueFairSharingStatus), scope)
+	}); err != nil {
+		return err
+	}
 	if err := s.AddConversionFunc((*LocalQueueStatus)(nil), (*v1beta2.LocalQueueStatus)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_v1beta1_LocalQueueStatus_To_v1beta2_LocalQueueStatus(a.(*LocalQueueStatus), b.(*v1beta2.LocalQueueStatus), scope)
 	}); err != nil {
@@ -741,6 +746,11 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}
 	if err := s.AddConversionFunc((*v1beta2.ClusterQueueSpec)(nil), (*ClusterQueueSpec)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_v1beta2_ClusterQueueSpec_To_v1beta1_ClusterQueueSpec(a.(*v1beta2.ClusterQueueSpec), b.(*ClusterQueueSpec), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddConversionFunc((*v1beta2.LocalQueueFairSharingStatus)(nil), (*FairSharingStatus)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta2_LocalQueueFairSharingStatus_To_v1beta1_FairSharingStatus(a.(*v1beta2.LocalQueueFairSharingStatus), b.(*FairSharingStatus), scope)
 	}); err != nil {
 		return err
 	}
@@ -1678,7 +1688,15 @@ func autoConvert_v1beta1_LocalQueueStatus_To_v1beta2_LocalQueueStatus(in *LocalQ
 	out.FlavorsReservation = *(*[]v1beta2.LocalQueueFlavorUsage)(unsafe.Pointer(&in.FlavorsReservation))
 	// WARNING: in.FlavorUsage requires manual conversion: does not exist in peer-type
 	// WARNING: in.Flavors requires manual conversion: does not exist in peer-type
-	out.FairSharing = (*v1beta2.LocalQueueFairSharingStatus)(unsafe.Pointer(in.FairSharing))
+	if in.FairSharing != nil {
+		in, out := &in.FairSharing, &out.FairSharing
+		*out = new(v1beta2.LocalQueueFairSharingStatus)
+		if err := Convert_v1beta1_FairSharingStatus_To_v1beta2_LocalQueueFairSharingStatus(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.FairSharing = nil
+	}
 	return nil
 }
 
@@ -1689,7 +1707,15 @@ func autoConvert_v1beta2_LocalQueueStatus_To_v1beta1_LocalQueueStatus(in *v1beta
 	out.AdmittedWorkloads = in.AdmittedWorkloads
 	out.FlavorsReservation = *(*[]LocalQueueFlavorUsage)(unsafe.Pointer(&in.FlavorsReservation))
 	// WARNING: in.FlavorsUsage requires manual conversion: does not exist in peer-type
-	out.FairSharing = (*FairSharingStatus)(unsafe.Pointer(in.FairSharing))
+	if in.FairSharing != nil {
+		in, out := &in.FairSharing, &out.FairSharing
+		*out = new(FairSharingStatus)
+		if err := Convert_v1beta2_LocalQueueFairSharingStatus_To_v1beta1_FairSharingStatus(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.FairSharing = nil
+	}
 	return nil
 }
 

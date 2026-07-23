@@ -23,14 +23,6 @@ package v1beta2
 //
 // LocalQueueFairSharingStatus contains the information about the current status of Fair Sharing.
 type LocalQueueFairSharingStatusApplyConfiguration struct {
-	// weightedShare represents the maximum of the ratios of usage
-	// above nominal quota to the lendable resources in the
-	// Cohort, among all the resources provided by the Node, and
-	// divided by the weight.  If zero, it means that the usage of
-	// the Node is below the nominal quota.  If the Node has a
-	// weight of zero and is borrowing, this will return
-	// 9223372036854775807, the maximum possible share value.
-	WeightedShare *int64 `json:"weightedShare,omitempty"`
 	// admissionFairSharingStatus represents information relevant to the Admission Fair Sharing
 	AdmissionFairSharingStatus *LocalQueueAdmissionFairSharingStatusApplyConfiguration `json:"admissionFairSharingStatus,omitempty"`
 }
@@ -39,14 +31,6 @@ type LocalQueueFairSharingStatusApplyConfiguration struct {
 // apply.
 func LocalQueueFairSharingStatus() *LocalQueueFairSharingStatusApplyConfiguration {
 	return &LocalQueueFairSharingStatusApplyConfiguration{}
-}
-
-// WithWeightedShare sets the WeightedShare field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the WeightedShare field is set to the value of the last call.
-func (b *LocalQueueFairSharingStatusApplyConfiguration) WithWeightedShare(value int64) *LocalQueueFairSharingStatusApplyConfiguration {
-	b.WeightedShare = &value
-	return b
 }
 
 // WithAdmissionFairSharingStatus sets the AdmissionFairSharingStatus field in the declarative configuration to the given value
