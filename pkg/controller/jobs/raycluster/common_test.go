@@ -543,7 +543,7 @@ func TestUpdatePodSets(t *testing.T) {
 				*utiltestingapi.MakePodSet("workers", 5).Obj(),
 			},
 		},
-		"raycluster absent - malformed MultiKueue runtime annotation returns an error": {
+		"raycluster absent - malformed MultiKueue runtime annotation falls back to the spec counts": {
 			podSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet("workers", 3).Obj(),
 			},
@@ -553,7 +553,9 @@ func TestUpdatePodSets(t *testing.T) {
 				Obj(),
 			enableInTreeAutoscaling: new(true),
 			rayClusterName:          "nonexistent-child",
-			wantErr:                 true,
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("workers", 3).Obj(),
+			},
 		},
 		"empty rayClusterName - no update": {
 			podSets: []kueue.PodSet{

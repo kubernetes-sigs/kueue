@@ -223,7 +223,7 @@ func UpdatePodSets(ctx context.Context, podSets []kueue.PodSet, c client.Client,
 					// On a MultiKueue manager the child RayCluster only exists on
 					// the worker cluster; its per-group counts are reflected here
 					// as an annotation by the MultiKueue workload controller.
-					return applyRuntimeCountsAnnotation(log, podSets, object)
+					return applyRuntimeCountsAnnotation(log, podSets, object), nil
 				}
 				return nil, fmt.Errorf("failed to get RayCluster %s: %w", rayClusterName, err)
 			} else {
@@ -420,24 +420,28 @@ func ComparePodSetCounts(podSets []kueue.PodSet, referenceCounts map[kueue.PodSe
 // MultiKueueRuntimePodSetReplicaSizesAnnotation, when present. It is the
 // manager-side fallback of UpdatePodSets for jobs whose runtime child
 // RayCluster lives only on the worker cluster.
-func applyRuntimeCountsAnnotation(log logr.Logger, podSets []kueue.PodSet, object client.Object) ([]kueue.PodSet, error) {
+func applyRuntimeCountsAnnotation(log logr.Logger, podSets []kueue.PodSet, object client.Object) []kueue.PodSet {
 	annotation := object.GetAnnotations()[MultiKueueRuntimePodSetReplicaSizesAnnotation]
 	if annotation == "" {
-		return podSets, nil
+		return podSets
 	}
 	counts, err := ParsePodSetReplicaSizes(annotation)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse %s annotation: %w", MultiKueueRuntimePodSetReplicaSizesAnnotation, err)
+		// The annotation is user-editable metadata; falling back to the
+		// spec-derived counts keeps the job reconcilable instead of wedging it.
+		log.V(2).Info("Ignoring malformed runtime replica-sizes annotation",
+			"rayObject", object.GetName(), "error", err.Error())
+		return podSets
 	}
 	for i := range podSets {
-		if count, ok := counts[podSets[i].Name]; ok && podSets[i].Count != count {
+		if count, ok := counts[podSets[i].Name]; ok && count >= 0 && podSets[i].Count != count {
 			log.V(2).Info("Updated PodSet worker count from MultiKueue runtime annotation",
 				"rayObject", object.GetName(), "podSet", podSets[i].Name,
 				"oldCount", podSets[i].Count, "newCount", count)
 			podSets[i].Count = count
 		}
 	}
-	return podSets, nil
+	return podSets
 }
 
 // ParsePodSetReplicaSizes parses the PodsetReplicaSizesAnnotation value into a map.

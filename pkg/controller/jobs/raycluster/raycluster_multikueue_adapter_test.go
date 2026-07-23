@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	utiltestingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
@@ -66,6 +67,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 
 	cases := map[string]struct {
 		managersRayClusters []rayv1.RayCluster
+		managersWorkloads   []kueue.Workload
 		workerRayClusters   []rayv1.RayCluster
 
 		operation func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error
@@ -365,6 +367,9 @@ func TestMultiKueueAdapter(t *testing.T) {
 					FirstWorkerGroupReplicas(1, 1, 5).
 					Obj(),
 			},
+			managersWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl1", TestNamespace).Obj(),
+			},
 			workerRayClusters: []rayv1.RayCluster{
 				*elasticBuilder.Clone().
 					PrebuiltWorkloadLabel("wl1").
@@ -403,6 +408,9 @@ func TestMultiKueueAdapter(t *testing.T) {
 					FirstWorkerGroupReplicas(1, 1, 5).
 					Obj(),
 			},
+			managersWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl1", TestNamespace).Obj(),
+			},
 			workerRayClusters: []rayv1.RayCluster{
 				*elasticBuilder.Clone().
 					PrebuiltWorkloadLabel("wl1").
@@ -429,6 +437,89 @@ func TestMultiKueueAdapter(t *testing.T) {
 					WithEnableAutoscaling(new(true)).
 					FirstWorkerGroupReplicas(3, 1, 5).
 					Suspend(true).
+					Obj(),
+			},
+		},
+		// A reconcile of a slice that already finished (e.g. the pre-resize slice
+		// during a scale-up handover) must not write back replicas or repoint the
+		// remote's prebuilt-workload label back at the finished slice.
+		"autoscaling elastic sync ignores a finished slice's reconcile": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.WorkloadIdentifierAnnotations: false},
+			managersRayClusters: []rayv1.RayCluster{
+				*elasticBuilder.Clone().
+					WithEnableAutoscaling(new(true)).
+					FirstWorkerGroupReplicas(1, 1, 5).
+					Obj(),
+			},
+			managersWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl1", TestNamespace).
+					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "Succeeded"}).
+					Obj(),
+			},
+			workerRayClusters: []rayv1.RayCluster{
+				*elasticBuilder.Clone().
+					PrebuiltWorkloadLabel("wl2").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					WithEnableAutoscaling(new(true)).
+					FirstWorkerGroupReplicas(3, 1, 5).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "raycluster1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
+			},
+			wantManagersRayClusters: []rayv1.RayCluster{
+				*elasticBuilder.Clone().
+					WithEnableAutoscaling(new(true)).
+					FirstWorkerGroupReplicas(1, 1, 5).
+					Obj(),
+			},
+			wantWorkerRayClusters: []rayv1.RayCluster{
+				*elasticBuilder.Clone().
+					PrebuiltWorkloadLabel("wl2").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					WithEnableAutoscaling(new(true)).
+					FirstWorkerGroupReplicas(3, 1, 5).
+					Obj(),
+			},
+		},
+		// A remote replica count outside the manager-declared [min, max] cannot
+		// come from the autoscaler and must not reach the manager's spec.
+		"autoscaling elastic sync ignores out-of-bounds remote replicas": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.WorkloadIdentifierAnnotations: false},
+			managersRayClusters: []rayv1.RayCluster{
+				*elasticBuilder.Clone().
+					WithEnableAutoscaling(new(true)).
+					FirstWorkerGroupReplicas(1, 1, 5).
+					Obj(),
+			},
+			managersWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl1", TestNamespace).Obj(),
+			},
+			workerRayClusters: []rayv1.RayCluster{
+				*elasticBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					WithEnableAutoscaling(new(true)).
+					FirstWorkerGroupReplicas(99, 1, 5).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "raycluster1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
+			},
+			wantManagersRayClusters: []rayv1.RayCluster{
+				*elasticBuilder.Clone().
+					WithEnableAutoscaling(new(true)).
+					FirstWorkerGroupReplicas(1, 1, 5).
+					Obj(),
+			},
+			wantWorkerRayClusters: []rayv1.RayCluster{
+				*elasticBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					WithEnableAutoscaling(new(true)).
+					FirstWorkerGroupReplicas(99, 1, 5).
 					Obj(),
 			},
 		},
@@ -464,7 +555,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			managerBuilder := utiltesting.NewClientBuilder(rayv1.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
-			managerBuilder = managerBuilder.WithLists(&rayv1.RayClusterList{Items: tc.managersRayClusters})
+			managerBuilder = managerBuilder.WithLists(&rayv1.RayClusterList{Items: tc.managersRayClusters}, &kueue.WorkloadList{Items: tc.managersWorkloads})
 			managerBuilder = managerBuilder.WithStatusSubresource(slices.Map(tc.managersRayClusters, func(w *rayv1.RayCluster) client.Object { return w })...)
 			managerClient := managerBuilder.Build()
 

@@ -945,17 +945,10 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			return wl, nil
 		}
 
-		// Also skip while an elastic prebuilt job has been resized but its pinned
-		// workload slice does not reflect the new size yet. This is the worker side
-		// of MultiKueue Ray autoscaling: the in-tree autoscaler resizes the remote
-		// RayCluster directly (up or down), and the manager must still update or
-		// replace the slice and repoint the prebuilt label before the counts match
-		// again. Finishing the workload OutOfSync here would tear the running job
-		// down mid-handover. Tolerating the transient mismatch is safe in both
-		// directions: scale-up pods are held by scheduling gates until the new
-		// slice is admitted (never past quota), and a scale-down only leaves the
-		// slice briefly over-reserving (never under quota). A structural change
-		// (different pod set keys) is not a resize and still fails the check below.
+		// Also tolerate a transient job/slice count mismatch on the worker side
+		// of a MultiKueue elastic resize handover instead of finishing the
+		// workload OutOfSync — see jobResizeAgainstWorkloadPending for why both
+		// directions are safe.
 		if workloadslicing.Enabled(object) {
 			resizePending, err := jobResizeAgainstWorkloadPending(ctx, r.client, job, wl)
 			if err != nil {
@@ -1226,14 +1219,20 @@ func EnsurePrebuiltWorkloadOwnership(ctx context.Context, c client.Client, wl *k
 
 // jobResizeAgainstWorkloadPending reports whether the elastic job's pod sets
 // have the same keys as its pinned workload slice but at least one count
-// differs — a resize the pinned slice does not reflect yet. Both directions are
-// tolerated during the MultiKueue elastic handover: a scale-up holds the extra
-// pods behind scheduling gates (never running past quota), and a scale-down
-// leaves the slice briefly over-reserving (never under quota), until the
-// manager-driven slice update/replacement and prebuilt-label repoint converge.
-// A change that alters the pod set structure (different keys) is not a resize
-// and still fails the in-sync check.
+// differs — a resize the pinned slice does not reflect yet. It applies only to
+// MultiKueue-dispatched copies (identified by the origin label), because only
+// there does a manager converge the slice; elsewhere a count mismatch remains
+// a genuine out-of-sync signal. Both directions are tolerated during the
+// handover: a scale-up holds the extra pods behind scheduling gates (never
+// running past quota), and a scale-down leaves the slice briefly
+// over-reserving (never under quota), until the manager-driven slice
+// update/replacement and prebuilt-label repoint converge. A change that alters
+// the pod set structure (different keys) is not a resize and still fails the
+// in-sync check.
 func jobResizeAgainstWorkloadPending(ctx context.Context, c client.Client, job GenericJob, wl *kueue.Workload) (bool, error) {
+	if job.Object().GetLabels()[kueue.MultiKueueOriginLabel] == "" {
+		return false, nil
+	}
 	jobPodSets, err := JobPodSets(ctx, job, c)
 	if err != nil {
 		return false, err

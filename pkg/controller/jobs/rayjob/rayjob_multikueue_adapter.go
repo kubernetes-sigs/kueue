@@ -18,7 +18,7 @@ package rayjob
 
 import (
 	"context"
-	"strconv"
+	"fmt"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -47,8 +47,10 @@ var _ jobframework.MultiKueueAdapter = ray.NewMKAdapter(
 // autoscaling a RayJob keeps its create-once behavior.
 func elasticRuntimeSync() *ray.ElasticReplicaSync[*rayv1.RayJob, rayv1.RayJob] {
 	return &ray.ElasticReplicaSync[*rayv1.RayJob, rayv1.RayJob]{
-		WorkloadNameExtraPart:   func(j *rayv1.RayJob) string { return raycluster.GetWorkloadNameExtraPart(j.GetObjectMeta()) },
-		AutoscalingEnabled:      func(j *rayv1.RayJob) bool { return ptr.Deref(j.Spec.RayClusterSpec.EnableInTreeAutoscaling, false) },
+		WorkloadNameExtraPart: func(j *rayv1.RayJob) string { return raycluster.GetWorkloadNameExtraPart(j.GetObjectMeta()) },
+		AutoscalingEnabled: func(j *rayv1.RayJob) bool {
+			return j.Spec.RayClusterSpec != nil && ptr.Deref(j.Spec.RayClusterSpec.EnableInTreeAutoscaling, false)
+		},
 		RemoteSuspended:         func(j *rayv1.RayJob) bool { return j.Spec.Suspend },
 		FetchRuntimeWorkerState: fetchChildWorkerState,
 		ApplyRuntimeWorkerState: applyChildWorkerState,
@@ -56,8 +58,10 @@ func elasticRuntimeSync() *ray.ElasticReplicaSync[*rayv1.RayJob, rayv1.RayJob] {
 }
 
 // fetchChildWorkerState reads the RayJob's child RayCluster on the worker
-// cluster and returns its effective per-worker-group pod counts plus the
-// child's generation (used to derive the workload-slice name).
+// cluster and returns its effective per-worker-group pod counts plus a
+// revision derived from the child's UID and generation. The UID keeps the
+// revision — and with it the workload-slice name — unique when KubeRay
+// recreates the child and its generation restarts.
 func fetchChildWorkerState(ctx context.Context, remoteClient client.Client, remoteJob *rayv1.RayJob) (map[kueue.PodSetReference]int32, string, bool, error) {
 	childName := remoteJob.Status.RayClusterName
 	if childName == "" {
@@ -71,13 +75,14 @@ func fetchChildWorkerState(ctx context.Context, remoteClient client.Client, remo
 		}
 		return nil, "", false, err
 	}
-	return raycluster.WorkerGroupPodCounts(&child.Spec), strconv.FormatInt(child.Generation, 10), true, nil
+	revision := fmt.Sprintf("%s-%d", child.UID, child.Generation)
+	return raycluster.WorkerGroupPodCounts(&child.Spec), revision, true, nil
 }
 
-// applyChildWorkerState records the child's per-group counts and generation as
+// applyChildWorkerState records the child's per-group counts and revision as
 // annotations on the manager RayJob, returning whether anything changed. The
 // counts feed the manager's PodSet derivation (UpdatePodSets fallback); the
-// generation feeds the elastic workload-slice name (GetWorkloadNameExtraPart),
+// revision feeds the elastic workload-slice name (GetWorkloadNameExtraPart),
 // so an autoscaler-driven resize yields a new slice.
 func applyChildWorkerState(localJob *rayv1.RayJob, counts map[kueue.PodSetReference]int32, revision string) bool {
 	serialized, err := raycluster.SerializeWorkerGroupCounts(counts)
@@ -87,8 +92,9 @@ func applyChildWorkerState(localJob *rayv1.RayJob, counts map[kueue.PodSetRefere
 		return false
 	}
 	annotations := localJob.GetAnnotations()
-	if annotations[raycluster.MultiKueueRuntimePodSetReplicaSizesAnnotation] == serialized &&
-		annotations[raycluster.RayClusterGenerationAnnotation] == revision {
+	// Count-neutral child updates (e.g. generation-only bumps) must not mint
+	// replacement slices, so equality is decided on the counts alone.
+	if annotations[raycluster.MultiKueueRuntimePodSetReplicaSizesAnnotation] == serialized {
 		return false
 	}
 	if annotations == nil {

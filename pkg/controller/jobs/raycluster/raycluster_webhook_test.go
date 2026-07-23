@@ -156,7 +156,7 @@ func TestValidateCreate(t *testing.T) {
 		},
 		"multikueue elastic autoscaling - variable-size worker group is valid": {
 			// The autoscaler runs on the worker and its resizes are written back
-			// to the manager, so a range (min < replicas < max) is allowed.
+			// to the manager, so a range (minReplicas < maxReplicas) is allowed.
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.WorkloadIdentifierAnnotations: false},
 			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).

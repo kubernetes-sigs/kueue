@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"maps"
 
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -58,15 +59,16 @@ type adapter[PtrT objAsPtr[T], T any] struct {
 }
 
 // ElasticReplicaSync carries the type-specific hooks that let the MultiKueue
-// adapter propagate manager-driven, in-place worker replica changes of an
-// elastic workload (the ElasticJobsViaWorkloadSlices feature) to the remote
-// copy on the worker cluster.
+// adapter reconcile the worker replica counts of an elastic workload (the
+// ElasticJobsViaWorkloadSlices feature) between the manager and the worker
+// cluster.
 //
-// Only job types whose worker replicas live directly on the Kueue-managed
-// object wire this. RayCluster does. RayJob and RayService do not: their worker
-// replicas belong to a child RayCluster on the worker cluster that has no
-// representation on the manager, so they keep the create-once behavior and
-// leave this unset.
+// Job types whose worker replicas live directly on the Kueue-managed object
+// (RayCluster) wire the spec hooks (SyncReplicas/WorkerReplicas/
+// ReflectReplicas). Job types whose worker replicas live on a runtime child in
+// the worker cluster (RayJob) wire the runtime hooks (FetchRuntimeWorkerState/
+// ApplyRuntimeWorkerState) instead and keep the create-once behavior when not
+// autoscaling. RayService wires nothing.
 //
 // Scope: detection compares the effective per-group pod count (WorkerReplicas)
 // of worker groups that exist on both the manager and the remote. Changes that
@@ -74,8 +76,8 @@ type adapter[PtrT objAsPtr[T], T any] struct {
 // RayCluster), and worker groups present only on the manager, are out of scope:
 // the PodSet count is what Kueue admits, so only the effective count matters.
 type ElasticReplicaSync[PtrT objAsPtr[T], T any] struct {
-	// SyncReplicas copies the worker replica counts from src into dst, returning
-	// whether dst changed.
+	// SyncReplicas copies the worker replica counts from src into dst. It is the
+	// manager-driven push onto the remote copy, returning whether dst changed.
 	SyncReplicas func(dst, src PtrT) bool
 	// WorkerReplicas returns the per-worker-group replica counts keyed by PodSet
 	// reference. Used to detect a replica change and its direction.
@@ -95,15 +97,21 @@ type ElasticReplicaSync[PtrT objAsPtr[T], T any] struct {
 	// while stopping the job, not set by the autoscaler, so they must not be
 	// written back to the manager. Required when AutoscalingEnabled is set.
 	RemoteSuspended func(PtrT) bool
+	// ReflectReplicas copies autoscaler-driven worker replica counts from the
+	// remote copy onto the manager object, returning whether it changed. The
+	// remote values cross a cluster trust boundary: the implementation must
+	// ignore counts the autoscaler could not have produced (outside the
+	// manager-declared bounds). Required when AutoscalingEnabled is set for a
+	// job type with spec-based replicas.
+	ReflectReplicas func(dst, src PtrT) bool
 	// FetchRuntimeWorkerState is for job types whose worker replicas live on
 	// runtime child objects in the worker cluster rather than on the job's own
 	// spec (e.g. the RayCluster a RayJob creates). It reads the children via the
 	// remote client and returns the effective per-worker-group pod counts plus a
-	// revision string identifying the observed runtime state (e.g. the child's
-	// generation, used to derive a new workload-slice name). found=false means
-	// the runtime objects do not exist yet and the sync is skipped. When set,
-	// autoscaler-driven resizes are reflected onto the manager copy as
-	// annotations (see reverseSyncRuntime) instead of a spec write-back.
+	// revision string identifying the observed runtime state (used to derive a
+	// new workload-slice name). found=false means the runtime objects do not
+	// exist yet and the sync is skipped. How the fetched state is recorded on
+	// the manager copy is up to ApplyRuntimeWorkerState.
 	FetchRuntimeWorkerState func(ctx context.Context, remoteClient client.Client, remoteJob PtrT) (counts map[kueue.PodSetReference]int32, revision string, found bool, err error)
 	// ApplyRuntimeWorkerState records the fetched runtime worker state onto the
 	// manager copy (typically as annotations consumed by the job's PodSets
@@ -115,9 +123,16 @@ type ElasticReplicaSync[PtrT objAsPtr[T], T any] struct {
 // Option configures a Ray MultiKueue adapter.
 type Option[PtrT objAsPtr[T], T any] func(*adapter[PtrT, T])
 
-// WithElasticReplicaSync enables manager-driven elastic replica propagation
-// over MultiKueue for job types that support it (see ElasticReplicaSync).
+// WithElasticReplicaSync enables elastic replica reconciliation over MultiKueue
+// for job types that support it (see ElasticReplicaSync). Mis-paired hooks
+// panic here so a wiring mistake fails at startup, not at reconcile time.
 func WithElasticReplicaSync[PtrT objAsPtr[T], T any](e *ElasticReplicaSync[PtrT, T]) Option[PtrT, T] {
+	if e.AutoscalingEnabled != nil && e.RemoteSuspended == nil {
+		panic("ElasticReplicaSync: RemoteSuspended is required when AutoscalingEnabled is set")
+	}
+	if (e.FetchRuntimeWorkerState == nil) != (e.ApplyRuntimeWorkerState == nil) {
+		panic("ElasticReplicaSync: FetchRuntimeWorkerState and ApplyRuntimeWorkerState must be set together")
+	}
 	return func(a *adapter[PtrT, T]) {
 		a.elastic = e
 	}
@@ -201,11 +216,23 @@ func (a *adapter[PtrT, T]) SyncJob(
 		}); err != nil {
 			return false, err
 		}
-		if a.autoscalingEnabled(localJob) {
+		if a.workerOwnsReplicas(localJob) {
+			live, err := a.sliceIsLive(ctx, localClient, types.NamespacedName{Namespace: key.Namespace, Name: workloadName})
+			if err != nil || !live {
+				// A finished or deleted slice's reconcile must not touch the
+				// remote: repointing here would name the replaced slice.
+				return false, err
+			}
 			if !a.elastic.RemoteSuspended(remoteJob) {
 				changed, err := a.reverseSync(ctx, localClient, remoteClient, localJob, remoteJob)
-				if err != nil || changed {
+				if err != nil {
 					return false, err
+				}
+				if changed {
+					// The manager copy changed: the slicing machinery produces a
+					// replacement slice and its reconcile repoints the remote.
+					// Repointing now would still name the pre-resize slice.
+					return false, nil
 				}
 			}
 			return false, a.repointPrebuiltWorkload(ctx, remoteClient, workloadName, remoteJob)
@@ -264,11 +291,11 @@ func (a *adapter[PtrT, T]) needElasticSync(ctx context.Context, workloadName str
 	return !maps.Equal(oldCounts, newCounts) || jobframework.PrebuiltWorkloadNameFor(remoteJob) != workloadName
 }
 
-// autoscalingEnabled reports whether the job is an elastic job that runs the
-// in-tree autoscaler on the worker cluster. In this mode the forward direction
-// never pushes replicas (the worker cluster owns them); the manager's only
+// workerOwnsReplicas reports whether the worker cluster owns the job's worker
+// replica counts: an elastic job that runs the in-tree autoscaler there. In
+// this mode the forward direction never pushes replicas; the manager's only
 // forward-direction duty is repointing the remote's prebuilt-workload marker.
-func (a *adapter[PtrT, T]) autoscalingEnabled(localJob PtrT) bool {
+func (a *adapter[PtrT, T]) workerOwnsReplicas(localJob PtrT) bool {
 	if a.elastic == nil || a.elastic.AutoscalingEnabled == nil {
 		return false
 	}
@@ -276,6 +303,17 @@ func (a *adapter[PtrT, T]) autoscalingEnabled(localJob PtrT) bool {
 		return false
 	}
 	return a.elastic.AutoscalingEnabled(localJob)
+}
+
+// sliceIsLive reports whether the local workload slice this reconcile is for
+// still exists and is not finished. During a scale-up handover the old slice's
+// group may still reconcile after its replacement was created.
+func (a *adapter[PtrT, T]) sliceIsLive(ctx context.Context, localClient client.Client, key types.NamespacedName) (bool, error) {
+	wl := &kueue.Workload{}
+	if err := localClient.Get(ctx, key, wl); err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+	return !apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished), nil
 }
 
 // repointPrebuiltWorkload ensures the remote copy's prebuilt-workload marker
@@ -300,20 +338,24 @@ func (a *adapter[PtrT, T]) repointPrebuiltWorkload(ctx context.Context, remoteCl
 // runs the steps the job type has wired: a spec write-back for job types whose
 // worker replicas live on the job object itself (RayCluster), and a
 // runtime-children reflection for job types whose worker replicas live on
-// runtime children in the worker cluster (RayJob). Change detection for the
-// spec step is an inline count comparison (both objects are at hand); for the
-// runtime step it happens inside reverseSyncRuntime, since it requires reading
-// the children remotely. Returns whether the manager copy was changed.
+// runtime children in the worker cluster (RayJob). Returns whether the manager
+// copy was changed.
 func (a *adapter[PtrT, T]) reverseSync(ctx context.Context, localClient, remoteClient client.Client, localJob, remoteJob PtrT) (bool, error) {
 	changed := false
-	if a.elastic.WorkerReplicas != nil && a.elastic.SyncReplicas != nil &&
-		!maps.Equal(a.elastic.WorkerReplicas(remoteJob), a.elastic.WorkerReplicas(localJob)) {
-		if err := a.reverseSyncElastic(ctx, localClient, localJob, remoteJob); err != nil {
-			return false, err
+	if a.elastic.ReflectReplicas != nil {
+		if err := clientutil.Patch(ctx, localClient, localJob, func() (bool, error) {
+			changed = a.elastic.ReflectReplicas(localJob, remoteJob)
+			return changed, nil
+		}); err != nil {
+			return false, fmt.Errorf("failed to write back autoscaler-driven replicas to manager %s: %w", a.gvk.Kind, err)
 		}
-		changed = true
+		if !changed && a.elastic.WorkerReplicas != nil &&
+			!maps.Equal(a.elastic.WorkerReplicas(remoteJob), a.elastic.WorkerReplicas(localJob)) {
+			ctrl.LoggerFrom(ctx).V(2).Info("Remote worker replica counts were not reflected on the manager",
+				"kind", a.gvk.Kind, "name", localJob.GetName())
+		}
 	}
-	if a.elastic.FetchRuntimeWorkerState != nil && a.elastic.ApplyRuntimeWorkerState != nil {
+	if a.elastic.FetchRuntimeWorkerState != nil {
 		runtimeChanged, err := a.reverseSyncRuntime(ctx, localClient, remoteClient, localJob, remoteJob)
 		if err != nil {
 			return false, err
@@ -344,18 +386,6 @@ func (a *adapter[PtrT, T]) reverseSyncRuntime(ctx context.Context, localClient, 
 		return false, fmt.Errorf("failed to reflect runtime worker state on manager %s: %w", a.gvk.Kind, err)
 	}
 	return changed, nil
-}
-
-// reverseSyncElastic patches the manager object's worker replicas to match the
-// remote (worker) copy after an autoscaler-driven resize. It should only be
-// called when needReverseElasticSync returns true.
-func (a *adapter[PtrT, T]) reverseSyncElastic(ctx context.Context, localClient client.Client, localJob, remoteJob PtrT) error {
-	if err := clientutil.Patch(ctx, localClient, localJob, func() (bool, error) {
-		return a.elastic.SyncReplicas(localJob, remoteJob), nil
-	}); err != nil {
-		return fmt.Errorf("failed to write back autoscaler-driven replicas to manager %s: %w", a.gvk.Kind, err)
-	}
-	return nil
 }
 
 // syncElastic patches the remote object's worker replicas and prebuilt workload

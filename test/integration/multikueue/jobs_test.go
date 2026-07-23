@@ -19,7 +19,6 @@ package multikueue
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -82,6 +81,11 @@ import (
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
+
+// sliceStabilityWindow spans several reconcile cycles so slice churn (a
+// spurious replacement slice or a torn-down worker copy) has time to surface;
+// util.ConsistentDuration is too short for that.
+const sliceStabilityWindow = 10 * time.Second
 
 var defaultEnabledIntegrations = sets.New(
 	"batch/job", "kubeflow.org/mpijob", "ray.io/rayjob", "ray.io/raycluster",
@@ -1791,9 +1795,9 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		})
 	})
 
-	// Control group for the fixed-size autoscaling repro below: identical elastic
-	// RayCluster but WITHOUT enableInTreeAutoscaling. If this one stays stable while
-	// the autoscaling one churns, the trigger is autoscaling-specific.
+	// Control group for the fixed-size autoscaling stability test below: identical
+	// elastic RayCluster but WITHOUT enableInTreeAutoscaling. If this one stays
+	// stable while the autoscaling one churns, the trigger is autoscaling-specific.
 	ginkgo.It("Should keep an admitted elastic RayCluster without autoscaling (fixed-size control) stable", func() {
 		manager := managerTestCluster
 		worker2 := worker2TestCluster
@@ -1843,7 +1847,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				workerCluster := &rayv1.RayCluster{}
 				g.Expect(worker2.client.Get(worker2.ctx, client.ObjectKeyFromObject(raycluster), workerCluster)).To(gomega.Succeed())
 				g.Expect(ptr.Deref(workerCluster.Spec.Suspend, false)).To(gomega.BeFalse(), "the worker RayCluster must not get suspended")
-			}, 10*time.Second, util.Interval).Should(gomega.Succeed())
+			}, sliceStabilityWindow, util.Interval).Should(gomega.Succeed())
 		})
 	})
 
@@ -1909,7 +1913,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				workerCluster := &rayv1.RayCluster{}
 				g.Expect(worker2.client.Get(worker2.ctx, client.ObjectKeyFromObject(raycluster), workerCluster)).To(gomega.Succeed())
 				g.Expect(ptr.Deref(workerCluster.Spec.Suspend, false)).To(gomega.BeFalse(), "the worker RayCluster must not get suspended")
-			}, 10*time.Second, util.Interval).Should(gomega.Succeed())
+			}, sliceStabilityWindow, util.Interval).Should(gomega.Succeed())
 		})
 	})
 
@@ -1975,31 +1979,9 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		// Find the replacement slice the manager's slicing machinery created for the
-		// scaled-up size (the not-finished workload carrying the replacement
-		// annotation).
 		var newWlKey types.NamespacedName
 		ginkgo.By("the manager created a count-2 replacement slice", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				list := &kueue.WorkloadList{}
-				g.Expect(manager.client.List(manager.ctx, list, client.InNamespace(managerNs.Name))).To(gomega.Succeed())
-				found := false
-				for i := range list.Items {
-					w := &list.Items[i]
-					if workloadfinish.IsFinished(w) {
-						continue
-					}
-					if w.Annotations[workloadslicing.WorkloadSliceReplacementFor] == "" {
-						continue
-					}
-					if workload.ExtractPodSetCountsFromWorkload(w)["workers-group-0"] != 2 {
-						continue
-					}
-					newWlKey = client.ObjectKeyFromObject(w)
-					found = true
-				}
-				g.Expect(found).To(gomega.BeTrue(), "expected a not-finished count-2 replacement slice on the manager")
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			newWlKey = expectReplacementSlice(managerNs.Name, "workers-group-0", 2)
 		})
 
 		// The real scheduler is not running in this suite; admit the replacement
@@ -2100,7 +2082,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				g.Expect(worker2.client.Get(worker2.ctx, client.ObjectKeyFromObject(raycluster), rc)).To(gomega.Succeed(), "worker RayCluster must not be torn down on scale-down")
 				g.Expect(ptr.Deref(rc.Spec.Suspend, false)).To(gomega.BeFalse())
 				g.Expect(ptr.Deref(rc.Spec.WorkerGroupSpecs[0].Replicas, -1)).To(gomega.BeEquivalentTo(int32(1)))
-			}, 10*time.Second, util.Interval).Should(gomega.Succeed())
+			}, sliceStabilityWindow, util.Interval).Should(gomega.Succeed())
 		})
 	})
 
@@ -2156,14 +2138,14 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		var childGeneration int64
+		var childRevision string
 		ginkgo.By("simulating the Ray autoscaler on worker2: scale the child's workers-group-0 from 1 to 2", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				child := &rayv1.RayCluster{}
 				g.Expect(worker2.client.Get(worker2.ctx, childKey, child)).To(gomega.Succeed())
 				child.Spec.WorkerGroupSpecs[0].Replicas = ptr.To[int32](2)
 				g.Expect(worker2.client.Update(worker2.ctx, child)).To(gomega.Succeed())
-				childGeneration = child.Generation
+				childRevision = fmt.Sprintf("%s-%d", child.UID, child.Generation)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -2180,39 +2162,20 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("the child's counts and generation are reflected onto the manager RayJob as annotations", func() {
+		ginkgo.By("the child's counts and revision are reflected onto the manager RayJob as annotations", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				managerRayJob := &rayv1.RayJob{}
 				g.Expect(manager.client.Get(manager.ctx, client.ObjectKeyFromObject(rayjob), managerRayJob)).To(gomega.Succeed())
 				g.Expect(managerRayJob.Annotations[workloadraycluster.MultiKueueRuntimePodSetReplicaSizesAnnotation]).
 					To(gomega.Equal(`[{"name":"workers-group-0","count":2}]`))
 				g.Expect(managerRayJob.Annotations[workloadraycluster.RayClusterGenerationAnnotation]).
-					To(gomega.Equal(strconv.FormatInt(childGeneration, 10)))
+					To(gomega.Equal(childRevision))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		var newWlKey types.NamespacedName
 		ginkgo.By("the manager created a count-2 replacement slice", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				list := &kueue.WorkloadList{}
-				g.Expect(manager.client.List(manager.ctx, list, client.InNamespace(managerNs.Name))).To(gomega.Succeed())
-				found := false
-				for i := range list.Items {
-					w := &list.Items[i]
-					if workloadfinish.IsFinished(w) {
-						continue
-					}
-					if w.Annotations[workloadslicing.WorkloadSliceReplacementFor] == "" {
-						continue
-					}
-					if workload.ExtractPodSetCountsFromWorkload(w)["workers-group-0"] != 2 {
-						continue
-					}
-					newWlKey = client.ObjectKeyFromObject(w)
-					found = true
-				}
-				g.Expect(found).To(gomega.BeTrue(), "expected a not-finished count-2 replacement slice on the manager")
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			newWlKey = expectReplacementSlice(managerNs.Name, "workers-group-0", 2)
 		})
 
 		// The real scheduler is not running in this suite; admit the replacement
@@ -3065,6 +3028,31 @@ func waitForRemoteWorkloadToBeDeleted(workerCtx context.Context, workerClient cl
 		return fmt.Errorf("%s workload still exists and deletion has not started: uid=%s finalizers=%v deletionTimestamp=%v",
 			workerName, createdWorkload.UID, createdWorkload.Finalizers, createdWorkload.DeletionTimestamp)
 	}, timeout, util.Interval).Should(gomega.Succeed())
+}
+
+// expectReplacementSlice returns the key of the not-finished replacement slice
+// (the workload carrying the replacement annotation) whose given pod set
+// reached count on the manager.
+func expectReplacementSlice(ns string, podSet kueue.PodSetReference, count int32) types.NamespacedName {
+	ginkgo.GinkgoHelper()
+	var key types.NamespacedName
+	gomega.Eventually(func(g gomega.Gomega) {
+		list := &kueue.WorkloadList{}
+		g.Expect(managerTestCluster.client.List(managerTestCluster.ctx, list, client.InNamespace(ns))).To(gomega.Succeed())
+		found := false
+		for i := range list.Items {
+			w := &list.Items[i]
+			if workloadfinish.IsFinished(w) ||
+				w.Annotations[workloadslicing.WorkloadSliceReplacementFor] == "" ||
+				workload.ExtractPodSetCountsFromWorkload(w)[podSet] != count {
+				continue
+			}
+			key = client.ObjectKeyFromObject(w)
+			found = true
+		}
+		g.Expect(found).To(gomega.BeTrue(), "expected a not-finished replacement slice on the manager")
+	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	return key
 }
 
 func admitWorkloadAndCheckWorkerCopies(acName string, wlLookupKey types.NamespacedName, admission *utiltestingapi.AdmissionWrapper) {
