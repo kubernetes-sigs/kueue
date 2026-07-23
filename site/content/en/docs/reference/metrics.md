@@ -14,6 +14,14 @@ Kueue exposes [prometheus](https://prometheus.io) metrics to monitor the health
 of the system and the status of [ClusterQueues](/docs/concepts/cluster_queue)
 and [LocalQueues](/docs/concepts/local_queue).
 
+{{% alert title="Custom labels" color="primary" %}}
+The label sets below are the built-in defaults. With the `CustomMetricLabels`
+feature gate enabled, supported metrics can carry additional `custom_*` labels
+sourced from ClusterQueue, LocalQueue, Cohort, or Workload metadata. These are
+configured at runtime and are not shown in the generated tables. See
+[Configure Custom Metric Labels](/docs/tasks/manage/observability/configure_custom_metric_labels).
+{{% /alert %}}
+
 <!-- NOTE: Sections below contain tables generated from code. Do not edit content between BEGIN/END GENERATED TABLE markers. Use `make generate-metrics-tables` to update. -->
 
 ## Kueue health

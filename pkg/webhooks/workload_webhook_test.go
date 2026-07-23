@@ -23,6 +23,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
@@ -106,6 +107,153 @@ func TestValidateWorkload(t *testing.T) {
 				field.Invalid(firstPodSetSpecPath.Child("initContainers").Index(0).Child("resources", "requests").Key(string(corev1.ResourcePods)), nil, ""),
 				field.Invalid(firstPodSetSpecPath.Child("containers").Index(0).Child("resources", "requests").Key(string(corev1.ResourcePods)), nil, ""),
 			}.ToAggregate(),
+		},
+		"should reject reserved pods resource key in limits": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("bad", 1).
+						InitContainers(corev1.Container{
+							Resources: corev1.ResourceRequirements{
+								Limits: corev1.ResourceList{
+									corev1.ResourcePods: resource.MustParse("1"),
+								},
+							},
+						}).
+						Containers(corev1.Container{
+							Resources: corev1.ResourceRequirements{
+								Limits: corev1.ResourceList{
+									corev1.ResourcePods: resource.MustParse("1"),
+								},
+							},
+						}).
+						Obj(),
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(firstPodSetSpecPath.Child("initContainers").Index(0).Child("resources", "limits").Key(string(corev1.ResourcePods)), nil, ""),
+				field.Invalid(firstPodSetSpecPath.Child("containers").Index(0).Child("resources", "limits").Key(string(corev1.ResourcePods)), nil, ""),
+			}.ToAggregate(),
+		},
+		"should reject negative container resource request": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("bad", 1).
+						Containers(utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
+							corev1.ResourceCPU: "-1",
+						})...).
+						Obj(),
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(firstPodSetSpecPath.Child("containers").Index(0).Child("resources", "requests").Key(string(corev1.ResourceCPU)), nil, ""),
+			}.ToAggregate(),
+		},
+		"should reject negative initContainer resource request": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("bad", 1).
+						InitContainers(utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
+							corev1.ResourceCPU: "-1",
+						})...).
+						Obj(),
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(firstPodSetSpecPath.Child("initContainers").Index(0).Child("resources", "requests").Key(string(corev1.ResourceCPU)), nil, ""),
+			}.ToAggregate(),
+		},
+		"should reject negative container resource limit": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("bad", 1).
+						Containers(corev1.Container{
+							Resources: corev1.ResourceRequirements{
+								Limits: corev1.ResourceList{
+									corev1.ResourceCPU: resource.MustParse("-1"),
+								},
+							},
+						}).
+						Obj(),
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(firstPodSetSpecPath.Child("containers").Index(0).Child("resources", "limits").Key(string(corev1.ResourceCPU)), nil, ""),
+			}.ToAggregate(),
+		},
+		"should reject negative resource among multiple valid requests and limits": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("bad", 1).
+						Containers(corev1.Container{
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("1"),
+									corev1.ResourceMemory: resource.MustParse("-1Gi"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("2"),
+									corev1.ResourceMemory: resource.MustParse("-2Gi"),
+								},
+							},
+						}).
+						Obj(),
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(firstPodSetSpecPath.Child("containers").Index(0).Child("resources", "requests").Key(string(corev1.ResourceMemory)), nil, ""),
+				field.Invalid(firstPodSetSpecPath.Child("containers").Index(0).Child("resources", "limits").Key(string(corev1.ResourceMemory)), nil, ""),
+			}.ToAggregate(),
+		},
+		"should reject negative pod-level resource request": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("bad", 1).
+						PodLevelRequest(corev1.ResourceCPU, "-1").
+						Obj(),
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(firstPodSetSpecPath.Child("resources", "requests").Key(string(corev1.ResourceCPU)), nil, ""),
+			}.ToAggregate(),
+		},
+		"should reject negative pod-level resource limit": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("bad", 1).
+						PodLevelLimit(corev1.ResourceMemory, "-1Gi").
+						Obj(),
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(firstPodSetSpecPath.Child("resources", "limits").Key(string(corev1.ResourceMemory)), nil, ""),
+			}.ToAggregate(),
+		},
+		"should accept negative container resource request when WorkloadValidateResourcesAreNonNegative is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadValidateResourcesAreNonNegative: false,
+			},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("ok", 1).
+						Containers(utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
+							corev1.ResourceCPU: "-1",
+						})...).
+						Obj(),
+				).
+				Obj(),
+			wantErr: nil,
+		},
+		"should accept zero container resource request": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("ok", 1).
+						Containers(utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
+							corev1.ResourceCPU: "0",
+						})...).
+						Obj(),
+				).
+				Obj(),
+			wantErr: nil,
 		},
 		"empty podSetUpdates": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).AdmissionChecks(kueue.AdmissionCheckState{}).Obj(),

@@ -161,6 +161,28 @@ func TestNewInfo(t *testing.T) {
 				},
 			},
 		},
+		"negative request floored to zero in total requests": {
+			workload: *utiltestingapi.MakeWorkload("", "").
+				PodSets(
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+						Request(corev1.ResourceCPU, "-10m").
+						Request(corev1.ResourceMemory, "512Ki").
+						Obj(),
+				).
+				Obj(),
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name: kueue.DefaultPodSetName,
+						Requests: resources.MapRequests{
+							corev1.ResourceCPU:    0,
+							corev1.ResourceMemory: 2 * 512 * 1024,
+						},
+						Count: 2,
+					},
+				},
+			},
+		},
 		"pending with reclaim; reclaimablePods on": {
 			workload: *utiltestingapi.MakeWorkload("", "").
 				PodSets(
@@ -349,12 +371,12 @@ func TestNewInfo(t *testing.T) {
 							Levels: []string{corev1.LabelHostname},
 							DomainRequests: []TopologyDomainRequests{{
 								Values: []string{"node-a"},
-								SinglePodRequests: resources.MapRequests{
+								SinglePodRequests: resources.NewRequestsFromMap(resources.MapRequests{
 									corev1.ResourceCPU:           1000,
 									corev1.ResourceMemory:        1024 * 1024 * 1024,
 									"example.com/gpu":            1,
 									"networking.example.com/vpc": 1,
-								},
+								}),
 								Count: 2,
 							}},
 						},
@@ -738,7 +760,8 @@ func TestNewInfo(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, fg, enabled)
 			}
 			info := NewInfo(&tc.workload, tc.infoOptions...)
-			if diff := cmp.Diff(info, &tc.wantInfo, cmpopts.IgnoreFields(Info{}, "Obj", "SchedulingHash")); diff != "" {
+			if diff := cmp.Diff(info, &tc.wantInfo, cmpopts.IgnoreFields(Info{}, "Obj", "SchedulingHash"),
+				cmp.Transformer("requestsToMap", resources.ToMapRequests)); diff != "" {
 				t.Errorf("NewInfo(_) = (-want,+got):\n%s", diff)
 			}
 		})

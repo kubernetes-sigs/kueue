@@ -18,6 +18,7 @@ package resources
 
 import (
 	"encoding/json"
+	"maps"
 	"math"
 	"testing"
 
@@ -498,12 +499,16 @@ func TestLazyRequests(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			var originalBase Requests
+			var base Requests
 			if tc.base != nil {
-				originalBase = tc.base.Clone()
+				base = NewRequestsFromMap(tc.base)
+			}
+			var originalBase Requests
+			if base != nil {
+				originalBase = base.Clone()
 			}
 
-			lazy := NewLazyRequests(tc.base)
+			lazy := NewLazyRequests(base)
 
 			if tc.op != nil {
 				tc.op(&lazy)
@@ -517,14 +522,87 @@ func TestLazyRequests(t *testing.T) {
 				t.Errorf("expected cachedCreated=%t, got cached=%v", tc.wantCachedCreated, lazy.cached)
 			}
 
-			gotResult := lazy.Get()
-			if !cmp.Equal(gotResult, tc.wantResult) {
-				t.Errorf("unexpected Get() result, diff (-got +want):\n%s", cmp.Diff(gotResult, tc.wantResult))
+			gotResult := ToMapRequests(lazy.Get())
+			wantResult := tc.wantResult
+			if diff := cmp.Diff(wantResult, gotResult); diff != "" {
+				t.Errorf("unexpected Get() result, diff (-want +got):\n%s", diff)
 			}
 
-			if tc.base != nil && !cmp.Equal(tc.base, originalBase) {
-				t.Errorf("base map was mutated! diff (-got +want):\n%s", cmp.Diff(tc.base, originalBase))
+			if base != nil {
+				if diff := cmp.Diff(ToMapRequests(originalBase), ToMapRequests(base)); diff != "" {
+					t.Errorf("base map was mutated! diff (-want +got):\n%s", diff)
+				}
 			}
+		})
+	}
+}
+
+func TestFloorToZero(t *testing.T) {
+	cases := map[string]struct {
+		requests MapRequests
+		want     MapRequests
+	}{
+		"empty": {
+			requests: MapRequests{},
+			want:     MapRequests{},
+		},
+		"negative floored to zero": {
+			requests: MapRequests{
+				corev1.ResourceCPU:    -100,
+				corev1.ResourceMemory: 1024,
+			},
+			want: MapRequests{
+				corev1.ResourceCPU:    0,
+				corev1.ResourceMemory: 1024,
+			},
+		},
+		"zero and positive unchanged": {
+			requests: MapRequests{
+				corev1.ResourceCPU:    0,
+				corev1.ResourceMemory: 1024,
+			},
+			want: MapRequests{
+				corev1.ResourceCPU:    0,
+				corev1.ResourceMemory: 1024,
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run("MapRequests/"+name, func(t *testing.T) {
+			requests := maps.Clone(tc.requests)
+			var r Requests = requests
+			r.FloorToZero()
+			if diff := cmp.Diff(tc.want, requests); diff != "" {
+				t.Errorf("unexpected result (-want +got):\n%s", diff)
+			}
+		})
+		t.Run("SliceRequests/"+name, func(t *testing.T) {
+			r := NewSliceRequests(tc.requests)
+			if r == nil {
+				// NewSliceRequests returns nil for empty/all-zero maps.
+				r = &SliceRequests{}
+			}
+			r.FloorToZero()
+			// SliceRequests omits zero values on conversion; compare non-zero
+			// entries and assert no negatives remain.
+			got := ToMapRequests(r)
+			want := MapRequests{}
+			for k, v := range tc.want {
+				if v != 0 {
+					want[k] = v
+				}
+			}
+			if len(want) == 0 {
+				want = nil
+			}
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Errorf("unexpected result (-want +got):\n%s", diff)
+			}
+			r.ForEach(func(_ corev1.ResourceName, val int64) {
+				if val < 0 {
+					t.Errorf("negative value %d remains after FloorToZero", val)
+				}
+			})
 		})
 	}
 }

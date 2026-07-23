@@ -524,6 +524,17 @@ const (
 	// Enable integration of the https://github.com/kubernetes-sigs/scheduler-library.
 	SchedulerLibraryIntegration featuregate.Feature = "SchedulerLibraryIntegration"
 
+	// owner: @j-skiba
+	//
+	// VectorizedResourceRequests enables slice-based indexing for resource requests in TAS snapshots,
+	// replacing map lookups for higher performance during scheduling and preemption.
+	VectorizedResourceRequests featuregate.Feature = "VectorizedResourceRequests"
+
+	// owner: @vladikkuzn
+	//
+	// Rejects Workloads with negative container or pod-level resource requests/limits.
+	WorkloadValidateResourcesAreNonNegative featuregate.Feature = "WorkloadValidateResourcesAreNonNegative"
+
 	// owner: @pajakd
 	//
 	// When reclaiming nominal quota in Hierarchical Fair Sharing, prefer
@@ -696,7 +707,8 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.20
 	},
 	TLSOptions: {
-		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.20 (https://github.com/kubernetes-sigs/kueue/issues/10704)
+		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta},                    // GA in 0.20
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.22
 	},
 	RemoveFinalizersWithStrictPatch: {
 		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
@@ -814,8 +826,16 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
+	VectorizedResourceRequests: {
+		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	WorkloadValidateResourcesAreNonNegative: {
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+
 	PreferCloseCandidatesInHFSReclamation: {
-		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 

@@ -32,19 +32,6 @@ type Requests interface {
 	ForEach(fn func(name corev1.ResourceName, val int64))
 	Len() int
 	IsEmpty() bool
-}
-
-// NewRequestsFromMap creates a Requests instance from a MapRequests map.
-func NewRequestsFromMap(m MapRequests) Requests {
-	return m
-}
-
-// NewRequestsFromResourceList creates a Requests instance from a ResourceList.
-func NewRequestsFromResourceList(rl corev1.ResourceList) Requests {
-	return NewMapRequests(rl)
-}
-
-// NewRequestsFromPodSpec creates a Requests instance from a PodSpec.
-func NewRequestsFromPodSpec(podSpec *corev1.PodSpec) Requests {
-	return NewMapRequestsFromPodSpec(podSpec)
+	// FloorToZero replaces negative resource values with zero.
+	FloorToZero()
 }

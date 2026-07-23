@@ -233,7 +233,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install Crane
-        uses: imjasonh/setup-crane@v0.7
+        uses: imjasonh/setup-crane@feee3b6bb0d4c68370f256a4502498c9227e5c6b # v0.7
 
       - name: Run Wait for Images Script
         env:
@@ -571,6 +571,18 @@ jobs:
             exit 1
           fi
 
-          if [ "$COMMAND" != "create-release-candidate" ]; then
-            gh issue comment "$ISSUE_NUMBER" --body "✅ Release \`$VERSION\` has been successfully published."
+          # Construct the release URL and inject it into the issue body.
+          RELEASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/tag/${VERSION}"
+          CURRENT_BODY=$(gh issue view "$ISSUE_NUMBER" --json body -q .body)
+          UPDATED_BODY=$(printf '%s' "$CURRENT_BODY" | sed "s|<!-- RELEASE_LINK -->|${RELEASE_URL}|")
+          if [ "$CURRENT_BODY" != "$UPDATED_BODY" ]; then
+            gh issue edit "$ISSUE_NUMBER" --body "$UPDATED_BODY"
           fi
+
+          BODY="$(cat <<EOF
+          ✅ Release \`$VERSION\` has been successfully published.
+          Link: ${RELEASE_URL}
+          EOF
+          )"
+          echo "$BODY"
+          gh issue comment "$ISSUE_NUMBER" --body "$BODY"

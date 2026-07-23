@@ -68,7 +68,7 @@ RAYMINI_VERSION ?= 0.0.4
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
 BASE_IMAGE ?= gcr.io/distroless/static:nonroot@sha256:963fa6c544fe5ce420f1f54fb88b6fb01479f054c8056d0f74cc2c6000df5240
 BASE_BUILDER_IMAGE ?= golang
-BUILDER_IMAGE ?= $(BASE_BUILDER_IMAGE):$(GO_VERSION)@sha256:32c0e6e5c4f6707717051091b4d0b077464a679eaab563e11474efc5328e2aa5
+BUILDER_IMAGE ?= $(BASE_BUILDER_IMAGE):$(GO_VERSION)@sha256:3aff6657219a4d9c14e27fb1d8976c49c29fddb70ba835014f477e1c70636647
 CGO_ENABLED ?= 0
 
 YAML_PROCESSOR_LOG_LEVEL ?= info
@@ -110,7 +110,7 @@ LD_FLAGS += -X '$(version_pkg).BuildDate=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)'
 
 # Update these variables when preparing a new release or a release branch.
 # Then run `make prepare-release-branch`
-RELEASE_VERSION=v0.18.3
+RELEASE_VERSION=v0.19.0
 RELEASE_BRANCH=main
 # Application version for Helm and npm (strips leading 'v' from RELEASE_VERSION)
 APP_VERSION := $(shell echo $(RELEASE_VERSION) | cut -c2-)

@@ -27,10 +27,6 @@ func isEmpty(requests Requests) bool {
 	return requests == nil || requests.IsEmpty()
 }
 
-func CreateEmpty() Requests {
-	return MapRequests{}
-}
-
 func NewLazyRequests(base Requests) LazyRequests {
 	return LazyRequests{base: base}
 }

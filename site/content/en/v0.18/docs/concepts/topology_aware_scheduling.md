@@ -173,13 +173,21 @@ You can disable it by editing the `TASReplaceNodeOnPodTermination` feature gate.
 for instructions on configuring feature gates.
 {{% /alert %}}
 
-By default, the node is assumed to have failed if its `conditions.Status.Ready`
-is not `True` for at least 30 seconds or if the node is missing (removed from the cluster).
-Since Kueue v0.13, the `TASReplaceNodeOnPodTermination` feature, introduced an additional heuristic:
-a node is also considered failed if it is `NotReady` and the workload's Pods scheduled on that node are either terminated or terminating.
-If this happens Kueue will immediately look for replacement without waiting 30 seconds.
+By default, the node is assumed to have failed if it is missing (removed from the
+cluster), or if its `conditions.Status.Ready` is not `True` and the workload's Pods
+scheduled on that node are either terminated or terminating. A node with
+still-running Pods is not considered failed, no matter how long its
+`conditions.Status.Ready` has not been `True`: nodes can recover after an arbitrary
+amount of time, and reassigning while the Pods are alive makes the stored assignment
+diverge from where the Pods actually run.
 
-Note that those two heuristics are mutually exclusive and depend on the value of the `TASReplaceNodeOnPodTermination` feature gate.
+Before v0.19, a node was additionally assumed to have failed once its
+`conditions.Status.Ready` was not `True` for at least 30 seconds, regardless of Pod
+state. This fixed-time marking is deprecated: it remains available behind the
+`TASReplaceNodeDueToNotReadyOverFixedTime` feature gate (enabled by default in
+v0.17–v0.18, disabled by default and deprecated since v0.19) and is planned for
+removal. Disabling `TASReplaceNodeOnPodTermination` retains the pre-v0.14 behavior of
+marking the node after the fixed time regardless of Pod state.
 
 Note that finding a replacement node that meets all the requirements (e.g. the same type of machine placed in the rack that Kueue had previously assigned to the workload) may not always be possible.
 If a workload is big enough to cover the whole topology domain (e.g. block or rack) it's inevitable that there will be no replacement within the same domain.
@@ -198,6 +206,45 @@ for instructions on configuring feature gates.
 {{% /alert %}}
 
 By default, Kueue tries to find a replacement for a failed node until it succeeds or until the workload is evicted (for example, by `waitForPodsReady.recoveryTimeout`). To prevent Kueue from retrying indefinitely, you can enable the `TASFailedNodeReplacementFailFast` feature gate. When enabled, Kueue will only attempt to find a replacement node once. If it fails, it will not try again, and the workload will get evicted and requeued.
+
+#### Skip reassignment for Workloads owned by a single Pod
+{{< feature-state state="alpha" for_version="v0.18" >}}
+{{% alert title="Note" color="primary" %}}
+`SkipReassignmentForPodOwnedWorkloads` is an alpha feature, disabled by default in v0.18.
+
+You can disable it by editing the `SkipReassignmentForPodOwnedWorkloads` feature gate. Refer to the
+[Installation guide](/v0.18/docs/installation/#change-the-feature-gates-configuration)
+for instructions on configuring feature gates.
+{{% /alert %}}
+
+Node replacement assumes that the workload's controller re-creates pods within the
+same Workload (as Job, JobSet or LeaderWorkerSet do), so that the re-created pods can
+follow the updated topology assignment. A Workload owned by a single Pod — bare pods
+and, for example, Deployment replicas managed through the
+[pod integration](/v0.18/docs/tasks/run/plain_pods/) — does not have this property: the
+Workload is deleted together with its pod, so no future pod can consume a replacement
+assignment. Replacing a node for such a Workload only makes its stored assignment
+diverge from the node its still-running pod occupies, which corrupts the per-node
+capacity accounting: the pod's real node is treated as free and gets over-admitted,
+while the replacement node is blocked for other admissions.
+
+With the `SkipReassignmentForPodOwnedWorkloads` feature gate enabled, Kueue keeps the
+existing topology assignment of a Workload owned by exactly one Pod instead of
+computing a replacement. The failed node is still tracked in
+`.status.unhealthyNodes` and the field is cleared on the next successful scheduling
+pass. Recovery happens through the pod lifecycle: when the pod terminates, its owning
+controller (for example a ReplicaSet) creates a new pod, which arrives as a new
+Workload and is admitted with a fresh assignment. Workloads with any other owner,
+including pod groups (which can receive user-created replacement pods into the same
+Workload), keep the replacement behavior described above.
+
+The gate also covers the eviction requeue path. Without it, a pod-owned Workload
+evicted by preemption is requeued and re-admitted with a freshly computed
+assignment while its pod is still draining the termination grace period on the
+original node — an assignment no pod can consume, blocking the newly assigned
+node's capacity for the full grace period. With the gate enabled, evicted pod-owned
+Workloads get `Requeued=False` instead: the Workload finishes with its pod, and the
+owning controller's replacement pod arrives as a new Workload.
 
 #### Usage Scenarios
 
@@ -239,10 +286,21 @@ The following table summarizes the behavior based on the combination of the feat
 | `FNR` | `RNO` | `FNFF` | End Behavior |
 | :---- | :---- | :---- | :----------- |
 | `false` | *any* | *any* | **Hot swap is disabled.**<br>Workloads will not have failed nodes replaced and may get stuck. |
-| `true` | `false` | `false` | **Default Hot Swap**<ul><li>**Trigger**: Node is `NotReady` for > 30 seconds.</li><li>**Behavior**: Retries replacement until it succeeds or the workload is evicted.</li></ul> |
-| `true` | `true` | `false` | **Hot Swap with Pod Termination Trigger**<ul><li>**Trigger**: Node is `NotReady` for > 30s, OR a workload pod is terminating.</li><li>**Behavior**: Retries replacement until it succeeds or the workload is evicted.</li></ul> |
-| `true` | `false` | `true` | **Fast Hot Swap**<ul><li>**Trigger**: Node is `NotReady` for > 30 seconds.</li><li>**Behavior**: Attempts replacement **only once**. Evicts the workload if it fails.</li></ul> |
-| `true` | `true` | `true` | **Fast Hot Swap with Pod Termination Trigger**<ul><li>**Trigger**: Node is `NotReady`, AND a workload pod is terminating.</li><li>**Behavior**: Attempts replacement **only once**. Evicts the workload if it fails.</li></ul> |
+| `true` | *any* | `false` | **Default Hot Swap**<ul><li>**Trigger**: Node is `NotReady` AND its workload pods are terminating or terminated.</li><li>**Behavior**: Retries replacement until it succeeds or the workload is evicted.</li></ul> |
+| `true` | *any* | `true` | **Fast Hot Swap**<ul><li>**Trigger**: Node is `NotReady` AND its workload pods are terminating or terminated.</li><li>**Behavior**: Attempts replacement **only once**. Evicts the workload if it fails.</li></ul> |
+
+With the deprecated `TASReplaceNodeDueToNotReadyOverFixedTime` gate enabled, the
+not-ready trigger depends on `TASReplaceNodeOnPodTermination` (`RNO`):
+- `RNO` enabled: the node is treated as failed when its workload Pods are terminating
+  or terminated, or after 30 seconds of `NotReady`, whichever comes first.
+- `RNO` disabled: the node is treated as failed only after 30 seconds of `NotReady`
+  (the pre-v0.14 behavior), regardless of Pod state.
+
+With the gate disabled (the default since v0.19), Pod termination is the only
+not-ready trigger while `RNO` remains enabled (its default); disabling `RNO`
+retains the fixed-time marking. Nodes that are deleted or lack a `Ready`
+condition are treated as failed immediately in all configurations. To disable node
+replacement entirely, use the `TASFailedNodeReplacement` feature gate instead.
 
 **Recommended configuration**
 
