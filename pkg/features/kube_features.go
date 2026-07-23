@@ -24,7 +24,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/version"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/component-base/featuregate"
-	featuregatetesting "k8s.io/component-base/featuregate/testing"
 )
 
 const (
@@ -542,21 +541,21 @@ func init() {
 }
 
 var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Feature{
-	TASFailedNodeReplacement:                   {TopologyAwareScheduling},
-	TASFailedNodeReplacementFailFast:           {TopologyAwareScheduling, TASFailedNodeReplacement},
-	TASReplaceNodeOnPodTermination:             {TopologyAwareScheduling, TASFailedNodeReplacement},
-	TASReplaceNodeDueToNotReadyOverFixedTime:   {TopologyAwareScheduling, TASFailedNodeReplacement},
-	TASBalancedPlacement:                       {TopologyAwareScheduling},
-	TASReplaceNodeOnNodeTaints:                 {TopologyAwareScheduling},
-	TASMultiLayerTopology:                      {TopologyAwareScheduling},
-	TASRespectNodeAffinityPreferred:            {TopologyAwareScheduling},
-	UnadmittedWorkloadsExplicitStatus:          {UnadmittedWorkloadsObservability},
-	TASHandleOverlappingFlavors:                {TopologyAwareScheduling},
-	TASProfileMixed:                            {TopologyAwareScheduling},
-	ElasticJobsViaWorkloadSlicesWithTAS:        {ElasticJobsViaWorkloadSlices, TopologyAwareScheduling},
-	KueueDRAIntegrationExtendedResource:        {KueueDRAIntegration},
-	KueueDRAIntegrationPartitionableDevices:    {KueueDRAIntegration},
-	KueueDRAIntegrationConsumableCapacity:      {KueueDRAIntegration},
+	TASFailedNodeReplacement:                 {TopologyAwareScheduling},
+	TASFailedNodeReplacementFailFast:         {TopologyAwareScheduling, TASFailedNodeReplacement},
+	TASReplaceNodeOnPodTermination:           {TopologyAwareScheduling, TASFailedNodeReplacement},
+	TASReplaceNodeDueToNotReadyOverFixedTime: {TopologyAwareScheduling, TASFailedNodeReplacement},
+	TASBalancedPlacement:                     {TopologyAwareScheduling},
+	TASReplaceNodeOnNodeTaints:               {TopologyAwareScheduling},
+	TASMultiLayerTopology:                    {TopologyAwareScheduling},
+	TASRespectNodeAffinityPreferred:          {TopologyAwareScheduling},
+	UnadmittedWorkloadsExplicitStatus:        {UnadmittedWorkloadsObservability},
+	TASHandleOverlappingFlavors:              {TopologyAwareScheduling},
+	TASProfileMixed:                          {TopologyAwareScheduling},
+	ElasticJobsViaWorkloadSlicesWithTAS:      {ElasticJobsViaWorkloadSlices, TopologyAwareScheduling},
+	KueueDRAIntegrationExtendedResource:      {KueueDRAIntegration},
+	KueueDRAIntegrationPartitionableDevices:  {KueueDRAIntegration},
+	KueueDRAIntegrationConsumableCapacity:    {KueueDRAIntegration},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.
@@ -848,7 +847,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) {
-	featuregatetesting.SetFeatureGateDuringTest(tb, utilfeature.DefaultFeatureGate, f, value)
+	SetFeatureGatesDuringTest(tb, map[featuregate.Feature]bool{f: value})
 }
 
 func SetFeatureGatesDuringTest(tb testing.TB, featureGates map[featuregate.Feature]bool) {

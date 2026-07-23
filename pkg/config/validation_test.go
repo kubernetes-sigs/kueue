@@ -1806,7 +1806,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 	cases := map[string]struct {
 		featureGatesCLI string
 		featureGateMap  map[string]bool
-				wantErr         field.ErrorList
+		wantErr         field.ErrorList
 	}{
 		"no feature gates is null": {
 			featureGatesCLI: "",
@@ -1931,8 +1931,8 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  "featureGates",
+					Type:  field.ErrorTypeInvalid,
+					Field: "featureGates",
 				},
 			},
 		},
@@ -2102,8 +2102,8 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  "featureGates",
+					Type:  field.ErrorTypeInvalid,
+					Field: "featureGates",
 				},
 			},
 		},
@@ -2120,8 +2120,8 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  "featureGates",
+					Type:  field.ErrorTypeInvalid,
+					Field: "featureGates",
 				},
 			},
 		},
@@ -2140,13 +2140,13 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		},
 		"KueueDRAIntegrationExtendedResource requires KueueDRAIntegration": {
 			featureGateMap: map[string]bool{
-				string(features.KueueDRAIntegrationExtendedResource):     true,
-				string(features.KueueDRAIntegration):                     false,
+				string(features.KueueDRAIntegrationExtendedResource): true,
+				string(features.KueueDRAIntegration):                 false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  "featureGates",
+					Type:  field.ErrorTypeInvalid,
+					Field: "featureGates",
 				},
 			},
 		},
@@ -2157,20 +2157,20 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  "featureGates",
+					Type:  field.ErrorTypeInvalid,
+					Field: "featureGates",
 				},
 			},
 		},
 		"KueueDRAIntegrationConsumableCapacity requires KueueDRAIntegration": {
 			featureGateMap: map[string]bool{
-				string(features.KueueDRAIntegrationConsumableCapacity):   true,
-				string(features.KueueDRAIntegration):                     false,
+				string(features.KueueDRAIntegrationConsumableCapacity): true,
+				string(features.KueueDRAIntegration):                   false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  "featureGates",
+					Type:  field.ErrorTypeInvalid,
+					Field: "featureGates",
 				},
 			},
 		},

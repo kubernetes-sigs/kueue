@@ -666,7 +666,6 @@ func LoadAndValidateFeatureGates(featureGateCLI string, featureGateMap map[strin
 		allErrs = append(allErrs, field.Invalid(featureGatesPath, enabledProfilesCount, "cannot use a TAS profile with TAS disabled"))
 	}
 
-
 	return allErrs
 }
 
