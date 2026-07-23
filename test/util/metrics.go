@@ -153,6 +153,16 @@ func ExpectAdmissionChecksWaitTimeMetric(cq *kueue.ClusterQueue, priorityClass s
 	expectHistogramMetric(metrics.AdmissionChecksWaitTime, gomega.Equal(count), cq.Name, priorityClass, roletracker.RoleStandalone)
 }
 
+func ExpectExecutionTimeMetric(cq *kueue.ClusterQueue, priorityClass string, count int) {
+	ginkgo.GinkgoHelper()
+	expectHistogramMetric(metrics.ExecutionTimeSeconds, gomega.Equal(count), cq.Name, priorityClass, roletracker.RoleStandalone)
+}
+
+func ExpectLQExecutionTimeMetric(lq *kueue.LocalQueue, priorityClass string, count int) {
+	ginkgo.GinkgoHelper()
+	expectHistogramMetric(metrics.LocalQueueExecutionTimeSeconds, gomega.Equal(count), lq.Name, lq.Namespace, priorityClass, roletracker.RoleStandalone)
+}
+
 func ExpectLQAdmissionChecksWaitTimeMetric(lq *kueue.LocalQueue, priorityClass string, count int) {
 	ginkgo.GinkgoHelper()
 	expectHistogramMetric(metrics.LocalQueueAdmissionChecksWaitTime, gomega.Equal(count), lq.Name, lq.Namespace, priorityClass, roletracker.RoleStandalone)

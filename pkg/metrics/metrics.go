@@ -128,6 +128,14 @@ var (
 
 	// +metricsdoc:group=clusterqueue
 	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",priority_class="the priority class name",replica_role="one of `leader`, `follower`, or `standalone`"
+	ExecutionTimeSeconds *prometheus.HistogramVec
+
+	// +metricsdoc:group=localqueue
+	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",priority_class="the priority class name",replica_role="one of `leader`, `follower`, or `standalone`"
+	LocalQueueExecutionTimeSeconds *prometheus.HistogramVec
+
+	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",priority_class="the priority class name",replica_role="one of `leader`, `follower`, or `standalone`"
 	QuotaReservedWaitTime *prometheus.HistogramVec
 
 	// +metricsdoc:group=clusterqueue
@@ -479,6 +487,24 @@ The label 'result' can have the following values:
 			Subsystem: constants.KueueName,
 			Name:      "local_queue_finished_workloads_total",
 			Help:      "The total number of finished workloads per 'local_queue'",
+		}, append([]string{"name", "namespace", "priority_class", "replica_role"}, localQueueMetricsLabels...),
+	)
+
+	ExecutionTimeSeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: constants.KueueName,
+			Name:      "execution_time_seconds",
+			Help:      "The total execution time of a finished admitted workload (from first admission to completion, including time across evict/readmit cycles), per 'cluster_queue'",
+			Buckets:   generateExponentialBuckets(16),
+		}, append([]string{"cluster_queue", "priority_class", "replica_role"}, clusterQueueMetricsLabels...),
+	)
+
+	LocalQueueExecutionTimeSeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: constants.KueueName,
+			Name:      "local_queue_execution_time_seconds",
+			Help:      "The total execution time of a finished admitted workload (from first admission to completion, including time across evict/readmit cycles), per 'local_queue'",
+			Buckets:   generateExponentialBuckets(16),
 		}, append([]string{"name", "namespace", "priority_class", "replica_role"}, localQueueMetricsLabels...),
 	)
 
@@ -1026,6 +1052,22 @@ func IncrementLocalQueueFinishedWorkloadTotal(lq LocalQueueReference, priorityCl
 	LocalQueueFinishedWorkloadsTotal.WithLabelValues(labels...).Inc()
 }
 
+// ReportExecutionTime records the total execution time of a finished workload
+// for the given ClusterQueue, priority class, and workload role.
+func ReportExecutionTime(cqName kueue.ClusterQueueReference, priorityClass string, duration time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cqName), priorityClass, roletracker.GetRole(tracker)}, customLabelValues...)
+	seconds := max(0, duration.Seconds())
+	ExecutionTimeSeconds.WithLabelValues(labels...).Observe(seconds)
+}
+
+// ReportLocalQueueExecutionTime records the total execution time of a finished workload
+// for the given LocalQueue, priority class, and workload role.
+func ReportLocalQueueExecutionTime(lq LocalQueueReference, priorityClass string, duration time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(lq.Name), lq.Namespace, priorityClass, roletracker.GetRole(tracker)}, customLabelValues...)
+	seconds := max(0, duration.Seconds())
+	LocalQueueExecutionTimeSeconds.WithLabelValues(labels...).Observe(seconds)
+}
+
 // ReportFinishedWorkloads sets the current total number of finished workloads
 // for the given ClusterQueue and workload role (gauge).
 func ReportFinishedWorkloads(cqName kueue.ClusterQueueReference, count int, customLabelValues []string, tracker *roletracker.RoleTracker) {
@@ -1147,6 +1189,7 @@ func ClearClusterQueueMetrics(cq kueue.ClusterQueueReference) {
 	QuotaReservedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	QuotaReservedWaitTime.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	FinishedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
+	ExecutionTimeSeconds.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	PodsReadyToEvictedTimeSeconds.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	AdmittedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	AdmissionWaitTime.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
@@ -1173,6 +1216,7 @@ func ClearLocalQueueMetrics(lq LocalQueueReference) {
 	LocalQueueQuotaReservedWorkloadsTotal.DeletePartialMatch(lbls)
 	LocalQueueQuotaReservedWaitTime.DeletePartialMatch(lbls)
 	LocalQueueFinishedWorkloadsTotal.DeletePartialMatch(lbls)
+	LocalQueueExecutionTimeSeconds.DeletePartialMatch(lbls)
 	LocalQueueAdmittedWorkloadsTotal.DeletePartialMatch(lbls)
 	LocalQueueAdmissionWaitTime.DeletePartialMatch(lbls)
 	LocalQueueAdmissionChecksWaitTime.DeletePartialMatch(lbls)
@@ -1491,6 +1535,7 @@ func Register() {
 		CohortSubtreeAdmittedActiveWorkloads,
 		PodSchedulingGateRemovalSeconds,
 		UnadmittedWorkloads,
+		ExecutionTimeSeconds,
 	)
 	if features.Enabled(features.MetricForWorkloadCreationLatency) {
 		metrics.Registry.MustRegister(WorkloadCreationLatency)
@@ -1520,6 +1565,7 @@ func RegisterLQMetrics() {
 		LocalQueueResourceUsage,
 		LocalQueueAdmissionFairSharingUsage,
 		LocalQueueUnadmittedWorkloads,
+		LocalQueueExecutionTimeSeconds,
 	)
 }
 

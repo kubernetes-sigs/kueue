@@ -1536,6 +1536,154 @@ var _ = ginkgo.Describe("Workload controller with resource retention", func() {
 				util.ExpectLQFinishedWorkloadsGaugeMetric(localQueue, 0)
 			})
 		})
+
+		ginkgo.It("should record execution time metric when workload finishes", func() {
+			var (
+				wl    *kueue.Workload
+				wlKey client.ObjectKey
+			)
+
+			ginkgo.By("creating a workload", func() {
+				wl = utiltestingapi.MakeWorkload("wl-exec-time", ns.Name).Queue("q").
+					Request(corev1.ResourceCPU, "1").Obj()
+				wlKey = client.ObjectKeyFromObject(wl)
+				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("simulating workload admission", func() {
+				admission := utiltestingapi.MakeAdmission("cq").Obj()
+				util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("marking workload as finished", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &createdWorkload)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(&createdWorkload)).To(gomega.BeTrue(), "workload must still be admitted when marking finished")
+					apimeta.SetStatusCondition(&createdWorkload.Status.Conditions, metav1.Condition{
+						Type:               kueue.WorkloadFinished,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+						Reason:             "Succeeded",
+						Message:            "Job finished successfully",
+					})
+					g.Expect(k8sClient.Status().Update(ctx, &createdWorkload)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying that execution time metric is recorded", func() {
+				util.ExpectExecutionTimeMetric(clusterQueue, "", 1)
+				util.ExpectLQExecutionTimeMetric(localQueue, "", 1)
+			})
+		})
+
+		ginkgo.It("should not record execution time metric when workload finishes without being admitted", func() {
+			var (
+				wl    *kueue.Workload
+				wlKey client.ObjectKey
+			)
+
+			ginkgo.By("creating a workload without admitting it", func() {
+				wl = utiltestingapi.MakeWorkload("wl-no-admit", ns.Name).Queue("q").
+					Request(corev1.ResourceCPU, "1").Obj()
+				wlKey = client.ObjectKeyFromObject(wl)
+				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("marking workload as finished directly", func() {
+				gomega.Expect(k8sClient.Get(ctx, wlKey, &createdWorkload)).To(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdWorkload.Status.Conditions = append(createdWorkload.Status.Conditions, metav1.Condition{
+						Type:               kueue.WorkloadFinished,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+						Reason:             "Failed",
+						Message:            "Job failed without admission",
+					})
+					g.Expect(k8sClient.Status().Update(ctx, &createdWorkload)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying that execution time metric is not recorded", func() {
+				util.ExpectExecutionTimeMetric(clusterQueue, "", 0)
+				util.ExpectLQExecutionTimeMetric(localQueue, "", 0)
+			})
+		})
+
+		ginkgo.It("should record cumulative execution time across evict/readmit cycles", func() {
+			var (
+				wl    *kueue.Workload
+				wlKey client.ObjectKey
+			)
+
+			ginkgo.By("creating and admitting a workload", func() {
+				wl = utiltestingapi.MakeWorkload("wl-evict-readmit", ns.Name).Queue("q").
+					Request(corev1.ResourceCPU, "1").Obj()
+				wlKey = client.ObjectKeyFromObject(wl)
+				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+				admission := utiltestingapi.MakeAdmission("cq").Obj()
+				util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+			})
+
+			ginkgo.By("waiting for the workload to be admitted, and for the time to change the second", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
+				gomega.Expect(admittedCond).NotTo(gomega.BeNil())
+				time.Sleep(time.Until(admittedCond.LastTransitionTime.Add(time.Second)))
+			})
+
+			ginkgo.By("evicting the workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+					g.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, wl, util.RealClock, func(wl *kueue.Workload) (bool, error) {
+						return workloadevict.SetEvictedCondition(wl, util.RealClock.Now(), "ByTest", "by test"), nil
+					})).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.FinishEvictionForWorkloads(ctx, k8sClient, wl)
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(wl)).To(gomega.BeFalse())
+					g.Expect(ptr.Deref(wl.Status.AccumulatedPastExecutionTimeSeconds, 0)).To(gomega.BeNumerically(">", int32(0)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("readmitting the workload", func() {
+				admission := utiltestingapi.MakeAdmission("cq").Obj()
+				util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("marking workload as finished", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+					apimeta.SetStatusCondition(&wl.Status.Conditions, metav1.Condition{
+						Type:               kueue.WorkloadFinished,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+						Reason:             "Succeeded",
+						Message:            "Job finished successfully",
+					})
+					g.Expect(k8sClient.Status().Update(ctx, wl)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying that execution time metric is recorded", func() {
+				util.ExpectExecutionTimeMetric(clusterQueue, "", 1)
+			})
+		})
 	})
 
 	ginkgo.Context("with UnadmittedWorkloadsObservability feature gate enabled, namespace selector validation", func() {
