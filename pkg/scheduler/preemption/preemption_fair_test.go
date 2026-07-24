@@ -17,6 +17,7 @@ limitations under the License.
 package preemption
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -885,7 +886,7 @@ func TestFairPreemptions(t *testing.T) {
 			incoming: unitWl.Clone().Name("a1").Obj(),
 			targetCQ: "a",
 			wantPreempted: sets.New(
-				targetKeyReason("/b1", kueue.InCohortFairSharingReason),
+				targetKeyReason("/b1", kueue.InCohortReclamationReason),
 			),
 		},
 		// CQ "a": 3 CPU nominal on premium, 0 on cheap.
@@ -940,6 +941,103 @@ func TestFairPreemptions(t *testing.T) {
 			incoming:      unitWl.Clone().Name("a_incoming").Obj(),
 			targetCQ:      "a",
 			wantPreempted: sets.New(targetKeyReason("/b_prem1", kueue.InCohortReclamationReason)),
+		},
+		// Hierarchical nominal bypass (#9466) + sibling protection (pajakd review):
+		//
+		//                    ROOT (premium 20/20, quota=10)
+		//                   /            \
+		//          cohort-1 (prem 6/10)  cohort-2 (prem 14/0)
+		//         /            \              \
+		//   cq-1 (3 prem/0 + 5 cheap/0)  cq-2 (3/1)    cq-hogger (14/0)
+		//     |               |                   |
+		//  cq1-0..2         cq2-0..2          hog-00..13
+		//  cq1_cheap1..5
+		//
+		// Preemption is required: ROOT premium is saturated; incoming 4 on cq-1.
+		// cohort-1 is within nominal on contested premium (protection cohort).
+		// cq-1: high aggregate DRS from cheap; NOT within CQ nominal on premium.
+		//
+		// Per-candidate subtree check:
+		//   - cq-2 (inside cohort-1): DRS only — must NOT appear in targets.
+		//   - cq-hogger (outside cohort-1): bypass → InCohortReclamation from hog-00..03.
+		"sibling under same within-nominal cohort uses DRS not bypass": {
+			flavors: []*kueue.ResourceFlavor{
+				utiltestingapi.MakeResourceFlavor("premium").Obj(),
+				utiltestingapi.MakeResourceFlavor("cheap").Obj(),
+			},
+			assignmentFlavor: "premium",
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("ROOT").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("premium").Resource(corev1.ResourceCPU, "10").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("cheap").Resource(corev1.ResourceCPU, "10").Obj(),
+					).
+					Obj(),
+				utiltestingapi.MakeCohort("cohort-1").
+					Parent("ROOT").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("premium").Resource(corev1.ResourceCPU, "9").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("cheap").Resource(corev1.ResourceCPU, "10").Obj(),
+					).
+					Obj(),
+				utiltestingapi.MakeCohort("cohort-2").
+					Parent("ROOT").
+					Obj(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq-1").
+					Cohort("cohort-1").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("premium").Resource(corev1.ResourceCPU, "0").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("cheap").Resource(corev1.ResourceCPU, "0").Obj(),
+					).
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					FlavorFungibility(kueue.FlavorFungibility{
+						WhenCanBorrow:  kueue.MayStopSearch,
+						WhenCanPreempt: kueue.MayStopSearch,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("cq-2").
+					Cohort("cohort-1").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("premium").
+						Resource(corev1.ResourceCPU, "1").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("cq-hogger").
+					Cohort("cohort-2").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("premium").
+						Resource(corev1.ResourceCPU, "0").Obj()).
+					Obj(),
+			},
+			admitted: func() []kueue.Workload {
+				wls := make([]kueue.Workload, 0, 25)
+				for i := range 14 {
+					wls = append(wls, *unitWl.Clone().Name(fmt.Sprintf("hog-%02d", i)).Priority(-1).SimpleReserveQuota("cq-hogger", "premium", now).Obj())
+				}
+				for i := range 3 {
+					wls = append(wls, *unitWl.Clone().Name(fmt.Sprintf("cq1-%d", i)).SimpleReserveQuota("cq-1", "premium", now).Obj())
+				}
+				for i := range 5 {
+					wls = append(wls, *unitWl.Clone().Name(fmt.Sprintf("cq1_cheap%d", i+1)).SimpleReserveQuota("cq-1", "cheap", now).Obj())
+				}
+				for i := range 3 {
+					wls = append(wls, *unitWl.Clone().Name(fmt.Sprintf("cq2-%d", i)).SimpleReserveQuota("cq-2", "premium", now).Obj())
+				}
+				return wls
+			}(),
+			incoming: utiltestingapi.MakeWorkload("cq1-incoming", "").Request(corev1.ResourceCPU, "4").Obj(),
+			targetCQ: "cq-1",
+			wantPreempted: sets.New(
+				targetKeyReason("/hog-00", kueue.InCohortReclamationReason),
+				targetKeyReason("/hog-01", kueue.InCohortReclamationReason),
+				targetKeyReason("/hog-02", kueue.InCohortReclamationReason),
+				targetKeyReason("/hog-03", kueue.InCohortReclamationReason),
+			),
 		},
 	}
 	for name, tc := range cases {

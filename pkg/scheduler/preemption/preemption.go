@@ -384,14 +384,21 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 	var targets []*Target
 	var retryCandidates []*workload.Info
 
-	// If the preemptor CQ stays within nominal quota for the contested
-	// resources (including the incoming workload, already simulated),
-	// preemption is allowed regardless of DRS (nominal entitlement).
-	// When true, all cross-CQ candidates are preempted unconditionally
-	// (bypassing the strategy check), so no retryCandidates are produced
-	// and runSecondFsStrategy has nothing to do.
-	preemptorWithinNominal := features.Enabled(features.FairSharingPreemptWithinNominal) &&
-		queueWithinNominalInResourcesNeedingPreemption(preemptionCtx)
+	// FairSharingPreemptWithinNominal uses a two-tier bypass:
+	// 1. Preemptor CQ within nominal on contested FRs → global bypass (#9494).
+	// 2. Closest ancestor cohort within nominal → bypass only for candidates
+	//    outside that cohort subtree (prevents sibling flapping, #9466).
+	var preemptorCQWithinNominal bool
+	var protectionCohort *schdcache.CohortSnapshot
+	if features.Enabled(features.FairSharingPreemptWithinNominal) {
+		frs := preemptionCtx.frsNeedPreemption
+		cq := preemptionCtx.preemptorCQ
+		if schdcache.IsWithinNominalInResources(cq, frs) {
+			preemptorCQWithinNominal = true
+		} else {
+			protectionCohort = closestAncestorWithinNominal(cq, frs)
+		}
+	}
 	for candCQ := range ordering.Iter() {
 		if candCQ.InClusterQueuePreemption() {
 			candWl := candCQ.PopWorkload()
@@ -407,7 +414,7 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 			continue
 		}
 
-		if preemptorWithinNominal {
+		if preemptorCQWithinNominal || (protectionCohort != nil && !cqInCohortSubtree(candCQ.GetTargetCq(), protectionCohort)) {
 			candWl := candCQ.PopWorkload()
 			preemptionCtx.snapshot.RemoveWorkload(candWl)
 			targets = append(targets, &Target{
@@ -665,18 +672,26 @@ func queueUnderNominalInResourcesNeedingPreemption(preemptionCtx *preemptionCtx)
 	return true
 }
 
-// queueWithinNominalInResourcesNeedingPreemption checks whether the
-// preemptor CQ's usage is at or below nominal quota (usage <= nominal)
-// for all flavor-resources needing preemption.
-// The difference from queueUnderNominalInResourcesNeedingPreemption is
-// that this treats usage exactly equal to nominal as "within nominal."
-func queueWithinNominalInResourcesNeedingPreemption(preemptionCtx *preemptionCtx) bool {
-	for fr := range preemptionCtx.frsNeedPreemption {
-		if preemptionCtx.preemptorCQ.Borrowing(fr) {
-			return false
+// closestAncestorWithinNominal returns the first (lowest) ancestor cohort that is
+// within subtree nominal on all contested flavor-resources, or nil if none is
+// found before reaching root.
+func closestAncestorWithinNominal(cq *schdcache.ClusterQueueSnapshot, frs sets.Set[resources.FlavorResource]) *schdcache.CohortSnapshot {
+	for ancestor := range cq.PathParentToRoot() {
+		if schdcache.IsWithinNominalInResources(ancestor, frs) {
+			return ancestor
 		}
 	}
-	return true
+	return nil
+}
+
+// cqInCohortSubtree returns true if cohort appears on candidateCQ's path to root.
+func cqInCohortSubtree(candidateCQ *schdcache.ClusterQueueSnapshot, cohort *schdcache.CohortSnapshot) bool {
+	for ancestor := range candidateCQ.PathParentToRoot() {
+		if ancestor == cohort {
+			return true
+		}
+	}
+	return false
 }
 
 // buildCQPath constructs a path like "/parent/.../cq" for a given ClusterQueue snapshot.
