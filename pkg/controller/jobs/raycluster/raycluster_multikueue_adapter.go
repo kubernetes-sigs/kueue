@@ -25,7 +25,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/ray"
 	"sigs.k8s.io/kueue/pkg/util/api"
-	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var _ jobframework.MultiKueueAdapter = ray.NewMKAdapter(
@@ -41,14 +40,6 @@ func copyJobSpec(dst, src *rayv1.RayCluster) {
 	*dst = rayv1.RayCluster{
 		ObjectMeta: api.CloneObjectMetaForCreation(&src.ObjectMeta),
 		Spec:       *src.Spec.DeepCopy(),
-	}
-	// An elastic RayCluster over MultiKueue is scaled by the manager: the
-	// manager's worker replica counts are the source of truth and are propagated
-	// to this remote copy on each sync. The remote must therefore not run the
-	// in-tree Ray autoscaler, which would otherwise fight the manager by editing
-	// worker replicas on the worker cluster.
-	if workloadslicing.Enabled(src) {
-		dst.Spec.EnableInTreeAutoscaling = nil
 	}
 }
 
@@ -89,14 +80,6 @@ func syncWorkerReplicas(dst, src *rayv1.RayCluster) bool {
 		srcSizes[wgs.GroupName] = groupSize{replicas: wgs.Replicas, numOfHosts: wgs.NumOfHosts}
 	}
 	changed := false
-	// Re-assert that the remote autoscaler stays off. copyJobSpec clears this
-	// at create time; re-asserting here keeps the "manager owns replicas"
-	// invariant reconciled, since the elastic sync path patches the remote in
-	// place rather than re-copying the full spec.
-	if dst.Spec.EnableInTreeAutoscaling != nil {
-		dst.Spec.EnableInTreeAutoscaling = nil
-		changed = true
-	}
 	for i := range dst.Spec.WorkerGroupSpecs {
 		wgs := &dst.Spec.WorkerGroupSpecs[i]
 		want, ok := srcSizes[wgs.GroupName]
