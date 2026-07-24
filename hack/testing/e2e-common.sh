@@ -1543,12 +1543,12 @@ function upgrade_test_flow {
     echo "Upgrade Test: $old_version -> current"
     echo "Old image: $KUEUE_OLD_VERSION_IMAGE"
     echo "New image: $IMAGE_TAG"
-    
+
     # Step 1: Install old version using the released image from registry.k8s.io
     echo "Installing $old_version..."
     echo "  Manifest URL: ${KUEUE_OLD_VERSION_MANIFEST}"
     echo "  Downloading and modifying manifests..."
-    
+
     # Download manifests, rewrite the image reference to match the pre-loaded
     # image, and set imagePullPolicy to IfNotPresent so kind uses it directly.
     curl -sL "${KUEUE_OLD_VERSION_MANIFEST}" | \
@@ -1561,7 +1561,7 @@ function upgrade_test_flow {
 
     # Step 2: Create test resources
     echo "Creating test resources..."
-    
+
     # Create custom namespace for test resources (idempotent)
     kubectl apply --kubeconfig="$1" -f - <<EOF_NS
 apiVersion: v1
@@ -1569,7 +1569,7 @@ kind: Namespace
 metadata:
   name: kueue-upgrade-test
 EOF_NS
-    
+
     # Apply test resources
     kubectl apply --kubeconfig="$1" -f - <<EOF
 apiVersion: kueue.x-k8s.io/v1beta1
@@ -1602,22 +1602,22 @@ spec:
   clusterQueue: upgrade-test-cq
 EOF
     echo "✓ Resources created"
-    
+
     # Step 3: Upgrade to current (rolling update)
     echo "Upgrading to current..."
-    
+
     # Apply upgrade - rolling update will replace pods
     (
         set_managers_image
         trap restore_managers_image EXIT
-        
+
         local build_output
         build_output=$($KUSTOMIZE build "${ROOT_DIR}/test/e2e/config/default")
         # shellcheck disable=SC2001 # bash parameter substitution does not work on macOS
         build_output=$(echo "$build_output" | sed "s/kueue-system/$KUEUE_NAMESPACE/g")
         echo "$build_output" | kubectl apply --kubeconfig="$1" --server-side --force-conflicts -f -
     )
-    
+
     # Wait for the rolling update to complete.
     echo "Waiting for rolling update to complete..."
     wait_for_kueue_controller_operator "$1"
