@@ -93,9 +93,6 @@ func (r MapRequests) GetValue(name corev1.ResourceName) int64 {
 }
 
 func (r MapRequests) Set(name corev1.ResourceName, val int64) {
-	if r == nil {
-		return
-	}
 	r[name] = val
 }
 

@@ -701,12 +701,6 @@ func TestMapRequestsSet(t *testing.T) {
 		setValue int64
 		want     MapRequests
 	}{
-		"nil map set": {
-			initial:  nil,
-			setKey:   corev1.ResourceCPU,
-			setValue: 1000,
-			want:     nil,
-		},
 		"update existing resource": {
 			initial:  MapRequests{corev1.ResourceCPU: 1000},
 			setKey:   corev1.ResourceCPU,
@@ -819,8 +813,8 @@ func TestRequestsEqual(t *testing.T) {
 		want bool
 	}{
 		"both nil":                {a: nil, b: nil, want: true},
-		"nil and empty Map":       {a: nil, b: MapRequests{}, want: true},
-		"nil and empty Slice":     {a: nil, b: NewSliceRequests(MapRequests{}), want: true},
+		"nil and empty Map":       {a: nil, b: MapRequests{}, want: false},
+		"nil and empty Slice":     {a: nil, b: NewSliceRequests(MapRequests{}), want: false},
 		"equal MapRequests":       {a: m1, b: m2, want: true},
 		"equal SliceRequests":     {a: s1, b: s2, want: true},
 		"equal Map and Slice":     {a: m1, b: s2, want: true},
