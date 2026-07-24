@@ -454,14 +454,17 @@ func TestSnapshotFallsBackToBaseOrderingOnLocalQueueLookupError(t *testing.T) {
 	}
 
 	// Put the unavailable LocalQueue last so the usage cache is partially
-	// populated before its lookup fails.
+	// populated before its lookup fails. The priorities reproduce the
+	// contradictory ordering from Kueue#12534: fair sharing puts lower-usage
+	// before higher-usage, while base ordering puts higher-usage before
+	// unavailable and unavailable before lower-usage.
 	elements := []*workload.Info{
 		workload.NewInfo(utiltestingapi.MakeWorkload("higher-usage", defaultNamespace).
-			Queue("higher-usage").Priority(2).Creation(now).UID("uid-2").Obj()),
+			Queue("higher-usage").Priority(3).Creation(now).UID("uid-2").Obj()),
 		workload.NewInfo(utiltestingapi.MakeWorkload("lower-usage", defaultNamespace).
 			Queue("lower-usage").Priority(1).Creation(now).UID("uid-1").Obj()),
 		workload.NewInfo(utiltestingapi.MakeWorkload("unavailable", defaultNamespace).
-			Queue("unavailable").Priority(3).Creation(now).UID("uid-3").Obj()),
+			Queue("unavailable").Priority(2).Creation(now).UID("uid-3").Obj()),
 	}
 
 	cq.snapshotSort(elements)
@@ -470,7 +473,7 @@ func TestSnapshotFallsBackToBaseOrderingOnLocalQueueLookupError(t *testing.T) {
 	for i, wInfo := range elements {
 		got[i] = wInfo.Obj.Name
 	}
-	want := []string{"unavailable", "higher-usage", "lower-usage"}
+	want := []string{"higher-usage", "unavailable", "lower-usage"}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("unexpected base ordering (-want,+got):\n%s", diff)
 	}

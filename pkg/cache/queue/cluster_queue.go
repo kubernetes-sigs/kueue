@@ -819,7 +819,7 @@ func buildSnapshotSort(
 		ns, name := utilqueue.MustParseLocalQueueReference(lqKey)
 		lqWeight, err := afs.ResolveLQWeight(ctx, cl, client.ObjectKey{Namespace: ns, Name: string(name)})
 		if err != nil {
-			log.V(2).Error(err, "Failed to get LocalQueue for FS weight", "localQueue", klog.KRef(ns, string(name)))
+			log.V(2).Error(err, "Failed to get LocalQueue for FS weight; falling back to base ordering for snapshot", "localQueue", klog.KRef(ns, string(name)))
 			return 0, false
 		}
 		return lqWeight, true
@@ -846,6 +846,9 @@ func buildSnapshotSort(
 			}
 			lqWeight, ok := getLQWeight(lqKey)
 			if !ok {
+				// A partial FS usage cache would mix fair-sharing and base comparisons,
+				// which can be non-transitive. Fall back to base ordering for the whole
+				// snapshot. See Kueue#12534.
 				slices.SortFunc(elements, baseCmp)
 				return
 			}
