@@ -528,9 +528,20 @@ apiServer:
     echo "$patched_config"
 }
 
+# run_with_timeout_and_log executes a command with a time limit, redirecting
+# all output to a log file. If the command exceeds the limit and is killed
+# (exit code 124), a unique timeout notification is appended to the log file
+# so that upstream retry scripts (like retry.sh) can accurately detect a hang.
+#
+# Arguments:
+# $1: The timeout duration (e.g., '10m')
+# $2: The absolute path to the log file to pipe output to
+# $@: The remaining arguments constitute the exact command to execute
 function run_with_timeout_and_log {
     local timeout_duration="$1"
     local log_file="$2"
+
+    # Pop duration and log file off the stack so $@ contains only the command
     shift 2
 
     timeout "$timeout_duration" "$@" > "$log_file" 2>&1
@@ -574,7 +585,7 @@ function cluster_create {
     local log_file="$ARTIFACTS/$cluster-create.log"
     # Include node readiness in each cluster bring-up attempt so transient
     # readiness delays can reuse the existing cleanup and recreation path.
-    local create_cmd="run_with_timeout_and_log 10m \"$log_file\" $KIND create cluster --name \"$cluster\" --image \"$E2E_KIND_VERSION\" --config \"$kind_config\" --kubeconfig=\"$kubeconfig\" --wait 5m -v 5 && kubectl wait --kubeconfig=\"$kubeconfig\" --for=condition=Ready node --all --timeout=5m >> \"$log_file\" 2>&1"
+    local create_cmd="run_with_timeout_and_log 3s \"$log_file\" $KIND create cluster --name \"$cluster\" --image \"$E2E_KIND_VERSION\" --config \"$kind_config\" --kubeconfig=\"$kubeconfig\" --wait 5m -v 5 && kubectl wait --kubeconfig=\"$kubeconfig\" --for=condition=Ready node --all --timeout=5m >> \"$log_file\" 2>&1"
     # Retry recognized bring-up failures (#11586, #12307, #12984, #13437). Persistent
     # failures producing a matching error will exhaust the configured retries
     # before failing.
