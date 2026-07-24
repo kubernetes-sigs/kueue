@@ -533,8 +533,10 @@ function run_with_timeout_and_log {
     local log_file="$2"
     shift 2
 
-    if ! timeout "$timeout_duration" "$@" > "$log_file" 2>&1; then
-        local res=$?
+    timeout "$timeout_duration" "$@" > "$log_file" 2>&1
+    local res=$?
+
+    if [ "$res" -ne 0 ]; then
         if [ "$res" -eq 124 ]; then
             echo "command timed out after $timeout_duration" >> "$log_file"
         fi
