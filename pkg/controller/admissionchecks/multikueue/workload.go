@@ -268,6 +268,7 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		if !ok {
 			return reconcile.Result{}, errors.New("instantiated item type does not implement client.Object")
 		}
+		jobObj.GetObjectKind().SetGroupVersionKind(adapter.GVK())
 
 		err := w.client.Get(ctx, types.NamespacedName{Name: owner.Name, Namespace: wl.Namespace}, jobObj)
 		if err != nil {
