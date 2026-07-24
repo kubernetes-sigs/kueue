@@ -17,14 +17,18 @@ limitations under the License.
 package queue
 
 import (
+	"context"
 	"maps"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/component-base/featuregate"
+	testingclock "k8s.io/utils/clock/testing"
 
 	"sigs.k8s.io/kueue/pkg/features"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -36,7 +40,8 @@ func TestNewRequeuer(t *testing.T) {
 	}
 
 	type want struct {
-		batchPeriod time.Duration
+		batchPeriod         time.Duration
+		periodicRetryPeriod time.Duration
 	}
 
 	testCases := map[string]struct {
@@ -50,7 +55,8 @@ func TestNewRequeuer(t *testing.T) {
 				},
 			},
 			want: want{
-				batchPeriod: time.Second,
+				batchPeriod:         time.Second,
+				periodicRetryPeriod: 5 * time.Minute,
 			},
 		},
 		"SchedulerLongRequeueInterval feature enabled": {
@@ -60,7 +66,8 @@ func TestNewRequeuer(t *testing.T) {
 				},
 			},
 			want: want{
-				batchPeriod: 10 * time.Second,
+				batchPeriod:         10 * time.Second,
+				periodicRetryPeriod: 5 * time.Minute,
 			},
 		},
 		"custom batch period": {
@@ -70,7 +77,8 @@ func TestNewRequeuer(t *testing.T) {
 				},
 			},
 			want: want{
-				batchPeriod: 10 * time.Millisecond,
+				batchPeriod:         10 * time.Millisecond,
+				periodicRetryPeriod: 5 * time.Minute,
 			},
 		},
 	}
@@ -81,7 +89,76 @@ func TestNewRequeuer(t *testing.T) {
 			if diff := cmp.Diff(tc.want.batchPeriod, requeuer.batchPeriod); len(diff) != 0 {
 				t.Errorf("Unexpected requeue batch period (-want,+got):\n%s", diff)
 			}
+			if diff := cmp.Diff(tc.want.periodicRetryPeriod, requeuer.periodicRetryPeriod); len(diff) != 0 {
+				t.Errorf("Unexpected periodic retry period (-want,+got):\n%s", diff)
+			}
 		})
+	}
+}
+
+func TestWorkqueueRequeuer_PeriodicRetry(t *testing.T) {
+	const retryPeriod = time.Minute
+	ctx, _ := utiltesting.ContextWithLog(t)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	cl := utiltesting.NewFakeClient(utiltesting.MakeNamespace("ns"))
+	manager, _ := NewManagerForUnitTestsWithRequeuer(cl, nil)
+	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+	if err := manager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Failed adding ClusterQueue: %v", err)
+	}
+	lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()
+	if err := manager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("Failed adding LocalQueue: %v", err)
+	}
+	wl := utiltestingapi.MakeWorkload("wl", "ns").Queue("lq").Creation(time.Now()).Obj()
+	if err := cl.Create(ctx, wl); err != nil {
+		t.Fatalf("Failed adding Workload to client: %v", err)
+	}
+	manager.getClusterQueue("cq").popCycle++
+	manager.RequeueWorkload(ctx, workload.NewInfo(wl), RequeueReasonGeneric, "")
+	if got := manager.DumpInadmissible(); len(got["cq"]) != 1 {
+		t.Fatalf("Workload is not in the inadmissible queue: %v", got)
+	}
+
+	fakeClock := testingclock.NewFakeClock(time.Now())
+	requeuer := NewRequeuer(WithBatchPeriod(0))
+	requeuer.clock = fakeClock
+	requeuer.periodicRetryPeriod = retryPeriod
+	requeuer.setManager(manager)
+	manager.requeuer = requeuer
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- requeuer.Start(ctx)
+	}()
+	if err := wait.PollUntilContextTimeout(t.Context(), time.Millisecond, time.Second, true, func(context.Context) (bool, error) {
+		return fakeClock.HasWaiters(), nil
+	}); err != nil {
+		t.Fatalf("Periodic retry did not start: %v", err)
+	}
+
+	fakeClock.Step(retryPeriod - time.Nanosecond)
+	if got := manager.DumpInadmissible(); len(got["cq"]) != 1 {
+		t.Fatalf("Workload retried before the periodic interval elapsed: %v", got)
+	}
+
+	fakeClock.Step(time.Nanosecond)
+	if err := wait.PollUntilContextTimeout(t.Context(), time.Millisecond, time.Second, true, func(context.Context) (bool, error) {
+		return len(manager.Dump()["cq"]) == 1, nil
+	}); err != nil {
+		t.Fatalf("Periodic retry did not move the Workload to the active heap: %v", err)
+	}
+
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("Requeuer returned an error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Requeuer did not stop after context cancellation")
 	}
 }
 
