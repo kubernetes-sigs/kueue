@@ -162,6 +162,7 @@ For details on the cherry pick process, see the [cherry pick requests](https://g
 
 #### What type of PR is this?
 ${kind_commands}
+/area release
 
 \`\`\`release-note
 $(printf '%s\n' "${RELEASE_NOTES[@]}")
