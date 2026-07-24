@@ -78,11 +78,12 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				Request(corev1.ResourceCPU, "1").Obj()
 			util.MustCreate(ctx, k8sClient, fitWl)
 
-			ginkgo.By("verifying all no-fit workloads become inadmissible via bulk-move")
-			util.ExpectPendingWorkloadsMetric(cq, 0, 10)
-
 			ginkgo.By("verifying the fitting workload gets admitted")
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, fitWl)
+
+			ginkgo.By("verifying all no-fit workloads become inadmissible via bulk-move")
+			util.ExpectPendingWorkloadsMetric(cq, 0, 10)
+			util.ExpectPendingSchedulingHashesMetric(cq, 0, 1)
 		})
 
 		ginkgo.It("Should not hash workloads that don't fit due to namespace mismatch", func() {
@@ -157,6 +158,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			ginkgo.By("verifying equivalent blocked workloads are bulk-moved to inadmissible")
 			util.ExpectPendingWorkloadsMetric(cq, 0, 10)
+			util.ExpectPendingSchedulingHashesMetric(cq, 0, 1)
 		})
 	})
 })

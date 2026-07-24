@@ -183,7 +183,11 @@ func queueInadmissibleWorkloads(ctx context.Context, c *ClusterQueue, client cli
 		err := client.Get(ctx, types.NamespacedName{Name: wInfo.Obj.Namespace}, &ns)
 		if err != nil || !c.namespaceSelector.Matches(labels.Set(ns.Labels)) || !c.backoffWaitingTimeExpired(wInfo) {
 			newInadmissibleWorkloads.insert(key, wInfo)
-		} else if c.heap.PushIfNotPresent(wInfo) {
+		} else {
+			// The workload leaves inadmissibleWorkloads regardless of whether the
+			// push succeeds (it may already be in the heap after an
+			// AddFromLocalQueue resync), so always release its inadmissible state.
+			c.moveInadmissibleToActive(key, wInfo)
 			moved++
 		}
 	}
