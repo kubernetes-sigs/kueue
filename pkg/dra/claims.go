@@ -55,8 +55,8 @@ type celDeviceRequest struct {
 // total number of devices requested for each DeviceClass inside the provided
 // ResourceClaimSpec. Returns field errors for unsupported request features
 // (FirstAvailable, AdminAccess, AllocationMode All).
-func countDevicesPerClass(claimSpec *resourcev1.ResourceClaimSpec) (resources.MapRequests, field.ErrorList) {
-	out := resources.MapRequests{}
+func countDevicesPerClass(claimSpec *resourcev1.ResourceClaimSpec) (resources.Requests, field.ErrorList) {
+	out := resources.CreateEmpty()
 	if claimSpec == nil {
 		return out, nil
 	}
@@ -119,7 +119,7 @@ func countDevicesPerClass(claimSpec *resourcev1.ResourceClaimSpec) (resources.Ma
 		// apiserver accepts up to MaxInt64), so accumulate with a saturating add
 		// (matching the scheduler's Amount arithmetic) rather than letting the
 		// sum wrap to a negative count.
-		out[dc] = utilmath.SaturatingAdd(out[dc], q)
+		out.Set(dc, utilmath.SaturatingAdd(out.GetValue(dc), q))
 	}
 	return out, nil
 }
@@ -209,7 +209,7 @@ func GetResourceRequestsForResourceClaimTemplates(
 				return nil, allErrs
 			}
 
-			for dc, qty := range deviceCounts {
+			for dc, qty := range resources.ToMapRequests(deviceCounts) {
 				logical, found := mapper.Lookup(dc)
 				if !found {
 					allErrs = append(allErrs, field.NotFound(
