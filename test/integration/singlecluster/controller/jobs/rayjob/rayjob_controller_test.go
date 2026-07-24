@@ -371,7 +371,6 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:ray", "area:jobs"), 
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("checking the workload is finished when validation fails before a RayCluster is created")
-
 		gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 
 		createdJob.Status.JobDeploymentStatus = rayv1.JobDeploymentStatusValidationFailed
@@ -380,19 +379,15 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:ray", "area:jobs"), 
 		createdJob.Status.Message = "validation failed"
 
 		gomega.Expect(k8sClient.Status().Update(ctx, createdJob)).Should(gomega.Succeed())
-
 		gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
-
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 			g.Expect(createdWorkload.Status.Conditions).
 				Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
 		}).Should(gomega.Succeed())
-
 	})
 
 	ginkgo.It("Should not finish the workload when a RayJob fails validation after creating a RayCluster", func() {
-
 		ginkgo.By("checking the job gets suspended when created unsuspended")
 		priorityClass := utiltesting.MakePriorityClass(priorityClassName).
 			PriorityValue(priorityValue).Obj()
@@ -400,7 +395,6 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:ray", "area:jobs"), 
 		defer func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, priorityClass, true)
 		}()
-
 		job := testingrayjob.MakeJob(jobName, ns.Name).
 			Suspend(false).
 			WithPriorityClassName(priorityClassName).
@@ -517,16 +511,12 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:ray", "area:jobs"), 
 		createdJob.Status.Message = "validation failed"
 
 		gomega.Expect(k8sClient.Status().Update(ctx, createdJob)).Should(gomega.Succeed())
-
 		gomega.Consistently(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-
 			g.Expect(createdWorkload.Status.Conditions).
 				Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadQuotaReserved))
-
 			g.Expect(createdWorkload.Status.Conditions).
 				ShouldNot(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
-
 			g.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
 		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 	})
