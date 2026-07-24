@@ -437,24 +437,24 @@ func TestCustomLabelsDisabled(t *testing.T) {
 }
 
 func TestLabelValueSetCounter(t *testing.T) {
-	k1 := labelValSet{
-		kind: configapi.SourceKindWorkload,
-		vals: [MaxCustomLabelsForSourceKind]string{"v1", "v2"},
-		size: 2,
+	k1 := labelValsSet{
+		src:          configapi.SourceKindWorkload,
+		vals:         [MaxCustomLabelsForSourceKind]string{"v1", "v2"},
+		labelSetSize: 2,
 	}
-	k2 := labelValSet{
-		kind: configapi.SourceKindWorkload,
-		vals: [MaxCustomLabelsForSourceKind]string{"v3", "v4"},
-		size: 2,
+	k2 := labelValsSet{
+		src:          configapi.SourceKindWorkload,
+		vals:         [MaxCustomLabelsForSourceKind]string{"v3", "v4"},
+		labelSetSize: 2,
 	}
-	k3 := labelValSet{
-		kind: configapi.SourceKindWorkload,
-		vals: [MaxCustomLabelsForSourceKind]string{"v5"},
-		size: 1,
+	k3 := labelValsSet{
+		src:          configapi.SourceKindWorkload,
+		vals:         [MaxCustomLabelsForSourceKind]string{"v5"},
+		labelSetSize: 1,
 	}
 
 	// 1. Test NewLabelSetCount and Empty
-	c1 := NewLabelSetCount()
+	c1 := NewLabelSetValsCounter()
 	if c1.Total() != 0 {
 		t.Errorf("expected empty counter total to be 0, got %d", c1.Total())
 	}
@@ -463,8 +463,8 @@ func TestLabelValueSetCounter(t *testing.T) {
 	}
 
 	emptyWl := Empty(configapi.SourceKindWorkload)
-	if emptyWl.kind != configapi.SourceKindWorkload {
-		t.Errorf("expected Empty(SourceKindWorkload) to have workload kind, got %s", emptyWl.kind)
+	if emptyWl.src != configapi.SourceKindWorkload {
+		t.Errorf("expected Empty(SourceKindWorkload) to have workload kind, got %s", emptyWl.src)
 	}
 
 	// 2. Test Incr and Add
@@ -485,7 +485,7 @@ func TestLabelValueSetCounter(t *testing.T) {
 	}
 
 	// 3. Test merge
-	c2 := NewLabelSetCount()
+	c2 := NewLabelSetValsCounter()
 	c2.Incr(k2)
 	c2.Incr(k3)
 
@@ -510,11 +510,11 @@ func TestLabelValueSetCounter(t *testing.T) {
 	}
 
 	// 4. Test CombinedCounters
-	a := NewLabelSetCount()
+	a := NewLabelSetValsCounter()
 	a.Incr(k1)
-	b := NewLabelSetCount()
+	b := NewLabelSetValsCounter()
 	b.Incr(k2)
-	combined := CombinedCounters(a, b)
+	combined := CombinedCounter(a, b)
 	if combined.Total() != 2 {
 		t.Errorf("expected combined total to be 2, got %d", combined.Total())
 	}
@@ -523,11 +523,11 @@ func TestLabelValueSetCounter(t *testing.T) {
 	}
 
 	// 5. Test ParallelIter
-	iterResult := make(map[labelValSet][2]int)
+	iterResult := make(map[labelValsSet][2]int)
 	for ls, counts := range ParallelIter(a, b) {
 		iterResult[ls] = counts
 	}
-	wantIterResult := map[labelValSet][2]int{
+	wantIterResult := map[labelValsSet][2]int{
 		k1: {1, 0},
 		k2: {0, 1},
 	}
@@ -535,4 +535,3 @@ func TestLabelValueSetCounter(t *testing.T) {
 		t.Errorf("ParallelIter mismatch (-want +got):\n%s", diff)
 	}
 }
-

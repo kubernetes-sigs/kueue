@@ -686,7 +686,7 @@ func (c *ClusterQueue) PendingTotal() int {
 }
 
 // Pending returns the number of active and inadmissible pending workloads.
-func (c *ClusterQueue) Pending(cl *metrics.CustomLabels) (*metrics.LabelValueSetCounter, *metrics.LabelValueSetCounter) {
+func (c *ClusterQueue) Pending(cl *metrics.CustomLabels) (*metrics.LabelSetValsCounter, *metrics.LabelSetValsCounter) {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
 	return c.pendingActive(cl), c.pendingInadmissible(cl)
@@ -694,8 +694,8 @@ func (c *ClusterQueue) Pending(cl *metrics.CustomLabels) (*metrics.LabelValueSet
 
 // pendingActive returns the number of active pending workloads,
 // workloads that are in the admission queue.
-func (c *ClusterQueue) pendingActive(cl *metrics.CustomLabels) *metrics.LabelValueSetCounter {
-	result := metrics.NewLabelSetCount()
+func (c *ClusterQueue) pendingActive(cl *metrics.CustomLabels) *metrics.LabelSetValsCounter {
+	result := metrics.NewLabelSetValsCounter()
 
 	if !breakdownByWorkload(cl) {
 		emptyVals := metrics.Empty(configapi.SourceKindWorkload)
@@ -707,11 +707,11 @@ func (c *ClusterQueue) pendingActive(cl *metrics.CustomLabels) *metrics.LabelVal
 	}
 
 	for _, wl := range c.heap.List() {
-		lVals := cl.ExtractValues(configapi.SourceKindWorkload, string(workloadKey(wl)), wl.Obj.Labels, wl.Obj.Annotations)
+		lVals := cl.MakeValsSet(configapi.SourceKindWorkload, wl.Obj.Labels, wl.Obj.Annotations)
 		result.Incr(lVals)
 	}
 	if c.inflight != nil {
-		lVals := cl.ExtractValues(configapi.SourceKindWorkload, string(workloadKey(c.inflight)), c.inflight.Obj.Labels, c.inflight.Obj.Annotations)
+		lVals := cl.MakeValsSet(configapi.SourceKindWorkload, c.inflight.Obj.Labels, c.inflight.Obj.Annotations)
 		result.Incr(lVals)
 	}
 	return result
@@ -720,8 +720,8 @@ func (c *ClusterQueue) pendingActive(cl *metrics.CustomLabels) *metrics.LabelVal
 // pendingInadmissible returns the number of inadmissible pending workloads,
 // workloads that were already tried and are waiting for cluster conditions
 // to change to potentially become admissible.
-func (c *ClusterQueue) pendingInadmissible(cl *metrics.CustomLabels) *metrics.LabelValueSetCounter {
-	result := metrics.NewLabelSetCount()
+func (c *ClusterQueue) pendingInadmissible(cl *metrics.CustomLabels) *metrics.LabelSetValsCounter {
+	result := metrics.NewLabelSetValsCounter()
 
 	if !breakdownByWorkload(cl) {
 		emptyVals := metrics.Empty(configapi.SourceKindWorkload)
@@ -729,15 +729,15 @@ func (c *ClusterQueue) pendingInadmissible(cl *metrics.CustomLabels) *metrics.La
 		return result
 	}
 
-	for ref, wl := range c.inadmissibleWorkloads {
-		lVals := cl.ExtractValues(configapi.SourceKindWorkload, string(ref), wl.Obj.Labels, wl.Obj.Annotations)
+	for _, wl := range c.inadmissibleWorkloads {
+		lVals := cl.MakeValsSet(configapi.SourceKindWorkload, wl.Obj.Labels, wl.Obj.Annotations)
 		result.Incr(lVals)
 	}
 	return result
 }
 
 func breakdownByWorkload(cl *metrics.CustomLabels) bool {
-	return features.Enabled(features.CustomMetricLabels) && cl != nil && cl.Has(configapi.SourceKindWorkload)
+	return features.Enabled(features.CustomMetricLabels) && cl != nil && cl.KindConfigured(configapi.SourceKindWorkload)
 }
 
 // PendingInLocalQueue returns the number of active and inadmissible pending workloads in LocalQueue.

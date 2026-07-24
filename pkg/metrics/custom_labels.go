@@ -30,90 +30,18 @@ import (
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 )
 
+const MaxCustomLabelsForSourceKind = 6
+
 // CustomLabels holds mutable state for custom metric labels.
 type CustomLabels struct {
 	m map[configapi.SourceKind]*SourceKindLabelStore
 }
 
+// Stores metadata and values for a set of custom labels defined for a source kind.
 type SourceKindLabelStore struct {
 	labelNames []string
 	labelSpecs []configapi.ControllerMetricsCustomLabel
 	values     *utilmaps.SyncMap[string, []string]
-}
-
-const MaxCustomLabelsForSourceKind = 6
-
-type labelValSet struct {
-	kind configapi.SourceKind
-	vals [MaxCustomLabelsForSourceKind]string
-	size int
-}
-
-func Empty(kind configapi.SourceKind) labelValSet {
-	return labelValSet{
-		kind: kind,
-	}
-}
-
-func (s *labelValSet) ToList() []string {
-	return s.vals[:]
-}
-
-type LabelValueSetCounter struct {
-	counts map[labelValSet]int
-	total  int
-}
-
-func NewLabelSetCount() *LabelValueSetCounter {
-	return &LabelValueSetCounter{
-		counts: make(map[labelValSet]int, 0),
-		total:  0,
-	}
-}
-
-func CombinedCounters(a, b *LabelValueSetCounter) *LabelValueSetCounter {
-	return NewLabelSetCount().merge(a).merge(b)
-}
-
-func ParallelIter(a, b *LabelValueSetCounter) iter.Seq2[labelValSet, [2]int] {
-	labelVals := sets.New[labelValSet]()
-	labelVals = labelVals.Union(sets.KeySet(a.counts))
-	labelVals = labelVals.Union(sets.KeySet(b.counts))
-	return func(yield func(labelValSet, [2]int) bool) {
-		for ls := range labelVals {
-			if !yield(ls, [2]int{a.Get(ls), b.Get(ls)}) {
-				return
-			}
-		}
-	}
-}
-
-func (c *LabelValueSetCounter) Incr(ls labelValSet) {
-	c.Add(ls, 1)
-}
-
-func (c *LabelValueSetCounter) Add(ls labelValSet, incr int) {
-	c.counts[ls] += incr
-	c.total += incr
-}
-
-func (c *LabelValueSetCounter) Get(ls labelValSet) int {
-	return c.counts[ls]
-}
-
-func (c *LabelValueSetCounter) Total() int {
-	return c.total
-}
-
-func (c *LabelValueSetCounter) merge(other *LabelValueSetCounter) *LabelValueSetCounter {
-	if other == nil {
-		return c
-	}
-	for k, v := range other.counts {
-		c.counts[k] += v
-	}
-	c.total += other.total
-	return c
 }
 
 func WorkloadCustomLabelSources(entries []configapi.ControllerMetricsCustomLabel) (labels, annotations sets.Set[string]) {
@@ -172,32 +100,34 @@ func (cl *CustomLabels) LabelNames(srcs ...configapi.SourceKind) []string {
 	return labels
 }
 
-func (cl *CustomLabels) Has(kind configapi.SourceKind) (hasKind bool) {
+func (cl *CustomLabels) KindConfigured(kind configapi.SourceKind) (isConfigured bool) {
 	if !cl.enabled() {
 		return
 	}
-	_, hasKind = cl.m[kind]
+	_, isConfigured = cl.m[kind]
 	return
 }
 
-func (cl *CustomLabels) ExtractValues(kind configapi.SourceKind, ref string, labels, annotations map[string]string) (ls labelValSet) {
+func (cl *CustomLabels) MakeValsSet(kind configapi.SourceKind, labels, annotations map[string]string) (ls labelValsSet) {
 	if !cl.enabled() || cl.m[kind] == nil {
 		return Empty(kind)
 	}
 	vals := cl.m[kind].extractValues(labels, annotations)
 	copy(ls.vals[:], vals)
-	ls.size = len(vals)
-	ls.kind = kind
+	ls.labelSetSize = len(vals)
+	ls.src = kind
 	return
 }
 
-func (cl *CustomLabels) CombineValueLists(valsMap map[configapi.SourceKind][]string) (merged []string) {
-	if !cl.enabled() || len(valsMap) == 0 {
+// CombineLabelValues returns a combined list of label values from the provided map,
+// appended in SourceKind order.
+func (cl *CustomLabels) CombineLabelValues(valuesPerSrc map[configapi.SourceKind][]string) (combined []string) {
+	if !cl.enabled() || len(valuesPerSrc) == 0 {
 		return
 	}
 
-	for _, kind := range cl.labelStoreIter(sets.KeySet(valsMap).UnsortedList()) {
-		merged = append(merged, valsMap[kind]...)
+	for _, kind := range cl.labelStoreIter(sets.KeySet(valuesPerSrc).UnsortedList()) {
+		combined = append(combined, valuesPerSrc[kind]...)
 	}
 	return
 }
@@ -270,6 +200,42 @@ func (cl *CustomLabels) labelStoreIter(srcs []configapi.SourceKind) iter.Seq2[*S
 	}
 }
 
+func (cl *CustomLabels) CQStore(key kueue.ClusterQueueReference, labels, annotations map[string]string) bool {
+	return cl.Store(configapi.SourceKindClusterQueue, string(key), labels, annotations)
+}
+
+func (cl *CustomLabels) CQGet(key kueue.ClusterQueueReference) []string {
+	return cl.Get(configapi.SourceKindClusterQueue, string(key))
+}
+
+func (cl *CustomLabels) CQDelete(key kueue.ClusterQueueReference) {
+	cl.Delete(configapi.SourceKindClusterQueue, string(key))
+}
+
+func (cl *CustomLabels) LQStore(key utilqueue.LocalQueueReference, labels, annotations map[string]string) bool {
+	return cl.Store(configapi.SourceKindLocalQueue, string(key), labels, annotations)
+}
+
+func (cl *CustomLabels) LQGet(key utilqueue.LocalQueueReference) []string {
+	return cl.Get(configapi.SourceKindLocalQueue, string(key))
+}
+
+func (cl *CustomLabels) LQDelete(key utilqueue.LocalQueueReference) {
+	cl.Delete(configapi.SourceKindLocalQueue, string(key))
+}
+
+func (cl *CustomLabels) CohortStore(key kueue.CohortReference, labels, annotations map[string]string) bool {
+	return cl.Store(configapi.SourceKindCohort, string(key), labels, annotations)
+}
+
+func (cl *CustomLabels) CohortGet(key kueue.CohortReference) []string {
+	return cl.Get(configapi.SourceKindCohort, string(key))
+}
+
+func (cl *CustomLabels) CohortDelete(key kueue.CohortReference) {
+	cl.Delete(configapi.SourceKindCohort, string(key))
+}
+
 func newSourceKindLabelStore(sourceKind configapi.SourceKind, labelSpecs []configapi.ControllerMetricsCustomLabel) *SourceKindLabelStore {
 	names, specs := parseLabels(sourceKind, labelSpecs)
 	return &SourceKindLabelStore{
@@ -338,38 +304,76 @@ func (s *SourceKindLabelStore) delete(key ...string) {
 	}
 }
 
-func (cl *CustomLabels) CQStore(key kueue.ClusterQueueReference, labels, annotations map[string]string) bool {
-	return cl.Store(configapi.SourceKindClusterQueue, string(key), labels, annotations)
+type LabelSetValsCounter struct {
+	counts map[labelValsSet]int
+	total  int
 }
 
-func (cl *CustomLabels) CQGet(key kueue.ClusterQueueReference) []string {
-	return cl.Get(configapi.SourceKindClusterQueue, string(key))
+// Wrapper for a list representing values of a custom labels set.
+type labelValsSet struct {
+	src          configapi.SourceKind
+	vals         [MaxCustomLabelsForSourceKind]string
+	labelSetSize int
 }
 
-func (cl *CustomLabels) CQDelete(key kueue.ClusterQueueReference) {
-	cl.Delete(configapi.SourceKindClusterQueue, string(key))
+func NewLabelSetValsCounter() *LabelSetValsCounter {
+	return &LabelSetValsCounter{
+		counts: make(map[labelValsSet]int, 0),
+		total:  0,
+	}
 }
 
-func (cl *CustomLabels) LQStore(key utilqueue.LocalQueueReference, labels, annotations map[string]string) bool {
-	return cl.Store(configapi.SourceKindLocalQueue, string(key), labels, annotations)
+func CombinedCounter(a, b *LabelSetValsCounter) *LabelSetValsCounter {
+	return NewLabelSetValsCounter().merge(a).merge(b)
 }
 
-func (cl *CustomLabels) LQGet(key utilqueue.LocalQueueReference) []string {
-	return cl.Get(configapi.SourceKindLocalQueue, string(key))
+func ParallelIter(a, b *LabelSetValsCounter) iter.Seq2[labelValsSet, [2]int] {
+	allValSets := sets.New[labelValsSet]()
+	allValSets = allValSets.Union(sets.KeySet(a.counts))
+	allValSets = allValSets.Union(sets.KeySet(b.counts))
+	return func(yield func(labelValsSet, [2]int) bool) {
+		for ls := range allValSets {
+			if !yield(ls, [2]int{a.Get(ls), b.Get(ls)}) {
+				return
+			}
+		}
+	}
 }
 
-func (cl *CustomLabels) LQDelete(key utilqueue.LocalQueueReference) {
-	cl.Delete(configapi.SourceKindLocalQueue, string(key))
+func (c *LabelSetValsCounter) Incr(ls labelValsSet) {
+	c.Add(ls, 1)
 }
 
-func (cl *CustomLabels) CohortStore(key kueue.CohortReference, labels, annotations map[string]string) bool {
-	return cl.Store(configapi.SourceKindCohort, string(key), labels, annotations)
+func (c *LabelSetValsCounter) Add(ls labelValsSet, incr int) {
+	c.counts[ls] += incr
+	c.total += incr
 }
 
-func (cl *CustomLabels) CohortGet(key kueue.CohortReference) []string {
-	return cl.Get(configapi.SourceKindCohort, string(key))
+func (c *LabelSetValsCounter) Get(ls labelValsSet) int {
+	return c.counts[ls]
 }
 
-func (cl *CustomLabels) CohortDelete(key kueue.CohortReference) {
-	cl.Delete(configapi.SourceKindCohort, string(key))
+func (c *LabelSetValsCounter) Total() int {
+	return c.total
+}
+
+func (c *LabelSetValsCounter) merge(other *LabelSetValsCounter) *LabelSetValsCounter {
+	if other == nil {
+		return c
+	}
+	for k, v := range other.counts {
+		c.counts[k] += v
+	}
+	c.total += other.total
+	return c
+}
+
+func Empty(kind configapi.SourceKind) labelValsSet {
+	return labelValsSet{
+		src: kind,
+	}
+}
+
+func (s *labelValsSet) ExtractVals() []string {
+	return s.vals[:]
 }

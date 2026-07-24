@@ -48,20 +48,20 @@ func reportPendingWorkloads(m *Manager, cqRef kueue.ClusterQueueReference) {
 func reportCQPendingWorkloads(m *Manager, cq *ClusterQueue) {
 	active, inadmissible := cq.Pending(m.customLabels)
 	if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(cq.name) {
-		inadmissible = metrics.CombinedCounters(inadmissible, active)
-		active = metrics.NewLabelSetCount()
+		inadmissible = metrics.CombinedCounter(inadmissible, active)
+		active = metrics.NewLabelSetValsCounter()
 	}
 	cqCustomLabels := m.customLabels.CQGet(cq.name)
 
-	if features.Enabled(features.CustomMetricLabels) && m.customLabels.Has(configapi.SourceKindWorkload) {
+	if features.Enabled(features.CustomMetricLabels) && m.customLabels.KindConfigured(configapi.SourceKindWorkload) {
 		// Clear the metric to remove series with stale workload label value combinations
 		metrics.ClearPendingWorkloads(cq.name)
 
 		// Report data for every recorded unique workload label values combination.
 		for wlLabelSet, counts := range metrics.ParallelIter(active, inadmissible) {
-			customLabels := m.customLabels.CombineValueLists(map[configapi.SourceKind][]string{
+			customLabels := m.customLabels.CombineLabelValues(map[configapi.SourceKind][]string{
 				configapi.SourceKindClusterQueue: cqCustomLabels,
-				configapi.SourceKindWorkload:     wlLabelSet.ToList(),
+				configapi.SourceKindWorkload:     wlLabelSet.ExtractVals(),
 			})
 			metrics.ReportPendingWorkloads(cq.name, counts[0], counts[1], customLabels, m.roleTracker)
 		}
