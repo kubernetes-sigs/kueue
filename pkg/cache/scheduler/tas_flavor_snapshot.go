@@ -978,7 +978,23 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	// Zero-pod requests are successful no-ops. We still keep topology levels to
 	// preserve the assignment contract shape for downstream consumers,
 	// while skipping slice validation and capacity/fit computations.
+	// Assumption: in the standard flow, findLeaderAndWorkers normalizes PodSets
+	// so workers.Count >= leader.Count. Therefore workers.Count == 0 implies
+	// there is no positive leader-only request reaching this path.
 	if workersTasPodSetRequests.Count == 0 {
+		if leaderTasPodSetRequests != nil && leaderTasPodSetRequests.Count > 0 {
+			s.log.V(2).Info("zero-count topology assignment fast path hit with positive leader count",
+				"workersPodSet", workersTasPodSetRequests.PodSet.Name,
+				"workersCount", workersTasPodSetRequests.Count,
+				"leaderPodSet", leaderTasPodSetRequests.PodSet.Name,
+				"leaderCount", leaderTasPodSetRequests.Count,
+			)
+		} else {
+			s.log.V(2).Info("zero-count topology assignment fast path hit",
+				"workersPodSet", workersTasPodSetRequests.PodSet.Name,
+				"workersCount", workersTasPodSetRequests.Count,
+			)
+		}
 		assignments := map[kueue.PodSetReference]*utiltas.TopologyAssignment{
 			workersTasPodSetRequests.PodSet.Name: s.buildAssignment(nil),
 		}
