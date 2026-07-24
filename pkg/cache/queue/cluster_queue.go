@@ -846,7 +846,8 @@ func buildSnapshotSort(
 			}
 			lqWeight, ok := getLQWeight(lqKey)
 			if !ok {
-				continue
+				slices.SortFunc(elements, baseCmp)
+				return
 			}
 			usageCache[lqKey] = workload.CalcFSUsageFromResources(consumed, penalty, lqWeight, fsResWeights)
 		}
