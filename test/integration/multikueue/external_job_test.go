@@ -29,6 +29,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
+	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
@@ -305,6 +307,10 @@ var _ = ginkgo.Describe(
 					Name:      workloadraycluster.GetWorkloadNameForRayCluster(raycluster.Name, raycluster.UID),
 					Namespace: managerNs.Name,
 				}
+				gomega.Expect(clientutil.Patch(managerTestCluster.ctx, managerTestCluster.client, raycluster, func() (bool, error) {
+					jobframework.SetPrebuiltWorkloadName(raycluster, wlLookupKey.Name)
+					return true, nil
+				})).To(gomega.Succeed())
 				util.SetQuotaReservation(
 					managerTestCluster.ctx,
 					managerTestCluster.client,
@@ -375,6 +381,10 @@ var _ = ginkgo.Describe(
 					Name:      workloadraycluster.GetWorkloadNameForRayCluster(raycluster.Name, raycluster.UID),
 					Namespace: managerNs.Name,
 				}
+				gomega.Expect(clientutil.Patch(managerTestCluster.ctx, managerTestCluster.client, raycluster, func() (bool, error) {
+					jobframework.SetPrebuiltWorkloadName(raycluster, wlLookupKey.Name)
+					return true, nil
+				})).To(gomega.Succeed())
 
 				admitWorkloadAndCheckWorkerCopies(multiKueueAC.Name, wlLookupKey, admission)
 
@@ -407,6 +417,10 @@ var _ = ginkgo.Describe(
 					Name:      workloadraycluster.GetWorkloadNameForRayCluster(raycluster.Name, raycluster.UID),
 					Namespace: managerNs.Name,
 				}
+				gomega.Expect(clientutil.Patch(managerTestCluster.ctx, managerTestCluster.client, raycluster, func() (bool, error) {
+					jobframework.SetPrebuiltWorkloadName(raycluster, wlLookupKey.Name)
+					return true, nil
+				})).To(gomega.Succeed())
 				util.SetQuotaReservation(
 					managerTestCluster.ctx,
 					managerTestCluster.client,
@@ -462,12 +476,18 @@ var _ = ginkgo.Describe(
 					util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, raycluster)
 					rayclusterLookupKey := client.ObjectKeyFromObject(raycluster)
 					createdRayCluster := &rayv1.RayCluster{}
+					gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, rayclusterLookupKey, createdRayCluster)).To(gomega.Succeed())
 
-					createdWorkload := &kueue.Workload{}
 					wlLookupKey := types.NamespacedName{
 						Name:      workloadraycluster.GetWorkloadNameForRayCluster(raycluster.Name, raycluster.UID),
 						Namespace: managerNs.Name,
 					}
+					gomega.Expect(clientutil.Patch(managerTestCluster.ctx, managerTestCluster.client, raycluster, func() (bool, error) {
+						jobframework.SetPrebuiltWorkloadName(raycluster, wlLookupKey.Name)
+						return true, nil
+					})).To(gomega.Succeed())
+
+					createdWorkload := &kueue.Workload{}
 
 					ginkgo.By("setting workload reservation in the management cluster", func() {
 						admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).PodSets(
