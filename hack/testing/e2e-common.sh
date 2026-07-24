@@ -585,7 +585,7 @@ function cluster_create {
     local log_file="$ARTIFACTS/$cluster-create.log"
     # Include node readiness in each cluster bring-up attempt so transient
     # readiness delays can reuse the existing cleanup and recreation path.
-    local create_cmd="run_with_timeout_and_log 3s \"$log_file\" $KIND create cluster --name \"$cluster\" --image \"$E2E_KIND_VERSION\" --config \"$kind_config\" --kubeconfig=\"$kubeconfig\" --wait 5m -v 5 && kubectl wait --kubeconfig=\"$kubeconfig\" --for=condition=Ready node --all --timeout=5m >> \"$log_file\" 2>&1"
+    local create_cmd="run_with_timeout_and_log 10m \"$log_file\" $KIND create cluster --name \"$cluster\" --image \"$E2E_KIND_VERSION\" --config \"$kind_config\" --kubeconfig=\"$kubeconfig\" --wait 5m -v 5 && kubectl wait --kubeconfig=\"$kubeconfig\" --for=condition=Ready node --all --timeout=5m >> \"$log_file\" 2>&1"
     # Retry recognized bring-up failures (#11586, #12307, #12984, #13437). Persistent
     # failures producing a matching error will exhaust the configured retries
     # before failing.
