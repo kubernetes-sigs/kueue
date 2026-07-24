@@ -1376,6 +1376,54 @@ func TestWlReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
+		"the local workload reports out of sync when the admitting remote drifted from the manager spec": {
+			// The admitting worker is reachable, but step 5 deleted its remote for drifting from
+			// the manager spec. Step 6a must surface that precise reason instead of the generic
+			// "Admitting remote no longer exists" used when the remote is simply gone.
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			reconcileFor: "wl1",
+			managersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					PodSets(*utiltestingapi.MakePodSet("different-name", 1).Obj()).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload was admitted on "worker1"`,
+					}).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					ClusterName("worker1").
+					Obj(),
+			},
+			worker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+			worker1Jobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			useSecondWorker:  true,
+			wantManagersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					PodSets(*utiltestingapi.MakePodSet("different-name", 1).Obj()).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateRetry,
+						Message: `Remote workload on worker cluster "worker1" is out of sync with its user job, resetting for re-dispatch, Previously: "Ready"`,
+					}).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					ClusterName("worker1").
+					Obj(),
+			},
+		},
 		"the local workload is retried when the admission check is Ready but no admitting cluster is recorded": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor: "wl1",
@@ -1680,7 +1728,7 @@ func TestWlReconcile(t *testing.T) {
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:    "ac1",
 						State:   kueue.CheckStateRetry,
-						Message: `Admitting remote no longer exists, Previously: "Ready"`,
+						Message: `Remote workload on worker cluster "worker1" is out of sync with its user job, resetting for re-dispatch, Previously: "Ready"`,
 					}).
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
 					ClusterName("worker1").
@@ -2504,6 +2552,16 @@ type createCall struct {
 	obj     *kueue.Workload
 }
 
+// newRemoteWorkloads wraps a cluster->workload map into the group's
+// cluster->*remoteWorkload map used by wlGroup.remotes.
+func newRemoteWorkloads(wls map[string]*kueue.Workload) map[string]*remoteWorkload {
+	remotes := make(map[string]*remoteWorkload, len(wls))
+	for name, wl := range wls {
+		remotes[name] = &remoteWorkload{wl: wl}
+	}
+	return remotes
+}
+
 func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 	const externalMultiKueueDispatcherController = "external.com/mk-dispatcher"
 
@@ -2640,7 +2698,7 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 			}
 			group := &wlGroup{
 				local:         local,
-				remotes:       tt.remotes,
+				remotes:       newRemoteWorkloads(tt.remotes),
 				remoteClients: remoteClients,
 				acName:        "ac1",
 			}
@@ -2884,7 +2942,7 @@ func TestReconcileGroup_SyncDeferred_ShortRequeue(t *testing.T) {
 	group := &wlGroup{
 		local:       local,
 		localClient: managerClient,
-		remotes:     map[string]*kueue.Workload{workerName: remote},
+		remotes:     newRemoteWorkloads(map[string]*kueue.Workload{workerName: remote}),
 		remoteClients: map[string]*remoteClient{
 			workerName: {client: workerClient, origin: defaultOrigin},
 		},
