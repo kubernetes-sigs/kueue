@@ -151,7 +151,7 @@ var _ = ginkgo.Describe("KubeRay multi-PodSet autoscaling", ginkgo.Label("area:s
 			gomega.Expect(k8sClient.Create(ctx, rayCluster)).To(gomega.Succeed())
 		})
 
-		var headPod corev1.Pod
+		var headPod *corev1.Pod
 		ginkgo.By("Waiting for the zero-worker RayCluster to become ready", func() {
 			createdRayCluster := &rayv1.RayCluster{}
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -160,14 +160,10 @@ var _ = ginkgo.Describe("KubeRay multi-PodSet autoscaling", ginkgo.Label("area:s
 				g.Expect(meta.IsStatusConditionTrue(createdRayCluster.Status.Conditions, string(rayv1.HeadPodReady))).To(gomega.BeTrue())
 				g.Expect(createdRayCluster.Status.DesiredWorkerReplicas).To(gomega.Equal(int32(0)))
 
-				headPods := &corev1.PodList{}
-				g.Expect(k8sClient.List(ctx, headPods,
-					client.InNamespace(ns.Name),
-					client.MatchingLabels{"ray.io/node-type": "head"},
-				)).To(gomega.Succeed())
-				g.Expect(headPods.Items).To(gomega.HaveLen(1))
-				g.Expect(headPods.Items[0].Status.Phase).To(gomega.Equal(corev1.PodRunning))
-				headPod = headPods.Items[0]
+				var err error
+				headPod, err = util.GetRayClusterHeadPod(ctx, k8sClient, client.ObjectKeyFromObject(rayCluster))
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(headPod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsg("RayCluster did not become ready", createdRayCluster))
 		})
 
