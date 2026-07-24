@@ -17,14 +17,6 @@ inputs:
     description: 'If true, move the command from Log to History without adding a new entry'
     required: false
     default: 'false'
-  issue-number:
-    description: 'The issue number to post the comment to'
-    required: false
-    default: ${{ github.event.issue.number }}
-  github-token:
-    description: 'GitHub Token'
-    required: false
-    default: ${{ github.token }}
 
 runs:
   using: 'composite'
@@ -32,8 +24,8 @@ runs:
     - name: Log Execution Details
       shell: bash
       env:
-        GH_TOKEN: ${{ inputs.github-token }}
-        ISSUE_NUMBER: ${{ inputs.issue-number }}
+        GH_TOKEN: ${{ github.token }}
+        ISSUE_NUMBER: ${{ github.event.issue.number }}
         INPUT_COMMAND: ${{ inputs.command }}
         INPUT_ALIAS: ${{ inputs.alias }}
         INPUT_MESSAGE: ${{ inputs.message }}
