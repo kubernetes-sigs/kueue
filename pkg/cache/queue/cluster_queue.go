@@ -27,7 +27,6 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -818,20 +817,12 @@ func buildSnapshotSort(
 			return 1, true
 		}
 		ns, name := utilqueue.MustParseLocalQueueReference(lqKey)
-		var lq kueue.LocalQueue
-		lqObjKey := client.ObjectKey{Namespace: ns, Name: string(name)}
-		if err := cl.Get(ctx, lqObjKey, &lq); err != nil {
-			if apierrors.IsNotFound(err) {
-				log.V(3).Info("LocalQueue is missing, gracefully falling back to the default weight (1.0)", "localQueue", lqObjKey)
-				return 1, true
-			}
+		lqWeight, err := afs.ResolveLQWeight(ctx, cl, client.ObjectKey{Namespace: ns, Name: string(name)})
+		if err != nil {
 			log.V(2).Error(err, "Failed to get LocalQueue for FS weight", "localQueue", klog.KRef(ns, string(name)))
 			return 0, false
 		}
-		if lq.Spec.FairSharing != nil && lq.Spec.FairSharing.Weight != nil {
-			return lq.Spec.FairSharing.Weight.AsApproximateFloat64(), true
-		}
-		return 1, true
+		return lqWeight, true
 	}
 
 	return func(elements []*workload.Info) {

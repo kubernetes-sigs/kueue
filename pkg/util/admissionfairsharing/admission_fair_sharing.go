@@ -17,9 +17,13 @@ limitations under the License.
 package admissionfairsharing
 
 import (
+	"context"
 	"math"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -51,6 +55,24 @@ func CalculateEntryPenalty(totalRequests corev1.ResourceList, afs *config.Admiss
 	)
 
 	return resource.MulByFloat(totalRequests, alpha)
+}
+
+// ResolveLQWeight returns the fair-sharing weight of the referenced LocalQueue.
+// A missing LocalQueue falls back to the default weight (1.0) so that its
+// Workloads keep participating in fair-sharing comparisons.
+func ResolveLQWeight(ctx context.Context, c client.Client, lqObjKey client.ObjectKey) (float64, error) {
+	var lq kueue.LocalQueue
+	if err := c.Get(ctx, lqObjKey, &lq); err != nil {
+		if apierrors.IsNotFound(err) {
+			ctrl.LoggerFrom(ctx).V(3).Info("LocalQueue is missing, gracefully falling back to the default weight (1.0)", "localQueue", lqObjKey)
+			return 1, nil
+		}
+		return 0, err
+	}
+	if lq.Spec.FairSharing != nil && lq.Spec.FairSharing.Weight != nil {
+		return lq.Spec.FairSharing.Weight.AsApproximateFloat64(), nil
+	}
+	return 1, nil
 }
 
 func Enabled(afsConfig *config.AdmissionFairSharing) bool {

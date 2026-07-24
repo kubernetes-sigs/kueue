@@ -30,7 +30,6 @@ import (
 	"gopkg.in/inf.v0"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	apiresource "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -56,6 +55,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
@@ -459,18 +459,10 @@ func (i *Info) CalcLocalQueueFSUsage(
 		penalty = afsEntryPenalties.Peek(lqKey)
 	}
 
-	var lq kueue.LocalQueue
 	lqObjKey := client.ObjectKey{Namespace: i.Obj.Namespace, Name: string(i.Obj.Spec.QueueName)}
-	if err := c.Get(ctx, lqObjKey, &lq); err != nil {
-		if apierrors.IsNotFound(err) {
-			ctrl.LoggerFrom(ctx).V(3).Info("LocalQueue is missing, gracefully falling back to the default weight (1.0)", "localQueue", lqObjKey)
-			return CalcFSUsageFromResources(consumed, penalty, 1.0, resWeights), nil
-		}
+	lqWeight, err := afs.ResolveLQWeight(ctx, c, lqObjKey)
+	if err != nil {
 		return 0, err
-	}
-	var lqWeight float64 = 1
-	if lq.Spec.FairSharing != nil && lq.Spec.FairSharing.Weight != nil {
-		lqWeight = lq.Spec.FairSharing.Weight.AsApproximateFloat64()
 	}
 	return CalcFSUsageFromResources(consumed, penalty, lqWeight, resWeights), nil
 }
