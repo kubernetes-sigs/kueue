@@ -1,0 +1,20 @@
+# The MultiKueue remote client requires every enabled framework to have its
+# CRDs installed on every worker cluster, so each shard must only enable the
+# integrations whose operators it installs. This shard installs all extended
+# operators except KubeRay, hence no ray.io/* frameworks here.
+integrations:
+  frameworks:
+  - "batch/job"
+  - "kubeflow.org/mpijob"
+  - "jobset.x-k8s.io/jobset"
+  - "kubeflow.org/paddlejob"
+  - "kubeflow.org/pytorchjob"
+  - "kubeflow.org/tfjob"
+  - "kubeflow.org/xgboostjob"
+  - "kubeflow.org/jaxjob"
+  - "trainer.kubeflow.org/trainjob"
+  - "workload.codeflare.dev/appwrapper"
+  - "pod"
+  - "deployment"
+  - "statefulset"
+  - "leaderworkerset.x-k8s.io/leaderworkerset"

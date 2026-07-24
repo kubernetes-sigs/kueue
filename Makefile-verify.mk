@@ -97,7 +97,7 @@ verify-tree-prereqs: verify-go-prereqs verify-docs-prereqs verify-helm-prereqs
 ## Read-only verification targets that should not mutate the repo.
 ## Add new check-only targets here.
 verify-checks: ## Phase 2 (parallel): checks that should run after generation completes.
-verify-checks: verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-skills-lint
+verify-checks: verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-e2e-config-consistency verify-skills-lint
 
 # ---- Shared check recipes -------------------------------------------------
 # Each recipe is stored in a variable so that both the lightweight standalone
@@ -166,6 +166,11 @@ define _kustomize_build_verify_recipe
 $(KUSTOMIZE) build config/alpha-enabled > /dev/null
 endef
 
+define _e2e_config_consistency_verify_recipe
+YQ=$(YQ) ./hack/generate-e2e-manager-configs.sh
+git --no-pager diff --exit-code test/e2e/config
+endef
+
 # Validates skills against https://agentskills.io/specification
 define _skills_lint_recipe
 mkdir -p $(ARTIFACTS)
@@ -210,6 +215,10 @@ verify-npm-depcheck: verify-tree-prereqs prepare-release-branch ## Depcheck afte
 .PHONY: verify-kustomize-build
 verify-kustomize-build: verify-tree-prereqs kustomize ## Verify alpha-enabled manifests render after generation
 	$(_kustomize_build_verify_recipe)
+
+.PHONY: verify-e2e-config-consistency
+verify-e2e-config-consistency: verify-tree-prereqs yq ## Verify e2e manager configs match their fragments/deltas
+	$(_e2e_config_consistency_verify_recipe)
 
 .PHONY: verify-skills-lint
 verify-skills-lint: ## Lint agent skills with skillsaw

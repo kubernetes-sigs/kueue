@@ -1,0 +1,19 @@
+integrations:
+  frameworks:
+  - "batch/job"
+  - "pod"
+featureGates:
+  KueueDRAIntegration: true
+  KueueDRAIntegrationPartitionableDevices: true
+resources:
+  deviceClassMappings:
+  - name: gpu.memory
+    deviceClassNames:
+    - gpu.example.com
+    sources:
+    - counter:
+        name: memory
+        driver: gpu.example.com
+        deviceSelector:
+          cel:
+            expression: "device.driver == 'gpu.example.com'"
