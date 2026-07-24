@@ -173,3 +173,13 @@
   stage: GA
   from: "0.17"
   to: "0.18"
+- feature: SkipFinalizersForPodsSuspendedByParent
+  default: true
+  stage: Beta
+  from: "0.16"
+  to: "0.17"
+- feature: SkipFinalizersForPodsSuspendedByParent
+  default: true
+  stage: GA
+  from: "0.18"
+  to: "0.19"

@@ -107,7 +107,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	eg, ctx := errgroup.WithContext(ctx)
 
 	eg.Go(func() error {
-		return r.finalizePods(ctx, sts, podList.Items)
+		return r.ungatePods(ctx, sts, podList.Items)
 	})
 
 	eg.Go(func() error {
@@ -117,18 +117,18 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	return ctrl.Result{}, eg.Wait()
 }
 
-func (r *Reconciler) finalizePods(ctx context.Context, sts *appsv1.StatefulSet, pods []corev1.Pod) error {
+func (r *Reconciler) ungatePods(ctx context.Context, sts *appsv1.StatefulSet, pods []corev1.Pod) error {
 	return parallelize.Until(ctx, len(pods), func(i int) error {
-		return r.finalizePod(ctx, sts, &pods[i])
+		return r.ungatePod(ctx, sts, &pods[i])
 	})
 }
 
-func (r *Reconciler) finalizePod(ctx context.Context, sts *appsv1.StatefulSet, pod *corev1.Pod) error {
+func (r *Reconciler) ungatePod(ctx context.Context, sts *appsv1.StatefulSet, pod *corev1.Pod) error {
 	log := ctrl.LoggerFrom(ctx)
 	return client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
-		if utilstatefulset.UngateAndFinalizePod(sts, pod, false) {
+		if utilstatefulset.UngatePod(sts, pod, false) {
 			log.V(3).Info(
-				"Finalizing pod in group",
+				"Ungating pod in group",
 				"pod", klog.KObj(pod),
 				"group", utilpod.GetPodGroupName(pod),
 			)
