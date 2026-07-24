@@ -17,6 +17,7 @@ limitations under the License.
 package tas
 
 import (
+	stdcmp "cmp"
 	"fmt"
 	"slices"
 	"testing"
@@ -867,24 +868,215 @@ func TestV1Beta2FromInternal_hostnamePrefixFeatureGateAndFallback(t *testing.T) 
 	}
 }
 
-func TestCompactTopologyAssignmentEncodingWithHostnamePrefixRuns_preservesDomainOrder(t *testing.T) {
+func TestV1Beta2From_groupsDomainsByHostnamePrefix(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASAssignmentsEncodingByHostnamePrefix, true)
+	internal := &TopologyAssignment{
+		Levels:  []string{corev1.LabelHostname},
+		Domains: make([]TopologyDomainAssignment, 40),
+	}
+	for i := range internal.Domains {
+		pool := "b"
+		if i%2 == 1 {
+			pool = "a"
+		}
+		internal.Domains[i] = TopologyDomainAssignment{
+			Values: []string{fmt.Sprintf("gke-c-pool-%s-hash-node-%02d", pool, i)},
+			Count:  int32(i + 1),
+		}
+	}
+	originalDomains := slices.Clone(internal.Domains)
+
+	encoded := V1Beta2From(internal, WithHostnamePrefixGroupingAllowed(true))
+	if gotSlices := len(encoded.Slices); gotSlices != 2 {
+		t.Fatalf("unexpected number of slices: got %d, want 2", gotSlices)
+	}
+	if diff := cmp.Diff(originalDomains, internal.Domains); diff != "" {
+		t.Fatalf("V1Beta2From mutated its input (-want,+got):\n%s", diff)
+	}
+
+	wantDomains := slices.Clone(originalDomains)
+	slices.SortFunc(wantDomains, func(a, b TopologyDomainAssignment) int {
+		return stdcmp.Compare(a.Values[0], b.Values[0])
+	})
+	if diff := cmp.Diff(wantDomains, InternalFrom(encoded).Domains); diff != "" {
+		t.Fatalf("unexpected grouped domain order (-want,+got):\n%s", diff)
+	}
+}
+
+func TestV1Beta2From_preservesDomainOrderByDefault(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASAssignmentsEncodingByHostnamePrefix, true)
 	internal := &TopologyAssignment{
 		Levels: []string{corev1.LabelHostname},
 		Domains: []TopologyDomainAssignment{
-			{Values: []string{"gke-c-pool-a-hash1-aa"}, Count: 1},
-			{Values: []string{"gke-c-pool-b-hash2-cc"}, Count: 2},
-			{Values: []string{"gke-c-pool-a-hash1-bb"}, Count: 3},
-			{Values: []string{"gke-c-pool-b-hash2-dd"}, Count: 4},
+			{Values: []string{"pool-b-node-1"}, Count: 1},
+			{Values: []string{"pool-a-node-1"}, Count: 2},
+			{Values: []string{"pool-b-node-2"}, Count: 3},
+			{Values: []string{"pool-a-node-2"}, Count: 4},
 		},
 	}
 
-	encoded := compactTopologyAssignmentEncodingWithHostnamePrefixRuns(internal)
-	if gotSlices := len(encoded.Slices); gotSlices != 4 {
-		t.Fatalf("unexpected number of slices: got %d, want 4", gotSlices)
+	got := InternalFrom(V1Beta2From(internal))
+	if diff := cmp.Diff(internal, got); diff != "" {
+		t.Fatalf("default encoding changed domain order (-want,+got):\n%s", diff)
 	}
-	got := InternalFrom(encoded)
-	if diff := cmp.Diff(internal.Domains, got.Domains); diff != "" {
-		t.Fatalf("hostname-prefix encoding must preserve domain order (-want,+got):\n%s", diff)
+}
+
+func TestTopologyAssignmentForHostnamePrefixEncoding(t *testing.T) {
+	tests := map[string]struct {
+		internal       *TopologyAssignment
+		want           *TopologyAssignment
+		wantPrefixKeys []string
+	}{
+		"groups by prefix and preserves order within each group": {
+			internal: &TopologyAssignment{
+				Levels: []string{"cloud.example.com/zone", corev1.LabelHostname},
+				Domains: []TopologyDomainAssignment{
+					{Values: []string{"zone-a", "pool-b-node-2"}, Count: 1},
+					{Values: []string{"zone-b", "pool-a-node-2"}, Count: 2},
+					{Values: []string{"zone-a", "pool-b-node-1"}, Count: 3},
+					{Values: []string{"zone-b", "pool-a-node-1"}, Count: 4},
+				},
+			},
+			want: &TopologyAssignment{
+				Levels: []string{"cloud.example.com/zone", corev1.LabelHostname},
+				Domains: []TopologyDomainAssignment{
+					{Values: []string{"zone-b", "pool-a-node-2"}, Count: 2},
+					{Values: []string{"zone-b", "pool-a-node-1"}, Count: 4},
+					{Values: []string{"zone-a", "pool-b-node-2"}, Count: 1},
+					{Values: []string{"zone-a", "pool-b-node-1"}, Count: 3},
+				},
+			},
+			wantPrefixKeys: []string{"pool-a-node-", "pool-a-node-", "pool-b-node-", "pool-b-node-"},
+		},
+		"groups prefixless domains from a hostname-sorted assignment": {
+			internal: &TopologyAssignment{
+				Levels: []string{corev1.LabelHostname},
+				Domains: []TopologyDomainAssignment{
+					{Values: []string{"a-1"}, Count: 1},
+					{Values: []string{"a-2"}, Count: 2},
+					{Values: []string{"a0"}, Count: 3},
+					{Values: []string{"b-1"}, Count: 4},
+					{Values: []string{"b-2"}, Count: 5},
+					{Values: []string{"b0"}, Count: 6},
+				},
+			},
+			wantPrefixKeys: []string{"", "", "a-", "a-", "b-", "b-"},
+			want: &TopologyAssignment{
+				Levels: []string{corev1.LabelHostname},
+				Domains: []TopologyDomainAssignment{
+					{Values: []string{"a0"}, Count: 3},
+					{Values: []string{"b0"}, Count: 6},
+					{Values: []string{"a-1"}, Count: 1},
+					{Values: []string{"a-2"}, Count: 2},
+					{Values: []string{"b-1"}, Count: 4},
+					{Values: []string{"b-2"}, Count: 5},
+				},
+			},
+		},
+		"preserves duplicate hostname order within each group": {
+			internal: &TopologyAssignment{
+				Levels: []string{"cloud.example.com/zone", corev1.LabelHostname},
+				Domains: []TopologyDomainAssignment{
+					{Values: []string{"zone-b", "pool-b-node-a"}, Count: 2},
+					{Values: []string{"zone-a", "pool-a-node-a"}, Count: 3},
+					{Values: []string{"zone-a", "pool-a-node-a"}, Count: 1},
+					{Values: []string{"zone-b", "pool-b-node-b"}, Count: 4},
+				},
+			},
+			want: &TopologyAssignment{
+				Levels: []string{"cloud.example.com/zone", corev1.LabelHostname},
+				Domains: []TopologyDomainAssignment{
+					{Values: []string{"zone-a", "pool-a-node-a"}, Count: 3},
+					{Values: []string{"zone-a", "pool-a-node-a"}, Count: 1},
+					{Values: []string{"zone-b", "pool-b-node-a"}, Count: 2},
+					{Values: []string{"zone-b", "pool-b-node-b"}, Count: 4},
+				},
+			},
+		},
+		"preserves order for one prefix group": {
+			internal: &TopologyAssignment{
+				Levels: []string{corev1.LabelHostname},
+				Domains: []TopologyDomainAssignment{
+					{Values: []string{"node-b"}, Count: 1},
+					{Values: []string{"node-a"}, Count: 2},
+				},
+			},
+			want: &TopologyAssignment{
+				Levels: []string{corev1.LabelHostname},
+				Domains: []TopologyDomainAssignment{
+					{Values: []string{"node-b"}, Count: 1},
+					{Values: []string{"node-a"}, Count: 2},
+				},
+			},
+		},
+		"preserves order without a reusable prefix": {
+			internal: &TopologyAssignment{
+				Levels: []string{corev1.LabelHostname},
+				Domains: []TopologyDomainAssignment{
+					{Values: []string{"nodeb"}, Count: 1},
+					{Values: []string{"nodea"}, Count: 2},
+				},
+			},
+			want: &TopologyAssignment{
+				Levels: []string{corev1.LabelHostname},
+				Domains: []TopologyDomainAssignment{
+					{Values: []string{"nodeb"}, Count: 1},
+					{Values: []string{"nodea"}, Count: 2},
+				},
+			},
+		},
+		"preserves order without hostname": {
+			internal: &TopologyAssignment{
+				Levels: []string{"cloud.example.com/rack"},
+				Domains: []TopologyDomainAssignment{
+					{Values: []string{"rack-b"}, Count: 1},
+					{Values: []string{"rack-a"}, Count: 2},
+				},
+			},
+			want: &TopologyAssignment{
+				Levels: []string{"cloud.example.com/rack"},
+				Domains: []TopologyDomainAssignment{
+					{Values: []string{"rack-b"}, Count: 1},
+					{Values: []string{"rack-a"}, Count: 2},
+				},
+			},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			originalDomains := slices.Clone(tc.internal.Domains)
+			got, prefixKeys := topologyAssignmentForHostnamePrefixEncoding(tc.internal)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("unexpected result (-want,+got):\n%s", diff)
+			}
+			if tc.wantPrefixKeys != nil {
+				if diff := cmp.Diff(tc.wantPrefixKeys, prefixKeys); diff != "" {
+					t.Errorf("prefix keys do not match sorted domains (-want,+got):\n%s", diff)
+				}
+			}
+			if diff := cmp.Diff(originalDomains, tc.internal.Domains); diff != "" {
+				t.Errorf("input was mutated (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestV1Beta2FromInternal_disabledHostnamePrefixEncodingPreservesDomainOrder(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASAssignmentsEncodingByHostnamePrefix, false)
+	internal := &TopologyAssignment{
+		Levels: []string{corev1.LabelHostname},
+		Domains: []TopologyDomainAssignment{
+			{Values: []string{"pool-b-node-1"}, Count: 1},
+			{Values: []string{"pool-a-node-1"}, Count: 2},
+			{Values: []string{"pool-b-node-2"}, Count: 3},
+			{Values: []string{"pool-a-node-2"}, Count: 4},
+		},
+	}
+
+	got := InternalFrom(V1Beta2From(internal, WithHostnamePrefixGroupingAllowed(true)))
+	if diff := cmp.Diff(internal, got); diff != "" {
+		t.Fatalf("disabled hostname-prefix encoding changed domain order (-want,+got):\n%s", diff)
 	}
 }
 
@@ -970,15 +1162,13 @@ func TestReusableHostnamePrefixKeys(t *testing.T) {
 }
 
 func TestReusableHostnamePrefixKeys_backsOffToFitSliceLimit(t *testing.T) {
-	domains := make([]TopologyDomainAssignment, maxTopologyAssignmentSlices+1)
+	domains := make([]TopologyDomainAssignment, 2*(maxTopologyAssignmentSlices+1))
 	want := make([]string, len(domains))
 	for i := range domains {
-		group := "x"
-		if i%2 == 1 {
-			group = "y"
-		}
-		domains[i].Values = []string{fmt.Sprintf("a-%s-%04d", group, i)}
-		want[i] = "a-"
+		group := i / 2
+		node := i % 2
+		domains[i].Values = []string{fmt.Sprintf("a-group-%04d-node-%d", group, node)}
+		want[i] = "a-group-"
 	}
 
 	got := reusableHostnamePrefixKeys([]string{corev1.LabelHostname}, domains)
@@ -987,18 +1177,37 @@ func TestReusableHostnamePrefixKeys_backsOffToFitSliceLimit(t *testing.T) {
 	}
 }
 
+func TestReusableHostnamePrefixKeys_backsOffWhenAGroupRequiresMultipleSlices(t *testing.T) {
+	const groupCount = maxTopologyAssignmentSlices
+	domains := make([]TopologyDomainAssignment, 0, maxDomainsPerTopologyAssignmentSlice+2*(groupCount-1)+1)
+	largeGroupDomain := TopologyDomainAssignment{Values: []string{"a-group-0000-node-0"}}
+	for range maxDomainsPerTopologyAssignmentSlice + 1 {
+		domains = append(domains, largeGroupDomain)
+	}
+	for group := 1; group < groupCount; group++ {
+		for node := range 2 {
+			domains = append(domains, TopologyDomainAssignment{
+				Values: []string{fmt.Sprintf("a-group-%04d-node-%d", group, node)},
+			})
+		}
+	}
+
+	got := reusableHostnamePrefixKeys([]string{corev1.LabelHostname}, domains)
+	if diff := cmp.Diff([]string{"a-group-"}, slices.Compact(got)); diff != "" {
+		t.Fatalf("expected prefix backoff after chunking exceeds the slice limit (-want,+got):\n%s", diff)
+	}
+}
+
 func TestCompactTopologyAssignmentEncodingWithHostnamePrefixRuns_fallsBackWhenNoPrefixDepthFitsSliceLimit(t *testing.T) {
 	internal := &TopologyAssignment{
 		Levels:  []string{corev1.LabelHostname},
-		Domains: make([]TopologyDomainAssignment, maxTopologyAssignmentSlices+1),
+		Domains: make([]TopologyDomainAssignment, 2*(maxTopologyAssignmentSlices+1)),
 	}
 	for i := range internal.Domains {
-		prefix := "a-x"
-		if i%2 == 1 {
-			prefix = "b-y"
-		}
+		group := i / 2
+		node := i % 2
 		internal.Domains[i] = TopologyDomainAssignment{
-			Values: []string{fmt.Sprintf("%s-%04d", prefix, i)},
+			Values: []string{fmt.Sprintf("group%04d-node-%d", group, node)},
 			Count:  1,
 		}
 	}

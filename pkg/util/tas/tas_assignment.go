@@ -19,6 +19,7 @@ package tas
 import (
 	"encoding/json"
 	"iter"
+	"maps"
 	"slices"
 
 	"github.com/go-logr/logr"
@@ -42,7 +43,8 @@ type TopologyDomainAssignment struct {
 }
 
 type v1Beta2FromOptions struct {
-	logger logr.Logger
+	logger                      logr.Logger
+	allowHostnamePrefixGrouping bool
 }
 
 // V1Beta2FromOption configures V1Beta2From.
@@ -52,6 +54,15 @@ type V1Beta2FromOption func(*v1Beta2FromOptions)
 func WithLogger(logger logr.Logger) V1Beta2FromOption {
 	return func(options *v1Beta2FromOptions) {
 		options.logger = logger
+	}
+}
+
+// WithHostnamePrefixGroupingAllowed permits V1Beta2From to reorder domains by
+// selected hostname prefix when that encoding is smaller. It must not be
+// enabled when domain order carries rank-assignment or scale-down semantics.
+func WithHostnamePrefixGroupingAllowed(enabled bool) V1Beta2FromOption {
+	return func(options *v1Beta2FromOptions) {
+		options.allowHostnamePrefixGrouping = enabled
 	}
 }
 
@@ -279,58 +290,163 @@ func V1Beta2From(ta *TopologyAssignment, options ...V1Beta2FromOption) *kueue.To
 	if !features.Enabled(features.TASAssignmentsEncodingByHostnamePrefix) {
 		return singleCompactTopologyAssignmentEncoding(ta)
 	}
-	return compactTopologyAssignmentEncoding(opts.logger, ta)
+	return compactTopologyAssignmentEncoding(opts.logger, ta, opts.allowHostnamePrefixGrouping)
 }
 
-// compactTopologyAssignmentEncoding chooses the smaller serialized encoding
-// when both forms are valid. Assignments above the single-slice domain limit
-// always use hostname-prefix encoding.
-func compactTopologyAssignmentEncoding(log logr.Logger, ta *TopologyAssignment) *kueue.TopologyAssignment {
-	prefixEncoded := compactTopologyAssignmentEncodingWithHostnamePrefixRuns(ta)
-	if len(prefixEncoded.Slices) <= 1 {
-		return prefixEncoded
-	}
-	if len(ta.Domains) > maxDomainsPerTopologyAssignmentSlice {
-		log.V(4).Info("Topology assignment exceeds the single-slice domain limit; using hostname-prefix encoding",
-			"domainCount", len(ta.Domains),
-			"maxDomainsPerSlice", maxDomainsPerTopologyAssignmentSlice,
-		)
-		return prefixEncoded
+// compactTopologyAssignmentEncoding chooses the smallest serialized encoding
+// from the valid order-preserving prefix, grouped prefix, and single-slice
+// candidates.
+func compactTopologyAssignmentEncoding(log logr.Logger, ta *TopologyAssignment, allowHostnamePrefixGrouping bool) *kueue.TopologyAssignment {
+	var orderPreservingPrefix *kueue.TopologyAssignment
+	var groupedPrefix *kueue.TopologyAssignment
+	if allowHostnamePrefixGrouping && len(ta.Domains) > 1 && len(ta.Levels) > 0 && IsLowestLevelHostname(ta.Levels) {
+		levelIdx := len(ta.Levels) - 1
+		prefixIndex := indexHostnamePrefixes(levelIdx, ta.Domains)
+		groupedKeys := selectHostnamePrefixKeys(levelIdx, ta.Domains, prefixIndex, true)
+		grouped, groupedKeys := topologyAssignmentForHostnamePrefixEncodingWithKeys(ta, groupedKeys)
+		if grouped != ta {
+			orderPreservingKeys := selectHostnamePrefixKeys(levelIdx, ta.Domains, prefixIndex, false)
+			orderPreservingPrefix = compactTopologyAssignmentEncodingWithHostnamePrefixRunsAndKeys(ta, orderPreservingKeys)
+			groupedPrefix = compactTopologyAssignmentEncodingWithHostnamePrefixRunsAndKeys(grouped, groupedKeys)
+		} else {
+			// Prefix keys are already grouped, so the grouped and
+			// order-preserving encodings are identical.
+			orderPreservingPrefix = compactTopologyAssignmentEncodingWithHostnamePrefixRunsAndKeys(ta, groupedKeys)
+		}
+	} else {
+		orderPreservingPrefix = compactTopologyAssignmentEncodingWithHostnamePrefixRuns(ta)
 	}
 
-	singleEncoded := singleCompactTopologyAssignmentEncoding(ta)
-	prefixJSON, prefixErr := json.Marshal(prefixEncoded)
-	if prefixErr != nil {
-		log.Error(prefixErr, "Failed to marshal hostname-prefix topology assignment while comparing encodings",
-			"domainCount", len(ta.Domains),
-			"sliceCount", len(prefixEncoded.Slices),
+	candidates := []topologyAssignmentEncodingCandidate{{
+		name:       "order-preserving-prefix",
+		assignment: orderPreservingPrefix,
+	}}
+	if groupedPrefix != nil {
+		candidates = append(candidates, topologyAssignmentEncodingCandidate{
+			name:       "grouped-prefix",
+			assignment: groupedPrefix,
+		})
+	}
+
+	// A one-slice order-preserving prefix encoding is identical to the
+	// single-slice candidate.
+	if len(ta.Domains) <= maxDomainsPerTopologyAssignmentSlice && len(orderPreservingPrefix.Slices) > 1 {
+		candidates = append(candidates, topologyAssignmentEncodingCandidate{
+			name:       "single-slice",
+			assignment: singleCompactTopologyAssignmentEncoding(ta),
+		})
+	}
+
+	if len(candidates) == 1 {
+		if len(ta.Domains) > maxDomainsPerTopologyAssignmentSlice {
+			log.V(4).Info("Topology assignment exceeds the single-slice domain limit; using order-preserving hostname-prefix encoding",
+				"domainCount", len(ta.Domains),
+				"maxDomainsPerSlice", maxDomainsPerTopologyAssignmentSlice,
+			)
+		}
+		return orderPreservingPrefix
+	}
+	return smallestSerializedTopologyAssignmentEncoding(log, len(ta.Domains), candidates)
+}
+
+type topologyAssignmentEncodingCandidate struct {
+	name       string
+	assignment *kueue.TopologyAssignment
+}
+
+func smallestSerializedTopologyAssignmentEncoding(log logr.Logger, domainCount int, candidates []topologyAssignmentEncodingCandidate) *kueue.TopologyAssignment {
+	best := candidates[0]
+	bestJSON, err := json.Marshal(best.assignment)
+	if err != nil {
+		log.Error(err, "Failed to marshal topology assignment while comparing encodings",
+			"domainCount", domainCount,
+			"encoding", best.name,
 		)
+		return best.assignment
 	}
-	singleJSON, singleErr := json.Marshal(singleEncoded)
-	if singleErr != nil {
-		log.Error(singleErr, "Failed to marshal single-slice topology assignment while comparing encodings",
-			"domainCount", len(ta.Domains),
-		)
+	candidateBytes := map[string]int{best.name: len(bestJSON)}
+
+	for _, candidate := range candidates[1:] {
+		candidateJSON, err := json.Marshal(candidate.assignment)
+		if err != nil {
+			log.Error(err, "Failed to marshal topology assignment while comparing encodings",
+				"domainCount", domainCount,
+				"encoding", candidate.name,
+			)
+			continue
+		}
+		candidateBytes[candidate.name] = len(candidateJSON)
+		if len(candidateJSON) < len(bestJSON) {
+			best = candidate
+			bestJSON = candidateJSON
+		}
 	}
-	if prefixErr != nil || singleErr != nil {
-		return prefixEncoded
-	}
-	if len(singleJSON) < len(prefixJSON) {
-		log.V(5).Info("Selected single-slice topology assignment encoding after serialized-size comparison",
-			"domainCount", len(ta.Domains),
-			"hostnamePrefixSliceCount", len(prefixEncoded.Slices),
-			"singleSliceBytes", len(singleJSON),
-			"hostnamePrefixBytes", len(prefixJSON),
-		)
-		return singleEncoded
-	}
-	log.V(6).Info("Selected hostname-prefix topology assignment encoding after serialized-size comparison",
-		"domainCount", len(ta.Domains),
-		"hostnamePrefixSliceCount", len(prefixEncoded.Slices),
-		"singleSliceBytes", len(singleJSON),
-		"hostnamePrefixBytes", len(prefixJSON),
+
+	log.V(5).Info("Selected topology assignment encoding after serialized-size comparison",
+		"domainCount", domainCount,
+		"encoding", best.name,
+		"encodingBytes", len(bestJSON),
+		"candidateBytes", candidateBytes,
 	)
-	return prefixEncoded
+	return best.assignment
+}
+
+// topologyAssignmentForHostnamePrefixEncoding selects reusable hostname prefix
+// keys and groups domains by key when multiple groups are present. Group keys
+// are ordered lexicographically, while the original order within each group is
+// preserved. The grouping uses shallow copies and leaves the caller's assignment
+// unchanged.
+func topologyAssignmentForHostnamePrefixEncoding(ta *TopologyAssignment) (*TopologyAssignment, []string) {
+	if len(ta.Domains) < 2 || len(ta.Levels) == 0 || !IsLowestLevelHostname(ta.Levels) {
+		return ta, nil
+	}
+
+	prefixKeys := reusableHostnamePrefixKeys(ta.Levels, ta.Domains)
+	return topologyAssignmentForHostnamePrefixEncodingWithKeys(ta, prefixKeys)
+}
+
+func topologyAssignmentForHostnamePrefixEncodingWithKeys(ta *TopologyAssignment, prefixKeys []string) (*TopologyAssignment, []string) {
+	if !hasMultiplePrefixKeys(prefixKeys) {
+		return ta, prefixKeys
+	}
+
+	if slices.IsSorted(prefixKeys) {
+		return ta, prefixKeys
+	}
+
+	domainsPerKey := make(map[string]int)
+	for _, key := range prefixKeys {
+		domainsPerKey[key]++
+	}
+	sortedKeys := slices.Sorted(maps.Keys(domainsPerKey))
+	nextIndex := make(map[string]int, len(sortedKeys))
+	next := 0
+	for _, key := range sortedKeys {
+		nextIndex[key] = next
+		next += domainsPerKey[key]
+	}
+
+	sortedDomains := make([]TopologyDomainAssignment, len(ta.Domains))
+	sortedPrefixKeys := make([]string, len(prefixKeys))
+	for i, key := range prefixKeys {
+		target := nextIndex[key]
+		sortedDomains[target] = ta.Domains[i]
+		sortedPrefixKeys[target] = key
+		nextIndex[key] = target + 1
+	}
+	return &TopologyAssignment{
+		Levels:  ta.Levels,
+		Domains: sortedDomains,
+	}, sortedPrefixKeys
+}
+
+func hasMultiplePrefixKeys(prefixKeys []string) bool {
+	for i := 1; i < len(prefixKeys); i++ {
+		if prefixKeys[i] != prefixKeys[0] {
+			return true
+		}
+	}
+	return false
 }
 
 // singleCompactTopologyAssignmentEncoding represents an empty assignment with no
@@ -347,7 +463,7 @@ func singleCompactTopologyAssignmentEncoding(ta *TopologyAssignment) *kueue.Topo
 	return out
 }
 
-// compactTopologyAssignmentEncodingWithHostnamePrefixRuns splits contiguous
+// compactTopologyAssignmentEncodingWithHostnamePrefixRuns splits consecutive
 // hostname-level domains with reusable hostname prefixes into multiple slices.
 // For example, for hostnames ["pool-a-node-0", "pool-a-node-1",
 // "pool-b-node-0"], the first two domains form a slice with prefix
@@ -360,18 +476,22 @@ func singleCompactTopologyAssignmentEncoding(ta *TopologyAssignment) *kueue.Topo
 // BenchmarkV1Beta2From results on an Intel i9-14900K were approximately 2-6 ms
 // for 40k-node cases and 20 ms for the sorted 150k-node GKE-style split case.
 func compactTopologyAssignmentEncodingWithHostnamePrefixRuns(ta *TopologyAssignment) *kueue.TopologyAssignment {
-	domains := ta.Domains
 	var prefixKeys []string
-	if len(domains) > 1 && len(ta.Levels) > 0 && IsLowestLevelHostname(ta.Levels) {
-		prefixKeys = reusableHostnamePrefixKeys(ta.Levels, domains)
+	if len(ta.Domains) > 1 && len(ta.Levels) > 0 && IsLowestLevelHostname(ta.Levels) {
+		levelIdx := len(ta.Levels) - 1
+		prefixIndex := indexHostnamePrefixes(levelIdx, ta.Domains)
+		prefixKeys = selectHostnamePrefixKeys(levelIdx, ta.Domains, prefixIndex, false)
 	}
+	return compactTopologyAssignmentEncodingWithHostnamePrefixRunsAndKeys(ta, prefixKeys)
+}
 
+func compactTopologyAssignmentEncodingWithHostnamePrefixRunsAndKeys(ta *TopologyAssignment, prefixKeys []string) *kueue.TopologyAssignment {
 	out := &kueue.TopologyAssignment{
 		Levels: ta.Levels,
 		Slices: []kueue.TopologyAssignmentSlice{},
 	}
 
-	for _, run := range compactDomainRuns(domains, prefixKeys) {
+	for _, run := range compactDomainRuns(ta.Domains, prefixKeys) {
 		for chunk := range slices.Chunk(run, maxDomainsPerTopologyAssignmentSlice) {
 			out.Slices = append(out.Slices, compactSliceEncoding(ta.Levels, chunk))
 		}
@@ -414,7 +534,7 @@ func compactDomainRuns(domains []TopologyDomainAssignment, prefixKeys []string) 
 func reusableHostnamePrefixKeys(levels []string, domains []TopologyDomainAssignment) []string {
 	levelIdx := len(levels) - 1
 	prefixIndex := indexHostnamePrefixes(levelIdx, domains)
-	return selectHostnamePrefixKeys(levelIdx, domains, prefixIndex)
+	return selectHostnamePrefixKeys(levelIdx, domains, prefixIndex, true)
 }
 
 type hostnamePrefixIndex struct {
@@ -467,12 +587,14 @@ func indexHostnamePrefixes(levelIdx int, domains []TopologyDomainAssignment) hos
 }
 
 // selectHostnamePrefixKeys tries prefix depths from longest to shortest until
-// the resulting grouping fits maxTopologyAssignmentSlices. This phase is
+// grouping equal keys would fit maxTopologyAssignmentSlices. When grouping is
+// disabled, it counts the existing consecutive runs instead. This phase is
 // O(n*m*k^2) in time and O(n) in additional space, where n is the number of
 // domains, m is the length of the longest domain, and k is the maximum number of
 // '-' characters in a domain.
-func selectHostnamePrefixKeys(levelIdx int, domains []TopologyDomainAssignment, prefixIndex hostnamePrefixIndex) []string {
+func selectHostnamePrefixKeys(levelIdx int, domains []TopologyDomainAssignment, prefixIndex hostnamePrefixIndex, groupEqualKeys bool) []string {
 	keys := make([]string, len(domains))
+	domainsPerKey := make(map[string]int)
 	for prefixDepth := prefixIndex.maxDepth; prefixDepth >= 1; prefixDepth-- {
 		clear(keys)
 		for i, domain := range domains {
@@ -488,16 +610,36 @@ func selectHostnamePrefixKeys(levelIdx int, domains []TopologyDomainAssignment, 
 			}
 		}
 
-		sliceCount := 0
+		keysSorted := true
+		orderedSliceCount := 0
 		start := 0
 		for i := 1; i < len(domains); i++ {
+			if keys[i] < keys[i-1] {
+				keysSorted = false
+			}
 			if keys[i] == keys[start] {
 				continue
 			}
-			sliceCount += chunkCount(i-start, maxDomainsPerTopologyAssignmentSlice)
+			orderedSliceCount += chunkCount(i-start, maxDomainsPerTopologyAssignmentSlice)
 			start = i
 		}
-		sliceCount += chunkCount(len(domains)-start, maxDomainsPerTopologyAssignmentSlice)
+		orderedSliceCount += chunkCount(len(domains)-start, maxDomainsPerTopologyAssignmentSlice)
+
+		sliceCount := orderedSliceCount
+		if groupEqualKeys && !keysSorted {
+			sliceCount = 0
+			clear(domainsPerKey)
+			for _, key := range keys {
+				domainCount := domainsPerKey[key]
+				if domainCount%maxDomainsPerTopologyAssignmentSlice == 0 {
+					sliceCount++
+					if sliceCount > maxTopologyAssignmentSlices {
+						break
+					}
+				}
+				domainsPerKey[key] = domainCount + 1
+			}
+		}
 
 		if sliceCount <= maxTopologyAssignmentSlices {
 			return keys

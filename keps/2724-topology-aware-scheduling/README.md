@@ -1359,30 +1359,43 @@ The main motivation behind the new format is the etcd size limit of 1.5MiB per s
 
 The `TASAssignmentsEncodingByHostnamePrefix` feature gate is Beta (enabled by default) starting in v0.19. It only
 changes how v1beta2 `TopologyAssignment` objects are encoded: no node-pool or topology meaning is inferred from
-hostnames, and decoding preserves domain order and Pod counts. Disabling the feature gate restores the previous
-single-slice encoder but does not affect reading existing multi-slice assignments. New assignments must then fit the
-single-slice representation and object-size limit; otherwise they can fail to persist.
+hostnames, and Pod counts remain paired with their domains. For assignments whose domain order has no rank-assignment
+or elastic scale-down semantics, the scheduler permits multiple selected prefix keys (including the empty key for
+domains without a reusable prefix) to be ordered by key while preserving the original order within each key group.
+Kueue uses that grouped candidate only when it is smaller than the order-preserving encoding. The scheduler does not
+permit grouping for rank-aware PodSets or elastic Workloads, and v1beta1-to-v1beta2 conversion is order-preserving
+because it lacks the parent PodSet context needed to prove that reordering is safe. Disabling the feature gate restores
+the previous order-preserving single-slice encoder but does not affect reading existing multi-slice assignments. New
+assignments must then fit the single-slice representation and object-size limit; otherwise they can fail to persist.
 
 On upgrade, existing `TopologyAssignment`s remain unchanged. If the assignment of an admitted Workload is later
 recomputed, for example during node hot swap, Kueue re-encodes the entire assignment using the currently enabled
 algorithm.
 
-When the feature gate is enabled, Kueue builds the hostname-prefix encoding first. If it needs multiple slices but the
-assignment is within the per-slice domain limit, Kueue serializes both encodings and keeps the smaller one. Assignments
-that exceed the per-slice domain limit always use the hostname-prefix encoding. When the lowest topology level is
-`kubernetes.io/hostname`, Kueue:
+When the feature gate is enabled, Kueue always builds the order-preserving hostname-prefix encoding. When the caller
+allows reordering, Kueue also builds the grouped hostname-prefix encoding and compares their serialized sizes. If the
+assignment is within the per-slice domain limit, the single-slice encoding is a third candidate. This comparison keeps
+grouping from increasing object size when it disrupts higher-level universal values. Assignments that exceed the
+per-slice domain limit always use one of the two hostname-prefix encodings. When the caller allows reordering and the
+lowest topology level is `kubernetes.io/hostname`, Kueue:
 
 1. Finds reusable hostname prefixes ending in `-`, preferring the longest prefix shared by multiple domains.
-2. Splits consecutive domains with the same selected prefix into runs without reordering domains.
-3. Backs off to shorter prefixes when the runs would exceed the `TopologyAssignment` slice-count limit, and chunks
+2. When multiple selected prefix groups are present, stably groups domains by prefix without mutating the internal
+   assignment. Assignments with no reusable prefix, a single prefix group, or domains already grouped in prefix order
+   avoid the copy and grouping pass.
+3. Splits consecutive domains with the same selected prefix into runs.
+4. Backs off to shorter prefixes when the runs would exceed the `TopologyAssignment` slice-count limit, and chunks
    every run at the per-slice domain limit.
-4. Compacts each resulting slice independently, including common prefixes and suffixes, universal topology values,
+5. Compacts each resulting slice independently, including common prefixes and suffixes, universal topology values,
    and universal Pod counts.
 
-The encoder does not sort domains. The scheduler orders domains by their full topology values before producing
-hostname-only assignments, and the encoder preserves that order so encoding and decoding remain mutually inverse.
-When the lowest topology level is not `kubernetes.io/hostname`, no prefix is reusable, or no prefix selection fits the
-slice limit, Kueue forms a single compact slice until the per-slice domain limit requires domain-count chunking.
+The scheduler orders domains by their full topology values before encoding. For multi-level assignments, higher-level
+values are the primary sort key and can leave hostnames with common prefixes non-consecutive. Grouping by prefix closes
+that gap and means encoding followed by decoding preserves the placement counts but not necessarily the original
+domain order. For rank-aware PodSets, where rank-based ungating uses the encoded order, and elastic Workloads, where
+scale-down truncates the encoded order, Kueue skips grouping and keeps the scheduler's full-topology order. When the
+lowest topology level is not `kubernetes.io/hostname`, no prefix is reusable, or no prefix selection fits the slice
+limit, Kueue forms a single compact slice until the per-slice domain limit requires domain-count chunking.
 
 For example, the consecutive domains
 `gke-c-pool-a-hash1-aa: 3`, `gke-c-pool-a-hash1-bb: 3`,

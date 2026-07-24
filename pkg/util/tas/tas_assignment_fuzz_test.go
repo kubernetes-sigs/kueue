@@ -18,8 +18,10 @@ package tas
 
 import (
 	"bytes"
+	stdcmp "cmp"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -114,7 +116,7 @@ func fuzzDomainInput(values ...string) []byte {
 	return bytes.Join(domains, []byte{0})
 }
 
-func verifyTopologyAssignmentJSONRoundTrip(t *testing.T, want *TopologyAssignment, encoded *kueue.TopologyAssignment) {
+func verifyTopologyAssignmentJSONRoundTrip(t *testing.T, want *TopologyAssignment, encoded *kueue.TopologyAssignment, options ...cmp.Option) {
 	t.Helper()
 	if got := TotalDomainCount(encoded); got != len(want.Domains) {
 		t.Fatalf("unexpected domain count: got %d, want %d", got, len(want.Domains))
@@ -137,9 +139,21 @@ func verifyTopologyAssignmentJSONRoundTrip(t *testing.T, want *TopologyAssignmen
 		t.Fatalf("unmarshalling compacted topology assignment: %v", err)
 	}
 	got := InternalFrom(&wire)
-	if diff := cmp.Diff(want, got, cmpopts.EquateEmpty()); diff != "" {
+	cmpOptions := append([]cmp.Option{cmpopts.EquateEmpty()}, options...)
+	if diff := cmp.Diff(want, got, cmpOptions...); diff != "" {
 		t.Fatalf("unexpected round trip (-want,+got):\n%s", diff)
 	}
+}
+
+func verifyTopologyAssignmentJSONRoundTripUnordered(t *testing.T, want *TopologyAssignment, encoded *kueue.TopologyAssignment) {
+	t.Helper()
+	domainLess := func(a, b TopologyDomainAssignment) bool {
+		if order := slices.Compare(a.Values, b.Values); order != 0 {
+			return order < 0
+		}
+		return stdcmp.Compare(a.Count, b.Count) < 0
+	}
+	verifyTopologyAssignmentJSONRoundTrip(t, want, encoded, cmpopts.SortSlices(domainLess))
 }
 
 func FuzzTopologyAssignmentCompactionRoundTrip(f *testing.F) {
@@ -153,8 +167,13 @@ func FuzzTopologyAssignmentCompactionRoundTrip(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, levelCount uint8, lowestLevelIsHostname bool, input []byte) {
 		want := topologyAssignmentFromFuzzInput(levelCount, lowestLevelIsHostname, input)
-		encoded := compactTopologyAssignmentEncodingWithHostnamePrefixRuns(want)
-		verifyTopologyAssignmentJSONRoundTrip(t, want, encoded)
+		prepared, prefixKeys := topologyAssignmentForHostnamePrefixEncoding(want)
+		encoded := compactTopologyAssignmentEncodingWithHostnamePrefixRunsAndKeys(prepared, prefixKeys)
+		if prepared == want {
+			verifyTopologyAssignmentJSONRoundTrip(t, want, encoded)
+		} else {
+			verifyTopologyAssignmentJSONRoundTripUnordered(t, want, encoded)
+		}
 	})
 }
 

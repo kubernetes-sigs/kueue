@@ -26,6 +26,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -33,8 +34,11 @@ import (
 )
 
 // maxTopologyAssignmentJSONBytes is the test budget used to verify assignment
-// scalability. The encoder does not branch on serialized size.
+// scalability. The encoder compares candidate sizes but does not branch on this
+// test-only budget.
 const maxTopologyAssignmentJSONBytes = 1_500_000
+
+var allowHostnamePrefixGrouping = WithHostnamePrefixGroupingAllowed(true)
 
 // Generate n hex numbers of given length,
 // ensuring they're distinct (and otherwise quasi-random).
@@ -195,7 +199,7 @@ func approxMaxNodesFor(tc performanceTestCase) int {
 	nodeNames := tc.naming.generate(ceiling)
 	found := sort.Search(ceiling/step, func(n int) bool {
 		// Here we rely on "well-prefixing"; see the comment on "nodeNaming".
-		return isTooLarge(V1Beta2From(internalSinglePodsOn(nodeNames[:n*step])))
+		return isTooLarge(V1Beta2From(internalSinglePodsOn(nodeNames[:n*step]), allowHostnamePrefixGrouping))
 	}) - 1
 	return found * step
 }
@@ -204,6 +208,7 @@ type performanceTestCase struct {
 	name               string
 	naming             namingScheme
 	targetNodeCount    int
+	minNodeLimit       int
 	sortNodeNames      bool
 	skipApproxMaxNodes bool
 }
@@ -229,6 +234,7 @@ var performanceTestCases = []performanceTestCase{
 			fixedPrefixAndSuffixLength: 20,
 		},
 		targetNodeCount: 40_000,
+		minNodeLimit:    140_000,
 	},
 	{
 		name: "pool-and-node-based naming (10 node pools)",
@@ -242,6 +248,7 @@ var performanceTestCases = []performanceTestCase{
 			fixedPrefixAndSuffixLength: 20,
 		},
 		targetNodeCount: 40_000,
+		minNodeLimit:    160_000,
 	},
 	{
 		name: "region-and-IP-based naming (100 regions)",
@@ -255,6 +262,7 @@ var performanceTestCases = []performanceTestCase{
 			fixedPrefixAndSuffixLength: 20,
 		},
 		targetNodeCount: 40_000,
+		minNodeLimit:    130_000,
 	},
 	{
 		name: "region-and-IP-based naming (1 region)",
@@ -288,20 +296,65 @@ func TestByteSizeLimit(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.TASAssignmentsEncodingByHostnamePrefix, true)
 	for _, tc := range performanceTestCases {
 		t.Run(tc.name, func(t *testing.T) {
-			ta := V1Beta2From(internalSinglePodsOn(tc.generateNodeNames(tc.targetNodeCount)))
+			ta := V1Beta2From(internalSinglePodsOn(tc.generateNodeNames(tc.targetNodeCount)), allowHostnamePrefixGrouping)
 			assertTopologyAssignmentSize(t, ta, tc.targetNodeCount)
 
 			if tc.skipApproxMaxNodes {
 				return
 			}
 			nodesLimit := approxMaxNodesFor(tc)
-			if nodesLimit < tc.targetNodeCount {
-				t.Errorf("Nodes limit for naming %q is too low: got approx. %d, want >= %d", tc.name, nodesLimit, tc.targetNodeCount)
+			minNodeLimit := max(tc.targetNodeCount, tc.minNodeLimit)
+			if nodesLimit < minNodeLimit {
+				t.Errorf("Nodes limit for naming %q is too low: got approx. %d, want >= %d", tc.name, nodesLimit, minNodeLimit)
 			} else {
 				t.Logf("Nodes limit for naming %q is approx. %d", tc.name, nodesLimit)
 			}
 		})
 	}
+}
+
+func TestV1Beta2From_prefersOrderPreservingPrefixEncodingForMultiLevelAssignment(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASAssignmentsEncodingByHostnamePrefix, true)
+	const domainCount = maxDomainsPerTopologyAssignmentSlice + 1
+	internal := &TopologyAssignment{
+		Levels:  []string{"cloud.example.com/zone", corev1.LabelHostname},
+		Domains: make([]TopologyDomainAssignment, 0, domainCount),
+	}
+	zones := []string{strings.Repeat("a", 60), strings.Repeat("b", 60)}
+	nodeID := 0
+	for zone := range 2 {
+		for pool := range 2 {
+			groupSize := domainCount / 4
+			if zone == 0 && pool == 0 {
+				groupSize += domainCount % 4
+			}
+			for range groupSize {
+				internal.Domains = append(internal.Domains, TopologyDomainAssignment{
+					Values: []string{
+						zones[zone],
+						fmt.Sprintf("pool-%c-node-%06d", 'a'+pool, nodeID),
+					},
+					Count: 1,
+				})
+				nodeID++
+			}
+		}
+	}
+
+	orderPreserving := compactTopologyAssignmentEncodingWithHostnamePrefixRuns(internal)
+	groupedInternal, prefixKeys := topologyAssignmentForHostnamePrefixEncoding(internal)
+	grouped := compactTopologyAssignmentEncodingWithHostnamePrefixRunsAndKeys(groupedInternal, prefixKeys)
+	if orderPreservingBytes, groupedBytes := len(jsonBytes(orderPreserving)), len(jsonBytes(grouped)); orderPreservingBytes >= groupedBytes {
+		t.Fatalf("test fixture does not favor order-preserving encoding: order-preserving=%d bytes, grouped=%d bytes", orderPreservingBytes, groupedBytes)
+	} else if groupedBytes <= maxTopologyAssignmentJSONBytes {
+		t.Fatalf("test fixture does not expose the persistence regression: grouped=%d bytes, limit=%d bytes", groupedBytes, maxTopologyAssignmentJSONBytes)
+	}
+
+	got := V1Beta2From(internal, allowHostnamePrefixGrouping)
+	if diff := cmp.Diff(orderPreserving, got); diff != "" {
+		t.Fatalf("did not select the smaller order-preserving prefix encoding (-want,+got):\n%s", diff)
+	}
+	assertTopologyAssignmentSize(t, got, domainCount)
 }
 
 func assertTopologyAssignmentSize(t *testing.T, ta *kueue.TopologyAssignment, wantDomains int) {
@@ -325,20 +378,21 @@ func assertTopologyAssignmentSize(t *testing.T, ta *kueue.TopologyAssignment, wa
 func BenchmarkV1Beta2From(b *testing.B) {
 	features.SetFeatureGateDuringTest(b, features.TASAssignmentsEncodingByHostnamePrefix, true)
 	for _, tc := range performanceTestCases {
-		nodeNames := tc.naming.generate(tc.targetNodeCount)
-
-		// For our current strategy (split into hostname prefix runs),
-		// having node names sorted matches scheduler-created hostname-only assignments.
-		// (This is because assignments are sorted by level values before encoding;
-		// for multi-level assignments, hostnames are only sorted within higher levels).
-		slices.Sort(nodeNames)
-		ta := internalSinglePodsOn(nodeNames)
-
-		desc := fmt.Sprintf("Naming scheme %q, %d nodes", tc.name, tc.targetNodeCount)
-		b.Run(desc, func(b *testing.B) {
-			for b.Loop() {
-				var _ = V1Beta2From(ta)
+		// Hostname-only scheduler assignments are sorted, while multi-level
+		// topology ordering can leave the encoded hostnames interleaved.
+		for _, sorted := range []bool{false, true} {
+			nodeNames := tc.naming.generate(tc.targetNodeCount)
+			if sorted {
+				slices.Sort(nodeNames)
 			}
-		})
+			ta := internalSinglePodsOn(nodeNames)
+
+			desc := fmt.Sprintf("Naming scheme %q, %d nodes, pre-sorted=%t", tc.name, tc.targetNodeCount, sorted)
+			b.Run(desc, func(b *testing.B) {
+				for b.Loop() {
+					var _ = V1Beta2From(ta, allowHostnamePrefixGrouping)
+				}
+			})
+		}
 	}
 }

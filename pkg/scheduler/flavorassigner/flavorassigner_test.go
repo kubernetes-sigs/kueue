@@ -36,6 +36,7 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
@@ -44,6 +45,123 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
+
+func TestCanGroupTopologyDomainsByHostnamePrefix(t *testing.T) {
+	// Elastic assignment order remains significant even if the feature is
+	// temporarily disabled while an existing Workload is processed.
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, false)
+	tests := map[string]struct {
+		workload *kueue.Workload
+		want     bool
+	}{
+		"regular topology request": {
+			workload: &kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{{
+						Name:            "main",
+						TopologyRequest: &kueue.PodSetTopologyRequest{},
+					}},
+				},
+			},
+			want: true,
+		},
+		"implicit topology assignment": {
+			workload: &kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{{Name: "main"}},
+				},
+			},
+			want: true,
+		},
+		"rank-aware topology request": {
+			workload: &kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{{
+						Name: "main",
+						TopologyRequest: &kueue.PodSetTopologyRequest{
+							PodIndexLabel: new("job.example.com/index"),
+						},
+					}},
+				},
+			},
+		},
+		"elastic workload": {
+			workload: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						constants.ElasticJobAnnotation: "true",
+					},
+				},
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{{
+						Name:            "main",
+						TopologyRequest: &kueue.PodSetTopologyRequest{},
+					}},
+				},
+			},
+		},
+		"missing PodSet": {
+			workload: &kueue.Workload{},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got := canGroupTopologyDomainsByHostnamePrefix(tc.workload, "main"); got != tc.want {
+				t.Errorf("unexpected result: got %t, want %t", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestPodSetAssignmentToAPI_hostnamePrefixDomainGrouping(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASAssignmentsEncodingByHostnamePrefix, true)
+	domains := make([]tas.TopologyDomainAssignment, 40)
+	groupedDomains := make([]tas.TopologyDomainAssignment, 0, len(domains))
+	for i := range domains {
+		pool := "b"
+		if i%2 == 1 {
+			pool = "a"
+		}
+		domains[i] = tas.TopologyDomainAssignment{
+			Values: []string{fmt.Sprintf("pool-%s-node-%02d", pool, i)},
+			Count:  int32(i + 1),
+		}
+	}
+	for start := 1; start >= 0; start-- {
+		for i := start; i < len(domains); i += 2 {
+			groupedDomains = append(groupedDomains, domains[i])
+		}
+	}
+	tests := map[string]struct {
+		canGroup bool
+		want     []tas.TopologyDomainAssignment
+	}{
+		"preserves semantic order": {
+			want: domains,
+		},
+		"groups order-insensitive domains": {
+			canGroup: true,
+			want:     groupedDomains,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			psa := PodSetAssignment{
+				TopologyAssignment: &tas.TopologyAssignment{
+					Levels:  []string{corev1.LabelHostname},
+					Domains: domains,
+				},
+				CanGroupTopologyDomainsByHostnamePrefix: tc.canGroup,
+			}
+			got := tas.InternalFrom(psa.toAPI(logr.Discard()).TopologyAssignment).Domains
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("unexpected domains (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
 
 var (
 	statusComparer = cmp.Comparer(func(a, b Status) bool {

@@ -37,6 +37,7 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
@@ -88,6 +89,8 @@ func (a *Assignment) UpdateForTASResult(log logr.Logger, cq *schdcache.ClusterQu
 	for psName, psResult := range result {
 		psAssignment := a.podSetAssignmentByName(psName)
 		psAssignment.TopologyAssignment = psResult.TopologyAssignment
+		psAssignment.CanGroupTopologyDomainsByHostnamePrefix =
+			psResult.TopologyAssignment != nil && canGroupTopologyDomainsByHostnamePrefix(wl.Obj, psName)
 		if psResult.TopologyAssignment != nil && psAssignment.DelayedTopologyRequest != nil {
 			psAssignment.DelayedTopologyRequest = ptr.To(kueue.DelayedTopologyRequestStateReady)
 		}
@@ -334,6 +337,10 @@ type PodSetAssignment struct {
 	TopologyAssignment     *tas.TopologyAssignment
 	DelayedTopologyRequest *kueue.DelayedTopologyRequestState
 
+	// CanGroupTopologyDomainsByHostnamePrefix is true only when domain order
+	// carries no rank-aware or elastic scale-down semantics.
+	CanGroupTopologyDomainsByHostnamePrefix bool
+
 	FlavorAssignmentAttempts []FlavorAssignmentAttempt
 }
 
@@ -393,12 +400,17 @@ func (psa *PodSetAssignment) toAPI(log logr.Logger) kueue.PodSetAssignment {
 		flavors[res] = flvAssignment.Name
 		resourceUsage[res] = psa.Requests[res]
 	}
+	topologyAssignment := tas.V1Beta2From(
+		psa.TopologyAssignment,
+		tas.WithLogger(log),
+		tas.WithHostnamePrefixGroupingAllowed(psa.CanGroupTopologyDomainsByHostnamePrefix),
+	)
 	return kueue.PodSetAssignment{
 		Name:                   psa.Name,
 		Flavors:                flavors,
 		ResourceUsage:          resourceUsage,
 		Count:                  new(psa.Count),
-		TopologyAssignment:     tas.V1Beta2From(psa.TopologyAssignment, tas.WithLogger(log)),
+		TopologyAssignment:     topologyAssignment,
 		DelayedTopologyRequest: psa.DelayedTopologyRequest,
 	}
 }
@@ -837,6 +849,14 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 		assignment.resolveNoFitReason(a.cq)
 	}
 	return assignment
+}
+
+func canGroupTopologyDomainsByHostnamePrefix(wl *kueue.Workload, podSetName kueue.PodSetReference) bool {
+	if wl == nil || wl.Annotations[constants.ElasticJobAnnotation] == "true" {
+		return false
+	}
+	podSet := podset.FindPodSetByName(wl.Spec.PodSets, podSetName)
+	return podSet != nil && (podSet.TopologyRequest == nil || podSet.TopologyRequest.PodIndexLabel == nil)
 }
 
 func (a *Assignment) resolveNoFitReason(cq *schdcache.ClusterQueueSnapshot) {
