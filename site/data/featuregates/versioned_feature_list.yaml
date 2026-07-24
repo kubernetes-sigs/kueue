@@ -362,7 +362,7 @@
   - default: true
     lockToDefault: false
     preRelease: Beta
-    version: "0.19"
+    version: "0.20"
 - name: SchedulerLibraryIntegration
   versionedSpecs:
   - default: false
