@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"maps"
 	"reflect"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -45,6 +46,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -8760,4 +8762,236 @@ func (r *workloadUpdateWatcherRecorder) NotifyWorkloadUpdate(oldWl, newWl *kueue
 	if newWl != nil {
 		r.newWl = newWl.DeepCopy()
 	}
+}
+
+// TestScheduleResize exercises the in-place elastic (ElasticJobsViaWorkloadResize) scale-up path
+// through the real scheduling cycle: an already-admitted resize workload whose spec (target) count
+// exceeds its admitted count re-enters scheduling so Kueue can admit the delta on the same Workload.
+func TestScheduleResize(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	fakeClock := testingclock.NewFakeClock(now)
+
+	resourceFlavors := []*kueue.ResourceFlavor{
+		utiltestingapi.MakeResourceFlavor("default").Obj(),
+	}
+	// A single standalone ClusterQueue with 10 CPU of nominal quota (each pod requests 1 CPU).
+	clusterQueues := []kueue.ClusterQueue{
+		*utiltestingapi.MakeClusterQueue("cq").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceCPU, "10", "0").Obj()).
+			Obj(),
+	}
+	queues := []kueue.LocalQueue{
+		*utiltestingapi.MakeLocalQueue("lq", "default").ClusterQueue("cq").Obj(),
+	}
+
+	cfg := scheduleTestConfig{
+		queues:          queues,
+		clusterQueues:   clusterQueues,
+		resourceFlavors: resourceFlavors,
+		fakeClock:       fakeClock,
+	}
+
+	// admittedResize builds an elastic-job Workload admitted at admittedCount with a spec (target)
+	// count of specCount. When partial is true the PodSet gets a minimum count of 1 so the workload
+	// is eligible for partial admission.
+	admittedResize := func(name string, specCount, admittedCount int32, partial bool) *utiltestingapi.WorkloadWrapper {
+		ps := utiltestingapi.MakePodSet("main", int(specCount)).Request(corev1.ResourceCPU, "1")
+		if partial {
+			ps = ps.SetMinimumCount(1)
+		}
+		return utiltestingapi.MakeWorkload(name, "default").
+			Annotation(constants.ElasticJobAnnotation, "true").
+			Queue("lq").
+			PodSets(*ps.Obj()).
+			ReserveQuotaAt(
+				utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment("main").
+						Assignment(corev1.ResourceCPU, "default", strconv.Itoa(int(admittedCount))).
+						Count(admittedCount).
+						Obj()).
+					Obj(), now).
+			AdmittedAt(true, now).
+			// Use the production Admitted reason (not the wrapper's "ByTest") so re-syncing
+			// during scale-up is idempotent under both UnadmittedWorkloadsObservability states.
+			Condition(metav1.Condition{
+				Type:               kueue.WorkloadAdmitted,
+				Status:             metav1.ConditionTrue,
+				Reason:             "Admitted",
+				Message:            "The workload is admitted",
+				LastTransitionTime: metav1.NewTime(now),
+			})
+	}
+
+	// blocker builds a plain (non-resize) admitted Workload that just occupies quota.
+	blocker := func(name string, count int32) kueue.Workload {
+		return *utiltestingapi.MakeWorkload(name, "default").
+			Queue("lq").
+			PodSets(*utiltestingapi.MakePodSet("main", int(count)).Request(corev1.ResourceCPU, "1").Obj()).
+			ReserveQuotaAt(
+				utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment("main").
+						Assignment(corev1.ResourceCPU, "default", strconv.Itoa(int(count))).
+						Count(count).
+						Obj()).
+					Obj(), now).
+			AdmittedAt(true, now).
+			Obj()
+	}
+
+	cases := map[string]scheduleTestCase{
+		// Enough free quota to grant the full delta: admitted 2, target 4, 10 CPU total.
+		"scale-up fully admitted": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadResize: true,
+				features.ElasticJobsViaWorkloadSlices: false,
+			},
+			workloads: []kueue.Workload{
+				*admittedResize("resize", 4, 2, false).Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("resize", "default").
+					Annotation(constants.ElasticJobAnnotation, "true").
+					Queue("lq").
+					PodSets(*utiltestingapi.MakePodSet("main", 4).Request(corev1.ResourceCPU, "1").Obj()).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "QuotaReserved",
+						Message:            "Quota reserved in ClusterQueue cq",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Admitted",
+						Message:            "The workload is admitted",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Admission(utiltestingapi.MakeAdmission("cq").
+						PodSets(utiltestingapi.MakePodSetAssignment("main").
+							Assignment(corev1.ResourceCPU, "default", "4").
+							Count(4).
+							Obj()).
+						Obj()).
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/resize": {
+					ClusterQueue: "cq",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						utiltestingapi.MakePodSetAssignment("main").
+							Assignment(corev1.ResourceCPU, "default", "4").
+							Count(4).
+							Obj(),
+					},
+				},
+			},
+		},
+		// Not enough free quota for the full delta, but the workload is partial-eligible: admitted 2,
+		// target 6, a blocker holds 5 CPU, leaving 3 free -> admit to 5 (floor is admitted+1=3).
+		"scale-up partial admitted": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadResize: true,
+				features.ElasticJobsViaWorkloadSlices: false,
+				features.PartialAdmission:             true,
+			},
+			workloads: []kueue.Workload{
+				*admittedResize("resize", 6, 2, true).Obj(),
+				blocker("blocker", 5),
+			},
+			wantWorkloads: []kueue.Workload{
+				blocker("blocker", 5),
+				*utiltestingapi.MakeWorkload("resize", "default").
+					Annotation(constants.ElasticJobAnnotation, "true").
+					Queue("lq").
+					PodSets(*utiltestingapi.MakePodSet("main", 6).SetMinimumCount(1).Request(corev1.ResourceCPU, "1").Obj()).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "QuotaReserved",
+						Message:            "Quota reserved in ClusterQueue cq",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Admitted",
+						Message:            "The workload is admitted",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Admission(utiltestingapi.MakeAdmission("cq").
+						PodSets(utiltestingapi.MakePodSetAssignment("main").
+							Assignment(corev1.ResourceCPU, "default", "5").
+							Count(5).
+							Obj()).
+						Obj()).
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/resize": {
+					ClusterQueue: "cq",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						utiltestingapi.MakePodSetAssignment("main").
+							Assignment(corev1.ResourceCPU, "default", "5").
+							Count(5).
+							Obj(),
+					},
+				},
+				"default/blocker": {
+					ClusterQueue: "cq",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						utiltestingapi.MakePodSetAssignment("main").
+							Assignment(corev1.ResourceCPU, "default", "5").
+							Count(5).
+							Obj(),
+					},
+				},
+			},
+		},
+		// No free quota: admitted 2, target 4, a blocker holds the remaining 8 CPU. The resize
+		// workload cannot admit the delta and stays inadmissible; it keeps its current admission
+		// (count 2) and is NOT downgraded to Pending.
+		"scale-up no room stays inadmissible": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadResize: true,
+				features.ElasticJobsViaWorkloadSlices: false,
+			},
+			workloads: []kueue.Workload{
+				*admittedResize("resize", 4, 2, false).Obj(),
+				blocker("blocker", 8),
+			},
+			wantWorkloads: []kueue.Workload{
+				blocker("blocker", 8),
+				// The resize workload is left untouched: it keeps its existing admission (count 2)
+				// and is NOT downgraded to Pending.
+				*admittedResize("resize", 4, 2, false).Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/resize": {
+					ClusterQueue: "cq",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						utiltestingapi.MakePodSetAssignment("main").
+							Assignment(corev1.ResourceCPU, "default", "2").
+							Count(2).
+							Obj(),
+					},
+				},
+				"default/blocker": {
+					ClusterQueue: "cq",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						utiltestingapi.MakePodSetAssignment("main").
+							Assignment(corev1.ResourceCPU, "default", "8").
+							Count(8).
+							Obj(),
+					},
+				},
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq": {"default/resize"},
+			},
+		},
+	}
+
+	runScheduleTestCases(t, cfg, cases)
 }

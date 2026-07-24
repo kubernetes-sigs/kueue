@@ -132,6 +132,15 @@ const (
 	// Requires both ElasticJobsViaWorkloadSlices and TopologyAwareScheduling to be enabled.
 	ElasticJobsViaWorkloadSlicesWithTAS featuregate.Feature = "ElasticJobsViaWorkloadSlicesWithTAS"
 
+	// owner: @zhengchenyu
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/77-dynamically-sized-jobs
+	//
+	// ElasticJobsViaWorkloadResize enables in-place elastic scaling of an admitted Workload by
+	// mutating spec.podSets[].count directly (instead of creating replacement WorkloadSlices).
+	// The runtime component writes the target count on spec, Kueue writes the admitted count on
+	// status.admission (supporting partial admission), and releases quota on scale-down.
+	ElasticJobsViaWorkloadResize featuregate.Feature = "ElasticJobsViaWorkloadResize"
+
 	// owner: @pbundyra
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
 	//
@@ -609,6 +618,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	ElasticJobsViaWorkloadSlicesWithTAS: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	ElasticJobsViaWorkloadResize: {
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	TASFailedNodeReplacementFailFast: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},

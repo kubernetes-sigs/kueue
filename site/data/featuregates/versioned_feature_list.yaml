@@ -57,6 +57,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.19"
+- name: ElasticJobsViaWorkloadResize
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.18"
 - name: ElasticJobsViaWorkloadSlices
   versionedSpecs:
   - default: false

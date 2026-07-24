@@ -37,6 +37,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/kueue/pkg/constants"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -3345,6 +3346,195 @@ func TestCalcLocalQueueFSUsage(t *testing.T) {
 
 			if usage != tc.wantUsage {
 				t.Errorf("CalcLocalQueueFSUsage() = %v, want %v", usage, tc.wantUsage)
+			}
+		})
+	}
+}
+
+// admittedResizeWorkload builds an elastic-job workload with a single "main" PodSet whose spec
+// (target) count is specCount and whose admitted count is admittedCount.
+func admittedResizeWorkload(specCount, admittedCount int32, elasticAnnotation bool) *kueue.Workload {
+	now := time.Now().Truncate(time.Second)
+	wl := utiltestingapi.MakeWorkload("wl", "ns")
+	if elasticAnnotation {
+		wl = wl.Annotation(constants.ElasticJobAnnotation, "true")
+	}
+	return wl.
+		PodSets(*utiltestingapi.MakePodSet("main", int(specCount)).Request(corev1.ResourceCPU, "1").Obj()).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("cq").
+				PodSets(utiltestingapi.MakePodSetAssignment("main").
+					Assignment(corev1.ResourceCPU, "default", "1").
+					Count(admittedCount).
+					Obj()).
+				Obj(), now,
+		).
+		AdmittedAt(true, now).
+		Obj()
+}
+
+func TestIsResizeElastic(t *testing.T) {
+	cases := map[string]struct {
+		gate       bool
+		annotation bool
+		nilWl      bool
+		want       bool
+	}{
+		"nil workload":           {nilWl: true, want: false},
+		"gate off, annotated":    {gate: false, annotation: true, want: false},
+		"gate on, not annotated": {gate: true, annotation: false, want: false},
+		"gate on, annotated":     {gate: true, annotation: true, want: true},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadResize, tc.gate)
+			var wl *kueue.Workload
+			if !tc.nilWl {
+				wl = admittedResizeWorkload(4, 4, tc.annotation)
+			}
+			if got := IsResizeElastic(wl); got != tc.want {
+				t.Errorf("IsResizeElastic() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestIsResizeScaleUp(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	cases := map[string]struct {
+		gate bool
+		wl   *kueue.Workload
+		want bool
+	}{
+		"gate off, target > admitted": {
+			gate: false,
+			wl:   admittedResizeWorkload(6, 4, true),
+			want: false,
+		},
+		"gate on, target > admitted (scale-up)": {
+			gate: true,
+			wl:   admittedResizeWorkload(6, 4, true),
+			want: true,
+		},
+		"gate on, target == admitted (satisfied)": {
+			gate: true,
+			wl:   admittedResizeWorkload(4, 4, true),
+			want: false,
+		},
+		"gate on, target < admitted (scale-down)": {
+			gate: true,
+			wl:   admittedResizeWorkload(2, 4, true),
+			want: false,
+		},
+		"gate on, not annotated": {
+			gate: true,
+			wl:   admittedResizeWorkload(6, 4, false),
+			want: false,
+		},
+		"gate on, not admitted (pending)": {
+			gate: true,
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				Annotation(constants.ElasticJobAnnotation, "true").
+				PodSets(*utiltestingapi.MakePodSet("main", 6).Request(corev1.ResourceCPU, "1").Obj()).
+				Obj(),
+			want: false,
+		},
+	}
+	_ = now
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadResize, tc.gate)
+			if got := IsResizeScaleUp(tc.wl); got != tc.want {
+				t.Errorf("IsResizeScaleUp() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestAdmittedPodSetCounts(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+
+	t.Run("count from admission", func(t *testing.T) {
+		wl := admittedResizeWorkload(6, 4, true)
+		got := AdmittedPodSetCounts(wl)
+		if got["main"] != 4 {
+			t.Errorf("AdmittedPodSetCounts()[main] = %d, want 4", got["main"])
+		}
+	})
+
+	t.Run("falls back to spec count when assignment count is nil", func(t *testing.T) {
+		wl := utiltestingapi.MakeWorkload("wl", "ns").
+			PodSets(*utiltestingapi.MakePodSet("main", 3).Request(corev1.ResourceCPU, "1").Obj()).
+			ReserveQuotaAt(
+				utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment("main").
+						Assignment(corev1.ResourceCPU, "default", "1").
+						Obj()).
+					Obj(), now,
+			).
+			Obj()
+		// Force the admitted count to be unset so the spec fallback is exercised.
+		wl.Status.Admission.PodSetAssignments[0].Count = nil
+		got := AdmittedPodSetCounts(wl)
+		if got["main"] != 3 {
+			t.Errorf("AdmittedPodSetCounts()[main] = %d, want 3 (spec fallback)", got["main"])
+		}
+	})
+
+	t.Run("nil when not admitted", func(t *testing.T) {
+		wl := utiltestingapi.MakeWorkload("wl", "ns").
+			PodSets(*utiltestingapi.MakePodSet("main", 3).Obj()).
+			Obj()
+		if got := AdmittedPodSetCounts(wl); got != nil {
+			t.Errorf("AdmittedPodSetCounts() = %v, want nil", got)
+		}
+	})
+}
+
+func TestIsAdmissibleResize(t *testing.T) {
+	cases := map[string]struct {
+		gate bool
+		wl   *kueue.Workload
+		want bool
+	}{
+		"pending workload is admissible": {
+			gate: true,
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 3).Obj()).
+				Obj(),
+			want: true,
+		},
+		"admitted non-resize workload is not admissible": {
+			gate: true,
+			wl:   admittedResizeWorkload(4, 4, false),
+			want: false,
+		},
+		"admitted resize scale-up is admissible (gate on)": {
+			gate: true,
+			wl:   admittedResizeWorkload(6, 4, true),
+			want: true,
+		},
+		"admitted resize scale-up is not admissible (gate off)": {
+			gate: false,
+			wl:   admittedResizeWorkload(6, 4, true),
+			want: false,
+		},
+		"admitted resize at target is not admissible": {
+			gate: true,
+			wl:   admittedResizeWorkload(4, 4, true),
+			want: false,
+		},
+		"finished resize scale-up is not admissible": {
+			gate: true,
+			wl:   utiltestingapi.MakeWorkload("wl", "ns").Annotation(constants.ElasticJobAnnotation, "true").Finished().Obj(),
+			want: false,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadResize, tc.gate)
+			if got := IsAdmissible(tc.wl); got != tc.want {
+				t.Errorf("IsAdmissible() = %v, want %v", got, tc.want)
 			}
 		})
 	}

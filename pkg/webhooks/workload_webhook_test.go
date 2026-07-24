@@ -1260,3 +1260,151 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 		})
 	}
 }
+
+// admittedWL builds an admitted workload with a single "main" PodSet at the given spec count and
+// admitted count. When elastic is true, the elastic-job annotation is set so the workload opts into
+// in-place resize.
+func admittedWL(specCount int, admittedCount int32, elastic bool, now time.Time) *kueue.Workload {
+	wl := utiltestingapi.MakeWorkload("wl", "ns")
+	if elastic {
+		wl = wl.Annotation(constants.ElasticJobAnnotation, "true")
+	}
+	return wl.
+		PodSets(*utiltestingapi.MakePodSet("main", specCount).Request(corev1.ResourceCPU, "1").Obj()).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("cluster-queue").
+				PodSets(utiltestingapi.MakePodSetAssignment("main").
+					Assignment(corev1.ResourceCPU, "default", "1").
+					Count(admittedCount).
+					Obj()).
+				Obj(), now,
+		).
+		Obj()
+}
+
+// admittedWLMinCount builds an admitted elastic (resize) workload whose "main" PodSet has the given
+// spec count, admitted count, and minCount (for partial admission).
+func admittedWLMinCount(specCount int, admittedCount, minCount int32, now time.Time) *kueue.Workload {
+	return utiltestingapi.MakeWorkload("wl", "ns").
+		Annotation(constants.ElasticJobAnnotation, "true").
+		PodSets(*utiltestingapi.MakePodSet("main", specCount).SetMinimumCount(minCount).Request(corev1.ResourceCPU, "1").Obj()).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("cluster-queue").
+				PodSets(utiltestingapi.MakePodSetAssignment("main").
+					Assignment(corev1.ResourceCPU, "default", "1").
+					Count(admittedCount).
+					Obj()).
+				Obj(), now,
+		).
+		Obj()
+}
+
+// admittedElasticWithQueue builds an admitted resize-elastic workload on the given LocalQueue.
+func admittedElasticWithQueue(queue string, now time.Time) *kueue.Workload {
+	return utiltestingapi.MakeWorkload("wl", "ns").
+		Annotation(constants.ElasticJobAnnotation, "true").
+		Queue(kueue.LocalQueueName(queue)).
+		PodSets(*utiltestingapi.MakePodSet("main", 2).Request(corev1.ResourceCPU, "1").Obj()).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("cluster-queue").
+				PodSets(utiltestingapi.MakePodSetAssignment("main").
+					Assignment(corev1.ResourceCPU, "default", "1").
+					Count(2).
+					Obj()).
+				Obj(), now,
+		).
+		Obj()
+}
+
+// TestValidateWorkloadUpdateResizeSpecImmutability verifies that for an admitted resize-elastic
+// workload, spec fields other than podSets[].count / podSets[].minCount remain immutable.
+func TestValidateWorkloadUpdateResizeSpecImmutability(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, false)
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadResize, true)
+
+	before := admittedElasticWithQueue("q1", now)
+	after := admittedElasticWithQueue("q2", now) // only spec.queueName differs
+
+	errList := ValidateWorkloadUpdate(after, before)
+	if len(errList) == 0 {
+		t.Errorf("ValidateWorkloadUpdate() returned no error for a spec.queueName change on a resize workload; want a validation error (only count/minCount are mutable)")
+	}
+}
+
+func TestValidateWorkloadUpdateResize(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	cases := map[string]struct {
+		resizeGate    bool
+		before, after *kueue.Workload
+		wantErr       bool
+	}{
+		"resize on, annotated: admitted podSet count can increase": {
+			resizeGate: true,
+			before:     admittedWL(2, 2, true, now),
+			after:      admittedWL(5, 2, true, now),
+			wantErr:    false,
+		},
+		"resize on, annotated: admitted podSet count can decrease": {
+			resizeGate: true,
+			before:     admittedWL(5, 5, true, now),
+			after:      admittedWL(2, 5, true, now),
+			wantErr:    false,
+		},
+		"resize on, annotated: admission assignment count can change": {
+			resizeGate: true,
+			before:     admittedWL(6, 2, true, now),
+			after:      admittedWL(6, 4, true, now),
+			wantErr:    false,
+		},
+		"resize on, NOT annotated: podSet count change is rejected": {
+			resizeGate: true,
+			before:     admittedWL(2, 2, false, now),
+			after:      admittedWL(5, 2, false, now),
+			wantErr:    true,
+		},
+		"resize on, annotated: podSet minCount can change": {
+			resizeGate: true,
+			before:     admittedWLMinCount(6, 2, 1, now),
+			after:      admittedWLMinCount(6, 2, 3, now),
+			wantErr:    false,
+		},
+		"resize off: podSet minCount change is rejected": {
+			resizeGate: false,
+			before:     admittedWLMinCount(6, 2, 1, now),
+			after:      admittedWLMinCount(6, 2, 3, now),
+			wantErr:    true,
+		},
+		"resize on, annotated: minCount greater than count is rejected": {
+			resizeGate: true,
+			before:     admittedWLMinCount(6, 2, 1, now),
+			after:      admittedWLMinCount(6, 2, 8, now),
+			wantErr:    true,
+		},
+		"resize off: admitted podSet count increase is rejected": {
+			resizeGate: false,
+			before:     admittedWL(2, 2, true, now),
+			after:      admittedWL(5, 2, true, now),
+			wantErr:    true,
+		},
+		"resize off: admission assignment count change is rejected": {
+			resizeGate: false,
+			before:     admittedWL(6, 2, true, now),
+			after:      admittedWL(6, 4, true, now),
+			wantErr:    true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			// Resize is mutually exclusive with workload slicing; slicing (Beta, default-on) must be
+			// off so the shared elastic-job annotation is owned by the resize path and partial
+			// admission (minCount) is not blocked by the slicing-specific webhook rule.
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, false)
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadResize, tc.resizeGate)
+			errList := ValidateWorkloadUpdate(tc.after, tc.before)
+			if gotErr := len(errList) > 0; gotErr != tc.wantErr {
+				t.Errorf("ValidateWorkloadUpdate() error = %v (wantErr %v): %v", gotErr, tc.wantErr, errList)
+			}
+		})
+	}
+}
