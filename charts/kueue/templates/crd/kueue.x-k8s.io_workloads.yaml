@@ -17263,6 +17263,7 @@ spec:
                               subGroupCount indicates the count of replicated Jobs (groups) within a PodSet.
                               For example, in the context of JobSet this value is read from jobset.sigs.k8s.io/replicatedjob-replicas.
                             format: int32
+                            minimum: 0
                             type: integer
                           subGroupIndexLabel:
                             description: "subGroupIndexLabel indicates the name of the label indexing the instances of replicated Jobs (groups)\nwithin a PodSet. For example, in the context of JobSet this is jobset.sigs.k8s.io/job-index.\n\tThis is limited to 317 characters."
