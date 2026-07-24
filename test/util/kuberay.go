@@ -43,3 +43,24 @@ func GetRayClusterHeadPod(ctx context.Context, c client.Client, rayClusterKey cl
 	}
 	return &pods.Items[0], nil
 }
+
+// GetRunningRayClusterWorkerPods returns the running worker Pods associated with the RayCluster.
+func GetRunningRayClusterWorkerPods(ctx context.Context, c client.Client, rayClusterKey client.ObjectKey) ([]corev1.Pod, error) {
+	pods := &corev1.PodList{}
+	if err := c.List(ctx, pods,
+		client.InNamespace(rayClusterKey.Namespace),
+		client.MatchingLabels{
+			kuberayutils.RayClusterLabelKey:  rayClusterKey.Name,
+			kuberayutils.RayNodeTypeLabelKey: string(rayv1.WorkerNode),
+		},
+	); err != nil {
+		return nil, err
+	}
+	runningPods := make([]corev1.Pod, 0, len(pods.Items))
+	for _, pod := range pods.Items {
+		if pod.Status.Phase == corev1.PodRunning {
+			runningPods = append(runningPods, pod)
+		}
+	}
+	return runningPods, nil
+}
