@@ -22,6 +22,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	sparkappv1beta2 "github.com/kubeflow/spark-operator/v2/api/v1beta2"
 	corev1 "k8s.io/api/core/v1"
+	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
@@ -110,6 +111,57 @@ func TestValidateCreate(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
 				t.Errorf("validateCreate() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestValidateUpdate(t *testing.T) {
+	testSparkApp := sparkapplicationtesting.MakeSparkApplication("test-sparkapp", "test").Suspend(false)
+	testcases := map[string]struct {
+		oldSparkApp *sparkappv1beta2.SparkApplication
+		newSparkApp *sparkappv1beta2.SparkApplication
+		wantErr     error
+	}{
+		"queue name unchanged while unsuspended": {
+			oldSparkApp: testSparkApp.Clone().Queue("local-queue").Obj(),
+			newSparkApp: testSparkApp.Clone().Queue("local-queue").Obj(),
+			wantErr:     nil,
+		},
+		"queue name should not change while unsuspended": {
+			oldSparkApp: testSparkApp.Clone().Queue("local-queue").Obj(),
+			newSparkApp: testSparkApp.Clone().Queue("local-queue-2").Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("metadata", "labels").Key(controllerconstants.QueueLabel), kueue.LocalQueueName("local-queue-2"), apivalidation.FieldImmutableErrorMsg),
+			}.ToAggregate(),
+		},
+		"queue name should not be removed while unsuspended": {
+			oldSparkApp: testSparkApp.Clone().Queue("local-queue").Obj(),
+			newSparkApp: testSparkApp.Clone().Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("metadata", "labels").Key(controllerconstants.QueueLabel), kueue.LocalQueueName(""), apivalidation.FieldImmutableErrorMsg),
+			}.ToAggregate(),
+		},
+		"queue name can change while suspended": {
+			oldSparkApp: testSparkApp.Clone().Suspend(true).Queue("local-queue").Obj(),
+			newSparkApp: testSparkApp.Clone().Suspend(true).Queue("local-queue-2").Obj(),
+			wantErr:     nil,
+		},
+	}
+
+	for name, tc := range testcases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			cli := utiltesting.NewClientBuilder().Build()
+			cqCache := schdcache.New(cli)
+			queueManager := qcache.NewManagerForUnitTests(cli, cqCache)
+			webhook := &SparkApplicationWebhook{
+				queues: queueManager,
+				cache:  cqCache,
+			}
+			_, gotErr := webhook.ValidateUpdate(ctx, tc.oldSparkApp, tc.newSparkApp)
+			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
+				t.Errorf("ValidateUpdate() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

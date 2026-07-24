@@ -165,17 +165,14 @@ func (w *RayJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *rayv
 	oldJob := fromObject(oldObj)
 	newJob := fromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("rayjob-webhook")
-	if w.manageJobsWithoutQueueName || jobframework.QueueName(newJob) != "" {
-		log.Info("Validating update")
-		allErrors := jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist)
-		validationErrs, err := w.validateCreate(ctx, newObj)
-		if err != nil {
-			return nil, err
-		}
-		allErrors = append(allErrors, validationErrs...)
-		return nil, allErrors.ToAggregate()
+	log.Info("Validating update")
+	allErrors := jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist)
+	validationErrs, err := w.validateCreate(ctx, newObj)
+	if err != nil {
+		return nil, err
 	}
-	return nil, nil
+	allErrors = append(allErrors, validationErrs...)
+	return nil, allErrors.ToAggregate()
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type

@@ -27,6 +27,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
@@ -57,6 +58,22 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 		ginkgo.It("the creation doesn't succeed if the queue name is invalid", func() {
 			job := testingraycluster.MakeCluster("raycluster", ns.Name).Queue("indexed_job").Obj()
 			err := k8sClient.Create(ctx, job)
+			gomega.Expect(err).Should(gomega.HaveOccurred())
+			gomega.Expect(err).Should(utiltesting.BeForbiddenError())
+		})
+
+		ginkgo.It("should reject removing the queue name from a running RayCluster", func() {
+			cluster := testingraycluster.MakeCluster("raycluster", ns.Name).Queue("queue-name").Obj()
+			util.MustCreate(ctx, k8sClient, cluster)
+
+			lookupKey := types.NamespacedName{Name: cluster.Name, Namespace: cluster.Namespace}
+			createdCluster := &rayv1.RayCluster{}
+			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdCluster)).Should(gomega.Succeed())
+
+			// Simulate a running workload dropping its queue name to escape Kueue.
+			delete(createdCluster.Labels, controllerconstants.QueueLabel)
+			createdCluster.Spec.Suspend = new(false)
+			err := k8sClient.Update(ctx, createdCluster)
 			gomega.Expect(err).Should(gomega.HaveOccurred())
 			gomega.Expect(err).Should(utiltesting.BeForbiddenError())
 		})

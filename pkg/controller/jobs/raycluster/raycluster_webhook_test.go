@@ -615,6 +615,18 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
+		"invalid managed - queue name should not be removed while unsuspended": {
+			oldJob: testingrayutil.MakeCluster("job", "ns").
+				Queue("queue").
+				Suspend(false).
+				Obj(),
+			newJob: testingrayutil.MakeCluster("job", "ns").
+				Suspend(false).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("metadata", "labels").Key(constants.QueueLabel), kueue.LocalQueueName(""), apivalidation.FieldImmutableErrorMsg),
+			}.ToAggregate(),
+		},
 		"priorityClassName is mutable": {
 			oldJob: testingrayutil.MakeCluster("job", "ns").
 				Queue("queue").
@@ -629,10 +641,15 @@ func TestValidateUpdate(t *testing.T) {
 
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			cli := utiltesting.NewClientBuilder().Build()
+			cqCache := schdcache.New(cli)
+			queueManager := qcache.NewManagerForUnitTests(cli, cqCache)
 			wh := &RayClusterWebhook{
 				manageJobsWithoutQueueName: tc.manageAll,
+				queues:                     queueManager,
+				cache:                      cqCache,
 			}
-			ctx, _ := utiltesting.ContextWithLog(t)
 			_, result := wh.ValidateUpdate(ctx, tc.oldJob, tc.newJob)
 			if diff := cmp.Diff(tc.wantErr, result); diff != "" {
 				t.Errorf("ValidateUpdate() mismatch (-want +got):\n%s", diff)
