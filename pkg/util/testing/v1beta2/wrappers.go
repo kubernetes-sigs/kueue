@@ -33,6 +33,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/util/csv"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/util/tas"
@@ -81,6 +82,20 @@ func MakeWorkloadWithGeneratedName(namePrefix, ns string) *WorkloadWrapper {
 	wl := MakeWorkload("", ns)
 	wl.GenerateName = namePrefix
 	return wl
+}
+
+// MakeGroupWorkload creates a Workload stamped as a pod-group Workload
+// (same annotation production sets via NewGroupWorkload).
+func MakeGroupWorkload(name, ns string) *WorkloadWrapper {
+	return MakeWorkload(name, ns).AsGroupWorkload()
+}
+
+// AsGroupWorkload stamps the is-group-workload annotation used by the pod-group framework.
+func (w *WorkloadWrapper) AsGroupWorkload() *WorkloadWrapper {
+	return w.Annotation(
+		podconstants.IsGroupWorkloadAnnotationKey,
+		podconstants.IsGroupWorkloadAnnotationValue,
+	)
 }
 
 func (w *WorkloadWrapper) Obj() *kueue.Workload {
