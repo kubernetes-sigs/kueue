@@ -1870,7 +1870,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		raycluster := testingraycluster.MakeCluster("raycluster-elastic-fixed", managerNs.Name).
 			Queue(managerLq.Name).
 			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-			WithEnableAutoscaling(ptr.To(true)).
+			WithEnableAutoscaling(new(true)).
 			FirstWorkerGroupReplicas(1, 1, 1).
 			ElasticSchedulingGates().
 			Obj()
@@ -1943,7 +1943,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		raycluster := testingraycluster.MakeCluster("raycluster-autoscale", managerNs.Name).
 			Queue(managerLq.Name).
 			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-			WithEnableAutoscaling(ptr.To(true)).
+			WithEnableAutoscaling(new(true)).
 			FirstWorkerGroupReplicas(1, 1, 3).
 			ElasticSchedulingGates().
 			Obj()
@@ -2033,7 +2033,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		raycluster := testingraycluster.MakeCluster("raycluster-autoscale-down", managerNs.Name).
 			Queue(managerLq.Name).
 			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-			WithEnableAutoscaling(ptr.To(true)).
+			WithEnableAutoscaling(new(true)).
 			FirstWorkerGroupReplicas(2, 1, 3).
 			ElasticSchedulingGates().
 			Obj()

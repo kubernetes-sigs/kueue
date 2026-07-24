@@ -193,9 +193,9 @@ func (j *ClusterWrapper) ElasticSchedulingGates() *ClusterWrapper {
 // FirstWorkerGroupReplicas pins replicas, minReplicas and maxReplicas of the first worker group.
 func (j *ClusterWrapper) FirstWorkerGroupReplicas(replicas, minReplicas, maxReplicas int32) *ClusterWrapper {
 	wgs := &j.Spec.WorkerGroupSpecs[0]
-	wgs.Replicas = ptr.To(replicas)
-	wgs.MinReplicas = ptr.To(minReplicas)
-	wgs.MaxReplicas = ptr.To(maxReplicas)
+	wgs.Replicas = new(replicas)
+	wgs.MinReplicas = new(minReplicas)
+	wgs.MaxReplicas = new(maxReplicas)
 	return j
 }
 

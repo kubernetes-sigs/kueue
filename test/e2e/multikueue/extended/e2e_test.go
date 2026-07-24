@@ -886,7 +886,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					Suspend(true).
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 					Queue(managerLq.Name).
-					WithEnableAutoscaling(ptr.To(true)).
+					WithEnableAutoscaling(new(true)).
 					FirstWorkerGroupReplicas(1, 1, 3).
 					ElasticSchedulingGates().
 					RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "200m").
