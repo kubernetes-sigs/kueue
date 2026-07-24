@@ -17,6 +17,8 @@ limitations under the License.
 package raycluster
 
 import (
+	"math"
+
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -25,7 +27,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/ray"
 	"sigs.k8s.io/kueue/pkg/util/api"
-	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var _ jobframework.MultiKueueAdapter = ray.NewMKAdapter(
@@ -42,41 +43,58 @@ func copyJobSpec(dst, src *rayv1.RayCluster) {
 		ObjectMeta: api.CloneObjectMetaForCreation(&src.ObjectMeta),
 		Spec:       *src.Spec.DeepCopy(),
 	}
-	// An elastic RayCluster over MultiKueue is scaled by the manager: the
-	// manager's worker replica counts are the source of truth and are propagated
-	// to this remote copy on each sync. The remote must therefore not run the
-	// in-tree Ray autoscaler, which would otherwise fight the manager by editing
-	// worker replicas on the worker cluster.
-	if workloadslicing.Enabled(src) {
-		dst.Spec.EnableInTreeAutoscaling = nil
-	}
 }
 
 // elasticReplicaSync wires the RayCluster-specific hooks used by the shared Ray
 // MultiKueue adapter to propagate manager-driven worker replica changes.
 func elasticReplicaSync() *ray.ElasticReplicaSync[*rayv1.RayCluster, rayv1.RayCluster] {
 	return &ray.ElasticReplicaSync[*rayv1.RayCluster, rayv1.RayCluster]{
-		SyncReplicas:          syncWorkerReplicas,
-		WorkerReplicas:        workerReplicaCounts,
+		Spec: &ray.SpecReplicaSync[*rayv1.RayCluster]{
+			Push:    syncWorkerReplicas,
+			Reflect: reflectWorkerReplicas,
+			Counts: func(rc *rayv1.RayCluster) map[kueue.PodSetReference]int32 {
+				return WorkerGroupPodCounts(&rc.Spec)
+			},
+		},
 		WorkloadNameExtraPart: func(rc *rayv1.RayCluster) string { return GetWorkloadNameExtraPart(rc) },
+		AutoscalingEnabled:    func(rc *rayv1.RayCluster) bool { return ptr.Deref(rc.Spec.EnableInTreeAutoscaling, false) },
+		RemoteSuspended:       func(rc *rayv1.RayCluster) bool { return ptr.Deref(rc.Spec.Suspend, false) },
 	}
 }
 
-// workerReplicaCounts returns the effective worker pod count per worker group,
-// matching how BuildPodSets derives PodSet counts (replicas scaled by NumOfHosts).
-func workerReplicaCounts(rc *rayv1.RayCluster) map[kueue.PodSetReference]int32 {
-	counts := make(map[kueue.PodSetReference]int32, len(rc.Spec.WorkerGroupSpecs))
-	for i := range rc.Spec.WorkerGroupSpecs {
-		wgs := &rc.Spec.WorkerGroupSpecs[i]
-		counts[kueue.NewPodSetReference(wgs.GroupName)] = effectiveWorkerCount(wgs)
+// reflectWorkerReplicas copies autoscaler-driven Replicas from the remote
+// (worker) copy in src onto the manager's copy in dst, matching groups by
+// name, and returns whether dst changed. Only Replicas moves in this
+// direction: the manager owns MinReplicas, MaxReplicas and the autoscaling
+// flag. A count outside the manager-declared [minReplicas, maxReplicas]
+// cannot come from the autoscaler and is ignored.
+func reflectWorkerReplicas(dst, src *rayv1.RayCluster) bool {
+	srcReplicas := make(map[string]*int32, len(src.Spec.WorkerGroupSpecs))
+	for i := range src.Spec.WorkerGroupSpecs {
+		wgs := &src.Spec.WorkerGroupSpecs[i]
+		srcReplicas[wgs.GroupName] = wgs.Replicas
 	}
-	return counts
+	changed := false
+	for i := range dst.Spec.WorkerGroupSpecs {
+		wgs := &dst.Spec.WorkerGroupSpecs[i]
+		want, ok := srcReplicas[wgs.GroupName]
+		if !ok || ptr.Equal(wgs.Replicas, want) {
+			continue
+		}
+		count := ptr.Deref(want, 1)
+		if count < ptr.Deref(wgs.MinReplicas, 0) || count > ptr.Deref(wgs.MaxReplicas, math.MaxInt32) {
+			continue
+		}
+		wgs.Replicas = want
+		changed = true
+	}
+	return changed
 }
 
 // syncWorkerReplicas copies each worker group's Replicas and NumOfHosts from
 // src into dst, matching groups by name, and returns whether dst changed. Both
 // fields feed the effective per-group pod count that needElasticSync compares
-// (see workerReplicaCounts), so both must be propagated to keep the remote in
+// (see WorkerGroupPodCounts), so both must be propagated to keep the remote in
 // sync when either changes.
 func syncWorkerReplicas(dst, src *rayv1.RayCluster) bool {
 	type groupSize struct {
@@ -89,14 +107,6 @@ func syncWorkerReplicas(dst, src *rayv1.RayCluster) bool {
 		srcSizes[wgs.GroupName] = groupSize{replicas: wgs.Replicas, numOfHosts: wgs.NumOfHosts}
 	}
 	changed := false
-	// Re-assert that the remote autoscaler stays off. copyJobSpec clears this
-	// at create time; re-asserting here keeps the "manager owns replicas"
-	// invariant reconciled, since the elastic sync path patches the remote in
-	// place rather than re-copying the full spec.
-	if dst.Spec.EnableInTreeAutoscaling != nil {
-		dst.Spec.EnableInTreeAutoscaling = nil
-		changed = true
-	}
 	for i := range dst.Spec.WorkerGroupSpecs {
 		wgs := &dst.Spec.WorkerGroupSpecs[i]
 		want, ok := srcSizes[wgs.GroupName]

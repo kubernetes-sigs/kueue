@@ -24,6 +24,7 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -127,8 +128,19 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 	// cap is always taken from the live slice regardless of which slice (or which
 	// pod's stamped WorkloadAnnotation) triggered the event.
 	root := &kueue.Workload{}
-	if err := r.client.Get(ctx, req.NamespacedName, root); err != nil {
-		return reconcile.Result{}, client.IgnoreNotFound(err)
+	err := r.client.Get(ctx, req.NamespacedName, root)
+	if apierrors.IsNotFound(err) {
+		// On a MultiKueue worker cluster the manager deletes the remote copy of a
+		// replaced slice, so the chain's root may be gone while newer slices (and
+		// gated pods naming the chain key) live on. Resolve the chain through any
+		// surviving member instead.
+		root, err = r.anyChainMember(ctx, req.NamespacedName)
+		if root == nil && err == nil {
+			return reconcile.Result{}, nil
+		}
+	}
+	if err != nil {
+		return reconcile.Result{}, err
 	}
 	active, err := r.activeSlice(ctx, root)
 	if err != nil {
@@ -238,6 +250,22 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 		gated = append(gated, toUngate...)
 	}
 	return gated, nil
+}
+
+// anyChainMember returns any workload of the slice chain identified by key —
+// a workload in the namespace whose chain key (workloadslicing.SliceName)
+// matches — or nil when the whole chain is gone.
+func (r *elasticJobUngater) anyChainMember(ctx context.Context, key types.NamespacedName) (*kueue.Workload, error) {
+	var wls kueue.WorkloadList
+	if err := r.client.List(ctx, &wls, client.InNamespace(key.Namespace)); err != nil {
+		return nil, fmt.Errorf("listing workloads for slice chain: %w", err)
+	}
+	for i := range wls.Items {
+		if workloadslicing.SliceName(&wls.Items[i]) == key.Name {
+			return &wls.Items[i], nil
+		}
+	}
+	return nil, nil
 }
 
 // activeSlice resolves the active (latest admitted, non-finished) workload slice

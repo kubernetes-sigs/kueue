@@ -44,15 +44,17 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingrayutil "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
+	testingrayjobutil "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 func TestBuildPodSets(t *testing.T) {
 	testCases := map[string]struct {
-		rayClusterSpec *rayv1.RayClusterSpec
-		annotations    map[string]string
-		wantPodSets    []kueue.PodSet
-		wantErr        bool
+		rayClusterSpec               *rayv1.RayClusterSpec
+		annotations                  map[string]string
+		elasticJobsViaWorkloadSlices bool
+		wantPodSets                  []kueue.PodSet
+		wantErr                      bool
 	}{
 		"basic spec with head and single worker group": {
 			rayClusterSpec: &rayv1.RayClusterSpec{
@@ -396,10 +398,71 @@ func TestBuildPodSets(t *testing.T) {
 					Obj(),
 			},
 		},
+		"autoscaler sidecar is accounted for a MultiKueue-managed elastic RayCluster": {
+			// The remote copy keeps enableInTreeAutoscaling (see copyJobSpec), so
+			// the sidecar genuinely runs on the worker and must be accounted, just
+			// like any other autoscaling RayCluster.
+			elasticJobsViaWorkloadSlices: true,
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				EnableInTreeAutoscaling: new(true),
+				ManagedBy:               ptr.To(kueue.MultiKueueControllerName),
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{Name: "head"}},
+						},
+					},
+				},
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName: "workers",
+						Replicas:  ptr.To[int32](1),
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker"}},
+							},
+						},
+					},
+				},
+			},
+			annotations: map[string]string{
+				workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{
+							{Name: "head"},
+							{
+								Name: "autoscaler",
+								Resources: corev1.ResourceRequirements{
+									Requests: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("500m"),
+										corev1.ResourceMemory: resource.MustParse("512Mi"),
+									},
+									Limits: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("500m"),
+										corev1.ResourceMemory: resource.MustParse("512Mi"),
+									},
+								},
+							},
+						},
+					}).
+					Obj(),
+				*utiltestingapi.MakePodSet("workers", 1).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "worker"}},
+					}).
+					Obj(),
+			},
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			if tc.elasticJobsViaWorkloadSlices {
+				features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+			}
 			gotPodSets, err := BuildPodSets(tc.rayClusterSpec, tc.annotations)
 
 			if tc.wantErr {
@@ -459,6 +522,41 @@ func TestUpdatePodSets(t *testing.T) {
 			rayClusterName:          "raycluster",
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
+				*utiltestingapi.MakePodSet("workers", 3).Obj(),
+			},
+		},
+		// On a MultiKueue manager the child RayCluster only exists on the worker
+		// cluster; its counts are reflected as an annotation by the MultiKueue
+		// workload controller and used as the fallback source.
+		"raycluster absent - counts fall back to the MultiKueue runtime annotation": {
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
+				*utiltestingapi.MakePodSet("workers", 3).Obj(),
+			},
+			object: testingrayjobutil.MakeJob("rayjob-owner", "ns").
+				ManagedBy(kueue.MultiKueueControllerName).
+				Annotation("kueue.x-k8s.io/elastic-job", "true").
+				Annotation(MultiKueueRuntimePodSetReplicaSizesAnnotation, `[{"name":"workers","count":5}]`).
+				Obj(),
+			enableInTreeAutoscaling: new(true),
+			rayClusterName:          "nonexistent-child",
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
+				*utiltestingapi.MakePodSet("workers", 5).Obj(),
+			},
+		},
+		"raycluster absent - malformed MultiKueue runtime annotation falls back to the spec counts": {
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("workers", 3).Obj(),
+			},
+			object: testingrayjobutil.MakeJob("rayjob-owner", "ns").
+				ManagedBy(kueue.MultiKueueControllerName).
+				Annotation("kueue.x-k8s.io/elastic-job", "true").
+				Annotation(MultiKueueRuntimePodSetReplicaSizesAnnotation, `not-json`).
+				Obj(),
+			enableInTreeAutoscaling: new(true),
+			rayClusterName:          "nonexistent-child",
+			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet("workers", 3).Obj(),
 			},
 		},
@@ -1408,7 +1506,10 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"worker","count":5}]`,
 			},
 		},
-		"raycluster not found returns annotations with empty generation": {
+		// On a MultiKueue manager the child RayCluster only exists on the worker
+		// cluster; the generation annotation is maintained by the MultiKueue
+		// workload controller there and must not be clobbered with an empty value.
+		"raycluster not found preserves the generation annotation": {
 			annotations: map[string]string{
 				workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
 			},
@@ -1419,7 +1520,6 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 			rayClusterName:  "nonexistent-raycluster",
 			registerRayType: true,
 			wantAnnotation: map[string]string{
-				RayClusterGenerationAnnotation:         "",
 				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"worker","count":3}]`,
 			},
 		},

@@ -352,21 +352,25 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 		},
-		// The elastic sync path must keep the remote autoscaler off, not just
-		// at create time. Here the worker copy has EnableInTreeAutoscaling set
-		// (e.g. re-enabled out-of-band); a scale-down sync should clear it so the
-		// manager stays the sole replica driver.
-		"elastic sync re-asserts that the remote autoscaler stays off": {
+		// With in-tree autoscaling the worker is the source of truth: an
+		// autoscaler-driven scale-up on the remote copy (3 replicas) is written
+		// back onto the manager's RayCluster (which was at 1), so the manager's
+		// slicing machinery can re-reserve quota. The worker copy is left
+		// untouched by this reconcile.
+		"autoscaling elastic sync writes the worker's autoscaled replicas back to the manager": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.WorkloadIdentifierAnnotations: false},
 			managersRayClusters: []rayv1.RayCluster{
-				*elasticBuilder.Clone().ScaleFirstWorkerGroup(1).Obj(),
+				*elasticBuilder.Clone().
+					WithEnableAutoscaling(new(true)).
+					FirstWorkerGroupReplicas(1, 1, 5).
+					Obj(),
 			},
 			workerRayClusters: []rayv1.RayCluster{
 				*elasticBuilder.Clone().
 					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
-					ScaleFirstWorkerGroup(3).
 					WithEnableAutoscaling(new(true)).
+					FirstWorkerGroupReplicas(3, 1, 5).
 					Obj(),
 			},
 			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
@@ -374,13 +378,94 @@ func TestMultiKueueAdapter(t *testing.T) {
 				return err
 			},
 			wantManagersRayClusters: []rayv1.RayCluster{
-				*elasticBuilder.Clone().ScaleFirstWorkerGroup(1).Obj(),
+				*elasticBuilder.Clone().
+					WithEnableAutoscaling(new(true)).
+					FirstWorkerGroupReplicas(3, 1, 5).
+					Obj(),
 			},
 			wantWorkerRayClusters: []rayv1.RayCluster{
 				*elasticBuilder.Clone().
 					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
-					ScaleFirstWorkerGroup(1).
+					WithEnableAutoscaling(new(true)).
+					FirstWorkerGroupReplicas(3, 1, 5).
+					Obj(),
+			},
+		},
+		// A suspended remote copy's replicas were restored by the worker's Kueue
+		// while stopping, not set by the autoscaler, so they must not be written
+		// back to the manager.
+		"autoscaling elastic sync skips write-back while the remote is suspended": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.WorkloadIdentifierAnnotations: false},
+			managersRayClusters: []rayv1.RayCluster{
+				*elasticBuilder.Clone().
+					WithEnableAutoscaling(new(true)).
+					FirstWorkerGroupReplicas(1, 1, 5).
+					Obj(),
+			},
+			workerRayClusters: []rayv1.RayCluster{
+				*elasticBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					WithEnableAutoscaling(new(true)).
+					FirstWorkerGroupReplicas(3, 1, 5).
+					Suspend(true).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "raycluster1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
+			},
+			wantManagersRayClusters: []rayv1.RayCluster{
+				*elasticBuilder.Clone().
+					WithEnableAutoscaling(new(true)).
+					FirstWorkerGroupReplicas(1, 1, 5).
+					Obj(),
+			},
+			wantWorkerRayClusters: []rayv1.RayCluster{
+				*elasticBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					WithEnableAutoscaling(new(true)).
+					FirstWorkerGroupReplicas(3, 1, 5).
+					Suspend(true).
+					Obj(),
+			},
+		},
+		// A remote replica count outside the manager-declared [min, max] cannot
+		// come from the autoscaler and must not reach the manager's spec.
+		"autoscaling elastic sync ignores out-of-bounds remote replicas": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.WorkloadIdentifierAnnotations: false},
+			managersRayClusters: []rayv1.RayCluster{
+				*elasticBuilder.Clone().
+					WithEnableAutoscaling(new(true)).
+					FirstWorkerGroupReplicas(1, 1, 5).
+					Obj(),
+			},
+			workerRayClusters: []rayv1.RayCluster{
+				*elasticBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					WithEnableAutoscaling(new(true)).
+					FirstWorkerGroupReplicas(99, 1, 5).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "raycluster1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
+			},
+			wantManagersRayClusters: []rayv1.RayCluster{
+				*elasticBuilder.Clone().
+					WithEnableAutoscaling(new(true)).
+					FirstWorkerGroupReplicas(1, 1, 5).
+					Obj(),
+			},
+			wantWorkerRayClusters: []rayv1.RayCluster{
+				*elasticBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					WithEnableAutoscaling(new(true)).
+					FirstWorkerGroupReplicas(99, 1, 5).
 					Obj(),
 			},
 		},

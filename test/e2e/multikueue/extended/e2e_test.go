@@ -876,6 +876,101 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				})
 			})
 
+			ginkgo.It("Should reflect worker-side autoscaler resizes (up and down) of an elastic RayCluster back on the manager", func() {
+				kuberayTestImage := util.GetKuberayTestImage()
+				// enableInTreeAutoscaling makes the worker the source of truth for
+				// worker-group replicas: KubeRay's autoscaler resizes the RayCluster on
+				// the worker cluster directly. A replica range (min<max) is allowed
+				// because autoscaler-driven resizes are reflected back to the manager.
+				raycluster := testingraycluster.MakeCluster("raycluster-autoscale", managerNs.Name).
+					Suspend(true).
+					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Queue(managerLq.Name).
+					WithEnableAutoscaling(new(true)).
+					FirstWorkerGroupReplicas(1, 1, 3).
+					ElasticSchedulingGates().
+					RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "200m").
+					RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "200m").
+					Image(rayv1.HeadNode, kuberayTestImage, []string{}).
+					Image(rayv1.WorkerNode, kuberayTestImage, []string{}).
+					Obj()
+
+				ginkgo.By("Creating the elastic autoscaling RayCluster", func() {
+					util.MustCreate(ctx, k8sManagerClient, raycluster)
+				})
+
+				gomega.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(raycluster), raycluster)).To(gomega.Succeed())
+				wlLookupKey := types.NamespacedName{
+					Name:      jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration(raycluster.Name, raycluster.UID, rayv1.GroupVersion.WithKind("RayCluster"), raycluster.GetGeneration()),
+					Namespace: managerNs.Name,
+				}
+				admittedWorkerName := util.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
+				workerClient := kubernetesClients[admittedWorkerName].client
+				ginkgo.GinkgoLogr.Info(fmt.Sprintf("elastic autoscaling RayCluster %s/%s admitted in worker cluster %s", raycluster.Name, raycluster.Namespace, admittedWorkerName))
+
+				ginkgo.By("Checking the RayCluster starts with one worker on the worker cluster", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						createdRayCluster := &rayv1.RayCluster{}
+						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(raycluster), createdRayCluster)).To(gomega.Succeed())
+						g.Expect(createdRayCluster.Status.DesiredWorkerReplicas).To(gomega.Equal(int32(1)))
+					}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Simulating the Ray autoscaler: scale the worker group up to two on the worker cluster", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						workerRayCluster := &rayv1.RayCluster{}
+						g.Expect(workerClient.Get(ctx, client.ObjectKeyFromObject(raycluster), workerRayCluster)).To(gomega.Succeed())
+						workerRayCluster.Spec.WorkerGroupSpecs[0].Replicas = ptr.To[int32](2)
+						g.Expect(workerClient.Update(ctx, workerRayCluster)).To(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Checking the autoscaled size is reflected back onto the manager's RayCluster", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						createdRayCluster := &rayv1.RayCluster{}
+						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(raycluster), createdRayCluster)).To(gomega.Succeed())
+						g.Expect(ptr.Deref(createdRayCluster.Spec.WorkerGroupSpecs[0].Replicas, -1)).To(gomega.BeEquivalentTo(int32(2)))
+						g.Expect(createdRayCluster.Status.DesiredWorkerReplicas).To(gomega.Equal(int32(2)))
+					}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Checking the worker RayCluster keeps the autoscaled size (not torn down mid-handover)", func() {
+					gomega.Consistently(func(g gomega.Gomega) {
+						workerRayCluster := &rayv1.RayCluster{}
+						g.Expect(workerClient.Get(ctx, client.ObjectKeyFromObject(raycluster), workerRayCluster)).To(gomega.Succeed())
+						g.Expect(ptr.Deref(workerRayCluster.Spec.WorkerGroupSpecs[0].Replicas, -1)).To(gomega.BeEquivalentTo(int32(2)))
+						g.Expect(ptr.Deref(workerRayCluster.Spec.Suspend, false)).To(gomega.BeFalse())
+					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Simulating the Ray autoscaler: scale the worker group back down to one on the worker cluster", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						workerRayCluster := &rayv1.RayCluster{}
+						g.Expect(workerClient.Get(ctx, client.ObjectKeyFromObject(raycluster), workerRayCluster)).To(gomega.Succeed())
+						workerRayCluster.Spec.WorkerGroupSpecs[0].Replicas = ptr.To[int32](1)
+						g.Expect(workerClient.Update(ctx, workerRayCluster)).To(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Checking the scaled-down size is reflected back onto the manager's RayCluster", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						createdRayCluster := &rayv1.RayCluster{}
+						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(raycluster), createdRayCluster)).To(gomega.Succeed())
+						g.Expect(ptr.Deref(createdRayCluster.Spec.WorkerGroupSpecs[0].Replicas, -1)).To(gomega.BeEquivalentTo(int32(1)))
+						g.Expect(createdRayCluster.Status.DesiredWorkerReplicas).To(gomega.Equal(int32(1)))
+					}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Checking the worker RayCluster keeps running at the scaled-down size", func() {
+					gomega.Consistently(func(g gomega.Gomega) {
+						workerRayCluster := &rayv1.RayCluster{}
+						g.Expect(workerClient.Get(ctx, client.ObjectKeyFromObject(raycluster), workerRayCluster)).To(gomega.Succeed())
+						g.Expect(ptr.Deref(workerRayCluster.Spec.WorkerGroupSpecs[0].Replicas, -1)).To(gomega.BeEquivalentTo(int32(1)))
+						g.Expect(ptr.Deref(workerRayCluster.Spec.Suspend, false)).To(gomega.BeFalse())
+					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+				})
+			})
+
 			ginkgo.It("Should run a RayService on worker if admitted", ginkgo.Label("requires:fullray"), func() {
 				kuberayTestImage := util.GetKuberayTestImage()
 
