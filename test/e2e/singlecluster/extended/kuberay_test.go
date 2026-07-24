@@ -687,7 +687,13 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 		// container KubeRay actually injects into the head Pod.
 		ginkgo.By("Checking the accounted submitter resources match the real head Pod", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				headPod := getRayHeadPod(g)
+				createdRayJob := &rayv1.RayJob{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayJob), createdRayJob)).To(gomega.Succeed())
+				headPod, err := util.GetRayClusterHeadPod(ctx, k8sClient, client.ObjectKey{
+					Namespace: ns.Name,
+					Name:      createdRayJob.Status.RayClusterName,
+				})
+				g.Expect(err).NotTo(gomega.HaveOccurred())
 				submitter := findContainer(headPod.Spec.Containers, "ray-job-submitter")
 				g.Expect(submitter).NotTo(gomega.BeNil(), "KubeRay should inject the submitter container into the head Pod")
 				g.Expect(kueueSubmitterRequests.Cpu().Cmp(*submitter.Resources.Requests.Cpu())).To(gomega.Equal(0),
