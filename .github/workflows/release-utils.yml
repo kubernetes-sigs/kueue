@@ -161,19 +161,12 @@ jobs:
           git config --global user.email "kueue-release-bot@kubernetes.io"
           
           set +e
-          yes y | ./hack/releasing/sync-notes.sh "$VERSION" 2> err.log
-          EXIT_CODE=$?
+          yes y | ./hack/releasing/sync-notes.sh "$VERSION"
+          EXIT_CODE=${PIPESTATUS[1]}
           set -e
           
           if [ $EXIT_CODE -ne 0 ]; then
             echo "Error running sync-notes.sh" >&2
-            cat err.log >&2
-            
-            EOF_DELIM="$(openssl rand -hex 16)"
-            echo "error_message<<${EOF_DELIM}" >> "$GITHUB_OUTPUT"
-            cat err.log >> "$GITHUB_OUTPUT"
-            echo "${EOF_DELIM}" >> "$GITHUB_OUTPUT"
-            
             exit $EXIT_CODE
           fi
 
@@ -189,13 +182,8 @@ jobs:
         uses: ./.github/actions/report-result
         with:
           command: ${{ needs.authorize.outputs.command }}
-          message: |
-            ❌ Failed to sync release notes for version `${{ needs.authorize.outputs.version }}`.
-            
-            **Error log:**
-            ```text
-            ${{ steps.sync.outputs.error_message }}
-            ```
+          message: ❌ Failed to sync release notes for version `${{ needs.authorize.outputs.version }}`.
+  
   create-release-branch:
     name: Create Release Branch
     runs-on: ubuntu-latest
