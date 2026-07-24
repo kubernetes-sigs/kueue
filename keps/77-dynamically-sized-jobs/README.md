@@ -20,6 +20,7 @@
       - [Naming](#naming)
     - [Scheduling and Preemption](#scheduling-and-preemption)
       - [Preemption Disambiguation.](#preemption-disambiguation)
+      - [Example: Two-Step Scale Up under Quota Constraints](#example-two-step-scale-up-under-quota-constraints)
       - [Resource Flavors](#resource-flavors)
     - [Garbage Collection of Preempted Workload Slices](#garbage-collection-of-preempted-workload-slices)
   - [Pod Scheduling Gates](#pod-scheduling-gates)
@@ -27,7 +28,6 @@
     - [Pod Identification Across Slices](#pod-identification-across-slices)
     - [Scale Up](#scale-up)
     - [Scale Down](#scale-down)
-  - [Limitations and Incompatibilities](#limitations-and-incompatibilities)
     - [PartialAdmission](#partialadmission)
 - [Phases for MVP (alpha)](#phases-for-mvp-alpha)
   - [Phase 1 - batchv1/Job WorkloadSlices Support in Single-Cluster Configuration.](#phase-1---batchv1job-workloadslices-support-in-single-cluster-configuration)
@@ -236,6 +236,65 @@ A Workload that is preempted by a WorkloadSlice will be correctly marked with a 
   lastTransitionTime: "2025-07-08T20:09:24Z"
 ```
 
+##### Example: Two-Step Scale Up under Quota Constraints (with Partial Admission)
+
+Consider a scenario where:
+1. The ClusterQueue has a total quota of **7** for the requested resource flavor.
+2. The Job is configured for both `ElasticJobs` and `PartialAdmission`.
+3. The user performs a two-step scale up of the Job: starting at **5** replicas, scaling up to **10**, and then to **12**.
+
+###### Step 0: Job Creation (Initial Size: 5)
+* **Job spec.parallelism**: 5
+* **Workloads**:
+  * `wl-A` (Admitted):
+    * `spec.podSets.count` = 5
+    * `spec.podSets.minCount` = 2
+    * `status.admission.count` = 5
+* **Controller Actions**:
+  1. **Job Controller**: Detects the Job creation, sets `.spec.suspend = false`, and creates 5 Pods. Due to Kueue's webhook mutation, the Pods are created with the `kueue.x-k8s.io/elastic-job` scheduling gate.
+  2. **Kueue Job Framework / Workload Controller**: Detects the Job and creates `wl-A` with `spec.podSets.count = 5` and `spec.podSets.minCount = 2`.
+  3. **Kueue Scheduler**: Evaluates `wl-A`. Since the requested 5 pods fit within the available quota of 7, it admits `wl-A` (`status.admission.count = 5`), reserving 5 units of quota.
+  4. **ElasticJobUngater Controller**: Detects that `wl-A` is admitted and removes the scheduling gate from the 5 pods.
+  5. **Kube-scheduler**: Schedules the 5 ungated pods, which transition to the Running state.
+* **Quota usage**: 5/7 (2 available).
+
+###### Step 1: Scale Up from 5 to 10
+* **Job spec.parallelism**: 10
+* **Workloads**:
+  * `wl-A` (Finished - aggregated/replaced by `wl-B`)
+  * `wl-B` (Admitted - Partially):
+    * `spec.podSets.count` = 7 (originally requested 10, but updated to 7 during partial admission)
+    * `spec.podSets.minCount` = 6 (the the current running count 5 + 1)
+    * `status.admission.count` = 7
+* **Controller Actions**:
+  1. **Job Controller**: Detects the parallelism increase and creates 5 new Pods (total 10 pods: 5 running, 5 gated). The new pods are created with the `kueue.x-k8s.io/elastic-job` scheduling gate.
+  2. **Kueue Job Framework / Workload Controller**: Observes the scale-up and creates a new Workload slice `wl-B` with `spec.podSets.count = 10` and `spec.podSets.minCount = 6` (inheriting/adjusting the minimum count based on the currently running/admitted count of 5 + 1 from `wl-A`). It is annotated as a replacement for `wl-A` via `kueue.x-k8s.io/workload-slice-replacement-for`.
+  3. **Kueue Scheduler**: Evaluates `wl-B`. Since it replaces `wl-A`, it calculates the incremental quota demand: `10 (new request) - 5 (already admitted in wl-A) = 5`. The available quota is only 2. Since Workload could not be fully admitted rueue scheduler evaluates whetehr it can partially admit the workload with any count between 6 and 10. Given the available quota of 2, the scheduler admits `wl-B` with a count of `5 + 2 = 7` (`status.admission.count = 7`), reserving 2 more units of quota (total 7).
+  4. **Kueue Job Framework / WorkloadSlice Controller**: Detects that `wl-B` is partially admitted with 7. It updates `wl-B`'s `.spec.podSets[0].count` to 7 to match the admitted count (while `job.spec.parallelism` remains 10) and updates the `podSet.minCount` to 2 to match the min value of the job. It also marks `wl-A` as `Finished` (aggregated).
+  5. **ElasticJobUngater Controller**: Detects that `wl-B` is admitted with count 7. It removes the scheduling gate from 2 of the new pods (bringing running pods to 7). The other 3 new pods remain gated.
+* **Quota usage**: 7/7 (0 available).
+
+###### Step 2: Scale Up to 12 (Quota Constraint: 7)
+* **Job spec.parallelism**: 12
+* **Workloads**:
+  * `wl-B` (Admitted)
+  * `wl-C` (Rejected):
+    * `spec.podSets.count` = 12
+    * `spec.podSets.minCount` = 8 (7 + 1)
+* **Controller Actions**:
+  1. **Job Controller**: Detects the parallelism increase and creates 2 more Pods (total 12 pods: 7 running, 5 gated). The new pods are created with the `kueue.x-k8s.io/elastic-job` scheduling gate.
+  2. **Kueue Job Framework / Workload Controller**: Detects the update. Since the Job's parallelism is updated to 12, Kueue creates a new Workload slice `wl-C` with `spec.podSets.count = 12` and `spec.podSets.minCount = 8`.
+  3. **Kueue Scheduler**: Evaluates `wl-C`. The incremental quota demand is `12 - 7 = 5`. The available quota is 0. Since the `minCount = 8`, the delta 1 > 0, so the scheduler puts `wl-C` in the queue.
+
+###### Step 3: Quota increases to 12
+If the available quota in the ClusterQueue increases to 12 (or more) in the future:
+* **Workloads**:
+  * `wl-B` (Finished)
+  * `wl-C` (Admitted):
+    * `spec.podSets.count` = 12
+    * `spec.podSets.minCount` = 8 (7 + 1)
+In next scheduler loop the kueue scheduler will evaluate and admit `wl-C`. And update it's `spec.podSets.minCount` to match job's minCount.
+
 ##### Resource Flavors
 
 In the context of WorkloadSlice scheduling, when a workload qualifies for multiple resource flavors, i.e., more than one flavor can satisfy the resource requirements and selector constraints, the scheduler must determine which flavor to assign. 
@@ -330,33 +389,15 @@ pods), allowing scale-down to 2 replicas could result in only 1 active pod.
 
 See [KEP-2724: Topology Aware Scheduling](../2724-topology-aware-scheduling#support-for-elastic-workloads) for TAS details.
 
-### Limitations and Incompatibilities
-
 This section captures all known limitations and incompatibilities introduced by, or resulting from, enabling the ElasticJobs feature.
+
 
 #### PartialAdmission
 
-A given Job instance cannot have both `PartialAdmission` and `ElasticJob` enabled. This is a **per-Job limitation**, not a global feature-level conflict. It is entirely valid to have both features enabled in the system, just not simultaneously on the same Job.
+Originally, `PartialAdmission` was not allowed for elastic jobs because both features modify `job.spec.parallelism`, leading to conflicts between partial admission adjustments and horizontal scaling updates (scale-up/scale-down).
 
-**Rationale**
+To resolve this conflict, when a job is configured for elastic scaling, `PartialAdmission` will not modify `job.spec.parallelism`. Instead, it will only update Workload's `.Spec.PodSet.Count` during partial admission. Using these updated count values, Kueue will remove scheduling gates from the appropriate number of pods to begin scheduling.
 
-* `PartialAdmission` depends on the static nature of a workload. Specifically, it assumes, reasonably, given the current model, that workloads are immutable in terms of `podSets[].count`. Based on this assumption, it adjusts the Job’s spec to reflect the minimum allowed parallelism at scheduling time. This value is fixed and will not change, even if the ClusterQueue’s capacity increases later.
-
-* In practice, `PartialAdmission` takes ownership of `job.spec.parallelism`, and Kueue enforces this immutability through the admission webhook. For example:
-
-  ```text
-  admission webhook "vjob.kb.io" denied the request: spec.parallelism: Forbidden: cannot change when partial admission is enabled and the job is not suspended
-  ```
-
-**Validation**
-
-To avoid delayed or implicit validation errors, any Kueue-integrated Job that supports `ElasticJobs` should include admission validation logic to reject the following annotation combination:
-
-```yaml
-annotations:
-  kueue.x-k8s.io/dynamically-sized-job: "true"
-  kueue.x-k8s.io/job-min-parallelism: "1"
-```
 
 ## Phases for MVP (alpha)
 
