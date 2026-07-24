@@ -27,6 +27,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	eventsv1 "k8s.io/api/events/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
@@ -243,6 +244,48 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 				gomega.Consistently(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
 				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("Should replace a divergent pre-existing PodTemplate and create the ProvisioningRequest", framework.SlowSpec, func() {
+			ptName := fmt.Sprintf("ppt-%s-ps1", provReqKey.Name)
+
+			ginkgo.By("Pre-creating a PodTemplate at the deterministic name with divergent resource requests", func() {
+				foreign := utiltesting.MakePodTemplate(ptName, ns.Name).
+					Containers(corev1.Container{
+						Name:  "c",
+						Image: "image",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								resourceGPU: resource.MustParse("1000"),
+							},
+							Limits: corev1.ResourceList{
+								resourceGPU: resource.MustParse("1000"),
+							},
+						},
+					}).
+					Obj()
+				util.MustCreate(ctx, k8sClient, foreign)
+			})
+
+			ginkgo.By("Setting the quota reservation to the workload", func() {
+				util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+			})
+
+			ginkgo.By("Checking that the ProvisioningRequest is created with a Kueue-derived PodTemplate", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+					g.Expect(createdRequest.Spec.PodSets).NotTo(gomega.BeEmpty())
+					createdTemplate := &corev1.PodTemplate{}
+					templateKey := types.NamespacedName{Namespace: ns.Name, Name: ptName}
+					g.Expect(k8sClient.Get(ctx, templateKey, createdTemplate)).Should(gomega.Succeed())
+					g.Expect(createdTemplate.ObjectMeta.GetLabels()).To(gomega.HaveKeyWithValue(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue))
+					g.Expect(createdTemplate.Template.Spec.Containers[0].Resources.Requests).NotTo(gomega.HaveKey(resourceGPU))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that the AdmissionCheck is Pending after the ProvisioningRequest is created", func() {
+				util.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStatePending)
 			})
 		})
 

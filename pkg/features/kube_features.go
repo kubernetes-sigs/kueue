@@ -532,6 +532,15 @@ const (
 
 	// owner: @vladikkuzn
 	//
+	// When an existing PodTemplate at the deterministic name differs from the Kueue-derived
+	// spec, replace it (delete+create) so the ProvisioningRequest never adopts foreign/stale
+	// contents. Falls back to Retrying the admission check if recreate hits AlreadyExists
+	// (delete still finalizing). Disable to reuse the existing PodTemplate without content
+	// validation (previous dangerous behavior).
+	RetryProvisioningDueInconsistentPodTemplate featuregate.Feature = "RetryProvisioningDueInconsistentPodTemplate"
+
+	// owner: @vladikkuzn
+	//
 	// Rejects Workloads with negative container or pod-level resource requests/limits.
 	WorkloadValidateResourcesAreNonNegative featuregate.Feature = "WorkloadValidateResourcesAreNonNegative"
 )
@@ -821,6 +830,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	VectorizedResourceRequests: {
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	RetryProvisioningDueInconsistentPodTemplate: {
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 
 	WorkloadValidateResourcesAreNonNegative: {
