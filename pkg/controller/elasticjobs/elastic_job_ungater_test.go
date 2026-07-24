@@ -462,6 +462,50 @@ func TestReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
+		"chain root deleted still ungates via a surviving slice": {
+			// On a MultiKueue worker cluster the manager deletes the remote copy
+			// of a replaced slice, so the chain's root ("wl") may not exist while
+			// a newer admitted slice and gated pods naming the chain key live on.
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-slice-1", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					ControllerReference(rayClusterGVK, "ray", "ray-uid").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "flavor", "2").
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod-created-mid-handover", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+				*testingpod.MakePod("pod-from-scale-up", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl-slice-1").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod-created-mid-handover", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Obj(),
+				*testingpod.MakePod("pod-from-scale-up", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl-slice-1").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Obj(),
+			},
+		},
 		"preserve topology gate when ungating elastic gate": {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl", "ns").
