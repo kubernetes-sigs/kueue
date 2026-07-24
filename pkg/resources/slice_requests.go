@@ -77,13 +77,11 @@ func toSliceRequests(r Requests) SliceRequests {
 	}
 	res := make(SliceRequests, 0, r.Len())
 	r.ForEach(func(name corev1.ResourceName, val int64) {
-		if val != 0 {
-			res = append(res, resourceEntry{
-				name:  name,
-				hash:  hashResourceName(name),
-				value: val,
-			})
-		}
+		res = append(res, resourceEntry{
+			name:  name,
+			hash:  hashResourceName(name),
+			value: val,
+		})
 	})
 	res.sort()
 	return res
@@ -96,14 +94,11 @@ func ResourceListToSliceRequests(rl corev1.ResourceList) SliceRequests {
 	}
 	sr := make(SliceRequests, 0, len(rl))
 	for name, q := range rl {
-		val := ResourceValue(name, q)
-		if val != 0 {
-			sr = append(sr, resourceEntry{
-				name:  name,
-				hash:  hashResourceName(name),
-				value: val,
-			})
-		}
+		sr = append(sr, resourceEntry{
+			name:  name,
+			hash:  hashResourceName(name),
+			value: ResourceValue(name, q),
+		})
 	}
 	sr.sort()
 	return sr
@@ -116,9 +111,7 @@ func (sr *SliceRequests) ToMapRequests() MapRequests {
 	}
 	req := make(MapRequests, len(*sr))
 	for _, entry := range *sr {
-		if entry.value != 0 {
-			req[entry.name] = entry.value
-		}
+		req[entry.name] = entry.value
 	}
 	return req
 }
@@ -142,6 +135,19 @@ func (sr *SliceRequests) GetValue(name corev1.ResourceName) int64 {
 		return (*sr)[idx].value
 	}
 	return 0
+}
+
+func (sr *SliceRequests) Set(name corev1.ResourceName, val int64) {
+	if sr == nil {
+		return
+	}
+	target := resourceEntry{name: name, hash: hashResourceName(name), value: val}
+	idx, found := slices.BinarySearchFunc(*sr, target, resourceEntry.cmp)
+	if found {
+		(*sr)[idx].value = val
+	} else {
+		*sr = slices.Insert(*sr, idx, target)
+	}
 }
 
 func (sr *SliceRequests) Len() int {
@@ -172,6 +178,71 @@ func (sr *SliceRequests) ScaledUp(f int64) Requests {
 		}
 	}
 	return &res
+}
+
+func (sr *SliceRequests) ScaledDown(f int64) Requests {
+	if sr == nil {
+		return (*SliceRequests)(nil)
+	}
+	clone := sr.Clone().(*SliceRequests)
+	clone.Divide(f)
+	return clone
+}
+
+func (sr *SliceRequests) Divide(f int64) {
+	if sr == nil {
+		return
+	}
+	for i := range *sr {
+		if (*sr)[i].value == 0 && f == 0 {
+			continue
+		}
+		(*sr)[i].value /= f
+	}
+}
+
+func (sr *SliceRequests) Mul(f int64) {
+	if sr == nil {
+		return
+	}
+	for i := range *sr {
+		(*sr)[i].value = utilmath.SaturatingMul((*sr)[i].value, f)
+	}
+}
+
+func (sr *SliceRequests) ToResourceList(formatter *ResourceFormatter) corev1.ResourceList {
+	if sr.IsEmpty() {
+		return nil
+	}
+	ret := make(corev1.ResourceList, len(*sr))
+	for _, entry := range *sr {
+		ret[entry.name] = formatter.ResourceQuantity(entry.name, entry.value)
+	}
+	return ret
+}
+
+// GreaterKeys returns keys where the receiver is greater than other.
+func (sr *SliceRequests) GreaterKeys(other Requests) []corev1.ResourceName {
+	if sr.IsEmpty() || isEmpty(other) {
+		return nil
+	}
+	otherSR := toSliceRequests(other)
+	var result []corev1.ResourceName
+	j := 0
+	for _, entry := range *sr {
+		for j < len(otherSR) && otherSR[j].cmp(entry) < 0 {
+			j++
+		}
+		if j < len(otherSR) && otherSR[j].cmp(entry) == 0 && entry.value > otherSR[j].value {
+			result = append(result, entry.name)
+		}
+	}
+	return result
+}
+
+// GreaterKeysRL compares against a ResourceList and returns keys where the receiver is greater than the ResourceList value.
+func (sr *SliceRequests) GreaterKeysRL(rl corev1.ResourceList) []corev1.ResourceName {
+	return sr.GreaterKeys(NewRequestsFromResourceList(rl))
 }
 
 // Add performs an element-wise addition.
@@ -267,14 +338,11 @@ func mergeInto(dst, a, b SliceRequests, fn mergeFunc) SliceRequests {
 }
 
 func appendEntry(dst SliceRequests, entry resourceEntry, val int64) SliceRequests {
-	if val != 0 {
-		return append(dst, resourceEntry{
-			name:  entry.name,
-			hash:  entry.hash,
-			value: val,
-		})
-	}
-	return dst
+	return append(dst, resourceEntry{
+		name:  entry.name,
+		hash:  entry.hash,
+		value: val,
+	})
 }
 
 func (sr *SliceRequests) CountIn(capacity Requests) int32 {

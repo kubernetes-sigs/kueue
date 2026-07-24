@@ -39,26 +39,26 @@ func TestFreeCapacityPerDomain(t *testing.T) {
 	snapshot := &TASFlavorSnapshot{
 		leaves: leafDomainByID{
 			"domain2": &leafDomain{
-				freeCapacity: resources.MapRequests{
+				freeCapacity: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU:    1000,
 					corev1.ResourceMemory: 2 * 1024 * 1024 * 1024, // 2 GiB
-				},
-				tasUsage: resources.MapRequests{
+				}),
+				tasUsage: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceMemory: 1 * 1024 * 1024 * 1024, // 1 GiB
 					corev1.ResourceCPU:    500,
-				},
+				}),
 			},
 			"domain1": &leafDomain{
-				freeCapacity: resources.MapRequests{
+				freeCapacity: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceMemory: 4 * 1024 * 1024 * 1024, // 4 GiB
 					corev1.ResourceCPU:    2000,
 					"nvidia.com/gpu":      1,
-				},
-				tasUsage: resources.MapRequests{
+				}),
+				tasUsage: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU:    500,
 					"nvidia.com/gpu":      1,
 					corev1.ResourceMemory: 2 * 1024 * 1024 * 1024, // 1 GiB
-				},
+				}),
 			},
 		},
 	}
@@ -751,10 +751,10 @@ func TestCountPodsInAssignment(t *testing.T) {
 }
 
 func TestComputeAssumedUsageFromAssignment(t *testing.T) {
-	singlePodRequests := resources.MapRequests{
+	singlePodRequests := resources.NewRequestsFromMap(resources.MapRequests{
 		corev1.ResourceCPU:    1000,
 		corev1.ResourceMemory: 1024,
-	}
+	})
 
 	cases := map[string]struct {
 		assignment *tas.TopologyAssignment
@@ -775,11 +775,11 @@ func TestComputeAssumedUsageFromAssignment(t *testing.T) {
 				},
 			},
 			want: map[tas.TopologyDomainID]resources.Requests{
-				"node-a": resources.MapRequests{
+				"node-a": resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU:    1000,
 					corev1.ResourceMemory: 1024,
 					corev1.ResourcePods:   1,
-				},
+				}),
 			},
 		},
 		"multiple domains": {
@@ -791,16 +791,16 @@ func TestComputeAssumedUsageFromAssignment(t *testing.T) {
 				},
 			},
 			want: map[tas.TopologyDomainID]resources.Requests{
-				"node-a": resources.MapRequests{
+				"node-a": resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU:    2000,
 					corev1.ResourceMemory: 2048,
 					corev1.ResourcePods:   2,
-				},
-				"node-b": resources.MapRequests{
+				}),
+				"node-b": resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU:    3000,
 					corev1.ResourceMemory: 3072,
 					corev1.ResourcePods:   3,
-				},
+				}),
 			},
 		},
 	}
@@ -808,7 +808,7 @@ func TestComputeAssumedUsageFromAssignment(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			got := tas.ComputeUsagePerDomain(tc.assignment, singlePodRequests)
-			if diff := cmp.Diff(tc.want, got); diff != "" {
+			if diff := cmp.Diff(tc.want, got, cmp.Comparer(resources.Equal)); diff != "" {
 				t.Errorf("ComputeUsagePerDomain() mismatch (-want +got):\n%s", diff)
 			}
 		})
@@ -824,10 +824,10 @@ func TestAddAssumedUsage(t *testing.T) {
 	}{
 		"includes pod count for existing and new domains": {
 			assumedUsage: map[tas.TopologyDomainID]resources.Requests{
-				"node-a": resources.MapRequests{
+				"node-a": resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU:  1000,
 					corev1.ResourcePods: 1,
-				},
+				}),
 			},
 			assignment: &tas.TopologyAssignment{
 				Levels: []string{"hostname"},
@@ -837,22 +837,22 @@ func TestAddAssumedUsage(t *testing.T) {
 				},
 			},
 			tasRequests: &TASPodSetRequests{
-				SinglePodRequests: resources.MapRequests{
+				SinglePodRequests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU:    500,
 					corev1.ResourceMemory: 2048,
-				},
+				}),
 			},
 			want: map[tas.TopologyDomainID]resources.Requests{
-				"node-a": resources.MapRequests{
+				"node-a": resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU:    1500,
 					corev1.ResourceMemory: 2048,
 					corev1.ResourcePods:   2,
-				},
-				"node-b": resources.MapRequests{
+				}),
+				"node-b": resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU:    1000,
 					corev1.ResourceMemory: 4096,
 					corev1.ResourcePods:   2,
-				},
+				}),
 			},
 		},
 		"includes pod count starting from empty assumed usage": {
@@ -864,36 +864,25 @@ func TestAddAssumedUsage(t *testing.T) {
 				},
 			},
 			tasRequests: &TASPodSetRequests{
-				SinglePodRequests: resources.MapRequests{
+				SinglePodRequests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU:    250,
 					corev1.ResourceMemory: 512,
-				},
+				}),
 			},
 			want: map[tas.TopologyDomainID]resources.Requests{
-				"node-a": resources.MapRequests{
+				"node-a": resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU:    750,
 					corev1.ResourceMemory: 1536,
 					corev1.ResourcePods:   3,
-				},
+				}),
 			},
 		},
 	}
 
-	equateRequests := cmp.Transformer("Requests", func(r resources.Requests) map[corev1.ResourceName]int64 {
-		if r == nil {
-			return nil
-		}
-		m := make(map[corev1.ResourceName]int64)
-		r.ForEach(func(name corev1.ResourceName, val int64) {
-			m[name] = val
-		})
-		return m
-	})
-
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			addAssumedUsage(tc.assumedUsage, tc.assignment, tc.tasRequests)
-			if diff := cmp.Diff(tc.want, tc.assumedUsage, equateRequests); diff != "" {
+			if diff := cmp.Diff(tc.want, tc.assumedUsage, cmp.Comparer(resources.Equal)); diff != "" {
 				t.Errorf("addAssumedUsage() mismatch (-want +got):\n%s", diff)
 			}
 		})
@@ -1037,9 +1026,9 @@ func TestTASCachingRemainingResourcesFeatureGate(t *testing.T) {
 			flavorUsage := workload.TASFlavorUsage{
 				{
 					Values: []string{"node-a"},
-					SinglePodRequests: resources.MapRequests{
+					SinglePodRequests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU: 5000,
-					},
+					}),
 					Count: 1,
 				},
 			}
@@ -1048,9 +1037,9 @@ func TestTASCachingRemainingResourcesFeatureGate(t *testing.T) {
 			g.Expect(snapshot.Fits(flavorUsage)).To(gomega.BeTrue())
 
 			// Add TAS usage of 4 CPU (4000m), leaving 4 CPU (8000m - 4000m = 4000m) remaining
-			usage := resources.MapRequests{
+			usage := resources.NewRequestsFromMap(resources.MapRequests{
 				corev1.ResourceCPU: 4000,
-			}
+			})
 			snapshot.updateTASUsage(domainID, usage, add, 1)
 
 			// Fits should now return false because 5 CPU > 4 CPU remaining
