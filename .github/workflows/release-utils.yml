@@ -294,77 +294,43 @@ jobs:
     permissions:
       contents: write
       issues: write
-    env:
-      BRANCH: ${{ needs.authorize.outputs.branch }}
-      ISSUE_NUMBER: ${{ github.event.issue.number }}
-      CHANGELOG: ${{ needs.authorize.outputs.changelog }}
     steps:
-      - name: Checkout repository
+      - name: Checkout release branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           ref: ${{ needs.authorize.outputs.branch }}
           persist-credentials: false
 
+      - name: Checkout automation actions from main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          path: .automation
+          sparse-checkout: .github/actions
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
       - name: Create and Push Tag
+        id: tag
+        uses: ./.automation/.github/actions/create-release-tag
+        with:
+          version: ${{ needs.authorize.outputs.version }}
+          changelog: ${{ needs.authorize.outputs.changelog }}
+          issue-number: ${{ github.event.issue.number }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repo: ${{ github.repository }}
+
+      - name: Post Success Comment
         env:
-          VERSION: ${{ needs.authorize.outputs.version }}
-          ISSUE_BODY: ${{ github.event.issue.body }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CHANGELOG: ${{ needs.authorize.outputs.changelog }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          VERSION: ${{ needs.authorize.outputs.version }}
+          OUTCOME: ${{ steps.tag.outputs.outcome }}
         run: |
-          if [ -z "$CHANGELOG" ]; then
-            gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to create release tag \`$VERSION\`: No changelog found in the issue description. Make sure the issue has the Markdown block under \`## Changelog\`."
-            exit 1
-          fi
-          
-          # Prepare tag message
-          NOTES_FILE=$(mktemp)
-          printf "%s\n\n%s\n" "$VERSION" "$CHANGELOG" > "$NOTES_FILE"
-
-          # Configure git identity
-          git config --global user.name "kueue-release-bot"
-          git config --global user.email "kueue-release-bot@kubernetes.io"
-          gh auth setup-git
-          
-          # Clear existing tag
-          TAG_EXISTS=false
-          if git tag -l | grep -q "^${VERSION}$" || git ls-remote --tags origin "$VERSION" | grep -q "refs/tags/${VERSION}$"; then
-            TAG_EXISTS=true
-            git tag -d "$VERSION" 2>/dev/null || true
-            git push origin --delete "$VERSION" 2>/dev/null || true
-          fi
-
-          # Create and push the tag
-          PUSH_EXIT=0
-          set +e
-          git tag -a "$VERSION" -F "$NOTES_FILE" 2> err.log
-          TAG_EXIT=$?
-          if [ $TAG_EXIT -eq 0 ]; then
-            git push origin "$VERSION" 2>> err.log
-            PUSH_EXIT=$?
-          fi
-          set -e
-          rm -f "$NOTES_FILE"
-          
-          if [ $TAG_EXIT -ne 0 ] || [ $PUSH_EXIT -ne 0 ]; then
-            ERR_MSG=$(cat err.log)
-            gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to create or push release tag \`$VERSION\`.
-            
-            **Error details:**
-            \`\`\`text
-            ${ERR_MSG}
-            \`\`\`"
-            exit 1
-          fi
-          
-          # Log successful creation/update
-          ACTION="created"
-          if [ "$TAG_EXISTS" = "true" ]; then
-            ACTION="updated"
-          fi
-          
-          gh issue comment "$ISSUE_NUMBER" --body "✅ Release tag \`$VERSION\` has been successfully ${ACTION}."
+          BODY="✅ Release tag \`$VERSION\` has been successfully ${OUTCOME}."
+          echo "$BODY"
+          gh issue comment "$ISSUE_NUMBER" --body "$BODY"
 
   create-draft-release:
     name: Create Draft Release
@@ -376,11 +342,20 @@ jobs:
       contents: write
       issues: write
     steps:
-      - name: Checkout repository
+      - name: Checkout release tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           ref: ${{ needs.authorize.outputs.version }}
+          persist-credentials: false
+
+      - name: Checkout automation actions from main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          path: .automation
+          sparse-checkout: .github/actions
+          sparse-checkout-cone-mode: false
           persist-credentials: false
 
       - name: Set up Go
@@ -388,64 +363,23 @@ jobs:
         with:
           go-version-file: 'go.mod'
 
-      - name: Build Release Artifacts
-        env:
-          VERSION: ${{ needs.authorize.outputs.version }}
-        run: |
-          make release-artifacts IMAGE_REGISTRY=registry.k8s.io/kueue GIT_TAG="$VERSION"
-
       - name: Create Draft Release
+        id: draft
+        uses: ./.automation/.github/actions/create-draft-release
+        with:
+          version: ${{ needs.authorize.outputs.version }}
+          changelog: ${{ needs.authorize.outputs.changelog }}
+          issue-number: ${{ github.event.issue.number }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repo: ${{ github.repository }}
+
+      - name: Post Success Comment
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
-          VERSION: ${{ needs.authorize.outputs.version }}
-          TARGET_REPO: ${{ github.repository }}
-          CHANGELOG: ${{ needs.authorize.outputs.changelog }}
+          OUTPUT: ${{ steps.draft.outputs.output }}
         run: |
-          ACTION="created"
-
-          # Check if a release for this version already exists (draft or published).
-          RELEASE_STATE=$(gh release list --repo "$TARGET_REPO" --exclude-drafts=false --json tagName,isDraft 2>/dev/null | \
-            jq -r --arg ver "$VERSION" '.[] | select(.tagName == $ver) | if .isDraft then "draft" else "published" end')
-
-          if [ "$RELEASE_STATE" = "published" ]; then
-            BODY="⚠️ Release \`$VERSION\` is already published. Skipping draft release creation to avoid overwriting a live release."
-            echo "$BODY"
-            gh issue comment "$ISSUE_NUMBER" --body "$BODY"
-            exit 0
-          elif [ "$RELEASE_STATE" = "draft" ]; then
-            echo "Draft release \`$VERSION\` already exists. Deleting it first to perform a clean update..."
-            gh release delete "$VERSION" --repo "$TARGET_REPO" --yes
-            ACTION="updated"
-          fi
-
-          # Create a draft release.
-          set +e
-          echo "Creating \`$VERSION\` release."
-          gh release create "$VERSION" \
-            --verify-tag \
-            --repo "$TARGET_REPO" \
-            --title "$VERSION" \
-            --notes "$CHANGELOG" \
-            --draft \
-            release-artifacts/* 2> err.log
-          RELEASE_EXIT=$?
-          set -e
-
-          if [ $RELEASE_EXIT -ne 0 ]; then
-            ERR_MSG="$(cat err.log)"
-            echo "$ERR_MSG"
-            gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to create draft release \`$VERSION\`.
-
-            **Error details:**
-            \`\`\`text
-            ${ERR_MSG}
-            \`\`\`"
-            exit 1
-          fi
-
-          # Post a comment to the GitHub issue.
-          BODY="✅ Draft release has been successfully ${ACTION}."
+          BODY="✅ Draft release has been successfully ${OUTPUT}."
           echo "$BODY"
           gh issue comment "$ISSUE_NUMBER" --body "$BODY"
 
@@ -529,11 +463,18 @@ jobs:
           persist-credentials: false
 
       - name: Publish Release
+        uses: ./.github/actions/publish-release
+        with:
+          version: ${{ needs.authorize.outputs.version }}
+          issue-number: ${{ github.event.issue.number }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repo: ${{ github.repository }}
+
+      - name: Post Success Comment
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           VERSION: ${{ needs.authorize.outputs.version }}
-          COMMAND: ${{ needs.authorize.outputs.command }}
         run: |
           # Check the current state of the release.
           RELEASE_STATE=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts=false --json tagName,isDraft 2>/dev/null | \

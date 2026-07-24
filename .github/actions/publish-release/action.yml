@@ -1,0 +1,62 @@
+name: Publish Release
+description: Publishes a GitHub draft release.
+
+inputs:
+  version:
+    description: Release version, formatted as vX.Y.Z (X - major, Y - minor, Z - patch; e.g. v0.10.0)
+    required: true
+  issue-number:
+    description: GitHub issue number used for posting status comments
+    required: true
+  repo:
+    description: Target repository in owner/name format
+    required: true
+  github-token:
+    description: GitHub token with contents:write and issues:write permissions
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Publish Release
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        VERSION: ${{ inputs.version }}
+        ISSUE_NUMBER: ${{ inputs.issue-number }}
+        TARGET_REPO: ${{ inputs.repo }}
+      run: |
+        RELEASE_STATE=$(gh release view "$VERSION" --repo "$TARGET_REPO" --json isDraft \
+            --jq 'if .isDraft then "draft" else "published" end' 2>/dev/null || echo "")
+        
+        if [ "$RELEASE_STATE" = "published" ]; then
+          BODY="❌️ Release \`$VERSION\` is already published."
+          echo "$BODY"
+          gh issue comment "$ISSUE_NUMBER" --body "$BODY"
+          exit 1
+        elif [ -z "$RELEASE_STATE" ]; then
+          BODY="❌ Release \`$VERSION\` not found. Please create a draft release first using \`/create-draft-release\`."
+          echo "$BODY"
+          gh issue comment "$ISSUE_NUMBER" --body "$BODY"
+          exit 1
+        fi
+
+        # Publish the draft release.
+        set +e
+        gh release edit "$VERSION" \
+          --repo "$TARGET_REPO" \
+          --draft=false 2> err.log
+        EDIT_EXIT=$?
+        set -e
+
+        if [ $EDIT_EXIT -ne 0 ]; then
+          ERR_MSG="$(cat err.log)"
+          echo "$ERR_MSG"
+          gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to publish release \`$VERSION\`.
+
+          **Error details:**
+          \`\`\`text
+          ${ERR_MSG}
+          \`\`\`"
+          exit 1
+        fi
