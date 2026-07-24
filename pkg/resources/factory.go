@@ -17,8 +17,6 @@ limitations under the License.
 package resources
 
 import (
-	"maps"
-
 	corev1 "k8s.io/api/core/v1"
 	resourcehelpers "k8s.io/component-helpers/resource"
 
@@ -27,7 +25,19 @@ import (
 
 // Equal reports whether two Requests objects are Equal.
 func Equal(a, b Requests) bool {
-	return maps.Equal(ToMapRequests(a), ToMapRequests(b))
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil || a.Len() != b.Len() {
+		return false
+	}
+	equal := true
+	a.ForEach(func(name corev1.ResourceName, val int64) {
+		if equal && b.GetValue(name) != val {
+			equal = false
+		}
+	})
+	return equal
 }
 
 // CreateEmpty creates an empty Requests instance based on feature gates.
@@ -62,7 +72,7 @@ func NewRequestsFromResourceList(rl corev1.ResourceList) Requests {
 // NewRequestsFromPodSpec creates a Requests instance from a PodSpec based on feature gates.
 func NewRequestsFromPodSpec(podSpec *corev1.PodSpec) Requests {
 	if podSpec == nil {
-		return nil
+		return CreateEmpty()
 	}
 	rl := resourcehelpers.PodRequests(&corev1.Pod{Spec: *podSpec}, resourcehelpers.PodResourcesOptions{})
 	return NewRequestsFromResourceList(rl)
