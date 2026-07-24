@@ -1543,8 +1543,15 @@ func (r *WorkloadReconciler) reportFinishedWorkload(log logr.Logger, wl *kueue.W
 	cqName := ptr.Deref(wl.Status.Admission, kueue.Admission{}).ClusterQueue
 	metrics.IncrementFinishedWorkloadTotal(cqName, priorityClassName, r.customLabels.CQGet(cqName), r.roleTracker)
 	lqRef := metrics.LQRefFromWorkload(wl)
-	if r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl) {
+	exposeLQ := r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl)
+	if exposeLQ {
 		metrics.IncrementLocalQueueFinishedWorkloadTotal(lqRef, priorityClassName, r.customLabels.LQGet(qutil.KeyFromWorkload(wl)), r.roleTracker)
+	}
+	if totalExecutionTime := workload.TotalExecutionTime(wl); totalExecutionTime != nil {
+		metrics.ReportExecutionTime(cqName, priorityClassName, *totalExecutionTime, r.customLabels.CQGet(cqName), r.roleTracker)
+		if exposeLQ {
+			metrics.ReportLocalQueueExecutionTime(lqRef, priorityClassName, *totalExecutionTime, r.customLabels.LQGet(qutil.KeyFromWorkload(wl)), r.roleTracker)
+		}
 	}
 }
 

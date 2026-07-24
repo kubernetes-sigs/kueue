@@ -822,6 +822,21 @@ func SetRequeuedCondition(wl *kueue.Workload, reason, message string, status boo
 	return apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
 }
 
+// TotalExecutionTime returns the cumulative admitted duration across evict/readmit cycles, or nil if not applicable.
+func TotalExecutionTime(wl *kueue.Workload) *time.Duration {
+	admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
+	if admittedCond == nil || admittedCond.Status != metav1.ConditionTrue {
+		return nil
+	}
+	finishedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadFinished)
+	if finishedCond == nil {
+		return nil
+	}
+	accumulatedPast := time.Duration(ptr.Deref(wl.Status.AccumulatedPastExecutionTimeSeconds, 0)) * time.Second
+	total := accumulatedPast + finishedCond.LastTransitionTime.Sub(admittedCond.LastTransitionTime.Time)
+	return &total
+}
+
 func QueuedWaitTime(wl *kueue.Workload, clock clock.Clock) time.Duration {
 	queuedTime := wl.CreationTimestamp.Time
 	if c := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued); c != nil {
