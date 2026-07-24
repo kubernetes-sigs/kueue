@@ -172,6 +172,34 @@ func TestImportNamespace(t *testing.T) {
 					Obj(),
 			},
 		},
+		"missing cluster queue": {
+			pods: []corev1.Pod{
+				*basePodWrapper.DeepCopy(),
+			},
+			mapping: mapping.Rules{
+				mapping.Rule{
+					Match: mapping.Match{
+						PriorityClassName: "",
+						Labels: map[string]string{
+							testingQueueLabel: "q1",
+						},
+					},
+					ToLocalQueue: "lq1",
+				},
+			},
+			localQueues: []kueue.LocalQueue{
+				*baseLocalQueue.Obj(),
+			},
+			clusterQueues: nil, // intentionally omit cluster queues to trigger ErrCQNotFound
+
+			wantPods: []corev1.Pod{
+				*basePodWrapper.Clone().
+					Label(controllerconstants.QueueLabel, "lq1").
+					ManagedByKueueLabel().
+					Obj(),
+			},
+			wantError: cache.ErrCQNotFound,
+		},
 	}
 
 	for name, tc := range cases {
