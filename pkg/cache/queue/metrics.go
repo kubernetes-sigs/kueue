@@ -17,7 +17,9 @@ limitations under the License.
 package queue
 
 import (
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/queue"
 	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
@@ -44,13 +46,28 @@ func reportPendingWorkloads(m *Manager, cqRef kueue.ClusterQueueReference) {
 }
 
 func reportCQPendingWorkloads(m *Manager, cq *ClusterQueue) {
-	active, inadmissible := cq.Pending()
+	active, inadmissible := cq.Pending(m.customLabels)
 	if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(cq.name) {
-		inadmissible += active
-		active = 0
+		inadmissible = metrics.MergedTracker(inadmissible, active)
+		active = metrics.NewLabelValsTracker()
 	}
 	cqCustomLabels := m.customLabels.CQGet(cq.name)
-	metrics.ReportPendingWorkloads(cq.name, active, inadmissible, cqCustomLabels, m.roleTracker)
+
+	if features.Enabled(features.CustomMetricLabels) && m.customLabels.KindConfigured(configapi.SourceKindWorkload) {
+		// Clear the metric to remove series with stale workload label value combinations
+		metrics.ClearPendingWorkloads(cq.name)
+
+		// Report data for every recorded unique workload label values combination.
+		for wlLabelVals, counts := range metrics.ParallelIter(active, inadmissible) {
+			customLabels := m.customLabels.CombineLabelValues(map[configapi.SourceKind][]string{
+				configapi.SourceKindClusterQueue: cqCustomLabels,
+				configapi.SourceKindWorkload:     wlLabelVals.OrderedList(),
+			})
+			metrics.ReportPendingWorkloads(cq.name, counts.First, counts.Second, customLabels, m.roleTracker)
+		}
+	} else {
+		metrics.ReportPendingWorkloads(cq.name, active.Total(), inadmissible.Total(), cqCustomLabels, m.roleTracker)
+	}
 
 	if m.resourceMetricsEnabled {
 		// pendingResourcesTotal carries 0 entries for configured resources (seeded by

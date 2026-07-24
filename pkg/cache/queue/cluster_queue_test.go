@@ -1617,11 +1617,11 @@ func TestRecordInadmissibleHash(t *testing.T) {
 				t.Errorf("handleInadmissibleHash moved %d, want %d", moved, tc.wantMoved)
 			}
 
-			active, inadmissible := cq.Pending()
-			if active != tc.wantActive {
+			active, inadmissible := cq.Pending(nil)
+			if active.Total() != tc.wantActive {
 				t.Errorf("active workloads = %d, want %d", active, tc.wantActive)
 			}
-			if inadmissible != tc.wantInadmissible {
+			if inadmissible.Total() != tc.wantInadmissible {
 				t.Errorf("inadmissible workloads = %d, want %d", inadmissible, tc.wantInadmissible)
 			}
 		})
@@ -1664,11 +1664,11 @@ func TestPushOrUpdateRespectsInadmissibleHashes(t *testing.T) {
 			info.SchedulingHash = tc.pushHash
 			cq.PushOrUpdate(info)
 
-			active, inadmissible := cq.Pending()
-			if active != tc.wantActive {
+			active, inadmissible := cq.Pending(nil)
+			if active.Total() != tc.wantActive {
 				t.Errorf("active = %d, want %d", active, tc.wantActive)
 			}
-			if inadmissible != tc.wantInadmissible {
+			if inadmissible.Total() != tc.wantInadmissible {
 				t.Errorf("inadmissible = %d, want %d", inadmissible, tc.wantInadmissible)
 			}
 		})
@@ -1700,8 +1700,8 @@ func TestQueueInadmissibleWorkloadsClearsHashes(t *testing.T) {
 		t.Error("hashToBulkMoveReason should be cleared after queueInadmissibleWorkloads")
 	}
 
-	active, inadmissible := cq.Pending()
-	if active != 1 || inadmissible != 0 {
+	active, inadmissible := cq.Pending(nil)
+	if active.Total() != 1 || inadmissible.Total() != 0 {
 		t.Errorf("after requeue: active=%d inadmissible=%d, want active=1 inadmissible=0", active, inadmissible)
 	}
 }

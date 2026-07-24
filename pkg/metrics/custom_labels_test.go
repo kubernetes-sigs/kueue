@@ -435,3 +435,103 @@ func TestCustomLabelsDisabled(t *testing.T) {
 	}
 	nilCl.CohortDelete(kueue.CohortReference("cohort"))
 }
+
+func TestLabelValueSetCounter(t *testing.T) {
+	k1 := labelValsSet{
+		src:          configapi.SourceKindWorkload,
+		vals:         [MaxCustomLabelsForSourceKind]string{"v1", "v2"},
+		labelSetSize: 2,
+	}
+	k2 := labelValsSet{
+		src:          configapi.SourceKindWorkload,
+		vals:         [MaxCustomLabelsForSourceKind]string{"v3", "v4"},
+		labelSetSize: 2,
+	}
+	k3 := labelValsSet{
+		src:          configapi.SourceKindWorkload,
+		vals:         [MaxCustomLabelsForSourceKind]string{"v5"},
+		labelSetSize: 1,
+	}
+
+	// 1. Test NewLabelSetCount and Empty
+	c1 := NewLabelValsTracker()
+	if c1.Total() != 0 {
+		t.Errorf("expected empty counter total to be 0, got %d", c1.Total())
+	}
+	if got := c1.Get(k1); got != 0 {
+		t.Errorf("expected empty counter Get to return 0, got %d", got)
+	}
+
+	emptyWl := Empty(configapi.SourceKindWorkload)
+	if emptyWl.src != configapi.SourceKindWorkload {
+		t.Errorf("expected Empty(SourceKindWorkload) to have workload kind, got %s", emptyWl.src)
+	}
+
+	// 2. Test Incr and Add
+	c1.Incr(k1)
+	c1.Add(k1, 2)
+	c1.Incr(k2)
+	if c1.Total() != 4 {
+		t.Errorf("expected total to be 4, got %d", c1.Total())
+	}
+	if got := c1.Get(k1); got != 3 {
+		t.Errorf("expected Get(k1) to be 3, got %d", got)
+	}
+	if got := c1.Get(k2); got != 1 {
+		t.Errorf("expected Get(k2) to be 1, got %d", got)
+	}
+	if got := c1.Get(k3); got != 0 {
+		t.Errorf("expected Get(k3) to be 0, got %d", got)
+	}
+
+	// 3. Test merge
+	c2 := NewLabelValsTracker()
+	c2.Incr(k2)
+	c2.Incr(k3)
+
+	c1.merge(c2)
+	if c1.Total() != 6 {
+		t.Errorf("expected total after merge to be 6, got %d", c1.Total())
+	}
+	if got := c1.Get(k1); got != 3 {
+		t.Errorf("expected Get(k1) to be 3, got %d", got)
+	}
+	if got := c1.Get(k2); got != 2 { // 1 from c1 + 1 from c2
+		t.Errorf("expected Get(k2) to be 2, got %d", got)
+	}
+	if got := c1.Get(k3); got != 1 {
+		t.Errorf("expected Get(k3) to be 1, got %d", got)
+	}
+
+	// Test merge nil
+	c1.merge(nil)
+	if c1.Total() != 6 {
+		t.Errorf("expected total after merge(nil) to remain 6, got %d", c1.Total())
+	}
+
+	// 4. Test CombinedCounters
+	a := NewLabelValsTracker()
+	a.Incr(k1)
+	b := NewLabelValsTracker()
+	b.Incr(k2)
+	combined := MergedTracker(a, b)
+	if combined.Total() != 2 {
+		t.Errorf("expected combined total to be 2, got %d", combined.Total())
+	}
+	if combined.Get(k1) != 1 || combined.Get(k2) != 1 {
+		t.Errorf("expected combined to have k1 and k2, got k1=%d, k2=%d", combined.Get(k1), combined.Get(k2))
+	}
+
+	// 5. Test ParallelIter
+	iterResult := make(map[labelValsSet]pair)
+	for ls, p := range ParallelIter(a, b) {
+		iterResult[ls] = p
+	}
+	wantIterResult := map[labelValsSet]pair{
+		k1: {1, 0},
+		k2: {0, 1},
+	}
+	if diff := cmp.Diff(wantIterResult, iterResult); diff != "" {
+		t.Errorf("ParallelIter mismatch (-want +got):\n%s", diff)
+	}
+}
