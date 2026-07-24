@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/go-logr/logr"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	corev1 "k8s.io/api/core/v1"
@@ -219,8 +220,32 @@ func (j *RayJob) RestorePodSetsInfo(ctx context.Context, podSetsInfo []podset.Po
 func (j *RayJob) Finished(ctx context.Context) (message string, success, finished bool) {
 	message = j.Status.Message
 	success = j.Status.JobStatus == rayv1.JobStatusSucceeded
-	finished = j.Status.JobDeploymentStatus == rayv1.JobDeploymentStatusFailed || j.Status.JobDeploymentStatus == rayv1.JobDeploymentStatusComplete
+	finished = j.shouldFinish(ctrl.LoggerFrom(ctx))
+
 	return message, success, finished
+}
+
+func (j *RayJob) shouldFinish(log logr.Logger) bool {
+	switch j.Status.JobDeploymentStatus {
+	case rayv1.JobDeploymentStatusFailed:
+		log.V(2).Info("RayJob finished: deployment failed")
+		return true
+
+	case rayv1.JobDeploymentStatusComplete:
+		log.V(2).Info("RayJob finished: deployment completed")
+		return true
+
+	case rayv1.JobDeploymentStatusValidationFailed:
+		if j.Status.RayClusterName == "" {
+			log.V(2).Info("RayJob finished: validation failed before RayCluster creation")
+			return true
+		}
+
+		log.V(2).Info("RayJob not finished: validation failed after RayCluster creation",
+			"rayClusterName", j.Status.RayClusterName)
+	}
+
+	return false
 }
 
 func (j *RayJob) PodsReady(ctx context.Context, _ client.Client) bool {
