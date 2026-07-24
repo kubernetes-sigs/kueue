@@ -385,5 +385,5 @@ func Empty(kind configapi.SourceKind) labelValsSet {
 }
 
 func (s *labelValsSet) OrderedList() []string {
-	return s.vals[:]
+	return s.vals[:s.labelSetSize]
 }
