@@ -203,13 +203,8 @@ jobs:
           set -e
 
           if [ $BRANCH_EXIT -ne 0 ] || [ $PUSH_EXIT -ne 0 ]; then
-            ERR_MSG=$(cat err.log)
-            gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to create release branch \`$BRANCH\`.
-          
-            **Error details:**
-            \`\`\`text
-            ${ERR_MSG}
-            \`\`\`"
+            cat err.log
+            gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to create release branch \`$BRANCH\`."
             exit 1
           fi
 
@@ -348,13 +343,8 @@ jobs:
           rm -f "$NOTES_FILE"
           
           if [ $TAG_EXIT -ne 0 ] || [ $PUSH_EXIT -ne 0 ]; then
-            ERR_MSG=$(cat err.log)
-            gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to create or push release tag \`$VERSION\`.
-            
-            **Error details:**
-            \`\`\`text
-            ${ERR_MSG}
-            \`\`\`"
+            cat err.log
+            gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to create or push release tag \`$VERSION\`."
             exit 1
           fi
           
@@ -433,14 +423,8 @@ jobs:
           set -e
 
           if [ $RELEASE_EXIT -ne 0 ]; then
-            ERR_MSG="$(cat err.log)"
-            echo "$ERR_MSG"
-            gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to create draft release \`$VERSION\`.
-
-            **Error details:**
-            \`\`\`text
-            ${ERR_MSG}
-            \`\`\`"
+            cat err.log
+            gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to create draft release \`$VERSION\`."
             exit 1
           fi
 
@@ -495,17 +479,8 @@ jobs:
           set -e
 
           if [ $SCRIPT_EXIT_CODE -ne 0 ]; then
-            # Extract any line starting with !!! as error details
-            ERR_MSG=$(grep -E '^!!!' /tmp/prepare-pull.log || true)
-            if [ -z "$ERR_MSG" ]; then
-              ERR_MSG="Check workflow logs for details."
-            fi
-            gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to prepare pull requests for version \`$VERSION\` (target: \`$TARGET\`).
-            
-            **Error details:**
-            \`\`\`text
-            ${ERR_MSG}
-            \`\`\`"
+            cat /tmp/prepare-pull.log
+            gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to prepare pull requests for version \`$VERSION\` (target: \`$TARGET\`)."
             exit $SCRIPT_EXIT_CODE
           fi
 
@@ -560,14 +535,8 @@ jobs:
           set -e
 
           if [ $EDIT_EXIT -ne 0 ]; then
-            ERR_MSG="$(cat err.log)"
-            echo "$ERR_MSG"
-            gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to publish release \`$VERSION\`.
-
-            **Error details:**
-            \`\`\`text
-            ${ERR_MSG}
-            \`\`\`"
+            cat err.log
+            gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to publish release \`$VERSION\`."
             exit 1
           fi
 
