@@ -77,6 +77,9 @@ linters:
       context-background: true
       context-todo: true
   exclusions:
+    generated: strict
+    paths:
+      - zz_generated\..+\.go$
     warn-unused: true
     presets:
       - std-error-handling
@@ -114,4 +117,7 @@ formatters:
       max-len: 200
       reformat-tags: false
   exclusions:
+    generated: strict
+    paths:
+      - zz_generated\..+\.go$
     warn-unused: true

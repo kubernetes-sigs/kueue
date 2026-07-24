@@ -116,8 +116,9 @@ verify-checks: verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-commo
 # Giving the wrapper its own recipe body is the only way to enforce ordering
 # without recursive $(MAKE).
 
+# Skip generated client-go/ and internal/mocks/ (path exclusions only filter reports).
 define _ci_lint_recipe
-find . \( -path ./site -o -path ./bin -o -path ./vendor \) -prune -false -o -name go.mod -exec dirname {} \; | xargs -I {} sh -c 'cd "{}" && $(GOLANGCI_LINT) run $(GOLANGCI_LINT_FIX) --timeout 15m0s --config "$(PROJECT_DIR)/.golangci.yaml"'
+find . \( -path ./site -o -path ./bin -o -path ./vendor \) -prune -false -o -name go.mod -exec dirname {} \; | xargs -I {} sh -c 'cd "{}" || exit 1; list=$$($(GO_CMD) list -f "{{.Dir}}" ./...) || exit 1; dirs=$$(printf "%s\n" "$$list" | grep -vE "/client-go(/|$$)|/internal/mocks(/|$$)" | sed "s|^$$(pwd)/|./|" || true); [ -n "$$dirs" ] || exit 0; $(GOLANGCI_LINT) run $(GOLANGCI_LINT_FIX) --timeout 15m0s --config "$(PROJECT_DIR)/.golangci.yaml" $$dirs'
 endef
 
 define _lint_api_recipe
