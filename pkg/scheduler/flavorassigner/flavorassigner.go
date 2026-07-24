@@ -637,10 +637,17 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 			}
 		}
 
+		flavorsLen := 0
+		var resList corev1.ResourceList
+		if podSet.Requests != nil {
+			flavorsLen = podSet.Requests.Len()
+			resList = podSet.Requests.ToResourceList()
+		}
+
 		psAssignment := PodSetAssignment{
 			Name:     podSet.Name,
-			Flavors:  make(ResourceAssignment, len(podSet.Requests)),
-			Requests: podSet.Requests.ToResourceList(),
+			Flavors:  make(ResourceAssignment, flavorsLen),
+			Requests: resList,
 			Count:    podSet.Count,
 		}
 
@@ -784,7 +791,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, counts []int32) Assignme
 	return assignment
 }
 
-func (a *Assignment) append(requests resources.MapRequests, psAssignment *PodSetAssignment) {
+func (a *Assignment) append(requests resources.Requests, psAssignment *PodSetAssignment) {
 	flavorIdx := make(map[corev1.ResourceName]int, len(psAssignment.Flavors))
 	a.PodSets = append(a.PodSets, *psAssignment)
 	for resource, flvAssignment := range psAssignment.Flavors {

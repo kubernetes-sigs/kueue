@@ -333,15 +333,13 @@ func FuzzSliceRequestsEquivalence(f *testing.F) {
 				t.Errorf("IsEmpty mismatch: Map got %t, Slice got %t", m1.IsEmpty(), s1.IsEmpty())
 			}
 		case opToResourceList:
-			formatter := NewResourceFormatter()
-			mRL := m1.ToResourceList(formatter)
-			sRL := s1.ToResourceList(formatter)
+			mRL := m1.ToResourceList()
+			sRL := s1.ToResourceList()
 			if diff := cmp.Diff(mRL, sRL); diff != "" {
 				t.Errorf("ToResourceList mismatch (-want Map +got Slice):\n%s", diff)
 			}
 		case opGreaterKeysRL:
-			formatter := NewResourceFormatter()
-			mRL := m2.ToResourceList(formatter)
+			mRL := m2.ToResourceList()
 			mKeys := m1.GreaterKeysRL(mRL)
 			sKeys := s1.GreaterKeysRL(mRL)
 			if diff := cmp.Diff(mKeys, sKeys); diff != "" {

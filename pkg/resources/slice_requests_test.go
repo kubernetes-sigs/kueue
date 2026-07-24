@@ -616,7 +616,6 @@ func TestSliceRequests_Mul(t *testing.T) {
 }
 
 func TestSliceRequests_ToResourceList(t *testing.T) {
-	formatter := NewResourceFormatter()
 	cases := map[string]struct {
 		req  *SliceRequests
 		want corev1.ResourceList
@@ -650,7 +649,7 @@ func TestSliceRequests_ToResourceList(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got := tc.req.ToResourceList(formatter)
+			got := tc.req.ToResourceList()
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("ToResourceList mismatch (-want +got):\n%s", diff)
 			}

@@ -38,7 +38,7 @@ type Requests interface {
 	IsEmpty() bool
 	// FloorToZero replaces negative resource values with zero.
 	FloorToZero()
-	ToResourceList(formatter *ResourceFormatter) corev1.ResourceList
+	ToResourceList() corev1.ResourceList
 	GreaterKeys(other Requests) []corev1.ResourceName
 	GreaterKeysRL(rl corev1.ResourceList) []corev1.ResourceName
 }

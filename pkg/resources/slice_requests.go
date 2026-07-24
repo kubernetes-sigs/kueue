@@ -210,14 +210,14 @@ func (sr *SliceRequests) Mul(f int64) {
 	}
 }
 
-func (sr *SliceRequests) ToResourceList(formatter *ResourceFormatter) corev1.ResourceList {
+func (sr *SliceRequests) ToResourceList() corev1.ResourceList {
 	if sr.IsEmpty() {
 		return nil
 	}
 	ret := make(corev1.ResourceList, len(*sr))
-	for _, entry := range *sr {
-		ret[entry.name] = formatter.ResourceQuantity(entry.name, entry.value)
-	}
+	sr.ForEach(func(name corev1.ResourceName, val int64) {
+		ret[name] = ResourceQuantity(name, val)
+	})
 	return ret
 }
 
