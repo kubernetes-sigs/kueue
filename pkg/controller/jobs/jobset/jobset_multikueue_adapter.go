@@ -24,7 +24,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
@@ -112,7 +111,7 @@ func (*multiKueueAdapter) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedN
 
 	prebuiltWorkload := jobframework.PrebuiltWorkloadNameFor(jobSet)
 	if prebuiltWorkload == "" {
-		return nil, fmt.Errorf("no prebuilt workload found for jobset: %s", klog.KObj(jobSet))
+		prebuiltWorkload = jobframework.GetWorkloadNameForOwnerWithGVK(jobSet.GetName(), jobSet.GetUID(), gvk)
 	}
 
 	return []types.NamespacedName{{Name: prebuiltWorkload, Namespace: jobSet.Namespace}}, nil

@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -235,8 +236,10 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		return reconcile.Result{}, w.updateACS(ctx, wl, mkAc, kueue.CheckStateRejected, rejectionMessage)
 	}
 
-	// If the workload is deleted there is a chance that it's owner is also deleted. In that case
+	// If the workload is deleted there is a chance that its owner is also deleted. In that case
 	// we skip calling `IsJobManagedByKueue` as its output would not be reliable.
+	// For active workloads, check management first to give more informative rejection messages
+	// (e.g. "not managed by Kueue" takes priority over "cannot verify ownership").
 	if !isDeleted {
 		managed, unmanagedReason, err := adapter.IsJobManagedByKueue(ctx, w.client, types.NamespacedName{Name: owner.Name, Namespace: wl.Namespace})
 		if err != nil {
@@ -245,6 +248,70 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 
 		if !managed {
 			return reconcile.Result{}, w.updateACS(ctx, wl, mkAc, kueue.CheckStateRejected, fmt.Sprintf("The owner is not managed by Kueue: %s", unmanagedReason))
+		}
+	}
+
+	// Verify that this Workload is genuinely owned by the referenced Job to prevent Confused Deputy attacks.
+	// This check runs for both active and deleted workloads to prevent the deletion bypass via spoofed finalizers.
+	if watcher, implements := adapter.(jobframework.MultiKueueWatcher); implements {
+		emptyList := watcher.GetEmptyList()
+		t := reflect.TypeOf(emptyList)
+		if t.Kind() == reflect.Pointer {
+			t = t.Elem()
+		}
+		itemsField, found := t.FieldByName("Items")
+		if !found || itemsField.Type.Kind() != reflect.Slice {
+			return reconcile.Result{}, fmt.Errorf("items slice not found in list type %T", emptyList)
+		}
+		itemType := itemsField.Type.Elem()
+		jobObj, ok := reflect.New(itemType).Interface().(client.Object)
+		if !ok {
+			return reconcile.Result{}, errors.New("instantiated item type does not implement client.Object")
+		}
+		jobObj.GetObjectKind().SetGroupVersionKind(adapter.GVK())
+
+		err := w.client.Get(ctx, types.NamespacedName{Name: owner.Name, Namespace: wl.Namespace}, jobObj)
+		if err != nil {
+			if client.IgnoreNotFound(err) != nil {
+				// Fail closed on transient errors.
+				return reconcile.Result{}, err
+			}
+			// Job not found. If the workload is not being deleted, requeue to
+			// wait for the Job to appear or be garbage collected.
+			if !isDeleted {
+				return reconcile.Result{}, err
+			}
+			// If the workload is being deleted and the Job is already gone,
+			// it is safe to proceed with remote object cleanup.
+		} else {
+			keys, err := watcher.WorkloadKeysFor(jobObj)
+			if err != nil {
+				// If the adapter cannot compute keys, we cannot verify ownership.
+				// We must fail closed to prevent Confused Deputy attacks.
+				if !isDeleted {
+					return reconcile.Result{}, w.updateACS(ctx, wl, mkAc, kueue.CheckStateRejected, fmt.Sprintf("cannot verify ownership: %v", err))
+				}
+				log.V(2).Info("Spoofed Workload deletion ignored due to key derivation error", "workload", req.NamespacedName, "error", err)
+				w.deletedWlCache.Delete(req.String())
+				return reconcile.Result{}, nil
+			}
+
+			ownsWorkload := false
+			for _, k := range keys {
+				if k.Name == wl.Name && k.Namespace == wl.Namespace {
+					ownsWorkload = true
+					break
+				}
+			}
+			if !ownsWorkload {
+				if !isDeleted {
+					return reconcile.Result{}, w.updateACS(ctx, wl, mkAc, kueue.CheckStateRejected, "Workload is not owned by the referenced Job")
+				}
+				// If deleted and not owned, ignore the deletion to prevent remote Confused Deputy attacks.
+				log.V(2).Info("Spoofed Workload deletion ignored", "workload", req.NamespacedName)
+				w.deletedWlCache.Delete(req.String())
+				return reconcile.Result{}, nil
+			}
 		}
 	}
 

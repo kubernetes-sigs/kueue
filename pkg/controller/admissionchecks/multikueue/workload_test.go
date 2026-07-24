@@ -78,7 +78,8 @@ func TestWlReconcile(t *testing.T) {
 
 	baseWorkloadBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace)
 	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace).Suspend(false)
-	baseJobManagedByKueueBuilder := baseJobBuilder.Clone().ManagedBy(kueue.MultiKueueControllerName)
+	// PrebuiltWorkloadLabel is required for WorkloadKeysFor to succeed in ownership verification.
+	baseJobManagedByKueueBuilder := baseJobBuilder.Clone().ManagedBy(kueue.MultiKueueControllerName).PrebuiltWorkloadLabel("wl1")
 
 	cases := map[string]struct {
 		featureGates map[featuregate.Feature]bool
@@ -276,6 +277,34 @@ func TestWlReconcile(t *testing.T) {
 				*baseWorkloadBuilder.Clone().
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStateRejected, Message: `The owner is not managed by Kueue: Expecting spec.managedBy to be "kueue.x-k8s.io/multikueue" not "", Previously: "Pending"`}).
+					Obj(),
+			},
+		},
+		"unmanaged wl (spoofed owner annotation) is rejected": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			reconcileFor: "wl1",
+			managersJobs: []batchv1.Job{
+				*baseJobManagedByKueueBuilder.Clone().PrebuiltWorkloadLabel("different-wl").Obj(),
+			},
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Annotations(map[string]string{
+						constants.JobOwnerGVKAnnotation:  batchv1.SchemeGroupVersion.WithKind("Job").String(),
+						constants.JobOwnerNameAnnotation: "job1",
+					}).
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					Obj(),
+			},
+			wantManagersJobs: []batchv1.Job{
+				*baseJobManagedByKueueBuilder.Clone().PrebuiltWorkloadLabel("different-wl").Obj(),
+			},
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Annotations(map[string]string{
+						constants.JobOwnerGVKAnnotation:  batchv1.SchemeGroupVersion.WithKind("Job").String(),
+						constants.JobOwnerNameAnnotation: "job1",
+					}).
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStateRejected, Message: `Workload is not owned by the referenced Job, Previously: "Pending"`}).
 					Obj(),
 			},
 		},
@@ -2278,7 +2307,9 @@ func TestOrphanedRemoteWorkloadCleanedAfterReconnect(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 
 	baseWorkloadBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace)
-	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace).Suspend(false).ManagedBy(kueue.MultiKueueControllerName)
+	// PrebuiltWorkloadLabel is required so WorkloadKeysFor can derive the owning workload key.
+	// Without it the ownership check fails closed and the test would break.
+	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace).Suspend(false).ManagedBy(kueue.MultiKueueControllerName).PrebuiltWorkloadLabel("wl1")
 
 	managerWl := *baseWorkloadBuilder.Clone().
 		AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
@@ -2382,7 +2413,7 @@ func setupAdmittedMetricTest(ctx context.Context, t *testing.T, acState kueue.Ch
 	fakeClock := testingclock.NewFakeClock(now)
 
 	baseWorkloadBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace)
-	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace).Suspend(false).ManagedBy(kueue.MultiKueueControllerName)
+	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace).Suspend(false).ManagedBy(kueue.MultiKueueControllerName).PrebuiltWorkloadLabel("wl1")
 
 	managerWl := *baseWorkloadBuilder.Clone().
 		AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: acState}).

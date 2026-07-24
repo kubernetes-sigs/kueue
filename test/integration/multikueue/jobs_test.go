@@ -2611,6 +2611,70 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			})
 		})
 	})
+
+	// Regression test for the Confused Deputy vulnerability where a tenant
+	// crafts a Workload with owner annotations pointing to a different Job
+	// to trigger unauthorized deletion of that Job's remote workload.
+	ginkgo.It("Should reject a workload with spoofed owner annotations without deleting the victim Job's remote workload", func() {
+		// Step 1: Create the legitimate victim Job and let it get a remote workload.
+		victimJob := testingjob.MakeJob("victim-job", managerNs.Name).
+			ManagedBy(kueue.MultiKueueControllerName).
+			Queue(kueue.LocalQueueName(managerLq.Name)).
+			PrebuiltWorkloadLabel("victim-wl").
+			Obj()
+		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, victimJob)
+
+		victimWlKey := types.NamespacedName{Name: "victim-wl", Namespace: managerNs.Name}
+		victimWl := utiltestingapi.MakeWorkload("victim-wl", managerNs.Name).
+			Queue(kueue.LocalQueueName(managerLq.Name)).
+			ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), victimJob.Name, string(victimJob.UID)).
+			AdmissionCheck(kueue.AdmissionCheckState{Name: kueue.AdmissionCheckReference(multiKueueAC.Name), State: kueue.CheckStatePending}).
+			Obj()
+		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, victimWl)
+
+		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).
+			Obj()
+
+		ginkgo.By("setting quota reservation on the victim workload so remote copies are created", func() {
+			util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, victimWlKey, admission)
+			gomega.Eventually(func(g gomega.Gomega) {
+				remoteWl := &kueue.Workload{}
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, victimWlKey, remoteWl)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		// Step 2: Craft the spoofed workload. The attacker references the victim
+		// Job by name in owner annotations, but the Job's prebuilt label points to
+		// a *different* workload ("victim-wl"), so the ownership check fails.
+		ginkgo.By("creating a spoofed workload whose owner annotations reference the victim Job", func() {
+			spoofedWl := utiltestingapi.MakeWorkload("spoofed-wl", managerNs.Name).
+				Queue(kueue.LocalQueueName(managerLq.Name)).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), victimJob.Name, string(victimJob.UID)).
+				AdmissionCheck(kueue.AdmissionCheckState{Name: kueue.AdmissionCheckReference(multiKueueAC.Name), State: kueue.CheckStatePending}).
+				Obj()
+			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, spoofedWl)
+			util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client,
+				types.NamespacedName{Name: "spoofed-wl", Namespace: managerNs.Name}, admission)
+		})
+
+		ginkgo.By("verifying the spoofed workload is rejected", func() {
+			util.ExpectAdmissionCheckStateWithMessage(
+				managerTestCluster.ctx, managerTestCluster.client,
+				types.NamespacedName{Name: "spoofed-wl", Namespace: managerNs.Name},
+				multiKueueAC.Name,
+				kueue.CheckStateRejected,
+				"Workload is not owned by the referenced Job",
+			)
+		})
+
+		ginkgo.By("verifying the victim Job's remote workload on worker1 is NOT deleted", func() {
+			gomega.Consistently(func(g gomega.Gomega) {
+				remoteWl := &kueue.Workload{}
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, victimWlKey, remoteWl)).To(gomega.Succeed())
+			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+		})
+	})
 })
 
 func waitForRemoteWorkloadToBeDeleted(workerCtx context.Context, workerClient client.Client, wlLookupKey types.NamespacedName, workerName string, timeout time.Duration) {
