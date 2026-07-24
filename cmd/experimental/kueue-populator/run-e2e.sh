@@ -32,7 +32,16 @@ make kustomize ginkgo kind yq
 ROOT_DIR="$REPO_ROOT"
 SOURCE_DIR="$REPO_ROOT/hack/testing"
 GINKGO_ARGS="${GINKGO_ARGS:-}"
-E2E_KIND_VERSION="${E2E_KIND_VERSION:-}"
+
+# E2E_KIND_VERSION is the kind node image (e.g. kindest/node:v1.36.1) and selects
+# the Kubernetes version of the cluster. Like every other cluster-creating path in
+# the repo, it is provided by the build system (the Makefile derives it from the
+# K8s version). A fallback keeps direct execution working. See #13296 / #13291.
+export E2E_KIND_VERSION="${E2E_KIND_VERSION:-kindest/node:v1.36.1}"
+export ARTIFACTS="${ARTIFACTS:-$ROOT_DIR/artifacts}"
+mkdir -p "$ARTIFACTS"
+KIND_CONFIG="$SOURCE_DIR/kind-cluster.yaml"
+
 # shellcheck source=hack/testing/e2e-common.sh
 source "$SOURCE_DIR/e2e-common.sh"
 cd "$SCRIPT_DIR"
@@ -42,8 +51,8 @@ function cleanup {
 }
 trap cleanup EXIT
 
-echo "Creating Kind cluster..."
-"$KIND" create cluster --name "$KIND_CLUSTER_NAME"
+echo "Creating Kind cluster (node image: $E2E_KIND_VERSION)..."
+ensure_kind_cluster "$KIND_CLUSTER_NAME" "$KIND_CONFIG" ""
 
 echo "Installing Kueue..."
 kubectl apply --server-side -f "https://github.com/kubernetes-sigs/kueue/releases/download/${KUEUE_VERSION}/manifests.yaml"
