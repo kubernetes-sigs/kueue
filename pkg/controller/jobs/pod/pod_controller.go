@@ -52,6 +52,7 @@ import (
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
@@ -77,6 +78,7 @@ var errMsgIncorrectGroupRoleCount = fmt.Sprintf("pod group can't include more th
 const (
 	ReasonExcessPodDeleted     = "ExcessPodDeleted"
 	ReasonOwnerReferencesAdded = "OwnerReferencesAdded"
+	ReasonPodResourceConflict  = "PodResourceConflict"
 )
 
 const (
@@ -88,6 +90,8 @@ var (
 	gvk                            = corev1.SchemeGroupVersion.WithKind("Pod")
 	errIncorrectReconcileRequest   = errors.New("event handler error: got a single pod reconcile request for a pod group")
 	errPendingOps                  = jobframework.UnretryableError("waiting to observe previous operations on pods")
+	errPodExceedsRoleRequests      = jobframework.UnretryableError("a pod requests more resources than reserved for its role in the workload")
+	errPodExceedsGroupRequests     = jobframework.UnretryableError("a pod requests more resources than reserved for its role in the pod group")
 	errPodGroupLabelsMismatch      = errors.New("constructing workload: pods have different label values")
 	errPodGroupAnnotationsMismatch = errors.New("constructing workload: pods have different annotation values")
 	realClock                      = clock.RealClock{}
@@ -761,24 +765,90 @@ func constructPodSet(p *corev1.Pod) (kueue.PodSet, error) {
 }
 
 func constructGroupPodSetsFast(pods []corev1.Pod, groupTotalCount int) ([]kueue.PodSet, error) {
-	for _, podInGroup := range pods {
-		if !isPodRunnableOrSucceeded(&podInGroup) {
+	var (
+		roleHash string
+		reserved resources.Requests
+		podSets  []kueue.PodSet
+		found    bool
+	)
+	for i := range pods {
+		podInGroup := &pods[i]
+		if !isPodRunnableOrSucceeded(podInGroup) {
 			continue
 		}
-		roleHash, err := getRoleHash(podInGroup)
+		hash, err := getRoleHash(*podInGroup)
 		if err != nil {
 			return nil, fmt.Errorf("failed to calculate pod role hash: %w", err)
 		}
-		podSets, err := constructPodSets(&podInGroup)
-		if err != nil {
-			return nil, err
+		if !found {
+			podSets, err = constructPodSets(podInGroup)
+			if err != nil {
+				return nil, err
+			}
+			roleHash = hash
+			podSets[0].Name = kueue.NewPodSetReference(roleHash)
+			podSets[0].Count = int32(groupTotalCount)
+			reserved = resources.NewRequestsFromPodSpec(&podSets[0].Template.Spec)
+			found = true
+			continue
 		}
-		podSets[0].Name = kueue.NewPodSetReference(roleHash)
-		podSets[0].Count = int32(groupTotalCount)
-		return podSets, nil
+		if hash != roleHash {
+			return nil, errFastAdmissionRoleMismatch(podInGroup.Name, hash, roleHash)
+		}
+		if podExceedsRequests(podInGroup, reserved) {
+			return nil, errPodExceedsReservedRequests(podInGroup.Name, roleHash)
+		}
 	}
+	if !found {
+		return nil, errors.New("failed to find a runnable pod in the group")
+	}
+	return podSets, nil
+}
 
-	return nil, errors.New("failed to find a runnable pod in the group")
+// podExceedsRequests reports whether the pod requests more of any resource than reserved
+// for its role. Unreserved resources count as zero.
+// NewRequestsFromPodSpec may return a nil Requests for empty specs; treat that as zero.
+func podExceedsRequests(pod *corev1.Pod, reserved resources.Requests) bool {
+	actual := resources.NewRequestsFromPodSpec(&pod.Spec)
+	if actual == nil {
+		return false
+	}
+	if reserved == nil {
+		reserved = resources.CreateEmpty()
+	}
+	exceeds := false
+	actual.ForEach(func(name corev1.ResourceName, value int64) {
+		if value > reserved.GetValue(name) {
+			exceeds = true
+		}
+	})
+	return exceeds
+}
+
+func errFastAdmissionRoleMismatch(podName, gotRole, expectedRole string) error {
+	return jobframework.UnretryableError(fmt.Sprintf(
+		"pod %q has role %q but fast admission requires all pods to have the same role %q",
+		podName, gotRole, expectedRole))
+}
+
+func errPodExceedsReservedRequests(podName, roleHash string) error {
+	return fmt.Errorf("pod %q requests more resources than reserved for role %q: %w",
+		podName, roleHash, errPodExceedsGroupRequests)
+}
+
+// validateFastAdmissionSingleRole ensures every active pod shares the expected role hash.
+func validateFastAdmissionSingleRole(activePods []corev1.Pod, expectedRole string) error {
+	for i := range activePods {
+		pod := &activePods[i]
+		hash, err := getRoleHash(*pod)
+		if err != nil {
+			return fmt.Errorf("failed to calculate pod role hash: %w", err)
+		}
+		if hash != expectedRole {
+			return errFastAdmissionRoleMismatch(pod.Name, hash, expectedRole)
+		}
+	}
+	return nil
 }
 
 func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
@@ -798,6 +868,10 @@ func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
 		for psi := range resultPodSets {
 			if string(resultPodSets[psi].Name) == roleHash {
 				podRoleFound = true
+				reserved := resources.NewRequestsFromPodSpec(&resultPodSets[psi].Template.Spec)
+				if podExceedsRequests(&podInGroup, reserved) {
+					return nil, errPodExceedsReservedRequests(podInGroup.Name, roleHash)
+				}
 				resultPodSets[psi].Count++
 				break
 			}
@@ -1247,6 +1321,19 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r even
 	// Cleanup excess pods for each workload pod set (role)
 	activePods, inactivePods := p.partitionPods()
 
+	// Fast admission reserves one role for the group; refuse adoption if an active pod
+	// has a different role rather than silently dropping it.
+	if p.fastAdmission() && len(workload.Spec.PodSets) > 0 {
+		// For pod groups, PodSet.Name is the role hash (NewPodSetReference(roleHash)).
+		expectedRole := string(workload.Spec.PodSets[0].Name)
+		if err := validateFastAdmissionSingleRole(activePods, expectedRole); err != nil {
+			if jobframework.IsUnretryableError(err) {
+				r.Eventf(&p.pod, nil, corev1.EventTypeWarning, jobframework.ReasonErrWorkloadCompose, "ErrWorkloadCompose", api.TruncateEventMessage(err.Error()))
+			}
+			return nil, nil, err
+		}
+	}
+
 	var absentPods int
 	var keptPods []corev1.Pod
 	var excessActivePods []corev1.Pod
@@ -1267,6 +1354,19 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r even
 		roleInactivePods := utilslices.Pick(inactivePods, hasRoleFunc)
 		if len(roleHashErrors) > 0 {
 			return nil, nil, fmt.Errorf("failed to calculate pod role hash: %w", errors.Join(roleHashErrors...))
+		}
+
+		// Reject pods that request more than their role reserved; refuse adoption, do not delete the Workload.
+		reserved := resources.NewRequestsFromPodSpec(&ps.Template.Spec)
+		for i := range roleActivePods {
+			pod := &roleActivePods[i]
+			if podExceedsRequests(pod, reserved) {
+				log.V(4).Info("Pod requests exceed the reserved requests of its role in the workload; refusing adoption",
+					"workload", klog.KObj(workload), "pod", klog.KObj(pod), "role", ps.Name)
+				r.Eventf(pod, nil, corev1.EventTypeWarning, ReasonPodResourceConflict, "Admission",
+					"Pod requests exceed the resources reserved for role %q in workload %q; this pod group cannot be admitted", ps.Name, groupName)
+				return nil, nil, errPodExceedsRoleRequests
+			}
 		}
 
 		absentPods += p.countAbsentPods(ps, len(roleActivePods))
