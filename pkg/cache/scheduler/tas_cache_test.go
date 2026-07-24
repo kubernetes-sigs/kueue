@@ -4571,7 +4571,66 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count:      1,
-				wantReason: "slice topology requested, but slice size not provided",
+				wantReason: sliceSizeNotProvidedReason,
+			}},
+		},
+		"zero count bypasses invalid annotation-based slice size": {
+			nodes:  defaultNodes,
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
+					PodSetSliceSize:             new(int32(0)),
+				},
+				requests: resources.MapRequests{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 0,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels:  defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{},
+				},
+			}},
+		},
+		"constraints-based slice size is required when constraints are provided": {
+			featureGates: map[featuregate.Feature]bool{features.TASMultiLayerTopology: true},
+			nodes:        defaultNodes,
+			levels:       defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Required: ptr.To(corev1.LabelHostname),
+					PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{{
+						Topology: corev1.LabelHostname,
+						Size:     0,
+					}},
+				},
+				requests: resources.MapRequests{
+					corev1.ResourceCPU: 1000,
+				},
+				count:      1,
+				wantReason: sliceSizeNotProvidedReason,
+			}},
+		},
+		"zero count bypasses invalid constraints-based slice size": {
+			featureGates: map[featuregate.Feature]bool{features.TASMultiLayerTopology: true},
+			nodes:        defaultNodes,
+			levels:       defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Required: ptr.To(corev1.LabelHostname),
+					PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{{
+						Topology: corev1.LabelHostname,
+						Size:     0,
+					}},
+				},
+				requests: resources.MapRequests{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 0,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels:  defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{},
+				},
 			}},
 		},
 		"cannot request not existing slice topology": {
