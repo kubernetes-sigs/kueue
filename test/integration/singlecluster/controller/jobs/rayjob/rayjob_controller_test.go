@@ -251,6 +251,64 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:ray", "area:jobs"), 
 			g.Expect(createdWorkload.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
+	ginkgo.It("Should handle ValidationFailed depending on RayClusterName", func() {
+		ginkgo.By("creating a RayJob")
+		job := testingrayjob.MakeJob(jobName, ns.Name).
+			Suspend(false).
+			Obj()
+		util.MustCreate(ctx, k8sClient, job)
+
+		setInitStatus(jobName, ns.Name)
+
+		createdJob := &rayv1.RayJob{}
+		lookupKey := types.NamespacedName{Name: jobName, Namespace: ns.Name}
+
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+		}).Should(gomega.Succeed())
+
+		createdWorkload := &kueue.Workload{}
+		wlLookupKey := types.NamespacedName{
+			Name:      workloadrayjob.GetWorkloadNameForRayJob(job.Name, job.UID),
+			Namespace: ns.Name,
+		}
+
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+		}).Should(gomega.Succeed())
+
+		ginkgo.By("ValidationFailed with empty RayClusterName should finish the workload")
+
+		createdJob.Status.JobStatus = rayv1.JobStatusFailed
+		createdJob.Status.JobDeploymentStatus = rayv1.JobDeploymentStatusValidationFailed
+		createdJob.Status.RayClusterName = ""
+		createdJob.Status.Message = "validation failed"
+
+		gomega.Expect(k8sClient.Status().Update(ctx, createdJob)).Should(gomega.Succeed())
+
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+			g.Expect(createdWorkload.Status.Conditions).
+				Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
+		}).Should(gomega.Succeed())
+
+		ginkgo.By("ValidationFailed with non-empty RayClusterName should not finish the workload")
+
+		createdWorkload.Status.Conditions = nil
+		gomega.Expect(k8sClient.Status().Update(ctx, createdWorkload)).Should(gomega.Succeed())
+
+		createdJob.Status.JobDeploymentStatus = rayv1.JobDeploymentStatusValidationFailed
+		createdJob.Status.JobStatus = rayv1.JobStatusFailed
+		createdJob.Status.RayClusterName = "rayjob-test-cluster"
+
+		gomega.Expect(k8sClient.Status().Update(ctx, createdJob)).Should(gomega.Succeed())
+
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+			g.Expect(createdWorkload.Status.Conditions).
+				ShouldNot(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
+		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+	})
 
 	ginkgo.It("A RayJob created in an unmanaged namespace is not suspended and a workload is not created", func() {
 		ginkgo.By("Creating an unsuspended job without a queue-name in unmanaged-ns")
