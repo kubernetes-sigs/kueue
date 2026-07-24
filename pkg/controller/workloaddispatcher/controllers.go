@@ -20,24 +20,37 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
 func SetupControllers(mgr ctrl.Manager, cfg *configapi.Configuration, roleTracker *roletracker.RoleTracker) (string, error) {
-	if *cfg.MultiKueue.DispatcherName != configapi.MultiKueueDispatcherModeIncremental {
-		return "", nil
-	}
-
 	helper, err := admissioncheck.NewMultiKueueStoreHelper(mgr.GetClient())
 	if err != nil {
 		return "", err
 	}
 
-	idRec := NewIncrementalDispatcherReconciler(mgr.GetClient(), helper, roleTracker, cfg.MultiKueue.IncrementalDispatcherConfig)
-	err = idRec.SetupWithManager(mgr, cfg)
-	if err != nil {
-		return "multikueue-incremental-dispatcher", err
+	switch *cfg.MultiKueue.DispatcherName {
+	case configapi.MultiKueueDispatcherModeIncremental:
+		idRec := NewIncrementalDispatcherReconciler(mgr.GetClient(), helper, roleTracker, cfg.MultiKueue.IncrementalDispatcherConfig)
+		if err := idRec.SetupWithManager(mgr, cfg); err != nil {
+			return "multikueue-incremental-dispatcher", err
+		}
+	case configapi.MultiKueueDispatcherModeAllAtOnce:
+		// When MultiKueueAllAtOnceExternal is disabled, AllAtOnce nomination is
+		// handled inline in the MultiKueue workload reconciler; do not register
+		// the dedicated dispatcher controller, otherwise it would race the
+		// inline path on Status.NominatedClusterNames.
+		if !features.Enabled(features.MultiKueueAllAtOnceExternal) {
+			return "", nil
+		}
+		aRec := NewAllAtOnceDispatcherReconciler(mgr.GetClient(), helper, roleTracker)
+		if err := aRec.SetupWithManager(mgr, cfg); err != nil {
+			return "multikueue-all-at-once-dispatcher", err
+		}
+	default:
+		// External dispatcher mode: no built-in controller is registered.
 	}
 
 	return "", nil

@@ -838,8 +838,11 @@ func (w *wlReconciler) syncToSingleCluster(ctx context.Context, log klog.Logger,
 }
 
 // nominatedClusterSetsEqual reports whether stored and current contain the same set of cluster names,
-// independent of order.
+// independent of order. It clones its inputs before sorting so callers' slices
+// (e.g. group.local.Status.NominatedClusterNames) are not reordered in place.
 func nominatedClusterSetsEqual(stored, current []string) bool {
+	stored = slices.Clone(stored)
+	current = slices.Clone(current)
 	slices.Sort(stored)
 	slices.Sort(current)
 	return slices.Equal(stored, current)
@@ -908,11 +911,15 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 	// supporting preferred or required placement constraints.
 	if clusterName := workload.ClusterName(group.local); group.IsElasticWorkload() && clusterName != "" {
 		nominatedWorkers = []string{clusterName}
-	} else if w.dispatcherName == config.MultiKueueDispatcherModeAllAtOnce {
+	} else if !features.Enabled(features.MultiKueueAllAtOnceExternal) && w.dispatcherName == config.MultiKueueDispatcherModeAllAtOnce {
+		// Legacy inline AllAtOnce nomination path. Kept under feature gate so
+		// operators can roll back to the pre-#10937 behavior if the dedicated
+		// AllAtOnceDispatcherReconciler controller misbehaves. When the
+		// MultiKueueAllAtOnceExternal gate goes GA, this branch (and the
+		// surrounding gate check) can be removed.
 		for workerName := range group.remotes {
 			nominatedWorkers = append(nominatedWorkers, workerName)
 		}
-
 		if !nominatedClusterSetsEqual(group.local.Status.NominatedClusterNames, nominatedWorkers) {
 			if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
 				wl.Status.NominatedClusterNames = nominatedWorkers
@@ -923,7 +930,9 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 			}
 		}
 	} else {
-		// Incremental dispatcher and External dispatcher path
+		// A dispatcher placed outside this file (AllAtOnce when MultiKueueAllAtOnceExternal=true,
+		// Incremental, or External) is responsible for populating
+		// Status.NominatedClusterNames; the synchronizer just reads it.
 		nominatedWorkers = group.local.Status.NominatedClusterNames
 	}
 
@@ -949,6 +958,17 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 				}
 			}
 		} else if remoteWl != nil {
+			// Keep a remote that still carries WorkloadEvicted=True. reconcileGroup's
+			// eviction handling keys off bestMatchByCondition(WorkloadEvicted) to drive
+			// recovery: SyncJob for a manager-side eviction, or resetting the
+			// AdmissionCheck for re-admission after a worker-side eviction. Deleting the
+			// remote here erases that signal, so neither path runs and the eviction is
+			// never processed. It is cleaned up later, once the local workload is
+			// re-admitted, finishes, or loses its quota reservation.
+			if workloadevict.IsEvicted(remoteWl) {
+				log.V(3).Info("Preserving evicted remote workload to allow eviction-recovery sync", "remote", rem)
+				continue
+			}
 			if err := client.IgnoreNotFound(group.RemoveRemoteObjects(ctx, rem)); err != nil {
 				log.V(2).Error(err, "removing non-nominated remote object", "remote", rem)
 				errs = append(errs, err)

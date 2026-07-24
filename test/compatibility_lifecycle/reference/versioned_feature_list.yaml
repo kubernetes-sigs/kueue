@@ -213,6 +213,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.15"
+- name: MultiKueueAllAtOnceExternal
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.18"
 - name: MultiKueueAllowInsecureKubeconfigs
   versionedSpecs:
   - default: false
