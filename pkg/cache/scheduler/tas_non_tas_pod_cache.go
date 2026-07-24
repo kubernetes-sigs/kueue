@@ -97,7 +97,7 @@ func (n *nonTasUsageCache) forEachNodeUsage(fn func(node string, usage resources
 // Must be called under write lock.
 func (n *nonTasUsageCache) addNodeUsage(node string, usage resources.Requests) {
 	if _, found := n.nodeUsage[node]; !found {
-		n.nodeUsage[node] = resources.MapRequests{}
+		n.nodeUsage[node] = resources.CreateEmpty()
 	}
 	n.nodeUsage[node].Add(usage)
 	n.nodeUsage[node].Add(resources.OnePodRequest)

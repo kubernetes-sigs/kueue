@@ -3328,10 +3328,10 @@ func TestAssignFlavors(t *testing.T) {
 				TotalRequests: []workload.PodSetResources{
 					{
 						Name: "main",
-						Requests: resources.MapRequests{
+						Requests: resources.NewRequestsFromMap(resources.MapRequests{
 							corev1.ResourceCPU:    2000,
 							corev1.ResourceMemory: 10 * utiltesting.Mi,
-						},
+						}),
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU:    "two",
 							corev1.ResourceMemory: "two",
@@ -3394,10 +3394,10 @@ func TestAssignFlavors(t *testing.T) {
 				TotalRequests: []workload.PodSetResources{
 					{
 						Name: "main",
-						Requests: resources.MapRequests{
+						Requests: resources.NewRequestsFromMap(resources.MapRequests{
 							corev1.ResourceCPU:    2000,
 							corev1.ResourceMemory: 10 * utiltesting.Mi,
-						},
+						}),
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU:    "one",
 							corev1.ResourceMemory: "one",
@@ -3416,6 +3416,7 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 					Status: *NewStatus(
 						"insufficient quota for cpu in flavor one, previously considered podsets requests (0) + current podset request (1) > maximum capacity (500m)",
+						"could not assign two flavor since the original workload is assigned: one",
 						"could not assign two flavor since the original workload is assigned: one",
 					),
 					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
@@ -4937,7 +4938,7 @@ func TestAssignment_ComputeTASNetUsage(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			got := tt.assignment.ComputeTASNetUsage(testr.New(t), tt.cq, tt.wl, tt.prevAdmission)
 
-			if diff := cmp.Diff(tt.want, got, cmpopts.EquateEmpty(), cmp.Transformer("requestsToMap", resources.ToMapRequests)); diff != "" {
+			if diff := cmp.Diff(tt.want, got, cmpopts.EquateEmpty(), cmp.Comparer(resources.Equal)); diff != "" {
 				t.Errorf("Unexpected TAS usage (-want,+got):\n%s", diff)
 			}
 		})

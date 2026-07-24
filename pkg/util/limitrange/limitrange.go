@@ -67,10 +67,10 @@ func (s Summary) validatePodSpecContainers(containers []corev1.Container, path *
 		res := &containers[i].Resources
 		cMin := resource.MergeResourceListKeepMin(res.Requests, res.Limits)
 		cMax := resource.MergeResourceListKeepMax(res.Requests, res.Limits)
-		if resNames := resources.NewMapRequests(cMax).GreaterKeysRL(containerRange.Max); len(resNames) > 0 {
+		if resNames := resources.NewRequestsFromResourceList(cMax).GreaterKeysRL(containerRange.Max); len(resNames) > 0 {
 			allErrs = append(allErrs, field.Invalid(containerPath, resNames, RequestsMustNotBeAboveLimitRangeMaxMessage))
 		}
-		if resNames := resources.NewMapRequests(containerRange.Min).GreaterKeys(resources.NewMapRequests(cMin)); len(resNames) > 0 {
+		if resNames := resources.NewRequestsFromResourceList(containerRange.Min).GreaterKeys(resources.NewMapRequests(cMin)); len(resNames) > 0 {
 			allErrs = append(allErrs, field.Invalid(containerPath, resNames, RequestsMustNotBeBelowLimitRangeMinMessage))
 		}
 	}

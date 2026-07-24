@@ -195,14 +195,22 @@ func (c *TASFlavorCache) updateUsage(topologyRequests []workload.TopologyDomainR
 		domainID := utiltas.DomainID(tr.Values)
 		_, found := c.usage[domainID]
 		if !found {
-			c.usage[domainID] = resources.MapRequests{}
+			c.usage[domainID] = resources.CreateEmpty()
 		}
 		if op == subtract {
 			c.usage[domainID].Sub(tr.TotalRequests())
-			c.usage[domainID].Sub(resources.MapRequests{corev1.ResourcePods: int64(tr.Count)})
+			c.usage[domainID].Sub(
+				resources.NewRequestsFromMap(
+					resources.MapRequests{corev1.ResourcePods: int64(tr.Count)},
+				),
+			)
 		} else {
 			c.usage[domainID].Add(tr.TotalRequests())
-			c.usage[domainID].Add(resources.MapRequests{corev1.ResourcePods: int64(tr.Count)})
+			c.usage[domainID].Add(
+				resources.NewRequestsFromMap(
+					resources.MapRequests{corev1.ResourcePods: int64(tr.Count)},
+				),
+			)
 		}
 	}
 }

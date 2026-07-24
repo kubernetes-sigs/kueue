@@ -197,8 +197,10 @@ func admitWorkload(ctx context.Context, c client.Client, wl *kueue.Workload, cq 
 			},
 		}
 		flv := cq.Spec.ResourceGroups[0].Flavors[0].Name
-		for r := range info.TotalRequests[0].Requests {
-			admission.PodSetAssignments[0].Flavors[r] = flv
+		if info.TotalRequests[0].Requests != nil {
+			info.TotalRequests[0].Requests.ForEach(func(name corev1.ResourceName, val int64) {
+				admission.PodSetAssignments[0].Flavors[name] = flv
+			})
 		}
 
 		wl.Status.Admission = &admission

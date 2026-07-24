@@ -765,7 +765,7 @@ func Test_countDevicesPerClass_overflow(t *testing.T) {
 			if len(errs) != 0 {
 				t.Fatalf("unexpected errors: %v", errs)
 			}
-			if got := out["gpu"]; got != tc.wantCount {
+			if got := out.GetValue("gpu"); got != tc.wantCount {
 				t.Errorf("count = %d, want %d", got, tc.wantCount)
 			}
 		})

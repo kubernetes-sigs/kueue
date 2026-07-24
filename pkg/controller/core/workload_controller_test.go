@@ -1947,7 +1947,8 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 
 									if tc.wantDRAResourceTotal != nil {
 										if len(wlInfo.TotalRequests) > 0 && wlInfo.TotalRequests[0].Requests != nil {
-											if gpuVal, hasGPU := wlInfo.TotalRequests[0].Requests["gpu"]; hasGPU {
+											gpuVal := wlInfo.TotalRequests[0].Requests.GetValue("gpu")
+											if gpuVal > 0 {
 												if gpuVal != *tc.wantDRAResourceTotal {
 													t.Errorf("Expected gpu resource total to be %d, got %d", *tc.wantDRAResourceTotal, gpuVal)
 												}
