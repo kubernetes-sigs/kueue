@@ -50,6 +50,7 @@ var (
 	groupNameAnnotationPath        = annotationsPath.Key(podconstants.GroupNameAnnotation)
 	groupTotalCountAnnotationPath  = annotationsPath.Key(podconstants.GroupTotalCountAnnotation)
 	retriableInGroupAnnotationPath = annotationsPath.Key(podconstants.RetriableInGroupAnnotationKey)
+	roleHashAnnotationPath         = annotationsPath.Key(podconstants.RoleHashAnnotation)
 )
 
 type PodWebhook struct {
@@ -86,13 +87,30 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 
 var _ admission.Defaulter[*corev1.Pod] = &PodWebhook{}
 
-// addRoleHash calculates the role hash and adds it to the pod's annotations
-func (p *Pod) addRoleHash() error {
+// addRoleHash sets the role-hash annotation used to group pods into PodSets.
+//
+// When trustExisting is false — the default for plain pods and pod groups Kueue
+// builds a Workload for — the hash is always recomputed from the pod spec, so a
+// user-supplied value cannot dictate how pods are grouped and therefore the quota
+// footprint of the workload. When trustExisting is true, an existing annotation
+// is kept: this covers pods managed by a Kueue-aware parent
+// (StatefulSet/LeaderWorkerSet/Deployment), whose trusted reconciler sets a
+// PodSet-reference name rather than a spec hash, and pods adopting a prebuilt
+// Workload, whose role-hash maps onto the PodSet names the user declared there.
+func (p *Pod) addRoleHash(trustExisting bool) error {
 	if p.pod.Annotations == nil {
 		p.pod.Annotations = make(map[string]string)
 	}
 
-	hash, err := getRoleHash(p.pod)
+	var (
+		hash string
+		err  error
+	)
+	if trustExisting {
+		hash, err = getRoleHash(p.pod)
+	} else {
+		hash, err = utilpod.GenerateRoleHash(&p.pod.Spec)
+	}
 	if err != nil {
 		return err
 	}
@@ -184,7 +202,12 @@ func (w *PodWebhook) Default(ctx context.Context, obj *corev1.Pod) error {
 			}
 			utilpod.Gate(&pod.pod, kueue.TopologySchedulingGate)
 		}
-		if err := pod.addRoleHash(); err != nil {
+		// Preserve the role-hash for pods whose grouping is owned by a trusted
+		// writer: a Kueue-aware parent (suspend-by-parent) or a user-declared
+		// prebuilt Workload whose PodSet names the pod maps onto. Otherwise
+		// recompute it from the spec so a tenant cannot dictate the grouping.
+		trustRoleHash := suspendByParent || jobframework.PrebuiltWorkloadNameFor(&pod.pod) != ""
+		if err := pod.addRoleHash(trustRoleHash); err != nil {
 			return err
 		}
 		// copy back changes to the object
@@ -207,6 +230,7 @@ func (w *PodWebhook) ValidateCreate(ctx context.Context, obj *corev1.Pod) (admis
 
 	allErrs := jobframework.ValidateJobOnCreate(pod)
 	allErrs = append(allErrs, validateCommon(pod)...)
+	allErrs = append(allErrs, validateRoleHashOnCreate(pod)...)
 
 	if warn := warningForPodManagedLabel(pod); warn != "" {
 		warnings = append(warnings, warn)
@@ -232,6 +256,8 @@ func (w *PodWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *corev1.
 		allErrs = append(allErrs, validation.ValidateImmutableField(newGroupName, oldGroupName, getGroupNamePath(&newPod.pod))...)
 	}
 
+	allErrs = append(allErrs, validateRoleHashOnUpdate(oldPod, newPod)...)
+
 	if _, suspendByParent := newPod.pod.Annotations[podconstants.SuspendedByParentAnnotation]; !suspendByParent {
 		if warn := warningForPodManagedLabel(newPod); warn != "" {
 			warnings = append(warnings, warn)
@@ -251,6 +277,63 @@ func validateCommon(pod *Pod) field.ErrorList {
 	allErrs = append(allErrs, validateTopologyRequest(pod)...)
 	allErrs = append(allErrs, validatePrebuiltWorkloadName(pod)...)
 	return allErrs
+}
+
+// roleHashExempt reports whether the role-hash annotation checks should be
+// skipped for this pod. Exempt pods are those whose grouping is not derived from
+// the pod spec by Kueue:
+//   - pods managed by a Kueue-aware parent (e.g. StatefulSet, LeaderWorkerSet)
+//     carry a PodSet-reference role-hash set by a trusted reconciler;
+//   - pods adopting a prebuilt Workload map their role-hash onto the PodSet names
+//     the user declared on that Workload;
+//   - pods Kueue does not manage are never grouped into PodSets by their role-hash.
+func roleHashExempt(pod *Pod) bool {
+	if _, suspendByParent := pod.pod.GetAnnotations()[podconstants.SuspendedByParentAnnotation]; suspendByParent {
+		return true
+	}
+	if jobframework.PrebuiltWorkloadNameFor(&pod.pod) != "" {
+		return true
+	}
+	return pod.pod.GetLabels()[constants.ManagedByKueueLabelKey] != constants.ManagedByKueueLabelValue
+}
+
+// validateRoleHashOnCreate rejects a role-hash annotation that does not match the
+// hash derived from the pod spec. The mutating webhook recomputes the annotation
+// on creation, so in the normal flow it already matches; this is a defense-in-depth
+// guard against a value that reaches the API server without being recomputed.
+func validateRoleHashOnCreate(pod *Pod) field.ErrorList {
+	if roleHashExempt(pod) {
+		return nil
+	}
+	roleHash, ok := pod.pod.GetAnnotations()[podconstants.RoleHashAnnotation]
+	if !ok {
+		return nil
+	}
+	wantRoleHash, err := utilpod.GenerateRoleHash(&pod.pod.Spec)
+	if err != nil {
+		return field.ErrorList{field.InternalError(roleHashAnnotationPath, err)}
+	}
+	if roleHash != wantRoleHash {
+		return field.ErrorList{field.Invalid(roleHashAnnotationPath, roleHash,
+			fmt.Sprintf("%s is managed by Kueue and must match the pod spec", podconstants.RoleHashAnnotation))}
+	}
+	return nil
+}
+
+// validateRoleHashOnUpdate keeps the Kueue-managed role-hash annotation immutable.
+// It is set once by the mutating webhook on creation and determines how pods are
+// grouped into PodSets, and therefore the quota footprint of the workload, so a
+// tenant must not be able to change it afterwards. Immutability is enforced rather
+// than re-deriving the hash from the spec because Kueue itself mutates the pod spec
+// at admission (e.g. injecting flavor node selectors) without touching the
+// annotation, which would make a spec-derived check reject Kueue's own updates.
+func validateRoleHashOnUpdate(oldPod, newPod *Pod) field.ErrorList {
+	if roleHashExempt(newPod) {
+		return nil
+	}
+	oldRoleHash := oldPod.pod.GetAnnotations()[podconstants.RoleHashAnnotation]
+	newRoleHash := newPod.pod.GetAnnotations()[podconstants.RoleHashAnnotation]
+	return validation.ValidateImmutableField(newRoleHash, oldRoleHash, roleHashAnnotationPath)
 }
 
 func validateManagedLabel(pod *Pod) field.ErrorList {
