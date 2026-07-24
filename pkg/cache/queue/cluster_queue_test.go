@@ -17,6 +17,8 @@ limitations under the License.
 package queue
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"testing"
@@ -31,6 +33,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -411,6 +415,64 @@ func TestSnapshotDeterministicOrder(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestSnapshotFallsBackToBaseOrderingOnLocalQueueLookupError(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	ctx, _ := utiltesting.ContextWithLog(t)
+	lqLookupErr := errors.New("temporary LocalQueue lookup error")
+	cl := utiltesting.NewClientBuilder().
+		WithObjects(
+			utiltestingapi.MakeLocalQueue("higher-usage", defaultNamespace).Obj(),
+			utiltestingapi.MakeLocalQueue("lower-usage", defaultNamespace).Obj(),
+		).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if key.Name == "unavailable" {
+					return lqLookupErr
+				}
+				return cl.Get(ctx, key, obj, opts...)
+			},
+		}).
+		Build()
+	afsConsumedResources := queueafs.NewAfsConsumedResources()
+	afsConsumedResources.Set("default/higher-usage", corev1.ResourceList{resourceGPU: resource.MustParse("20")}, now)
+	afsConsumedResources.Set("default/lower-usage", corev1.ResourceList{resourceGPU: resource.MustParse("10")}, now)
+
+	cq, err := newClusterQueue(
+		ctx,
+		cl,
+		utiltestingapi.MakeClusterQueue("cq").AdmissionMode(kueue.UsageBasedAdmissionFairSharing).Obj(),
+		defaultOrdering,
+		&config.AdmissionFairSharing{ResourceWeights: map[corev1.ResourceName]float64{resourceGPU: 1}},
+		nil,
+		afsConsumedResources,
+	)
+	if err != nil {
+		t.Fatalf("failed to create ClusterQueue: %v", err)
+	}
+
+	// Put the unavailable LocalQueue last so the usage cache is partially
+	// populated before its lookup fails.
+	elements := []*workload.Info{
+		workload.NewInfo(utiltestingapi.MakeWorkload("higher-usage", defaultNamespace).
+			Queue("higher-usage").Priority(2).Creation(now).UID("uid-2").Obj()),
+		workload.NewInfo(utiltestingapi.MakeWorkload("lower-usage", defaultNamespace).
+			Queue("lower-usage").Priority(1).Creation(now).UID("uid-1").Obj()),
+		workload.NewInfo(utiltestingapi.MakeWorkload("unavailable", defaultNamespace).
+			Queue("unavailable").Priority(3).Creation(now).UID("uid-3").Obj()),
+	}
+
+	cq.snapshotSort(elements)
+
+	got := make([]string, len(elements))
+	for i, wInfo := range elements {
+		got[i] = wInfo.Obj.Name
+	}
+	want := []string{"unavailable", "higher-usage", "lower-usage"}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("unexpected base ordering (-want,+got):\n%s", diff)
 	}
 }
 
