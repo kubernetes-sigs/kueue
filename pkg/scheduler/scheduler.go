@@ -484,6 +484,12 @@ func (s *Scheduler) processEntry(
 		if lessFavorableSibling := s.findAdmittedLessFavorableSibling(&e.Info, snapshot); lessFavorableSibling != nil {
 			if !s.isMigrationAllowed(cq, e, log) {
 				e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonPendingEvaluation
+				// The entry is not admitted in this cycle, and nothing in
+				// this cycle can lift the migration constraint; release
+				// the usage and preemption targets reserved above so they
+				// don't block other entries in this cycle.
+				preemptedWorkloads.Delete(e.preemptionTargets)
+				cq.RemoveUsage(usage)
 				return
 			}
 			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
