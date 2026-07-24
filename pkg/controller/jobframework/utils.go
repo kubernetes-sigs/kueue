@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
@@ -248,6 +249,13 @@ func NewWorkload(name string, obj client.Object, podSets []kueue.PodSet, labelKe
 var ErrRemoteObjectNotOwnedByMultiKueue = errors.New("remote object is not owned by MultiKueue")
 var ErrMultiKueueOriginEmpty = errors.New("multikueue origin is empty")
 
+func validateRemoteObjectOrigin(remoteObject client.Object, key types.NamespacedName, origin string) error {
+	if objOrigin, owned := remoteObject.GetLabels()[kueue.MultiKueueOriginLabel]; !owned || objOrigin != origin {
+		return fmt.Errorf("%w: expected %q=%q on %T %q", ErrRemoteObjectNotOwnedByMultiKueue, kueue.MultiKueueOriginLabel, origin, remoteObject, key)
+	}
+	return nil
+}
+
 // ValidateRemoteObjectOwnership retrieves the remote object and validates it is owned by this MultiKueue origin.
 // Returns (false, ErrMultiKueueOriginEmpty) if origin is empty.
 // Returns (true, nil) if the object exists and is owned by this MultiKueue origin.
@@ -270,16 +278,75 @@ func ValidateRemoteObjectOwnership(ctx context.Context, remoteClient client.Clie
 		return false, err
 	}
 
-	if objOrigin, owned := remoteObject.GetLabels()[kueue.MultiKueueOriginLabel]; !owned || objOrigin != origin {
-		return false, fmt.Errorf("%w: expected %q=%q on %T %q", ErrRemoteObjectNotOwnedByMultiKueue, kueue.MultiKueueOriginLabel, origin, remoteObject, client.ObjectKeyFromObject(remoteObject))
+	if err := validateRemoteObjectOrigin(remoteObject, key, origin); err != nil {
+		return false, err
 	}
 
 	return true, nil
 }
 
+type remoteObjectOwnershipClient struct {
+	client.Client
+	gvk    schema.GroupVersionKind
+	origin string
+}
+
+func (c *remoteObjectOwnershipClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if err := c.Client.Get(ctx, key, obj, opts...); err != nil {
+		return err
+	}
+	gvk, err := apiutil.GVKForObject(obj, c.Scheme())
+	if err != nil {
+		return err
+	}
+	if gvk != c.gvk {
+		return nil
+	}
+	return validateRemoteObjectOrigin(obj, key, c.origin)
+}
+
+func (c *remoteObjectOwnershipClient) Delete(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
+	gvk, err := apiutil.GVKForObject(obj, c.Scheme())
+	if err != nil {
+		return err
+	}
+	if gvk != c.gvk {
+		return c.Client.Delete(ctx, obj, opts...)
+	}
+
+	found, err := ValidateRemoteObjectOwnership(ctx, c.Client, client.ObjectKeyFromObject(obj), c.gvk, c.origin)
+	if err != nil {
+		if errors.Is(err, ErrRemoteObjectNotOwnedByMultiKueue) {
+			return nil
+		}
+		return err
+	}
+	if !found {
+		return nil
+	}
+	return c.Client.Delete(ctx, obj, opts...)
+}
+
+// SyncJobWithRemoteObjectOwnership prevents an adapter from reading status from
+// remote objects of its GVK that are not owned by this MultiKueue origin. The
+// validation happens on each object returned to the adapter, closing the gap
+// between a separate ownership check and the adapter's Get calls.
+func SyncJobWithRemoteObjectOwnership(ctx context.Context, localClient, remoteClient client.Client, adapter MultiKueueAdapter, key types.NamespacedName, workloadName, origin string) (bool, error) {
+	if origin == "" {
+		return false, ErrMultiKueueOriginEmpty
+	}
+	validatingClient := &remoteObjectOwnershipClient{
+		Client: remoteClient,
+		gvk:    adapter.GVK(),
+		origin: origin,
+	}
+	return adapter.SyncJob(ctx, localClient, validatingClient, key, workloadName, origin)
+}
+
 // DeleteRemoteObjectIfOwned fetches the remote object for the given adapter's GVK and key,
 // skips deletion if the object does not exist or is not owned by this MultiKueue origin,
-// and otherwise delegates to adapter.DeleteRemoteObject.
+// and otherwise delegates to adapter.DeleteRemoteObject through a client that
+// also preserves any additional objects not owned by this MultiKueue origin.
 // Returns ErrMultiKueueOriginEmpty if origin is empty.
 func DeleteRemoteObjectIfOwned(ctx context.Context, localClient client.Client, remoteClient client.Client, adapter MultiKueueAdapter, key types.NamespacedName, origin string) error {
 	log := ctrl.LoggerFrom(ctx).WithValues("remoteObject", key, "adapterGVK", adapter.GVK().String(), "origin", origin)
@@ -302,5 +369,15 @@ func DeleteRemoteObjectIfOwned(ctx context.Context, localClient client.Client, r
 		return nil
 	}
 
-	return adapter.DeleteRemoteObject(ctx, localClient, remoteClient, key)
+	validatingClient := &remoteObjectOwnershipClient{
+		Client: remoteClient,
+		gvk:    adapter.GVK(),
+		origin: origin,
+	}
+	if err := adapter.DeleteRemoteObject(ctx, localClient, validatingClient, key); errors.Is(err, ErrRemoteObjectNotOwnedByMultiKueue) {
+		log.V(2).Info("Skipping remote object deletion because object ownership changed")
+		return nil
+	} else {
+		return err
+	}
 }
