@@ -416,7 +416,7 @@ The label 'result' can have the following values:
 'status' can have the following values:
 - "active" means that the workloads are in the admission queue.
 - "inadmissible" means there was a failed admission attempt for these workloads and they won't be retried until cluster conditions, which could make this workload admissible, change`,
-		}, append([]string{"cluster_queue", "status", "replica_role"}, clusterQueueMetricsLabels...),
+		}, append([]string{"cluster_queue", "status", "replica_role"}, cl.LabelNames(configapi.SourceKindClusterQueue, configapi.SourceKindWorkload)...),
 	)
 	trackGaugeVec(PendingWorkloads, gaugeCleanupScopeClusterQueue)
 
@@ -1138,6 +1138,10 @@ func LQRefFromWorkload(wl *kueue.Workload) LocalQueueReference {
 		Name:      wl.Spec.QueueName,
 		Namespace: wl.Namespace,
 	}
+}
+
+func ClearPendingWorkloads(cqName kueue.ClusterQueueReference) {
+	PendingWorkloads.DeletePartialMatch(prometheus.Labels{"cluster_queue": string(cqName)})
 }
 
 func ClearClusterQueueMetrics(cq kueue.ClusterQueueReference) {

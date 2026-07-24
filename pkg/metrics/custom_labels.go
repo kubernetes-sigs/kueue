@@ -41,6 +41,81 @@ type SourceKindLabelStore struct {
 	values     *utilmaps.SyncMap[string, []string]
 }
 
+const MaxCustomLabelsForSourceKind = 6
+
+type labelValSet struct {
+	kind configapi.SourceKind
+	vals [MaxCustomLabelsForSourceKind]string
+	size int
+}
+
+func Empty(kind configapi.SourceKind) labelValSet {
+	return labelValSet{
+		kind: kind,
+	}
+}
+
+func (s *labelValSet) ToList() []string {
+	return s.vals[:]
+}
+
+type LabelValueSetCounter struct {
+	counts map[labelValSet]int
+	total  int
+}
+
+func NewLabelSetCount() *LabelValueSetCounter {
+	return &LabelValueSetCounter{
+		counts: make(map[labelValSet]int, 0),
+		total:  0,
+	}
+}
+
+func CombinedCounters(a, b *LabelValueSetCounter) *LabelValueSetCounter {
+	return NewLabelSetCount().merge(a).merge(b)
+}
+
+func ParallelIter(a, b *LabelValueSetCounter) iter.Seq2[labelValSet, [2]int] {
+	labelVals := sets.New[labelValSet]()
+	labelVals = labelVals.Union(sets.KeySet(a.counts))
+	labelVals = labelVals.Union(sets.KeySet(b.counts))
+	return func(yield func(labelValSet, [2]int) bool) {
+		for ls := range labelVals {
+			if !yield(ls, [2]int{a.Get(ls), b.Get(ls)}) {
+				return
+			}
+		}
+	}
+}
+
+func (c *LabelValueSetCounter) Incr(ls labelValSet) {
+	c.Add(ls, 1)
+}
+
+func (c *LabelValueSetCounter) Add(ls labelValSet, incr int) {
+	c.counts[ls] += incr
+	c.total += incr
+}
+
+func (c *LabelValueSetCounter) Get(ls labelValSet) int {
+	return c.counts[ls]
+}
+
+func (c *LabelValueSetCounter) Total() int {
+	return c.total
+}
+
+func (c *LabelValueSetCounter) merge(other *LabelValueSetCounter) *LabelValueSetCounter {
+	if other == nil {
+		return c
+	}
+	for k, v := range other.counts {
+		c.counts[k] += v
+	}
+	c.total += other.total
+	return c
+}
+
 func WorkloadCustomLabelSources(entries []configapi.ControllerMetricsCustomLabel) (labels, annotations sets.Set[string]) {
 	labels, annotations = sets.New[string](), sets.New[string]()
 	for _, entry := range entries {
@@ -95,6 +170,36 @@ func (cl *CustomLabels) LabelNames(srcs ...configapi.SourceKind) []string {
 		return nil
 	}
 	return labels
+}
+
+func (cl *CustomLabels) Has(kind configapi.SourceKind) (hasKind bool) {
+	if !cl.enabled() {
+		return
+	}
+	_, hasKind = cl.m[kind]
+	return
+}
+
+func (cl *CustomLabels) ExtractValues(kind configapi.SourceKind, ref string, labels, annotations map[string]string) (ls labelValSet) {
+	if !cl.enabled() || cl.m[kind] == nil {
+		return Empty(kind)
+	}
+	vals := cl.m[kind].extractValues(labels, annotations)
+	copy(ls.vals[:], vals)
+	ls.size = len(vals)
+	ls.kind = kind
+	return
+}
+
+func (cl *CustomLabels) CombineValueLists(valsMap map[configapi.SourceKind][]string) (merged []string) {
+	if !cl.enabled() || len(valsMap) == 0 {
+		return
+	}
+
+	for _, kind := range cl.labelStoreIter(sets.KeySet(valsMap).UnsortedList()) {
+		merged = append(merged, valsMap[kind]...)
+	}
+	return
 }
 
 func (cl *CustomLabels) UpdateRequired(kind configapi.SourceKind, ref string, labels, annotations map[string]string) bool {
