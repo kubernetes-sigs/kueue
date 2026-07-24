@@ -43,12 +43,6 @@ func copyJobSpec(dst, src *rayv1.RayCluster) {
 		ObjectMeta: api.CloneObjectMetaForCreation(&src.ObjectMeta),
 		Spec:       *src.Spec.DeepCopy(),
 	}
-	// The spec is copied verbatim, including enableInTreeAutoscaling: the remote
-	// copy runs the autoscaler sidecar KubeRay injects for it, matching the
-	// autoscaler container accounted in the Workload's head PodSet. The remote
-	// autoscaler cannot fight the manager: with autoscaling enabled the manager
-	// never pushes replicas — the worker owns them and resizes are reflected
-	// back (see workerOwnsReplicas in the shared Ray adapter).
 }
 
 // elasticReplicaSync wires the RayCluster-specific hooks used by the shared Ray
