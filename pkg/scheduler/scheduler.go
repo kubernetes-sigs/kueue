@@ -1001,45 +1001,54 @@ func (co *classicalIterator) pop() *entry {
 	return head
 }
 
-func makeClassicalIterator(log logr.Logger, entries []entry, workloadOrdering workload.Ordering) *classicalIterator {
-	slices.SortFunc(entries, func(a, b entry) int {
-		// First process workloads which already have quota reserved. Such workload
-		// may be considered if this is their second pass.
-		aHasQuota := workload.HasQuotaReservation(a.Obj)
-		bHasQuota := workload.HasQuotaReservation(b.Obj)
-		if aHasQuota != bHasQuota {
-			if aHasQuota {
-				return -1
-			}
-			return 1
-		}
-
-		// 1. Request under nominal quota.
-		aBorrows := a.assignment.Borrows()
-		bBorrows := b.assignment.Borrows()
-		if aBorrows != bBorrows {
-			return cmp.Compare(aBorrows, bBorrows)
-		}
-
-		// 2. Higher priority first if not disabled.
-		if features.Enabled(features.PrioritySortingWithinCohort) {
-			p1 := priority.EffectivePriority(log, a.Obj)
-			p2 := priority.EffectivePriority(log, b.Obj)
-			if p1 != p2 {
-				return cmp.Compare(p2, p1)
-			}
-		}
-
-		// 3. FIFO.
-		aComparisonTimestamp := workloadOrdering.GetQueueOrderTimestamp(a.Obj)
-		bComparisonTimestamp := workloadOrdering.GetQueueOrderTimestamp(b.Obj)
-		if aComparisonTimestamp.Before(bComparisonTimestamp) {
+// compareEntries defines the classical (non-FairSharing) admission
+// order between two entries. It is also used to order the entries of a
+// single ClusterQueue in the fairSharingIterator, when a ClusterQueue
+// has more than one entry in a cycle (e.g. second-pass workloads in
+// addition to the queue head).
+func compareEntries(log logr.Logger, workloadOrdering workload.Ordering, a, b *entry) int {
+	// First process workloads which already have quota reserved. Such workload
+	// may be considered if this is their second pass.
+	aHasQuota := workload.HasQuotaReservation(a.Obj)
+	bHasQuota := workload.HasQuotaReservation(b.Obj)
+	if aHasQuota != bHasQuota {
+		if aHasQuota {
 			return -1
 		}
-		if bComparisonTimestamp.Before(aComparisonTimestamp) {
-			return 1
+		return 1
+	}
+
+	// 1. Request under nominal quota.
+	aBorrows := a.assignment.Borrows()
+	bBorrows := b.assignment.Borrows()
+	if aBorrows != bBorrows {
+		return cmp.Compare(aBorrows, bBorrows)
+	}
+
+	// 2. Higher priority first if not disabled.
+	if features.Enabled(features.PrioritySortingWithinCohort) {
+		p1 := priority.EffectivePriority(log, a.Obj)
+		p2 := priority.EffectivePriority(log, b.Obj)
+		if p1 != p2 {
+			return cmp.Compare(p2, p1)
 		}
-		return 0
+	}
+
+	// 3. FIFO.
+	aComparisonTimestamp := workloadOrdering.GetQueueOrderTimestamp(a.Obj)
+	bComparisonTimestamp := workloadOrdering.GetQueueOrderTimestamp(b.Obj)
+	if aComparisonTimestamp.Before(bComparisonTimestamp) {
+		return -1
+	}
+	if bComparisonTimestamp.Before(aComparisonTimestamp) {
+		return 1
+	}
+	return 0
+}
+
+func makeClassicalIterator(log logr.Logger, entries []entry, workloadOrdering workload.Ordering) *classicalIterator {
+	slices.SortFunc(entries, func(a, b entry) int {
+		return compareEntries(log, workloadOrdering, &a, &b)
 	})
 	return &classicalIterator{
 		entries: entries,
