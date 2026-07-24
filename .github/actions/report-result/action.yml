@@ -1,0 +1,76 @@
+name: 'Report result'
+description: 'Logs command execution details to a dedicated release issue comment'
+inputs:
+  command:
+    description: 'The triggering command, e.g. sync-release-notes'
+    required: false
+    default: ''
+  alias:
+    description: 'Command alias'
+    required: false
+    default: ''
+  message:
+    description: 'The message/log content to post'
+    required: false
+    default: ''
+  cleanup:
+    description: 'If true, move the command from Log to History without adding a new entry'
+    required: false
+    default: 'false'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Log Execution Details
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        ISSUE_NUMBER: ${{ github.event.issue.number }}
+        INPUT_COMMAND: ${{ inputs.command }}
+        INPUT_ALIAS: ${{ inputs.alias }}
+        INPUT_MESSAGE: ${{ inputs.message }}
+        INPUT_CLEANUP: ${{ inputs.cleanup }}
+      run: |
+        if [ -z "$ISSUE_NUMBER" ]; then
+          echo "Error: No issue found" >&2
+          exit 1
+        fi
+
+        if [ -z "$INPUT_COMMAND" ] && [ -z "$INPUT_ALIAS" ]; then
+          echo "Error: Neither command nor alias was provided." >&2
+          exit 1
+        fi
+
+        if [ "$INPUT_CLEANUP" = "true" ] && [ -n "$INPUT_MESSAGE" ]; then
+          echo "Error: message must be empty when cleanup is true." >&2
+          exit 1
+        fi
+
+        if [ "$INPUT_CLEANUP" = "false" ] && [ -z "$INPUT_MESSAGE" ]; then
+          echo "Error: message cannot be empty when cleanup is false." >&2
+          exit 1
+        fi
+
+        # Find the dedicated comment containing the marker
+        COMMENT_JSON=$(gh api repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}/comments --paginate --jq 'if type == "array" then .[] else . end | select(.body | contains("<!-- release-log-comment -->")) | {id: .id, body: .body}' | head -n 1)
+
+        if [ -n "$COMMENT_JSON" ]; then
+          COMMENT_ID=$(echo "$COMMENT_JSON" | jq -r '.id')
+          COMMENT_BODY=$(echo "$COMMENT_JSON" | jq -r '.body')
+        else
+          COMMENT_ID=""
+          COMMENT_BODY=""
+        fi
+
+        export COMMENT_BODY
+        
+        # Run python script to build the new comment body
+        python3 "${{ github.action_path }}/log_to_issue.py" > new_comment.md
+
+        if [ -n "$COMMENT_ID" ]; then
+          # Update existing comment
+          gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}" -F body=@new_comment.md
+        else
+          # Create new comment
+          gh issue comment "$ISSUE_NUMBER" --body-file new_comment.md
+        fi
