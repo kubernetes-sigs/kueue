@@ -1426,13 +1426,16 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		// and are not supposed to actually change anything.
 		r.cache.AddOrUpdateWorkload(log, wlCopy)
 	}
-	// The AFS entry penalty must be settled on every transition into Admitted
-	// (#12539). It is settled outside the switch so that no transition into
-	// Admitted is missed, and after it so that the cache already accounts for
-	// the workload usage read by updateAfsConsumedUsage. Deactivation wins
-	// over admission: a workload deactivated in the same event was removed
-	// from the cache by the first case and must not be charged.
-	if active && status == workload.StatusAdmitted && prevStatus != workload.StatusAdmitted &&
+	// The AFS entry penalty must be settled on the transition into holding a
+	// quota reservation, not at Admitted: usage is quota-based. Gating on
+	// Admitted stranded a check-gated workload's penalty until its checks
+	// passed, and never settled it at all if they never did. It is settled
+	// outside the switch so that no transition into QuotaReserved is missed,
+	// and after it so that the cache already accounts for the workload usage
+	// read by updateAfsConsumedUsage. Deactivation wins over admission: a
+	// workload deactivated in the same event was removed from the cache by the
+	// first case and must not be charged.
+	if active && workload.HasQuotaReservation(e.ObjectNew) && !workload.HasQuotaReservation(e.ObjectOld) &&
 		afs.Enabled(r.admissionFSConfig) &&
 		r.cache.ClusterQueueUsesAdmissionFairSharing(wlCopy.Status.Admission.ClusterQueue) {
 		r.updateAfsConsumedUsage(log, wlCopy)
@@ -1447,6 +1450,12 @@ func (r *WorkloadReconciler) Generic(e event.TypedGenericEvent[*kueue.Workload])
 }
 
 func (r *WorkloadReconciler) updateAfsConsumedUsage(log logr.Logger, wl *kueue.Workload) {
+	if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsParent(wl) {
+		// A parent copies its reservation from an admitted variant and shares that
+		// variant's LocalQueue, so it never pushed a penalty of its own; settling
+		// here would fold the variant's penalty in a second time.
+		return
+	}
 	lqKey := qutil.KeyFromWorkload(wl)
 	penalty := afs.CalculateEntryPenalty(workload.NewInfo(wl).SumTotalRequests(r.resourceFormatter), r.admissionFSConfig)
 	now := r.clock.Now()
@@ -1459,7 +1468,10 @@ func (r *WorkloadReconciler) updateAfsConsumedUsage(log logr.Logger, wl *kueue.W
 	// Read live usage before taking the entry lock: the scheduler snapshot reads
 	// AfsConsumedResources while holding the scheduler-cache lock, so the Update
 	// closure must not call back into the cache.
-	newUsage := cacheLq.GetAdmittedUsage()
+	// Reserved-gated to match the QuotaReserved anchor: an admitted-gated read would
+	// omit a check-gated workload whose penalty settles here, so the EMA would decay
+	// its cost away while it still holds quota.
+	newUsage := cacheLq.GetReservedUsage()
 
 	updated := r.queues.AfsConsumedResources.Update(lqKey, func(old queueafs.ConsumedResourcesEntry, found bool) queueafs.ConsumedResourcesEntry {
 		lastUpdate := old.LastUpdate

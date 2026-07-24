@@ -414,7 +414,10 @@ func (r *LocalQueueReconciler) reconcileConsumedUsage(ctx context.Context, lq *k
 	}
 
 	oldUsage := entry.Resources
-	newUsage := cacheLq.GetAdmittedUsage()
+	// Reserved-gated: sampling and settlement must read the same admission stage,
+	// else a check-gated workload's settled cost decays out while it holds quota.
+	// See updateAfsConsumedUsage (workload_controller.go).
+	newUsage := cacheLq.GetReservedUsage()
 	// A concurrent settlement can stamp an entry's LastUpdate later than now.
 	// A negative elapsed would drive the decay alpha outside [0, 1] and inflate
 	// consumed usage, so every elapsed derived from a stored LastUpdate is
