@@ -1,0 +1,31 @@
+title: Workload Dependency Admission Check
+kep-number: 11024
+authors:
+  - "@gyliu513"
+status: provisional
+creation-date: 2026-05-08
+reviewers:
+  - "@kannon92"
+  - "@mimowo"
+  - "@mwielgus"
+approvers:
+  - TBD
+
+# The target maturity stage in the current dev cycle for this KEP.
+stage: alpha
+
+latest-milestone: "TBD"
+
+milestone:
+  alpha: "TBD"
+  beta: "TBD"
+  stable: "TBD"
+
+# List the feature gate name and the components for which it must be enabled
+feature-gates:
+  - name: WorkloadDependency
+disable-supported: true
+
+metrics:
+  - kueue_workload_dependency_pending_total
+  - kueue_workload_dependency_rejected_total
