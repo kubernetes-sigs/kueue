@@ -336,7 +336,7 @@ func (c *Controller) syncOwnedProvisionRequest(
 						return c.handleError(ctx, wl, ac, msg, err)
 					}
 					log.V(3).Info("Created PodTemplate", "podTemplate", klog.KObj(desired))
-				case podTemplateEquivalent(existing, desired):
+				case equalityutil.ComparePodTemplate(&existing.Template.Spec, &desired.Template.Spec):
 					// Already matches the Kueue-derived spec; skip the write.
 					log.V(3).Info("PodTemplate already up to date, skipping update", "podTemplate", klog.KObj(desired))
 				default:
@@ -465,13 +465,6 @@ func setAdmissionCheckRetry(ac *kueue.AdmissionCheckState, prc *kueue.Provisioni
 		*prc.Spec.RetryStrategy.BackoffBaseSeconds,
 		*prc.Spec.RetryStrategy.BackoffMaxSeconds,
 		clk)
-}
-
-// podTemplateEquivalent uses the same PodSpec comparison strategy as Job ↔ Workload
-// (containers, init containers, tolerations). Owners, labels, and API-defaulted
-// fields are ignored so re-reconcile does not treat an unchanged template as divergent.
-func podTemplateEquivalent(existing, desired *corev1.PodTemplate) bool {
-	return equalityutil.ComparePodTemplate(&existing.Template.Spec, &desired.Template.Spec)
 }
 
 func (c *Controller) syncProvisionRequestsPodTemplates(ctx context.Context, wl *kueue.Workload, request *autoscaling.ProvisioningRequest) error {
