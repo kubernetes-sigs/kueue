@@ -1868,7 +1868,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				&field.Error{
 					Type:   field.ErrorTypeInvalid,
 					Field:  "featureGates",
-					Detail: "TASReplaceNodeDueToNotReadyOverFixedTime requires TASFailedNodeReplacement to be enabled",
+					Detail: "TASReplaceNodeDueToNotReadyOverFixedTime is enabled, but depends on features that are disabled: [TASFailedNodeReplacement]",
 				},
 			},
 		},
@@ -2085,7 +2085,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				&field.Error{
 					Type:   field.ErrorTypeInvalid,
 					Field:  "featureGates",
-					Detail: "TASReplaceNodeOnPodTermination requires TASFailedNodeReplacement to be enabled",
+					Detail: "TASReplaceNodeOnPodTermination is enabled, but depends on features that are disabled: [TASFailedNodeReplacement]",
 				},
 			},
 		},

@@ -638,6 +638,12 @@ func validateManagedJobsNamespaceSelector(c *configapi.Configuration) field.Erro
 }
 
 func LoadAndValidateFeatureGates(featureGateCLI string, featureGateMap map[string]bool) field.ErrorList {
+	var allErrs field.ErrorList
+	if featureGateCLI != "" && featureGateMap != nil {
+		allErrs = append(allErrs, field.Invalid(featureGatesPath, featureGateMap, "feature gates for CLI and configuration cannot both specified"))
+		return allErrs
+	}
+
 	if featureGateCLI != "" {
 		if err := utilfeature.DefaultMutableFeatureGate.Set(featureGateCLI); err != nil {
 			return field.ErrorList{field.Invalid(featureGatesPath, featureGateCLI, err.Error())}
@@ -647,10 +653,7 @@ func LoadAndValidateFeatureGates(featureGateCLI string, featureGateMap map[strin
 			return field.ErrorList{field.Invalid(featureGatesPath, featureGateMap, err.Error())}
 		}
 	}
-	var allErrs field.ErrorList
-	if featureGateCLI != "" && featureGateMap != nil {
-		allErrs = append(allErrs, field.Invalid(featureGatesPath, featureGateMap, "feature gates for CLI and configuration cannot both specified"))
-	}
+
 	TASProfilesEnabled := []bool{features.Enabled(features.TASProfileMixed)}
 	enabledProfilesCount := 0
 	for _, enabled := range TASProfilesEnabled {
