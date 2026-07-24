@@ -45,7 +45,27 @@ func TestSyncAdmittedCondition(t *testing.T) {
 		wantChange       bool
 		wantAdmittedTime int32
 	}{
-		"empty": {},
+		"empty": {
+			featureGates: map[featuregate.Feature]bool{
+				features.UnadmittedWorkloadsObservability:  false,
+				features.UnadmittedWorkloadsExplicitStatus: false,
+			},
+		},
+		"empty (explicit status enabled)": {
+			featureGates: map[featuregate.Feature]bool{
+				features.UnadmittedWorkloadsObservability:  true,
+				features.UnadmittedWorkloadsExplicitStatus: true,
+			},
+			wantConditions: []metav1.Condition{
+				{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+					ObservedGeneration: 1,
+				},
+			},
+			wantChange: true,
+		},
 		"reservation no checks": {
 			conditions: []metav1.Condition{
 				{
@@ -68,6 +88,10 @@ func TestSyncAdmittedCondition(t *testing.T) {
 			wantChange: true,
 		},
 		"reservation, checks not ready": {
+			featureGates: map[featuregate.Feature]bool{
+				features.UnadmittedWorkloadsObservability:  false,
+				features.UnadmittedWorkloadsExplicitStatus: false,
+			},
 			checkStates: []kueue.AdmissionCheckState{
 				{
 					Name:  "check1",
@@ -123,6 +147,10 @@ func TestSyncAdmittedCondition(t *testing.T) {
 			wantChange: true,
 		},
 		"reservation lost": {
+			featureGates: map[featuregate.Feature]bool{
+				features.UnadmittedWorkloadsObservability:  false,
+				features.UnadmittedWorkloadsExplicitStatus: false,
+			},
 			checkStates: []kueue.AdmissionCheckState{
 				{
 					Name:  "check1",
@@ -152,6 +180,10 @@ func TestSyncAdmittedCondition(t *testing.T) {
 			wantAdmittedTime: 1,
 		},
 		"check lost": {
+			featureGates: map[featuregate.Feature]bool{
+				features.UnadmittedWorkloadsObservability:  false,
+				features.UnadmittedWorkloadsExplicitStatus: false,
+			},
 			checkStates: []kueue.AdmissionCheckState{
 				{
 					Name:  "check1",
@@ -189,6 +221,10 @@ func TestSyncAdmittedCondition(t *testing.T) {
 			wantAdmittedTime: 1,
 		},
 		"reservation and check lost": {
+			featureGates: map[featuregate.Feature]bool{
+				features.UnadmittedWorkloadsObservability:  false,
+				features.UnadmittedWorkloadsExplicitStatus: false,
+			},
 			checkStates: []kueue.AdmissionCheckState{
 				{
 					Name:  "check1",
@@ -297,7 +333,10 @@ func TestSyncAdmittedCondition(t *testing.T) {
 			wantChange: true,
 		},
 		"pending delayed topology request; already Admitted=false": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:          true,
+				features.UnadmittedWorkloadsObservability: false,
+			},
 			admission: &kueue.Admission{
 				PodSetAssignments: []kueue.PodSetAssignment{
 					{
@@ -336,6 +375,52 @@ func TestSyncAdmittedCondition(t *testing.T) {
 				},
 			},
 			wantChange: false,
+		},
+		"pending delayed topology request; already Admitted=false (observability enabled)": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:          true,
+				features.UnadmittedWorkloadsObservability: true,
+			},
+			admission: &kueue.Admission{
+				PodSetAssignments: []kueue.PodSetAssignment{
+					{
+						Name:                   kueue.DefaultPodSetName,
+						Count:                  ptr.To[int32](1),
+						DelayedTopologyRequest: ptr.To(kueue.DelayedTopologyRequestStatePending),
+					},
+				},
+			},
+			checkStates: []kueue.AdmissionCheckState{
+				{
+					Name:  "check1",
+					State: kueue.CheckStateReady,
+				},
+			},
+			conditions: []metav1.Condition{
+				{
+					Type:   kueue.WorkloadQuotaReserved,
+					Status: metav1.ConditionTrue,
+				},
+				{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionFalse,
+					ObservedGeneration: 1,
+				},
+			},
+			wantConditions: []metav1.Condition{
+				{
+					Type:   kueue.WorkloadQuotaReserved,
+					Status: metav1.ConditionTrue,
+				},
+				{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadAdmittedReasonPendingDelayedTopologyRequests,
+					Message:            "There are pending delayed topology requests",
+					ObservedGeneration: 1,
+				},
+			},
+			wantChange: true,
 		},
 		"reservation, checks not ready with observability": {
 			featureGates: map[featuregate.Feature]bool{features.UnadmittedWorkloadsObservability: true},
@@ -467,7 +552,10 @@ func TestSyncAdmittedCondition(t *testing.T) {
 			wantChange: true,
 		},
 		"no reservation, no condition initially with observability (explicit status initialization disabled)": {
-			featureGates: map[featuregate.Feature]bool{features.UnadmittedWorkloadsObservability: true},
+			featureGates: map[featuregate.Feature]bool{
+				features.UnadmittedWorkloadsObservability:  true,
+				features.UnadmittedWorkloadsExplicitStatus: false,
+			},
 			checkStates: []kueue.AdmissionCheckState{
 				{
 					Name:  "check1",
@@ -476,7 +564,44 @@ func TestSyncAdmittedCondition(t *testing.T) {
 			},
 			wantChange: false,
 		},
+		"no reservation, no condition initially with observability (explicit status initialization enabled)": {
+			featureGates: map[featuregate.Feature]bool{
+				features.UnadmittedWorkloadsObservability:  true,
+				features.UnadmittedWorkloadsExplicitStatus: true,
+			},
+			checkStates: []kueue.AdmissionCheckState{
+				{
+					Name:  "check1",
+					State: kueue.CheckStatePending,
+				},
+			},
+			wantConditions: []metav1.Condition{
+				{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+					ObservedGeneration: 1,
+				},
+			},
+			wantChange: true,
+		},
 		"no reservation, no condition initially (explicit status initialization disabled)": {
+			featureGates: map[featuregate.Feature]bool{
+				features.UnadmittedWorkloadsObservability:  false,
+				features.UnadmittedWorkloadsExplicitStatus: false,
+			},
+			checkStates: []kueue.AdmissionCheckState{
+				{
+					Name:  "check1",
+					State: kueue.CheckStatePending,
+				},
+			},
+			wantChange: false,
+		},
+		"no reservation, no condition initially (explicit status initialization enabled)": {
+			featureGates: map[featuregate.Feature]bool{
+				features.UnadmittedWorkloadsObservability: false,
+			},
 			checkStates: []kueue.AdmissionCheckState{
 				{
 					Name:  "check1",

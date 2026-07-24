@@ -1116,7 +1116,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.MustCreate(ctx, k8sClient, wl1)
 			wl2 := utiltestingapi.MakeWorkload("wl2", nsFoo.Name).Queue(kueue.LocalQueueName(queueFoo.Name)).Request(corev1.ResourceCPU, "1").Obj()
 			util.MustCreate(ctx, k8sClient, wl2)
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl1, wl2)
+			util.ExpectWorkloadsToBeInadmissible(ctx, k8sClient, wl1, wl2)
 			util.ExpectPendingWorkloadsMetric(cq, 0, 2)
 			util.ExpectReservingActiveWorkloadsMetric(cq, 0)
 			util.ExpectQuotaReservedWorkloadsTotalMetric(cq, "", 0)
@@ -2041,7 +2041,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.MustCreate(ctx, k8sClient, wl3)
 
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, strictFIFOClusterQ.Name, wl1, wl3)
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
+			util.ExpectWorkloadsToBeInadmissible(ctx, k8sClient, wl2)
 			util.ExpectPendingWorkloadsMetric(strictFIFOClusterQ, 0, 1)
 		})
 
@@ -2885,7 +2885,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
+						Reason:  kueue.WorkloadQuotaReservedReasonWaitingForQuota,
 						Message: "couldn't assign flavors to pod set main: insufficient unused quota for memory in flavor on-demand, 1Gi more needed",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 				))
@@ -2927,7 +2927,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 					gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
+						Reason:  kueue.WorkloadQuotaReservedReasonWaitingForQuota,
 						Message: "couldn't assign flavors to pod set main: insufficient unused quota for memory in flavor on-demand, 1Gi more needed",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration),
 				))

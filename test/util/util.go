@@ -481,8 +481,6 @@ func ExpectWorkloadsToBePending(ctx context.Context, k8sClient client.Client, wl
 }
 
 var pendingQuotaReservedReasons = sets.New(
-	kueue.WorkloadPending, //nolint:staticcheck // SA1019: legacy reason
-	kueue.WorkloadWaiting, //nolint:staticcheck // SA1019: legacy reason
 	kueue.WorkloadQuotaReservedReasonPendingEvaluation,
 	kueue.WorkloadQuotaReservedReasonWaitingForQuota,
 	kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
@@ -511,6 +509,12 @@ func ExpectWorkloadsToBePendingByKeys(ctx context.Context, k8sClient client.Clie
 	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Unexpected workloads are pending", wlObjects...))
 }
 
+func ExpectWorkloadsToBeInadmissible(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
+	ginkgo.GinkgoHelper()
+	wlKeys := workloadKeys(wls)
+	ExpectWorkloadsToBeInadmissibleByKeys(ctx, k8sClient, wlKeys...)
+}
+
 func ExpectWorkloadsToBeInadmissibleByKeys(ctx context.Context, k8sClient client.Client, wlKeys ...client.ObjectKey) {
 	ginkgo.GinkgoHelper()
 	wlKeys = uniqueKeys(wlKeys)
@@ -521,7 +525,7 @@ func ExpectWorkloadsToBeInadmissibleByKeys(ctx context.Context, k8sClient client
 			wl := &kueue.Workload{}
 			g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 			cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-			if cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == "Inadmissible" {
+			if cond != nil && cond.Status == metav1.ConditionFalse && (cond.Reason == kueue.WorkloadInadmissible || cond.Reason == kueue.WorkloadQuotaReservedReasonMisconfigured) {
 				inadmissible = append(inadmissible, wlKey)
 			}
 			wlObjects[i] = wl
@@ -739,7 +743,8 @@ func ExpectWorkloadsToBeWaiting(ctx context.Context, k8sClient client.Client, wl
 			wl := &kueue.Workload{}
 			g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 			cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-			if cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == kueue.WorkloadWaiting { //nolint:staticcheck // SA1019: legacy reason
+			if cond != nil && cond.Status == metav1.ConditionFalse &&
+				(cond.Reason == kueue.WorkloadQuotaReservedReasonWaitingForPodsReady || cond.Reason == kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads || cond.Reason == kueue.WorkloadQuotaReservedReasonWaitingForQuota) {
 				waiting = append(waiting, wlKey)
 			}
 			wlObjects[i] = wl
@@ -758,7 +763,7 @@ func ExpectWorkloadsToBeFrozen(ctx context.Context, k8sClient client.Client, cq 
 			g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 			cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
 			msg := fmt.Sprintf("ClusterQueue %s is inactive", cq)
-			if cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == "Inadmissible" && cond.Message == msg {
+			if cond != nil && cond.Status == metav1.ConditionFalse && (cond.Reason == kueue.WorkloadInadmissible || cond.Reason == kueue.WorkloadQuotaReservedReasonSuspended) && cond.Message == msg {
 				frozen = append(frozen, wlKey)
 			}
 			wlObjects[i] = wl
@@ -894,7 +899,7 @@ func FinishEvictionForWorkloads(ctx context.Context, k8sClient client.Client, wl
 			if workload.HasQuotaReservation(wl) {
 				g.Expect(
 					workloadpatching.PatchAdmissionStatus(ctx, k8sClient, wl, RealClock, func(wl *kueue.Workload) (bool, error) {
-						return workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadPending, "By test", time.Now()), nil //nolint:staticcheck // SA1019: legacy reason
+						return workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadQuotaReservedReasonPendingEvaluation, "By test", time.Now()), nil
 					}),
 				).Should(gomega.Succeed(), fmt.Sprintf("Unable to unset quota reservation for %q", key))
 			}
