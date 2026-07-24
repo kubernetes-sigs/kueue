@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -44,6 +45,23 @@ import (
 )
 
 var realClock = clock.RealClock{}
+
+type resourceNotCoveredError struct {
+	Resource     corev1.ResourceName
+	ClusterQueue string
+}
+
+func (e *resourceNotCoveredError) Error() string {
+	return fmt.Sprintf("resource %q is not covered by ClusterQueue %q", e.Resource, e.ClusterQueue)
+}
+
+func (e *resourceNotCoveredError) Is(target error) bool {
+	t, ok := target.(*resourceNotCoveredError)
+	if !ok {
+		return false
+	}
+	return e.Resource == t.Resource && e.ClusterQueue == t.ClusterQueue
+}
 
 func Import(ctx context.Context, c client.Client, importCache *cache.ImportCache, jobs uint) error {
 	ch := make(chan corev1.Pod)
@@ -191,8 +209,21 @@ func admitWorkload(ctx context.Context, c client.Client, wl *kueue.Workload, cq 
 				},
 			},
 		}
-		flv := cq.Spec.ResourceGroups[0].Flavors[0].Name
+
+		// sort requestedResources for deterministic handling order. This does not affect flavor assignments
+		// (the Flavors map is order-independent), but it makes uncovered-resource errors deterministic
+		// when multiple resources are missing coverage.
+		requestedResources := make([]corev1.ResourceName, 0, len(info.TotalRequests[0].Requests))
 		for r := range info.TotalRequests[0].Requests {
+			requestedResources = append(requestedResources, r)
+		}
+		slices.Sort(requestedResources)
+
+		for _, r := range requestedResources {
+			flv := resourceFlavorForResource(cq, r)
+			if flv == "" {
+				return false, &resourceNotCoveredError{Resource: r, ClusterQueue: cq.Name}
+			}
 			admission.PodSetAssignments[0].Flavors[r] = flv
 		}
 
@@ -233,4 +264,20 @@ func admitWorkload(ctx context.Context, c client.Client, wl *kueue.Workload, cq 
 	}
 
 	return nil
+}
+
+// resourceFlavorForResource returns the first flavor from the first resource group
+// that covers the requested resource. It skips groups with no flavors and returns
+// an empty string when no matching group exists.
+func resourceFlavorForResource(cq *kueue.ClusterQueue, resource corev1.ResourceName) kueue.ResourceFlavorReference {
+	for _, rg := range cq.Spec.ResourceGroups {
+		if len(rg.Flavors) == 0 {
+			continue
+		}
+
+		if slices.Contains(rg.CoveredResources, resource) {
+			return rg.Flavors[0].Name
+		}
+	}
+	return ""
 }
