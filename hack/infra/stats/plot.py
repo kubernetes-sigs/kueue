@@ -100,6 +100,15 @@ CPU_RECURSIVE_PASSES = 5  # target-duration-improved-recursive: per-build refine
 CPU_MAX_CORES = 7.0    # hard ceiling for the recursive reco: a build node has ~7 usable cores
 CPU_MIN_TIME_REMAIN_MIN = 1.0  # recursive: stop refining a build once its leftover target
                                # budget drops below this (minutes), to guard the peak blow-up
+CPU_TAIL_OVERHEAD_MIN = 0.5    # flat estimate of the wall-clock TAIL the test-scoped metrics
+                               # cannot see: artifact upload + pod teardown, which run in the
+                               # `sidecar` container after the `test` container (and its CPU
+                               # series) exits. The per-build overhead already captures the
+                               # front (scheduling/pull) via the cpu_request_cores start; this
+                               # adds the tail. ~0.5 is the median of observed (prow_wall -
+                               # request_span) across jobs (range ~0.05-1.0). STOPGAP: replace
+                               # with a per-job value once wall-end comes from Prow Duration or
+                               # a pod-scoped metric.
 
 # Burstiness classification. Because request == limit is a hard CPU ceiling, the
 # work-conserving target-avg recommendation is only safe when a build's mean is close to its
@@ -223,6 +232,36 @@ def per_build_cpu_samples_dur(series, min_dur_min=0.0, exclude=None):
         if dur < min_dur_min:
             continue
         out.append((np.array([v for _, v in pts]), dur))
+    return out
+
+
+def per_build_cpu_samples_dur_overhead(data, min_dur_min=0.0, exclude=None):
+    """Like per_build_cpu_samples_dur, but also returns each build's init overhead in minutes.
+    A build's cpu_request_cores series comes from the pod spec, so it appears when the pod object
+    is created; cpu_used_cores comes from cAdvisor, so it appears only once the test container is
+    actually burning CPU. The gap between them is wall-clock the build spent scheduling, pulling
+    images, and cloning before any compute — time no amount of CPU can shorten. Overhead is that
+    front gap (used_start - request_start) plus any tail gap (request_end - used_end), clamped at
+    >= 0. It undercounts the full wall overhead: pre-pod queue time and post-run artifact upload
+    are invisible once the pod's metrics stop (top them up via cfg.fixed_overhead_min). Builds
+    with no request series contribute 0 overhead. Returns (samples, dur, overhead_min) triples."""
+    exclude = exclude or set()
+    used = data["series"].get("cpu_used_cores", {})
+    req = data["series"].get("cpu_request_cores", {})
+    out = []
+    for bid, pts in used.items():
+        if bid in exclude or len(pts) < 2:
+            continue
+        ts = [t for t, _ in pts]
+        dur = (max(ts) - min(ts)) / 60.0
+        if dur < min_dur_min:
+            continue
+        overhead = 0.0
+        rpts = req.get(bid)
+        if rpts:
+            rts = [t for t, _ in rpts]
+            overhead = max(0.0, (min(ts) - min(rts)) + (max(rts) - max(ts))) / 60.0
+        out.append((np.array([v for _, v in pts]), dur, overhead))
     return out
 
 
@@ -362,6 +401,12 @@ class CPURecoConfig:
     recursive_passes: int = CPU_RECURSIVE_PASSES  # only "target-duration-improved-recursive"
     max_cores: float = CPU_MAX_CORES              # only "target-duration-improved-recursive"
     min_time_remain_min: float = CPU_MIN_TIME_REMAIN_MIN  # only the recursive recommenders
+    fixed_overhead_min: float = CPU_TAIL_OVERHEAD_MIN  # flat wall-clock TAIL the test-scoped
+                                     # metrics cannot see (artifact upload + pod teardown in the
+                                     # sidecar container, after the test CPU series ends). Added
+                                     # on top of the per-build front overhead (cpu_request_cores
+                                     # start) and subtracted from target_min. See
+                                     # CPU_TAIL_OVERHEAD_MIN; 0 disables.
 
 
 def cap_at_limit(data, val):
@@ -551,7 +596,7 @@ def per_build_peak_duration(data, min_dur, cfg):
     return np.array(pct), np.array(mins), np.array(avg_peak), cutoff
 
 
-def recursive_target_cpu(samples, dur, cfg):
+def recursive_target_cpu(samples, dur, cfg, overhead_min=0.0):
     """One build's self-consistent target CPU. cpu_reco_target_duration_improved splits a build
     into valley (<= cutoff) and peak (> cutoff) once, at the plain target-duration value, and
     fits the peak work into the leftover target budget; but that cutoff is the CPU it is trying
@@ -560,21 +605,33 @@ def recursive_target_cpu(samples, dur, cfg):
 
     Each pass, at the current cutoff `cpu`:
         below_min   = (fraction of samples <= cpu) x dur    # incompressible valley time
-        time_remain = target_min - below_min                # budget left for the peak
+        time_remain = budget - below_min                    # budget left for the peak
         cpu         = avg(samples > cpu) x (dur - below_min) / time_remain
 
-    Seeded from below_min=0 (cpu = avg x dur / target_min, with no max(dur, target_min) floor,
-    so a build slower than target_min is raised rather than left alone). The value climbs
+    Seeded from below_min=0 (cpu = avg x dur / budget, with no max(dur, budget) floor,
+    so a build slower than the budget is raised rather than left alone). The value climbs
     monotonically toward the fixed point and the loop stops as soon as a pass no longer raises
     it. Two guards keep it from running away once the cutoff has eaten most of the build: if
     nothing is left above the cutoff, or the leftover budget drops below cfg.min_time_remain_min
     minutes (only an instantaneous spike remains), the climb halts. cfg.max_cores bounds the
-    final value."""
-    cpu = float(np.mean(samples)) * dur / cfg.target_min  # pass 1: below_min = 0
+    final value.
+
+    `budget` is cfg.target_min minus this build's own init overhead: work only occupies the
+    compute-span, but the target is wall-clock, so the fixed cost spent outside the span is first
+    carved off the target. `overhead_min` is the build's measured init overhead (the gap between
+    the pod object appearing and the test container burning CPU; see
+    per_build_cpu_samples_dur_overhead); cfg.fixed_overhead_min is an additional flat top-up for
+    the parts the metrics cannot see (pre-pod queue time, post-run artifact upload). If the
+    overhead alone blows the target (budget below min_time_remain_min), the build cannot hit the
+    target at any CPU, so we return the ceiling to signal that."""
+    budget = cfg.target_min - overhead_min - cfg.fixed_overhead_min
+    if budget < cfg.min_time_remain_min:
+        return cfg.max_cores  # fixed overhead alone exceeds the target; no CPU can hit it
+    cpu = float(np.mean(samples)) * dur / budget  # pass 1: below_min = 0
     for _ in range(max(0, cfg.recursive_passes - 1)):
         peak = samples[samples > cpu]
         below_min = float(np.mean(samples <= cpu)) * dur
-        time_remain = cfg.target_min - below_min
+        time_remain = budget - below_min
         if len(peak) == 0 or time_remain < cfg.min_time_remain_min:
             break  # only a spike (or nothing) left above the cutoff; stop before it runs away
         nxt = float(np.mean(peak)) * (dur - below_min) / time_remain
@@ -597,10 +654,11 @@ def cpu_reco_target_duration_improved_recursive(data, min_dur, cfg):
     (the ~7-core build node) bounds the final value. Returns (value, stats) or (None, None)
     when there are fewer than two usable builds."""
     oom = oom_build_ids(data)
-    builds = per_build_cpu_samples_dur(data["series"].get("cpu_used_cores", {}), min_dur, exclude=oom)
+    builds = per_build_cpu_samples_dur_overhead(data, min_dur, exclude=oom)
     if len(builds) < 2:
         return None, None
-    per = np.array([recursive_target_cpu(s, d, cfg) for s, d in builds])
+    per = np.array([recursive_target_cpu(s, d, cfg, overhead_min=oh) for s, d, oh in builds])
+    overheads = np.array([oh for _, _, oh in builds])
     p95 = float(np.percentile(per, 95))
     val = min(round_up_to(p95 * (1 + cfg.legroom_frac), cfg.resolution), cfg.max_cores)
     stats = {
@@ -610,10 +668,13 @@ def cpu_reco_target_duration_improved_recursive(data, min_dur, cfg):
         "resolution": cfg.resolution,
         "passes": cfg.recursive_passes,
         "max_cores": cfg.max_cores,
+        "fixed_overhead_min": cfg.fixed_overhead_min,
         "saturated": val >= cfg.max_cores,
         "reco_p50": round(float(np.percentile(per, 50)), 3),
         "reco_p95": round(p95, 3),
         "reco_p99": round(float(np.percentile(per, 99)), 3),
+        "overhead_min_p50": round(float(np.percentile(overheads, 50)), 3),
+        "overhead_min_p95": round(float(np.percentile(overheads, 95)), 3),
         "builds_at_ceiling": int(np.sum(per >= cfg.max_cores)),
     }
     return val, stats
@@ -627,7 +688,7 @@ CPU_RECOMMENDERS = {
     "target-duration": cpu_reco_target_duration,
     "p95-mean": cpu_reco_p95_mean,
 }
-DEFAULT_CPU_ALGORITHM = "target-duration-improved"
+DEFAULT_CPU_ALGORITHM = "target-duration-improved-recursive"
 
 
 def compute_reco(data, min_dur, cfg=None, algorithm=DEFAULT_CPU_ALGORITHM):
