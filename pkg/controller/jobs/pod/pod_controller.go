@@ -667,25 +667,25 @@ func getRoleHash(p corev1.Pod) (string, error) {
 }
 
 // Load loads all pods in the group
-func (p *Pod) Load(ctx context.Context, c client.Client, key *types.NamespacedName) (removeFinalizers bool, err error) {
+func (p *Pod) Load(ctx context.Context, c client.Client, key *types.NamespacedName) (removeFinalizers bool, jobNotFound bool, err error) {
 	nsKey := strings.Split(key.Namespace, "/")
 
 	if len(nsKey) == 1 {
 		if err := c.Get(ctx, *key, &p.pod); err != nil {
 			if client.IgnoreNotFound(err) != nil {
-				return false, err
+				return false, false, err
 			}
-			return true, nil
+			return true, true, nil
 		}
 		p.isFound = true
 
 		// If the key.Namespace doesn't contain a "group/" prefix, even though
 		// the pod has a group name, there's something wrong with the event handler.
 		if groupName := utilpod.GetPodGroupName(&p.pod); groupName != "" {
-			return false, errIncorrectReconcileRequest
+			return false, false, errIncorrectReconcileRequest
 		}
 
-		return !p.pod.DeletionTimestamp.IsZero(), nil
+		return !p.pod.DeletionTimestamp.IsZero(), false, nil
 	}
 
 	p.isGroup = true
@@ -700,7 +700,7 @@ func (p *Pod) Load(ctx context.Context, c client.Client, key *types.NamespacedNa
 	if err := c.List(ctx, &p.list, client.MatchingFields{
 		PodGroupNameCacheKey: key.Name,
 	}, client.InNamespace(key.Namespace)); err != nil {
-		return false, err
+		return false, false, err
 	}
 
 	if len(p.list.Items) > 0 {
@@ -711,7 +711,7 @@ func (p *Pod) Load(ctx context.Context, c client.Client, key *types.NamespacedNa
 
 	// If none of the pods in group are found,
 	// the respective workload should be finalized
-	return !p.isFound, nil
+	return !p.isFound, !p.isFound, nil
 }
 
 // fastAdmission determines if the pod is configured for fast admission based on specific annotations.

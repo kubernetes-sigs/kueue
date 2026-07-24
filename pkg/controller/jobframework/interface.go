@@ -130,9 +130,10 @@ type JobWithCustomValidation interface {
 // ComposableJob is an optional interface that should be implemented by generic jobs
 // composed of multiple API objects.
 type ComposableJob interface {
-	// Load loads all members of the composable job. If removeFinalizers is true,
-	// workload and job finalizers should be removed.
-	Load(ctx context.Context, c client.Client, key *types.NamespacedName) (removeFinalizers bool, err error)
+	// Load loads all members of the composable job.
+	// Returns a boolean indicating whether to remove finalizers,
+	// another boolean indicating if the jobs are not found, and an error.
+	Load(ctx context.Context, c client.Client, key *types.NamespacedName) (removeFinalizers bool, jobNotFound bool, err error)
 
 	// Run unsuspends all members of the ComposableJob and injects node affinity
 	// with pod set counts extracted from the workload into all members of the job.

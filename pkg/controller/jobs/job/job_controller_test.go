@@ -696,6 +696,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
 					ControllerReference(gvk, baseJobWrapper.GetName(), string(baseJobWrapper.GetUID())).
 					Obj(),
 			},
@@ -718,14 +719,8 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
 					ControllerReference(gvk, baseJobWrapper.GetName(), string(baseJobWrapper.GetUID())).
-					Condition(metav1.Condition{
-						Type:               kueue.WorkloadFinished,
-						Status:             metav1.ConditionTrue,
-						LastTransitionTime: metav1.NewTime(now),
-						Reason:             kueue.WorkloadFinishedReasonOwnerNotFound,
-						Message:            "The workload's owner no longer exists",
-					}).
 					Obj(),
 			},
 		},
