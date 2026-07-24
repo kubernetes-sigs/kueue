@@ -578,7 +578,7 @@ function cluster_create {
     # Retry recognized bring-up failures (#11586, #12307, #12984, #13437). Persistent
     # failures producing a matching error will exhaust the configured retries
     # before failing.
-    local retriable_errors="port is already allocated|error execution phase wait-control-plane|could not find a log line that matches|timed out waiting for the condition on nodes/|command timed out after 10m"
+    local retriable_errors="port is already allocated|error execution phase wait-control-plane|could not find a log line that matches|timed out waiting for the condition on nodes/|command timed out after"
     local continue_if="grep -qE '${retriable_errors}' \"$log_file\""
     local cleanup_cmd="if [ -f \"$log_file\" ]; then mv \"$log_file\" \"${log_file}.failed-\$(date +%s)\"; fi; $KIND delete cluster --name \"$cluster\" 2>/dev/null || true"
 
