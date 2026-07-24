@@ -384,7 +384,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:ray", "area:jobs"), 
 			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 			g.Expect(createdWorkload.Status.Conditions).
 				Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
-		}).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("Should not finish the workload when a RayJob fails validation after creating a RayCluster", func() {
