@@ -4568,17 +4568,21 @@ func TestCleanLabels(t *testing.T) {
 	}
 }
 
-func TestCompletedIndexesCount(t *testing.T) {
+func TestTerminalIndexesCount(t *testing.T) {
 	cases := map[string]struct {
 		completedIndexes string
+		failedIndexes    string
 		completions      int32
 		want             int32
 	}{
 		"empty":                         {completedIndexes: "", completions: 10, want: 0},
 		"zero completions":              {completedIndexes: "0-9", completions: 0, want: 0},
-		"single index":                  {completedIndexes: "0", completions: 10, want: 1},
+		"single completed index":        {completedIndexes: "0", completions: 10, want: 1},
+		"single failed index":           {failedIndexes: "1", completions: 10, want: 1},
 		"single range":                  {completedIndexes: "0-4", completions: 10, want: 5},
 		"mixed intervals":               {completedIndexes: "0-4,7,9-11", completions: 10, want: 7},
+		"completed and failed indexes":  {completedIndexes: "0-2,7", failedIndexes: "3-5,8", completions: 10, want: 8},
+		"overlapping terminal indexes":  {completedIndexes: "0-4", failedIndexes: "3-7", completions: 10, want: 8},
 		"surviving low indexes":         {completedIndexes: "0-8", completions: 10, want: 9},
 		"all completed within range":    {completedIndexes: "0-14", completions: 10, want: 10},
 		"range straddling the cap":      {completedIndexes: "5-19", completions: 10, want: 5},
@@ -4591,15 +4595,15 @@ func TestCompletedIndexesCount(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			if got := completedIndexesCount(logr.Discard(), tc.completedIndexes, tc.completions); got != tc.want {
-				t.Errorf("completedIndexesCount(%q, %d) = %d, want %d", tc.completedIndexes, tc.completions, got, tc.want)
+			if got := terminalIndexesCount(logr.Discard(), tc.completedIndexes, tc.failedIndexes, tc.completions); got != tc.want {
+				t.Errorf("terminalIndexesCount(%q, %q, %d) = %d, want %d", tc.completedIndexes, tc.failedIndexes, tc.completions, got, tc.want)
 			}
 		})
 	}
 }
 
 func TestReclaimablePods(t *testing.T) {
-	indexedJob := func(succeeded int32, completedIndexes string) *Job {
+	indexedJob := func(succeeded int32, completedIndexes, failedIndexes string) *Job {
 		j := utiltestingjob.MakeJob("job", "ns").
 			Indexed(true).
 			Parallelism(8).
@@ -4607,6 +4611,10 @@ func TestReclaimablePods(t *testing.T) {
 			Obj()
 		j.Status.Succeeded = succeeded
 		j.Status.CompletedIndexes = completedIndexes
+		if failedIndexes != "" {
+			j.Spec.BackoffLimitPerIndex = new(int32(0))
+			j.Status.FailedIndexes = new(failedIndexes)
+		}
 		return (*Job)(j)
 	}
 	cases := map[string]struct {
@@ -4616,14 +4624,18 @@ func TestReclaimablePods(t *testing.T) {
 		// An ordinary (non-elastic) Indexed Job must reclaim its completed indexes
 		// exactly as before, now that the count is derived from completedIndexes.
 		"indexed Job reclaims its completed indexes": {
-			job:  indexedJob(4, "0-3"),
+			job:  indexedJob(4, "0-3", ""),
 			want: []kueue.ReclaimablePod{{Name: kueue.DefaultPodSetName, Count: 4}},
 		},
-		// Succeeded set without completedIndexes should not happen with the native
-		// Job controller (both are written in one update), but can with a custom
-		// spec.managedBy controller. We trust completedIndexes and hold the quota.
-		"indexed Job with empty completedIndexes holds quota": {
-			job:  indexedJob(4, ""),
+		"indexed Job reclaims completed and failed indexes": {
+			job:  indexedJob(1, "0", "1"),
+			want: []kueue.ReclaimablePod{{Name: kueue.DefaultPodSetName, Count: 2}},
+		},
+		// Status counters without terminal index sets should not happen with the
+		// native Job controller, but can with a custom spec.managedBy controller.
+		// We trust completedIndexes and failedIndexes and hold the quota.
+		"indexed Job with empty terminal indexes holds quota": {
+			job:  indexedJob(4, "", ""),
 			want: nil,
 		},
 	}
