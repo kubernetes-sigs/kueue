@@ -141,18 +141,6 @@ var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:k
 		return podNames
 	}
 
-	getRayHeadPod := func(g gomega.Gomega) corev1.Pod {
-		pods := &corev1.PodList{}
-		g.Expect(k8sClient.List(ctx, pods,
-			client.InNamespace(ns.Name),
-			client.MatchingLabels{
-				"ray.io/node-type": "head",
-			},
-		)).To(gomega.Succeed())
-		g.Expect(pods.Items).NotTo(gomega.BeEmpty())
-		return pods.Items[0]
-	}
-
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "kuberay-e2e-")
 		resourceFlavorName = "kuberay-rf-" + ns.Name
@@ -715,7 +703,13 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 		// container KubeRay actually injects into the head Pod.
 		ginkgo.By("Checking the accounted submitter resources match the real head Pod", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				headPod := getRayHeadPod(g)
+				createdRayJob := &rayv1.RayJob{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayJob), createdRayJob)).To(gomega.Succeed())
+				headPod, err := util.GetRayClusterHeadPod(ctx, k8sClient, client.ObjectKey{
+					Namespace: ns.Name,
+					Name:      createdRayJob.Status.RayClusterName,
+				})
+				g.Expect(err).NotTo(gomega.HaveOccurred())
 				submitter := findContainer(headPod.Spec.Containers, "ray-job-submitter")
 				g.Expect(submitter).NotTo(gomega.BeNil(), "KubeRay should inject the submitter container into the head Pod")
 				g.Expect(kueueSubmitterRequests.Cpu().Cmp(*submitter.Resources.Requests.Cpu())).To(gomega.Equal(0),
