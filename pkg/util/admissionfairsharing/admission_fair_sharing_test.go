@@ -19,6 +19,7 @@ package admissionfairsharing
 import (
 	"context"
 	"errors"
+	"math"
 	"testing"
 	"time"
 
@@ -200,6 +201,40 @@ func TestCalculateUsageWithDRA(t *testing.T) {
 			got := CalculateUsage(tc.consumed, tc.penalty, tc.lqWeight, tc.resWeights)
 			if got != tc.wantUsage {
 				t.Errorf("CalculateUsage() = %v, want %v", got, tc.wantUsage)
+			}
+		})
+	}
+}
+
+func TestCalculateUsageWithNonPositiveWeight(t *testing.T) {
+	tests := map[string]struct {
+		consumed corev1.ResourceList
+		lqWeight float64
+	}{
+		"zero weight, idle queue (no usage)": {
+			consumed: corev1.ResourceList{},
+			lqWeight: 0,
+		},
+		"zero weight, active queue": {
+			consumed: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")},
+			lqWeight: 0,
+		},
+		"negative weight": {
+			consumed: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")},
+			lqWeight: -1,
+		},
+	}
+
+	// A non-positive weight must yield +Inf usage so the LocalQueue is sorted
+	// last in the admission order, never NaN (which would sort it first).
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := CalculateUsage(tc.consumed, corev1.ResourceList{}, tc.lqWeight, nil)
+			if math.IsNaN(got) {
+				t.Fatalf("CalculateUsage() = NaN, want +Inf")
+			}
+			if !math.IsInf(got, 1) {
+				t.Errorf("CalculateUsage() = %v, want +Inf", got)
 			}
 		})
 	}
