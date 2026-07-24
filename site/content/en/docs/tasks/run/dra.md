@@ -85,6 +85,25 @@ ResourceClaimTemplate path above.
 
 {{< include "examples/dra/sample-dra-counter-job.yaml" "yaml" >}}
 
+### Using consumable capacity (shared devices)
+
+{{% alert title="Note" color="info" %}}
+This feature requires the `KueueDRAIntegrationConsumableCapacity` feature gate,
+which is disabled by default in v0.19.
+{{% /alert %}}
+
+If your administrator has configured
+[capacity-based quota](/docs/tasks/manage/setup_dra/#set-up-capacity-based-quota-consumable-capacity),
+your workload is charged by the device's capacity consumption (such as GPU
+memory) rather than device count. You submit workloads using a
+`ResourceClaimTemplate` with `capacity.requests` specifying how much capacity
+you need:
+
+{{< include "examples/dra/sample-dra-capacity-job.yaml" "yaml" >}}
+
+If you omit `capacity.requests`, Kueue charges the device's
+`RequestPolicy.Default` or the full device capacity.
+
 If you are not sure which approach to use, ask your administrator.
 
 ## 2. Run the workload
