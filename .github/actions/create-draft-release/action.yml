@@ -1,0 +1,124 @@
+name: Create Draft Release
+description: Creates (or recreates) a GitHub draft release for the given version tag.
+
+inputs:
+  version:
+    description: Release version, formatted as vX.Y.Z (X - major, Y - minor, Z - patch; e.g. v0.10.0)
+    required: true
+  changelog:
+    description: Release notes / changelog content
+    required: true
+  issue-number:
+    description: GitHub issue number used for posting status comments
+    required: true
+  repo:
+    description: Target repository in owner/name format
+    required: true
+  prerelease:
+    description: Mark the release as a pre-release
+    required: true
+  github-token:
+    description: GitHub token with contents:write and issues:write permissions
+    required: true
+
+outputs:
+  outcome:
+    description: What happened to the release — "created" or "updated"
+    value: ${{ steps.draft.outputs.outcome }}
+
+runs:
+  using: composite
+  steps:
+    - name: Create Draft Release
+      id: draft
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        VERSION: ${{ inputs.version }}
+        CHANGELOG: ${{ inputs.changelog }}
+        ISSUE_NUMBER: ${{ inputs.issue-number }}
+        TARGET_REPO: ${{ inputs.repo }}
+        PRERELEASE: ${{ inputs.prerelease }}
+      run: |
+        RELEASE_STATE=$(gh release view "$VERSION" --repo "$TARGET_REPO" --json isDraft \
+            --jq 'if .isDraft then "draft" else "published" end' 2>/dev/null || echo "")
+        
+        if [ "$RELEASE_STATE" = "published" ]; then
+          BODY="❌️ Release \`$VERSION\` is already published. Skipping draft release creation/update to avoid overwriting a live release."
+          echo "$BODY"
+          gh issue comment "$ISSUE_NUMBER" --body "$BODY"
+          exit 1
+        elif [ "$RELEASE_STATE" = "draft" ]; then
+          echo "Draft release \`$VERSION\` already exists. Deleting it first to perform a clean update..."
+          if [ "$RELEASE_STATE" = "draft" ]; then
+            set +e
+            gh release delete "$VERSION" --repo "$TARGET_REPO" --yes 2> err.log
+            DELETE_EXIT=$?
+            set -e
+            if [ $DELETE_EXIT -ne 0 ]; then
+              ERR_MSG="$(cat err.log)"
+              echo "$ERR_MSG"
+              gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to delete existing draft release \`$VERSION\`.
+  
+            **Error details:**
+            \`\`\`text
+            ${ERR_MSG}
+            \`\`\`"
+              exit 1
+            fi
+          fi
+          OUTCOME="updated"
+        else
+          OUTCOME="created"
+        fi
+
+        set +e
+        make release-artifacts IMAGE_REGISTRY=registry.k8s.io/kueue GIT_TAG="$VERSION" 2> err.log
+        MAKE_EXIT=$?
+        set -e
+
+        if [ $MAKE_EXIT -ne 0 ]; then
+          ERR_MSG="$(cat err.log)"
+          echo "$ERR_MSG"
+          gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to build release artifacts for \`$VERSION\`.
+
+          **Error details:**
+          \`\`\`text
+          ${ERR_MSG}
+          \`\`\`"
+          exit 1
+        fi
+
+        # Create a draft release.
+        set +e
+        echo "Creating \`$VERSION\` release."
+        
+        PRERELEASE_FLAG=""
+        if [ "$PRERELEASE" = "true" ]; then
+          PRERELEASE_FLAG="--prerelease"
+        fi
+
+        gh release create "$VERSION" \
+          --verify-tag \
+          --repo "$TARGET_REPO" \
+          --title "$VERSION" \
+          --notes "$CHANGELOG" \
+          --draft \
+          $PRERELEASE_FLAG \
+          release-artifacts/* 2> err.log
+        RELEASE_EXIT=$?
+        set -e
+
+        if [ $RELEASE_EXIT -ne 0 ]; then
+          ERR_MSG="$(cat err.log)"
+          echo "$ERR_MSG"
+          gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to create draft release \`$VERSION\`.
+
+          **Error details:**
+          \`\`\`text
+          ${ERR_MSG}
+          \`\`\`"
+          exit 1
+        fi
+
+        echo "outcome=$OUTCOME" >> "$GITHUB_OUTPUT"
