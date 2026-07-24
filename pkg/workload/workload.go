@@ -1363,7 +1363,8 @@ func CreatePodsReadyCondition(status metav1.ConditionStatus, reason, message str
 	}
 }
 
-func FinalizeOrphanedWorkload(ctx context.Context, c client.Client, clk clock.Clock, wl *kueue.Workload, canFinish bool) error {
+// FinishOrphanedWorkload finishes the orphaned workload to release quota.
+func FinishOrphanedWorkload(ctx context.Context, c client.Client, clk clock.Clock, wl *kueue.Workload, canFinish bool) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	// Only Finish workloads that are not currently being deleted.
@@ -1376,13 +1377,6 @@ func FinalizeOrphanedWorkload(ctx context.Context, c client.Client, clk clock.Cl
 				return err
 			}
 			return nil
-		}
-	}
-
-	if err := RemoveFinalizer(ctx, c, wl); err != nil {
-		if client.IgnoreNotFound(err) != nil {
-			log.Error(err, "Failed to remove finalizer")
-			return err
 		}
 	}
 

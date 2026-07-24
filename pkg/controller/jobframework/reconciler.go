@@ -314,10 +314,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	}
 
 	if shouldFinalize {
-		if err := r.finalize(ctx, req.NamespacedName, job); err != nil {
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{}, nil
+		return r.finalize(ctx, req.NamespacedName, job)
 	}
 
 	ns := corev1.Namespace{}
@@ -461,7 +458,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	// 2. handle job is finished.
 	if message, success, finished := job.Finished(ctx); finished {
-		log.V(3).Info("The workload is already finished")
+		log.V(3).Info("The job is already finished")
 		if wl != nil && !workloadfinish.IsFinished(wl) {
 			reason := kueue.WorkloadFinishedReasonSucceeded
 			if !success {
@@ -668,20 +665,21 @@ func (r *JobReconciler) loadJob(ctx context.Context, key *types.NamespacedName, 
 
 // finalize removes finalizers from workloads and the job itself,
 // ensuring proper cleanup during object deletion.
-func (r *JobReconciler) finalize(ctx context.Context, key types.NamespacedName, job GenericJob) error {
+func (r *JobReconciler) finalize(ctx context.Context, key types.NamespacedName, job GenericJob) (ctrl.Result, error) {
 	// Remove workloads finalizer
 	if err := r.finalizeWorkloads(ctx, key, job); client.IgnoreNotFound(err) != nil {
-		return err
+		return ctrl.Result{}, err
 	}
 
 	// Remove job finalizer
 	if !job.Object().GetDeletionTimestamp().IsZero() {
 		if err := r.finalizeJob(ctx, job); client.IgnoreNotFound(err) != nil {
-			return err
+			return ctrl.Result{}, err
 		}
 	}
 
-	return nil
+	// Requeue in order to check if the job is actually deleted and remove workloads in this case.
+	return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 }
 
 // getWorkloads retrieves a list of workloads associated with the specified job.
@@ -712,9 +710,21 @@ func (r *JobReconciler) finalizeWorkloads(ctx context.Context, key types.Namespa
 	if err != nil {
 		return err
 	}
+	jobExists := true
+	if err := r.client.Get(ctx, key, job.Object()); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return err
+		}
+		jobExists = false
+	}
 	for i := range workloads {
 		wl := &workloads[i]
-		if err := workload.FinalizeOrphanedWorkload(ctx, r.client, r.clock, wl, controllerutil.HasControllerReference(wl)); err != nil {
+		if !jobExists {
+			if err := workload.FinishOrphanedWorkload(ctx, r.client, r.clock, wl, controllerutil.HasControllerReference(wl)); err != nil {
+				return err
+			}
+		}
+		if err := workload.RemoveFinalizer(ctx, r.client, wl); client.IgnoreNotFound(err) != nil {
 			return err
 		}
 	}
