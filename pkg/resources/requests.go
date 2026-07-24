@@ -80,7 +80,7 @@ func (r MapRequests) ScaledUp(f int64) Requests {
 	return ret
 }
 
-func (r MapRequests) ScaledDown(f int64) MapRequests {
+func (r MapRequests) ScaledDown(f int64) Requests {
 	ret := maps.Clone(r)
 	ret.Divide(f)
 	return ret
@@ -106,6 +106,13 @@ func (r MapRequests) Mul(f int64) {
 
 func (r MapRequests) GetValue(name corev1.ResourceName) int64 {
 	return r[name]
+}
+
+func (r MapRequests) Set(name corev1.ResourceName, val int64) {
+	if r == nil {
+		return
+	}
+	r[name] = val
 }
 
 func (r MapRequests) Len() int {
@@ -205,13 +212,14 @@ func AmountQuantityString(name corev1.ResourceName, a Amount) string {
 }
 
 // GreaterKeys returns keys where the receiver is greater than other.
-func (r MapRequests) GreaterKeys(other MapRequests) []corev1.ResourceName {
-	if len(r) == 0 || len(other) == 0 {
+func (r MapRequests) GreaterKeys(other Requests) []corev1.ResourceName {
+	if len(r) == 0 || isEmpty(other) {
 		return nil
 	}
+	otherMap := ToMapRequests(other)
 	var result []corev1.ResourceName
 	for name, value := range r {
-		if otherValue, found := other[name]; found && value > otherValue {
+		if otherValue, found := otherMap[name]; found && value > otherValue {
 			result = append(result, name)
 		}
 	}
@@ -223,7 +231,7 @@ func (r MapRequests) GreaterKeys(other MapRequests) []corev1.ResourceName {
 
 // GreaterKeysRL compares against a ResourceList and returns larger keys.
 func (r MapRequests) GreaterKeysRL(rl corev1.ResourceList) []corev1.ResourceName {
-	return r.GreaterKeys(NewMapRequests(rl))
+	return r.GreaterKeys(NewRequestsFromResourceList(rl))
 }
 
 func (r MapRequests) CountIn(capacity Requests) int32 {

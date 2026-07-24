@@ -17,11 +17,18 @@ limitations under the License.
 package resources
 
 import (
+	"maps"
+
 	corev1 "k8s.io/api/core/v1"
 	resourcehelpers "k8s.io/component-helpers/resource"
 
 	"sigs.k8s.io/kueue/pkg/features"
 )
+
+// Equal reports whether two Requests objects are Equal.
+func Equal(a, b Requests) bool {
+	return maps.Equal(ToMapRequests(a), ToMapRequests(b))
+}
 
 // CreateEmpty creates an empty Requests instance based on feature gates.
 func CreateEmpty() Requests {
@@ -45,9 +52,6 @@ func NewRequestsFromMap(m MapRequests) Requests {
 
 // NewRequestsFromResourceList creates a Requests instance from a corev1.ResourceList based on feature gates.
 func NewRequestsFromResourceList(rl corev1.ResourceList) Requests {
-	if len(rl) == 0 {
-		return nil
-	}
 	if features.Enabled(features.VectorizedResourceRequests) {
 		sr := ResourceListToSliceRequests(rl)
 		return &sr
@@ -69,14 +73,9 @@ func ToMapRequests(r Requests) MapRequests {
 	if isEmpty(r) {
 		return nil
 	}
-	if mr, ok := r.(MapRequests); ok {
-		return mr
-	}
 	res := make(MapRequests, r.Len())
 	r.ForEach(func(name corev1.ResourceName, val int64) {
-		if val != 0 {
-			res[name] = val
-		}
+		res[name] = val
 	})
 	return res
 }
