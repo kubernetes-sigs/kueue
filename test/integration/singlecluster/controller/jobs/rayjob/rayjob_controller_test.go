@@ -89,9 +89,9 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:ray", "area:jobs"), 
 		priorityClass := utiltesting.MakePriorityClass(priorityClassName).
 			PriorityValue(priorityValue).Obj()
 		util.MustCreate(ctx, k8sClient, priorityClass)
-		defer func() {
+		ginkgo.DeferCleanup(func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, priorityClass, true)
-		}()
+		})
 
 		job := testingrayjob.MakeJob(jobName, ns.Name).
 			Suspend(false).
@@ -155,10 +155,10 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:ray", "area:jobs"), 
 		util.MustCreate(ctx, k8sClient, onDemandFlavor)
 		spotFlavor := utiltestingapi.MakeResourceFlavor("spot").NodeLabel(instanceKey, "spot").Obj()
 		util.MustCreate(ctx, k8sClient, spotFlavor)
-		defer func() {
+		ginkgo.DeferCleanup(func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, spotFlavor, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
-		}()
+		})
 		clusterQueue := utiltestingapi.MakeClusterQueue("cluster-queue").
 			ResourceGroup(
 				*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
@@ -323,10 +323,10 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:ray", "area:jobs"), 
 		util.MustCreate(ctx, k8sClient, onDemandFlavor)
 		spotFlavor := utiltestingapi.MakeResourceFlavor("spot").NodeLabel(instanceKey, "spot").Obj()
 		util.MustCreate(ctx, k8sClient, spotFlavor)
-		defer func() {
+		ginkgo.DeferCleanup(func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, spotFlavor, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
-		}()
+		})
 		clusterQueue := utiltestingapi.MakeClusterQueue("cluster-queue").
 			ResourceGroup(
 				*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
@@ -392,9 +392,9 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:ray", "area:jobs"), 
 		priorityClass := utiltesting.MakePriorityClass(priorityClassName).
 			PriorityValue(priorityValue).Obj()
 		util.MustCreate(ctx, k8sClient, priorityClass)
-		defer func() {
+		ginkgo.DeferCleanup(func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, priorityClass, true)
-		}()
+		})
 		job := testingrayjob.MakeJob(jobName, ns.Name).
 			Suspend(false).
 			WithPriorityClassName(priorityClassName).
