@@ -1017,13 +1017,24 @@ func Test_RayJobFinished(t *testing.T) {
 			expectedFinished: true,
 		},
 		{
-			name: "jobStatus=Failed, jobDeploymentStatus=ValidationFailed",
+			name: "jobStatus=Failed, jobDeploymentStatus=ValidationFailed, no RayClusterName",
 			status: rayv1.RayJobStatus{
 				JobStatus:           rayv1.JobStatusFailed,
 				JobDeploymentStatus: rayv1.JobDeploymentStatusValidationFailed,
+				RayClusterName:      "",
 			},
 			expectedSuccess:  false,
 			expectedFinished: true,
+		},
+		{
+			name: "jobStatus=Failed, jobDeploymentStatus=ValidationFailed, RayClusterName set",
+			status: rayv1.RayJobStatus{
+				JobStatus:           rayv1.JobStatusFailed,
+				JobDeploymentStatus: rayv1.JobDeploymentStatusValidationFailed,
+				RayClusterName:      "rayjob-testname",
+			},
+			expectedSuccess:  false,
+			expectedFinished: false,
 		},
 		{
 			name: "jobStatus=Running, jobDeploymentStatus=Failed (when activeDeadlineSeconds is exceeded)",
