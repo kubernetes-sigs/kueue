@@ -885,7 +885,7 @@ func TestFairPreemptions(t *testing.T) {
 			incoming: unitWl.Clone().Name("a1").Obj(),
 			targetCQ: "a",
 			wantPreempted: sets.New(
-				targetKeyReason("/b1", kueue.InCohortFairSharingReason),
+				targetKeyReason("/b1", kueue.InCohortReclamationReason),
 			),
 		},
 		// CQ "a": 3 CPU nominal on premium, 0 on cheap.
@@ -924,6 +924,73 @@ func TestFairPreemptions(t *testing.T) {
 					ResourceGroup(
 						*utiltestingapi.MakeFlavorQuotas("premium").Resource(corev1.ResourceCPU, "0").Obj(),
 						*utiltestingapi.MakeFlavorQuotas("cheap").Resource(corev1.ResourceCPU, "6").Obj(),
+					).
+					Obj(),
+			},
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a_prem1").SimpleReserveQuota("a", "premium", now).Obj(),
+				*unitWl.Clone().Name("a_prem2").SimpleReserveQuota("a", "premium", now).Obj(),
+				*unitWl.Clone().Name("a_cheap1").SimpleReserveQuota("a", "cheap", now).Obj(),
+				*unitWl.Clone().Name("a_cheap2").SimpleReserveQuota("a", "cheap", now).Obj(),
+				*unitWl.Clone().Name("a_cheap3").SimpleReserveQuota("a", "cheap", now).Obj(),
+				*unitWl.Clone().Name("a_cheap4").SimpleReserveQuota("a", "cheap", now).Obj(),
+				*unitWl.Clone().Name("a_cheap5").SimpleReserveQuota("a", "cheap", now).Obj(),
+				*unitWl.Clone().Name("b_prem1").SimpleReserveQuota("b", "premium", now).Obj(),
+			},
+			incoming:      unitWl.Clone().Name("a_incoming").Obj(),
+			targetCQ:      "a",
+			wantPreempted: sets.New(targetKeyReason("/b_prem1", kueue.InCohortReclamationReason)),
+		},
+		//                 ROOT
+		//             /          \
+		//  cohort-a (3 premium)   b (0 premium, 6 cheap)
+		//           |
+		//           a (0 premium, 0 cheap)
+		//
+		// Admitted state:
+		//   a: 2 premium + 5 cheap (a borrows both flavors; cohort-a only
+		//      borrows cheap)
+		//   b: 1 premium (borrowed from cohort-a's lendable premium quota)
+		//
+		// Incoming: a wants 1 premium CPU. Although a itself borrows premium,
+		// cohort-a remains within its 3 premium CPUs. It can therefore reclaim
+		// that premium CPU from b regardless of cohort-a's cheap-resource DRS.
+		"nominal first: cohort nominal quota can preempt despite high aggregate DRS": {
+			flavors: []*kueue.ResourceFlavor{
+				utiltestingapi.MakeResourceFlavor("premium").Obj(),
+				utiltestingapi.MakeResourceFlavor("cheap").Obj(),
+			},
+			assignmentFlavor: "premium",
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("a").
+					Cohort("cohort-a").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("premium").Resource(corev1.ResourceCPU, "0").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("cheap").Resource(corev1.ResourceCPU, "0").Obj(),
+					).
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					FlavorFungibility(kueue.FlavorFungibility{
+						WhenCanBorrow:  kueue.MayStopSearch,
+						WhenCanPreempt: kueue.MayStopSearch,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("b").
+					Cohort("root").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("premium").Resource(corev1.ResourceCPU, "0").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("cheap").Resource(corev1.ResourceCPU, "6").Obj(),
+					).
+					Obj(),
+			},
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root").Obj(),
+				utiltestingapi.MakeCohort("cohort-a").
+					Parent("root").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("premium").Resource(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("cheap").Resource(corev1.ResourceCPU, "0").Obj(),
 					).
 					Obj(),
 			},
