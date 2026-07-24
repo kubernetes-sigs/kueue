@@ -304,7 +304,7 @@ func (s *SourceKindLabelStore) delete(key ...string) {
 	}
 }
 
-type LabelSetValsCounter struct {
+type LabelValsTracker struct {
 	counts map[labelValsSet]int
 	total  int
 }
@@ -316,48 +316,58 @@ type labelValsSet struct {
 	labelSetSize int
 }
 
-func NewLabelSetValsCounter() *LabelSetValsCounter {
-	return &LabelSetValsCounter{
+func NewLabelValsTracker() *LabelValsTracker {
+	return &LabelValsTracker{
 		counts: make(map[labelValsSet]int, 0),
 		total:  0,
 	}
 }
 
-func CombinedCounter(a, b *LabelSetValsCounter) *LabelSetValsCounter {
-	return NewLabelSetValsCounter().merge(a).merge(b)
+func MergedTracker(a, b *LabelValsTracker) *LabelValsTracker {
+	return NewLabelValsTracker().merge(a).merge(b)
 }
 
-func ParallelIter(a, b *LabelSetValsCounter) iter.Seq2[labelValsSet, [2]int] {
+type pair struct {
+	First  int
+	Second int
+}
+
+// ParallelIter returns an iterator over both provided trackers.
+// It iterates over a union of keys from both trackers.
+// For each key it yields a pair of values from both trackers,
+// each corresponding to one tracker, ordered as passed in params.
+// If a key is missing in one of the trackers, the iterator yields 0 for the corresponding value.
+func ParallelIter(first, second *LabelValsTracker) iter.Seq2[labelValsSet, pair] {
 	allValSets := sets.New[labelValsSet]()
-	allValSets = allValSets.Union(sets.KeySet(a.counts))
-	allValSets = allValSets.Union(sets.KeySet(b.counts))
-	return func(yield func(labelValsSet, [2]int) bool) {
+	allValSets = allValSets.Union(sets.KeySet(first.counts))
+	allValSets = allValSets.Union(sets.KeySet(second.counts))
+	return func(yield func(labelValsSet, pair) bool) {
 		for ls := range allValSets {
-			if !yield(ls, [2]int{a.Get(ls), b.Get(ls)}) {
+			if !yield(ls, pair{First: first.Get(ls), Second: second.Get(ls)}) {
 				return
 			}
 		}
 	}
 }
 
-func (c *LabelSetValsCounter) Incr(ls labelValsSet) {
+func (c *LabelValsTracker) Incr(ls labelValsSet) {
 	c.Add(ls, 1)
 }
 
-func (c *LabelSetValsCounter) Add(ls labelValsSet, incr int) {
+func (c *LabelValsTracker) Add(ls labelValsSet, incr int) {
 	c.counts[ls] += incr
 	c.total += incr
 }
 
-func (c *LabelSetValsCounter) Get(ls labelValsSet) int {
+func (c *LabelValsTracker) Get(ls labelValsSet) int {
 	return c.counts[ls]
 }
 
-func (c *LabelSetValsCounter) Total() int {
+func (c *LabelValsTracker) Total() int {
 	return c.total
 }
 
-func (c *LabelSetValsCounter) merge(other *LabelSetValsCounter) *LabelSetValsCounter {
+func (c *LabelValsTracker) merge(other *LabelValsTracker) *LabelValsTracker {
 	if other == nil {
 		return c
 	}
@@ -374,6 +384,6 @@ func Empty(kind configapi.SourceKind) labelValsSet {
 	}
 }
 
-func (s *labelValsSet) ExtractVals() []string {
+func (s *labelValsSet) OrderedList() []string {
 	return s.vals[:]
 }

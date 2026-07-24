@@ -454,7 +454,7 @@ func TestLabelValueSetCounter(t *testing.T) {
 	}
 
 	// 1. Test NewLabelSetCount and Empty
-	c1 := NewLabelSetValsCounter()
+	c1 := NewLabelValsTracker()
 	if c1.Total() != 0 {
 		t.Errorf("expected empty counter total to be 0, got %d", c1.Total())
 	}
@@ -485,7 +485,7 @@ func TestLabelValueSetCounter(t *testing.T) {
 	}
 
 	// 3. Test merge
-	c2 := NewLabelSetValsCounter()
+	c2 := NewLabelValsTracker()
 	c2.Incr(k2)
 	c2.Incr(k3)
 
@@ -510,11 +510,11 @@ func TestLabelValueSetCounter(t *testing.T) {
 	}
 
 	// 4. Test CombinedCounters
-	a := NewLabelSetValsCounter()
+	a := NewLabelValsTracker()
 	a.Incr(k1)
-	b := NewLabelSetValsCounter()
+	b := NewLabelValsTracker()
 	b.Incr(k2)
-	combined := CombinedCounter(a, b)
+	combined := MergedTracker(a, b)
 	if combined.Total() != 2 {
 		t.Errorf("expected combined total to be 2, got %d", combined.Total())
 	}
@@ -523,11 +523,11 @@ func TestLabelValueSetCounter(t *testing.T) {
 	}
 
 	// 5. Test ParallelIter
-	iterResult := make(map[labelValsSet][2]int)
-	for ls, counts := range ParallelIter(a, b) {
-		iterResult[ls] = counts
+	iterResult := make(map[labelValsSet]pair)
+	for ls, p := range ParallelIter(a, b) {
+		iterResult[ls] = p
 	}
-	wantIterResult := map[labelValsSet][2]int{
+	wantIterResult := map[labelValsSet]pair{
 		k1: {1, 0},
 		k2: {0, 1},
 	}
