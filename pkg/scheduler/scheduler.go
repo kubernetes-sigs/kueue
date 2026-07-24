@@ -633,8 +633,27 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 	for _, w := range workloads {
 		log := log.WithValues("workload", klog.KObj(w.Obj), "clusterQueue", klog.KRef("", string(w.ClusterQueue)))
 		e := entry{Info: w}
+		resizeScaleUp := workload.IsResizeScaleUp(w.Obj)
+		if resizeScaleUp {
+			// Resize scale-up: evaluate the workload at its desired (spec) size rather than the
+			// currently admitted size, so the flavor assigner can compute and admit the delta. Reuse
+			// w.Info (which already has resource-transformation / DRA / excluded-prefix options applied
+			// by the queue manager) and only re-scale TotalRequests to the spec counts — rebuilding
+			// Info from scratch would drop those options.
+			specCounts := workload.ExtractPodSetCountsFromWorkload(w.Obj)
+			scaled := make([]workload.PodSetResources, len(w.TotalRequests))
+			for i := range w.TotalRequests {
+				ps := w.TotalRequests[i].ScaledTo(specCounts[w.TotalRequests[i].Name])
+				// Clear the admitted flavor assignment so the flavor assigner evaluates the delta
+				// fresh (as for a pending workload); flavor stickiness is still enforced via the
+				// self-baseline oldSlice in getInitialAssignments.
+				ps.Flavors = nil
+				scaled[i] = *ps
+			}
+			e.Info.TotalRequests = scaled
+		}
 		e.clusterQueueSnapshot = snap.ClusterQueue(w.ClusterQueue)
-		if !workload.NeedsSecondPass(w.Obj) && s.cache.IsAdded(w) {
+		if !workload.NeedsSecondPass(w.Obj) && !resizeScaleUp && s.cache.IsAdded(w) {
 			log.Info("Workload skipped from admission because it's already accounted in cache, and it does not need second pass", "workload", klog.KObj(w.Obj))
 			continue
 		} else if workload.HasRetryChecks(w.Obj) || workload.HasRejectedChecks(w.Obj) {
@@ -710,13 +729,18 @@ func resourcesToReserve(log logr.Logger, e *entry, cq *schdcache.ClusterQueueSna
 	return netUsage(log, e, quotaResourcesToReserve(e, cq))
 }
 
-// netUsage calculates the net usage for quota and TAS to reserve
+// netUsage calculates the net usage for quota and TAS to reserve/consume.
 func netUsage(log logr.Logger, e *entry, netQuota resources.FlavorResourceQuantities) workload.Usage {
 	result := workload.Usage{}
 	if features.Enabled(features.TopologyAwareScheduling) {
 		result.TAS = e.assignment.ComputeTASNetUsage(log, e.clusterQueueSnapshot, &e.Info, e.Obj.Status.Admission)
 	}
-	if !workload.HasQuotaReservation(e.Obj) {
+	// A not-yet-admitted workload consumes/reserves its full assigned quota. A resize scale-up already
+	// holds a quota reservation but still consumes new quota for the delta (target - admitted) it is
+	// acquiring — the assignment usage here is exactly that delta (computed via the self-baseline in
+	// getInitialAssignments) — so it must be counted too (both for the in-cycle snapshot usage and for
+	// reservation).
+	if !workload.HasQuotaReservation(e.Obj) || workload.IsResizeScaleUp(e.Obj) {
 		result.Quota = netQuota
 	}
 	return result
@@ -780,6 +804,27 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info
 	cq := snap.ClusterQueue(wl.ClusterQueue)
 
 	preemptionTargets, replaceableWorkloadSlice := workloadslicing.ReplacedWorkloadSlice(wl, snap)
+
+	// Resize scale-up (in-place elastic): use the workload's own current admission (recorded in the
+	// snapshot) as the baseline to "replace", so the flavor assigner computes the delta
+	// (target - admitted) for quota while recording the full target count in the assignment (so
+	// status.admission ends up at the new total). The current usage stays in the snapshot, so fit
+	// is checked as current + delta <= capacity.
+	resizeScaleUp := replaceableWorkloadSlice == nil && workload.IsResizeScaleUp(wl.Obj)
+	var resizeAdmitted map[kueue.PodSetReference]int32
+	if resizeScaleUp {
+		if cqSnap := snap.ClusterQueue(wl.ClusterQueue); cqSnap != nil {
+			if self, ok := cqSnap.Workloads[workload.Key(wl.Obj)]; ok {
+				replaceableWorkloadSlice = self
+				resizeAdmitted = workload.AdmittedPodSetCounts(wl.Obj)
+			} else {
+				resizeScaleUp = false
+			}
+		} else {
+			resizeScaleUp = false
+		}
+	}
+
 	flvAssigner := flavorassigner.New(
 		wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing),
 		preemption.NewOracle(s.preemptor, snap), replaceableWorkloadSlice,
@@ -804,6 +849,14 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info
 			assignment := flvAssigner.Assign(ctx, nextCounts)
 			mode := assignment.RepresentativeMode()
 			if mode == flavorassigner.Fit {
+				// A resize scale-up uses its own current admission as the assignment baseline, so a
+				// candidate count at or below the admitted count trivially "fits" with a zero/negative
+				// delta. Accepting that would re-admit the workload at its current size (no progress),
+				// mark it assumed, and strand it (no longer retried on quota release). Only accept a
+				// partial result that actually grows past the admitted count.
+				if resizeScaleUp && !resizeScaleUpGrows(wl.Obj.Spec.PodSets, nextCounts, resizeAdmitted) {
+					return nil, false
+				}
 				return &partialAssignment{assignment: assignment}, true
 			}
 
@@ -820,6 +873,20 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info
 		}
 	}
 	return fullAssignment, nil
+}
+
+// resizeScaleUpGrows reports whether the candidate per-PodSet counts increase at least one PodSet
+// beyond its currently admitted count. nextCounts is aligned by index with podSets.
+func resizeScaleUpGrows(podSets []kueue.PodSet, nextCounts []int32, admitted map[kueue.PodSetReference]int32) bool {
+	for i := range podSets {
+		if i >= len(nextCounts) {
+			break
+		}
+		if a, ok := admitted[podSets[i].Name]; ok && nextCounts[i] > a {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, log logr.Logger, wl *kueue.Workload) error {
@@ -1064,7 +1131,8 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 	added := s.queues.RequeueWorkload(ctx, &e.Info, e.requeueReason, qcache.QuotaReservedReason(e.quotaReservedReason))
 	log.V(2).
 		Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)), "queue", klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName)), "requeueReason", e.requeueReason, "added", added, "status", e.status)
-	if e.status == notNominated || e.status == skipped || e.status == preemptionGated {
+	if (e.status == notNominated || e.status == skipped || e.status == preemptionGated) &&
+		!workload.IsResizeScaleUp(e.Obj) {
 		if e.skipStatusUpdate {
 			log.V(3).Info("Skipping Workload status update", "workload", klog.KObj(e.Obj), "reason", e.inadmissibleMsg)
 			return

@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	apiresource "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
@@ -820,6 +821,13 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 	}
 
 	if workload.HasQuotaReservation(&wl) {
+		// For an in-place resize-elastic workload that was scaled down, converge the admitted counts
+		// to the (reduced) spec so status stays consistent and a later scale-up below the old
+		// admission is still detected by IsResizeScaleUp (and re-checked against quota).
+		if updated, err := r.reconcileResizeScaleDown(ctx, &wl); updated || err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+
 		if evictionTriggered, err := r.reconcileCheckBasedEviction(ctx, &wl); evictionTriggered || err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
@@ -1468,6 +1476,10 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		})
 	case prevStatus == workload.StatusAdmitted && status == workload.StatusAdmitted && !equality.Semantic.DeepEqual(e.ObjectOld.Status.ReclaimablePods, e.ObjectNew.Status.ReclaimablePods),
 		features.Enabled(features.ElasticJobsViaWorkloadSlices) && workloadslicing.ScaledDown(workload.ExtractPodSetCountsFromWorkload(e.ObjectOld), workload.ExtractPodSetCountsFromWorkload(e.ObjectNew)),
+		// Resize scale-down: the admitted resize Workload lowered spec.podSets[].count. Refresh the
+		// cache so usage (capped at min(spec, admission)) drops and the freed quota is released to
+		// associated inadmissible workloads.
+		workload.IsResizeElastic(e.ObjectNew) && workloadslicing.ScaledDown(workload.ExtractPodSetCountsFromWorkload(e.ObjectOld), workload.ExtractPodSetCountsFromWorkload(e.ObjectNew)),
 		workload.PriorityChanged(log, e.ObjectOld, e.ObjectNew):
 		// trigger the move of associated inadmissibleWorkloads, if there are any.
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlKey, func() {
@@ -1477,6 +1489,17 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			r.cache.AddOrUpdateWorkload(log, wlCopy)
 		})
 
+	case workload.IsResizeScaleUp(e.ObjectNew):
+		// Resize scale-up: the admitted resize Workload wants more than currently admitted
+		// (spec.podSets[].count > admission count). Keep it in the scheduler cache at its current
+		// admission, and (re)enter it into the scheduling queue so Kueue can admit the delta. If the
+		// delta cannot be admitted now it lands in inadmissibleWorkloads and is retried on quota
+		// release, rather than busy-waiting.
+		r.cache.AddOrUpdateWorkload(log, wlCopy)
+		if err := r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
+			log.V(2).Info("Failed to enqueue resize scale-up workload", "error", err)
+		}
+
 	default:
 		// Workload update in the cache is handled here; however, some fields are immutable
 		// and are not supposed to actually change anything.
@@ -1484,6 +1507,63 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 	}
 	r.queues.QueueSecondPassIfNeeded(ctx, wlCopy, 0)
 	return true
+}
+
+// reconcileResizeScaleDown converges the admitted counts of an in-place resize-elastic Workload down
+// to its (reduced) spec.podSets[].count. status.admission is Kueue-owned; leaving it at the
+// pre-scale-down value would (a) make status inconsistent with the spec and (b) cause a later
+// scale-up that is still below that stale admitted count to be missed by IsResizeScaleUp, skipping
+// the quota check and over-committing the ClusterQueue.
+func (r *WorkloadReconciler) reconcileResizeScaleDown(ctx context.Context, wl *kueue.Workload) (bool, error) {
+	if !workload.IsResizeElastic(wl) || wl.Status.Admission == nil {
+		return false, nil
+	}
+	specCounts := workload.ExtractPodSetCountsFromWorkload(wl)
+	needsShrink := false
+	for i := range wl.Status.Admission.PodSetAssignments {
+		psa := &wl.Status.Admission.PodSetAssignments[i]
+		if sc, ok := specCounts[psa.Name]; ok && ptr.Deref(psa.Count, sc) > sc {
+			needsShrink = true
+			break
+		}
+	}
+	if !needsShrink {
+		return false, nil
+	}
+	err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		counts := workload.ExtractPodSetCountsFromWorkload(wl)
+		changed := false
+		for i := range wl.Status.Admission.PodSetAssignments {
+			psa := &wl.Status.Admission.PodSetAssignments[i]
+			sc, ok := counts[psa.Name]
+			if !ok {
+				continue
+			}
+			if admitted := ptr.Deref(psa.Count, sc); admitted > sc {
+				psa.ResourceUsage = scaleResourceUsage(psa.ResourceUsage, admitted, sc)
+				psa.Count = ptr.To(sc)
+				changed = true
+			}
+		}
+		return changed, nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// scaleResourceUsage returns usage scaled proportionally from `from` replicas to `to` replicas.
+// Because usage == perPodRequest * from, the result equals perPodRequest * to exactly.
+func scaleResourceUsage(usage corev1.ResourceList, from, to int32) corev1.ResourceList {
+	if usage == nil || from == to || from <= 0 {
+		return usage
+	}
+	scaled := make(corev1.ResourceList, len(usage))
+	for name, q := range usage {
+		scaled[name] = *apiresource.NewMilliQuantity(q.MilliValue()*int64(to)/int64(from), q.Format)
+	}
+	return scaled
 }
 
 func (r *WorkloadReconciler) Generic(e event.TypedGenericEvent[*kueue.Workload]) bool {

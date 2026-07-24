@@ -23,6 +23,7 @@ import (
 	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1validation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -126,6 +127,9 @@ func ValidateWorkload(obj, oldObj *kueue.Workload) field.ErrorList {
 		allErrs = append(allErrs, validatePodSet(ps, specPath.Child("podSets").Index(i))...)
 		if ps.MinCount != nil {
 			variableCountPodSets++
+			if *ps.MinCount > ps.Count {
+				allErrs = append(allErrs, field.Invalid(specPath.Child("podSets").Index(i).Child("minCount"), *ps.MinCount, fmt.Sprintf("must not be greater than count (%d)", ps.Count)))
+			}
 		}
 	}
 
@@ -346,13 +350,19 @@ func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload) field.ErrorList {
 	statusPath := field.NewPath("status")
 	allErrs = append(allErrs, ValidateWorkload(newObj, oldObj)...)
 
+	resizeElastic := workload.IsResizeElastic(newObj)
 	if workload.HasQuotaReservation(oldObj) {
-		allErrs = append(allErrs, validateImmutablePodSets(newObj.Spec.PodSets, oldObj.Spec.PodSets, specPath.Child("podSets"))...)
+		allErrs = append(allErrs, validateImmutablePodSets(newObj.Spec.PodSets, oldObj.Spec.PodSets, specPath.Child("podSets"), resizeElastic)...)
+		// For an admitted resize-elastic workload, only spec.podSets[].count and
+		// spec.podSets[].minCount may change; guard every other spec field against mutation.
+		if resizeElastic {
+			allErrs = append(allErrs, validateResizeElasticSpecImmutability(newObj, oldObj, specPath)...)
+		}
 	}
 	if workload.HasQuotaReservation(newObj) && workload.HasQuotaReservation(oldObj) {
 		allErrs = append(allErrs, validateReclaimablePodsUpdate(newObj, oldObj, field.NewPath("status", "reclaimablePods"))...)
 	}
-	allErrs = append(allErrs, validateAdmissionUpdate(newObj.Status.Admission, oldObj.Status.Admission, field.NewPath("status", "admission"))...)
+	allErrs = append(allErrs, validateAdmissionUpdate(newObj.Status.Admission, oldObj.Status.Admission, field.NewPath("status", "admission"), resizeElastic)...)
 	allErrs = append(allErrs, validateImmutablePodSetUpdates(newObj, oldObj, statusPath.Child("admissionChecks"))...)
 	allErrs = append(allErrs, validateClusterNameUpdate(newObj, oldObj, statusPath)...)
 
@@ -365,7 +375,7 @@ func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload) field.ErrorList {
 
 // validateAdmissionUpdate validates that admission can be set or unset, but the
 // fields within can't change.
-func validateAdmissionUpdate(new, old *kueue.Admission, path *field.Path) field.ErrorList {
+func validateAdmissionUpdate(new, old *kueue.Admission, path *field.Path, resizeElastic bool) field.ErrorList {
 	if old == nil || new == nil {
 		return nil
 	}
@@ -379,7 +389,35 @@ func validateAdmissionUpdate(new, old *kueue.Admission, path *field.Path) field.
 			old.PodSetAssignments[i].DelayedTopologyRequest = new.PodSetAssignments[i].DelayedTopologyRequest
 		}
 	}
+	if resizeElastic && len(new.PodSetAssignments) == len(old.PodSetAssignments) {
+		// Allow Kueue to resize the admitted counts (and the proportional resource usage) of an
+		// already-admitted resize-elastic Workload in place. ClusterQueue and Flavors stay immutable.
+		for i := range new.PodSetAssignments {
+			old.PodSetAssignments[i].Count = new.PodSetAssignments[i].Count
+			old.PodSetAssignments[i].ResourceUsage = new.PodSetAssignments[i].ResourceUsage
+		}
+	}
 	return apivalidation.ValidateImmutableField(new, old, path)
+}
+
+// validateResizeElasticSpecImmutability ensures that for an admitted resize-elastic Workload only
+// spec.podSets[].count and spec.podSets[].minCount may be modified; every other spec field stays
+// immutable.
+func validateResizeElasticSpecImmutability(newObj, oldObj *kueue.Workload, specPath *field.Path) field.ErrorList {
+	newSpec := newObj.Spec.DeepCopy()
+	oldSpec := oldObj.Spec.DeepCopy()
+	// Mask the mutable fields so only the remaining spec is compared.
+	if len(newSpec.PodSets) == len(oldSpec.PodSets) {
+		for i := range oldSpec.PodSets {
+			oldSpec.PodSets[i].Count = newSpec.PodSets[i].Count
+			oldSpec.PodSets[i].MinCount = newSpec.PodSets[i].MinCount
+		}
+	}
+	if !apiequality.Semantic.DeepEqual(newSpec, oldSpec) {
+		return field.ErrorList{field.Invalid(specPath, "spec",
+			"for an elastic (resize) workload only spec.podSets[].count and spec.podSets[].minCount may be modified")}
+	}
+	return nil
 }
 
 // validateReclaimablePodsUpdate validates that the reclaimable counts do not decrease, this should be checked
@@ -445,22 +483,30 @@ func scaledDownPodSetNames(wl *kueue.Workload) sets.Set[kueue.PodSetReference] {
 }
 
 // validateImmutablePodSet helper to validate PodSet immutability on all fields but PodSet.Count.
-func validateImmutablePodSet(new, old kueue.PodSet, path *field.Path) field.ErrorList {
+// resizeElastic indicates the Workload opted into in-place resize (gate enabled and the elastic-job
+// annotation set); only such Workloads may mutate PodSet.Count.
+func validateImmutablePodSet(new, old kueue.PodSet, path *field.Path, resizeElastic bool) field.ErrorList {
 	if features.Enabled(features.ElasticJobsViaWorkloadSlices) && new.Count < old.Count {
 		// Allow scale-down for elastic jobs.
 		new.Count = old.Count
+	}
+	if resizeElastic {
+		// Allow both scale-up and scale-down of PodSet.Count for resize elastic jobs, and let the
+		// job adjust its partial-admission floor (MinCount) per resize request.
+		new.Count = old.Count
+		new.MinCount = old.MinCount
 	}
 	return apivalidation.ValidateImmutableField(new, old, path)
 }
 
 // validateImmutablePodSets helper to validate PodSet lists for immutability on all fields but PodSet.Count.
-func validateImmutablePodSets(new, old []kueue.PodSet, path *field.Path) field.ErrorList {
+func validateImmutablePodSets(new, old []kueue.PodSet, path *field.Path, resizeElastic bool) field.ErrorList {
 	if len(new) != len(old) {
 		return field.ErrorList{field.Invalid(path, new, apivalidation.FieldImmutableErrorMsg)}
 	}
 	allErrs := make(field.ErrorList, 0, len(new))
 	for i := range new {
-		if errs := validateImmutablePodSet(new[i], old[i], path.Child(strconv.Itoa(i))); len(errs) > 0 {
+		if errs := validateImmutablePodSet(new[i], old[i], path.Child(strconv.Itoa(i)), resizeElastic); len(errs) > 0 {
 			allErrs = append(allErrs, errs...)
 		}
 	}

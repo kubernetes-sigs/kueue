@@ -3697,3 +3697,319 @@ var _ = ginkgo.Describe("Scheduler with AdmissionGatedBy", ginkgo.Label("admissi
 		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 	})
 })
+
+// These tests exercise the in-place elastic resize path (ElasticJobsViaWorkloadResize) end to end
+// with the real controller, scheduler and webhooks running against envtest. The runtime component
+// (e.g. a Spark driver) is simulated by directly updating spec.podSets[].count on the admitted
+// Workload; Kueue then admits the delta on the same Workload or releases quota, without ever
+// exceeding the ClusterQueue nominal quota.
+var _ = ginkgo.Describe("Scheduler in-place elastic resize", func() {
+	var (
+		ns *corev1.Namespace
+		rf *kueue.ResourceFlavor
+		cq *kueue.ClusterQueue
+		lq *kueue.LocalQueue
+	)
+
+	// setResizeCount updates spec.podSets[0].count of the given workload, retrying on conflict.
+	setResizeCount := func(wl *kueue.Workload, count int32) {
+		gomega.Eventually(func(g gomega.Gomega) {
+			updated := &kueue.Workload{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), updated)).Should(gomega.Succeed())
+			updated.Spec.PodSets[0].Count = count
+			g.Expect(k8sClient.Update(ctx, updated)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	}
+
+	// expectCQUsage asserts the (single) flavor/resource usage of the ClusterQueue equals want.
+	expectCQUsage := func(want string) {
+		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+			got := &kueue.ClusterQueue{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), got)).Should(gomega.Succeed())
+			g.Expect(got.Status.FlavorsUsage).Should(gomega.HaveLen(1))
+			g.Expect(got.Status.FlavorsUsage[0].Resources).Should(gomega.HaveLen(1))
+			g.Expect(got.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse(want)))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	}
+
+	// expectAdmittedCount asserts the admitted count recorded in status.admission for podSet[0].
+	expectAdmittedCount := func(wl *kueue.Workload, want int32) {
+		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+			got := &kueue.Workload{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), got)).Should(gomega.Succeed())
+			g.Expect(workload.IsAdmitted(got)).Should(gomega.BeTrue())
+			g.Expect(got.Status.Admission).ShouldNot(gomega.BeNil())
+			g.Expect(got.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
+			g.Expect(ptr.Deref(got.Status.Admission.PodSetAssignments[0].Count, -1)).Should(gomega.BeEquivalentTo(want))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	}
+
+	elasticWorkload := func(name string, count int32) *utiltestingapi.WorkloadWrapper {
+		return utiltestingapi.MakeWorkload(name, ns.Name).
+			Annotation(constants.ElasticJobAnnotation, "true").
+			Queue(kueue.LocalQueueName(lq.Name)).
+			PodSets(*utiltestingapi.MakePodSet("main", int(count)).Request(corev1.ResourceCPU, "1").Obj())
+	}
+
+	ginkgo.BeforeEach(func() {
+		// ElasticJobsViaWorkloadResize and ElasticJobsViaWorkloadSlices are mutually exclusive and
+		// share the same elastic-job annotation. Slicing is Beta/default-on, so it must be disabled
+		// for the resize path to own the annotation (and so partial admission is not blocked by the
+		// slicing-specific webhook rule).
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, false)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadResize, true)
+
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "resize-")
+
+		rf = utiltestingapi.MakeResourceFlavor("default").Obj()
+		util.MustCreate(ctx, k8sClient, rf)
+
+		cq = utiltestingapi.MakeClusterQueue("resize-cq").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).
+				Resource(corev1.ResourceCPU, "10").Obj()).
+			Obj()
+		util.MustCreate(ctx, k8sClient, cq)
+
+		lq = utiltestingapi.MakeLocalQueue("resize-lq", ns.Name).ClusterQueue(cq.Name).Obj()
+		util.MustCreate(ctx, k8sClient, lq)
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
+	})
+
+	ginkgo.It("should admit the delta in place on scale-up and account quota exactly", func() {
+		ginkgo.By("Creating and admitting an elastic workload at count 2 (usage 2 CPU)")
+		wl := elasticWorkload("resize", 2).Obj()
+		util.MustCreate(ctx, k8sClient, wl)
+		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+		expectAdmittedCount(wl, 2)
+		expectCQUsage("2")
+
+		ginkgo.By("Scaling up in place from 2 to 6 by editing spec.podSets[0].count")
+		setResizeCount(wl, 6)
+
+		ginkgo.By("Kueue admits the delta on the same workload: admitted count 6, usage exactly 6 CPU")
+		expectAdmittedCount(wl, 6)
+		expectCQUsage("6")
+
+		ginkgo.By("A competing workload that would exceed remaining quota stays pending (6+5 > 10)")
+		competitor := utiltestingapi.MakeWorkload("competitor", ns.Name).
+			Queue(kueue.LocalQueueName(lq.Name)).
+			PodSets(*utiltestingapi.MakePodSet("main", 5).Request(corev1.ResourceCPU, "1").Obj()).
+			Obj()
+		util.MustCreate(ctx, k8sClient, competitor)
+		util.ExpectWorkloadsToBePending(ctx, k8sClient, competitor)
+		expectCQUsage("6")
+	})
+
+	ginkgo.It("should admit the delta only for the scaled PodSet in a multi-PodSet workload", func() {
+		ginkgo.By("Admitting a 2-PodSet workload (driver: 1, executor: 2 -> 3 CPU)")
+		wl := utiltestingapi.MakeWorkload("resize", ns.Name).
+			Annotation(constants.ElasticJobAnnotation, "true").
+			Queue(kueue.LocalQueueName(lq.Name)).
+			PodSets(
+				*utiltestingapi.MakePodSet("driver", 1).Request(corev1.ResourceCPU, "1").Obj(),
+				*utiltestingapi.MakePodSet("executor", 2).Request(corev1.ResourceCPU, "1").Obj(),
+			).
+			Obj()
+		util.MustCreate(ctx, k8sClient, wl)
+		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+		expectCQUsage("3")
+
+		ginkgo.By("Scaling only the executor PodSet from 2 to 6")
+		gomega.Eventually(func(g gomega.Gomega) {
+			updated := &kueue.Workload{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), updated)).Should(gomega.Succeed())
+			for i := range updated.Spec.PodSets {
+				if updated.Spec.PodSets[i].Name == "executor" {
+					updated.Spec.PodSets[i].Count = 6
+				}
+			}
+			g.Expect(k8sClient.Update(ctx, updated)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Driver stays at 1, executor grows to 6, usage 7")
+		gomega.Eventually(func(g gomega.Gomega) {
+			got := &kueue.Workload{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), got)).Should(gomega.Succeed())
+			g.Expect(workload.IsAdmitted(got)).Should(gomega.BeTrue())
+			counts := map[kueue.PodSetReference]int32{}
+			for _, psa := range got.Status.Admission.PodSetAssignments {
+				counts[psa.Name] = ptr.Deref(psa.Count, -1)
+			}
+			g.Expect(counts["driver"]).Should(gomega.BeEquivalentTo(int32(1)))
+			g.Expect(counts["executor"]).Should(gomega.BeEquivalentTo(int32(6)))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		expectCQUsage("7")
+	})
+
+	ginkgo.It("should release quota on in-place scale-down", func() {
+		ginkgo.By("Creating and admitting an elastic workload at count 6 (usage 6 CPU)")
+		wl := elasticWorkload("resize", 6).Obj()
+		util.MustCreate(ctx, k8sClient, wl)
+		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+		expectCQUsage("6")
+
+		ginkgo.By("Scaling down in place from 6 to 3 by editing spec.podSets[0].count")
+		setResizeCount(wl, 3)
+
+		ginkgo.By("Usage drops to 3 CPU (U = min(spec, admitted))")
+		expectCQUsage("3")
+
+		ginkgo.By("The released quota becomes usable: a 7-CPU workload is admitted (3+7 = 10)")
+		other := utiltestingapi.MakeWorkload("other", ns.Name).
+			Queue(kueue.LocalQueueName(lq.Name)).
+			PodSets(*utiltestingapi.MakePodSet("main", 7).Request(corev1.ResourceCPU, "1").Obj()).
+			Obj()
+		util.MustCreate(ctx, k8sClient, other)
+		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, other)
+		expectCQUsage("10")
+	})
+
+	ginkgo.It("should converge admitted count on scale-down and not over-commit on a later scale-up", func() {
+		ginkgo.By("Admitting an elastic workload at count 10 (uses the whole 10 CPU quota)")
+		wl := elasticWorkload("resize", 10).Obj()
+		util.MustCreate(ctx, k8sClient, wl)
+		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+		expectAdmittedCount(wl, 10)
+		expectCQUsage("10")
+
+		ginkgo.By("Scaling down to 5: admitted count must converge to 5 and release 5 CPU")
+		setResizeCount(wl, 5)
+		expectAdmittedCount(wl, 5)
+		expectCQUsage("5")
+
+		ginkgo.By("Another workload takes the freed 5 CPU, filling the ClusterQueue")
+		other := utiltestingapi.MakeWorkload("other", ns.Name).
+			Queue(kueue.LocalQueueName(lq.Name)).
+			PodSets(*utiltestingapi.MakePodSet("main", 5).Request(corev1.ResourceCPU, "1").Obj()).
+			Obj()
+		util.MustCreate(ctx, k8sClient, other)
+		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, other)
+		expectCQUsage("10")
+
+		ginkgo.By("Scaling the resize workload back up 5 -> 8 must be quota-checked, not over-committed")
+		setResizeCount(wl, 8)
+		// The CQ is full, so the delta cannot be admitted: the workload stays at 5 and usage stays 10.
+		gomega.Consistently(func(g gomega.Gomega) {
+			got := &kueue.Workload{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), got)).Should(gomega.Succeed())
+			g.Expect(workload.IsAdmitted(got)).Should(gomega.BeTrue())
+			g.Expect(ptr.Deref(got.Status.Admission.PodSetAssignments[0].Count, -1)).Should(gomega.BeEquivalentTo(int32(5)))
+		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+		expectCQUsage("10")
+	})
+
+	ginkgo.It("should not over-admit or evict when scale-up cannot fit", func() {
+		ginkgo.By("Admitting an elastic workload at count 2 and a blocker at count 8 (usage 10, full)")
+		wl := elasticWorkload("resize", 2).Obj()
+		util.MustCreate(ctx, k8sClient, wl)
+		blocker := utiltestingapi.MakeWorkload("blocker", ns.Name).
+			Queue(kueue.LocalQueueName(lq.Name)).
+			PodSets(*utiltestingapi.MakePodSet("main", 8).Request(corev1.ResourceCPU, "1").Obj()).
+			Obj()
+		util.MustCreate(ctx, k8sClient, blocker)
+		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl, blocker)
+		expectCQUsage("10")
+
+		ginkgo.By("Scaling up the elastic workload from 2 to 6 with no free quota")
+		setResizeCount(wl, 6)
+
+		ginkgo.By("The workload keeps its current admission (count 2) and is NOT evicted to pending")
+		gomega.Consistently(func(g gomega.Gomega) {
+			got := &kueue.Workload{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), got)).Should(gomega.Succeed())
+			g.Expect(workload.IsAdmitted(got)).Should(gomega.BeTrue())
+			g.Expect(ptr.Deref(got.Status.Admission.PodSetAssignments[0].Count, -1)).Should(gomega.BeEquivalentTo(int32(2)))
+		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+		expectCQUsage("10")
+	})
+
+	ginkgo.It("should partially admit a scale-up when only some quota is free", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PartialAdmission, true)
+
+		ginkgo.By("Admitting an elastic (partial-eligible) workload at count 2 and a blocker at count 5 (usage 7)")
+		wl := utiltestingapi.MakeWorkload("resize", ns.Name).
+			Annotation(constants.ElasticJobAnnotation, "true").
+			Queue(kueue.LocalQueueName(lq.Name)).
+			PodSets(*utiltestingapi.MakePodSet("main", 2).SetMinimumCount(1).Request(corev1.ResourceCPU, "1").Obj()).
+			Obj()
+		util.MustCreate(ctx, k8sClient, wl)
+		blocker := utiltestingapi.MakeWorkload("blocker", ns.Name).
+			Queue(kueue.LocalQueueName(lq.Name)).
+			PodSets(*utiltestingapi.MakePodSet("main", 5).Request(corev1.ResourceCPU, "1").Obj()).
+			Obj()
+		util.MustCreate(ctx, k8sClient, blocker)
+		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl, blocker)
+		expectCQUsage("7")
+
+		ginkgo.By("Scaling up from 2 to 8 with only 3 CPU free: partial admit to 5, usage reaches 10")
+		setResizeCount(wl, 8)
+		expectAdmittedCount(wl, 5)
+		expectCQUsage("10")
+	})
+
+	ginkgo.It("should not partially admit a scale-up without a user-set minCount (all-or-nothing)", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PartialAdmission, true)
+
+		ginkgo.By("Admitting an elastic workload (no minCount) at count 2 and a blocker at count 5 (usage 7)")
+		wl := elasticWorkload("resize", 2).Obj()
+		util.MustCreate(ctx, k8sClient, wl)
+		blocker := utiltestingapi.MakeWorkload("blocker", ns.Name).
+			Queue(kueue.LocalQueueName(lq.Name)).
+			PodSets(*utiltestingapi.MakePodSet("main", 5).Request(corev1.ResourceCPU, "1").Obj()).
+			Obj()
+		util.MustCreate(ctx, k8sClient, blocker)
+		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl, blocker)
+		expectCQUsage("7")
+
+		ginkgo.By("Scaling up from 2 to 8 with only 3 CPU free: without minCount there is no partial admission")
+		setResizeCount(wl, 8)
+		gomega.Consistently(func(g gomega.Gomega) {
+			got := &kueue.Workload{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), got)).Should(gomega.Succeed())
+			g.Expect(workload.IsAdmitted(got)).Should(gomega.BeTrue())
+			g.Expect(ptr.Deref(got.Status.Admission.PodSetAssignments[0].Count, -1)).Should(gomega.BeEquivalentTo(int32(2)))
+		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+		expectCQUsage("7")
+
+		ginkgo.By("Deleting the blocker frees enough quota for the full target: resize jumps to 8 (usage 8)")
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, blocker, true)
+		expectAdmittedCount(wl, 8)
+		expectCQUsage("8")
+	})
+
+	ginkgo.It("should keep admitting a partially-satisfied scale-up as quota is released", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PartialAdmission, true)
+
+		ginkgo.By("Admitting an elastic (partial-eligible) workload at count 2 and a blocker at count 5 (usage 7)")
+		wl := utiltestingapi.MakeWorkload("resize", ns.Name).
+			Annotation(constants.ElasticJobAnnotation, "true").
+			Queue(kueue.LocalQueueName(lq.Name)).
+			PodSets(*utiltestingapi.MakePodSet("main", 2).SetMinimumCount(1).Request(corev1.ResourceCPU, "1").Obj()).
+			Obj()
+		util.MustCreate(ctx, k8sClient, wl)
+		blocker := utiltestingapi.MakeWorkload("blocker", ns.Name).
+			Queue(kueue.LocalQueueName(lq.Name)).
+			PodSets(*utiltestingapi.MakePodSet("main", 5).Request(corev1.ResourceCPU, "1").Obj()).
+			Obj()
+		util.MustCreate(ctx, k8sClient, blocker)
+		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl, blocker)
+
+		ginkgo.By("Scaling up from 2 to 8 with only 3 CPU free: partial admit to 5")
+		setResizeCount(wl, 8)
+		expectAdmittedCount(wl, 5)
+		expectCQUsage("10")
+
+		ginkgo.By("Releasing quota by deleting the blocker (frees 5 CPU)")
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, blocker, true)
+
+		ginkgo.By("The still-under-target resize workload resumes and reaches its full target of 8 (usage 8)")
+		expectAdmittedCount(wl, 8)
+		expectCQUsage("8")
+	})
+})

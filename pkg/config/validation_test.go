@@ -1966,6 +1966,33 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				features.TASProfileMixed:                     true,
 			},
 		},
+		"ElasticJobsViaWorkloadResize and ElasticJobsViaWorkloadSlices are mutually exclusive": {
+			featureGateMap: map[string]bool{
+				string(features.ElasticJobsViaWorkloadResize): true,
+				string(features.ElasticJobsViaWorkloadSlices): true,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadResize: false,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "ElasticJobsViaWorkloadResize and ElasticJobsViaWorkloadSlices are mutually exclusive and cannot both be enabled",
+				},
+			},
+		},
+		"ElasticJobsViaWorkloadResize valid when ElasticJobsViaWorkloadSlices disabled": {
+			featureGateMap: map[string]bool{
+				string(features.ElasticJobsViaWorkloadResize): true,
+				string(features.ElasticJobsViaWorkloadSlices): false,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadResize: false,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+		},
 		"multiple FG validation errors at once": {
 			featureGateMap: map[string]bool{
 				string(features.TASProfileMixed):                     true,

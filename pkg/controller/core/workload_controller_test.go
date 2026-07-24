@@ -2275,3 +2275,97 @@ func TestUpdateAfsConsumedUsage(t *testing.T) {
 		})
 	}
 }
+
+// TestWorkloadUpdateResize verifies the Update predicate routing for in-place elastic
+// (ElasticJobsViaWorkloadResize) workloads:
+//   - a scale-up (spec count > admitted count) re-enters the scheduling queue so Kueue can admit
+//     the delta;
+//   - a scale-down (spec count < admitted count) only refreshes the cache and does NOT re-enter the
+//     queue;
+//   - with the gate off, a scale-up-shaped update falls through to the default cache-only handling
+//     and is not enqueued.
+func TestWorkloadUpdateResize(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+
+	// admittedResize builds an elastic-job workload admitted at admittedCount with a spec target of
+	// specCount.
+	admittedResize := func(specCount, admittedCount int32) *kueue.Workload {
+		return utiltestingapi.MakeWorkload("resize", "default").
+			Annotation(constants.ElasticJobAnnotation, "true").
+			Queue("lq").
+			PodSets(*utiltestingapi.MakePodSet("main", int(specCount)).Request(corev1.ResourceCPU, "1").Obj()).
+			ReserveQuotaAt(
+				utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment("main").
+						Assignment(corev1.ResourceCPU, "default", "1").
+						Count(admittedCount).
+						Obj()).
+					Obj(), now).
+			AdmittedAt(true, now).
+			Obj()
+	}
+
+	cases := map[string]struct {
+		gate     bool
+		old      *kueue.Workload
+		new      *kueue.Workload
+		wantDump map[kueue.ClusterQueueReference][]workload.Reference
+	}{
+		"scale-up re-enters the queue": {
+			gate: true,
+			old:  admittedResize(2, 2),
+			new:  admittedResize(4, 2),
+			wantDump: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq": {"default/resize"},
+			},
+		},
+		"scale-down only refreshes the cache": {
+			gate:     true,
+			old:      admittedResize(4, 4),
+			new:      admittedResize(2, 4),
+			wantDump: nil,
+		},
+		"gate off: scale-up shape is not enqueued": {
+			gate:     false,
+			old:      admittedResize(2, 2),
+			new:      admittedResize(4, 2),
+			wantDump: nil,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadResize, tc.gate)
+
+			cl := utiltesting.NewClientBuilder().
+				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
+				Build()
+			recorder := &utiltesting.EventRecorder{}
+			cqCache := schdcache.New(cl)
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithPreemptionExpectations(preemptexpectations.New()))
+			reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder)
+
+			ctxWithLogger, _ := utiltesting.ContextWithLog(t)
+			ctx, cancel := context.WithCancel(ctxWithLogger)
+			defer cancel()
+
+			cq := utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+					Resource(corev1.ResourceCPU, "10", "0").Obj()).
+				Obj()
+			setupClusterQueue(ctx, t, cl, qManager, cqCache, cq, false)
+			setupLocalQueue(ctx, t, cl, qManager, utiltestingapi.MakeLocalQueue("lq", "default").ClusterQueue("cq").Obj(), false)
+
+			if got := reconciler.Update(event.TypedUpdateEvent[*kueue.Workload]{
+				ObjectOld: tc.old,
+				ObjectNew: tc.new,
+			}); !got {
+				t.Errorf("Update() = false, want true")
+			}
+
+			if diff := cmp.Diff(tc.wantDump, qManager.Dump()); diff != "" {
+				t.Errorf("Unexpected queued workloads after Update (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}

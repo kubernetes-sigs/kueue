@@ -667,6 +667,11 @@ func LoadAndValidateFeatureGates(featureGateCLI string, featureGateMap map[strin
 		allErrs = append(allErrs, field.Invalid(featureGatesPath, enabledProfilesCount, "cannot use a TAS profile with TAS disabled"))
 	}
 
+	if features.Enabled(features.ElasticJobsViaWorkloadResize) && features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+		allErrs = append(allErrs, field.Invalid(featureGatesPath, "ElasticJobsViaWorkloadResize",
+			"ElasticJobsViaWorkloadResize and ElasticJobsViaWorkloadSlices are mutually exclusive and cannot both be enabled"))
+	}
+
 	// TAS sub-features have no effect unless their dependencies are also enabled. All of them
 	// require TopologyAwareScheduling; TASFailedNodeReplacementFailFast and
 	// TASReplaceNodeOnPodTermination additionally require TASFailedNodeReplacement.

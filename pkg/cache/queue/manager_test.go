@@ -41,6 +41,7 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
@@ -2396,5 +2397,71 @@ func TestDeleteLocalQueue_UnadmittedWorkloads(t *testing.T) {
 	}
 	if len(manager.unadmittedWorkloads.statuses) != 0 {
 		t.Errorf("expected tracked unadmitted workloads to be empty, got %v", manager.unadmittedWorkloads.statuses)
+	}
+}
+
+func TestAddOrUpdateWorkloadResizeScaleUp(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	ctx, log := utiltesting.ContextWithLog(t)
+	queueOptions := []Option{WithPreemptionExpectations(preemptexpectations.New())}
+
+	// resizeScaleUpWorkload builds an elastic-job workload admitted at count 2 with a spec target of 4.
+	resizeScaleUpWorkload := func() *kueue.Workload {
+		return utiltestingapi.MakeWorkload("resize", "earth").
+			Annotation(constants.ElasticJobAnnotation, "true").
+			Queue("foo").
+			PodSets(*utiltestingapi.MakePodSet("main", 4).Request(corev1.ResourceCPU, "1").Obj()).
+			ReserveQuotaAt(
+				utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment("main").
+						Assignment(corev1.ResourceCPU, "default", "2").
+						Count(2).
+						Obj()).
+					Obj(), now).
+			AdmittedAt(true, now).
+			Obj()
+	}
+
+	cases := map[string]struct {
+		gate         bool
+		wantErr      error
+		wantAssigned map[workload.Reference]queue.LocalQueueReference
+	}{
+		"gate on: resize scale-up is admissible and enqueued": {
+			gate:         true,
+			wantErr:      nil,
+			wantAssigned: map[workload.Reference]queue.LocalQueueReference{"earth/resize": "earth/foo"},
+		},
+		"gate off: admitted workload is inadmissible": {
+			gate:         false,
+			wantErr:      errWorkloadIsInadmissible,
+			wantAssigned: map[workload.Reference]queue.LocalQueueReference{},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadResize, tc.gate)
+
+			manager := NewManagerForUnitTests(utiltesting.NewFakeClient(), nil, queueOptions...)
+			cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+			if err := manager.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Failed adding clusterQueue %s: %v", cq.Name, err)
+			}
+			if err := manager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("foo", "earth").ClusterQueue("cq").Obj()); err != nil {
+				t.Fatalf("Failed adding queue: %v", err)
+			}
+
+			err := manager.AddOrUpdateWorkload(log, resizeScaleUpWorkload())
+			if tc.wantErr == nil && err != nil {
+				t.Errorf("AddOrUpdateWorkload() unexpected error: %v", err)
+			}
+			if tc.wantErr != nil && err != tc.wantErr {
+				t.Errorf("AddOrUpdateWorkload() error = %v, want %v", err, tc.wantErr)
+			}
+			if diff := cmp.Diff(tc.wantAssigned, manager.workloadAssignedQueues); diff != "" {
+				t.Errorf("Unexpected assigned workloads (-want,+got):\n%s", diff)
+			}
+		})
 	}
 }
