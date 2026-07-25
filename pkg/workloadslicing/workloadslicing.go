@@ -244,7 +244,7 @@ func EnsureWorkloadSlices(
 }
 
 // normalizeActiveSlices enforces the workload slice invariant:
-//   - One non-evicted admitted workload (latestWithQuotaReservation)
+//   - One non-evicted admitted workload (latestAdmitted)
 //   - At most one non-evicted pending replacement that directly replaces it
 //   - When no non-evicted admitted workload exists, the newest non-evicted
 //     workload is kept
@@ -263,15 +263,18 @@ func normalizeActiveSlices(
 	for i := range workloads {
 		wl := &workloads[i]
 		if replKey := ReplacementForKey(wl); replKey != nil && !workloadevict.IsEvicted(wl) {
-			if existing, ok := replacements[*replKey]; !ok || (!workload.HasQuotaReservation(existing) && workload.HasQuotaReservation(wl)) {
+			if existing, ok := replacements[*replKey]; !ok || (!workload.IsAdmitted(existing) && workload.IsAdmitted(wl)) {
 				replacements[*replKey] = wl
 			}
 		}
 	}
 
 	// Find the admitted workload at the head of the replacement chain: the one
-	// whose replacement (if any) is not itself admitted.
-	var latestWithQuotaReservation, pendingReplacement, latestNonEvicted *kueue.Workload
+	// whose replacement (if any) is not itself admitted. Admission — not just a
+	// quota reservation — is required so a replacement that reserved quota but
+	// is not yet running (e.g. still pending its MultiKueue admission check on
+	// the worker cluster) does not prematurely retire the slice it replaces.
+	var latestAdmitted, pendingReplacement, latestNonEvicted *kueue.Workload
 	for i := range workloads {
 		wl := &workloads[i]
 		if workloadevict.IsEvicted(wl) {
@@ -280,19 +283,19 @@ func normalizeActiveSlices(
 		if latestNonEvicted == nil || wl.CreationTimestamp.After(latestNonEvicted.CreationTimestamp.Time) {
 			latestNonEvicted = wl
 		}
-		if !workload.HasQuotaReservation(wl) {
+		if !workload.IsAdmitted(wl) {
 			continue
 		}
 		// Skip if replaced by another admitted workload.
-		if repl, ok := replacements[workload.Key(wl)]; ok && workload.HasQuotaReservation(repl) {
+		if repl, ok := replacements[workload.Key(wl)]; ok && workload.IsAdmitted(repl) {
 			continue
 		}
-		latestWithQuotaReservation = wl
+		latestAdmitted = wl
 	}
 
-	if latestWithQuotaReservation != nil {
-		if repl, ok := replacements[workload.Key(latestWithQuotaReservation)]; ok {
-			if !workload.HasQuotaReservation(repl) {
+	if latestAdmitted != nil {
+		if repl, ok := replacements[workload.Key(latestAdmitted)]; ok {
+			if !workload.IsAdmitted(repl) {
 				pendingReplacement = repl
 			}
 		}
@@ -300,7 +303,7 @@ func normalizeActiveSlices(
 
 	log.V(3).Info("Classified workload slices",
 		"total", len(workloads),
-		"latestWithQuotaReservation", klog.KObj(latestWithQuotaReservation),
+		"latestAdmitted", klog.KObj(latestAdmitted),
 		"pendingReplacement", klog.KObj(pendingReplacement),
 		"latestNonEvicted", klog.KObj(latestNonEvicted))
 
@@ -308,15 +311,15 @@ func normalizeActiveSlices(
 	switch {
 	case pendingReplacement != nil:
 		selectedWorkload = pendingReplacement
-	case latestWithQuotaReservation != nil:
-		selectedWorkload = latestWithQuotaReservation
+	case latestAdmitted != nil:
+		selectedWorkload = latestAdmitted
 	default:
 		selectedWorkload = latestNonEvicted
 	}
 
 	for i := range workloads {
 		wl := &workloads[i]
-		if wl == selectedWorkload || wl == latestWithQuotaReservation {
+		if wl == selectedWorkload || wl == latestAdmitted {
 			continue
 		}
 		log.V(2).Info("Finishing out-of-sync workload slice", "workload", workload.Key(wl))
