@@ -726,6 +726,17 @@ func TestSliceRequests_GreaterKeys(t *testing.T) {
 			}),
 			want: []corev1.ResourceName{corev1.ResourceCPU},
 		},
+		"multiple greater keys sorted alphabetically": {
+			req: NewSliceRequests(MapRequests{
+				corev1.ResourceCPU:  2000,
+				corev1.ResourcePods: 10,
+			}),
+			other: MapRequests{
+				corev1.ResourceCPU:  1000,
+				corev1.ResourcePods: 5,
+			},
+			want: []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourcePods},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
