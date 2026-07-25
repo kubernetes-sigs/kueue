@@ -47,8 +47,9 @@ ignoreFiles = []
     [markup.goldmark.renderer]
       unsafe = true
   [markup.highlight]
-    # See a complete list of available styles at https://xyproto.github.io/splash/docs/all.html
-    style = "tango"
+    # Use CSS classes instead of inline styles so Docsy's built-in
+    # light/dark syntax-highlighting themes apply in both color modes.
+    noClasses = false
     guessSyntax = "true"
 
 ###############################################################################
@@ -138,6 +139,8 @@ ignoreFiles = []
 
   # User interface configuration
   [params.ui]
+    # Show the light/dark/auto theme mode menu in the navbar.
+    showLightDarkModeMenu = true
     # Enable the logo
     navbar_logo = true
     # Enable to show the side bar menu in its compact state.
