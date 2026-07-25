@@ -270,10 +270,7 @@ func normalizeActiveSlices(
 	}
 
 	// Find the admitted workload at the head of the replacement chain: the one
-	// whose replacement (if any) is not itself admitted. Admission — not just a
-	// quota reservation — is required so a replacement that reserved quota but
-	// is not yet running (e.g. still pending its MultiKueue admission check on
-	// the worker cluster) does not prematurely retire the slice it replaces.
+	// whose replacement (if any) is not itself admitted.
 	var latestAdmitted, pendingReplacement, latestNonEvicted *kueue.Workload
 	for i := range workloads {
 		wl := &workloads[i]
