@@ -17,15 +17,75 @@ limitations under the License.
 package admissionfairsharing
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
+
+func TestResolveLQWeight(t *testing.T) {
+	errOther := errors.New("other error")
+	tests := map[string]struct {
+		localQueue *kueue.LocalQueue
+		getErr     error
+		wantWeight float64
+		wantErr    error
+	}{
+		"configured weight": {
+			localQueue: utiltestingapi.MakeLocalQueue("lq", "ns").
+				FairSharing(&kueue.FairSharing{Weight: new(resource.MustParse("2"))}).
+				Obj(),
+			wantWeight: 2,
+		},
+		"default weight": {
+			localQueue: utiltestingapi.MakeLocalQueue("lq", "ns").Obj(),
+			wantWeight: 1,
+		},
+		"missing LocalQueue": {
+			wantWeight: 1,
+		},
+		"other error": {
+			getErr:  errOther,
+			wantErr: errOther,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			builder := utiltesting.NewClientBuilder()
+			if tc.localQueue != nil {
+				builder = builder.WithObjects(tc.localQueue)
+			}
+			if tc.getErr != nil {
+				builder = builder.WithInterceptorFuncs(interceptor.Funcs{
+					Get: func(context.Context, client.WithWatch, client.ObjectKey, client.Object, ...client.GetOption) error {
+						return tc.getErr
+					},
+				})
+			}
+
+			ctx, _ := utiltesting.ContextWithLog(t)
+			gotWeight, err := ResolveLQWeight(ctx, builder.Build(), client.ObjectKey{Namespace: "ns", Name: "lq"})
+			if !errors.Is(err, tc.wantErr) {
+				t.Errorf("ResolveLQWeight() error = %v, want %v", err, tc.wantErr)
+			}
+			if gotWeight != tc.wantWeight {
+				t.Errorf("ResolveLQWeight() = %v, want %v", gotWeight, tc.wantWeight)
+			}
+		})
+	}
+}
 
 func TestCalculateEntryPenaltyWithDRAResources(t *testing.T) {
 	afs := &config.AdmissionFairSharing{
