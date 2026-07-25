@@ -1265,7 +1265,11 @@ func expectedRunningPodSets(ctx context.Context, c client.Client, wl *kueue.Work
 // EquivalentToWorkload checks if the job corresponds to the workload
 func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, wl *kueue.Workload) (bool, error) {
 	owner := metav1.GetControllerOf(wl)
-	if owner.Name != job.Object().GetName() {
+	if owner == nil || owner.Name != job.Object().GetName() {
+		return false, nil
+	}
+
+	if prebuiltWl := PrebuiltWorkloadNameFor(job.Object()); prebuiltWl != "" && wl.Name != prebuiltWl {
 		return false, nil
 	}
 

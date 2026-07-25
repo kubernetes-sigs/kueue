@@ -2729,12 +2729,21 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			Obj()
 		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, victimJob)
 
+		// Fetch the job to get the defaulted PodSpec
+		createdVictimJob := &batchv1.Job{}
+		gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(victimJob), createdVictimJob)).To(gomega.Succeed())
+		podSets, err := jobframework.JobPodSets(managerTestCluster.ctx, (*workloadjob.Job)(createdVictimJob), managerTestCluster.client)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		victimWlKey := types.NamespacedName{Name: "victim-wl", Namespace: managerNs.Name}
 		victimWl := utiltestingapi.MakeWorkload("victim-wl", managerNs.Name).
 			Queue(kueue.LocalQueueName(managerLq.Name)).
 			ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), victimJob.Name, string(victimJob.UID)).
+			Annotation("kueue.x-k8s.io/job-owner-gvk", "batch/v1, Kind=Job").
+			JobUID(string(victimJob.UID)).
 			AdmissionCheck(kueue.AdmissionCheckState{Name: kueue.AdmissionCheckReference(multiKueueAC.Name), State: kueue.CheckStatePending}).
 			Obj()
+		victimWl.Spec.PodSets = podSets
 		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, victimWl)
 
 		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).
@@ -2763,14 +2772,19 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				types.NamespacedName{Name: "spoofed-wl", Namespace: managerNs.Name}, admission)
 		})
 
-		ginkgo.By("verifying the spoofed workload is rejected", func() {
-			util.ExpectAdmissionCheckStateWithMessage(
-				managerTestCluster.ctx, managerTestCluster.client,
-				types.NamespacedName{Name: "spoofed-wl", Namespace: managerNs.Name},
-				multiKueueAC.Name,
-				kueue.CheckStateRejected,
-				"Workload is not owned by the referenced Job",
-			)
+		ginkgo.By("verifying the spoofed workload is rejected or deleted", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				wl := &kueue.Workload{}
+				err := managerTestCluster.client.Get(managerTestCluster.ctx, types.NamespacedName{Name: "spoofed-wl", Namespace: managerNs.Name}, wl)
+				if apierrors.IsNotFound(err) {
+					return
+				}
+				g.Expect(err).To(gomega.Succeed())
+				ac := admissioncheck.FindAdmissionCheck(wl.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAC.Name))
+				g.Expect(ac).NotTo(gomega.BeNil())
+				g.Expect(ac.State).To(gomega.Equal(kueue.CheckStateRejected))
+				g.Expect(ac.Message).To(gomega.ContainSubstring("Workload is not owned by the referenced Job"))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("verifying the victim Job's remote workload on worker1 is NOT deleted", func() {
