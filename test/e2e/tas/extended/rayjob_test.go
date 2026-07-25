@@ -215,7 +215,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, gi
 				workerPods, err := util.GetRayClusterWorkerPods(ctx, k8sClient, client.ObjectKey{
 					Namespace: rayjob.Namespace,
 					Name:      rayjob.Status.RayClusterName,
-				})
+				}, "")
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				gotAssignment := readAssignedNodes(workerPods)
 				gomega.Expect(gotAssignment).Should(gomega.HaveLen(workerReplicas))
