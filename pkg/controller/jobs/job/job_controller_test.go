@@ -4604,13 +4604,14 @@ func TestTerminalIndexesCount(t *testing.T) {
 }
 
 func TestReclaimablePods(t *testing.T) {
-	indexedJob := func(succeeded int32, completedIndexes, failedIndexes string) *Job {
+	indexedJob := func(succeeded, failed int32, completedIndexes, failedIndexes string) *Job {
 		j := utiltestingjob.MakeJob("job", "ns").
 			Indexed(true).
 			Parallelism(8).
 			Completions(8).
 			Obj()
 		j.Status.Succeeded = succeeded
+		j.Status.Failed = failed
 		j.Status.CompletedIndexes = completedIndexes
 		if failedIndexes != "" {
 			j.Spec.BackoffLimitPerIndex = new(int32(0))
@@ -4618,6 +4619,8 @@ func TestReclaimablePods(t *testing.T) {
 		}
 		return (*Job)(j)
 	}
+	retryableFailureJob := indexedJob(1, 1, "0", "")
+	retryableFailureJob.Spec.BackoffLimitPerIndex = new(int32(1))
 	cases := map[string]struct {
 		job  *Job
 		want []kueue.ReclaimablePod
@@ -4625,18 +4628,22 @@ func TestReclaimablePods(t *testing.T) {
 		// An ordinary (non-elastic) Indexed Job must reclaim its completed indexes
 		// exactly as before, now that the count is derived from completedIndexes.
 		"indexed Job reclaims its completed indexes": {
-			job:  indexedJob(4, "0-3", ""),
+			job:  indexedJob(4, 0, "0-3", ""),
 			want: []kueue.ReclaimablePod{{Name: kueue.DefaultPodSetName, Count: 4}},
 		},
+		"indexed Job holds quota for a retryable failure": {
+			job:  retryableFailureJob,
+			want: []kueue.ReclaimablePod{{Name: kueue.DefaultPodSetName, Count: 1}},
+		},
 		"indexed Job reclaims completed and failed indexes": {
-			job:  indexedJob(1, "0", "1"),
+			job:  indexedJob(1, 1, "0", "1"),
 			want: []kueue.ReclaimablePod{{Name: kueue.DefaultPodSetName, Count: 2}},
 		},
 		// Status counters without terminal index sets should not happen with the
 		// native Job controller, but can with a custom spec.managedBy controller.
 		// We trust completedIndexes and failedIndexes and hold the quota.
 		"indexed Job with empty terminal indexes holds quota": {
-			job:  indexedJob(4, "", ""),
+			job:  indexedJob(4, 0, "", ""),
 			want: nil,
 		},
 	}

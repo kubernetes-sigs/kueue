@@ -2486,7 +2486,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			Indexed(true).
 			Parallelism(3).
 			Completions(3).
-			BackoffLimitPerIndex(0).
+			BackoffLimitPerIndex(1).
 			Obj()
 		testJob.Spec.MaxFailedIndexes = new(int32(3))
 
@@ -2499,12 +2499,53 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			g.Expect(workload.IsAdmitted(&workloads.Items[0])).Should(gomega.BeTrue())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
+		ginkgo.By("waiting for the admitted job to reserve its full quota")
+		gomega.Eventually(func(g gomega.Gomega) {
+			cq := &kueue.ClusterQueue{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodClusterQ), cq)).Should(gomega.Succeed())
+			g.Expect(cq.Status.FlavorsUsage).Should(gomega.ContainElement(kueue.FlavorUsage{
+				Name: kueue.ResourceFlavorReference(onDemandFlavor.Name),
+				Resources: []kueue.ResourceUsage{{
+					Name:     corev1.ResourceCPU,
+					Total:    resource.MustParse("300m"),
+					Borrowed: resource.MustParse("0"),
+				}},
+			}))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("recording a failed attempt that can still be retried")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJob), testJob)).Should(gomega.Succeed())
+			testJob.Status.Active = 2
+			testJob.Status.Failed = 1
+			g.Expect(k8sClient.Status().Update(ctx, testJob)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("retaining quota for the retryable index")
+		gomega.Consistently(func(g gomega.Gomega) {
+			workloads := &kueue.WorkloadList{}
+			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testJob.Namespace))).Should(gomega.Succeed())
+			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
+			g.Expect(workloads.Items[0].Status.ReclaimablePods).Should(gomega.BeEmpty())
+
+			cq := &kueue.ClusterQueue{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodClusterQ), cq)).Should(gomega.Succeed())
+			g.Expect(cq.Status.FlavorsUsage).Should(gomega.ContainElement(kueue.FlavorUsage{
+				Name: kueue.ResourceFlavorReference(onDemandFlavor.Name),
+				Resources: []kueue.ResourceUsage{{
+					Name:     corev1.ResourceCPU,
+					Total:    resource.MustParse("300m"),
+					Borrowed: resource.MustParse("0"),
+				}},
+			}))
+		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+
 		ginkgo.By("marking one index completed and one permanently failed")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJob), testJob)).Should(gomega.Succeed())
 			testJob.Status.Active = 1
 			testJob.Status.Succeeded = 1
-			testJob.Status.Failed = 1
+			testJob.Status.Failed = 2
 			testJob.Status.CompletedIndexes = "0"
 			testJob.Status.FailedIndexes = new("1")
 			g.Expect(k8sClient.Status().Update(ctx, testJob)).Should(gomega.Succeed())
