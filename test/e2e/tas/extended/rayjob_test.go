@@ -212,15 +212,13 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, gi
 			})
 
 			ginkgo.By("verify the assignment of pods are as expected with rank-based ordering", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					workerPods, err := util.GetRunningRayClusterWorkerPods(ctx, k8sClient, client.ObjectKey{
-						Namespace: rayjob.Namespace,
-						Name:      rayjob.Status.RayClusterName,
-					})
-					g.Expect(err).NotTo(gomega.HaveOccurred())
-					gotAssignment := readAssignedNodes(workerPods)
-					g.Expect(gotAssignment).Should(gomega.HaveLen(workerReplicas))
-				}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+				workerPods, err := util.GetRayClusterWorkerPods(ctx, k8sClient, client.ObjectKey{
+					Namespace: rayjob.Namespace,
+					Name:      rayjob.Status.RayClusterName,
+				})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				gotAssignment := readAssignedNodes(workerPods)
+				gomega.Expect(gotAssignment).Should(gomega.HaveLen(workerReplicas))
 			})
 		})
 	})
