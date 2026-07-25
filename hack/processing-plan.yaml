@@ -58,6 +58,16 @@ files:
       - type: UPDATE
         key: .subjects.[].namespace
         value: '"{{ .Release.Namespace }}"'
+      # Webhook configurations are named after the release, so the names the manager role
+      # grants must be prefixed to match; CRD names must not be, hence onItemCondition.
+      # addKeyIfMissing bypasses a precheck that cannot parse the trailing []; onFileCondition
+      # then stops that bypass adding an empty rules list to the bindings and service account.
+      - type: APPEND
+        key: .rules.[].resourceNames.[]
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+        onFileCondition: '.rules != null'
+        onItemCondition: '.resourceNames != null and (.resources.[0] == "mutatingwebhookconfigurations" or .resources.[0] == "validatingwebhookconfigurations")'
+        addKeyIfMissing: true
     postOperations:
       - type: INSERT_TEXT
         key: .metadata.labels

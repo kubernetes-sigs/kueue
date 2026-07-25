@@ -37,10 +37,16 @@ const (
 	webhookServiceSuffix = "-webhook-service"
 )
 
+// The webhook configuration resourceNames are deliberately unprefixed: each installer adds
+// its own prefix, kustomize via namePrefix (config/default/webhook_name_reference.yaml) and
+// Helm via kueue.fullname (hack/processing-plan.yaml). Hardcoding "kueue-" here denies the
+// rotator its CA-bundle update on any install named otherwise. CRD names carry no prefix
+// from either installer, so those are spelled in full. list and watch cannot be name-scoped
+// by RBAC and the rotator's informers need them, hence the separate unscoped rules.
 // +kubebuilder:rbac:groups="admissionregistration.k8s.io",resources=mutatingwebhookconfigurations,verbs=list;watch
-// +kubebuilder:rbac:groups="admissionregistration.k8s.io",resources=mutatingwebhookconfigurations,resourceNames=kueue-mutating-webhook-configuration,verbs=get;update
+// +kubebuilder:rbac:groups="admissionregistration.k8s.io",resources=mutatingwebhookconfigurations,resourceNames=mutating-webhook-configuration,verbs=get;update
 // +kubebuilder:rbac:groups="admissionregistration.k8s.io",resources=validatingwebhookconfigurations,verbs=list;watch
-// +kubebuilder:rbac:groups="admissionregistration.k8s.io",resources=validatingwebhookconfigurations,resourceNames=kueue-validating-webhook-configuration,verbs=get;update
+// +kubebuilder:rbac:groups="admissionregistration.k8s.io",resources=validatingwebhookconfigurations,resourceNames=validating-webhook-configuration,verbs=get;update
 // +kubebuilder:rbac:groups="apiextensions.k8s.io",resources=customresourcedefinitions,verbs=list;watch
 // +kubebuilder:rbac:groups="apiextensions.k8s.io",resources=customresourcedefinitions,resourceNames=clusterqueues.kueue.x-k8s.io;cohorts.kueue.x-k8s.io;localqueues.kueue.x-k8s.io;multikueueclusters.kueue.x-k8s.io;workloads.kueue.x-k8s.io,verbs=get;update
 
