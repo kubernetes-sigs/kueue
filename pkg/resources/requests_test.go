@@ -302,6 +302,17 @@ func TestGreaterKeys(t *testing.T) {
 			},
 			want: nil,
 		},
+		"multiple_greater_sorted": {
+			a: MapRequests{
+				"r2": 2,
+				"r1": 2,
+			},
+			b: MapRequests{
+				"r2": 1,
+				"r1": 1,
+			},
+			want: []corev1.ResourceName{"r1", "r2"},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

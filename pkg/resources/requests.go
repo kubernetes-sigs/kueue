@@ -20,6 +20,7 @@ import (
 	"iter"
 	"maps"
 	"math"
+	"slices"
 	"strings"
 	"sync"
 
@@ -209,7 +210,8 @@ func AmountQuantityString(name corev1.ResourceName, a Amount) string {
 	return ResourceQuantityString(name, a.Int64())
 }
 
-// GreaterKeys returns keys where the receiver is greater than other.
+// GreaterKeys returns keys where the receiver is greater than other,
+// sorted alphabetically for deterministic output.
 func (r MapRequests) GreaterKeys(other Requests) []corev1.ResourceName {
 	if len(r) == 0 || isEmpty(other) {
 		return nil
@@ -224,6 +226,7 @@ func (r MapRequests) GreaterKeys(other Requests) []corev1.ResourceName {
 	if len(result) == 0 {
 		return nil
 	}
+	slices.Sort(result)
 	return result
 }
 
