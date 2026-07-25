@@ -375,7 +375,7 @@ print(ray.get([my_task.remote(i, 10) for i in range(20)]))`,
 		ginkgo.By("Waiting for exactly 1 worker pod", func() {
 			podList := &corev1.PodList{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				workerPods, err := util.GetRunningRayClusterWorkerPods(ctx, k8sClient, rayClusterKey)
+				workerPods, err := util.GetRayClusterWorkerPods(ctx, k8sClient, rayClusterKey, corev1.PodRunning)
 				g.Expect(err).NotTo(gomega.HaveOccurred())
 				g.Expect(workerPods).To(gomega.HaveLen(1), "Expected exactly 1 running worker Pod")
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgObjList("Expected exactly 1 worker pod", podList))
@@ -394,7 +394,7 @@ print(ray.get([my_task.remote(i, 10) for i in range(20)]))`,
 		ginkgo.By("Waiting for all 2 worker pods to be running", func() {
 			podList := &corev1.PodList{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				runningWorkers, err := util.GetRunningRayClusterWorkerPods(ctx, k8sClient, rayClusterKey)
+				runningWorkers, err := util.GetRayClusterWorkerPods(ctx, k8sClient, rayClusterKey, corev1.PodRunning)
 				g.Expect(err).NotTo(gomega.HaveOccurred())
 				g.Expect(runningWorkers).To(gomega.HaveLen(2), "Expected 2 running worker pods")
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgObjList("Did not observe 2 running worker pods", podList))
@@ -402,7 +402,7 @@ print(ray.get([my_task.remote(i, 10) for i in range(20)]))`,
 
 		var deletedPodName string
 		ginkgo.By("Deleting one worker pod", func() {
-			runningWorkers, err := util.GetRunningRayClusterWorkerPods(ctx, k8sClient, rayClusterKey)
+			runningWorkers, err := util.GetRayClusterWorkerPods(ctx, k8sClient, rayClusterKey, corev1.PodRunning)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(runningWorkers).NotTo(gomega.BeEmpty())
 			deletedPodName = runningWorkers[0].Name
@@ -412,7 +412,7 @@ print(ray.get([my_task.remote(i, 10) for i in range(20)]))`,
 		ginkgo.By("Waiting for a new worker pod to replace the deleted one", func() {
 			podList := &corev1.PodList{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				runningWorkers, err := util.GetRunningRayClusterWorkerPods(ctx, k8sClient, rayClusterKey)
+				runningWorkers, err := util.GetRayClusterWorkerPods(ctx, k8sClient, rayClusterKey, corev1.PodRunning)
 				g.Expect(err).NotTo(gomega.HaveOccurred())
 				g.Expect(runningWorkers).To(gomega.HaveLen(2), "Expected 2 running worker pods after replacement")
 				for _, pod := range runningWorkers {
@@ -577,7 +577,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 
 		ginkgo.By("Waiting for at least 1 worker pod", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				workerPods, err := util.GetRunningRayClusterWorkerPods(ctx, k8sClient, rayClusterKey)
+				workerPods, err := util.GetRayClusterWorkerPods(ctx, k8sClient, rayClusterKey, corev1.PodRunning)
 				g.Expect(err).NotTo(gomega.HaveOccurred())
 				g.Expect(workerPods).ToNot(gomega.BeEmpty(), "Expected at least 1 running worker Pod")
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed(), "Expected at least 1 worker pod")
@@ -595,7 +595,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 
 		ginkgo.By("Waiting for second scale-up to 5 workers due to high parallelism tasks", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				workerPods, err := util.GetRunningRayClusterWorkerPods(ctx, k8sClient, rayClusterKey)
+				workerPods, err := util.GetRayClusterWorkerPods(ctx, k8sClient, rayClusterKey, corev1.PodRunning)
 				g.Expect(err).NotTo(gomega.HaveOccurred())
 				g.Expect(workerPods).To(gomega.HaveLen(5), "Expected exactly 5 running worker Pods after second scale-up")
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed(), "Did not scale up to 5 worker pods")
@@ -1191,7 +1191,7 @@ app = HelloWorld.bind()`,
 
 		ginkgo.By("Waiting for worker count to be zero due to autoscaling", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				runningWorkers, err := util.GetRunningRayClusterWorkerPods(ctx, k8sClient, rayClusterKey)
+				runningWorkers, err := util.GetRayClusterWorkerPods(ctx, k8sClient, rayClusterKey, corev1.PodRunning)
 				g.Expect(err).NotTo(gomega.HaveOccurred())
 				g.Expect(runningWorkers).To(gomega.BeEmpty(), "Expected 0 running worker pod before sending load")
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
@@ -1220,7 +1220,7 @@ app = HelloWorld.bind()`,
 
 		ginkgo.By("Waiting for worker count to increase due to autoscaling", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				runningWorkers, err := util.GetRunningRayClusterWorkerPods(ctx, k8sClient, rayClusterKey)
+				runningWorkers, err := util.GetRayClusterWorkerPods(ctx, k8sClient, rayClusterKey, corev1.PodRunning)
 				g.Expect(err).NotTo(gomega.HaveOccurred())
 				g.Expect(len(runningWorkers)).To(gomega.BeNumerically(">", 1),
 					fmt.Sprintf("Expected more than %d running worker pods after autoscaling", 1))
