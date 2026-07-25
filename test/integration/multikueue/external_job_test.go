@@ -29,8 +29,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	clientutil "sigs.k8s.io/kueue/pkg/util/client"
-
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
@@ -44,6 +42,7 @@ import (
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/controller/workloaddispatcher"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
@@ -301,6 +300,7 @@ var _ = ginkgo.Describe(
 				)
 				raycluster := testingraycluster.MakeCluster("raycluster1", managerNs.Name).
 					Queue(managerLq.Name).
+					ManagedBy(kueue.MultiKueueControllerName).
 					Obj()
 				util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, raycluster)
 				wlLookupKey := types.NamespacedName{
@@ -368,6 +368,7 @@ var _ = ginkgo.Describe(
 				)
 				raycluster := testingraycluster.MakeCluster("raycluster1", managerNs.Name).
 					Queue(managerLq.Name).
+					ManagedBy(kueue.MultiKueueControllerName).
 					Obj()
 				// The owner UID exists only on the manager, so a worker GC would delete a copy that kept it.
 				raycluster.OwnerReferences = []metav1.OwnerReference{{
@@ -472,6 +473,7 @@ var _ = ginkgo.Describe(
 				func() {
 					raycluster := testingraycluster.MakeCluster("raycluster1", managerNs.Name).
 						Queue(managerLq.Name).
+						ManagedBy(kueue.MultiKueueControllerName).
 						Obj()
 					util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, raycluster)
 					rayclusterLookupKey := client.ObjectKeyFromObject(raycluster)

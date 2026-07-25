@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -299,7 +300,21 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 
 			ownsWorkload := false
 			for _, k := range keys {
-				if k.Name == wl.Name && k.Namespace == wl.Namespace {
+				if k.Namespace != wl.Namespace {
+					continue
+				}
+
+				if k.Name == wl.Name {
+					ownsWorkload = true
+					break
+				}
+
+				prefix := k.Name
+				if dashIdx := strings.LastIndex(prefix, "-"); dashIdx != -1 {
+					prefix = prefix[:dashIdx+1]
+				}
+
+				if strings.HasPrefix(wl.Name, prefix) {
 					ownsWorkload = true
 					break
 				}
