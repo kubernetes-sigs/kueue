@@ -724,6 +724,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						Creation(fiveMinutesAgo).
 						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
 						ReserveQuotaAt(utiltestingapi.MakeAdmission("default").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
+						AdmittedAt(true, now).
 						Obj(),
 					utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
@@ -802,6 +803,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						Creation(fiveMinutesAgo).
 						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
 						ReserveQuotaAt(utiltestingapi.MakeAdmission("default").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
+						AdmittedAt(true, now).
 						Obj(),
 					utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
@@ -834,6 +836,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						Creation(fiveMinutesAgo).
 						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
 						ReserveQuotaAt(utiltestingapi.MakeAdmission("default").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
+						AdmittedAt(true, now).
 						Obj(),
 					utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
@@ -867,6 +870,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						Creation(fiveMinutesAgo).
 						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
 						ReserveQuotaAt(utiltestingapi.MakeAdmission("default").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
+						AdmittedAt(true, now).
 						Obj(),
 					utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
@@ -1009,7 +1013,7 @@ func TestNormalizeActiveSlices(t *testing.T) {
 	admitted := func(w *utiltestingapi.WorkloadWrapper) *utiltestingapi.WorkloadWrapper {
 		return w.ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
 			utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").Obj(),
-		).Obj(), now)
+		).Obj(), now).AdmittedAt(true, now)
 	}
 
 	type want struct {
