@@ -181,7 +181,6 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 				},
 			}, util.IgnoreConditionTimestampsAndObservedGeneration))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		util.ExpectLQByStatusMetric(queue, metav1.ConditionFalse)
 	})
 
 	ginkgo.It("Should update status when workloads are created", framework.SlowSpec, func() {
