@@ -19,6 +19,7 @@ package util
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	kuberayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
@@ -44,8 +45,10 @@ func GetRayClusterHeadPod(ctx context.Context, c client.Client, rayClusterKey cl
 	return &pods.Items[0], nil
 }
 
-// GetRunningRayClusterWorkerPods returns the running worker Pods associated with the RayCluster.
-func GetRunningRayClusterWorkerPods(ctx context.Context, c client.Client, rayClusterKey client.ObjectKey) ([]corev1.Pod, error) {
+// GetRayClusterWorkerPods returns the worker Pods associated with the RayCluster
+// whose phase matches one of the provided phases. If no phase is provided, it
+// returns all associated worker Pods.
+func GetRayClusterWorkerPods(ctx context.Context, c client.Client, rayClusterKey client.ObjectKey, phases ...corev1.PodPhase) ([]corev1.Pod, error) {
 	pods := &corev1.PodList{}
 	if err := c.List(ctx, pods,
 		client.InNamespace(rayClusterKey.Namespace),
@@ -56,11 +59,14 @@ func GetRunningRayClusterWorkerPods(ctx context.Context, c client.Client, rayClu
 	); err != nil {
 		return nil, err
 	}
-	runningPods := make([]corev1.Pod, 0, len(pods.Items))
+	if len(phases) == 0 {
+		return pods.Items, nil
+	}
+	filteredPods := make([]corev1.Pod, 0, len(pods.Items))
 	for _, pod := range pods.Items {
-		if pod.Status.Phase == corev1.PodRunning {
-			runningPods = append(runningPods, pod)
+		if slices.Contains(phases, pod.Status.Phase) {
+			filteredPods = append(filteredPods, pod)
 		}
 	}
-	return runningPods, nil
+	return filteredPods, nil
 }
