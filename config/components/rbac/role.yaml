@@ -53,7 +53,7 @@ rules:
 - apiGroups:
   - admissionregistration.k8s.io
   resourceNames:
-  - kueue-mutating-webhook-configuration
+  - mutating-webhook-configuration
   resources:
   - mutatingwebhookconfigurations
   verbs:
@@ -70,7 +70,7 @@ rules:
 - apiGroups:
   - admissionregistration.k8s.io
   resourceNames:
-  - kueue-validating-webhook-configuration
+  - validating-webhook-configuration
   resources:
   - validatingwebhookconfigurations
   verbs:

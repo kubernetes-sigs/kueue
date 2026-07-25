@@ -72,7 +72,7 @@ rules:
   - apiGroups:
       - admissionregistration.k8s.io
     resourceNames:
-      - kueue-mutating-webhook-configuration
+      - '{{ include "kueue.fullname" . }}-mutating-webhook-configuration'
     resources:
       - mutatingwebhookconfigurations
     verbs:
@@ -89,7 +89,7 @@ rules:
   - apiGroups:
       - admissionregistration.k8s.io
     resourceNames:
-      - kueue-validating-webhook-configuration
+      - '{{ include "kueue.fullname" . }}-validating-webhook-configuration'
     resources:
       - validatingwebhookconfigurations
     verbs:
