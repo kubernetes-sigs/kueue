@@ -2477,6 +2477,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			util.ExpectClusterQueueStatusMetric(cq, metrics.CQStatusPending)
+			util.ExpectLQByStatusMetric(queue, metav1.ConditionFalse)
 			util.ExpectEvictedWorkloadsTotalMetric(clusterQueue.Name, kueue.WorkloadEvictedByClusterQueueStopped, "", "", 1)
 			util.ExpectEvictedWorkloadsOnceTotalMetric(cq.Name, kueue.WorkloadEvictedByClusterQueueStopped, "", "", 1)
 
