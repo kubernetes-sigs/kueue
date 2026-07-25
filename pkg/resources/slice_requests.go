@@ -222,7 +222,8 @@ func (sr *SliceRequests) ToResourceList(formatter *ResourceFormatter) corev1.Res
 	return ret
 }
 
-// GreaterKeys returns keys where the receiver is greater than other.
+// GreaterKeys returns keys where the receiver is greater than other,
+// sorted alphabetically for deterministic output.
 func (sr *SliceRequests) GreaterKeys(other Requests) []corev1.ResourceName {
 	if sr.IsEmpty() || isEmpty(other) {
 		return nil
@@ -238,6 +239,7 @@ func (sr *SliceRequests) GreaterKeys(other Requests) []corev1.ResourceName {
 			result = append(result, entry.name)
 		}
 	}
+	slices.Sort(result)
 	return result
 }
 
