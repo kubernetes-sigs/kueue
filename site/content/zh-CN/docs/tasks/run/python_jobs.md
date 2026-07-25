@@ -11,19 +11,16 @@ description: 在启用了 Kueue 的环境里运行 Job
 ## 开始之前 {#before-you-begin}
 
 检查[管理集群配额](/zh-cn/docs/tasks/manage/administer_cluster_quotas)
-了解初始集群设置的详细信息。你还需要安装 kubernetes python。我们建议使用虚拟环境。
+了解初始集群设置的详细信息。你还需要安装 [uv](https://docs.astral.sh/uv/)。
+每个示例脚本包含[内联脚本元数据 (PEP 723)](https://peps.python.org/pep-0723/)，
+因此 `uv run` 会自动创建隔离环境并安装所需的依赖项。
 
 ```bash
-python -m venv env
-source env/bin/activate
-pip install kubernetes requests
+# 安装 uv（如果尚未安装）
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-请注意，以下版本用于开发这些示例：
-
- - **Python**: 3.9.12
- - **kubernetes**: 26.1.0
- - **requests**: 2.31.0
+无需手动 `pip install` 或虚拟环境设置 — 只需使用 `uv run` 运行脚本。
 
 你可以按照 [Kueue 安装说明](https://github.com/kubernetes-sigs/kueue#installation)安装 Kueue，或者使用下面的安装示例。
 
@@ -48,7 +45,7 @@ Kueue 的核心是一个控制器，用于管理[自定义资源](https://kubern
 然后运行如下：
 
 ```bash
-python install-kueue-queues.py 
+uv run install-kueue-queues.py 
 ```
 
 ```console
@@ -59,7 +56,7 @@ python install-kueue-queues.py
 你也可以指定版本：
 
 ```bash
-python install-kueue-queues.py --version {{< param "version" >}}
+uv run install-kueue-queues.py --version {{< param "version" >}}
 ```
 
 ### 示例作业 {#sample-job}
@@ -71,7 +68,7 @@ python install-kueue-queues.py --version {{< param "version" >}}
 然后运行如下：
 
 ```bash
-python sample-job.py
+uv run sample-job.py
 ```
 ```console
 📦️ Container image selected is registry.k8s.io/e2e-test-images/agnhost:2.53...
@@ -84,7 +81,7 @@ Use:
 或者尝试更改作业名称 (`generateName`)：
 
 ```bash
-python sample-job.py --job-name sleep-job-
+uv run sample-job.py --job-name sleep-job-
 ```
 
 ```console
@@ -109,15 +106,15 @@ Use:
 为了使输出更有趣，我们可以先运行几个随机作业：
 
 ```bash
-python sample-job.py
-python sample-job.py
-python sample-job.py --job-name tacos
+uv run sample-job.py
+uv run sample-job.py
+uv run sample-job.py --job-name tacos
 ```
 
 然后运行脚本来查看你之前提交的队列和作业。
 
 ```bash
-python sample-queue-control.py
+uv run sample-queue-control.py
 ```
 ```console
 ⛑️  Local Queues
@@ -164,9 +161,7 @@ API 文档了解更多调用。
 来轻松完成此操作。鉴于我们在[设置](#开始之前)中创建的 Python 环境，
 我们可以直接将其安装到其中，如下所示：
 
-```bash
-pip install fluxoperator
-```
+`fluxoperator` 依赖在脚本的内联元数据中声明，`uv run` 会自动安装。
 
 我们还需要[安装 Flux operator](https://flux-framework.org/flux-operator/getting_started/user-guide.html#quick-install)。
 
@@ -181,7 +176,7 @@ kubectl apply -f https://raw.githubusercontent.com/flux-framework/flux-operator/
 现在尝试运行示例：
 
 ```bash
-python sample-flux-operator-job.py
+uv run sample-flux-operator-job.py
 ```
 ```console
 📦️ Container image selected is ghcr.io/flux-framework/flux-restful-api...
@@ -263,7 +258,7 @@ broker.info[0]: goodbye: goodbye->exit 0.06917ms
 如果你提交并请求四个任务，你将看到 "hello world" 四次：
 
 ```bash
-python sample-flux-operator-job.py --tasks 4
+uv run sample-flux-operator-job.py --tasks 4
 ```
 ```console
 ...
@@ -277,105 +272,3 @@ hello world
 你可以进一步自定义作业，并可以在 [Flux Operator 问题板](https://github.com/flux-framework/flux-operator/issues)上提问。
 最后，有关如何使用 YAML 在 Python 之外完成此操作的说明，请参见[运行 Flux MiniCluster](/zh-cn/docs/tasks/run/external_workloads/flux_miniclusters/)。
 
-### MPI Operator  {#mpi-operator-job}
-
-对于此示例，我们将使用 [MPI Operator](https://www.kubeflow.org/docs/components/training/mpi/)
-提交作业，并特别使用 [Python SDK](https://github.com/kubeflow/mpi-operator/tree/master/sdk/python/v2beta1)
-来轻松完成此操作。鉴于我们在[设置](#开始之前)中创建的 Python 环境，
-我们可以直接将其安装到其中，如下所示：
-
-```bash
-git clone --depth 1 https://github.com/kubeflow/mpi-operator /tmp/mpijob
-cd /tmp/mpijob/sdk/python/v2beta1
-python setup.py install
-cd -
-```
-
-重要的是，MPI Operator **必须在 Kueue 之前安装**才能正常工作！让我们从头开始，使用一个新的 Kind 集群。
-我们还需要[安装 MPI operator](https://github.com/kubeflow/mpi-operator/tree/master#installation)和 Kueue。
-在这里我们安装确切版本测试此示例：
-
-```bash
-kubectl apply -f https://github.com/kubeflow/mpi-operator/releases/download/v0.4.0/mpi-operator.yaml
-kubectl apply -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.4.0/manifests.yaml
-```
-
-请检查 [mpi-operator 发布页面](https://github.com/kubeflow/mpi-operator/releases)和
-[Kueue 发布页面](https://github.com/kubernetes-sigs/kueue/releases)获取其他版本。
-你需要等待 Kueue 准备就绪。你可以通过以下方式确定：
-
-```bash
-# 等待直到你看到 kueue-system 中的所有 Pod 都在运行
-kubectl get pods -n kueue-system
-```
-
-当 Kueue 准备就绪时：
-
-```bash
-kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/kueue/main/site/static/examples/admin/single-clusterqueue-setup.yaml
-```
-
-现在尝试运行示例 MPIJob。
-
-```bash
-python sample-mpijob.py
-```
-```console
-📦️ 容器镜像已选择为 mpioperator/mpi-pi:openmpi...
-⭐️ 正在创建示例作业，前缀为 pi...
-使用：
-"kubectl get queue" 查看队列分配
-"kubectl get jobs" 查看作业
-```
-
-{{< include "examples/python/sample-mpijob.py" "python" >}}
-
-提交后，你可以看到队列具有一个接纳的作业！
-
-```bash
-$ kubectl get queue
-```
-```console
-NAME         CLUSTERQUEUE    PENDING WORKLOADS   ADMITTED WORKLOADS
-user-queue   cluster-queue   0                   1
-```
-
-并且作业 "pi-launcher" 已启动：
-
-```bash
-$ kubectl get jobs
-NAME          COMPLETIONS   DURATION   AGE
-pi-launcher   0/1           9s         9s
-```
-
-MPI Operator 通过中央 launcher 与节点通过 ssh 交互。我们可以检查
-一个 worker 和 launcher 来了解两者的工作原理：
-
-```bash
-$ kubectl logs pods/pi-worker-1 
-```
-```console
-Server listening on 0.0.0.0 port 22.
-Server listening on :: port 22.
-Accepted publickey for mpiuser from 10.244.0.8 port 51694 ssh2: ECDSA SHA256:rgZdwufXolOkUPA1w0bf780BNJC8e4/FivJb1/F7OOI
-Received disconnect from 10.244.0.8 port 51694:11: disconnected by user
-Disconnected from user mpiuser 10.244.0.8 port 51694
-Received signal 15; terminating.
-```
-
-作业运行较快，我们可以看到 launcher 的输出：
-
-```bash
-$ kubectl logs pods/pi-launcher-f4gqv 
-```
-```console
-Warning: Permanently added 'pi-worker-0.pi-worker.default.svc,10.244.0.7' (ECDSA) to the list of known hosts.
-Warning: Permanently added 'pi-worker-1.pi-worker.default.svc,10.244.0.9' (ECDSA) to the list of known hosts.
-Rank 1 on host pi-worker-1
-Workers: 2
-Rank 0 on host pi-worker-0
-pi is approximately 3.1410376000000002
-```
-
-看起来像是 pi！🎉️🥧️
-如果你有兴趣在 Python 之外使用 YAML 运行此示例，请参见[运行 MPIJob](/zh-cn/docs/tasks/run/kubeflow/mpijobs/)。

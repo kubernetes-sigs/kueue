@@ -279,7 +279,7 @@ func TestIndexAdmissionChecks(t *testing.T) {
 			checks: []*kueue.AdmissionCheck{
 				utiltestingapi.MakeAdmissionCheck("check1").
 					ControllerName("other").
-					Parameters(kueue.GroupVersion.Group, ConfigKind, "config1").
+					Parameters(kueue.SchemeGroupVersion.Group, ConfigKind, "config1").
 					Obj(),
 			},
 			filter: client.MatchingFields{AdmissionCheckUsingConfigKey: "config1"},
@@ -297,7 +297,7 @@ func TestIndexAdmissionChecks(t *testing.T) {
 			checks: []*kueue.AdmissionCheck{
 				utiltestingapi.MakeAdmissionCheck("check1").
 					ControllerName(kueue.ProvisioningRequestControllerName).
-					Parameters(kueue.GroupVersion.Group, "kind", "config1").
+					Parameters(kueue.SchemeGroupVersion.Group, "kind", "config1").
 					Obj(),
 			},
 			filter: client.MatchingFields{AdmissionCheckUsingConfigKey: "config1"},
@@ -306,7 +306,7 @@ func TestIndexAdmissionChecks(t *testing.T) {
 			checks: []*kueue.AdmissionCheck{
 				utiltestingapi.MakeAdmissionCheck("check1").
 					ControllerName(kueue.ProvisioningRequestControllerName).
-					Parameters(kueue.GroupVersion.Group, ConfigKind, "").
+					Parameters(kueue.SchemeGroupVersion.Group, ConfigKind, "").
 					Obj(),
 			},
 			filter: client.MatchingFields{AdmissionCheckUsingConfigKey: ""},
@@ -315,7 +315,7 @@ func TestIndexAdmissionChecks(t *testing.T) {
 			checks: []*kueue.AdmissionCheck{
 				utiltestingapi.MakeAdmissionCheck("check1").
 					ControllerName(kueue.ProvisioningRequestControllerName).
-					Parameters(kueue.GroupVersion.Group, ConfigKind, "config1").
+					Parameters(kueue.SchemeGroupVersion.Group, ConfigKind, "config1").
 					Obj(),
 			},
 			filter:   client.MatchingFields{AdmissionCheckUsingConfigKey: "config1"},
@@ -325,15 +325,15 @@ func TestIndexAdmissionChecks(t *testing.T) {
 			checks: []*kueue.AdmissionCheck{
 				utiltestingapi.MakeAdmissionCheck("check1").
 					ControllerName(kueue.ProvisioningRequestControllerName).
-					Parameters(kueue.GroupVersion.Group, ConfigKind, "config1").
+					Parameters(kueue.SchemeGroupVersion.Group, ConfigKind, "config1").
 					Obj(),
 				utiltestingapi.MakeAdmissionCheck("check2").
 					ControllerName(kueue.ProvisioningRequestControllerName).
-					Parameters(kueue.GroupVersion.Group, ConfigKind, "config1").
+					Parameters(kueue.SchemeGroupVersion.Group, ConfigKind, "config1").
 					Obj(),
 				utiltestingapi.MakeAdmissionCheck("check3").
 					ControllerName(kueue.ProvisioningRequestControllerName).
-					Parameters(kueue.GroupVersion.Group, ConfigKind, "config2").
+					Parameters(kueue.SchemeGroupVersion.Group, ConfigKind, "config2").
 					Obj(),
 			},
 			filter:   client.MatchingFields{AdmissionCheckUsingConfigKey: "config1"},

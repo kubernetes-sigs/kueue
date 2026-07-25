@@ -27,3 +27,8 @@ func TaintKeyExists(taints []corev1.Taint, taintKeyToMatch string) bool {
 	}
 	return false
 }
+
+// IsSchedulingTaint checks if the taint effect is NoSchedule or NoExecute.
+func IsSchedulingTaint(t *corev1.Taint) bool {
+	return t.Effect == corev1.TaintEffectNoSchedule || t.Effect == corev1.TaintEffectNoExecute
+}

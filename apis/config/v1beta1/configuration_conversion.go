@@ -106,3 +106,7 @@ func Convert_v1beta2_DeviceClassMapping_To_v1beta1_DeviceClassMapping(in *v1beta
 func Convert_v1beta2_MultiKueue_To_v1beta1_MultiKueue(in *v1beta2.MultiKueue, out *MultiKueue, s conversionapi.Scope) error {
 	return autoConvert_v1beta2_MultiKueue_To_v1beta1_MultiKueue(in, out, s)
 }
+
+func Convert_v1beta2_ControllerMetricsCustomLabel_To_v1beta1_ControllerMetricsCustomLabel(in *v1beta2.ControllerMetricsCustomLabel, out *ControllerMetricsCustomLabel, s conversionapi.Scope) error {
+	return autoConvert_v1beta2_ControllerMetricsCustomLabel_To_v1beta1_ControllerMetricsCustomLabel(in, out, s)
+}

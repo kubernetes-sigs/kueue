@@ -1,0 +1,89 @@
+---
+title: "Opt-in Namespace Management"
+date: 2025-11-25
+weight: 15
+description: >
+  Configure Kueue to only manage workloads in explicitly labeled namespaces.
+---
+
+This page describes how to configure Kueue to enforce opt-in namespace management, ensuring that only workloads in explicitly labeled namespaces are reconciled by Kueue.
+
+## Before you begin
+
+- Learn how to [install Kueue with a custom manager configuration](/v0.19/docs/installation/#install-a-custom-configured-released-version).
+- Understand how to configure [`manageJobsWithoutQueueName`](/v0.19/docs/tasks/manage/enforce_job_management/manage_jobs_without_queue_name/).
+- Learn how to [change the feature gates configuration](/v0.19/docs/installation/#change-the-feature-gates-configuration).
+
+## Why Use Opt-in Namespace Management?
+
+Opt-in namespace management allows cluster administrators to enforce strict quota controls by ensuring that Kueue only manages workloads in explicitly designated namespaces. This provides several key benefits:
+
+- **Prevents quota bypass**: Users cannot bypass Kueue's quota system by manually adding `queue-name` labels to workloads in unmanaged namespaces. Only workloads in opted-in namespaces are ever reconciled by Kueue, regardless of how they are labeled.
+- **Explicit control**: Cluster administrators have full control over which namespaces are subject to Kueue management by simply labeling namespaces.
+- **Consistent behavior**: This brings `batch/v1.Job` integration into alignment with `Pod`, `Deployment`, and `StatefulSet` integrations, which already enforce namespace-based filtering.
+
+## Configuration
+
+### Step 1: Label Namespaces
+
+Label the namespaces that should be managed by Kueue. For example, use the `managed-by-kueue` label:
+
+```bash
+kubectl label namespace my-namespace managed-by-kueue=true
+```
+
+### Step 2: Configure the Selector
+
+Configure the `managedJobsNamespaceSelector` in your Kueue Configuration with `matchLabels` or `matchExpressions`.
+
+1. Use `matchLabels` to select labeled namespaces:
+
+   ```yaml
+   apiVersion: config.kueue.x-k8s.io/v1beta2
+   kind: Configuration
+   metadata:
+     name: config
+     namespace: kueue-system
+   manageJobsWithoutQueueName: true
+   managedJobsNamespaceSelector:
+     matchLabels:
+       managed-by-kueue: "true"
+   ```
+
+2. Use `matchExpressions` to explicitly select the namespaces you want kueue to manage:
+
+   ```yaml
+   managedJobsNamespaceSelector:
+     matchExpressions:
+     - key: kubernetes.io/metadata.name
+       operator: In
+       values: [ production, training, inference ]
+   ```
+
+3. Use `matchExpressions` with the `NotIn` operator for the inverse selection, i.e. select all namespaces you do not want kueue to manage:
+
+   ```yaml
+   managedJobsNamespaceSelector:
+     matchExpressions:
+     - key: kubernetes.io/metadata.name
+       operator: NotIn
+       values: [ kube-system, kueue-system ]
+   ```
+
+   Exclusion of `kube-system` and `kueue-system` is the default behaviour of kueue. For production environments consider explicitly selecting the namespaces you want kueue to manage, otherwise you have to exclude all system components your cluster (CNI, CSI, monitoring, gitops, etc).
+
+## How It Works
+
+The `managedJobsNamespaceSelector` restricts the reconciliation of all workloads, regardless of whether they have a `kueue.x-k8s.io/queue-name` label.
+
+- The namespace selector check happens **first**, before any other reconciliation logic.
+- If a workload's namespace does not match the `managedJobsNamespaceSelector` (and the selector is not nil), the workload will not be reconciled by Kueue — regardless of whether it has a `queue-name` label or the value of `manageJobsWithoutQueueName`.
+- If a workload's namespace matches the selector (or if `managedJobsNamespaceSelector` is nil), normal reconciliation logic applies:
+  - If `manageJobsWithoutQueueName=false`: Kueue will manage exactly those instances of supported Kinds that have a `queue-name` label.
+  - If `manageJobsWithoutQueueName=true`: Kueue will manage all instances of supported Kinds with or without `queue-name` label.
+
+## Related Documentation
+
+- [KEP-3589: Uniformly filter manageJobsWithoutQueueNames by namespace](https://github.com/kubernetes-sigs/kueue/tree/main/keps/3589-manage-jobs-selectively)
+- [Setup manageJobsWithoutQueueName](/v0.19/docs/tasks/manage/enforce_job_management/manage_jobs_without_queue_name/)
+- [Setup Job Admission Policy](/v0.19/docs/tasks/manage/enforce_job_management/setup_job_admission_policy/)

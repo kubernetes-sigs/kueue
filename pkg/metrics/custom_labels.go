@@ -17,166 +17,254 @@ limitations under the License.
 package metrics
 
 import (
+	"iter"
 	"slices"
+
+	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/utils/ptr"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 )
 
-// CustomLabelStore is a type-safe store for custom label values, used for stale series cleanup.
-type CustomLabelStore[K ~string] struct {
-	m *utilmaps.SyncMap[string, []string]
-}
-
-func newCustomLabelStore[K ~string]() CustomLabelStore[K] {
-	return CustomLabelStore[K]{m: utilmaps.NewSyncMap[string, []string](0)}
-}
-
-// Store saves values and returns true if they changed.
-func (s CustomLabelStore[K]) Store(key K, newVals []string) bool {
-	old, existed := s.m.Swap(string(key), newVals)
-	return existed && !slices.Equal(old, newVals)
-}
-
-func (s CustomLabelStore[K]) Get(key K) []string {
-	vals, _ := s.m.Get(string(key))
-	return vals
-}
-
-func (s CustomLabelStore[K]) Delete(key K) {
-	s.m.Delete(string(key))
-}
-
 // CustomLabels holds mutable state for custom metric labels.
 type CustomLabels struct {
-	names        []string
-	labelEntries []configapi.ControllerMetricsCustomLabel
-	cq           CustomLabelStore[kueue.ClusterQueueReference]
-	lq           CustomLabelStore[utilqueue.LocalQueueReference]
-	cohort       CustomLabelStore[kueue.CohortReference]
+	m map[configapi.SourceKind]*SourceKindLabelStore
+}
+
+type SourceKindLabelStore struct {
+	labelNames []string
+	labelSpecs []configapi.ControllerMetricsCustomLabel
+	values     *utilmaps.SyncMap[string, []string]
+}
+
+func WorkloadCustomLabelSources(entries []configapi.ControllerMetricsCustomLabel) (labels, annotations sets.Set[string]) {
+	labels, annotations = sets.New[string](), sets.New[string]()
+	for _, entry := range entries {
+		if ptr.Deref(entry.SourceKind, configapi.DefaultCustomMetricLabelSourceKind) != configapi.SourceKindWorkload {
+			continue
+		}
+		switch {
+		case entry.SourceAnnotationKey != "":
+			annotations.Insert(entry.SourceAnnotationKey)
+		case entry.SourceLabelKey != "":
+			labels.Insert(entry.SourceLabelKey)
+		default:
+			labels.Insert(entry.Name)
+		}
+	}
+	return
 }
 
 func NewCustomLabels(entries []configapi.ControllerMetricsCustomLabel) *CustomLabels {
-	cl := &CustomLabels{
-		cq:     newCustomLabelStore[kueue.ClusterQueueReference](),
-		lq:     newCustomLabelStore[utilqueue.LocalQueueReference](),
-		cohort: newCustomLabelStore[kueue.CohortReference](),
+	if !features.Enabled(features.CustomMetricLabels) || len(entries) == 0 {
+		return nil
 	}
-	if len(entries) > 0 {
-		cl.labelEntries = entries
-		cl.names = make([]string, len(entries))
-		for i, e := range entries {
-			cl.names[i] = "custom_" + e.Name
-		}
-		InitMetricVectors(cl.names)
+
+	requestedKinds := sets.New[configapi.SourceKind]()
+	for _, entry := range entries {
+		requestedKinds.Insert(ptr.Deref(entry.SourceKind, configapi.DefaultCustomMetricLabelSourceKind))
 	}
+
+	cl := &CustomLabels{m: make(map[configapi.SourceKind]*SourceKindLabelStore)}
+	for kind := range requestedKinds {
+		cl.m[kind] = newSourceKindLabelStore(kind, entries)
+	}
+
+	InitMetricVectors(cl)
 	return cl
 }
 
-// LabelNames returns the computed metric label names (e.g. "custom_team").
-func (cl *CustomLabels) LabelNames() []string {
-	if cl == nil {
+// LabelNames returns the computed metric label names (e.g. "custom_team")
+// for the requested set of sources.
+// The labels are ordered by source kind then by the order of definition in the config.
+func (cl *CustomLabels) LabelNames(srcs ...configapi.SourceKind) []string {
+	if !cl.enabled() || len(srcs) == 0 {
 		return nil
 	}
-	return cl.names
+
+	labels := make([]string, 0)
+	for store := range cl.labelStoreIter(srcs) {
+		labels = append(labels, store.labelNames...)
+	}
+
+	if len(labels) == 0 {
+		return nil
+	}
+	return labels
 }
 
-// ExtractValues reads custom label values from object metadata.
-func (cl *CustomLabels) ExtractValues(labels, annotations map[string]string) []string {
-	if cl == nil || len(cl.labelEntries) == 0 {
+func (cl *CustomLabels) UpdateRequired(kind configapi.SourceKind, ref string, labels, annotations map[string]string) bool {
+	if !cl.enabled() {
+		return false
+	}
+	store, supported := cl.m[kind]
+	if !supported {
+		return false
+	}
+	return !slices.Equal(
+		store.get(ref),
+		store.extractValues(labels, annotations),
+	)
+}
+
+func (cl *CustomLabels) Store(kind configapi.SourceKind, ref string, labels, annotations map[string]string) bool {
+	if !cl.enabled() || cl.m[kind] == nil {
+		return false
+	}
+	return cl.m[kind].store(ref, labels, annotations)
+}
+
+func (cl *CustomLabels) Get(kind configapi.SourceKind, ref string) []string {
+	return cl.GetFor(map[configapi.SourceKind]string{kind: ref})
+}
+
+// GetFor returns a list of label values, ordered by source kind then by the order of definition in the config.
+func (cl *CustomLabels) GetFor(sourceMap map[configapi.SourceKind]string) []string {
+	if !cl.enabled() || len(sourceMap) == 0 {
 		return nil
 	}
-	vals := make([]string, len(cl.labelEntries))
-	for i, e := range cl.labelEntries {
+
+	vals := make([]string, 0)
+	srcs := sets.KeySet(sourceMap).UnsortedList()
+	for store, kind := range cl.labelStoreIter(srcs) {
+		vals = append(vals, store.get(sourceMap[kind])...)
+	}
+	if len(vals) == 0 {
+		return nil
+	}
+	return vals
+}
+
+func (cl *CustomLabels) Delete(kind configapi.SourceKind, ref string) {
+	if !cl.enabled() || cl.m[kind] == nil {
+		return
+	}
+	cl.m[kind].delete(ref)
+}
+
+func (cl *CustomLabels) enabled() bool {
+	return cl != nil && features.Enabled(features.CustomMetricLabels)
+}
+
+func (cl *CustomLabels) labelStoreIter(srcs []configapi.SourceKind) iter.Seq2[*SourceKindLabelStore, configapi.SourceKind] {
+	orderedSrcs := slices.Clone(srcs)
+	slices.Sort(orderedSrcs)
+	orderedSrcs = slices.Compact(orderedSrcs)
+	return func(yield func(*SourceKindLabelStore, configapi.SourceKind) bool) {
+		for _, kind := range orderedSrcs {
+			if store, ok := cl.m[kind]; ok {
+				if !yield(store, kind) {
+					return
+				}
+			}
+		}
+	}
+}
+
+func newSourceKindLabelStore(sourceKind configapi.SourceKind, labelSpecs []configapi.ControllerMetricsCustomLabel) *SourceKindLabelStore {
+	names, specs := parseLabels(sourceKind, labelSpecs)
+	return &SourceKindLabelStore{
+		labelNames: names,
+		labelSpecs: specs,
+		values:     utilmaps.NewSyncMap[string, []string](0),
+	}
+}
+
+func parseLabels(targetKind configapi.SourceKind, labelSpecs []configapi.ControllerMetricsCustomLabel) (names []string, specs []configapi.ControllerMetricsCustomLabel) {
+	names = make([]string, 0)
+	specs = make([]configapi.ControllerMetricsCustomLabel, 0)
+	for _, spec := range labelSpecs {
+		if spec.SourceKind == nil {
+			spec.SourceKind = ptr.To(configapi.DefaultCustomMetricLabelSourceKind)
+		}
+		if *spec.SourceKind == targetKind {
+			names = append(names, "custom_"+spec.Name)
+			specs = append(specs, spec)
+		}
+	}
+	return
+}
+
+func (s *SourceKindLabelStore) extractValues(labels, annotations map[string]string) []string {
+	if s == nil {
+		return nil
+	}
+	vals := make([]string, 0, len(s.labelNames))
+	for _, l := range s.labelSpecs {
+		var value string
 		switch {
-		case e.SourceAnnotationKey != "":
-			vals[i] = annotations[e.SourceAnnotationKey]
-		case e.SourceLabelKey != "":
-			vals[i] = labels[e.SourceLabelKey]
+		case l.SourceAnnotationKey != "":
+			value = annotations[l.SourceAnnotationKey]
+		case l.SourceLabelKey != "":
+			value = labels[l.SourceLabelKey]
 		default:
-			vals[i] = labels[e.Name]
+			value = labels[l.Name]
+		}
+		if len(l.TrackedValues) == 0 || slices.Contains(l.TrackedValues, value) {
+			vals = append(vals, value)
+		} else {
+			vals = append(vals, configapi.UntrackedCustomLabelValue)
 		}
 	}
 	return vals
 }
 
-func storeFor[K ~string](cl *CustomLabels, s CustomLabelStore[K], key K, labels, annotations map[string]string) bool {
-	return s.Store(key, cl.ExtractValues(labels, annotations))
+func (s *SourceKindLabelStore) store(key string, labels, annotations map[string]string) bool {
+	newVals := s.extractValues(labels, annotations)
+	old, existed := s.values.Swap(key, newVals)
+	return existed && !slices.Equal(old, newVals)
 }
 
-func getFor[K ~string](cl *CustomLabels, s CustomLabelStore[K], key K) []string {
-	vals := s.Get(key)
-	if vals == nil && len(cl.names) > 0 {
-		return make([]string, len(cl.names))
+func (s *SourceKindLabelStore) get(key string) []string {
+	vals, recorded := s.values.Get(key)
+	if recorded {
+		return vals
 	}
-	return vals
+	return make([]string, len(s.labelNames))
 }
 
-func deleteFor[K ~string](s CustomLabelStore[K], key K) {
-	s.Delete(key)
+func (s *SourceKindLabelStore) delete(key ...string) {
+	for _, k := range key {
+		s.values.Delete(k)
+	}
 }
 
 func (cl *CustomLabels) CQStore(key kueue.ClusterQueueReference, labels, annotations map[string]string) bool {
-	if cl == nil {
-		return false
-	}
-	return storeFor(cl, cl.cq, key, labels, annotations)
+	return cl.Store(configapi.SourceKindClusterQueue, string(key), labels, annotations)
 }
 
 func (cl *CustomLabels) CQGet(key kueue.ClusterQueueReference) []string {
-	if cl == nil {
-		return nil
-	}
-	return getFor(cl, cl.cq, key)
+	return cl.Get(configapi.SourceKindClusterQueue, string(key))
 }
 
 func (cl *CustomLabels) CQDelete(key kueue.ClusterQueueReference) {
-	if cl == nil {
-		return
-	}
-	deleteFor(cl.cq, key)
+	cl.Delete(configapi.SourceKindClusterQueue, string(key))
 }
 
 func (cl *CustomLabels) LQStore(key utilqueue.LocalQueueReference, labels, annotations map[string]string) bool {
-	if cl == nil {
-		return false
-	}
-	return storeFor(cl, cl.lq, key, labels, annotations)
+	return cl.Store(configapi.SourceKindLocalQueue, string(key), labels, annotations)
 }
 
 func (cl *CustomLabels) LQGet(key utilqueue.LocalQueueReference) []string {
-	if cl == nil {
-		return nil
-	}
-	return getFor(cl, cl.lq, key)
+	return cl.Get(configapi.SourceKindLocalQueue, string(key))
 }
 
 func (cl *CustomLabels) LQDelete(key utilqueue.LocalQueueReference) {
-	if cl == nil {
-		return
-	}
-	deleteFor(cl.lq, key)
+	cl.Delete(configapi.SourceKindLocalQueue, string(key))
 }
 
 func (cl *CustomLabels) CohortStore(key kueue.CohortReference, labels, annotations map[string]string) bool {
-	if cl == nil {
-		return false
-	}
-	return storeFor(cl, cl.cohort, key, labels, annotations)
+	return cl.Store(configapi.SourceKindCohort, string(key), labels, annotations)
 }
 
 func (cl *CustomLabels) CohortGet(key kueue.CohortReference) []string {
-	if cl == nil {
-		return nil
-	}
-	return getFor(cl, cl.cohort, key)
+	return cl.Get(configapi.SourceKindCohort, string(key))
 }
 
 func (cl *CustomLabels) CohortDelete(key kueue.CohortReference) {
-	if cl == nil {
-		return
-	}
-	deleteFor(cl.cohort, key)
+	cl.Delete(configapi.SourceKindCohort, string(key))
 }

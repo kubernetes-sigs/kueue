@@ -17,6 +17,8 @@ limitations under the License.
 package scheduler
 
 import (
+	"context"
+
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
@@ -33,6 +35,7 @@ type elasticPlacementResult struct {
 // It keeps previous pods fixed and places only new pods during scale-up,
 // or truncates the assignment during scale-down.
 func (s *TASFlavorSnapshot) handleElasticWorkload(
+	ctx context.Context,
 	workers TASPodSetRequests,
 	leader *TASPodSetRequests,
 	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
@@ -54,7 +57,7 @@ func (s *TASFlavorSnapshot) handleElasticWorkload(
 
 	switch {
 	case workers.Count > previousCount:
-		return s.handleScaleUp(workers, leader, prevAssignment, previousCount, assumedUsage, opts)
+		return s.handleScaleUp(ctx, workers, leader, prevAssignment, previousCount, assumedUsage, opts)
 	case workers.Count < previousCount:
 		return s.handleScaleDown(workers, leader, prevAssignment, assumedUsage)
 	default:
@@ -65,6 +68,7 @@ func (s *TASFlavorSnapshot) handleElasticWorkload(
 
 // handleScaleUp places only delta pods while keeping previous pods fixed.
 func (s *TASFlavorSnapshot) handleScaleUp(
+	ctx context.Context,
 	workers TASPodSetRequests,
 	leader *TASPodSetRequests,
 	prevAssignment *utiltas.TopologyAssignment,
@@ -82,7 +86,7 @@ func (s *TASFlavorSnapshot) handleScaleUp(
 	// Previous pods consume capacity.
 	addAssumedUsage(assumedUsage, prevAssignment, &workers)
 
-	deltaAssignments, reason := s.findTopologyAssignment(deltaRequest, leader, assumedUsage, opts.simulateEmpty, "")
+	deltaAssignments, reason := s.findTopologyAssignment(ctx, deltaRequest, leader, assumedUsage, opts.simulateEmpty, "", opts.workload)
 	if reason != "" {
 		result[workers.PodSet.Name] = tasPodSetAssignmentResult{FailureReason: reason}
 		return elasticPlacementResult{applied: true, assignments: result}

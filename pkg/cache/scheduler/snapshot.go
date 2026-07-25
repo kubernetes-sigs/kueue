@@ -211,11 +211,16 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 			if features.Enabled(features.TASHandleOverlappingFlavors) && utiltas.IsLowestLevelHostname(cache.topology.Levels) {
 				aggregatedDomainUsagesForFlavor = aggregatedDomainUsages
 			}
-			tasSnapshots[flavor] = cache.snapshot(
+			var err error
+			tasSnapshots[flavor], err = cache.snapshot(
+				ctx,
 				log,
 				c.tasCache.nodesCache.find(cache.flavor.NodeLabels, cache.topology.Levels),
 				aggregatedDomainUsagesForFlavor,
 			)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 	for _, cq := range cqNames {

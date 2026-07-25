@@ -85,6 +85,25 @@ ResourceClaimTemplate path above.
 
 {{< include "examples/dra/sample-dra-counter-job.yaml" "yaml" >}}
 
+### Using consumable capacity (shared devices)
+
+{{% alert title="Note" color="info" %}}
+This feature requires the `KueueDRAIntegrationConsumableCapacity` feature gate,
+which is disabled by default in v0.19.
+{{% /alert %}}
+
+If your administrator has configured
+[capacity-based quota](/docs/tasks/manage/setup_dra/#set-up-capacity-based-quota-consumable-capacity),
+your workload is charged by the device's capacity consumption (such as GPU
+memory) rather than device count. You submit workloads using a
+`ResourceClaimTemplate` with `capacity.requests` specifying how much capacity
+you need:
+
+{{< include "examples/dra/sample-dra-capacity-job.yaml" "yaml" >}}
+
+If you omit `capacity.requests`, Kueue charges the device's
+`RequestPolicy.Default` or the full device capacity.
+
 If you are not sure which approach to use, ask your administrator.
 
 ## 2. Run the workload
@@ -144,9 +163,10 @@ If the Workload stays in `Pending` state:
 ### Double counting (extended resource path)
 
 If quota usage shows double the expected value (e.g., `2` instead of `1` for
-a single GPU), the `KueueDRAIntegrationExtendedResource` feature gate may not be enabled.
-Ask your administrator to verify the
-[DRA setup](/docs/tasks/manage/setup_dra).
+a single GPU), verify that `KueueDRAIntegrationExtendedResource` has not been
+explicitly disabled. This gate is enabled by default since v0.19 and ensures
+Kueue charges quota only once for extended resources backed by DRA, instead of
+counting them as both a standard resource request and a DRA device.
 
 ### Missing DeviceClass
 

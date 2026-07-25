@@ -27,6 +27,7 @@ Optionally add one or more of the following kinds if applicable:
 
 Please also consider setting the area:
 /area tas
+/area was
 /area integrations
 /area multikueue
 /area dashboard

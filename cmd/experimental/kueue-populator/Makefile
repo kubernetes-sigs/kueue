@@ -170,4 +170,4 @@ helm-chart-push: helm-chart-package
 
 .PHONY: helm-verify-lifecycle
 helm-verify-lifecycle: ## Run Helm install/uninstall lifecycle verification script.
-	./test/verify-helm-lifecycle.sh
+	E2E_KIND_VERSION=$(E2E_KIND_VERSION) ./test/verify-helm-lifecycle.sh

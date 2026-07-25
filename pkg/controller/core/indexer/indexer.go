@@ -38,7 +38,7 @@ const (
 	WorkloadQueueKey                     = "spec.queueName"
 	WorkloadClusterQueueKey              = "status.admission.clusterQueue"
 	QueueClusterQueueKey                 = "spec.clusterQueue"
-	LimitRangeHasContainerType           = "spec.hasContainerType"
+	LimitRangeHasContainerOrPodType      = "spec.hasContainerOrPodType"
 	WorkloadQuotaReservedKey             = "status.quotaReserved"
 	WorkloadRuntimeClassKey              = "spec.runtimeClass"
 	OwnerReferenceUID                    = "metadata.ownerReferences.uid"
@@ -126,14 +126,14 @@ func IndexWorkloadClusterQueue(obj client.Object) []string {
 	return []string{string(wl.Status.Admission.ClusterQueue)}
 }
 
-func IndexLimitRangeHasContainerType(obj client.Object) []string {
+func IndexLimitRangeHasContainerOrPodType(obj client.Object) []string {
 	lr, ok := obj.(*corev1.LimitRange)
 	if !ok {
 		return nil
 	}
-
 	for i := range lr.Spec.Limits {
-		if lr.Spec.Limits[i].Type == corev1.LimitTypeContainer {
+		t := lr.Spec.Limits[i].Type
+		if t == corev1.LimitTypeContainer || t == corev1.LimitTypePod {
 			return []string{"true"}
 		}
 	}
@@ -277,8 +277,8 @@ func Setup(ctx context.Context, indexer client.FieldIndexer) error {
 	if err := indexer.IndexField(ctx, &kueue.LocalQueue{}, QueueClusterQueueKey, IndexQueueClusterQueue); err != nil {
 		return fmt.Errorf("setting index on clusterQueue for localQueue: %w", err)
 	}
-	if err := indexer.IndexField(ctx, &corev1.LimitRange{}, LimitRangeHasContainerType, IndexLimitRangeHasContainerType); err != nil {
-		return fmt.Errorf("setting index on hasContainerType for limitRange: %w", err)
+	if err := indexer.IndexField(ctx, &corev1.LimitRange{}, LimitRangeHasContainerOrPodType, IndexLimitRangeHasContainerOrPodType); err != nil {
+		return fmt.Errorf("setting index on hasContainerOrPodType for limitRange: %w", err)
 	}
 	if err := indexer.IndexField(ctx, &kueue.Workload{}, OwnerReferenceUID, IndexOwnerUID); err != nil {
 		return fmt.Errorf("setting index on ownerReferences.uid for Workload: %w", err)

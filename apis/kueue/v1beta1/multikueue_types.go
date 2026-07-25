@@ -153,7 +153,3 @@ type MultiKueueConfigList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []MultiKueueConfig `json:"items"`
 }
-
-func init() {
-	SchemeBuilder.Register(&MultiKueueConfig{}, &MultiKueueConfigList{}, &MultiKueueCluster{}, &MultiKueueClusterList{})
-}

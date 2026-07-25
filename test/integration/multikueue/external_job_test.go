@@ -219,7 +219,7 @@ var _ = ginkgo.Describe(
 
 				multiKueueAC = utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", managerMultiKueueConfig.Name).
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", managerMultiKueueConfig.Name).
 					Obj()
 				util.CreateAdmissionChecksAndWaitForActive(
 					managerTestCluster.ctx,
@@ -508,6 +508,7 @@ var _ = ginkgo.Describe(
 						managerTestCluster.ctx,
 						managerTestCluster.client,
 						workerCluster2,
+						managersConfigNamespace.Name,
 					)
 
 					ginkgo.By("setting workload reservation in worker1, the raycluster is created in worker1", func() {
@@ -541,6 +542,7 @@ var _ = ginkgo.Describe(
 						managerTestCluster.ctx,
 						managerTestCluster.client,
 						workerCluster1,
+						managersConfigNamespace.Name,
 					)
 
 					ginkgo.By("removing the managers raycluster and workload", func() {

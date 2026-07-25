@@ -1,0 +1,23 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: sample-enforce-requests-policy
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - apiGroups:   ["batch"]
+      apiVersions: ["v1"]
+      operations:  ["CREATE", "UPDATE"]
+      resources:   ["jobs"]
+    - apiGroups:   ["apps"]
+      apiVersions: ["v1"]
+      operations:  ["CREATE", "UPDATE"]
+      resources:   ["deployments", "statefulsets", "daemonsets", "replicasets"]
+  validations:
+    - expression: >
+        object.spec.template.spec.containers.all(c, 
+          (has(c.resources.requests) && size(c.resources.requests) > 0) || 
+          (has(c.resources.limits) && size(c.resources.limits) > 0)
+        )
+      message: "Every container in the job/deployment must specify resource requests or limits."

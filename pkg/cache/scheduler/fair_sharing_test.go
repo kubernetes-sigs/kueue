@@ -811,7 +811,7 @@ func TestDominantResourceShare(t *testing.T) {
 			i := 0
 			for fr, v := range tc.usage {
 				admission := utiltestingapi.MakeAdmission("cq")
-				quantity := resources.ResourceQuantity(fr.Resource, v.Int64())
+				quantity := resources.NewResourceFormatter().ResourceQuantity(fr.Resource, v.Int64())
 				admission.PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(fr.Resource, fr.Flavor, quantity.String()).
 					Obj())
@@ -960,7 +960,7 @@ func TestIsBorrowingOn(t *testing.T) {
 			i := 0
 			for fr, v := range tc.usage {
 				admission := utiltestingapi.MakeAdmission("cq")
-				quantity := resources.ResourceQuantity(fr.Resource, v.Int64())
+				quantity := resources.NewResourceFormatter().ResourceQuantity(fr.Resource, v.Int64())
 				admission.PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(fr.Resource, fr.Flavor, quantity.String()).
 					Obj())
@@ -978,6 +978,38 @@ func TestIsBorrowingOn(t *testing.T) {
 			}
 			if got := drs.IsBorrowingOn(tc.requestedFRs); got != tc.wantBorrowingOnRequested {
 				t.Errorf("IsBorrowingOn() = %v, want %v", got, tc.wantBorrowingOnRequested)
+			}
+		})
+	}
+}
+
+func TestPreciseWeightedShareSerialized(t *testing.T) {
+	cases := map[string]struct {
+		drs  DRS
+		want string
+	}{
+		"zero weight returning Inf": {
+			drs:  DRS{fairWeight: 0, unweightedRatio: 100},
+			want: "+Inf",
+		},
+		"zero unweighted ratio returns 0": {
+			drs:  DRS{fairWeight: 1, unweightedRatio: 0},
+			want: "0",
+		},
+		"regular integer division": {
+			drs:  DRS{fairWeight: 2, unweightedRatio: 400},
+			want: "200",
+		},
+		"decimal division": {
+			drs:  DRS{fairWeight: 4, unweightedRatio: 10},
+			want: "2.5",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := tc.drs.PreciseWeightedShareSerialized()
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("Unexpected string output (-want,+got):\n%s", diff)
 			}
 		})
 	}

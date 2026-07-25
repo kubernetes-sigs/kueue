@@ -8,6 +8,7 @@
 - [Proposal](#proposal)
   - [Until v0.12](#until-v012)
   - [Since Kueue v0.13](#since-kueue-v013)
+  - [Since Kueue v0.19](#since-kueue-v019)
   - [User Stories (Optional)](#user-stories-optional)
     - [Story 1](#story-1)
     - [Story 2](#story-2)
@@ -114,6 +115,13 @@ This change brings the Job integration into consistent alignment with Pod, Deplo
 and StatefulSet integrations, which already do not act on resources in non-opted-in namespaces.
 
 We deprecate `podOptions.namespaceSelector` and remove it in a future release.
+
+### Since Kueue v0.19
+
+The `ManagedJobsNamespaceSelectorAlwaysRespected` feature gate is graduated to GA and locked 
+to enabled. The `managedJobsNamespaceSelector` now always restricts the reconciliation of all 
+workloads regardless of whether they have a `kueue.x-k8s.io/queue-name` label. The legacy 
+behavior (gate disabled) is no longer available.
 
 ### User Stories (Optional)
 

@@ -1,0 +1,235 @@
+---
+title: "MultiKueue"
+date: 2024-11-11
+weight: 8
+description: >
+  Multi-cluster job dispatching with Kueue.
+---
+
+{{< feature-state state="beta" for_version="v0.9" >}}
+
+{{% alert title="Note" color="primary" %}}
+`MultiKueue` is currently a beta feature and is enabled by default.
+
+You can disable it by editing the `MultiKueue` feature gate. Refer to the
+[Installation guide](/v0.19/docs/installation/#change-the-feature-gates-configuration)
+for instructions on configuring feature gates.
+{{% /alert %}}
+
+A MultiKueue setup is composed of a manager cluster and at least one worker cluster.
+
+## Cluster Roles
+
+### Manager Cluster
+
+The manager cluster is responsible for:
+
+- Establishing and maintaining connections with worker clusters.
+- Creating and monitoring remote objects (Workloads or Jobs) while keeping the local ones in sync.
+
+The **MultiKueue Admission Check Controller** runs in the manager cluster.
+It maintains the `Active` status of AdmissionChecks managed by MultiKueue.
+
+The quota set for the flavors of a ClusterQueue determines how many jobs are eligible for dispatching
+at a given time. Ideally, the quota in the manager cluster should equal the total quota available in all worker clusters:
+
+- If the manager’s quota is **significantly lower**, worker clusters may remain underutilized.
+- If the manager’s quota is **significantly higher**, it may dispatch and monitor workloads
+  that are unlikely to be admitted in the worker clusters.
+
+### Worker Cluster
+
+The worker cluster acts like a standalone Kueue cluster.
+The **MultiKueue Admission Check Controller**, running in the manager cluster,
+creates and deletes Workloads and Jobs in the worker clusters as needed.
+
+### Using manager to run workloads
+
+MultiKueue supports running regular Jobs on the manager when using 
+a dedicated ClusterQueue. However, we do not support currently role sharing where the manager
+cluster is also one of workers for itself, see [limitations](#limitations)
+
+## Job Flow
+
+To enable multi-cluster dispatching, you need to assign a Job to a ClusterQueue configured with a MultiKueue `AdmissionCheck`.
+
+The dispatching flow works as follows:
+
+1. When the Job's Workload obtains a `QuotaReservation` in the manager cluster,
+   the dispatcher determines the worker clusters where the Workload should be created.
+   Depending on the configured dispatching algorithm (e.g., AllAtOnce, Incremental, or a custom approach),
+   the Workload may be created in all configured worker clusters or in a subset of them.
+2. When a worker cluster admits one of these remote Workloads:
+   - The manager deletes the Workloads from the other clusters.
+   - The manager creates a copy of the Job in the selected worker cluster and labels it
+     with `kueue.x-k8s.io/prebuilt-workload-name` to link it to the admitted Workload.
+3. The manager monitors the remote Workload and Job, and synchronizes their status with
+   the corresponding local objects.
+4. Once the remote Workload is marked `Finished`:
+   - The manager performs a final status sync.
+   - It then deletes the corresponding objects from the worker cluster.
+
+{{< feature-state state="beta" for_version="v0.16" >}}
+
+{{% alert title="Note" color="primary" %}}
+By default, Workloads are only deleted from non-selected worker clusters after a Workload is
+fully admitted (quota reserved AND all admission checks satisfied). This allows parallel
+ProvisioningRequests across worker clusters. To revert to the previous behavior where Workloads
+are deleted immediately upon quota reservation, disable the `MultiKueueWaitForWorkloadAdmitted`
+feature gate.
+{{% /alert %}}
+
+## Workload Dispatching
+
+{{% alert title="Note" color="primary" %}}
+The MultiKueue Dispatcher mechanism is available since Kueue v0.13.
+{{% /alert %}}
+Provides a flexible way to control how workloads are distributed across worker clusters
+by allowing users to choose between built-in dispatching algorithms or implement custom ones.
+This mechanism ensures efficient workload placement while minimizing resource contention and preemptions across clusters.
+
+The `status.nominatedClusterNames` field lists the worker clusters currently being considered for scheduling the Workload,
+as determined by the dispatching algorithm, and is updated while the Workload is pending admission.
+
+The `status.clusterName` field specifies the worker cluster where the Workload has been successfully admitted.
+Once the field is set, it becomes immutable and the `status.nominatedClusterNames` field is reset,
+and it is no longer possible to set it. 
+
+This ensures that the Workload's cluster assignment is finalized and prevents further nomination of clusters.
+
+### AllAtOnce (Default Mode):
+In this mode, the Workload is copied to all available worker clusters as soon as it obtains a QuotaReservation in the manager cluster.
+This approach ensures the fastest possible admission by allowing all clusters to compete for the Workload simultaneously.
+
+### Incremental:
+This mode introduces a gradual dispatching strategy where clusters are nominated in rounds.
+Clusters are considered in the order they are listed in `MultiKueueConfig.spec.clusters`, so
+you control the nomination priority by listing the most preferred clusters first.
+Initially, a batch of clusters (by default, up to 3) is selected from the start of that list,
+and the Workload is copied only to these nominated clusters.
+If none of the nominated clusters admit the Workload within a fixed duration (5 minutes),
+the next batch of clusters — again following the configured order — is incrementally added in
+subsequent rounds, until the Workload is admitted or all clusters have been nominated.
+
+{{< feature-state state="beta" for_version="v0.19" >}}
+
+{{% alert title="Note" color="primary" %}}
+Nominating clusters in the order defined in `MultiKueueConfig.spec.clusters` is controlled by the
+`MultiKueueIncrementalDispatcherRespectConfigOrder` feature gate, which is Beta and enabled by
+default since Kueue v0.19.
+
+When the gate is disabled, clusters are nominated in alphabetical order instead. Refer to the
+[Installation guide](/v0.19/docs/installation/#change-the-feature-gates-configuration)
+for instructions on configuring feature gates.
+{{% /alert %}}
+
+The default maximum batch size is 3. This can be configured by enabling the `MultiKueueIncrementalDispatcherConfig` feature gate and setting `.multiKueue.incrementalDispatcherConfig.stepSize` in the Kueue configuration.
+
+#### Example: prioritizing clusters for cost-optimized spillover
+
+Suppose you want to run Workloads on a cheaper on-premises cluster first and only spill over to
+public-cloud clusters when the on-premises cluster is full. List the clusters in priority order
+in the `MultiKueueConfig`:
+
+```yaml
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: MultiKueueConfig
+metadata:
+  name: cost-optimized
+spec:
+  clusters:
+  - worker-onprem   # tried first (most preferred / cheapest)
+  - worker-aws      # tried next if on-prem does not admit
+  - worker-gcp      # tried last
+```
+
+To try one cluster at a time, set the step size to 1 in the Kueue configuration:
+
+```yaml
+multiKueue:
+  incrementalDispatcherConfig:
+    stepSize: 1
+```
+
+With this setup the incremental dispatcher nominates clusters as follows:
+
+- Round 1: `worker-onprem`
+- Round 2 (after 5 minutes without admission): `worker-onprem`, `worker-aws`
+- Round 3 (after another 5 minutes): `worker-onprem`, `worker-aws`, `worker-gcp`
+
+### External (Custom implementation):
+In this mode, the selection of worker clusters is delegated to an external controller.
+The external controller is responsible for setting the `.status.nominatedClusterNames` field in the Workload to specify the clusters where it should be copied.
+
+The MultiKueue Workload Controller synchronizes the Workload with the nominated clusters.
+
+Known Limitation:
+{{% alert title="Warning" color="primary" %}}
+For the external controller to patch the `.status.nominatedClusterNames` field there are 2 options:
+* Use the `kueue-admission` field manager, because the kueue-admission field manager is responsible for managing updates to the `.status.nominatedClusterNames` field.
+* [Enable `WorkloadRequestUseMergePatch` feature gate](docs/concepts/workload#workload-updates-by-kueue) that drops the `kueue-admission` field manager from the `.status.nominatedClusterNames`.
+
+Without this, the Kueue is not able to admit the MultiKueue workloads.
+{{% /alert %}}
+
+## Supported Job Types
+
+MultiKueue supports a wide variety of workloads. You can learn how to:
+
+- [Dispatch a Kueue managed Deployment](docs/tasks/run/multikueue/deployment).
+- [Dispatch a Kueue managed batch/Job](docs/tasks/run/multikueue/job).
+- [Dispatch a Kueue managed JobSet](docs/tasks/run/multikueue/jobsets).
+- [Dispatch a Kueue managed Kubeflow Jobs](docs/tasks/run/multikueue/kubeflow).
+- [Dispatch a Kueue managed KubeRay workloads](docs/tasks/run/multikueue/kuberay).
+- [Dispatch a Kueue managed MPIJob](docs/tasks/run/multikueue/mpijob).
+- [Dispatch a Kueue managed AppWrapper](docs/tasks/run/multikueue/appwrapper).
+- [Dispatch a Kueue managed plain Pod](docs/tasks/run/multikueue/plain_pods).
+- [Dispatch a Kueue managed StatefulSet](docs/tasks/run/multikueue/statefulset).
+- [Dispatch a Kueue managed LeaderWorkerSet](docs/tasks/run/multikueue/leaderworkerset).
+- [Dispatch a Kueue managed External Framework Job](docs/tasks/run/multikueue/external-frameworks.md)
+
+## Submitting Jobs
+
+In a [properly configured MultiKueue environment](/v0.19/docs/tasks/manage/setup_multikueue),
+you can submit any supported Job to the **manager cluster**, targeting a ClusterQueue configured for MultiKueue.
+
+Kueue handles delegation to the appropriate worker cluster without requiring any additional changes to your job specification.
+
+## What’s Next?
+
+- [Set up a MultiKueue environment](/v0.19/docs/tasks/manage/setup_multikueue/)
+- [Run Jobs in a MultiKueue environment](/v0.19/docs/tasks/run/multikueue)
+
+## Security Considerations
+
+### KubeConfig Location Types
+
+MultiKueueCluster supports three sources for cluster credentials:
+
+| Source | Recommended | Notes |
+|---|---|---|
+| `ClusterProfile` | ✅ Production | Federated credential discovery via the ClusterProfile API. |
+| `Secret` | ✅ Production | Kubeconfig stored in a Kubernetes Secret. |
+| `Path` | ⚠️ Development only | File path on the controller pod's filesystem. |
+
+**`locationType=Path` validation is available as an alpha feature.**
+The `MultiKueueKubeConfigPathValidation` feature gate (disabled by default)
+restricts kubeconfig file paths to the hardcoded prefix
+`/etc/multikueue/kubeconfigs/`. When enabled, the controller rejects paths
+containing `..`, relative paths, and symlinks that resolve outside the prefix.
+To enable this validation, set the feature gate:
+`--feature-gates=MultiKueueKubeConfigPathValidation=true`.
+
+For production deployments, use `ClusterProfile` or `Secret` instead of `Path`.
+
+See [Setup a MultiKueue environment](/v0.19/docs/tasks/manage/setup_multikueue/) for
+configuration details.
+
+## Limitations
+
+- We do not currently support running the manager cluster as one of the workers for itself.
+- For job types without `managedBy` support (StatefulSet, LeaderWorkerSet), the job status on the
+  manager cluster may not reflect the actual status from the worker cluster. This is because the
+  local job controller continuously updates status based on local (gated) pods. The job execution
+  on the worker cluster is not affected - only the status visibility on the manager is limited.
+  Check the Workload status for accurate admission state.

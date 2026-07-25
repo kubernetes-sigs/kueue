@@ -33,18 +33,22 @@ func NewPenaltyMap() *AfsEntryPenalties {
 }
 
 func (m *AfsEntryPenalties) Push(lqKey utilqueue.LocalQueueReference, penalty corev1.ResourceList) {
-	m.penalties.Add(lqKey, resource.MergeResourceListKeepSum(m.Peek(lqKey), penalty))
+	m.penalties.Update(lqKey, func(existing corev1.ResourceList, _ bool) corev1.ResourceList {
+		return resource.MergeResourceListKeepSum(existing, penalty)
+	})
 }
 
 func (m *AfsEntryPenalties) Sub(lqKey utilqueue.LocalQueueReference, penalty corev1.ResourceList) {
+	negated := make(corev1.ResourceList, len(penalty))
 	for k, v := range penalty {
-		v.Neg()
-		penalty[k] = v
+		q := v.DeepCopy()
+		q.Neg()
+		negated[k] = q
 	}
-	m.penalties.Add(lqKey, resource.MergeResourceListKeepSum(m.Peek(lqKey), penalty))
-	if canClearPenalty(m.Peek(lqKey)) {
-		m.penalties.Delete(lqKey)
-	}
+	m.penalties.UpdateOrDelete(lqKey, func(existing corev1.ResourceList) (corev1.ResourceList, bool) {
+		merged := resource.MergeResourceListKeepSum(existing, negated)
+		return merged, canClearPenalty(merged)
+	})
 }
 
 func canClearPenalty(penalty corev1.ResourceList) bool {

@@ -166,6 +166,111 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
+		"ungate single pod with sub group index label but no sub group count": {
+			// Regression test: a PodSet with SubGroupIndexLabel set but SubGroupCount
+			// nil (e.g. from an unvalidated user-supplied annotation) must not panic
+			// the controller; it should fall back to greedy domain assignment.
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "1").
+						PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+						SubGroupIndexLabel(new(jobset.JobIndexKey)).
+						Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultTestLevels).
+									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					Label(batchv1.JobCompletionIndexAnnotation, "0").
+					Label(jobset.JobIndexKey, "0").
+					TopologySchedulingGate().
+					Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertCountsOnly,
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					Label(batchv1.JobCompletionIndexAnnotation, "0").
+					Label(jobset.JobIndexKey, "0").
+					Obj(),
+			},
+			wantCounts: []counts{
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel: "b1",
+						tasRackLabel:  "r1",
+					},
+					Count: 1,
+				},
+			},
+		},
+		"ungate single pod with sub group index label but zero sub group count": {
+			// Regression test: a PodSet with SubGroupIndexLabel set but SubGroupCount
+			// zero (the literal divide-by-zero) must not panic the controller; it should
+			// fall back to greedy domain assignment.
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "1").
+						PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+						SubGroupIndexLabel(new(jobset.JobIndexKey)).
+						SubGroupCount(new(int32)).
+						Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultTestLevels).
+									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					Label(batchv1.JobCompletionIndexAnnotation, "0").
+					Label(jobset.JobIndexKey, "0").
+					TopologySchedulingGate().
+					Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertCountsOnly,
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					Label(batchv1.JobCompletionIndexAnnotation, "0").
+					Label(jobset.JobIndexKey, "0").
+					Obj(),
+			},
+			wantCounts: []counts{
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel: "b1",
+						tasRackLabel:  "r1",
+					},
+					Count: 1,
+				},
+			},
+		},
 		"ungate multiple pods in a single domain": {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
@@ -2045,6 +2150,170 @@ func TestReconcile(t *testing.T) {
 				{
 					NodeSelector: map[string]string{
 						tasBlockLabel: "b2",
+						tasRackLabel:  "r1",
+					},
+					Count: 1,
+				},
+			},
+		},
+		"ranks: out-of-range pod index falls back to greedy assignment": {
+			// A stray Pod whose pod-index label is out of range (completion index 3
+			// with offset 1) cannot be used for rank ordering, so the ungater uses
+			// greedy assignment. The already-placed Pods keep their domains and the
+			// stray Pod stays gated.
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("unit-test", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet("worker", 2).
+							Request(corev1.ResourceCPU, "1").
+							PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+							Obj(),
+					).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(
+								utiltestingapi.MakePodSetAssignment("worker").
+									Assignment(corev1.ResourceCPU, "unit-test-flavor", "2").
+									Count(2).
+									TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultTestLevels).
+										Domains(
+											utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj(),
+											utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r2"}, 1).Obj(),
+										).
+										Obj()).
+									Obj(),
+							).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				// correctly placed, already ungated Pods (ranks 0 and 1)
+				*testingpod.MakePod("w1", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.PodIndexOffsetAnnotation, "1").
+					Label(constants.PodSetLabel, "worker").
+					Label(batchv1.JobCompletionIndexAnnotation, "1").
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+				*testingpod.MakePod("w2", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.PodIndexOffsetAnnotation, "1").
+					Label(constants.PodSetLabel, "worker").
+					Label(batchv1.JobCompletionIndexAnnotation, "2").
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r2").
+					Obj(),
+				// stray Pod with an out-of-range completion index (would be rank 2)
+				*testingpod.MakePod("stray", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.PodIndexOffsetAnnotation, "1").
+					Label(constants.PodSetLabel, "worker").
+					Label(batchv1.JobCompletionIndexAnnotation, "3").
+					TopologySchedulingGate().
+					Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
+			wantPods: []corev1.Pod{
+				// listed name-sorted to match the fake client's List ordering
+				*testingpod.MakePod("stray", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.PodIndexOffsetAnnotation, "1").
+					Label(constants.PodSetLabel, "worker").
+					Label(batchv1.JobCompletionIndexAnnotation, "3").
+					TopologySchedulingGate().
+					Obj(),
+				*testingpod.MakePod("w1", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.PodIndexOffsetAnnotation, "1").
+					Label(constants.PodSetLabel, "worker").
+					Label(batchv1.JobCompletionIndexAnnotation, "1").
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+				*testingpod.MakePod("w2", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.PodIndexOffsetAnnotation, "1").
+					Label(constants.PodSetLabel, "worker").
+					Label(batchv1.JobCompletionIndexAnnotation, "2").
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r2").
+					Obj(),
+			},
+			wantCounts: []counts{
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel: "b1",
+						tasRackLabel:  "r1",
+					},
+					Count: 1,
+				},
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel: "b1",
+						tasRackLabel:  "r2",
+					},
+					Count: 1,
+				},
+			},
+		},
+		"ranks: TopologyAssignment shorter than the PodSet count falls back to greedy assignment": {
+			// When the TopologyAssignment covers fewer pods than the PodSet Count
+			// (here Count 2 with a single-rank assignment), a Pod's rank can exceed
+			// len(rankToDomainID); the ungater uses greedy assignment for those Pods.
+			// The scheduler produces this state for a slice size that does not divide
+			// the count (see the integration test).
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("unit-test", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet("worker", 2).
+							Request(corev1.ResourceCPU, "1").
+							PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+							Obj(),
+					).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(
+								utiltestingapi.MakePodSetAssignment("worker").
+									Assignment(corev1.ResourceCPU, "unit-test-flavor", "2").
+									Count(2).
+									TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultTestLevels).
+										Domains(
+											utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj(),
+										).
+										Obj()).
+									Obj(),
+							).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				// gated Pod whose rank (1) exceeds len(rankToDomainID) (1)
+				*testingpod.MakePod("w1", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(constants.PodSetLabel, "worker").
+					Label(batchv1.JobCompletionIndexAnnotation, "1").
+					TopologySchedulingGate().
+					Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertCountsOnly,
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("w1", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(constants.PodSetLabel, "worker").
+					Label(batchv1.JobCompletionIndexAnnotation, "1").
+					Obj(),
+			},
+			wantCounts: []counts{
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel: "b1",
 						tasRackLabel:  "r1",
 					},
 					Count: 1,

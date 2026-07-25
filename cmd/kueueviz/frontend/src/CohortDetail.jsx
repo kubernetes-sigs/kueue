@@ -38,7 +38,11 @@ const CohortDetail = () => {
 
   if (error) return <ErrorMessage error={error} />;
 
-  if (!cohortDetails) {
+  if (cohortDetails?.error) {
+    return <ErrorMessage error={cohortDetails.error} />;
+  }
+
+  if (!cohortDetails || !cohortDetails.clusterQueues) {
     return (
       <Paper className="parentContainer">
         <Typography variant="h6">Loading...</Typography>

@@ -19,6 +19,7 @@ package jobframework_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -31,8 +32,10 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/clock"
 	testingclock "k8s.io/utils/clock/testing"
@@ -89,14 +92,15 @@ func TestReconcileGenericJob(t *testing.T) {
 		Priority(0)
 
 	testCases := map[string]struct {
-		featureGates  map[featuregate.Feature]bool
-		req           types.NamespacedName
-		job           *batchv1.Job
-		podSets       []kueue.PodSet
-		objs          []client.Object
-		wantWorkloads []kueue.Workload
-		wantEvents    []utiltesting.EventRecord
-		wantPodSets   []podset.PodSetInfo
+		featureGates      map[featuregate.Feature]bool
+		reconcilerOptions []Option
+		req               types.NamespacedName
+		job               *batchv1.Job
+		podSets           []kueue.PodSet
+		objs              []client.Object
+		wantWorkloads     []kueue.Workload
+		wantEvents        []utiltesting.EventRecord
+		wantPodSets       []podset.PodSetInfo
 	}{
 		"handle job with no workload (elasticJobsViaWorkloadSlicesEnabled = false)": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false},
@@ -408,6 +412,30 @@ func TestReconcileGenericJob(t *testing.T) {
 				},
 			},
 		},
+		"handle job with annotations to copy": {
+			featureGates: map[featuregate.Feature]bool{
+				features.CustomMetricLabels: true,
+			},
+			reconcilerOptions: []Option{
+				WithLabelKeysToCopy(sets.New("toCopyKey")),
+				WithAnnotationsToCopy(sets.New("toCopyAnnotation")),
+			},
+			req: baseReq,
+			job: baseJob.Clone().
+				Label("toCopyKey", "toCopyValue").
+				Label("dontCopyKey", "dontCopyValue").
+				SetAnnotation("toCopyAnnotation", "toCopyAnnValue").
+				SetAnnotation("dontCopyAnnotation", "dontCopyAnnValue").
+				Obj(),
+			podSets: basePodSets,
+			wantWorkloads: []kueue.Workload{
+				*baseWl.Clone().
+					Name("job-test-job-ce737").
+					Label("toCopyKey", "toCopyValue").
+					Annotations(map[string]string{"toCopyAnnotation": "toCopyAnnValue"}).
+					Obj(),
+			},
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
@@ -433,7 +461,7 @@ func TestReconcileGenericJob(t *testing.T) {
 				Build()
 
 			recorder := &utiltesting.EventRecorder{}
-			rec := NewReconciler(cl, recorder)
+			rec := NewReconciler(cl, recorder, tc.reconcilerOptions...)
 			_, err := rec.ReconcileGenericJob(ctx, controllerruntime.Request{NamespacedName: tc.req}, mgj)
 			if err != nil {
 				t.Fatalf("Failed to Reconcile GenericJob: %v", err)
@@ -935,7 +963,8 @@ func TestProcessOptions(t *testing.T) {
 				WithManageJobsWithoutQueueName(true),
 				WithWaitForPodsReady(&configapi.WaitForPodsReady{}),
 				WithKubeServerVersion(&kubeversion.ServerVersionFetcher{}),
-				WithLabelKeysToCopy([]string{"toCopyKey"}),
+				WithLabelKeysToCopy(sets.New("toCopyKey")),
+				WithAnnotationsToCopy(sets.New("toCopyAnnotation")),
 				WithClock(fakeClock),
 			},
 			wantOpts: Options{
@@ -943,7 +972,8 @@ func TestProcessOptions(t *testing.T) {
 				WaitForPodsReady:           true,
 				KubeServerVersion:          &kubeversion.ServerVersionFetcher{},
 				IntegrationOptions:         nil,
-				LabelKeysToCopy:            []string{"toCopyKey"},
+				LabelKeysToCopy:            sets.New("toCopyKey"),
+				AnnotationsToCopy:          sets.New("toCopyAnnotation"),
 				Clock:                      fakeClock,
 			},
 		},
@@ -966,6 +996,7 @@ func TestProcessOptions(t *testing.T) {
 				KubeServerVersion:          nil,
 				IntegrationOptions:         nil,
 				LabelKeysToCopy:            nil,
+				AnnotationsToCopy:          nil,
 				Clock:                      clock.RealClock{},
 			},
 		},
@@ -1109,6 +1140,85 @@ func TestReconcileGenericJobWithWaitForPodsReady(t *testing.T) {
 				}}, tc.job)
 			if !errors.Is(err, tc.wantError) {
 				t.Errorf("unexpected reconcile error want %s got %s)", tc.wantError, err)
+			}
+		})
+	}
+}
+
+func TestReconcileGenericJob_EvictionClearsQuotaReservation(t *testing.T) {
+	scenarios := []map[featuregate.Feature]bool{
+		{
+			features.UnadmittedWorkloadsObservability: false,
+		},
+		{
+			features.UnadmittedWorkloadsObservability: true,
+		},
+	}
+
+	for _, scenario := range scenarios {
+		t.Run(fmt.Sprintf("UnadmittedWorkloadsObservability enabled: %t", scenario[features.UnadmittedWorkloadsObservability]), func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, scenario)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			mockctrl := gomock.NewController(t)
+
+			podSets := []kueue.PodSet{
+				*utiltestingapi.MakePodSet("main", 1).Obj(),
+			}
+
+			job := testingjob.MakeJob("job-1", "ns").Queue("cq").UID("job-1").Suspend(true).Obj()
+
+			wl := utiltestingapi.MakeWorkload("job-1", "ns").
+				PodSets(podSets...).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), time.Now()).
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadEvicted,
+					Status: metav1.ConditionTrue,
+					Reason: kueue.WorkloadEvictedByPreemption,
+				}).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job-1", "job-1").
+				Obj()
+
+			mgj := mocks.NewMockGenericJob(mockctrl)
+			mgj.EXPECT().Object().Return(job).AnyTimes()
+			mgj.EXPECT().GVK().Return(batchv1.SchemeGroupVersion.WithKind("Job")).AnyTimes()
+			mgj.EXPECT().IsSuspended().Return(true).AnyTimes()
+			mgj.EXPECT().IsActive().Return(false).AnyTimes()
+			mgj.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
+			mgj.EXPECT().PodSets(gomock.Any(), gomock.Any()).Return(podSets, nil).AnyTimes()
+
+			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns"}}
+			gvk := batchv1.SchemeGroupVersion.WithKind("Job")
+			clientBuilder := utiltesting.NewClientBuilder().
+				WithObjects(job, wl, ns).
+				WithStatusSubresource(job, wl).
+				WithIndex(&kueue.Workload{}, indexer.OwnerReferenceIndexKey(gvk), indexer.WorkloadOwnerIndexFunc(gvk))
+			cl := clientBuilder.Build()
+
+			recorder := &utiltesting.EventRecorder{}
+			r := NewReconciler(cl, recorder)
+
+			req := controllerruntime.Request{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "job-1"}}
+			_, err := r.ReconcileGenericJob(ctx, req, mgj)
+			if err != nil {
+				t.Fatalf("ReconcileGenericJob() error: %v", err)
+			}
+
+			var gotWl kueue.Workload
+			if err := cl.Get(ctx, types.NamespacedName{Namespace: "ns", Name: "job-1"}, &gotWl); err != nil {
+				t.Fatalf("failed to get workload: %v", err)
+			}
+
+			wantReason := kueue.WorkloadPending //nolint:staticcheck // SA1019: fallback
+			if scenario[features.UnadmittedWorkloadsObservability] {
+				wantReason = kueue.WorkloadQuotaReservedReasonPendingEvaluation
+			}
+
+			cond := apimeta.FindStatusCondition(gotWl.Status.Conditions, kueue.WorkloadQuotaReserved)
+			if cond == nil {
+				t.Fatalf("QuotaReserved condition not found")
+			}
+			if cond.Status != metav1.ConditionFalse || cond.Reason != wantReason {
+				t.Errorf("Unexpected QuotaReserved condition status/reason: got %s/%s, want False/%s", cond.Status, cond.Reason, wantReason)
 			}
 		})
 	}

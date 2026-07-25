@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/performance/scheduler/runner/generator"
 	"sigs.k8s.io/kueue/test/performance/scheduler/runner/recorder"
@@ -81,7 +82,7 @@ func (r *reconciler) Create(ev event.CreateEvent) bool {
 	if isWl {
 		r.recorder.RecordWorkloadState(wl)
 		admitted := apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadAdmitted)
-		return admitted && !workload.IsFinished(wl)
+		return admitted && !workloadfinish.IsFinished(wl)
 	}
 	return true
 }
@@ -101,7 +102,7 @@ func (r *reconciler) Update(ev event.UpdateEvent) bool {
 
 	r.recorder.RecordWorkloadState(wl)
 
-	return admitted && !workload.IsFinished(wl)
+	return admitted && !workloadfinish.IsFinished(wl)
 }
 
 func (r *reconciler) Generic(_ event.GenericEvent) bool {

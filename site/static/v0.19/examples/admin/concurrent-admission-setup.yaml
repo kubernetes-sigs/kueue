@@ -1,0 +1,54 @@
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: reservation
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: on-demand
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: spot
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: team-cluster-queue
+spec:
+  namespaceSelector: {}
+  concurrentAdmissionPolicy:
+    migration:
+      mode: TryPreferredFlavors
+  resourceGroups:
+  - coveredResources: ["cpu", "memory"]
+    flavors:
+    # Flavors are ordered from the most preferred to the least preferred.
+    - name: reservation
+      resources:
+      - name: cpu
+        nominalQuota: 4
+      - name: memory
+        nominalQuota: 16Gi
+    - name: on-demand
+      resources:
+      - name: cpu
+        nominalQuota: 8
+      - name: memory
+        nominalQuota: 32Gi
+    - name: spot
+      resources:
+      - name: cpu
+        nominalQuota: 16
+      - name: memory
+        nominalQuota: 64Gi
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: LocalQueue
+metadata:
+  namespace: default
+  name: team-queue
+spec:
+  clusterQueue: team-cluster-queue

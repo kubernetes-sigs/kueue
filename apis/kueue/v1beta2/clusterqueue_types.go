@@ -628,8 +628,4 @@ type ClusterQueueList struct {
 	Items           []ClusterQueue `json:"items"`
 }
 
-func init() {
-	SchemeBuilder.Register(&ClusterQueue{}, &ClusterQueueList{})
-}
-
 func (*ClusterQueue) Hub() {}

@@ -42,7 +42,7 @@ export E2E_SKIP_REINSTALL="${E2E_SKIP_REINSTALL:-false}"
 # when they already exist locally / on kind worker nodes. CI mode always pulls and loads.
 export E2E_SKIP_IMAGE_RELOAD="${E2E_SKIP_IMAGE_RELOAD:-false}"
 
-export KIND_VERSION="${E2E_KIND_VERSION/"kindest/node:v"/}"
+export KIND_VERSION="${E2E_KIND_VERSION#kindest/node:v}"
 
 function build_kind_node_image {
     if [[ "$E2E_KIND_VERSION" != kindest/node:v* ]]; then
@@ -58,7 +58,7 @@ function build_kind_node_image {
     fi
 
     echo "Building kind node image: $E2E_KIND_VERSION (K8s v$KIND_VERSION)"
-    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 3 --delay 5 -- \
+    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 7 --delay 2 --exponential --stream -- \
         "$KIND" build node-image "v$KIND_VERSION" --image "$E2E_KIND_VERSION"
 }
 
@@ -257,6 +257,10 @@ fi
 if [[ -n ${KUBERAY_VERSION:-} && ("$GINKGO_ARGS" =~ feature:kuberay || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     export KUBERAY_MANIFEST="${ROOT_DIR}/dep-crds/ray-operator/default/"
     export KUBERAY_IMAGE=quay.io/kuberay/operator:${KUBERAY_VERSION}
+    # Redis backend for the GCS fault-tolerance e2e test. Pull by digest and strip it
+    # only for the tag referenced by kind and the pod spec.
+    E2E_TEST_REDIS_IMAGE_WITH_SHA=$(grep '^FROM' "${ROOT_DIR}/hack/testing/redis/Dockerfile" | awk '{print $2}')
+    export E2E_TEST_REDIS_IMAGE=${E2E_TEST_REDIS_IMAGE_WITH_SHA%%@*}
 fi
 
 if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename|workloadidentifierannotations) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
@@ -438,6 +442,7 @@ function patch_kind_config_for_dra {
     # Enable Extended Resources (alpha feature in k8s 1.35)
     $YQ -i '.featureGates.DRAExtendedResource = true' "$patched_config"
     $YQ -i '.featureGates.DRAPartitionableDevices = true' "$patched_config"
+    $YQ -i '.featureGates.DRAConsumableCapacity = true' "$patched_config"
     $YQ -i '.containerdConfigPatches += ["[plugins.\"io.containerd.grpc.v1.cri\"]\n  enable_cdi = true"]' "$patched_config"
     $YQ -i '(.nodes[] | select(.role == "control-plane")).kubeadmConfigPatches[0] = "kind: ClusterConfiguration
 apiVersion: kubeadm.k8s.io/v1beta4
@@ -484,6 +489,7 @@ function patch_kind_config_for_was {
     cp "$1" "$patched_config"
 
     $YQ -i '.featureGates.GenericWorkload = true' "$patched_config"
+    $YQ -i '.featureGates.WorkloadWithJob = true' "$patched_config"
     $YQ -i '(.nodes[] | select(.role == "control-plane")).kubeadmConfigPatches[0] = "kind: ClusterConfiguration
 apiVersion: kubeadm.k8s.io/v1beta4
 scheduler:
@@ -499,7 +505,7 @@ apiServer:
   - name: enable-aggregator-routing
     value: \"true\"
   - name: runtime-config
-    value: \"scheduling.k8s.io/v1alpha3=true\"
+    value: \"scheduling.k8s.io/v1beta1=true\"
   - name: v
     value: \"3\"
 "' "$patched_config"
@@ -515,12 +521,40 @@ controllerManager:
 apiServer:
   extraArgs:
     enable-aggregator-routing: \"true\"
-    runtime-config: \"scheduling.k8s.io/v1alpha3=true\"
+    runtime-config: \"scheduling.k8s.io/v1beta1=true\"
     v: \"3\"
 "]' "$patched_config"
 
     echo "$patched_config"
 }
+
+# run_with_timeout_and_log executes a command with a time limit, redirecting
+# all output to a log file. If the command exceeds the limit and is killed
+# (exit code 124), a unique timeout notification is appended to the log file
+# so that upstream retry scripts (like retry.sh) can accurately detect a hang.
+#
+# Arguments:
+# $1: The timeout duration (e.g., '10m')
+# $2: The absolute path to the log file to pipe output to
+# $@: The remaining arguments constitute the exact command to execute
+function run_with_timeout_and_log {
+    local timeout_duration="$1"
+    local log_file="$2"
+
+    # Pop duration and log file off the stack so $@ contains only the command
+    shift 2
+
+    timeout "$timeout_duration" "$@" > "$log_file" 2>&1
+    local res=$?
+
+    if [ "$res" -ne 0 ]; then
+        if [ "$res" -eq 124 ]; then
+            echo "command timed out after $timeout_duration" >> "$log_file"
+        fi
+        return "$res"
+    fi
+}
+export -f run_with_timeout_and_log
 
 # $1 cluster name
 # $2 cluster kind config
@@ -549,9 +583,13 @@ function cluster_create {
     fi
 
     local log_file="$ARTIFACTS/$cluster-create.log"
-    local create_cmd="$KIND create cluster --name \"$cluster\" --image \"$E2E_KIND_VERSION\" --config \"$kind_config\" --kubeconfig=\"$kubeconfig\" --wait 5m -v 5 > \"$log_file\" 2>&1"
-    # Retry only known-transient failures so real bugs still fail fast (#11586, #12307).
-    local retriable_errors="port is already allocated|error execution phase wait-control-plane"
+    # Include node readiness in each cluster bring-up attempt so transient
+    # readiness delays can reuse the existing cleanup and recreation path.
+    local create_cmd="run_with_timeout_and_log 10m \"$log_file\" $KIND create cluster --name \"$cluster\" --image \"$E2E_KIND_VERSION\" --config \"$kind_config\" --kubeconfig=\"$kubeconfig\" --wait 5m -v 5 && kubectl wait --kubeconfig=\"$kubeconfig\" --for=condition=Ready node --all --timeout=5m >> \"$log_file\" 2>&1"
+    # Retry recognized bring-up failures (#11586, #12307, #12984, #13437). Persistent
+    # failures producing a matching error will exhaust the configured retries
+    # before failing.
+    local retriable_errors="port is already allocated|error execution phase wait-control-plane|could not find a log line that matches|timed out waiting for the condition on nodes/|command timed out after"
     local continue_if="grep -qE '${retriable_errors}' \"$log_file\""
     local cleanup_cmd="if [ -f \"$log_file\" ]; then mv \"$log_file\" \"${log_file}.failed-\$(date +%s)\"; fi; $KIND delete cluster --name \"$cluster\" 2>/dev/null || true"
 
@@ -559,6 +597,7 @@ function cluster_create {
     if ! "${ROOT_DIR}/hack/testing/retry.sh" \
         --attempts 3 \
         --delay 3 \
+        --exponential \
         --continue-if "$continue_if" \
         --cleanup "$cleanup_cmd" \
         -- bash -c "$create_cmd"; then
@@ -569,8 +608,6 @@ function cluster_create {
     fi
 
     kubectl config --kubeconfig="$kubeconfig" use-context "kind-$cluster"
-    # wait for nodes to become ready before loading images or deploying components
-    kubectl wait --kubeconfig="$kubeconfig" --for=condition=Ready node --all --timeout=5m
     kubectl get nodes --kubeconfig="$kubeconfig" > "$ARTIFACTS/$cluster-nodes.log" || true
     kubectl describe pods --kubeconfig="$kubeconfig" -n kube-system > "$ARTIFACTS/$cluster-system-pods.log" || true
 }
@@ -612,6 +649,8 @@ function prepare_docker_images {
     fi
     if [[ -n ${KUBERAY_VERSION:-} && ("$GINKGO_ARGS" =~ feature:kuberay || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_docker_pull_if_needed "${KUBERAY_IMAGE}"
+        e2e_docker_pull_if_needed "${E2E_TEST_REDIS_IMAGE_WITH_SHA}"
+        docker tag "${E2E_TEST_REDIS_IMAGE_WITH_SHA}" "${E2E_TEST_REDIS_IMAGE}"
         determine_kuberay_ray_image
         if [[ "${USE_RAY_FOR_TESTS:-}" == "ray" ]]; then
             e2e_docker_pull_if_needed "${KUBERAY_RAY_IMAGE}"
@@ -877,6 +916,8 @@ function cluster_kueue_deploy {
     elif [[ -n ${DRA_EXAMPLE_DRIVER_VERSION:-} ]]; then
         if [[ ${E2E_TARGET_FOLDER:-} == "dra/counter" ]]; then
             build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/dra/counter"
+        elif [[ ${E2E_TARGET_FOLDER:-} == "dra/capacity" ]]; then
+            build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/dra/capacity"
         else
             build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/dra/whole-device"
         fi
@@ -915,6 +956,15 @@ function build_and_apply_kueue_manifests {
     if kubectl get deployment "${KUEUE_DEPLOYMENT_NAME}" -n "${KUEUE_NAMESPACE}" --kubeconfig="$1" >/dev/null 2>&1; then
         echo "Kueue controller already exists, using --force-conflicts"
         force_conflicts="--force-conflicts"
+    fi
+
+    if [[ -n "${E2E_EXTRA_KUEUE_FEATURE_GATES:-}" ]]; then
+        IFS=',' read -ra GATES <<< "${E2E_EXTRA_KUEUE_FEATURE_GATES}"
+        for gate in "${GATES[@]}"; do
+            IFS='=' read -r key val <<< "${gate}"
+            build_output="${build_output/    featureGates:/    featureGates:
+      ${key}: ${val}}"
+        done
     fi
 
     echo "$build_output" | kubectl apply --kubeconfig="$1" --server-side $force_conflicts -f -
@@ -1160,6 +1210,7 @@ function install_kuberay {
 
     cluster_kind_load_image "$name" "${KUBERAY_RAY_IMAGE}"
     cluster_kind_load_image "$name" "${KUBERAY_IMAGE}"
+    cluster_kind_load_image "$name" "${E2E_TEST_REDIS_IMAGE}"
     # In E2E_MODE=dev we keep and reuse the kind cluster between runs.
     #
     # "kubectl create -k" is used instead of apply (https://github.com/ray-project/kuberay/issues/504),
@@ -1419,6 +1470,9 @@ function install_dra_example_driver {
     if [[ -n ${DRA_GPU_PARTITIONS:-} ]]; then
         extra_helm_args+=(--set "kubeletPlugin.gpuPartitions=${DRA_GPU_PARTITIONS}")
     fi
+    if [[ "${DRA_GPU_ALLOW_MULTIPLE_ALLOCATIONS:-}" == "true" ]]; then
+        extra_helm_args+=(--set "gpuAllowMultipleAllocations=true")
+    fi
 
     $HELM upgrade -i \
       --create-namespace \
@@ -1500,12 +1554,12 @@ function upgrade_test_flow {
     echo "Upgrade Test: $old_version -> current"
     echo "Old image: $KUEUE_OLD_VERSION_IMAGE"
     echo "New image: $IMAGE_TAG"
-    
+
     # Step 1: Install old version using the released image from registry.k8s.io
     echo "Installing $old_version..."
     echo "  Manifest URL: ${KUEUE_OLD_VERSION_MANIFEST}"
     echo "  Downloading and modifying manifests..."
-    
+
     # Download manifests, rewrite the image reference to match the pre-loaded
     # image, and set imagePullPolicy to IfNotPresent so kind uses it directly.
     curl -sL "${KUEUE_OLD_VERSION_MANIFEST}" | \
@@ -1518,7 +1572,7 @@ function upgrade_test_flow {
 
     # Step 2: Create test resources
     echo "Creating test resources..."
-    
+
     # Create custom namespace for test resources (idempotent)
     kubectl apply --kubeconfig="$1" -f - <<EOF_NS
 apiVersion: v1
@@ -1526,7 +1580,7 @@ kind: Namespace
 metadata:
   name: kueue-upgrade-test
 EOF_NS
-    
+
     # Apply test resources
     kubectl apply --kubeconfig="$1" -f - <<EOF
 apiVersion: kueue.x-k8s.io/v1beta1
@@ -1559,22 +1613,22 @@ spec:
   clusterQueue: upgrade-test-cq
 EOF
     echo "✓ Resources created"
-    
+
     # Step 3: Upgrade to current (rolling update)
     echo "Upgrading to current..."
-    
+
     # Apply upgrade - rolling update will replace pods
     (
         set_managers_image
         trap restore_managers_image EXIT
-        
+
         local build_output
         build_output=$($KUSTOMIZE build "${ROOT_DIR}/test/e2e/config/default")
         # shellcheck disable=SC2001 # bash parameter substitution does not work on macOS
         build_output=$(echo "$build_output" | sed "s/kueue-system/$KUEUE_NAMESPACE/g")
         echo "$build_output" | kubectl apply --kubeconfig="$1" --server-side --force-conflicts -f -
     )
-    
+
     # Wait for the rolling update to complete.
     echo "Waiting for rolling update to complete..."
     wait_for_kueue_controller_operator "$1"

@@ -33,11 +33,14 @@ var (
 	ErrInvalidMinVersion = errors.New("invalid minVersion")
 	// ErrInvalidCipherSuites is returned when cipher suites are invalid.
 	ErrInvalidCipherSuites = errors.New("invalid cipher suites")
+	// ErrInvalidCurvePreferences is returned when curve preferences are invalid.
+	ErrInvalidCurvePreferences = errors.New("invalid curve preferences")
 )
 
 type TLS struct {
-	MinVersion   uint16
-	CipherSuites []uint16
+	MinVersion       uint16
+	CipherSuites     []uint16
+	CurvePreferences []tls.CurveID
 }
 
 // ParseTLSOptions
@@ -53,16 +56,8 @@ func ParseTLSOptions(cfg *config.TLSOptions) (*TLS, error) {
 	}
 	ret.MinVersion = version
 
-	// Set cipher suites
-	if len(cfg.CipherSuites) > 0 {
-		cipherSuites, err := convertCipherSuites(cfg.CipherSuites)
-		if err != nil {
-			errRet = errors.Join(errRet, err)
-		}
-		if err == nil && len(cipherSuites) > 0 {
-			ret.CipherSuites = cipherSuites
-		}
-	}
+	ret.CipherSuites, errRet = parseAndCollect(errRet, cfg.CipherSuites, convertCipherSuites)
+	ret.CurvePreferences, errRet = parseAndCollect(errRet, cfg.CurvePreferences, convertCurvePreferences)
 	return ret, errRet
 }
 
@@ -78,9 +73,22 @@ func BuildTLSOptions(tlsOptions *TLS) []func(*tls.Config) {
 	tlsOpts = append(tlsOpts, func(c *tls.Config) {
 		c.MinVersion = tlsOptions.MinVersion
 		c.CipherSuites = tlsOptions.CipherSuites
+		c.CurvePreferences = tlsOptions.CurvePreferences
 	})
 
 	return tlsOpts
+}
+
+// parseAndCollect converts input using the provided convert function and accumulates errors.
+func parseAndCollect[I any, O any](errRet error, input []I, convert func([]I) ([]O, error)) ([]O, error) {
+	if len(input) == 0 {
+		return nil, errRet
+	}
+	result, err := convert(input)
+	if err != nil {
+		return nil, errors.Join(errRet, err)
+	}
+	return result, errRet
 }
 
 // convertTLSMinVersion converts a TLS version string to the corresponding uint16 constant
@@ -102,12 +110,17 @@ func convertTLSMinVersion(tlsMinVersion string) (uint16, error) {
 // convertCipherSuites converts cipher suite names to their crypto/tls constants
 // using k8s.io/component-base/cli/flag for validation
 func convertCipherSuites(cipherSuites []string) ([]uint16, error) {
-	if len(cipherSuites) == 0 {
-		return nil, nil
-	}
 	suites, err := cliflag.TLSCipherSuites(cipherSuites)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v. Please use the secure cipher names: %v", ErrInvalidCipherSuites, err, cliflag.PreferredTLSCipherNames())
 	}
 	return suites, nil
+}
+
+func convertCurvePreferences(curveIDs []int32) ([]tls.CurveID, error) {
+	curves, err := cliflag.TLSCurvePreferences(curveIDs)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidCurvePreferences, err)
+	}
+	return curves, nil
 }

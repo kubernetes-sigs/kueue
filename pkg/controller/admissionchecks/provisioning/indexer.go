@@ -38,7 +38,7 @@ const (
 )
 
 var (
-	configGVK = kueue.GroupVersion.WithKind(ConfigKind)
+	configGVK = kueue.SchemeGroupVersion.WithKind(ConfigKind)
 )
 
 func indexRequestsOwner(obj client.Object) []string {

@@ -174,7 +174,3 @@ type TopologyList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []Topology `json:"items"`
 }
-
-func init() {
-	SchemeBuilder.Register(&Topology{}, &TopologyList{})
-}

@@ -22,6 +22,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 )
@@ -174,6 +175,49 @@ func TestParseTLSOptions(t *testing.T) {
 				},
 			},
 			wantErrs: []error{ErrInvalidMinVersion, ErrInvalidCipherSuites},
+		},
+		{
+			name: "with curve preferences",
+			cfg: &config.TLSOptions{
+				MinVersion:       "VersionTLS12",
+				CurvePreferences: []int32{23, 29}, // P256, X25519
+			},
+			validateFn: func(t *testing.T, tlsOpts *TLS) {
+				if tlsOpts.MinVersion != tls.VersionTLS12 {
+					t.Errorf("MinVersion = %v, want %v", tlsOpts.MinVersion, tls.VersionTLS12)
+				}
+				expectedCurves := []tls.CurveID{tls.CurveP256, tls.X25519}
+				if !cmp.Equal(tlsOpts.CurvePreferences, expectedCurves) {
+					t.Errorf("CurvePreferences diff: %s", cmp.Diff(expectedCurves, tlsOpts.CurvePreferences))
+				}
+			},
+		},
+		{
+			name: "with cipher suites and curve preferences",
+			cfg: &config.TLSOptions{
+				MinVersion: "VersionTLS12",
+				CipherSuites: []string{
+					"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+				},
+				CurvePreferences: []int32{23, 24, 29}, // P256, P384, X25519
+			},
+			validateFn: func(t *testing.T, tlsOpts *TLS) {
+				expectedCiphers := []uint16{tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256}
+				if !cmp.Equal(tlsOpts.CipherSuites, expectedCiphers) {
+					t.Errorf("CipherSuites diff: %s", cmp.Diff(expectedCiphers, tlsOpts.CipherSuites))
+				}
+				expectedCurves := []tls.CurveID{tls.CurveP256, tls.CurveP384, tls.X25519}
+				if !cmp.Equal(tlsOpts.CurvePreferences, expectedCurves) {
+					t.Errorf("CurvePreferences diff: %s", cmp.Diff(expectedCurves, tlsOpts.CurvePreferences))
+				}
+			},
+		},
+		{
+			name: "with invalid curve preferences",
+			cfg: &config.TLSOptions{
+				CurvePreferences: []int32{0},
+			},
+			wantErrs: []error{ErrInvalidCurvePreferences},
 		},
 	}
 
@@ -330,6 +374,52 @@ func TestConvertTLSMinVersion(t *testing.T) {
 	}
 }
 
+func TestConvertCurvePreferences(t *testing.T) {
+	tests := map[string]struct {
+		input    []int32
+		expected []tls.CurveID
+		wantErr  error
+	}{
+		"empty input": {
+			input:    []int32{},
+			expected: nil,
+		},
+		"nil input": {
+			input:    nil,
+			expected: nil,
+		},
+		"valid curve preferences": {
+			input: []int32{23, 24, 29}, // P256, P384, X25519
+			expected: []tls.CurveID{
+				tls.CurveP256,
+				tls.CurveP384,
+				tls.X25519,
+			},
+		},
+		"out of range curve ID": {
+			input:   []int32{0},
+			wantErr: ErrInvalidCurvePreferences,
+		},
+		"duplicate curve IDs": {
+			input:   []int32{23, 23},
+			wantErr: ErrInvalidCurvePreferences,
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			got, err := convertCurvePreferences(tt.input)
+			if diff := cmp.Diff(tt.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Unexpected error (-want, +got):\n%s", diff)
+			}
+
+			if diff := cmp.Diff(tt.expected, got); diff != "" {
+				t.Errorf("Unexpected convertCurvePreferences() result (-want, +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestBuildTLSOptions(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -337,6 +427,7 @@ func TestBuildTLSOptions(t *testing.T) {
 		wantNil        bool
 		wantMinVersion uint16
 		wantCiphers    []uint16
+		wantCurves     []tls.CurveID
 	}{
 		{
 			name:       "nil TLS options",
@@ -400,6 +491,30 @@ func TestBuildTLSOptions(t *testing.T) {
 			wantMinVersion: tls.VersionTLS12,
 			wantCiphers:    []uint16{},
 		},
+		{
+			name: "TLS 1.2 with curve preferences",
+			tlsOptions: &TLS{
+				MinVersion:       tls.VersionTLS12,
+				CurvePreferences: []tls.CurveID{tls.CurveP256, tls.X25519},
+			},
+			wantMinVersion: tls.VersionTLS12,
+			wantCurves:     []tls.CurveID{tls.CurveP256, tls.X25519},
+		},
+		{
+			name: "TLS 1.2 with cipher suites and curve preferences",
+			tlsOptions: &TLS{
+				MinVersion: tls.VersionTLS12,
+				CipherSuites: []uint16{
+					tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+				},
+				CurvePreferences: []tls.CurveID{tls.CurveP256, tls.CurveP384},
+			},
+			wantMinVersion: tls.VersionTLS12,
+			wantCiphers: []uint16{
+				tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+			},
+			wantCurves: []tls.CurveID{tls.CurveP256, tls.CurveP384},
+		},
 	}
 
 	for _, tt := range tests {
@@ -433,6 +548,10 @@ func TestBuildTLSOptions(t *testing.T) {
 
 			if !cmp.Equal(cfg.CipherSuites, tt.wantCiphers) {
 				t.Errorf("CipherSuites diff: %s", cmp.Diff(tt.wantCiphers, cfg.CipherSuites))
+			}
+
+			if diff := cmp.Diff(tt.wantCurves, cfg.CurvePreferences); diff != "" {
+				t.Errorf("Unexpected CurvePreferences (-want, +got):\n%s", diff)
 			}
 		})
 	}

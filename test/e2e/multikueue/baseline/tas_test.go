@@ -113,7 +113,7 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 		multiKueueAc = utiltestingapi.MakeAdmissionCheck("").
 			GeneratedName("ac1-").
 			ControllerName(kueue.MultiKueueControllerName).
-			Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", multiKueueConfig.Name).
+			Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", multiKueueConfig.Name).
 			Obj()
 		util.CreateAdmissionChecksAndWaitForActive(ctx, k8sManagerClient, multiKueueAc)
 
@@ -260,7 +260,7 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 					ctx, k8sManagerClient, wlLookupKey,
 					multiKueueAc.Name,
 					kueue.CheckStateReady,
-					fmt.Sprintf(`The workload got reservation on "%s"`, assignedClusterName),
+					fmt.Sprintf(`The workload was admitted on "%s"`, assignedClusterName),
 				)
 			})
 
@@ -451,7 +451,7 @@ var _ = ginkgo.Describe("MultiKueue TAS with asymmetric quotas", func() {
 		multiKueueAc = utiltestingapi.MakeAdmissionCheck("").
 			GeneratedName("ac1-").
 			ControllerName(kueue.MultiKueueControllerName).
-			Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", multiKueueConfig.Name).
+			Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", multiKueueConfig.Name).
 			Obj()
 		util.CreateAdmissionChecksAndWaitForActive(ctx, k8sManagerClient, multiKueueAc)
 

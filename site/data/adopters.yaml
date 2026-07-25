@@ -5,8 +5,8 @@
   integrations:
   - batch/job
   - kubeflow.org/mpijob
-  contact: '@tenzen-y'
-  contact_url: https://github.com/tenzen-y
+  contact: ''
+  contact_url: ''
 - name: DaoCloud, Inc.
   url: https://www.daocloud.io/en/
   type: End User
@@ -143,6 +143,7 @@
   type: End User
   description: Part of the AI Platform powering Wayve AI Driver
   integrations:
+  - PyTorchJob
   - RayJob
   - pod
   contact: '@mukund-wayve'
@@ -154,3 +155,27 @@
   integrations: []
   contact: '@krea-ai'
   contact_url: https://twitter.com/krea_ai
+- name: Parasail
+  url: https://www.parasail.io/
+  type: End User
+  description: Inference cloud for AI-native startups
+  integrations:
+  - pod
+  contact: '@yakticus'
+  contact_url: https://github.com/yakticus
+- name: Netflix, Inc.
+  url: https://www.netflix.com/
+  type: End User
+  description: Netflix Batch compute platform
+  integrations:
+  - pod
+  contact: '@baoalvin1'
+  contact_url: https://github.com/baoalvin1
+- name: Office of AI Affairs, NYCU
+  url: https://ai.winlab.tw/
+  type: End User
+  description: Student AI research and teaching experiments on Kueue
+  integrations:
+  - batch/job
+  contact: '@thc1006'
+  contact_url: https://github.com/thc1006

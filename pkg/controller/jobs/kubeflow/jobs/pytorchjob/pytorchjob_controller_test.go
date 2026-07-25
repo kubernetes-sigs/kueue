@@ -28,6 +28,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/podset"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingpytorchjob "sigs.k8s.io/kueue/pkg/util/testingjobs/pytorchjob"
@@ -220,6 +221,53 @@ func TestOrderedReplicaTypes(t *testing.T) {
 			gotReplicaTypes := pytorchJob.OrderedReplicaTypes()
 			if diff := cmp.Diff(tc.wantReplicaTypes, gotReplicaTypes); len(diff) != 0 {
 				t.Errorf("Unexpected response (-want, +got): %v", diff)
+			}
+		})
+	}
+}
+
+func TestRestorePodSetsInfo(t *testing.T) {
+	baseJob := testingpytorchjob.MakePyTorchJob("pytorchjob", "ns").
+		PyTorchReplicaSpecs(
+			testingpytorchjob.PyTorchReplicaSpecRequirement{
+				ReplicaType:  kftraining.PyTorchJobReplicaTypeMaster,
+				ReplicaCount: 1,
+			},
+			testingpytorchjob.PyTorchReplicaSpecRequirement{
+				ReplicaType:  kftraining.PyTorchJobReplicaTypeWorker,
+				ReplicaCount: 1,
+			},
+		)
+
+	testCases := map[string]struct {
+		job         *kftraining.PyTorchJob
+		podSetsInfo []podset.PodSetInfo
+		wantChanged bool
+	}{
+		"more podSetsInfo than replica types is a no-op": {
+			job:         baseJob.Clone().Obj(),
+			podSetsInfo: []podset.PodSetInfo{{}, {}, {}},
+			wantChanged: false,
+		},
+		"fewer podSetsInfo than replica types is a no-op": {
+			job:         baseJob.Clone().Obj(),
+			podSetsInfo: []podset.PodSetInfo{{}},
+			wantChanged: false,
+		},
+		"matching length restores pod sets": {
+			job: baseJob.Clone().Obj(),
+			podSetsInfo: []podset.PodSetInfo{
+				{NodeSelector: map[string]string{"restored": "true"}},
+				{NodeSelector: map[string]string{"restored": "true"}},
+			},
+			wantChanged: true,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			if gotChanged := fromObject(tc.job).RestorePodSetsInfo(t.Context(), tc.podSetsInfo); gotChanged != tc.wantChanged {
+				t.Errorf("RestorePodSetsInfo() = %v, want %v", gotChanged, tc.wantChanged)
 			}
 		})
 	}

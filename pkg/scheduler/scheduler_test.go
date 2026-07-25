@@ -319,7 +319,12 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 					}
 
 					if len(tc.wantEvents) > 0 {
-						if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, tc.eventCmpOpts...); diff != "" {
+						wantEvents := make([]utiltesting.EventRecord, len(tc.wantEvents))
+						copy(wantEvents, tc.wantEvents)
+						if !scenario[features.UnadmittedWorkloadsObservability] {
+							utiltesting.AdjustEventsForDisabledObservabilityInScheduler(wantEvents)
+						}
+						if diff := cmp.Diff(wantEvents, recorder.RecordedEvents, tc.eventCmpOpts...); diff != "" {
 							t.Errorf("unexpected events (-want/+got):\n%s", diff)
 						}
 					}
@@ -4399,7 +4404,7 @@ func TestSchedule(t *testing.T) {
 				"sales": {"sales/new"},
 			},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("sales", "new", "Pending", corev1.EventTypeWarning).
+				utiltesting.MakeEventRecord("sales", "new", kueue.WorkloadQuotaReservedReasonMisconfigured, corev1.EventTypeWarning).
 					Message(fmt.Sprintf("%s: %s",
 						workload.ErrLimitRangeConstraintsUnsatisfiedResources,
 						field.Invalid(
@@ -4454,7 +4459,7 @@ func TestSchedule(t *testing.T) {
 				"sales": {"sales/new"},
 			},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("sales", "new", "Pending", corev1.EventTypeWarning).
+				utiltesting.MakeEventRecord("sales", "new", kueue.WorkloadQuotaReservedReasonMisconfigured, corev1.EventTypeWarning).
 					Message(fmt.Sprintf("%s: %s",
 						workload.ErrInvalidWLResources,
 						field.Invalid(
@@ -6086,7 +6091,7 @@ func TestSchedule(t *testing.T) {
 				utiltesting.MakeEventRecord("sales", "low-priority", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("sales", "low-priority", "Preempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("sales", "preemptor", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
-				utiltesting.MakeEventRecord("sales", "preemptor", "Pending", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("sales", "preemptor", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, corev1.EventTypeWarning).Obj(),
 			},
 		},
 		"PreemptionOverBorrowing preference: preempt in first flavor instead of borrowing in second": {
@@ -6209,7 +6214,7 @@ func TestSchedule(t *testing.T) {
 				utiltesting.MakeEventRecord("default", "low-pob", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "low-pob", "Preempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "high-pob", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
-				utiltesting.MakeEventRecord("default", "high-pob", "Pending", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "high-pob", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, corev1.EventTypeWarning).Obj(),
 			},
 		},
 		"BorrowingOverPreemption preference: borrow in second flavor instead of preempting in first": {
@@ -6578,7 +6583,7 @@ func TestSchedule(t *testing.T) {
 			},
 			eventCmpOpts: ignoreEventMessageCmpOpts,
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "vuln-wl", "Pending", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "vuln-wl", kueue.WorkloadQuotaReservedReasonExceedsMaxQuota, corev1.EventTypeWarning).Obj(),
 			},
 		},
 		"prevent integer overflow in ResourceValue conversion to MilliValue": {
@@ -6631,7 +6636,7 @@ func TestSchedule(t *testing.T) {
 			},
 			eventCmpOpts: ignoreEventMessageCmpOpts,
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "vuln-wl", "Pending", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "vuln-wl", kueue.WorkloadQuotaReservedReasonExceedsMaxQuota, corev1.EventTypeWarning).Obj(),
 			},
 		},
 	}
@@ -8412,7 +8417,7 @@ func TestResourcesToReserve(t *testing.T) {
 
 			i := 0
 			for fr, v := range tc.cqUsage {
-				quantity := resources.ResourceQuantity(fr.Resource, v.Int64())
+				quantity := resources.NewResourceFormatter().ResourceQuantity(fr.Resource, v.Int64())
 				admission := utiltestingapi.MakeAdmission("cq").
 					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Assignment(fr.Resource, fr.Flavor, quantity.String()).
@@ -8537,7 +8542,7 @@ func TestSchedulerWhenWorkloadModifiedConcurrently(t *testing.T) {
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord(metav1.NamespaceDefault, "wl", "Pending", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord(metav1.NamespaceDefault, "wl", kueue.WorkloadQuotaReservedReasonExceedsMaxQuota, corev1.EventTypeWarning).Obj(),
 			},
 		},
 	}
@@ -8644,7 +8649,15 @@ func TestSchedulerWhenWorkloadModifiedConcurrently(t *testing.T) {
 						t.Errorf("Unexpected scheduled workloads (-want,+got):\n%s", diff)
 					}
 
-					if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents,
+					var wantEvents []utiltesting.EventRecord
+					if tc.wantEvents != nil {
+						wantEvents = make([]utiltesting.EventRecord, len(tc.wantEvents))
+						copy(wantEvents, tc.wantEvents)
+						if !scenario[features.UnadmittedWorkloadsObservability] {
+							utiltesting.AdjustEventsForDisabledObservabilityInScheduler(wantEvents)
+						}
+					}
+					if diff := cmp.Diff(wantEvents, recorder.RecordedEvents,
 						cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message"),
 					); diff != "" {
 						t.Errorf("Unexpected events (-want/+got):\n%s", diff)

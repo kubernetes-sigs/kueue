@@ -17,6 +17,7 @@ limitations under the License.
 package flavorassigner
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -46,11 +47,8 @@ import (
 
 var (
 	statusComparer = cmp.Comparer(func(a, b Status) bool {
-		if a.err != nil && b.err != nil {
-			return errors.Is(a.err, b.err) || strings.HasPrefix(a.err.Error(), b.err.Error()) || strings.HasPrefix(b.err.Error(), a.err.Error())
-		}
 		if a.err != nil || b.err != nil {
-			return false
+			return errors.Is(a.err, b.err) || errors.Is(b.err, a.err)
 		}
 		return cmp.Equal(a.reasons, b.reasons, cmpopts.SortSlices(func(x, y string) bool {
 			return x < y
@@ -161,7 +159,7 @@ type testOracle struct {
 }
 
 func (f *testOracle) SimulatePreemption(
-	log logr.Logger,
+	ctx context.Context,
 	cq *schdcache.ClusterQueueSnapshot,
 	wl workload.Info,
 	fr resources.FlavorResource,
@@ -3330,10 +3328,10 @@ func TestAssignFlavors(t *testing.T) {
 				TotalRequests: []workload.PodSetResources{
 					{
 						Name: "main",
-						Requests: resources.Requests{
+						Requests: resources.NewRequestsFromMap(resources.MapRequests{
 							corev1.ResourceCPU:    2000,
 							corev1.ResourceMemory: 10 * utiltesting.Mi,
-						},
+						}),
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU:    "two",
 							corev1.ResourceMemory: "two",
@@ -3396,10 +3394,10 @@ func TestAssignFlavors(t *testing.T) {
 				TotalRequests: []workload.PodSetResources{
 					{
 						Name: "main",
-						Requests: resources.Requests{
+						Requests: resources.NewRequestsFromMap(resources.MapRequests{
 							corev1.ResourceCPU:    2000,
 							corev1.ResourceMemory: 10 * utiltesting.Mi,
-						},
+						}),
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU:    "one",
 							corev1.ResourceMemory: "one",
@@ -3418,6 +3416,7 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 					Status: *NewStatus(
 						"insufficient quota for cpu in flavor one, previously considered podsets requests (0) + current podset request (1) > maximum capacity (500m)",
+						"could not assign two flavor since the original workload is assigned: one",
 						"could not assign two flavor since the original workload is assigned: one",
 					),
 					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
@@ -3481,7 +3480,7 @@ func TestAssignFlavors(t *testing.T) {
 						},
 						Count: 1,
 						Status: Status{
-							err: errors.New("more than one TAS flavor assigned"),
+							err: &MultipleTASFlavorsAssignedError{Flavors: []kueue.ResourceFlavorReference{"tas-a", "tas-b"}},
 						},
 					},
 				},
@@ -3645,8 +3644,9 @@ func TestAssignFlavors(t *testing.T) {
 					&testOracle{simulationResult: tc.simulationResult},
 					tc.preemptWorkloadSlice,
 					configapi.QuotaCheckBlockUndeclared,
+					resources.NewResourceFormatter(),
 				)
-				assignment := flvAssigner.Assign(log, nil)
+				assignment := flvAssigner.Assign(ctx, nil)
 				if repMode := assignment.RepresentativeMode(); repMode != tc.wantRepMode {
 					t.Errorf("e.assignFlavors(_).RepresentativeMode()=%s, want %s", repMode, tc.wantRepMode)
 				}
@@ -3839,8 +3839,8 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 			testClusterQueue := snapshot.ClusterQueue("test-clusterqueue")
 			testClusterQueue.AddUsage(workload.Usage{Quota: tc.testClusterQueueUsage})
 
-			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{tc.simulationResult}, nil, configapi.QuotaCheckBlockUndeclared)
-			assignment := flvAssigner.Assign(log, nil)
+			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{tc.simulationResult}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter())
+			assignment := flvAssigner.Assign(ctx, nil)
 			if gotRepMode := assignment.RepresentativeMode(); gotRepMode != tc.wantMode {
 				t.Errorf("Unexpected RepresentativeMode. got %s, want %s", gotRepMode, tc.wantMode)
 			}
@@ -3987,9 +3987,9 @@ func TestDeletedFlavors(t *testing.T) {
 				cache.DeleteResourceFlavor(log, flavorMap["deleted-flavor"])
 				delete(flavorMap, "deleted-flavor")
 
-				flvAssigner := New(wlInfo, clusterQueue, flavorMap, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared)
+				flvAssigner := New(wlInfo, clusterQueue, flavorMap, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter())
 
-				assignment := flvAssigner.Assign(log, nil)
+				assignment := flvAssigner.Assign(ctx, nil)
 				if repMode := assignment.RepresentativeMode(); repMode != tc.wantRepMode {
 					t.Errorf("e.assignFlavors(_).RepresentativeMode()=%s, want %s", repMode, tc.wantRepMode)
 				}
@@ -4176,8 +4176,8 @@ func TestHierarchical(t *testing.T) {
 			testClusterQueue := snapshot.ClusterQueue("test-clusterqueue")
 			testClusterQueue.AddUsage(workload.Usage{Quota: tc.testClusterQueueUsage})
 
-			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared)
-			assignment := flvAssigner.Assign(log, nil)
+			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter())
+			assignment := flvAssigner.Assign(ctx, nil)
 			if gotRepMode := assignment.RepresentativeMode(); gotRepMode != tc.wantMode {
 				t.Errorf("Unexpected RepresentativeMode. got %s, want %s", gotRepMode, tc.wantMode)
 			}
@@ -4259,7 +4259,7 @@ func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 		cq         schdcache.ClusterQueueSnapshot
 		assignment Assignment
 		workload   workload.Info
-		wantErr    string
+		wantErr    error
 	}{
 		"workload requires Topology, but there is no TAS cache information": {
 			cq: schdcache.ClusterQueueSnapshot{
@@ -4285,7 +4285,7 @@ func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 					},
 				},
 			}),
-			wantErr: "workload requires Topology, but there is no TAS cache information",
+			wantErr: ErrNoTASCacheInformation,
 		},
 		"workload requires Topology, but there is no TAS flavor assigned": {
 			cq: schdcache.ClusterQueueSnapshot{
@@ -4311,7 +4311,7 @@ func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 					},
 				},
 			}),
-			wantErr: "no TAS flavor assigned",
+			wantErr: ErrNoTASFlavorAssigned,
 		},
 		"more than one TAS flavor assigned (onlyTASFlavor fails); RepresentativeMode must be NoFit": {
 			cq: schdcache.ClusterQueueSnapshot{
@@ -4342,7 +4342,7 @@ func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 					},
 				},
 			}),
-			wantErr: "more than one TAS flavor assigned: flavor-a, flavor-b",
+			wantErr: &MultipleTASFlavorsAssignedError{Flavors: []kueue.ResourceFlavorReference{"flavor-a", "flavor-b"}},
 		},
 	}
 
@@ -4352,12 +4352,8 @@ func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 			if len(tasReqs) != 0 {
 				t.Errorf("expected no TAS requests, got: %+v", tasReqs)
 			}
-			errMsg := ""
-			if tc.assignment.PodSets[0].Status.err != nil {
-				errMsg = tc.assignment.PodSets[0].Status.err.Error()
-			}
-			if tc.wantErr != "" && errMsg != tc.wantErr {
-				t.Errorf("Error mismatch (-want +got):\n%s", cmp.Diff(tc.wantErr, errMsg))
+			if tc.wantErr != nil && !errors.Is(tc.assignment.PodSets[0].Status.err, tc.wantErr) && !errors.Is(tc.wantErr, tc.assignment.PodSets[0].Status.err) {
+				t.Errorf("got error %v, want error %v", tc.assignment.PodSets[0].Status.err, tc.wantErr)
 			}
 			// When TAS request build fails, the assignment should be unfit so the workload is not admitted.
 			if got := tc.assignment.RepresentativeMode(); got != NoFit {
@@ -4378,7 +4374,7 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 		cq         schdcache.ClusterQueueSnapshot
 		assignment Assignment
 		workload   workload.Info
-		wantErr    string
+		wantErr    error
 	}{
 		"required topology is rejected with ElasticJobsViaWorkloadSlices": {
 			cq: schdcache.ClusterQueueSnapshot{
@@ -4420,7 +4416,7 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 					},
 				},
 			}),
-			wantErr: "required topology is not supported with ElasticJobsViaWorkloadSlices",
+			wantErr: ErrElasticRequiredTopologyNotSupported,
 		},
 		"preferred topology is rejected with ElasticJobsViaWorkloadSlices": {
 			cq: schdcache.ClusterQueueSnapshot{
@@ -4462,7 +4458,7 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 					},
 				},
 			}),
-			wantErr: "preferred topology is not supported with ElasticJobsViaWorkloadSlices",
+			wantErr: ErrElasticPreferredTopologyNotSupported,
 		},
 		"preferred topology is rejected for new elastic workload": {
 			cq: schdcache.ClusterQueueSnapshot{
@@ -4493,7 +4489,7 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 					},
 				},
 			}),
-			wantErr: "preferred topology is not supported with ElasticJobsViaWorkloadSlices",
+			wantErr: ErrElasticPreferredTopologyNotSupported,
 		},
 		"unconstrained topology is accepted with ElasticJobsViaWorkloadSlices": {
 			cq: schdcache.ClusterQueueSnapshot{
@@ -4590,14 +4586,12 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			tasReqs := tc.assignment.WorkloadsTopologyRequests(testr.New(t), &tc.workload, &tc.cq)
-			if tc.wantErr != "" {
+			if tc.wantErr != nil {
 				if len(tasReqs) != 0 {
 					t.Errorf("expected no TAS requests, got: %+v", tasReqs)
 				}
-				if tc.assignment.PodSets[0].Status.err == nil {
-					t.Errorf("expected error %q, got nil", tc.wantErr)
-				} else if diff := cmp.Diff(tc.wantErr, tc.assignment.PodSets[0].Status.err.Error()); diff != "" {
-					t.Errorf("Error mismatch (-want +got):\n%s", diff)
+				if !errors.Is(tc.assignment.PodSets[0].Status.err, tc.wantErr) && !errors.Is(tc.wantErr, tc.assignment.PodSets[0].Status.err) {
+					t.Errorf("got error %v, want error %v", tc.assignment.PodSets[0].Status.err, tc.wantErr)
 				}
 				if got := tc.assignment.RepresentativeMode(); got != NoFit {
 					t.Errorf("RepresentativeMode() = %v, want NoFit (workload must not be admitted when elastic job validation fails)", got)
@@ -4884,7 +4878,7 @@ func TestAssignment_ComputeTASNetUsage(t *testing.T) {
 			want: workload.TASUsage{
 				"tas": []workload.TopologyDomainRequests{{
 					Values: []string{"node-a"},
-					SinglePodRequests: resources.NewRequests(corev1.ResourceList{
+					SinglePodRequests: resources.NewRequestsFromResourceList(corev1.ResourceList{
 						corev1.ResourceCPU:           resource.MustParse("1"),
 						corev1.ResourceMemory:        resource.MustParse("1Gi"),
 						"example.com/gpu":            resource.MustParse("1"),
@@ -4944,7 +4938,7 @@ func TestAssignment_ComputeTASNetUsage(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			got := tt.assignment.ComputeTASNetUsage(testr.New(t), tt.cq, tt.wl, tt.prevAdmission)
 
-			if diff := cmp.Diff(tt.want, got, cmpopts.EquateEmpty()); diff != "" {
+			if diff := cmp.Diff(tt.want, got, cmpopts.EquateEmpty(), cmp.Comparer(resources.Equal)); diff != "" {
 				t.Errorf("Unexpected TAS usage (-want,+got):\n%s", diff)
 			}
 		})
@@ -5149,8 +5143,8 @@ func TestAssignFlavorsWithAllowedFlavors(t *testing.T) {
 			}
 			cqSnapshot := snapshot.ClusterQueue(kueue.ClusterQueueReference(cq.Name))
 
-			assigner := New(wlInfo, cqSnapshot, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared)
-			gotAssignment := assigner.Assign(log, nil)
+			assigner := New(wlInfo, cqSnapshot, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter())
+			gotAssignment := assigner.Assign(ctx, nil)
 
 			if gotAssignment.RepresentativeMode() != tc.wantRepMode {
 				t.Errorf("RepresentativeMode() = %v, want %v", gotAssignment.RepresentativeMode(), tc.wantRepMode)
@@ -5631,8 +5625,11 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 				siblingSnapshot.AddUsage(workload.Usage{Quota: usage})
 			}
 
-			assigner := New(wlInfo, cqSnapshot, testFlavors, false, &testOracle{simulationResult: tc.simulationResult}, tc.replaceWl, configapi.QuotaCheckBlockUndeclared)
-			gotAssignment := assigner.Assign(log, nil)
+			assigner := New(
+				wlInfo, cqSnapshot, testFlavors, false, &testOracle{simulationResult: tc.simulationResult},
+				tc.replaceWl, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(),
+			)
+			gotAssignment := assigner.Assign(ctx, nil)
 
 			if gotAssignment.NoFitReason != tc.wantNoFitReason {
 				t.Errorf("gotAssignment.NoFitReason = %q, want %q", gotAssignment.NoFitReason, tc.wantNoFitReason)

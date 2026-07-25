@@ -22,6 +22,7 @@ import (
 
 const (
 	KueueName                    = "kueue"
+	MultiKueueName               = "multikueue"
 	JobControllerName            = KueueName + "-job-controller"
 	WorkloadControllerName       = KueueName + "-workload-controller"
 	PodTerminationControllerName = KueueName + "-pod-termination-controller"
@@ -40,6 +41,12 @@ const (
 	DefaultPriority int32 = 0
 
 	DefaultPendingWorkloadsLimit = 1000
+
+	// MaxPendingWorkloadsLimit is the maximum number of pending workloads the
+	// visibility API will return in a single request. It bounds the size of a
+	// single response (and its allocation) regardless of the user-provided limit,
+	// so an authorized caller cannot request an arbitrarily large page.
+	MaxPendingWorkloadsLimit = 100_000
 
 	// ManagedByKueueLabelKey label that signalize that an object is managed by Kueue
 	ManagedByKueueLabelKey   = "kueue.x-k8s.io/managed"

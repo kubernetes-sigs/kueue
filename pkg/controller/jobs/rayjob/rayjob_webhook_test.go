@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayutil "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
@@ -126,8 +127,7 @@ func TestDefault(t *testing.T) {
 }
 
 func TestValidateCreate(t *testing.T) {
-	worker := rayv1.WorkerGroupSpec{}
-	bigWorkerGroup := []rayv1.WorkerGroupSpec{worker, worker, worker, worker, worker, worker, worker, worker, worker, worker}
+	bigWorkerGroup := testingraycluster.MakeWorkerGroups(jobframework.MaxPodSets)
 
 	testcases := map[string]struct {
 		job          *rayv1.RayJob
@@ -203,7 +203,7 @@ func TestValidateCreate(t *testing.T) {
 				WithWorkerGroups(bigWorkerGroup...).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.TooMany(field.NewPath("spec", "rayClusterSpec", "workerGroupSpecs"), 11, jobframework.MaxPodSets),
+				field.TooMany(field.NewPath("spec", "rayClusterSpec", "workerGroupSpecs"), jobframework.MaxPodSets+1, jobframework.MaxPodSets),
 			}.ToAggregate(),
 		},
 		"valid managed - max worker groups with gcs fault tolerance": {

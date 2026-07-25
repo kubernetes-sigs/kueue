@@ -24,6 +24,7 @@ If your repo has certain guidelines for contribution, put them here ahead of the
 - [AI Tool Usage Policy](https://www.kubernetes.dev/docs/guide/pull-requests/#ai-guidance) - 🤖 Guidelines for using AI tools when contributing.
 - [Development]({{< relref "/community/contribution_guidelines/development.md" >}})
 - [Running and debugging tests]({{< relref "/community/contribution_guidelines/testing.md" >}})
+- [Website contributions]({{< relref "/community/contribution_guidelines/website.md" >}})
 
 ## Mentorship
 

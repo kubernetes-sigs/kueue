@@ -421,7 +421,7 @@ func runManager(ctx context.Context, cfg *rest.Config, errCh chan<- error, wg *s
 		Controller: crconfig.Controller{
 			SkipNameValidation: new(true),
 			GroupKindConcurrency: map[string]int{
-				kueue.GroupVersion.WithKind("Workload").GroupKind().String(): 5,
+				kueue.SchemeGroupVersion.WithKind("Workload").GroupKind().String(): 5,
 			},
 		},
 		Metrics: metricsserver.Options{

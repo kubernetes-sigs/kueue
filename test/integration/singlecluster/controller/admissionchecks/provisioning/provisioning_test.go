@@ -103,7 +103,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 
 			ac = utiltestingapi.MakeAdmissionCheck("ac-prov").
 				ControllerName(kueue.ProvisioningRequestControllerName).
-				Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", prc.Name).
+				Parameters(kueue.SchemeGroupVersion.Group, "ProvisioningRequestConfig", prc.Name).
 				Obj()
 			util.MustCreate(ctx, k8sClient, ac)
 
@@ -778,7 +778,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 
 			ac = utiltestingapi.MakeAdmissionCheck("ac-prov").
 				ControllerName(kueue.ProvisioningRequestControllerName).
-				Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", prc.Name).
+				Parameters(kueue.SchemeGroupVersion.Group, "ProvisioningRequestConfig", prc.Name).
 				Obj()
 			util.MustCreate(ctx, k8sClient, ac)
 
@@ -1253,7 +1253,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 
 			ac = utiltestingapi.MakeAdmissionCheck("ac-prov").
 				ControllerName(kueue.ProvisioningRequestControllerName).
-				Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", prc.Name).
+				Parameters(kueue.SchemeGroupVersion.Group, "ProvisioningRequestConfig", prc.Name).
 				Obj()
 			util.MustCreate(ctx, k8sClient, ac)
 
@@ -1453,7 +1453,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 
 			ac = utiltestingapi.MakeAdmissionCheck("ac-prov").
 				ControllerName(kueue.ProvisioningRequestControllerName).
-				Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", "prov-config").
+				Parameters(kueue.SchemeGroupVersion.Group, "ProvisioningRequestConfig", "prov-config").
 				Obj()
 			util.MustCreate(ctx, k8sClient, ac)
 
@@ -1617,13 +1617,13 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 
 		ac1 = utiltestingapi.MakeAdmissionCheck(ac1Name).
 			ControllerName(kueue.ProvisioningRequestControllerName).
-			Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", "prov-config").
+			Parameters(kueue.SchemeGroupVersion.Group, "ProvisioningRequestConfig", "prov-config").
 			Obj()
 		util.MustCreate(ctx, k8sClient, ac1)
 
 		ac2 = utiltestingapi.MakeAdmissionCheck(ac2Name).
 			ControllerName(kueue.ProvisioningRequestControllerName).
-			Parameters(kueue.GroupVersion.Group, "ProvisioningRequestConfig", "prov-config").
+			Parameters(kueue.SchemeGroupVersion.Group, "ProvisioningRequestConfig", "prov-config").
 			Obj()
 		util.MustCreate(ctx, k8sClient, ac2)
 	})

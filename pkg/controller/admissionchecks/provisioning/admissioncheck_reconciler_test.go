@@ -70,7 +70,7 @@ func TestReconcileAdmissionCheck(t *testing.T) {
 		},
 		"bad ref kind": {
 			check: utiltestingapi.MakeAdmissionCheck("check1").
-				Parameters(kueue.GroupVersion.Group, "BadKind", "config1").
+				Parameters(kueue.SchemeGroupVersion.Group, "BadKind", "config1").
 				ControllerName(kueue.ProvisioningRequestControllerName).
 				Generation(1).
 				Obj(),
@@ -84,7 +84,7 @@ func TestReconcileAdmissionCheck(t *testing.T) {
 		},
 		"config missing": {
 			check: utiltestingapi.MakeAdmissionCheck("check1").
-				Parameters(kueue.GroupVersion.Group, ConfigKind, "config1").
+				Parameters(kueue.SchemeGroupVersion.Group, ConfigKind, "config1").
 				ControllerName(kueue.ProvisioningRequestControllerName).
 				Generation(1).
 				Obj(),
@@ -98,7 +98,7 @@ func TestReconcileAdmissionCheck(t *testing.T) {
 		},
 		"config found": {
 			check: utiltestingapi.MakeAdmissionCheck("check1").
-				Parameters(kueue.GroupVersion.Group, ConfigKind, "config1").
+				Parameters(kueue.SchemeGroupVersion.Group, ConfigKind, "config1").
 				ControllerName(kueue.ProvisioningRequestControllerName).
 				Generation(1).
 				Obj(),

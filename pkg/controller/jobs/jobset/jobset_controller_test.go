@@ -35,6 +35,7 @@ import (
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/podset"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
@@ -370,6 +371,46 @@ var (
 		cmpopts.IgnoreFields(kueue.PodSet{}, "Template"),
 	}
 )
+
+func TestRestorePodSetsInfo(t *testing.T) {
+	baseJobSet := testingjobset.MakeJobSet("jobset", "ns").ReplicatedJobs(
+		testingjobset.ReplicatedJobRequirements{Name: "job1", Replicas: 1, Parallelism: 1, Completions: 1},
+		testingjobset.ReplicatedJobRequirements{Name: "job2", Replicas: 1, Parallelism: 1, Completions: 1},
+	)
+
+	testCases := map[string]struct {
+		jobSet      *JobSet
+		podSetsInfo []podset.PodSetInfo
+		wantChanged bool
+	}{
+		"fewer podSetsInfo than replicated jobs is a no-op": {
+			jobSet:      (*JobSet)(baseJobSet.Clone().Obj()),
+			podSetsInfo: []podset.PodSetInfo{{}},
+			wantChanged: false,
+		},
+		"more podSetsInfo than replicated jobs is a no-op": {
+			jobSet:      (*JobSet)(baseJobSet.Clone().Obj()),
+			podSetsInfo: []podset.PodSetInfo{{}, {}, {}},
+			wantChanged: false,
+		},
+		"matching length restores pod sets": {
+			jobSet: (*JobSet)(baseJobSet.Clone().Obj()),
+			podSetsInfo: []podset.PodSetInfo{
+				{NodeSelector: map[string]string{"restored": "true"}},
+				{NodeSelector: map[string]string{"restored": "true"}},
+			},
+			wantChanged: true,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			if gotChanged := tc.jobSet.RestorePodSetsInfo(t.Context(), tc.podSetsInfo); gotChanged != tc.wantChanged {
+				t.Errorf("RestorePodSetsInfo() = %v, want %v", gotChanged, tc.wantChanged)
+			}
+		})
+	}
+}
 
 func TestReconciler(t *testing.T) {
 	baseWPCWrapper := utiltestingapi.MakeWorkloadPriorityClass("test-wpc").

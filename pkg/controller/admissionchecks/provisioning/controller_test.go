@@ -246,7 +246,7 @@ func TestReconcile(t *testing.T) {
 
 	baseCheck := utiltestingapi.MakeAdmissionCheck("check1").
 		ControllerName(kueue.ProvisioningRequestControllerName).
-		Parameters(kueue.GroupVersion.Group, ConfigKind, "config1").
+		Parameters(kueue.SchemeGroupVersion.Group, ConfigKind, "config1").
 		Obj()
 
 	podSetMergePolicyAssignemnt := []kueue.PodSetAssignment{
@@ -1948,7 +1948,7 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 
 	baseCheck := utiltestingapi.MakeAdmissionCheck("check").
 		ControllerName(kueue.ProvisioningRequestControllerName).
-		Parameters(kueue.GroupVersion.Group, ConfigKind, "config1").
+		Parameters(kueue.SchemeGroupVersion.Group, ConfigKind, "config1").
 		Obj()
 
 	cases := map[string]struct {

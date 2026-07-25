@@ -51,6 +51,7 @@ import (
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -104,7 +105,7 @@ func SetupWithManager(mgr ctrl.Manager, cfg *configapi.Configuration, roleTracke
 		Watches(&corev1.Pod{}, &podHandler).
 		WithOptions(controller.Options{
 			NeedLeaderElection:      new(false),
-			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("Workload").GroupKind().String()],
+			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.SchemeGroupVersion.WithKind("Workload").GroupKind().String()],
 		}).
 		WithLogConstructor(roletracker.NewLogConstructor(r.roleTracker, ControllerName)).
 		Complete(core.WithLeadingManager(mgr, r, &kueue.Workload{}, cfg))
@@ -202,6 +203,9 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 	ungatedPerPodSet := make(map[kueue.PodSetReference]int32)
 	for i := range podList.Items {
 		p := &podList.Items[i]
+		if utilpod.IsTerminated(p) {
+			continue
+		}
 		ps := kueue.PodSetReference(p.Labels[constants.PodSetLabel])
 		if utilpod.HasGate(p, kueue.ElasticJobSchedulingGate) {
 			gatedPerPodSet[ps] = append(gatedPerPodSet[ps], p)
@@ -263,7 +267,7 @@ func (r *elasticJobUngater) Update(e event.TypedUpdateEvent[*kueue.Workload]) bo
 
 func shouldUngate(wl *kueue.Workload) bool {
 	return workloadslicing.IsElasticWorkload(wl) &&
-		!workload.IsFinished(wl) &&
+		!workloadfinish.IsFinished(wl) &&
 		(workload.IsAdmitted(wl) || workload.HasQuotaReservation(wl))
 }
 

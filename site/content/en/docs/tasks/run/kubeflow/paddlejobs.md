@@ -13,7 +13,7 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
 {{% alert title="Warning" color="warning" %}}
 **Deprecation Notice:** The integration with [Kubeflow Trainer v1](https://www.kubeflow.org/docs/components/trainer/legacy-v1/) (including PaddleJob) is **deprecated** in Kueue and will be removed in a future release, tentatively **v0.20**.
 
-Kubeflow Trainer v1 is now legacy. We strongly recommend migrating to [Kubeflow Trainer v2](https://github.com/kubeflow/trainer) (which is supported in Kueue via [TrainJob](/docs/tasks/run/trainjobs/)), or using an alternative framework such as [JobSet](/docs/tasks/run/jobsets/) to run your jobs.
+Kubeflow Trainer v1 is now legacy. We strongly recommend migrating to [Kubeflow Trainer v2](https://github.com/kubeflow/trainer) (which is supported in Kueue via [TrainJob](/docs/tasks/run/trainjobs/)), or using an alternative framework such as [JobSet](/docs/tasks/run/jobsets/) to run your jobs. See the [Kubeflow Trainer v1 to v2 migration guide](https://trainer.kubeflow.org/en/latest/operator-guides/migration.html) for details on how to migrate.
 {{% /alert %}}
 
 ## Before you begin

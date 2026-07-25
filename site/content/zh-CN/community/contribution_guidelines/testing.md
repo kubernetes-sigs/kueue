@@ -190,16 +190,6 @@ E2E_MODE=dev IMAGE_TAG=us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue
 
 适用于在特定已发布版本上复现问题（例如值班排查）。若要在真实集群（非 e2e）中安装已发布版本，请参阅[安装已发布版本](/zh-cn/docs/installation/#install-a-released-version)。
 
-### 旧方式：交互式附加模式 {#legacy-interactive-attach-mode}
-
-运行 `E2E_RUN_ONLY_ENV=true make kind-image-build test-multikueue-e2e-baseline` 并等待 `Do you want to cleanup? [Y/n] ` 出现（CI 风格行为）。
-
-集群已准备就绪，现在你可以从另一个终端运行测试：
-```shell
-<your_kueue_path>/bin/ginkgo --json-report ./ginkgo.report -focus "MultiKueue when Creating a multikueue admission check Should run a jobSet on worker if admitted" -r
-```
-或从 VSCode 运行。
-
 ## 运行集成或 e2e 测试子集 {#running-subset-of-integration-or-e2e-tests}
 
 ### 使用标签过滤集成测试 {#use-label-filters-for-integration-tests}

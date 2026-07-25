@@ -285,6 +285,9 @@ const (
 	// WorkloadPendingEvaluation indicates that the workload is pending evaluation in the scheduling queue.
 	WorkloadPendingEvaluation = "PendingEvaluation"
 
+	// WorkloadOnHold indicates that the workload's quota reservation is intentionally released.
+	WorkloadOnHold = "OnHold"
+
 	// WorkloadAdmittedReasonNoReservation indicates that the workload has no reservation.
 	WorkloadAdmittedReasonNoReservation = "NoReservation"
 
@@ -314,11 +317,12 @@ is not evaluated or reported.
 | Precedence | Reason Token | Description / Scenario | Location in Memory |
 | :--- | :--- | :--- | :--- |
 | **1** | `Deactivated` | Workload is explicitly deactivated (`spec.active: false`). | None |
-| **2** | `Misconfigured` | Workload points to a non-existent queue or has invalid DRA configs. | None |
-| **3** | `NoMatchingFlavor` | Workload requests a flavor that does not exist or whose taints it does not tolerate. | `ClusterQueue.inadmissibleWorkloads` |
-| **4** | `Suspended` | Administrative hold (the queue's StopPolicy is active). | None |
-| **5** | `AdmissionGated` | Gated state (AdmissionGatedBy annotation). | None |
-| **6** | `WaitingForPodsReady` | Scheduling hold (waiting for previously admitted workloads to reach PodsReady under `waitForPodsReady` configuration). | blocks and waits |
+| **2** | `OnHold` | Workload's quota reservation is intentionally released (e.g. StatefulSet scale-to-zero). | None |
+| **3** | `Misconfigured` | Workload points to a non-existent queue or has invalid DRA configs. | None |
+| **4** | `NoMatchingFlavor` | Workload requests a flavor that does not exist or whose taints it does not tolerate. | `ClusterQueue.inadmissibleWorkloads` |
+| **5** | `Suspended` | Administrative hold (the queue's StopPolicy is active). | None |
+| **6** | `AdmissionGated` | Gated state (AdmissionGatedBy annotation). | None |
+| **7** | `WaitingForPodsReady` | Scheduling hold (waiting for previously admitted workloads to reach PodsReady under `waitForPodsReady` configuration). | blocks and waits |
 
 #### 2. Nominated Flavor Reasons
 These blockers apply to the nominated flavor assignment selected by the
@@ -476,9 +480,7 @@ A set of metrics is introduced to track unadmitted workloads when the
     `AdmissionGated`).
 
 If a workload has successfully obtained a quota reservation (`QuotaReserved` is `True`),
-the `underlying_cause` label is populated as follows:
-- For `UnsatisfiedAdmissionChecks`: Set to `ChecksNotReady`.
-- For `PendingDelayedTopologyRequests`: Set to `PendingTopology`.
+the `underlying_cause` label is left empty (`""`), which indicates that the value in the `reason` label is the root cause for the workload not being admitted.
 
 **Handling of Missing or Unset Status Conditions**
 
@@ -502,8 +504,8 @@ of these mapping combinations are detailed below:
 | :--- | :--- | :--- | :--- | :--- |
 | `NoReservation` | `False (WaitingForQuota)` | `NoReservation` | `WaitingForQuota` | Workload is waiting for queue capacity. |
 | `NoReservation` | `False (Misconfigured)` | `NoReservation` | `Misconfigured` | Workload has structural/configuration errors. |
-| `UnsatisfiedAdmissionChecks` | `True (N/A)` | `UnsatisfiedAdmissionChecks` | `ChecksNotReady` | Quota is reserved, but blocked by pending admission checks. |
-| `PendingDelayedTopologyRequests` | `True (N/A)` | `PendingDelayedTopologyRequests` | `PendingTopology` | Quota is reserved, but blocked by delayed topology paths. |
+| `UnsatisfiedAdmissionChecks` | `True (N/A)` | `UnsatisfiedAdmissionChecks` | `""` | Quota is reserved, but blocked by pending admission checks. |
+| `PendingDelayedTopologyRequests` | `True (N/A)` | `PendingDelayedTopologyRequests` | `""` | Quota is reserved, but blocked by delayed topology paths. |
 
 
 ### Troubleshooting & End-User Inspection

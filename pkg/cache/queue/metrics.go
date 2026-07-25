@@ -19,7 +19,6 @@ package queue
 import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/metrics"
-	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/queue"
 	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -58,7 +57,7 @@ func reportCQPendingWorkloads(m *Manager, cq *ClusterQueue) {
 		// Update), so iterating it once covers both the zero-series and actual pending.
 		pendingResources := cq.pendingResources()
 		for resourceName, v := range pendingResources {
-			q := resources.ResourceQuantity(resourceName, v)
+			q := m.resourceFormatter.ResourceQuantity(resourceName, v)
 			metrics.ReportClusterQueueResourcePending(string(cq.name), string(resourceName), utilresource.QuantityToFloat(&q), cqCustomLabels, m.roleTracker)
 		}
 	}

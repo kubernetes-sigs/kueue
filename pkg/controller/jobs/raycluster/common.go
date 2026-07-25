@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/go-logr/logr"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	corev1 "k8s.io/api/core/v1"
@@ -55,6 +56,21 @@ const (
 	// the RayCluster.
 	RayClusterGenerationAnnotation = "kueue.x-k8s.io/raycluster-generation"
 )
+
+// effectiveWorkerCount returns the effective worker pod count for a worker
+// group: Replicas scaled by NumOfHosts, with Replicas defaulting to 1 when
+// unset. BuildPodSets, UpdatePodSets, and the MultiKueue elastic replica sync
+// all call this so the per-group count derivation stays in one place.
+func effectiveWorkerCount(wgs *rayv1.WorkerGroupSpec) int32 {
+	count := int32(1)
+	if wgs.Replicas != nil {
+		count = *wgs.Replicas
+	}
+	if wgs.NumOfHosts > 1 {
+		count *= wgs.NumOfHosts
+	}
+	return count
+}
 
 // BuildPodSets builds PodSets from RayClusterSpec.
 func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec, annotations map[string]string) ([]kueue.PodSet, error) {
@@ -93,17 +109,10 @@ func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec, annotations map[string]s
 	// workers
 	for index := range rayClusterSpec.WorkerGroupSpecs {
 		wgs := &rayClusterSpec.WorkerGroupSpecs[index]
-		count := int32(1)
-		if wgs.Replicas != nil {
-			count = *wgs.Replicas
-		}
-		if wgs.NumOfHosts > 1 {
-			count *= wgs.NumOfHosts
-		}
 		workerPodSet := kueue.PodSet{
 			Name:     kueue.NewPodSetReference(wgs.GroupName),
 			Template: *wgs.Template.DeepCopy(),
-			Count:    count,
+			Count:    effectiveWorkerCount(wgs),
 		}
 		if features.Enabled(features.TopologyAwareScheduling) {
 			topologyRequest, err := jobframework.NewPodSetTopologyRequest(&wgs.Template.ObjectMeta).Build()
@@ -222,11 +231,7 @@ func UpdatePodSets(ctx context.Context, podSets []kueue.PodSet, c client.Client,
 						continue
 					}
 
-					// Calculate the count based on RayCluster's worker group replicas
-					count := *wgs.Replicas
-					if wgs.NumOfHosts > 1 {
-						count *= wgs.NumOfHosts
-					}
+					count := effectiveWorkerCount(wgs)
 
 					// Update the count in the PodSet only if it's different
 					if podSet.Count != count {
@@ -246,11 +251,11 @@ func UpdatePodSets(ctx context.Context, podSets []kueue.PodSet, c client.Client,
 	return podSets, nil
 }
 
-func UpdateRayClusterSpecToRunWithPodSetsInfo(rayClusterSpec *rayv1.RayClusterSpec, podSetsInfo []podset.PodSetInfo) error {
+func UpdateRayClusterSpecToRunWithPodSetsInfo(log logr.Logger, rayClusterSpec *rayv1.RayClusterSpec, podSetsInfo []podset.PodSetInfo) error {
 	// head
 	headPod := &rayClusterSpec.HeadGroupSpec.Template
 	info := podSetsInfo[0]
-	if err := podset.Merge(&headPod.ObjectMeta, &headPod.Spec, info); err != nil {
+	if err := podset.Merge(log, &headPod.ObjectMeta, &headPod.Spec, info); err != nil {
 		return err
 	}
 
@@ -258,7 +263,7 @@ func UpdateRayClusterSpecToRunWithPodSetsInfo(rayClusterSpec *rayv1.RayClusterSp
 	for index := range rayClusterSpec.WorkerGroupSpecs {
 		workerPod := &rayClusterSpec.WorkerGroupSpecs[index].Template
 		info := podSetsInfo[index+1]
-		if err := podset.Merge(&workerPod.ObjectMeta, &workerPod.Spec, info); err != nil {
+		if err := podset.Merge(log, &workerPod.ObjectMeta, &workerPod.Spec, info); err != nil {
 			return err
 		}
 	}
@@ -266,7 +271,16 @@ func UpdateRayClusterSpecToRunWithPodSetsInfo(rayClusterSpec *rayv1.RayClusterSp
 	return nil
 }
 
-func RestorePodSetsInfo(rayClusterSpec *rayv1.RayClusterSpec, podSetsInfo []podset.PodSetInfo) bool {
+func RestorePodSetsInfo(ctx context.Context, rayClusterSpec *rayv1.RayClusterSpec, podSetsInfo []podset.PodSetInfo) bool {
+	if expected := ExpectedPodSetsCount(rayClusterSpec); len(podSetsInfo) != expected {
+		ctrl.LoggerFrom(ctx).V(2).Info(
+			"Skipping pod set info restore because the pod set count does not match the admitted workload",
+			"expectedCount", expected,
+			"gotCount", len(podSetsInfo),
+		)
+		return false
+	}
+
 	// head
 	headPod := &rayClusterSpec.HeadGroupSpec.Template
 	changed := podset.RestorePodSpec(&headPod.ObjectMeta, &headPod.Spec, podSetsInfo[0])

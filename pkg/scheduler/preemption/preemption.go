@@ -34,6 +34,7 @@ import (
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -74,6 +75,7 @@ type Preemptor struct {
 }
 
 type preemptionCtx struct {
+	ctx               context.Context
 	clock             clock.Clock
 	log               logr.Logger
 	preemptor         workload.Info
@@ -126,13 +128,15 @@ func (t *Target) GetObject() client.Object {
 
 // GetTargets returns the list of workloads that should be evicted in
 // order to make room for wl.
-func (p *Preemptor) GetTargets(log logr.Logger, wl workload.Info, assignment flavorassigner.Assignment, snapshot *schdcache.Snapshot) []*Target {
+func (p *Preemptor) GetTargets(ctx context.Context, wl workload.Info, assignment flavorassigner.Assignment, snapshot *schdcache.Snapshot) []*Target {
+	log := log.FromContext(ctx)
 	cq := snapshot.ClusterQueue(wl.ClusterQueue)
 	var tasRequests schdcache.WorkloadTASRequests
 	if features.Enabled(features.TopologyAwareScheduling) {
 		tasRequests = assignment.WorkloadsTopologyRequests(log, &wl, cq)
 	}
 	return p.getTargets(&preemptionCtx{
+		ctx:               ctx,
 		clock:             p.clock,
 		log:               log,
 		preemptor:         wl,
@@ -630,7 +634,11 @@ func workloadFits(preemptionCtx *preemptionCtx, allowBorrowing bool) bool {
 			return false
 		}
 	}
-	tasResult := preemptionCtx.preemptorCQ.FindTopologyAssignmentsForWorkload(preemptionCtx.tasRequests)
+	tasResult := preemptionCtx.preemptorCQ.FindTopologyAssignmentsForWorkload(
+		preemptionCtx.ctx,
+		preemptionCtx.tasRequests,
+		schdcache.WithWorkload(preemptionCtx.preemptor.Obj),
+	)
 	return tasResult.Failure() == nil
 }
 

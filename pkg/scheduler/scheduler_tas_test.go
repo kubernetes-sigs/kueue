@@ -1909,7 +1909,7 @@ func TestScheduleForTAS(t *testing.T) {
 				"tas-main": {"default/foo"},
 			},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "foo", "Pending", "Warning").
+				utiltesting.MakeEventRecord("default", "foo", kueue.WorkloadQuotaReservedReasonNoMatchingFlavor, "Warning").
 					Message(`couldn't assign flavors to pod set one: Flavor "tas-default" does not contain the requested level`).
 					Obj(),
 			},
@@ -1991,7 +1991,7 @@ func TestScheduleForTAS(t *testing.T) {
 				"tas-main": {"default/foo"},
 			},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "foo", "Pending", "Warning").
+				utiltesting.MakeEventRecord("default", "foo", kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed, "Warning").
 					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" allows to fit only 1 out of 2 pod(s)`).
 					Obj(),
 			},
@@ -2032,7 +2032,7 @@ func TestScheduleForTAS(t *testing.T) {
 				"tas-main": {"default/foo"},
 			},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "foo", "Pending", "Warning").
+				utiltesting.MakeEventRecord("default", "foo", kueue.WorkloadQuotaReservedReasonWaitingForQuota, "Warning").
 					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "cpu": 1`).
 					Obj(),
 			},
@@ -2061,7 +2061,48 @@ func TestScheduleForTAS(t *testing.T) {
 				"tas-main": {"default/foo"},
 			},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "foo", "Pending", "Warning").
+				utiltesting.MakeEventRecord("default", "foo", kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed, "Warning").
+					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "cpu": 1`).
+					Obj(),
+			},
+		},
+		"workload does not get scheduled as node capacity is completely used by non-TAS pod": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label("tas-node", "true").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
+						corev1.ResourcePods:   resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("test-pending", "test-ns").NodeName("x1").
+					StatusPhase(corev1.PodRunning).
+					Request(corev1.ResourceCPU, "1").
+					Request(corev1.ResourceMemory, "1Gi").
+					Obj(),
+			},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo", "default").
+					Queue("tas-main").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"tas-main": {"default/foo"},
+			},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "foo", kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed, "Warning").
 					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "cpu": 1`).
 					Obj(),
 			},
@@ -2168,7 +2209,7 @@ func TestScheduleForTAS(t *testing.T) {
 				"tas-main": {"default/foo"},
 			},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "foo", "Pending", "Warning").
+				utiltesting.MakeEventRecord("default", "foo", kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed, "Warning").
 					Message(`couldn't assign flavors to pod set worker: topology "tas-two-level" doesn't allow to fit any of 1 pod(s). Total nodes: 2; excluded: resource "cpu": 2`).
 					Obj(),
 			},
@@ -2770,7 +2811,7 @@ func TestScheduleForTAS(t *testing.T) {
 				"tas-main": {"default/foo"},
 			},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "foo", "Pending", "Warning").
+				utiltesting.MakeEventRecord("default", "foo", kueue.WorkloadQuotaReservedReasonWaitingForQuota, "Warning").
 					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "pods": 1`).
 					Obj(),
 			},
@@ -2886,7 +2927,7 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "foo", "Pending", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed, corev1.EventTypeWarning).Obj(),
 			},
 		},
 		"admits workload when node matches required affinity": {
@@ -3171,7 +3212,7 @@ func TestScheduleForTAS(t *testing.T) {
 				"tas-main": {"default/foo"},
 			},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "foo", "Pending", corev1.EventTypeWarning).
+				utiltesting.MakeEventRecord("default", "foo", kueue.WorkloadQuotaReservedReasonExceedsMaxQuota, corev1.EventTypeWarning).
 					Message("couldn't assign flavors to pod set one: insufficient quota for cpu_credits in flavor credits, previously considered podsets requests (0) + current podset request (2) > maximum capacity (1)").
 					Obj(),
 			},
@@ -3320,7 +3361,7 @@ func TestScheduleForTAS(t *testing.T) {
 				"tas-main": {"default/foo"},
 			},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "foo", "Pending", "Warning").
+				utiltesting.MakeEventRecord("default", "foo", kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed, "Warning").
 					Message(`couldn't assign flavors to pod set one: topology "tas-three-level" doesn't allow to fit; 0/1 slice(s) fit on level cloud.provider.com/rack; 2/3 slice(s) fit on level kubernetes.io/hostname`).
 					Obj(),
 			},
@@ -3330,25 +3371,45 @@ func TestScheduleForTAS(t *testing.T) {
 		{
 			features.WorkloadRequestUseMergePatch:     false,
 			features.UnadmittedWorkloadsObservability: false,
+			features.TASCacheNodeMatchResults:         true,
+			features.TASCachingRemainingResources:     true,
 		},
 		{
 			features.WorkloadRequestUseMergePatch:     false,
 			features.UnadmittedWorkloadsObservability: true,
+			features.TASCacheNodeMatchResults:         true,
+			features.TASCachingRemainingResources:     true,
 		},
 		{
 			features.WorkloadRequestUseMergePatch:     true,
 			features.UnadmittedWorkloadsObservability: false,
+			features.TASCacheNodeMatchResults:         true,
+			features.TASCachingRemainingResources:     true,
 		},
 		{
 			features.WorkloadRequestUseMergePatch:     true,
 			features.UnadmittedWorkloadsObservability: true,
+			features.TASCacheNodeMatchResults:         true,
+			features.TASCachingRemainingResources:     true,
+		},
+		{
+			features.WorkloadRequestUseMergePatch:     false,
+			features.UnadmittedWorkloadsObservability: false,
+			features.TASCacheNodeMatchResults:         false,
+			features.TASCachingRemainingResources:     false,
 		},
 	}
 
 	for name, tc := range cases {
 		for _, scenario := range scenarios {
 			t.Run(
-				fmt.Sprintf("%s WorkloadRequestUseMergePatch:%t observability:%t", name, scenario[features.WorkloadRequestUseMergePatch], scenario[features.UnadmittedWorkloadsObservability]),
+				fmt.Sprintf("%s WorkloadRequestUseMergePatch:%t observability:%t cacheMatchResults:%t cachingRemainingResources:%t",
+					name,
+					scenario[features.WorkloadRequestUseMergePatch],
+					scenario[features.UnadmittedWorkloadsObservability],
+					scenario[features.TASCacheNodeMatchResults],
+					scenario[features.TASCachingRemainingResources],
+				),
 				func(t *testing.T) {
 					features.SetFeatureGatesDuringTest(t, scenario)
 					features.SetFeatureGatesDuringTest(t, tc.featureGates)
@@ -3483,7 +3544,15 @@ func TestScheduleForTAS(t *testing.T) {
 					if diff := cmp.Diff(tc.wantInadmissibleLeft, qDumpInadmissible, cmpDump...); diff != "" {
 						t.Errorf("Unexpected elements left in inadmissible workloads (-want,+got):\n%s", diff)
 					}
-					if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, tc.eventCmpOpts...); diff != "" {
+					var wantEvents []utiltesting.EventRecord
+					if tc.wantEvents != nil {
+						wantEvents = make([]utiltesting.EventRecord, len(tc.wantEvents))
+						copy(wantEvents, tc.wantEvents)
+						if !scenario[features.UnadmittedWorkloadsObservability] {
+							utiltesting.AdjustEventsForDisabledObservabilityInScheduler(wantEvents)
+						}
+					}
+					if diff := cmp.Diff(wantEvents, recorder.RecordedEvents, tc.eventCmpOpts...); diff != "" {
 						t.Errorf("unexpected events (-want/+got):\n%s", diff)
 					}
 				},
@@ -3536,25 +3605,58 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 		{
 			features.WorkloadRequestUseMergePatch:     false,
 			features.UnadmittedWorkloadsObservability: false,
+			features.TASCacheNodeMatchResults:         true,
+			features.TASCachingRemainingResources:     true,
+			features.VectorizedResourceRequests:       false,
+		},
+		{
+			features.WorkloadRequestUseMergePatch:     false,
+			features.UnadmittedWorkloadsObservability: false,
+			features.TASCacheNodeMatchResults:         true,
+			features.TASCachingRemainingResources:     true,
+			features.VectorizedResourceRequests:       true,
 		},
 		{
 			features.WorkloadRequestUseMergePatch:     false,
 			features.UnadmittedWorkloadsObservability: true,
+			features.TASCacheNodeMatchResults:         true,
+			features.TASCachingRemainingResources:     true,
+			features.VectorizedResourceRequests:       true,
 		},
 		{
 			features.WorkloadRequestUseMergePatch:     true,
 			features.UnadmittedWorkloadsObservability: false,
+			features.TASCacheNodeMatchResults:         true,
+			features.TASCachingRemainingResources:     true,
+			features.VectorizedResourceRequests:       true,
 		},
 		{
 			features.WorkloadRequestUseMergePatch:     true,
 			features.UnadmittedWorkloadsObservability: true,
+			features.TASCacheNodeMatchResults:         true,
+			features.TASCachingRemainingResources:     true,
+			features.VectorizedResourceRequests:       true,
+		},
+		{
+			features.WorkloadRequestUseMergePatch:     false,
+			features.UnadmittedWorkloadsObservability: false,
+			features.TASCacheNodeMatchResults:         false,
+			features.TASCachingRemainingResources:     false,
+			features.VectorizedResourceRequests:       true,
 		},
 	}
 
 	for name, tc := range cases {
 		for _, scenario := range scenarios {
 			t.Run(
-				fmt.Sprintf("%s WorkloadRequestUseMergePatch:%t observability:%t", name, scenario[features.WorkloadRequestUseMergePatch], scenario[features.UnadmittedWorkloadsObservability]),
+				fmt.Sprintf("%s WorkloadRequestUseMergePatch:%t observability:%t cacheMatchResults:%t cachingRemainingResources:%t vectorizedRequests:%t",
+					name,
+					scenario[features.WorkloadRequestUseMergePatch],
+					scenario[features.UnadmittedWorkloadsObservability],
+					scenario[features.TASCacheNodeMatchResults],
+					scenario[features.TASCachingRemainingResources],
+					scenario[features.VectorizedResourceRequests],
+				),
 				func(t *testing.T) {
 					features.SetFeatureGatesDuringTest(t, scenario)
 					features.SetFeatureGatesDuringTest(t, tc.featureGates)
@@ -3695,10 +3797,18 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 					if diff := cmp.Diff(tc.wantInadmissibleLeft, qDumpInadmissible, cmpDump...); diff != "" {
 						t.Errorf("Unexpected elements left in inadmissible workloads (-want,+got):\n%s", diff)
 					}
+					var wantEvents []utiltesting.EventRecord
+					if tc.wantEvents != nil {
+						wantEvents = make([]utiltesting.EventRecord, len(tc.wantEvents))
+						copy(wantEvents, tc.wantEvents)
+						if !scenario[features.UnadmittedWorkloadsObservability] {
+							utiltesting.AdjustEventsForDisabledObservabilityInScheduler(wantEvents)
+						}
+					}
 					// Recorded event order is not guaranteed, so sort both sides to keep the
 					// assertion deterministic.
 					eventCmpOpts := append(tc.eventCmpOpts, cmpopts.SortSlices(utiltesting.SortEvents))
-					if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, eventCmpOpts...); diff != "" {
+					if diff := cmp.Diff(wantEvents, recorder.RecordedEvents, eventCmpOpts...); diff != "" {
 						t.Errorf("unexpected events (-want/+got):\n%s", diff)
 					}
 				},
@@ -3887,7 +3997,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 				utiltesting.MakeEventRecord("default", "foo", "PreemptedWorkload", "Normal").
 					Message("Preempted workload default/low-priority-admitted (UID: low-priority-admitted-uid) in ClusterQueue tas-main; preemptor effective priority: 3 (base: 3, boost: 0); preemptee effective priority: 1 (base: 1, boost: 0)").
 					Obj(),
-				utiltesting.MakeEventRecord("default", "foo", "Pending", "Warning").
+				utiltesting.MakeEventRecord("default", "foo", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, "Warning").
 					Message(`couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor tas-default, 5 more needed. Pending the preemption of 1 workload(s)`).
 					Obj(),
 			},
@@ -4020,7 +4130,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 				utiltesting.MakeEventRecord("default", "foo", "PreemptedWorkload", "Normal").
 					Message("Preempted workload default/low-priority-admitted (UID: low-priority-admitted-uid) in ClusterQueue tas-main; preemptor effective priority: 3 (base: 3, boost: 0); preemptee effective priority: 1 (base: 1, boost: 0)").
 					Obj(),
-				utiltesting.MakeEventRecord("default", "foo", "Pending", "Warning").
+				utiltesting.MakeEventRecord("default", "foo", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, "Warning").
 					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "memory": 1. Pending the preemption of 1 workload(s)`).
 					Obj(),
 			},
@@ -4146,7 +4256,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 				utiltesting.MakeEventRecord("default", "foo", "PreemptedWorkload", "Normal").
 					Message("Preempted workload default/low-priority-admitted (UID: low-priority-admitted-uid) in ClusterQueue tas-main; preemptor effective priority: 3 (base: 3, boost: 0); preemptee effective priority: 1 (base: 1, boost: 0)").
 					Obj(),
-				utiltesting.MakeEventRecord("default", "foo", "Pending", "Warning").
+				utiltesting.MakeEventRecord("default", "foo", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, "Warning").
 					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "cpu": 1. Pending the preemption of 1 workload(s)`).
 					Obj(),
 			},
@@ -4276,7 +4386,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 				utiltesting.MakeEventRecord("default", "high-priority-waiting", "PreemptedWorkload", "Normal").
 					Message("Preempted workload default/low-priority-admitted (UID: low-priority-admitted-uid) in ClusterQueue tas-main; preemptor effective priority: 3 (base: 3, boost: 0); preemptee effective priority: 1 (base: 1, boost: 0)").
 					Obj(),
-				utiltesting.MakeEventRecord("default", "high-priority-waiting", "Pending", "Warning").
+				utiltesting.MakeEventRecord("default", "high-priority-waiting", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, "Warning").
 					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "cpu": 1. Pending the preemption of 1 workload(s)`).
 					Obj(),
 			},
@@ -4442,7 +4552,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 				utiltesting.MakeEventRecord("default", "foo", "PreemptedWorkload", "Normal").
 					Message("Preempted workload default/low-priority-admitted (UID: low-priority-admitted-uid) in ClusterQueue tas-main; preemptor effective priority: 3 (base: 3, boost: 0); preemptee effective priority: 1 (base: 1, boost: 0)").
 					Obj(),
-				utiltesting.MakeEventRecord("default", "foo", "Pending", "Warning").
+				utiltesting.MakeEventRecord("default", "foo", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, "Warning").
 					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "cpu": 1. Pending the preemption of 1 workload(s)`).
 					Obj(),
 			},
@@ -4610,7 +4720,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 				utiltesting.MakeEventRecord("default", "foo", "PreemptedWorkload", "Normal").
 					Message("Preempted workload default/low-priority-admitted (UID: low-priority-admitted-uid) in ClusterQueue tas-main; preemptor effective priority: 3 (base: 3, boost: 0); preemptee effective priority: 1 (base: 1, boost: 0)").
 					Obj(),
-				utiltesting.MakeEventRecord("default", "foo", "Pending", "Warning").
+				utiltesting.MakeEventRecord("default", "foo", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, "Warning").
 					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" allows to fit only 1 out of 2 pod(s). Pending the preemption of 1 workload(s)`).
 					Obj(),
 			},
@@ -4728,7 +4838,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 				"tas-main": {"default/mid-priority-waiting"},
 			},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "mid-priority-waiting", "Pending", "Warning").
+				utiltesting.MakeEventRecord("default", "mid-priority-waiting", kueue.WorkloadQuotaReservedReasonWaitingForQuota, "Warning").
 					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" allows to fit only 1 out of 2 pod(s)`).
 					Obj(),
 			},
@@ -4862,7 +4972,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 				utiltesting.MakeEventRecord("default", "low-priority", "EvictedDueToPreempted", "Normal").Obj(),
 				utiltesting.MakeEventRecord("default", "low-priority", "Preempted", "Normal").Obj(),
 				utiltesting.MakeEventRecord("default", "high-priority", "PreemptedWorkload", "Normal").Obj(),
-				utiltesting.MakeEventRecord("default", "high-priority", "Pending", "Warning").Obj(),
+				utiltesting.MakeEventRecord("default", "high-priority", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, "Warning").Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
@@ -5044,7 +5154,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 				utiltesting.MakeEventRecord("default", "low-mem", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "low-mem", "Preempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "high-priority", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
-				utiltesting.MakeEventRecord("default", "high-priority", "Pending", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "high-priority", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, corev1.EventTypeWarning).Obj(),
 			},
 			eventCmpOpts: cmp.Options{
 				eventIgnoreMessage,
@@ -5259,7 +5369,7 @@ func TestScheduleForTASPreemption(t *testing.T) {
 				utiltesting.MakeEventRecord("default", "w1-low-prio-a", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "w1-low-prio-a", "Preempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "w3-pending", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
-				utiltesting.MakeEventRecord("default", "w3-pending", "Pending", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "w3-pending", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, corev1.EventTypeWarning).Obj(),
 			},
 		},
 	}
@@ -5608,8 +5718,8 @@ func TestScheduleForTASCohorts(t *testing.T) {
 				utiltesting.MakeEventRecord("default", "a1-admitted", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "a2-admitted", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "a3-admitted", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
-				utiltesting.MakeEventRecord("default", "b1", "Pending", corev1.EventTypeWarning).Obj(),
-				utiltesting.MakeEventRecord("default", "c1", "Pending", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "b1", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "c1", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, corev1.EventTypeWarning).Obj(),
 				utiltesting.MakeEventRecord("default", "b1", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "b1", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "c1", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
@@ -5771,7 +5881,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "a1", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "a1", "Admitted", corev1.EventTypeNormal).Obj(),
-				utiltesting.MakeEventRecord("default", "b1", "Pending", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "b1", kueue.WorkloadQuotaReservedReasonWaitingForQuota, corev1.EventTypeWarning).Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 		},
@@ -6347,9 +6457,9 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "a1-admitted", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "a2", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
-				utiltesting.MakeEventRecord("default", "a2", "Pending", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "a2", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, corev1.EventTypeWarning).Obj(),
 				utiltesting.MakeEventRecord("default", "a1-admitted", "Preempted", corev1.EventTypeNormal).Obj(),
-				utiltesting.MakeEventRecord("default", "b1", "Pending", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "b1", kueue.WorkloadQuotaReservedReasonWaitingForQuota, corev1.EventTypeWarning).Obj(),
 			},
 		},
 		"preempting workload without targets reserves capacity so that lower priority workload cannot use it; TASRecomputeAssignmentWithinSchedulingCycle enabled": {
@@ -6496,8 +6606,8 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "a2", "Pending", corev1.EventTypeWarning).Obj(),
-				utiltesting.MakeEventRecord("default", "b1", "Pending", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "a2", kueue.WorkloadQuotaReservedReasonWaitingForQuota, corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "b1", kueue.WorkloadQuotaReservedReasonWaitingForQuota, corev1.EventTypeWarning).Obj(),
 			},
 		},
 		"workload with preemption target recomputes stale TAS assignment in cohort; TASRecomputeAssignmentWithinSchedulingCycle enabled": {
@@ -6724,7 +6834,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 				utiltesting.MakeEventRecord("default", "b-low-admitted", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "b-low-admitted", "Preempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "b1", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
-				utiltesting.MakeEventRecord("default", "b1", "Pending", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "b1", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, corev1.EventTypeWarning).Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 		},
@@ -6933,7 +7043,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "a1", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "a1", "Admitted", corev1.EventTypeNormal).Obj(),
-				utiltesting.MakeEventRecord("default", "b1", "Pending", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "b1", kueue.WorkloadQuotaReservedReasonWaitingForQuota, corev1.EventTypeWarning).Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 		},
@@ -7093,7 +7203,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "a1", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "a1", "Admitted", corev1.EventTypeNormal).Obj(),
-				utiltesting.MakeEventRecord("default", "b1", "Pending", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "b1", kueue.WorkloadQuotaReservedReasonWaitingForQuota, corev1.EventTypeWarning).Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 		},
@@ -7241,7 +7351,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "a1", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "a1", "Admitted", corev1.EventTypeNormal).Obj(),
-				utiltesting.MakeEventRecord("default", "b1", "Pending", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "b1", kueue.WorkloadQuotaReservedReasonWaitingForQuota, corev1.EventTypeWarning).Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 		},
@@ -7319,7 +7429,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 				"tas-cq-a": {"default/foo"},
 			},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "foo", "Pending", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed, corev1.EventTypeWarning).Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 		},
@@ -7500,7 +7610,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "b1", "Pending", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "b1", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, corev1.EventTypeWarning).Obj(),
 				utiltesting.MakeEventRecord("default", "a1-admitted", "Preempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "b1", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "a1-admitted", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
@@ -7705,7 +7815,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 				utiltesting.MakeEventRecord("default", "a1-admitted", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "a1-admitted", "Preempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "b1", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
-				utiltesting.MakeEventRecord("default", "b1", "Pending", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "b1", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, corev1.EventTypeWarning).Obj(),
 			},
 		},
 		"reclaim within cohort; preempting with partial admission": {
@@ -7873,7 +7983,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 				utiltesting.MakeEventRecord("default", "a2-admitted", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "a2-admitted", "Preempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "b1", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
-				utiltesting.MakeEventRecord("default", "b1", "Pending", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "b1", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, corev1.EventTypeWarning).Obj(),
 			},
 		},
 		"reclaim within cohort; capacity reserved by preempting workload does not allow to schedule last workload; TASRecomputeAssignmentWithinSchedulingCycle disabled": {
@@ -8128,8 +8238,8 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "a2-admitted", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "a3-admitted", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
-				utiltesting.MakeEventRecord("default", "b1", "Pending", corev1.EventTypeWarning).Obj(),
-				utiltesting.MakeEventRecord("default", "c1", "Pending", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "b1", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "c1", kueue.WorkloadQuotaReservedReasonWaitingForQuota, corev1.EventTypeWarning).Obj(),
 				utiltesting.MakeEventRecord("default", "a2-admitted", "Preempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "a3-admitted", "Preempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "b1", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
@@ -8480,7 +8590,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "b1", "Pending", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "b1", kueue.WorkloadQuotaReservedReasonWaitingForQuota, corev1.EventTypeWarning).Obj(),
 				utiltesting.MakeEventRecord("default", "a1", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "a1", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
@@ -8586,7 +8696,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "b1", "Pending", corev1.EventTypeWarning).
+				utiltesting.MakeEventRecord("default", "b1", kueue.WorkloadQuotaReservedReasonWaitingForQuota, corev1.EventTypeWarning).
 					Message("Workload no longer fits after processing another workload").Obj(),
 				utiltesting.MakeEventRecord("default", "a1", "QuotaReserved", corev1.EventTypeNormal).
 					Message("Quota reserved in ClusterQueue tas-cq-a, wait time since queued was 9223372037s; Flavors considered: one: tas-default(Fit;borrow=1)").Obj(),
@@ -8702,7 +8812,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "a1", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "a1", "Admitted", corev1.EventTypeNormal).Obj(),
-				utiltesting.MakeEventRecord("default", "b1", "Pending", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "b1", kueue.WorkloadQuotaReservedReasonWaitingForQuota, corev1.EventTypeWarning).Obj(),
 			},
 		},
 		"preempting workload with targets reserves capacity so that lower priority workload cannot use it; TASRecomputeAssignmentWithinSchedulingCycle disabled": {
@@ -8869,9 +8979,9 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "a1-admitted", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "a2", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
-				utiltesting.MakeEventRecord("default", "a2", "Pending", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "a2", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, corev1.EventTypeWarning).Obj(),
 				utiltesting.MakeEventRecord("default", "a1-admitted", "Preempted", corev1.EventTypeNormal).Obj(),
-				utiltesting.MakeEventRecord("default", "b1", "Pending", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "b1", kueue.WorkloadQuotaReservedReasonWaitingForQuota, corev1.EventTypeWarning).Obj(),
 			},
 		},
 		"preempting workload without targets reserves capacity so that lower priority workload cannot use it; TASRecomputeAssignmentWithinSchedulingCycle disabled": {
@@ -9019,8 +9129,8 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "a2", "Pending", corev1.EventTypeWarning).Obj(),
-				utiltesting.MakeEventRecord("default", "b1", "Pending", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "a2", kueue.WorkloadQuotaReservedReasonWaitingForQuota, corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "b1", kueue.WorkloadQuotaReservedReasonWaitingForQuota, corev1.EventTypeWarning).Obj(),
 			},
 		},
 		"preempting workload without targets doesn't reserve capacity when it can always reclaim": {
@@ -9167,7 +9277,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "b1", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "b1", "Admitted", corev1.EventTypeNormal).Obj(),
-				utiltesting.MakeEventRecord("default", "a2", "Pending", "Warning").
+				utiltesting.MakeEventRecord("default", "a2", kueue.WorkloadQuotaReservedReasonWaitingForQuota, "Warning").
 					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" allows to fit only 3 out of 4 pod(s)`).
 					Obj(),
 			},
@@ -9418,7 +9528,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 				utiltesting.MakeEventRecord("default", "low-gpu", "Preempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "standard", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "standard", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
-				utiltesting.MakeEventRecord("default", "standard", "Pending", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "standard", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, corev1.EventTypeWarning).Obj(),
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 		},

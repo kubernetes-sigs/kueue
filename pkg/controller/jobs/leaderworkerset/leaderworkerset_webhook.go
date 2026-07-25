@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -76,7 +77,9 @@ func (wh *Webhook) Default(ctx context.Context, obj *leaderworkersetv1.LeaderWor
 	log := ctrl.LoggerFrom(ctx).WithName("leaderworkerset-webhook")
 	log.V(5).Info("Applying defaults")
 
-	jobframework.ApplyDefaultLocalQueue(obj, wh.queues.DefaultLocalQueueExist)
+	if err := jobframework.ApplyDefaultLocalQueue(ctx, wh.client, obj, wh.queues.DefaultLocalQueueExist, wh.managedJobsNamespaceSelector); err != nil {
+		return err
+	}
 	jobframework.ApplyDefaultWorkloadPriorityClass(ctx, wh.client, obj)
 	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, lws.Object(), wh.client, wh.manageJobsWithoutQueueName, wh.managedJobsNamespaceSelector)
 	if err != nil {
@@ -128,6 +131,7 @@ var (
 	labelsPath                    = field.NewPath("metadata", "labels")
 	queueNameLabelPath            = labelsPath.Key(constants.QueueLabel)
 	specPath                      = field.NewPath("spec")
+	replicasPath                  = specPath.Child("replicas")
 	leaderWorkerTemplatePath      = specPath.Child("leaderWorkerTemplate")
 	leaderTemplatePath            = leaderWorkerTemplatePath.Child("leaderTemplate")
 	leaderTemplateMetaPath        = leaderTemplatePath.Child("metadata")
@@ -221,6 +225,7 @@ func validateCreate(lws *LeaderWorkerSet) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, jobframework.ValidateQueueName(lws.Object())...)
 	allErrs = append(allErrs, jobframework.ValidateElasticJobAnnotation(lws.Object(), lws.GVK())...)
+	allErrs = append(allErrs, validateReplicasField(lws)...)
 
 	if features.Enabled(features.AdmissionGatedBy) {
 		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnCreate(lws.Object())...)
@@ -234,6 +239,14 @@ func validateCreate(lws *LeaderWorkerSet) (field.ErrorList, error) {
 		allErrs = append(allErrs, validationErrs...)
 	}
 	return allErrs, nil
+}
+
+func validateReplicasField(lws *LeaderWorkerSet) field.ErrorList {
+	replicas := ptr.Deref(lws.Spec.Replicas, defaultLeaderWorkerSetReplicas)
+	if err := validateLeaderWorkerSetReplicaCount(replicas); err != nil {
+		return field.ErrorList{field.Invalid(replicasPath, replicas, err.Error())}
+	}
+	return nil
 }
 
 func validateTopologyRequest(lws *LeaderWorkerSet) (field.ErrorList, error) {

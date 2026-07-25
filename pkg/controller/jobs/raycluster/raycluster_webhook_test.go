@@ -126,8 +126,7 @@ func TestValidateDefault(t *testing.T) {
 }
 
 func TestValidateCreate(t *testing.T) {
-	worker := rayv1.WorkerGroupSpec{}
-	bigWorkerGroup := []rayv1.WorkerGroupSpec{worker, worker, worker, worker, worker, worker, worker, worker, worker, worker}
+	bigWorkerGroup := testingrayutil.MakeWorkerGroups(jobframework.MaxPodSets)
 
 	testcases := map[string]struct {
 		job          *rayv1.RayCluster
@@ -160,7 +159,7 @@ func TestValidateCreate(t *testing.T) {
 				WithWorkerGroups(bigWorkerGroup...).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.TooMany(field.NewPath("spec", "workerGroupSpecs"), 11, jobframework.MaxPodSets),
+				field.TooMany(field.NewPath("spec", "workerGroupSpecs"), jobframework.MaxPodSets+1, jobframework.MaxPodSets),
 			}.ToAggregate(),
 		},
 		"worker group uses head name": {

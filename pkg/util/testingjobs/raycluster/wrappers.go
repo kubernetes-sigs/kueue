@@ -29,6 +29,16 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
+// MakeWorkerGroups returns count worker groups with distinct group names.
+// It is a helper for tests that need to exceed the per-Workload podSet limit.
+func MakeWorkerGroups(count int) []rayv1.WorkerGroupSpec {
+	groups := make([]rayv1.WorkerGroupSpec, count)
+	for i := range groups {
+		groups[i] = rayv1.WorkerGroupSpec{GroupName: fmt.Sprintf("workers-%d", i)}
+	}
+	return groups
+}
+
 // ClusterWrapper wraps a RayCluster.
 type ClusterWrapper struct{ rayv1.RayCluster }
 

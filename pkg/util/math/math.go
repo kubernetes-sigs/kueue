@@ -62,6 +62,26 @@ func SafeMilliValue(q resource.Quantity) int64 {
 	return q.MilliValue()
 }
 
+var (
+	maxValue = *resource.NewQuantity(stdmath.MaxInt64, resource.DecimalSI)
+	minValue = *resource.NewQuantity(stdmath.MinInt64, resource.DecimalSI)
+)
+
+// SafeValue returns the integer value for the resource quantity, clamped to
+// math.MinInt64 and math.MaxInt64. It is the twin of SafeMilliValue and avoids
+// the silent truncation of resource.Quantity.Value() for magnitudes outside the
+// int64 range (Value() calls big.Int.Int64(), whose result is undefined when the
+// value does not fit).
+func SafeValue(q resource.Quantity) int64 {
+	if q.Cmp(maxValue) > 0 {
+		return stdmath.MaxInt64
+	}
+	if q.Cmp(minValue) < 0 {
+		return stdmath.MinInt64
+	}
+	return q.Value()
+}
+
 // SaturatingMul multiplies two int64s, returning math.MaxInt64 or math.MinInt64 if the
 // result would overflow or underflow.
 func SaturatingMul(a, b int64) int64 {

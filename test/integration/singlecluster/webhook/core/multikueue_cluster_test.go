@@ -144,7 +144,7 @@ func makeConditions(count int) []metav1.Condition {
 
 func makeMultiKueueClusterWithSpec(name string, spec map[string]any) *unstructured.Unstructured {
 	mkc := &unstructured.Unstructured{}
-	mkc.SetAPIVersion(kueue.GroupVersion.String())
+	mkc.SetAPIVersion(kueue.SchemeGroupVersion.String())
 	mkc.SetKind("MultiKueueCluster")
 	mkc.SetName(name)
 	mkc.Object["spec"] = spec

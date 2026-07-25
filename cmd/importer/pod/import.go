@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 )
@@ -72,7 +73,7 @@ func Import(ctx context.Context, c client.Client, importCache *cache.ImportCache
 
 		kp := pod.FromObject(p)
 		// Note: the recorder is not used for single pods, we can just pass nil for now.
-		wl, err := kp.ConstructComposableWorkload(ctx, c, nil, nil)
+		wl, err := kp.ConstructComposableWorkload(ctx, c, nil, nil, nil)
 		if err != nil {
 			return false, fmt.Errorf("construct workload: %w", err)
 		}
@@ -84,11 +85,16 @@ func Import(ctx context.Context, c client.Client, importCache *cache.ImportCache
 			wl.Spec.Priority = &pc.Value
 		}
 
+		cq, ok := importCache.ClusterQueues[string(lq.Spec.ClusterQueue)]
+		if !ok {
+			return false, fmt.Errorf("cluster queue not found in cache: %s: %w", lq.Spec.ClusterQueue, cache.ErrCQNotFound)
+		}
+
 		if err := createWorkload(ctx, c, wl); err != nil {
 			return false, fmt.Errorf("creating workload: %w", err)
 		}
 
-		if err := admitWorkload(ctx, c, wl, importCache.ClusterQueues[string(lq.Spec.ClusterQueue)]); err != nil {
+		if err := admitWorkload(ctx, c, wl, cq); err != nil {
 			return false, err
 		}
 		log.V(2).Info("Successfully imported", "pod", klog.KObj(p), "workload", klog.KObj(wl))
@@ -140,6 +146,9 @@ func addLabels(ctx context.Context, c client.Client, p *corev1.Pod, queue string
 				retry, reload, timeout = checkError(err)
 				continue
 			}
+			if p.Labels == nil {
+				p.Labels = make(map[string]string)
+			}
 			p.Labels[controllerconstants.QueueLabel] = queue
 			p.Labels[constants.ManagedByKueueLabelKey] = constants.ManagedByKueueLabelValue
 			maps.Copy(p.Labels, addLabels)
@@ -171,6 +180,7 @@ func createWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) er
 }
 
 func admitWorkload(ctx context.Context, c client.Client, wl *kueue.Workload, cq *kueue.ClusterQueue) error {
+	resourceFormatter := resources.NewResourceFormatter()
 	update := func(wl *kueue.Workload) (bool, error) {
 		// make its admission and update its status
 		info := workload.NewInfo(wl)
@@ -181,14 +191,16 @@ func admitWorkload(ctx context.Context, c client.Client, wl *kueue.Workload, cq 
 				{
 					Name:          info.TotalRequests[0].Name,
 					Flavors:       make(map[corev1.ResourceName]kueue.ResourceFlavorReference),
-					ResourceUsage: info.TotalRequests[0].Requests.ToResourceList(),
+					ResourceUsage: info.TotalRequests[0].Requests.ToResourceList(resourceFormatter),
 					Count:         ptr.To[int32](1),
 				},
 			},
 		}
 		flv := cq.Spec.ResourceGroups[0].Flavors[0].Name
-		for r := range info.TotalRequests[0].Requests {
-			admission.PodSetAssignments[0].Flavors[r] = flv
+		if info.TotalRequests[0].Requests != nil {
+			info.TotalRequests[0].Requests.ForEach(func(name corev1.ResourceName, val int64) {
+				admission.PodSetAssignments[0].Flavors[name] = flv
+			})
 		}
 
 		wl.Status.Admission = &admission

@@ -40,6 +40,7 @@ import (
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
@@ -123,7 +124,7 @@ func (r *IncrementalDispatcherReconciler) Reconcile(ctx context.Context, req ctr
 		return reconcile.Result{}, err
 	}
 
-	if workload.IsFinished(wl) || !workload.HasQuotaReservation(wl) {
+	if workloadfinish.IsFinished(wl) || !workload.HasQuotaReservation(wl) {
 		log.V(3).Info("Workload is already finished or has no quota reserved, skip the reconciliation")
 		r.clearRoundStartTime(req.NamespacedName)
 		return reconcile.Result{}, nil
@@ -133,7 +134,7 @@ func (r *IncrementalDispatcherReconciler) Reconcile(ctx context.Context, req ctr
 	return r.nominateWorkers(ctx, wl, remoteClusters, log)
 }
 
-func (r *IncrementalDispatcherReconciler) nominateWorkers(ctx context.Context, wl *kueue.Workload, remoteClusters sets.Set[string], log logr.Logger) (reconcile.Result, error) {
+func (r *IncrementalDispatcherReconciler) nominateWorkers(ctx context.Context, wl *kueue.Workload, remoteClusters []string, log logr.Logger) (reconcile.Result, error) {
 	key := client.ObjectKeyFromObject(wl)
 	roundStart, found := r.getRoundStartTime(key)
 	now := r.clock.Now()
@@ -165,16 +166,19 @@ func (r *IncrementalDispatcherReconciler) nominateWorkers(ctx context.Context, w
 	return reconcile.Result{}, nil
 }
 
-func getNextNominatedWorkers(log logr.Logger, wl *kueue.Workload, remoteClusters sets.Set[string], batchSize int) ([]string, error) {
+func getNextNominatedWorkers(log logr.Logger, wl *kueue.Workload, remoteClusters []string, batchSize int) ([]string, error) {
 	alreadyNominated := sets.New(wl.Status.NominatedClusterNames...)
 
 	workers := make([]string, 0, len(remoteClusters))
-	for remoteWorker := range remoteClusters {
+	for _, remoteWorker := range remoteClusters {
 		if !alreadyNominated.Has(remoteWorker) {
 			workers = append(workers, remoteWorker)
 		}
 	}
-	slices.Sort(workers)
+	// Sorts the local copy, never remoteClusters, which aliases the cached MultiKueueConfig.
+	if !features.Enabled(features.MultiKueueIncrementalDispatcherRespectConfigOrder) {
+		slices.Sort(workers)
+	}
 
 	log.V(5).Info("proceeding worker clusters nomination", "alreadyNominatedClusterNames", alreadyNominated, "remainingClusterNames", workers)
 

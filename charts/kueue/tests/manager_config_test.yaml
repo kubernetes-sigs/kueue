@@ -71,7 +71,7 @@ tests:
           path: data["controller_manager_config.yaml"]
           pattern: "internalCertManagement:\n  enable: false\n  webhookSecretName: bar\n  webhookServiceName: foo"
 
-  - it: should not add internalCertManagement when enableCertManager is true and controllerManagerConfigYaml is provided
+  - it: should disable internalCertManagement when enableCertManager is true and controllerManagerConfigYaml is provided
     set:
       enableCertManager: true
       managerConfig:
@@ -87,9 +87,11 @@ tests:
       - matchRegex:
           path: data["controller_manager_config.yaml"]
           pattern: "metrics:\n  bindAddress: 0.0.0.0:8080"
-      - notMatchRegex:
+      - matchRegex:
           path: data["controller_manager_config.yaml"]
-          pattern: "internalCertManagement:"
+          pattern: |
+            internalCertManagement:
+              enable: false
 
   - it: should handle an empty controllerManagerConfigYaml
     release:

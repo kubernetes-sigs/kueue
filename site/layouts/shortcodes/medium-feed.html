@@ -1,81 +1,172 @@
-{{/* Fetch Medium RSS feed for tag "kueue" at build time with try() safeguard */}}
-{{ $remote := try (resources.GetRemote "https://medium.com/feed/tag/kueue") }}
-
-<div class="row g-4 mt-2">
-  {{ with $remote }}
-    {{ if .Err }}
-      <!-- Fallback if network or remote fetch error occurs -->
-      <div class="col-12 text-center py-4">
-        <p class="text-muted">{{ T "community_medium_unavailable" }}</p>
-      </div>
-    {{ else if .Value }}
-      {{ $xml := .Value | transform.Unmarshal }}
-      
-      {{/* Verify we have items in the channel */}}
-      {{ if and $xml (index $xml "channel") (index $xml.channel "item") }}
-        
-        {{/* Loop through the first 3 items */}}
-        {{ range first 3 $xml.channel.item }}
-          
-          {{/* Format the publication date */}}
-          {{ $date := "" }}
-          {{ if .pubDate }}
-            {{ $date = .pubDate | time.Format "Jan 2, 2006" }}
-          {{ end }}
-          
-          <div class="col-md-4">
-            <div class="card h-100 community-card shadow-sm bg-white rounded-3">
-              <div class="card-body d-flex flex-column p-3">
-                <div class="d-flex align-items-center mb-2.5">
-                  <div class="bg-light text-info rounded-circle d-flex align-items-center justify-content-center me-2.5" style="width: 32px; height: 32px;">
-                    <i class="fas fa-pen-nib fa-sm"></i>
-                  </div>
-                  <div>
-                    <span class="badge bg-light text-muted border fw-semibold" style="font-size: 0.75rem; padding: 0.25em 0.5em;">{{ T "community_medium_badge" }}</span>
-                  </div>
-                </div>
-                
-                <h6 class="card-title fw-bold mb-3" style="font-size: 0.9rem; line-height: 1.4;">
-                  <a href="{{ .link }}" target="_blank" rel="noopener" class="text-dark text-decoration-none hover-teal">
-                    {{ .title }}
-                  </a>
-                </h6>
-                
-                <div class="d-flex align-items-center justify-content-between mt-auto pt-2.5 border-top text-muted" style="font-size: 0.75rem;">
-                  <div>
-                    <i class="fas fa-external-link-alt me-1"></i> {{ T "community_medium_read_more" }}
-                  </div>
+<div class="row g-4 mt-2" id="medium-feed-container"
+     data-badge="{{ T "community_medium_badge" }}"
+     data-read-more="{{ T "community_medium_read_more" }}"
+     data-unavailable="{{ T "community_medium_unavailable" }}"
+     data-no-articles="{{ T "community_medium_no_articles" }}">
   
-                  {{ if $date }}
-                  <div>
-                    <i class="fas fa-calendar-alt me-1"></i> {{ $date }}
-                  </div>
-                  {{ end }}
+  <!-- Loading skeleton -->
+  <div class="col-12 text-center py-4" id="medium-feed-loading">
+    <div class="spinner-border text-info" style="width: 2rem; height: 2rem;" role="status">
+      <span class="visually-hidden">{{ T "community_medium_loading" }}</span>
+    </div>
+  </div>
+</div>
+
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    const container = document.getElementById("medium-feed-container");
+    if (!container) return;
+
+    const CACHE_KEY = "kueue_medium_feed";
+    const CACHE_TIME_KEY = "kueue_medium_feed_time";
+    const CACHE_TTL = 60 * 60 * 1000; // 1 hour in milliseconds
+
+    const badgeText = container.getAttribute("data-badge") || "Medium";
+    const readMoreText = container.getAttribute("data-read-more") || "Read more";
+    const unavailableText = container.getAttribute("data-unavailable") || "Medium feed currently unavailable.";
+    const noArticlesText = container.getAttribute("data-no-articles") || "No articles found.";
+
+    function renderFeed(xmlText) {
+      const data = new window.DOMParser().parseFromString(xmlText, "text/xml");
+      const items = data.querySelectorAll("item");
+      
+      // Clear container (including loading skeleton) before rendering
+      container.innerHTML = '';
+      
+      if (items.length === 0) {
+        container.innerHTML = `<div class="col-12 text-center py-4"><p class="text-muted">${noArticlesText}</p></div>`;
+        return;
+      }
+      
+      const count = Math.min(items.length, 3);
+      const lang = document.documentElement.lang || 'en';
+      
+      for (let i = 0; i < count; i++) {
+        const item = items[i];
+        const title = item.querySelector("title") ? item.querySelector("title").textContent : "";
+        const link = item.querySelector("link") ? item.querySelector("link").textContent : "";
+        const pubDate = item.querySelector("pubDate") ? item.querySelector("pubDate").textContent : "";
+        
+        let dateStr = "";
+        if (pubDate) {
+          try {
+            const date = new Date(pubDate);
+            if (!isNaN(date.getTime())) {
+              dateStr = date.toLocaleDateString(lang, { month: 'short', day: 'numeric', year: 'numeric' });
+            }
+          } catch (e) {
+            console.error("Failed to parse pubDate:", pubDate, e);
+          }
+        }
+        
+        const col = document.createElement("div");
+        col.className = "col-md-4";
+        col.innerHTML = `
+          <div class="card h-100 community-card shadow-sm bg-white rounded-3">
+            <div class="card-body d-flex flex-column p-3">
+              <div class="d-flex align-items-center mb-2.5">
+                <div class="bg-light text-info rounded-circle d-flex align-items-center justify-content-center me-2.5" style="width: 32px; height: 32px;">
+                  <i class="fas fa-pen-nib fa-sm"></i>
                 </div>
+                <div>
+                  <span class="badge bg-light text-muted border fw-semibold" style="font-size: 0.75rem; padding: 0.25em 0.5em;">${badgeText}</span>
+                </div>
+              </div>
+              <h6 class="card-title fw-bold mb-3" style="font-size: 0.9rem; line-height: 1.4;">
+                <a href="${sanitizeUrl(link)}" target="_blank" rel="noopener" class="text-dark text-decoration-none hover-teal">
+                  ${escapeHtml(title)}
+                </a>
+              </h6>
+              <div class="d-flex align-items-center justify-content-between mt-auto pt-2.5 border-top text-muted" style="font-size: 0.75rem;">
+                <div><i class="fas fa-external-link-alt me-1"></i> ${readMoreText}</div>
+                ${dateStr ? `<div><i class="fas fa-calendar-alt me-1"></i> ${dateStr}</div>` : ''}
               </div>
             </div>
           </div>
-  
-        {{ end }}
-        
-      {{ else }}
-        <!-- Fallback if feed format is unexpected or empty -->
-        <div class="col-12 text-center py-4">
-          <p class="text-muted">{{ T "community_medium_no_articles" }}</p>
-        </div>
-      {{ end }}
-    {{ else }}
-      <!-- Fallback if value is nil (e.g., 404 Not Found) -->
-      <div class="col-12 text-center py-4">
-        <p class="text-muted">{{ T "community_medium_unavailable" }}</p>
-      </div>
-    {{ end }}
-  {{ else }}
-    <div class="col-12 text-center py-4">
-      <p class="text-muted">{{ T "community_medium_unavailable" }}</p>
-    </div>
-  {{ end }}
-</div>
+        `;
+        container.appendChild(col);
+      }
+    }
+
+    // Check Local Storage Cache
+    let cachedData = null;
+    let cachedTime = null;
+    const now = Date.now();
+
+    try {
+      cachedData = localStorage.getItem(CACHE_KEY);
+      cachedTime = localStorage.getItem(CACHE_TIME_KEY);
+    } catch (e) {
+      console.warn("[Medium Feed] localStorage is not accessible:", e);
+    }
+
+    // Determine if cache is still fresh
+    const isCacheFresh = cachedData && cachedTime && (now - parseInt(cachedTime, 10) < CACHE_TTL);
+
+    if (cachedData) {
+      console.log(`[Medium Feed] Rendering from cache (Fresh: ${isCacheFresh}).`);
+      renderFeed(cachedData);
+    }
+
+    // If cache is missing or expired, fetch in the background to update it
+    if (!isCacheFresh) {
+      console.log("[Medium Feed] Cache is stale or missing. Fetching in the background...");
+      const feedUrl = "/api/medium-feed";
+
+      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const timeoutId = controller ? setTimeout(() => controller.abort(), 10000) : null;
+
+      fetch(feedUrl, controller ? { signal: controller.signal } : {})
+        .then(response => {
+          if (timeoutId) clearTimeout(timeoutId);
+          if (!response.ok) throw new Error("Network response was not ok");
+          return response.text();
+        })
+        .then(xmlText => {
+          const testData = new window.DOMParser().parseFromString(xmlText, "text/xml");
+          if (testData.querySelector("parsererror") || !testData.querySelector("rss, feed, channel")) {
+            throw new Error("Received invalid XML feed payload");
+          }
+
+          try {
+            localStorage.setItem(CACHE_KEY, xmlText);
+            localStorage.setItem(CACHE_TIME_KEY, now.toString());
+            console.log("[Medium Feed] Cache updated with fresh data.");
+          } catch (e) {
+            console.warn("[Medium Feed] Failed to write to localStorage:", e);
+          }
+          
+          // Render fresh content immediately upon revalidation
+          renderFeed(xmlText);
+          console.log("[Medium Feed] Feed rendered with fresh background data.");
+        })
+        .catch(error => {
+          if (timeoutId) clearTimeout(timeoutId);
+          console.error("[Medium Feed] Background fetch failed:", error);
+          if (!cachedData) {
+            container.innerHTML = `<div class="col-12 text-center py-4"><p class="text-muted">${unavailableText}</p></div>`;
+          }
+        });
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+    }
+
+    function sanitizeUrl(rawUrl) {
+      if (!rawUrl) return "#";
+      try {
+        const url = new URL(rawUrl.trim());
+        if (url.protocol === "http:" || url.protocol === "https:") {
+          return escapeHtml(url.href);
+        }
+      } catch (e) {
+        console.warn("[Medium Feed] Invalid or unsafe URL:", rawUrl);
+      }
+      return "#";
+    }
+  });
+</script>
 
 <style>
   .hover-teal {

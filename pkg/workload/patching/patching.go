@@ -63,7 +63,7 @@ func baseSSAWorkload(w *kueue.Workload, strict bool) *kueue.Workload {
 		TypeMeta: w.TypeMeta,
 	}
 	if wlCopy.APIVersion == "" {
-		wlCopy.APIVersion = kueue.GroupVersion.String()
+		wlCopy.APIVersion = kueue.SchemeGroupVersion.String()
 	}
 	if wlCopy.Kind == "" {
 		wlCopy.Kind = "Workload"

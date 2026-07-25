@@ -60,6 +60,7 @@ import (
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
@@ -175,7 +176,7 @@ func (r *nodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return ctrl.Result{}, err
 	}
 
-	if timerExpired {
+	if features.Enabled(features.TASReplaceNodeDueToNotReadyOverFixedTime) && timerExpired {
 		log.V(3).Info("Node is not ready and NodeFailureDelay timer expired, marking as failed")
 		evictedWorkloads, err := r.handleUnhealthyNode(ctx, req.Name, affectedWorkloads)
 		if err != nil {
@@ -335,7 +336,7 @@ func (r *nodeReconciler) getWorkloadsFromPodsOnNode(
 			logger.V(4).Info("Failed to get workload", "workload", wlKey, "error", err)
 			continue
 		}
-		if !workload.IsFinished(&wl) && !workloadevict.IsEvicted(&wl) {
+		if !workloadfinish.IsFinished(&wl) && !workloadevict.IsEvicted(&wl) {
 			latePodWorkloads.Insert(wlKey)
 		}
 	}
@@ -449,7 +450,7 @@ func (r *nodeReconciler) podSetsWithEffectiveTolerationsOnNode(ctx context.Conte
 				}
 			}
 		}
-		if err := podsetinfo.Merge(&effective.Template.ObjectMeta, &effective.Template.Spec, info); err != nil {
+		if err := podsetinfo.Merge(ctrl.LoggerFrom(ctx), &effective.Template.ObjectMeta, &effective.Template.Spec, info); err != nil {
 			return nil, err
 		}
 		result = append(result, *effective)
@@ -489,18 +490,18 @@ func (r *nodeReconciler) checkPodsOnNode(
 // When the TASReplaceMultipleFailedNodes feature gate is enabled, the second-distinct-node
 // eviction is suppressed. The new node is appended via addUnhealthyNode and the
 // workload remains admitted; the scheduler will keep attempting head replacement.
-func (r *nodeReconciler) evictWorkloadIfNeeded(ctx context.Context, wl *kueue.Workload, nodeName string) (bool, error) {
+func (r *nodeReconciler) evictWorkloadIfNeeded(ctx context.Context, log logr.Logger, wl *kueue.Workload, nodeName string) (bool, error) {
 	if workload.HasUnhealthyNodes(wl) && !workload.HasUnhealthyNode(wl, nodeName) && !workloadevict.IsEvicted(wl) {
 		if features.Enabled(features.TASReplaceMultipleFailedNodes) {
 			threshold := workload.UnhealthyNodesEvictionThreshold(wl)
 			if len(wl.Status.UnhealthyNodes) < threshold {
-				ctrl.LoggerFrom(ctx).V(3).Info("Skipping eviction; replacing failed nodes in place (within eviction threshold)",
+				log.V(3).Info("Skipping eviction; replacing failed nodes in place (within eviction threshold)",
 					"unhealthyNodes", workload.UnhealthyNodeNames(wl), "newUnhealthyNode", nodeName, "evictionThreshold", threshold)
 				return false, nil
 			}
 		}
 		unhealthyNodeNames := workload.UnhealthyNodeNames(wl)
-		log := ctrl.LoggerFrom(ctx).WithValues("unhealthyNodes", unhealthyNodeNames)
+		log = log.WithValues("unhealthyNodes", unhealthyNodeNames)
 		log.V(3).Info("Evicting workload due to multiple node failures")
 		allUnhealthyNodeNames := append(unhealthyNodeNames, nodeName)
 		evictionMsg := fmt.Sprintf(nodeMultipleFailuresEvictionMessageFormat, strings.Join(allUnhealthyNodeNames, ", "))
@@ -540,7 +541,7 @@ func (r *nodeReconciler) handleUnhealthyNode(ctx context.Context, nodeName strin
 			continue
 		}
 		// evict workload when workload already has a different node marked for replacement
-		evictedNow, err := r.evictWorkloadIfNeeded(ctx, &wl, nodeName)
+		evictedNow, err := r.evictWorkloadIfNeeded(ctx, wlLog, &wl, nodeName)
 		if err != nil {
 			workloadProcessingErrors = append(workloadProcessingErrors, err)
 			continue

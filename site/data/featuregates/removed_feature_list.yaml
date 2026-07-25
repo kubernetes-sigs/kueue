@@ -143,4 +143,33 @@
   stage: GA
   from: "0.17"
   to: "0.18"
-
+- feature: LendingLimit
+  default: false
+  stage: Alpha
+  from: "0.6"
+  to: "0.8"
+- feature: LendingLimit
+  default: true
+  stage: Beta
+  from: "0.9"
+  to: "0.16"
+- feature: LendingLimit
+  default: true
+  stage: GA
+  from: "0.17"
+  to: "0.18"
+- feature: MultiKueueBatchJobWithManagedBy
+  default: false
+  stage: Alpha
+  from: "0.8"
+  to: "0.14"
+- feature: MultiKueueBatchJobWithManagedBy
+  default: true
+  stage: Beta
+  from: "0.15"
+  to: "0.16"
+- feature: MultiKueueBatchJobWithManagedBy
+  default: true
+  stage: GA
+  from: "0.17"
+  to: "0.18"

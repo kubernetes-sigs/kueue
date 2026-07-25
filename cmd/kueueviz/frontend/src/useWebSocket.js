@@ -18,6 +18,10 @@ import { useEffect, useState } from 'react';
 import { buildWebSocketUrl } from './utils/urlHelper';
 import { useAuth } from './AuthContext';
 
+const WS_CLOSE_NORMAL = 1000;
+const WS_CLOSE_GOING_AWAY = 1001;
+const WS_CLOSE_POLICY_VIOLATION = 1008;
+
 const WS_BASE_PROTOCOL = 'kueueviz.v1';
 const WS_TOKEN_PROTOCOL_PREFIX = 'kueueviz.auth.';
 
@@ -52,8 +56,11 @@ const useWebSocket = (url) => {
       protocols.push(`${WS_TOKEN_PROTOCOL_PREFIX}${encodeTokenForProtocol(token)}`);
     }
     const ws = new WebSocket(fullUrl, protocols);
+    let handledErrorEvent = false;
 
     ws.onopen = () => {
+      handledErrorEvent = false;
+      setError(null);
       console.log(`Connected to WebSocket: ${fullUrl}`);
     };
 
@@ -69,6 +76,7 @@ const useWebSocket = (url) => {
 
     ws.onerror = (err) => {
       console.error('WebSocket error:', err);
+      handledErrorEvent = true;
       if (ws.readyState === WebSocket.CONNECTING) {
         setError('Failed to connect to WebSocket.');
       } else {
@@ -78,7 +86,22 @@ const useWebSocket = (url) => {
     };
 
     ws.onclose = (event) => {
-      console.log('WebSocket connection closed', 'code:', event.code);
+      console.log('WebSocket connection closed', 'code:', event.code, 'reason:', event.reason);
+      if (handledErrorEvent) {
+        return;
+      }
+      switch (event.code) {
+        case WS_CLOSE_NORMAL:
+        case WS_CLOSE_GOING_AWAY:
+          // Normal closures, no error needed.
+          break;
+        case WS_CLOSE_POLICY_VIOLATION:
+          setError('WebSocket connection closed: Token expired or revoked. Please log in again.');
+          break;
+        default:
+          setError(`WebSocket connection closed unexpectedly (code: ${event.code}). Please refresh the page.`);
+          break;
+      }
     };
 
     return () => {

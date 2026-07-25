@@ -54,6 +54,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilstatefulset "sigs.k8s.io/kueue/pkg/util/statefulset"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 )
 
 const (
@@ -218,7 +219,7 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 	// Initialize retry-idempotent flags early so that a partial failure in a
 	// previous reconcile (e.g. owner-ref update succeeded but status patch
 	// failed) does not leave the workload stuck.
-	shouldReleaseReservation := replicas == 0 && workload.HasActiveQuotaReservation(wl) && !workload.IsFinished(wl) && workload.IsActive(wl)
+	shouldReleaseReservation := replicas == 0 && workload.HasActiveQuotaReservation(wl) && !workloadfinish.IsFinished(wl) && workload.IsActive(wl)
 	shouldClearOnHold := replicas > 0 && workload.IsOnHold(wl)
 
 	switch {
@@ -275,11 +276,15 @@ func (r *Reconciler) clearOnHold(ctx context.Context, wl *kueue.Workload) error 
 		return nil
 	}
 	return clientutil.PatchStatus(ctx, r.client, wl, func() (bool, error) {
-		// Change the QuotaReserved reason from "OnHold" to "Pending"
+		// Change the QuotaReserved reason from "OnHold" to "PendingEvaluation" / "Pending"
 		// so the workload becomes admissible again and can be requeued.
+		reason := workload.UnadmittedWorkloadReasonWithFallback(
+			kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+			kueue.WorkloadPending, //nolint:staticcheck // SA1019: fallback
+		)
 		changed := workload.UnsetQuotaReservationWithCondition(
 			wl,
-			"Pending",
+			reason,
 			"Workload no longer on hold; waiting for quota reservation",
 			metav1.Now().Time,
 		)
@@ -288,7 +293,7 @@ func (r *Reconciler) clearOnHold(ctx context.Context, wl *kueue.Workload) error 
 }
 
 func (r *Reconciler) releaseScaleDownReservation(ctx context.Context, wl *kueue.Workload) error {
-	if wl == nil || workload.IsFinished(wl) || !workload.HasActiveQuotaReservation(wl) {
+	if wl == nil || workloadfinish.IsFinished(wl) || !workload.HasActiveQuotaReservation(wl) {
 		return nil
 	}
 
@@ -350,7 +355,7 @@ func (r *Reconciler) constructWorkload(sts *appsv1.StatefulSet) (*kueue.Workload
 		podSet.TopologyRequest = topologyRequest
 	}
 
-	wl := podcontroller.NewGroupWorkload(GetWorkloadName(GetOwnerUID(sts), sts.Name), sts, []kueue.PodSet{podSet}, nil)
+	wl := podcontroller.NewGroupWorkload(GetWorkloadName(GetOwnerUID(sts), sts.Name), sts, []kueue.PodSet{podSet}, nil, nil)
 
 	if wl.Labels == nil {
 		wl.Labels = make(map[string]string, 1)

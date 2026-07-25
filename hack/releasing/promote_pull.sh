@@ -339,6 +339,11 @@ function prepare_local_branch() {
   clean_branches+=("$2")
 
   while IFS= read -r name; do
+    if should_skip_image "${name}" "${RELEASE_VERSION}" "${IMAGES_FILE}"; then
+      echo "+++ Skipping ${name} on historical branch release v0.${MINOR}"
+      continue
+    fi
+
     version="$RELEASE_VERSION"
     if [[ "${name}" == "charts/kueue" || "${name}" == "charts/kueue-populator" || "${name}" == "charts/kueue-priority-booster" ]]; then
       version="${version#v}"

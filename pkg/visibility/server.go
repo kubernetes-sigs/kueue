@@ -143,6 +143,7 @@ func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, cf
 	if tlsOpts != nil && config.SecureServing != nil {
 		config.SecureServing.MinTLSVersion = tlsOpts.MinVersion
 		config.SecureServing.CipherSuites = tlsOpts.CipherSuites
+		config.SecureServing.CurvePreferences = tlsOpts.CurvePreferences
 	}
 
 	return nil
@@ -183,10 +184,10 @@ func newVisibilityServerConfig(kubeConfig *rest.Config) *genericapiserver.Recomm
 
 // install installs API scheme and registers storages
 func install(server *genericapiserver.GenericAPIServer, kueueMgr *qcache.Manager) error {
-	apiGroupInfo := genericapiserver.NewDefaultAPIGroupInfo(visibilityv1beta2.GroupVersion.Group, scheme, parameterCodec, codecs)
+	apiGroupInfo := genericapiserver.NewDefaultAPIGroupInfo(visibilityv1beta2.SchemeGroupVersion.Group, scheme, parameterCodec, codecs)
 	storage := storage.NewStorage(kueueMgr)
-	apiGroupInfo.VersionedResourcesStorageMap[visibilityv1beta2.GroupVersion.Version] = storage
-	apiGroupInfo.VersionedResourcesStorageMap[visibilityv1beta1.GroupVersion.Version] = storage
-	apiGroupInfo.PrioritizedVersions = []schema.GroupVersion{visibilityv1beta2.GroupVersion, visibilityv1beta1.GroupVersion}
+	apiGroupInfo.VersionedResourcesStorageMap[visibilityv1beta2.SchemeGroupVersion.Version] = storage
+	apiGroupInfo.VersionedResourcesStorageMap[visibilityv1beta1.SchemeGroupVersion.Version] = storage
+	apiGroupInfo.PrioritizedVersions = []schema.GroupVersion{visibilityv1beta2.SchemeGroupVersion, visibilityv1beta1.SchemeGroupVersion}
 	return server.InstallAPIGroups(&apiGroupInfo)
 }

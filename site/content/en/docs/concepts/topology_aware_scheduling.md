@@ -1,5 +1,5 @@
 ---
-title: "Topology Aware Scheduling"
+title: "Topology-Aware Scheduling"
 date: 2024-04-11
 weight: 6
 description: >
@@ -29,7 +29,7 @@ different units. We say that nodes placed in different racks are more distant
 than nodes placed within the same rack. Similarly, nodes placed in different
 blocks are more distant than two nodes within the same block.
 
-In this feature (called Topology Aware Scheduling, or TAS for short) we
+In this feature (called Topology-Aware Scheduling, or TAS for short) we
 introduce a convention to represent the
 [hierarchical node topology information](#node-topology-information), and a set
 of APIs for Kueue administrators and users to utilize the information
@@ -77,17 +77,25 @@ As an admin, in order to enable the feature you need to:
 
 #### Example
 
-{{< include "examples/tas/sample-queues.yaml" "yaml" >}}
+```yaml
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: "tas-flavor"
+spec:
+  nodeLabels:
+    cloud.provider.com/node-group: "tas-group"
+  topologyName: "default"
+```
 
-An example for managing GPUs:
-{{< include "examples/tas/sample-gpu-queues.yaml" "yaml" >}}
+For a step-by-step administrator guide on setting up a cluster with TAS, see [Setup Topology-Aware Scheduling](/docs/tasks/manage/setup_topology_aware_scheduling/).
 
 ### User-facing APIs
 
 Once TAS is configured and ready to be used, you can create Jobs with the
 following annotations set at the PodTemplate level:
 - `kueue.x-k8s.io/podset-preferred-topology` - indicates that a PodSet requires
-	Topology Aware Scheduling, but scheduling all pods within pods on nodes
+	Topology-Aware Scheduling, but scheduling all pods on nodes
 	within the same topology domain is a preference rather than requirement.
 	The levels are evaluated one-by-one going up from the level indicated by
 	the annotation. If the PodSet cannot fit within a given topology domain
@@ -95,11 +103,11 @@ following annotations set at the PodTemplate level:
 	at the highest topology level, then it gets admitted as distributed
 	among multiple topology domains.
 - `kueue.x-k8s.io/podset-required-topology` - indicates that a PodSet
-  requires Topology Aware Scheduling, and requires scheduling all pods on nodes
+  requires Topology-Aware Scheduling, and requires scheduling all pods on nodes
 	within the same topology domain corresponding to the topology level
 	indicated by the annotation value (e.g. within a rack or within a block).
 - `kueue.x-k8s.io/podset-unconstrained-topology` - indicates that a PodSet requires
-    Topology Aware Scheduling, and requires scheduling all pods on any nodes without
+    Topology-Aware Scheduling, and requires scheduling all pods on any nodes without
     topology considerations. In other words, this considers if all pods could be accommodated 
     within any nodes which helps to minimize fragmentation by filling the small gaps
     on nodes across the cluster.
@@ -115,11 +123,15 @@ following annotations set at the PodTemplate level:
 
 #### Example
 
-Here is an example Job a user might submit to use TAS. It assumes there exists
-a LocalQueue named `tas-user-queue` which refernces the ClusterQueue pointing
-to a TAS ResourceFlavor.
+```yaml
+spec:
+  template:
+    metadata:
+      annotations:
+        kueue.x-k8s.io/podset-preferred-topology: "cloud.provider.com/topology-block"
+```
 
-{{< include "examples/tas/sample-job-preferred.yaml" "yaml" >}}
+For detailed instructions and full examples on running TAS workloads as a batch user, see [Run Workloads with Topology-Aware Scheduling](/docs/tasks/run/topology_aware_scheduling/).
 
 ### ClusterAutoscaler support
 
@@ -173,13 +185,21 @@ You can disable it by editing the `TASReplaceNodeOnPodTermination` feature gate.
 for instructions on configuring feature gates.
 {{% /alert %}}
 
-By default, the node is assumed to have failed if its `conditions.Status.Ready`
-is not `True` for at least 30 seconds or if the node is missing (removed from the cluster).
-Since Kueue v0.13, the `TASReplaceNodeOnPodTermination` feature, introduced an additional heuristic:
-a node is also considered failed if it is `NotReady` and the workload's Pods scheduled on that node are either terminated or terminating.
-If this happens Kueue will immediately look for replacement without waiting 30 seconds.
+By default, the node is assumed to have failed if it is missing (removed from the
+cluster), or if its `conditions.Status.Ready` is not `True` and the workload's Pods
+scheduled on that node are either terminated or terminating. A node with
+still-running Pods is not considered failed, no matter how long its
+`conditions.Status.Ready` has not been `True`: nodes can recover after an arbitrary
+amount of time, and reassigning while the Pods are alive makes the stored assignment
+diverge from where the Pods actually run.
 
-Note that those two heuristics are mutually exclusive and depend on the value of the `TASReplaceNodeOnPodTermination` feature gate.
+Before v0.19, a node was additionally assumed to have failed once its
+`conditions.Status.Ready` was not `True` for at least 30 seconds, regardless of Pod
+state. This fixed-time marking is deprecated: it remains available behind the
+`TASReplaceNodeDueToNotReadyOverFixedTime` feature gate (enabled by default in
+v0.17–v0.18, disabled by default and deprecated since v0.19) and is planned for
+removal. Disabling `TASReplaceNodeOnPodTermination` retains the pre-v0.14 behavior of
+marking the node after the fixed time regardless of Pod state.
 
 Note that finding a replacement node that meets all the requirements (e.g. the same type of machine placed in the rack that Kueue had previously assigned to the workload) may not always be possible.
 If a workload is big enough to cover the whole topology domain (e.g. block or rack) it's inevitable that there will be no replacement within the same domain.
@@ -247,6 +267,46 @@ taint effects differ in how the Pods stop running:
 In all cases, Kueue replaces the failed node when `TASFailedNodeReplacement` is enabled, or
 evicts the workload if no replacement is possible.
 
+#### Skip reassignment for Workloads owned by a single Pod
+{{< feature-state state="beta" for_version="v0.19" >}}
+{{% alert title="Note" color="primary" %}}
+`SkipReassignmentForPodOwnedWorkloads` is a beta feature enabled by default since v0.19,
+and is available as an alpha feature (disabled by default) in supported earlier releases.
+
+You can disable it by editing the `SkipReassignmentForPodOwnedWorkloads` feature gate. Refer to the
+[Installation guide](/docs/installation/#change-the-feature-gates-configuration)
+for instructions on configuring feature gates.
+{{% /alert %}}
+
+Node replacement assumes that the workload's controller re-creates pods within the
+same Workload (as Job, JobSet or LeaderWorkerSet do), so that the re-created pods can
+follow the updated topology assignment. A Workload owned by a single Pod — bare pods
+and, for example, Deployment replicas managed through the
+[pod integration](/docs/tasks/run/plain_pods/) — does not have this property: the
+Workload is deleted together with its pod, so no future pod can consume a replacement
+assignment. Replacing a node for such a Workload only makes its stored assignment
+diverge from the node its still-running pod occupies, which corrupts the per-node
+capacity accounting: the pod's real node is treated as free and gets over-admitted,
+while the replacement node is blocked for other admissions.
+
+With the `SkipReassignmentForPodOwnedWorkloads` feature gate enabled, Kueue keeps the
+existing topology assignment of a Workload owned by exactly one Pod instead of
+computing a replacement. The failed node is still tracked in
+`.status.unhealthyNodes` and the field is cleared on the next successful scheduling
+pass. Recovery happens through the pod lifecycle: when the pod terminates, its owning
+controller (for example a ReplicaSet) creates a new pod, which arrives as a new
+Workload and is admitted with a fresh assignment. Workloads with any other owner,
+including pod groups (which can receive user-created replacement pods into the same
+Workload), keep the replacement behavior described above.
+
+The gate also covers the eviction requeue path. Without it, a pod-owned Workload
+evicted by preemption is requeued and re-admitted with a freshly computed
+assignment while its pod is still draining the termination grace period on the
+original node — an assignment no pod can consume, blocking the newly assigned
+node's capacity for the full grace period. With the gate enabled, evicted pod-owned
+Workloads get `Requeued=False` instead: the Workload finishes with its pod, and the
+owning controller's replacement pod arrives as a new Workload.
+
 #### Usage Scenarios
 
 Here are a few scenarios that can happen when both `TASReplaceNodeOnPodTermination` and `TASFailedNodeReplacementFailFast` are enabled:
@@ -287,10 +347,21 @@ The following table summarizes the behavior based on the combination of the feat
 | `FNR` | `RNO` | `FNFF` | End Behavior |
 | :---- | :---- | :---- | :----------- |
 | `false` | *any* | *any* | **Hot swap is disabled.**<br>Workloads will not have failed nodes replaced and may get stuck. |
-| `true` | `false` | `false` | **Default Hot Swap**<ul><li>**Trigger**: Node is `NotReady` for > 30 seconds.</li><li>**Behavior**: Retries replacement until it succeeds or the workload is evicted.</li></ul> |
-| `true` | `true` | `false` | **Hot Swap with Pod Termination Trigger**<ul><li>**Trigger**: Node is `NotReady` for > 30s, OR a workload pod is terminating.</li><li>**Behavior**: Retries replacement until it succeeds or the workload is evicted.</li></ul> |
-| `true` | `false` | `true` | **Fast Hot Swap**<ul><li>**Trigger**: Node is `NotReady` for > 30 seconds.</li><li>**Behavior**: Attempts replacement **only once**. Evicts the workload if it fails.</li></ul> |
-| `true` | `true` | `true` | **Fast Hot Swap with Pod Termination Trigger**<ul><li>**Trigger**: Node is `NotReady`, AND a workload pod is terminating.</li><li>**Behavior**: Attempts replacement **only once**. Evicts the workload if it fails.</li></ul> |
+| `true` | *any* | `false` | **Default Hot Swap**<ul><li>**Trigger**: Node is `NotReady` AND its workload pods are terminating or terminated.</li><li>**Behavior**: Retries replacement until it succeeds or the workload is evicted.</li></ul> |
+| `true` | *any* | `true` | **Fast Hot Swap**<ul><li>**Trigger**: Node is `NotReady` AND its workload pods are terminating or terminated.</li><li>**Behavior**: Attempts replacement **only once**. Evicts the workload if it fails.</li></ul> |
+
+With the deprecated `TASReplaceNodeDueToNotReadyOverFixedTime` gate enabled, the
+not-ready trigger depends on `TASReplaceNodeOnPodTermination` (`RNO`):
+- `RNO` enabled: the node is treated as failed when its workload Pods are terminating
+  or terminated, or after 30 seconds of `NotReady`, whichever comes first.
+- `RNO` disabled: the node is treated as failed only after 30 seconds of `NotReady`
+  (the pre-v0.14 behavior), regardless of Pod state.
+
+With the gate disabled (the default since v0.19), Pod termination is the only
+not-ready trigger while `RNO` remains enabled (its default); disabling `RNO`
+retains the fixed-time marking. Nodes that are deleted or lack a `Ready`
+condition are treated as failed immediately in all configurations. To disable node
+replacement entirely, use the `TASFailedNodeReplacement` feature gate instead.
 
 {{% alert title="Note" color="primary" %}}
 `TASReplaceNodeOnNodeTaints` adds taints as an additional failure signal on top of the
@@ -308,7 +379,7 @@ See [Replace Node on Node Taints](#replace-node-on-node-taints) for the per-tain
 
 We recommend keeping all four feature gates enabled to ensure the fastest feedback loop for workloads affected by node failures or tainted nodes.
 
-#### Balanced Placement
+### Balanced placement
 {{< feature-state state="alpha" for_version="v0.15" >}}
 {{% alert title="Note" color="primary" %}}
 `TASBalancedPlacement` is currently an alpha feature and is disabled by default.
@@ -336,7 +407,7 @@ will be maximied. Also (as a second criterion) the number of domains used on the
 minimized. However, if the Job would not fit within a single domain **one level above** the indicated level,
 Kueue will not perform the balanced placement and will fallback to the standard TAS algorithm.
 
-#### Multi-Layer Topology
+### Multi-layer topology
 {{< feature-state state="beta" for_version="v0.19" >}}
 {{% alert title="Note" color="primary" %}}
 `TASMultiLayerTopology` is currently an beta feature and is enabled by default.

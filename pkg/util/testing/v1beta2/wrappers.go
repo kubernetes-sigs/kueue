@@ -587,6 +587,28 @@ func (p *PodSetWrapper) Limit(r corev1.ResourceName, q string) *PodSetWrapper {
 	return p
 }
 
+func (p *PodSetWrapper) PodLevelRequest(r corev1.ResourceName, q string) *PodSetWrapper {
+	if p.Template.Spec.Resources == nil {
+		p.Template.Spec.Resources = &corev1.ResourceRequirements{}
+	}
+	if p.Template.Spec.Resources.Requests == nil {
+		p.Template.Spec.Resources.Requests = corev1.ResourceList{}
+	}
+	p.Template.Spec.Resources.Requests[r] = resource.MustParse(q)
+	return p
+}
+
+func (p *PodSetWrapper) PodLevelLimit(r corev1.ResourceName, q string) *PodSetWrapper {
+	if p.Template.Spec.Resources == nil {
+		p.Template.Spec.Resources = &corev1.ResourceRequirements{}
+	}
+	if p.Template.Spec.Resources.Limits == nil {
+		p.Template.Spec.Resources.Limits = corev1.ResourceList{}
+	}
+	p.Template.Spec.Resources.Limits[r] = resource.MustParse(q)
+	return p
+}
+
 func (p *PodSetWrapper) Image(image string) *PodSetWrapper {
 	p.Template.Spec.Containers[0].Image = image
 	return p

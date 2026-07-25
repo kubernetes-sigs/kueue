@@ -1,0 +1,40 @@
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: Topology
+metadata:
+  name: default
+spec:
+  levels:
+  - nodeLabel: kubernetes.io/hostname
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: tas-flavor
+spec:
+  nodeLabels:
+    cloud.provider.com/node-group: tas-node
+  topologyName: default
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: worker-cluster-queue
+spec:
+  namespaceSelector: {}
+  resourceGroups:
+  - coveredResources: ["cpu", "memory"]
+    flavors:
+    - name: tas-flavor
+      resources:
+      - name: cpu
+        nominalQuota: 8
+      - name: memory
+        nominalQuota: 16Gi
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: LocalQueue
+metadata:
+  namespace: default
+  name: user-queue
+spec:
+  clusterQueue: worker-cluster-queue

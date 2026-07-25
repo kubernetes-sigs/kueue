@@ -17,19 +17,33 @@ limitations under the License.
 package handlers
 
 import (
+	"context"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"k8s.io/client-go/dynamic"
 )
 
-type Handlers struct {
-	client Client
+// TokenValidator is implemented by middleware.Authenticator and allows
+// WebSocket handlers to periodically re-verify a bearer token.
+type TokenValidator interface {
+	ValidateToken(ctx context.Context, token string) (bool, error)
 }
 
-func New(client Client) *Handlers {
+type Handlers struct {
+	client    Client
+	validator TokenValidator // nil when auth is disabled
+	// tokenRevalidationInterval controls how often a live WebSocket connection
+	// re-verifies the bearer token. Defaults to 30 s; overridable in tests.
+	tokenRevalidationInterval time.Duration
+}
+
+func New(client Client, validator TokenValidator) *Handlers {
 	return &Handlers{
-		client: client,
+		client:                    client,
+		validator:                 validator,
+		tokenRevalidationInterval: 30 * time.Second,
 	}
 }
 

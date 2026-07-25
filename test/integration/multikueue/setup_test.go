@@ -116,7 +116,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 
 		multiKueueAC = utiltestingapi.MakeAdmissionCheck("ac1").
 			ControllerName(kueue.MultiKueueControllerName).
-			Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", managerMultiKueueConfig.Name).
+			Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", managerMultiKueueConfig.Name).
 			Obj()
 		util.CreateAdmissionChecksAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC)
 
@@ -161,7 +161,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 	ginkgo.It("Should properly manage the active condition of AdmissionChecks and MultiKueueClusters, kubeconfig provided by secret", func() {
 		ac := utiltestingapi.MakeAdmissionCheck("testing-ac").
 			ControllerName(kueue.MultiKueueControllerName).
-			Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "testing-config").
+			Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "testing-config").
 			Obj()
 		ginkgo.By("creating the admission check with missing config, it's set inactive", func() {
 			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, ac)).Should(gomega.Succeed())
@@ -186,8 +186,9 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 
 		ginkgo.By("creating a config with duplicate clusters should fail", func() {
 			badConfig := utiltestingapi.MakeMultiKueueConfig("bad-config").Clusters("c1", "c2", "c1").Obj()
-			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, badConfig).Error()).Should(gomega.Equal(
-				`MultiKueueConfig.kueue.x-k8s.io "bad-config" is invalid: spec.clusters[2]: Duplicate value: "c1"`))
+			err := managerTestCluster.client.Create(managerTestCluster.ctx, badConfig)
+			gomega.Expect(err).To(gomega.HaveOccurred())
+			gomega.Expect(err.Error()).To(gomega.ContainSubstring("must be unique"))
 		})
 
 		config := utiltestingapi.MakeMultiKueueConfig("testing-config").Clusters("testing-cluster").Obj()
@@ -287,7 +288,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueKubeConfigPathValidation, false)
 		ac := utiltestingapi.MakeAdmissionCheck("testing-ac").
 			ControllerName(kueue.MultiKueueControllerName).
-			Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "testing-config").
+			Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "testing-config").
 			Obj()
 		ginkgo.By("creating the admission check with missing config, it's set inactive", func() {
 			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, ac)).Should(gomega.Succeed())
@@ -425,7 +426,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 
 		ac := utiltestingapi.MakeAdmissionCheck("testing-ac").
 			ControllerName(kueue.MultiKueueControllerName).
-			Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "testing-config").
+			Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "testing-config").
 			Obj()
 		ginkgo.By("creating the admission check", func() {
 			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, ac)).Should(gomega.Succeed())
@@ -539,7 +540,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 
 		ac := utiltestingapi.MakeAdmissionCheck("testing-ac").
 			ControllerName(kueue.MultiKueueControllerName).
-			Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "testing-config").
+			Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "testing-config").
 			Obj()
 		ginkgo.By("creating the admission check", func() {
 			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, ac)).Should(gomega.Succeed())
@@ -623,7 +624,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueKubeConfigPathValidation, true)
 		ac := utiltestingapi.MakeAdmissionCheck("testing-ac").
 			ControllerName(kueue.MultiKueueControllerName).
-			Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "testing-config").
+			Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "testing-config").
 			Obj()
 		ginkgo.By("creating the admission check", func() {
 			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, ac)).Should(gomega.Succeed())

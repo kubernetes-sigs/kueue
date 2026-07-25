@@ -23,6 +23,7 @@ import (
 	"maps"
 	"slices"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -156,9 +157,42 @@ func (podSetInfo *PodSetInfo) AddOrUpdateLabel(k, v string) {
 	}
 }
 
+// overrideableAnnotations returns the Kueue-owned pod template annotations
+// that Merge may overwrite instead of reporting a conflict. For elastic jobs
+// their values may legitimately change between admissions (e.g. when a new
+// slice chain starts), so overwriting is restricted to elastic flows:
+//  1. the workload-slice-name annotation, whenever the
+//     ElasticJobsViaWorkloadSlices feature is enabled, and
+//  2. the workload annotation, only for an elastic admission, identified by
+//     the workload-slice-name annotation being part of the injected info.
+func overrideableAnnotations(info PodSetInfo) []string {
+	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+		return nil
+	}
+	annotations := []string{kueue.WorkloadSliceNameAnnotation}
+	if _, elastic := info.Annotations[kueue.WorkloadSliceNameAnnotation]; elastic {
+		annotations = append(annotations, kueue.WorkloadAnnotation)
+	}
+	return annotations
+}
+
 // Merge updates or appends the replica metadata & spec fields based on PodSetInfo.
 // It returns error if there is a conflict.
-func Merge(meta *metav1.ObjectMeta, spec *corev1.PodSpec, info PodSetInfo) error {
+func Merge(log logr.Logger, meta *metav1.ObjectMeta, spec *corev1.PodSpec, info PodSetInfo) error {
+	for _, key := range overrideableAnnotations(info) {
+		newValue, found := info.Annotations[key]
+		if !found {
+			continue
+		}
+		if oldValue, found := meta.Annotations[key]; found && oldValue != newValue {
+			// A leftover value from a previous admission is anomalous, e.g. the
+			// previous Workload was deleted manually and the replacement got a
+			// different name.
+			log.Info("Overwriting stale Kueue-managed annotation on the pod template",
+				"annotation", key, "oldValue", oldValue, "newValue", newValue)
+			delete(meta.Annotations, key)
+		}
+	}
 	tmp := PodSetInfo{
 		Annotations:     meta.Annotations,
 		Labels:          meta.Labels,

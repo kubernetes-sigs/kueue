@@ -248,7 +248,7 @@ func (r *AdmissionCheckReconciler) SetupWithManager(mgr ctrl.Manager, cfg *confi
 		)).
 		WithOptions(controller.Options{
 			NeedLeaderElection:      new(false),
-			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.GroupVersion.WithKind("AdmissionCheck").GroupKind().String()],
+			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.SchemeGroupVersion.WithKind("AdmissionCheck").GroupKind().String()],
 			LogConstructor:          roletracker.NewLogConstructor(r.roleTracker, "admissioncheck-reconciler"),
 		}).
 		WatchesRawSource(source.Channel(r.cqUpdateCh, &h)).

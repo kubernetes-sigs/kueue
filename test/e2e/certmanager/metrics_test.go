@@ -22,7 +22,6 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
-	prometheusv1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	"github.com/prometheus/common/model"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -187,21 +186,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, workload)
 
 			ginkgo.By("Verifying Prometheus discovers and scrapes the Kueue target")
-			gomega.Eventually(func(g gomega.Gomega) {
-				result, err := prometheusClient.Targets(ctx)
-				g.Expect(err).NotTo(gomega.HaveOccurred())
-
-				hasKueueTarget := false
-				for _, t := range result.Active {
-					if t.Labels["job"] == model.LabelValue(util.DefaultMetricsServiceName) &&
-						t.Labels["namespace"] == model.LabelValue(util.GetKueueNamespace()) {
-						hasKueueTarget = true
-						g.Expect(t.Health).To(gomega.Equal(prometheusv1.HealthGood))
-						break
-					}
-				}
-				g.Expect(hasKueueTarget).To(gomega.BeTrue(), "Kueue target not found. Active targets: %v", result.Active)
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			util.ExpectPrometheusTargetForKueue(ctx, prometheusClient)
 
 			ginkgo.By("Verifying admission metric is available via PromQL")
 			gomega.Eventually(func(g gomega.Gomega) {

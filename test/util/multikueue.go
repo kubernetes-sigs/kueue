@@ -265,7 +265,7 @@ func CleanMultiKueueSecret(ctx context.Context, c client.Client, namespace strin
 
 // GetMultiKueueClusterNameFromAdmissionCheckMessage extracts the cluster name
 // from a MultiKueue admission check message of the form
-// "The workload got reservation on \"<clusterName>\"".
+// "The workload was admitted on \"<clusterName>\"".
 func GetMultiKueueClusterNameFromAdmissionCheckMessage(message string) string {
 	regex := regexp.MustCompile(`"([^"]*)"`)
 	match := regex.FindStringSubmatch(message)

@@ -111,7 +111,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 
 		multiKueueAc = utiltestingapi.MakeAdmissionCheck("ac1").
 			ControllerName(kueue.MultiKueueControllerName).
-			Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", multiKueueConfig.Name).
+			Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", multiKueueConfig.Name).
 			Obj()
 		util.CreateAdmissionChecksAndWaitForActive(ctx, k8sManagerClient, multiKueueAc)
 
@@ -903,7 +903,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 					g.Expect(unaffectedWorkerClient.Get(ctx, unaffectedWlKey, unaffectedWl)).To(gomega.Succeed())
 					g.Expect(unaffectedWl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
 					g.Expect(workloadevict.IsEvicted(unaffectedWl)).To(gomega.BeFalse())
-				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking the evicted workload was requeued successfully", func() {

@@ -44,6 +44,7 @@ feature-gates:
   - name: TASFailedNodeReplacement
   - name: TASFailedNodeReplacementFailFast
   - name: TASReplaceNodeOnPodTermination
+  - name: TASReplaceNodeDueToNotReadyOverFixedTime
   - name: TASBalancedPlacement
   - name: TASReplaceNodeOnNodeTaints
   - name: TASReplaceMultipleFailedNodes
@@ -51,6 +52,8 @@ feature-gates:
   - name: TASRespectNodeAffinityPreferred
   - name: TASHandleOverlappingFlavors
   - name: TASRecomputeAssignmentWithinSchedulingCycle
+  - name: TASAssignmentsEncodingByHostnamePrefix
+  - name: SkipReassignmentForPodOwnedWorkloads
 disable-supported: true
 
 # The following PRR answers are required at beta release

@@ -1,0 +1,74 @@
+# Example setup for sharing quotas across multiple resource flavors
+# using resource transformations with virtual "credits"
+#
+# This example demonstrates:
+# - Two CPU flavors (on-demand and spot)
+# - A credits-based quota that limits total CPU usage across both flavors
+# - Each CPU requested generates 1 cpu_credit
+# - The combined quota is limited to 14 CPUs via the cpu_credits resource
+#
+# Prerequisites:
+# Configure Kueue with the following resource transformation in the Configuration:
+#
+#   resources:
+#     transformations:
+#     - input: cpu
+#       strategy: Retain
+#       outputs:
+#         cpu_credits: 1
+
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: "on-demand"
+spec:
+  nodeLabels:
+    node-type: on-demand
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: "spot"
+spec:
+  nodeLabels:
+    node-type: spot
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: "credits"
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: "team-cluster-queue"
+spec:
+  namespaceSelector: {}
+  resourceGroups:
+  # First ResourceGroup: actual CPU resources per flavor
+  - coveredResources: ["cpu"]
+    flavors:
+    - name: "on-demand"
+      resources:
+      - name: "cpu"
+        nominalQuota: 9
+    - name: "spot"
+      resources:
+      - name: "cpu"
+        nominalQuota: 9
+  # Second ResourceGroup: virtual credits for combined quota
+  - coveredResources: ["cpu_credits"]
+    flavors:
+    - name: "credits"
+      resources:
+      - name: cpu_credits
+        nominalQuota: 14
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: LocalQueue
+metadata:
+  namespace: "default"
+  name: "team-queue"
+spec:
+  clusterQueue: "team-cluster-queue"

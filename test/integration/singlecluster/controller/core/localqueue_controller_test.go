@@ -661,21 +661,8 @@ var _ = ginkgo.Describe("Queue controller metrics filtering", ginkgo.Label("cont
 			g.Expect(k8sClient.Update(ctx, &updated)).To(gomega.Succeed())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-		ginkgo.By("Updating the workload to trigger a reconciliation and report metrics")
-		gomega.Eventually(func(g gomega.Gomega) {
-			var wl kueue.Workload
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlDynamic), &wl)).To(gomega.Succeed())
-			if wl.Annotations == nil {
-				wl.Annotations = make(map[string]string)
-			}
-			wl.Annotations["test-trigger-metrics"] = "true"
-			g.Expect(k8sClient.Update(ctx, &wl)).To(gomega.Succeed())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
 		ginkgo.By("Verifying metrics become available after labels are updated to matching")
-		gomega.Eventually(func(g gomega.Gomega) {
-			util.ExpectLQPendingWorkloadsMetric(queueDynamic, 1, 0)
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		util.ExpectLQPendingWorkloadsMetric(queueDynamic, 1, 0)
 	})
 
 	ginkgo.It("Should delete local queue metrics after changing labels to not matching", func() {

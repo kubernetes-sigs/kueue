@@ -2,12 +2,15 @@ title: Custom Metadata Labels for Kueue Metrics
 kep-number: 7066
 authors:
   - "@IrvingMg"
+  - "@Singularity23x0"
 status: provisional
 creation-date: 2026-02-13
 reviewers:
   - "@mimowo"
   - "@kannon92"
   - "@yashnib"
+  - "@olekzabl"
+  - "@kshalot"
 approvers:
   - "@mimowo"
   - "@tenzen-y"

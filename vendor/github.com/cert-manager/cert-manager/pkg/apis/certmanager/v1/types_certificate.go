@@ -206,6 +206,11 @@ type CertificateSpec struct {
 	// +optional
 	RenewBeforePercentage *int32 `json:"renewBeforePercentage,omitempty"`
 
+	// `renewal` allows configuration of how your certificate is renewed. If the policy mentioned is
+	// `RenewBefore` then the controller respects `renewBefore` and `renewBeforePercentage`.
+	// +optional
+	Renewal *CertificateRenewal `json:"renewal,omitempty"`
+
 	// Requested DNS subject alternative names.
 	// +optional
 	// +listType=atomic
@@ -552,6 +557,11 @@ type PKCS12Keystore struct {
 	// `Modern2023`: Secure algorithm. Use this option in case you have to always use secure algorithms
 	// (e.g., because of company policy). Please note that the security of the algorithm is not that important
 	// in reality, because the unencrypted certificate and private key are also stored in the Secret.
+	// `Modern2026`: Encodes PKCS#12 files using algorithms that are considered modern as of 2026.
+	// Private keys and certificates are encrypted using PBES2 with PBKDF2-HMAC-SHA-256 and AES-256-CBC.
+	// The MAC algorithm is PBMAC1 with PBKDF2-HMAC-SHA-256 and HMAC-SHA256.
+	// Files produced with this profile can be read by OpenSSL 3.4.0 and higher, Java 26 and higher,
+	// or with Java using compatible versions of Bouncy Castle. Meets FIPS 140-3 requirements.
 	// +optional
 	Profile PKCS12Profile `json:"profile,omitempty"`
 
@@ -569,7 +579,7 @@ type PKCS12Keystore struct {
 	Password *string `json:"password,omitempty"` // #nosec G117 -- field is part of API spec and may contain a secret; not hardcoded
 }
 
-// +kubebuilder:validation:Enum=LegacyRC2;LegacyDES;Modern2023
+// +kubebuilder:validation:Enum=LegacyRC2;LegacyDES;Modern2023;Modern2026
 type PKCS12Profile string
 
 const (
@@ -581,7 +591,56 @@ const (
 
 	// see: https://pkg.go.dev/software.sslmate.com/src/go-pkcs12#Modern2023
 	Modern2023PKCS12Profile PKCS12Profile = "Modern2023"
+
+	// see: https://pkg.go.dev/software.sslmate.com/src/go-pkcs12#Modern2026
+	Modern2026PKCS12Profile PKCS12Profile = "Modern2026"
 )
+
+type CertificateRenewal struct {
+	// `policy` must be one of `Disabled`, `RenewBefore`.
+	// +kubebuilder:validation:Enum=RenewBefore;Disabled
+	Policy CertificateRenewalPolicy `json:"policy,omitempty"`
+
+	// `windows` mentions the behavior of when the renewal must happen.
+	// +listType=atomic
+	// +optional
+	Windows []CertificateRenewalWindows `json:"windows,omitempty"`
+}
+
+type CertificateRenewalPolicy string
+
+const (
+	CertificateRenewalPolicyRenewBefore CertificateRenewalPolicy = "RenewBefore"
+	CertificateRenewalPolicyDisabled    CertificateRenewalPolicy = "Disabled"
+)
+
+// CertificateRenewalWindows is the definition for renewal windows
+type CertificateRenewalWindows struct {
+	// `timezone` is IANA compliant timezone. For example America/Denver.
+	// If this field is not set, timezone is treated as UTC.
+	// +kubebuilder:validation:MinLength=1
+	// +optional
+	Timezone string `json:"timezone,omitempty"`
+
+	// `windowDuration` is how long the cron definition is active for.
+	// Value must be in units accepted by Go time.ParseDuration https://golang.org/pkg/time/#ParseDuration.
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Pattern="^([0-9]+(\\.[0-9]+)?(s|m|h))+$"
+	// +required
+	WindowDuration *metav1.Duration `json:"windowDuration,omitempty"`
+
+	// `cron` is a cron compliant string to allow when the renewal should be allowed. Format is as shown below:
+	// * * * * *
+	// | | | | |
+	// | | | | day of the week (0–6) (Sunday to Saturday;
+	// | | | month (1–12)             7 is also Sunday on some systems)
+	// | | day of the month (1–31)
+	// | hour (0–23)
+	// minute (0–59)
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	Cron string `json:"cron,omitempty"`
+}
 
 // CertificateStatus defines the observed state of Certificate
 type CertificateStatus struct {
@@ -649,6 +708,10 @@ type CertificateStatus struct {
 	// time.Hour * 2 ^ (failedIssuanceAttempts - 1).
 	// +optional
 	FailedIssuanceAttempts *int `json:"failedIssuanceAttempts,omitempty"`
+
+	// ACME stores information that is fetched from the ACME CA server.
+	// +optional
+	ACME *CertificateACMEStatus `json:"acme,omitempty"`
 }
 
 // CertificateCondition contains condition information for a Certificate.
@@ -766,4 +829,47 @@ type NameConstraintItem struct {
 	// +optional
 	// +listType=atomic
 	URIDomains []string `json:"uriDomains,omitempty"`
+}
+
+type CertificateACMEStatus struct {
+	// ARI stores the ACME Renewal Information that is fetched from the ACME server
+	// in accordance with RFC 9773. This is only populated if the ARI feature gate is enabled.
+	//
+	// +optional
+	ARI *CertificateACMEARIStatus `json:"ari,omitempty"`
+}
+
+type CertificateACMEARIStatus struct {
+	// SuggestedWindow is the suggested renewal window as returned by the ACME server in accordance with RFC 9773.
+	//
+	// +optional
+	SuggestedWindow *ACMERenewalWindow `json:"suggestedWindow,omitempty"`
+	// ExplanationURL is a human-readable URL that may explain why the suggested window
+	// has its current value.
+	//
+	// +optional
+	ExplanationURL string `json:"explanationURL,omitempty"`
+	// LastChecked is the time at which the ACME server was last checked for renewal information.
+	//
+	// +optional
+	LastChecked *metav1.Time `json:"lastChecked,omitempty"`
+	// NextCheck is the time at which the ACME server will next be checked for renewal information.
+	//
+	// +optional
+	NextCheck *metav1.Time `json:"nextCheck,omitempty"`
+	// LastError is the last error encountered when checking the ACME server for renewal information, if any.
+	//
+	// +optional
+	LastError string `json:"lastError,omitempty"`
+}
+
+type ACMERenewalWindow struct {
+	// Start is the start of the suggested renewal window.
+	//
+	// +required
+	Start *metav1.Time `json:"start"`
+	// End is the end of the suggested renewal window.
+	//
+	// +required
+	End *metav1.Time `json:"end"`
 }

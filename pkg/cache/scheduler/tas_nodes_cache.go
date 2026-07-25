@@ -20,18 +20,19 @@ import (
 	"sync"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
 type nodesCache struct {
 	lock  sync.RWMutex
-	nodes map[string]*nodeInfo
+	nodes map[string]*corev1.Node
 }
 
 func newNodesCache() *nodesCache {
 	return &nodesCache{
-		nodes: make(map[string]*nodeInfo),
+		nodes: make(map[string]*corev1.Node),
 	}
 }
 
@@ -43,7 +44,7 @@ func (t *nodesCache) sync(node *corev1.Node) {
 	defer t.lock.Unlock()
 
 	if schedulableAndReady {
-		t.nodes[node.Name] = newNodeInfo(node)
+		t.nodes[node.Name] = copyAndStripNode(node)
 	} else {
 		t.deleteWithoutLock(node.Name)
 	}
@@ -59,14 +60,34 @@ func (t *nodesCache) deleteWithoutLock(nodeName string) {
 	delete(t.nodes, nodeName)
 }
 
-func (t *nodesCache) find(nodeLabels map[string]string, levels []string) []*nodeInfo {
+func (t *nodesCache) find(nodeLabels map[string]string, levels []string) []*corev1.Node {
 	t.lock.RLock()
 	defer t.lock.RUnlock()
-	filteredNodes := make([]*nodeInfo, 0, len(t.nodes))
+	filteredNodes := make([]*corev1.Node, 0, len(t.nodes))
 	for _, node := range t.nodes {
 		if utiltas.NodeMatchesFlavor(node.Labels, nodeLabels, levels) {
 			filteredNodes = append(filteredNodes, node)
 		}
 	}
 	return filteredNodes
+}
+
+// copyAndStripNode creates a minimal copy of the Node object containing only the
+// fields required for TAS scheduling (Name, Labels, Taints, and Allocatable).
+// This reduces the memory footprint and, more importantly, minimizes the number
+// of pointer fields the garbage collector needs to traverse in a large cluster
+// with frequent scheduling activity.
+func copyAndStripNode(node *corev1.Node) *corev1.Node {
+	return &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   node.Name,
+			Labels: node.Labels,
+		},
+		Spec: corev1.NodeSpec{
+			Taints: node.Spec.Taints,
+		},
+		Status: corev1.NodeStatus{
+			Allocatable: node.Status.Allocatable,
+		},
+	}
 }

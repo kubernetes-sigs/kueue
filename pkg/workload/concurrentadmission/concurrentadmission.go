@@ -63,7 +63,7 @@ func GetParentWorkloadName(wl *kueue.Workload) string {
 		return ""
 	}
 	for _, owner := range wl.OwnerReferences {
-		if owner.Kind == "Workload" && owner.APIVersion == kueue.GroupVersion.String() {
+		if owner.Kind == "Workload" && owner.APIVersion == kueue.SchemeGroupVersion.String() {
 			return owner.Name
 		}
 	}
@@ -76,7 +76,7 @@ func GetParentWorkloadUID(wl *kueue.Workload) types.UID {
 		return ""
 	}
 	for _, ref := range wl.OwnerReferences {
-		if ref.Kind == "Workload" && ref.APIVersion == kueue.GroupVersion.String() {
+		if ref.Kind == "Workload" && ref.APIVersion == kueue.SchemeGroupVersion.String() {
 			return ref.UID
 		}
 	}

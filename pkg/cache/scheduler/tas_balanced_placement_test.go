@@ -17,20 +17,26 @@ limitations under the License.
 package scheduler
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 
+	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
+func domainIDs(domains []*domain) []string {
+	return utilslices.Map(domains, func(d **domain) string { return string((*d).id) })
+}
+
 func TestSelectOptimalDomainSetToFit(t *testing.T) {
-	d1 := &domain{id: "d1", state: 9, sliceState: 9, leaderState: 1, stateWithLeader: 8, sliceStateWithLeader: 8}
-	d2 := &domain{id: "d2", state: 6, sliceState: 6, leaderState: 0, stateWithLeader: 6, sliceStateWithLeader: 6}
-	d3 := &domain{id: "d3", state: 4, sliceState: 4, leaderState: 1, stateWithLeader: 3, sliceStateWithLeader: 3}
-	d4 := &domain{id: "d4", state: 2, sliceState: 2, leaderState: 0, stateWithLeader: 2, sliceStateWithLeader: 2}
+	d1 := &domain{id: "d1", levelValues: []string{"d1"}, state: 9, sliceState: 9, leaderState: 1, stateWithLeader: 8, sliceStateWithLeader: 8}
+	d2 := &domain{id: "d2", levelValues: []string{"d2"}, state: 6, sliceState: 6, leaderState: 0, stateWithLeader: 6, sliceStateWithLeader: 6}
+	d3 := &domain{id: "d3", levelValues: []string{"d3"}, state: 4, sliceState: 4, leaderState: 1, stateWithLeader: 3, sliceStateWithLeader: 3}
+	d4 := &domain{id: "d4", levelValues: []string{"d4"}, state: 2, sliceState: 2, leaderState: 0, stateWithLeader: 2, sliceStateWithLeader: 2}
 
 	testCases := map[string]struct {
 		domains     []*domain
@@ -73,7 +79,7 @@ func TestSelectOptimalDomainSetToFit(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "dummy", []string{})
+			s := newTASFlavorSnapshot(log, "dummy", []string{}, nil, &defaultChecker{})
 			got := selectOptimalDomainSetToFit(s, tc.domains, tc.workerCount, tc.leaderCount, 1, true)
 			gotIDs := make([]string, len(got))
 			for i, d := range got {
@@ -86,12 +92,79 @@ func TestSelectOptimalDomainSetToFit(t *testing.T) {
 	}
 }
 
+func TestSelectOptimalDomainSetToFitStableTieBreak(t *testing.T) {
+	testCases := map[string]struct {
+		prioritizeByEntropy bool
+	}{
+		"balanced selection": {
+			prioritizeByEntropy: false,
+		},
+		"entropy-prioritized selection": {
+			prioritizeByEntropy: true,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
+			s := newTASFlavorSnapshot(log, "dummy", []string{}, nil, &defaultChecker{})
+			domains := []*domain{
+				{id: "leaf-a", levelValues: []string{"block-b", "host-a"}, state: 3, sliceState: 3, stateWithLeader: 3, sliceStateWithLeader: 3},
+				{id: "leaf-m", levelValues: []string{"block-b", "host-m"}, state: 3, sliceState: 3, stateWithLeader: 3, sliceStateWithLeader: 3},
+				{id: "leaf-z", levelValues: []string{"block-a", "host-z"}, state: 3, sliceState: 3, stateWithLeader: 3, sliceStateWithLeader: 3},
+				{id: "leaf-zz", levelValues: []string{"block-a", "host-zz"}, state: 3, sliceState: 3, stateWithLeader: 3, sliceStateWithLeader: 3},
+			}
+
+			got := selectOptimalDomainSetToFit(s, domains, 1, 0, 1, tc.prioritizeByEntropy)
+
+			if diff := cmp.Diff([]string{"leaf-z"}, domainIDs(got)); diff != "" {
+				t.Errorf("unexpected optimal domain set (-want,+got): %s", diff)
+			}
+		})
+	}
+}
+
+func TestCompareDomainCapacityAndEntropy(t *testing.T) {
+	testCases := map[string]struct {
+		domains []*domain
+		want    []string
+	}{
+		"tie-breaking on level values when capacity and entropy are equal": {
+			domains: []*domain{
+				{id: "leaf-a", levelValues: []string{"block-b", "host-a"}, leaderState: 1, sliceStateWithLeader: 5, children: []*domain{{state: 2}, {state: 2}}},
+				{id: "leaf-m", levelValues: []string{"block-b", "host-m"}, leaderState: 1, sliceStateWithLeader: 5, children: []*domain{{state: 2}, {state: 2}}},
+				{id: "leaf-z", levelValues: []string{"block-a", "host-z"}, leaderState: 1, sliceStateWithLeader: 5, children: []*domain{{state: 2}, {state: 2}}},
+			},
+			want: []string{"leaf-z", "leaf-a", "leaf-m"},
+		},
+		"capacity overrides entropy, and higher entropy overrides level values": {
+			domains: []*domain{
+				{id: "lower-leader", levelValues: []string{"a"}, leaderState: 0, sliceStateWithLeader: 100, children: []*domain{{state: 50}, {state: 50}}},
+				{id: "lower-capacity", levelValues: []string{"b"}, leaderState: 1, sliceStateWithLeader: 4, children: []*domain{{state: 2}, {state: 2}}},
+				{id: "low-entropy", levelValues: []string{"c"}, leaderState: 1, sliceStateWithLeader: 5, children: []*domain{{state: 4}, {state: 0}}},
+				{id: "high-entropy", levelValues: []string{"d"}, leaderState: 1, sliceStateWithLeader: 5, children: []*domain{{state: 2}, {state: 2}}},
+			},
+			want: []string{"high-entropy", "low-entropy", "lower-capacity", "lower-leader"},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			slices.SortFunc(tc.domains, compareDomainCapacityAndEntropy)
+
+			if diff := cmp.Diff(tc.want, domainIDs(tc.domains)); diff != "" {
+				t.Errorf("unexpected domain order (-want,+got): %s", diff)
+			}
+		})
+	}
+}
+
 func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
-	d1 := &domain{id: "d1", state: 18, sliceState: 18, stateWithLeader: 18, leaderState: 0, sliceStateWithLeader: 18}
-	d2 := &domain{id: "d2", state: 18, sliceState: 18, stateWithLeader: 18, leaderState: 0, sliceStateWithLeader: 18}
-	d3 := &domain{id: "d3", state: 18, sliceState: 18, stateWithLeader: 18, leaderState: 0, sliceStateWithLeader: 18}
-	d4 := &domain{id: "d4", state: 10, sliceState: 10, stateWithLeader: 10, leaderState: 0, sliceStateWithLeader: 10}
-	d5 := &domain{id: "d5", state: 2, sliceState: 2, stateWithLeader: 2, leaderState: 0, sliceStateWithLeader: 2}
+	d1 := &domain{id: "d1", levelValues: []string{"d1"}, state: 18, sliceState: 18, stateWithLeader: 18, leaderState: 0, sliceStateWithLeader: 18}
+	d2 := &domain{id: "d2", levelValues: []string{"d2"}, state: 18, sliceState: 18, stateWithLeader: 18, leaderState: 0, sliceStateWithLeader: 18}
+	d3 := &domain{id: "d3", levelValues: []string{"d3"}, state: 18, sliceState: 18, stateWithLeader: 18, leaderState: 0, sliceStateWithLeader: 18}
+	d4 := &domain{id: "d4", levelValues: []string{"d4"}, state: 10, sliceState: 10, stateWithLeader: 10, leaderState: 0, sliceStateWithLeader: 10}
+	d5 := &domain{id: "d5", levelValues: []string{"d5"}, state: 2, sliceState: 2, stateWithLeader: 2, leaderState: 0, sliceStateWithLeader: 2}
 
 	testCases := map[string]struct {
 		domains     []*domain
@@ -151,7 +224,7 @@ func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			domains := make([]*domain, len(tc.domains))
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "dummy", []string{})
+			s := newTASFlavorSnapshot(log, "dummy", []string{}, nil, &defaultChecker{})
 			for i, d := range tc.domains {
 				clone := *d
 				domains[i] = &clone
@@ -172,6 +245,24 @@ func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
 	}
 }
 
+func TestPlaceSlicesOnDomainsBalancedStableTieBreak(t *testing.T) {
+	_, log := utiltesting.ContextWithLog(t)
+	s := newTASFlavorSnapshot(log, "dummy", []string{}, nil, &defaultChecker{})
+	domains := []*domain{
+		{id: "leaf-a", levelValues: []string{"block-b", "host-a"}, state: 3, sliceState: 3, stateWithLeader: 3, sliceStateWithLeader: 3},
+		{id: "leaf-z", levelValues: []string{"block-a", "host-z"}, state: 3, sliceState: 3, stateWithLeader: 3, sliceStateWithLeader: 3},
+	}
+
+	got, reason := placeSlicesOnDomainsBalanced(s, domains, 1, 0, 1, 1)
+
+	if reason != "" {
+		t.Fatalf("unexpected placement failure: %s", reason)
+	}
+	if diff := cmp.Diff([]string{"leaf-z"}, domainIDs(got)); diff != "" {
+		t.Errorf("unexpected domain order (-want,+got): %s", diff)
+	}
+}
+
 func TestPruneDomainsBelowThreshold(t *testing.T) {
 	domainState := func(d *domain) [5]int32 {
 		return [5]int32{d.state, d.sliceState, d.stateWithLeader, d.sliceStateWithLeader, d.leaderState}
@@ -188,13 +279,46 @@ func TestPruneDomainsBelowThreshold(t *testing.T) {
 	}{
 		"keeps worker only domain": {
 			domains: func() ([]*domain, map[string]*domain) {
-				leaderLeaf := &domain{id: "leader-leaf", state: 6, sliceState: 6, leaderState: 1, stateWithLeader: 5, sliceStateWithLeader: 5}
-				leaderDomain := &domain{id: "leader-domain", state: 6, sliceState: 6, leaderState: 1, stateWithLeader: 5, sliceStateWithLeader: 5, children: []*domain{leaderLeaf}}
+				leaderLeaf := &domain{
+					id:                   "leader-leaf",
+					state:                6,
+					sliceState:           6,
+					leaderState:          1,
+					stateWithLeader:      5,
+					sliceStateWithLeader: 5,
+				}
+				leaderDomain := &domain{
+					id:                   "leader-domain",
+					state:                6,
+					sliceState:           6,
+					leaderState:          1,
+					stateWithLeader:      5,
+					sliceStateWithLeader: 5,
+					children:             []*domain{leaderLeaf},
+				}
 				leaderLeaf.parent = leaderDomain
-				workerOnlyLeaf := &domain{id: "worker-only-leaf", state: 5, sliceState: 5, leaderState: 1, stateWithLeader: 4, sliceStateWithLeader: 4}
-				workerOnlyDomain := &domain{id: "worker-only-domain", state: 5, sliceState: 5, leaderState: 1, stateWithLeader: 4, sliceStateWithLeader: 4, children: []*domain{workerOnlyLeaf}}
+				workerOnlyLeaf := &domain{
+					id:                   "worker-only-leaf",
+					state:                5,
+					sliceState:           5,
+					leaderState:          1,
+					stateWithLeader:      4,
+					sliceStateWithLeader: 4,
+				}
+				workerOnlyDomain := &domain{
+					id:                   "worker-only-domain",
+					state:                5,
+					sliceState:           5,
+					leaderState:          1,
+					stateWithLeader:      4,
+					sliceStateWithLeader: 4,
+					children:             []*domain{workerOnlyLeaf},
+				}
 				workerOnlyLeaf.parent = workerOnlyDomain
-				parentDomain := &domain{id: "parent-domain", children: []*domain{leaderDomain, workerOnlyDomain}}
+				parentDomain := &domain{
+					id:       "parent-domain",
+					children: []*domain{leaderDomain, workerOnlyDomain},
+				}
 				leaderDomain.parent = parentDomain
 				workerOnlyDomain.parent = parentDomain
 				return []*domain{parentDomain}, map[string]*domain{
@@ -222,7 +346,7 @@ func TestPruneDomainsBelowThreshold(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			domains, domainsByName := tc.domains()
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "dummy", []string{})
+			s := newTASFlavorSnapshot(log, "dummy", []string{}, nil, &defaultChecker{})
 
 			s.pruneDomainsBelowThreshold(domains, tc.threshold, tc.sliceSize, tc.sliceLevelIdx, tc.level, tc.leaderRequired)
 
@@ -298,7 +422,7 @@ func TestFindBestDomainsForBalancedPlacement(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "dummy", []string{"block", "rack"})
+			s := newTASFlavorSnapshot(log, "dummy", []string{"block", "rack"}, nil, &defaultChecker{})
 			domainsByID := make(map[string]*domain, len(tc.domains))
 			for _, spec := range tc.domains {
 				d := &domain{
