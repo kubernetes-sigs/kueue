@@ -476,7 +476,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 							TotalRequests: []workload.PodSetResources{
 								{
 									Name:     kueue.DefaultPodSetName,
-									Requests: resources.MapRequests{corev1.ResourceCPU: 5000},
+									Requests: resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourceCPU: 5000}),
 									Count:    1,
 									Flavors:  map[corev1.ResourceName]kueue.ResourceFlavorReference{corev1.ResourceCPU: "default"},
 								},
@@ -920,7 +920,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 							TotalRequests: []workload.PodSetResources{
 								{
 									Name:     kueue.DefaultPodSetName,
-									Requests: resources.MapRequests{corev1.ResourceCPU: 1000},
+									Requests: resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourceCPU: 1000}),
 									Count:    1,
 									Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 										corev1.ResourceCPU: "f1",
@@ -933,7 +933,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 							TotalRequests: []workload.PodSetResources{
 								{
 									Name:     kueue.DefaultPodSetName,
-									Requests: resources.MapRequests{corev1.ResourceCPU: 1000},
+									Requests: resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourceCPU: 1000}),
 									Count:    1,
 									Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 										corev1.ResourceCPU: "f1",
@@ -1068,6 +1068,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				cmpopts.IgnoreFields(clusterQueue{}, "ResourceGroups"),
 				cmpopts.IgnoreFields(workload.Info{}, "Obj", "LastAssignment", "SchedulingHash"),
 				cmpopts.IgnoreUnexported(clusterQueue{}, hierarchy.ClusterQueue[*cohort]{}),
+				cmp.Comparer(resources.Equal),
 				cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Unexpected clusterQueues (-want,+got):\n%s", diff)
 			}
