@@ -1035,6 +1035,23 @@ func TestNormalizeActiveSlices(t *testing.T) {
 			},
 			want: want{survivor: "wl-b"},
 		},
+		// Regression: a replacement that only holds a quota reservation but is not
+		// yet admitted (e.g. still pending its MultiKueue admission check on the
+		// worker) must not retire the slice it replaces. Using a quota reservation
+		// as the takeover signal here would finish wl-old as OutOfSync prematurely.
+		"replacement reserved quota but not yet admitted, keep the replaced slice": {
+			workloads: []kueue.Workload{
+				*admitted(utiltestingapi.MakeWorkload("wl-old", "ns").ResourceVersion("1").Creation(now.Add(-time.Minute)).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj())).Obj(),
+				*utiltestingapi.MakeWorkload("wl-new", "ns").ResourceVersion("1").Creation(now).
+					Annotation(WorkloadSliceReplacementFor, "ns/wl-old").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+						utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
+					Obj(),
+			},
+			want: want{survivor: "wl-new", keptAdmitted: "wl-old"},
+		},
 		"admitted + pending replacement, keep replacement": {
 			workloads: []kueue.Workload{
 				*admitted(utiltestingapi.MakeWorkload("wl-a", "ns").ResourceVersion("1").Creation(now.Add(-time.Minute)).
@@ -1177,8 +1194,11 @@ func TestNormalizeActiveSlices(t *testing.T) {
 					t.Fatalf("failed to get workload %s: %v", tc.workloads[i].Name, err)
 				}
 				kept := wl.Name == tc.want.survivor || wl.Name == tc.want.keptAdmitted
-				if !kept && !workloadfinish.IsFinished(wl) {
+				switch {
+				case !kept && !workloadfinish.IsFinished(wl):
 					t.Errorf("workload %q should be finished but is not", wl.Name)
+				case kept && workloadfinish.IsFinished(wl):
+					t.Errorf("workload %q should be kept active but is finished", wl.Name)
 				}
 			}
 		})
