@@ -1157,15 +1157,15 @@ func TestDefault(t *testing.T) {
 		},
 		"default lq is created, job has queue label": {
 			defaultLqExist: true,
-			job:            testingutil.MakeJob("test-job", "").Queue("test-queue").Obj(),
-			want: testingutil.MakeJob("test-job", "").
+			job:            testingutil.MakeJob("test-job", "default").Queue("test-queue").Obj(),
+			want: testingutil.MakeJob("test-job", "default").
 				Queue("test-queue").
 				Obj(),
 		},
 		"default lq isn't created, job doesn't have queue label": {
 			defaultLqExist: false,
-			job:            testingutil.MakeJob("test-job", "").Obj(),
-			want: testingutil.MakeJob("test-job", "").
+			job:            testingutil.MakeJob("test-job", "default").Obj(),
+			want: testingutil.MakeJob("test-job", "default").
 				Obj(),
 		},
 		"job is managed by Kueue managed owner, job doesn't have queue label": {

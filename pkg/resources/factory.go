@@ -23,6 +23,23 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 )
 
+// Equal reports whether two Requests objects are Equal.
+func Equal(a, b Requests) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil || a.Len() != b.Len() {
+		return false
+	}
+	equal := true
+	a.ForEach(func(name corev1.ResourceName, val int64) {
+		if equal && b.GetValue(name) != val {
+			equal = false
+		}
+	})
+	return equal
+}
+
 // CreateEmpty creates an empty Requests instance based on feature gates.
 func CreateEmpty() Requests {
 	if features.Enabled(features.VectorizedResourceRequests) {
@@ -45,9 +62,6 @@ func NewRequestsFromMap(m MapRequests) Requests {
 
 // NewRequestsFromResourceList creates a Requests instance from a corev1.ResourceList based on feature gates.
 func NewRequestsFromResourceList(rl corev1.ResourceList) Requests {
-	if len(rl) == 0 {
-		return nil
-	}
 	if features.Enabled(features.VectorizedResourceRequests) {
 		sr := ResourceListToSliceRequests(rl)
 		return &sr
@@ -58,7 +72,7 @@ func NewRequestsFromResourceList(rl corev1.ResourceList) Requests {
 // NewRequestsFromPodSpec creates a Requests instance from a PodSpec based on feature gates.
 func NewRequestsFromPodSpec(podSpec *corev1.PodSpec) Requests {
 	if podSpec == nil {
-		return nil
+		return CreateEmpty()
 	}
 	rl := resourcehelpers.PodRequests(&corev1.Pod{Spec: *podSpec}, resourcehelpers.PodResourcesOptions{})
 	return NewRequestsFromResourceList(rl)
@@ -69,14 +83,9 @@ func ToMapRequests(r Requests) MapRequests {
 	if isEmpty(r) {
 		return nil
 	}
-	if mr, ok := r.(MapRequests); ok {
-		return mr
-	}
 	res := make(MapRequests, r.Len())
 	r.ForEach(func(name corev1.ResourceName, val int64) {
-		if val != 0 {
-			res[name] = val
-		}
+		res[name] = val
 	})
 	return res
 }

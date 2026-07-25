@@ -37,13 +37,15 @@ and `DRAExtendedResources` is now `KueueDRAIntegrationExtendedResource`.
 
 ## Choose a quota accounting path
 
-Kueue supports two paths for accounting DRA devices in quota. Choose the one
-that matches how your users submit workloads:
+Kueue supports four modes for accounting DRA devices in quota. Choose the
+one that matches your device type and how your users submit workloads:
 
-| Path | User's Pod spec | Kueue feature gate | Admin configuration |
-|------|----------------|-------------------|-------------------|
-| ResourceClaimTemplate | References a `ResourceClaimTemplate` | `KueueDRAIntegration` | `deviceClassMappings` required |
-| Extended resource | Uses `resources.requests` (e.g., `nvidia.com/gpu: 1`) | `KueueDRAIntegration` + `KueueDRAIntegrationExtendedResource` | No mapping needed |
+| Path | Quota unit | User's Pod spec | Enabled by default | Admin configuration |
+|------|-----------|----------------|-------------------|-------------------|
+| ResourceClaimTemplate | Device count | References a `ResourceClaimTemplate` | Yes (v0.18+) | `deviceClassMappings` required |
+| Extended resource | Device count | Uses `resources.requests` (e.g., `nvidia.com/gpu: 1`) | Yes (v0.19+) | No mapping needed |
+| Counter-based (PD) | Counter value (e.g., GPU memory) | References a `ResourceClaimTemplate` | Yes (v0.19+) | `deviceClassMappings` with `counter` source |
+| Capacity-based (CC) | Capacity dimension (e.g., GPU memory) | References a `ResourceClaimTemplate` with `capacity.requests` | No (Alpha in v0.19) | `deviceClassMappings` with `capacity` source |
 
 ## Set up the ResourceClaimTemplate path
 
@@ -271,6 +273,121 @@ counter name matches what your DRA driver publishes (see step 1).
 **Kueue fails to start with "CEL compilation failed"**: The `deviceSelector`
 CEL expression has a syntax or type error. Check the expression against the
 [DRA CEL environment](https://kubernetes.io/docs/concepts/scheduling-eviction/dynamic-resource-allocation/#device-selector).
+
+## Set up capacity-based quota (consumable capacity)
+
+{{< feature-state state="alpha" for_version="v0.19" >}}
+
+Use this when your cluster has devices that allow multiple allocations
+(e.g., GPU time-slicing or MPS) and you want quota to reflect consumed
+capacity rather than device count. This requires Kubernetes 1.36+ with the
+`DRAConsumableCapacity` feature gate enabled and a DRA driver that publishes
+`Capacity` and `AllowMultipleAllocations` on devices in `ResourceSlice`
+objects.
+
+Enable the feature gate in Kueue Configuration:
+
+```yaml
+featureGates:
+  KueueDRAIntegrationConsumableCapacity: true
+```
+
+### 1. Configure capacity sources
+
+Configure a `capacity` source entry in `deviceClassMappings`. Follow the
+[custom configuration installation instructions](/docs/installation/#install-a-custom-configured-released-version).
+
+```yaml
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+featureGates:
+  KueueDRAIntegrationConsumableCapacity: true
+resources:
+  deviceClassMappings:
+  - name: gpu.memory                   # Logical resource name for quota
+    deviceClassNames:
+    - gpu.example.com                  # DeviceClass name(s)
+    sources:
+    - capacity:
+        name: "gpu.example.com/memory" # Capacity dimension to track
+        driver: gpu.example.com        # DRA driver name
+        deviceSelector:
+          cel:
+            expression: "device.driver == 'gpu.example.com'"
+```
+
+The `deviceSelector` scopes which devices Kueue considers for capacity
+charging. Ensure it matches only devices that support shared allocation.
+If your cluster has a mix of exclusive and shareable devices under the
+same driver, narrow the selector using device attributes.
+
+The `sources[].capacity.name` must match a capacity dimension key published by
+your DRA driver in `ResourceSlice` devices. You can inspect these with:
+
+```shell
+kubectl get resourceslices -o jsonpath='{range .items[*]}{.spec.driver}{"\t"}{range .spec.devices[*]}{.name}: capacity={.capacity}{"\n"}{end}{end}'
+```
+
+### 2. Add the capacity resource to your ClusterQueue
+
+Set the quota in capacity units (e.g., `800Gi` for 10 GPUs with 80Gi each)
+instead of device count:
+
+{{< include "examples/dra/sample-dra-capacity-queues.yaml" "yaml" >}}
+
+```shell
+kubectl apply -f https://kueue.sigs.k8s.io/examples/dra/sample-dra-capacity-queues.yaml
+```
+
+### 3. Verify capacity-based quota is working
+
+Submit a test workload with `capacity.requests`:
+
+{{< include "examples/dra/sample-dra-capacity-job.yaml" "yaml" >}}
+
+```shell
+kubectl create -f https://kueue.sigs.k8s.io/examples/dra/sample-dra-capacity-job.yaml
+```
+
+Check the workload's `resourceUsage` to confirm quota was charged by capacity
+value:
+
+```shell
+kubectl -n default get workloads.kueue.x-k8s.io -o jsonpath='{range .items[*]}{.metadata.name}: {.status.admission.podSetAssignments[0].resourceUsage}{"\n"}{end}'
+```
+
+The output should show the capacity-based charge (e.g., `4Gi`) instead of a
+device count.
+
+### Rounding and RequestPolicy
+
+Kueue rounds capacity requests according to the device's `RequestPolicy`:
+
+| RequestPolicy | Behavior |
+|---------------|----------|
+| `ValidValues` | Rounds up to the smallest valid value >= request |
+| `ValidRange` with `Step` | Rounds up to `Min + n*Step` |
+| `ValidRange` without `Step` | Rounds up to `Min` if below; errors if exceeds `Max` |
+| No policy | Uses request as-is |
+
+If the rounded value exceeds `Max` or all valid values, the workload is
+marked inadmissible.
+
+### Troubleshooting capacity-based quota
+
+**Workload rejected with "insufficient matching devices"**: Kueue could not
+find enough devices matching the `deviceSelector` CEL expression. Verify that
+ResourceSlices exist and contain devices matching your selector.
+
+**Workload rejected with "matched devices have no capacity dimension"**: The
+devices in `ResourceSlice` objects do not have a capacity entry matching the
+`name` configured in `sources[].capacity.name`. Verify the capacity dimension
+name matches what your DRA driver publishes.
+
+**Workload rejected with "capacity request cannot be satisfied"**: The
+requested amount exceeds the device's `RequestPolicy` limits (e.g., request
+exceeds `ValidRange.Max` or all `ValidValues`). Adjust the workload's
+`capacity.requests` to a value within the device's policy.
 
 ## Path separation
 

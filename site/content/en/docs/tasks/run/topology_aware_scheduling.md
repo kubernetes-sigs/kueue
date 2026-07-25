@@ -14,7 +14,7 @@ in a Kubernetes cluster with Kueue enabled. The examples use a batch Job, but
 the same annotations work with any
 [workload type that Kueue supports](/docs/concepts/workload).
 
-The intended audience for this page are [batch users](/docs/tasks#batch-user).
+This page is intended for [batch users](/docs/tasks#batch-user). If you are a [batch administrator](/docs/tasks#batch-administrator) looking to configure cluster topology and queues, see [Setup Topology-Aware Scheduling](/docs/tasks/manage/setup_topology_aware_scheduling/).
 
 For conceptual details about how Kueue models cluster topology and how the
 TAS scheduling algorithm works, see
@@ -30,55 +30,11 @@ Make sure the following conditions are met:
 - The `TopologyAwareScheduling` feature gate is enabled (beta, on by default
   since Kueue v0.14).
 - Your administrator has
-  [configured TAS](/docs/concepts/topology_aware_scheduling#admin-facing-apis)
+  [configured TAS](/docs/tasks/manage/setup_topology_aware_scheduling/)
   by creating a `Topology` object, a `ResourceFlavor` that references it via
   `spec.topologyName`, and a `ClusterQueue` that uses that flavor.
 
-If you do not already have a Kubernetes cluster, you can create a TAS-ready
-`kind` cluster with the same topology labels used by the TAS test setup:
-
-```shell
-kind create cluster --name kueue-tas --config hack/testing/kind-cluster-tas.yaml
-```
-
-When following the hosted documentation instead of a local checkout, download
-the published example config first:
-
-```shell
-curl -L https://kueue.sigs.k8s.io/examples/tas/kind-cluster.yaml -o kind-cluster-tas.yaml
-kind create cluster --name kueue-tas --config kind-cluster-tas.yaml
-```
-
-Then install Kueue. For example, to install the latest development version:
-
-```shell
-kubectl apply --server-side -k "github.com/kubernetes-sigs/kueue/config/default?ref=main"
-```
-
-### Enable the TAS feature gate if needed
-
-The `TopologyAwareScheduling` feature gate is enabled by default since Kueue
-v0.14. If your Kueue installation manages feature gates explicitly, enable it
-using the standard feature gate configuration workflow. For more details, see
-[Change the feature gates configuration](/docs/installation/#change-the-feature-gates-configuration).
-
-### Create the sample TAS setup
-
-If your cluster does not already have TAS queues configured, apply the sample
-setup:
-
-```shell
-kubectl apply -f https://kueue.sigs.k8s.io/examples/tas/sample-queues.yaml
-```
-
-This setup creates:
-
-- a `Topology` with block, rack, and hostname levels;
-- a `ResourceFlavor` named `tas-flavor` that selects the labeled `kind` nodes
-  and references that topology;
-- a `ClusterQueue` named `tas-cluster-queue` with CPU and memory quota for the
-  flavor;
-- a `LocalQueue` named `tas-user-queue` in the `default` namespace.
+If you do not already have a running cluster with TAS enabled, see [Setup Topology-Aware Scheduling](/docs/tasks/manage/setup_topology_aware_scheduling/) for a step-by-step administrator guide on setting up a local `kind` cluster and configuring TAS queues.
 
 ## 1. Identify the queues available in your namespace
 

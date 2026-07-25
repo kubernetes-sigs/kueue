@@ -1541,10 +1541,20 @@ func (r *WorkloadReconciler) notifyWatchers(oldWl, newWl *kueue.Workload) {
 func (r *WorkloadReconciler) reportFinishedWorkload(log logr.Logger, wl *kueue.Workload) {
 	priorityClassName := workloadpatching.PriorityClassName(wl)
 	cqName := ptr.Deref(wl.Status.Admission, kueue.Admission{}).ClusterQueue
-	metrics.IncrementFinishedWorkloadTotal(cqName, priorityClassName, r.customLabels.CQGet(cqName), r.roleTracker)
+	cqCustomLabels := r.customLabels.CQGet(cqName)
+	metrics.IncrementFinishedWorkloadTotal(cqName, priorityClassName, cqCustomLabels, r.roleTracker)
 	lqRef := metrics.LQRefFromWorkload(wl)
-	if r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl) {
-		metrics.IncrementLocalQueueFinishedWorkloadTotal(lqRef, priorityClassName, r.customLabels.LQGet(qutil.KeyFromWorkload(wl)), r.roleTracker)
+	exposeLQ := r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl)
+	var lqCustomLabels []string
+	if exposeLQ {
+		lqCustomLabels = r.customLabels.LQGet(qutil.KeyFromWorkload(wl))
+		metrics.IncrementLocalQueueFinishedWorkloadTotal(lqRef, priorityClassName, lqCustomLabels, r.roleTracker)
+	}
+	if totalExecutionTime := workload.TotalExecutionTime(wl); totalExecutionTime != nil {
+		metrics.ReportExecutionTime(cqName, priorityClassName, *totalExecutionTime, cqCustomLabels, r.roleTracker)
+		if exposeLQ {
+			metrics.ReportLocalQueueExecutionTime(lqRef, priorityClassName, *totalExecutionTime, lqCustomLabels, r.roleTracker)
+		}
 	}
 }
 
