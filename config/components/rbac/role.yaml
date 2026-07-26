@@ -86,6 +86,14 @@ rules:
 - apiGroups:
   - apiextensions.k8s.io
   resourceNames:
+  - clusterprofiles.multicluster.x-k8s.io
+  resources:
+  - customresourcedefinitions
+  verbs:
+  - get
+- apiGroups:
+  - apiextensions.k8s.io
+  resourceNames:
   - clusterqueues.kueue.x-k8s.io
   - cohorts.kueue.x-k8s.io
   - localqueues.kueue.x-k8s.io
