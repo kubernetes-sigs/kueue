@@ -1035,10 +1035,6 @@ func TestNormalizeActiveSlices(t *testing.T) {
 			},
 			want: want{survivor: "wl-b"},
 		},
-		// Regression: a replacement that only holds a quota reservation but is not
-		// yet admitted (e.g. still pending its MultiKueue admission check on the
-		// worker) must not retire the slice it replaces. Using a quota reservation
-		// as the takeover signal here would finish wl-old as OutOfSync prematurely.
 		"replacement reserved quota but not yet admitted, keep the replaced slice": {
 			workloads: []kueue.Workload{
 				*admitted(utiltestingapi.MakeWorkload("wl-old", "ns").ResourceVersion("1").Creation(now.Add(-time.Minute)).
