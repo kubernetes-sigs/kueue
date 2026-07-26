@@ -244,7 +244,7 @@ func EnsureWorkloadSlices(
 }
 
 // normalizeActiveSlices enforces the workload slice invariant:
-//   - One non-evicted admitted workload (latestAdmitted)
+//   - One non-evicted admitted workload (latestWithQuotaReservation)
 //   - At most one non-evicted pending replacement that directly replaces it
 //   - When no non-evicted admitted workload exists, the newest non-evicted
 //     workload is kept
@@ -263,7 +263,7 @@ func normalizeActiveSlices(
 	for i := range workloads {
 		wl := &workloads[i]
 		if replKey := ReplacementForKey(wl); replKey != nil && !workloadevict.IsEvicted(wl) {
-			if existing, ok := replacements[*replKey]; !ok || (!workload.IsAdmitted(existing) && workload.IsAdmitted(wl)) {
+			if existing, ok := replacements[*replKey]; !ok || (!workload.HasQuotaReservation(existing) && workload.HasQuotaReservation(wl)) {
 				replacements[*replKey] = wl
 			}
 		}
@@ -271,7 +271,7 @@ func normalizeActiveSlices(
 
 	// Find the admitted workload at the head of the replacement chain: the one
 	// whose replacement (if any) is not itself admitted.
-	var latestAdmitted, pendingReplacement, latestNonEvicted *kueue.Workload
+	var latestWithQuotaReservation, pendingReplacement, latestNonEvicted *kueue.Workload
 	for i := range workloads {
 		wl := &workloads[i]
 		if workloadevict.IsEvicted(wl) {
@@ -280,19 +280,19 @@ func normalizeActiveSlices(
 		if latestNonEvicted == nil || wl.CreationTimestamp.After(latestNonEvicted.CreationTimestamp.Time) {
 			latestNonEvicted = wl
 		}
-		if !workload.IsAdmitted(wl) {
+		if !workload.HasQuotaReservation(wl) {
 			continue
 		}
 		// Skip if replaced by another admitted workload.
-		if repl, ok := replacements[workload.Key(wl)]; ok && workload.IsAdmitted(repl) {
+		if repl, ok := replacements[workload.Key(wl)]; ok && workload.HasQuotaReservation(repl) {
 			continue
 		}
-		latestAdmitted = wl
+		latestWithQuotaReservation = wl
 	}
 
-	if latestAdmitted != nil {
-		if repl, ok := replacements[workload.Key(latestAdmitted)]; ok {
-			if !workload.IsAdmitted(repl) {
+	if latestWithQuotaReservation != nil {
+		if repl, ok := replacements[workload.Key(latestWithQuotaReservation)]; ok {
+			if !workload.HasQuotaReservation(repl) {
 				pendingReplacement = repl
 			}
 		}
@@ -300,7 +300,7 @@ func normalizeActiveSlices(
 
 	log.V(3).Info("Classified workload slices",
 		"total", len(workloads),
-		"latestAdmitted", klog.KObj(latestAdmitted),
+		"latestWithQuotaReservation", klog.KObj(latestWithQuotaReservation),
 		"pendingReplacement", klog.KObj(pendingReplacement),
 		"latestNonEvicted", klog.KObj(latestNonEvicted))
 
@@ -308,20 +308,28 @@ func normalizeActiveSlices(
 	switch {
 	case pendingReplacement != nil:
 		selectedWorkload = pendingReplacement
-	case latestAdmitted != nil:
-		selectedWorkload = latestAdmitted
+	case latestWithQuotaReservation != nil:
+		selectedWorkload = latestWithQuotaReservation
 	default:
 		selectedWorkload = latestNonEvicted
 	}
 
 	for i := range workloads {
 		wl := &workloads[i]
-		if wl == selectedWorkload || wl == latestAdmitted {
+		if wl == selectedWorkload || wl == latestWithQuotaReservation {
 			continue
 		}
-		log.V(2).Info("Finishing out-of-sync workload slice", "workload", workload.Key(wl))
-		if err := workloadfinish.Finish(ctx, clnt, wl, kueue.WorkloadFinishedReasonOutOfSync,
-			"The workload slice is out of sync with its parent job", clk); err != nil {
+		// A slice whose replacement is taking over is retired for the same reason
+		// the scheduler uses in replaceOldWorkloadSlice (WorkloadSliceReplaced), so
+		// the MultiKueue elastic guard keeps its remote objects instead of deleting
+		// them mid-handover. Slices with no replacement (evicted or orphaned) are
+		// genuinely out of sync.
+		reason, message := kueue.WorkloadFinishedReasonOutOfSync, "The workload slice is out of sync with its parent job"
+		if _, replaced := replacements[workload.Key(wl)]; replaced {
+			reason, message = kueue.WorkloadSliceReplaced, "Replaced to accommodate a new workload slice"
+		}
+		log.V(2).Info("Finishing replaced workload slice", "workload", workload.Key(wl), "reason", reason)
+		if err := workloadfinish.Finish(ctx, clnt, wl, reason, message, clk); err != nil {
 			return nil, err
 		}
 	}
