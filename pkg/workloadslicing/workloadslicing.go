@@ -328,7 +328,7 @@ func normalizeActiveSlices(
 		if _, replaced := replacements[workload.Key(wl)]; replaced {
 			reason, message = kueue.WorkloadSliceReplaced, "Replaced to accommodate a new workload slice"
 		}
-		log.V(2).Info("Finishing replaced workload slice", "workload", workload.Key(wl), "reason", reason)
+		log.V(2).Info("Finishing workload slice", "workload", workload.Key(wl), "reason", reason)
 		if err := workloadfinish.Finish(ctx, clnt, wl, reason, message, clk); err != nil {
 			return nil, err
 		}
