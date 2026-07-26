@@ -235,6 +235,11 @@ func Load(scheme *runtime.Scheme, configFile string) (ctrl.Options, configapi.Co
 	return options, cfg, err
 }
 
+// Grants get on the ClusterProfile CRD object, which the function below reads at startup to
+// decide whether MultiKueue's ClusterProfile support can be enabled. Without it the read
+// returns Forbidden instead of NotFound and the manager exits.
+// +kubebuilder:rbac:groups="apiextensions.k8s.io",resources=customresourcedefinitions,resourceNames=clusterprofiles.multicluster.x-k8s.io,verbs=get
+
 // ConfigureClusterProfileCache creates the CRD client from kubeConfig and delegates
 // to ConfigureClusterProfileCacheWithClient. Keeping this wrapper preserves the
 // original API while enabling dependency injection via the WithClient function.
