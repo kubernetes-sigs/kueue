@@ -319,11 +319,6 @@ func normalizeActiveSlices(
 		if wl == selectedWorkload || wl == latestWithQuotaReservation {
 			continue
 		}
-		// A slice whose replacement is taking over is retired for the same reason
-		// the scheduler uses in replaceOldWorkloadSlice (WorkloadSliceReplaced), so
-		// the MultiKueue elastic guard keeps its remote objects instead of deleting
-		// them mid-handover. Slices with no replacement (evicted or orphaned) are
-		// genuinely out of sync.
 		reason, message := kueue.WorkloadFinishedReasonOutOfSync, "The workload slice is out of sync with its parent job"
 		if _, replaced := replacements[workload.Key(wl)]; replaced {
 			reason, message = kueue.WorkloadSliceReplaced, "Replaced to accommodate a new workload slice"
