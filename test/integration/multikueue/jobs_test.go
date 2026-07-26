@@ -1990,16 +1990,6 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		// label repoint, old-slice cleanup) can run.
 		ginkgo.By("admitting the replacement slice on the manager and worker2", func() {
 			util.SetQuotaReservation(manager.ctx, manager.client, newWlKey, admission.Obj())
-			// The scheduler finishes the replaced slice as WorkloadSliceReplaced while
-			// admitting the new one (replaceOldWorkloadSlice). This suite does not run
-			// the scheduler, so emulate that step; otherwise the replaced slice is left
-			// for normalizeActiveSlices to finish as OutOfSync, which does not happen in
-			// production and would delete the still-needed worker RayCluster.
-			gomega.Eventually(func(g gomega.Gomega) {
-				oldWl := &kueue.Workload{}
-				g.Expect(manager.client.Get(manager.ctx, wlLookupKey, oldWl)).To(gomega.Succeed())
-				g.Expect(workloadfinish.Finish(manager.ctx, manager.client, oldWl, kueue.WorkloadSliceReplaced, "Replaced to accommodate a new slice", util.RealClock)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker2.client.Get(worker2.ctx, newWlKey, &kueue.Workload{})).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -2192,16 +2182,6 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		// slice manually so the product handover can run.
 		ginkgo.By("admitting the replacement slice on the manager and worker2", func() {
 			util.SetQuotaReservation(manager.ctx, manager.client, newWlKey, admission.Obj())
-			// The scheduler finishes the replaced slice as WorkloadSliceReplaced while
-			// admitting the new one (replaceOldWorkloadSlice). This suite does not run
-			// the scheduler, so emulate that step; otherwise the replaced slice is left
-			// for normalizeActiveSlices to finish as OutOfSync, which does not happen in
-			// production and would delete the still-needed worker RayCluster.
-			gomega.Eventually(func(g gomega.Gomega) {
-				oldWl := &kueue.Workload{}
-				g.Expect(manager.client.Get(manager.ctx, wlLookupKey, oldWl)).To(gomega.Succeed())
-				g.Expect(workloadfinish.Finish(manager.ctx, manager.client, oldWl, kueue.WorkloadSliceReplaced, "Replaced to accommodate a new slice", util.RealClock)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker2.client.Get(worker2.ctx, newWlKey, &kueue.Workload{})).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
