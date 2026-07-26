@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -594,15 +595,16 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 
 		ginkgo.It("should open the preemption gate for only the most-preferred variant at a time", func() {
 			ginkgo.By("Occupying both flavors with low-priority workloads", func() {
-				for i := range 2 {
-					lowWl := utiltestingapi.MakeWorkload(fmt.Sprintf("low-%d", i), ns.Name).
+				lowWls := make([]*kueue.Workload, 2)
+				for i := range lowWls {
+					lowWls[i] = utiltestingapi.MakeWorkload(fmt.Sprintf("low-%d", i), ns.Name).
 						Queue(kueue.LocalQueueName(lq.Name)).
 						Priority(lowPriority).
 						Request(corev1.ResourceCPU, "1").
 						Obj()
-					util.MustCreate(ctx, k8sClient, lowWl)
-					util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, lowWl)
+					util.MustCreate(ctx, k8sClient, lowWls[i])
 				}
+				expectWorkloadsToHaveQuotaReservationFinishingEvictions(cq.Name, lowWls...)
 			})
 
 			parentWl := utiltestingapi.MakeWorkload("parent-wl-preemption-gate", ns.Name).
@@ -638,6 +640,68 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 					g.Expect(workload.HasOpenPreemptionGate(variantSpot, controllerconstants.ConcurrentAdmissionPreemptionGate)).
 						To(gomega.BeFalse(), "spot variant gate must stay closed until the reservation variant's preemption timeout elapses")
 				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			})
+		})
+
+		// Regression guard for the flake where a low-priority Workload occupying a
+		// flavor never got a quota reservation. Two sibling variants of one parent are
+		// created in the same instant with the same priority, so the queue orders them
+		// by random UID; when the less-preferred one won, the parent was admitted on
+		// spot and then evicted itself to migrate up to reservation. This spec forces
+		// that ordering deterministically by starving reservation first, so the
+		// migration always happens rather than roughly half the time.
+		ginkgo.It("should admit every low-priority workload when one migrates to the preferred flavor", func() {
+			setReservationQuota := func(quota string) {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var updatedCq kueue.ClusterQueue
+					g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: cq.Name}, &updatedCq)).To(gomega.Succeed())
+					updatedCq.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse(quota)
+					g.Expect(k8sClient.Update(ctx, &updatedCq)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}
+
+			ginkgo.By("Starving the reservation flavor so the first workload can only land on spot", func() {
+				setReservationQuota("0")
+			})
+
+			lowWls := make([]*kueue.Workload, 2)
+			for i := range lowWls {
+				lowWls[i] = utiltestingapi.MakeWorkload(fmt.Sprintf("low-%d", i), ns.Name).
+					Queue(kueue.LocalQueueName(lq.Name)).
+					Priority(lowPriority).
+					Request(corev1.ResourceCPU, "1").
+					Obj()
+			}
+
+			ginkgo.By("Admitting the first workload on the less-preferred spot flavor", func() {
+				util.MustCreate(ctx, k8sClient, lowWls[0])
+				gomega.Eventually(func(g gomega.Gomega) {
+					updated := &kueue.Workload{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lowWls[0]), updated)).To(gomega.Succeed())
+					g.Expect(workload.HasQuotaReservation(updated)).To(gomega.BeTrue())
+					g.Expect(updated.Status.Admission.PodSetAssignments[0].Flavors[corev1.ResourceCPU]).
+						To(gomega.Equal(kueue.ResourceFlavorReference(flavorSpot.Name)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Restoring the reservation quota, so the first workload has to migrate up", func() {
+				setReservationQuota("1")
+			})
+
+			// Wait for the migration to actually be under way before adding the second
+			// workload. Otherwise the second one can take the restored reservation quota
+			// first, leaving the first with nothing to migrate to and no eviction to
+			// finish -- which is the path this spec is specifically not testing.
+			ginkgo.By("Waiting for the first workload to be evicted for migration", func() {
+				util.ExpectWorkloadsToBeEvictedByKeys(ctx, k8sClient, client.ObjectKeyFromObject(lowWls[0]))
+			})
+
+			ginkgo.By("Creating the second workload, which needs the spot flavor the first one is vacating", func() {
+				util.MustCreate(ctx, k8sClient, lowWls[1])
+			})
+
+			ginkgo.By("Verifying both workloads end up with a quota reservation", func() {
+				expectWorkloadsToHaveQuotaReservationFinishingEvictions(cq.Name, lowWls...)
 			})
 		})
 	})
@@ -816,6 +880,45 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 		})
 	})
 })
+
+// expectWorkloadsToHaveQuotaReservationFinishingEvictions waits until every wl holds a
+// quota reservation in cqName, releasing the reservation of any that is evicted while
+// waiting.
+//
+// Releasing an evicted Workload's quota reservation is the job controller's job: it
+// stops the Job and, once the Job is inactive, clears the admission. This suite runs no
+// job controller and these Workloads have no Job, so nothing else can finish an
+// eviction. That matters here because a ClusterQueue with a concurrent-admission policy
+// promotes every plain Workload into a parent with one variant per flavor: a parent that
+// lands on a less-preferred flavor evicts its own variant to migrate up to the preferred
+// one. Without standing in for the job controller that eviction never completes, the
+// parent holds its reservation forever, and the remaining Workloads are never admitted.
+// The migration specs above stand in the same way, via util.FinishEvictionForWorkloads,
+// at the fixed point where they expect an eviction; here the eviction only happens for
+// whichever parent lands on the less-preferred flavor, so it has to be handled while
+// polling.
+func expectWorkloadsToHaveQuotaReservationFinishingEvictions(cqName string, wls ...*kueue.Workload) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
+		reserved := 0
+		for _, created := range wls {
+			updated := &kueue.Workload{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(created), updated)).To(gomega.Succeed())
+			switch {
+			case !workload.HasQuotaReservation(updated):
+				// Not admitted yet; keep polling.
+			case workloadevict.IsEvicted(updated):
+				g.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, updated, util.RealClock, func(wl *kueue.Workload) (bool, error) {
+					//nolint:staticcheck // SA1019: legacy reason, matching util.FinishEvictionForWorkloads
+					return workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadPending, "By test", util.RealClock.Now()), nil
+				})).To(gomega.Succeed())
+			case string(updated.Status.Admission.ClusterQueue) == cqName:
+				reserved++
+			}
+		}
+		g.Expect(reserved).To(gomega.Equal(len(wls)), "all low-priority workloads should hold a quota reservation")
+	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+}
 
 func getVariantByFlavor(list *kueue.WorkloadList, parentName string, flavor string) *kueue.Workload {
 	for i := range list.Items {
