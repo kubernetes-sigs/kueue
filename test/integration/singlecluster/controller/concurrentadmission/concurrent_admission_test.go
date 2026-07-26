@@ -643,13 +643,6 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 			})
 		})
 
-		// Regression guard for the flake where a low-priority Workload occupying a
-		// flavor never got a quota reservation. Two sibling variants of one parent are
-		// created in the same instant with the same priority, so the queue orders them
-		// by random UID; when the less-preferred one won, the parent was admitted on
-		// spot and then evicted itself to migrate up to reservation. This spec forces
-		// that ordering deterministically by starving reservation first, so the
-		// migration always happens rather than roughly half the time.
 		ginkgo.It("should admit every low-priority workload when one migrates to the preferred flavor", func() {
 			setReservationQuota := func(quota string) {
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -884,19 +877,6 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 // expectWorkloadsToHaveQuotaReservationFinishingEvictions waits until every wl holds a
 // quota reservation in cqName, releasing the reservation of any that is evicted while
 // waiting.
-//
-// Releasing an evicted Workload's quota reservation is the job controller's job: it
-// stops the Job and, once the Job is inactive, clears the admission. This suite runs no
-// job controller and these Workloads have no Job, so nothing else can finish an
-// eviction. That matters here because a ClusterQueue with a concurrent-admission policy
-// promotes every plain Workload into a parent with one variant per flavor: a parent that
-// lands on a less-preferred flavor evicts its own variant to migrate up to the preferred
-// one. Without standing in for the job controller that eviction never completes, the
-// parent holds its reservation forever, and the remaining Workloads are never admitted.
-// The migration specs above stand in the same way, via util.FinishEvictionForWorkloads,
-// at the fixed point where they expect an eviction; here the eviction only happens for
-// whichever parent lands on the less-preferred flavor, so it has to be handled while
-// polling.
 func expectWorkloadsToHaveQuotaReservationFinishingEvictions(cqName string, wls ...*kueue.Workload) {
 	ginkgo.GinkgoHelper()
 	gomega.Eventually(func(g gomega.Gomega) {
