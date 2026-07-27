@@ -81,9 +81,9 @@
     version: "0.15"
 - name: FairSharingLookAhead
   versionedSpecs:
-  - default: false
+  - default: true
     lockToDefault: false
-    preRelease: Alpha
+    preRelease: Beta
     version: "0.20"
 - name: FairSharingPreemptWithinNominal
   versionedSpecs:
