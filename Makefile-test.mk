@@ -119,6 +119,9 @@ FUZZTIME ?= 5s
 
 .PHONY: test-fuzz
 test-fuzz: ## Run all fuzz tests with fuzzing enabled, FUZZTIME per target.
+# 'go test -fuzz' expects a bare fuzz function name, but grep emits whole source
+# lines. The sed replacement extracts the name, for example:
+#   "func FuzzSliceRequestsEquivalence(f *testing.F) {" -> "FuzzSliceRequestsEquivalence"
 	@$(GO_CMD) list -f '{{.ImportPath}} {{.Dir}}' ./... | while read -r pkg dir; do \
 		for target in $$(grep -hs '^func Fuzz' $$dir/*_test.go | $(SED) -E 's/^func (Fuzz[A-Za-z0-9_]*).*/\1/'); do \
 			echo "=== fuzzing $$target in $$pkg (budget $(FUZZTIME))"; \
