@@ -479,6 +479,45 @@ func TestSnapshotStableWithConcurrentFSUpdates(t *testing.T) {
 	}
 }
 
+func TestSnapshotUsesDefaultWeightForMissingLocalQueue(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	ctx, _ := utiltesting.ContextWithLog(t)
+	afsConsumedResources := queueafs.NewAfsConsumedResources()
+	afsConsumedResources.Set("default/existing", corev1.ResourceList{resourceGPU: resource.MustParse("10")}, now)
+	afsConsumedResources.Set("default/missing", corev1.ResourceList{resourceGPU: resource.MustParse("15")}, now)
+
+	cq, err := newClusterQueue(
+		ctx,
+		utiltesting.NewClientBuilder().
+			WithObjects(utiltestingapi.MakeLocalQueue("existing", defaultNamespace).Obj()).
+			Build(),
+		utiltestingapi.MakeClusterQueue("cq").AdmissionMode(kueue.UsageBasedAdmissionFairSharing).Obj(),
+		defaultOrdering,
+		&config.AdmissionFairSharing{ResourceWeights: map[corev1.ResourceName]float64{resourceGPU: 1}},
+		nil,
+		afsConsumedResources,
+	)
+	if err != nil {
+		t.Fatalf("failed to create ClusterQueue: %v", err)
+	}
+
+	// Base ordering favors the missing queue by priority, while fair sharing with
+	// the default weight favors the existing queue by usage (10 < 15).
+	for _, wl := range []*kueue.Workload{
+		utiltestingapi.MakeWorkload("existing-low-priority", defaultNamespace).
+			Queue("existing").Priority(1).Creation(now).UID("uid-1").Obj(),
+		utiltestingapi.MakeWorkload("missing-high-priority", defaultNamespace).
+			Queue("missing").Priority(2).Creation(now).UID("uid-2").Obj(),
+	} {
+		cq.PushOrUpdate(workload.NewInfo(wl))
+	}
+
+	got := cq.Snapshot()
+	if got[0].Obj.Name != "existing-low-priority" {
+		t.Errorf("workload from missing LocalQueue should use the default weight: got %q first", got[0].Obj.Name)
+	}
+}
+
 // TestSnapshotConcurrentWithRequeueNoDataRace guards against a data race on the
 // sticky workload: Snapshot sorts a copy of the pending workloads through the
 // comparator (which reads stickyWorkload.workloadName) without holding the
