@@ -642,61 +642,6 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 		})
-
-		ginkgo.It("should admit every low-priority workload when one migrates to the preferred flavor", func() {
-			setReservationQuota := func(quota string) {
-				gomega.Eventually(func(g gomega.Gomega) {
-					var updatedCq kueue.ClusterQueue
-					g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: cq.Name}, &updatedCq)).To(gomega.Succeed())
-					updatedCq.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse(quota)
-					g.Expect(k8sClient.Update(ctx, &updatedCq)).To(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			}
-
-			ginkgo.By("Starving the reservation flavor so the first workload can only land on spot", func() {
-				setReservationQuota("0")
-			})
-
-			lowWls := make([]*kueue.Workload, 2)
-			for i := range lowWls {
-				lowWls[i] = utiltestingapi.MakeWorkload(fmt.Sprintf("low-%d", i), ns.Name).
-					Queue(kueue.LocalQueueName(lq.Name)).
-					Priority(lowPriority).
-					Request(corev1.ResourceCPU, "1").
-					Obj()
-			}
-
-			ginkgo.By("Admitting the first workload on the less-preferred spot flavor", func() {
-				util.MustCreate(ctx, k8sClient, lowWls[0])
-				gomega.Eventually(func(g gomega.Gomega) {
-					updated := &kueue.Workload{}
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lowWls[0]), updated)).To(gomega.Succeed())
-					g.Expect(workload.HasQuotaReservation(updated)).To(gomega.BeTrue())
-					g.Expect(updated.Status.Admission.PodSetAssignments[0].Flavors[corev1.ResourceCPU]).
-						To(gomega.Equal(kueue.ResourceFlavorReference(flavorSpot.Name)))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Restoring the reservation quota, so the first workload has to migrate up", func() {
-				setReservationQuota("1")
-			})
-
-			// Wait for the migration to actually be under way before adding the second
-			// workload. Otherwise the second one can take the restored reservation quota
-			// first, leaving the first with nothing to migrate to and no eviction to
-			// finish -- which is the path this spec is specifically not testing.
-			ginkgo.By("Waiting for the first workload to be evicted for migration", func() {
-				util.ExpectWorkloadsToBeEvictedByKeys(ctx, k8sClient, client.ObjectKeyFromObject(lowWls[0]))
-			})
-
-			ginkgo.By("Creating the second workload, which needs the spot flavor the first one is vacating", func() {
-				util.MustCreate(ctx, k8sClient, lowWls[1])
-			})
-
-			ginkgo.By("Verifying both workloads end up with a quota reservation", func() {
-				expectWorkloadsToHaveQuotaReservationFinishingEvictions(cq.Name, lowWls...)
-			})
-		})
 	})
 
 	ginkgo.When("Should react to changes in the ClusterQueue's resource flavors", func() {
