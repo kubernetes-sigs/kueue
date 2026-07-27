@@ -36,7 +36,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
-	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -571,7 +570,7 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 			// exactly 1 CPU, so a single low-priority workload fully occupies it and
 			// any higher-priority variant must preempt to be admitted.
 			cq = utiltestingapi.MakeClusterQueue("cq-preemption-gate").
-				ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).
+				ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionRetainFirstAdmission).
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas(flavorReservation.Name).Resource(corev1.ResourceCPU, "1").Obj(),
 					*utiltestingapi.MakeFlavorQuotas(flavorSpot.Name).Resource(corev1.ResourceCPU, "1").Obj(),
@@ -595,16 +594,15 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 
 		ginkgo.It("should open the preemption gate for only the most-preferred variant at a time", func() {
 			ginkgo.By("Occupying both flavors with low-priority workloads", func() {
-				lowWls := make([]*kueue.Workload, 2)
-				for i := range lowWls {
-					lowWls[i] = utiltestingapi.MakeWorkload(fmt.Sprintf("low-%d", i), ns.Name).
+				for i := range 2 {
+					lowWl := utiltestingapi.MakeWorkload(fmt.Sprintf("low-%d", i), ns.Name).
 						Queue(kueue.LocalQueueName(lq.Name)).
 						Priority(lowPriority).
 						Request(corev1.ResourceCPU, "1").
 						Obj()
-					util.MustCreate(ctx, k8sClient, lowWls[i])
+					util.MustCreate(ctx, k8sClient, lowWl)
+					util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, lowWl)
 				}
-				expectWorkloadsToHaveQuotaReservationFinishingEvictions(cq.Name, lowWls...)
 			})
 
 			parentWl := utiltestingapi.MakeWorkload("parent-wl-preemption-gate", ns.Name).
@@ -818,32 +816,6 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 		})
 	})
 })
-
-// expectWorkloadsToHaveQuotaReservationFinishingEvictions waits until every wl holds a
-// quota reservation in cqName, releasing the reservation of any that is evicted while
-// waiting.
-func expectWorkloadsToHaveQuotaReservationFinishingEvictions(cqName string, wls ...*kueue.Workload) {
-	ginkgo.GinkgoHelper()
-	gomega.Eventually(func(g gomega.Gomega) {
-		reserved := 0
-		for _, created := range wls {
-			updated := &kueue.Workload{}
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(created), updated)).To(gomega.Succeed())
-			switch {
-			case !workload.HasQuotaReservation(updated):
-				// Not admitted yet; keep polling.
-			case workloadevict.IsEvicted(updated):
-				g.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, updated, util.RealClock, func(wl *kueue.Workload) (bool, error) {
-					//nolint:staticcheck // SA1019: legacy reason, matching util.FinishEvictionForWorkloads
-					return workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadPending, "By test", util.RealClock.Now()), nil
-				})).To(gomega.Succeed())
-			case string(updated.Status.Admission.ClusterQueue) == cqName:
-				reserved++
-			}
-		}
-		g.Expect(reserved).To(gomega.Equal(len(wls)), "all low-priority workloads should hold a quota reservation")
-	}, util.Timeout, util.Interval).Should(gomega.Succeed())
-}
 
 func getVariantByFlavor(list *kueue.WorkloadList, parentName string, flavor string) *kueue.Workload {
 	for i := range list.Items {
