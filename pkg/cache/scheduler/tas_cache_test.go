@@ -429,7 +429,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			podSets: []PodSetTestCase{{
 				podSetName:      "main",
 				topologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To(corev1.LabelHostname)},
-				requests:        resources.MapRequests{corev1.ResourceCPU: 1000},
+				requests:        resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourceCPU: 1000}),
 				count:           1,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels:  []string{corev1.LabelHostname},
@@ -467,7 +467,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			podSets: []PodSetTestCase{{
 				podSetName:      "main",
 				topologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To(corev1.LabelHostname)},
-				requests:        resources.MapRequests{corev1.ResourceCPU: 1000},
+				requests:        resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourceCPU: 1000}),
 				count:           1,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels:  []string{corev1.LabelHostname},
@@ -506,7 +506,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			podSets: []PodSetTestCase{{
 				podSetName:      "main",
 				topologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To(corev1.LabelHostname)},
-				requests:        resources.MapRequests{corev1.ResourceCPU: 1000},
+				requests:        resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourceCPU: 1000}),
 				count:           1,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels:  []string{corev1.LabelHostname},
@@ -545,7 +545,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			podSets: []PodSetTestCase{{
 				podSetName:      "main",
 				topologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To(corev1.LabelHostname)},
-				requests:        resources.MapRequests{corev1.ResourceCPU: 1000},
+				requests:        resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourceCPU: 1000}),
 				count:           1,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels:  []string{corev1.LabelHostname},
@@ -583,7 +583,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			podSets: []PodSetTestCase{{
 				podSetName:      "main",
 				topologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To(corev1.LabelHostname)},
-				requests:        resources.MapRequests{corev1.ResourceCPU: 1000},
+				requests:        resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourceCPU: 1000}),
 				count:           1,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels:  []string{corev1.LabelHostname},
@@ -668,9 +668,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: ptr.To(tasBlockLabel),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 4,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -746,9 +746,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: ptr.To(tasBlockLabel),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 2,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -767,9 +767,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 			nodes:  scatteredNodes,
 			levels: defaultThreeLevels,
 			podSets: []PodSetTestCase{{
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 6,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -790,9 +790,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Unconstrained: new(true),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 6,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -813,9 +813,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Unconstrained: new(true),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 1,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -837,9 +837,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Unconstrained: new(true),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 1,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -862,9 +862,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: ptr.To(tasBlockLabel),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 4,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -904,9 +904,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: ptr.To(corev1.LabelHostname),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 1,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -928,9 +928,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: ptr.To(corev1.LabelHostname),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 1,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -953,9 +953,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: ptr.To(corev1.LabelHostname),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 1,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -978,9 +978,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: ptr.To(tasRackLabel),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 1,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultTwoLevels,
@@ -1003,9 +1003,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: ptr.To(tasRackLabel),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 3,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultTwoLevels,
@@ -1053,9 +1053,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Preferred: ptr.To(tasBlockLabel),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 5,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: []string{tasBlockLabel},
@@ -1083,9 +1083,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: ptr.To(tasRackLabel),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 2,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultTwoLevels,
@@ -1108,9 +1108,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: ptr.To(tasRackLabel),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count:      4,
 				wantReason: `topology "default" allows to fit only 3 out of 4 pod(s)`,
 			}},
@@ -1122,9 +1122,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: ptr.To(tasBlockLabel),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 1,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: []string{
@@ -1150,9 +1150,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: ptr.To(tasBlockLabel),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 4,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: []string{
@@ -1185,9 +1185,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: ptr.To(tasBlockLabel),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 4,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultTwoLevels,
@@ -1217,9 +1217,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: ptr.To(tasBlockLabel),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 4000,
-				},
+				}),
 				count:      1,
 				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 4; excluded: resource "cpu": 4`,
 			}},
@@ -1231,9 +1231,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: ptr.To(tasBlockLabel),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count:      5,
 				wantReason: `topology "default" allows to fit only 4 out of 5 pod(s)`,
 			}},
@@ -1245,9 +1245,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: ptr.To(tasRackLabel),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceMemory: 1024,
-				},
+				}),
 				count: 4,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultTwoLevels,
@@ -1270,9 +1270,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Preferred: ptr.To(tasRackLabel),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 4,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultTwoLevels,
@@ -1302,9 +1302,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Preferred: ptr.To(tasRackLabel),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 6,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultTwoLevels,
@@ -1341,9 +1341,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Preferred: ptr.To(tasBlockLabel),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 6,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultTwoLevels,
@@ -1380,9 +1380,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Preferred: ptr.To(tasBlockLabel),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count:      10,
 				wantReason: `topology "default" allows to fit only 7 out of 10 pod(s)`,
 			}},
@@ -1404,9 +1404,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: ptr.To(corev1.LabelHostname),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count:      1,
 				wantReason: "no topology domains at level: kubernetes.io/hostname",
 			}},
@@ -1432,9 +1432,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: ptr.To(corev1.LabelHostname),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 1,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -1471,9 +1471,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: ptr.To(tasRackLabel),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count:      1,
 				wantReason: "no topology domains at level: cloud.com/topology-rack",
 			}},
@@ -1501,9 +1501,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: ptr.To(corev1.LabelHostname),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 600,
-				},
+				}),
 				count: 1,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -1545,9 +1545,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: ptr.To(corev1.LabelHostname),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 600,
-				},
+				}),
 				count: 1,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -1586,9 +1586,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: ptr.To(corev1.LabelHostname),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 600,
-				},
+				}),
 				count:      1,
 				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "cpu": 1`,
 			}},
@@ -1617,9 +1617,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: ptr.To(corev1.LabelHostname),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 600,
-				},
+				}),
 				count:      1,
 				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "cpu": 1`,
 			}},
@@ -1681,9 +1681,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: ptr.To(corev1.LabelHostname),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 0,
-				},
+				}),
 				count:      9,
 				wantReason: `topology "default" allows to fit only 8 out of 9 pod(s)`,
 			}},
@@ -1721,9 +1721,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: ptr.To(corev1.LabelHostname),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 600,
-				},
+				}),
 				count: 1,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -1760,9 +1760,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: ptr.To(corev1.LabelHostname),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count:      1,
 				wantReason: "no topology domains at level: kubernetes.io/hostname",
 			}},
@@ -1789,9 +1789,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: ptr.To(corev1.LabelHostname),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count:      1,
 				wantReason: "no topology domains at level: kubernetes.io/hostname",
 			}},
@@ -1825,9 +1825,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: ptr.To(corev1.LabelHostname),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count:      1,
 				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: taint "example.com/gpu=present:NoSchedule": 1`,
 			}},
@@ -1880,9 +1880,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: ptr.To(corev1.LabelHostname),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				nodeSelector: map[string]string{
 					"zone": "zone-a",
 				},
@@ -1907,10 +1907,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: ptr.To(corev1.LabelHostname),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU:                     1000,
 					corev1.ResourceName("example.com/gpu"): 1,
-				},
+				}),
 				count: 1,
 				// When both resources give count=0, alphabetical tie-breaking picks "cpu"
 				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "cpu": 1`,
@@ -1939,9 +1939,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: ptr.To(corev1.LabelHostname),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 1,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -1993,9 +1993,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: ptr.To(corev1.LabelHostname),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 300,
-				},
+				}),
 				count:      1,
 				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "pods": 1`,
 			}},
@@ -2018,9 +2018,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Required: ptr.To(corev1.LabelHostname),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU: 1000,
-					},
+					}),
 					count: 1,
 					wantAssignment: &tas.TopologyAssignment{
 						Levels: defaultOneLevel,
@@ -2037,9 +2037,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Required: ptr.To(corev1.LabelHostname),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU: 1000,
-					},
+					}),
 					count:      1,
 					wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "pods": 1`,
 				},
@@ -2067,9 +2067,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: ptr.To(corev1.LabelHostname),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 300,
-				},
+				}),
 				count:      1,
 				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: nodeSelector: 1`,
 				nodeSelector: map[string]string{
@@ -2099,9 +2099,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: ptr.To(corev1.LabelHostname),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 300,
-				},
+				}),
 				count:      1,
 				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: nodeSelector: 1`,
 				nodeSelector: map[string]string{
@@ -2143,9 +2143,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: ptr.To(corev1.LabelHostname),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 1,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -2209,9 +2209,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
 					PodSetSliceSize:             new(int32(2)),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 6,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -2294,9 +2294,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
 					PodSetSliceSize:             new(int32(2)),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 12,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -2369,9 +2369,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
 					PodSetSliceSize:             new(int32(2)),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 4,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -2478,9 +2478,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					PodSetSliceRequiredTopology: ptr.To(tasRackLabel),
 					PodSetSliceSize:             new(int32(2)),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 4,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -2522,9 +2522,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					PodSetSliceRequiredTopology: ptr.To(tasRackLabel),
 					PodSetSliceSize:             new(int32(2)),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 4,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -2597,9 +2597,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
 					PodSetSliceSize:             new(int32(2)),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 6,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -2677,9 +2677,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
 					PodSetSliceSize:             new(int32(3)),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 12,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -2742,9 +2742,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Preferred: ptr.To(tasRackLabel),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					"example.com/gpu": 1,
-				},
+				}),
 				count: 25,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -2807,9 +2807,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Preferred: ptr.To(tasRackLabel),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					"example.com/gpu": 1,
-				},
+				}),
 				count: 23,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -2875,9 +2875,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					PodSetSliceSize:             new(int32(5)),
 					PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					"example.com/gpu": 1,
-				},
+				}),
 				count: 25,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -2951,9 +2951,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					Preferred:       ptr.To(tasRackLabel),
 					PodSetSliceSize: new(int32(1)),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					"example.com/gpu": 1,
-				},
+				}),
 				count: 22,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -3027,9 +3027,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					Preferred:       ptr.To(tasRackLabel),
 					PodSetSliceSize: new(int32(1)),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					"example.com/gpu": 1,
-				},
+				}),
 				count: 25,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -3105,9 +3105,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					PodSetSliceSize:             new(int32(5)),
 					PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					"example.com/gpu": 1,
-				},
+				}),
 				count: 25,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -3200,9 +3200,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					PodSetSliceSize:             new(int32(2)),
 					PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					"example.com/gpu": 1,
-				},
+				}),
 				count: 20,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: []string{corev1.LabelHostname},
@@ -3298,9 +3298,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					PodSetSliceSize:             new(int32(2)),
 					PodSetSliceRequiredTopology: ptr.To(tasRackLabel),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					"example.com/gpu": 1,
-				},
+				}),
 				count: 20,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: []string{corev1.LabelHostname},
@@ -3386,9 +3386,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					PodSetSliceSize:             new(int32(2)),
 					PodSetSliceRequiredTopology: ptr.To(tasRackLabel),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					"example.com/gpu": 1,
-				},
+				}),
 				count: 20,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: []string{tasBlockLabel, tasSubBlockLabel, tasRackLabel},
@@ -3474,9 +3474,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					PodSetSliceSize:             new(int32(2)),
 					PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					"example.com/gpu": 1,
-				},
+				}),
 				count: 22,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -3559,9 +3559,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Preferred: ptr.To(string(corev1.LabelHostname)),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					"example.com/gpu": 1,
-				},
+				}),
 				count: 22,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -3629,9 +3629,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 						Preferred:                   ptr.To(string(tasRackLabel)),
 						PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						"example.com/gpu": 1,
-					},
+					}),
 					podSetGroupName: new("sameGroup"),
 					count:           1,
 					wantAssignment: &tas.TopologyAssignment{
@@ -3651,9 +3651,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 						PodSetSliceSize:             new(int32(5)),
 						PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						"example.com/gpu": 1,
-					},
+					}),
 					podSetGroupName: new("sameGroup"),
 					count:           25,
 					wantAssignment: &tas.TopologyAssignment{
@@ -3738,9 +3738,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Preferred: ptr.To(string(tasRackLabel)),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					"example.com/gpu": 1,
-				},
+				}),
 				count: 15,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -3827,9 +3827,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Preferred: ptr.To(string(tasRackLabel)),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					"example.com/gpu": 1,
-				},
+				}),
 				count: 24,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -3909,9 +3909,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Preferred: ptr.To(string(tasRackLabel)),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					"example.com/gpu": 1,
-				},
+				}),
 				count: 23,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -4044,9 +4044,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Preferred: ptr.To(tasRackLabel),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					"example.com/gpu": 1,
-				},
+				}),
 				count: 20,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -4111,9 +4111,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 						Preferred:                   ptr.To(string(tasRackLabel)),
 						PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						"example.com/gpu": 1,
-					},
+					}),
 					podSetGroupName: new("sameGroup"),
 					count:           1,
 					wantAssignment: &tas.TopologyAssignment{
@@ -4131,9 +4131,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Preferred: ptr.To(string(tasRackLabel)),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						"example.com/gpu": 1,
-					},
+					}),
 					podSetGroupName: new("sameGroup"),
 					count:           10,
 					wantAssignment: &tas.TopologyAssignment{
@@ -4192,9 +4192,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 						Preferred:                   ptr.To(string(tasRackLabel)),
 						PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						"example.com/gpu": 1,
-					},
+					}),
 					podSetGroupName: new("sameGroup"),
 					count:           1,
 					wantAssignment: &tas.TopologyAssignment{
@@ -4212,9 +4212,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Preferred: ptr.To(string(tasRackLabel)),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						"example.com/gpu": 1,
-					},
+					}),
 					podSetGroupName: new("sameGroup"),
 					count:           10,
 					wantAssignment: &tas.TopologyAssignment{
@@ -4293,9 +4293,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 						Preferred:                   ptr.To(tasBlockLabel),
 						PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						"example.com/gpu": 5,
-					},
+					}),
 					podSetGroupName: new("sameGroup"),
 					count:           1,
 					wantAssignment: &tas.TopologyAssignment{
@@ -4313,9 +4313,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Preferred: ptr.To(tasBlockLabel),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						"example.com/gpu": 1,
-					},
+					}),
 					podSetGroupName: new("sameGroup"),
 					count:           7,
 					wantAssignment: &tas.TopologyAssignment{
@@ -4384,9 +4384,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					PodSetSliceRequiredTopology: ptr.To(tasRackLabel),
 					PodSetSliceSize:             new(int32(3)),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count:      6,
 				wantReason: `topology "default" doesn't allow to fit any of 2 slice(s)`,
 			}},
@@ -4447,9 +4447,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					PodSetSliceRequiredTopology: ptr.To(tasRackLabel),
 					PodSetSliceSize:             new(int32(3)),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count:      6,
 				wantReason: `topology "default" allows to fit only 1 out of 2 slice(s)`,
 			}},
@@ -4520,9 +4520,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					PodSetSliceRequiredTopology: ptr.To(tasRackLabel),
 					PodSetSliceSize:             new(int32(3)),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 6,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -4552,9 +4552,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					PodSetSliceRequiredTopology: ptr.To(tasBlockLabel),
 					PodSetSliceSize:             new(int32(1)),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count:      1,
 				wantReason: "podset slice topology cloud.com/topology-block is above the podset topology kubernetes.io/hostname",
 			}},
@@ -4567,9 +4567,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					Required:                    ptr.To(tasBlockLabel),
 					PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count:      1,
 				wantReason: "slice topology requested, but slice size not provided",
 			}},
@@ -4583,9 +4583,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					PodSetSliceRequiredTopology: new("not-existing-topology-level"),
 					PodSetSliceSize:             new(int32(1)),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count:      1,
 				wantReason: "no requested topology level for slices: not-existing-topology-level",
 			}},
@@ -4635,9 +4635,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
 					PodSetSliceSize:             new(int32(2)),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 6,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -4672,9 +4672,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
 					PodSetSliceSize:             new(int32(2)),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 6,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -4703,9 +4703,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					PodSetSliceRequiredTopology: ptr.To(tasRackLabel),
 					PodSetSliceSize:             new(int32(2)),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 4,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -4766,9 +4766,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Preferred: ptr.To(tasBlockLabel),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU: 1000,
-					},
+					}),
 					count: 3,
 					wantAssignment: &tas.TopologyAssignment{
 						Levels: []string{tasBlockLabel},
@@ -4793,9 +4793,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Preferred: ptr.To(tasBlockLabel),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU: 1000,
-					},
+					}),
 					count: 3,
 					wantAssignment: &tas.TopologyAssignment{
 						Levels: []string{tasBlockLabel},
@@ -4855,9 +4855,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Required: ptr.To(tasBlockLabel),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU: 1000,
-					},
+					}),
 					podSetGroupName: new("sameGroup"),
 					count:           1,
 					wantAssignment: &tas.TopologyAssignment{
@@ -4877,10 +4877,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Required: ptr.To(tasBlockLabel),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU: 1000,
 						"example.com/gpu":  1,
-					},
+					}),
 					podSetGroupName: new("sameGroup"),
 					count:           4,
 					wantAssignment: &tas.TopologyAssignment{
@@ -4934,9 +4934,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Required: ptr.To(tasBlockLabel),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU: 1000,
-					},
+					}),
 					podSetGroupName: new("sameGroup"),
 					count:           1,
 					wantAssignment: &tas.TopologyAssignment{
@@ -4954,10 +4954,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Required: ptr.To(tasBlockLabel),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU: 1000,
 						"example.com/gpu":  2,
-					},
+					}),
 					podSetGroupName: new("sameGroup"),
 					count:           4,
 					wantAssignment: &tas.TopologyAssignment{
@@ -5019,9 +5019,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Required: ptr.To(tasRackLabel),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU: 2500,
-					},
+					}),
 					podSetGroupName: new("sameGroup"),
 					count:           1,
 					wantAssignment: &tas.TopologyAssignment{
@@ -5036,9 +5036,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Required: ptr.To(tasRackLabel),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU: 2500,
-					},
+					}),
 					podSetGroupName: new("sameGroup"),
 					count:           1,
 					wantAssignment: &tas.TopologyAssignment{
@@ -5097,9 +5097,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Required: ptr.To(tasRackLabel),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU: 2500,
-					},
+					}),
 					podSetGroupName: new("sameGroup"),
 					count:           1,
 					wantAssignment: &tas.TopologyAssignment{
@@ -5114,9 +5114,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Required: ptr.To(tasRackLabel),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU: 500,
-					},
+					}),
 					podSetGroupName: new("sameGroup"),
 					count:           2,
 					wantAssignment: &tas.TopologyAssignment{
@@ -5175,9 +5175,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Required: ptr.To(tasRackLabel),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU: 1000,
-					},
+					}),
 					podSetGroupName: new("sameGroup"),
 					count:           1,
 					wantAssignment: &tas.TopologyAssignment{
@@ -5192,9 +5192,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Required: ptr.To(tasRackLabel),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU: 1000,
-					},
+					}),
 					podSetGroupName: new("sameGroup"),
 					count:           1,
 					wantAssignment: &tas.TopologyAssignment{
@@ -5234,9 +5234,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Required: ptr.To(tasBlockLabel),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU: 1000,
-					},
+					}),
 					podSetGroupName: new("sameGroup"),
 					count:           1,
 					wantAssignment:  nil,
@@ -5247,10 +5247,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Required: ptr.To(tasBlockLabel),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU: 1000,
 						"example.com/gpu":  1,
-					},
+					}),
 					podSetGroupName: new("sameGroup"),
 					count:           4,
 					wantAssignment:  nil,
@@ -5286,9 +5286,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Required: ptr.To(tasBlockLabel),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU: 1000,
-					},
+					}),
 					podSetGroupName: new("sameGroup"),
 					count:           1,
 					wantAssignment: &tas.TopologyAssignment{
@@ -5308,10 +5308,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Required: ptr.To(tasBlockLabel),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU: 1000,
 						"example.com/gpu":  1,
-					},
+					}),
 					podSetGroupName: new("sameGroup"),
 					count:           4,
 					wantAssignment: &tas.TopologyAssignment{
@@ -5394,9 +5394,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Preferred: ptr.To(tasBlockLabel),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU: 1000,
-					},
+					}),
 					podSetGroupName: new("sameGroup"),
 					count:           1,
 					wantAssignment: &tas.TopologyAssignment{
@@ -5416,10 +5416,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 						PodSetSliceSize:             new(int32(2)),
 						PodSetSliceRequiredTopology: ptr.To(corev1.LabelHostname),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU: 1000,
 						"example.com/gpu":  1,
-					},
+					}),
 					podSetGroupName: new("sameGroup"),
 					count:           6,
 					wantAssignment: &tas.TopologyAssignment{
@@ -5466,9 +5466,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Required: ptr.To(tasBlockLabel),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU: 10000,
-					},
+					}),
 					podSetGroupName: new("sameGroup"),
 					count:           1,
 					wantReason:      `topology "default" allows to fit only 4 out of 4 pod(s)`,
@@ -5478,10 +5478,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Required: ptr.To(tasBlockLabel),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU: 1000,
 						"example.com/gpu":  1,
-					},
+					}),
 					podSetGroupName: new("sameGroup"),
 					count:           4,
 					wantReason:      `topology "default" allows to fit only 4 out of 4 pod(s)`,
@@ -5570,9 +5570,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Required: ptr.To(tasBlockLabel),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU: 2000,
-					},
+					}),
 					podSetGroupName: new("sameGroup"),
 					count:           1,
 					wantAssignment: &tas.TopologyAssignment{
@@ -5592,10 +5592,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Required: ptr.To(tasBlockLabel),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU: 1000,
 						"example.com/gpu":  1,
-					},
+					}),
 					podSetGroupName: new("sameGroup"),
 					count:           2,
 					wantAssignment: &tas.TopologyAssignment{
@@ -5722,10 +5722,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Required: ptr.To(tasBlockLabel),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU: 1000,
 						"example.com/gpu":  1,
-					},
+					}),
 					podSetGroupName: new("sameGroup"),
 					count:           1,
 					wantAssignment: &tas.TopologyAssignment{
@@ -5745,10 +5745,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Required: ptr.To(tasBlockLabel),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU: 1000,
 						"example.com/gpu":  1,
-					},
+					}),
 					podSetGroupName: new("sameGroup"),
 					count:           2,
 					wantAssignment: &tas.TopologyAssignment{
@@ -5780,9 +5780,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Required: ptr.To(tasRackLabel),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU: 1000,
-					},
+					}),
 					count: 2,
 					wantAssignment: &tas.TopologyAssignment{
 						Levels: defaultTwoLevels,
@@ -5799,9 +5799,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Required: ptr.To(tasRackLabel),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceMemory: 1024,
-					},
+					}),
 					count: 1,
 					wantAssignment: &tas.TopologyAssignment{
 						Levels: defaultTwoLevels,
@@ -5825,9 +5825,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Required: ptr.To(tasBlockLabel),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU: 1000,
-					},
+					}),
 					count: 8,
 					wantAssignment: &tas.TopologyAssignment{
 						Levels: []string{corev1.LabelHostname},
@@ -5841,9 +5841,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Unconstrained: new(true),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU: 1000,
-					},
+					}),
 					count: 2,
 					wantAssignment: &tas.TopologyAssignment{
 						Levels: []string{corev1.LabelHostname},
@@ -5882,10 +5882,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 			podSets: []PodSetTestCase{
 				{
 					podSetName: "ps1",
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU:    1000,
 						corev1.ResourceMemory: 1000,
-					},
+					}),
 					count: 1,
 					wantAssignment: &tas.TopologyAssignment{
 						Levels: []string{corev1.LabelHostname},
@@ -5897,10 +5897,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 				{
 					podSetName:   "ps2",
 					nodeSelector: map[string]string{"never": "match"},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU:    1000,
 						corev1.ResourceMemory: 1000,
-					},
+					}),
 					count:      1,
 					wantReason: "topology \"default\" doesn't allow to fit any of 1 pod(s). Total nodes: 2; excluded: nodeSelector: 2",
 				},
@@ -5938,9 +5938,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Unconstrained: new(true),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 4,
 				previousAssignment: tas.V1Beta2From(&tas.TopologyAssignment{
 					Levels: []string{corev1.LabelHostname},
@@ -5993,9 +5993,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Unconstrained: new(true),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 4,
 				previousAssignment: tas.V1Beta2From(&tas.TopologyAssignment{
 					Levels: []string{corev1.LabelHostname},
@@ -6042,9 +6042,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Unconstrained: new(true),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 3,
 				previousAssignment: tas.V1Beta2From(&tas.TopologyAssignment{
 					Levels: []string{corev1.LabelHostname},
@@ -6089,9 +6089,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Unconstrained: new(true),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 3,
 				previousAssignment: tas.V1Beta2From(&tas.TopologyAssignment{
 					Levels: []string{corev1.LabelHostname},
@@ -6139,9 +6139,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Unconstrained: new(true),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU: 1000,
-					},
+					}),
 					count:           1,
 					podSetGroupName: new("elastic-group"),
 					previousAssignment: tas.V1Beta2From(&tas.TopologyAssignment{
@@ -6162,9 +6162,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Unconstrained: new(true),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU: 1000,
-					},
+					}),
 					count:           3,
 					podSetGroupName: new("elastic-group"),
 					previousAssignment: tas.V1Beta2From(&tas.TopologyAssignment{
@@ -6213,9 +6213,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Unconstrained: new(true),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU: 1000,
-					},
+					}),
 					count:           1,
 					podSetGroupName: new("elastic-group"),
 					previousAssignment: tas.V1Beta2From(&tas.TopologyAssignment{
@@ -6236,9 +6236,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Unconstrained: new(true),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU: 1000,
-					},
+					}),
 					count:           3,
 					podSetGroupName: new("elastic-group"),
 					previousAssignment: tas.V1Beta2From(&tas.TopologyAssignment{
@@ -6323,9 +6323,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{Topology: corev1.LabelHostname, Size: 2},
 					},
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 8,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -6399,9 +6399,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					// Without the feature gate, only two-level fields are used;
 					// PodsetSliceRequiredTopologyConstraints would not be populated by the parser.
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 8,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -6468,9 +6468,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{Topology: tasRackLabel, Size: 16},
 					},
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					"nvidia.com/gpu": 2,
-				},
+				}),
 				count: 96,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: []string{
@@ -6540,9 +6540,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 							{Topology: corev1.LabelHostname, Size: 2},
 						},
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU: 1000,
-					},
+					}),
 					count:      6,
 					wantReason: `topology "default" doesn't allow to fit; 0/1 slice(s) fit on level cloud.com/topology-rack; 2/3 slice(s) fit on level kubernetes.io/hostname. Total nodes: 3; excluded: resource "cpu": 1`,
 				},
@@ -6607,9 +6607,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{Topology: corev1.LabelHostname, Size: 4},
 					},
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count:      16,
 				wantReason: `topology "default" doesn't allow to fit; 1/2 slice(s) fit on level cloud.com/topology-rack; 3/4 slice(s) fit on level kubernetes.io/hostname`,
 			}},
@@ -6663,9 +6663,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{Topology: corev1.LabelHostname, Size: 2},
 					},
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count:      12,
 				wantReason: `topology "default" doesn't allow to fit; 0/2 slice(s) fit on level cloud.com/topology-rack; 6/6 slice(s) fit on level kubernetes.io/hostname`,
 			}},
@@ -6789,9 +6789,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 							{Topology: corev1.LabelHostname, Size: 3},
 						},
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU: 1000,
-					},
+					}),
 					count:      24,
 					wantReason: `topology "default" doesn't allow to fit; 1/2 slice(s) fit on level cloud.com/topology-block; 3/4 slice(s) fit on level cloud.com/topology-rack; 6/8 slice(s) fit on level kubernetes.io/hostname`,
 				},
@@ -6832,9 +6832,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 						Term(10, "region", corev1.NodeSelectorOpIn, "us-west").
 						Obj(),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 1,
 				wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{"kubernetes.io/hostname"}).
 					Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"node-preferred"}}).
@@ -6890,9 +6890,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 					PreferredDuringSchedulingIgnoredDuringExecution: utiltesting.MakePreferredSchedulingTerms().Term(10, "region", corev1.NodeSelectorOpIn, "us-west").Obj(),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 1,
 				wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{"kubernetes.io/hostname"}).
 					Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"node-preferred"}}).
@@ -6945,9 +6945,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 						Term(100, "cloud.com/topology-rack", corev1.NodeSelectorOpIn, "r1").
 						Obj(),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 1,
 				wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{"kubernetes.io/hostname"}).
 					Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"node-a"}}).
@@ -6985,9 +6985,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				nodeAffinity: &corev1.NodeAffinity{
 					PreferredDuringSchedulingIgnoredDuringExecution: utiltesting.MakePreferredSchedulingTerms().Term(10, "region", corev1.NodeSelectorOpIn, "us-west").Obj(),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 1,
 				wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{"kubernetes.io/hostname"}).
 					Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"node-has-affinity"}}).
@@ -7037,9 +7037,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				nodeAffinity: &corev1.NodeAffinity{
 					PreferredDuringSchedulingIgnoredDuringExecution: utiltesting.MakePreferredSchedulingTerms().Term(10, "region", corev1.NodeSelectorOpIn, "us-west").Obj(),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 4,
 				wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{"kubernetes.io/hostname"}).
 					Domain(tas.TopologyDomainAssignment{Count: 4, Values: []string{"node-secondary-large-1"}}).
@@ -7081,9 +7081,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				nodeAffinity: &corev1.NodeAffinity{
 					PreferredDuringSchedulingIgnoredDuringExecution: utiltesting.MakePreferredSchedulingTerms().Term(10, "region", corev1.NodeSelectorOpIn, "us-west").Obj(),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 4,
 				wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{"kubernetes.io/hostname"}).
 					Domain(tas.TopologyDomainAssignment{Count: 2, Values: []string{"node-preferred-small"}}).
@@ -7138,9 +7138,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				nodeAffinity: &corev1.NodeAffinity{
 					PreferredDuringSchedulingIgnoredDuringExecution: utiltesting.MakePreferredSchedulingTerms().Term(10, "type", corev1.NodeSelectorOpIn, "preferred").Obj(),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 5,
 				wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{"kubernetes.io/hostname"}).
 					Domain(tas.TopologyDomainAssignment{Count: 2, Values: []string{"node-1-pref-2"}}).
@@ -7207,9 +7207,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				nodeAffinity: &corev1.NodeAffinity{
 					PreferredDuringSchedulingIgnoredDuringExecution: utiltesting.MakePreferredSchedulingTerms().Term(10, "type", corev1.NodeSelectorOpIn, "preferred").Obj(),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 5,
 				wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{"kubernetes.io/hostname"}).
 					Domain(tas.TopologyDomainAssignment{Count: 2, Values: []string{"node-1-pref-2"}}).
@@ -7276,9 +7276,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				nodeAffinity: &corev1.NodeAffinity{
 					PreferredDuringSchedulingIgnoredDuringExecution: utiltesting.MakePreferredSchedulingTerms().Term(10, "type", corev1.NodeSelectorOpIn, "preferred").Obj(),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 4,
 				wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{"kubernetes.io/hostname"}).
 					Domain(tas.TopologyDomainAssignment{Count: 2, Values: []string{"node-1-pref-2"}}).
@@ -7346,9 +7346,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				nodeAffinity: &corev1.NodeAffinity{
 					PreferredDuringSchedulingIgnoredDuringExecution: utiltesting.MakePreferredSchedulingTerms().Term(10, "type", corev1.NodeSelectorOpIn, "preferred").Obj(),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 4,
 				wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{"kubernetes.io/hostname"}).
 					Domain(tas.TopologyDomainAssignment{Count: 2, Values: []string{"node-1-pref-2"}}).
@@ -7405,10 +7405,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 						PodSetSliceRequiredTopology: new(corev1.LabelHostname),
 						PodSetSliceSize:             new(int32(1)),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU:    16 * 1000,
 						corev1.ResourceMemory: 64 * 1024 * 1024 * 1024,
-					},
+					}),
 					podSetGroupName: new("llm-group"),
 					count:           1,
 					wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
@@ -7425,11 +7425,11 @@ func TestFindTopologyAssignments(t *testing.T) {
 					nodeAffinity: &corev1.NodeAffinity{
 						PreferredDuringSchedulingIgnoredDuringExecution: utiltesting.MakePreferredSchedulingTerms().Term(10, "cloud.com/topology-zone", corev1.NodeSelectorOpIn, "us-west").Obj(),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU:    4 * 1000,
 						corev1.ResourceMemory: 32 * 1024 * 1024 * 1024,
 						"nvidia.com/gpu":      8,
-					},
+					}),
 					podSetGroupName: new("llm-group"),
 					count:           2,
 					wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
@@ -7473,10 +7473,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 						PodSetSliceRequiredTopology: new("cloud.com/topology-rack"),
 						PodSetSliceSize:             new(int32(1)),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU:    1000,
 						corev1.ResourceMemory: 1024 * 1024 * 1024,
-					},
+					}),
 					podSetGroupName: new("lws"),
 					count:           1,
 					wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
@@ -7490,10 +7490,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 						PodSetSliceRequiredTopology: new("cloud.com/topology-rack"),
 						PodSetSliceSize:             new(int32(1)),
 					},
-					requests: resources.MapRequests{
+					requests: resources.NewRequestsFromMap(resources.MapRequests{
 						corev1.ResourceCPU:    1000,
 						corev1.ResourceMemory: 1024 * 1024 * 1024,
-					},
+					}),
 					podSetGroupName: new("lws"),
 					count:           5,
 					wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
@@ -7521,7 +7521,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			priorFlavorUsage: []workload.TopologyDomainRequests{
 				{
 					Values:            []string{"x1"},
-					SinglePodRequests: resources.MapRequests{corev1.ResourceCPU: 1000},
+					SinglePodRequests: resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourceCPU: 1000}),
 					Count:             1,
 				},
 			},
@@ -7531,7 +7531,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Required: new(corev1.LabelHostname),
 					},
-					requests: resources.MapRequests{corev1.ResourceCPU: 1000},
+					requests: resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourceCPU: 1000}),
 					count:    1,
 					wantAssignment: &tas.TopologyAssignment{
 						Levels:  []string{corev1.LabelHostname},
@@ -7555,7 +7555,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Required: ptr.To(tasRackLabel),
 					},
-					requests: resources.MapRequests{corev1.ResourceCPU: 1000},
+					requests: resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourceCPU: 1000}),
 					count:    1,
 					wantAssignment: &tas.TopologyAssignment{
 						Levels:  []string{tasBlockLabel, tasRackLabel},
@@ -7599,8 +7599,8 @@ func TestFindTopologyAssignments(t *testing.T) {
 			},
 			nodeLabels: map[string]string{},
 			priorOwnUsage: []workload.TopologyDomainRequests{
-				{Values: []string{"b1", "r1"}, SinglePodRequests: resources.MapRequests{corev1.ResourceCPU: 1000}, Count: 1},
-				{Values: []string{"b1", "r2"}, SinglePodRequests: resources.MapRequests{corev1.ResourceCPU: 1000}, Count: 1},
+				{Values: []string{"b1", "r1"}, SinglePodRequests: resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourceCPU: 1000}), Count: 1},
+				{Values: []string{"b1", "r2"}, SinglePodRequests: resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourceCPU: 1000}), Count: 1},
 			},
 			podSets: []PodSetTestCase{
 				{
@@ -7608,7 +7608,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Required: new(tasRackLabel),
 					},
-					requests: resources.MapRequests{corev1.ResourceCPU: 1000},
+					requests: resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourceCPU: 1000}),
 					count:    1,
 					wantAssignment: &tas.TopologyAssignment{
 						Levels:  []string{tasBlockLabel, tasRackLabel},
@@ -7646,9 +7646,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: ptr.To(corev1.LabelHostname),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 1,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -7692,9 +7692,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: ptr.To(corev1.LabelHostname),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 1,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -7738,9 +7738,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: ptr.To(corev1.LabelHostname),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 1,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -7784,9 +7784,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: ptr.To(corev1.LabelHostname),
 				},
-				requests: resources.MapRequests{
+				requests: resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU: 1000,
-				},
+				}),
 				count: 1,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
@@ -8252,7 +8252,7 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 			priorFlavorUsage: []workload.TopologyDomainRequests{
 				{
 					Values:            []string{"x4"},
-					SinglePodRequests: resources.MapRequests{corev1.ResourceCPU: 1000},
+					SinglePodRequests: resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourceCPU: 1000}),
 					Count:             1,
 				},
 			},
@@ -8282,7 +8282,7 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 					TopologyRequest: tc.topologyRequest,
 					Template:        corev1.PodTemplateSpec{Spec: corev1.PodSpec{}},
 				},
-				SinglePodRequests: resources.MapRequests{corev1.ResourceCPU: 1000},
+				SinglePodRequests: resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourceCPU: 1000}),
 				Count:             tc.count,
 			}}
 
