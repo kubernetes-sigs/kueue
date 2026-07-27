@@ -180,8 +180,15 @@ func TestClusterQueueUpdate(t *testing.T) {
 }
 
 func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ConcurrentAdmission, true)
+
 	cqWithAC := utiltestingapi.MakeClusterQueue("cq").
 		AdmissionChecks("check1", "check2", "check3").
+		Obj()
+
+	cqWithACAndConcurrentAdmission := utiltestingapi.MakeClusterQueue("cq-concurrent").
+		AdmissionChecks("check1", "check2", "check3").
+		ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).
 		Obj()
 
 	cqWithACStrategy := utiltestingapi.MakeClusterQueue("cq2").
@@ -369,6 +376,28 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			wantMessage: `Can't admit new workloads: Cannot use both MultiKueue and ProvisioningRequest AdmissionChecks together, found: check1, check3.`,
 		},
 		{
+			name:     "Active clusterQueue with both MultiKueue and ConcurrentAdmission",
+			cq:       cqWithACAndConcurrentAdmission,
+			cqStatus: active,
+			admissionChecks: map[kueue.AdmissionCheckReference]AdmissionCheck{
+				"check1": {
+					Active:     true,
+					Controller: kueue.MultiKueueControllerName,
+				},
+				"check2": {
+					Active:     true,
+					Controller: "controller2",
+				},
+				"check3": {
+					Active:     true,
+					Controller: "controller3",
+				},
+			},
+			wantStatus:  pending,
+			wantReason:  kueue.ClusterQueueActiveReasonMultiKueueWithConcurrentAdmission,
+			wantMessage: "Can't admit new workloads: Cannot use ConcurrentAdmission on a ClusterQueue with a MultiKueue AdmissionCheck.",
+		},
+		{
 			name:     "Terminating clusterQueue updated with valid AC list",
 			cq:       cqWithAC,
 			cqStatus: terminating,
@@ -505,6 +534,27 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 				t.Errorf("Unexpected inactiveMessage (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestClusterQueueMultiKueueWithConcurrentAdmissionFeatureDisabled(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ConcurrentAdmission, false)
+	_, log := utiltesting.ContextWithLog(t)
+
+	cache := New(utiltesting.NewFakeClient())
+	cache.admissionChecks["multikueue"] = AdmissionCheck{
+		Active:     true,
+		Controller: kueue.MultiKueueControllerName,
+	}
+	cq, err := cache.newClusterQueue(log, utiltestingapi.MakeClusterQueue("cq").
+		AdmissionChecks("multikueue").
+		ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).
+		Obj())
+	if err != nil {
+		t.Fatalf("failed to create clusterQueue: %v", err)
+	}
+	if cq.Status != active {
+		t.Errorf("clusterQueue should remain active when ConcurrentAdmission is disabled, got %v", cq.Status)
 	}
 }
 
