@@ -18,6 +18,8 @@ GO_FMT ?= gofmt
 CONTAINER_ENGINE ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
 SKILLSAW_IMAGE ?= ghcr.io/stbenjam/skillsaw:0.9.2
 VERIFY_NPROCS ?= 8
+# Number of modules to lint concurrently in ci-lint (xargs -P). 0 = as many as possible.
+CI_LINT_NPROCS ?= 0
 # Output sync mode for parallel verification. Set to empty to disable.
 # Requires GNU Make 4.0+. Values: target, line, recurse, or empty.
 ifeq ($(shell uname),Darwin)
@@ -115,8 +117,22 @@ verify-checks: verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-commo
 # Giving the wrapper its own recipe body is the only way to enforce ordering
 # without recursive $(MAKE).
 
+# Lint each module in parallel; drop generated packages (client-go/, internal/mocks/)
+# from the target list — golangci-lint's path/generated exclusions only filter reported
+# issues, not the analysis work, so they must be excluded before the linter runs.
 define _ci_lint_recipe
-find . \( -path ./site -o -path ./bin -o -path ./vendor \) -prune -false -o -name go.mod -exec dirname {} \; | xargs -I {} sh -c 'cd "{}" && $(GOLANGCI_LINT) run $(GOLANGCI_LINT_FIX) --timeout 15m0s --config "$(PROJECT_DIR)/.golangci.yaml"'
+@find . \( -path ./site -o -path ./bin -o -path ./vendor \) -prune -false -o -name go.mod -exec dirname {} \; \
+	| xargs -P $(CI_LINT_NPROCS) -n 1 sh -c ' \
+		cd "$$1" || exit 1; \
+		dirs=$$($(GO_CMD) list -f "{{.Dir}}" ./... \
+			| grep -vE "/(client-go|internal/mocks)(/|$$)" \
+			| sed "s|^$$(pwd)/|./|"); \
+		[ -n "$$dirs" ] || exit 0; \
+		$(GOLANGCI_LINT) run $(GOLANGCI_LINT_FIX) \
+			--allow-parallel-runners \
+			--timeout 15m0s \
+			--config "$(PROJECT_DIR)/.golangci.yaml" \
+			$$dirs' sh
 endef
 
 define _lint_api_recipe
