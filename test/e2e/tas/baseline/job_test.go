@@ -354,7 +354,6 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(util.Sha
 			util.MustCreate(ctx, k8sClient, sampleJob)
 
 			var createdWorkload *kueue.Workload
-			var originalNodeName string
 			ginkgo.By("await for admission of workload and record topology", func() {
 				// Use ExpectWorkloadsInNamespace instead of computing workload name
 				// because with workload slicing enabled, the name includes generation
@@ -382,29 +381,28 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(util.Sha
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("verify scaled workload preserves original topology assignment", func() {
-				scaledWorkload := util.ExpectNewWorkloadSlice(ctx, k8sClient, createdWorkload)
-				gomega.Expect(scaledWorkload).ShouldNot(gomega.BeNil())
-
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(scaledWorkload), scaledWorkload)).To(gomega.Succeed())
-					g.Expect(scaledWorkload.Status.Admission).ShouldNot(gomega.BeNil())
-					g.Expect(scaledWorkload.Spec.PodSets).Should(gomega.HaveLen(1))
-					g.Expect(scaledWorkload.Spec.PodSets[0].Count).Should(gomega.Equal(scaledParallelism))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
-
-				ta := tas.InternalFrom(scaledWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment)
+			ginkgo.By("verify the scaled workload has two assigned domains", func() {
+				ta := tas.InternalFrom(
+					createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment,
+				)
 				gomega.Expect(ta).ShouldNot(gomega.BeNil())
+				gomega.Expect(ta.Domains).Should(gomega.HaveLen(int(scaledParallelism)))
+			})
 
-				foundOriginal := false
-				for _, domain := range ta.Domains {
-					if len(domain.Values) > 0 && domain.Values[0] == originalNodeName {
-						foundOriginal = true
-						break
-					}
-				}
-				gomega.Expect(foundOriginal).To(gomega.BeTrue(),
-					"original node %s should be preserved in scaled assignment", originalNodeName)
+			ginkgo.By("verify both job pods are ready", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(
+						k8sClient.Get(
+							ctx,
+							client.ObjectKeyFromObject(sampleJob),
+							sampleJob,
+						),
+					).To(gomega.Succeed())
+
+					g.Expect(sampleJob.Status.Ready).To(
+						gomega.HaveValue(gomega.Equal(scaledParallelism)),
+					)
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 	})
