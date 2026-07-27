@@ -36,7 +36,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
@@ -244,7 +243,7 @@ func newClusterQueue(
 	client client.Client,
 	cq *kueue.ClusterQueue,
 	wo workload.Ordering,
-	afsConfig *config.AdmissionFairSharing,
+	afsConfig *configapi.AdmissionFairSharing,
 	afsEntryPenalties *queueafs.AfsEntryPenalties,
 	afsConsumedResources *queueafs.AfsConsumedResources,
 ) (*ClusterQueue, error) {
@@ -698,7 +697,7 @@ func (c *ClusterQueue) pendingActive(cl *metrics.CustomLabels) *metrics.LabelVal
 	result := metrics.NewLabelValsTracker()
 
 	if !breakDownByWorkloadLabels(cl) {
-		emptyVals := metrics.Empty(configapi.SourceKindWorkload)
+		emptyVals := metrics.Empty()
 		result.Add(emptyVals, c.heap.Len())
 		if c.inflight != nil {
 			result.Incr(emptyVals)
@@ -724,7 +723,7 @@ func (c *ClusterQueue) pendingInadmissible(cl *metrics.CustomLabels) *metrics.La
 	result := metrics.NewLabelValsTracker()
 
 	if !breakDownByWorkloadLabels(cl) {
-		emptyVals := metrics.Empty(configapi.SourceKindWorkload)
+		emptyVals := metrics.Empty()
 		result.Add(emptyVals, len(c.inadmissibleWorkloads))
 		return result
 	}

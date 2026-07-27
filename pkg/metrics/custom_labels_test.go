@@ -17,6 +17,7 @@ limitations under the License.
 package metrics
 
 import (
+	"maps"
 	"slices"
 	"testing"
 
@@ -438,19 +439,16 @@ func TestCustomLabelsDisabled(t *testing.T) {
 
 func TestLabelValueSetCounter(t *testing.T) {
 	k1 := labelValsSet{
-		src:          configapi.SourceKindWorkload,
-		vals:         [MaxCustomLabelsForSourceKind]string{"v1", "v2"},
-		labelSetSize: 2,
+		vals: [MaxCustomLabelsForSourceKind]string{"v1", "v2"},
+		size: 2,
 	}
 	k2 := labelValsSet{
-		src:          configapi.SourceKindWorkload,
-		vals:         [MaxCustomLabelsForSourceKind]string{"v3", "v4"},
-		labelSetSize: 2,
+		vals: [MaxCustomLabelsForSourceKind]string{"v3", "v4"},
+		size: 2,
 	}
 	k3 := labelValsSet{
-		src:          configapi.SourceKindWorkload,
-		vals:         [MaxCustomLabelsForSourceKind]string{"v5"},
-		labelSetSize: 1,
+		vals: [MaxCustomLabelsForSourceKind]string{"v5"},
+		size: 1,
 	}
 
 	// 1. Test NewLabelSetCount and Empty
@@ -460,11 +458,6 @@ func TestLabelValueSetCounter(t *testing.T) {
 	}
 	if got := c1.Get(k1); got != 0 {
 		t.Errorf("expected empty counter Get to return 0, got %d", got)
-	}
-
-	emptyWl := Empty(configapi.SourceKindWorkload)
-	if emptyWl.src != configapi.SourceKindWorkload {
-		t.Errorf("expected Empty(SourceKindWorkload) to have workload kind, got %s", emptyWl.src)
 	}
 
 	// 2. Test Incr and Add
@@ -523,10 +516,7 @@ func TestLabelValueSetCounter(t *testing.T) {
 	}
 
 	// 5. Test ParallelIter
-	iterResult := make(map[labelValsSet]pair)
-	for ls, p := range ParallelIter(a, b) {
-		iterResult[ls] = p
-	}
+	iterResult := maps.Collect(ParallelIter(a, b))
 	wantIterResult := map[labelValsSet]pair{
 		k1: {1, 0},
 		k2: {0, 1},

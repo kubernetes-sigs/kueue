@@ -1619,10 +1619,10 @@ func TestRecordInadmissibleHash(t *testing.T) {
 
 			active, inadmissible := cq.Pending(nil)
 			if active.Total() != tc.wantActive {
-				t.Errorf("active workloads = %d, want %d", active, tc.wantActive)
+				t.Errorf("active workloads = %d, want %d", active.Total(), tc.wantActive)
 			}
 			if inadmissible.Total() != tc.wantInadmissible {
-				t.Errorf("inadmissible workloads = %d, want %d", inadmissible, tc.wantInadmissible)
+				t.Errorf("inadmissible workloads = %d, want %d", inadmissible.Total(), tc.wantInadmissible)
 			}
 		})
 	}
@@ -1666,10 +1666,10 @@ func TestPushOrUpdateRespectsInadmissibleHashes(t *testing.T) {
 
 			active, inadmissible := cq.Pending(nil)
 			if active.Total() != tc.wantActive {
-				t.Errorf("active = %d, want %d", active, tc.wantActive)
+				t.Errorf("active = %d, want %d", active.Total(), tc.wantActive)
 			}
 			if inadmissible.Total() != tc.wantInadmissible {
-				t.Errorf("inadmissible = %d, want %d", inadmissible, tc.wantInadmissible)
+				t.Errorf("inadmissible = %d, want %d", inadmissible.Total(), tc.wantInadmissible)
 			}
 		})
 	}
@@ -1702,7 +1702,7 @@ func TestQueueInadmissibleWorkloadsClearsHashes(t *testing.T) {
 
 	active, inadmissible := cq.Pending(nil)
 	if active.Total() != 1 || inadmissible.Total() != 0 {
-		t.Errorf("after requeue: active=%d inadmissible=%d, want active=1 inadmissible=0", active, inadmissible)
+		t.Errorf("after requeue: active=%d inadmissible=%d, want active=1 inadmissible=0", active.Total(), inadmissible.Total())
 	}
 }
 

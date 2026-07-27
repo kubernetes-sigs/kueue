@@ -110,12 +110,11 @@ func (cl *CustomLabels) KindConfigured(kind configapi.SourceKind) (isConfigured 
 
 func (cl *CustomLabels) MakeValsSet(kind configapi.SourceKind, labels, annotations map[string]string) (ls labelValsSet) {
 	if !cl.enabled() || cl.m[kind] == nil {
-		return Empty(kind)
+		return Empty()
 	}
 	vals := cl.m[kind].extractValues(labels, annotations)
 	copy(ls.vals[:], vals)
-	ls.labelSetSize = len(vals)
-	ls.src = kind
+	ls.size = len(vals)
 	return
 }
 
@@ -311,9 +310,8 @@ type LabelValsTracker struct {
 
 // Wrapper for a list representing values of a custom labels set.
 type labelValsSet struct {
-	src          configapi.SourceKind
-	vals         [MaxCustomLabelsForSourceKind]string
-	labelSetSize int
+	vals [MaxCustomLabelsForSourceKind]string
+	size int
 }
 
 func NewLabelValsTracker() *LabelValsTracker {
@@ -378,12 +376,10 @@ func (c *LabelValsTracker) merge(other *LabelValsTracker) *LabelValsTracker {
 	return c
 }
 
-func Empty(kind configapi.SourceKind) labelValsSet {
-	return labelValsSet{
-		src: kind,
-	}
+func Empty() labelValsSet {
+	return labelValsSet{}
 }
 
 func (s *labelValsSet) OrderedList() []string {
-	return s.vals[:s.labelSetSize]
+	return s.vals[:s.size]
 }
