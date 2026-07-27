@@ -535,15 +535,15 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.14"
-- name: VectorizedResourceRequests
-  versionedSpecs:
-  - default: true
-    lockToDefault: false
-    preRelease: Beta
-    version: "0.18"
 - name: UnadmittedWorkloadsObservability
   versionedSpecs:
   - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.18"
+- name: VectorizedResourceRequests
+  versionedSpecs:
+  - default: true
     lockToDefault: false
     preRelease: Beta
     version: "0.18"
