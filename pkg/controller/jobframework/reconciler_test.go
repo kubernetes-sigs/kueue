@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
@@ -1019,6 +1020,14 @@ func TestProcessOptionsWithIntegrationManager(t *testing.T) {
 
 	if options.IntegrationManager != manager {
 		t.Error("ProcessOptions() did not preserve the integration manager")
+	}
+}
+
+func TestNewReconcilerInitializesIntegrationManager(t *testing.T) {
+	reconciler := NewReconciler(nil, nil)
+	integrationManager := reflect.ValueOf(reconciler).Elem().FieldByName("integrationManager")
+	if integrationManager.IsNil() {
+		t.Error("NewReconciler() integrationManager is nil")
 	}
 }
 

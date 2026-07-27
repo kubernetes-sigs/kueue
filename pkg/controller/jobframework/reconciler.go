@@ -285,6 +285,9 @@ func NewReconciler(
 	record events.EventRecorder,
 	opts ...Option) *JobReconciler {
 	options := ProcessOptions(opts...)
+	if options.IntegrationManager == nil {
+		options.IntegrationManager = NewIntegrationManager()
+	}
 
 	return &JobReconciler{
 		integrationManager:           options.IntegrationManager,

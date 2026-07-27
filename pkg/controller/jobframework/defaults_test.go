@@ -114,6 +114,8 @@ func TestWorkloadShouldBeSuspended(t *testing.T) {
 }
 
 func TestApplyDefaultLocalQueue(t *testing.T) {
+	integrationManager := newDefaultsIntegrationManager(t)
+	t.Cleanup(integrationManager.EnableIntegrationsForTest(t, "batch/job"))
 	managedNamespace := utiltesting.MakeNamespaceWrapper("managed-ns").Label(corev1.LabelMetadataName, "managed-ns").Obj()
 	unmanagedNamespace := utiltesting.MakeNamespaceWrapper("unmanaged-ns").Label(corev1.LabelMetadataName, "unmanaged-ns").Obj()
 	ls := &metav1.LabelSelector{
@@ -156,7 +158,7 @@ func TestApplyDefaultLocalQueue(t *testing.T) {
 				return true
 			}
 
-			if err := ApplyDefaultLocalQueue(ctx, cl, tc.job, defaultQueueExist, namespaceSelector); err != nil {
+			if err := integrationManager.ApplyDefaultLocalQueue(ctx, cl, tc.job, defaultQueueExist, namespaceSelector); err != nil {
 				t.Fatalf("ApplyDefaultLocalQueue() returned error: %v", err)
 			}
 
