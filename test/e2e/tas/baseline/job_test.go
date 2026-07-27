@@ -387,9 +387,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(util.Sha
 					g.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
 					g.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
 					g.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment).ShouldNot(gomega.BeNil())
-					g.Expect(tas.TotalDomainCount(
-						createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment,
-					)).Should(gomega.Equal(int(scaledParallelism)))
+					g.Expect(createdWorkload.Spec.PodSets).Should(gomega.HaveLen(1))
+					g.Expect(createdWorkload.Spec.PodSets[0].Count).Should(gomega.Equal(scaledParallelism))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
