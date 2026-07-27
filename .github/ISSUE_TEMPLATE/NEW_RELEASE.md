@@ -37,7 +37,9 @@ Please do not remove items from the checklist
   - Upload the files in the `release-artifacts` folder to the draft release.
 - [ ] Promote images and Helm Charts to production:
   - [ ] Use `/wait-for-images` to await for the staging images.
-  - [ ] Run `./hack/releasing/promote_pull.sh $VERSION` to submit the promotion PR
+  - [ ] Run `/promote-pull` ChatOps command (or locally: `./hack/releasing/promote_pull.sh $VERSION`)
+        to submit the promotion PR. Re-running is safe: it updates the existing PR rather than
+        opening a second one.
   - [ ] Wait for the PR to be merged <!-- K8S_IO_PULL --> <!-- example kubernetes/k8s.io#7899 -->
   - [ ] Use `/wait-for-prod-images` to verify that the promoted images are available.
 - [ ] Use `/publish-release` to publish the release prepared at the [GitHub releases page](https://github.com/kubernetes-sigs/kueue/releases).

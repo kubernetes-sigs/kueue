@@ -89,6 +89,11 @@ if ! command -v gh > /dev/null; then
   exit 1
 fi
 
+if ! command -v crane > /dev/null; then
+  echo "!!! crane is not installed. Please install it or use the github action step."
+  exit 1
+fi
+
 if [[ "$#" -ne 1 ]]; then
   echo "${0} <version>"
   echo
@@ -97,8 +102,12 @@ if [[ "$#" -ne 1 ]]; then
   echo "  Example:"
   echo "    $0 v0.13.2"
   echo
+  echo "  Requires the 'gh' and 'crane' tools in PATH."
+  echo
   echo "  Set the DRY_RUN environment var to skip git push and creating PR."
   echo "  When DRY_RUN is set the script will leave you in a branch containing the commits."
+  echo
+  echo "  Set RELEASE_ISSUE_NUMBER to skip looking the release issue up by title."
   echo
   echo "  Set KUBERNETES_K8S_IO_UPSTREAM_REMOTE (default: upstream) and KUBERNETES_K8S_IO_FORK_REMOTE (default: origin)"
   echo "  to override the default remote names to what you have locally."
@@ -140,7 +149,10 @@ fi
 
 RELEASE_ISSUE_NAME="Release ${RELEASE_VERSION}"
 
-RELEASE_ISSUE_NUMBER=$(gh issue list --repo="${KUBERNETES_SIGS_KUEUE_MAIN_REPO}" --search "in:title ${RELEASE_ISSUE_NAME}" | awk '{print $1}' || true)
+RELEASE_ISSUE_NUMBER="${RELEASE_ISSUE_NUMBER:-}"
+if [ -z "$RELEASE_ISSUE_NUMBER" ]; then
+  RELEASE_ISSUE_NUMBER=$(gh issue list --repo="${KUBERNETES_SIGS_KUEUE_MAIN_REPO}" --search "in:title ${RELEASE_ISSUE_NAME}" | awk '{print $1}' || true)
+fi
 if [ -z "$RELEASE_ISSUE_NUMBER" ]; then
   echo "!!! No release issue found for version ${RELEASE_VERSION}. Please create 'Release ${RELEASE_VERSION}' issue first."
   exit 1
@@ -184,12 +196,27 @@ function cleanup {
 }
 trap cleanup EXIT
 
+# Set by make_pr to the promotion pull request, whether it was just created or
+# already existed.
+K8S_IO_PR_URL=""
+
 # $1 - base branch
 # $2 - remote branch
 # $3 - pr name
 function make_pr() {
   local rel
   rel="$(basename "$1")"
+
+  local existing
+  existing=$(gh pr list --repo="${KUBERNETES_K8S_IO_MAIN_REPO}" --head "${GITHUB_USER}:$2" \
+    --state open --json url --jq '.[0].url' 2>/dev/null || true)
+  if [[ -n "${existing}" ]]; then
+    echo
+    echo "+++ Pull request already open for ${GITHUB_USER}:$2; the push updated it."
+    K8S_IO_PR_URL="${existing}"
+    echo "+++ Promotion pull request: ${K8S_IO_PR_URL}"
+    return
+  fi
 
   echo
   echo "+++ Creating a pull request on GitHub repo ${KUBERNETES_K8S_IO_MAIN_REPO} at ${GITHUB_USER}:$2 for ${rel}"
@@ -203,7 +230,8 @@ Part of ${KUBERNETES_SIGS_KUEUE_MAIN_REPO}#${RELEASE_ISSUE_NUMBER}
 EOF
 )
 
-   gh pr create --title="$3" --body="${pr_text}" --head "${GITHUB_USER}:$2" --base "${rel}" --repo="${KUBERNETES_K8S_IO_MAIN_REPO}"
+  K8S_IO_PR_URL=$(gh pr create --title="$3" --body="${pr_text}" --head "${GITHUB_USER}:$2" --base "${rel}" --repo="${KUBERNETES_K8S_IO_MAIN_REPO}")
+  echo "+++ Promotion pull request: ${K8S_IO_PR_URL}"
 }
 
 # $1 - images file
@@ -307,6 +335,15 @@ function insert_image() {
     }
     # Print all other lines unchanged
     { print; }
+
+    # The component may be the last one in the file, with no following
+    # "- name:" line to flush the entry against. Without this the digest is
+    # dropped silently.
+    END {
+      if (in_component && !inserted) {
+        print new_line;
+      }
+    }
   ' "${images_file}" > "$tmp_file"
 
   mv "$tmp_file" "$IMAGES_FILE"
@@ -325,9 +362,28 @@ function get_image_full_name() {
 }
 
 # $1 - full image name
-function get_image_details() {
+function get_image_digest() {
   local full_image_name="$1"
-  gcloud container images describe "${full_image_name}" --verbosity error --format json || true
+  crane digest "${full_image_name}" 2>/dev/null || true
+}
+
+function verify_digests_inserted() {
+  local images_file="$1"
+  shift
+
+  local entry name digest missing=()
+  for entry in "$@"; do
+    name="${entry%% *}"
+    digest="${entry#* }"
+    if ! grep -q "${digest}" "${images_file}"; then
+      missing+=("${name}@${digest}")
+    fi
+  done
+
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    echo "!!! Failed to insert ${#missing[@]} digest(s) into ${images_file}: ${missing[*]}"
+    exit 1
+  fi
 }
 
 # $1 - base branch
@@ -338,6 +394,8 @@ function prepare_local_branch() {
   git checkout -b "$2" "${KUBERNETES_K8S_IO_UPSTREAM_REMOTE}/$1"
   clean_branches+=("$2")
 
+  local expected_digests=()
+  local name version full_image_name digest
   while IFS= read -r name; do
     if should_skip_image "${name}" "${RELEASE_VERSION}" "${IMAGES_FILE}"; then
       echo "+++ Skipping ${name} on historical branch release v0.${MINOR}"
@@ -350,14 +408,18 @@ function prepare_local_branch() {
     fi
 
     full_image_name=$(get_image_full_name "$name" "$version")
-    image_details=$(get_image_details "$full_image_name")
-    if [ -z "$image_details" ]; then
-      echo " !!! Image \"${full_image_name}\" is not found."
+    digest=$(get_image_digest "$full_image_name")
+    if [ -z "$digest" ]; then
+      echo "!!! Image \"${full_image_name}\" is not found. Run /wait-for-images and try again."
       exit 1
     fi
-    digest=$(echo "$image_details" | jq -r '.image_summary.digest')
     insert_image "$IMAGES_FILE" "$version" "$digest" "$name"
+    expected_digests+=("${name} ${digest}")
   done < <("${YQ}" e '.[] | .name' "${IMAGES_FILE}")
+
+  if [[ ${#expected_digests[@]} -gt 0 ]]; then
+    verify_digests_inserted "${IMAGES_FILE}" "${expected_digests[@]}"
+  fi
 
   git add .
   git commit -m "$3"
@@ -381,11 +443,12 @@ function push_and_create_pr() {
 
   read -p "+++ Proceed (anything other than 'y' aborts it)? [y/N] " -r
   if ! [[ "${REPLY}" =~ ^[yY]$ ]]; then
-    echo "Aborting." >&2
-  else
-    git push "${KUBERNETES_K8S_IO_FORK_REMOTE}" -f "${3}:${2}"
-    make_pr "$1" "$2" "$4"
+    echo "!!! Aborted: the push was not confirmed, so no promotion PR was submitted." >&2
+    exit 1
   fi
+
+  git push "${KUBERNETES_K8S_IO_FORK_REMOTE}" -f "${3}:${2}"
+  make_pr "$1" "$2" "$4"
 }
 
 K8S_IO_BRANCH="kueue-promote-${RELEASE_VERSION}"
@@ -398,11 +461,13 @@ declare -r K8S_IO_PR_NAME
 prepare_local_branch main "${K8S_IO_BRANCH_UNIQUE}" "${K8S_IO_PR_NAME}"
 push_and_create_pr main "${K8S_IO_BRANCH}" "${K8S_IO_BRANCH_UNIQUE}" "${K8S_IO_PR_NAME}"
 
-K8S_IO_PR_NUMBER=$(gh pr list --repo="${KUBERNETES_K8S_IO_MAIN_REPO}" | grep "${K8S_IO_PR_NAME}" | awk '{print $1}' || true)
-if [ -n "$K8S_IO_PR_NUMBER" ]; then
+if [ -n "${K8S_IO_PR_URL}" ]; then
+  K8S_IO_PR_NUMBER="$(basename "${K8S_IO_PR_URL}")"
   NEW_RELEASE_ISSUE_BODY=${RELEASE_ISSUE_BODY//<!-- K8S_IO_PULL -->/${KUBERNETES_K8S_IO_MAIN_REPO}#${K8S_IO_PR_NUMBER}}
-  echo "+++ Editing release issue ${RELEASE_ISSUE_NUMBER} on GitHub repo ${KUBERNETES_SIGS_KUEUE_MAIN_REPO}"
-  gh issue edit "${RELEASE_ISSUE_NUMBER}" --body "${NEW_RELEASE_ISSUE_BODY}" --repo="${KUBERNETES_SIGS_KUEUE_MAIN_REPO}" || {
-    echo "!!! Failed to edit release issue \"${RELEASE_ISSUE_NAME}\": gh issue edit command failed."
-  }
+  if [ "${NEW_RELEASE_ISSUE_BODY}" != "${RELEASE_ISSUE_BODY}" ]; then
+    echo "+++ Editing release issue ${RELEASE_ISSUE_NUMBER} on GitHub repo ${KUBERNETES_SIGS_KUEUE_MAIN_REPO}"
+    gh issue edit "${RELEASE_ISSUE_NUMBER}" --body "${NEW_RELEASE_ISSUE_BODY}" --repo="${KUBERNETES_SIGS_KUEUE_MAIN_REPO}" || {
+      echo "!!! Failed to edit release issue \"${RELEASE_ISSUE_NAME}\": gh issue edit command failed."
+    }
+  fi
 fi
