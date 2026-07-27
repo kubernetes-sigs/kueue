@@ -1,5 +1,5 @@
 {{ $cover := and (.HasShortcode "blocks/cover") (not .Site.Params.ui.navbar_translucent_over_cover_disable) }}
-<nav class="js-navbar-scroll navbar navbar-expand-md navbar-light {{ if $cover}} td-navbar-cover {{ end }} td-navbar">
+<nav class="js-navbar-scroll navbar navbar-expand-md {{ if $cover}} td-navbar-cover {{ end }} td-navbar">
         <a class="navbar-brand" href="{{ .Site.Home.RelPermalink }}">
 		<span class="navbar-logo">{{ if .Site.Params.ui.navbar_logo }}{{ with resources.Get "icons/logo.svg" }}{{ ( . | minify).Content | safeHTML }}{{ end }}{{ end }}</span><span class="text-uppercase font-weight-bold">{{ .Site.Title }}</span>
 	</a>
@@ -30,6 +30,11 @@
 			{{ if  (gt (len .Site.Home.Translations) 0) }}
 			<li class="nav-item dropdown mt-1 mt-lg-0">
 				{{ partial "navbar-lang-selector.html" . }}
+			</li>
+			{{ end }}
+			{{ if .Site.Params.ui.showLightDarkModeMenu }}
+			<li class="td-light-dark-menu nav-item dropdown mt-1 mt-lg-0">
+				{{ partial "theme-toggler" . }}
 			</li>
 			{{ end }}
 			<li class="nav-item mt-1 mt-lg-0">
