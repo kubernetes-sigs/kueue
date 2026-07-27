@@ -32,7 +32,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
-	workload "sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -1183,8 +1183,36 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			ginkgo.By("verifying CQ admitted active workloads metric is updated/decremented")
 			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 0, "ml-team", "kind1")
 		})
+	})
 
-		ginkgo.It("PendingWorkloads: should track active pending workloads with custom labels", func() {
+	ginkgo.When("PendingWorkloads metric when CustomMetricLabels is enabled with workload custom labels", func() {
+		var (
+			cq *kueue.ClusterQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, true)
+			controllersCfg := &config.Configuration{}
+			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
+				{Name: "team_cq", SourceLabelKey: "team", SourceKind: ptr.To(config.SourceKindClusterQueue)},
+				{Name: "wl_kind", SourceLabelKey: "workload-kind", SourceKind: ptr.To(config.SourceKindWorkload), TrackedValues: []string{"kind1", "kind2"}},
+			}
+			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg))
+			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
+			util.MustCreate(ctx, k8sClient, defaultFlavor)
+			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-wl-")
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
+			fwk.StopManager(ctx)
+			metrics.InitMetricVectors(nil)
+		})
+
+		ginkgo.It("should track active pending workloads with custom labels", func() {
 			cq = utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
@@ -1227,7 +1255,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			util.ExpectPendingWorkloadsMetric(cq, 1, 0, "ml-team", "kueue.x-k8s.io/_UNTRACKED_VALUE_")
 		})
 
-		ginkgo.It("PendingWorkloads: should track inadmissible pending workloads", func() {
+		ginkgo.It("should track inadmissible pending workloads", func() {
 			cq = utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
@@ -1278,7 +1306,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			util.ExpectPendingWorkloadsMetric(cq, 1, 1, "ml-team", "kind2")
 		})
 
-		ginkgo.It("PendingWorkloads: should count workloads correctly on CQ stop/resume", func() {
+		ginkgo.It("should count workloads correctly on CQ stop/resume", func() {
 			cq = utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
@@ -1343,7 +1371,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			util.ExpectPendingWorkloadsMetric(cq, 0, 1, "ml-team", "kind2")
 		})
 
-		ginkgo.It("PendingWorkloads: should update metrics when labels on a pending workload change", func() {
+		ginkgo.It("should update metrics when labels on a pending workload change", func() {
 			cq = utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
@@ -1378,7 +1406,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			util.ExpectPendingWorkloadsMetric(cq, 1, 0, "ml-team", "kind2")
 		})
 
-		ginkgo.It("PendingWorkloads: should update metrics when labels on a ClusterQueue change", func() {
+		ginkgo.It("should update metrics when labels on a ClusterQueue change", func() {
 			cq = utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
@@ -1415,7 +1443,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			util.ExpectPendingWorkloadsMetric(cq, 0, 0, "ml-team", "kind1")
 		})
 
-		ginkgo.It("PendingWorkloads: should clean up entry when all contributing workloads are gone", func() {
+		ginkgo.It("should clean up entry when all contributing workloads are gone", func() {
 			cq = utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
