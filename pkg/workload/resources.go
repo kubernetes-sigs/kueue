@@ -216,7 +216,8 @@ func ValidateLimitRange(ctx context.Context, c client.Client, wi *Info) field.Er
 	return allErrs
 }
 
-func hasInternalError(errs field.ErrorList) bool {
+// HasInternalError reports whether the field error list contains an internal error.
+func HasInternalError(errs field.ErrorList) bool {
 	for _, e := range errs {
 		if e.Type == field.ErrorTypeInternal {
 			return true
@@ -250,7 +251,7 @@ func ValidateAdmissibility(
 	}
 
 	if errs := ValidateLimitRange(ctx, c, wi); len(errs) > 0 {
-		if hasInternalError(errs) {
+		if HasInternalError(errs) {
 			return fmt.Errorf("%w: %w", ErrInternal, errs.ToAggregate())
 		}
 		return fmt.Errorf("%s: %w", ErrLimitRangeConstraintsUnsatisfiedResources, errs.ToAggregate())
