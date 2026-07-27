@@ -348,6 +348,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(util.Sha
 				Completions(10).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				RequestAndLimit(corev1.ResourceMemory, "20Mi").
+				RequestAndLimit(extraResource, "1").
 				PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				TerminationGracePeriod(1).
