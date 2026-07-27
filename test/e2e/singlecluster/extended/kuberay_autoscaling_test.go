@@ -128,9 +128,8 @@ var _ = ginkgo.Describe("KubeRay multi-PodSet autoscaling", ginkgo.Label("area:s
 			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "400m").
 			Image(rayv1.HeadNode, kuberayTestImage, []string{}).
 			Image(rayv1.WorkerNode, kuberayTestImage, []string{}).
+			WithAutoscalerOptions(&rayv1.AutoscalerOptions{IdleTimeoutSeconds: ptr.To[int32](1)}).
 			Obj()
-		// Keep scale-down transitions within the e2e test timeout.
-		rayCluster.Spec.AutoscalerOptions = &rayv1.AutoscalerOptions{IdleTimeoutSeconds: ptr.To[int32](10)}
 
 		workerA := rayCluster.Spec.WorkerGroupSpecs[0].DeepCopy()
 		workerA.GroupName = workerGroupA
