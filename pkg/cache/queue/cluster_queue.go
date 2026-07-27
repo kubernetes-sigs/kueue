@@ -858,12 +858,12 @@ func buildSnapshotSort(
 			return 1, true
 		}
 		ns, name := utilqueue.MustParseLocalQueueReference(lqKey)
-		var lq kueue.LocalQueue
-		if err := cl.Get(ctx, client.ObjectKey{Namespace: ns, Name: string(name)}, &lq); err != nil {
+		lqWeight, err := afs.ResolveLQWeight(ctx, cl, client.ObjectKey{Namespace: ns, Name: string(name)})
+		if err != nil {
 			log.V(2).Error(err, "Failed to get LocalQueue for FS weight", "localQueue", klog.KRef(ns, string(name)))
 			return 0, false
 		}
-		return afs.LQWeightAsFloat64(&lq), true
+		return lqWeight, true
 	}
 
 	return func(elements []*workload.Info) {

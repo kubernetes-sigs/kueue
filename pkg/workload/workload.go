@@ -30,7 +30,6 @@ import (
 	"gopkg.in/inf.v0"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -473,16 +472,11 @@ func (i *Info) CalcLocalQueueFSUsage(
 		penalty = afsEntryPenalties.Peek(lqKey)
 	}
 
-	var lq kueue.LocalQueue
 	lqObjKey := client.ObjectKey{Namespace: i.Obj.Namespace, Name: string(i.Obj.Spec.QueueName)}
-	if err := c.Get(ctx, lqObjKey, &lq); err != nil {
-		if apierrors.IsNotFound(err) {
-			ctrl.LoggerFrom(ctx).V(3).Info("LocalQueue is missing, gracefully falling back to the default weight (1.0)", "localQueue", lqObjKey)
-			return afs.CalculateUsage(consumed, penalty, 1.0, resWeights), nil
-		}
+	lqWeight, err := afs.ResolveLQWeight(ctx, c, lqObjKey)
+	if err != nil {
 		return 0, err
 	}
-	lqWeight := afs.LQWeightAsFloat64(&lq)
 	return afs.CalculateUsage(consumed, penalty, lqWeight, resWeights), nil
 }
 
