@@ -67,6 +67,9 @@ type GenericJob interface {
 	// PodsReady indicates whether all job-derived pods are ready.
 	PodsReady(ctx context.Context, c client.Client) bool
 
+	// PodsScheduled indicates whether all required job-derived pods have PodScheduled=True.
+	PodsScheduled(ctx context.Context, c client.Client) bool
+
 	// GVK returns the GroupVersionKind for the job.
 	GVK() schema.GroupVersionKind
 }
