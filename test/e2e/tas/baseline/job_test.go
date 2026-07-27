@@ -388,7 +388,6 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(util.Sha
 					g.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
 					g.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment).ShouldNot(gomega.BeNil())
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-
 			})
 
 			ginkgo.By("verify both job pods are ready", func() {
