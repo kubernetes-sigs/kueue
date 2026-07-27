@@ -232,6 +232,16 @@ func TestCountInWithLimitingResource(t *testing.T) {
 			wantCount:            0,
 			wantLimitingResource: corev1.ResourceCPU,
 		},
+		"count above int32 is clamped to MaxInt32": {
+			requests: MapRequests{
+				corev1.ResourceMemory: 1,
+			},
+			capacity: MapRequests{
+				corev1.ResourceMemory: math.MaxInt32 + 1,
+			},
+			wantCount:            math.MaxInt32,
+			wantLimitingResource: corev1.ResourceMemory,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
