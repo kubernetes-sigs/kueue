@@ -45,17 +45,17 @@ func TestTASFlavorCacheAddAndRemoveUsage(t *testing.T) {
 					{
 						Values: []string{"domain1"},
 						Count:  2,
-						SinglePodRequests: resources.MapRequests{
+						SinglePodRequests: resources.NewRequestsFromMap(resources.MapRequests{
 							corev1.ResourceCPU: 2,
-						},
+						}),
 					},
 				})
 			},
 			wantUsage: map[utiltas.TopologyDomainID]resources.Requests{
-				"domain1": resources.MapRequests{
+				"domain1": resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU:  4,
 					corev1.ResourcePods: 2,
-				},
+				}),
 			},
 		},
 		{
@@ -66,9 +66,9 @@ func TestTASFlavorCacheAddAndRemoveUsage(t *testing.T) {
 					{
 						Values: []string{"domain1"},
 						Count:  1,
-						SinglePodRequests: resources.MapRequests{
+						SinglePodRequests: resources.NewRequestsFromMap(resources.MapRequests{
 							corev1.ResourceCPU: 1,
-						},
+						}),
 					},
 				})
 				// Self-healing add (replaces existing usage)
@@ -76,21 +76,21 @@ func TestTASFlavorCacheAddAndRemoveUsage(t *testing.T) {
 					{
 						Values: []string{"domain2"},
 						Count:  2,
-						SinglePodRequests: resources.MapRequests{
+						SinglePodRequests: resources.NewRequestsFromMap(resources.MapRequests{
 							corev1.ResourceCPU: 3,
-						},
+						}),
 					},
 				})
 			},
 			wantUsage: map[utiltas.TopologyDomainID]resources.Requests{
-				"domain1": resources.MapRequests{
+				"domain1": resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU:  0,
 					corev1.ResourcePods: 0,
-				},
-				"domain2": resources.MapRequests{
+				}),
+				"domain2": resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU:  6,
 					corev1.ResourcePods: 2,
-				},
+				}),
 			},
 		},
 		{
@@ -100,18 +100,18 @@ func TestTASFlavorCacheAddAndRemoveUsage(t *testing.T) {
 					{
 						Values: []string{"domain1"},
 						Count:  1,
-						SinglePodRequests: resources.MapRequests{
+						SinglePodRequests: resources.NewRequestsFromMap(resources.MapRequests{
 							corev1.ResourceCPU: 1,
-						},
+						}),
 					},
 				})
 				cache.removeUsage(logr, wlKey)
 			},
 			wantUsage: map[utiltas.TopologyDomainID]resources.Requests{
-				"domain1": resources.MapRequests{
+				"domain1": resources.NewRequestsFromMap(resources.MapRequests{
 					corev1.ResourceCPU:  0,
 					corev1.ResourcePods: 0,
-				},
+				}),
 			},
 		},
 		{
@@ -132,7 +132,7 @@ func TestTASFlavorCacheAddAndRemoveUsage(t *testing.T) {
 
 			tc.operations(cache)
 
-			if diff := cmp.Diff(tc.wantUsage, cache.usage, cmpopts.EquateEmpty()); diff != "" {
+			if diff := cmp.Diff(tc.wantUsage, cache.usage, cmpopts.EquateEmpty(), cmp.Comparer(resources.Equal)); diff != "" {
 				t.Errorf("Unexpected usage (-want +got):\n%s", diff)
 			}
 		})

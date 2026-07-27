@@ -428,7 +428,7 @@ func draRequestsChanged(oldInfo, newInfo *workload.Info) bool {
 	if !features.Enabled(features.KueueDRAIntegration) {
 		return false
 	}
-	return !equality.Semantic.DeepEqual(oldInfo.TotalRequests, newInfo.TotalRequests)
+	return !workload.Semantic.DeepEqual(oldInfo.TotalRequests, newInfo.TotalRequests)
 }
 
 func (c *ClusterQueue) RebuildLocalQueue(lqName string) {
@@ -458,16 +458,20 @@ func (c *ClusterQueue) backoffWaitingTimeExpired(wInfo *workload.Info) bool {
 
 func (c *ClusterQueue) addPendingResources(wInfo *workload.Info) {
 	for _, ps := range wInfo.TotalRequests {
-		for name, q := range ps.Requests {
-			c.pendingResourcesTotal[name] += q
+		if ps.Requests != nil {
+			ps.Requests.ForEach(func(name corev1.ResourceName, q int64) {
+				c.pendingResourcesTotal[name] += q
+			})
 		}
 	}
 }
 
 func (c *ClusterQueue) subtractPendingResources(wInfo *workload.Info) {
 	for _, ps := range wInfo.TotalRequests {
-		for name, q := range ps.Requests {
-			c.pendingResourcesTotal[name] -= q
+		if ps.Requests != nil {
+			ps.Requests.ForEach(func(name corev1.ResourceName, q int64) {
+				c.pendingResourcesTotal[name] -= q
+			})
 		}
 	}
 }
@@ -629,8 +633,10 @@ func (c *ClusterQueue) pendingResources() map[corev1.ResourceName]int64 {
 	result := maps.Clone(c.pendingResourcesTotal)
 	if c.inflight != nil {
 		for _, ps := range c.inflight.TotalRequests {
-			for name, q := range ps.Requests {
-				result[name] += q
+			if ps.Requests != nil {
+				ps.Requests.ForEach(func(name corev1.ResourceName, q int64) {
+					result[name] += q
+				})
 			}
 		}
 	}
