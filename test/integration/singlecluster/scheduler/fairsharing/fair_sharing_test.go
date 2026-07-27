@@ -1506,6 +1506,45 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing", "featur
 			ginkgo.By("Checking that the workload from lq-A is preempted despite having bigger priority")
 			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, wlHighA)
 		})
+
+		ginkgo.It("admits from the LocalQueue whose weight is raised through the API", framework.SlowSpec, func() {
+			// This exercises the controller update path: changing
+			// spec.fairSharing.weight reconciles the LocalQueue, which reheapifies
+			// the ClusterQueue so the next admission reflects the new weight.
+			ginkgo.By("Accumulating recent usage on lq-b")
+			wlBUsage := createWorkload("lq-b", "32")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlBUsage)
+			util.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqB), ">", 0)
+			util.FinishWorkloads(ctx, k8sClient, wlBUsage)
+
+			ginkgo.By("Admitting a blocker on lq-a that holds the whole cohort quota")
+			// The blocker keeps both pending workloads waiting (so no admission
+			// happens before the weight change) and gives lq-a high recent usage,
+			// so at weight 1 lq-b would be preferred.
+			wlBlocker := createWorkload("lq-a", "32")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlBlocker)
+
+			ginkgo.By("Creating two competing pending workloads, one per LocalQueue")
+			wlA := createWorkload("lq-a", "32")
+			wlB := createWorkload("lq-b", "32")
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wlA, wlB)
+
+			ginkgo.By("Raising lq-a's fair-sharing weight through the Kubernetes API")
+			// A large weight drives lq-a's effective usage (usage/weight) below
+			// lq-b's, so the admission order must flip to lq-a.
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lqA), lqA)).To(gomega.Succeed())
+				lqA.Spec.FairSharing.Weight = new(resource.MustParse("1000000"))
+				g.Expect(k8sClient.Update(ctx, lqA)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Releasing the quota so the scheduler picks with the new weight")
+			util.FinishWorkloads(ctx, k8sClient, wlBlocker)
+
+			ginkgo.By("Admitting lq-a's workload and keeping lq-b's pending")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA)
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wlB)
+		})
 	})
 
 	ginkgo.When("Restarting the manager", func() {
