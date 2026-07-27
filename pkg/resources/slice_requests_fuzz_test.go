@@ -17,6 +17,7 @@ limitations under the License.
 package resources
 
 import (
+	"math"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -215,6 +216,11 @@ func FuzzSliceRequestsEquivalence(f *testing.F) {
 			opChoice: opCountIn,
 			m1:       MapRequests{},
 			m2:       MapRequests{corev1.ResourceCPU: 100},
+		},
+		{
+			opChoice: opCountIn,
+			m1:       MapRequests{corev1.ResourceMemory: 1},
+			m2:       MapRequests{corev1.ResourceMemory: math.MaxInt32 + 1},
 		},
 		{
 			opChoice: opSet,
