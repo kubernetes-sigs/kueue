@@ -43,3 +43,29 @@ func GetRayClusterHeadPod(ctx context.Context, c client.Client, rayClusterKey cl
 	}
 	return &pods.Items[0], nil
 }
+
+// GetRayClusterWorkerPods returns the worker Pods associated with the RayCluster
+// whose phase matches the provided phase. If phase is empty, it returns all
+// associated worker Pods.
+func GetRayClusterWorkerPods(ctx context.Context, c client.Client, rayClusterKey client.ObjectKey, phase corev1.PodPhase) ([]corev1.Pod, error) {
+	pods := &corev1.PodList{}
+	if err := c.List(ctx, pods,
+		client.InNamespace(rayClusterKey.Namespace),
+		client.MatchingLabels{
+			kuberayutils.RayClusterLabelKey:  rayClusterKey.Name,
+			kuberayutils.RayNodeTypeLabelKey: string(rayv1.WorkerNode),
+		},
+	); err != nil {
+		return nil, err
+	}
+	if phase == "" {
+		return pods.Items, nil
+	}
+	filteredPods := make([]corev1.Pod, 0, len(pods.Items))
+	for _, pod := range pods.Items {
+		if pod.Status.Phase == phase {
+			filteredPods = append(filteredPods, pod)
+		}
+	}
+	return filteredPods, nil
+}
