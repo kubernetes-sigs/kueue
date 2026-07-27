@@ -340,5 +340,73 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(util.Sha
 				gomega.Expect(wantAssignment).Should(gomega.BeComparableTo(gotAssignment))
 			})
 		})
+		ginkgo.It("should preserve topology assignment during scale-up with elastic jobs", func() {
+			sampleJob := testingjob.MakeJob("test-job", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				SetAnnotation("kueue.x-k8s.io/elastic-job", "true").
+				Parallelism(1).
+				Completions(10).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				RequestAndLimit(corev1.ResourceMemory, "20Mi").
+				PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				TerminationGracePeriod(1).
+				Obj()
+			util.MustCreate(ctx, k8sClient, sampleJob)
+
+			var createdWorkload *kueue.Workload
+			var originalNodeName string
+			ginkgo.By("await for admission of workload and record topology", func() {
+				// Use ExpectWorkloadsInNamespace instead of computing workload name
+				// because with workload slicing enabled, the name includes generation
+				workloads := util.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)
+				createdWorkload = &workloads[0]
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdWorkload), createdWorkload)).Should(gomega.Succeed())
+					g.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
+					g.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
+					g.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment).ShouldNot(gomega.BeNil())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+
+				ta := tas.InternalFrom(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment)
+				gomega.Expect(ta.Domains).ShouldNot(gomega.BeEmpty())
+				originalNodeName = ta.Domains[0].Values[0]
+			})
+
+			scaledParallelism := int32(2)
+			ginkgo.By("scale up the job parallelism", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sampleJob), sampleJob)).To(gomega.Succeed())
+					sampleJob.Spec.Parallelism = &scaledParallelism
+					g.Expect(k8sClient.Update(ctx, sampleJob)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verify scaled workload preserves original topology assignment", func() {
+				scaledWorkload := util.ExpectNewWorkloadSlice(ctx, k8sClient, createdWorkload)
+				gomega.Expect(scaledWorkload).ShouldNot(gomega.BeNil())
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(scaledWorkload), scaledWorkload)).To(gomega.Succeed())
+					g.Expect(scaledWorkload.Status.Admission).ShouldNot(gomega.BeNil())
+					g.Expect(scaledWorkload.Spec.PodSets).Should(gomega.HaveLen(1))
+					g.Expect(scaledWorkload.Spec.PodSets[0].Count).Should(gomega.Equal(scaledParallelism))
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+
+				ta := tas.InternalFrom(scaledWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment)
+				gomega.Expect(ta).ShouldNot(gomega.BeNil())
+
+				foundOriginal := false
+				for _, domain := range ta.Domains {
+					if len(domain.Values) > 0 && domain.Values[0] == originalNodeName {
+						foundOriginal = true
+						break
+					}
+				}
+				gomega.Expect(foundOriginal).To(gomega.BeTrue(),
+					"original node %s should be preserved in scaled assignment", originalNodeName)
+			})
+		})
 	})
 })
