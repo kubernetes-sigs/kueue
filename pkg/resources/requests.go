@@ -211,7 +211,9 @@ func CountInWithLimitingResource(requests Requests, capacity Requests) (int32, c
 			// than or equal to 1", permanently wedging the workload. A
 			// negative "fits N times" is meaningless; treat it as 0 so the
 			// scheduler skips the over-subscribed domain instead.
-			count = max(int32(cap/rValue), 0)
+			// Clamp the upper bound before converting to int32 to avoid
+			// overflowing large capacity-to-request ratios.
+			count = int32(max(0, min(cap/rValue, math.MaxInt32)))
 		}
 		// Tie-break between CPU and memory counts to ensure deterministic results.
 		if result == nil || count < *result || (count == *result && rName < limitingResource) {
