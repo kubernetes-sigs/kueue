@@ -177,13 +177,10 @@ var _ = ginkgo.Describe("KubeRay multi-PodSet autoscaling", ginkgo.Label("area:s
 
 		expectWorkerGroups := func(expected map[string]int32) {
 			createdRayCluster := &rayv1.RayCluster{}
-			workerPods := &corev1.PodList{}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayCluster), createdRayCluster)).To(gomega.Succeed())
-				g.Expect(k8sClient.List(ctx, workerPods,
-					client.InNamespace(ns.Name),
-					client.MatchingLabels{"ray.io/node-type": "worker"},
-				)).To(gomega.Succeed())
+				workerPods, err := util.GetRayClusterWorkerPods(ctx, k8sClient, client.ObjectKeyFromObject(rayCluster), corev1.PodRunning)
+				g.Expect(err).NotTo(gomega.HaveOccurred())
 
 				actualReplicas := make(map[string]int32, len(createdRayCluster.Spec.WorkerGroupSpecs))
 				for i := range createdRayCluster.Spec.WorkerGroupSpecs {
@@ -193,11 +190,8 @@ var _ = ginkgo.Describe("KubeRay multi-PodSet autoscaling", ginkgo.Label("area:s
 				g.Expect(actualReplicas).To(gomega.Equal(expected))
 
 				runningPods := make(map[string]int32, len(expected))
-				for i := range workerPods.Items {
-					pod := &workerPods.Items[i]
-					if pod.Status.Phase == corev1.PodRunning {
-						runningPods[pod.Labels["ray.io/group"]]++
-					}
+				for i := range workerPods {
+					runningPods[workerPods[i].Labels["ray.io/group"]]++
 				}
 				for groupName, count := range expected {
 					g.Expect(runningPods[groupName]).To(gomega.Equal(count))
