@@ -2484,7 +2484,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			Completions(3).
 			BackoffLimitPerIndex(1).
 			Obj()
-		testJob.Spec.MaxFailedIndexes = new(int32(3))
+		testJob.Spec.MaxFailedIndexes = ptr.To[int32](3)
 
 		ginkgo.By("creating and admitting the job")
 		util.MustCreate(ctx, k8sClient, testJob)
@@ -4669,9 +4669,9 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 	ginkgo.It("Should derive reclaimable pods from completedIndexes while status.Succeeded is stale after scale-down", framework.SlowSpec, func() {
 		// kueue#13117: shrinking completions makes status.Succeeded briefly
 		// over-count the removed high indexes until the Job controller recounts
-		// it. Deriving the reclaimable count from completedIndexes capped at the
-		// current completions gives the correct value immediately, avoiding a
-		// quota leak for the surviving running pods.
+		// it. Deriving the reclaimable count from completedIndexes and failedIndexes,
+		// capped at the current completions, gives the correct value immediately,
+		// avoiding a quota leak for the surviving running pods.
 		testJob := testingjob.MakeJob("scale-down-stale-succeeded", ns.Name).
 			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 			SetAnnotation(workloadjob.JobCompletionsEqualParallelismAnnotation, "true").

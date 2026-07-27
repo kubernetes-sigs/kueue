@@ -4583,6 +4583,7 @@ func TestTerminalIndexesCount(t *testing.T) {
 		"mixed intervals":               {completedIndexes: "0-4,7,9-11", completions: 10, want: 7},
 		"completed and failed indexes":  {completedIndexes: "0-2,7", failedIndexes: "3-5,8", completions: 10, want: 8},
 		"overlapping terminal indexes":  {completedIndexes: "0-4", failedIndexes: "3-7", completions: 10, want: 8},
+		"contained failed indexes":      {completedIndexes: "0-9", failedIndexes: "2-3", completions: 10, want: 10},
 		"surviving low indexes":         {completedIndexes: "0-8", completions: 10, want: 9},
 		"all completed within range":    {completedIndexes: "0-14", completions: 10, want: 10},
 		"range straddling the cap":      {completedIndexes: "5-19", completions: 10, want: 5},
@@ -4613,19 +4614,19 @@ func TestReclaimablePods(t *testing.T) {
 		j.Status.Failed = failed
 		j.Status.CompletedIndexes = completedIndexes
 		if failedIndexes != "" {
-			j.Spec.BackoffLimitPerIndex = new(int32(0))
+			j.Spec.BackoffLimitPerIndex = ptr.To[int32](0)
 			j.Status.FailedIndexes = new(failedIndexes)
 		}
 		return (*Job)(j)
 	}
 	retryableFailureJob := indexedJob(1, 1, "0", "")
-	retryableFailureJob.Spec.BackoffLimitPerIndex = new(int32(1))
+	retryableFailureJob.Spec.BackoffLimitPerIndex = ptr.To[int32](1)
 	cases := map[string]struct {
 		job  *Job
 		want []kueue.ReclaimablePod
 	}{
 		// An ordinary (non-elastic) Indexed Job must reclaim its completed indexes
-		// exactly as before, now that the count is derived from completedIndexes.
+		// exactly as before, now that the count is derived from the terminal index sets.
 		"indexed Job reclaims its completed indexes": {
 			job:  indexedJob(4, 0, "0-3", ""),
 			want: []kueue.ReclaimablePod{{Name: kueue.DefaultPodSetName, Count: 4}},

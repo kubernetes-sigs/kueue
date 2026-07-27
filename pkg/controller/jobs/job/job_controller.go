@@ -219,9 +219,6 @@ func (j *Job) ReclaimablePods(ctx context.Context, _ client.Client) ([]kueue.Rec
 	parallelism := ptr.Deref(j.Spec.Parallelism, 1)
 	completions := ptr.Deref(j.Spec.Completions, parallelism)
 
-	// Indexed Job: derive the terminal count from completedIndexes and
-	// failedIndexes, ignoring indexes >= completions. Status counters may still
-	// include indexes removed by an elastic scale-down (kueue#13117).
 	terminalCount := j.Status.Succeeded
 	if ptr.Deref(j.Spec.CompletionMode, batchv1.NonIndexedCompletion) == batchv1.IndexedCompletion {
 		failedIndexes := ptr.Deref(j.Status.FailedIndexes, "")
@@ -264,9 +261,10 @@ type indexInterval struct {
 	last  int
 }
 
-// terminalIndexesCount returns the number of unique completed and failed indexes
-// below completions. Capping the intervals at completions keeps the count within
-// the current pod set while status counters are stale after a scale-down (kueue#13117).
+// terminalIndexesCount returns how many of an Indexed Job's indexes will never
+// run again: completed ones, plus failed ones that exhausted backoffLimitPerIndex.
+// Kueue can reclaim their quota. Indexes >= completions are ignored because an
+// elastic scale-down removed them, even if stale status still lists them (kueue#13117).
 func terminalIndexesCount(log logr.Logger, completedIndexes, failedIndexes string, completions int32) int32 {
 	if completions <= 0 {
 		return 0
