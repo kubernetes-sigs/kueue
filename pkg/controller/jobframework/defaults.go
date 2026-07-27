@@ -34,9 +34,9 @@ import (
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 )
 
-func ApplyDefaultForSuspend(ctx context.Context, job GenericJob, k8sClient client.Client,
+func (m *IntegrationManager) ApplyDefaultForSuspend(ctx context.Context, job GenericJob, k8sClient client.Client,
 	manageJobsWithoutQueueName bool, managedJobsNamespaceSelector labels.Selector) error {
-	suspend, err := WorkloadShouldBeSuspended(ctx, job.Object(), k8sClient, manageJobsWithoutQueueName, managedJobsNamespaceSelector)
+	suspend, err := m.WorkloadShouldBeSuspended(ctx, job.Object(), k8sClient, manageJobsWithoutQueueName, managedJobsNamespaceSelector)
 	if err != nil {
 		return err
 	}
@@ -46,13 +46,13 @@ func ApplyDefaultForSuspend(ctx context.Context, job GenericJob, k8sClient clien
 	return nil
 }
 
-func ApplyDefaultLocalQueue(ctx context.Context, k8sClient client.Client, jobObj client.Object, defaultQueueExist func(string) bool, managedJobsNamespaceSelector labels.Selector) error {
+func (m *IntegrationManager) ApplyDefaultLocalQueue(ctx context.Context, k8sClient client.Client, jobObj client.Object, defaultQueueExist func(string) bool, managedJobsNamespaceSelector labels.Selector) error {
 	if !defaultQueueExist(jobObj.GetNamespace()) {
 		return nil
 	}
 	if QueueNameForObject(jobObj) == "" {
 		// Do not default the queue-name for a job whose owner is already managed by Kueue
-		if IsOwnerManagedByKueueForObject(jobObj) {
+		if m.IsOwnerManagedByKueueForObject(jobObj) {
 			return nil
 		}
 		if managed, err := namespaceMatchesSelector(ctx, k8sClient, jobObj.GetNamespace(), managedJobsNamespaceSelector); err != nil {
@@ -70,14 +70,14 @@ func ApplyDefaultLocalQueue(ctx context.Context, k8sClient client.Client, jobObj
 	return nil
 }
 
-func ApplyDefaultWorkloadPriorityClass(ctx context.Context, c client.Client, jobObj client.Object) {
+func (m *IntegrationManager) ApplyDefaultWorkloadPriorityClass(ctx context.Context, c client.Client, jobObj client.Object) {
 	if !features.Enabled(features.WorkloadPriorityClassDefaulting) {
 		return
 	}
 	if WorkloadPriorityClassName(jobObj) != "" {
 		return
 	}
-	if IsOwnerManagedByKueueForObject(jobObj) {
+	if m.IsOwnerManagedByKueueForObject(jobObj) {
 		return
 	}
 	exists, err := utilpriority.DefaultWorkloadPriorityClassExist(ctx, c)

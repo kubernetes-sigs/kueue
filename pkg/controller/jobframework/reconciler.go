@@ -94,6 +94,7 @@ type WorkloadRetentionPolicy struct {
 
 // JobReconciler reconciles a GenericJob object
 type JobReconciler struct {
+	integrationManager           *IntegrationManager
 	cache                        *schdcache.Cache
 	client                       client.Client
 	record                       events.EventRecorder
@@ -130,6 +131,7 @@ type Options struct {
 	WorkloadRetentionPolicy      WorkloadRetentionPolicy
 	RoleTracker                  *roletracker.RoleTracker
 	CustomLabels                 *metrics.CustomLabels
+	IntegrationManager           *IntegrationManager
 	NoopWebhook                  bool
 }
 
@@ -259,6 +261,13 @@ func WithCustomLabels(cl *metrics.CustomLabels) Option {
 	}
 }
 
+// WithIntegrationManager sets the integration manager used by controllers and webhooks.
+func WithIntegrationManager(manager *IntegrationManager) Option {
+	return func(o *Options) {
+		o.IntegrationManager = manager
+	}
+}
+
 // WithNoopWebhook sets the integration webhook to noopWebhook.
 // This is needed when the integration is disabled.
 func WithNoopWebhook(noop bool) Option {
@@ -278,6 +287,7 @@ func NewReconciler(
 	options := ProcessOptions(opts...)
 
 	return &JobReconciler{
+		integrationManager:           options.IntegrationManager,
 		cache:                        options.Cache,
 		client:                       client,
 		record:                       record,
@@ -346,7 +356,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		// Skipping traversal to top-level ancestor job because this is already a top-level job.
 		isTopLevelJob = true
 	} else {
-		ancestorJob, err = FindAncestorJobManagedByKueue(ctx, r.client, object, r.manageJobsWithoutQueueName)
+		ancestorJob, err = r.integrationManager.FindAncestorJobManagedByKueue(ctx, r.client, object, r.manageJobsWithoutQueueName)
 		if err != nil {
 			if errors.Is(err, ErrManagedOwnersChainLimitReached) {
 				errMsg := fmt.Sprintf("Terminated search for Kueue-managed Job because ancestor depth exceeded limit of %d", managedOwnersChainLimit)
@@ -859,7 +869,7 @@ func (r *JobReconciler) getLatestNotFinishedWorkloadForObject(ctx context.Contex
 // Job (queue-name) -> JobSet -> AppWrapper (queue-name) => AppWrapper
 // Job (queue-name) -> JobSet (queue-name) -> AppWrapper (queue-name) => AppWrapper
 // Job -> JobSet (disabled) -> AppWrapper => AppWrapper
-func FindAncestorJobManagedByKueue(ctx context.Context, c client.Client, jobObj client.Object, manageJobsWithoutQueueName bool) (client.Object, error) {
+func (m *IntegrationManager) FindAncestorJobManagedByKueue(ctx context.Context, c client.Client, jobObj client.Object, manageJobsWithoutQueueName bool) (client.Object, error) {
 	log := ctrl.LoggerFrom(ctx)
 	seen := sets.New[types.UID]()
 	currentObj := jobObj
@@ -881,7 +891,7 @@ func FindAncestorJobManagedByKueue(ctx context.Context, c client.Client, jobObj 
 			return topLevelJob, nil
 		}
 
-		if !manager.isKnownOwner(owner) {
+		if !m.isKnownOwner(owner) {
 			log.V(3).Info(
 				"stop walking up as the owner is not known",
 				"currentObj", klog.KObj(currentObj),
@@ -889,7 +899,7 @@ func FindAncestorJobManagedByKueue(ctx context.Context, c client.Client, jobObj 
 			)
 			return topLevelJob, nil
 		}
-		parentObj := GetEmptyOwnerObject(owner)
+		parentObj := m.GetEmptyOwnerObject(owner)
 		managed := parentObj != nil
 		if parentObj == nil {
 			parentObj = &metav1.PartialObjectMetadata{

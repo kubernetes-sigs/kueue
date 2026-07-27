@@ -88,11 +88,11 @@ var (
 )
 
 // Validate checks the configuration for invalid values.
-func Validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorList {
+func Validate(c *configapi.Configuration, scheme *runtime.Scheme, integrationManager *jobframework.IntegrationManager) field.ErrorList {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, validateWaitForPodsReady(c)...)
-	allErrs = append(allErrs, validateIntegrations(c, scheme)...)
-	allErrs = append(allErrs, validateMultiKueue(c)...)
+	allErrs = append(allErrs, validateIntegrations(c, scheme, integrationManager)...)
+	allErrs = append(allErrs, validateMultiKueue(c, integrationManager)...)
 	allErrs = append(allErrs, validateFairSharing(c)...)
 	allErrs = append(allErrs, validateAdmissionFairSharing(c)...)
 	allErrs = append(allErrs, validateInternalCertManagement(c)...)
@@ -153,7 +153,7 @@ func validateInternalCertManagement(c *configapi.Configuration) field.ErrorList 
 	return allErrs
 }
 
-func validateMultiKueue(c *configapi.Configuration) field.ErrorList {
+func validateMultiKueue(c *configapi.Configuration, integrationManager *jobframework.IntegrationManager) field.ErrorList {
 	var allErrs field.ErrorList
 	if c.MultiKueue != nil {
 		if c.MultiKueue.GCInterval != nil && c.MultiKueue.GCInterval.Duration < 0 {
@@ -177,7 +177,7 @@ func validateMultiKueue(c *configapi.Configuration) field.ErrorList {
 				enabledIntegrations = sets.New(c.Integrations.Frameworks...)
 			}
 
-			builtInAdapters, err := jobframework.GetMultiKueueAdapters(enabledIntegrations)
+			builtInAdapters, err := integrationManager.GetMultiKueueAdapters(enabledIntegrations)
 			if err != nil {
 				allErrs = append(allErrs, field.InternalError(path, err))
 			}
@@ -308,7 +308,7 @@ func validateWaitForPodsReady(c *configapi.Configuration) field.ErrorList {
 	return allErrs
 }
 
-func validateIntegrations(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorList {
+func validateIntegrations(c *configapi.Configuration, scheme *runtime.Scheme, integrationManager *jobframework.IntegrationManager) field.ErrorList {
 	var allErrs field.ErrorList
 	if c.Integrations == nil {
 		return field.ErrorList{field.Required(integrationsPath, "cannot be empty")}
@@ -318,9 +318,9 @@ func validateIntegrations(c *configapi.Configuration, scheme *runtime.Scheme) fi
 	}
 
 	managedFrameworks := sets.New[string]()
-	availableBuiltInFrameworks := jobframework.GetIntegrationsList()
+	availableBuiltInFrameworks := integrationManager.GetIntegrationsList()
 	for idx, framework := range c.Integrations.Frameworks {
-		if cb, found := jobframework.GetIntegration(framework); !found {
+		if cb, found := integrationManager.GetIntegration(framework); !found {
 			allErrs = append(allErrs, field.NotSupported(integrationsFrameworksPath.Index(idx), framework, availableBuiltInFrameworks))
 		} else if gvk, err := apiutil.GVKForObject(cb.JobType, scheme); err == nil {
 			if managedFrameworks.Has(gvk.String()) {

@@ -50,8 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	testutil "sigs.k8s.io/kueue/test/util"
 
-	// without this only the job framework is registered
-	_ "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
 )
 
 var (
@@ -1228,8 +1227,10 @@ func TestDefault(t *testing.T) {
 					}
 				}
 			}
-			t.Cleanup(jobframework.EnableIntegrationsForTest(t, tc.enableIntegrations...))
+			integrationManager := newTestIntegrationManager(t)
+			t.Cleanup(integrationManager.EnableIntegrationsForTest(t, tc.enableIntegrations...))
 			w := &JobWebhook{
+				integrationManager:           integrationManager,
 				client:                       cl,
 				manageJobsWithoutQueueName:   tc.manageJobsWithoutQueueName,
 				managedJobsNamespaceSelector: labels.Everything(),
@@ -1245,6 +1246,17 @@ func TestDefault(t *testing.T) {
 			}
 		})
 	}
+}
+
+func newTestIntegrationManager(t *testing.T) *jobframework.IntegrationManager {
+	t.Helper()
+	manager := jobframework.NewIntegrationManager()
+	for _, registerIntegration := range []func(*jobframework.IntegrationManager) error{RegisterIntegration, mpijob.RegisterIntegration} {
+		if err := registerIntegration(manager); err != nil {
+			t.Fatalf("RegisterIntegration() error = %v", err)
+		}
+	}
+	return manager
 }
 
 func Test_applyWorkloadSliceSchedulingGate(t *testing.T) {
