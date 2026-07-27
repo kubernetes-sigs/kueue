@@ -200,8 +200,13 @@ type ClusterQueue struct {
 
 	AdmissionScope *kueue.AdmissionScope
 
-	afsEntryPenalties         *queueafs.AfsEntryPenalties
-	localQueuesInClusterQueue map[utilqueue.LocalQueueReference]bool
+	afsEntryPenalties *queueafs.AfsEntryPenalties
+
+	// lqWeights holds the LocalQueues that belong to this ClusterQueue, mapped to
+	// their fair-sharing weight. Presence denotes membership; the heap comparator
+	// reads the weight without a fallible API call, and missing entries fall back
+	// to weight 1.0. Guarded by rwm. See Kueue#13476.
+	lqWeights map[utilqueue.LocalQueueReference]float64
 
 	sw *stickyWorkload
 
@@ -310,9 +315,18 @@ func newClusterQueueImpl(ctx context.Context, client client.Client, cl *metrics.
 		opt(options)
 	}
 	sw := stickyWorkload{}
-	// The heap comparator reads the sticky workload live on every comparison;
-	// this is safe because sticky writes and heap operations both hold rwm.
-	compareFunc := queueOrderingFunc(ctx, client, wo, options.fsResWeights, options.enableAdmissionFs, options.afsEntryPenalties, options.afsConsumedResources, sw.matches)
+	// lqWeights is shared by reference with the ClusterQueue struct below so
+	// weight updates are visible to the comparator. All access holds rwm.
+	lqWeights := make(map[utilqueue.LocalQueueReference]float64)
+	getLQWeight := func(lqKey utilqueue.LocalQueueReference) float64 {
+		if w, ok := lqWeights[lqKey]; ok {
+			return w
+		}
+		return 1.0
+	}
+	// The comparator reads the sticky workload and cached weights live; safe
+	// because those writes and heap operations all hold rwm.
+	compareFunc := queueOrderingFunc(ctx, getLQWeight, wo, options.fsResWeights, options.enableAdmissionFs, options.afsEntryPenalties, options.afsConsumedResources, sw.matches)
 	// Derive lessFunc from compareFunc for the heap.
 	lessFunc := func(a, b *workload.Info) bool { return compareFunc(a, b) < 0 }
 	// Snapshot sorts without the lock, so it captures the sticky workload once
@@ -337,7 +351,7 @@ func newClusterQueueImpl(ctx context.Context, client client.Client, cl *metrics.
 		rwm:                          sync.RWMutex{},
 		clock:                        clock,
 		afsEntryPenalties:            options.afsEntryPenalties,
-		localQueuesInClusterQueue:    make(map[utilqueue.LocalQueueReference]bool),
+		lqWeights:                    lqWeights,
 		sw:                           &sw,
 		pendingResourcesTotal:        make(map[corev1.ResourceName]int64),
 	}
@@ -498,14 +512,19 @@ func (c *ClusterQueue) GetNoFitReason(wl workload.Reference) (string, bool) {
 	return string(reason), ok
 }
 
-func (c *ClusterQueue) RebuildLocalQueue(lqName string) {
+// RebuildHeap re-establishes the heap invariant after a LocalQueue's
+// fair-sharing usage changed. Workloads in the same LocalQueue share that usage,
+// so their order relative to each other is unchanged; what changes is their
+// position relative to every other LocalQueue's workloads, and all of them shift
+// at once. heap.Fix assumes a single element moved while the rest of the heap is
+// valid, so fixing these entries one by one can leave the heap invalid; instead
+// the whole heap is rebuilt in O(n) with heap.Init. lqName identifies the
+// LocalQueue whose reconcile triggered the rebuild and is used only for logging.
+func (c *ClusterQueue) RebuildHeap(log logr.Logger, lqName string) {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
-	for _, wl := range c.heap.List() {
-		if string(wl.Obj.Spec.QueueName) == lqName {
-			c.heap.PushOrUpdate(wl)
-		}
-	}
+	log.V(3).Info("Rebuilding heap after LocalQueue fair-sharing usage change", "clusterQueue", c.name, "localQueue", lqName)
+	c.heap.Init()
 }
 
 // backoffWaitingTimeExpired returns true if the current time is after the requeueAt
@@ -890,10 +909,13 @@ func (c *ClusterQueue) Pop() *workload.Info {
 }
 
 // rebuildAll rebuilds the entire heap. Must be called with lock held.
+// A pending penalty can change the fair-sharing usage of several workloads from
+// the same LocalQueue at once, so they all shift relative to other LocalQueues'
+// workloads together. heap.Fix assumes a single element moved while the rest of
+// the heap is valid, so fixing these entries one by one can leave the heap
+// invalid; instead the whole invariant is re-established in O(n) with heap.Init.
 func (c *ClusterQueue) rebuildAll() {
-	for _, wl := range c.heap.List() {
-		c.heap.PushOrUpdate(wl)
-	}
+	c.heap.Init()
 }
 
 func (c *ClusterQueue) hasPendingPenalties() bool {
@@ -901,7 +923,7 @@ func (c *ClusterQueue) hasPendingPenalties() bool {
 		return false
 	}
 
-	for lqKey := range c.localQueuesInClusterQueue {
+	for lqKey := range c.lqWeights {
 		lqPenalty := c.afsEntryPenalties.Peek(lqKey)
 		if !resource.IsZero(lqPenalty) {
 			return true
@@ -1145,9 +1167,12 @@ func baseCompareFunc(log logr.Logger, wo workload.Ordering, stickyMatches func(w
 }
 
 // queueOrderingFunc composes fair-sharing usage (when enabled) with baseCompareFunc.
+// It reads the LocalQueue weight via getLQWeight (backed by the cached weights)
+// instead of a fallible API read, so a failed LocalQueue lookup can no longer flip
+// the ordering rule between comparisons. See Kueue#13476.
 func queueOrderingFunc(
 	ctx context.Context,
-	cl client.Client,
+	getLQWeight func(utilqueue.LocalQueueReference) float64,
 	wo workload.Ordering,
 	fsResWeights map[corev1.ResourceName]float64,
 	enableAdmissionFs bool,
@@ -1161,32 +1186,41 @@ func queueOrderingFunc(
 		return baseCmp
 	}
 	return func(a, b *workload.Info) int {
-		lqAUsage, errA := a.CalcLocalQueueFSUsage(ctx, cl, fsResWeights, afsEntryPenalties, afsConsumedResources)
-		lqBUsage, errB := b.CalcLocalQueueFSUsage(ctx, cl, fsResWeights, afsEntryPenalties, afsConsumedResources)
-		switch {
-		case errA != nil:
-			log.V(2).Error(errA, "Error determining LocalQueue usage")
-		case errB != nil:
-			log.V(2).Error(errB, "Error determining LocalQueue usage")
-		default:
-			log.V(3).Info("Resource usage from LocalQueue", "localQueue", klog.KRef(a.Obj.Namespace, string(a.Obj.Spec.QueueName)), "usage", lqAUsage)
-			log.V(3).Info("Resource usage from LocalQueue", "localQueue", klog.KRef(b.Obj.Namespace, string(b.Obj.Spec.QueueName)), "usage", lqBUsage)
-			if cmpResult := cmp.Compare(lqAUsage, lqBUsage); cmpResult != 0 {
-				return cmpResult
-			}
+		lqAUsage := a.ComputeLocalQueueFSUsage(getLQWeight(utilqueue.KeyFromWorkload(a.Obj)), fsResWeights, afsEntryPenalties, afsConsumedResources)
+		lqBUsage := b.ComputeLocalQueueFSUsage(getLQWeight(utilqueue.KeyFromWorkload(b.Obj)), fsResWeights, afsEntryPenalties, afsConsumedResources)
+		log.V(3).Info("Resource usage from LocalQueue", "localQueue", klog.KRef(a.Obj.Namespace, string(a.Obj.Spec.QueueName)), "usage", lqAUsage)
+		log.V(3).Info("Resource usage from LocalQueue", "localQueue", klog.KRef(b.Obj.Namespace, string(b.Obj.Spec.QueueName)), "usage", lqBUsage)
+		if cmpResult := cmp.Compare(lqAUsage, lqBUsage); cmpResult != 0 {
+			return cmpResult
 		}
 		return baseCmp(a, b)
 	}
 }
 
-func (c *ClusterQueue) addLocalQueue(lqKey utilqueue.LocalQueueReference) {
+func (c *ClusterQueue) addLocalQueue(lqKey utilqueue.LocalQueueReference, weight float64) {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
-	c.localQueuesInClusterQueue[lqKey] = true
+	c.lqWeights[lqKey] = weight
 }
 
 func (c *ClusterQueue) deleteLocalQueue(lqKey utilqueue.LocalQueueReference) {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
-	delete(c.localQueuesInClusterQueue, lqKey)
+	delete(c.lqWeights, lqKey)
+}
+
+// UpdateLocalQueueWeight refreshes the cached weight for a LocalQueue and, if it
+// changed, reheapifies the pending workloads so the heap stays ordered. The
+// LocalQueue's workloads keep their order relative to each other but all shift at
+// once relative to every other LocalQueue's workloads, so the whole heap
+// invariant is re-established in O(n) with heap.Init rather than fixing entries
+// individually (heap.Fix assumes only a single element moved). See Kueue#13476.
+func (c *ClusterQueue) UpdateLocalQueueWeight(lqKey utilqueue.LocalQueueReference, weight float64) {
+	c.rwm.Lock()
+	defer c.rwm.Unlock()
+	if old, ok := c.lqWeights[lqKey]; ok && old == weight {
+		return
+	}
+	c.lqWeights[lqKey] = weight
+	c.heap.Init()
 }
