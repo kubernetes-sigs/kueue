@@ -109,16 +109,6 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.5"
-- name: HierarchicalCohorts
-  versionedSpecs:
-  - default: true
-    lockToDefault: false
-    preRelease: Beta
-    version: "0.11"
-  - default: true
-    lockToDefault: true
-    preRelease: GA
-    version: "0.17"
 - name: KueueDRAIntegration
   versionedSpecs:
   - default: true
