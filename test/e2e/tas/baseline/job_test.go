@@ -346,8 +346,6 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(util.Sha
 				SetAnnotation("kueue.x-k8s.io/elastic-job", "true").
 				Parallelism(1).
 				Completions(10).
-				RequestAndLimit(corev1.ResourceCPU, "100m").
-				RequestAndLimit(corev1.ResourceMemory, "10Mi").
 				RequestAndLimit(extraResource, "1").
 				PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
