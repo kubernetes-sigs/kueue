@@ -194,16 +194,15 @@ jobs:
 
           # Create and push the branch from main
           set +e
-          git checkout -b "$BRANCH" 2> err.log
+          git checkout -b "$BRANCH"
           BRANCH_EXIT=$?
           if [ $BRANCH_EXIT -eq 0 ]; then
-            git push origin "$BRANCH" 2>> err.log
+            git push origin "$BRANCH"
             PUSH_EXIT=$?
           fi
           set -e
 
           if [ $BRANCH_EXIT -ne 0 ] || [ $PUSH_EXIT -ne 0 ]; then
-            cat err.log
             gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to create release branch \`$BRANCH\`."
             exit 1
           fi
@@ -333,17 +332,16 @@ jobs:
           # Create and push the tag
           PUSH_EXIT=0
           set +e
-          git tag -a "$VERSION" -F "$NOTES_FILE" 2> err.log
+          git tag -a "$VERSION" -F "$NOTES_FILE"
           TAG_EXIT=$?
           if [ $TAG_EXIT -eq 0 ]; then
-            git push origin "$VERSION" 2>> err.log
+            git push origin "$VERSION"
             PUSH_EXIT=$?
           fi
           set -e
           rm -f "$NOTES_FILE"
           
           if [ $TAG_EXIT -ne 0 ] || [ $PUSH_EXIT -ne 0 ]; then
-            cat err.log
             gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to create or push release tag \`$VERSION\`."
             exit 1
           fi
@@ -418,12 +416,11 @@ jobs:
             --title "$VERSION" \
             --notes "$CHANGELOG" \
             --draft \
-            release-artifacts/* 2> err.log
+            release-artifacts/*
           RELEASE_EXIT=$?
           set -e
 
           if [ $RELEASE_EXIT -ne 0 ]; then
-            cat err.log
             gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to create draft release \`$VERSION\`."
             exit 1
           fi
@@ -474,12 +471,11 @@ jobs:
           UPSTREAM_REMOTE: origin
         run: |
           set +e
-          yes y | ./hack/releasing/prepare_pull.sh --target "$TARGET" "$VERSION" 2>&1 | tee /tmp/prepare-pull.log
+          yes y | ./hack/releasing/prepare_pull.sh --target "$TARGET" "$VERSION"
           SCRIPT_EXIT_CODE=${PIPESTATUS[1]}
           set -e
 
           if [ $SCRIPT_EXIT_CODE -ne 0 ]; then
-            cat /tmp/prepare-pull.log
             gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to prepare pull requests for version \`$VERSION\` (target: \`$TARGET\`)."
             exit $SCRIPT_EXIT_CODE
           fi
@@ -530,12 +526,11 @@ jobs:
           set +e
           gh release edit "$VERSION" \
             --repo "$GITHUB_REPOSITORY" \
-            --draft=false 2> err.log
+            --draft=false
           EDIT_EXIT=$?
           set -e
 
           if [ $EDIT_EXIT -ne 0 ]; then
-            cat err.log
             gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to publish release \`$VERSION\`."
             exit 1
           fi
