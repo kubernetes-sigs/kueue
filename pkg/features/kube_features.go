@@ -101,12 +101,6 @@ const (
 	// Enable admission fair sharing
 	AdmissionFairSharing featuregate.Feature = "AdmissionFairSharing"
 
-	// owner: @mwysokin @mykysha @mbobrovskyi
-	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/1618-optional-gc-of-workloads
-	//
-	// Enable object retentions
-	ObjectRetentionPolicies featuregate.Feature = "ObjectRetentionPolicies"
-
 	// owner: @pajakd
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
 	//
@@ -583,11 +577,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	AdmissionFairSharing: {
 		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
-	},
-	ObjectRetentionPolicies: {
-		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
-		{Version: version.MustParse("0.13"), Default: true, PreRelease: featuregate.Beta},
-		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.19
 	},
 	TASFailedNodeReplacement: {
 		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
