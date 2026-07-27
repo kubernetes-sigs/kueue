@@ -1251,6 +1251,10 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r even
 	var keptPods []corev1.Pod
 	var excessActivePods []corev1.Pod
 	var replacedInactivePods []corev1.Pod
+	// matchedActivePods collects the UIDs of active pods that matched one of
+	// the workload's roles (pod sets) below. Any active pod left out of this
+	// set has a role hash that is absent from the workload.
+	matchedActivePods := make(sets.Set[types.UID], len(activePods))
 
 	for _, ps := range workload.Spec.PodSets {
 		// Find all the active and inactive pods of the role
@@ -1267,6 +1271,11 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r even
 		roleInactivePods := utilslices.Pick(inactivePods, hasRoleFunc)
 		if len(roleHashErrors) > 0 {
 			return nil, nil, fmt.Errorf("failed to calculate pod role hash: %w", errors.Join(roleHashErrors...))
+		}
+		// roleActivePods matched this pod set's role hash (via hasRoleFunc),
+		// so record them as matched.
+		for _, rp := range roleActivePods {
+			matchedActivePods.Insert(rp.GetUID())
 		}
 
 		absentPods += p.countAbsentPods(ps, len(roleActivePods))
@@ -1295,6 +1304,31 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r even
 
 	if len(keptPods) == 0 || !p.equivalentToWorkload(workload, jobPodSets) {
 		return nil, []*kueue.Workload{workload}, nil
+	}
+
+	// At this point the workload is kept as equivalent to the group. However,
+	// an active pod whose role hash is absent from the workload's pod sets was
+	// not matched by any role above (it is not in matchedActivePods) and is not
+	// cleaned up either, so it stays gated indefinitely with no feedback. This
+	// happens with fast admission: the workload is built from the first
+	// runnable pod as a single-role pod set (constructGroupPodSetsFast), and a
+	// later member with a different role hash never matches it. Emit a warning
+	// so the misconfiguration is surfaced to the user instead of failing
+	// silently (see https://github.com/kubernetes-sigs/kueue/issues/13242).
+	for i := range activePods {
+		// Skip pods that matched one of the workload's roles above.
+		if matchedActivePods.Has(activePods[i].GetUID()) {
+			continue
+		}
+		// Recompute the hash only to include it in the warning message; the
+		// match decision was already made via matchedActivePods.
+		hash, err := getRoleHash(activePods[i])
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to calculate pod role hash: %w", err)
+		}
+		errMsg := fmt.Sprintf("pod '%s' role hash '%s' does not match any role in the group workload '%s'",
+			activePods[i].GetName(), hash, groupName)
+		r.Eventf(p.Object(), nil, corev1.EventTypeWarning, jobframework.ReasonErrWorkloadCompose, "ErrWorkloadCompose", errMsg)
 	}
 
 	// Do not clean up more pods until observing previous operations
