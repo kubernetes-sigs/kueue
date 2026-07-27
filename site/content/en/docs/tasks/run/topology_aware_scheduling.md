@@ -214,6 +214,20 @@ kubectl -n default get workloads.kueue.x-k8s.io <workload-name> -o yaml
 That field lists the topology levels and domain values into which each PodSet
 was placed. It is the authoritative signal that TAS was applied.
 
+## Co-locating multiple PodSets (PodSet Grouping)
+
+Some distributed workloads, such as [LeaderWorkerSet](/docs/tasks/run/leaderworkerset), define their computing requirements across multiple, distinct Pod templates (e.g., one template for the Leader, and another for the Workers). Kueue translates these templates into separate `PodSets` within a single `Workload`.
+
+By default, Kueue evaluates TAS constraints for each `PodSet` independently, which could result in the Leader and Workers being scheduled into completely different topology domains, drastically increasing network latency.
+
+To prevent this, you can use the `kueue.x-k8s.io/podset-group-name` annotation. By assigning the exact same group name to multiple Pod templates, you instruct Kueue to treat them as a single atomic unit and force them into the exact same topology domain.
+
+### Example: LeaderWorkerSet Rack-Level Co-location
+
+The following example requires Kueue to schedule both the Leader PodSet and the Worker PodSet into the exact same rack by using the `podset-group-name: "lws-group"` annotation on both templates.
+
+{{< include "examples/serving-workloads/sample-leaderworkerset-tas.yaml" "yaml" >}}
+
 ## Advanced topics
 
 The page above covers the three basic TAS annotations. Kueue also supports
@@ -232,7 +246,7 @@ additional placement behavior:
   [Balanced Placement](/docs/concepts/topology_aware_scheduling#balanced-placement).
 - **PodSet groups** - co-locate multiple PodSets of a single workload in the
   same topology domain using `kueue.x-k8s.io/podset-group-name`. See
-  [Configure Topology Aware Scheduling for LeaderWorkerSet](/docs/tasks/run/leaderworkerset#configure-topology-aware-scheduling)
+  [Co-locating multiple PodSets](#co-locating-multiple-podsets-podset-grouping)
   for a working example.
 - **PodSet slices** - split a PodSet into fixed-size slices, each pinned to a
   single domain, using `kueue.x-k8s.io/podset-slice-required-topology` and
