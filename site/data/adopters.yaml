@@ -179,3 +179,11 @@
   - batch/job
   contact: '@thc1006'
   contact_url: https://github.com/thc1006
+- name: CoreWeave
+  url: https://coreweave.com/
+  type: Provider
+  description: Native support for Kueue on CoreWeave Kubernetes Service (CKS), CoreWeave's bare-metal Kubernetes offering for AI/ML training and inference
+  integrations:
+  - '...'
+  contact: '@amy'
+  contact_url: https://github.com/amy
