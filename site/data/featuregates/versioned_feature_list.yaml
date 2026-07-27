@@ -203,20 +203,6 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.15"
-- name: MultiKueueAllowInsecureKubeconfigs
-  versionedSpecs:
-  - default: false
-    lockToDefault: false
-    preRelease: Alpha
-    version: "0.15"
-  - default: false
-    lockToDefault: false
-    preRelease: Deprecated
-    version: "0.17"
-  - default: false
-    lockToDefault: true
-    preRelease: Deprecated
-    version: "0.19"
 - name: MultiKueueClusterProfile
   versionedSpecs:
   - default: false
