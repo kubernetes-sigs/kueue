@@ -369,7 +369,6 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(util.Sha
 
 				ta := tas.InternalFrom(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment)
 				gomega.Expect(ta.Domains).ShouldNot(gomega.BeEmpty())
-				originalNodeName = ta.Domains[0].Values[0]
 			})
 
 			scaledParallelism := int32(2)
@@ -382,9 +381,15 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(util.Sha
 			})
 
 			ginkgo.By("verify the scaled workload has two assigned domains", func() {
-				ta := tas.InternalFrom(
-					createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment,
-				)
+				// IMPORTANT: Refresh the workload object to get the updated topology after scaling
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdWorkload), createdWorkload)).Should(gomega.Succeed())
+					g.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
+					g.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
+					g.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment).ShouldNot(gomega.BeNil())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+
+				ta := tas.InternalFrom(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment)
 				gomega.Expect(ta).ShouldNot(gomega.BeNil())
 				gomega.Expect(ta.Domains).Should(gomega.HaveLen(int(scaledParallelism)))
 			})
