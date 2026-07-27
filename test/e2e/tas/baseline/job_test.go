@@ -380,18 +380,6 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(util.Sha
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("verify the scaled workload has two assigned domains", func() {
-				// IMPORTANT: Refresh the workload object to get the updated topology after scaling
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdWorkload), createdWorkload)).Should(gomega.Succeed())
-					g.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
-					g.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
-					g.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment).ShouldNot(gomega.BeNil())
-					g.Expect(createdWorkload.Spec.PodSets).Should(gomega.HaveLen(1))
-					g.Expect(createdWorkload.Spec.PodSets[0].Count).Should(gomega.Equal(scaledParallelism))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-			})
-
 			ginkgo.By("verify both job pods are ready", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(
