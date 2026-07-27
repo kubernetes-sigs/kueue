@@ -184,6 +184,11 @@ func (j *ClusterWrapper) SchedulingGate(name string) *ClusterWrapper {
 	return j
 }
 
+func (j *ClusterWrapper) WithAutoscalerOptions(value *rayv1.AutoscalerOptions) *ClusterWrapper {
+	j.Spec.AutoscalerOptions = value
+	return j
+}
+
 func (j *ClusterWrapper) ScaleFirstWorkerGroup(replicas int32) *ClusterWrapper {
 	j.Spec.WorkerGroupSpecs[0].Replicas = &replicas
 	return j
