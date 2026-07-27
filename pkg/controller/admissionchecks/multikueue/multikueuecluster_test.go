@@ -1214,6 +1214,9 @@ func TestActiveConditionSurfacesBackoff(t *testing.T) {
 func TestRemoteClientGC(t *testing.T) {
 	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace)
 	baseWlBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace).ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "test-uuid")
+	workerVariant := utiltestingapi.MakeWorkload("variant", TestNamespace).
+		ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent", "parent-uid").
+		Label(kueue.MultiKueueOriginLabel, defaultOrigin).Obj()
 
 	cases := map[string]struct {
 		managersWorkloads []kueue.Workload
@@ -1227,6 +1230,10 @@ func TestRemoteClientGC(t *testing.T) {
 		// objects removed from the worker.
 		wantQueuedCleanups []types.NamespacedName
 	}{
+		"worker-owned variants have no manager counterpart and are not deleted": {
+			workersWorkloads:     []kueue.Workload{*workerVariant.DeepCopy()},
+			wantWorkersWorkloads: []kueue.Workload{*workerVariant.DeepCopy()},
+		},
 		"existing workers and jobs are not deleted": {
 			managersWorkloads: []kueue.Workload{
 				*baseWlBuilder.Clone().ClusterName("worker1").Obj(),

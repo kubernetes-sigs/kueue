@@ -78,6 +78,7 @@ import (
 	utildqo "sigs.k8s.io/kueue/pkg/util/dqo"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilwait "sigs.k8s.io/kueue/pkg/util/wait"
+	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
@@ -832,6 +833,11 @@ func (rc *remoteClient) runGC(ctx context.Context) {
 	}
 
 	for _, remoteWl := range wls.Items {
+		// Variants inherit the parent's origin label but exist only on the worker.
+		// Kubernetes collects them when their parent is deleted.
+		if concurrentadmission.IsVariant(&remoteWl) {
+			continue
+		}
 		localWl := &kueue.Workload{}
 		wlLog := log.WithValues("remoteWorkload", klog.KObj(&remoteWl))
 		err := rc.localClient.Get(ctx, client.ObjectKeyFromObject(&remoteWl), localWl)
