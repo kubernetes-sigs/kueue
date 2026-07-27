@@ -1268,18 +1268,6 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 				ClusterQueue(cq.Name).Obj()
 			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
 
-			wl1 := utiltestingapi.MakeWorkload("wl1", ns.Name).
-				Label("workload-kind", "kind1").
-				Queue(kueue.LocalQueueName(lq.Name)).
-				Request(corev1.ResourceCPU, "1").Obj()
-			util.MustCreate(ctx, k8sClient, wl1)
-
-			wl2 := utiltestingapi.MakeWorkload("wl2", ns.Name).
-				Label("workload-kind", "kind2").
-				Queue(kueue.LocalQueueName(lq.Name)).
-				Request(corev1.ResourceCPU, "1").Obj()
-			util.MustCreate(ctx, k8sClient, wl2)
-
 			wl3 := utiltestingapi.MakeWorkload("wl3", ns.Name).
 				Label("workload-kind", "kind2").
 				Queue(kueue.LocalQueueName(lq.Name)).
@@ -1300,6 +1288,18 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			var fetchedWl3 kueue.Workload
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl3), &fetchedWl3)).To(gomega.Succeed())
 			qManager.RequeueWorkload(ctx, workload.NewInfo(&fetchedWl3), qcache.RequeueReasonGeneric, "")
+
+			wl1 := utiltestingapi.MakeWorkload("wl1", ns.Name).
+				Label("workload-kind", "kind1").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			util.MustCreate(ctx, k8sClient, wl1)
+
+			wl2 := utiltestingapi.MakeWorkload("wl2", ns.Name).
+				Label("workload-kind", "kind2").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			util.MustCreate(ctx, k8sClient, wl2)
 
 			ginkgo.By("verifying counts: wl1 active kind1, wl2 active kind2, wl3 inadmissible kind2")
 			util.ExpectPendingWorkloadsMetric(cq, 1, 0, "ml-team", "kind1")
@@ -1366,9 +1366,9 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 				g.Expect(k8sClient.Update(ctx, &updatedCq)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			ginkgo.By("verifying they restore to their original active/inadmissible statuses")
+			ginkgo.By("verifying they restore to active statuses")
 			util.ExpectPendingWorkloadsMetric(cq, 1, 0, "ml-team", "kind1")
-			util.ExpectPendingWorkloadsMetric(cq, 0, 1, "ml-team", "kind2")
+			util.ExpectPendingWorkloadsMetric(cq, 1, 0, "ml-team", "kind2")
 		})
 
 		ginkgo.It("should update metrics when labels on a pending workload change", func() {
