@@ -7654,112 +7654,115 @@ func TestFindTopologyAssignments(t *testing.T) {
 		},
 	}
 	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			ctx, log := utiltesting.ContextWithLog(t)
-			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+		for _, vectorizedRequestsEnabled := range []bool{true, false} {
+			t.Run(name, func(t *testing.T) {
+				ctx, log := utiltesting.ContextWithLog(t)
+				features.SetFeatureGateDuringTest(t, features.VectorizedResourceRequests, vectorizedRequestsEnabled)
+				features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
-			initialObjects := make([]client.Object, 0)
-			for i := range tc.nodes {
-				initialObjects = append(initialObjects, &tc.nodes[i])
-			}
-			for i := range tc.pods {
-				initialObjects = append(initialObjects, &tc.pods[i])
-			}
-			clientBuilder := utiltesting.NewClientBuilder()
-			clientBuilder.WithObjects(initialObjects...)
-			_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
-			client := clientBuilder.Build()
-
-			tasCache := NewTASCache(client)
-			for i := range tc.nodes {
-				tasCache.SyncNode(&tc.nodes[i])
-			}
-
-			topologyInformation := topologyInformation{
-				Levels: tc.levels,
-			}
-			flavorInformation := flavorInformation{
-				TopologyName: "default",
-				NodeLabels:   tc.nodeLabels,
-			}
-			for _, pod := range tc.pods {
-				tasCache.Update(&pod, log)
-			}
-			tasFlavorCache := tasCache.NewTASFlavorCache(topologyInformation, flavorInformation)
-			if len(tc.priorOwnUsage) > 0 {
-				tasFlavorCache.addUsage(log, "prior-wl", tc.priorOwnUsage)
-			}
-
-			if features.Enabled(features.TASHandleOverlappingFlavors) {
-				tc.aggregatedDomainUsages = aggregatedDomainUsagesForPriorFlavorUsage(
-					log,
-					topologyInformation,
-					flavorInformation,
-					tc.priorFlavorUsage,
-					&tasCache,
-					tc.aggregatedDomainUsages,
-				)
-			}
-
-			var aggregatedDomainUsage map[tas.TopologyDomainID]resources.Requests
-			if features.Enabled(features.TASHandleOverlappingFlavors) && tas.IsLowestLevelHostname(tasFlavorCache.topology.Levels) {
-				aggregatedDomainUsage = tc.aggregatedDomainUsages
-			}
-			snapshot := tasFlavorCache.snapshot(
-				log,
-				tasCache.nodesCache.find(tasFlavorCache.flavor.NodeLabels, tasFlavorCache.topology.Levels),
-				aggregatedDomainUsage,
-			)
-			flavorTASRequests := make([]TASPodSetRequests, 0, len(tc.podSets))
-			wantResult := make(TASAssignmentsResult)
-			for _, ps := range tc.podSets {
-				var affinity *corev1.Affinity
-				if ps.nodeAffinity != nil {
-					affinity = &corev1.Affinity{
-						NodeAffinity: ps.nodeAffinity,
-					}
+				initialObjects := make([]client.Object, 0)
+				for i := range tc.nodes {
+					initialObjects = append(initialObjects, &tc.nodes[i])
 				}
-				tasInput := TASPodSetRequests{
-					PodSet: &kueue.PodSet{
-						Name:            kueue.NewPodSetReference(ps.podSetName),
-						TopologyRequest: ps.topologyRequest,
-						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{
-								Tolerations:  ps.tolerations,
-								NodeSelector: ps.nodeSelector,
-								Affinity:     affinity,
+				for i := range tc.pods {
+					initialObjects = append(initialObjects, &tc.pods[i])
+				}
+				clientBuilder := utiltesting.NewClientBuilder()
+				clientBuilder.WithObjects(initialObjects...)
+				_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
+				client := clientBuilder.Build()
+
+				tasCache := NewTASCache(client)
+				for i := range tc.nodes {
+					tasCache.SyncNode(&tc.nodes[i])
+				}
+
+				topologyInformation := topologyInformation{
+					Levels: tc.levels,
+				}
+				flavorInformation := flavorInformation{
+					TopologyName: "default",
+					NodeLabels:   tc.nodeLabels,
+				}
+				for _, pod := range tc.pods {
+					tasCache.Update(&pod, log)
+				}
+				tasFlavorCache := tasCache.NewTASFlavorCache(topologyInformation, flavorInformation)
+				if len(tc.priorOwnUsage) > 0 {
+					tasFlavorCache.addUsage(log, "prior-wl", tc.priorOwnUsage)
+				}
+
+				if features.Enabled(features.TASHandleOverlappingFlavors) {
+					tc.aggregatedDomainUsages = aggregatedDomainUsagesForPriorFlavorUsage(
+						log,
+						topologyInformation,
+						flavorInformation,
+						tc.priorFlavorUsage,
+						&tasCache,
+						tc.aggregatedDomainUsages,
+					)
+				}
+
+				var aggregatedDomainUsage map[tas.TopologyDomainID]resources.Requests
+				if features.Enabled(features.TASHandleOverlappingFlavors) && tas.IsLowestLevelHostname(tasFlavorCache.topology.Levels) {
+					aggregatedDomainUsage = tc.aggregatedDomainUsages
+				}
+				snapshot := tasFlavorCache.snapshot(
+					log,
+					tasCache.nodesCache.find(tasFlavorCache.flavor.NodeLabels, tasFlavorCache.topology.Levels),
+					aggregatedDomainUsage,
+				)
+				flavorTASRequests := make([]TASPodSetRequests, 0, len(tc.podSets))
+				wantResult := make(TASAssignmentsResult)
+				for _, ps := range tc.podSets {
+					var affinity *corev1.Affinity
+					if ps.nodeAffinity != nil {
+						affinity = &corev1.Affinity{
+							NodeAffinity: ps.nodeAffinity,
+						}
+					}
+					tasInput := TASPodSetRequests{
+						PodSet: &kueue.PodSet{
+							Name:            kueue.NewPodSetReference(ps.podSetName),
+							TopologyRequest: ps.topologyRequest,
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
+									Tolerations:  ps.tolerations,
+									NodeSelector: ps.nodeSelector,
+									Affinity:     affinity,
+								},
 							},
 						},
-					},
-					SinglePodRequests:  ps.requests,
-					Count:              ps.count,
-					PreviousAssignment: ps.previousAssignment,
-				}
-				if ps.podSetGroupName != nil {
-					tasInput.PodSetGroupName = ps.podSetGroupName
-				}
-				if ps.topologyRequest == nil {
-					tasInput.Implied = true
-				}
-				flavorTASRequests = append(flavorTASRequests, tasInput)
+						SinglePodRequests:  ps.requests,
+						Count:              ps.count,
+						PreviousAssignment: ps.previousAssignment,
+					}
+					if ps.podSetGroupName != nil {
+						tasInput.PodSetGroupName = ps.podSetGroupName
+					}
+					if ps.topologyRequest == nil {
+						tasInput.Implied = true
+					}
+					flavorTASRequests = append(flavorTASRequests, tasInput)
 
-				wantPodSetResult := tasPodSetAssignmentResult{
-					FailureReason: ps.wantReason,
+					wantPodSetResult := tasPodSetAssignmentResult{
+						FailureReason: ps.wantReason,
+					}
+					if ps.wantAssignment != nil {
+						wantPodSetResult.TopologyAssignment = ps.wantAssignment
+					}
+					wantResult[kueue.NewPodSetReference(ps.podSetName)] = wantPodSetResult
 				}
-				if ps.wantAssignment != nil {
-					wantPodSetResult.TopologyAssignment = ps.wantAssignment
+				var findOpts []FindTopologyAssignmentsOption
+				if tc.workload != nil {
+					findOpts = append(findOpts, WithWorkload(tc.workload))
 				}
-				wantResult[kueue.NewPodSetReference(ps.podSetName)] = wantPodSetResult
-			}
-			var findOpts []FindTopologyAssignmentsOption
-			if tc.workload != nil {
-				findOpts = append(findOpts, WithWorkload(tc.workload))
-			}
-			gotResult := snapshot.FindTopologyAssignmentsForFlavor(log, flavorTASRequests, findOpts...)
-			if diff := cmp.Diff(wantResult, gotResult); diff != "" {
-				t.Errorf("unexpected topology assignment (-want,+got): %s", diff)
-			}
-		})
+				gotResult := snapshot.FindTopologyAssignmentsForFlavor(log, flavorTASRequests, findOpts...)
+				if diff := cmp.Diff(wantResult, gotResult); diff != "" {
+					t.Errorf("unexpected topology assignment (-want,+got): %s", diff)
+				}
+			})
+		}
 	}
 }
 
