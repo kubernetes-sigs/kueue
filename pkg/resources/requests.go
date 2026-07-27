@@ -19,6 +19,7 @@ package resources
 import (
 	"maps"
 	"math"
+	"slices"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -146,7 +147,8 @@ func ResourceValue(name corev1.ResourceName, q resource.Quantity) int64 {
 	return q.Value()
 }
 
-// GreaterKeys returns keys where the receiver is greater than other.
+// GreaterKeys returns keys where the receiver is greater than other,
+// sorted alphabetically for deterministic output.
 func (r MapRequests) GreaterKeys(other Requests) []corev1.ResourceName {
 	if len(r) == 0 || isEmpty(other) {
 		return nil
@@ -161,6 +163,7 @@ func (r MapRequests) GreaterKeys(other Requests) []corev1.ResourceName {
 	if len(result) == 0 {
 		return nil
 	}
+	slices.Sort(result)
 	return result
 }
 
