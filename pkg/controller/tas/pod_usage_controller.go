@@ -36,30 +36,31 @@ import (
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
-func newNonTasUsageReconciler(k8sClient client.Client, cache *schdcache.Cache, roleTracker *roletracker.RoleTracker) *NonTasUsageReconciler {
-	return &NonTasUsageReconciler{
+func newPodUsageReconciler(k8sClient client.Client, cache *schdcache.Cache, roleTracker *roletracker.RoleTracker) *PodUsageReconciler {
+	return &PodUsageReconciler{
 		k8sClient:   k8sClient,
 		cache:       cache,
 		roleTracker: roleTracker,
 	}
 }
 
-// NonTasUsageReconciler monitors pods to update
-// the TAS cache with non-TAS usage.
-type NonTasUsageReconciler struct {
+// PodUsageReconciler monitors all scheduled pods to update the TAS cache
+// with non-TAS resource usage and to feed the scheduling simulator with
+// pod state for feasibility checks.
+type PodUsageReconciler struct {
 	k8sClient   client.Client
 	cache       *schdcache.Cache
 	roleTracker *roletracker.RoleTracker
 }
 
-var _ reconcile.Reconciler = (*NonTasUsageReconciler)(nil)
-var _ predicate.TypedPredicate[*corev1.Pod] = (*NonTasUsageReconciler)(nil)
+var _ reconcile.Reconciler = (*PodUsageReconciler)(nil)
+var _ predicate.TypedPredicate[*corev1.Pod] = (*PodUsageReconciler)(nil)
 
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 
-func (r *NonTasUsageReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *PodUsageReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := klog.FromContext(ctx).WithValues("pod", req.NamespacedName)
-	log.V(3).Info("Non-TAS usage cache reconciling")
+	log.V(3).Info("Pod usage cache reconciling")
 	var pod corev1.Pod
 	err := r.k8sClient.Get(ctx, req.NamespacedName, &pod)
 	if err != nil {
@@ -67,16 +68,27 @@ func (r *NonTasUsageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return ctrl.Result{}, err
 		}
 		log.V(5).Info("Idempotently deleting not found pod")
-		r.cache.TASCache().DeletePodByKey(req.NamespacedName, log)
+		r.cache.TASCache().DeleteNonTASUsageByKey(req.NamespacedName, log)
+		r.cache.TASCache().UntrackPod(req.NamespacedName)
 		return ctrl.Result{}, nil
 	}
 
-	if belongsToNonTASCache(&pod) {
-		r.cache.TASCache().Update(&pod, log)
+	if isScheduledAndRunning(&pod) {
+		r.cache.TASCache().TrackPod(&pod)
 	} else {
-		r.cache.TASCache().DeletePodByKey(req.NamespacedName, log)
+		r.cache.TASCache().UntrackPod(req.NamespacedName)
+	}
+
+	if belongsToNonTASCache(&pod) {
+		r.cache.TASCache().UpdateNonTASUsage(&pod, log)
+	} else {
+		r.cache.TASCache().DeleteNonTASUsageByKey(req.NamespacedName, log)
 	}
 	return ctrl.Result{}, nil
+}
+
+func isScheduledAndRunning(pod *corev1.Pod) bool {
+	return pod != nil && len(pod.Spec.NodeName) > 0 && !utilpod.IsTerminated(pod)
 }
 
 func belongsToNonTASCache(pod *corev1.Pod) bool {
@@ -87,7 +99,6 @@ func belongsToNonTASCache(pod *corev1.Pod) bool {
 		return false
 	}
 	if len(pod.Spec.NodeName) == 0 {
-		// Skip unscheduled pods as they don't use any capacity.
 		return false
 	}
 	if utilpod.IsTerminated(pod) {
@@ -96,33 +107,26 @@ func belongsToNonTASCache(pod *corev1.Pod) bool {
 	return true
 }
 
-func (r *NonTasUsageReconciler) Create(e event.TypedCreateEvent[*corev1.Pod]) bool {
-	return belongsToNonTASCache(e.Object)
+func (r *PodUsageReconciler) Create(e event.TypedCreateEvent[*corev1.Pod]) bool {
+	return isScheduledAndRunning(e.Object)
 }
 
-func shouldReconcilePodUpdate(oldPod, newPod *corev1.Pod) bool {
-	return belongsToNonTASCache(oldPod) != belongsToNonTASCache(newPod)
+func (r *PodUsageReconciler) Update(e event.TypedUpdateEvent[*corev1.Pod]) bool {
+	return isScheduledAndRunning(e.ObjectOld) != isScheduledAndRunning(e.ObjectNew) ||
+		belongsToNonTASCache(e.ObjectOld) != belongsToNonTASCache(e.ObjectNew)
 }
 
-func (r *NonTasUsageReconciler) Update(e event.TypedUpdateEvent[*corev1.Pod]) bool {
-	return shouldReconcilePodUpdate(e.ObjectOld, e.ObjectNew)
+func (r *PodUsageReconciler) Delete(e event.TypedDeleteEvent[*corev1.Pod]) bool {
+	return len(e.Object.Spec.NodeName) > 0
 }
 
-func (r *NonTasUsageReconciler) Delete(e event.TypedDeleteEvent[*corev1.Pod]) bool {
-	// Don't filter on terminal phase: if the informer skips the Running→Terminated
-	// Update and delivers only the Delete event with the pod already Succeeded/Failed,
-	// the pod's usage would never be removed from the cache. DeletePodByKey is
-	// idempotent, so double-removal is safe.
-	return len(e.Object.Spec.NodeName) > 0 && !utiltas.IsTAS(e.Object)
-}
-
-func (r *NonTasUsageReconciler) Generic(event.TypedGenericEvent[*corev1.Pod]) bool {
+func (r *PodUsageReconciler) Generic(event.TypedGenericEvent[*corev1.Pod]) bool {
 	return false
 }
 
-func (r *NonTasUsageReconciler) SetupWithManager(mgr ctrl.Manager) (string, error) {
-	return TASNonTasUsageController, ctrl.NewControllerManagedBy(mgr).
-		Named(TASNonTasUsageController).
+func (r *PodUsageReconciler) SetupWithManager(mgr ctrl.Manager) (string, error) {
+	return TASPodUsageController, ctrl.NewControllerManagedBy(mgr).
+		Named(TASPodUsageController).
 		WatchesRawSource(source.TypedKind(
 			mgr.GetCache(),
 			&corev1.Pod{},
@@ -133,6 +137,6 @@ func (r *NonTasUsageReconciler) SetupWithManager(mgr ctrl.Manager) (string, erro
 			NeedLeaderElection:      new(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[corev1.SchemeGroupVersion.WithKind("Pod").GroupKind().String()],
 		}).
-		WithLogConstructor(roletracker.NewLogConstructor(r.roleTracker, TASNonTasUsageController)).
+		WithLogConstructor(roletracker.NewLogConstructor(r.roleTracker, TASPodUsageController)).
 		Complete(r)
 }

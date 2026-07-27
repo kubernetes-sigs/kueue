@@ -7831,7 +7831,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					NodeLabels:   tc.nodeLabels,
 				}
 				for _, pod := range tc.pods {
-					tasCache.Update(&pod, log)
+					tasCache.UpdateNonTASUsage(&pod, log)
 				}
 				tasFlavorCache := tasCache.NewTASFlavorCache(topologyInformation, flavorInformation)
 				if len(tc.priorOwnUsage) > 0 {
@@ -8303,7 +8303,7 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 				tasCache.SyncNode(&tc.nodes[i])
 			}
 			for i := range tc.pods {
-				tasCache.Update(&tc.pods[i], log)
+				tasCache.UpdateNonTASUsage(&tc.pods[i], log)
 			}
 			tcLevels := tc.levels
 			if tcLevels == nil {

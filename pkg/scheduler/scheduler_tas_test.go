@@ -3524,7 +3524,7 @@ func TestScheduleForTAS(t *testing.T) {
 						}
 					}
 					for _, pod := range tc.pods {
-						cqCache.TASCache().Update(&pod, log)
+						cqCache.TASCache().UpdateNonTASUsage(&pod, log)
 					}
 					initiallyAdmittedWorkloads := sets.New[workload.Reference]()
 					for _, w := range testWls {
