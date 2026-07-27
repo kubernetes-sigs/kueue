@@ -18,7 +18,6 @@ package flavorassigner
 
 import (
 	"fmt"
-	"maps"
 	"slices"
 
 	"github.com/go-logr/logr"
@@ -204,8 +203,14 @@ func checkPodSetAndFlavorMatchForTAS(cq *schdcache.ClusterQueueSnapshot, ps *kue
 
 // hasOverlapWithPodRequestedResources checks if the PodSet's resource requests overlap with the specified flavor resources.
 func hasOverlapWithPodRequestedResources(ps *kueue.PodSet, flavorResources sets.Set[corev1.ResourceName]) bool {
-	requests := resources.NewMapRequestsFromPodSpec(&ps.Template.Spec)
-	return flavorResources.HasAny(slices.Collect(maps.Keys(requests))...)
+	requests := resources.NewRequestsFromPodSpec(&ps.Template.Spec)
+	has := false
+	requests.ForEach(func(name corev1.ResourceName, _ int64) {
+		if flavorResources.Has(name) {
+			has = true
+		}
+	})
+	return has
 }
 
 // isTASImplied returns true if TAS is requested implicitly.

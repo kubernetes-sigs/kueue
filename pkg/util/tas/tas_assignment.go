@@ -561,7 +561,7 @@ func ComputeUsagePerDomain(ta *TopologyAssignment, singlePodRequests resources.R
 	for _, domain := range ta.Domains {
 		domainID := DomainID(domain.Values)
 		domainUsage := singlePodRequests.ScaledUp(int64(domain.Count))
-		domainUsage.Add(resources.MapRequests{corev1.ResourcePods: int64(domain.Count)})
+		domainUsage.Add(resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourcePods: int64(domain.Count)}))
 		usage[domainID] = domainUsage
 	}
 	return usage
