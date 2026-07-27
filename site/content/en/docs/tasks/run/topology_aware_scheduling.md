@@ -220,11 +220,11 @@ Some distributed workloads, such as [LeaderWorkerSet](/docs/tasks/run/leaderwork
 
 By default, Kueue evaluates TAS constraints for each `PodSet` independently, which could result in the Leader and Workers being scheduled into completely different topology domains, drastically increasing network latency.
 
-To prevent this, you can use the `kueue.x-k8s.io/podset-group-name` annotation. By assigning the exact same group name to multiple Pod templates, you instruct Kueue to treat them as a single atomic unit and force them into the exact same topology domain.
+To prevent this, you can use the `kueue.x-k8s.io/podset-group-name` annotation in conjunction with a required or preferred topology annotation. By assigning the exact same group name to multiple Pod templates, you instruct Kueue to treat them as a single atomic unit and enforce their topology request in the exact same topology domain.
 
 ### Example: LeaderWorkerSet Rack-Level Co-location
 
-The following example requires Kueue to schedule both the Leader PodSet and the Worker PodSet into the exact same rack by using the `podset-group-name: "lws-group"` annotation on both templates.
+The following example requires Kueue to schedule both the Leader PodSet and the Worker PodSet into the exact same rack by setting both the `kueue.x-k8s.io/podset-required-topology` and `kueue.x-k8s.io/podset-group-name: "lws-group"` annotations on both templates.
 
 {{< include "examples/serving-workloads/sample-leaderworkerset-tas.yaml" "yaml" >}}
 
