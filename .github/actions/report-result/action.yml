@@ -65,7 +65,7 @@ runs:
         export COMMENT_BODY
         
         # Run python script to build the new comment body
-        python3 "${{ github.action_path }}/log_to_issue.py" > new_comment.md
+        python3 "${{ github.workspace }}/hack/releasing/log_to_issue.py" > new_comment.md
 
         if [ -n "$COMMENT_ID" ]; then
           # Update existing comment
