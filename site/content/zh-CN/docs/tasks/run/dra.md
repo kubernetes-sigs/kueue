@@ -68,7 +68,7 @@ user-queue   cluster-queue   0
 ### 使用可分区设备
 
 如果你的管理员已配置
-[基于计数器的配额](/zh-cn/docs/tasks/manage/setup_dra/#set-up-counter-based-quota-partitionable-devices)，
+[基于计数器的配额](/docs/tasks/manage/setup_dra/#set-up-counter-based-quota-partitionable-devices)，
 则你的工作负载将按设备的计数器值（例如 GPU 内存）而非设备数量计费。
 你提交工作负载的方式与上面的 ResourceClaimTemplate 相同。
 
@@ -81,7 +81,7 @@ user-queue   cluster-queue   0
 {{% /alert %}}
 
 如果你的管理员已配置
-[基于容量的配额](/zh-cn/docs/tasks/manage/setup_dra/#set-up-capacity-based-quota-consumable-capacity)，
+[基于容量的配额](/docs/tasks/manage/setup_dra/#set-up-capacity-based-quota-consumable-capacity)，
 则你的工作负载将按设备的容量消耗（例如 GPU 内存）而非设备数量计费。
 你可以提交一个工作负载并在 `ResourceClaimTemplate` 的 `capacity.requests` 中指定所需的容量：
 
