@@ -594,7 +594,7 @@ func TestReconcile(t *testing.T) {
 				{
 					Key:       client.ObjectKeyFromObject(allZeroCountWorkload),
 					EventType: corev1.EventTypeNormal,
-					Reason:    "AdmissionCheckUpdated",
+					Reason:    "UpdatedAdmissionCheck",
 					Message:   `Admission check check1 updated state from Pending to Ready with message: the provisioning request is not needed`,
 				},
 			},
@@ -745,7 +745,7 @@ func TestReconcile(t *testing.T) {
 			requests:  []autoscaling.ProvisioningRequest{},
 			templates: []corev1.PodTemplate{*foreignTemplate1.Clone().Obj()},
 			featureGates: map[featuregate.Feature]bool{
-				features.RetryProvisioningDueInconsistentPodTemplate: false,
+				features.EnforceProvisioningPodTemplateContents: false,
 			},
 			wantWorkloads: map[string]*kueue.Workload{
 				baseWorkload.GetName(): baseWorkload.DeepCopy(),
@@ -1960,7 +1960,7 @@ func TestReconcile(t *testing.T) {
 				{
 					Key:       client.ObjectKeyFromObject(baseWorkload),
 					EventType: corev1.EventTypeNormal,
-					Reason:    "AdmissionCheckUpdated",
+					Reason:    "UpdatedAdmissionCheck",
 					Message:   `Admission check check1 updated state from Pending to Ready`,
 				},
 			},

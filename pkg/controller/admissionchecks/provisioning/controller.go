@@ -355,24 +355,21 @@ func (c *Controller) syncOwnedProvisionRequest(
 					// Kueue-derived contents so the ProvisioningRequest never adopts
 					// foreign/stale specs. Do not Retry the admission check: leftover
 					// templates from a prior admission (e.g. after preemption onto another
-					// flavor) share this name, and Retry would block re-admission.
-					if features.Enabled(features.RetryProvisioningDueInconsistentPodTemplate) {
+					// flavor) share this name, and Retry would block re-admission. A
+					// recreate that races the still-finalizing Delete returns the error;
+					// controller-runtime reconciles again with backoff.
+					if features.Enabled(features.EnforceProvisioningPodTemplateContents) {
 						if err := c.client.Delete(ctx, existing); client.IgnoreNotFound(err) != nil {
 							msg := fmt.Sprintf("Error deleting divergent PodTemplate %q: %v", ptName, err)
-							return c.handleError(ctx, wl, ac, msg, err)
+							return c.handleError(ctx, wl, ac, existing, msg, err)
 						}
 						if err := c.client.Create(ctx, desired); err != nil {
-							// Delete may still be finalizing; Retry with a new attempt/name.
-							if apierrors.IsAlreadyExists(err) {
-								msg := fmt.Sprintf("Existing PodTemplate %q differs from the expected Kueue-derived contents; retrying", ptName)
-								return c.handleRetry(ctx, log, wl, ac, prc, msg)
-							}
 							msg := fmt.Sprintf("Error recreating PodTemplate %q: %v", ptName, err)
-							return c.handleError(ctx, wl, ac, msg, err)
+							return c.handleError(ctx, wl, ac, desired, msg, err)
 						}
 						log.V(3).Info("Replaced divergent PodTemplate", "podTemplate", klog.KObj(desired))
 					} else {
-						log.V(3).Info("PodTemplate differs but RetryProvisioningDueInconsistentPodTemplate is disabled; reusing existing", "podTemplate", klog.KObj(existing))
+						log.V(3).Info("PodTemplate differs but EnforceProvisioningPodTemplateContents is disabled; reusing existing", "podTemplate", klog.KObj(existing))
 					}
 				}
 
@@ -465,24 +462,6 @@ func (c *Controller) buildPodTemplate(ctx context.Context, wl *kueue.Workload, n
 	workload.UseLimitsAsMissingRequestsInPod(&newPt.Template.Spec)
 
 	return newPt, nil
-}
-
-// handleRetry sets the admission check to Retry so the next attempt uses a new name pair.
-func (c *Controller) handleRetry(ctx context.Context, log logr.Logger, wl *kueue.Workload, ac *kueue.AdmissionCheckState, prc *kueue.ProvisioningRequestConfig, msg string) error {
-	prevState := ac.State
-	ac.Message = api.TruncateConditionMessage(msg)
-	setAdmissionCheckRetry(ac, prc, c.clock)
-
-	err := workloadpatching.PatchStatus(ctx, c.client, wl, kueue.ProvisioningRequestControllerName, func(wl *kueue.Workload) (bool, error) {
-		return workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *ac, c.clock), nil
-	})
-	if err != nil {
-		return err
-	}
-	eventMsg := fmt.Sprintf("Admission check %s updated state from %s to %s with message: %s", ac.Name, prevState, ac.State, ac.Message)
-	c.record.Eventf(wl, nil, corev1.EventTypeNormal, "UpdatedAdmissionCheck", "UpdatedAdmissionCheck", api.TruncateEventMessage(eventMsg))
-	log.V(3).Info("Retrying admission check due to divergent PodTemplate", "admissionCheck", ac.Name, "message", msg)
-	return nil
 }
 
 // setAdmissionCheckRetry sets the admission check to Retry using the
