@@ -11,7 +11,7 @@ description: >
 管理的硬件设备（比如 GPU）的工作负载。示例使用了 batch Job，但同样的方法适用于
 [Kueue 支持的任何类型的工作负载](/zh-cn/docs/concepts/workload)。
 
-本页面的目标受众是 [batch users](/zh-cn//docs/tasks#batch-user)。
+本页面的目标受众是 [batch users](/zh-cn/docs/tasks#batch-user)。
 
 有关 Kueue 如何处理 DRA 资源的概念性细节，请参考
 [动态资源分配的概念](/zh-cn/docs/concepts/dynamic_resource_allocation).
@@ -20,7 +20,7 @@ description: >
 
 请确保满足以下条件：
 
-- 一个正在运行的的 Kubernetes 集群。
+- 一个正在运行的 Kubernetes 集群。
 - kubectl 命令行工具可以与集群通信。
 - [已安装 Kueue](/zh-cn/docs/installation)。
 - 集群 [已配置配额](/zh-cn/docs/tasks/manage/administer_cluster_quotas)，并在 `ClusterQueue` 包含了 DRA 资源。
