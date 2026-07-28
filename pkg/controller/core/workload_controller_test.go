@@ -20,6 +20,7 @@ import (
 	"context"
 	stderrors "errors"
 	"fmt"
+	"maps"
 	"strings"
 	"testing"
 	"time"
@@ -1004,8 +1005,14 @@ func TestReconcile(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadQuotaReserved,
 					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadInadmissible,
+					Reason:  kueue.WorkloadQuotaReservedReasonSuspended,
 					Message: "ClusterQueue cq is inactive",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
 				}).
 				Obj(),
 			wantWorkloadUseMergePatch: utiltestingapi.MakeWorkload("wl", "ns").
@@ -1032,8 +1039,14 @@ func TestReconcile(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadQuotaReserved,
 					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadInadmissible,
+					Reason:  kueue.WorkloadQuotaReservedReasonSuspended,
 					Message: "ClusterQueue cq is inactive",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
 				}).
 				Obj(),
 			wantResult: reconcile.Result{},
@@ -1053,6 +1066,12 @@ func TestReconcile(t *testing.T) {
 					Status:  metav1.ConditionFalse,
 					Reason:  kueue.WorkloadAdmissionGated,
 					Message: "Admission is gated by: example.com/controller1",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
 				}).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
@@ -1082,8 +1101,14 @@ func TestReconcile(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadQuotaReserved,
 					Status:  metav1.ConditionFalse,
-					Reason:  "Pending",
+					Reason:  kueue.WorkloadQuotaReservedReasonPendingEvaluation,
 					Message: "AdmissionGatedBy cleared, waiting for quota reservation",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
 				}).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
@@ -1111,6 +1136,12 @@ func TestReconcile(t *testing.T) {
 					Status:  metav1.ConditionFalse,
 					Reason:  kueue.WorkloadAdmissionGated,
 					Message: "Admission is gated by: example.com/controller1,example.com/controller2",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
 				}).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
@@ -1141,6 +1172,12 @@ func TestReconcile(t *testing.T) {
 					Reason:  kueue.WorkloadAdmissionGated,
 					Message: "Admission is gated by: example.com/controller1",
 				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
 				Obj(),
 			wantWorkloadUseMergePatch: utiltestingapi.MakeWorkload("wl", "ns").
 				Queue("lq").
@@ -1150,6 +1187,12 @@ func TestReconcile(t *testing.T) {
 					Status:  metav1.ConditionFalse,
 					Reason:  kueue.WorkloadAdmissionGated,
 					Message: "Admission is gated by: example.com/controller1",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
 				}).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
@@ -1173,13 +1216,18 @@ func TestReconcile(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadQuotaReserved,
 					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadInadmissible,
+					Reason:  kueue.WorkloadQuotaReservedReasonSuspended,
 					Message: "ClusterQueue cq is inactive",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
 				}).
 				Obj(),
 			reconcilerOpts: []Option{},
 		},
-
 		"workload with existing controller owner should not be finished": {
 			featureGates: map[featuregate.Feature]bool{
 				features.FinishOrphanedWorkloads: true,
@@ -1201,8 +1249,62 @@ func TestReconcile(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadQuotaReserved,
 					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadInadmissible,
+					Reason:  kueue.WorkloadQuotaReservedReasonMisconfigured,
 					Message: "LocalQueue  doesn't exist",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
+				Obj(),
+		},
+		"inadmissible workload due to missing LocalQueue (observability enabled)": {
+			featureGates: map[featuregate.Feature]bool{
+				features.UnadmittedWorkloadsObservability: true,
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("non-existent-lq").
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("non-existent-lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Message: "LocalQueue non-existent-lq doesn't exist",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
+				Obj(),
+		},
+		"inadmissible workload due to stopped ClusterQueue (observability enabled)": {
+			featureGates: map[featuregate.Feature]bool{
+				features.UnadmittedWorkloadsObservability: true,
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).StopPolicy(kueue.HoldAndDrain).Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonSuspended,
+					Message: "ClusterQueue cq is inactive",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
 				}).
 				Obj(),
 		},
@@ -1211,15 +1313,57 @@ func TestReconcile(t *testing.T) {
 }
 
 func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fakeClock *testingclock.FakeClock) {
+	scenarios := []map[featuregate.Feature]bool{
+		{
+			features.WorkloadRequestUseMergePatch:     false,
+			features.UnadmittedWorkloadsObservability: false,
+		},
+		{
+			features.WorkloadRequestUseMergePatch:     false,
+			features.UnadmittedWorkloadsObservability: true,
+		},
+		{
+			features.WorkloadRequestUseMergePatch:     true,
+			features.UnadmittedWorkloadsObservability: false,
+		},
+		{
+			features.WorkloadRequestUseMergePatch:     true,
+			features.UnadmittedWorkloadsObservability: true,
+		},
+	}
+
 	for name, tc := range cases {
-		for _, enabled := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
-				features.SetFeatureGatesDuringTest(t, tc.featureGates)
-				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
+		for _, scenario := range scenarios {
+			// Skip scenarios where the test case overrides the scenario's feature gate value
+			// to avoid running duplicate tests and misreporting the gate values in the subtest name.
+			skip := false
+			for fg, val := range tc.featureGates {
+				if scenarioVal, exists := scenario[fg]; exists && scenarioVal != val {
+					skip = true
+					break
+				}
+			}
+			if skip {
+				continue
+			}
+
+			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t, UnadmittedWorkloadsObservability enabled: %t",
+				name, scenario[features.WorkloadRequestUseMergePatch], scenario[features.UnadmittedWorkloadsObservability]), func(t *testing.T) {
+				fgMap := make(map[featuregate.Feature]bool)
+				maps.Copy(fgMap, scenario)
+				maps.Copy(fgMap, tc.featureGates)
+				features.SetFeatureGatesDuringTest(t, fgMap)
 				features.SetFeatureGateDuringTest(t, features.AdmissionGatedBy, true)
 
 				testWl := tc.workload.DeepCopy()
 				objs := []client.Object{testWl}
+				if testWl.Namespace != "" {
+					objs = append(objs, &corev1.Namespace{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: testWl.Namespace,
+						},
+					})
+				}
 				objs = append(objs, tc.additionalObjects...)
 				for _, rc := range tc.resourceClaims {
 					objs = append(objs, rc)
@@ -1353,14 +1497,23 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 						}
 						t.Fatalf("expected workload to persist")
 					}
+
+					var wantWl *kueue.Workload
 					if features.Enabled(features.WorkloadRequestUseMergePatch) && tc.wantWorkloadUseMergePatch != nil {
-						if diff := cmp.Diff(tc.wantWorkloadUseMergePatch, gotWorkload, workloadCmpOpts...); diff != "" {
-							t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
-						}
+						wantWl = tc.wantWorkloadUseMergePatch.DeepCopy()
 					} else {
-						if diff := cmp.Diff(tc.wantWorkload, gotWorkload, workloadCmpOpts...); diff != "" {
-							t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
-						}
+						wantWl = tc.wantWorkload.DeepCopy()
+					}
+
+					if !features.Enabled(features.UnadmittedWorkloadsObservability) {
+						wantWl.Status.Conditions = utiltesting.AdjustConditionsForDisabledObservabilityInWorkloadController(
+							wantWl.Status.Conditions,
+							apimeta.IsStatusConditionTrue(tc.workload.Status.Conditions, kueue.WorkloadAdmitted),
+						)
+					}
+
+					if diff := cmp.Diff(wantWl, gotWorkload, workloadCmpOpts...); diff != "" {
+						t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
 					}
 				}
 				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {

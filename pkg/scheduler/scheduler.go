@@ -30,7 +30,6 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/events"
@@ -64,9 +63,7 @@ import (
 )
 
 const (
-	errCouldNotAdmitWL                           = "Could not admit Workload and assign flavors in apiserver"
-	errInvalidWLResources                        = "resources validation failed"
-	errLimitRangeConstraintsUnsatisfiedResources = "resources didn't satisfy LimitRange constraints"
+	errCouldNotAdmitWL = "Could not admit Workload and assign flavors in apiserver"
 )
 
 var (
@@ -539,7 +536,10 @@ func (s *Scheduler) waitForPodsReadyIfBlocked(ctx context.Context, log logr.Logg
 	log.V(5).Info("Waiting for all admitted workloads to be in the PodsReady condition")
 	wl := e.Obj.DeepCopy()
 	if err := workload.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
-		reason := workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonWaitingForPodsReady, "Waiting")
+		reason := workload.UnadmittedWorkloadReasonWithFallback(
+			kueue.WorkloadQuotaReservedReasonWaitingForPodsReady,
+			kueue.WorkloadWaiting, //nolint:staticcheck // SA1019: fallback
+		)
 		return workload.UnsetQuotaReservationWithCondition(wl, reason, "waiting for all admitted workloads to be in PodsReady condition", s.clock.Now()), nil
 	}, workload.WithLooseOnApply(), workload.WithRetryOnConflictForPatch()); err != nil {
 		log.Error(err, "Could not update Workload status")
@@ -587,6 +587,7 @@ type entry struct {
 	preemptionTargets    []*preemption.Target
 	clusterQueueSnapshot *schdcache.ClusterQueueSnapshot
 	quotaReservedReason  string
+	skipStatusUpdate     bool
 }
 
 func (e *entry) assignmentUsage(log logr.Logger) workload.Usage {
@@ -613,7 +614,6 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 	var inadmissibleEntries []entry
 	for _, w := range workloads {
 		log := log.WithValues("workload", klog.KObj(w.Obj), "clusterQueue", klog.KRef("", string(w.ClusterQueue)))
-		ns := corev1.Namespace{}
 		e := entry{Info: w}
 		e.clusterQueueSnapshot = snap.ClusterQueue(w.ClusterQueue)
 		if !workload.NeedsSecondPass(w.Obj) && s.cache.IsAdded(w) {
@@ -628,19 +628,17 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 		} else if e.clusterQueueSnapshot == nil {
 			e.inadmissibleMsg = fmt.Sprintf("ClusterQueue %s not found", w.ClusterQueue)
 			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
-		} else if err := s.client.Get(ctx, types.NamespacedName{Name: w.Obj.Namespace}, &ns); err != nil {
-			e.inadmissibleMsg = fmt.Sprintf("Could not obtain workload namespace: %v", err)
-			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
-		} else if !e.clusterQueueSnapshot.NamespaceSelector.Matches(labels.Set(ns.Labels)) {
-			e.inadmissibleMsg = "Workload namespace doesn't match ClusterQueue selector"
-			e.requeueReason = qcache.RequeueReasonNamespaceMismatch
-			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
-		} else if err := workload.ValidateResources(&w); err != nil {
-			e.inadmissibleMsg = fmt.Sprintf("%s: %v", errInvalidWLResources, err.ToAggregate())
-			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
-		} else if err := workload.ValidateLimitRange(ctx, s.client, &w); err != nil {
-			e.inadmissibleMsg = fmt.Sprintf("%s: %v", errLimitRangeConstraintsUnsatisfiedResources, err.ToAggregate())
-			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
+		} else if err := workload.ValidateAdmissibility(ctx, s.client, &w, e.clusterQueueSnapshot.NamespaceSelector); err != nil {
+			e.inadmissibleMsg = err.Error()
+			if errors.Is(err, workload.ErrInternal) {
+				log.Error(err, "Failed to validate workload admissibility")
+				e.skipStatusUpdate = true
+			} else {
+				e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
+				if errors.Is(err, workload.ErrNamespaceMismatch) {
+					e.requeueReason = qcache.RequeueReasonNamespaceMismatch
+				}
+			}
 		} else {
 			assignment, targets := s.getAssignments(log, &e.Info, snap)
 			e.recordAssignment(assignment, targets)
@@ -1038,6 +1036,10 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 	log.V(2).
 		Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)), "queue", klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName)), "requeueReason", e.requeueReason, "added", added, "status", e.status)
 	if e.status == notNominated || e.status == skipped || e.status == preemptionGated {
+		if e.skipStatusUpdate {
+			log.V(3).Info("Skipping Workload status update", "workload", klog.KObj(e.Obj), "reason", e.inadmissibleMsg)
+			return
+		}
 		wl := e.Obj.DeepCopy()
 		condReason := workload.UnadmittedWorkloadReasonWithFallback(e.quotaReservedReason, "Pending")
 		if err := workload.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
