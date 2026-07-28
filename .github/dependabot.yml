@@ -52,6 +52,8 @@ updates:
       - "/cmd/kueueviz/backend"
       - "/cmd/kueueviz/frontend"
       - "/hack/debugpod"
+      - "/hack/images/distroless"
+      - "/hack/images/golang"
       - "/hack/releasing/krew-release-bot"
       - "/hack/testing/agnhost"
       - "/hack/testing/cypress"

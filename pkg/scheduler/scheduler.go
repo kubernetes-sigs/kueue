@@ -555,7 +555,8 @@ func (s *Scheduler) waitForPodsReadyIfBlocked(ctx context.Context, log logr.Logg
 	if err := workloadpatching.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
 		reason := workload.UnadmittedWorkloadReasonWithFallback(
 			kueue.WorkloadQuotaReservedReasonWaitingForPodsReady,
-			kueue.WorkloadWaiting, //nolint:staticcheck // SA1019: fallback
+			//nolint:staticcheck // SA1019: intentional deprecated fallback
+			kueue.WorkloadWaiting,
 		)
 		return workload.UnsetQuotaReservationWithCondition(wl, reason, "waiting for all admitted workloads to be in PodsReady condition", s.clock.Now()), nil
 	}, workloadpatching.WithLooseOnApply(), workloadpatching.WithRetryOnConflict()); err != nil {
@@ -983,10 +984,14 @@ func makeIterator(ctx context.Context, entries []entry, workloadOrdering workloa
 }
 
 // classicalIterator returns entries ordered on:
-// 1. request under nominal quota before borrowing.
-// 2. Fair Sharing: lower DominantResourceShare first.
-// 3. higher priority first.
+// 1. entries with quota already reserved first, as such workloads may
+// be considered for a second pass.
+// 2. request under nominal quota before borrowing.
+// 3. higher priority first, when PrioritySortingWithinCohort is enabled.
 // 4. FIFO on eviction or creation timestamp.
+//
+// Ordering on DominantResourceShare when Fair Sharing is enabled is
+// implemented separately by fairSharingIterator.
 type classicalIterator struct {
 	entries []entry
 }

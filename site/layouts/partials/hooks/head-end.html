@@ -1,1 +1,17 @@
 <link href="/pagefind/pagefind-ui.css" rel="stylesheet">
+{{ if .Site.Params.ui.showLightDarkModeMenu -}}
+{{/* Apply the color mode before first paint to avoid a light-theme flash.
+     Mirrors Docsy's dark-mode.js (bundled in main.js, loaded at body end),
+     including its `td-color-theme` localStorage key. */ -}}
+<script>
+  (() => {
+    try {
+      const theme = localStorage.getItem('td-color-theme');
+      document.documentElement.setAttribute('data-bs-theme',
+        theme === 'light' || theme === 'dark'
+          ? theme
+          : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+    } catch (e) { /* no-op: default (light) styling applies */ }
+  })();
+</script>
+{{ end -}}

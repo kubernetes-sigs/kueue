@@ -99,6 +99,25 @@ var _ = ginkgo.Describe("Job Webhook With manageJobsWithoutQueueName enabled", f
 		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 	})
 
+	ginkgo.It("Should not inject default queue label for a Job in an unmanaged namespace", func() {
+		defaultLq := utiltestingapi.MakeLocalQueue("default", unmanagedNs.Name).ClusterQueue("cluster-queue").Obj()
+		util.MustCreate(ctx, k8sClient, defaultLq)
+		ginkgo.DeferCleanup(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultLq, true)
+		})
+
+		j := testingjob.MakeJob("job-default-lq-unmanaged", unmanagedNs.Name).Suspend(false).Obj()
+		util.MustCreate(ctx, k8sClient, j)
+
+		lookupKey := types.NamespacedName{Name: j.Name, Namespace: j.Namespace}
+		createdJob := &batchv1.Job{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+			g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(new(false)))
+			g.Expect(createdJob.Labels).ShouldNot(gomega.HaveKey(constants.QueueLabel))
+		}, util.ShortTimeout, util.ShortInterval).Should(gomega.Succeed())
+	})
+
 	ginkgo.It("Should not update unsuspend Job successfully when adding queue name", func() {
 		job := testingjob.MakeJob("job-without-queue-name", ns.Name).Suspend(false).Obj()
 		util.MustCreate(ctx, k8sClient, job)

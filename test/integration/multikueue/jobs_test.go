@@ -2151,6 +2151,111 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		})
 	})
 
+	ginkgo.It("Should keep a replaced elastic-job slice's worker objects when normalizeActiveSlices finishes it", func() {
+		manager := managerTestCluster
+		worker1 := worker1TestCluster
+
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
+
+		jobGVK := batchv1.SchemeGroupVersion.WithKind("Job")
+
+		job := testingjob.MakeJob("job", managerNs.Name).
+			Parallelism(1).
+			Completions(2).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Queue(kueue.LocalQueueName(managerLq.Name)).
+			Obj()
+		util.MustCreate(manager.ctx, manager.client, job)
+
+		// sliceKey refreshes the job and returns the current slice's workload key.
+		// Elastic slice names embed the job generation, so scaling up yields a new key.
+		sliceKey := func() types.NamespacedName {
+			ginkgo.GinkgoHelper()
+			gomega.Expect(manager.client.Get(manager.ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+			return types.NamespacedName{Name: jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration(job.Name, job.UID, jobGVK, job.GetGeneration()), Namespace: job.Namespace}
+		}
+
+		ginkgo.By("observe: the old workload slice is created in the manager cluster")
+		oldWorkloadKey := sliceKey()
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(manager.client.Get(manager.ctx, oldWorkloadKey, &kueue.Workload{})).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		// This suite does not run a scheduler, so the steps a scheduler would perform
+		// (reserving quota to admit a slice) are emulated with SetQuotaReservation.
+		ginkgo.By("emulate the scheduler reserving quota for the old slice on the manager cluster", func() {
+			util.SetQuotaReservation(manager.ctx, manager.client, oldWorkloadKey,
+				utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).Obj())
+		})
+
+		ginkgo.By("emulate the scheduler reserving quota for the old slice on the worker1 cluster, and observe it is dispatched there", func() {
+			util.SetQuotaReservation(worker1.ctx, worker1.client, oldWorkloadKey,
+				utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).Obj())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker1.client.Get(worker1.ctx, oldWorkloadKey, &kueue.Workload{})).To(gomega.Succeed())
+				g.Expect(worker1.client.Get(worker1.ctx, client.ObjectKeyFromObject(job), &batchv1.Job{})).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("scale-up the job so a replacement slice is created", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(manager.client.Get(manager.ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+				job.Spec.Parallelism = new(int32(2))
+				g.Expect(manager.client.Update(manager.ctx, job)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("observe: the replacement slice is created in the manager cluster")
+		newWorkloadKey := sliceKey()
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(manager.client.Get(manager.ctx, newWorkloadKey, &kueue.Workload{})).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("observe: both the old and the replacement slice exist in the manager cluster", func() {
+			list := &kueue.WorkloadList{}
+			gomega.Expect(manager.client.List(manager.ctx, list, client.InNamespace(job.Namespace))).To(gomega.Succeed())
+			gomega.Expect(list.Items).To(gomega.HaveLen(2))
+		})
+
+		ginkgo.By("emulate the scheduler admitting the replacement slice (clusterName + quota reservation), but leave the old slice for normalizeActiveSlices to finish", func() {
+			oldWorkload := &kueue.Workload{}
+			gomega.Expect(manager.client.Get(manager.ctx, oldWorkloadKey, oldWorkload)).To(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				newWorkload := &kueue.Workload{}
+				g.Expect(manager.client.Get(manager.ctx, newWorkloadKey, newWorkload)).To(gomega.Succeed())
+				newWorkload.Status.ClusterName = oldWorkload.Status.ClusterName
+				g.Expect(manager.client.Status().Update(manager.ctx, newWorkload)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.SetQuotaReservation(manager.ctx, manager.client, newWorkloadKey,
+				utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).Obj())
+		})
+
+		ginkgo.By("observe: normalizeActiveSlices finishes the old slice with reason WorkloadSliceReplaced (not OutOfSync)", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				oldWorkload := &kueue.Workload{}
+				g.Expect(manager.client.Get(manager.ctx, oldWorkloadKey, oldWorkload)).To(gomega.Succeed())
+				finished := apimeta.FindStatusCondition(oldWorkload.Status.Conditions, kueue.WorkloadFinished)
+				g.Expect(finished).NotTo(gomega.BeNil())
+				g.Expect(finished.Status).To(gomega.Equal(metav1.ConditionTrue))
+				g.Expect(finished.Reason).To(gomega.Equal(kueue.WorkloadSliceReplaced))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("observe: the replaced slice's worker1 objects are kept during the handover (not deleted by MultiKueue)", func() {
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(worker1.client.Get(worker1.ctx, oldWorkloadKey, &kueue.Workload{})).To(gomega.Succeed())
+				remoteJob := &batchv1.Job{}
+				g.Expect(worker1.client.Get(worker1.ctx, client.ObjectKeyFromObject(job), remoteJob)).To(gomega.Succeed())
+			}, util.ShortConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+		})
+	})
+
 	ginkgo.It("Should scale an elastic RayCluster on the worker if admitted", func() {
 		manager := managerTestCluster
 		worker1 := worker1TestCluster
