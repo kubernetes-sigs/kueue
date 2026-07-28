@@ -22,7 +22,7 @@ description: >
 
 - 一个正在运行的的 Kubernetes 集群。
 - kubectl 命令行工具可以与集群通信。
-- [Kueue 已安装](/zh-cn/docs/installation).
+- [已安装 Kueue](/zh-cn/docs/installation)。
 - 集群 [已配置配额](/zh-cn/docs/tasks/manage/administer_cluster_quotas)，并在 `ClusterQueue` 包含了 DRA 资源。
 - 你的管理员已经 [在 Kueue 中设置了 DRA 的支持](/zh-cn/docs/tasks/manage/setup_dra)。
 
@@ -46,9 +46,9 @@ user-queue   cluster-queue   0
 ## 1. 定义工作负载
 
 使用 DRA 设备运行工作负载与[运行一个常规 Job](/zh-cn/docs/tasks/run/jobs) 类似。
-你必须设置 `kueue.x-k8s.io/queue-name` 标签，以选择要将工作负载提交到哪个 `LocalQueue`。
+你必须设置 `kueue.x-k8s.io/queue-name` 标签以便选择要将工作负载提交到哪个 `LocalQueue`。
 
-根据管理员如何配置集群，有两种请求 DRA 设备的方法。请选择与你的设置相匹配的方法。
+根据管理员配置集群方式的不同，有两种请求 DRA 设备的方法。请选择与你的设置相匹配的方法。
 
 ### 使用 ResourceClaimTemplate
 
