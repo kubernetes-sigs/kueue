@@ -1240,87 +1240,6 @@ func TestComparePodSetCounts(t *testing.T) {
 	}
 }
 
-func TestParsePodSetReplicaSizes(t *testing.T) {
-	testCases := map[string]struct {
-		annotation string
-		wantCounts map[kueue.PodSetReference]int32
-		wantErr    bool
-	}{
-		"empty annotation": {
-			annotation: "",
-			wantCounts: map[kueue.PodSetReference]int32{},
-		},
-		"valid annotation": {
-			annotation: `[{"name":"head","count":1},{"name":"worker","count":3}]`,
-			wantCounts: map[kueue.PodSetReference]int32{
-				"head":   1,
-				"worker": 3,
-			},
-		},
-		"single podset": {
-			annotation: `[{"name":"head","count":1}]`,
-			wantCounts: map[kueue.PodSetReference]int32{
-				"head": 1,
-			},
-		},
-		"invalid json": {
-			annotation: `invalid`,
-			wantErr:    true,
-		},
-	}
-
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			got, err := ParsePodSetReplicaSizes(tc.annotation)
-			if (err != nil) != tc.wantErr {
-				t.Fatalf("ParsePodSetReplicaSizes() error = %v, wantErr %v", err, tc.wantErr)
-			}
-			if !tc.wantErr {
-				if diff := cmp.Diff(tc.wantCounts, got); diff != "" {
-					t.Errorf("ParsePodSetReplicaSizes() mismatch (-want +got):\n%s", diff)
-				}
-			}
-		})
-	}
-}
-
-func TestSerializePodSetCounts(t *testing.T) {
-	testCases := map[string]struct {
-		podSets  []kueue.PodSet
-		wantJSON string
-	}{
-		"single podset": {
-			podSets: []kueue.PodSet{
-				{Name: "head", Count: 1},
-			},
-			wantJSON: `[{"name":"head","count":1}]`,
-		},
-		"multiple podsets": {
-			podSets: []kueue.PodSet{
-				{Name: "head", Count: 1},
-				{Name: "worker", Count: 5},
-			},
-			wantJSON: `[{"name":"head","count":1},{"name":"worker","count":5}]`,
-		},
-		"empty podsets": {
-			podSets:  []kueue.PodSet{},
-			wantJSON: `[]`,
-		},
-	}
-
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			got, err := SerializePodSetCounts(tc.podSets)
-			if err != nil {
-				t.Fatalf("SerializePodSetCounts() unexpected error: %v", err)
-			}
-			if string(got) != tc.wantJSON {
-				t.Errorf("SerializePodSetCounts() = %s, want %s", string(got), tc.wantJSON)
-			}
-		})
-	}
-}
-
 func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 	testCases := map[string]struct {
 		annotations      map[string]string
@@ -1354,8 +1273,7 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 			registerRayType:  true,
 			createRayCluster: true,
 			wantAnnotation: map[string]string{
-				RayClusterGenerationAnnotation:         "0",
-				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"worker","count":3}]`,
+				RayClusterGenerationAnnotation: "0",
 			},
 		},
 		"standalone raycluster does not track its own generation": {
@@ -1370,14 +1288,11 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 			registerRayType:  true,
 			createRayCluster: true,
 			standalone:       true,
-			wantAnnotation: map[string]string{
-				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"worker","count":3}]`,
-			},
+			wantAnnotation:   nil,
 		},
 		"returns annotations even when counts match existing annotation": {
 			annotations: map[string]string{
-				workloadslicing.EnabledAnnotationKey:   workloadslicing.EnabledAnnotationValue,
-				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"worker","count":3}]`,
+				workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
 			},
 			podSets: []kueue.PodSet{
 				{Name: "head", Count: 1},
@@ -1387,14 +1302,12 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 			registerRayType:  true,
 			createRayCluster: true,
 			wantAnnotation: map[string]string{
-				RayClusterGenerationAnnotation:         "0",
-				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"worker","count":3}]`,
+				RayClusterGenerationAnnotation: "0",
 			},
 		},
 		"updated when counts differ": {
 			annotations: map[string]string{
-				workloadslicing.EnabledAnnotationKey:   workloadslicing.EnabledAnnotationValue,
-				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"worker","count":3}]`,
+				workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
 			},
 			podSets: []kueue.PodSet{
 				{Name: "head", Count: 1},
@@ -1404,8 +1317,7 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 			registerRayType:  true,
 			createRayCluster: true,
 			wantAnnotation: map[string]string{
-				RayClusterGenerationAnnotation:         "0",
-				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"worker","count":5}]`,
+				RayClusterGenerationAnnotation: "0",
 			},
 		},
 		"raycluster not found returns annotations with empty generation": {
@@ -1419,8 +1331,7 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 			rayClusterName:  "nonexistent-raycluster",
 			registerRayType: true,
 			wantAnnotation: map[string]string{
-				RayClusterGenerationAnnotation:         "",
-				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"worker","count":3}]`,
+				RayClusterGenerationAnnotation: "",
 			},
 		},
 		"other get error returns error": {
@@ -1470,7 +1381,7 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 				jobObject = &corev1.ConfigMap{ObjectMeta: *obj}
 			}
 
-			got, err := GetWorkloadslicingRayClusterCustomAnnotations(t.Context(), c, jobObject, tc.podSets, tc.rayClusterName)
+			got, err := GetWorkloadslicingRayClusterCustomAnnotations(t.Context(), c, jobObject, tc.rayClusterName)
 			if tc.wantErr {
 				if err == nil {
 					t.Fatalf("GetWorkloadslicingCustomAnnotations() expected error but got nil")

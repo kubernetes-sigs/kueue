@@ -18,7 +18,6 @@ package raycluster
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -46,11 +45,6 @@ import (
 )
 
 const (
-	// RayClusterPodsetReplicaSizesAnnotation is set on the job when autoscaling causes
-	// PodSet replica sizes to differ from the original spec. The value is a JSON
-	// array compatible with []kueue.PodSet, containing only the changed PodSets.
-	// This annotation is alpha-level enabled by the ElasticJobsViaWorkloadSlices.
-	RayClusterPodsetReplicaSizesAnnotation = "kueue.x-k8s.io/raycluster-podset-replica-sizes"
 	// RayClusterGenerationAnnotation is set on the job when autoscaling causes
 	// PodSet replica sizes to differ from the original spec. The value is the generation of
 	// the RayCluster.
@@ -400,33 +394,7 @@ func ComparePodSetCounts(podSets []kueue.PodSet, referenceCounts map[kueue.PodSe
 	return false
 }
 
-// ParsePodSetReplicaSizes parses the PodsetReplicaSizesAnnotation value into a map.
-// Returns an empty map if the annotation is absent or empty.
-func ParsePodSetReplicaSizes(annotation string) (map[kueue.PodSetReference]int32, error) {
-	counts := make(map[kueue.PodSetReference]int32)
-	if annotation == "" {
-		return counts, nil
-	}
-	var podSets []jobframework.PodSetReplicaSize
-	if err := json.Unmarshal([]byte(annotation), &podSets); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal %s annotation: %w", RayClusterPodsetReplicaSizesAnnotation, err)
-	}
-	for _, ps := range podSets {
-		counts[ps.Name] = ps.Count
-	}
-	return counts, nil
-}
-
-// SerializePodSetCounts converts PodSets into a JSON byte slice of podSetReplicaSize entries.
-func SerializePodSetCounts(podSets []kueue.PodSet) ([]byte, error) {
-	sizes := make([]jobframework.PodSetReplicaSize, len(podSets))
-	for i, ps := range podSets {
-		sizes[i] = jobframework.PodSetReplicaSize{Name: ps.Name, Count: ps.Count}
-	}
-	return json.Marshal(sizes)
-}
-
-func GetWorkloadslicingRayClusterCustomAnnotations(ctx context.Context, c client.Client, jobObject client.Object, podSets []kueue.PodSet, rayClusterName string) (map[string]string, error) {
+func GetWorkloadslicingRayClusterCustomAnnotations(ctx context.Context, c client.Client, jobObject client.Object, rayClusterName string) (map[string]string, error) {
 	if workloadslicing.Enabled(jobObject) {
 		log := ctrl.LoggerFrom(ctx)
 
@@ -452,17 +420,9 @@ func GetWorkloadslicingRayClusterCustomAnnotations(ctx context.Context, c client
 			}
 		}
 
-		podSetsJSON, err := SerializePodSetCounts(podSets)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal updated podsets: %w", err)
-		}
-		annotations := map[string]string{
-			RayClusterPodsetReplicaSizesAnnotation: string(podSetsJSON),
-		}
 		if includeRayClusterGeneration {
-			annotations[RayClusterGenerationAnnotation] = rayClusterGeneration
+			return map[string]string{RayClusterGenerationAnnotation: rayClusterGeneration}, nil
 		}
-		return annotations, nil
 	}
 	return nil, nil
 }
