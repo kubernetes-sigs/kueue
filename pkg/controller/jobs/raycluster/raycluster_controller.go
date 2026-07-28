@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -104,7 +105,19 @@ func (j *RayCluster) PodLabelSelector() string {
 }
 
 func (j *RayCluster) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, error) {
-	return BuildPodSets(&j.Spec, j.Annotations)
+	podSets, err := BuildPodSets(&j.Spec, j.Annotations)
+	if err != nil {
+		return nil, err
+	}
+	// On a MultiKueue manager an autoscaling RayCluster's worker replicas are
+	// owned by the worker cluster: the manager spec keeps the user-declared
+	// values and the live per-group counts are reflected here as an annotation
+	// by the MultiKueue workload controller. Non-autoscaling scaling edits the
+	// spec directly, so BuildPodSets already reflects it.
+	if isManagedByMultiKueue(j.Object()) && ptr.Deref(j.Spec.EnableInTreeAutoscaling, false) {
+		podSets = applyRuntimeCountsAnnotation(ctrl.LoggerFrom(ctx), podSets, j.Object())
+	}
+	return podSets, nil
 }
 
 func (j *RayCluster) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSetsInfo []podset.PodSetInfo) error {

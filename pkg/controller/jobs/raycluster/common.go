@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -424,8 +425,13 @@ func ComparePodSetCounts(podSets []kueue.PodSet, referenceCounts map[kueue.PodSe
 // isManagedByMultiKueue reports whether the job is the manager cluster's copy
 // of a MultiKueue-dispatched job. Worker copies have spec.managedBy cleared.
 func isManagedByMultiKueue(object client.Object) bool {
-	rj, ok := object.(*rayv1.RayJob)
-	return ok && ptr.Deref(rj.Spec.ManagedBy, "") == kueue.MultiKueueControllerName
+	switch o := object.(type) {
+	case *rayv1.RayJob:
+		return ptr.Deref(o.Spec.ManagedBy, "") == kueue.MultiKueueControllerName
+	case *rayv1.RayCluster:
+		return ptr.Deref(o.Spec.ManagedBy, "") == kueue.MultiKueueControllerName
+	}
+	return false
 }
 
 // applyRuntimeCountsAnnotation overrides worker-group PodSet counts from the
@@ -483,6 +489,62 @@ func WorkerGroupPodCounts(spec *rayv1.RayClusterSpec) map[kueue.PodSetReference]
 		counts[kueue.NewPodSetReference(wgs.GroupName)] = effectiveWorkerCount(wgs)
 	}
 	return counts
+}
+
+// RetainWorkerCountsWithinBounds drops any per-group count that falls outside
+// the declared [MinReplicas, MaxReplicas] of the matching worker group in
+// workerGroups, or whose group is absent from workerGroups.
+//
+// The counts originate from a RayCluster on the worker cluster, which sits
+// across a cluster trust boundary. A count the in-tree autoscaler could not
+// have produced (outside the manager-declared bounds) must not be reflected
+// onto the manager, where it would inflate the admitted PodSet counts and thus
+// the reserved quota.
+func RetainWorkerCountsWithinBounds(counts map[kueue.PodSetReference]int32, workerGroups []rayv1.WorkerGroupSpec) map[kueue.PodSetReference]int32 {
+	type bounds struct{ min, max int32 }
+	declared := make(map[kueue.PodSetReference]bounds, len(workerGroups))
+	for i := range workerGroups {
+		wgs := &workerGroups[i]
+		declared[kueue.NewPodSetReference(wgs.GroupName)] = bounds{
+			min: ptr.Deref(wgs.MinReplicas, 0),
+			max: ptr.Deref(wgs.MaxReplicas, math.MaxInt32),
+		}
+	}
+	retained := make(map[kueue.PodSetReference]int32, len(counts))
+	for name, count := range counts {
+		if b, ok := declared[name]; !ok || count < b.min || count > b.max {
+			continue
+		}
+		retained[name] = count
+	}
+	return retained
+}
+
+// SetRuntimeWorkerStateAnnotations records the worker-side runtime replica
+// counts (clamped to the declared bounds of workerGroups) and a revision on the
+// manager object as annotations: MultiKueueRuntimePodSetReplicaSizesAnnotation
+// feeds the manager's PodSet derivation and RayClusterGenerationAnnotation feeds
+// the elastic workload-slice name. Equality is decided on the counts alone, so
+// count-neutral revision bumps do not mint replacement slices. Returns whether
+// any annotation changed.
+func SetRuntimeWorkerStateAnnotations(obj client.Object, counts map[kueue.PodSetReference]int32, revision string, workerGroups []rayv1.WorkerGroupSpec) bool {
+	serialized, err := SerializeWorkerGroupCounts(RetainWorkerCountsWithinBounds(counts, workerGroups))
+	if err != nil {
+		// Counts are plain name/count pairs; serialization cannot realistically
+		// fail, but never propagate a broken value.
+		return false
+	}
+	annotations := obj.GetAnnotations()
+	if annotations[MultiKueueRuntimePodSetReplicaSizesAnnotation] == serialized {
+		return false
+	}
+	if annotations == nil {
+		annotations = make(map[string]string, 2)
+	}
+	annotations[MultiKueueRuntimePodSetReplicaSizesAnnotation] = serialized
+	annotations[RayClusterGenerationAnnotation] = revision
+	obj.SetAnnotations(annotations)
+	return true
 }
 
 // SerializeWorkerGroupCounts serializes per-group counts into the JSON format of

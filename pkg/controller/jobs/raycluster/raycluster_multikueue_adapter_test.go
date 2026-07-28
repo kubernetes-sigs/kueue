@@ -353,10 +353,10 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		// With in-tree autoscaling the worker is the source of truth: an
-		// autoscaler-driven scale-up on the remote copy (3 replicas) is written
-		// back onto the manager's RayCluster (which was at 1), so the manager's
-		// slicing machinery can re-reserve quota. The worker copy is left
-		// untouched by this reconcile.
+		// autoscaler-driven scale-up on the remote copy (3 replicas) is reflected
+		// onto the manager's RayCluster as a runtime annotation (its spec stays at
+		// the declared 1), so the manager's slicing machinery can re-reserve
+		// quota. The worker copy is left untouched by this reconcile.
 		"autoscaling elastic sync writes the worker's autoscaled replicas back to the manager": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.WorkloadIdentifierAnnotations: false},
 			managersRayClusters: []rayv1.RayCluster{
@@ -380,7 +380,9 @@ func TestMultiKueueAdapter(t *testing.T) {
 			wantManagersRayClusters: []rayv1.RayCluster{
 				*elasticBuilder.Clone().
 					WithEnableAutoscaling(new(true)).
-					FirstWorkerGroupReplicas(3, 1, 5).
+					FirstWorkerGroupReplicas(1, 1, 5).
+					SetAnnotation(MultiKueueRuntimePodSetReplicaSizesAnnotation, `[{"name":"workers-group-0","count":3}]`).
+					SetAnnotation(RayClusterGenerationAnnotation, "-0").
 					Obj(),
 			},
 			wantWorkerRayClusters: []rayv1.RayCluster{
@@ -433,7 +435,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		// A remote replica count outside the manager-declared [min, max] cannot
-		// come from the autoscaler and must not reach the manager's spec.
+		// come from the autoscaler and is dropped, so the reflected annotation is
+		// empty and the manager's admitted counts are unaffected.
 		"autoscaling elastic sync ignores out-of-bounds remote replicas": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.WorkloadIdentifierAnnotations: false},
 			managersRayClusters: []rayv1.RayCluster{
@@ -458,6 +461,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*elasticBuilder.Clone().
 					WithEnableAutoscaling(new(true)).
 					FirstWorkerGroupReplicas(1, 1, 5).
+					SetAnnotation(MultiKueueRuntimePodSetReplicaSizesAnnotation, `[]`).
+					SetAnnotation(RayClusterGenerationAnnotation, "-0").
 					Obj(),
 			},
 			wantWorkerRayClusters: []rayv1.RayCluster{

@@ -929,7 +929,11 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						createdRayCluster := &rayv1.RayCluster{}
 						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(raycluster), createdRayCluster)).To(gomega.Succeed())
-						g.Expect(ptr.Deref(createdRayCluster.Spec.WorkerGroupSpecs[0].Replicas, -1)).To(gomega.BeEquivalentTo(int32(2)))
+						// The manager spec keeps the user-declared replicas; the autoscaled
+						// count is reflected as a runtime annotation that feeds the manager's
+						// admitted PodSet counts.
+						g.Expect(createdRayCluster.Annotations).To(gomega.HaveKeyWithValue(
+							workloadraycluster.MultiKueueRuntimePodSetReplicaSizesAnnotation, `[{"name":"workers-group-0","count":2}]`))
 						g.Expect(createdRayCluster.Status.DesiredWorkerReplicas).To(gomega.Equal(int32(2)))
 					}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 				})
@@ -956,7 +960,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						createdRayCluster := &rayv1.RayCluster{}
 						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(raycluster), createdRayCluster)).To(gomega.Succeed())
-						g.Expect(ptr.Deref(createdRayCluster.Spec.WorkerGroupSpecs[0].Replicas, -1)).To(gomega.BeEquivalentTo(int32(1)))
+						g.Expect(createdRayCluster.Annotations).To(gomega.HaveKeyWithValue(
+							workloadraycluster.MultiKueueRuntimePodSetReplicaSizesAnnotation, `[{"name":"workers-group-0","count":1}]`))
 						g.Expect(createdRayCluster.Status.DesiredWorkerReplicas).To(gomega.Equal(int32(1)))
 					}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 				})
