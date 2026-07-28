@@ -43,7 +43,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/queue"
-	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -1170,11 +1169,6 @@ func (c *Cache) ResyncGaugeMetrics(log logr.Logger) {
 	for _, cohortName := range cohortNames {
 		c.ResyncCohortGaugeMetrics(log, cohortName)
 	}
-}
-
-func resourceFloat(formatter *resources.ResourceFormatter, name corev1.ResourceName, v int64) float64 {
-	q := formatter.ResourceQuantity(name, v)
-	return utilresource.QuantityToFloat(&q)
 }
 
 // Key is the key used to index the queue.
