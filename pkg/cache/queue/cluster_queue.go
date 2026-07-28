@@ -67,6 +67,20 @@ const (
 	RequeueReasonPreemptionNoCandidates RequeueReason = "PreemptionNoCandidates"
 )
 
+// QuotaReservedReason represents the reason for the WorkloadQuotaReserved condition
+// computed by the scheduler or queue manager during evaluation.
+type QuotaReservedReason string
+
+const (
+	QuotaReservedReasonGeneric                      QuotaReservedReason = ""
+	QuotaReservedReasonPendingEvaluation            QuotaReservedReason = kueue.WorkloadQuotaReservedReasonPendingEvaluation
+	QuotaReservedReasonWaitingForQuota              QuotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForQuota
+	QuotaReservedReasonWaitingForPreemptedWorkloads QuotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
+	QuotaReservedReasonSuspended                    QuotaReservedReason = kueue.WorkloadQuotaReservedReasonSuspended
+	QuotaReservedReasonMisconfigured                QuotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
+	QuotaReservedReasonAdmissionGated               QuotaReservedReason = kueue.WorkloadAdmissionGated
+)
+
 var (
 	realClock = clock.RealClock{}
 )
@@ -138,9 +152,10 @@ type ClusterQueue struct {
 	// inadmissibleWorkloads are workloads that have been tried at least once and couldn't be admitted.
 	inadmissibleWorkloads inadmissibleWorkloads
 
-	// noFitSchedulingHashes tracks scheduling equivalence classes that received
-	// NoFit or PreemptionNoCandidates. Cleared when queueInadmissibleWorkloads runs.
-	noFitSchedulingHashes sets.Set[string]
+	// hashToBulkMoveReason tracks scheduling equivalence classes and the reason
+	// why workloads with that hash were bulk-moved to inadmissibleWorkloads.
+	// Cleared when queueInadmissibleWorkloads runs.
+	hashToBulkMoveReason map[string]QuotaReservedReason
 
 	finishedWorkloads sets.Set[workload.Reference]
 
@@ -271,7 +286,7 @@ func newClusterQueueImpl(ctx context.Context, client client.Client, wo workload.
 	return &ClusterQueue{
 		heap:                      *heap.New(workloadKey, lessFunc),
 		inadmissibleWorkloads:     make(inadmissibleWorkloads),
-		noFitSchedulingHashes:     sets.New[string](),
+		hashToBulkMoveReason:      make(map[string]QuotaReservedReason),
 		finishedWorkloads:         sets.New[workload.Reference](),
 		queueInadmissibleCycle:    -1,
 		compareFunc:               compareFunc,
@@ -400,11 +415,13 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 		c.insertInadmissible(key, wInfo)
 		return
 	}
-	// Skip to inadmissible if the workload's equivalence class is already known to be NoFit
+	// Skip to inadmissible if the workload's equivalence class was already bulk-moved to inadmissible
 	// (only for BestEffortFIFO; StrictFIFO preserves strict ordering).
-	if c.queueingStrategy == kueue.BestEffortFIFO && c.heap.GetByKey(key) == nil && wInfo.SchedulingHash != workload.SchedulingHashUnknown && c.noFitSchedulingHashes.Has(wInfo.SchedulingHash) {
-		c.insertInadmissible(key, wInfo)
-		return
+	if c.queueingStrategy == kueue.BestEffortFIFO && c.heap.GetByKey(key) == nil && wInfo.SchedulingHash != workload.SchedulingHashUnknown {
+		if _, has := c.hashToBulkMoveReason[wInfo.SchedulingHash]; has {
+			c.insertInadmissible(key, wInfo)
+			return
+		}
 	}
 	// Subtract the old entry's resources before overwriting; requests may have changed.
 	if oldHeapInfo := c.heap.GetByKey(key); oldHeapInfo != nil {
@@ -429,6 +446,17 @@ func draRequestsChanged(oldInfo, newInfo *workload.Info) bool {
 		return false
 	}
 	return !workload.Semantic.DeepEqual(oldInfo.TotalRequests, newInfo.TotalRequests)
+}
+
+func (c *ClusterQueue) GetNoFitReason(wl workload.Reference) (string, bool) {
+	c.rwm.RLock()
+	defer c.rwm.RUnlock()
+	wlInfo := c.inadmissibleWorkloads.get(wl)
+	if wlInfo == nil {
+		return "", false
+	}
+	reason, ok := c.hashToBulkMoveReason[wlInfo.SchedulingHash]
+	return string(reason), ok
 }
 
 func (c *ClusterQueue) RebuildLocalQueue(lqName string) {
@@ -527,6 +555,19 @@ func (c *ClusterQueue) DeleteFromLocalQueue(log logr.Logger, q *LocalQueue, role
 	reportCQFinishedWorkloads(c, roleTracker, cl)
 }
 
+// resolveQuotaReservedReason returns statusReason if set, or defaults to
+// WorkloadQuotaReservedReasonPendingEvaluation when empty.
+// We do not feature-gate the fallback here because this function only computes
+// the reason string stored in the ClusterQueue's in-memory hashToBulkMoveReason map.
+// Whether status conditions are actually written to the Workload API object is
+// governed by the workload controller (shouldCheckEquivalenceHash).
+func resolveQuotaReservedReason(reason QuotaReservedReason) QuotaReservedReason {
+	if reason == "" {
+		return QuotaReservedReasonPendingEvaluation
+	}
+	return reason
+}
+
 // requeueIfNotPresent inserts a workload that cannot be admitted into
 // ClusterQueue, unless it is already in the queue. If immediate is true
 // or if there was a call to QueueInadmissibleWorkloads after a call to Pop,
@@ -535,7 +576,7 @@ func (c *ClusterQueue) DeleteFromLocalQueue(log logr.Logger, q *LocalQueue, role
 // When SchedulingEquivalenceHashing is enabled and the reason is NoFit or
 // PreemptionNoCandidates, equivalent workloads in the heap are bulk-moved
 // to inadmissible.
-func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info, immediate bool, reason RequeueReason) bool {
+func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info, immediate bool, reason RequeueReason, quotaReservedReason QuotaReservedReason) bool {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	key := workload.Key(wInfo.Obj)
@@ -590,7 +631,7 @@ func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info
 
 	if features.Enabled(features.SchedulingEquivalenceHashing) && wInfo.SchedulingHash != workload.SchedulingHashUnknown &&
 		(reason == RequeueReasonNoFit || reason == RequeueReasonPreemptionNoCandidates) {
-		if moved := c.handleInadmissibleHash(wInfo.SchedulingHash); moved > 0 {
+		if moved := c.handleInadmissibleHash(wInfo.SchedulingHash, resolveQuotaReservedReason(quotaReservedReason)); moved > 0 {
 			log.V(2).Info("Bulk-moved equivalent workloads to inadmissible", "hash", wInfo.SchedulingHash, "movedCount", moved)
 		}
 	}
@@ -608,11 +649,11 @@ func (c *ClusterQueue) forgetInflightByKey(key workload.Reference) {
 // scheduling hash to inadmissibleWorkloads. Returns the number moved.
 // Only applies to BestEffortFIFO queues; in StrictFIFO the head workload
 // stays in the heap and must not cause equivalent workloads to be skipped.
-func (c *ClusterQueue) handleInadmissibleHash(hash string) int {
+func (c *ClusterQueue) handleInadmissibleHash(hash string, reason QuotaReservedReason) int {
 	if c.queueingStrategy != kueue.BestEffortFIFO {
 		return 0
 	}
-	c.noFitSchedulingHashes.Insert(hash)
+	c.hashToBulkMoveReason[hash] = reason
 	moved := 0
 	for _, wInfo := range c.heap.List() {
 		if wInfo.SchedulingHash == hash {
@@ -908,8 +949,12 @@ func (c *ClusterQueue) Active() bool {
 // in the latter case the implementation may choose to keep the workload in "inadmissible workloads"
 // where it doesn't compete with other workloads, until cluster events free up quota.
 // The workload should not be reinserted if it's already in the ClusterQueue.
+// quotaReservedReason represents the WorkloadQuotaReserved condition reason computed by the scheduler.
 // Returns true if the workload was inserted.
-func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.Info, reason RequeueReason) bool {
+func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.Info, reason RequeueReason, quotaReservedReason QuotaReservedReason) bool {
+	// when preemptions are in-progress, we keep attempting to
+	// schedule the same workload for BestEffortFIFO queues. See
+	// documentation of stickyWorkload for more details
 	log := ctrl.LoggerFrom(ctx)
 	var immediate bool
 	if c.queueingStrategy == kueue.StrictFIFO {
@@ -920,7 +965,7 @@ func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.
 			reason == RequeueReasonPendingMigration ||
 			reason == RequeueReasonPreemptionFailed
 	}
-	return c.requeueIfNotPresent(log, wInfo, immediate, reason)
+	return c.requeueIfNotPresent(log, wInfo, immediate, reason, quotaReservedReason)
 }
 
 // baseCompareFunc orders workloads by sticky status, priority, timestamp, and UID.
