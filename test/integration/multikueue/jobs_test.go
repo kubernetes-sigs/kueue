@@ -2252,7 +2252,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				g.Expect(worker1.client.Get(worker1.ctx, oldWorkloadKey, &kueue.Workload{})).To(gomega.Succeed())
 				remoteJob := &batchv1.Job{}
 				g.Expect(worker1.client.Get(worker1.ctx, client.ObjectKeyFromObject(job), remoteJob)).To(gomega.Succeed())
-			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+			}, util.ShortConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 	})
 
