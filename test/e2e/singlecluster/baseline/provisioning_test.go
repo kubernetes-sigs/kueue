@@ -17,6 +17,7 @@ limitations under the License.
 package baseline
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/onsi/ginkgo/v2"
@@ -33,8 +34,8 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
-	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -106,12 +107,13 @@ var _ = ginkgo.Describe("Provisioning admission check", ginkgo.Label("area:singl
 
 			rf1 := utiltestingapi.MakeResourceFlavor(flavor1Name).NodeLabel("zone", "zone-1").Obj()
 			rf2 := utiltestingapi.MakeResourceFlavor(flavor2Name).NodeLabel("zone", "zone-2").Obj()
-			util.MustCreate(ctx, k8sClient, rf1, rf2)
+			util.MustCreate(ctx, k8sClient, rf1)
+			util.MustCreate(ctx, k8sClient, rf2)
 
 			priorityClass := utiltestingapi.MakeWorkloadPriorityClass(priorityClassName).PriorityValue(priorityValue).Obj()
 			util.MustCreate(ctx, k8sClient, priorityClass)
 
-			cq := utiltestingapi.MakeClusterQueue("cluster-queue-" + ns.Name).
+			cq := utiltestingapi.MakeClusterQueue("cluster-queue-"+ns.Name).
 				Preemption(kueue.ClusterQueuePreemption{
 					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 				}).
