@@ -68,25 +68,12 @@ RAYMINI_VERSION ?= 0.0.4
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
 BASE_IMAGE ?= gcr.io/distroless/static:nonroot
 BASE_BUILDER_IMAGE ?= golang
-BUILDER_IMAGE ?= $(BASE_BUILDER_IMAGE):$(GO_VERSION)@sha256:3aff6657219a4d9c14e27fb1d8976c49c29fddb70ba835014f477e1c70636647
+BUILDER_IMAGE ?= $(BASE_BUILDER_IMAGE):$(GO_VERSION)
 CGO_ENABLED ?= 0
 
 YAML_PROCESSOR_LOG_LEVEL ?= info
 
-IMAGE_BUILD_RETRY = $(PROJECT_DIR)/hack/testing/retry.sh \
-	--attempts 7 \
-	--delay 2 \
-	--exponential \
-	--stream \
-	--continue-if "grep -qiE '(context deadline exceeded|unexpected status from HEAD request to .*: 401 Unauthorized)' {output}" \
-	-- env
-
-MAKE_TIMING ?= $(if $(filter 1 true TRUE yes YES on ON,$(CI)),1,0)
-MAKE_TIMING_MIN_SECONDS ?= 1
-MAKE_TIMING_COMMANDS ?= 0
-export MAKE_TIMING
-export MAKE_TIMING_MIN_SECONDS
-export MAKE_TIMING_COMMANDS
+IMAGE_PUSH_RETRY = $(PROJECT_DIR)/hack/testing/retry.sh --attempts 7 --delay 2 --exponential --stream --continue-if "grep -qiE 'context deadline exceeded' {output}" -- env
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # This is a requirement for 'setup-envtest.sh' in the test target.
