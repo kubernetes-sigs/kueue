@@ -213,6 +213,7 @@ jobs:
           go-version-file: 'go.mod'
 
       - name: Check if Release is Already Published
+        id: check_published
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TARGET_REPO: ${{ github.repository }}
@@ -223,8 +224,7 @@ jobs:
 
           if [ "$RELEASE_STATE" = "published" ]; then
             BODY="❌ Release \`$VERSION\` has already been published. Skipping release candidate creation."
-            echo "$BODY"
-            gh issue comment "$ISSUE_NUMBER" --body "$BODY"
+            echo "message=$BODY" >> "$GITHUB_OUTPUT"
             exit 1
           fi
 
@@ -243,6 +243,7 @@ jobs:
           echo "version=${VERSION}-rc.${NEXT_RC}" >> "$GITHUB_OUTPUT"
 
       - name: Create and Push Tag
+        id: tag
         uses: ./.github/actions/create-release-tag
         with:
           version: ${{ steps.rc-version.outputs.version }}
@@ -250,6 +251,7 @@ jobs:
           repo: ${{ github.repository }}
 
       - name: Create Draft Release
+        id: draft
         uses: ./.github/actions/create-draft-release
         with:
           version: ${{ steps.rc-version.outputs.version }}
@@ -258,6 +260,7 @@ jobs:
           prerelease: true
 
       - name: Publish Release
+        id: publish
         uses: ./.github/actions/publish-release
         with:
           version: ${{ steps.rc-version.outputs.version }}
@@ -268,14 +271,15 @@ jobs:
         uses: ./.github/actions/report-result
         with:
           command: ${{ needs.authorize.outputs.command }}
-          message: "✅ Release candidate `${{ steps.rc-version.outputs.version }}` has been created."
+          message: ${{ steps.publish.outputs.message }}
 
       - name: Report Failure
         if: ${{ failure() }}
         uses: ./.github/actions/report-result
         with:
           command: ${{ needs.authorize.outputs.command }}
-          message: "❌ Failed to create release candidate."
+          message: ${{ steps.check_published.outputs.message || steps.tag.outputs.message || steps.draft.outputs.message || steps.publish.outputs.message || '❌ Failed to create release candidate.' }}
+  
   create-release-branch:
     name: Create Release Branch
     runs-on: ubuntu-latest
