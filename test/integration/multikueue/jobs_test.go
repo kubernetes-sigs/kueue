@@ -1926,7 +1926,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 	// admitted the MultiKueue handover completes — the prebuilt label is repointed
 	// and the worker RayCluster keeps the autoscaled size. The worker's jobframework
 	// tolerates the transient scale-up mismatch during the handover instead of
-	// finishing the remote workload OutOfSync (see jobResizeAgainstWorkloadPending).
+	// finishing the remote workload OutOfSync (see hasPendingElasticResize).
 	//
 	// This suite has no running scheduler, so the replacement slice is admitted
 	// manually via SetQuotaReservation, exactly as admitWorkloadAndCheckWorkerCopies

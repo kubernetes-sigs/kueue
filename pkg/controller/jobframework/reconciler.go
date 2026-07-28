@@ -951,12 +951,8 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			return wl, nil
 		}
 
-		// Also tolerate a transient job/slice count mismatch on the worker side
-		// of a MultiKueue elastic resize handover instead of finishing the
-		// workload OutOfSync — see jobResizeAgainstWorkloadPending for why both
-		// directions are safe.
 		if workloadslicing.Enabled(object) {
-			resizePending, err := jobResizeAgainstWorkloadPending(ctx, r.client, job, wl)
+			resizePending, err := hasPendingElasticResize(ctx, r.client, job, wl)
 			if err != nil {
 				return nil, err
 			}
@@ -1223,7 +1219,7 @@ func EnsurePrebuiltWorkloadOwnership(ctx context.Context, c client.Client, wl *k
 	return nil
 }
 
-// jobResizeAgainstWorkloadPending reports whether the elastic job's pod sets
+// hasPendingElasticResize reports whether the elastic job's pod sets
 // have the same keys as its pinned workload slice but at least one count
 // differs — a resize the pinned slice does not reflect yet. It applies only to
 // MultiKueue-dispatched copies (identified by the origin label), because only
@@ -1235,7 +1231,7 @@ func EnsurePrebuiltWorkloadOwnership(ctx context.Context, c client.Client, wl *k
 // update/replacement and prebuilt-label repoint converge. A change that alters
 // the pod set structure (different keys) is not a resize and still fails the
 // in-sync check.
-func jobResizeAgainstWorkloadPending(ctx context.Context, c client.Client, job GenericJob, wl *kueue.Workload) (bool, error) {
+func hasPendingElasticResize(ctx context.Context, c client.Client, job GenericJob, wl *kueue.Workload) (bool, error) {
 	if job.Object().GetLabels()[kueue.MultiKueueOriginLabel] == "" {
 		return false, nil
 	}
