@@ -114,7 +114,7 @@ func (j *RayCluster) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodS
 	// values and the live per-group counts are reflected here as an annotation
 	// by the MultiKueue workload controller. Non-autoscaling scaling edits the
 	// spec directly, so BuildPodSets already reflects it.
-	if isManagedByMultiKueue(j.Object()) && ptr.Deref(j.Spec.EnableInTreeAutoscaling, false) {
+	if ptr.Deref(j.Spec.ManagedBy, "") == kueue.MultiKueueControllerName && ptr.Deref(j.Spec.EnableInTreeAutoscaling, false) {
 		podSets = applyRuntimeCountsAnnotation(ctrl.LoggerFrom(ctx), podSets, j.Object())
 	}
 	return podSets, nil

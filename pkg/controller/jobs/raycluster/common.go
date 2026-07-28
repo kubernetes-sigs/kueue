@@ -425,13 +425,8 @@ func ComparePodSetCounts(podSets []kueue.PodSet, referenceCounts map[kueue.PodSe
 // isManagedByMultiKueue reports whether the job is the manager cluster's copy
 // of a MultiKueue-dispatched job. Worker copies have spec.managedBy cleared.
 func isManagedByMultiKueue(object client.Object) bool {
-	switch o := object.(type) {
-	case *rayv1.RayJob:
-		return ptr.Deref(o.Spec.ManagedBy, "") == kueue.MultiKueueControllerName
-	case *rayv1.RayCluster:
-		return ptr.Deref(o.Spec.ManagedBy, "") == kueue.MultiKueueControllerName
-	}
-	return false
+	rj, ok := object.(*rayv1.RayJob)
+	return ok && ptr.Deref(rj.Spec.ManagedBy, "") == kueue.MultiKueueControllerName
 }
 
 // applyRuntimeCountsAnnotation overrides worker-group PodSet counts from the
