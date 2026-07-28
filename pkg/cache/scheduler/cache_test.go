@@ -3413,6 +3413,32 @@ func TestCohortCycles(t *testing.T) {
 		}
 	})
 
+	t.Run("namespace matching is safe for a clusterqueue whose add failed with cohort cycle", func(t *testing.T) {
+		cache := New(utiltesting.NewFakeClient())
+		ctx, _ := utiltesting.ContextWithLog(t)
+		cohortA := utiltestingapi.MakeCohort("cohort-a").Parent("cohort-b").Obj()
+		if err := cache.AddOrUpdateCohort(cohortA); err != nil {
+			t.Fatal("Expected success as no cycle yet")
+		}
+		cohortB := utiltestingapi.MakeCohort("cohort-b").Parent("cohort-a").Obj()
+		if err := cache.AddOrUpdateCohort(cohortB); err == nil {
+			t.Fatal("Expected failure when cycle")
+		}
+
+		cq := utiltestingapi.MakeClusterQueue("cq").Cohort("cohort-a").Obj()
+		if err := cache.AddClusterQueue(ctx, cq); err == nil {
+			t.Fatal("Expected failure when adding cq to cohort with cycle")
+		}
+
+		// The ClusterQueue stays cached so that a later update can recover it, which
+		// means Namespace events keep matching against it while the cycle exists.
+		wantCQs := sets.New[kueue.ClusterQueueReference]("cq")
+		gotCQs := cache.MatchingClusterQueues(nil)
+		if diff := cmp.Diff(wantCQs, gotCQs); diff != "" {
+			t.Errorf("Wrong ClusterQueues (-want,+got):\n%s", diff)
+		}
+	})
+
 	t.Run("clusterqueue leaving cohort with cycle successfully updates new cohort", func(t *testing.T) {
 		cache := New(utiltesting.NewFakeClient())
 		ctx, log := utiltesting.ContextWithLog(t)
