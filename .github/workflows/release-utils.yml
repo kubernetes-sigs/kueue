@@ -14,6 +14,7 @@ jobs:
     if: |
       github.event.issue.pull_request == null &&
       (contains(github.event.comment.body, '/sync-release-notes') ||
+       contains(github.event.comment.body, '/create-release-candidate') ||
        contains(github.event.comment.body, '/create-release-branch') ||
        contains(github.event.comment.body, '/tag-release') ||
        contains(github.event.comment.body, '/create-draft-release') ||
@@ -76,6 +77,8 @@ jobs:
           COMMAND=""
           if printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/sync-release-notes[[:space:]]*$'; then
             COMMAND="sync-release-notes"
+          elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/create-release-candidate[[:space:]]*$'; then
+            COMMAND="create-release-candidate"
           elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/create-release-branch[[:space:]]*$'; then
             COMMAND="create-release-branch"
           elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/tag-release[[:space:]]*$'; then
@@ -184,7 +187,95 @@ jobs:
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.sync.outputs.message || '❌ Failed to sync release notes.' }}
-  
+
+  create-release-candidate:
+    name: Create Release Candidate
+    runs-on: ubuntu-latest
+    needs: authorize
+    timeout-minutes: 30
+    if: ${{ needs.authorize.outputs.command == 'create-release-candidate' }}
+    env:
+      VERSION: ${{ needs.authorize.outputs.version }}
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: main
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Check if Release is Already Published
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          RELEASE_STATE=$(gh release view "$VERSION" --repo "$TARGET_REPO" --json isDraft \
+            --jq 'if .isDraft then "draft" else "published" end' 2>/dev/null || echo "")
+
+          if [ "$RELEASE_STATE" = "published" ]; then
+            BODY="❌ Release \`$VERSION\` has already been published. Skipping release candidate creation."
+            echo "$BODY"
+            gh issue comment "$ISSUE_NUMBER" --body "$BODY"
+            exit 1
+          fi
+
+      - name: Calculate Release Candidate Version
+        id: rc-version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          LAST_RC=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts=true --limit 1000 --json tagName --jq '.[].tagName' \
+            | grep -oP "(?<=${VERSION}-rc\.)\d+" | sort -n | tail -1)
+          if [ -z "$LAST_RC" ]; then
+            NEXT_RC=0
+          else
+            NEXT_RC=$((LAST_RC + 1))
+          fi
+          echo "version=${VERSION}-rc.${NEXT_RC}" >> "$GITHUB_OUTPUT"
+
+      - name: Create and Push Tag
+        uses: ./.github/actions/create-release-tag
+        with:
+          version: ${{ steps.rc-version.outputs.version }}
+          changelog: ${{ needs.authorize.outputs.changelog }}
+          repo: ${{ github.repository }}
+
+      - name: Create Draft Release
+        uses: ./.github/actions/create-draft-release
+        with:
+          version: ${{ steps.rc-version.outputs.version }}
+          changelog: ${{ needs.authorize.outputs.changelog }}
+          repo: ${{ github.repository }}
+          prerelease: true
+
+      - name: Publish Release
+        uses: ./.github/actions/publish-release
+        with:
+          version: ${{ steps.rc-version.outputs.version }}
+          repo: ${{ github.repository }}
+
+      - name: Report Success
+        if: ${{ success() }}
+        uses: ./.github/actions/report-result
+        with:
+          command: ${{ needs.authorize.outputs.command }}
+          message: "✅ Release candidate `${{ steps.rc-version.outputs.version }}` has been created."
+
+      - name: Report Failure
+        if: ${{ failure() }}
+        uses: ./.github/actions/report-result
+        with:
+          command: ${{ needs.authorize.outputs.command }}
+          message: "❌ Failed to create release candidate."
   create-release-branch:
     name: Create Release Branch
     runs-on: ubuntu-latest
@@ -438,6 +529,7 @@ jobs:
           version: ${{ needs.authorize.outputs.version }}
           changelog: ${{ needs.authorize.outputs.changelog }}
           repo: ${{ github.repository }}
+          prerelease: false
 
       - name: Report Success
         if: ${{ success() }}

@@ -573,14 +573,6 @@ func TestValidateWorkload(t *testing.T) {
 				*utiltestingapi.MakePodSet("main", 1).SubGroupCount(new(int32(0))).Obj(),
 			).Obj(),
 		},
-		"negative subGroupCount is accepted with a warning": {
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
-				*utiltestingapi.MakePodSet("main", 1).SubGroupCount(new(int32(-1))).Obj(),
-			).Obj(),
-			wantWarnings: admission.Warnings{
-				"spec.podSets[0].topologyRequest.subGroupCount: negative value -1 is deprecated and will be rejected in a future release",
-			},
-		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
@@ -1234,17 +1226,6 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
 				Obj(),
 			wantErr: nil,
-		},
-		"negative subGroupCount is accepted with a warning": {
-			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
-				*utiltestingapi.MakePodSet("main", 1).Obj(),
-			).Obj(),
-			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
-				*utiltestingapi.MakePodSet("main", 1).SubGroupCount(new(int32(-1))).Obj(),
-			).Obj(),
-			wantWarnings: admission.Warnings{
-				"spec.podSets[0].topologyRequest.subGroupCount: negative value -1 is deprecated and will be rejected in a future release",
-			},
 		},
 	}
 	for name, tc := range testCases {

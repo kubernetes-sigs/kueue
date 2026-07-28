@@ -11,6 +11,9 @@ inputs:
   repo:
     description: Target repository in owner/name format
     required: true
+  prerelease:
+    description: Mark the release as a pre-release
+    required: true
 
 outputs:
   outcome:
@@ -32,6 +35,7 @@ runs:
         CHANGELOG: ${{ inputs.changelog }}
         ISSUE_NUMBER: ${{ github.event.issue.number }}
         TARGET_REPO: ${{ inputs.repo }}
+        PRERELEASE: ${{ inputs.prerelease }}
       run: |
         RELEASE_STATE=$(gh release view "$VERSION" --repo "$TARGET_REPO" --json isDraft \
             --jq 'if .isDraft then "draft" else "published" end' 2>/dev/null || echo "")
@@ -73,12 +77,18 @@ runs:
         set +e
         echo "Creating \`$VERSION\` release."
         
+        PRERELEASE_FLAG=""
+        if [ "$PRERELEASE" = "true" ]; then
+          PRERELEASE_FLAG="--prerelease"
+        fi
+
         gh release create "$VERSION" \
           --verify-tag \
           --repo "$TARGET_REPO" \
           --title "$VERSION" \
           --notes "$CHANGELOG" \
           --draft \
+          $PRERELEASE_FLAG \
           release-artifacts/*
         RELEASE_EXIT=$?
         set -e
