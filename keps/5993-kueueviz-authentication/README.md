@@ -10,7 +10,7 @@
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
   - [API Changes](#api-changes)
-  - [Authentication Flow](#authentication-flow)
+  - [Authentication and Authorization Flow](#authentication-and-authorization-flow)
   - [Backend Implementation](#backend-implementation)
   - [WebSocket Authentication](#websocket-authentication)
   - [Login Page](#login-page)
@@ -50,27 +50,29 @@ There is no way to safely expose it via Ingress, and no audit trail.
 ### Goals
 
 1. Add optional authentication using Kubernetes TokenReview API
-2. Support bearer token via `Authorization: Bearer <token>` header
-3. Authenticate WebSocket connections at upgrade time
-4. Provide a login page with token input and validation flow
-5. Add metrics for authentication attempts
-6. Minimize manual steps for users when authenticating
+2. Add authorization using Kubernetes SubjectAccessReview API to prevent RBAC bypass
+3. Support bearer token via `Authorization: Bearer <token>` header
+4. Authenticate WebSocket connections at upgrade time
+5. Provide a login page with token input and validation flow
+6. Add metrics for authentication attempts
+7. Minimize manual steps for users when authenticating
 
 ### Non-Goals
 
-1. Authorization (SubjectAccessReview), may be added in a future KEP
-2. Server-side sessions
-3. OAuth2/OIDC integration, users can deploy oauth2-proxy separately
-4. Token refresh, client resposibility
+1. Server-side sessions
+2. OAuth2/OIDC integration, users can deploy oauth2-proxy separately
+3. Token refresh, client responsibility
 
 ## Proposal
 
-Add authentication middleware to KueueViz backend:
+Add authentication and authorization middleware to KueueViz backend:
 
 1. Extract bearer token from request
 2. Validate via Kubernetes TokenReview API
 3. Return HTTP 401 for invalid or missing tokens
 4. Store user info in request context
+5. Authorize access via Kubernetes SubjectAccessReview API based on the extracted user identity
+6. Return HTTP 403 for unauthorized access
 
 ### User Stories
 
@@ -100,20 +102,24 @@ with per-user authentication and audit logging.
 
 None. Changes limited to environment variables and Helm values.
 
-### Authentication Flow
+### Authentication and Authorization Flow
 
 ```text
-Client                    KueueViz Backend         K8s API Server
-  │                             │                        │
-  │ GET /ws/workloads           │                        │
-  │ Authorization: Bearer <t>   │                        │
-  │────────────────────────────>│                        │
-  │                             │ POST tokenreviews      │
-  │                             │───────────────────────>│
-  │                             │ authenticated: true    │
-  │                             │<───────────────────────│
-  │ 200 OK / WS Upgrade         │                        │
-  │<────────────────────────────│                        │
+Client                    KueueViz Backend            K8s API Server
+  │                             │                           │
+  │ GET /ws/workloads           │                           │
+  │ Authorization: Bearer <t>   │                           │
+  │────────────────────────────>│                           │
+  │                             │ POST tokenreviews         │
+  │                             │──────────────────────────>│
+  │                             │ authenticated: true       │
+  │                             │<──────────────────────────│
+  │                             │ POST subjectaccessreviews │
+  │                             │──────────────────────────>│
+  │                             │ allowed: true             │
+  │                             │<──────────────────────────│
+  │ 200 OK / WS Upgrade         │                           │
+  │<────────────────────────────│                           │
 ```
 
 ### Backend Implementation
@@ -123,6 +129,9 @@ Client                    KueueViz Backend         K8s API Server
 Gin middleware that extracts bearer token from `Authorization` header or
 `Sec-WebSocket-Protocol` subprotocol, validates via TokenReview API, and returns HTTP 401
 with `WWW-Authenticate: Bearer` on failure.
+
+An `Authorizer` interface is introduced with a `sarAuthorizer` implementation that performs `SubjectAccessReview` (SAR) checks against the API server.
+The `RequireAuthorization` middleware enforces that the authenticated user has the necessary RBAC permissions (e.g., `get` on `workloads`) before allowing the request, returning HTTP 403 on failure.
 
 Caching protects the API server from excessive TokenReview calls:
 - Successful auth results are cached with configurable TTL (default 60s).
@@ -149,8 +158,9 @@ Load from environment variables:
 
 **Modified:** `cmd/kueueviz/backend/main.go`
 
-- Create `kubernetes.Clientset` for TokenReview calls
+- Create `kubernetes.Clientset` for TokenReview and SubjectAccessReview calls
 - Register auth middleware when `AuthMode` is `TokenReview`
+- Apply `RequireAuthorization` middleware to protected routes with appropriate resource attributes
 
 ### WebSocket Authentication
 
@@ -190,6 +200,9 @@ Add to `charts/kueue/templates/kueueviz/clusterrole.yaml`:
   resources: ["tokenreviews"]
   # TokenReview is a create-only API in Kubernetes (no get/list/watch/delete).
   # The client POSTs a token and receives an authentication result.
+  verbs: ["create"]
+- apiGroups: ["authorization.k8s.io"]
+  resources: ["subjectaccessreviews"]
   verbs: ["create"]
 ```
 
@@ -267,6 +280,7 @@ E2E tests (`test/e2e/kueueviz/`):
 - Deploy with auth enabled
 - Test with ServiceAccount token
 - Test rejection of unauthenticated requests
+- Test RBAC bypass prevention (ensure low-privilege users are denied access to resources they shouldn't see)
 
 ### Graduation Criteria
 

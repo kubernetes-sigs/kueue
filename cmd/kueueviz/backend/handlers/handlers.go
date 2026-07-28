@@ -18,11 +18,15 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	authorizationv1 "k8s.io/api/authorization/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
+	"kueueviz/middleware"
 )
 
 // TokenValidator is implemented by middleware.Authenticator and allows
@@ -32,8 +36,9 @@ type TokenValidator interface {
 }
 
 type Handlers struct {
-	client    Client
-	validator TokenValidator // nil when auth is disabled
+	client     Client
+	validator  TokenValidator
+	authorizer middleware.Authorizer
 	// tokenRevalidationInterval controls how often a live WebSocket connection
 	// re-verifies the bearer token. Defaults to 30 s; overridable in tests.
 	tokenRevalidationInterval time.Duration
@@ -43,13 +48,42 @@ type Handlers struct {
 	heartbeatInterval time.Duration
 }
 
-func New(client Client, validator TokenValidator) *Handlers {
+func New(client Client, validator TokenValidator, authorizer middleware.Authorizer) *Handlers {
 	return &Handlers{
 		client:                    client,
 		validator:                 validator,
+		authorizer:                authorizer,
 		tokenRevalidationInterval: 30 * time.Second,
 		heartbeatInterval:         30 * time.Second,
 	}
+}
+
+func filterAllowedItems[T any](ctx context.Context, h *Handlers, identity middleware.Identity, gvr schema.GroupVersionResource, items []T, getNs func(T) string) []T {
+	if h.authorizer == nil {
+		return items
+	}
+	allowed, err := h.authorizer.Authorize(ctx, identity, middleware.ResourceAccess("list", gvr, "", ""))
+	if err == nil && allowed {
+		return items
+	}
+
+	allowedNs := make(map[string]bool)
+	var filtered []T
+	for _, item := range items {
+		ns := getNs(item)
+		if ok, exists := allowedNs[ns]; exists {
+			if ok {
+				filtered = append(filtered, item)
+			}
+			continue
+		}
+		ok, err := h.authorizer.Authorize(ctx, identity, middleware.ResourceAccess("list", gvr, ns, ""))
+		allowedNs[ns] = (err == nil && ok)
+		if allowedNs[ns] {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
 }
 
 func (h *Handlers) InitializeWebSocketRoutes(router gin.IRoutes) {
@@ -57,32 +91,87 @@ func (h *Handlers) InitializeWebSocketRoutes(router gin.IRoutes) {
 	router.GET("/ws/namespaces", h.NamespacesWebSocketHandler())
 
 	// Workloads
-	router.GET("/ws/workloads", h.WorkloadsWebSocketHandler())
-	router.GET("/ws/workloads/dashboard", h.WorkloadsDashboardWebSocketHandler())
+	router.GET("/ws/workloads", middleware.RequireAuthorization(h.authorizer, func(c *gin.Context) []authorizationv1.ResourceAttributes {
+		return nil
+	}), h.WorkloadsWebSocketHandler())
 
-	router.GET("/ws/workload/:namespace/:workload_name", h.WorkloadDetailsWebSocketHandler())
-	router.GET("/ws/workload/:namespace/:workload_name/events", h.WorkloadEventsWebSocketHandler())
+	router.GET("/ws/workloads/dashboard", middleware.RequireAuthorization(h.authorizer, func(c *gin.Context) []authorizationv1.ResourceAttributes {
+		return nil
+	}), h.WorkloadsDashboardWebSocketHandler())
 
-	// Local Queues
-	router.GET("/ws/local-queues", h.LocalQueuesWebSocketHandler())
-	router.GET("/ws/local-queue/:namespace/:queue_name", h.LocalQueueDetailsWebSocketHandler())
-	router.GET("/ws/local-queue/:namespace/:queue_name/workloads", h.LocalQueueWorkloadsWebSocketHandler())
+	router.GET("/ws/workload/:namespace/:workload_name", middleware.RequireAuthorization(h.authorizer, func(c *gin.Context) []authorizationv1.ResourceAttributes {
+		return []authorizationv1.ResourceAttributes{middleware.ResourceAccess("get", WorkloadsGVR(), c.Param("namespace"), c.Param("workload_name"))}
+	}), h.WorkloadDetailsWebSocketHandler())
+
+	router.GET("/ws/workload/:namespace/:workload_name/events", middleware.RequireAuthorization(h.authorizer, func(c *gin.Context) []authorizationv1.ResourceAttributes {
+		return []authorizationv1.ResourceAttributes{middleware.ResourceAccess("list", EventsGVR(), c.Param("namespace"), "")}
+	}), h.WorkloadEventsWebSocketHandler())
+
+	router.GET("/ws/local-queues", middleware.RequireAuthorization(h.authorizer, func(c *gin.Context) []authorizationv1.ResourceAttributes {
+		return nil
+	}), h.LocalQueuesWebSocketHandler())
+
+	router.GET("/ws/local-queue/:namespace/:queue_name", middleware.RequireAuthorization(h.authorizer, func(c *gin.Context) []authorizationv1.ResourceAttributes {
+		return []authorizationv1.ResourceAttributes{middleware.ResourceAccess("get", LocalQueuesGVR(), c.Param("namespace"), c.Param("queue_name"))}
+	}), h.LocalQueueDetailsWebSocketHandler())
+
+	router.GET("/ws/local-queue/:namespace/:queue_name/workloads", middleware.RequireAuthorization(h.authorizer, func(c *gin.Context) []authorizationv1.ResourceAttributes {
+		return []authorizationv1.ResourceAttributes{middleware.ResourceAccess("list", WorkloadsGVR(), c.Param("namespace"), "")}
+	}), h.LocalQueueWorkloadsWebSocketHandler())
 
 	// Cluster Queues
-	router.GET("/ws/cluster-queues", h.ClusterQueuesWebSocketHandler())
-	router.GET("/ws/cluster-queue/:cluster_queue_name", h.ClusterQueueDetailsWebSocketHandler()) // New route
+	router.GET("/ws/cluster-queues", middleware.RequireAuthorization(h.authorizer, func(c *gin.Context) []authorizationv1.ResourceAttributes {
+		return []authorizationv1.ResourceAttributes{middleware.ResourceAccess("list", ClusterQueuesGVR(), "", "")}
+	}), h.ClusterQueuesWebSocketHandler())
+
+	router.GET("/ws/cluster-queue/:cluster_queue_name", middleware.RequireAuthorization(h.authorizer, func(c *gin.Context) []authorizationv1.ResourceAttributes {
+		return []authorizationv1.ResourceAttributes{
+			middleware.ResourceAccess("get", ClusterQueuesGVR(), "", c.Param("cluster_queue_name")),
+			middleware.ResourceAccess("list", LocalQueuesGVR(), "", ""),
+		}
+	}), h.ClusterQueueDetailsWebSocketHandler())
 
 	// Cohorts
-	router.GET("/ws/cohorts", h.CohortsWebSocketHandler())
-	router.GET("/ws/cohort/:cohort_name", h.CohortDetailsWebSocketHandler())
+	router.GET("/ws/cohorts", middleware.RequireAuthorization(h.authorizer, func(c *gin.Context) []authorizationv1.ResourceAttributes {
+		return []authorizationv1.ResourceAttributes{
+			middleware.ResourceAccess("list", CohortsGVR(), "", ""),
+			middleware.ResourceAccess("list", ClusterQueuesGVR(), "", ""),
+		}
+	}), h.CohortsWebSocketHandler())
+
+	router.GET("/ws/cohort/:cohort_name", middleware.RequireAuthorization(h.authorizer, func(c *gin.Context) []authorizationv1.ResourceAttributes {
+		return []authorizationv1.ResourceAttributes{
+			middleware.ResourceAccess("get", CohortsGVR(), "", c.Param("cohort_name")),
+			middleware.ResourceAccess("list", ClusterQueuesGVR(), "", ""),
+		}
+	}), h.CohortDetailsWebSocketHandler())
 
 	// Resource Flavors
-	router.GET("/ws/resource-flavors", h.ResourceFlavorsWebSocketHandler())
-	router.GET("/ws/resource-flavor/:flavor_name", h.ResourceFlavorDetailsWebSocketHandler())
+	router.GET("/ws/resource-flavors", middleware.RequireAuthorization(h.authorizer, func(c *gin.Context) []authorizationv1.ResourceAttributes {
+		return []authorizationv1.ResourceAttributes{middleware.ResourceAccess("list", ResourceFlavorsGVR(), "", "")}
+	}), h.ResourceFlavorsWebSocketHandler())
+
+	router.GET("/ws/resource-flavor/:flavor_name", middleware.RequireAuthorization(h.authorizer, func(c *gin.Context) []authorizationv1.ResourceAttributes {
+		return []authorizationv1.ResourceAttributes{
+			middleware.ResourceAccess("get", ResourceFlavorsGVR(), "", c.Param("flavor_name")),
+			middleware.ResourceAccess("list", ClusterQueuesGVR(), "", ""),
+			middleware.ResourceAccess("list", NodesGVR(), "", ""),
+		}
+	}), h.ResourceFlavorDetailsWebSocketHandler())
 }
 
 func (h *Handlers) InitializeAPIRoutes(router gin.IRoutes, dynamicClient dynamic.Interface) {
-	router.GET("/api/:resourceType/:name", GetResource(dynamicClient))
+	router.GET("/api/:resourceType/:name", middleware.RequireAuthorization(h.authorizer, func(c *gin.Context) []authorizationv1.ResourceAttributes {
+		resourceType := c.Param("resourceType")
+		name := c.Param("name")
+		namespace := c.Query("namespace")
+		gvr, ok := resourceGVRMap[resourceType]
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Unsupported resource type: %s", resourceType)})
+			return nil
+		}
+		return []authorizationv1.ResourceAttributes{middleware.ResourceAccess("get", gvr, namespace, name)}
+	}), GetResource(dynamicClient))
 }
 
 func InitializeUnauthenticatedRoutes(router gin.IRoutes, authMode string) {
