@@ -288,6 +288,7 @@ test-e2e-extended-shard-2: setup-e2e-env run-test-e2e-extended-$(E2E_KIND_VERSIO
 ##
 ## Examples:
 ##   Run only job tests: GINKGO_ARGS="--label-filter=feature:job" make test-e2e-baseline
+##   Run only provisioning tests: GINKGO_ARGS="--label-filter=feature:provisioning" make test-e2e-baseline
 .PHONY: test-e2e-baseline
 test-e2e-baseline: E2E_NPROCS := 4
 test-e2e-baseline: setup-e2e-env kueuectl run-test-e2e-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the baseline e2e test suite on a kind cluster.
