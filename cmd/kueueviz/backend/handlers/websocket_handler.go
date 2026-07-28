@@ -63,7 +63,7 @@ func (h *Handlers) GenericWebSocketHandler(dataFetcher func(ctx context.Context)
 		slog.Debug("WebSocket handler started")
 
 		// Extract the bearer token stored by auth.Middleware (empty when auth is disabled).
-		token, _ := c.Get("token")
+		token, _ := c.Get(middleware.ContextKeyToken)
 		tokenStr, _ := token.(string)
 
 		// Upgrade the HTTP connection to a WebSocket connection
@@ -76,6 +76,17 @@ func (h *Handlers) GenericWebSocketHandler(dataFetcher func(ctx context.Context)
 		defer conn.Close()
 		conn.SetReadLimit(8192)
 		slog.Debug("WebSocket connection established", "duration", time.Since(connStart))
+
+		if wsErr, exists := c.Get(middleware.ContextKeyWSError); exists {
+			wsStatus, _ := c.Get(middleware.ContextKeyWSStatus)
+			code := websocket.ClosePolicyViolation
+			if status, ok := wsStatus.(int); ok {
+				code = status
+			}
+			_ = conn.SetWriteDeadline(time.Now().Add(writeDeadlineExtension))
+			_ = conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(code, wsErr.(string)))
+			return
+		}
 
 		ctx, cancel := context.WithCancel(c.Request.Context())
 		defer cancel()

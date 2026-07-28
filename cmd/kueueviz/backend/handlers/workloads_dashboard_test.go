@@ -25,6 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"kueueviz/middleware"
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -89,7 +90,8 @@ func TestFetchWorkloadsDashboardDataDoesNotListPodsPerWorkload(t *testing.T) {
 	}
 	h := &Handlers{client: client}
 
-	if _, err := h.fetchWorkloadsDashboardData(t.Context(), "ns-1"); err != nil {
+	_, err := h.fetchWorkloadsDashboardData(t.Context(), "ns-1", middleware.Identity{})
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -117,16 +119,16 @@ func TestFetchWorkloadsDashboardDataKeepsPodsNamespaceScoped(t *testing.T) {
 	}
 	h := &Handlers{client: client}
 
-	got, err := h.fetchWorkloadsDashboardData(t.Context(), "")
+	got, err := h.fetchWorkloadsDashboardData(t.Context(), "", middleware.Identity{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if got := client.podListCallsByNamespace["ns-1"]; got != 1 {
-		t.Fatalf("pod list calls for ns-1 = %d, want 1", got)
+	if callCount := client.podListCallsByNamespace["ns-1"]; callCount != 1 {
+		t.Fatalf("pod list calls for ns-1 = %d, want 1", callCount)
 	}
-	if got := client.podListCallsByNamespace["ns-2"]; got != 1 {
-		t.Fatalf("pod list calls for ns-2 = %d, want 1", got)
+	if callCount := client.podListCallsByNamespace["ns-2"]; callCount != 1 {
+		t.Fatalf("pod list calls for ns-2 = %d, want 1", callCount)
 	}
 
 	items := dashboardWorkloadItems(t, got)
