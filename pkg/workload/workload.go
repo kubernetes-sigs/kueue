@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"math"
 	"slices"
 	"strings"
 	"time"
@@ -479,6 +480,10 @@ func CalcFSUsageFromResources(consumed, penalty corev1.ResourceList, lqWeight fl
 			weight = 1
 		}
 		usage += weight * resVal.AsApproximateFloat64()
+	}
+	// Avoid dividing by a non-positive weight: 0/0 is NaN, which would sort the queue first instead of last.
+	if lqWeight <= 0 {
+		return math.Inf(1)
 	}
 	return usage / lqWeight
 }

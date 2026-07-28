@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"testing"
 	"time"
 
@@ -3757,6 +3758,40 @@ func TestCalcFSUsageFromResourcesWithDRA(t *testing.T) {
 			got := CalcFSUsageFromResources(tc.consumed, tc.penalty, tc.lqWeight, tc.resWeights)
 			if got != tc.wantUsage {
 				t.Errorf("CalcFSUsageFromResources() = %v, want %v", got, tc.wantUsage)
+			}
+		})
+	}
+}
+
+func TestCalcFSUsageFromResourcesWithNonPositiveWeight(t *testing.T) {
+	tests := map[string]struct {
+		consumed corev1.ResourceList
+		lqWeight float64
+	}{
+		"zero weight, idle queue (no usage)": {
+			consumed: corev1.ResourceList{},
+			lqWeight: 0,
+		},
+		"zero weight, active queue": {
+			consumed: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")},
+			lqWeight: 0,
+		},
+		"negative weight": {
+			consumed: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")},
+			lqWeight: -1,
+		},
+	}
+
+	// A non-positive weight must yield +Inf usage so the LocalQueue is sorted
+	// last in the admission order, never NaN (which would sort it first).
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := CalcFSUsageFromResources(tc.consumed, corev1.ResourceList{}, tc.lqWeight, nil)
+			if math.IsNaN(got) {
+				t.Fatalf("CalcFSUsageFromResources() = NaN, want +Inf")
+			}
+			if !math.IsInf(got, 1) {
+				t.Errorf("CalcFSUsageFromResources() = %v, want +Inf", got)
 			}
 		})
 	}
