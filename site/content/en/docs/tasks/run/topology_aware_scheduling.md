@@ -245,7 +245,7 @@ kubectl get pods -l leaderworkerset.sigs.k8s.io/name=nginx-leaderworkerset \
 
 The output is similar to the following:
 
-```
+```text
 NAME                             NODE           GROUP   WORKER
 nginx-leaderworkerset-0          kind-worker    0       0
 nginx-leaderworkerset-0-1        kind-worker2   0       1
@@ -253,6 +253,27 @@ nginx-leaderworkerset-0-2        kind-worker3   0       2
 nginx-leaderworkerset-1          kind-worker5   1       0
 nginx-leaderworkerset-1-1        kind-worker6   1       1
 nginx-leaderworkerset-1-2        kind-worker7   1       2
+```
+
+To confirm the topology of the assigned nodes, list their labels:
+
+```shell
+kubectl get nodes -l cloud.provider.com/node-group=tas-group \
+  -L cloud.provider.com/topology-block,cloud.provider.com/topology-rack
+```
+
+The output is similar to the following:
+
+```text
+NAME           STATUS   ROLES    AGE   VERSION   TOPOLOGY-BLOCK   TOPOLOGY-RACK
+kind-worker    Ready    <none>   5m    v1.31.0   b1               r1
+kind-worker2   Ready    <none>   5m    v1.31.0   b1               r1
+kind-worker3   Ready    <none>   5m    v1.31.0   b1               r1
+kind-worker4   Ready    <none>   5m    v1.31.0   b1               r2
+kind-worker5   Ready    <none>   5m    v1.31.0   b2               r1
+kind-worker6   Ready    <none>   5m    v1.31.0   b2               r1
+kind-worker7   Ready    <none>   5m    v1.31.0   b2               r1
+kind-worker8   Ready    <none>   5m    v1.31.0   b2               r2
 ```
 
 Observe that all Pods belonging to group `0` (the Leader at worker index `0` and its Workers at indices `1` and `2`) are placed on nodes within the same rack, and all Pods for group `1` are placed on nodes within a different rack. The Leader and Workers within each group are never split across racks.
