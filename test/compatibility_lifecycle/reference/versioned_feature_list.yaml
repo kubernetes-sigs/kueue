@@ -85,6 +85,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.17"
+- name: EnforceProvisioningPodTemplateContents
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: FailureRecoveryPolicy
   versionedSpecs:
   - default: false
@@ -358,12 +364,6 @@
     preRelease: Beta
     version: "0.17"
 - name: ReservedResourceNameValidation
-  versionedSpecs:
-  - default: true
-    lockToDefault: false
-    preRelease: Beta
-    version: "0.20"
-- name: RetryProvisioningDueInconsistentPodTemplate
   versionedSpecs:
   - default: true
     lockToDefault: false

@@ -304,7 +304,7 @@ if [[ -n ${SPARKOPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:spark || ! "$G
     export SPARKOPERATOR_IMAGE="ghcr.io/kubeflow/spark-operator/controller:${SPARKOPERATOR_VERSION#v}"
 fi
 
-if [[ "$GINKGO_ARGS" =~ feature:provisioning || ! "$GINKGO_ARGS" =~ "--label-filter" ]]; then
+if [[ "${GINKGO_ARGS:-}" =~ feature:provisioning || ! "${GINKGO_ARGS:-}" =~ "--label-filter" ]]; then
     export PROVISIONING_REQUEST_CRDS=${ROOT_DIR}/dep-crds/cluster-autoscaler/
 fi
 
@@ -775,7 +775,7 @@ function kind_load {
     if [[ -n ${DRA_EXAMPLE_DRIVER_VERSION:-} ]]; then
         install_dra_example_driver "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
-    if [[ -n ${PROVISIONING_REQUEST_CRDS:-} && ("$GINKGO_ARGS" =~ feature:provisioning || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+    if [[ -n ${PROVISIONING_REQUEST_CRDS:-} && ("${GINKGO_ARGS:-}" =~ feature:provisioning || ! "${GINKGO_ARGS:-}" =~ "--label-filter") ]]; then
         install_provisioning_request_crds "${e2e_kubeconfig}"
     fi
 }
