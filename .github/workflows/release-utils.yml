@@ -166,23 +166,24 @@ jobs:
           set -e
           
           if [ $EXIT_CODE -ne 0 ]; then
-            echo "Error running sync-notes.sh" >&2
+            echo "message=❌ Failed to sync release notes for version \`$VERSION\`." >> "$GITHUB_OUTPUT"
             exit $EXIT_CODE
           fi
+          echo "message=✅ Release notes for version \`$VERSION\` have been synced." >> "$GITHUB_OUTPUT"
 
       - name: Report Success
         if: ${{ success() }}
         uses: ./.github/actions/report-result
         with:
           command: ${{ needs.authorize.outputs.command }}
-          message: "✅ Release notes for version ${{ needs.authorize.outputs.version }} have been synced."
+          message: ${{ steps.sync.outputs.message || '✅ Release notes have been synced.' }}
 
       - name: Report Failure
         if: ${{ failure() }}
         uses: ./.github/actions/report-result
         with:
           command: ${{ needs.authorize.outputs.command }}
-          message: ❌ Failed to sync release notes for version `${{ needs.authorize.outputs.version }}`.
+          message: ${{ steps.sync.outputs.message || '❌ Failed to sync release notes.' }}
   
   create-release-branch:
     name: Create Release Branch
@@ -202,6 +203,7 @@ jobs:
           persist-credentials: false
 
       - name: Create and Push Release Branch
+        id: push
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
@@ -212,8 +214,8 @@ jobs:
           if [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.([0-9]+)$ ]]; then
             PATCH="${BASH_REMATCH[1]}"
             if [ "$PATCH" != "0" ]; then
-              gh issue comment "$ISSUE_NUMBER" --body "❌ Release branch creation is only supported for major and minor releases (vX.Y.0). Patch releases like \`$VERSION\` do not require a new release branch."
-              exit 0
+              echo "message=❌ Release branch creation is only supported for major and minor releases (vX.Y.0). Patch releases like \`$VERSION\` do not require a new release branch." >> "$GITHUB_OUTPUT"
+              exit 1
             fi
           fi
 
@@ -224,12 +226,13 @@ jobs:
 
           # Check if branch already exists
           if git ls-remote --heads origin "$BRANCH" | grep -q "refs/heads/$BRANCH"; then
-            gh issue comment "$ISSUE_NUMBER" --body "✅ Release branch \`$BRANCH\` already exists."
+            echo "message=✅ Release branch \`$BRANCH\` already exists." >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           # Create and push the branch from main
           set +e
+          PUSH_EXIT=0
           git checkout -b "$BRANCH"
           BRANCH_EXIT=$?
           if [ $BRANCH_EXIT -eq 0 ]; then
@@ -239,11 +242,25 @@ jobs:
           set -e
 
           if [ $BRANCH_EXIT -ne 0 ] || [ $PUSH_EXIT -ne 0 ]; then
-            gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to create release branch \`$BRANCH\`."
+            echo "message=❌ Failed to create release branch \`$BRANCH\`." >> "$GITHUB_OUTPUT"
             exit 1
           fi
 
-          gh issue comment "$ISSUE_NUMBER" --body "✅ Release branch \`$BRANCH\` has been successfully created from \`main\`."
+          echo "message=✅ Release branch \`$BRANCH\` has been successfully created from \`main\`." >> "$GITHUB_OUTPUT"
+
+      - name: Report Success
+        if: ${{ success() }}
+        uses: ./.github/actions/report-result
+        with:
+          command: ${{ needs.authorize.outputs.command }}
+          message: ${{ steps.push.outputs.message }}
+
+      - name: Report Failure
+        if: ${{ failure() }}
+        uses: ./.github/actions/report-result
+        with:
+          command: ${{ needs.authorize.outputs.command }}
+          message: ${{ steps.push.outputs.message || "❌ Command failed." }}
 
   wait-for-images:
     name: Wait for Images
@@ -266,6 +283,7 @@ jobs:
         uses: imjasonh/setup-crane@feee3b6bb0d4c68370f256a4502498c9227e5c6b # v0.7
 
       - name: Run Wait for Images Script
+        id: wait_images
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
@@ -297,23 +315,38 @@ jobs:
             # Extract the raw error line from the logs.
             ERROR_LINE=$(sed -n 's/^!!! Error: //p' output.log)
 
-            # If an explicit script error message was found, comment and exit cleanly (0),
+            # If an explicit script error message was found
             if [ -n "$ERROR_LINE" ]; then
-              echo "${ERROR_LINE}" >> comment.md
-              gh issue comment "$ISSUE_NUMBER" --body-file comment.md
-              exit 0
+              echo "message=❌ $ERROR_LINE" >> "$GITHUB_OUTPUT"
+              exit 1
             fi
           
-            # For any other unhandled crash, skip commenting.
+            # For any other unhandled crash
+            echo "message=❌ Wait for images failed. Check workflow logs for details." >> "$GITHUB_OUTPUT"
             exit $SCRIPT_EXIT_CODE
           fi
           
           # Extract from the LAST "Images:" block to the end of the file.
-          # Format it cleanly as a Markdown code block inside the issue comment.
-          awk '/^Images:/ { out = ""; flag = 1 } flag { out = out $0 "\n" } END { printf "### Images Ready\n```text\n%s```", out }' output.log > comment.md
+          # Format it cleanly as a Markdown code block inside the GITHUB_OUTPUT.
+          IMAGES_READY=$(awk '/^Images:/ { out = ""; flag = 1 } flag { out = out $0 "\n" } END { printf "### Images Ready\n```text\n%s```", out }' output.log)
           
-          # Post the parsed comment to the GitHub issue.
-          gh issue comment "$ISSUE_NUMBER" --body-file comment.md
+          echo "message<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$IMAGES_READY" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Report Success
+        if: ${{ success() }}
+        uses: ./.github/actions/report-result
+        with:
+          command: ${{ needs.authorize.outputs.command }}
+          message: ${{ steps.wait_images.outputs.message }}
+
+      - name: Report Failure
+        if: ${{ failure() }}
+        uses: ./.github/actions/report-result
+        with:
+          command: ${{ needs.authorize.outputs.command }}
+          message: ${{ steps.wait_images.outputs.message || '❌ Wait for images failed.' }}
 
   tag-release:
     name: Tag Release
@@ -349,16 +382,19 @@ jobs:
           changelog: ${{ needs.authorize.outputs.changelog }}
           repo: ${{ github.repository }}
 
-      - name: Post Success Comment
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-          VERSION: ${{ needs.authorize.outputs.version }}
-          OUTCOME: ${{ steps.tag.outputs.outcome }}
-        run: |
-          BODY="✅ Release tag \`$VERSION\` has been successfully ${OUTCOME}."
-          echo "$BODY"
-          gh issue comment "$ISSUE_NUMBER" --body "$BODY"
+      - name: Report Success
+        if: ${{ success() }}
+        uses: ./.automation/.github/actions/report-result
+        with:
+          command: ${{ needs.authorize.outputs.command }}
+          message: ${{ steps.tag.outputs.message || '✅ Release tag created.' }}
+
+      - name: Report Failure
+        if: ${{ failure() }}
+        uses: ./.automation/.github/actions/report-result
+        with:
+          command: ${{ needs.authorize.outputs.command }}
+          message: ${{ steps.tag.outputs.message || '❌ Failed to create release tag.' }}
 
   create-draft-release:
     name: Create Draft Release
@@ -399,15 +435,19 @@ jobs:
           changelog: ${{ needs.authorize.outputs.changelog }}
           repo: ${{ github.repository }}
 
-      - name: Post Success Comment
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-          OUTPUT: ${{ steps.draft.outputs.outcome }}
-        run: |
-          BODY="✅ Draft release has been successfully ${OUTPUT}."
-          echo "$BODY"
-          gh issue comment "$ISSUE_NUMBER" --body "$BODY"
+      - name: Report Success
+        if: ${{ success() }}
+        uses: ./.automation/.github/actions/report-result
+        with:
+          command: ${{ needs.authorize.outputs.command }}
+          message: ${{ steps.draft.outputs.message || '✅ Draft release created.' }}
+
+      - name: Report Failure
+        if: ${{ failure() }}
+        uses: ./.automation/.github/actions/report-result
+        with:
+          command: ${{ needs.authorize.outputs.command }}
+          message: ${{ steps.draft.outputs.message || '❌ Failed to create draft release.' }}
 
   prepare-pull:
     name: Prepare Pull
@@ -441,6 +481,7 @@ jobs:
           gh auth setup-git
 
       - name: Run Prepare Pull
+        id: prep_pull
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
@@ -455,11 +496,25 @@ jobs:
           set -e
 
           if [ $SCRIPT_EXIT_CODE -ne 0 ]; then
-            gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to prepare pull requests for version \`$VERSION\` (target: \`$TARGET\`)."
+            echo "message=❌ Failed to prepare pull requests for version \`$VERSION\` (target: \`$TARGET\`)." >> "$GITHUB_OUTPUT"
             exit $SCRIPT_EXIT_CODE
           fi
 
-          gh issue comment "$ISSUE_NUMBER" --body "✅ Successfully prepared pull request(s) for version \`$VERSION\` (target: \`$TARGET\`)."
+          echo "message=✅ Successfully prepared pull request(s) for version \`$VERSION\` (target: \`$TARGET\`)." >> "$GITHUB_OUTPUT"
+
+      - name: Report Success
+        if: ${{ success() }}
+        uses: ./.github/actions/report-result
+        with:
+          command: ${{ needs.authorize.outputs.command }}
+          message: ${{ steps.prep_pull.outputs.message }}
+
+      - name: Report Failure
+        if: ${{ failure() }}
+        uses: ./.github/actions/report-result
+        with:
+          command: ${{ needs.authorize.outputs.command }}
+          message: ${{ steps.prep_pull.outputs.message || '❌ Failed to prepare pull requests.' }}
 
   publish-release:
     name: Publish Release
@@ -479,22 +534,22 @@ jobs:
           persist-credentials: false
 
       - name: Publish Release
+        id: publish
         uses: ./.github/actions/publish-release
         with:
           version: ${{ needs.authorize.outputs.version }}
           repo: ${{ github.repository }}
 
-      - name: Post Success Comment
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-          VERSION: ${{ needs.authorize.outputs.version }}
-        run: |
-          RELEASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/tag/${VERSION}"
-          BODY="$(cat <<EOF
-          ✅ Release \`$VERSION\` has been successfully published.
-          Link: ${RELEASE_URL}
-          EOF
-          )"
-          echo "$BODY"
-          gh issue comment "$ISSUE_NUMBER" --body "$BODY"
+      - name: Report Success
+        if: ${{ success() }}
+        uses: ./.github/actions/report-result
+        with:
+          command: ${{ needs.authorize.outputs.command }}
+          message: ${{ steps.publish.outputs.message }}
+
+      - name: Report Failure
+        if: ${{ failure() }}
+        uses: ./.github/actions/report-result
+        with:
+          command: ${{ needs.authorize.outputs.command }}
+          message: ${{ steps.publish.outputs.message || '❌ Failed to publish release.' }}

@@ -16,6 +16,9 @@ outputs:
   outcome:
     description: What happened to the tag — "created" or "updated"
     value: ${{ steps.tag.outputs.outcome }}
+  message:
+    description: Detail message about the outcome (success or failure)
+    value: ${{ steps.tag.outputs.message }}
 
 runs:
   using: composite
@@ -35,13 +38,13 @@ runs:
         
         if [ "$RELEASE_STATE" = "published" ]; then
           BODY="❌ Release \`$VERSION\` is already published. Skipping tag creation/update to avoid overwriting a live release."
-          echo "$BODY"
-          gh issue comment "$ISSUE_NUMBER" --body "$BODY"
+          echo "message=$BODY" >> "$GITHUB_OUTPUT"
           exit 1
         fi
         
         if [ -z "$CHANGELOG" ]; then
-          gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to create release tag \`$VERSION\`: No changelog found in the issue description. Make sure the issue has the Markdown block under \`## Changelog\`."
+          BODY="❌ Failed to create release tag \`$VERSION\`: No changelog found in the issue description. Make sure the issue has the Markdown block under \`## Changelog\`."
+          echo "message=$BODY" >> "$GITHUB_OUTPUT"
           exit 1
         fi
 
@@ -75,7 +78,7 @@ runs:
         rm -f "$NOTES_FILE"
 
         if [ $TAG_EXIT -ne 0 ] || [ $PUSH_EXIT -ne 0 ]; then
-          gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to create or push release tag \`$VERSION\`."
+          echo "message=❌ Failed to create or push release tag \`$VERSION\`." >> "$GITHUB_OUTPUT"
           exit 1
         fi
 
@@ -85,3 +88,4 @@ runs:
         fi
 
         echo "outcome=$OUTCOME" >> "$GITHUB_OUTPUT"
+        echo "message=✅ Release tag \`$VERSION\` has been successfully ${OUTCOME}." >> "$GITHUB_OUTPUT"

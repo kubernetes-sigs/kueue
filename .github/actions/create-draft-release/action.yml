@@ -16,6 +16,9 @@ outputs:
   outcome:
     description: What happened to the release — "created" or "updated"
     value: ${{ steps.draft.outputs.outcome }}
+  message:
+    description: Detail message about the outcome
+    value: ${{ steps.draft.outputs.message }}
 
 runs:
   using: composite
@@ -34,12 +37,12 @@ runs:
             --jq 'if .isDraft then "draft" else "published" end' 2>/dev/null || echo "")
         
         if [ -z "$CHANGELOG" ]; then
-          gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to create draft release \`$VERSION\`: No changelog found in the issue description."
+          BODY="❌ Failed to create draft release \`$VERSION\`: No changelog found in the issue description."
+          echo "message=$BODY" >> "$GITHUB_OUTPUT"
           exit 1
         elif [ "$RELEASE_STATE" = "published" ]; then
           BODY="❌️ Release \`$VERSION\` is already published. Skipping draft release creation/update to avoid overwriting a live release."
-          echo "$BODY"
-          gh issue comment "$ISSUE_NUMBER" --body "$BODY"
+          echo "message=$BODY" >> "$GITHUB_OUTPUT"
           exit 1
         elif [ "$RELEASE_STATE" = "draft" ]; then
           echo "Draft release \`$VERSION\` already exists. Deleting it first to perform a clean update..."
@@ -48,7 +51,7 @@ runs:
           DELETE_EXIT=$?
           set -e
           if [ $DELETE_EXIT -ne 0 ]; then
-            gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to delete existing draft release \`$VERSION\`."
+            echo "message=❌ Failed to delete existing draft release \`$VERSION\`." >> "$GITHUB_OUTPUT"
             exit 1
           fi
           OUTCOME="updated"
@@ -62,7 +65,7 @@ runs:
         set -e
 
         if [ $MAKE_EXIT -ne 0 ]; then
-          gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to build release artifacts for \`$VERSION\`."
+          echo "message=❌ Failed to build release artifacts for \`$VERSION\`." >> "$GITHUB_OUTPUT"
           exit 1
         fi
 
@@ -81,8 +84,9 @@ runs:
         set -e
 
         if [ $RELEASE_EXIT -ne 0 ]; then
-          gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to create draft release \`$VERSION\`."
+          echo "message=❌ Failed to create draft release \`$VERSION\`." >> "$GITHUB_OUTPUT"
           exit 1
         fi
 
         echo "outcome=$OUTCOME" >> "$GITHUB_OUTPUT"
+        echo "message=✅ Draft release has been successfully ${OUTCOME}." >> "$GITHUB_OUTPUT"
