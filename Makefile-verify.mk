@@ -294,7 +294,7 @@ verify-website-links: ## Check for broken internal links on the public website.
 	$(PROJECT_DIR)/hack/testing/linkchecker/verify.sh
 
 .PHONY: verify-website-links-preview
-verify-website-links-preview: ## Check links on a PR Netlify deploy preview; skips if no fresh same-commit preview exists.
+verify-website-links-preview: ## Check links on a PR Netlify deploy preview.
 	$(PROJECT_DIR)/hack/testing/linkchecker/verify-preview.sh
 
 .PHONY: i18n-verify
