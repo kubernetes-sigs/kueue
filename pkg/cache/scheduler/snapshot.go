@@ -321,12 +321,17 @@ func (c *Cache) snapshotClusterQueue(
 		if !afsEnabled {
 			return cc, nil
 		}
-		for _, wl := range cc.Workloads {
+		for key, wl := range cc.Workloads {
 			usage, err := wl.CalcLocalQueueFSUsage(ctx, c.client, resourceWeights, afsEntryPenalties, afsConsumedResources)
 			if err != nil {
 				return nil, fmt.Errorf("failed to calculate LocalQueue FS usage for LocalQueue %v", client.ObjectKey{Namespace: wl.Obj.Namespace, Name: string(wl.Obj.Spec.QueueName)})
 			}
-			wl.LocalQueueFSUsage = &usage
+			// The Infos in cc.Workloads are shared with the live cache,
+			// which must not be modified while holding only the read
+			// lock; store the usage on a snapshot-owned copy instead.
+			wlCopy := *wl
+			wlCopy.LocalQueueFSUsage = &usage
+			cc.Workloads[key] = &wlCopy
 			log.V(5).Info("Calculated LocalQueueFSUsage for workload", "workload", klog.KObj(wl.Obj), "queue", wl.Obj.Spec.QueueName, "usage", usage)
 		}
 	}
