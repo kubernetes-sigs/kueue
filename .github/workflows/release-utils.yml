@@ -260,7 +260,7 @@ jobs:
         uses: ./.github/actions/report-result
         with:
           command: ${{ needs.authorize.outputs.command }}
-          message: ${{ steps.push.outputs.message || "❌ Command failed." }}
+          message: ${{ steps.push.outputs.message || '❌ Command failed.' }}
 
   wait-for-images:
     name: Wait for Images
