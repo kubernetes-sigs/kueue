@@ -89,7 +89,7 @@ func TestFetchWorkloadsDashboardDataDoesNotListPodsPerWorkload(t *testing.T) {
 	}
 	h := &Handlers{client: client}
 
-	if _, err := h.fetchWorkloadsDashboardData(t.Context(), "ns-1"); err != nil {
+	if _, err := h.fetchWorkloadsDashboardData(t.Context(), "ns-1", "", nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -117,7 +117,7 @@ func TestFetchWorkloadsDashboardDataKeepsPodsNamespaceScoped(t *testing.T) {
 	}
 	h := &Handlers{client: client}
 
-	got, err := h.fetchWorkloadsDashboardData(t.Context(), "")
+	got, err := h.fetchWorkloadsDashboardData(t.Context(), "", "", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

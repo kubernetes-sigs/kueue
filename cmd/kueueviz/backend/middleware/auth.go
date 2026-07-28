@@ -30,7 +30,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"golang.org/x/time/rate"
 	authenticationv1 "k8s.io/api/authentication/v1"
+	authorizationv1 "k8s.io/api/authorization/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilcache "k8s.io/apimachinery/pkg/util/cache"
 	"k8s.io/client-go/kubernetes"
 )
@@ -46,7 +48,20 @@ const (
 	// bounding memory regardless of how many unique (invalid) tokens an attacker
 	// sends.
 	defaultCacheSize = 1024
+
+	ContextKeyUsername = "username"
+	ContextKeyGroups   = "groups"
+	ContextKeyToken    = "token"
 )
+
+// IdentityFromContext returns the authenticated caller's username and groups as
+// recorded by Middleware. Both are empty when authentication is disabled.
+func IdentityFromContext(c *gin.Context) (string, []string) {
+	username := c.GetString(ContextKeyUsername)
+	groups, _ := c.Get(ContextKeyGroups)
+	groupList, _ := groups.([]string)
+	return username, groupList
+}
 
 type realClock struct{}
 
@@ -55,6 +70,7 @@ func (realClock) Now() time.Time { return time.Now() }
 type cacheEntry struct {
 	authenticated bool
 	username      string
+	groups        []string
 }
 
 type AuthConfig struct {
@@ -155,7 +171,7 @@ func (a *Authenticator) Middleware() gin.HandlerFunc {
 			return
 		}
 
-		authenticated, username, err := a.authenticate(c.Request.Context(), token)
+		authenticated, username, groups, err := a.authenticate(c.Request.Context(), token)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "authentication service unavailable"})
 			return
@@ -165,8 +181,9 @@ func (a *Authenticator) Middleware() gin.HandlerFunc {
 			return
 		}
 
-		c.Set("username", username)
-		c.Set("token", token)
+		c.Set(ContextKeyUsername, username)
+		c.Set(ContextKeyGroups, groups)
+		c.Set(ContextKeyToken, token)
 		c.Next()
 	}
 }
@@ -174,15 +191,15 @@ func (a *Authenticator) Middleware() gin.HandlerFunc {
 // authenticate hashes the token, checks the shared TTL cache, and falls back
 // to a live TokenReview when the cache entry is absent or expired. The result
 // is written back to the cache before returning.
-func (a *Authenticator) authenticate(ctx context.Context, token string) (bool, string, error) {
+func (a *Authenticator) authenticate(ctx context.Context, token string) (bool, string, []string, error) {
 	key := hashToken(token)
 	if cachedRaw, ok := a.cache.Get(key); ok {
 		cached := cachedRaw.(cacheEntry)
-		return cached.authenticated, cached.username, nil
+		return cached.authenticated, cached.username, cached.groups, nil
 	}
-	authenticated, username, err := a.reviewToken(ctx, token)
+	authenticated, username, groups, err := a.reviewToken(ctx, token)
 	if err != nil {
-		return false, "", err
+		return false, "", nil, err
 	}
 	ttl := a.config.NegativeCacheTTL
 	if authenticated {
@@ -191,8 +208,9 @@ func (a *Authenticator) authenticate(ctx context.Context, token string) (bool, s
 	a.cache.Add(key, cacheEntry{
 		authenticated: authenticated,
 		username:      username,
+		groups:        groups,
 	}, ttl)
-	return authenticated, username, nil
+	return authenticated, username, groups, nil
 }
 
 // ValidateToken performs a live TokenReview against the Kubernetes API,
@@ -200,11 +218,11 @@ func (a *Authenticator) authenticate(ctx context.Context, token string) (bool, s
 // reflect the current revocation state of the token. The result is NOT written
 // back to the shared cache to avoid extending a revoked session.
 func (a *Authenticator) ValidateToken(ctx context.Context, token string) (bool, error) {
-	authenticated, _, err := a.reviewToken(ctx, token)
+	authenticated, _, _, err := a.reviewToken(ctx, token)
 	return authenticated, err
 }
 
-func (a *Authenticator) reviewToken(ctx context.Context, token string) (bool, string, error) {
+func (a *Authenticator) reviewToken(ctx context.Context, token string) (bool, string, []string, error) {
 	review := &authenticationv1.TokenReview{
 		Spec: authenticationv1.TokenReviewSpec{
 			Token:     token,
@@ -215,10 +233,10 @@ func (a *Authenticator) reviewToken(ctx context.Context, token string) (bool, st
 	result, err := a.clientset.AuthenticationV1().TokenReviews().Create(ctx, review, metav1.CreateOptions{})
 	if err != nil {
 		slog.Error("TokenReview request failed", "error", err)
-		return false, "", err
+		return false, "", nil, err
 	}
 
-	return result.Status.Authenticated, result.Status.User.Username, nil
+	return result.Status.Authenticated, result.Status.User.Username, result.Status.User.Groups, nil
 }
 
 func abortUnauthorized(c *gin.Context, message string) {
@@ -247,4 +265,66 @@ func extractToken(r *http.Request) string {
 func hashToken(token string) string {
 	h := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(h[:])
+}
+
+// Authorizer decides whether an authenticated caller may perform an action on a resource.
+type Authorizer interface {
+	Authorize(ctx context.Context, user string, groups []string, attributes authorizationv1.ResourceAttributes) (bool, error)
+}
+
+type sarAuthorizer struct {
+	client kubernetes.Interface
+}
+
+func NewSARAuthorizer(client kubernetes.Interface) Authorizer {
+	return &sarAuthorizer{client: client}
+}
+
+func (a *sarAuthorizer) Authorize(ctx context.Context, user string, groups []string, attributes authorizationv1.ResourceAttributes) (bool, error) {
+	review := &authorizationv1.SubjectAccessReview{
+		Spec: authorizationv1.SubjectAccessReviewSpec{
+			User:               user,
+			Groups:             groups,
+			ResourceAttributes: &attributes,
+		},
+	}
+	result, err := a.client.AuthorizationV1().SubjectAccessReviews().Create(ctx, review, metav1.CreateOptions{})
+	if err != nil {
+		slog.Error("SubjectAccessReview request failed", "error", err)
+		return false, err
+	}
+	return result.Status.Allowed, nil
+}
+
+func RequireAuthorization(authorizer Authorizer, getRequests func(c *gin.Context) []authorizationv1.ResourceAttributes) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if authorizer == nil {
+			c.Next()
+			return
+		}
+		user, groups := IdentityFromContext(c)
+		requests := getRequests(c)
+		for _, req := range requests {
+			allowed, err := authorizer.Authorize(c.Request.Context(), user, groups, req)
+			if err != nil {
+				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "authorization service unavailable"})
+				return
+			}
+			if !allowed {
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+				return
+			}
+		}
+		c.Next()
+	}
+}
+
+func ResourceAccess(verb string, gvr schema.GroupVersionResource, namespace, name string) authorizationv1.ResourceAttributes {
+	return authorizationv1.ResourceAttributes{
+		Verb:      verb,
+		Group:     gvr.Group,
+		Resource:  gvr.Resource,
+		Namespace: namespace,
+		Name:      name,
+	}
 }
