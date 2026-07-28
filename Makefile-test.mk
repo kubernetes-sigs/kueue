@@ -107,7 +107,28 @@ FULLRAY_EXCLUDE := $(if $(filter "raymini",$(USE_RAY_FOR_TESTS)), && !requires:f
 .PHONY: test
 test: gotestsum ## Run tests. Set UNIT_TOTAL_SHARDS and UNIT_SHARD_INDEX to run a specific shard.
 	mkdir -p $(ARTIFACTS)
-	TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) $(GOTESTSUM) --junitfile $(ARTIFACTS)/junit$(OPTIONAL_SHARD_SUFFIX).xml -- $(GOFLAGS) $(GO_TEST_FLAGS) $(UNIT_TEST_PACKAGES) -coverpkg=$(GO_TEST_TARGET)/... -coverprofile $(ARTIFACTS)/cover$(OPTIONAL_SHARD_SUFFIX).out
+# GORACE log_path makes the race detector write each report to
+# $(ARTIFACTS)/race$(OPTIONAL_SHARD_SUFFIX).<pid> so it is archived as a CI artifact.
+# Otherwise the report only goes to stderr, which gotestsum discards when a package
+# fails under -race without an attributed test failure (kueue issue 13290). The file is
+# written only when a race is actually detected, so green runs stay clean.
+	GORACE="log_path=$(ARTIFACTS)/race$(OPTIONAL_SHARD_SUFFIX)" TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) $(GOTESTSUM) --junitfile $(ARTIFACTS)/junit$(OPTIONAL_SHARD_SUFFIX).xml -- $(GOFLAGS) $(GO_TEST_FLAGS) $(UNIT_TEST_PACKAGES) -coverpkg=$(GO_TEST_TARGET)/... -coverprofile $(ARTIFACTS)/cover$(OPTIONAL_SHARD_SUFFIX).out
+
+# Time budget for fuzzing each individual fuzz target.
+# TODO: Change back to 5s when golang/go#75804 is fixed in Go 1.27
+FUZZTIME ?= 1000x
+
+.PHONY: test-fuzz
+test-fuzz: ## Run all fuzz tests with fuzzing enabled, FUZZTIME per target.
+# 'go test -fuzz' expects a bare fuzz function name, but grep emits whole source
+# lines. The sed replacement extracts the name, for example:
+#   "func FuzzSliceRequestsEquivalence(f *testing.F) {" -> "FuzzSliceRequestsEquivalence"
+	@$(GO_CMD) list -f '{{.ImportPath}} {{.Dir}}' ./... | while read -r pkg dir; do \
+		for target in $$(grep -hs '^func Fuzz' $$dir/*_test.go | $(SED) -E 's/^func (Fuzz[A-Za-z0-9_]*).*/\1/'); do \
+			echo "=== fuzzing $$target in $$pkg (budget $(FUZZTIME))"; \
+			$(GO_CMD) test $$pkg $(GOFLAGS) -run='^$$' -fuzz="^$$target$$" -fuzztime=$(FUZZTIME) || exit 1; \
+		done; \
+	done
 
 ## Label Taxonomy:
 ##   Controllers: controller:workload, controller:localqueue, controller:clusterqueue, controller:admissioncheck, controller:resourceflavor, controller:provisioning
@@ -137,6 +158,7 @@ test-integration-run:
 	ENVTEST_K8S_VERSION=$(ENVTEST_K8S_VERSION) \
 	ARTIFACTS=$(ARTIFACTS) \
 	TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) API_LOG_LEVEL=$(INTEGRATION_API_LOG_LEVEL) \
+	GORACE="log_path=$(ARTIFACTS)/race" \
 	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) $(GOFLAGS) -procs=$(INTEGRATION_NPROCS) --race --json-report=integration.json --output-interceptor-mode=none --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
 	$(BIN_DIR)/ginkgo-top -i $(ARTIFACTS)/integration.json > $(ARTIFACTS)/integration-top.yaml
 
@@ -157,6 +179,7 @@ test-multikueue-integration: compile-crd-manifests envtest ginkgo dep-crds ginkg
 	ENVTEST_K8S_VERSION=$(ENVTEST_K8S_VERSION) \
 	ARTIFACTS=$(ARTIFACTS) \
 	TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) API_LOG_LEVEL=$(INTEGRATION_API_LOG_LEVEL) \
+	GORACE="log_path=$(ARTIFACTS)/race" \
 	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) $(GOFLAGS) -procs=$(INTEGRATION_NPROCS_MULTIKUEUE) --race --json-report=multikueue-integration.json --output-interceptor-mode=none --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET_MULTIKUEUE)
 	$(BIN_DIR)/ginkgo-top -i $(ARTIFACTS)/multikueue-integration.json > $(ARTIFACTS)/multikueue-integration-top.yaml
 
@@ -293,6 +316,31 @@ test-tas-e2e-baseline-helm: test-tas-e2e-baseline
 .PHONY: test-tas-e2e-extended-helm
 test-tas-e2e-extended-helm: E2E_USE_HELM=true
 test-tas-e2e-extended-helm: test-tas-e2e-extended
+
+# WAS versions of TAS e2e tests
+.PHONY: test-tas-was-e2e-baseline
+test-tas-was-e2e-baseline: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
+test-tas-was-e2e-baseline: test-tas-e2e-baseline
+
+.PHONY: test-tas-was-e2e-extended
+test-tas-was-e2e-extended: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
+test-tas-was-e2e-extended: test-tas-e2e-extended
+
+.PHONY: test-tas-was-e2e-extended-shard-0
+test-tas-was-e2e-extended-shard-0: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
+test-tas-was-e2e-extended-shard-0: test-tas-e2e-extended-shard-0
+
+.PHONY: test-tas-was-e2e-extended-shard-1
+test-tas-was-e2e-extended-shard-1: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
+test-tas-was-e2e-extended-shard-1: test-tas-e2e-extended-shard-1
+
+.PHONY: test-tas-was-e2e-baseline-helm
+test-tas-was-e2e-baseline-helm: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
+test-tas-was-e2e-baseline-helm: test-tas-e2e-baseline-helm
+
+.PHONY: test-tas-was-e2e-extended-helm
+test-tas-was-e2e-extended-helm: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
+test-tas-was-e2e-extended-helm: test-tas-e2e-extended-helm
 
 .PHONY: test-e2e-certmanager
 test-e2e-certmanager: setup-e2e-env run-test-e2e-certmanager-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the cert-manager e2e test suite.
@@ -557,6 +605,23 @@ run-test-e2e-dra-counter-%:
 		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="dra/counter" \
 		DRA_EXAMPLE_DRIVER_VERSION=$(DRA_EXAMPLE_DRIVER_VERSION) \
 		DRA_GPU_PARTITIONS=4 \
+		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		./hack/testing/e2e-test.sh
+
+.PHONY: test-e2e-dra-capacity
+test-e2e-dra-capacity: setup-e2e-env run-test-e2e-dra-capacity-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
+run-test-e2e-dra-capacity-%: K8S_VERSION = $(@:run-test-e2e-dra-capacity-%=%)
+run-test-e2e-dra-capacity-%:
+	@echo Running DRA Consumable Capacity e2e for k8s ${K8S_VERSION}
+	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(E2E_GINKGO_ARGS)" \
+		E2E_MODE=$(E2E_MODE) \
+		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
+		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
+		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="dra/capacity" \
+		DRA_EXAMPLE_DRIVER_VERSION=$(DRA_EXAMPLE_DRIVER_VERSION) \
+		DRA_GPU_ALLOW_MULTIPLE_ALLOCATIONS=true \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		./hack/testing/e2e-test.sh
 

@@ -284,12 +284,15 @@ When the feature gate is enabled, TLS options can be set for the golang servers.
 #### Stable
 
 - Adoption of feature
+- No negative feedback from beta users
+- The `TLSOptions` feature gate is locked to enabled by default in 0.20 and will be removed in 0.22
 
 ## Implementation History
 
 - 2025-12: KEP proposed based on issues #8190 and OCPKUEUE-450
 - 2026-01: KEP approved
 - 2026-05: CurvePreferences support added (issue #10698), following upstream Kubernetes --tls-curve-preferences flag (k/k PR #137115)
+- 2026-07: Graduated to stable (issue #10704); `TLSOptions` feature gate locked to enabled in 0.20
 
 ## Drawbacks
 

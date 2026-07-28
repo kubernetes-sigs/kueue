@@ -969,7 +969,7 @@ objectRetentionPolicies:
 	}
 }
 
-func TestTLSOptionsFeatureGate(t *testing.T) {
+func TestTLSOptions(t *testing.T) {
 	testScheme := runtime.NewScheme()
 	err := configapi.AddToScheme(testScheme)
 	if err != nil {
@@ -1020,15 +1020,12 @@ webhook:
 	testcases := []struct {
 		name              string
 		configFile        string
-		featureGates      map[featuregate.Feature]bool
 		wantConfiguration configapi.Configuration
-		verifyTLSApplied  bool
 		wantError         error
 	}{
 		{
-			name:         "TLS config applied when feature gate enabled",
-			configFile:   tlsConfigWithCipherSuites,
-			featureGates: map[featuregate.Feature]bool{features.TLSOptions: true},
+			name:       "TLS config with cipher suites is applied",
+			configFile: tlsConfigWithCipherSuites,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: configapi.SchemeGroupVersion.String(),
@@ -1074,64 +1071,10 @@ webhook:
 					},
 				},
 			},
-			verifyTLSApplied: true,
 		},
 		{
-			name:         "TLS config NOT applied when feature gate disabled",
-			configFile:   tlsConfigWithCipherSuites,
-			featureGates: map[featuregate.Feature]bool{features.TLSOptions: false},
-			wantConfiguration: configapi.Configuration{
-				TypeMeta: metav1.TypeMeta{
-					APIVersion: configapi.SchemeGroupVersion.String(),
-					Kind:       "Configuration",
-				},
-				Namespace:                  ptr.To(configapi.DefaultNamespace),
-				ManageJobsWithoutQueueName: false,
-				InternalCertManagement: &configapi.InternalCertManagement{
-					Enable:             new(true),
-					WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
-					WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
-				},
-				WaitForPodsReady: defaultWaitForPodsReady,
-
-				ClientConnection: &configapi.ClientConnection{
-					QPS:   ptr.To(configapi.DefaultClientConnectionQPS),
-					Burst: ptr.To(configapi.DefaultClientConnectionBurst),
-				},
-				Integrations: &configapi.Integrations{
-					Frameworks: []string{job.FrameworkName},
-				},
-				MultiKueue: &configapi.MultiKueue{
-					GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
-					Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
-					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
-					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
-				},
-				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
-					MatchExpressions: []metav1.LabelSelectorRequirement{
-						{
-							Key:      corev1.LabelMetadataName,
-							Operator: metav1.LabelSelectorOpNotIn,
-							Values:   []string{"kube-system", "kueue-system"},
-						},
-					},
-				},
-				ControllerManager: configapi.ControllerManager{
-					TLS: &configapi.TLSOptions{
-						MinVersion: "VersionTLS12",
-						CipherSuites: []string{
-							"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
-							"TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
-						},
-					},
-				},
-			},
-			verifyTLSApplied: false,
-		},
-		{
-			name:         "TLS 1.3 config applied when feature gate enabled",
-			configFile:   tlsConfigTLS13,
-			featureGates: map[featuregate.Feature]bool{features.TLSOptions: true},
+			name:       "TLS 1.3 config is applied",
+			configFile: tlsConfigTLS13,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: configapi.SchemeGroupVersion.String(),
@@ -1174,116 +1117,16 @@ webhook:
 					},
 				},
 			},
-			verifyTLSApplied: true,
 		},
 		{
-			name:         "invalid TLS config returns error when feature gate enabled",
-			configFile:   tlsConfigInvalid,
-			featureGates: map[featuregate.Feature]bool{features.TLSOptions: true},
-			wantError:    ErrWebhookTLSParse,
-		},
-		{
-			name:         "invalid TLS config ignored when feature gate disabled",
-			configFile:   tlsConfigInvalid,
-			featureGates: map[featuregate.Feature]bool{features.TLSOptions: false},
-			wantConfiguration: configapi.Configuration{
-				TypeMeta: metav1.TypeMeta{
-					APIVersion: configapi.SchemeGroupVersion.String(),
-					Kind:       "Configuration",
-				},
-				Namespace:                  ptr.To(configapi.DefaultNamespace),
-				ManageJobsWithoutQueueName: false,
-				InternalCertManagement: &configapi.InternalCertManagement{
-					Enable:             new(true),
-					WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
-					WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
-				},
-				WaitForPodsReady: defaultWaitForPodsReady,
-				ClientConnection: &configapi.ClientConnection{
-					QPS:   ptr.To(configapi.DefaultClientConnectionQPS),
-					Burst: ptr.To(configapi.DefaultClientConnectionBurst),
-				},
-				Integrations: &configapi.Integrations{
-					Frameworks: []string{job.FrameworkName},
-				},
-				MultiKueue: &configapi.MultiKueue{
-					GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
-					Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
-					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
-					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
-				},
-				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
-					MatchExpressions: []metav1.LabelSelectorRequirement{
-						{
-							Key:      corev1.LabelMetadataName,
-							Operator: metav1.LabelSelectorOpNotIn,
-							Values:   []string{"kube-system", "kueue-system"},
-						},
-					},
-				},
-				ControllerManager: configapi.ControllerManager{
-					TLS: &configapi.TLSOptions{
-						MinVersion: "InvalidVersion",
-					},
-				},
-			},
-			verifyTLSApplied: false,
-		},
-		{
-			name:         "TLS 1.3 config NOT applied when feature gate disabled",
-			configFile:   tlsConfigTLS13,
-			featureGates: map[featuregate.Feature]bool{features.TLSOptions: false},
-			wantConfiguration: configapi.Configuration{
-				TypeMeta: metav1.TypeMeta{
-					APIVersion: configapi.SchemeGroupVersion.String(),
-					Kind:       "Configuration",
-				},
-				Namespace:                  ptr.To(configapi.DefaultNamespace),
-				ManageJobsWithoutQueueName: false,
-				InternalCertManagement: &configapi.InternalCertManagement{
-					Enable:             new(true),
-					WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
-					WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
-				},
-				WaitForPodsReady: defaultWaitForPodsReady,
-
-				ClientConnection: &configapi.ClientConnection{
-					QPS:   ptr.To(configapi.DefaultClientConnectionQPS),
-					Burst: ptr.To(configapi.DefaultClientConnectionBurst),
-				},
-				Integrations: &configapi.Integrations{
-					Frameworks: []string{job.FrameworkName},
-				},
-				MultiKueue: &configapi.MultiKueue{
-					GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
-					Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
-					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
-					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
-				},
-				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
-					MatchExpressions: []metav1.LabelSelectorRequirement{
-						{
-							Key:      corev1.LabelMetadataName,
-							Operator: metav1.LabelSelectorOpNotIn,
-							Values:   []string{"kube-system", "kueue-system"},
-						},
-					},
-				},
-				ControllerManager: configapi.ControllerManager{
-					TLS: &configapi.TLSOptions{
-						MinVersion: "VersionTLS13",
-					},
-				},
-			},
-			verifyTLSApplied: false,
+			name:       "invalid TLS config returns error",
+			configFile: tlsConfigInvalid,
+			wantError:  ErrWebhookTLSParse,
 		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Set the feature gate for this test
-			features.SetFeatureGatesDuringTest(t, tc.featureGates)
-
 			options, cfg, err := Load(testScheme, tc.configFile)
 			if err != nil {
 				t.Fatalf("Unexpected error loading config: %v", err)
@@ -1314,21 +1157,13 @@ webhook:
 				t.Fatal("Expected WebhookServer to be created, but it was nil")
 			}
 
-			// Verify TLS options application based on feature gate
 			defaultServer, ok := options.WebhookServer.(*webhook.DefaultServer)
 			if !ok {
 				t.Fatalf("Expected WebhookServer to be *webhook.DefaultServer, got %T", options.WebhookServer)
 			}
 
-			// Check if TLSOpts are applied or not based on feature gate
-			if tc.verifyTLSApplied {
-				if len(defaultServer.Options.TLSOpts) == 0 {
-					t.Error("Expected TLSOpts to be applied when feature gate is enabled, but got none")
-				}
-			} else {
-				if len(defaultServer.Options.TLSOpts) > 0 {
-					t.Errorf("Expected TLSOpts NOT to be applied when feature gate is disabled, but got %d options", len(defaultServer.Options.TLSOpts))
-				}
+			if len(defaultServer.Options.TLSOpts) == 0 {
+				t.Error("Expected TLSOpts to be applied, but got none")
 			}
 		})
 	}

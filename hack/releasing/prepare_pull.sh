@@ -302,6 +302,7 @@ function make_pr() {
   pr_text=$(cat <<EOF
 #### What type of PR is this?
 /kind cleanup
+/area release
 
 #### What this PR does / why we need it:
 $3.

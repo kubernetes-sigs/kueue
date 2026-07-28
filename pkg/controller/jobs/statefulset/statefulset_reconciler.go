@@ -355,7 +355,7 @@ func (r *Reconciler) constructWorkload(sts *appsv1.StatefulSet) (*kueue.Workload
 		podSet.TopologyRequest = topologyRequest
 	}
 
-	wl := podcontroller.NewGroupWorkload(GetWorkloadName(GetOwnerUID(sts), sts.Name), sts, []kueue.PodSet{podSet}, nil)
+	wl := podcontroller.NewGroupWorkload(GetWorkloadName(GetOwnerUID(sts), sts.Name), sts, []kueue.PodSet{podSet}, nil, nil)
 
 	if wl.Labels == nil {
 		wl.Labels = make(map[string]string, 1)

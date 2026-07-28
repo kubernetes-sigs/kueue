@@ -37,8 +37,9 @@ type LocalQueue struct {
 	admittedUsage      resources.FlavorResourceQuantities
 
 	// allows access to values extracted from K8s labels/annotations, used as custom Prometheus metric labels
-	customLabels *metrics.CustomLabels
-	labels       map[string]string
+	customLabels      *metrics.CustomLabels
+	labels            map[string]string
+	resourceFormatter *resources.ResourceFormatter
 }
 
 func (q *LocalQueue) customMetricLabelValues() []string {
@@ -48,7 +49,7 @@ func (q *LocalQueue) customMetricLabelValues() []string {
 func (q *LocalQueue) GetAdmittedUsage() corev1.ResourceList {
 	q.RLock()
 	defer q.RUnlock()
-	return q.admittedUsage.FlattenFlavors().ToResourceList()
+	return q.admittedUsage.FlattenFlavors().ToResourceList(q.resourceFormatter)
 }
 
 func (q *LocalQueue) GetLabels() map[string]string {
@@ -92,8 +93,8 @@ func (q *LocalQueue) reportResourceMetrics(cqQuotas map[resources.FlavorResource
 	lqRef := metrics.LocalQueueReference{Name: name, Namespace: namespace}
 	for fr := range cqQuotas {
 		fName, rName := string(fr.Flavor), string(fr.Resource)
-		metrics.ReportLocalQueueResourceReservations(lqRef, fName, rName, resourceFloat(fr.Resource, q.totalReserved[fr].Int64()), q.customMetricLabelValues(), tracker)
-		metrics.ReportLocalQueueResourceUsage(lqRef, fName, rName, resourceFloat(fr.Resource, q.admittedUsage[fr].Int64()), q.customMetricLabelValues(), tracker)
+		metrics.ReportLocalQueueResourceReservations(lqRef, fName, rName, resourceFloat(q.resourceFormatter, fr.Resource, q.totalReserved[fr].Int64()), q.customMetricLabelValues(), tracker)
+		metrics.ReportLocalQueueResourceUsage(lqRef, fName, rName, resourceFloat(q.resourceFormatter, fr.Resource, q.admittedUsage[fr].Int64()), q.customMetricLabelValues(), tracker)
 	}
 }
 

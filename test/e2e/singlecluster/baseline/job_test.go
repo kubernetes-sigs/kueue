@@ -952,7 +952,113 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 			})
 		})
 	})
+
+	ginkgo.When("Scaling down an elastic Indexed Job with completed indexes", func() {
+		var (
+			defaultRF    *kueue.ResourceFlavor
+			localQueue   *kueue.LocalQueue
+			clusterQueue *kueue.ClusterQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			defaultRF = utiltestingapi.MakeResourceFlavor("default-" + ns.Name).Obj()
+			util.MustCreate(ctx, k8sClient, defaultRF)
+
+			clusterQueue = utiltestingapi.MakeClusterQueue("cq-" + ns.Name).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(defaultRF.Name).
+						Resource(corev1.ResourceCPU, "2").
+						Obj(),
+				).
+				Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+
+			localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(util.DeleteAllPodsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultRF, true)
+			util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+		})
+
+		// kueue#13117: after successes on surviving indexes and an elastic
+		// scale-down, the quota reserved for the Job must converge to the number
+		// of pods still running - neither staying inflated at the pre-scale podSet
+		// (overbooking) nor dropping below it (pods leak). Each pod requests 200m,
+		// so the ClusterQueue's reserved CPU must always equal running pods * 200m.
+		ginkgo.It("keeps the reserved quota equal to the running pods", func() {
+			cqKey := client.ObjectKeyFromObject(clusterQueue)
+
+			elasticJob := testingjob.MakeJob("elastic-indexed-scale-down", ns.Name).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Queue("main").
+				Indexed(true).
+				Parallelism(4).
+				Completions(4).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				TerminationGracePeriod(1).
+				Obj()
+			util.MustCreate(ctx, k8sClient, elasticJob)
+
+			ginkgo.By("admitting the job: 4 pods running, quota reserved for 4 (800m)", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(findRunningPods(g, ns.Name, elasticJob.Name)).Should(gomega.HaveLen(4))
+					g.Expect(clusterQueueReservedMilliCPU(g, cqKey)).Should(gomega.BeEquivalentTo(int64(800)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("completing indexes 0 and 1: 2 pods running, quota converges to 2 (400m), not over-reserved", func() {
+				for _, idx := range []string{"0", "1"} {
+					util.WaitForActivePodsAndTerminate(ctx, k8sClient, restClient, cfg, ns.Name, 1, 0,
+						client.MatchingLabels{
+							"batch.kubernetes.io/job-name":             elasticJob.Name,
+							"batch.kubernetes.io/job-completion-index": idx,
+						})
+				}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(findRunningPods(g, ns.Name, elasticJob.Name)).Should(gomega.HaveLen(2))
+					g.Expect(clusterQueueReservedMilliCPU(g, cqKey)).Should(gomega.BeEquivalentTo(int64(400)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("scaling parallelism 4 -> 1: quota converges to the single running pod (200m)", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(elasticJob), elasticJob)).Should(gomega.Succeed())
+					elasticJob.Spec.Parallelism = ptr.To[int32](1)
+					g.Expect(k8sClient.Update(ctx, elasticJob)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(findRunningPods(g, ns.Name, elasticJob.Name)).Should(gomega.HaveLen(1))
+					g.Expect(clusterQueueReservedMilliCPU(g, cqKey)).Should(gomega.BeEquivalentTo(int64(200)))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+	})
 })
+
+// clusterQueueReservedMilliCPU returns the CPU currently reserved by the
+// ClusterQueue across all flavors, in milliCPU.
+func clusterQueueReservedMilliCPU(g gomega.Gomega, cqKey client.ObjectKey) int64 {
+	cq := &kueue.ClusterQueue{}
+	g.Expect(k8sClient.Get(ctx, cqKey, cq)).Should(gomega.Succeed())
+	var total int64
+	for _, fu := range cq.Status.FlavorsReservation {
+		for _, r := range fu.Resources {
+			if r.Name == corev1.ResourceCPU {
+				total += r.Total.MilliValue()
+			}
+		}
+	}
+	return total
+}
 
 func findRunningPods(g gomega.Gomega, namespace, jobName string) []corev1.Pod {
 	podList := &corev1.PodList{}

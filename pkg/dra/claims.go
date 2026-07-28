@@ -56,7 +56,7 @@ type celDeviceRequest struct {
 // ResourceClaimSpec. Returns field errors for unsupported request features
 // (FirstAvailable, AdminAccess, AllocationMode All).
 func countDevicesPerClass(claimSpec *resourcev1.ResourceClaimSpec) (resources.Requests, field.ErrorList) {
-	out := resources.Requests{}
+	out := resources.CreateEmpty()
 	if claimSpec == nil {
 		return out, nil
 	}
@@ -119,7 +119,7 @@ func countDevicesPerClass(claimSpec *resourcev1.ResourceClaimSpec) (resources.Re
 		// apiserver accepts up to MaxInt64), so accumulate with a saturating add
 		// (matching the scheduler's Amount arithmetic) rather than letting the
 		// sum wrap to a negative count.
-		out[dc] = utilmath.SaturatingAdd(out[dc], q)
+		out.Set(dc, utilmath.SaturatingAdd(out.GetValue(dc), q))
 	}
 	return out, nil
 }
@@ -209,7 +209,7 @@ func GetResourceRequestsForResourceClaimTemplates(
 				return nil, allErrs
 			}
 
-			for dc, qty := range deviceCounts {
+			for dc, qty := range resources.ToMapRequests(deviceCounts) {
 				logical, found := mapper.Lookup(dc)
 				if !found {
 					allErrs = append(allErrs, field.NotFound(
@@ -219,6 +219,9 @@ func GetResourceRequestsForResourceClaimTemplates(
 					return nil, allErrs
 				}
 				if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) && len(mapper.getCounterConfigs(dc)) > 0 {
+					continue
+				}
+				if features.Enabled(features.KueueDRAIntegrationConsumableCapacity) && len(mapper.getCapacityConfigs(dc)) > 0 {
 					continue
 				}
 				aggregated = utilresource.MergeResourceListKeepSum(aggregated, corev1.ResourceList{logical: resource.MustParse(strconv.FormatInt(qty, 10))})
@@ -425,7 +428,7 @@ func validateCELSelectorsAgainstDevices(
 	var collectedSlices []resourcev1.ResourceSlice
 	needsAll := false
 	for _, cr := range celReqs {
-		if len(mapper.getCounterConfigs(corev1.ResourceName(cr.deviceClassName))) == 0 {
+		if len(mapper.getCounterConfigs(corev1.ResourceName(cr.deviceClassName))) == 0 && len(mapper.getCapacityConfigs(corev1.ResourceName(cr.deviceClassName))) == 0 {
 			needsAll = true
 			break
 		}
@@ -437,9 +440,10 @@ func validateCELSelectorsAgainstDevices(
 		}
 		collectedSlices = slices
 	} else {
-		seenDrivers := sets.New[string]()
+		seenDrivers := sets.New[DriverReference]()
 		for _, cr := range celReqs {
-			for _, cc := range mapper.getCounterConfigs(corev1.ResourceName(cr.deviceClassName)) {
+			dc := corev1.ResourceName(cr.deviceClassName)
+			for _, cc := range mapper.getCounterConfigs(dc) {
 				if seenDrivers.Has(cc.driver) {
 					continue
 				}
@@ -447,6 +451,17 @@ func validateCELSelectorsAgainstDevices(
 				slices, err := sliceCache.ListByDriver(ctx, cc.driver)
 				if err != nil {
 					return field.ErrorList{field.InternalError(basePath, fmt.Errorf("failed to list ResourceSlices for driver %s: %w", cc.driver, err))}
+				}
+				collectedSlices = append(collectedSlices, slices...)
+			}
+			for _, capCfg := range mapper.getCapacityConfigs(dc) {
+				if seenDrivers.Has(DriverReference(capCfg.driver)) {
+					continue
+				}
+				seenDrivers.Insert(DriverReference(capCfg.driver))
+				slices, err := sliceCache.ListByDriver(ctx, DriverReference(capCfg.driver))
+				if err != nil {
+					return field.ErrorList{field.InternalError(basePath, fmt.Errorf("failed to list ResourceSlices for driver %s: %w", capCfg.driver, err))}
 				}
 				collectedSlices = append(collectedSlices, slices...)
 			}

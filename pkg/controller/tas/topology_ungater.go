@@ -467,6 +467,17 @@ func readRanksIfAvailable(log logr.Logger,
 	}
 
 	for rank, pod := range result {
+		if rank >= len(rankToDomainID) {
+			// The assignment can cover fewer pods than the PodSet count (e.g. a slice size
+			// that does not evenly divide it), so a valid rank may have no domain.
+			// Fall back to greedy assignment for the whole PodSet.
+			//
+			// TODO: this may require adjustments to support ElasticJobs with TAS,
+			// tracked by the ElasticJobsViaWorkloadSlicesWithTAS feature gate.
+			log.V(3).Info("pod rank is out of range for the assigned topology domains, falling back to greedy assignment",
+				"pod", klog.KObj(pod), "rank", rank, "assignedPodCount", len(rankToDomainID))
+			return nil, false
+		}
 		if utilpod.HasGate(pod, kueue.TopologySchedulingGate) {
 			continue
 		}

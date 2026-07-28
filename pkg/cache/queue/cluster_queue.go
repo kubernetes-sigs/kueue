@@ -445,7 +445,7 @@ func draRequestsChanged(oldInfo, newInfo *workload.Info) bool {
 	if !features.Enabled(features.KueueDRAIntegration) {
 		return false
 	}
-	return !equality.Semantic.DeepEqual(oldInfo.TotalRequests, newInfo.TotalRequests)
+	return !workload.Semantic.DeepEqual(oldInfo.TotalRequests, newInfo.TotalRequests)
 }
 
 func (c *ClusterQueue) GetNoFitReason(wl workload.Reference) (string, bool) {
@@ -486,16 +486,20 @@ func (c *ClusterQueue) backoffWaitingTimeExpired(wInfo *workload.Info) bool {
 
 func (c *ClusterQueue) addPendingResources(wInfo *workload.Info) {
 	for _, ps := range wInfo.TotalRequests {
-		for name, q := range ps.Requests {
-			c.pendingResourcesTotal[name] += q
+		if ps.Requests != nil {
+			ps.Requests.ForEach(func(name corev1.ResourceName, q int64) {
+				c.pendingResourcesTotal[name] += q
+			})
 		}
 	}
 }
 
 func (c *ClusterQueue) subtractPendingResources(wInfo *workload.Info) {
 	for _, ps := range wInfo.TotalRequests {
-		for name, q := range ps.Requests {
-			c.pendingResourcesTotal[name] -= q
+		if ps.Requests != nil {
+			ps.Requests.ForEach(func(name corev1.ResourceName, q int64) {
+				c.pendingResourcesTotal[name] -= q
+			})
 		}
 	}
 }
@@ -670,8 +674,10 @@ func (c *ClusterQueue) pendingResources() map[corev1.ResourceName]int64 {
 	result := maps.Clone(c.pendingResourcesTotal)
 	if c.inflight != nil {
 		for _, ps := range c.inflight.TotalRequests {
-			for name, q := range ps.Requests {
-				result[name] += q
+			if ps.Requests != nil {
+				ps.Requests.ForEach(func(name corev1.ResourceName, q int64) {
+					result[name] += q
+				})
 			}
 		}
 	}
@@ -852,12 +858,12 @@ func buildSnapshotSort(
 			return 1, true
 		}
 		ns, name := utilqueue.MustParseLocalQueueReference(lqKey)
-		var lq kueue.LocalQueue
-		if err := cl.Get(ctx, client.ObjectKey{Namespace: ns, Name: string(name)}, &lq); err != nil {
-			log.V(2).Error(err, "Failed to get LocalQueue for FS weight", "localQueue", klog.KRef(ns, string(name)))
+		lqWeight, err := afs.ResolveLQWeight(ctx, cl, client.ObjectKey{Namespace: ns, Name: string(name)})
+		if err != nil {
+			log.V(2).Error(err, "Failed to get LocalQueue for FS weight; falling back to base ordering for snapshot", "localQueue", klog.KRef(ns, string(name)))
 			return 0, false
 		}
-		return afs.LQWeightAsFloat64(&lq), true
+		return lqWeight, true
 	}
 
 	return func(elements []*workload.Info) {
@@ -881,7 +887,11 @@ func buildSnapshotSort(
 			}
 			lqWeight, ok := getLQWeight(lqKey)
 			if !ok {
-				continue
+				// A partial FS usage cache would mix fair-sharing and base comparisons,
+				// which can be non-transitive. Fall back to base ordering for the whole
+				// snapshot. See Kueue#12534.
+				slices.SortFunc(elements, baseCmp)
+				return
 			}
 			usageCache[lqKey] = afs.CalculateUsage(consumed, penalty, lqWeight, fsResWeights)
 		}

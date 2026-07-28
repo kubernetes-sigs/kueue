@@ -28,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -71,7 +72,7 @@ func TestReconciler(t *testing.T) {
 
 	cases := map[string]struct {
 		featureGates            map[featuregate.Feature]bool
-		labelKeysToCopy         []string
+		labelKeysToCopy         sets.Set[string]
 		leaderWorkerSet         *leaderworkersetv1.LeaderWorkerSet
 		statefulSets            []appsv1.StatefulSet
 		workloads               []kueue.Workload

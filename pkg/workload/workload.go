@@ -33,6 +33,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/conversion"
 	"k8s.io/apimachinery/pkg/util/sets"
 	resourcehelpers "k8s.io/component-helpers/resource"
 	"k8s.io/klog/v2"
@@ -76,6 +77,8 @@ const (
 	// SchedulingHashUnknown indicates the scheduling hash could not be computed.
 	SchedulingHashUnknown EquivalenceHash = "unknown"
 )
+
+var Semantic = conversion.EqualitiesOrDie(resources.Equal)
 
 // Reference is the full reference to Workload formed as <namespace>/< kueue.WorkloadName >.
 type Reference string
@@ -262,6 +265,9 @@ type PodSetResources struct {
 }
 
 func (p *PodSetResources) SinglePodRequests() resources.Requests {
+	if p.Requests == nil {
+		return nil
+	}
 	return p.Requests.ScaledDown(int64(p.Count))
 }
 
@@ -285,16 +291,22 @@ func (p *PodSetResources) ScaledTo(newCount int32) *PodSetResources {
 	if p.TopologyRequest != nil {
 		return p
 	}
+	var req resources.Requests
+	if p.Requests != nil {
+		req = p.Requests.Clone()
+	}
 	ret := &PodSetResources{
 		Name:     p.Name,
-		Requests: maps.Clone(p.Requests),
+		Requests: req,
 		Count:    p.Count,
 		Flavors:  maps.Clone(p.Flavors),
 	}
 
 	if p.Count != 0 && p.Count != newCount {
-		ret.Requests.Divide(int64(ret.Count))
-		ret.Requests.Mul(int64(newCount))
+		if ret.Requests != nil {
+			ret.Requests.Divide(int64(ret.Count))
+			ret.Requests.Mul(int64(newCount))
+		}
 		ret.Count = newCount
 	}
 	return ret
@@ -364,7 +376,7 @@ func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []
 			"name":            ps.Name,
 			"spec":            utilpod.SpecShape(&ps.Template.Spec),
 			"count":           effectiveCount,
-			"requests":        effectiveRequests,
+			"requests":        resources.ToMapRequests(effectiveRequests),
 			"minCount":        ps.MinCount,
 			"topologyRequest": ps.TopologyRequest,
 		})
@@ -411,9 +423,11 @@ func (i *Info) FlavorResourceUsage() resources.FlavorResourceQuantities {
 		return total
 	}
 	for _, psReqs := range i.TotalRequests {
-		for res, q := range psReqs.Requests {
-			flv := psReqs.Flavors[res]
-			total[resources.FlavorResource{Flavor: flv, Resource: res}] = total[resources.FlavorResource{Flavor: flv, Resource: res}].AddInt64(q)
+		if psReqs.Requests != nil {
+			psReqs.Requests.ForEach(func(res corev1.ResourceName, q int64) {
+				flv := psReqs.Flavors[res]
+				total[resources.FlavorResource{Flavor: flv, Resource: res}] = total[resources.FlavorResource{Flavor: flv, Resource: res}].AddInt64(q)
+			})
 		}
 	}
 	return total
@@ -458,12 +472,11 @@ func (i *Info) CalcLocalQueueFSUsage(
 		penalty = afsEntryPenalties.Peek(lqKey)
 	}
 
-	var lq kueue.LocalQueue
 	lqObjKey := client.ObjectKey{Namespace: i.Obj.Namespace, Name: string(i.Obj.Spec.QueueName)}
-	if err := c.Get(ctx, lqObjKey, &lq); err != nil {
+	lqWeight, err := afs.ResolveLQWeight(ctx, c, lqObjKey)
+	if err != nil {
 		return 0, err
 	}
-	lqWeight := afs.LQWeightAsFloat64(&lq)
 	return afs.CalculateUsage(consumed, penalty, lqWeight, resWeights), nil
 }
 
@@ -505,12 +518,14 @@ func (i *Info) TASUsage() TASUsage {
 	return result
 }
 
-func (i *Info) SumTotalRequests() corev1.ResourceList {
-	reqs := make(resources.Requests)
+func (i *Info) SumTotalRequests(formatter *resources.ResourceFormatter) corev1.ResourceList {
+	reqs := resources.CreateEmpty()
 	for _, psReqs := range i.TotalRequests {
-		reqs.Add(psReqs.Requests)
+		if psReqs.Requests != nil {
+			reqs.Add(psReqs.Requests)
+		}
 	}
-	return reqs.ToResourceList()
+	return reqs.ToResourceList(formatter)
 }
 
 func applyResourceTransformations(input corev1.ResourceList, transforms map[corev1.ResourceName]*config.ResourceTransformation) corev1.ResourceList {
@@ -623,24 +638,24 @@ func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetRes
 		specRequests := resourcehelpers.PodRequests(&corev1.Pod{Spec: ps.Template.Spec}, resourcehelpers.PodResourcesOptions{})
 		effectiveRequests := dropExcludedResources(specRequests, info.excludedResourcePrefixes)
 		effectiveRequests = applyResourceTransformations(effectiveRequests, info.resourceTransformations)
-		setRes.Requests = resources.NewRequests(effectiveRequests)
 		if features.Enabled(features.KueueDRAIntegration) && info.preprocessedDRAResources != nil {
 			// First, remove extended resources that were converted to DRA logical resources
 			if replacedRes, exists := info.replacedExtendedResources[ps.Name]; exists {
 				for extRes := range replacedRes {
-					delete(setRes.Requests, extRes)
+					delete(effectiveRequests, extRes)
 				}
 			}
 			// Then, add the DRA logical resources
 			if draRes, exists := info.preprocessedDRAResources[ps.Name]; exists {
 				for resName, quantity := range draRes {
-					if setRes.Requests == nil {
-						setRes.Requests = make(resources.Requests)
-					}
-					setRes.Requests[resName] += resources.ResourceValue(resName, quantity)
+					q := effectiveRequests[resName]
+					q.Add(quantity)
+					effectiveRequests[resName] = q
 				}
 			}
 		}
+		setRes.Requests = resources.NewRequestsFromResourceList(effectiveRequests)
+		setRes.Requests.FloorToZero()
 		setRes.Requests.Mul(int64(count))
 		res = append(res, setRes)
 	}
@@ -660,7 +675,7 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 			Name:     psa.Name,
 			Flavors:  psa.Flavors,
 			Count:    ptr.Deref(psa.Count, totalCounts[psa.Name]),
-			Requests: resources.NewRequests(psa.ResourceUsage),
+			Requests: resources.NewRequestsFromResourceList(psa.ResourceUsage),
 		}
 		if features.Enabled(features.TopologyAwareScheduling) && psa.TopologyAssignment != nil {
 			setRes.TopologyRequest = &TopologyRequest{
@@ -685,8 +700,10 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 		// If countAfterReclaim is lower then the admission count indicates that
 		// additional pods are marked as reclaimable, and the consumption should be scaled down.
 		if countAfterReclaim := currentCounts[psa.Name]; countAfterReclaim < setRes.Count {
-			setRes.Requests.Divide(int64(setRes.Count))
-			setRes.Requests.Mul(int64(countAfterReclaim))
+			if setRes.Requests != nil {
+				setRes.Requests.Divide(int64(setRes.Count))
+				setRes.Requests.Mul(int64(countAfterReclaim))
+			}
 			setRes.Count = countAfterReclaim
 		}
 		// Otherwise if countAfterReclaim is higher it means that the podSet was partially admitted
@@ -814,6 +831,21 @@ func SetRequeuedCondition(wl *kueue.Workload, reason, message string, status boo
 		condition.Status = metav1.ConditionFalse
 	}
 	return apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
+}
+
+// TotalExecutionTime returns the cumulative admitted duration across evict/readmit cycles, or nil if not applicable.
+func TotalExecutionTime(wl *kueue.Workload) *time.Duration {
+	admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
+	if admittedCond == nil || admittedCond.Status != metav1.ConditionTrue {
+		return nil
+	}
+	finishedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadFinished)
+	if finishedCond == nil || finishedCond.Status != metav1.ConditionTrue {
+		return nil
+	}
+	accumulatedPast := time.Duration(ptr.Deref(wl.Status.AccumulatedPastExecutionTimeSeconds, 0)) * time.Second
+	total := accumulatedPast + finishedCond.LastTransitionTime.Sub(admittedCond.LastTransitionTime.Time)
+	return &total
 }
 
 func QueuedWaitTime(wl *kueue.Workload, clock clock.Clock) time.Duration {
@@ -1054,12 +1086,16 @@ func BlockedOnPreemptionGatesCondition(w *kueue.Workload) *metav1.Condition {
 
 // PropagateResourceRequests synchronizes w.Status.ResourceRequests to
 // with info.TotalRequests if the feature gate is enabled and returns true if w was updated
-func PropagateResourceRequests(w *kueue.Workload, info *Info) bool {
+func PropagateResourceRequests(w *kueue.Workload, info *Info, formatter *resources.ResourceFormatter) bool {
 	if len(w.Status.ResourceRequests) == len(info.TotalRequests) {
 		match := true
 		for idx := range w.Status.ResourceRequests {
+			var resList corev1.ResourceList
+			if info.TotalRequests[idx].Requests != nil {
+				resList = info.TotalRequests[idx].Requests.ToResourceList(formatter)
+			}
 			if w.Status.ResourceRequests[idx].Name != info.TotalRequests[idx].Name ||
-				!equality.Semantic.DeepEqual(w.Status.ResourceRequests[idx].Resources, info.TotalRequests[idx].Requests.ToResourceList()) {
+				!equality.Semantic.DeepEqual(w.Status.ResourceRequests[idx].Resources, resList) {
 				match = false
 				break
 			}
@@ -1072,7 +1108,9 @@ func PropagateResourceRequests(w *kueue.Workload, info *Info) bool {
 	res := make([]kueue.PodSetRequest, len(info.TotalRequests))
 	for idx := range info.TotalRequests {
 		res[idx].Name = info.TotalRequests[idx].Name
-		res[idx].Resources = info.TotalRequests[idx].Requests.ToResourceList()
+		if info.TotalRequests[idx].Requests != nil {
+			res[idx].Resources = info.TotalRequests[idx].Requests.ToResourceList(formatter)
+		}
 	}
 	w.Status.ResourceRequests = res
 	return true
@@ -1161,45 +1199,6 @@ func LimitReclaimablePodsToPodSetSizes(wl *kueue.Workload, reclaimablePods []kue
 		}
 	}
 	return limited
-}
-
-// ReduceReclaimablePodsByScaleDown returns a copy of reclaimablePods with every
-// count reduced, bounded at zero, by the pods removed from its PodSet since
-// admission (the admission's granted count minus the current PodSet count).
-//
-// Without this, a job's reclaimable count derived from monotonic state (e.g. a
-// batch/Job's Status.Succeeded) would release quota for pods already removed by
-// an elastic scale-down (kueue#12958).
-func ReduceReclaimablePodsByScaleDown(log logr.Logger, wl *kueue.Workload, reclaimablePods []kueue.ReclaimablePod) []kueue.ReclaimablePod {
-	if wl.Status.Admission == nil {
-		return reclaimablePods
-	}
-	admittedSizes := make(map[kueue.PodSetReference]int32, len(wl.Status.Admission.PodSetAssignments))
-	for i := range wl.Status.Admission.PodSetAssignments {
-		psa := &wl.Status.Admission.PodSetAssignments[i]
-		if psa.Count != nil {
-			admittedSizes[psa.Name] = *psa.Count
-		}
-	}
-	currentSizes := ExtractPodSetCountsFromWorkload(wl)
-	reduced := slices.Clone(reclaimablePods)
-	for i := range reduced {
-		admitted, found := admittedSizes[reduced[i].Name]
-		if !found {
-			continue
-		}
-		if scaledDown := admitted - currentSizes[reduced[i].Name]; scaledDown > 0 {
-			newCount := max(0, reduced[i].Count-scaledDown)
-			log.V(3).Info("Reducing reclaimable pods for scaled-down podSet",
-				"podSet", reduced[i].Name,
-				"admittedCount", admitted,
-				"currentCount", currentSizes[reduced[i].Name],
-				"reclaimableFrom", reduced[i].Count,
-				"reclaimableTo", newCount)
-			reduced[i].Count = newCount
-		}
-	}
-	return reduced
 }
 
 // ReclaimablePodsAreEqual checks if two Reclaimable pods are semantically equal

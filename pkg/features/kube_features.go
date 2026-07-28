@@ -95,23 +95,11 @@ const (
 	// Enable to set use Mixed algorithm (BestFit or LeastFreeCapacity) for TAS which switch the algorithm based on TAS requirements level.
 	TASProfileMixed featuregate.Feature = "TASProfileMixed"
 
-	// owner: @mwielgus
-	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/79-hierarchical-cohorts
-	//
-	// Enable hierarchical cohorts
-	HierarchicalCohorts featuregate.Feature = "HierarchicalCohorts"
-
 	// owner: @pbundyra
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/4136-admission-fair-sharing
 	//
 	// Enable admission fair sharing
 	AdmissionFairSharing featuregate.Feature = "AdmissionFairSharing"
-
-	// owner: @mwysokin @mykysha @mbobrovskyi
-	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/1618-optional-gc-of-workloads
-	//
-	// Enable object retentions
-	ObjectRetentionPolicies featuregate.Feature = "ObjectRetentionPolicies"
 
 	// owner: @pajakd
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
@@ -213,6 +201,14 @@ const (
 	// counter consumption from ResourceSlice devices via consumesCounters configuration.
 	KueueDRAIntegrationPartitionableDevices featuregate.Feature = "KueueDRAIntegrationPartitionableDevices"
 
+	// owner: @sohankunkerkar
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2941-DRA
+	//
+	// Enable capacity-based quota for DRA devices that allow multiple allocations
+	// (consumable capacity, KEP-5075). Tracks consumed capacity dimensions from the
+	// device's Capacity field and the workload's capacity.requests.
+	KueueDRAIntegrationConsumableCapacity featuregate.Feature = "KueueDRAIntegrationConsumableCapacity"
+
 	// owner: @khrm
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2349-multikueue-external-custom-job-support
 	//
@@ -223,14 +219,6 @@ const (
 	//
 	// Enable all updates to Workload objects to use Patch Merge instead of Patch Apply.
 	WorkloadRequestUseMergePatch featuregate.Feature = "WorkloadRequestUseMergePatch"
-
-	// owner: @mszadkow
-	//
-	// Allow insecure kubeconfigs in MultiKueue setup.
-	// Requires careful consideration as it may lead to security issues.
-	//
-	// Deprecated: locked to its default value (false) in 0.19; planned to be removed in 0.20.
-	MultiKueueAllowInsecureKubeconfigs featuregate.Feature = "MultiKueueAllowInsecureKubeconfigs"
 
 	// owner: @kannon92
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/12144
@@ -509,6 +497,23 @@ const (
 	//
 	// Enables caching of remaining capacity and clone reduction in TAS Flavor Snapshot.
 	TASCachingRemainingResources featuregate.Feature = "TASCachingRemainingResources"
+
+	// owner: @kshalot
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/8871
+	// Enable integration of the https://github.com/kubernetes-sigs/scheduler-library.
+	SchedulerLibraryIntegration featuregate.Feature = "SchedulerLibraryIntegration"
+
+	// owner: @j-skiba
+	//
+	// VectorizedResourceRequests enables slice-based indexing for resource requests in TAS snapshots,
+	// replacing map lookups for higher performance during scheduling and preemption.
+	VectorizedResourceRequests featuregate.Feature = "VectorizedResourceRequests"
+
+	// owner: @vladikkuzn
+	//
+	// Rejects Workloads with negative container or pod-level resource requests/limits.
+	WorkloadValidateResourcesAreNonNegative featuregate.Feature = "WorkloadValidateResourcesAreNonNegative"
 )
 
 func init() {
@@ -561,18 +566,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.10"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
 	},
-	HierarchicalCohorts: {
-		{Version: version.MustParse("0.11"), Default: true, PreRelease: featuregate.Beta},
-		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.19
-	},
 	AdmissionFairSharing: {
 		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
-	},
-	ObjectRetentionPolicies: {
-		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
-		{Version: version.MustParse("0.13"), Default: true, PreRelease: featuregate.Beta},
-		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.19
 	},
 	TASFailedNodeReplacement: {
 		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
@@ -625,6 +621,11 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	KueueDRAIntegrationPartitionableDevices: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	KueueDRAIntegrationConsumableCapacity: {
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	MultiKueueAdaptersForCustomJobs: {
@@ -634,12 +635,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	WorkloadRequestUseMergePatch: {
 		{Version: version.MustParse("0.14"), Default: false, PreRelease: featuregate.Alpha},
 	},
-	MultiKueueAllowInsecureKubeconfigs: {
-		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
-		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Deprecated},
-		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Deprecated, LockToDefault: true}, // remove in 0.20
-	},
-
 	MultiKueueKubeConfigPathValidation: {
 		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
 	},
@@ -670,7 +665,8 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.20
 	},
 	TLSOptions: {
-		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.20 (https://github.com/kubernetes-sigs/kueue/issues/10704)
+		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta},                    // GA in 0.20
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.22
 	},
 	RemoveFinalizersWithStrictPatch: {
 		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
@@ -782,6 +778,18 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	TASCachingRemainingResources: {
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	SchedulerLibraryIntegration: {
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	VectorizedResourceRequests: {
+		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	WorkloadValidateResourcesAreNonNegative: {
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 

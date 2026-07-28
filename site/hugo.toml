@@ -47,8 +47,9 @@ ignoreFiles = []
     [markup.goldmark.renderer]
       unsafe = true
   [markup.highlight]
-    # See a complete list of available styles at https://xyproto.github.io/splash/docs/all.html
-    style = "tango"
+    # Use CSS classes instead of inline styles so Docsy's built-in
+    # light/dark syntax-highlighting themes apply in both color modes.
+    noClasses = false
     guessSyntax = "true"
 
 ###############################################################################
@@ -105,10 +106,10 @@ ignoreFiles = []
   # The major.minor version tag for the version of the docs represented in this
   # branch of the repository. Used in the "version-banner" partial to display a
   # version number for this doc set.
-  version = "v0.18.3"
+  version = "v0.19.0"
 
   # Version of Kueue without the leading "v", as used for Helm charts.
-  chart_version = "0.18.3"
+  chart_version = "0.19.0"
   # Flag used in the "version-banner" partial to decide whether to display a
   # banner on every page indicating that this is an archived version of the docs.
   archived_version = false
@@ -129,15 +130,17 @@ ignoreFiles = []
     url = "/docs/"
 
   [[params.versions]]
+    version = "v0.19"
+    url = "/v0.19/docs/"
+
+  [[params.versions]]
     version = "v0.18"
     url = "/v0.18/docs/"
 
-  [[params.versions]]
-    version = "v0.17"
-    url = "/v0.17/docs/"
-
   # User interface configuration
   [params.ui]
+    # Show the light/dark/auto theme mode menu in the navbar.
+    showLightDarkModeMenu = true
     # Enable the logo
     navbar_logo = true
     # Enable to show the side bar menu in its compact state.

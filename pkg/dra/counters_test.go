@@ -327,7 +327,7 @@ func TestComputeCounterChargesLogsNegativeCounter(t *testing.T) {
 		t.Fatalf("expected a V(0) log line for the negative counter, got none")
 	}
 	joined := strings.Join(logged, "\n")
-	for _, substr := range []string{"Unexpected negative device counter value", "gpu.nvidia.com", "memory", "-5"} {
+	for _, substr := range []string{"Unexpected negative device value from driver, clamping to 0", "gpu.nvidia.com", "memory", "-5"} {
 		if !strings.Contains(joined, substr) {
 			t.Errorf("expected log output to contain %q, got:\n%s", substr, joined)
 		}

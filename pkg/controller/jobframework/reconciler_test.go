@@ -35,6 +35,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/clock"
 	testingclock "k8s.io/utils/clock/testing"
@@ -91,14 +92,15 @@ func TestReconcileGenericJob(t *testing.T) {
 		Priority(0)
 
 	testCases := map[string]struct {
-		featureGates  map[featuregate.Feature]bool
-		req           types.NamespacedName
-		job           *batchv1.Job
-		podSets       []kueue.PodSet
-		objs          []client.Object
-		wantWorkloads []kueue.Workload
-		wantEvents    []utiltesting.EventRecord
-		wantPodSets   []podset.PodSetInfo
+		featureGates      map[featuregate.Feature]bool
+		reconcilerOptions []Option
+		req               types.NamespacedName
+		job               *batchv1.Job
+		podSets           []kueue.PodSet
+		objs              []client.Object
+		wantWorkloads     []kueue.Workload
+		wantEvents        []utiltesting.EventRecord
+		wantPodSets       []podset.PodSetInfo
 	}{
 		"handle job with no workload (elasticJobsViaWorkloadSlicesEnabled = false)": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false},
@@ -410,6 +412,30 @@ func TestReconcileGenericJob(t *testing.T) {
 				},
 			},
 		},
+		"handle job with annotations to copy": {
+			featureGates: map[featuregate.Feature]bool{
+				features.CustomMetricLabels: true,
+			},
+			reconcilerOptions: []Option{
+				WithLabelKeysToCopy(sets.New("toCopyKey")),
+				WithAnnotationsToCopy(sets.New("toCopyAnnotation")),
+			},
+			req: baseReq,
+			job: baseJob.Clone().
+				Label("toCopyKey", "toCopyValue").
+				Label("dontCopyKey", "dontCopyValue").
+				SetAnnotation("toCopyAnnotation", "toCopyAnnValue").
+				SetAnnotation("dontCopyAnnotation", "dontCopyAnnValue").
+				Obj(),
+			podSets: basePodSets,
+			wantWorkloads: []kueue.Workload{
+				*baseWl.Clone().
+					Name("job-test-job-ce737").
+					Label("toCopyKey", "toCopyValue").
+					Annotations(map[string]string{"toCopyAnnotation": "toCopyAnnValue"}).
+					Obj(),
+			},
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
@@ -435,7 +461,7 @@ func TestReconcileGenericJob(t *testing.T) {
 				Build()
 
 			recorder := &utiltesting.EventRecorder{}
-			rec := NewReconciler(cl, recorder)
+			rec := NewReconciler(cl, recorder, tc.reconcilerOptions...)
 			_, err := rec.ReconcileGenericJob(ctx, controllerruntime.Request{NamespacedName: tc.req}, mgj)
 			if err != nil {
 				t.Fatalf("Failed to Reconcile GenericJob: %v", err)
@@ -937,7 +963,8 @@ func TestProcessOptions(t *testing.T) {
 				WithManageJobsWithoutQueueName(true),
 				WithWaitForPodsReady(&configapi.WaitForPodsReady{}),
 				WithKubeServerVersion(&kubeversion.ServerVersionFetcher{}),
-				WithLabelKeysToCopy([]string{"toCopyKey"}),
+				WithLabelKeysToCopy(sets.New("toCopyKey")),
+				WithAnnotationsToCopy(sets.New("toCopyAnnotation")),
 				WithClock(fakeClock),
 			},
 			wantOpts: Options{
@@ -945,7 +972,8 @@ func TestProcessOptions(t *testing.T) {
 				WaitForPodsReady:           true,
 				KubeServerVersion:          &kubeversion.ServerVersionFetcher{},
 				IntegrationOptions:         nil,
-				LabelKeysToCopy:            []string{"toCopyKey"},
+				LabelKeysToCopy:            sets.New("toCopyKey"),
+				AnnotationsToCopy:          sets.New("toCopyAnnotation"),
 				Clock:                      fakeClock,
 			},
 		},
@@ -968,6 +996,7 @@ func TestProcessOptions(t *testing.T) {
 				KubeServerVersion:          nil,
 				IntegrationOptions:         nil,
 				LabelKeysToCopy:            nil,
+				AnnotationsToCopy:          nil,
 				Clock:                      clock.RealClock{},
 			},
 		},

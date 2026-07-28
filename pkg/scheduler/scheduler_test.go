@@ -8417,7 +8417,7 @@ func TestResourcesToReserve(t *testing.T) {
 
 			i := 0
 			for fr, v := range tc.cqUsage {
-				quantity := resources.ResourceQuantity(fr.Resource, v.Int64())
+				quantity := resources.NewResourceFormatter().ResourceQuantity(fr.Resource, v.Int64())
 				admission := utiltestingapi.MakeAdmission("cq").
 					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Assignment(fr.Resource, fr.Flavor, quantity.String()).

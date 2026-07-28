@@ -2477,6 +2477,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			util.ExpectClusterQueueStatusMetric(cq, metrics.CQStatusPending)
+			util.ExpectLQByStatusMetric(queue, metav1.ConditionFalse)
 			util.ExpectEvictedWorkloadsTotalMetric(clusterQueue.Name, kueue.WorkloadEvictedByClusterQueueStopped, "", "", 1)
 			util.ExpectEvictedWorkloadsOnceTotalMetric(cq.Name, kueue.WorkloadEvictedByClusterQueueStopped, "", "", 1)
 
@@ -3528,6 +3529,10 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				Request(corev1.ResourceCPU, "1").
 				Obj()
 
+			// Snapshot the name: reading wl1 from the callbacks would race with
+			// Create() decoding the API response into it.
+			wl1Name := wl1.Name
+
 			setFakeSubResourcePatchSpec(func(obj client.Object) (fakeClientUsage, error) {
 				wl, ok := obj.(*kueue.Workload)
 				if !ok {
@@ -3535,7 +3540,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				}
 
 				// Intercept wl1 admission patch
-				if wl.Name == wl1.Name && meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadQuotaReserved) && !meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
+				if wl.Name == wl1Name && meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadQuotaReserved) && !meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
 					if admissionPatchCount.Add(1) == 1 {
 						admissionPatchStarted <- struct{}{}
 					}
@@ -3551,7 +3556,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				if !ok {
 					return fallThrough, nil
 				}
-				if wl.Name == wl1.Name && meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadQuotaReserved) && meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
+				if wl.Name == wl1Name && meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadQuotaReserved) && meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
 					// The first request evicting wl1 will set both the quota reservation and eviction, as this status is assumed in the cache.
 					// We wait here until the admission patch overwrites the eviction and only then continue with the next scheduling cycle.
 					<-continueSchedulingAfterAdmissionPatch

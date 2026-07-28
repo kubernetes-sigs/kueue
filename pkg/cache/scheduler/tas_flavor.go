@@ -17,6 +17,7 @@ limitations under the License.
 package scheduler
 
 import (
+	"context"
 	"slices"
 	"sync"
 
@@ -25,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
@@ -89,17 +91,25 @@ type TASFlavorCache struct {
 	// nonTasUsageCache maintains the usage coming from non-TAS pods,
 	// e.g. static Pods or DaemonSet pods.
 	nonTasUsageCache *nonTasUsageCache
+
+	// schedulingSimulator performs the node feasibility check
+	// based on topology requirements.
+	schedulingSimulator simulator.SchedulingSimulator
+
+	resourceFormatter *resources.ResourceFormatter
 }
 
 func (t *tasCache) NewTASFlavorCache(topologyInfo topologyInformation,
 	flavorInfo flavorInformation) *TASFlavorCache {
 	return &TASFlavorCache{
-		client:           t.client,
-		topology:         topologyInfo,
-		flavor:           flavorInfo,
-		usage:            make(map[utiltas.TopologyDomainID]resources.Requests),
-		wlUsage:          make(map[workload.Reference][]workload.TopologyDomainRequests),
-		nonTasUsageCache: t.nonTasUsageCache,
+		client:              t.client,
+		topology:            topologyInfo,
+		flavor:              flavorInfo,
+		usage:               make(map[utiltas.TopologyDomainID]resources.Requests),
+		wlUsage:             make(map[workload.Reference][]workload.TopologyDomainRequests),
+		nonTasUsageCache:    t.nonTasUsageCache,
+		schedulingSimulator: t.schedulingSimulator,
+		resourceFormatter:   t.resourceFormatter,
 	}
 }
 
@@ -116,8 +126,8 @@ func (c *TASFlavorCache) TopologyLevels() []string {
 }
 
 func (c *TASFlavorCache) snapshot(
-	log logr.Logger, nodes []*corev1.Node, aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests,
-) *TASFlavorSnapshot {
+	ctx context.Context, log logr.Logger, nodes []*corev1.Node, aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests,
+) (*TASFlavorSnapshot, error) {
 	c.RLock()
 	defer c.RUnlock()
 
@@ -131,7 +141,13 @@ func (c *TASFlavorCache) snapshot(
 	}
 	log.V(3).Info("Constructing TAS snapshot", infoKV...)
 
-	snapshot := newTASFlavorSnapshot(log, c.flavor.TopologyName, c.topology.Levels, withTolerations(c.flavor.Tolerations))
+	feasibilityChecker, err := c.schedulingSimulator.NewFeasibilityChecker(ctx, nodes)
+	if err != nil {
+		return nil, err
+	}
+
+	snapshot := newTASFlavorSnapshot(log, c.flavor.TopologyName, c.topology.Levels, c.flavor.Tolerations, feasibilityChecker, withResourceFormatter(c.resourceFormatter))
+
 	nodeToDomain := make(map[string]utiltas.TopologyDomainID)
 	for _, node := range nodes {
 		nodeToDomain[node.Name] = snapshot.addNode(node)
@@ -150,7 +166,7 @@ func (c *TASFlavorCache) snapshot(
 			snapshot.addNonTASUsage(domainID, usage)
 		}
 	})
-	return snapshot
+	return snapshot, nil
 }
 
 func (c *TASFlavorCache) addUsage(log logr.Logger, key workload.Reference, topologyRequests []workload.TopologyDomainRequests) {
@@ -179,14 +195,22 @@ func (c *TASFlavorCache) updateUsage(topologyRequests []workload.TopologyDomainR
 		domainID := utiltas.DomainID(tr.Values)
 		_, found := c.usage[domainID]
 		if !found {
-			c.usage[domainID] = resources.Requests{}
+			c.usage[domainID] = resources.CreateEmpty()
 		}
 		if op == subtract {
 			c.usage[domainID].Sub(tr.TotalRequests())
-			c.usage[domainID].Sub(resources.Requests{corev1.ResourcePods: int64(tr.Count)})
+			c.usage[domainID].Sub(
+				resources.NewRequestsFromMap(
+					resources.MapRequests{corev1.ResourcePods: int64(tr.Count)},
+				),
+			)
 		} else {
 			c.usage[domainID].Add(tr.TotalRequests())
-			c.usage[domainID].Add(resources.Requests{corev1.ResourcePods: int64(tr.Count)})
+			c.usage[domainID].Add(
+				resources.NewRequestsFromMap(
+					resources.MapRequests{corev1.ResourcePods: int64(tr.Count)},
+				),
+			)
 		}
 	}
 }

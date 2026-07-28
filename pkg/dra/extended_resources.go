@@ -137,6 +137,18 @@ func resolveContainerExtendedResources(
 					))
 					continue
 				}
+				if features.Enabled(features.KueueDRAIntegrationConsumableCapacity) && len(mapper.getCapacityConfigs(corev1.ResourceName(dc.Name))) > 0 {
+					errs = append(errs, field.Invalid(
+						containerPath,
+						resourceName,
+						fmt.Sprintf(
+							"extended resource %s resolves to DeviceClass %s with capacity sources configured;"+
+								" use ResourceClaimTemplates with capacity.requests for capacity-based quota",
+							resourceName, dc.Name,
+						),
+					))
+					continue
+				}
 				break
 			}
 		}

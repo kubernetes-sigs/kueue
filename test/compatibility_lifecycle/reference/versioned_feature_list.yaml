@@ -109,22 +109,18 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.5"
-- name: HierarchicalCohorts
-  versionedSpecs:
-  - default: true
-    lockToDefault: false
-    preRelease: Beta
-    version: "0.11"
-  - default: true
-    lockToDefault: true
-    preRelease: GA
-    version: "0.17"
 - name: KueueDRAIntegration
   versionedSpecs:
   - default: true
     lockToDefault: false
     preRelease: Beta
     version: "0.18"
+- name: KueueDRAIntegrationConsumableCapacity
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.19"
 - name: KueueDRAIntegrationExtendedResource
   versionedSpecs:
   - default: false
@@ -141,6 +137,10 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.18"
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
 - name: KueueDRARejectWorkloadsWhenDRADisabled
   versionedSpecs:
   - default: true
@@ -203,20 +203,6 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.15"
-- name: MultiKueueAllowInsecureKubeconfigs
-  versionedSpecs:
-  - default: false
-    lockToDefault: false
-    preRelease: Alpha
-    version: "0.15"
-  - default: false
-    lockToDefault: false
-    preRelease: Deprecated
-    version: "0.17"
-  - default: false
-    lockToDefault: true
-    preRelease: Deprecated
-    version: "0.19"
 - name: MultiKueueClusterProfile
   versionedSpecs:
   - default: false
@@ -273,20 +259,6 @@
     lockToDefault: true
     preRelease: GA
     version: "0.18"
-- name: ObjectRetentionPolicies
-  versionedSpecs:
-  - default: false
-    lockToDefault: false
-    preRelease: Alpha
-    version: "0.12"
-  - default: true
-    lockToDefault: false
-    preRelease: Beta
-    version: "0.13"
-  - default: true
-    lockToDefault: true
-    preRelease: GA
-    version: "0.17"
 - name: PartialAdmission
   versionedSpecs:
   - default: false
@@ -347,6 +319,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.17"
+- name: SchedulerLibraryIntegration
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.19"
 - name: SchedulerLongRequeueInterval
   versionedSpecs:
   - default: false
@@ -511,6 +489,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.16"
+  - default: true
+    lockToDefault: true
+    preRelease: GA
+    version: "0.20"
 - name: TopologyAwareScheduling
   versionedSpecs:
   - default: false
@@ -530,6 +512,12 @@
 - name: UnadmittedWorkloadsObservability
   versionedSpecs:
   - default: false
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
+- name: VectorizedResourceRequests
+  versionedSpecs:
+  - default: true
     lockToDefault: false
     preRelease: Beta
     version: "0.19"
@@ -561,3 +549,9 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.14"
+- name: WorkloadValidateResourcesAreNonNegative
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"

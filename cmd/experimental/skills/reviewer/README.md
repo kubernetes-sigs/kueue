@@ -14,7 +14,6 @@ Each skill is independent and can be applied in parallel with the others. When r
 | [metrics-feature-gates](metrics-feature-gates/SKILL.md) | new metric missing feature flag gating that similar metrics have |
 | [extract-helpers](extract-helpers/SKILL.md) | local variable scope spans more of a function than necessary |
 | [integration-tests-for-updates](integration-tests-for-updates/SKILL.md) | update/mutation logic with no integration test coverage |
-| [ctx-structured-logging](ctx-structured-logging/SKILL.md) | `context.Context` silenced with `_ = ctx` |
 | [algorithm-comments](algorithm-comments/SKILL.md) | comment describing formula or algorithm doesn't match the code |
 | [feature-gated-code](feature-gated-code/SKILL.md) | reachable code path missing a feature gate check |
 | [push-guards-to-callees](push-guards-to-callees/SKILL.md) | same guard repeated at multiple call sites before the same function |
@@ -70,7 +69,6 @@ Each skill is independent and can be applied in parallel with the others. When r
 @metrics-feature-gates/SKILL.md
 @extract-helpers/SKILL.md
 @integration-tests-for-updates/SKILL.md
-@ctx-structured-logging/SKILL.md
 @algorithm-comments/SKILL.md
 @feature-gated-code/SKILL.md
 @push-guards-to-callees/SKILL.md

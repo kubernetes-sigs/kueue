@@ -25,6 +25,7 @@ import (
 	gomegatypes "github.com/onsi/gomega/types"
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -247,6 +248,49 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 										corev1.ResourcePods: "1",
 									})...,
 								).
+								Obj(),
+						).
+						Obj()
+				},
+				utiltesting.BeForbiddenError()),
+			ginkgo.Entry("should not limit num-pods resource",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
+						PodSets(
+							*utiltestingapi.MakePodSet("bad", 1).
+								Containers(corev1.Container{
+									Resources: corev1.ResourceRequirements{
+										Limits: corev1.ResourceList{
+											corev1.ResourcePods: resource.MustParse("1"),
+										},
+									},
+								}).
+								Obj(),
+						).
+						Obj()
+				},
+				utiltesting.BeForbiddenError()),
+			ginkgo.Entry("should not allow negative resource requests",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
+						PodSets(
+							*utiltestingapi.MakePodSet("bad", 1).
+								Containers(
+									utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
+										corev1.ResourceCPU: "-1",
+									})...,
+								).
+								Obj(),
+						).
+						Obj()
+				},
+				utiltesting.BeForbiddenError()),
+			ginkgo.Entry("should not allow negative pod-level resource requests",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
+						PodSets(
+							*utiltestingapi.MakePodSet("bad", 1).
+								PodLevelRequest(corev1.ResourceCPU, "-1").
 								Obj(),
 						).
 						Obj()

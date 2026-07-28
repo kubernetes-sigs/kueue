@@ -327,7 +327,6 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 
 	startWatcher, err := rc.establishWatcher(watchCtx, kueue.SchemeGroupVersion.WithKind("Workload").GroupKind().String(), &workloadKueueWatcher{})
 	if err != nil {
-		rc.disconnect()
 		return rc.increaseFailedConnAttempt(), err
 	}
 	startWatcherCallbacks = append(startWatcherCallbacks, startWatcher)
@@ -343,14 +342,12 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 			// not being able to setup a watcher is not ideal but we can function with only the wl watcher.
 			ctrl.LoggerFrom(watchCtx).Error(err, "Unable to establish the watcher", "kind", kind)
 			// however let's not accept this for now.
-			rc.disconnect()
 			return rc.increaseFailedConnAttempt(), err
 		}
 		startWatcherCallbacks = append(startWatcherCallbacks, startWatcher)
 	}
 	if features.Enabled(features.MultiKueueManagerQuotaAutomation) {
 		if err := rc.startQueueWatchers(watchCtx); err != nil {
-			rc.disconnect()
 			return rc.increaseFailedConnAttempt(), err
 		}
 	}
@@ -576,15 +573,6 @@ func (rc *remoteClient) StopWatchers() {
 	}
 }
 
-// disconnect stops the watchers and marks the client as disconnected without
-// removing it from the clustersReconciler's remoteClients map. This allows the
-// workload reconciler to detect that the cluster was previously available but
-// is now unreachable, and apply the workerLostTimeout delay before requeuing.
-func (rc *remoteClient) disconnect() {
-	rc.StopWatchers()
-	rc.connState.markDisconnected(rc.clock.Now())
-}
-
 func (rc *remoteClient) queueWorkloadEvent(ctx context.Context, wlKey types.NamespacedName) {
 	localWl := &kueue.Workload{}
 	if err := rc.localClient.Get(ctx, wlKey, localWl); err == nil {
@@ -750,7 +738,8 @@ func (c *clustersReconciler) disconnectCluster(clusterName string) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	if rc, found := c.remoteClients[clusterName]; found {
-		rc.disconnect()
+		rc.StopWatchers()
+		rc.connState.markDisconnected(rc.clock.Now())
 	}
 }
 

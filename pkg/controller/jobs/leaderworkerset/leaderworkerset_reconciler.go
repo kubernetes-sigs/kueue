@@ -31,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -80,7 +81,8 @@ type Reconciler struct {
 	client                       client.Client
 	logName                      string
 	record                       events.EventRecorder
-	labelKeysToCopy              []string
+	labelKeysToCopy              sets.Set[string]
+	annotationsToCopy            sets.Set[string]
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
 	roleTracker                  *roletracker.RoleTracker
@@ -97,6 +99,7 @@ func NewReconciler(_ context.Context, client client.Client, _ client.FieldIndexe
 		logName:                      "leaderworkerset-reconciler",
 		record:                       eventRecorder,
 		labelKeysToCopy:              options.LabelKeysToCopy,
+		annotationsToCopy:            options.AnnotationsToCopy,
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 		roleTracker:                  options.RoleTracker,
@@ -332,7 +335,7 @@ func (r *Reconciler) constructWorkload(lws *leaderworkersetv1.LeaderWorkerSet, w
 	if err != nil {
 		return nil, err
 	}
-	createdWorkload := podcontroller.NewGroupWorkload(workloadName, lws, podSets, r.labelKeysToCopy)
+	createdWorkload := podcontroller.NewGroupWorkload(workloadName, lws, podSets, r.labelKeysToCopy, r.annotationsToCopy)
 
 	if createdWorkload.Labels == nil {
 		createdWorkload.Labels = make(map[string]string, 1)

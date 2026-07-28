@@ -1221,55 +1221,6 @@ func TestValidate(t *testing.T) {
 				features.QuotaCheckStrategy: false,
 			},
 		},
-		"KueueDRAIntegrationExtendedResource requires KueueDRAIntegration": {
-			cfg: &configapi.Configuration{
-				Integrations: defaultIntegrations,
-			},
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegrationExtendedResource: true,
-				features.KueueDRAIntegration:                 false,
-			},
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  "featureGates",
-					Detail: "KueueDRAIntegrationExtendedResource requires KueueDRAIntegration to be enabled",
-				},
-			},
-		},
-		"UnadmittedWorkloadsExplicitStatus requires UnadmittedWorkloadsObservability": {
-			cfg: &configapi.Configuration{
-				Integrations: defaultIntegrations,
-			},
-			featureGates: map[featuregate.Feature]bool{
-				features.UnadmittedWorkloadsExplicitStatus: true,
-				features.UnadmittedWorkloadsObservability:  false,
-			},
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  "featureGates",
-					Detail: "UnadmittedWorkloadsExplicitStatus requires UnadmittedWorkloadsObservability to be enabled",
-				},
-			},
-		},
-		"KueueDRAIntegrationPartitionableDevices requires KueueDRAIntegration": {
-			cfg: &configapi.Configuration{
-				Integrations: defaultIntegrations,
-			},
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegrationPartitionableDevices: true,
-				features.KueueDRAIntegration:                     false,
-				features.KueueDRAIntegrationExtendedResource:     false,
-			},
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  "featureGates",
-					Detail: "KueueDRAIntegrationPartitionableDevices requires KueueDRAIntegration to be enabled",
-				},
-			},
-		},
 		"valid counter source on deviceClassMapping": {
 			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
 			cfg: &configapi.Configuration{
@@ -1458,10 +1409,11 @@ func TestValidate(t *testing.T) {
 					},
 				},
 			},
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: false},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
-					Field: "resources.deviceClassMappings[0].sources",
+					Field: "resources.deviceClassMappings[0].sources[0].counter",
 				},
 			},
 		},
@@ -1523,6 +1475,93 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"sources: invalid counter name format": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"mig.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "INVALID_NAME",
+									Driver: "gpu.nvidia.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[0].sources[0].counter.name",
+				},
+			},
+		},
+		"sources: invalid driver name format": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"mig.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "memory",
+									Driver: "NOT_VALID!!",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[0].sources[0].counter.driver",
+				},
+			},
+		},
+		"sources: driver name exceeds max length": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"mig.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "memory",
+									Driver: "gpu-accelerator.nvidia-corporation.datacenter.example.com.internal",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[0].sources[0].counter.driver",
+				},
+			},
+		},
 		"sources: missing deviceSelector": {
 			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
 			cfg: &configapi.Configuration{
@@ -1549,7 +1588,7 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
-		"sources: too many entries in alpha": {
+		"sources: multiple counter entries valid": {
 			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
@@ -1578,10 +1617,176 @@ func TestValidate(t *testing.T) {
 					},
 				},
 			},
+		},
+		"valid capacity source": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationConsumableCapacity: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"vgpu.example.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Capacity: &configapi.DeviceClassCapacitySource{
+									Name:   "memory",
+									Driver: "gpu.example.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.example.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+		},
+		"valid capacity source with qualified name": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationConsumableCapacity: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"vgpu.example.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Capacity: &configapi.DeviceClassCapacitySource{
+									Name:   "gpu.example.com/memory",
+									Driver: "gpu.example.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.example.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+		},
+		"capacity source with CC gate disabled": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"vgpu.example.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Capacity: &configapi.DeviceClassCapacitySource{
+									Name:   "memory",
+									Driver: "gpu.example.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.example.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeTooMany,
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[0].sources[0].capacity",
+				},
+			},
+		},
+		"multiple capacity sources (multi-dimension)": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationConsumableCapacity: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"vgpu.example.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Capacity: &configapi.DeviceClassCapacitySource{
+									Name:   "memory",
+									Driver: "gpu.example.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.example.com'"},
+									},
+								}},
+								{Capacity: &configapi.DeviceClassCapacitySource{
+									Name:   "cores",
+									Driver: "gpu.example.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.example.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+		},
+		"counter and capacity mixing rejected": {
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegrationPartitionableDevices: true,
+				features.KueueDRAIntegrationConsumableCapacity:   true,
+			},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"mig.nvidia.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Counter: &configapi.DeviceClassCounterSource{
+									Name:   "memory",
+									Driver: "gpu.nvidia.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+								{Capacity: &configapi.DeviceClassCapacitySource{
+									Name:   "cores",
+									Driver: "gpu.nvidia.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.nvidia.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
 					Field: "resources.deviceClassMappings[0].sources",
+				},
+			},
+		},
+		"capacity source with mixed-case driver rejected": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationConsumableCapacity: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"vgpu.example.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Capacity: &configapi.DeviceClassCapacitySource{
+									Name:   "memory",
+									Driver: "Gpu.Example.Com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.example.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[0].sources[0].capacity.driver",
 				},
 			},
 		},
@@ -1608,21 +1813,30 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 			featureGatesCLI: "",
 		},
 		"feature gate cli": {
-			featureGatesCLI: string(features.KueueDRAIntegration) + "=false," + string(features.KueueDRAIntegrationExtendedResource) + "=false",
+			featureGatesCLI: string(
+				features.KueueDRAIntegration,
+			) + "=false," + string(
+				features.KueueDRAIntegrationExtendedResource,
+			) + "=false," + string(
+				features.KueueDRAIntegrationPartitionableDevices,
+			) + "=false",
 			gatesToRestore: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:                 false,
-				features.KueueDRAIntegrationExtendedResource: false,
+				features.KueueDRAIntegration:                     false,
+				features.KueueDRAIntegrationExtendedResource:     false,
+				features.KueueDRAIntegrationPartitionableDevices: false,
 			},
 		},
 		"cannot specify both feature gates": {
 			featureGatesCLI: string(features.KueueDRAIntegration) + "=false",
 			featureGateMap: map[string]bool{
-				string(features.KueueDRAIntegration):                 false,
-				string(features.KueueDRAIntegrationExtendedResource): false,
+				string(features.KueueDRAIntegration):                     false,
+				string(features.KueueDRAIntegrationExtendedResource):     false,
+				string(features.KueueDRAIntegrationPartitionableDevices): false,
 			},
 			gatesToRestore: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:                 false,
-				features.KueueDRAIntegrationExtendedResource: false,
+				features.KueueDRAIntegration:                     false,
+				features.KueueDRAIntegrationExtendedResource:     false,
+				features.KueueDRAIntegrationPartitionableDevices: false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -1802,18 +2016,60 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		},
 		"KueueDRAIntegrationExtendedResource requires KueueDRAIntegration": {
 			featureGateMap: map[string]bool{
-				string(features.KueueDRAIntegrationExtendedResource): true,
-				string(features.KueueDRAIntegration):                 false,
+				string(features.KueueDRAIntegrationExtendedResource):     true,
+				string(features.KueueDRAIntegration):                     false,
+				string(features.KueueDRAIntegrationPartitionableDevices): false,
 			},
 			gatesToRestore: map[featuregate.Feature]bool{
-				features.KueueDRAIntegrationExtendedResource: false,
-				features.KueueDRAIntegration:                 true,
+				features.KueueDRAIntegrationExtendedResource:     false,
+				features.KueueDRAIntegration:                     true,
+				features.KueueDRAIntegrationPartitionableDevices: true,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:   field.ErrorTypeInvalid,
 					Field:  "featureGates",
 					Detail: "KueueDRAIntegrationExtendedResource requires KueueDRAIntegration to be enabled",
+				},
+			},
+		},
+		"KueueDRAIntegrationPartitionableDevices requires KueueDRAIntegration": {
+			featureGateMap: map[string]bool{
+				string(features.KueueDRAIntegrationPartitionableDevices): true,
+				string(features.KueueDRAIntegration):                     false,
+				string(features.KueueDRAIntegrationExtendedResource):     false,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.KueueDRAIntegrationPartitionableDevices: false,
+				features.KueueDRAIntegration:                     true,
+				features.KueueDRAIntegrationExtendedResource:     true,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "KueueDRAIntegrationPartitionableDevices requires KueueDRAIntegration to be enabled",
+				},
+			},
+		},
+		"KueueDRAIntegrationConsumableCapacity requires KueueDRAIntegration": {
+			featureGateMap: map[string]bool{
+				string(features.KueueDRAIntegrationConsumableCapacity):   true,
+				string(features.KueueDRAIntegration):                     false,
+				string(features.KueueDRAIntegrationExtendedResource):     false,
+				string(features.KueueDRAIntegrationPartitionableDevices): false,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.KueueDRAIntegrationConsumableCapacity:   false,
+				features.KueueDRAIntegration:                     true,
+				features.KueueDRAIntegrationExtendedResource:     true,
+				features.KueueDRAIntegrationPartitionableDevices: true,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "KueueDRAIntegrationConsumableCapacity requires KueueDRAIntegration to be enabled",
 				},
 			},
 		},
@@ -2173,6 +2429,8 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 }
 
 func TestValidateDeviceClassMappings(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationConsumableCapacity, true)
+
 	testCases := map[string]struct {
 		cfg     *configapi.Configuration
 		wantErr field.ErrorList
@@ -2201,6 +2459,198 @@ func TestValidateDeviceClassMappings(t *testing.T) {
 							DeviceClassNames: []corev1.ResourceName{"foo.com/device"},
 						},
 					},
+				},
+			},
+		},
+		"valid capacity unqualified name": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"vgpu.example.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Capacity: &configapi.DeviceClassCapacitySource{
+									Name:   "memory",
+									Driver: "gpu.example.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.example.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+		},
+		"valid capacity qualified name": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"vgpu.example.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Capacity: &configapi.DeviceClassCapacitySource{
+									Name:   "gpu.example.com/memory",
+									Driver: "gpu.example.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.example.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+		},
+		"valid capacity C identifier": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"vgpu.example.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Capacity: &configapi.DeviceClassCapacitySource{
+									Name:   "gpu.example.com/Memory_Bytes",
+									Driver: "gpu.example.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.example.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+		},
+		"valid capacity name with uppercase domain": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"vgpu.example.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Capacity: &configapi.DeviceClassCapacitySource{
+									Name:   "GPU.example.com/memory",
+									Driver: "gpu.example.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.example.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+		},
+		"capacity name with empty domain": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"vgpu.example.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Capacity: &configapi.DeviceClassCapacitySource{
+									Name:   "/memory",
+									Driver: "gpu.example.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.example.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[0].sources[0].capacity.name",
+				},
+			},
+		},
+		"capacity name with invalid C identifier": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"vgpu.example.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Capacity: &configapi.DeviceClassCapacitySource{
+									Name:   "gpu.example.com/memory-bytes",
+									Driver: "gpu.example.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.example.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[0].sources[0].capacity.name",
+				},
+			},
+		},
+		"capacity name domain exceeds max length": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"vgpu.example.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Capacity: &configapi.DeviceClassCapacitySource{
+									Name:   resourcev1.QualifiedName(strings.Repeat("a", resourcev1.DeviceMaxDomainLength+1) + "/memory"),
+									Driver: "gpu.example.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.example.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeTooLong,
+					Field: "resources.deviceClassMappings[0].sources[0].capacity.name",
+				},
+			},
+		},
+		"capacity name identifier exceeds max length": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"vgpu.example.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Capacity: &configapi.DeviceClassCapacitySource{
+									Name:   resourcev1.QualifiedName("gpu.example.com/" + strings.Repeat("a", resourcev1.DeviceMaxIDLength+1)),
+									Driver: "gpu.example.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.example.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeTooLong,
+					Field: "resources.deviceClassMappings[0].sources[0].capacity.name",
 				},
 			},
 		},

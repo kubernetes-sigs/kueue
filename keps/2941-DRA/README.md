@@ -1174,11 +1174,10 @@ type DeviceClassCounterSource struct {
 // for devices that allow multiple allocations (KEP-5075).
 type DeviceClassCapacitySource struct {
     // Name identifies the capacity dimension to track for quota
-    // (e.g., "gpu.memory").
-    // Must be a valid QualifiedName; the name part must not exceed
-    // 63 characters.
+    // (e.g., "gpu.example.com/memory").
+    // Must be a valid DRA QualifiedName.
     // +required
-    Name string `json:"name"`
+    Name resourcev1.QualifiedName `json:"name"`
 
     // Driver is the DRA driver name used to filter relevant ResourceSlices.
     // Must match the spec.driver field on ResourceSlice objects.
@@ -1417,6 +1416,7 @@ borrowing only operates within the same resource.
   existence at config load time.
 - `KueueDRAIntegrationPartitionableDevices` requires `KueueDRAIntegration` to be enabled. Validated
   at startup in `pkg/config/validation.go`.
+- Tightened driver name max length from 253 to 63 to match resourcev1.DriverNameMaxLength since Kueue v0.19.0
 
 ### Consumable Capacity
 
@@ -1591,23 +1591,23 @@ and each PodSet's charges are tracked separately in `resourceUsage`.
 5. Filters devices by `deviceSelector` to narrow the candidate pool
 6. From filtered devices, matches using DeviceClass selectors and the workload's
    ResourceClaimTemplate request selectors using the `dracel` compiler
-7. Resolves the effective charge:
-   - Base charge: `capacity.requests[<name>]` if specified, otherwise
-     `RequestPolicy.Default` if set (from the max-capacity device), otherwise the
-     maximum `Capacity.Value` across matched devices
-   - Rounds the base charge against each matched device's `RequestPolicy`
-     independently, then takes the maximum rounded value. This follows the same
-     conservative pattern as partitionable devices (which charge the max
-     `consumesCounters` value across matched devices). Even if the `deviceSelector`
-     matches heterogeneous devices with different policies, Kueue never under-charges
-   - Rounding per `RequestPolicy`: `ValidValues` rounds up to the smallest valid
-     value >= base; `ValidRange` rounds up to `Min` if below, aligns to
-     `Min + n*Step` if `Step` is set. If the rounded value exceeds `Max` or all
-     valid values for a given device, that device's policy is skipped (it cannot
-     satisfy the request). If no device's policy can satisfy the request, the
-     workload is marked inadmissible
-   - If no matched device has the configured capacity dimension, the workload is
-     marked inadmissible
+7. Resolves the effective charge per device independently, then takes the
+   maximum across all matched devices:
+   - For each matched device with the capacity dimension, determines the
+     base charge: `capacity.requests[<name>]` if specified, otherwise the
+     device's own `RequestPolicy.Default` if set, otherwise the device's
+     `Capacity.Value`
+   - Rounds the base charge against the device's own `RequestPolicy`.
+     If the device has no `RequestPolicy`, the base charge is used as-is.
+     `ValidValues` rounds up to the smallest valid value >= base;
+     `ValidRange` rounds up to `Min` if below, aligns to `Min + n*Step`
+     if `Step` is set. If the rounded value exceeds `Max` or all valid
+     values, the device is skipped (it cannot satisfy the request)
+   - Takes the maximum rounded charge across all devices. This ensures
+     Kueue never under-charges even if the `deviceSelector` matches
+     heterogeneous devices with different Defaults or policies
+   - If no matched device has the capacity dimension or can satisfy the
+     request, the workload is marked inadmissible
 8. For `count > 1`, multiplies per-device charge by count using saturating
    arithmetic (capped at `MaxInt64` rather than wrapping)
 
@@ -1661,8 +1661,10 @@ Capacity resources participate in Cohort borrowing and lending like any other re
 2. **RequestPolicy violation**: the workload requests more capacity than
    `ValidRange.Max` or exceeds all `ValidValues`. The workload is marked inadmissible.
 
-3. **Request omits capacity**: Kueue charges `RequestPolicy.Default` if set, or the
-   full device `Capacity.Value` if `Default` is unset or no `RequestPolicy` exists.
+3. **Request omits capacity**: For each matched device, Kueue charges the device's
+   own `RequestPolicy.Default` if set, or the device's full `Capacity.Value` if
+   `Default` is unset or no `RequestPolicy` exists. The maximum charge across all
+   devices is used.
 
 4. **AllowMultipleAllocations not set**: the apiserver enforces that `RequestPolicy`
    requires `AllowMultipleAllocations: true`. If the `deviceSelector` also matches
@@ -1983,6 +1985,7 @@ tracks adding this). This follows the same pattern as upstream K8s integration t
 - Promoted KueueDRAIntegrationExtendedResource to Beta: July 2026 by @PannagaRao
 - Consumable capacity design: July 2026 by @sohankunkerkar — added KEP-5075 integration
   for software-level device sharing
+- Promoted KueueDRAIntegrationPartitionableDevices to Beta: July 2026 by @PannagaRao
 
 **Key Design Evolution:**
 - **Original Design**: Standalone DynamicResourceAllocationConfig CRD with runtime ambiguity resolution

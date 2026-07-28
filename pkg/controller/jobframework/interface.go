@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -81,6 +82,10 @@ type JobWithPodLabelSelector interface {
 // when reclaimable pod information is needed.
 type JobWithReclaimablePods interface {
 	// ReclaimablePods returns the list of reclaimable pods.
+	//
+	// Note: for Jobs with ordered Pods that support elastic scaling, implementations
+	// must account for which ranks remain after scaling down to prevent quota leaks.
+	// See the batch Job implementation and kueue#12958, kueue#13117.
 	ReclaimablePods(ctx context.Context, c client.Client) ([]kueue.ReclaimablePod, error)
 }
 
@@ -134,7 +139,7 @@ type ComposableJob interface {
 	Run(ctx context.Context, c client.Client, wl *kueue.Workload, podSetsInfo []podset.PodSetInfo, r events.EventRecorder, msg string) error
 
 	// ConstructComposableWorkload builds a new Workload from all members of the ComposableJob.
-	ConstructComposableWorkload(ctx context.Context, c client.Client, r events.EventRecorder, labelKeysToCopy []string) (*kueue.Workload, error)
+	ConstructComposableWorkload(ctx context.Context, c client.Client, r events.EventRecorder, labelKeysToCopy, annotationsToCopy sets.Set[string]) (*kueue.Workload, error)
 
 	// ListChildWorkloads returns all workloads related to the composable job.
 	ListChildWorkloads(ctx context.Context, c client.Client, parent types.NamespacedName) (*kueue.WorkloadList, error)

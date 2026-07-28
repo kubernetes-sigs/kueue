@@ -23,36 +23,43 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const allDriversKey = ""
+// DriverReference is the name of a DRA driver as it appears in
+// ResourceSlice.Spec.Driver (e.g., "gpu.nvidia.com").
+type DriverReference string
+
+const allDriversKey DriverReference = ""
 
 // ResourceSliceCache is a request-scoped cache for ResourceSlice listings.
 // It is created once per workload reconciliation and passed to both the CEL
 // validation and counter processing paths to avoid duplicate API calls and
 // ensure a consistent snapshot of ResourceSlices within a single reconciliation.
 type ResourceSliceCache struct {
-	client       client.Client
-	cachedSlices map[string][]resourcev1.ResourceSlice
+	client client.Client
+	// cachedSlices maps a DriverReference to its cached ResourceSlice listing.
+	// The sentinel key allDriversKey ("") stores the result of an unfiltered
+	// listing used as a fallback for DeviceClasses without counter sources.
+	cachedSlices map[DriverReference][]resourcev1.ResourceSlice
 }
 
 // NewResourceSliceCache creates a new ResourceSliceCache.
 func NewResourceSliceCache(cl client.Client) *ResourceSliceCache {
 	return &ResourceSliceCache{
 		client:       cl,
-		cachedSlices: make(map[string][]resourcev1.ResourceSlice),
+		cachedSlices: make(map[DriverReference][]resourcev1.ResourceSlice),
 	}
 }
 
 // ListByDriver returns ResourceSlices for the given driver, using the spec.driver
 // field index for efficient listing. Results are cached for subsequent calls with
 // the same driver within the same reconciliation.
-func (c *ResourceSliceCache) ListByDriver(ctx context.Context, driver string) ([]resourcev1.ResourceSlice, error) {
+func (c *ResourceSliceCache) ListByDriver(ctx context.Context, driver DriverReference) ([]resourcev1.ResourceSlice, error) {
 	if slices, ok := c.cachedSlices[driver]; ok {
 		return slices, nil
 	}
 	if allSlices, ok := c.cachedSlices[allDriversKey]; ok {
 		var filtered []resourcev1.ResourceSlice
 		for i := range allSlices {
-			if allSlices[i].Spec.Driver == driver {
+			if DriverReference(allSlices[i].Spec.Driver) == driver {
 				filtered = append(filtered, allSlices[i])
 			}
 		}
@@ -60,7 +67,7 @@ func (c *ResourceSliceCache) ListByDriver(ctx context.Context, driver string) ([
 		return filtered, nil
 	}
 	var sliceList resourcev1.ResourceSliceList
-	if err := c.client.List(ctx, &sliceList, client.MatchingFields{"spec.driver": driver}); err != nil {
+	if err := c.client.List(ctx, &sliceList, client.MatchingFields{"spec.driver": string(driver)}); err != nil {
 		return nil, err
 	}
 	c.cachedSlices[driver] = sliceList.Items

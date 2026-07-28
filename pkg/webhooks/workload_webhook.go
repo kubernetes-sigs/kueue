@@ -84,28 +84,14 @@ var _ admission.Validator[*kueue.Workload] = &WorkloadWebhook{}
 func (w *WorkloadWebhook) ValidateCreate(ctx context.Context, wl *kueue.Workload) (admission.Warnings, error) {
 	log := ctrl.LoggerFrom(ctx).WithName("workload-webhook")
 	log.V(5).Info("Validating create")
-	return warningsForWorkload(wl), ValidateWorkload(wl, nil).ToAggregate()
+	return nil, ValidateWorkload(wl, nil).ToAggregate()
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *WorkloadWebhook) ValidateUpdate(ctx context.Context, oldWL, newWL *kueue.Workload) (admission.Warnings, error) {
 	log := ctrl.LoggerFrom(ctx).WithName("workload-webhook")
 	log.V(5).Info("Validating update")
-	return warningsForWorkload(newWL), ValidateWorkloadUpdate(newWL, oldWL).ToAggregate()
-}
-
-// slated to become a hard validation error in a future release (see https://github.com/kubernetes-sigs/kueue/pull/13061#issuecomment-4979676077 for more context).
-func warningsForWorkload(wl *kueue.Workload) admission.Warnings {
-	var warnings admission.Warnings
-	specPath := field.NewPath("spec")
-	for i := range wl.Spec.PodSets {
-		tr := wl.Spec.PodSets[i].TopologyRequest
-		if tr != nil && tr.SubGroupCount != nil && *tr.SubGroupCount < 0 {
-			path := specPath.Child("podSets").Index(i).Child("topologyRequest", "subGroupCount")
-			warnings = append(warnings, fmt.Sprintf("%s: negative value %d is deprecated and will be rejected in a future release", path, *tr.SubGroupCount))
-		}
-	}
-	return warnings
+	return nil, ValidateWorkloadUpdate(newWL, oldWL).ToAggregate()
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
@@ -179,16 +165,31 @@ func validatePodSet(ps *kueue.PodSet, path *field.Path) field.ErrorList {
 	for ci := range ps.Template.Spec.Containers {
 		allErrs = append(allErrs, validateContainer(&ps.Template.Spec.Containers[ci], cPath.Index(ci))...)
 	}
+	// validate pod-level resources
+	if ps.Template.Spec.Resources != nil {
+		resPath := path.Child("template", "spec", "resources")
+		allErrs = append(allErrs, validateResourceList(ps.Template.Spec.Resources.Requests, resPath.Child("requests"))...)
+		allErrs = append(allErrs, validateResourceList(ps.Template.Spec.Resources.Limits, resPath.Child("limits"))...)
+	}
 
 	return allErrs
 }
 
 func validateContainer(c *corev1.Container, path *field.Path) field.ErrorList {
+	requestErrors := validateResourceList(c.Resources.Requests, path.Child("resources", "requests"))
+	limitErrors := validateResourceList(c.Resources.Limits, path.Child("resources", "limits"))
+	return append(requestErrors, limitErrors...)
+}
+
+// validateResourceList rejects the reserved pods key and, when enabled, negative quantities.
+func validateResourceList(resources corev1.ResourceList, path *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
-	rPath := path.Child("resources", "requests")
-	for name := range c.Resources.Requests {
+	for name, quantity := range resources {
 		if name == corev1.ResourcePods {
-			allErrs = append(allErrs, field.Invalid(rPath.Key(string(name)), corev1.ResourcePods, "the key is reserved for internal kueue use"))
+			allErrs = append(allErrs, field.Invalid(path.Key(string(name)), corev1.ResourcePods, "the key is reserved for internal kueue use"))
+		}
+		if features.Enabled(features.WorkloadValidateResourcesAreNonNegative) {
+			allErrs = append(allErrs, validateResourceQuantity(quantity, path.Key(string(name)))...)
 		}
 	}
 	return allErrs
