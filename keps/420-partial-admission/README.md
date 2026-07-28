@@ -46,6 +46,8 @@ Since this is an opt-in feature, the parent job should accept the partial admiss
 
 Kueue will not take any measure to ensure that the parent job respects the assigned quota.
 
+Partial admission is not allowed for concurrent admission in order to not increase the complexity. The webhook will reject workloads that support partial admission to be created for a cluster queue with concurrent admission policy. 
+
 ## Proposal
 
 Change the way the flavor assigner works to support decrementing the pods count in order to find a better fit for the current workload.
@@ -120,6 +122,18 @@ Total requested pods: `1 + 4 + 20 = 25` pods.
   4. Since it still does not fit the quota of 10, and the remaining PodSet `ps0` does not allow partial admission (has no `minCount`), the search fails.
   5. The job remains unadmitted.
 
+- **Scenario D: Multiple resource flavors (illustrates the second phase)**
+  Assume `ps1` and `ps2` are tied to different resource flavors, `rf1` and `rf2`, respectively.
+  The available quota for `rf1` is 2 pods (requires a reduction of at least 2 pods for `ps1`), and the available quota for `rf2` is 20 pods (full capacity for `ps2`).
+  1. In the first phase, Kueue targets the lowest priority PodSet, `ps2` (tied to `rf2`), and decreases its count to its minimum `10` (reduction of 10 pods) in search of a fit. The intermediate total count is `1 + 4 + 10 = 15` pods.
+  2. Since the workload still does not fit because of the constraint on `rf1` (which only allows 2 pods for `ps1` but it requests 4), Kueue keeps `ps2` at `10` and moves to the next lowest priority PodSet, `ps1`.
+  3. Kueue decreases `ps1` by 2 pods (from 4 to 2) to fit the available quota of `rf1`. The resulting total count is `1 + 2 + 10 = 13` pods.
+  4. The first phase successfully finds a combination (`ps0: 1`, `ps1: 2`, `ps2: 10`) that fits the available quotas.
+  5. In the second phase (optimization), Kueue iterates over all PodSets from the first to the last (`ps0`, `ps1`, `ps2`) and tries to restore the reduced counts.
+     - `ps1` was reduced to 2. Kueue tries to increase its count back to 4, but this fails since `rf1` only has a quota of 2. `ps1` remains at 2.
+     - `ps2` was reduced to 10. Kueue tries to increase its count back to 20. This succeeds since `rf2` has 20 available quota.
+  6. Admitted counts: `ps0: 1`, `ps1: 2`, `ps2: 20`.
+
 #### Proportional Policy (`proportional` - default)
 
 Under the `proportional` policy, Kueue reduces the counts of all variable PodSets proportionally to their maximum allowable reduction range (i.e., `count - minCount`).
@@ -175,9 +189,6 @@ Total reduction delta: $T_D = 0 + 2 + 10 = 12$ pods.
 - **Scenario C: Available quota is 10 pods** (requires a reduction of at least 15 pods).
   - Even with the maximum possible index $i = 12$ (maximum reduction), the total count is `1 + 2 + 10 = 13` pods, which does not fit in 10 pods.
   - Thus, the binary search fails, and the job remains unadmitted.
-
-As an optimization, we will introduce an increased step: when a workload finds a combination that fits the available quota, Kueue could try to find the combination that can be reached with minimum pod loss by checking if any of the PodSets with count == min count can be increased up to the original count. 
-The increased step is not necessary for elastic workloads, but the non-elastic workloads will benefit from it.
 
 The accepted number of pods in each PodSet is recorded in `workload.Status.Admission.PodSetAssignments[*].ResourceUsage.Count`.
 
