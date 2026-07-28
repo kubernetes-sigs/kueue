@@ -228,6 +228,41 @@ The following example requires Kueue to schedule both the Leader PodSet and the 
 
 {{< include "examples/serving-workloads/sample-leaderworkerset-tas.yaml" "yaml" >}}
 
+Submit the LeaderWorkerSet using `kubectl create`:
+
+```shell
+kubectl create -f https://kueue.sigs.k8s.io/examples/serving-workloads/sample-leaderworkerset-tas.yaml
+```
+
+#### Verify rack co-location
+
+After the LeaderWorkerSet is admitted, list all Pods and the node they were assigned to, along with the rack label of that node:
+
+```shell
+kubectl get pods -l leaderworkerset.sigs.k8s.io/name=nginx-leaderworkerset \
+  -o custom-columns='NAME:.metadata.name,NODE:.spec.nodeName,GROUP:.metadata.labels.leaderworkerset\.sigs\.k8s\.io/group-index,WORKER:.metadata.labels.leaderworkerset\.sigs\.k8s\.io/worker-index'
+```
+
+The output is similar to the following:
+
+```
+NAME                             NODE           GROUP   WORKER
+nginx-leaderworkerset-0          kind-worker    0       0
+nginx-leaderworkerset-0-1        kind-worker2   0       1
+nginx-leaderworkerset-0-2        kind-worker3   0       2
+nginx-leaderworkerset-1          kind-worker5   1       0
+nginx-leaderworkerset-1-1        kind-worker6   1       1
+nginx-leaderworkerset-1-2        kind-worker7   1       2
+```
+
+Observe that all Pods belonging to group `0` (the Leader at worker index `0` and its Workers at indices `1` and `2`) are placed on nodes within the same rack, and all Pods for group `1` are placed on nodes within a different rack. The Leader and Workers within each group are never split across racks.
+
+To see the authoritative topology placement chosen by Kueue, inspect the `topologyAssignment` field on the corresponding `Workload`:
+
+```shell
+kubectl get workloads.kueue.x-k8s.io -o yaml | grep -A 10 topologyAssignment
+```
+
 ## Advanced topics
 
 The page above covers the three basic TAS annotations. Kueue also supports
