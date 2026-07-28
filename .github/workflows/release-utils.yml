@@ -370,7 +370,9 @@ jobs:
         with:
           ref: main
           path: .automation
-          sparse-checkout: .github/actions
+          sparse-checkout: |
+            .github/actions
+            hack/releasing
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -418,7 +420,9 @@ jobs:
         with:
           ref: main
           path: .automation
-          sparse-checkout: .github/actions
+          sparse-checkout: |
+            .github/actions
+            hack/releasing
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
