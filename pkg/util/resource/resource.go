@@ -85,10 +85,7 @@ func QuantityToFloat(q *resource.Quantity) float64 {
 	if q == nil || q.IsZero() {
 		return 0
 	}
-	if i64, isInt := q.AsInt64(); isInt {
-		return float64(i64)
-	}
-	return float64(q.MilliValue()) / 1000
+	return q.AsApproximateFloat64()
 }
 
 // Decimal multiplication grows the scale on every call, and callers re-multiply

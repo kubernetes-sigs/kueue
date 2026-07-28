@@ -87,8 +87,8 @@ func (q *LocalQueue) reportResourceMetrics(cqQuotas map[resources.FlavorResource
 	lqRef := metrics.LocalQueueReference{Name: name, Namespace: namespace}
 	for fr := range cqQuotas {
 		fName, rName := string(fr.Flavor), string(fr.Resource)
-		metrics.ReportLocalQueueResourceReservations(lqRef, fName, rName, resourceFloat(fr.Resource, q.totalReserved[fr].Int64()), q.customMetricLabelValues, tracker)
-		metrics.ReportLocalQueueResourceUsage(lqRef, fName, rName, resourceFloat(fr.Resource, q.admittedUsage[fr].Int64()), q.customMetricLabelValues, tracker)
+		metrics.ReportLocalQueueResourceReservations(lqRef, fName, rName, q.totalReserved[fr].AsApproximateFloat64(fr.Resource), q.customMetricLabelValues, tracker)
+		metrics.ReportLocalQueueResourceUsage(lqRef, fName, rName, q.admittedUsage[fr].AsApproximateFloat64(fr.Resource), q.customMetricLabelValues, tracker)
 	}
 }
 

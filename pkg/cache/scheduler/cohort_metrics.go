@@ -35,8 +35,8 @@ import (
 type cohortMetricPoint struct {
 	cohortName      kueue.CohortReference
 	flavorResource  resources.FlavorResource
-	quotaQty        int64
-	reservationsQty int64
+	quotaQty        resources.Amount
+	reservationsQty resources.Amount
 }
 
 func (c *Cache) RecordCohortMetrics(log logr.Logger, cohortName kueue.CohortReference) {
@@ -105,8 +105,8 @@ func (c *Cache) collectCohortMetricPoints(cohortName kueue.CohortReference, simu
 			points = append(points, cohortMetricPoint{
 				cohortName:      ancestor.Name,
 				flavorResource:  fr,
-				quotaQty:        ancestorSubtreeQuota[fr].Int64(),
-				reservationsQty: ancestorSubtreeReservations[fr].Int64(),
+				quotaQty:        ancestorSubtreeQuota[fr],
+				reservationsQty: ancestorSubtreeReservations[fr],
 			})
 		}
 	}
@@ -128,16 +128,20 @@ func (c *Cache) applyCohortMetricPoint(p cohortMetricPoint) {
 	flavor := p.flavorResource.Flavor
 	resource := p.flavorResource.Resource
 
-	if p.quotaQty <= 0 {
+	if p.quotaQty.CmpInt64(0) <= 0 {
 		metrics.ClearCohortSubtreeQuota(p.cohortName, flavor, resource)
 	} else {
-		metrics.ReportCohortSubtreeQuota(p.cohortName, flavor, resource, resourceFloat(resource, p.quotaQty), c.customLabels.CohortGet(p.cohortName), c.roleTracker)
+		metrics.ReportCohortSubtreeQuota(p.cohortName, flavor, resource, p.quotaQty.AsApproximateFloat64(resource), c.customLabels.CohortGet(p.cohortName), c.roleTracker)
 	}
 
-	if p.reservationsQty <= 0 {
+	if p.reservationsQty.CmpInt64(0) <= 0 {
 		metrics.ClearCohortSubtreeResourceReservations(p.cohortName, flavor, resource)
 	} else {
-		metrics.ReportCohortSubtreeResourceReservations(p.cohortName, flavor, resource, resourceFloat(resource, p.reservationsQty), c.customLabels.CohortGet(p.cohortName), c.roleTracker)
+		metrics.ReportCohortSubtreeResourceReservations(
+			p.cohortName, flavor, resource,
+			p.reservationsQty.AsApproximateFloat64(resource),
+			c.customLabels.CohortGet(p.cohortName), c.roleTracker,
+		)
 	}
 }
 
