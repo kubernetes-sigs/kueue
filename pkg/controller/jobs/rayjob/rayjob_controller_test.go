@@ -1160,7 +1160,7 @@ func TestGetCustomAnnotations(t *testing.T) {
 			}
 
 			// Verify GetCustomAnnotations returns the expected annotations
-			gotAnnotations, err := job.GetCustomAnnotations(ctx, fakeClient, podSets)
+			gotAnnotations, err := job.GetCustomAnnotations(ctx, fakeClient)
 			if err != nil {
 				t.Fatalf("unexpected error from GetCustomAnnotations: %v", err)
 			}

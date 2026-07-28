@@ -231,7 +231,7 @@ func (j *RayService) PodsReady(ctx context.Context, _ client.Client) bool {
 	return meta.IsStatusConditionTrue(j.Status.Conditions, string(rayv1.RayServiceReady))
 }
 
-func (j *RayService) GetCustomAnnotations(ctx context.Context, c client.Client, _ []kueue.PodSet) (map[string]string, error) {
+func (j *RayService) GetCustomAnnotations(ctx context.Context, c client.Client) (map[string]string, error) {
 	return raycluster.GetWorkloadslicingRayClusterCustomAnnotations(ctx, c, j.Object(), j.Status.ActiveServiceStatus.RayClusterName)
 }
 
