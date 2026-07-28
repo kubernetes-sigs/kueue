@@ -588,6 +588,32 @@ var (
 	}
 )
 
+func scheduledPodsForJob(job *batchv1.Job, count int) []client.Object {
+	if job == nil || count == 0 {
+		return nil
+	}
+	pods := make([]client.Object, count)
+	for i := range count {
+		pods[i] = &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      fmt.Sprintf("%s-%d", job.Name, i),
+				Namespace: job.Namespace,
+				Labels: map[string]string{
+					batchv1.JobNameLabel:       job.Name,
+					batchv1.ControllerUidLabel: string(job.UID),
+				},
+			},
+			Status: corev1.PodStatus{
+				Conditions: []corev1.PodCondition{{
+					Type:   corev1.PodScheduled,
+					Status: corev1.ConditionTrue,
+				}},
+			},
+		}
+	}
+	return pods
+}
+
 func TestReconciler(t *testing.T) {
 	// the clock is primarily used with second rounded times
 	// use the current time trimmed.
@@ -633,6 +659,7 @@ func TestReconciler(t *testing.T) {
 		reconcilerOptions []jobframework.Option
 		reconcileKey      *types.NamespacedName
 		job               *batchv1.Job
+		scheduledPods     int
 		workloads         []kueue.Workload
 		otherJobs         []batchv1.Job
 		priorityClasses   []client.Object
@@ -777,8 +804,8 @@ func TestReconciler(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadWaitForStart,
-					Message: "Not all pods are ready or succeeded",
+					Reason:  kueue.WorkloadWaitForScheduling,
+					Message: "Not all pods are scheduled",
 				}).
 				Obj(),
 			},
@@ -792,6 +819,7 @@ func TestReconciler(t *testing.T) {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
 			},
+			scheduledPods: 10,
 			job: baseJobWrapper.Clone().
 				Suspend(false).
 				Ready(9).
@@ -898,6 +926,7 @@ func TestReconciler(t *testing.T) {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
 			},
+			scheduledPods: 10,
 			job: baseJobWrapper.Clone().
 				Ready(9).
 				Failed(1).
@@ -936,6 +965,7 @@ func TestReconciler(t *testing.T) {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
 			},
+			scheduledPods: 10,
 			job: baseJobWrapper.Clone().
 				Suspend(false).
 				Ready(9).
@@ -1029,8 +1059,8 @@ func TestReconciler(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadWaitForStart,
-					Message: "Not all pods are ready or succeeded",
+					Reason:  kueue.WorkloadWaitForScheduling,
+					Message: "Not all pods are scheduled",
 				}).
 				Obj(),
 			},
@@ -1097,8 +1127,8 @@ func TestReconciler(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadPodsReady,
 					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadWaitForStart,
-					Message: "Not all pods are ready or succeeded",
+					Reason:  kueue.WorkloadWaitForScheduling,
+					Message: "Not all pods are scheduled",
 				}).
 				Obj(),
 			},
@@ -4456,6 +4486,7 @@ func TestReconciler(t *testing.T) {
 				objs := append(tc.priorityClasses, utiltestingapi.MakeResourceFlavor("default").Obj(), testNamespace, labelledNamespace)
 				if tc.job != nil {
 					objs = append(objs, tc.job)
+					objs = append(objs, scheduledPodsForJob(tc.job, tc.scheduledPods)...)
 				}
 
 				kClient := clientBuilder.
