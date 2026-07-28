@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"kueueviz/middleware"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -37,9 +38,10 @@ func (h *Handlers) WorkloadsDashboardWebSocketHandler() gin.HandlerFunc {
 		// Extract namespace query parameter if provided
 		namespace := c.Query("namespace")
 
-		// Create a closure that captures the namespace parameter
+		identity, _ := middleware.IdentityFromContext(c)
+		// Create a closure that captures the namespace parameter and identity
 		dataFetcher := func(ctx context.Context) (any, error) {
-			return h.fetchDashboardData(ctx, namespace)
+			return h.fetchDashboardData(ctx, namespace, identity)
 		}
 
 		h.GenericWebSocketHandler(dataFetcher,
@@ -52,49 +54,95 @@ func (h *Handlers) WorkloadsDashboardWebSocketHandler() gin.HandlerFunc {
 	}
 }
 
-func (h *Handlers) fetchDashboardData(ctx context.Context, namespace string) (map[string]any, error) {
-	resourceFlavors, err := h.fetchResourceFlavors(ctx)
+func (h *Handlers) fetchDashboardData(ctx context.Context, namespace string, identity middleware.Identity) (map[string]any, error) {
+	var resourceFlavors any = []any{}
+	var clusterQueues any = []any{}
+	var localQueues any = []any{}
+	omittedPanels := []string{}
+
+	hasClusterQueuesAccess := true
+	hasResourceFlavorsAccess := true
+	hasLocalQueuesAccess := true
+
+	if h.authorizer != nil {
+		allowed, _ := h.authorizer.Authorize(ctx, identity, middleware.ResourceAccess("list", ClusterQueuesGVR(), "", ""))
+		if !allowed {
+			hasClusterQueuesAccess = false
+			omittedPanels = append(omittedPanels, "clusterQueues")
+		}
+
+		allowed, _ = h.authorizer.Authorize(ctx, identity, middleware.ResourceAccess("list", ResourceFlavorsGVR(), "", ""))
+		if !allowed {
+			hasResourceFlavorsAccess = false
+			omittedPanels = append(omittedPanels, "flavors")
+		}
+
+		allowed, _ = h.authorizer.Authorize(ctx, identity, middleware.ResourceAccess("list", LocalQueuesGVR(), namespace, ""))
+		if !allowed {
+			hasLocalQueuesAccess = false
+			omittedPanels = append(omittedPanels, "queues")
+		}
+	}
+
+	var err error
+	if hasResourceFlavorsAccess {
+		resourceFlavors, err = h.fetchResourceFlavors(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if hasClusterQueuesAccess {
+		clusterQueues, err = h.fetchClusterQueues(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if hasLocalQueuesAccess {
+		localQueues, err = h.fetchLocalQueues(ctx, namespace, identity)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	workloads, podsOmitted, err := h.fetchWorkloadsDashboardData(ctx, namespace, identity)
 	if err != nil {
 		return nil, err
 	}
-	clusterQueues, err := h.fetchClusterQueues(ctx)
-	if err != nil {
-		return nil, err
+
+	if podsOmitted {
+		omittedPanels = append(omittedPanels, "pods")
 	}
-	localQueues, err := h.fetchLocalQueues(ctx)
-	if err != nil {
-		return nil, err
-	}
-	workloads, err := h.fetchWorkloadsDashboardData(ctx, namespace)
-	if err != nil {
-		return nil, err
-	}
+
 	result := map[string]any{
 		"flavors":       resourceFlavors,
 		"clusterQueues": clusterQueues,
 		"queues":        localQueues,
 		"workloads":     workloads,
+		"omittedPanels": omittedPanels,
 	}
 	return result, nil
 }
 
-func (h *Handlers) fetchWorkloadsDashboardData(ctx context.Context, namespace string) (any, error) {
+func (h *Handlers) fetchWorkloadsDashboardData(ctx context.Context, namespace string, identity middleware.Identity) (any, bool, error) {
 	wql := &kueueapi.WorkloadList{}
 	err := h.client.List(ctx, wql, ctrlclient.InNamespace(namespace))
 
 	if err != nil {
-		return nil, fmt.Errorf("error fetching workloads in namespace %s: %w", namespace, err)
+		return nil, false, fmt.Errorf("error fetching workloads in namespace %s: %w", namespace, err)
 	}
 
-	workloadsByUID := make(map[types.UID]string, len(wql.Items))
-	processedWorkloads := make([]workloadResult, 0, len(wql.Items))
+	items := wql.Items
+	workloadsByUID := make(map[types.UID]string, len(items))
+	processedWorkloads := make([]workloadResult, 0, len(items))
 
-	podIndex, err := buildWorkloadPodsIndex(ctx, h.client, wql.Items)
+	podIndex, podsOmitted, err := h.buildWorkloadPodsIndex(ctx, identity, items)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
-	for _, workload := range wql.Items {
+	for _, workload := range items {
 		workloadName := workload.Name
 		workloadUID := workload.UID
 		jobUID := workload.Labels["kueue.x-k8s.io/job-uid"]
@@ -120,7 +168,7 @@ func (h *Handlers) fetchWorkloadsDashboardData(ctx context.Context, namespace st
 		"workloads_by_uid": workloadsByUID,
 	}
 
-	return workloads, nil
+	return workloads, podsOmitted, nil
 }
 
 // workloadPodsIndex stores dashboard pod details by namespace and controller UID.
@@ -130,8 +178,8 @@ type workloadPodsIndex struct {
 }
 
 // buildWorkloadPodsIndex lists pods once per workload namespace and indexes them
-// for lookup by each workload's job UID.
-func buildWorkloadPodsIndex(ctx context.Context, client Client, workloads []kueueapi.Workload) (workloadPodsIndex, error) {
+// for lookup by each workload's job UID, but respects RBAC.
+func (h *Handlers) buildWorkloadPodsIndex(ctx context.Context, identity middleware.Identity, workloads []kueueapi.Workload) (workloadPodsIndex, bool, error) {
 	workloadNamespaces := make(map[string]struct{})
 	for i := range workloads {
 		workloadNamespaces[workloads[i].Namespace] = struct{}{}
@@ -140,10 +188,19 @@ func buildWorkloadPodsIndex(ctx context.Context, client Client, workloads []kueu
 	index := workloadPodsIndex{
 		podsByNamespace: make(map[string]map[string][]map[string]any, len(workloadNamespaces)),
 	}
+	podsOmitted := false
 	for namespace := range workloadNamespaces {
+		if h.authorizer != nil {
+			allowed, err := h.authorizer.Authorize(ctx, identity, middleware.ResourceAccess("list", PodsGVR(), namespace, ""))
+			if err != nil || !allowed {
+				podsOmitted = true
+				continue
+			}
+		}
+
 		pl := &corev1.PodList{}
-		if err := client.List(ctx, pl, ctrlclient.InNamespace(namespace)); err != nil {
-			return workloadPodsIndex{}, fmt.Errorf("error fetching pods in namespace %s: %w", namespace, err)
+		if err := h.client.List(ctx, pl, ctrlclient.InNamespace(namespace)); err != nil {
+			return workloadPodsIndex{}, false, fmt.Errorf("error fetching pods in namespace %s: %w", namespace, err)
 		}
 
 		podsByControllerUID := make(map[string][]map[string]any)
@@ -158,7 +215,7 @@ func buildWorkloadPodsIndex(ctx context.Context, client Client, workloads []kueu
 		}
 		index.podsByNamespace[namespace] = podsByControllerUID
 	}
-	return index, nil
+	return index, podsOmitted, nil
 }
 
 // podsFor returns the pod details matching the workload namespace and job UID.
