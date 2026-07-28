@@ -51,7 +51,6 @@ func elasticRuntimeSync() *ray.ElasticReplicaSync[*rayv1.RayJob, rayv1.RayJob] {
 		AutoscalingEnabled: func(j *rayv1.RayJob) bool {
 			return j.Spec.RayClusterSpec != nil && ptr.Deref(j.Spec.RayClusterSpec.EnableInTreeAutoscaling, false)
 		},
-		RemoteSuspended: func(j *rayv1.RayJob) bool { return j.Spec.Suspend },
 		Runtime: &ray.RuntimeReplicaSync[*rayv1.RayJob]{
 			Fetch: fetchChildWorkerState,
 			Apply: applyChildWorkerState,
@@ -64,7 +63,13 @@ func elasticRuntimeSync() *ray.ElasticReplicaSync[*rayv1.RayJob, rayv1.RayJob] {
 // revision derived from the child's UID and generation. The UID keeps the
 // revision — and with it the workload-slice name — unique when KubeRay
 // recreates the child and its generation restarts.
+//
+// A suspended remote is skipped (found=false): its worker state was restored by
+// the worker's Kueue while stopping the job, not set by the autoscaler.
 func fetchChildWorkerState(ctx context.Context, remoteClient client.Client, remoteJob *rayv1.RayJob) (map[kueue.PodSetReference]int32, string, bool, error) {
+	if remoteJob.Spec.Suspend {
+		return nil, "", false, nil
+	}
 	childName := remoteJob.Status.RayClusterName
 	if childName == "" {
 		return nil, "", false, nil

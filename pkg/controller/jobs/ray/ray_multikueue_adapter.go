@@ -88,11 +88,6 @@ type ElasticReplicaSync[PtrT objAsPtr[T], T any] struct {
 	// letting the manager's workload-slicing machinery re-reserve quota.
 	// Optional; when nil the reverse (worker-to-manager) sync is disabled.
 	AutoscalingEnabled func(PtrT) bool
-	// RemoteSuspended reports whether the remote copy is currently suspended.
-	// A suspended remote's replica counts were restored by the worker's Kueue
-	// while stopping the job, not set by the autoscaler, so they must not be
-	// written back to the manager. Required when AutoscalingEnabled is set.
-	RemoteSuspended func(PtrT) bool
 }
 
 // SpecReplicaSync pushes manager-driven worker replica changes onto the worker's
@@ -117,11 +112,14 @@ type SpecReplicaSync[PtrT any] struct {
 // RuntimeReplicaSync reflects the worker replica counts of a job's runtime
 // children in the worker cluster onto the manager's copy.
 type RuntimeReplicaSync[PtrT any] struct {
-	// Fetch reads the runtime children via the remote client and returns the
+	// Fetch reads the runtime worker state via the remote client and returns the
 	// effective per-worker-group pod counts plus a revision string identifying
 	// the observed runtime state (used to derive a new workload-slice name).
-	// found=false means the runtime objects do not exist yet and the sync is
-	// skipped.
+	// found=false means there is no live worker state to reflect and the sync is
+	// skipped: either the runtime objects do not exist yet, or the remote copy is
+	// suspended (its replica counts were restored by the worker's Kueue while
+	// stopping the job, not set by the autoscaler, so they must not be written
+	// back to the manager).
 	Fetch func(ctx context.Context, remoteClient client.Client, remoteJob PtrT) (counts map[kueue.PodSetReference]int32, revision string, found bool, err error)
 	// Apply records the fetched runtime worker state onto the manager copy
 	// (typically as annotations consumed by the job's PodSets derivation and
@@ -136,9 +134,6 @@ type Option[PtrT objAsPtr[T], T any] func(*adapter[PtrT, T])
 // for job types that support it (see ElasticReplicaSync). An incomplete wiring
 // panics here so the mistake fails at startup, not at reconcile time.
 func WithElasticReplicaSync[PtrT objAsPtr[T], T any](e *ElasticReplicaSync[PtrT, T]) Option[PtrT, T] {
-	if e.AutoscalingEnabled != nil && e.RemoteSuspended == nil {
-		panic("ElasticReplicaSync: RemoteSuspended is required when AutoscalingEnabled is set")
-	}
 	if e.Spec != nil && (e.Spec.Push == nil || e.Spec.Counts == nil) {
 		panic("ElasticReplicaSync: Spec requires Push and Counts")
 	}
@@ -234,17 +229,15 @@ func (a *adapter[PtrT, T]) SyncJob(
 			return false, err
 		}
 		if a.workerOwnsReplicas(localJob) {
-			if !a.elastic.RemoteSuspended(remoteJob) {
-				changed, err := a.reflectRuntimeState(ctx, localClient, remoteClient, localJob, remoteJob)
-				if err != nil {
-					return false, err
-				}
-				if changed {
-					// The manager copy changed: the slicing machinery produces a
-					// replacement slice and its reconcile repoints the remote.
-					// Repointing now would still name the pre-resize slice.
-					return false, nil
-				}
+			changed, err := a.reflectRuntimeState(ctx, localClient, remoteClient, localJob, remoteJob)
+			if err != nil {
+				return false, err
+			}
+			if changed {
+				// The manager copy changed: the slicing machinery produces a
+				// replacement slice and its reconcile repoints the remote.
+				// Repointing now would still name the pre-resize slice.
+				return false, nil
 			}
 			return false, a.repointPrebuiltWorkload(ctx, remoteClient, workloadName, remoteJob)
 		}
