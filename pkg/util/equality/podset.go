@@ -26,6 +26,7 @@ import (
 
 type ComparePodSetsOptions struct {
 	ignoreTolerations bool
+	ignoreCounts      bool
 }
 
 type ComparePodSetsOption func(*ComparePodSetsOptions)
@@ -33,6 +34,16 @@ type ComparePodSetsOption func(*ComparePodSetsOptions)
 func WithIgnoreTolerations() ComparePodSetsOption {
 	return func(options *ComparePodSetsOptions) {
 		options.ignoreTolerations = true
+	}
+}
+
+// WithIgnoreCounts skips comparing the PodSet Count and MinCount. It is used for in-place
+// resize-elastic jobs (ElasticJobsViaWorkloadResize), where the executor PodSet count is owned by
+// the running driver (patched in place on the admitted Workload) rather than derived from the job
+// spec, so a count-only divergence must not be treated as the Workload being out of sync.
+func WithIgnoreCounts() ComparePodSetsOption {
+	return func(options *ComparePodSetsOptions) {
+		options.ignoreCounts = true
 	}
 }
 
@@ -53,11 +64,17 @@ func comparePodTemplate(a, b *corev1.PodSpec, options ...ComparePodSetsOption) b
 }
 
 func ComparePodSets(a, b *kueue.PodSet, options ...ComparePodSetsOption) bool {
-	if a.Count != b.Count {
-		return false
+	opts := &ComparePodSetsOptions{}
+	for _, opt := range options {
+		opt(opts)
 	}
-	if ptr.Deref(a.MinCount, -1) != ptr.Deref(b.MinCount, -1) {
-		return false
+	if !opts.ignoreCounts {
+		if a.Count != b.Count {
+			return false
+		}
+		if ptr.Deref(a.MinCount, -1) != ptr.Deref(b.MinCount, -1) {
+			return false
+		}
 	}
 
 	return comparePodTemplate(&a.Template.Spec, &b.Template.Spec, options...)

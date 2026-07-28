@@ -31,6 +31,7 @@ func TestComparePodSetSlices(t *testing.T) {
 		a                 []kueue.PodSet
 		b                 []kueue.PodSet
 		ignoreTolerations bool
+		ignoreCounts      bool
 		wantEquivalent    bool
 	}{
 		"different name": {
@@ -97,6 +98,24 @@ func TestComparePodSetSlices(t *testing.T) {
 			b:              []kueue.PodSet{{}, {}, {}},
 			wantEquivalent: false,
 		},
+		"different count, ignore counts": {
+			a:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).Obj()},
+			b:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 20).SetMinimumCount(5).Obj()},
+			ignoreCounts:   true,
+			wantEquivalent: true,
+		},
+		"different min count, ignore counts": {
+			a:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).Obj()},
+			b:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(2).Obj()},
+			ignoreCounts:   true,
+			wantEquivalent: true,
+		},
+		"ignore counts still compares template requests": {
+			a:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).Request("res", "1").Obj()},
+			b:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 20).Request("res", "2").Obj()},
+			ignoreCounts:   true,
+			wantEquivalent: false,
+		},
 		"different requests in toleration, ignore tolerations": {
 			a: []kueue.PodSet{
 				*utiltestingapi.MakePodSet("ps", 10).
@@ -139,9 +158,12 @@ func TestComparePodSetSlices(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			options := make([]ComparePodSetsOption, 0, 1)
+			options := make([]ComparePodSetsOption, 0, 2)
 			if tc.ignoreTolerations {
 				options = append(options, WithIgnoreTolerations())
+			}
+			if tc.ignoreCounts {
+				options = append(options, WithIgnoreCounts())
 			}
 			got := ComparePodSetSlices(tc.a, tc.b, options...)
 			if got != tc.wantEquivalent {
