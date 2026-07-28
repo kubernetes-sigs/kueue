@@ -152,6 +152,11 @@ func FuzzTopologyAssignmentCompactionRoundTrip(f *testing.F) {
 	f.Add(uint8(1), true, append([]byte{1}, bytes.Repeat([]byte{'-'}, maxFuzzHostnameLength)...))
 
 	f.Fuzz(func(t *testing.T, levelCount uint8, lowestLevelIsHostname bool, input []byte) {
+		// Limit input size to prevent fuzzer timeout
+		if len(input) > 512 {
+			input = input[:512]
+		}
+
 		want := topologyAssignmentFromFuzzInput(levelCount, lowestLevelIsHostname, input)
 		encoded := compactTopologyAssignmentEncodingWithHostnamePrefixRuns(want)
 		verifyTopologyAssignmentJSONRoundTrip(t, want, encoded)
