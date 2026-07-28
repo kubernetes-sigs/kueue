@@ -153,8 +153,8 @@ func FuzzTopologyAssignmentCompactionRoundTrip(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, levelCount uint8, lowestLevelIsHostname bool, input []byte) {
 		// Limit input size to prevent fuzzer timeout
-		if len(input) > 512 {
-			input = input[:512]
+		if len(input) > 8192 {
+			input = input[:8192]
 		}
 
 		want := topologyAssignmentFromFuzzInput(levelCount, lowestLevelIsHostname, input)
