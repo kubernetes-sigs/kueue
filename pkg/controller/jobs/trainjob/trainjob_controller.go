@@ -356,6 +356,19 @@ func (t *TrainJob) PodsReady(ctx context.Context, c client.Client) bool {
 	return replicas == readyReplicas
 }
 
+func (t *TrainJob) PodsScheduled(ctx context.Context, c client.Client) bool {
+	jobset, err := getChildJobSet(ctx, c, t)
+	if err != nil {
+		return false
+	}
+	minCount := 0
+	for i := range jobset.Spec.ReplicatedJobs {
+		replicatedJob := &jobset.Spec.ReplicatedJobs[i]
+		minCount += int(replicatedJob.Replicas) * int(workloadjobset.PodsCountPerReplica(replicatedJob))
+	}
+	return jobframework.PodsScheduledBySelector(ctx, c, t.Namespace, t.PodLabelSelector(), minCount)
+}
+
 func (t *TrainJob) ReclaimablePods(ctx context.Context, c client.Client) ([]kueue.ReclaimablePod, error) {
 	if len(t.Status.JobsStatus) == 0 {
 		return nil, nil

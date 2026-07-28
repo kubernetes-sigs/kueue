@@ -230,8 +230,20 @@ func (j *RayService) PodsReady(ctx context.Context, _ client.Client) bool {
 	return meta.IsStatusConditionTrue(j.Status.Conditions, string(rayv1.RayServiceReady))
 }
 
-func (j *RayService) GetCustomAnnotations(ctx context.Context, c client.Client) (map[string]string, error) {
-	return raycluster.GetWorkloadslicingRayClusterCustomAnnotations(ctx, c, j.Object(), j.Status.ActiveServiceStatus.RayClusterName)
+func (j *RayService) PodsScheduled(ctx context.Context, c client.Client) bool {
+	podSets, err := raycluster.BuildPodSets(&j.Spec.RayClusterSpec, j.Annotations)
+	if err != nil {
+		return false
+	}
+	minCount := 0
+	for _, ps := range podSets {
+		minCount += int(ps.Count)
+	}
+	return jobframework.PodsScheduledBySelector(ctx, c, j.Namespace, j.PodLabelSelector(), minCount)
+}
+
+func (j *RayService) GetCustomAnnotations(ctx context.Context, c client.Client, podSets []kueue.PodSet) (map[string]string, error) {
+	return raycluster.GetWorkloadslicingRayClusterCustomAnnotations(ctx, c, j.Object(), podSets, j.Status.ActiveServiceStatus.RayClusterName)
 }
 
 func (j *RayService) GetWorkloadNameExtraPart() string {

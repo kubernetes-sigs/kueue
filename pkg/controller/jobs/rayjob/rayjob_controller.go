@@ -226,8 +226,20 @@ func (j *RayJob) PodsReady(ctx context.Context, _ client.Client) bool {
 	return j.Status.RayClusterStatus.State == rayv1.Ready
 }
 
-func (j *RayJob) GetCustomAnnotations(ctx context.Context, c client.Client) (map[string]string, error) {
-	return raycluster.GetWorkloadslicingRayClusterCustomAnnotations(ctx, c, j.Object(), j.Status.RayClusterName)
+func (j *RayJob) PodsScheduled(ctx context.Context, c client.Client) bool {
+	podSets, err := raycluster.BuildPodSets(j.Spec.RayClusterSpec, j.Annotations)
+	if err != nil {
+		return false
+	}
+	minCount := 0
+	for _, ps := range podSets {
+		minCount += int(ps.Count)
+	}
+	return jobframework.PodsScheduledBySelector(ctx, c, j.Namespace, j.PodLabelSelector(), minCount)
+}
+
+func (j *RayJob) GetCustomAnnotations(ctx context.Context, c client.Client, podSets []kueue.PodSet) (map[string]string, error) {
+	return raycluster.GetWorkloadslicingRayClusterCustomAnnotations(ctx, c, j.Object(), podSets, j.Status.RayClusterName)
 }
 
 func (j *RayJob) GetWorkloadNameExtraPart() string {
