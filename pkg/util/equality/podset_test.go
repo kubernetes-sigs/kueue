@@ -50,7 +50,7 @@ func TestComparePodTemplate(t *testing.T) {
 		},
 		"identical ignoring non-compared PodSpec fields": {
 			// Only containers/initContainers/tolerations are compared. nodeSelector
-			// and API-defaulted fields are ignored (same strategy as Job ↔ Workload).
+			// and API-defaulted fields are ignored.
 			a: func() corev1.PodSpec {
 				ps := *base.DeepCopy()
 				ps.NodeSelector = map[string]string{"f2l1": "v2"}

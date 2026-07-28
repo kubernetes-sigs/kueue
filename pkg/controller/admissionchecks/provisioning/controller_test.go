@@ -77,6 +77,14 @@ var (
 		cmpopts.IgnoreFields(corev1.PodSpec{}, "RestartPolicy"),
 	}
 
+	// tmplCmpOptions without RestartPolicy ignore — for tests that assert skip-on-equivalent preserves spec.
+	tmplCmpOptionsWithRestartPolicy = cmp.Options{
+		cmpopts.EquateEmpty(),
+		cmpopts.IgnoreTypes(metav1.TypeMeta{}),
+		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
+		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
+	}
+
 	acCmpOptions = cmp.Options{
 		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
 	}
@@ -391,6 +399,15 @@ func TestReconcile(t *testing.T) {
 	identicalTemplate2 := baseTemplate2.Clone().ControllerReference(workloadOwnerGVK, "wl", "").Obj()
 	identicalTemplate2.Template.Spec.RestartPolicy = corev1.RestartPolicyNever
 
+	identicalWantTemplate1 := baseTemplate1.Clone().
+		ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+		Obj()
+	identicalWantTemplate1.Template.Spec.RestartPolicy = corev1.RestartPolicyNever
+	identicalWantTemplate2 := baseTemplate2.Clone().
+		ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+		Obj()
+	identicalWantTemplate2.Template.Spec.RestartPolicy = corev1.RestartPolicyNever
+
 	baseConfig := utiltestingapi.MakeProvisioningRequestConfig("config1").ProvisioningClass("class1").WithParameter("p1", "v1")
 
 	var backoffBaseSeconds int32 = 60
@@ -488,6 +505,7 @@ func TestReconcile(t *testing.T) {
 		wantWorkloads        map[string]*kueue.Workload
 		wantRequests         map[string]*autoscaling.ProvisioningRequest
 		wantTemplates        map[string]*corev1.PodTemplate
+		templateCmpOptions   cmp.Options
 		wantRequestsNotFound []string
 		wantEvents           []utiltesting.EventRecord
 		// Non-nil: listed PodTemplates Updated once for ownership; others Updated zero times.
@@ -805,6 +823,7 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		"pre-existing identical PodTemplates are not rewritten": {
+			// ComparePodTemplate matches existing vs desired; RestartPolicyNever must be preserved (not rewritten).
 			workload:  baseWorkload.DeepCopy(),
 			checks:    []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			flavors:   []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
@@ -818,13 +837,10 @@ func TestReconcile(t *testing.T) {
 				baseRequest.Name: baseRequest.DeepCopy(),
 			},
 			wantTemplates: map[string]*corev1.PodTemplate{
-				baseTemplate1.Name: baseTemplate1.Clone().
-					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
-					Obj(),
-				baseTemplate2.Name: baseTemplate2.Clone().
-					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
-					Obj(),
+				baseTemplate1.Name: identicalWantTemplate1,
+				baseTemplate2.Name: identicalWantTemplate2,
 			},
+			templateCmpOptions: tmplCmpOptionsWithRestartPolicy,
 			wantPodTemplateOwnershipUpdates: []string{
 				baseTemplate1.Name,
 				baseTemplate2.Name,
@@ -2477,7 +2493,11 @@ func TestReconcile(t *testing.T) {
 						t.Errorf("unexpected error getting template %q", name)
 					}
 
-					if diff := cmp.Diff(wantTemplate, gotTemplate, tmplCmpOptions...); diff != "" {
+					cmpOpts := tmplCmpOptions
+					if tc.templateCmpOptions != nil {
+						cmpOpts = tc.templateCmpOptions
+					}
+					if diff := cmp.Diff(wantTemplate, gotTemplate, cmpOpts...); diff != "" {
 						t.Errorf("unexpected template %q (-want/+got):\n%s", name, diff)
 					}
 					if diff := cmp.Diff(wantTemplate.GetLabels(), gotTemplate.GetLabels()); diff != "" {
