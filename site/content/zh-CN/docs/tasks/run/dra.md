@@ -9,12 +9,12 @@ description: >
 本页面向你展示如何在启用了 Kueue 的 Kubernetes 集群中运行请求由
 [动态资源分配 (DRA)](https://kubernetes.io/docs/concepts/scheduling-eviction/dynamic-resource-allocation/)
 管理的硬件设备（比如 GPU）的工作负载。示例使用了 batch Job，但同样的方法适用于
-[Kueue 支持的任何类型的工作负载](/zh-cn/docs/concepts/workload)。
+[Kueue 支持的任何类型的工作负载](/zh-CN/docs/concepts/workload)。
 
-本页面的目标受众是 [batch users](/zh-cn/docs/tasks#batch-user)。
+本页面的目标受众是 [batch users](/zh-CN/docs/tasks#batch-user)。
 
 有关 Kueue 如何处理 DRA 资源的概念性细节，请参考
-[动态资源分配的概念](/zh-cn/docs/concepts/dynamic_resource_allocation).
+[动态资源分配的概念](/zh-CN/docs/concepts/dynamic_resource_allocation).
 
 ## 开始之前
 
@@ -22,9 +22,9 @@ description: >
 
 - 一个正在运行的 Kubernetes 集群。
 - kubectl 命令行工具可以与集群通信。
-- [已安装 Kueue](/zh-cn/docs/installation)。
-- 集群 [已配置配额](/zh-cn/docs/tasks/manage/administer_cluster_quotas)，并在 `ClusterQueue` 包含了 DRA 资源。
-- 你的管理员已经 [在 Kueue 中设置了 DRA 的支持](/zh-cn/docs/tasks/manage/setup_dra)。
+- [已安装 Kueue](/zh-CN/docs/installation)。
+- 集群 [已配置配额](/zh-CN/docs/tasks/manage/administer_cluster_quotas)，并在 `ClusterQueue` 包含了 DRA 资源。
+- 你的管理员已经 [在 Kueue 中设置了 DRA 的支持](/zh-CN/docs/tasks/manage/setup_dra)。
 
 ## 0. 确定命名空间中可用的队列
 
@@ -41,11 +41,11 @@ NAME         CLUSTERQUEUE    PENDING WORKLOADS
 user-queue   cluster-queue   0
 ```
 
-[ClusterQueue](/zh-cn/docs/concepts/cluster_queue) 定义了队列的配额。
+[ClusterQueue](/zh-CN/docs/concepts/cluster_queue) 定义了队列的配额。
 
 ## 1. 定义工作负载
 
-使用 DRA 设备运行工作负载与[运行一个常规 Job](/zh-cn/docs/tasks/run/jobs) 类似。
+使用 DRA 设备运行工作负载与[运行一个常规 Job](/zh-CN/docs/tasks/run/jobs) 类似。
 你必须设置 `kueue.x-k8s.io/queue-name` 标签以便选择要将工作负载提交到哪个 `LocalQueue`。
 
 根据管理员配置集群方式的不同，有两种请求 DRA 设备的方法。请选择与你的设置相匹配的方法。
@@ -107,7 +107,7 @@ kubectl create -f https://kueue.sigs.k8s.io/examples/dra/sample-dra-rct-job.yaml
 kubectl create -f https://kueue.sigs.k8s.io/examples/dra/sample-dra-extended-resource-job.yaml
 ```
 
-Kueue 将在内部为这个 Job 创建一个对应的 [Workload](/zh-cn/docs/concepts/workload)。
+Kueue 将在内部为这个 Job 创建一个对应的 [Workload](/zh-CN/docs/concepts/workload)。
 
 ## 3.（可选）监控工作负载的状态
 
@@ -155,4 +155,4 @@ kubectl -n default get workloads.kueue.x-k8s.io <workload-name> -o yaml
 
 
 对于其他常见的故障排除，请参见
-[故障排除指南](/zh-cn/docs/tasks/troubleshooting).
+[故障排除指南](/zh-CN/docs/tasks/troubleshooting).
