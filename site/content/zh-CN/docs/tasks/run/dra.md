@@ -14,7 +14,7 @@ description: >
 本页面的目标受众是 [batch users](/zh-CN/docs/tasks#batch-user)。
 
 有关 Kueue 如何处理 DRA 资源的概念性细节，请参考
-[动态资源分配的概念](/zh-CN/docs/concepts/dynamic_resource_allocation).
+[动态资源分配的概念](/docs/concepts/dynamic_resource_allocation).
 
 ## 开始之前
 
@@ -24,7 +24,7 @@ description: >
 - kubectl 命令行工具可以与集群通信。
 - [已安装 Kueue](/zh-CN/docs/installation)。
 - 集群 [已配置配额](/zh-CN/docs/tasks/manage/administer_cluster_quotas)，并在 `ClusterQueue` 包含了 DRA 资源。
-- 你的管理员已经 [在 Kueue 中设置了 DRA 的支持](/zh-CN/docs/tasks/manage/setup_dra)。
+- 你的管理员已经 [在 Kueue 中设置了 DRA 的支持](/docs/tasks/manage/setup_dra)。
 
 ## 0. 确定命名空间中可用的队列
 
