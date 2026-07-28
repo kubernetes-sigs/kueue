@@ -66,6 +66,39 @@ else:
 `, rayActorNamespace, actorName)
 }
 
+// specReplicasPerWorkerGroup returns the desired replica count of every worker
+// group in the RayCluster spec, keyed by group name.
+func specReplicasPerWorkerGroup(rayCluster *rayv1.RayCluster) map[string]int32 {
+	replicas := make(map[string]int32, len(rayCluster.Spec.WorkerGroupSpecs))
+	for i := range rayCluster.Spec.WorkerGroupSpecs {
+		group := &rayCluster.Spec.WorkerGroupSpecs[i]
+		replicas[group.GroupName] = ptr.Deref(group.Replicas, 0)
+	}
+	return replicas
+}
+
+// findRunningPodsPerWorkerGroup counts the RayCluster's running worker Pods,
+// keyed by worker group name.
+func findRunningPodsPerWorkerGroup(g gomega.Gomega, rayClusterKey client.ObjectKey) map[string]int32 {
+	workerPods, err := util.GetRayClusterWorkerPods(ctx, k8sClient, rayClusterKey, corev1.PodRunning)
+	g.Expect(err).NotTo(gomega.HaveOccurred())
+	counts := make(map[string]int32, len(workerPods))
+	for i := range workerPods {
+		counts[workerPods[i].Labels["ray.io/group"]]++
+	}
+	return counts
+}
+
+// podSetCountsByName returns the Workload's PodSet counts keyed by PodSet name.
+func podSetCountsByName(wl *kueue.Workload) map[string]int32 {
+	counts := make(map[string]int32, len(wl.Spec.PodSets))
+	for i := range wl.Spec.PodSets {
+		podSet := &wl.Spec.PodSets[i]
+		counts[string(podSet.Name)] = podSet.Count
+	}
+	return counts
+}
+
 var _ = ginkgo.Describe("KubeRay multi-PodSet autoscaling", ginkgo.Label("area:singlecluster", "feature:kuberay"), func() {
 	var (
 		ns *corev1.Namespace
@@ -178,20 +211,9 @@ var _ = ginkgo.Describe("KubeRay multi-PodSet autoscaling", ginkgo.Label("area:s
 			createdRayCluster := &rayv1.RayCluster{}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayCluster), createdRayCluster)).To(gomega.Succeed())
-				workerPods, err := util.GetRayClusterWorkerPods(ctx, k8sClient, client.ObjectKeyFromObject(rayCluster), corev1.PodRunning)
-				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(specReplicasPerWorkerGroup(createdRayCluster)).To(gomega.Equal(expected))
 
-				actualReplicas := make(map[string]int32, len(createdRayCluster.Spec.WorkerGroupSpecs))
-				for i := range createdRayCluster.Spec.WorkerGroupSpecs {
-					group := &createdRayCluster.Spec.WorkerGroupSpecs[i]
-					actualReplicas[group.GroupName] = ptr.Deref(group.Replicas, 0)
-				}
-				g.Expect(actualReplicas).To(gomega.Equal(expected))
-
-				runningPods := make(map[string]int32, len(expected))
-				for i := range workerPods {
-					runningPods[workerPods[i].Labels["ray.io/group"]]++
-				}
+				runningPods := findRunningPodsPerWorkerGroup(g, client.ObjectKeyFromObject(rayCluster))
 				for groupName, count := range expected {
 					g.Expect(runningPods[groupName]).To(gomega.Equal(count))
 				}
@@ -205,11 +227,7 @@ var _ = ginkgo.Describe("KubeRay multi-PodSet autoscaling", ginkgo.Label("area:s
 				activeWorkloads := util.FindNonFinishedWorkloads(workloadList.Items)
 				g.Expect(activeWorkloads).To(gomega.HaveLen(1))
 				g.Expect(workload.IsAdmitted(&activeWorkloads[0])).To(gomega.BeTrue())
-				podSetCounts := make(map[string]int32, len(activeWorkloads[0].Spec.PodSets))
-				for i := range activeWorkloads[0].Spec.PodSets {
-					podSet := &activeWorkloads[0].Spec.PodSets[i]
-					podSetCounts[string(podSet.Name)] = podSet.Count
-				}
+				podSetCounts := podSetCountsByName(&activeWorkloads[0])
 				for groupName, count := range expected {
 					g.Expect(podSetCounts).To(gomega.HaveKeyWithValue(groupName, count))
 				}
