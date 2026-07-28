@@ -1,6 +1,6 @@
 ---
-title: "Kueue 社区"
-linkTitle: "社区"
+title: "加入我们"
+linkTitle: "加入我们"
 weight: 30
 menu:
   main:

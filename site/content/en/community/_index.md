@@ -1,6 +1,6 @@
 ---
-title: "Kueue Community"
-linkTitle: "Community"
+title: "Join Us"
+linkTitle: "Join Us"
 weight: 30
 menu:
   main:
