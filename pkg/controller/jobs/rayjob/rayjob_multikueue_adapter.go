@@ -19,6 +19,7 @@ package rayjob
 import (
 	"context"
 	"fmt"
+	"math"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -87,6 +88,7 @@ func fetchChildWorkerState(ctx context.Context, remoteClient client.Client, remo
 // revision feeds the elastic workload-slice name (GetWorkloadNameExtraPart),
 // so an autoscaler-driven resize yields a new slice.
 func applyChildWorkerState(localJob *rayv1.RayJob, counts map[kueue.PodSetReference]int32, revision string) bool {
+	counts = retainWorkerCountsWithinDeclaredBounds(localJob, counts)
 	serialized, err := raycluster.SerializeWorkerGroupCounts(counts)
 	if err != nil {
 		// Counts are plain name/count pairs; serialization cannot realistically
@@ -106,6 +108,39 @@ func applyChildWorkerState(localJob *rayv1.RayJob, counts map[kueue.PodSetRefere
 	annotations[raycluster.RayClusterGenerationAnnotation] = revision
 	localJob.SetAnnotations(annotations)
 	return true
+}
+
+// retainWorkerCountsWithinDeclaredBounds drops any per-group count that falls
+// outside the manager-declared [MinReplicas, MaxReplicas] of the matching
+// worker group, or whose group is absent from the manager's RayClusterSpec.
+//
+// counts originate from the child RayCluster on the worker cluster, which sits
+// across a cluster trust boundary. A count the in-tree autoscaler could not
+// have produced (outside the declared bounds) must not be reflected onto the
+// manager, where it would inflate the admitted PodSet counts and thus the
+// reserved quota. This mirrors the clamp the RayCluster spec-reflect path
+// applies in reflectWorkerReplicas.
+func retainWorkerCountsWithinDeclaredBounds(localJob *rayv1.RayJob, counts map[kueue.PodSetReference]int32) map[kueue.PodSetReference]int32 {
+	if localJob.Spec.RayClusterSpec == nil {
+		return nil
+	}
+	type bounds struct{ min, max int32 }
+	declared := make(map[kueue.PodSetReference]bounds, len(localJob.Spec.RayClusterSpec.WorkerGroupSpecs))
+	for i := range localJob.Spec.RayClusterSpec.WorkerGroupSpecs {
+		wgs := &localJob.Spec.RayClusterSpec.WorkerGroupSpecs[i]
+		declared[kueue.NewPodSetReference(wgs.GroupName)] = bounds{
+			min: ptr.Deref(wgs.MinReplicas, 0),
+			max: ptr.Deref(wgs.MaxReplicas, math.MaxInt32),
+		}
+	}
+	retained := make(map[kueue.PodSetReference]int32, len(counts))
+	for name, count := range counts {
+		if b, ok := declared[name]; !ok || count < b.min || count > b.max {
+			continue
+		}
+		retained[name] = count
+	}
+	return retained
 }
 
 func copyJobStatus(dst, src *rayv1.RayJob) {
