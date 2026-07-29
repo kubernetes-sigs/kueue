@@ -482,7 +482,7 @@ kueueviz-image: kueueviz-image-build
 .PHONY: kueue-populator-image-build
 kueue-populator-image-build:
 	$(MAKE) -C cmd/experimental/kueue-populator image-build \
-	  IMAGE_BUILD_CMD="$(subst ",\",$(IMAGE_BUILD_RETRY) $(IMAGE_BUILD_CMD))" \
+	    IMAGE_BUILD_CMD="$(subst ",\",$(IMAGE_BUILD_RETRY) $(IMAGE_BUILD_CMD))" \
 		IMAGE_REGISTRY=$(IMAGE_REGISTRY) \
 		IMAGE_TAG=$(IMAGE_TAG_KUEUE_POPULATOR) \
 		PLATFORMS="$(PLATFORMS)" \
@@ -506,7 +506,7 @@ kueue-populator-image: kueue-populator-image-build
 .PHONY: kueue-priority-booster-image-build
 kueue-priority-booster-image-build:
 	$(MAKE) -C cmd/experimental/kueue-priority-booster image-build \
-	  IMAGE_BUILD_CMD="$(subst ",\",$(IMAGE_BUILD_RETRY) $(IMAGE_BUILD_CMD))" \
+	    IMAGE_BUILD_CMD="$(subst ",\",$(IMAGE_BUILD_RETRY) $(IMAGE_BUILD_CMD))" \
 		IMAGE_REGISTRY=$(IMAGE_REGISTRY) \
 		IMAGE_TAG=$(IMAGE_TAG_KUEUE_PRIORITY_BOOSTER) \
 		PLATFORMS="$(PLATFORMS)" \
