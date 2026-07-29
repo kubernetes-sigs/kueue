@@ -230,16 +230,12 @@ func (j *RayService) PodsReady(ctx context.Context, _ client.Client) bool {
 	return meta.IsStatusConditionTrue(j.Status.Conditions, string(rayv1.RayServiceReady))
 }
 
-func (j *RayService) PodsScheduled(ctx context.Context, c client.Client) bool {
+func (j *RayService) PodsScheduled(ctx context.Context, c client.Client) (bool, error) {
 	podSets, err := raycluster.BuildPodSets(&j.Spec.RayClusterSpec, j.Annotations)
 	if err != nil {
-		return false
+		return false, err
 	}
-	minCount := 0
-	for _, ps := range podSets {
-		minCount += int(ps.Count)
-	}
-	return jobframework.PodsScheduledBySelector(ctx, c, j.Namespace, j.PodLabelSelector(), minCount)
+	return raycluster.PodsScheduledForRayCluster(ctx, c, j.Namespace, j.Status.ActiveServiceStatus.RayClusterName, podSets)
 }
 
 func (j *RayService) GetCustomAnnotations(ctx context.Context, c client.Client, podSets []kueue.PodSet) (map[string]string, error) {
