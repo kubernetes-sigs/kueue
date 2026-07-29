@@ -983,6 +983,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 
 		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, true)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
 				{Name: "team_cq", SourceLabelKey: "team", SourceKind: ptr.To(config.SourceKindClusterQueue)},
@@ -1052,6 +1053,10 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			ginkgo.By("verifying CQ admitted active workloads metric includes custom_team_cq=ml-team and custom_wl_kind values")
 			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 2, "ml-team", "kind1")
 			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 1, "ml-team", "kind2")
+			
+			ginkgo.By("verifying LQ admitted active workloads metric includes custom_wl_kind values")
+			util.ExpectLQAdmittedActiveWorkloadsGaugeMetric(lq, 2, "kind1")
+			util.ExpectLQAdmittedActiveWorkloadsGaugeMetric(lq, 1, "kind2")
 
 			ginkgo.By("marking two workloads as finished")
 			util.FinishWorkloads(ctx, k8sClient, wl1, wl3)
@@ -1059,6 +1064,10 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			ginkgo.By("verifying CQ admitted active workloads metric is updated")
 			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 1, "ml-team", "kind1")
 			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 0, "ml-team", "kind2")
+
+			ginkgo.By("verifying LQ admitted active workloads metric is updated")
+			util.ExpectLQAdmittedActiveWorkloadsGaugeMetric(lq, 1, "kind1")
+			util.ExpectLQAdmittedActiveWorkloadsGaugeMetric(lq, 0, "kind2")
 		})
 
 		ginkgo.It("should update AdmittedActiveWorkloads metric when workload labels match and we change CQ labels", func() {
@@ -1133,6 +1142,10 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 1, "ml-team", "kind1")
 			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 0, "ml-team", "kind2")
 
+			ginkgo.By("verifying LQ admitted active workloads metric includes custom_wl_kind=kind1")
+			util.ExpectLQAdmittedActiveWorkloadsGaugeMetric(lq, 1, "kind1")
+			util.ExpectLQAdmittedActiveWorkloadsGaugeMetric(lq, 0, "kind2")
+
 			ginkgo.By("updating workload custom label value")
 			gomega.Eventually(func(g gomega.Gomega) {
 				var updatedWl kueue.Workload
@@ -1144,6 +1157,10 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			ginkgo.By("verifying CQ admitted active workloads metric updates to kind2")
 			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 1, "ml-team", "kind2")
 			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 0, "ml-team", "kind1")
+
+			ginkgo.By("verifying LQ admitted active workloads metric updates to kind2")
+			util.ExpectLQAdmittedActiveWorkloadsGaugeMetric(lq, 1, "kind2")
+			util.ExpectLQAdmittedActiveWorkloadsGaugeMetric(lq, 0, "kind1")
 		})
 
 		ginkgo.It("should update/decrement AdmittedActiveWorkloads metric when workload is deleted", func() {
@@ -1175,11 +1192,17 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			ginkgo.By("verifying CQ admitted active workloads metric includes custom_team_cq=ml-team and custom_wl_kind=kind1")
 			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 1, "ml-team", "kind1")
 
+			ginkgo.By("verifying LQ admitted active workloads metric includes custom_wl_kind=kind1")
+			util.ExpectLQAdmittedActiveWorkloadsGaugeMetric(lq, 1, "kind1")
+
 			ginkgo.By("deleting workload")
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
 
 			ginkgo.By("verifying CQ admitted active workloads metric is updated/decremented")
 			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 0, "ml-team", "kind1")
+
+			ginkgo.By("verifying LQ admitted active workloads metric is updated/decremented")
+			util.ExpectLQAdmittedActiveWorkloadsGaugeMetric(lq, 0, "kind1")
 		})
 	})
 })

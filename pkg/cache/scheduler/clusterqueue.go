@@ -548,6 +548,12 @@ func (c *clusterQueue) resyncAdmittedActiveWorkloads() {
 	for wlRef, wl := range c.Workloads {
 		if workload.IsActive(wl.Obj) && workload.IsAdmitted(wl.Obj) {
 			metrics.ReportAdmittedActiveWorkloads(c.Name, 1, c.getLabelValuesFor(wlRef), c.roleTracker)
+			
+			qKey := queue.KeyFromWorkload(wl.Obj)
+			if _, ok := c.localQueues[qKey]; ok {
+				lqRef := metrics.LocalQueueReference{Name: wl.Obj.Spec.QueueName, Namespace: wl.Obj.Namespace}
+				metrics.ReportLocalQueueAdmittedActiveWorkloads(lqRef, 1, c.getLQLabelValuesFor(wlRef, string(qKey)), c.roleTracker)
+			}
 		}
 	}
 }
@@ -614,6 +620,12 @@ func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, o
 
 		wlRef := workload.Key(wi.Obj)
 		metrics.ReportAdmittedActiveWorkloads(c.Name, incr, c.getLabelValuesFor(wlRef), c.roleTracker)
+
+		qKey := queue.KeyFromWorkload(wi.Obj)
+		if _, ok := c.localQueues[qKey]; ok {
+			lqRef := metrics.LocalQueueReference{Name: wi.Obj.Spec.QueueName, Namespace: wi.Obj.Namespace}
+			metrics.ReportLocalQueueAdmittedActiveWorkloads(lqRef, incr, c.getLQLabelValuesFor(wlRef, string(qKey)), c.roleTracker)
+		}
 	}
 	qKey := queue.KeyFromWorkload(wi.Obj)
 	if lq, ok := c.localQueues[qKey]; ok {
@@ -633,6 +645,13 @@ func (c *clusterQueue) getLabelValuesFor(wlRef workload.Reference) []string {
 	return c.customLabels.GetFor(map[cfg.SourceKind]string{
 		cfg.SourceKindWorkload:     string(wlRef),
 		cfg.SourceKindClusterQueue: string(c.Name),
+	})
+}
+
+func (c *clusterQueue) getLQLabelValuesFor(wlRef workload.Reference, lqKey string) []string {
+	return c.customLabels.GetFor(map[cfg.SourceKind]string{
+		cfg.SourceKindWorkload:   string(wlRef),
+		cfg.SourceKindLocalQueue: lqKey,
 	})
 }
 

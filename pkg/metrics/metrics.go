@@ -561,7 +561,7 @@ The label 'underlying_cause' can have the following values:
 			Subsystem: constants.KueueName,
 			Name:      "local_queue_admitted_workloads_total",
 			Help:      "The total number of admitted workloads per 'local_queue'",
-		}, append([]string{"name", "namespace", "priority_class", "replica_role"}, localQueueMetricsLabels...),
+		}, append([]string{"name", "namespace", "priority_class", "replica_role"}, cl.LabelNames(configapi.SourceKindLocalQueue, configapi.SourceKindWorkload)...),
 	)
 
 	AdmissionWaitTime = prometheus.NewHistogramVec(
@@ -597,7 +597,7 @@ The label 'underlying_cause' can have the following values:
 			Name:      "local_queue_admission_wait_time_seconds",
 			Help:      "The time between a workload was created or requeued until admission, per 'local_queue'",
 			Buckets:   generateExponentialBuckets(14),
-		}, append([]string{"name", "namespace", "priority_class", "replica_role"}, localQueueMetricsLabels...),
+		}, append([]string{"name", "namespace", "priority_class", "replica_role"}, cl.LabelNames(configapi.SourceKindLocalQueue, configapi.SourceKindWorkload)...),
 	)
 
 	AdmissionChecksWaitTime = prometheus.NewHistogramVec(
@@ -791,7 +791,7 @@ The label 'reason' can have the following values:
 			Subsystem: constants.KueueName,
 			Name:      "local_queue_admitted_active_workloads",
 			Help:      "The number of admitted Workloads that are active, per 'localQueue'",
-		}, append([]string{"name", "namespace", "replica_role"}, localQueueMetricsLabels...),
+		}, append([]string{"name", "namespace", "replica_role"}, cl.LabelNames(configapi.SourceKindLocalQueue, configapi.SourceKindWorkload)...),
 	)
 	trackGaugeVec(LocalQueueAdmittedActiveWorkloads, gaugeCleanupScopeLocalQueueCache)
 
@@ -1408,9 +1408,9 @@ func ReportReservingActiveWorkloads(cqName kueue.ClusterQueueReference, count in
 	ReservingActiveWorkloads.WithLabelValues(labels...).Set(float64(count))
 }
 
-func ReportLocalQueueAdmittedActiveWorkloads(lq LocalQueueReference, count int, customLabelValues []string, tracker *roletracker.RoleTracker) {
+func ReportLocalQueueAdmittedActiveWorkloads(lq LocalQueueReference, incr int, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	labels := append([]string{string(lq.Name), lq.Namespace, roletracker.GetRole(tracker)}, customLabelValues...)
-	LocalQueueAdmittedActiveWorkloads.WithLabelValues(labels...).Set(float64(count))
+	LocalQueueAdmittedActiveWorkloads.WithLabelValues(labels...).Add(float64(incr))
 }
 
 func ReportLocalQueueReservingActiveWorkloads(lq LocalQueueReference, count int, customLabelValues []string, tracker *roletracker.RoleTracker) {
