@@ -434,7 +434,7 @@ func applyRuntimeCountsAnnotation(log logr.Logger, podSets []kueue.PodSet, objec
 	if annotation == "" {
 		return podSets
 	}
-	counts, err := ParsePodSetReplicaSizes(annotation)
+	counts, err := parsePodSetReplicaSizes(annotation)
 	if err != nil {
 		log.V(2).Info("Ignoring malformed runtime replica-sizes annotation",
 			"rayObject", object.GetName(), "error", err.Error())
@@ -451,9 +451,9 @@ func applyRuntimeCountsAnnotation(log logr.Logger, podSets []kueue.PodSet, objec
 	return podSets
 }
 
-// ParsePodSetReplicaSizes parses the PodsetReplicaSizesAnnotation value into a map.
+// parsePodSetReplicaSizes parses the PodsetReplicaSizesAnnotation value into a map.
 // Returns an empty map if the annotation is absent or empty.
-func ParsePodSetReplicaSizes(annotation string) (map[kueue.PodSetReference]int32, error) {
+func parsePodSetReplicaSizes(annotation string) (map[kueue.PodSetReference]int32, error) {
 	counts := make(map[kueue.PodSetReference]int32)
 	if annotation == "" {
 		return counts, nil
@@ -487,7 +487,7 @@ func WorkerGroupPodCounts(spec *rayv1.RayClusterSpec) map[kueue.PodSetReference]
 // name. Equality is decided on the counts alone, so count-neutral revision bumps
 // do not mint replacement slices. Returns whether any annotation changed.
 func SetRuntimeWorkerStateAnnotations(obj client.Object, counts map[kueue.PodSetReference]int32, revision string) bool {
-	serialized, err := SerializeWorkerGroupCounts(counts)
+	serialized, err := serializeWorkerGroupCounts(counts)
 	if err != nil {
 		// Counts are plain name/count pairs; serialization cannot realistically
 		// fail, but never propagate a broken value.
@@ -506,9 +506,9 @@ func SetRuntimeWorkerStateAnnotations(obj client.Object, counts map[kueue.PodSet
 	return true
 }
 
-// SerializeWorkerGroupCounts serializes per-group counts into the JSON format of
+// serializeWorkerGroupCounts serializes per-group counts into the JSON format of
 // the replica-sizes annotations, sorted by name for a deterministic value.
-func SerializeWorkerGroupCounts(counts map[kueue.PodSetReference]int32) (string, error) {
+func serializeWorkerGroupCounts(counts map[kueue.PodSetReference]int32) (string, error) {
 	sizes := make([]jobframework.PodSetReplicaSize, 0, len(counts))
 	for name, count := range counts {
 		sizes = append(sizes, jobframework.PodSetReplicaSize{Name: name, Count: count})
