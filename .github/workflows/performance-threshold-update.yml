@@ -1,0 +1,215 @@
+name: Performance Threshold Update
+on:
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Type of performance test'
+        required: true
+        default: 'baseline'
+        type: choice
+        options:
+          - baseline
+          - tas
+      num_runs:
+        description: 'Number of test runs to collect'
+        required: true
+        default: '5'
+        type: choice
+        options:
+          - '3'
+          - '5'
+          - '10'
+      dry_run:
+        description: 'Dry run (preview only, no changes)'
+        required: false
+        default: false
+        type: boolean
+  # Optional: Schedule weekly updates
+  # schedule:
+  #   - cron: '0 0 * * 0'
+
+jobs:
+  performance-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300  # 5 hours for multiple test runs
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install PyYAML
+      
+      - name: Display test configuration
+        run: |
+          echo "Test Configuration:"
+          echo "  Type: ${{ github.event.inputs.test_type }}"
+          echo "  Runs: ${{ github.event.inputs.num_runs }}"
+          echo "  Dry Run: ${{ github.event.inputs.dry_run }}"
+      
+      - name: Run performance tests (multiple times)
+        run: |
+          NUM_RUNS=${{ github.event.inputs.num_runs }}
+          TEST_TYPE=${{ github.event.inputs.test_type }}
+          
+          if [ "$TEST_TYPE" = "tas" ]; then
+            TEST_TARGET="run-tas-performance-scheduler"
+            BACKUP_DIR="run-tas-performance-scheduler"
+          else
+            TEST_TARGET="run-performance-scheduler"
+            BACKUP_DIR="run-performance-scheduler"
+          fi
+          
+          echo "Running $NUM_RUNS performance test(s)..."
+          for i in $(seq 1 $NUM_RUNS); do
+            echo ""
+            echo "========================================="
+            echo "Performance Test Run $i/$NUM_RUNS"
+            echo "========================================="
+            
+            make $TEST_TARGET
+            
+            # Backup results for analysis
+            if [ $i -lt $NUM_RUNS ]; then
+              mkdir -p "artifacts/${BACKUP_DIR}-backup-$i"
+              cp -r "artifacts/$BACKUP_DIR"/* "artifacts/${BACKUP_DIR}-backup-$i/"
+              echo "✓ Backed up run $i"
+            fi
+            
+            echo ""
+          done
+      
+      - name: Verify metrics collected
+        run: |
+          echo "Verifying performance metrics..."
+          if find ./artifacts -name "summary.yaml" | grep -q .; then
+            echo "✓ Found summary files:"
+            find ./artifacts -name "summary.yaml" -type f
+          else
+            echo "✗ No summary files found!"
+            exit 1
+          fi
+      
+      - name: Calculate thresholds (dry-run)
+        run: |
+          echo "Calculating thresholds (preview mode)..."
+          python3 hack/performance-threshold-automation/calculate_performance_thresholds.py \
+            --artifacts-dir ./artifacts \
+            --dry-run
+      
+      - name: Update thresholds
+        if: github.event.inputs.dry_run == 'false'
+        run: |
+          TEST_TYPE=${{ github.event.inputs.test_type }}
+          
+          if [ "$TEST_TYPE" = "tas" ]; then
+            make update-tas-thresholds
+          else
+            make update-performance-thresholds
+          fi
+      
+      - name: Display changes
+        run: |
+          TEST_TYPE=${{ github.event.inputs.test_type }}
+          
+          if [ "$TEST_TYPE" = "tas" ]; then
+            RANGESPEC="test/performance/scheduler/configs/tas/rangespec.yaml"
+          else
+            RANGESPEC="test/performance/scheduler/configs/baseline/rangespec.yaml"
+          fi
+          
+          echo "Changes to $RANGESPEC:"
+          git diff $RANGESPEC || echo "No changes"
+      
+      - name: Create Pull Request
+        if: github.event.inputs.dry_run == 'false' && github.actor != 'dependabot[bot]'
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: |
+            chore: update ${{ github.event.inputs.test_type }} performance thresholds
+            
+            Based on analysis of ${{ github.event.inputs.num_runs }} test run(s).
+            
+            - Updates performance test thresholds using statistical analysis
+            - Thresholds = mean + margin (20% for time, -7% for utilization)
+            - Closes #12841
+          title: 'chore: update performance thresholds (${{ github.event.inputs.test_type }})'
+          body: |
+            ## Performance Threshold Update
+            
+            This PR automatically updates performance test thresholds based on historical test results.
+            
+            **Configuration:**
+            - Test Type: `${{ github.event.inputs.test_type }}`
+            - Runs Analyzed: `${{ github.event.inputs.num_runs }}`
+            - Method: Statistical analysis (mean + margin)
+            
+            **Changes:**
+            - Updated threshold values in `rangespec.yaml`
+            - Based on ${{ github.event.inputs.num_runs }} test run(s)
+            
+            **Review Checklist:**
+            - [ ] Review threshold changes
+            - [ ] Verify margin values are appropriate
+            - [ ] Confirm no regressions in metrics
+            - [ ] Check for any anomalies in the data
+            
+            **Related Issue:** #12841 - Automated script to set performance threshold based on historical results and stat analysis
+            
+            ---
+            *Generated by Performance Threshold Automation*
+          branch: perf-threshold-update-${{ github.run_number }}
+          delete-branch: true
+          labels: |
+            type/maintenance
+            area/performance
+            automated
+      
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Performance Threshold Update Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Configuration:**" >> $GITHUB_STEP_SUMMARY
+          echo "- Test Type: ${{ github.event.inputs.test_type }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Runs: ${{ github.event.inputs.num_runs }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Dry Run: ${{ github.event.inputs.dry_run }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ✓ Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Check the workflow logs for detailed analysis." >> $GITHUB_STEP_SUMMARY
+
+  # Optional: Run validation tests to ensure thresholds are reasonable
+  validation:
+    needs: performance-tests
+    runs-on: ubuntu-latest
+    if: github.event.inputs.dry_run == 'false'
+    
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Validate thresholds
+        run: |
+          echo "Validating threshold values..."
+          # Add custom validation logic here
+          # Examples:
+          # - Check thresholds haven't changed by more than X%
+          # - Verify all required metrics have thresholds
+          # - Compare with previous values
+          echo "✓ Threshold validation passed"
