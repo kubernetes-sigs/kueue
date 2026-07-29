@@ -50,11 +50,10 @@ import (
 
 func TestBuildPodSets(t *testing.T) {
 	testCases := map[string]struct {
-		rayClusterSpec               *rayv1.RayClusterSpec
-		annotations                  map[string]string
-		elasticJobsViaWorkloadSlices bool
-		wantPodSets                  []kueue.PodSet
-		wantErr                      bool
+		rayClusterSpec *rayv1.RayClusterSpec
+		annotations    map[string]string
+		wantPodSets    []kueue.PodSet
+		wantErr        bool
 	}{
 		"basic spec with head and single worker group": {
 			rayClusterSpec: &rayv1.RayClusterSpec{
@@ -402,9 +401,6 @@ func TestBuildPodSets(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			if tc.elasticJobsViaWorkloadSlices {
-				features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
-			}
 			gotPodSets, err := BuildPodSets(tc.rayClusterSpec, tc.annotations)
 
 			if tc.wantErr {
