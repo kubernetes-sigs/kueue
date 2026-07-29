@@ -82,10 +82,9 @@ func fetchOwnWorkerState(_ context.Context, _ client.Client, remoteCluster *rayv
 }
 
 // applyOwnWorkerState records the remote RayCluster's per-group counts and
-// revision as annotations on the manager RayCluster, clamped to its declared
-// worker-group bounds.
+// revision as annotations on the manager RayCluster.
 func applyOwnWorkerState(localCluster *rayv1.RayCluster, counts map[kueue.PodSetReference]int32, revision string) bool {
-	return SetRuntimeWorkerStateAnnotations(localCluster, counts, revision, localCluster.Spec.WorkerGroupSpecs)
+	return SetRuntimeWorkerStateAnnotations(localCluster, counts, revision)
 }
 
 // syncWorkerReplicas copies each worker group's Replicas and NumOfHosts from

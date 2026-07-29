@@ -434,46 +434,6 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 		},
-		// A remote replica count outside the manager-declared [min, max] cannot
-		// come from the autoscaler and is dropped, so the reflected annotation is
-		// empty and the manager's admitted counts are unaffected.
-		"autoscaling elastic sync ignores out-of-bounds remote replicas": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.WorkloadIdentifierAnnotations: false},
-			managersRayClusters: []rayv1.RayCluster{
-				*elasticBuilder.Clone().
-					WithEnableAutoscaling(new(true)).
-					FirstWorkerGroupReplicas(1, 1, 5).
-					Obj(),
-			},
-			workerRayClusters: []rayv1.RayCluster{
-				*elasticBuilder.Clone().
-					PrebuiltWorkloadLabel("wl1").
-					Label(kueue.MultiKueueOriginLabel, "origin1").
-					WithEnableAutoscaling(new(true)).
-					FirstWorkerGroupReplicas(99, 1, 5).
-					Obj(),
-			},
-			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
-				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "raycluster1", Namespace: TestNamespace}, "wl1", "origin1")
-				return err
-			},
-			wantManagersRayClusters: []rayv1.RayCluster{
-				*elasticBuilder.Clone().
-					WithEnableAutoscaling(new(true)).
-					FirstWorkerGroupReplicas(1, 1, 5).
-					SetAnnotation(MultiKueueRuntimePodSetReplicaSizesAnnotation, `[]`).
-					SetAnnotation(RayClusterGenerationAnnotation, "-0").
-					Obj(),
-			},
-			wantWorkerRayClusters: []rayv1.RayCluster{
-				*elasticBuilder.Clone().
-					PrebuiltWorkloadLabel("wl1").
-					Label(kueue.MultiKueueOriginLabel, "origin1").
-					WithEnableAutoscaling(new(true)).
-					FirstWorkerGroupReplicas(99, 1, 5).
-					Obj(),
-			},
-		},
 		"non-elastic raycluster does not sync worker replicas even with the feature enabled": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.WorkloadIdentifierAnnotations: false},
 			managersRayClusters: []rayv1.RayCluster{

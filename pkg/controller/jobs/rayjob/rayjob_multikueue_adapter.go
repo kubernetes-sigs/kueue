@@ -87,16 +87,12 @@ func fetchChildWorkerState(ctx context.Context, remoteClient client.Client, remo
 }
 
 // applyChildWorkerState records the child RayCluster's per-group counts and
-// revision as annotations on the manager RayJob, clamped to the RayJob's
-// declared worker-group bounds. The counts feed the manager's PodSet derivation
-// (UpdatePodSets fallback); the revision feeds the elastic workload-slice name
-// (GetWorkloadNameExtraPart), so an autoscaler-driven resize yields a new slice.
+// revision as annotations on the manager RayJob. The counts feed the manager's
+// PodSet derivation (UpdatePodSets fallback); the revision feeds the elastic
+// workload-slice name (GetWorkloadNameExtraPart), so an autoscaler-driven resize
+// yields a new slice.
 func applyChildWorkerState(localJob *rayv1.RayJob, counts map[kueue.PodSetReference]int32, revision string) bool {
-	var workerGroups []rayv1.WorkerGroupSpec
-	if localJob.Spec.RayClusterSpec != nil {
-		workerGroups = localJob.Spec.RayClusterSpec.WorkerGroupSpecs
-	}
-	return raycluster.SetRuntimeWorkerStateAnnotations(localJob, counts, revision, workerGroups)
+	return raycluster.SetRuntimeWorkerStateAnnotations(localJob, counts, revision)
 }
 
 func copyJobStatus(dst, src *rayv1.RayJob) {
