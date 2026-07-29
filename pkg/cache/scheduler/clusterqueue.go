@@ -550,7 +550,7 @@ func (c *clusterQueue) resyncAdmittedActiveWorkloads() {
 			metrics.ReportAdmittedActiveWorkloads(c.Name, 1, c.getLabelValuesFor(wlRef), c.roleTracker)
 			
 			qKey := queue.KeyFromWorkload(wl.Obj)
-			if _, ok := c.localQueues[qKey]; ok {
+			if lq, ok := c.localQueues[qKey]; ok && lq.shouldExposeMetrics(c.lqMetrics) {
 				lqRef := metrics.LocalQueueReference{Name: wl.Obj.Spec.QueueName, Namespace: wl.Obj.Namespace}
 				metrics.ReportLocalQueueAdmittedActiveWorkloads(lqRef, 1, c.getLQLabelValuesFor(wlRef, string(qKey)), c.roleTracker)
 			}
@@ -622,7 +622,7 @@ func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, o
 		metrics.ReportAdmittedActiveWorkloads(c.Name, incr, c.getLabelValuesFor(wlRef), c.roleTracker)
 
 		qKey := queue.KeyFromWorkload(wi.Obj)
-		if _, ok := c.localQueues[qKey]; ok {
+		if lq, ok := c.localQueues[qKey]; ok && lq.shouldExposeMetrics(c.lqMetrics) {
 			lqRef := metrics.LocalQueueReference{Name: wi.Obj.Spec.QueueName, Namespace: wi.Obj.Namespace}
 			metrics.ReportLocalQueueAdmittedActiveWorkloads(lqRef, incr, c.getLQLabelValuesFor(wlRef, string(qKey)), c.roleTracker)
 		}

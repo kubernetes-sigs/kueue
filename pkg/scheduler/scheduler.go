@@ -1135,6 +1135,9 @@ func (s *Scheduler) recordWorkloadAdmissionEvents(log logr.Logger, newWorkload, 
 	shouldExposeLqMetrics := s.cache.ShouldExposeLocalQueueMetricsForWorkload(log, newWorkload)
 	if shouldExposeLqMetrics {
 		lqRef := metrics.LQRefFromWorkload(newWorkload)
+		if features.Enabled(features.CustomMetricLabels) {
+			s.customLabels.Store(config.SourceKindWorkload, string(workload.Key(newWorkload)), newWorkload.Labels, newWorkload.Annotations)
+		}
 		lqCustomLabelsValues := s.customLabels.GetFor(map[config.SourceKind]string{
 			config.SourceKindLocalQueue: string(utilqueue.KeyFromWorkload(newWorkload)),
 			config.SourceKindWorkload:   string(workload.Key(newWorkload)),

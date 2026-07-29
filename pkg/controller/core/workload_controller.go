@@ -801,6 +801,9 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 			if r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, &wl) {
 				lqRef := metrics.LQRefFromWorkload(&wl)
 				lqKey := qutil.KeyFromWorkload(&wl)
+				if features.Enabled(features.CustomMetricLabels) {
+					r.customLabels.Store(config.SourceKindWorkload, string(workload.Key(&wl)), wl.Labels, wl.Annotations)
+				}
 				metrics.LocalQueueAdmittedWorkload(
 					lqRef,
 					priorityClassName,
