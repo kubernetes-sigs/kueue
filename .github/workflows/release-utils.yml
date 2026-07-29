@@ -629,6 +629,13 @@ jobs:
       contents: read
       issues: write
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: main
+          persist-credentials: false
+
       - name: Check Promotion Credential
         id: credential
         env:
@@ -674,13 +681,6 @@ jobs:
           echo "missing=$MISSING" >> "$GITHUB_OUTPUT"
           echo "Promotion credential incomplete ($MISSING); continuing as a dry run."
 
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          ref: main
-          persist-credentials: false
-
       - name: Checkout kubernetes/k8s.io
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -718,7 +718,6 @@ jobs:
         id: promote
         env:
           GH_TOKEN: ${{ secrets.KUEUE_RELEASE_BOT_TOKEN || secrets.GITHUB_TOKEN }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
           RELEASE_ISSUE_NUMBER: ${{ github.event.issue.number }}
           VERSION: ${{ needs.authorize.outputs.version }}
           GITHUB_USER: ${{ steps.credential.outputs.owner }}
@@ -728,6 +727,7 @@ jobs:
           KUBERNETES_SIGS_KUEUE_MAIN_REPO_ORG: ${{ github.repository_owner }}
           KUBERNETES_SIGS_KUEUE_MAIN_REPO_NAME: ${{ github.event.repository.name }}
           CREDENTIAL_AVAILABLE: ${{ steps.credential.outputs.available }}
+          CREDENTIAL_MISSING: ${{ steps.credential.outputs.missing }}
         run: |
           if [ "$CREDENTIAL_AVAILABLE" != "true" ]; then
             export DRY_RUN=1
@@ -738,68 +738,52 @@ jobs:
           SCRIPT_EXIT_CODE=${PIPESTATUS[1]}
           set -e
 
-          PR_URL=$(sed -n 's/^+++ Promotion pull request: //p' /tmp/promote-pull.log | tail -n 1)
-          echo "pr_url=${PR_URL}" >> "$GITHUB_OUTPUT"
-          if [ -z "$PR_URL" ]; then
-            echo "action=none" >> "$GITHUB_OUTPUT"
-          elif grep -q '^+++ Pull request already open' /tmp/promote-pull.log; then
-            echo "action=updated" >> "$GITHUB_OUTPUT"
-          else
-            echo "action=created" >> "$GITHUB_OUTPUT"
-          fi
-          echo "exit_code=${SCRIPT_EXIT_CODE}" >> "$GITHUB_OUTPUT"
-          exit 0
-
-      - name: Report Result
-        if: always()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-          VERSION: ${{ needs.authorize.outputs.version }}
-          CREDENTIAL_AVAILABLE: ${{ steps.credential.outputs.available }}
-          CREDENTIAL_MISSING: ${{ steps.credential.outputs.missing }}
-          SCRIPT_EXIT_CODE: ${{ steps.promote.outputs.exit_code }}
-          PR_URL: ${{ steps.promote.outputs.pr_url }}
-          PR_ACTION: ${{ steps.promote.outputs.action }}
-        run: |
-          if [ ! -f /tmp/promote-pull.log ]; then
-            gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to submit the promotion pull request for \`$VERSION\`: the job failed before the promotion script ran. Check the workflow logs."
+          if [ "$CREDENTIAL_AVAILABLE" != "true" ]; then
+            echo "message=❌ Failed to submit the promotion pull request for \`$VERSION\`: ${CREDENTIAL_MISSING:-the promotion credential} is not configured. Everything up to the push was validated; nothing was pushed." >> "$GITHUB_OUTPUT"
             exit 1
           fi
 
           # The DRY_RUN bookkeeping lines are informational but already carry the
-          # !!! prefix used for error details, so they must not leak into the
-          # failure comment.
-          ERR_MSG=$(grep -E '^!!!' /tmp/promote-pull.log \
+          # !!! prefix used for error details, so they must not be reported as
+          # the failure reason.
+          ERR_LINE=$(grep -E '^!!!' /tmp/promote-pull.log \
             | grep -v 'because you set DRY_RUN' \
             | grep -v '^!!! Skipping deletion of branch' \
-            | grep -v '^!!! No branches specified for cleanup' || true)
+            | grep -v '^!!! No branches specified for cleanup' \
+            | head -n 1 | sed 's/^!!! //' || true)
 
-          if [ "$CREDENTIAL_AVAILABLE" != "true" ]; then
-            gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to submit the promotion pull request for \`$VERSION\`: the credential required to push to the kubernetes/k8s.io fork is not configured (missing ${CREDENTIAL_MISSING:-configuration}). Everything up to the push was validated; nothing was pushed and no pull request was created."
+          if [ $SCRIPT_EXIT_CODE -ne 0 ]; then
+            echo "message=❌ Failed to submit the promotion pull request for \`$VERSION\`: ${ERR_LINE:-check workflow logs for details}." >> "$GITHUB_OUTPUT"
+            exit $SCRIPT_EXIT_CODE
+          fi
+
+          # The script can exit 0 without producing a PR; the job must not.
+          PR_URL=$(sed -n 's/^+++ Promotion pull request: //p' /tmp/promote-pull.log | tail -n 1)
+          if [ -z "$PR_URL" ]; then
+            echo "message=❌ The promotion script for \`$VERSION\` completed without creating a pull request." >> "$GITHUB_OUTPUT"
             exit 1
           fi
 
-          if [ "$SCRIPT_EXIT_CODE" != "0" ] || [ "$PR_ACTION" = "none" ] || [ -z "$PR_URL" ]; then
-            if [ -z "$ERR_MSG" ]; then
-              ERR_MSG="Check workflow logs for details."
-            fi
-            gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to submit the promotion pull request for \`$VERSION\`.
-
-          **Error details:**
-          \`\`\`text
-          ${ERR_MSG}
-          \`\`\`"
-            # The script can exit 0 having produced no PR; the job must not.
-            EXIT_CODE="${SCRIPT_EXIT_CODE:-1}"
-            if [ "$EXIT_CODE" = "0" ]; then
-              EXIT_CODE=1
-            fi
-            exit "$EXIT_CODE"
+          if grep -q '^+++ Pull request already open' /tmp/promote-pull.log; then
+            PR_ACTION="updated"
+          else
+            PR_ACTION="created"
           fi
+          echo "message=✅ Promotion pull request for \`$VERSION\` has been ${PR_ACTION}: ${PR_URL}" >> "$GITHUB_OUTPUT"
 
-          gh issue comment "$ISSUE_NUMBER" --body "✅ Promotion pull request for \`$VERSION\` has been ${PR_ACTION}.
-          Link: ${PR_URL}"
+      - name: Report Success
+        if: ${{ success() }}
+        uses: ./.github/actions/report-result
+        with:
+          command: ${{ needs.authorize.outputs.command }}
+          message: ${{ steps.promote.outputs.message }}
+
+      - name: Report Failure
+        if: ${{ failure() }}
+        uses: ./.github/actions/report-result
+        with:
+          command: ${{ needs.authorize.outputs.command }}
+          message: ${{ steps.promote.outputs.message || '❌ Failed to submit the promotion pull request.' }}
 
   publish-release:
     name: Publish Release
