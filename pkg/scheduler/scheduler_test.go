@@ -6228,7 +6228,7 @@ func TestSchedule(t *testing.T) {
 		// priority. The idle sibling keeps on-demand sourceable one level higher than
 		// spot, so under PreemptionOverBorrowing the shallower borrowing level must not
 		// let the unschedulable on-demand flavor outrank spot, which fits.
-		"PreemptionOverBorrowing preference: skip first flavor that has no preemption candidates": {
+		"PreemptionOverBorrowing preference: select fitting second flavor over first flavor with no preemption candidates": {
 			cohorts: []kueue.Cohort{
 				*utiltestingapi.MakeCohort("nopc-root").
 					ResourceGroup(
