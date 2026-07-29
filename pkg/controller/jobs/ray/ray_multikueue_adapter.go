@@ -73,22 +73,17 @@ type ElasticReplicaSync[PtrT objAsPtr[T], T any] struct {
 	// reference. Used to detect a replica change and its direction.
 	WorkerReplicas func(PtrT) map[kueue.PodSetReference]int32
 	// Runtime carries the reverse direction: worker-side autoscaler resizes are
-	// reflected onto the manager copy as annotations (consumed by the PodSets
-	// derivation and workload-slice naming), leaving the manager spec untouched.
-	// It is wired by any type that runs the in-tree autoscaler on the worker;
-	// Fetch reads whichever object holds the live worker replicas there — the
-	// remote copy itself (RayCluster) or the child RayCluster KubeRay creates
-	// (RayJob).
+	// reflected onto the manager copy, leaving the manager spec untouched. Wired by
+	// any type that runs the in-tree autoscaler on the worker; Fetch reads whichever
+	// object holds the live worker replicas there — the remote copy itself
+	// (RayCluster) or the child RayCluster KubeRay creates (RayJob).
 	Runtime *RuntimeReplicaSync[PtrT]
 	// WorkloadNameExtraPart mirrors ElasticWorkloadNameProvider for the type; it
 	// is used to compute the workload name of the object's current slice.
 	WorkloadNameExtraPart func(PtrT) string
-	// AutoscalingEnabled reports whether the job runs the in-tree autoscaler on
-	// the worker cluster. When it does, the worker is the source of truth for
-	// worker replica counts: autoscaler-driven resizes on the remote copy are
-	// written back onto the manager object (reverse of the manager-driven sync),
-	// letting the manager's workload-slicing machinery re-reserve quota.
-	// Optional; when nil the reverse (worker-to-manager) sync is disabled.
+	// AutoscalingEnabled reports whether the job runs the in-tree autoscaler on the
+	// worker cluster, making the worker the source of truth for worker replica
+	// counts. Optional; when nil the reverse (worker-to-manager) sync is disabled.
 	AutoscalingEnabled func(PtrT) bool
 }
 
@@ -229,8 +224,6 @@ func (a *adapter[PtrT, T]) SyncJob(
 
 	remoteJob = PtrT(new(T))
 	a.copySpec(remoteJob, localJob)
-
-	// Add prebuilt workload name and multikueue origin
 	jobframework.SetMultiKueueMeta(remoteJob, workloadName, origin)
 
 	// clearing the managedBy enables the controller to take over
