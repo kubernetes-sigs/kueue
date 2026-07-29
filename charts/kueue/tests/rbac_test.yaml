@@ -1,0 +1,92 @@
+suite: test manager-role webhook and CRD resourceNames
+templates:
+  - rbac/role.yaml
+tests:
+  - it: should scope webhook configuration writes to the release-derived names
+    # The cert rotator derives these names from webhookServiceName, which
+    # manager_config_test.yaml pins to the same release prefix. If the two ever
+    # disagree the rotator is denied the CA bundle update and never reports ready.
+    release:
+      name: custom-kueue-name
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - admissionregistration.k8s.io
+            resourceNames:
+              - custom-kueue-name-mutating-webhook-configuration
+            resources:
+              - mutatingwebhookconfigurations
+            verbs:
+              - get
+              - update
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - admissionregistration.k8s.io
+            resourceNames:
+              - custom-kueue-name-validating-webhook-configuration
+            resources:
+              - validatingwebhookconfigurations
+            verbs:
+              - get
+              - update
+
+  - it: should keep list and watch unscoped, since RBAC cannot scope them by name
+    release:
+      name: custom-kueue-name
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - admissionregistration.k8s.io
+            resources:
+              - mutatingwebhookconfigurations
+              - validatingwebhookconfigurations
+            verbs:
+              - list
+              - watch
+
+  - it: should grant read-only access to the third-party ClusterProfile CRD
+    # MultiKueue probes this CRD to detect whether ClusterProfile support is installed.
+    # A get-only rule, kept separate so Kueue can never write a CRD it does not own. This
+    # also guards the marker itself: +kubebuilder:rbac is package-level, so attaching it to
+    # a declaration makes controller-gen drop it silently and this rule disappears.
+    release:
+      name: custom-kueue-name
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - apiextensions.k8s.io
+            resourceNames:
+              - clusterprofiles.multicluster.x-k8s.io
+            resources:
+              - customresourcedefinitions
+            verbs:
+              - get
+
+  - it: should not prefix CRD resourceNames, which are release-independent
+    release:
+      name: custom-kueue-name
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - apiextensions.k8s.io
+            resourceNames:
+              - clusterqueues.kueue.x-k8s.io
+              - cohorts.kueue.x-k8s.io
+              - localqueues.kueue.x-k8s.io
+              - multikueueclusters.kueue.x-k8s.io
+              - workloads.kueue.x-k8s.io
+            resources:
+              - customresourcedefinitions
+            verbs:
+              - get
+              - update
