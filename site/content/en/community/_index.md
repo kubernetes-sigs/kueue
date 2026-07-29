@@ -1,62 +1,33 @@
 ---
-title: "Kueue Community"
-linkTitle: "Community"
+title: "Join Us"
+linkTitle: "Join Us"
 weight: 30
 menu:
   main:
     weight: 30
 ---
 
+<!-- 1. JOIN US & COMMUNITY OVERVIEW -->
+<div class="text-center mb-5">
+  <h2 class="fw-bold text-primary mb-2">Join the Kueue Community</h2>
+  <p class="lead text-muted mx-auto" style="max-width: 750px;">
+    Kueue is a Kubernetes SIG Apps subproject developed by the community. We welcome users, contributors, and maintainers of all skill levels!
+  </p>
+</div>
 
-<!-- 1. CORE PILLARS (compelling content at first glance) -->
-<div class="row g-3 mb-5">
-  
-  <!-- Adopters Card -->
-  <div class="col-md-4">
-    <div class="card h-100 feature-card bg-light border-0 rounded-3">
-      <div class="card-body p-3 d-flex flex-column">
-        <div class="text-info mb-2">
-          <i class="fas fa-users fa-lg"></i>
-        </div>
-        <h5 class="fw-bold text-primary mb-2">Adopters Showcase</h5>
-        <p class="text-muted small mb-3 flex-grow-1">
-          Explore the list of organizations running Kueue in production for large-scale AI/ML and batch workloads.
-        </p>
-        <a href="adopters/" class="btn btn-sm btn-outline-info mt-auto align-self-start fw-semibold">
-          View Adopters ➔
-        </a>
-      </div>
-    </div>
-  </div>
-
-  <!-- Talks Card -->
-  <div class="col-md-4">
-    <div class="card h-100 feature-card bg-light border-0 rounded-3">
-      <div class="card-body p-3 d-flex flex-column">
-        <div class="text-info mb-2">
-          <i class="fas fa-video fa-lg"></i>
-        </div>
-        <h5 class="fw-bold text-primary mb-2">Talks & Case Studies</h5>
-        <p class="text-muted small mb-3 flex-grow-1">
-          Watch KubeCon talks, keynotes, and technical demos, and read curated engineering case studies from Kueue adopters.
-        </p>
-        <a href="talks_and_presentations/" class="btn btn-sm btn-outline-info mt-auto align-self-start fw-semibold">
-          Watch & Read ➔
-        </a>
-      </div>
-    </div>
-  </div>
+<!-- 2. COMMUNITY CHANNELS & CONTRIBUTOR ZONE -->
+<div class="row g-4 mb-5">
 
   <!-- Contribute Card -->
-  <div class="col-md-4">
-    <div class="card h-100 feature-card bg-light border-0 rounded-3">
-      <div class="card-body p-3 d-flex flex-column">
+  <div class="col-md-6">
+    <div class="card h-100 feature-card bg-light border-0 rounded-3 p-3">
+      <div class="card-body d-flex flex-column">
         <div class="text-info mb-2">
-          <i class="fas fa-tools fa-lg"></i>
+          <i class="fas fa-tools fa-2x"></i>
         </div>
-        <h5 class="fw-bold text-primary mb-2">Contributor Zone</h5>
+        <h4 class="fw-bold text-primary mb-2">Contributor Zone</h4>
         <p class="text-muted small mb-3 flex-grow-1">
-          Ready to help shape the future of batch scheduling? Read our guide on how to set up your dev environment and submit your first PR.
+          Ready to help shape the future of batch scheduling? Read our guide on how to set up your dev environment, run tests, and submit your first PR.
         </p>
         <a href="contribution_guidelines/" class="btn btn-sm btn-outline-info mt-auto align-self-start fw-semibold">
           How to Contribute ➔
@@ -65,28 +36,30 @@ menu:
     </div>
   </div>
 
-</div>
-
-<!-- 2. AUTOMATED MEDIUM FEED -->
-<div class="mb-5 border-top pt-4">
-  <div class="text-center mb-3">
-    <h4 class="fw-bold text-primary mb-1">Latest from Medium</h4>
-    <p class="text-muted small">Deep-dives, tutorials, and community articles.</p>
+  <!-- Community Syncs & Discussion -->
+  <div class="col-md-6">
+    <div class="card h-100 feature-card bg-light border-0 rounded-3 p-3">
+      <div class="card-body d-flex flex-column">
+        <div class="text-info mb-2">
+          <i class="fas fa-users fa-2x"></i>
+        </div>
+        <h4 class="fw-bold text-primary mb-2">Working Group Batch</h4>
+        <p class="text-muted small mb-3 flex-grow-1">
+          Kueue is built under WG Batch. Participate in our bi-weekly community meetings, present ideas, or bring your questions to open discussion.
+        </p>
+        <a href="https://github.com/kubernetes/community/tree/master/wg-batch" target="_blank" rel="noopener" class="btn btn-sm btn-outline-info mt-auto align-self-start fw-semibold">
+          WG Batch Details ➔
+        </a>
+      </div>
+    </div>
   </div>
-  
-  {{< medium-feed >}}
-  
-  <p class="text-end small mt-3 mb-0">
-    <a href="https://medium.com/tag/kueue" target="_blank" rel="noopener" class="text-info text-decoration-none fw-semibold">
-      View all Kueue articles on Medium <i class="fas fa-external-link-alt ms-1 small"></i>
-    </a>
-  </p>
+
 </div>
 
-<!-- 3. COMPACT CONNECT FOOTER -->
+<!-- 3. CONNECT FOOTER -->
 <div class="border-top pt-4">
   <div class="text-center mb-4">
-    <h4 class="fw-bold text-primary mb-1">Connect with the Community</h4>
+    <h4 class="fw-bold text-primary mb-1">Connect with Us</h4>
     <p class="text-muted small">Get help, join discussions, and stay updated.</p>
   </div>
   
