@@ -19,7 +19,10 @@ package core
 import (
 	"time"
 
+	resourcev1 "k8s.io/api/resource/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
@@ -40,11 +43,12 @@ const (
 
 // SetupControllersOpts holds optional dependencies for SetupControllers.
 type SetupControllersOpts struct {
-	RoleTracker            *roletracker.RoleTracker
-	PreemptionExpectations *expectations.Store
-	CustomLabels           *metrics.CustomLabels
-	DRAMapper              *dra.ResourceMapper
-	DRABackedResources     *dra.ExtendedResourceCache
+	RoleTracker               *roletracker.RoleTracker
+	PreemptionExpectations    *expectations.Store
+	CustomLabels              *metrics.CustomLabels
+	DRAMapper                 *dra.ResourceMapper
+	DRABackedResources        *dra.ExtendedResourceCache
+	ResourceSliceAPIAvailable bool
 }
 
 // SetupControllers sets up the core controllers. It returns the name of the
@@ -119,7 +123,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		return "Workload", err
 	}
 
-	if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) {
+	if opts.ResourceSliceAPIAvailable {
 		rsRec := NewResourceSliceReconciler(qManager, cfg, opts.RoleTracker)
 		if err := rsRec.SetupWithManager(mgr, cfg); err != nil {
 			return "ResourceSlice", err
@@ -160,4 +164,16 @@ func workloadRetention(cfg *configapi.ObjectRetentionPolicies) *workloadRetentio
 	return &workloadRetentionConfig{
 		afterFinished: &cfg.Workloads.AfterFinished.Duration,
 	}
+}
+
+// ServerSupportsResourceSlice checks if the server supports the ResourceSlice API (resource.k8s.io/v1).
+func ServerSupportsResourceSlice(mgr manager.Manager) error {
+	gvk, err := apiutil.GVKForObject(&resourcev1.ResourceSlice{}, mgr.GetScheme())
+	if err != nil {
+		return err
+	}
+	if _, err = mgr.GetRESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version); err != nil {
+		return err
+	}
+	return nil
 }
