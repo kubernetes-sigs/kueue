@@ -2410,7 +2410,7 @@ func setupAdmittedMetricTest(ctx context.Context, t *testing.T, acState kueue.Ch
 		).
 		Build()
 
-	adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
+	adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
 	cRec := newClustersReconciler(managerClient, TestNamespace, 0, defaultOrigin, nil, adapters, nil, nil, nil)
 
 	w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
