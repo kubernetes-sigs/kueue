@@ -25,10 +25,11 @@ import (
 
 func TestSearch(t *testing.T) {
 	cases := map[string]struct {
-		podSets    []kueue.PodSet
-		countLimit int32
-		wantCount  int32
-		wantFound  bool
+		podSets     []kueue.PodSet
+		lowerBounds []int32
+		countLimit  int32
+		wantCount   int32
+		wantFound   bool
 	}{
 		"empty": {
 			podSets:    []kueue.PodSet{},
@@ -44,6 +45,27 @@ func TestSearch(t *testing.T) {
 			countLimit: 2,
 			wantFound:  false,
 			wantCount:  0,
+		},
+		"lowerBounds raise the floor above minCount (resize scale-up)": {
+			// count=10, minCount=2, but lowerBound=admitted(5)+1=6 -> search [6,10].
+			// countLimit=8 -> largest fitting count in [6,10] is 8.
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(2).Obj(),
+			},
+			lowerBounds: []int32{6},
+			countLimit:  8,
+			wantFound:   true,
+			wantCount:   8,
+		},
+		"lowerBounds: nothing above admitted fits -> not found": {
+			// search [6,10] but only <=5 would fit -> no candidate grows past admitted.
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(2).Obj(),
+			},
+			lowerBounds: []int32{6},
+			countLimit:  5,
+			wantFound:   false,
+			wantCount:   0,
 		},
 		"partial available": {
 			podSets: []kueue.PodSet{
@@ -130,7 +152,7 @@ func TestSearch(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			red := NewPodSetReducer(tc.podSets, func(counts []int32) (int32, bool) {
+			red := NewPodSetReducer(tc.podSets, tc.lowerBounds, func(counts []int32) (int32, bool) {
 				total := int32(0)
 				for _, v := range counts {
 					total += v

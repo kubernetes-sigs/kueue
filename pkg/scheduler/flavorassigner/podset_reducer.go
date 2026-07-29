@@ -34,7 +34,12 @@ type PodSetReducer[R any] struct {
 	fits       func([]int32) (R, bool)
 }
 
-func NewPodSetReducer[R any](podSets []kueue.PodSet, fits func([]int32) (R, bool)) *PodSetReducer[R] {
+// NewPodSetReducer builds a reducer that walks each PodSet from its Count down to a per-PodSet
+// floor. By default the floor is the PodSet's MinCount (regular partial admission). lowerBounds,
+// when non-nil, raises the floor to max(MinCount, lowerBounds[i]) — used by in-place resize
+// scale-up to keep the search strictly above the current admission (lowerBounds[i] = admitted+1),
+// so the search space contains only counts that grow past the current admission.
+func NewPodSetReducer[R any](podSets []kueue.PodSet, lowerBounds []int32, fits func([]int32) (R, bool)) *PodSetReducer[R] {
 	psr := &PodSetReducer[R]{
 		podSets:    podSets,
 		deltas:     make([]int32, len(podSets)),
@@ -46,7 +51,14 @@ func NewPodSetReducer[R any](podSets []kueue.PodSet, fits func([]int32) (R, bool
 		ps := &psr.podSets[i]
 		psr.fullCounts[i] = ps.Count
 
-		d := ps.Count - ptr.Deref(ps.MinCount, ps.Count)
+		floor := ptr.Deref(ps.MinCount, ps.Count)
+		if lowerBounds != nil {
+			floor = max(floor, lowerBounds[i])
+		}
+		if floor > ps.Count {
+			floor = ps.Count
+		}
+		d := ps.Count - floor
 		psr.deltas[i] = d
 		psr.totalDelta += d
 	}

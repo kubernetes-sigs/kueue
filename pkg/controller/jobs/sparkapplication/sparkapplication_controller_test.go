@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -246,6 +247,48 @@ func TestPodSets(t *testing.T) {
 
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("PodSets() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestPodSetsResizeMinCount verifies the executor PodSet's minCount is derived from
+// spec.dynamicAllocation.minExecutors only when the in-place resize feature gate is enabled.
+func TestPodSetsResizeMinCount(t *testing.T) {
+	cases := map[string]struct {
+		resizeGate bool
+		wantMin    *int32
+	}{
+		"resize gate on: executor minCount = minExecutors": {resizeGate: true, wantMin: ptr.To[int32](1)},
+		"resize gate off: no minCount":                     {resizeGate: false, wantMin: nil},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadResize: tc.resizeGate,
+			})
+			ctx, _ := utiltesting.ContextWithLog(t)
+			sparkApp := sparkapplicationtesting.MakeSparkApplication("sparkapp", "ns").
+				ExecutorInstances(3).
+				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{
+					Enabled:      true,
+					MinExecutors: ptr.To[int32](1),
+				}).Obj()
+			got, err := (*SparkApplication)(sparkApp).PodSets(ctx, nil)
+			if err != nil {
+				t.Fatalf("PodSets() returned error: %v", err)
+			}
+			var exec *kueue.PodSet
+			for i := range got {
+				if got[i].Name == executorPodSetName {
+					exec = &got[i]
+				}
+			}
+			if exec == nil {
+				t.Fatalf("executor PodSet not found")
+			}
+			if diff := cmp.Diff(tc.wantMin, exec.MinCount); diff != "" {
+				t.Errorf("executor minCount mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

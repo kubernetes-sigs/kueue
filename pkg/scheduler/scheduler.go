@@ -845,48 +845,33 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info
 	}
 
 	if features.Enabled(features.PartialAdmission) && wl.CanBePartiallyAdmitted() {
-		reducer := flavorassigner.NewPodSetReducer(wl.Obj.Spec.PodSets, func(nextCounts []int32) (*partialAssignment, bool) {
-			assignment := flvAssigner.Assign(ctx, nextCounts)
-			mode := assignment.RepresentativeMode()
-			if mode == flavorassigner.Fit {
-				// A resize scale-up uses its own current admission as the assignment baseline, so a
-				// candidate count at or below the admitted count trivially "fits" with a zero/negative
-				// delta. Accepting that would re-admit the workload at its current size (no progress),
-				// mark it assumed, and strand it (no longer retried on quota release). Only accept a
-				// partial result that actually grows past the admitted count.
-				if resizeScaleUp && !resizeScaleUpGrows(wl.Obj.Spec.PodSets, nextCounts, resizeAdmitted) {
-					return nil, false
-				}
-				return &partialAssignment{assignment: assignment}, true
+		var lowerBounds []int32
+		if resizeScaleUp {
+			lowerBounds = make([]int32, len(wl.Obj.Spec.PodSets))
+			for i := range wl.Obj.Spec.PodSets {
+				lowerBounds[i] = resizeAdmitted[wl.Obj.Spec.PodSets[i].Name] + 1
 			}
-
-			if mode == flavorassigner.Preempt {
-				preemptionTargets := s.preemptor.GetTargets(ctx, *wl, assignment, snap)
-				if len(preemptionTargets) > 0 {
-					return &partialAssignment{assignment: assignment, preemptionTargets: preemptionTargets}, true
+		}
+		reducer := flavorassigner.NewPodSetReducer(wl.Obj.Spec.PodSets, lowerBounds,
+			func(nextCounts []int32) (*partialAssignment, bool) {
+				assignment := flvAssigner.Assign(log, nextCounts)
+				mode := assignment.RepresentativeMode()
+				if mode == flavorassigner.Fit {
+					return &partialAssignment{assignment: assignment}, true
 				}
-			}
-			return nil, false
-		})
+				if mode == flavorassigner.Preempt {
+					preemptionTargets := s.preemptor.GetTargets(log, *wl, assignment, snap)
+					if len(preemptionTargets) > 0 {
+						return &partialAssignment{assignment: assignment, preemptionTargets: preemptionTargets}, true
+					}
+				}
+				return nil, false
+			})
 		if pa, found := reducer.Search(); found {
 			return pa.assignment, append(preemptionTargets, pa.preemptionTargets...)
 		}
 	}
 	return fullAssignment, nil
-}
-
-// resizeScaleUpGrows reports whether the candidate per-PodSet counts increase at least one PodSet
-// beyond its currently admitted count. nextCounts is aligned by index with podSets.
-func resizeScaleUpGrows(podSets []kueue.PodSet, nextCounts []int32, admitted map[kueue.PodSetReference]int32) bool {
-	for i := range podSets {
-		if i >= len(nextCounts) {
-			break
-		}
-		if a, ok := admitted[podSets[i].Name]; ok && nextCounts[i] > a {
-			return true
-		}
-	}
-	return false
 }
 
 func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, log logr.Logger, wl *kueue.Workload) error {

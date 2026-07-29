@@ -135,10 +135,19 @@ func (j *SparkApplication) PodSets(ctx context.Context, _ client.Client) ([]kueu
 	if err != nil {
 		return nil, err
 	}
+	executorCount := j.numInitialExecutors()
 	podSets[1] = kueue.PodSet{
 		Name:     executorPodSetName,
 		Template: *executorPodTemplateSpec,
-		Count:    j.numInitialExecutors(),
+		Count:    executorCount,
+	}
+	// For in-place resize, expose the dynamic-allocation lower bound (minExecutors) as the executor
+	// PodSet's minCount so Kueue can partially admit a scale-up down to it. minCount is a fixed job
+	// property (the partial-admission floor); the running driver only patches count, never minCount.
+	if features.Enabled(features.ElasticJobsViaWorkloadResize) {
+		if me := ptr.Deref(j.numMinExecutors(), 0); me >= 1 && me <= executorCount {
+			podSets[1].MinCount = ptr.To(me)
+		}
 	}
 
 	if err := setTopologyRequestToPodSetIfEnabled(
