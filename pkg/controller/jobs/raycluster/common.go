@@ -18,6 +18,7 @@ package raycluster
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -45,6 +46,11 @@ import (
 )
 
 const (
+	// RayClusterPodsetReplicaSizesAnnotation is set on the job when autoscaling causes
+	// PodSet replica sizes to differ from the original spec. The value is a JSON
+	// array compatible with []kueue.PodSet, containing only the changed PodSets.
+	// This annotation is alpha-level enabled by the ElasticJobsViaWorkloadSlices.
+	RayClusterPodsetReplicaSizesAnnotation = "kueue.x-k8s.io/raycluster-podset-replica-sizes"
 	// RayClusterGenerationAnnotation is set on the job when autoscaling causes
 	// PodSet replica sizes to differ from the original spec. The value is the generation of
 	// the RayCluster.
@@ -370,6 +376,23 @@ func BuildPodSetAnnotationsPathByNameMap(rayClusterSpec *rayv1.RayClusterSpec, h
 		podSetAnnotationsPathByName[kueue.NewPodSetReference(wgs.GroupName)] = workerGroupSpecsPath.Index(i).Child("template", "metadata", "annotations")
 	}
 	return podSetAnnotationsPathByName
+}
+
+// ParsePodSetReplicaSizes parses the PodsetReplicaSizesAnnotation value into a map.
+// Returns an empty map if the annotation is absent or empty.
+func ParsePodSetReplicaSizes(annotation string) (map[kueue.PodSetReference]int32, error) {
+	counts := make(map[kueue.PodSetReference]int32)
+	if annotation == "" {
+		return counts, nil
+	}
+	var podSets []jobframework.PodSetReplicaSize
+	if err := json.Unmarshal([]byte(annotation), &podSets); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal %s annotation: %w", RayClusterPodsetReplicaSizesAnnotation, err)
+	}
+	for _, ps := range podSets {
+		counts[ps.Name] = ps.Count
+	}
+	return counts, nil
 }
 
 func GetWorkloadNameExtraPart(objectMeta metav1.Object) string {

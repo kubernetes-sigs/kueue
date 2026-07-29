@@ -1397,3 +1397,47 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 		})
 	}
 }
+
+func TestParsePodSetReplicaSizes(t *testing.T) {
+	testCases := map[string]struct {
+		annotation string
+		wantCounts map[kueue.PodSetReference]int32
+		wantErr    bool
+	}{
+		"empty annotation": {
+			annotation: "",
+			wantCounts: map[kueue.PodSetReference]int32{},
+		},
+		"valid annotation": {
+			annotation: `[{"name":"head","count":1},{"name":"worker","count":3}]`,
+			wantCounts: map[kueue.PodSetReference]int32{
+				"head":   1,
+				"worker": 3,
+			},
+		},
+		"single podset": {
+			annotation: `[{"name":"head","count":1}]`,
+			wantCounts: map[kueue.PodSetReference]int32{
+				"head": 1,
+			},
+		},
+		"invalid json": {
+			annotation: `invalid`,
+			wantErr:    true,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			got, err := ParsePodSetReplicaSizes(tc.annotation)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("ParsePodSetReplicaSizes() error = %v, wantErr %v", err, tc.wantErr)
+			}
+			if !tc.wantErr {
+				if diff := cmp.Diff(tc.wantCounts, got); diff != "" {
+					t.Errorf("ParsePodSetReplicaSizes() mismatch (-want +got):\n%s", diff)
+				}
+			}
+		})
+	}
+}
