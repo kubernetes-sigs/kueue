@@ -90,20 +90,42 @@ type WLEvent struct {
 	types.NamespacedName
 	UID       types.UID
 	ClassName string
-	Admitted  bool
-	Evicted   bool
-	Finished  bool
+	// CreationTime is the Workload's creation timestamp. It is the baseline for
+	// latency measurements, so that a Workload observed for the first time after
+	// it was created is not credited with a shorter wait than it actually had.
+	CreationTime time.Time
+	Admitted     bool
+	Evicted      bool
+	Finished     bool
 }
 
 type WLState struct {
 	ID int
 	types.NamespacedName
-	ClassName        string
-	FirstEventTime   time.Time
+	ClassName string
+	// FirstEventTime is when the recorder first observed the Workload. It is not
+	// used for latency measurements; see baselineTime.
+	FirstEventTime time.Time
+	// CreationTime is the Workload's creation timestamp, carried over from the
+	// first observed event.
+	CreationTime     time.Time
 	TimeToAdmitMs    int64
 	TimeToFinishedMs int64
 	EvictionCount    int32
 	LastEvent        *WLEvent
+}
+
+// baselineTime returns the instant from which admission and finish latencies are
+// measured. The Workload's creation timestamp is preferred, since the recorder may
+// start after - or receive a delayed event for - a Workload that was created, and
+// possibly already admitted, earlier. Measuring from the first observed event in
+// that case reports a near-zero latency and drags the reported averages down.
+// FirstEventTime is used as a fallback when the creation timestamp is unavailable.
+func (wls *WLState) baselineTime() time.Time {
+	if !wls.CreationTime.IsZero() {
+		return wls.CreationTime
+	}
+	return wls.FirstEventTime
 }
 
 var WLStateCsvHeader = []string{
@@ -190,13 +212,14 @@ func (r *Recorder) recordWLEvent(ev *WLEvent) {
 			NamespacedName: ev.NamespacedName,
 			ClassName:      ev.ClassName,
 			FirstEventTime: ev.Time,
+			CreationTime:   ev.CreationTime,
 			LastEvent:      &WLEvent{},
 		}
 		r.Store.WL[ev.UID] = state
 	}
 
 	if ev.Admitted && !state.LastEvent.Admitted {
-		state.TimeToAdmitMs = ev.Time.Sub(state.FirstEventTime).Milliseconds()
+		state.TimeToAdmitMs = ev.Time.Sub(state.baselineTime()).Milliseconds()
 	}
 
 	if ev.Evicted && !state.LastEvent.Evicted {
@@ -204,7 +227,7 @@ func (r *Recorder) recordWLEvent(ev *WLEvent) {
 	}
 
 	if ev.Finished && !state.LastEvent.Finished {
-		state.TimeToFinishedMs = ev.Time.Sub(state.FirstEventTime).Milliseconds()
+		state.TimeToFinishedMs = ev.Time.Sub(state.baselineTime()).Milliseconds()
 	}
 
 	state.LastEvent = ev
@@ -457,11 +480,12 @@ func (r *Recorder) RecordWorkloadState(wl *kueue.Workload) {
 			Namespace: wl.Namespace,
 			Name:      wl.Name,
 		},
-		UID:       wl.UID,
-		ClassName: wl.Labels[generator.ClassLabel],
-		Admitted:  workload.IsAdmitted(wl),
-		Evicted:   workloadevict.IsEvicted(wl),
-		Finished:  workloadfinish.IsFinished(wl),
+		UID:          wl.UID,
+		ClassName:    wl.Labels[generator.ClassLabel],
+		CreationTime: wl.CreationTimestamp.Time,
+		Admitted:     workload.IsAdmitted(wl),
+		Evicted:      workloadevict.IsEvicted(wl),
+		Finished:     workloadfinish.IsFinished(wl),
 	}
 	select {
 	case r.wlEvChan <- ev:
