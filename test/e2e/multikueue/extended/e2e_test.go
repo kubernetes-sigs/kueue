@@ -823,7 +823,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 					Queue(managerLq.Name).
 					WithSubmissionMode(rayv1.K8sJobMode).
-					WithEnableAutoscaling(ptr.To(true)).
+					WithEnableAutoscaling(new(true)).
 					WithAutoscalerOptions(&rayv1.AutoscalerOptions{IdleTimeoutSeconds: ptr.To[int32](1)}).
 					FirstWorkerGroupReplicas(0, 0, 1).
 					Entrypoint("python -c \"import time; time.sleep(3600)\"").
@@ -871,7 +871,15 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 				runOnHead := func(script string) {
 					gomega.Eventually(func(g gomega.Gomega) {
-						_, stderr, err := util.KExecute(ctx, admittedWorker.cfg, admittedWorker.restClient, managerNs.Name, headPod.Name, headPod.Spec.Containers[0].Name, []string{"python", "-c", script})
+						_, stderr, err := util.KExecute(
+							ctx,
+							admittedWorker.cfg,
+							admittedWorker.restClient,
+							managerNs.Name,
+							headPod.Name,
+							headPod.Spec.Containers[0].Name,
+							[]string{"python", "-c", script},
+						)
 						g.Expect(err).NotTo(gomega.HaveOccurred(), string(stderr))
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				}
@@ -1082,7 +1090,15 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 				runOnHead := func(script string) {
 					gomega.Eventually(func(g gomega.Gomega) {
-						_, stderr, err := util.KExecute(ctx, admittedWorker.cfg, admittedWorker.restClient, managerNs.Name, headPod.Name, headPod.Spec.Containers[0].Name, []string{"python", "-c", script})
+						_, stderr, err := util.KExecute(
+							ctx,
+							admittedWorker.cfg,
+							admittedWorker.restClient,
+							managerNs.Name,
+							headPod.Name,
+							headPod.Spec.Containers[0].Name,
+							[]string{"python", "-c", script},
+						)
 						g.Expect(err).NotTo(gomega.HaveOccurred(), string(stderr))
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				}
