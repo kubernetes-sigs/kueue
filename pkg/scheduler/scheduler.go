@@ -1104,7 +1104,7 @@ func (s *Scheduler) recordQuotaReservationMetrics(log logr.Logger, newWorkload, 
 		return
 	}
 
-	quotaReservedEventMessage := fmt.Sprintf("Quota reserved in ClusterQueue %v, wait time since queued was %.0fs", admission.ClusterQueue, waitTime.Seconds())
+	quotaReservedEventMessage := fmt.Sprintf("Quota reserved in ClusterQueue %s, wait time since queued was %.0fs", admission.ClusterQueue, waitTime.Seconds())
 	if consideredFlavors != "" {
 		quotaReservedEventMessage += fmt.Sprintf("; Flavors considered: %s", consideredFlavors)
 	}
