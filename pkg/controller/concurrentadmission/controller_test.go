@@ -17,14 +17,17 @@ limitations under the License.
 package concurrentadmission
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -1426,111 +1429,134 @@ func TestReconcile(t *testing.T) {
 		},
 	}
 
+	scenarios := []map[featuregate.Feature]bool{
+		{
+			features.UnadmittedWorkloadsObservability: false,
+		},
+		{
+			features.UnadmittedWorkloadsObservability: true,
+		},
+	}
+
 	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.ConcurrentAdmission, true)
-			var objects []client.Object
-			if tc.parentWorkload != nil {
-				objects = append(objects, tc.parentWorkload)
-			}
-			for i := range tc.variantWorkloads {
-				objects = append(objects, &tc.variantWorkloads[i])
-			}
-			cl := utiltesting.NewClientBuilder().
-				WithObjects(objects...).
-				WithStatusSubresource(objects...).
-				Build()
-			preemptionExpectations := preemptexpectations.New()
-			qManager := qcache.NewManagerForUnitTests(cl, nil, qcache.WithPreemptionExpectations(preemptionExpectations))
-			roleTracker := roletracker.NewFakeRoleTracker(roletracker.RoleLeader)
-
-			cqs := []*kueue.ClusterQueue{defaultCQ.DeepCopy(), migrationCQ.DeepCopy(), migrationCQNoConstraint.DeepCopy(), retainFirstAdmissionCQ.DeepCopy()}
-			lqs := []*kueue.LocalQueue{defaultLQ.DeepCopy(), migrationLQ.DeepCopy(), migrationLQNoConstraint.DeepCopy(), retainFirstAdmissionLQ.DeepCopy()}
-
-			for _, cq := range cqs {
-				if err := cl.Create(t.Context(), cq); err != nil {
-					t.Fatal(err)
+		for _, scenario := range scenarios {
+			t.Run(fmt.Sprintf("%s UnadmittedWorkloadsObservability enabled: %t", name, scenario[features.UnadmittedWorkloadsObservability]), func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.ConcurrentAdmission, true)
+				features.SetFeatureGatesDuringTest(t, scenario)
+				var objects []client.Object
+				if tc.parentWorkload != nil {
+					objects = append(objects, tc.parentWorkload)
 				}
-				if err := qManager.AddClusterQueue(t.Context(), cq); err != nil {
-					t.Fatal(err)
+				for i := range tc.variantWorkloads {
+					objects = append(objects, &tc.variantWorkloads[i])
 				}
-			}
+				cl := utiltesting.NewClientBuilder().
+					WithObjects(objects...).
+					WithStatusSubresource(objects...).
+					Build()
+				preemptionExpectations := preemptexpectations.New()
+				qManager := qcache.NewManagerForUnitTests(cl, nil, qcache.WithPreemptionExpectations(preemptionExpectations))
+				roleTracker := roletracker.NewFakeRoleTracker(roletracker.RoleLeader)
 
-			for _, lq := range lqs {
-				if err := cl.Create(t.Context(), lq); err != nil {
-					t.Fatal(err)
-				}
-				if err := qManager.AddLocalQueue(t.Context(), lq); err != nil {
-					t.Fatal(err)
-				}
-			}
+				cqs := []*kueue.ClusterQueue{defaultCQ.DeepCopy(), migrationCQ.DeepCopy(), migrationCQNoConstraint.DeepCopy(), retainFirstAdmissionCQ.DeepCopy()}
+				lqs := []*kueue.LocalQueue{defaultLQ.DeepCopy(), migrationLQ.DeepCopy(), migrationLQNoConstraint.DeepCopy(), retainFirstAdmissionLQ.DeepCopy()}
 
-			for i := range tc.variantWorkloads {
-				if workload.IsAdmissible(&tc.variantWorkloads[i]) {
-					if err := qManager.AddOrUpdateWorkload(ctrl.Log, tc.variantWorkloads[i].DeepCopy()); err != nil {
-						t.Fatalf("Failed to add workload to qManager: %v", err)
+				for _, cq := range cqs {
+					if err := cl.Create(t.Context(), cq); err != nil {
+						t.Fatal(err)
+					}
+					if err := qManager.AddClusterQueue(t.Context(), cq); err != nil {
+						t.Fatal(err)
 					}
 				}
-			}
 
-			r := &variantReconciler{
-				logName:     ConcurrentAdmissionController,
-				client:      cl,
-				queues:      qManager,
-				roleTracker: roleTracker,
-				clock:       testingclock.NewFakeClock(metav1.Now().Time),
-				recorder:    &utiltesting.EventRecorder{},
-			}
-
-			req := tc.req
-			if req.Name == "" && tc.parentWorkload != nil {
-				req = reconcile.Request{
-					NamespacedName: types.NamespacedName{
-						Namespace: tc.parentWorkload.Namespace,
-						Name:      tc.parentWorkload.Name,
-					},
+				for _, lq := range lqs {
+					if err := cl.Create(t.Context(), lq); err != nil {
+						t.Fatal(err)
+					}
+					if err := qManager.AddLocalQueue(t.Context(), lq); err != nil {
+						t.Fatal(err)
+					}
 				}
-			}
 
-			got, err := r.Reconcile(t.Context(), req)
-			if err != nil {
-				t.Fatalf("Reconcile() unexpected error: %v", err)
-			}
-			if !cmp.Equal(got, reconcile.Result{}) {
-				t.Errorf("Reconcile() got = %v, want empty result", got)
-			}
+				for i := range tc.variantWorkloads {
+					if workload.IsAdmissible(&tc.variantWorkloads[i]) {
+						if err := qManager.AddOrUpdateWorkload(ctrl.Log, tc.variantWorkloads[i].DeepCopy()); err != nil {
+							t.Fatalf("Failed to add workload to qManager: %v", err)
+						}
+					}
+				}
 
-			if tc.wantParentWorkload != nil {
-				var gotParent kueue.Workload
-				err := cl.Get(t.Context(), types.NamespacedName{Namespace: tc.wantParentWorkload.Namespace, Name: tc.wantParentWorkload.Name}, &gotParent)
+				r := &variantReconciler{
+					logName:     ConcurrentAdmissionController,
+					client:      cl,
+					queues:      qManager,
+					roleTracker: roleTracker,
+					clock:       testingclock.NewFakeClock(metav1.Now().Time),
+					recorder:    &utiltesting.EventRecorder{},
+				}
+
+				req := tc.req
+				if req.Name == "" && tc.parentWorkload != nil {
+					req = reconcile.Request{
+						NamespacedName: types.NamespacedName{
+							Namespace: tc.parentWorkload.Namespace,
+							Name:      tc.parentWorkload.Name,
+						},
+					}
+				}
+
+				got, err := r.Reconcile(t.Context(), req)
 				if err != nil {
+					t.Fatalf("Reconcile() unexpected error: %v", err)
+				}
+				if !cmp.Equal(got, reconcile.Result{}) {
+					t.Errorf("Reconcile() got = %v, want empty result", got)
+				}
+
+				if tc.wantParentWorkload != nil {
+					var gotParent kueue.Workload
+					err := cl.Get(t.Context(), types.NamespacedName{Namespace: tc.wantParentWorkload.Namespace, Name: tc.wantParentWorkload.Name}, &gotParent)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if diff := cmp.Diff(tc.wantParentWorkload, &gotParent, workloadCmpOpts); diff != "" {
+						t.Errorf("Unexpected parent workload (-want +got):\n%s", diff)
+					}
+				}
+
+				var allWorkloads kueue.WorkloadList
+				if err := cl.List(t.Context(), &allWorkloads, client.InNamespace(tc.req.Namespace)); err != nil {
 					t.Fatal(err)
 				}
-				if diff := cmp.Diff(tc.wantParentWorkload, &gotParent, workloadCmpOpts); diff != "" {
-					t.Errorf("Unexpected parent workload (-want +got):\n%s", diff)
+
+				var gotVariants []kueue.Workload
+				for _, wl := range allWorkloads.Items {
+					if concurrentadmission.IsVariant(&wl) {
+						gotVariants = append(gotVariants, wl)
+					}
 				}
-			}
 
-			var allWorkloads kueue.WorkloadList
-			if err := cl.List(t.Context(), &allWorkloads, client.InNamespace(tc.req.Namespace)); err != nil {
-				t.Fatal(err)
-			}
-
-			var gotVariants []kueue.Workload
-			for _, wl := range allWorkloads.Items {
-				if concurrentadmission.IsVariant(&wl) {
-					gotVariants = append(gotVariants, wl)
+				wantVariantWorkloads := make([]kueue.Workload, len(tc.wantVariantWorkloads))
+				for i := range tc.wantVariantWorkloads {
+					wantVariantWorkloads[i] = *tc.wantVariantWorkloads[i].DeepCopy()
+					if scenario[features.UnadmittedWorkloadsObservability] {
+						cond := apimeta.FindStatusCondition(wantVariantWorkloads[i].Status.Conditions, kueue.WorkloadQuotaReserved)
+						if cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == kueue.WorkloadPending { //nolint:staticcheck // SA1019: fallback
+							cond.Reason = kueue.WorkloadQuotaReservedReasonPendingEvaluation
+						}
+					}
 				}
-			}
 
-			if diff := cmp.Diff(tc.wantVariantWorkloads, gotVariants, workloadCmpOpts); diff != "" {
-				t.Errorf("Unexpected variant workloads (-want +got):\n%s", diff)
-			}
+				if diff := cmp.Diff(wantVariantWorkloads, gotVariants, workloadCmpOpts); diff != "" {
+					t.Errorf("Unexpected variant workloads (-want +got):\n%s", diff)
+				}
 
-			gotEvents := r.recorder.(*utiltesting.EventRecorder).RecordedEvents
-			if diff := cmp.Diff(tc.wantEvents, gotEvents, cmpopts.SortSlices(utiltesting.SortEvents)); diff != "" {
-				t.Errorf("Unexpected events (-want +got):\n%s", diff)
-			}
-		})
+				gotEvents := r.recorder.(*utiltesting.EventRecorder).RecordedEvents
+				if diff := cmp.Diff(tc.wantEvents, gotEvents, cmpopts.SortSlices(utiltesting.SortEvents)); diff != "" {
+					t.Errorf("Unexpected events (-want +got):\n%s", diff)
+				}
+			})
+		}
 	}
 }
