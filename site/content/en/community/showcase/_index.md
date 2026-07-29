@@ -26,7 +26,7 @@ menu:
         </div>
         <h4 class="fw-bold text-primary mb-2">Adopters Directory</h4>
         <p class="text-muted small mb-3 flex-grow-1">
-          Explore companies and institutions officially adopting Kueue to manage multi-tenant Kubernetes batch clusters.
+          Explore the list of organizations running Kueue in production for large-scale AI/ML and batch workloads.
         </p>
         <a href="../adopters/" class="btn btn-sm btn-outline-info mt-auto align-self-start fw-semibold">
           View Official Adopters ➔
@@ -42,7 +42,7 @@ menu:
         <div class="text-info mb-2">
           <i class="fas fa-file-alt fa-2x"></i>
         </div>
-        <h4 class="fw-bold text-primary mb-2">Case Studies & Keynotes</h4>
+        <h4 class="fw-bold text-primary mb-2">Case Studies & Talks</h4>
         <p class="text-muted small mb-3 flex-grow-1">
           Watch KubeCon presentations, technical demos, and engineering blogs highlighting real-world Kueue deployment stories.
         </p>
