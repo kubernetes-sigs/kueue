@@ -275,11 +275,11 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			gomega.Expect(k8sClient.Update(ctx, tasFlavor)).Should(gomega.Succeed())
 		})
 
-		ginkgo.It("should not allow to update tolerations", func() {
+		ginkgo.It("should allow to update tolerations", func() {
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), tasFlavor)).To(gomega.Succeed())
 			tasFlavor.Spec.Tolerations = []corev1.Toleration{
 				{Key: "key1", Value: "value", Effect: corev1.TaintEffectNoSchedule, Operator: corev1.TolerationOpEqual}}
-			gomega.Expect(k8sClient.Update(ctx, tasFlavor)).Should(gomega.HaveOccurred())
+			gomega.Expect(k8sClient.Update(ctx, tasFlavor)).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("should not allow to update nodeLabels", func() {
@@ -296,6 +296,131 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				"foo": "bar",
 			}
 			gomega.Expect(k8sClient.Update(ctx, tasFlavor)).Should(gomega.HaveOccurred())
+		})
+	})
+
+	ginkgo.When("Updating TAS ResourceFlavor tolerations", func() {
+		var (
+			node         *corev1.Node
+			topology     *kueue.Topology
+			tasFlavor    *kueue.ResourceFlavor
+			clusterQueue *kueue.ClusterQueue
+			localQueue   *kueue.LocalQueue
+		)
+
+		taint := corev1.Taint{
+			Key:    "example.com/dedicated",
+			Value:  "tas",
+			Effect: corev1.TaintEffectNoSchedule,
+		}
+		toleration := corev1.Toleration{
+			Key:      taint.Key,
+			Operator: corev1.TolerationOpEqual,
+			Value:    taint.Value,
+			Effect:   taint.Effect,
+		}
+
+		ginkgo.BeforeEach(func() {
+			node = testingnode.MakeNode("x1").
+				Label("node-group", "tas").
+				Label(corev1.LabelHostname, "x1").
+				Taints(taint).
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:  resource.MustParse("2"),
+					corev1.ResourcePods: resource.MustParse("10"),
+				}).
+				Ready().
+				Obj()
+			util.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{*node})
+
+			topology = utiltestingapi.MakeDefaultOneLevelTopology("default")
+			util.MustCreate(ctx, k8sClient, topology)
+
+			tasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
+				NodeLabel("node-group", "tas").
+				TopologyName(topology.Name).
+				Obj()
+			util.MustCreate(ctx, k8sClient, tasFlavor)
+
+			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(tasFlavor.Name).
+					Resource(corev1.ResourceCPU, "3").
+					Obj()).
+				Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+
+			localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).
+				ClusterQueue(clusterQueue.Name).
+				Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, node, true)
+		})
+
+		ginkgo.It("should apply updates, requeue pending workloads, and preserve admitted usage", func() {
+			makeWorkload := func(name, cpu string, podTolerations ...corev1.Toleration) *kueue.Workload {
+				podSet := utiltestingapi.MakePodSet("worker", 1).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Request(corev1.ResourceCPU, cpu)
+				for _, podToleration := range podTolerations {
+					podSet.Toleration(podToleration)
+				}
+				return utiltestingapi.MakeWorkload(name, ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					PodSets(*podSet.Obj()).
+					Obj()
+			}
+			updateTolerations := func(tolerations ...corev1.Toleration) {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var updatedFlavor kueue.ResourceFlavor
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), &updatedFlavor)).To(gomega.Succeed())
+					updatedFlavor.Spec.Tolerations = tolerations
+					g.Expect(k8sClient.Update(ctx, &updatedFlavor)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}
+
+			ginkgo.By("creating a workload that cannot tolerate the node taint", func() {
+				wl1 := makeWorkload("wl1", "1")
+				util.MustCreate(ctx, k8sClient, wl1)
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl1)
+
+				ginkgo.By("adding the toleration and verifying the pending workload is retried")
+				updateTolerations(toleration)
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+
+				ginkgo.By("creating a capacity probe with its own toleration")
+				capacityProbe := makeWorkload("capacity-probe", "2", toleration)
+				util.MustCreate(ctx, k8sClient, capacityProbe)
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, capacityProbe)
+
+				ginkgo.By("removing the flavor toleration without losing admitted usage")
+				metrics.AdmissionAttemptsTotal.Reset()
+				updateTolerations()
+				util.ExpectPendingAdmissionAttempts(1, ">=")
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, capacityProbe)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, capacityProbe, true)
+
+				ginkgo.By("verifying future workloads no longer tolerate the taint")
+				wl2 := makeWorkload("wl2", "1")
+				util.MustCreate(ctx, k8sClient, wl2)
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
+
+				ginkgo.By("restoring the toleration and verifying the workload is retried")
+				updateTolerations(toleration)
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl2)
+
+				ginkgo.By("verifying both admitted workloads still account for the full node capacity")
+				wl3 := makeWorkload("wl3", "1")
+				util.MustCreate(ctx, k8sClient, wl3)
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl3)
+			})
 		})
 	})
 
