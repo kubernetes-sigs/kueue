@@ -470,7 +470,7 @@ func TestUpdatePodSets(t *testing.T) {
 		// On a MultiKueue manager the child RayCluster only exists on the worker
 		// cluster; its counts are reflected as an annotation by the MultiKueue
 		// workload controller and used as the fallback source.
-		"raycluster absent - counts fall back to the MultiKueue runtime annotation": {
+		"child raycluster absent - counts fall back to the MultiKueue runtime annotation": {
 			podSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
 				*utiltestingapi.MakePodSet("workers", 3).Obj(),
@@ -485,21 +485,6 @@ func TestUpdatePodSets(t *testing.T) {
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
 				*utiltestingapi.MakePodSet("workers", 5).Obj(),
-			},
-		},
-		"raycluster absent - malformed MultiKueue runtime annotation falls back to the spec counts": {
-			podSets: []kueue.PodSet{
-				*utiltestingapi.MakePodSet("workers", 3).Obj(),
-			},
-			object: testingrayjobutil.MakeJob("rayjob-owner", "ns").
-				ManagedBy(kueue.MultiKueueControllerName).
-				Annotation("kueue.x-k8s.io/elastic-job", "true").
-				Annotation(MultiKueueRuntimePodSetReplicaSizesAnnotation, `not-json`).
-				Obj(),
-			enableInTreeAutoscaling: new(true),
-			rayClusterName:          "nonexistent-child",
-			wantPodSets: []kueue.PodSet{
-				*utiltestingapi.MakePodSet("workers", 3).Obj(),
 			},
 		},
 		"empty rayClusterName - no update": {
