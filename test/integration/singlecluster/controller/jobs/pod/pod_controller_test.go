@@ -27,6 +27,8 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	eventsv1 "k8s.io/api/events/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -1874,6 +1876,84 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				ginkgo.By("Checking the pod and wl finalizers are removed when pod is succeeded", func() {
 					util.ExpectPodsFinalizedOrGone(ctx, k8sClient, pod1LookupKey, pod2LookupKey)
 					util.ExpectWorkloadsFinalizedOrGone(ctx, k8sClient, wlLookupKey)
+				})
+			})
+
+			ginkgo.It("Should not adopt or delete a foreign non-pod-group Workload sharing the group name", func() {
+				const groupName = "shared-wl-name"
+
+				wl := utiltestingapi.MakeWorkload(groupName, ns.Name).
+					Queue(kueue.LocalQueueName(lq.Name)).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Obj()
+				wlLookupKey := types.NamespacedName{Name: groupName, Namespace: ns.Name}
+
+				ginkgo.By("Creating a non-pod-group Workload with the group name", func() {
+					util.MustCreate(ctx, k8sClient, wl)
+				})
+
+				ginkgo.By("Admit the foreign Workload", func() {
+					admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1").
+							Count(wl.Spec.PodSets[0].Count).
+							Obj()).
+						Obj()
+					util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+					util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+				})
+
+				pod := testingpod.MakePod("test-pod1", ns.Name).
+					GroupNameLabel(groupName).
+					GroupTotalCount("1").
+					Request(corev1.ResourceCPU, "1").
+					Queue(lq.Name).
+					Obj()
+				podLookupKey := client.ObjectKeyFromObject(pod)
+
+				ginkgo.By("Creating a pod group Pod that collides on the Workload name", func() {
+					util.MustCreate(ctx, k8sClient, pod)
+				})
+
+				ginkgo.By("Checking the Pod stays scheduling-gated", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						createdPod := &corev1.Pod{}
+						g.Expect(k8sClient.Get(ctx, podLookupKey, createdPod)).Should(gomega.Succeed())
+						g.Expect(createdPod.Spec.SchedulingGates).To(
+							gomega.ContainElement(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}),
+						)
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+					gomega.Consistently(func(g gomega.Gomega) {
+						createdPod := &corev1.Pod{}
+						g.Expect(k8sClient.Get(ctx, podLookupKey, createdPod)).Should(gomega.Succeed())
+						g.Expect(createdPod.Spec.SchedulingGates).To(
+							gomega.ContainElement(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}),
+						)
+					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Checking the foreign Workload is not deleted or rewritten as a pod-group Workload", func() {
+					gomega.Consistently(func(g gomega.Gomega) {
+						createdWorkload := &kueue.Workload{}
+						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+						g.Expect(createdWorkload.Annotations).NotTo(gomega.HaveKey(podconstants.IsGroupWorkloadAnnotationKey))
+						g.Expect(createdWorkload.Spec.PodSets).To(gomega.HaveLen(1))
+						g.Expect(createdWorkload.Spec.PodSets[0].Name).To(gomega.Equal(kueue.DefaultPodSetName))
+						g.Expect(createdWorkload.OwnerReferences).To(gomega.BeEmpty())
+					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Checking a WorkloadNameConflict warning event is emitted", func() {
+					util.ExpectEventAppeared(ctx, k8sClient, eventsv1.Event{
+						Reason: podcontroller.ReasonWorkloadNameConflict,
+						Type:   corev1.EventTypeWarning,
+						Note:   fmt.Sprintf(`A Workload named %q already exists but is not a pod group workload; this pod group cannot be admitted`, groupName),
+					})
 				})
 			})
 		})
