@@ -117,9 +117,6 @@ type Option[PtrT objAsPtr[T], T any] func(*adapter[PtrT, T])
 // for job types that support it (see ElasticReplicaSync). An incomplete wiring
 // panics here so the mistake fails at startup, not at reconcile time.
 func WithElasticReplicaSync[PtrT objAsPtr[T], T any](e *ElasticReplicaSync[PtrT, T]) Option[PtrT, T] {
-	if (e.SyncReplicas == nil) != (e.WorkerReplicas == nil) {
-		panic("ElasticReplicaSync: SyncReplicas and WorkerReplicas must be wired together")
-	}
 	// The reverse (autoscaler-driven) direction is handled uniformly by Runtime,
 	// so any autoscaling type must wire it.
 	if e.AutoscalingEnabled != nil && e.Runtime == nil {
