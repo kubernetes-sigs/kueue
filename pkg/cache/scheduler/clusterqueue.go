@@ -382,11 +382,11 @@ func (c *clusterQueue) isTASViolated() bool {
 // UpdateWithFlavors updates a ClusterQueue based on the passed ResourceFlavors set.
 // Exported only for testing.
 func (c *clusterQueue) UpdateWithFlavors(log logr.Logger, flavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) {
-	c.updateFlavorMetadata(flavors)
+	c.updateFlavorMetadata(log, flavors)
 	c.updateQueueStatus(log)
 }
 
-func (c *clusterQueue) updateFlavorMetadata(flavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) {
+func (c *clusterQueue) updateFlavorMetadata(log logr.Logger, flavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) {
 	oldTASFlavors := c.tasFlavors
 	c.missingFlavors = nil
 	c.tasFlavors = nil
@@ -395,6 +395,13 @@ func (c *clusterQueue) updateFlavorMetadata(flavors map[kueue.ResourceFlavorRefe
 		for _, fName := range rg.Flavors {
 			if flv, exist := flavors[fName]; exist {
 				if flv.Spec.TopologyName != nil {
+					// A TAS flavor which was not tracked before may come with a freshly created,
+					// empty TAS flavor cache (e.g., the ResourceFlavor was deleted and re-created),
+					// so force a resync to account the usage of admitted workloads again.
+					if _, tracked := oldTASFlavors[fName]; !tracked {
+						log.V(3).Info("TAS flavor was not previously tracked, marking TAS cache as not synced", "flavor", fName)
+						c.isTASSynced = false
+					}
 					if c.tasFlavors == nil {
 						c.tasFlavors = make(map[kueue.ResourceFlavorReference]kueue.TopologyReference, 1)
 					}
@@ -403,15 +410,6 @@ func (c *clusterQueue) updateFlavorMetadata(flavors map[kueue.ResourceFlavorRefe
 			} else {
 				c.missingFlavors = append(c.missingFlavors, fName)
 			}
-		}
-	}
-	// A TAS flavor which was not tracked before may come with a freshly created,
-	// empty TAS flavor cache (e.g., the ResourceFlavor was deleted and re-created),
-	// so force a resync to account the usage of admitted workloads again.
-	for fName := range c.tasFlavors {
-		if _, tracked := oldTASFlavors[fName]; !tracked {
-			c.isTASSynced = false
-			break
 		}
 	}
 }
