@@ -51,10 +51,14 @@ type celDeviceRequest struct {
 	selectors       []resourcev1.DeviceSelector
 }
 
+func isAdminAccessRequest(req *resourcev1.ExactDeviceRequest) bool {
+	return req.AdminAccess != nil && *req.AdminAccess
+}
+
 // countDevicesPerClass returns a resources.Requests representing the
 // total number of devices requested for each DeviceClass inside the provided
 // ResourceClaimSpec. Returns field errors for unsupported request features
-// (FirstAvailable, AdminAccess, AllocationMode All).
+// (FirstAvailable, AllocationMode All). AdminAccess requests are skipped (zero quota).
 func countDevicesPerClass(claimSpec *resourcev1.ResourceClaimSpec) (resources.Requests, field.ErrorList) {
 	out := resources.CreateEmpty()
 	if claimSpec == nil {
@@ -87,9 +91,8 @@ func countDevicesPerClass(claimSpec *resourcev1.ResourceClaimSpec) (resources.Re
 		}
 
 		switch {
-		case req.Exactly.AdminAccess != nil && *req.Exactly.AdminAccess:
-			allErrs = append(allErrs, field.Invalid(devicesRequestsPath.Index(i).Child("exactly", "adminAccess"), nil, "AdminAccess is not supported"))
-			return nil, allErrs
+		case isAdminAccessRequest(req.Exactly):
+			continue
 		case req.Exactly.AllocationMode == resourcev1.DeviceAllocationModeAll:
 			allErrs = append(
 				allErrs,
