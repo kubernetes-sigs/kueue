@@ -78,7 +78,8 @@ type WaitForPodsReady struct {
     // ...
     // UnscheduledTimeout defines the time for an admitted workload to have all
     // required pods reach PodScheduled=True. When exceeded, the workload is evicted
-    // and requeued. Defaults to disabled when unset or "0s".
+    // and requeued. Must be non-negative and must not exceed timeout.
+    // Defaults to disabled when unset or "0s".
     // +optional
     UnscheduledTimeout *metav1.Duration `json:"unscheduledTimeout,omitempty"`
 }
@@ -88,7 +89,7 @@ type WaitForPodsReady struct {
 
 Add constant `WorkloadWaitForScheduling = "WaitForScheduling"`.
 
-Job controllers implement `PodsScheduled(ctx, client) bool` on the `GenericJob` interface.
+Job controllers implement `PodsScheduled(ctx, client) (bool, error)` on the `GenericJob` interface.
 `generatePodsReadyCondition` sets `PodsReady=False` with reason `WaitForScheduling` when
 not all required pods have `PodScheduled=True`.
 

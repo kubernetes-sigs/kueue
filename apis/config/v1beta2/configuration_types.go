@@ -330,7 +330,8 @@ type WaitForPodsReady struct {
 
 	// UnscheduledTimeout defines the time for an admitted workload to have all required
 	// pods reach PodScheduled=True. When exceeded, the workload is evicted and requeued
-	// in the same cluster queue. Defaults to disabled when unset or "0s".
+	// in the same cluster queue. Must be non-negative and must not exceed timeout.
+	// Defaults to disabled when unset or "0s".
 	// +optional
 	UnscheduledTimeout *metav1.Duration `json:"unscheduledTimeout,omitempty"`
 }

@@ -334,6 +334,28 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"zero waitForPodsReady.unscheduledTimeout": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout: metav1.Duration{Duration: 5 * time.Minute},
+					UnscheduledTimeout: &metav1.Duration{
+						Duration: 0,
+					},
+				},
+			},
+		},
+		"valid waitForPodsReady.unscheduledTimeout": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout: metav1.Duration{Duration: 5 * time.Minute},
+					UnscheduledTimeout: &metav1.Duration{
+						Duration: 2 * time.Minute,
+					},
+				},
+			},
+		},
 		"valid waitForPodsReady": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
