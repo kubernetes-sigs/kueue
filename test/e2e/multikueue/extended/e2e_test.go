@@ -111,6 +111,20 @@ else:
 `, rayActorNamespace, actorName)
 }
 
+// reservedMilliCPU sums the CPU a ClusterQueue currently reserves across all
+// flavors, in milliCPU.
+func reservedMilliCPU(cq *kueue.ClusterQueue, res corev1.ResourceName) int64 {
+	var total int64
+	for _, fu := range cq.Status.FlavorsReservation {
+		for _, r := range fu.Resources {
+			if r.Name == res {
+				total += r.Total.MilliValue()
+			}
+		}
+	}
+	return total
+}
+
 var _ = ginkgo.Describe("MultiKueue", func() {
 	var (
 		managerNs *corev1.Namespace
@@ -235,7 +249,10 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		worker2Cq = utiltestingapi.MakeClusterQueue(managerCq.Name).
 			ResourceGroup(
 				*utiltestingapi.MakeFlavorQuotas(worker2Flavor.Name).
-					Resource(corev1.ResourceCPU, "1200m").
+					// Matches worker1/manager (2 CPU): an elastic scale-up keeps the
+					// old workload slice admitted until its larger replacement is
+					// admitted, so the ClusterQueue must hold both slices at once.
+					Resource(corev1.ResourceCPU, "2").
 					Resource(corev1.ResourceMemory, "4G").
 					Resource(corev1.ResourceEphemeralStorage, "5G").
 					Resource(extraResourceGPUHighCost, "1").
@@ -869,7 +886,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					runOnHead(createDetachedActorScript(actorA, workerResource))
 				})
 
-				ginkgo.By("Checking one worker Pod runs on the child and size (1) is reflected onto the manager RayJob", func() {
+				var reservedCPUScaledUp int64
+				ginkgo.By("Checking one worker Pod runs, the manager admits one slice reserving head + one worker, and size (1) is reflected onto the manager RayJob", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						workerPods, err := util.GetRayClusterWorkerPods(ctx, workerClient, childKey, corev1.PodRunning)
 						g.Expect(err).NotTo(gomega.HaveOccurred())
@@ -879,6 +897,12 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(rayjob), createdRayJob)).To(gomega.Succeed())
 						g.Expect(createdRayJob.Annotations).To(gomega.HaveKeyWithValue(
 							workloadraycluster.MultiKueueRuntimePodSetReplicaSizesAnnotation, `[{"name":"workers-group-0","count":1}]`))
+
+						managerCQ := &kueue.ClusterQueue{}
+						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(managerCq), managerCQ)).To(gomega.Succeed())
+						g.Expect(managerCQ.Status.AdmittedWorkloads).To(gomega.Equal(int32(1)))
+						reservedCPUScaledUp = reservedMilliCPU(managerCQ, corev1.ResourceCPU)
+						g.Expect(reservedCPUScaledUp).To(gomega.BeNumerically(">", 0))
 					}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 				})
 
@@ -886,7 +910,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					runOnHead(terminateDetachedActorScript(actorA))
 				})
 
-				ginkgo.By("Checking no worker Pod runs on the child and size (0) is reflected onto the manager RayJob", func() {
+				ginkgo.By("Checking no worker Pod runs, the manager still admits one slice with one worker's quota released, and size (0) is reflected onto the manager RayJob", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						workerPods, err := util.GetRayClusterWorkerPods(ctx, workerClient, childKey, corev1.PodRunning)
 						g.Expect(err).NotTo(gomega.HaveOccurred())
@@ -896,6 +920,11 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(rayjob), createdRayJob)).To(gomega.Succeed())
 						g.Expect(createdRayJob.Annotations).To(gomega.HaveKeyWithValue(
 							workloadraycluster.MultiKueueRuntimePodSetReplicaSizesAnnotation, `[{"name":"workers-group-0","count":0}]`))
+
+						managerCQ := &kueue.ClusterQueue{}
+						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(managerCq), managerCQ)).To(gomega.Succeed())
+						g.Expect(managerCQ.Status.AdmittedWorkloads).To(gomega.Equal(int32(1)))
+						g.Expect(reservedMilliCPU(managerCQ, corev1.ResourceCPU)).To(gomega.Equal(reservedCPUScaledUp - 250))
 					}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 				})
 			})
@@ -1066,7 +1095,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					runOnHead(createDetachedActorScript(actorA, workerResource))
 				})
 
-				ginkgo.By("Checking one worker Pod runs and size (1) is reflected back onto the manager's RayCluster", func() {
+				var reservedCPUScaledUp int64
+				ginkgo.By("Checking one worker Pod runs, the manager admits one slice reserving head + one worker, and size (1) is reflected back onto the manager's RayCluster", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						workerPods, err := util.GetRayClusterWorkerPods(ctx, workerClient, client.ObjectKeyFromObject(raycluster), corev1.PodRunning)
 						g.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1080,6 +1110,12 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						g.Expect(createdRayCluster.Annotations).To(gomega.HaveKeyWithValue(
 							workloadraycluster.MultiKueueRuntimePodSetReplicaSizesAnnotation, `[{"name":"workers-group-0","count":1}]`))
 						g.Expect(createdRayCluster.Status.DesiredWorkerReplicas).To(gomega.Equal(int32(1)))
+
+						managerCQ := &kueue.ClusterQueue{}
+						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(managerCq), managerCQ)).To(gomega.Succeed())
+						g.Expect(managerCQ.Status.AdmittedWorkloads).To(gomega.Equal(int32(1)))
+						reservedCPUScaledUp = reservedMilliCPU(managerCQ, corev1.ResourceCPU)
+						g.Expect(reservedCPUScaledUp).To(gomega.BeNumerically(">", 0))
 					}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 				})
 
@@ -1096,7 +1132,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					runOnHead(terminateDetachedActorScript(actorA))
 				})
 
-				ginkgo.By("Checking no worker Pod runs and size (0) is reflected back onto the manager's RayCluster", func() {
+				ginkgo.By("Checking no worker Pod runs, the manager still admits one slice with one worker's quota released, and size (0) is reflected back onto the manager's RayCluster", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						workerPods, err := util.GetRayClusterWorkerPods(ctx, workerClient, client.ObjectKeyFromObject(raycluster), corev1.PodRunning)
 						g.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1107,6 +1143,11 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						g.Expect(createdRayCluster.Annotations).To(gomega.HaveKeyWithValue(
 							workloadraycluster.MultiKueueRuntimePodSetReplicaSizesAnnotation, `[{"name":"workers-group-0","count":0}]`))
 						g.Expect(createdRayCluster.Status.DesiredWorkerReplicas).To(gomega.Equal(int32(0)))
+
+						managerCQ := &kueue.ClusterQueue{}
+						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(managerCq), managerCQ)).To(gomega.Succeed())
+						g.Expect(managerCQ.Status.AdmittedWorkloads).To(gomega.Equal(int32(1)))
+						g.Expect(reservedMilliCPU(managerCQ, corev1.ResourceCPU)).To(gomega.Equal(reservedCPUScaledUp - 250))
 					}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 				})
 
