@@ -202,7 +202,7 @@ func (j *AppWrapper) PodsReady(ctx context.Context, _ client.Client) bool {
 	return meta.IsStatusConditionTrue(j.Status.Conditions, string(awv1beta2.PodsReady))
 }
 
-func (j *AppWrapper) PodsScheduled(ctx context.Context, c client.Client) bool {
+func (j *AppWrapper) PodsScheduled(ctx context.Context, c client.Client) (bool, error) {
 	minCount := 0
 	for _, cs := range j.Status.ComponentStatus {
 		for _, ps := range cs.PodSets {
@@ -214,7 +214,7 @@ func (j *AppWrapper) PodsScheduled(ctx context.Context, c client.Client) bool {
 		}
 	}
 	if minCount == 0 {
-		return false
+		return false, nil
 	}
 	selector := fmt.Sprintf("%s=%s", awv1beta2.AppWrapperLabel, j.Name)
 	return jobframework.PodsScheduledBySelector(ctx, c, j.Namespace, selector, minCount)

@@ -193,7 +193,7 @@ func (j *JobSet) PodsReady(ctx context.Context, _ client.Client) bool {
 	return replicas == readyReplicas
 }
 
-func (j *JobSet) PodsScheduled(ctx context.Context, c client.Client) bool {
+func (j *JobSet) PodsScheduled(ctx context.Context, c client.Client) (bool, error) {
 	minCount := 0
 	for i := range j.Spec.ReplicatedJobs {
 		replicatedJob := &j.Spec.ReplicatedJobs[i]

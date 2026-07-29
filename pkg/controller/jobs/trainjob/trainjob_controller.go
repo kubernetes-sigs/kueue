@@ -163,7 +163,7 @@ func getChildJobSet(ctx context.Context, c client.Client, t *TrainJob) (*jobseta
 	// Get the jobsetSpecApply and apply the TrainJob object overrides for the trainer and initializer jobs
 	jobSetSpec, ok := kftrainerruntime.TemplateSpecApply[jobsetapplyapi.JobSetSpecApplyConfiguration](info)
 	if !ok {
-		return nil, err
+		return nil, fmt.Errorf("runtime %q did not provide a JobSet template", runtimeRefGK)
 	}
 
 	// Jobset replicaJob parallelism/completions are set outside of the jobset builder
@@ -356,10 +356,13 @@ func (t *TrainJob) PodsReady(ctx context.Context, c client.Client) bool {
 	return replicas == readyReplicas
 }
 
-func (t *TrainJob) PodsScheduled(ctx context.Context, c client.Client) bool {
+func (t *TrainJob) PodsScheduled(ctx context.Context, c client.Client) (bool, error) {
 	jobset, err := getChildJobSet(ctx, c, t)
 	if err != nil {
-		return false
+		return false, err
+	}
+	if jobset == nil {
+		return false, nil
 	}
 	minCount := 0
 	for i := range jobset.Spec.ReplicatedJobs {

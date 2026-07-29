@@ -433,7 +433,7 @@ func (j *Job) PodsReady(ctx context.Context, _ client.Client) bool {
 	return j.Status.Succeeded+ready+int32(uncountedTerminatedSucceeded) >= j.podsCount()
 }
 
-func (j *Job) PodsScheduled(ctx context.Context, c client.Client) bool {
+func (j *Job) PodsScheduled(ctx context.Context, c client.Client) (bool, error) {
 	return jobframework.PodsScheduledBySelector(ctx, c, j.Namespace, j.PodLabelSelector(), int(j.podsCount()))
 }
 
