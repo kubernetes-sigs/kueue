@@ -17,14 +17,12 @@ limitations under the License.
 package raycluster
 
 import (
-	"context"
 	"testing"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -46,7 +44,7 @@ func scheduledPod(name, namespace string, labels map[string]string) *corev1.Pod 
 
 func TestPodsScheduledForRayCluster(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 	const (
 		ns          = "ns"
 		clusterName = "ray"
@@ -57,13 +55,13 @@ func TestPodsScheduledForRayCluster(t *testing.T) {
 		rayutils.RayNodeTypeLabelKey: string(rayv1.HeadNode),
 	}
 	worker1Labels := map[string]string{
-		rayutils.RayClusterLabelKey:  clusterName,
-		rayutils.RayNodeTypeLabelKey: string(rayv1.WorkerNode),
+		rayutils.RayClusterLabelKey:   clusterName,
+		rayutils.RayNodeTypeLabelKey:  string(rayv1.WorkerNode),
 		rayutils.RayNodeGroupLabelKey: "workers",
 	}
 	worker2Labels := map[string]string{
-		rayutils.RayClusterLabelKey:  clusterName,
-		rayutils.RayNodeTypeLabelKey: string(rayv1.WorkerNode),
+		rayutils.RayClusterLabelKey:   clusterName,
+		rayutils.RayNodeTypeLabelKey:  string(rayv1.WorkerNode),
 		rayutils.RayNodeGroupLabelKey: "workers2",
 	}
 
@@ -120,7 +118,7 @@ func TestPodsScheduledForRayCluster(t *testing.T) {
 
 func TestPodsScheduledForRayClusterFromSpec(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 	spec := &rayv1.RayClusterSpec{
 		HeadGroupSpec: rayv1.HeadGroupSpec{
 			Template: corev1.PodTemplateSpec{
@@ -130,7 +128,7 @@ func TestPodsScheduledForRayClusterFromSpec(t *testing.T) {
 		WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 			{
 				GroupName: "workers",
-				Replicas:  ptr.To(int32(2)),
+				Replicas:  new(int32(2)),
 				Template: corev1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{}},
 				},
@@ -147,8 +145,8 @@ func TestPodsScheduledForRayClusterFromSpec(t *testing.T) {
 		rayutils.RayNodeTypeLabelKey: string(rayv1.HeadNode),
 	}
 	workerLabels := map[string]string{
-		rayutils.RayClusterLabelKey:  "ray",
-		rayutils.RayNodeTypeLabelKey: string(rayv1.WorkerNode),
+		rayutils.RayClusterLabelKey:   "ray",
+		rayutils.RayNodeTypeLabelKey:  string(rayv1.WorkerNode),
 		rayutils.RayNodeGroupLabelKey: "workers",
 	}
 	cl := fake.NewClientBuilder().WithObjects(

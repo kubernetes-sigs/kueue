@@ -1185,6 +1185,11 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 				g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(new(false)))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
+			ginkgo.By("Create scheduled pods for the job")
+			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+			gomega.Expect(util.CreateScheduledPodsForJob(ctx, k8sClient, createdJob, int(ptr.Deref(createdJob.Spec.Parallelism, 1)))).Should(gomega.Succeed())
+			gomega.Expect(util.TriggerJobReconcile(ctx, k8sClient, createdJob)).Should(gomega.Succeed())
+
 			if podsReadyTestSpec.beforeJobStatus != nil {
 				ginkgo.By("Update the job status to simulate its initial progress towards completion")
 				createdJob.Status = *podsReadyTestSpec.beforeJobStatus
@@ -3269,6 +3274,9 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 			ginkgo.By("waiting for the job to be unsuspended")
 			util.ExpectJobUnsuspended(ctx, k8sClient, jobKey)
 
+			ginkgo.By("creating scheduled pods for the job")
+			gomega.Expect(util.CreateScheduledPodsForJob(ctx, k8sClient, job, int(ptr.Deref(job.Spec.Parallelism, 1)))).Should(gomega.Succeed())
+
 			ginkgo.By("setting all job's pods to be ready")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, jobKey, job)).Should(gomega.Succeed())
@@ -3327,6 +3335,9 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 
 			ginkgo.By("waiting for the job to be unsuspended")
 			util.ExpectJobUnsuspended(ctx, k8sClient, jobKey)
+
+			ginkgo.By("creating scheduled pods for the job")
+			gomega.Expect(util.CreateScheduledPodsForJob(ctx, k8sClient, job, int(ptr.Deref(job.Spec.Parallelism, 1)))).Should(gomega.Succeed())
 
 			ginkgo.By("setting all job's pods to be ready")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -3404,6 +3415,9 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 
 			ginkgo.By("waiting for the job to be unsuspended")
 			util.ExpectJobUnsuspended(ctx, k8sClient, jobKey)
+
+			ginkgo.By("creating scheduled pods for the job")
+			gomega.Expect(util.CreateScheduledPodsForJob(ctx, k8sClient, job, int(ptr.Deref(job.Spec.Parallelism, 1)))).Should(gomega.Succeed())
 
 			ginkgo.By("setting all job's pods to be ready")
 			gomega.Eventually(func(g gomega.Gomega) {

@@ -40,7 +40,7 @@ type podsReadyTestJob struct {
 
 func (j *podsReadyTestJob) Object() client.Object { return j.obj }
 func (j *podsReadyTestJob) IsSuspended() bool     { return false }
-func (j *podsReadyTestJob) Suspend()                {}
+func (j *podsReadyTestJob) Suspend() {}
 func (j *podsReadyTestJob) RunWithPodSetsInfo(context.Context, client.Client, []podset.PodSetInfo) error {
 	return nil
 }
@@ -66,7 +66,7 @@ func TestGeneratePodsReadyConditionWaitForScheduling(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
 	clock := testingclock.NewFakeClock(now)
-	ctx := context.Background()
+	ctx := t.Context()
 	cl := fake.NewClientBuilder().Build()
 
 	wl := &kueue.Workload{

@@ -116,7 +116,7 @@ func TestAllListedPodsScheduled(t *testing.T) {
 
 func TestPodsScheduledBySelector(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 	pod := corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "p1",
@@ -154,7 +154,7 @@ func TestPodsScheduledBySelector(t *testing.T) {
 
 func TestPodsScheduledBySelectorUnscheduledPod(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 	pod := corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "p1",
@@ -177,7 +177,7 @@ func TestPodsScheduledBySelectorUnscheduledPod(t *testing.T) {
 
 func TestPodsScheduledBySelectorInvalidSelector(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 	cl := fake.NewClientBuilder().Build()
 	_, err := PodsScheduledBySelector(ctx, cl, "ns", "not=a=valid", 1)
 	if err == nil {
@@ -198,7 +198,7 @@ func TestGeneratePodsReadyConditionPodsScheduledError(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
 	clock := testingclock.NewFakeClock(now)
-	ctx := context.Background()
+	ctx := t.Context()
 	cl := fake.NewClientBuilder().Build()
 
 	wl := &kueue.Workload{
@@ -228,7 +228,7 @@ func TestGeneratePodsReadyConditionPodsScheduledErrorPreservesCondition(t *testi
 	t.Parallel()
 	now := time.Now()
 	clock := testingclock.NewFakeClock(now)
-	ctx := context.Background()
+	ctx := t.Context()
 	cl := fake.NewClientBuilder().Build()
 
 	existing := metav1.Condition{
