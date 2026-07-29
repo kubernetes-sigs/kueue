@@ -242,9 +242,9 @@ func (w *JobWebhook) validateTopologyRequest(ctx context.Context, job *Job) (fie
 		return validationErrs, nil
 	}
 
-	// Reject elastic jobs with required/preferred topology (only unconstrained is supported).
-	// TODO: Support for required/preferred modes will be added in a future release.
-	if features.Enabled(features.ElasticJobsViaWorkloadSlices) && workloadslicing.Enabled(job.Object()) {
+	// Reject elastic jobs with required/preferred topology if TAS integration is disabled.
+	if features.Enabled(features.ElasticJobsViaWorkloadSlices) && workloadslicing.Enabled(job.Object()) &&
+		!features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) {
 		if _, hasRequired := job.Spec.Template.Annotations[kueue.PodSetRequiredTopologyAnnotation]; hasRequired {
 			return field.ErrorList{field.Forbidden(replicaMetaPath.Child("annotations", kueue.PodSetRequiredTopologyAnnotation),
 				"required topology is not supported with elastic jobs")}, nil
