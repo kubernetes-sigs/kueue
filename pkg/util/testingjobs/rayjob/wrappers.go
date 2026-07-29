@@ -367,6 +367,16 @@ func (j *JobWrapper) MaxWorkerReplicas(count int32) *JobWrapper {
 	return j
 }
 
+// FirstWorkerGroupReplicas sets replicas, minReplicas and maxReplicas on the
+// first worker group of the RayClusterSpec.
+func (j *JobWrapper) FirstWorkerGroupReplicas(replicas, minReplicas, maxReplicas int32) *JobWrapper {
+	wgs := &j.Spec.RayClusterSpec.WorkerGroupSpecs[0]
+	wgs.Replicas = new(replicas)
+	wgs.MinReplicas = new(minReplicas)
+	wgs.MaxReplicas = new(maxReplicas)
+	return j
+}
+
 // RayClusterNameStatus sets status.rayClusterName, the name of the child
 // RayCluster KubeRay created for this RayJob.
 func (j *JobWrapper) RayClusterNameStatus(name string) *JobWrapper {
