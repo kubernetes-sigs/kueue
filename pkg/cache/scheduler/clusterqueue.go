@@ -269,7 +269,11 @@ func (c *clusterQueue) updateQueueStatus(log logr.Logger) {
 // ensureTASIsSynced makes sure all TAS workloads are accounted (TAS cache is synced),
 // if TAS cache is initialized.
 func (c *clusterQueue) ensureTASIsSynced(log logr.Logger) {
-	if !features.Enabled(features.TopologyAwareScheduling) || len(c.tasFlavors) == 0 {
+	if !features.Enabled(features.TopologyAwareScheduling) {
+		return
+	}
+	if len(c.tasFlavors) == 0 {
+		c.isTASSynced = false
 		return
 	}
 	if !c.isTASInitialized() {
