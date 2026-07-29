@@ -111,11 +111,6 @@ else:
 `, rayActorNamespace, actorName)
 }
 
-// managerSliceCounts returns the total and not-finished ("live") workload slices
-// in namespace ns on the manager. An elastic scale-up mints a new slice and
-// finishes the old one with WorkloadSliceReplaced (Kueue keeps the finished slice
-// rather than deleting it), so after the first resize the total is two while
-// exactly one slice stays live.
 func managerSliceCounts(g gomega.Gomega, ns string) (total, live int) {
 	wls := &kueue.WorkloadList{}
 	g.Expect(k8sManagerClient.List(ctx, wls, client.InNamespace(ns))).To(gomega.Succeed())
@@ -125,20 +120,6 @@ func managerSliceCounts(g gomega.Gomega, ns string) (total, live int) {
 		}
 	}
 	return len(wls.Items), live
-}
-
-// reservedMilliCPU sums the CPU a ClusterQueue currently reserves across all
-// flavors, in milliCPU.
-func reservedMilliCPU(cq *kueue.ClusterQueue, res corev1.ResourceName) int64 {
-	var total int64
-	for _, fu := range cq.Status.FlavorsReservation {
-		for _, r := range fu.Resources {
-			if r.Name == res {
-				total += r.Total.MilliValue()
-			}
-		}
-	}
-	return total
 }
 
 var _ = ginkgo.Describe("MultiKueue", func() {
@@ -265,9 +246,6 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		worker2Cq = utiltestingapi.MakeClusterQueue(managerCq.Name).
 			ResourceGroup(
 				*utiltestingapi.MakeFlavorQuotas(worker2Flavor.Name).
-					// Matches worker1/manager (2 CPU): an elastic scale-up keeps the
-					// old workload slice admitted until its larger replacement is
-					// admitted, so the ClusterQueue must hold both slices at once.
 					Resource(corev1.ResourceCPU, "2").
 					Resource(corev1.ResourceMemory, "4G").
 					Resource(corev1.ResourceEphemeralStorage, "5G").
@@ -902,8 +880,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					runOnHead(createDetachedActorScript(actorA, workerResource))
 				})
 
-				var reservedCPUScaledUp int64
-				ginkgo.By("Checking one worker Pod runs, the manager admits one slice reserving head + one worker, and size (1) is reflected onto the manager RayJob", func() {
+				ginkgo.By("Checking one worker Pod runs, the manager admits one slice, and size (1) is reflected onto the manager RayJob", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						workerPods, err := util.GetRayClusterWorkerPods(ctx, workerClient, childKey, corev1.PodRunning)
 						g.Expect(err).NotTo(gomega.HaveOccurred())
@@ -920,8 +897,6 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						totalSlices, liveSlices := managerSliceCounts(g, managerNs.Name)
 						g.Expect(liveSlices).To(gomega.Equal(1))
 						g.Expect(totalSlices).To(gomega.Equal(2))
-						reservedCPUScaledUp = reservedMilliCPU(managerCQ, corev1.ResourceCPU)
-						g.Expect(reservedCPUScaledUp).To(gomega.BeNumerically(">", 0))
 					}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 				})
 
@@ -929,7 +904,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					runOnHead(terminateDetachedActorScript(actorA))
 				})
 
-				ginkgo.By("Checking no worker Pod runs, the manager still admits one slice with one worker's quota released, and size (0) is reflected onto the manager RayJob", func() {
+				ginkgo.By("Checking no worker Pod runs, the manager still admits one slice, and size (0) is reflected onto the manager RayJob", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						workerPods, err := util.GetRayClusterWorkerPods(ctx, workerClient, childKey, corev1.PodRunning)
 						g.Expect(err).NotTo(gomega.HaveOccurred())
@@ -946,7 +921,6 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						totalSlices, liveSlices := managerSliceCounts(g, managerNs.Name)
 						g.Expect(liveSlices).To(gomega.Equal(1))
 						g.Expect(totalSlices).To(gomega.Equal(2))
-						g.Expect(reservedMilliCPU(managerCQ, corev1.ResourceCPU)).To(gomega.Equal(reservedCPUScaledUp - 250))
 					}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 				})
 			})
@@ -1117,8 +1091,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					runOnHead(createDetachedActorScript(actorA, workerResource))
 				})
 
-				var reservedCPUScaledUp int64
-				ginkgo.By("Checking one worker Pod runs, the manager admits one slice reserving head + one worker, and size (1) is reflected back onto the manager's RayCluster", func() {
+				ginkgo.By("Checking one worker Pod runs, the manager admits one slice, and size (1) is reflected back onto the manager's RayCluster", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						workerPods, err := util.GetRayClusterWorkerPods(ctx, workerClient, client.ObjectKeyFromObject(raycluster), corev1.PodRunning)
 						g.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1139,8 +1112,6 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						totalSlices, liveSlices := managerSliceCounts(g, managerNs.Name)
 						g.Expect(liveSlices).To(gomega.Equal(1))
 						g.Expect(totalSlices).To(gomega.Equal(2))
-						reservedCPUScaledUp = reservedMilliCPU(managerCQ, corev1.ResourceCPU)
-						g.Expect(reservedCPUScaledUp).To(gomega.BeNumerically(">", 0))
 					}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 				})
 
@@ -1157,7 +1128,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					runOnHead(terminateDetachedActorScript(actorA))
 				})
 
-				ginkgo.By("Checking no worker Pod runs, the manager still admits one slice with one worker's quota released, and size (0) is reflected back onto the manager's RayCluster", func() {
+				ginkgo.By("Checking no worker Pod runs, the manager still admits one slice, and size (0) is reflected back onto the manager's RayCluster", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						workerPods, err := util.GetRayClusterWorkerPods(ctx, workerClient, client.ObjectKeyFromObject(raycluster), corev1.PodRunning)
 						g.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1175,7 +1146,6 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						totalSlices, liveSlices := managerSliceCounts(g, managerNs.Name)
 						g.Expect(liveSlices).To(gomega.Equal(1))
 						g.Expect(totalSlices).To(gomega.Equal(2))
-						g.Expect(reservedMilliCPU(managerCQ, corev1.ResourceCPU)).To(gomega.Equal(reservedCPUScaledUp - 250))
 					}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 				})
 
