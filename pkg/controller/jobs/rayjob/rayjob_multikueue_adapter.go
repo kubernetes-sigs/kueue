@@ -53,7 +53,7 @@ func elasticRuntimeSync() *ray.ElasticReplicaSync[*rayv1.RayJob, rayv1.RayJob] {
 		},
 		Runtime: &ray.RuntimeReplicaSync[*rayv1.RayJob]{
 			Fetch: fetchChildWorkerState,
-			Apply: applyChildWorkerState,
+			Apply: raycluster.SetRuntimeWorkerStateAnnotations,
 		},
 	}
 }
@@ -84,15 +84,6 @@ func fetchChildWorkerState(ctx context.Context, remoteClient client.Client, remo
 	}
 	revision := fmt.Sprintf("%s-%d", child.UID, child.Generation)
 	return raycluster.WorkerGroupPodCounts(&child.Spec), revision, true, nil
-}
-
-// applyChildWorkerState records the child RayCluster's per-group counts and
-// revision as annotations on the manager RayJob. The counts feed the manager's
-// PodSet derivation (UpdatePodSets fallback); the revision feeds the elastic
-// workload-slice name (GetWorkloadNameExtraPart), so an autoscaler-driven resize
-// yields a new slice.
-func applyChildWorkerState(localJob *rayv1.RayJob, counts map[kueue.PodSetReference]int32, revision string) bool {
-	return raycluster.SetRuntimeWorkerStateAnnotations(localJob, counts, revision)
 }
 
 func copyJobStatus(dst, src *rayv1.RayJob) {

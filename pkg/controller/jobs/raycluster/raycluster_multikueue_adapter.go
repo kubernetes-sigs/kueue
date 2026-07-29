@@ -58,7 +58,7 @@ func elasticReplicaSync() *ray.ElasticReplicaSync[*rayv1.RayCluster, rayv1.RayCl
 		},
 		Runtime: &ray.RuntimeReplicaSync[*rayv1.RayCluster]{
 			Fetch: fetchOwnWorkerState,
-			Apply: applyOwnWorkerState,
+			Apply: SetRuntimeWorkerStateAnnotations,
 		},
 		WorkloadNameExtraPart: func(rc *rayv1.RayCluster) string { return GetWorkloadNameExtraPart(rc) },
 		AutoscalingEnabled:    func(rc *rayv1.RayCluster) bool { return ptr.Deref(rc.Spec.EnableInTreeAutoscaling, false) },
@@ -79,12 +79,6 @@ func fetchOwnWorkerState(_ context.Context, _ client.Client, remoteCluster *rayv
 	}
 	revision := fmt.Sprintf("%s-%d", remoteCluster.UID, remoteCluster.Generation)
 	return WorkerGroupPodCounts(&remoteCluster.Spec), revision, true, nil
-}
-
-// applyOwnWorkerState records the remote RayCluster's per-group counts and
-// revision as annotations on the manager RayCluster.
-func applyOwnWorkerState(localCluster *rayv1.RayCluster, counts map[kueue.PodSetReference]int32, revision string) bool {
-	return SetRuntimeWorkerStateAnnotations(localCluster, counts, revision)
 }
 
 // syncWorkerReplicas copies each worker group's Replicas and NumOfHosts from

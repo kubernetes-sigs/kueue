@@ -93,8 +93,10 @@ type RuntimeReplicaSync[PtrT any] struct {
 	Fetch func(ctx context.Context, remoteClient client.Client, remoteJob PtrT) (counts map[kueue.PodSetReference]int32, revision string, found bool, err error)
 	// Apply records the fetched runtime worker state onto the manager copy
 	// (typically as annotations consumed by the job's PodSets derivation and
-	// workload-slice naming), returning whether it changed anything.
-	Apply func(localJob PtrT, counts map[kueue.PodSetReference]int32, revision string) bool
+	// workload-slice naming), returning whether it changed anything. It takes a
+	// client.Object rather than PtrT so types can wire a shared implementation
+	// directly.
+	Apply func(localJob client.Object, counts map[kueue.PodSetReference]int32, revision string) bool
 }
 
 // Option configures a Ray MultiKueue adapter.
