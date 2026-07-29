@@ -40,11 +40,13 @@ type podsReadyTestJob struct {
 
 func (j *podsReadyTestJob) Object() client.Object { return j.obj }
 func (j *podsReadyTestJob) IsSuspended() bool     { return false }
-func (j *podsReadyTestJob) Suspend() {}
+func (j *podsReadyTestJob) Suspend()              {}
 func (j *podsReadyTestJob) RunWithPodSetsInfo(context.Context, client.Client, []podset.PodSetInfo) error {
 	return nil
 }
-func (j *podsReadyTestJob) RestorePodSetsInfo(context.Context, []podset.PodSetInfo) bool { return false }
+func (j *podsReadyTestJob) RestorePodSetsInfo(context.Context, []podset.PodSetInfo) bool {
+	return false
+}
 func (j *podsReadyTestJob) Finished(context.Context) (string, bool, bool) {
 	return "", false, false
 }

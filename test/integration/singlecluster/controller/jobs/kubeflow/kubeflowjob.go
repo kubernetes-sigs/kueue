@@ -262,6 +262,7 @@ func JobControllerWhenWaitForPodsReadyEnabled(
 		totalCount += int(ps.Count)
 	}
 	gomega.ExpectWithOffset(1, util.CreateScheduledPodsForSelector(ctx, k8sClient, job.Object().GetNamespace(), createdJob.PodLabelSelector(), totalCount)).Should(gomega.Succeed())
+	gomega.ExpectWithOffset(1, util.TriggerReconcile(ctx, k8sClient, createdJob.Object())).Should(gomega.Succeed())
 	gomega.ExpectWithOffset(1, k8sClient.Status().Update(ctx, createdJob.Object())).Should(gomega.Succeed())
 
 	if podsReadyTestSpec.BeforeJobStatus != nil {

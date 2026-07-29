@@ -404,6 +404,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 			createdJob.Status.RayClusterName = clusterName
 			gomega.Expect(k8sClient.Status().Update(ctx, createdJob)).Should(gomega.Succeed())
 			gomega.Expect(util.CreateScheduledPodsForRayCluster(ctx, k8sClient, ns.Name, clusterName, util.PodSetsFromWorkload(createdWorkload))).Should(gomega.Succeed())
+			gomega.Expect(util.TriggerReconcile(ctx, k8sClient, createdJob)).Should(gomega.Succeed())
 			gomega.Expect(k8sClient.Status().Update(ctx, createdJob)).Should(gomega.Succeed())
 
 			if podsReadyTestSpec.beforeJobStatus != nil {
@@ -424,8 +425,13 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 			}
 
 			ginkgo.By("Update the job status to simulate its progress towards completion")
-			createdJob.Status = podsReadyTestSpec.jobStatus
-			gomega.Expect(k8sClient.Status().Update(ctx, createdJob)).Should(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+				rayClusterName := createdJob.Status.RayClusterName
+				createdJob.Status = podsReadyTestSpec.jobStatus
+				createdJob.Status.RayClusterName = rayClusterName
+				g.Expect(k8sClient.Status().Update(ctx, createdJob)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 
 			if podsReadyTestSpec.suspended {

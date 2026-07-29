@@ -380,6 +380,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 
 			ginkgo.By("Create scheduled pods for the RayCluster")
 			gomega.Expect(util.CreateScheduledPodsForRayCluster(ctx, k8sClient, ns.Name, createdJob.Name, util.PodSetsFromWorkload(createdWorkload))).Should(gomega.Succeed())
+			gomega.Expect(util.TriggerReconcile(ctx, k8sClient, createdJob)).Should(gomega.Succeed())
 			gomega.Expect(k8sClient.Status().Update(ctx, createdJob)).Should(gomega.Succeed())
 
 			if podsReadyTestSpec.beforeJobStatus != nil {

@@ -3147,15 +3147,15 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 
 var _ = ginkgo.Describe("Job controller interacting with Workload controller when waitForPodsReady is enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
-		backoffBaseSeconds                  int32
-		backoffLimitCount                   *int32
-		waitForPodsReadyTimeout             metav1.Duration
-		waitForPodsReadyRecoveryTimeout     *metav1.Duration
-		waitForPodsReadyUnscheduledTimeout  *metav1.Duration
-		ns                                  *corev1.Namespace
-		fl                              *kueue.ResourceFlavor
-		cq                              *kueue.ClusterQueue
-		lq                              *kueue.LocalQueue
+		backoffBaseSeconds                 int32
+		backoffLimitCount                  *int32
+		waitForPodsReadyTimeout            metav1.Duration
+		waitForPodsReadyRecoveryTimeout    *metav1.Duration
+		waitForPodsReadyUnscheduledTimeout *metav1.Duration
+		ns                                 *corev1.Namespace
+		fl                                 *kueue.ResourceFlavor
+		cq                                 *kueue.ClusterQueue
+		lq                                 *kueue.LocalQueue
 	)
 
 	ginkgo.JustBeforeEach(func() {
@@ -3276,6 +3276,10 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 
 			ginkgo.By("creating scheduled pods for the job")
 			gomega.Expect(util.CreateScheduledPodsForJob(ctx, k8sClient, job, int(ptr.Deref(job.Spec.Parallelism, 1)))).Should(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, jobKey, job)).Should(gomega.Succeed())
+				g.Expect(util.TriggerJobReconcile(ctx, k8sClient, job)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("setting all job's pods to be ready")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -3338,6 +3342,10 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 
 			ginkgo.By("creating scheduled pods for the job")
 			gomega.Expect(util.CreateScheduledPodsForJob(ctx, k8sClient, job, int(ptr.Deref(job.Spec.Parallelism, 1)))).Should(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, jobKey, job)).Should(gomega.Succeed())
+				g.Expect(util.TriggerJobReconcile(ctx, k8sClient, job)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("setting all job's pods to be ready")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -3418,6 +3426,10 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 
 			ginkgo.By("creating scheduled pods for the job")
 			gomega.Expect(util.CreateScheduledPodsForJob(ctx, k8sClient, job, int(ptr.Deref(job.Spec.Parallelism, 1)))).Should(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, jobKey, job)).Should(gomega.Succeed())
+				g.Expect(util.TriggerJobReconcile(ctx, k8sClient, job)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("setting all job's pods to be ready")
 			gomega.Eventually(func(g gomega.Gomega) {

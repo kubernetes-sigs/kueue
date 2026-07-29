@@ -7,6 +7,7 @@
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
   - [User Stories](#user-stories)
+    - [Story 1](#story-1)
 - [Design Details](#design-details)
   - [Kueue Configuration API](#kueue-configuration-api)
   - [Workload PodsReady condition](#workload-podsready-condition)
@@ -14,6 +15,7 @@
   - [Eviction and requeue](#eviction-and-requeue)
   - [Test Plan](#test-plan)
   - [Backward compatibility](#backward-compatibility)
+- [Implementation History](#implementation-history)
 <!-- /toc -->
 
 ## Summary

@@ -18,6 +18,7 @@ package util
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -69,7 +70,7 @@ func CreateScheduledPods(ctx context.Context, c client.Client, namespace string,
 // LabelsFromSelector parses a label selector string into a map of key=value pairs.
 func LabelsFromSelector(selector string) (map[string]string, error) {
 	if selector == "" {
-		return nil, fmt.Errorf("empty selector")
+		return nil, errors.New("empty selector")
 	}
 	sel, err := labels.Parse(selector)
 	if err != nil {
@@ -107,13 +108,20 @@ func CreateScheduledPodsForJob(ctx context.Context, c client.Client, job *batchv
 	return CreateScheduledPods(ctx, c, job.Namespace, podLabels, count)
 }
 
+// TriggerReconcile forces a job-framework reconciler to retry by updating a test annotation.
+func TriggerReconcile(ctx context.Context, c client.Client, obj client.Object) error {
+	annotations := obj.GetAnnotations()
+	if annotations == nil {
+		annotations = map[string]string{}
+	}
+	annotations["kueue.x-k8s.io/test-reconcile-trigger"] = strconv.FormatInt(time.Now().UnixNano(), 10)
+	obj.SetAnnotations(annotations)
+	return c.Update(ctx, obj)
+}
+
 // TriggerJobReconcile forces the job controller to reconcile by updating a test annotation.
 func TriggerJobReconcile(ctx context.Context, c client.Client, job *batchv1.Job) error {
-	if job.Annotations == nil {
-		job.Annotations = map[string]string{}
-	}
-	job.Annotations["kueue.x-k8s.io/test-reconcile-trigger"] = strconv.FormatInt(time.Now().UnixNano(), 10)
-	return c.Update(ctx, job)
+	return TriggerReconcile(ctx, c, job)
 }
 
 // TotalPodCountFromWorkload sums pod counts across all pod sets in a workload.
@@ -167,7 +175,7 @@ func EnsureAppWrapperComponentStatusAndScheduledPods(ctx context.Context, c clie
 // CreateScheduledPodsForRayCluster creates scheduled pods for each pod set in a Ray cluster.
 func CreateScheduledPodsForRayCluster(ctx context.Context, c client.Client, namespace, rayClusterName string, podSets []kueue.PodSet) error {
 	if rayClusterName == "" {
-		return fmt.Errorf("ray cluster name is empty")
+		return errors.New("ray cluster name is empty")
 	}
 	const headGroupPodSetName = "head"
 	for _, ps := range podSets {

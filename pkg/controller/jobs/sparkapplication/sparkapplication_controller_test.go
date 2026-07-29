@@ -732,7 +732,7 @@ func TestReconciler(t *testing.T) {
 				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
 				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
 			},
-			sparkApp: sparkAppDriverRunningOnly,
+			sparkApp:     sparkAppDriverRunningOnly,
 			extraObjects: scheduledSparkPods(testNamespace.Name, sparkAppDriverRunningOnly.Name, 3),
 			workloads: []kueue.Workload{
 				*makeAdmittedWorkload(sparkAppDriverRunningOnly).Obj(),
