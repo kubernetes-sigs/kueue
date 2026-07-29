@@ -17,6 +17,7 @@ limitations under the License.
 package resource
 
 import (
+	"math"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -234,6 +235,94 @@ func TestQuantityToFloat(t *testing.T) {
 				t.Errorf("Unexpected result, expecting %f got %f", tc.wantResult, got)
 			}
 		})
+	}
+}
+
+// The decay factor AdmissionFairSharing derives from a 168h half-life sampled
+// every 5 minutes; small enough that a whole-milli result rounds to zero.
+const longHalfLifeDecayFactor = 0.00034376390587387284
+
+func TestMulByFloat(t *testing.T) {
+	cases := map[string]struct {
+		rl   corev1.ResourceList
+		f    float64
+		want corev1.ResourceList
+	}{
+		"large quantity does not overflow": {
+			rl:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("64Ti")},
+			f:    longHalfLifeDecayFactor,
+			want: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("24190234349953124740n")},
+		},
+		"sub-milli results are preserved for every resource": {
+			rl: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("2"),
+				corev1.ResourceMemory: resource.MustParse("16Gi"),
+				"nvidia.com/gpu":      resource.MustParse("1"),
+			},
+			f: longHalfLifeDecayFactor,
+			want: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("687528n"),
+				corev1.ResourceMemory: resource.MustParse("5905818933094025n"),
+				"nvidia.com/gpu":      resource.MustParse("343764n"),
+			},
+		},
+		"non-finite factor leaves the list unscaled": {
+			rl:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
+			f:    math.NaN(),
+			want: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
+		},
+		"scaling by one is lossless": {
+			rl:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1500m")},
+			f:    1,
+			want: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1500m")},
+		},
+		"nil list stays nil": {
+			rl:   nil,
+			f:    0.5,
+			want: nil,
+		},
+		"empty list stays empty": {
+			rl:   corev1.ResourceList{},
+			f:    0.5,
+			want: corev1.ResourceList{},
+		},
+		"scaling by zero": {
+			rl:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
+			f:    0,
+			want: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("0")},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := MulByFloat(tc.rl, tc.f)
+			if (got == nil) != (tc.want == nil) {
+				t.Fatalf("Unexpected nilness, expecting %v got %v", tc.want == nil, got == nil)
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("Unexpected result length, expecting %d got %d", len(tc.want), len(got))
+			}
+			for k, wantQ := range tc.want {
+				gotQ := got[k]
+				if gotQ.Cmp(wantQ) != 0 {
+					t.Errorf("Unexpected %s, expecting %s got %s", k, wantQ.String(), gotQ.String())
+				}
+			}
+		})
+	}
+}
+
+// The decay factor is applied to the same value once per sampling interval for
+// the lifetime of a LocalQueue, so the retained scale must not grow with it.
+func TestMulByFloatBoundsScale(t *testing.T) {
+	rl := corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}
+	for range 1000 {
+		rl = MulByFloat(rl, 1-longHalfLifeDecayFactor)
+	}
+
+	q := rl[corev1.ResourceCPU]
+	if got := q.AsDec().Scale(); got > mulByFloatScale {
+		t.Errorf("Unexpected scale, expecting at most %d got %d", mulByFloatScale, got)
 	}
 }
 
