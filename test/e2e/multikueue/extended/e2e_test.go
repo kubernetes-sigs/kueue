@@ -80,15 +80,8 @@ type kubernetesClientsMap map[string]struct {
 	cfg        *rest.Config
 }
 
-// rayActorNamespace is the Ray (not Kubernetes) namespace the detached actors in
-// the elastic RayJob autoscaling test are created in, so they can be looked up
-// by name across separate exec sessions.
 const rayActorNamespace = "kueue-e2e"
 
-// createDetachedActorScript returns a Python snippet that creates a named,
-// detached actor requiring one unit of resourceName (a per-worker-group custom
-// resource), idempotently. Each such actor forces the in-tree autoscaler to add
-// one worker of that group, giving the test stable, controllable scale demand.
 func createDetachedActorScript(actorName, resourceName string) string {
 	return fmt.Sprintf(`import ray
 
@@ -105,9 +98,6 @@ except ValueError:
 `, rayActorNamespace, resourceName, actorName, actorName)
 }
 
-// terminateDetachedActorScript returns a Python snippet that kills the named
-// detached actor if it exists, releasing its resource demand so the autoscaler
-// can scale the worker group back down.
 func terminateDetachedActorScript(actorName string) string {
 	return fmt.Sprintf(`import ray
 
