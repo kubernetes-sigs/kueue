@@ -159,6 +159,12 @@ func (j *JobWrapper) WithEnableAutoscaling(value *bool) *JobWrapper {
 	return j
 }
 
+// WithAutoscalerOptions sets the RayClusterSpec's AutoscalerOptions.
+func (j *JobWrapper) WithAutoscalerOptions(value *rayv1.AutoscalerOptions) *JobWrapper {
+	j.Spec.RayClusterSpec.AutoscalerOptions = value
+	return j
+}
+
 func (j *JobWrapper) RayClusterSpec(spec *rayv1.RayClusterSpec) *JobWrapper {
 	j.Spec.RayClusterSpec = spec
 	return j
