@@ -4068,12 +4068,14 @@ func TestLastAssignmentOutdated(t *testing.T) {
 func TestHierarchical(t *testing.T) {
 	type rfMap = map[corev1.ResourceName]kueue.ResourceFlavorReference
 	cases := map[string]struct {
-		workloadRequests       *utiltestingapi.PodSetWrapper
-		testClusterQueueUsage  resources.FlavorResourceQuantities
-		otherClusterQueueUsage resources.FlavorResourceQuantities
-		flavorFungibility      *kueue.FlavorFungibility
-		wantMode               FlavorAssignmentMode
-		wantAssigment          rfMap
+		workloadRequests        *utiltestingapi.PodSetWrapper
+		testClusterQueueFlavors []kueue.FlavorQuotas
+		testClusterQueueUsage   resources.FlavorResourceQuantities
+		otherClusterQueueUsage  resources.FlavorResourceQuantities
+		flavorFungibility       *kueue.FlavorFungibility
+		simulationResult        map[resources.FlavorResource]simulationResultForFlavor
+		wantMode                FlavorAssignmentMode
+		wantAssigment           rfMap
 	}{
 		"Select the top flavor": {
 			workloadRequests: utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "4"),
@@ -4094,6 +4096,32 @@ func TestHierarchical(t *testing.T) {
 			wantMode:      Fit,
 			wantAssigment: rfMap{corev1.ResourceCPU: "two"},
 		},
+		"Select deeper flavor that fits when shallower flavor has no preemption candidates": {
+			workloadRequests: utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "4"),
+			testClusterQueueFlavors: []kueue.FlavorQuotas{
+				*utiltestingapi.MakeFlavorQuotas("one").
+					ResourceQuotaWrapper(corev1.ResourceCPU).
+					NominalQuota("4").
+					BorrowingLimit("0").
+					Append().
+					Obj(),
+				*utiltestingapi.MakeFlavorQuotas("two").Resource(corev1.ResourceCPU, "0").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("three").Resource(corev1.ResourceCPU, "0").Obj(),
+			},
+			testClusterQueueUsage: resources.FlavorResourceQuantities{
+				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(4_000),
+			},
+			flavorFungibility: &kueue.FlavorFungibility{
+				WhenCanBorrow:  kueue.TryNextFlavor,
+				WhenCanPreempt: kueue.TryNextFlavor,
+				Preference:     ptr.To(kueue.PreemptionOverBorrowing),
+			},
+			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
+				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 1},
+			},
+			wantMode:      Fit,
+			wantAssigment: rfMap{corev1.ResourceCPU: "two"},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -4102,6 +4130,14 @@ func TestHierarchical(t *testing.T) {
 				"one":   utiltestingapi.MakeResourceFlavor("one").Obj(),
 				"two":   utiltestingapi.MakeResourceFlavor("two").Obj(),
 				"three": utiltestingapi.MakeResourceFlavor("three").Obj(),
+			}
+			testClusterQueueFlavors := tc.testClusterQueueFlavors
+			if testClusterQueueFlavors == nil {
+				testClusterQueueFlavors = []kueue.FlavorQuotas{
+					*utiltestingapi.MakeFlavorQuotas("one").Resource(corev1.ResourceCPU, "0").Obj(),
+					*utiltestingapi.MakeFlavorQuotas("two").Resource(corev1.ResourceCPU, "0").Obj(),
+					*utiltestingapi.MakeFlavorQuotas("three").Resource(corev1.ResourceCPU, "0").Obj(),
+				}
 			}
 			cohorts := []*kueue.Cohort{
 				utiltestingapi.MakeCohort("three").
@@ -4125,11 +4161,7 @@ func TestHierarchical(t *testing.T) {
 					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 					ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
 				}).
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("one").Resource(corev1.ResourceCPU, "0").Obj(),
-					*utiltestingapi.MakeFlavorQuotas("two").Resource(corev1.ResourceCPU, "0").Obj(),
-					*utiltestingapi.MakeFlavorQuotas("three").Resource(corev1.ResourceCPU, "0").Obj(),
-				).
+				ResourceGroup(testClusterQueueFlavors...).
 				FlavorFungibility(kueue.FlavorFungibility{
 					WhenCanPreempt: kueue.TryNextFlavor,
 				}).Obj()
@@ -4178,7 +4210,7 @@ func TestHierarchical(t *testing.T) {
 			testClusterQueue := snapshot.ClusterQueue("test-clusterqueue")
 			testClusterQueue.AddUsage(workload.Usage{Quota: tc.testClusterQueueUsage})
 
-			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter())
+			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{tc.simulationResult}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter())
 			assignment := flvAssigner.Assign(ctx, nil)
 			if gotRepMode := assignment.RepresentativeMode(); gotRepMode != tc.wantMode {
 				t.Errorf("Unexpected RepresentativeMode. got %s, want %s", gotRepMode, tc.wantMode)
@@ -4242,6 +4274,52 @@ func TestIsPreferred(t *testing.T) {
 				WhenCanBorrow:  kueue.TryNextFlavor,
 				WhenCanPreempt: kueue.TryNextFlavor,
 				Preference:     makePref(kueue.PreemptionOverBorrowing),
+			},
+			wantPreferred: false,
+		},
+		"explicit PreemptionOverBorrowing rejects no-candidate flavor before borrowing comparison": {
+			a: granularMode{preemptionMode: noPreemptionCandidates, borrowingLevel: 1},
+			b: granularMode{preemptionMode: fit, borrowingLevel: 2},
+			config: kueue.FlavorFungibility{
+				WhenCanBorrow:  kueue.TryNextFlavor,
+				WhenCanPreempt: kueue.TryNextFlavor,
+				Preference:     makePref(kueue.PreemptionOverBorrowing),
+			},
+			wantPreferred: false,
+		},
+		"explicit PreemptionOverBorrowing prefers fit over shallower no-candidate flavor": {
+			a: granularMode{preemptionMode: fit, borrowingLevel: 2},
+			b: granularMode{preemptionMode: noPreemptionCandidates, borrowingLevel: 1},
+			config: kueue.FlavorFungibility{
+				WhenCanBorrow:  kueue.TryNextFlavor,
+				WhenCanPreempt: kueue.TryNextFlavor,
+				Preference:     makePref(kueue.PreemptionOverBorrowing),
+			},
+			wantPreferred: true,
+		},
+		"no-candidate flavor remains preferable to no-fit flavor": {
+			a:             granularMode{preemptionMode: noPreemptionCandidates, borrowingLevel: 1},
+			b:             granularMode{preemptionMode: noFit, borrowingLevel: 0},
+			wantPreferred: true,
+		},
+		"no-fit flavor remains worse than no-candidate flavor": {
+			a:             granularMode{preemptionMode: noFit, borrowingLevel: 0},
+			b:             granularMode{preemptionMode: noPreemptionCandidates, borrowingLevel: 1},
+			wantPreferred: false,
+		},
+		"no-candidate flavors retain borrowing preference": {
+			a: granularMode{preemptionMode: noPreemptionCandidates, borrowingLevel: 1},
+			b: granularMode{preemptionMode: noPreemptionCandidates, borrowingLevel: 2},
+			config: kueue.FlavorFungibility{
+				Preference: makePref(kueue.PreemptionOverBorrowing),
+			},
+			wantPreferred: true,
+		},
+		"no-candidate flavors retain borrowing preference in reverse": {
+			a: granularMode{preemptionMode: noPreemptionCandidates, borrowingLevel: 2},
+			b: granularMode{preemptionMode: noPreemptionCandidates, borrowingLevel: 1},
+			config: kueue.FlavorFungibility{
+				Preference: makePref(kueue.PreemptionOverBorrowing),
 			},
 			wantPreferred: false,
 		},
