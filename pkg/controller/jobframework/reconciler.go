@@ -1219,18 +1219,14 @@ func EnsurePrebuiltWorkloadOwnership(ctx context.Context, c client.Client, wl *k
 	return nil
 }
 
-// hasPendingElasticResize reports whether the elastic job's pod sets
-// have the same keys as its pinned workload slice but at least one count
-// differs — a resize the pinned slice does not reflect yet. It applies only to
-// MultiKueue-dispatched copies (identified by the origin label), because only
-// there does a manager converge the slice; elsewhere a count mismatch remains
-// a genuine out-of-sync signal. Both directions are tolerated during the
-// handover: a scale-up holds the extra pods behind scheduling gates (never
-// running past quota), and a scale-down leaves the slice briefly
-// over-reserving (never under quota), until the manager-driven slice
-// update/replacement and prebuilt-label repoint converge. A change that alters
-// the pod set structure (different keys) is not a resize and still fails the
-// in-sync check.
+// hasPendingElasticResize reports whether the elastic job's pod sets have the
+// same keys as its pinned workload slice but at least one count differs.
+// For worker-side autoscaling (e.g. the Ray autoscaler resizing the worker copy
+// directly), the workload is owned by the manager cluster, so the resize is only
+// complete once the manager updates the worker's workload slice to match. Until
+// then the count mismatch on a MultiKueue-dispatched copy (identified by the
+// origin label) is expected, not out-of-sync. A change that alters the pod set
+// structure (different keys) is not a resize and still fails the in-sync check.
 func hasPendingElasticResize(ctx context.Context, c client.Client, job GenericJob, wl *kueue.Workload) (bool, error) {
 	if job.Object().GetLabels()[kueue.MultiKueueOriginLabel] == "" {
 		return false, nil
