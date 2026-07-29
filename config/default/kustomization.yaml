@@ -35,6 +35,10 @@ transformers:
 # Sets the namespace for the role binding as kube-system instead of default kueue-system
 - role_binding_visibility_transformer.yaml
 
+configurations:
+# Keeps the manager role's resourceNames in step with the webhook configurations namePrefix renames
+- webhook_name_reference.yaml
+
 patches:
 # Mount the controller config file for loading manager configurations
 # through a ComponentConfig type

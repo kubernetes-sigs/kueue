@@ -67,6 +67,8 @@ Please do not remove items from the checklist
 
 ## Changelog
 
+<!-- release-changelog-start -->
 ```markdown
 Describe changes since the last release here.
 ```
+<!-- release-changelog-end -->
