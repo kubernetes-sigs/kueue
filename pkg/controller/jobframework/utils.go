@@ -40,7 +40,16 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/orderedgroups"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	"sigs.k8s.io/kueue/pkg/util/wasapi"
 )
+
+// bringYourOwnPodGroupExcludedGVK is the plain-Pod integration's GVK. It is
+// excluded from the owned-workload BringYourOwnPodGroup path because a bare
+// Pod has no separate "owning object" for a standard Workload's controllerRef
+// to point at; the plain-Pod integration instead sources its group size from a
+// standalone PodGroup (see pkg/controller/jobs/pod), which is a distinct,
+// already-applied code path by the time PodSets() is called.
+var bringYourOwnPodGroupExcludedGVK = corev1.SchemeGroupVersion.WithKind("Pod")
 
 // PodSetReplicaSize is a minimal representation of a PodSet for the
 // PodsetReplicaSizesAnnotation, containing only name and count.
@@ -57,7 +66,43 @@ func JobPodSets(ctx context.Context, job GenericJob, c client.Client) ([]kueue.P
 		return nil, err
 	}
 	SanitizePodSets(podSets)
+	if err := applyBringYourOwnPodGroupCounts(ctx, job, c, podSets); err != nil {
+		return nil, err
+	}
 	return podSets, nil
+}
+
+// applyBringYourOwnPodGroupCounts overrides each PodSet's Count with the gang
+// scheduling minCount of the matching PodGroupTemplate of a standard Workload
+// object (scheduling.k8s.io), when the BringYourOwnPodGroup feature gate is
+// enabled and such a Workload exists.
+//
+// A PodGroupTemplate is matched to a PodSet by name. PodSets with no matching
+// template, and all PodSets when no Workload references this job's owning
+// object at all, are left with their integration-computed Count unchanged:
+// this only ever narrows to a standard-API-derived count where a match
+// exists, and never applies to the plain-Pod integration (see
+// bringYourOwnPodGroupExcludedGVK).
+func applyBringYourOwnPodGroupCounts(ctx context.Context, job GenericJob, c client.Client, podSets []kueue.PodSet) error {
+	if !features.Enabled(features.BringYourOwnPodGroup) || c == nil {
+		return nil
+	}
+	gvk := job.GVK()
+	if gvk == bringYourOwnPodGroupExcludedGVK {
+		return nil
+	}
+
+	obj := job.Object()
+	counts, err := wasapi.PodGroupTemplateGangMinCounts(ctx, c, obj.GetNamespace(), gvk.Group, gvk.Kind, obj.GetName())
+	if err != nil {
+		return err
+	}
+	for i := range podSets {
+		if minCount, ok := counts[string(podSets[i].Name)]; ok {
+			podSets[i].Count = minCount
+		}
+	}
+	return nil
 }
 
 // SanitizePodSets sanitizes all PodSets in the given slice by removing duplicate

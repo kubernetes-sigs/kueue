@@ -31,6 +31,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -61,6 +62,7 @@ import (
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
+	"sigs.k8s.io/kueue/pkg/util/wasapi"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 )
 
@@ -105,6 +107,7 @@ func init() {
 }
 
 // +kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch
+// +kubebuilder:rbac:groups=scheduling.k8s.io,resources=podgroups,verbs=get;list;watch
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;watch;update;patch
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=pods/status,verbs=get;patch
@@ -129,10 +132,29 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	concurrency := mgr.GetControllerOptions().GroupKindConcurrency[gvk.GroupKind().String()]
 	ctrl.Log.V(3).Info("Setting up Pod reconciler", "concurrency", max(1, concurrency))
-	return ctrl.NewControllerManagedBy(mgr).
+	b := ctrl.NewControllerManagedBy(mgr).
 		Named(controllerName).
 		Watches(&corev1.Pod{}, &podEventHandler{cleanedUpPodsExpectations: r.expectationsStore}).
-		Watches(&kueue.Workload{}, &workloadHandler{}).
+		Watches(&kueue.Workload{}, &workloadHandler{})
+
+	if features.Enabled(features.BringYourOwnPodGroup) {
+		if podGroupGVK, ok, err := wasapi.ResolveGVK(mgr.GetRESTMapper(), wasapi.PodGroupGroupKind); err != nil {
+			// Don't fail manager startup over a (likely transient) discovery
+			// error: the PodGroup watch is a fast-path only, groupTotalCount
+			// still re-checks a referenced PodGroup on every normal reconcile.
+			ctrl.Log.Error(err, "Failed to resolve the scheduling.k8s.io PodGroup API version; "+
+				"pods won't be requeued as soon as their referenced PodGroup appears")
+		} else if ok {
+			podGroupObj := &unstructured.Unstructured{}
+			podGroupObj.SetGroupVersionKind(podGroupGVK)
+			b = b.Watches(podGroupObj, &podGroupEventHandler{})
+		} else {
+			ctrl.Log.V(3).Info("scheduling.k8s.io PodGroup API not installed on this cluster; " +
+				"pods won't be requeued as soon as their referenced PodGroup appears")
+		}
+	}
+
+	return b.
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: concurrency,
 			LogConstructor:          roletracker.NewLogConstructor(r.RoleTracker(), controllerName),
@@ -164,6 +186,10 @@ type Pod struct {
 	excessPodExpectations *expectations.Store
 	satisfiedExcessPods   bool
 	clock                 clock.Clock
+	// client is set by Load and used by groupTotalCount to read a standalone
+	// PodGroup object when BringYourOwnPodGroup is enabled, for methods (e.g.
+	// Finished) whose interface signature doesn't otherwise receive one.
+	client client.Client
 }
 
 var (
@@ -376,7 +402,7 @@ func (p *Pod) Finished(ctx context.Context) (message string, success, finished b
 	isActive := false
 	succeededCount := 0
 
-	groupTotalCount, err := p.groupTotalCount()
+	groupTotalCount, err := p.groupTotalCount(ctx)
 	if err != nil {
 		log.V(2).Error(err, "failed to check if pod group is finished")
 		message = "failed to check if pod group is finished"
@@ -408,7 +434,7 @@ func (p *Pod) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, err
 	if !p.isGroup {
 		return constructPodSets(&p.pod)
 	} else {
-		return p.constructGroupPodSets()
+		return p.constructGroupPodSets(ctx)
 	}
 }
 
@@ -473,7 +499,7 @@ func (p *Pod) PodsReady(ctx context.Context, _ client.Client) bool {
 		return hasPodReadyTrue(p.pod.Status.Conditions)
 	}
 
-	tc, err := p.groupTotalCount()
+	tc, err := p.groupTotalCount(ctx)
 	if err != nil {
 		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failed to get group total count for PodsReady check")
 		return false
@@ -628,14 +654,39 @@ func SetPodGroupName(p *corev1.Pod, groupName string) {
 	}
 }
 
-// groupTotalCount returns the value of GroupTotalCountAnnotation for the pod being reconciled at the moment.
-// It doesn't check if the whole group has the same total group count annotation value.
-func (p *Pod) groupTotalCount() (int, error) {
-	if groupName := utilpod.GetPodGroupName(&p.pod); groupName == "" {
+// groupTotalCount returns the expected total member count of the pod group
+// being reconciled at the moment: from the GroupTotalCountAnnotation, or, when
+// the pod's group name came from the standard
+// spec.schedulingGroup.podGroupName field (BringYourOwnPodGroup), from the
+// referenced standalone PodGroup object's gang scheduling minCount instead.
+// It doesn't check if the whole group agrees on the same value.
+func (p *Pod) groupTotalCount(ctx context.Context) (int, error) {
+	groupName := utilpod.GetPodGroupName(&p.pod)
+	if groupName == "" {
 		if features.Enabled(features.WorkloadIdentifierAnnotations) {
 			return 0, fmt.Errorf("pod doesn't have a '%s' annotation/label", podconstants.GroupNameAnnotation)
 		}
 		return 0, fmt.Errorf("pod doesn't have a '%s' label", podconstants.GroupNameLabel)
+	}
+
+	if utilpod.HasStandardPodGroupName(&p.pod) {
+		if p.client == nil {
+			return 0, fmt.Errorf("cannot resolve standalone PodGroup %q referenced by pod's "+
+				"spec.schedulingGroup.podGroupName without a client", groupName)
+		}
+		minCount, found, err := wasapi.PodGroupGangMinCount(ctx, p.client, p.pod.Namespace, groupName)
+		if err != nil {
+			return 0, err
+		}
+		if !found {
+			// The referenced PodGroup may legitimately not exist yet (WAS allows
+			// this): a watch on PodGroup objects requeues the pod once it
+			// appears, but until then this is treated the same as any other
+			// "the group hasn't reached its expected size yet" retryable error.
+			return 0, fmt.Errorf("standalone PodGroup %q referenced by pod's spec.schedulingGroup.podGroupName "+
+				"doesn't exist yet, or has no gang scheduling policy", groupName)
+		}
+		return int(minCount), nil
 	}
 
 	gtcAnnotation, ok := p.Object().GetAnnotations()[podconstants.GroupTotalCountAnnotation]
@@ -668,6 +719,7 @@ func getRoleHash(p corev1.Pod) (string, error) {
 
 // Load loads all pods in the group
 func (p *Pod) Load(ctx context.Context, c client.Client, key *types.NamespacedName) (removeFinalizers bool, err error) {
+	p.client = c
 	nsKey := strings.Split(key.Namespace, "/")
 
 	if len(nsKey) == 1 {
@@ -719,9 +771,9 @@ func (p *Pod) fastAdmission() bool {
 	return p.pod.GetAnnotations()[podconstants.GroupFastAdmissionAnnotationKey] == podconstants.GroupFastAdmissionAnnotationValue
 }
 
-func (p *Pod) constructGroupPodSets() ([]kueue.PodSet, error) {
+func (p *Pod) constructGroupPodSets(ctx context.Context) ([]kueue.PodSet, error) {
 	if p.fastAdmission() {
-		tc, err := p.groupTotalCount()
+		tc, err := p.groupTotalCount(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -822,8 +874,8 @@ func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
 }
 
 // validatePodGroupMetadata validates metadata of all members of the pod group
-func (p *Pod) validatePodGroupMetadata(r events.EventRecorder, activePods []corev1.Pod) error {
-	groupTotalCount, err := p.groupTotalCount()
+func (p *Pod) validatePodGroupMetadata(ctx context.Context, r events.EventRecorder, activePods []corev1.Pod) error {
+	groupTotalCount, err := p.groupTotalCount(ctx)
 	if err != nil {
 		return err
 	}
@@ -851,6 +903,16 @@ func (p *Pod) validatePodGroupMetadata(r events.EventRecorder, activePods []core
 			return jobframework.UnretryableError(fmt.Sprintf("pods '%s' and '%s' has different queue names: %s!=%s",
 				p.pod.GetName(), podInGroup.GetName(),
 				originalQueue, podInGroupQueue))
+		}
+
+		// When the group name came from the standard
+		// spec.schedulingGroup.podGroupName field, every pod in the group is
+		// already guaranteed to agree on the expected size: they were all
+		// loaded by resolving the same group name to the same referenced
+		// PodGroup object (see groupTotalCount), rather than by each carrying
+		// its own copy of Kueue's GroupTotalCountAnnotation.
+		if utilpod.HasStandardPodGroupName(&p.pod) {
+			continue
 		}
 
 		tc, err := strconv.Atoi(podInGroup.GetAnnotations()[podconstants.GroupTotalCountAnnotation])
@@ -1116,12 +1178,12 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 		return nil, err
 	}
 
-	err := p.validatePodGroupMetadata(r, activePods)
+	err := p.validatePodGroupMetadata(ctx, r, activePods)
 	if err != nil {
 		return nil, err
 	}
 
-	groupTotalCount, err := p.groupTotalCount()
+	groupTotalCount, err := p.groupTotalCount(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -1479,7 +1541,7 @@ func (p *Pod) EquivalentToWorkload(ctx context.Context, c client.Client, wl *kue
 		return jobframework.EquivalentToWorkload(ctx, c, p, wl)
 	}
 
-	podSets, err := p.constructGroupPodSets()
+	podSets, err := p.constructGroupPodSets(ctx)
 	if err != nil {
 		return false, err
 	}

@@ -1363,3 +1363,73 @@ func TestValidateUpdate(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateCreate_BringYourOwnPodGroup(t *testing.T) {
+	testCases := map[string]struct {
+		pod          *corev1.Pod
+		wantErr      error
+		featureGates map[featuregate.Feature]bool
+	}{
+		"gate disabled: standard field alone is a no-op, pod is not treated as a group": {
+			featureGates: map[featuregate.Feature]bool{features.BringYourOwnPodGroup: false},
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				SchedulingGroupPodGroupName("was-group").
+				Obj(),
+		},
+		"gate enabled: standard field alone doesn't require the legacy total-count annotation": {
+			featureGates: map[featuregate.Feature]bool{features.BringYourOwnPodGroup: true},
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				SchedulingGroupPodGroupName("was-group").
+				Obj(),
+		},
+		"gate enabled: standard field and legacy label agree, legacy total count still required": {
+			featureGates: map[featuregate.Feature]bool{features.BringYourOwnPodGroup: true},
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				SchedulingGroupPodGroupName("same-group").
+				GroupNameLabel("same-group").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "metadata.annotations[kueue.x-k8s.io/pod-group-total-count]",
+				},
+			}.ToAggregate(),
+		},
+		"gate enabled: standard field and legacy label disagree, rejected": {
+			featureGates: map[featuregate.Feature]bool{features.BringYourOwnPodGroup: true},
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				SchedulingGroupPodGroupName("was-group").
+				GroupNameLabel("legacy-group").
+				GroupTotalCount("3").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.labels[kueue.x-k8s.io/pod-group-name]",
+				},
+			}.ToAggregate(),
+		},
+		"gate disabled: standard field and legacy label disagree, conflict not enforced": {
+			featureGates: map[featuregate.Feature]bool{features.BringYourOwnPodGroup: false},
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				SchedulingGroupPodGroupName("was-group").
+				GroupNameLabel("legacy-group").
+				GroupTotalCount("3").
+				Obj(),
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+
+			w := &PodWebhook{client: utiltesting.NewClientBuilder().Build()}
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			_, err := w.ValidateCreate(ctx, tc.pod)
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
+				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}

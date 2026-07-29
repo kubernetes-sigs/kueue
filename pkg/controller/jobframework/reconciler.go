@@ -31,8 +31,10 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/validate/content"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -46,6 +48,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -67,6 +70,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
+	"sigs.k8s.io/kueue/pkg/util/wasapi"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
@@ -270,6 +274,8 @@ func WithNoopWebhook(noop bool) Option {
 var defaultOptions = Options{
 	Clock: clock.RealClock{},
 }
+
+// +kubebuilder:rbac:groups=scheduling.k8s.io,resources=workloads,verbs=get;list;watch
 
 func NewReconciler(
 	client client.Client,
@@ -1785,7 +1791,8 @@ func (r *genericReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 }
 
 func (r *genericReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	controllerName := strings.ToLower(r.newJob().GVK().Kind)
+	ownerGVK := r.newJob().GVK()
+	controllerName := strings.ToLower(ownerGVK.Kind)
 	b := ctrl.NewControllerManagedBy(mgr).
 		For(r.newJob().Object()).Owns(&kueue.Workload{}).
 		WithOptions(controller.Options{
@@ -1795,7 +1802,54 @@ func (r *genericReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	for _, f := range r.setup {
 		b = f(b, c)
 	}
+	if features.Enabled(features.BringYourOwnPodGroup) {
+		b = watchWASWorkloadsForOwner(mgr, b, ownerGVK)
+	}
 	return b.Complete(r)
+}
+
+// watchWASWorkloadsForOwner adds a watch on standard scheduling.k8s.io
+// Workload objects, mapped back to the reconcile request for whichever
+// ownerGVK-typed job a changed Workload's spec.controllerRef references, so a
+// job whose PodSets depend on a Workload's PodGroupTemplates (see
+// applyBringYourOwnPodGroupCounts) is reconciled again once a matching
+// Workload appears or changes. If the Workload API isn't installed on this
+// cluster, or resolving it fails, it returns b unchanged: this watch is a
+// fast-path only, JobPodSets already re-checks for a matching Workload on
+// every normal reconcile.
+func watchWASWorkloadsForOwner(mgr ctrl.Manager, b *builder.Builder, ownerGVK schema.GroupVersionKind) *builder.Builder {
+	gvk, ok, err := wasapi.ResolveGVK(mgr.GetRESTMapper(), wasapi.WorkloadGroupKind)
+	if err != nil {
+		ctrl.Log.Error(err, "Failed to resolve the scheduling.k8s.io Workload API version; "+
+			"jobs won't be requeued as soon as a matching Workload appears", "ownerGVK", ownerGVK)
+		return b
+	}
+	if !ok {
+		return b
+	}
+	workloadObj := &unstructured.Unstructured{}
+	workloadObj.SetGroupVersionKind(gvk)
+	return b.Watches(workloadObj, handler.EnqueueRequestsFromMapFunc(WASWorkloadOwnerMapFunc(ownerGVK)))
+}
+
+// WASWorkloadOwnerMapFunc returns a handler.MapFunc that, given a WAS
+// Workload object, enqueues a reconcile request for the ownerGVK-typed object
+// named by its spec.controllerRef, if that controllerRef's apiGroup/kind
+// matches ownerGVK.
+func WASWorkloadOwnerMapFunc(ownerGVK schema.GroupVersionKind) handler.MapFunc {
+	return func(_ context.Context, obj client.Object) []reconcile.Request {
+		u, ok := obj.(*unstructured.Unstructured)
+		if !ok {
+			return nil
+		}
+		apiGroup, _, _ := unstructured.NestedString(u.Object, "spec", "controllerRef", "apiGroup")
+		kind, _, _ := unstructured.NestedString(u.Object, "spec", "controllerRef", "kind")
+		name, _, _ := unstructured.NestedString(u.Object, "spec", "controllerRef", "name")
+		if apiGroup != ownerGVK.Group || kind != ownerGVK.Kind || name == "" {
+			return nil
+		}
+		return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: u.GetNamespace(), Name: name}}}
+	}
 }
 
 // clearMinCountsIfFeatureDisabled sets the minCount for all podSets to nil if the PartialAdmission feature is not enabled

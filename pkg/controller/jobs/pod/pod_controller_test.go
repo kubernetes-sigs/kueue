@@ -29,8 +29,11 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
@@ -55,6 +58,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+	"sigs.k8s.io/kueue/pkg/util/wasapi"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/job"
@@ -7376,6 +7380,82 @@ func TestStop(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("error mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+var podGroupGVK = schema.GroupVersionKind{Group: wasapi.GroupName, Version: "v1alpha2", Kind: wasapi.PodGroupKind}
+
+func podGroupRESTMapper() apimeta.RESTMapper {
+	mapper := apimeta.NewDefaultRESTMapper([]schema.GroupVersion{podGroupGVK.GroupVersion()})
+	mapper.Add(podGroupGVK, apimeta.RESTScopeNamespace)
+	return mapper
+}
+
+func newPodGroup(namespace, name string, minCount int64) *unstructured.Unstructured {
+	obj := &unstructured.Unstructured{Object: map[string]any{
+		"metadata": map[string]any{"namespace": namespace, "name": name},
+		"spec":     map[string]any{},
+	}}
+	_ = unstructured.SetNestedField(obj.Object, minCount, "spec", "schedulingPolicy", "gang", "minCount")
+	obj.SetGroupVersionKind(podGroupGVK)
+	return obj
+}
+
+func TestGroupTotalCount_BringYourOwnPodGroup(t *testing.T) {
+	cases := map[string]struct {
+		gateEnabled bool
+		pod         *corev1.Pod
+		podGroups   []client.Object
+		wantCount   int
+		wantErr     bool
+	}{
+		"gate disabled, standard field set, ignored": {
+			gateEnabled: false,
+			pod: testingpod.MakePod("driver", "ns").
+				SchedulingGroupPodGroupName("my-group").Obj(),
+			wantErr: true, // no legacy label/annotation set, no group name resolved at all
+		},
+		"gate enabled, standard field, PodGroup exists": {
+			gateEnabled: true,
+			pod: testingpod.MakePod("driver", "ns").
+				SchedulingGroupPodGroupName("my-group").Obj(),
+			podGroups: []client.Object{newPodGroup("ns", "my-group", 4)},
+			wantCount: 4,
+		},
+		"gate enabled, standard field, PodGroup doesn't exist yet": {
+			gateEnabled: true,
+			pod: testingpod.MakePod("driver", "ns").
+				SchedulingGroupPodGroupName("my-group").Obj(),
+			wantErr: true,
+		},
+		"gate enabled, legacy label takes precedence over standard field": {
+			gateEnabled: true,
+			pod: testingpod.MakePod("driver", "ns").
+				GroupNameLabel("legacy-group").
+				GroupTotalCount("2").
+				SchedulingGroupPodGroupName("my-group").Obj(),
+			podGroups: []client.Object{newPodGroup("ns", "my-group", 4)},
+			wantCount: 2,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.BringYourOwnPodGroup, tc.gateEnabled)
+
+			cl := utiltesting.NewClientBuilder().
+				WithRESTMapper(podGroupRESTMapper()).
+				WithObjects(tc.podGroups...).
+				Build()
+
+			p := &Pod{pod: *tc.pod, isGroup: true, client: cl}
+			gotCount, err := p.groupTotalCount(t.Context())
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("groupTotalCount() error = %v, wantErr %v", err, tc.wantErr)
+			}
+			if err == nil && gotCount != tc.wantCount {
+				t.Errorf("groupTotalCount() = %d, want %d", gotCount, tc.wantCount)
 			}
 		})
 	}

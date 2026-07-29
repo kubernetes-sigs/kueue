@@ -381,7 +381,9 @@ rules:
 - apiGroups:
   - scheduling.k8s.io
   resources:
+  - podgroups
   - priorityclasses
+  - workloads
   verbs:
   - get
   - list

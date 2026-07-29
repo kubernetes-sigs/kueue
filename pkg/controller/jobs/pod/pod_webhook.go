@@ -206,7 +206,7 @@ func (w *PodWebhook) ValidateCreate(ctx context.Context, obj *corev1.Pod) (admis
 	log.V(5).Info("Validating create")
 
 	allErrs := jobframework.ValidateJobOnCreate(pod)
-	allErrs = append(allErrs, validateCommon(pod)...)
+	allErrs = append(allErrs, validateCommon(ctx, pod)...)
 
 	if warn := warningForPodManagedLabel(pod); warn != "" {
 		warnings = append(warnings, warn)
@@ -224,7 +224,7 @@ func (w *PodWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *corev1.
 	log.V(5).Info("Validating update")
 
 	allErrs := jobframework.ValidateJobOnUpdate(oldPod, newPod, w.queues.DefaultLocalQueueExist)
-	allErrs = append(allErrs, validateCommon(newPod)...)
+	allErrs = append(allErrs, validateCommon(ctx, newPod)...)
 	allErrs = append(allErrs, validateUpdateForRetriableInGroupAnnotation(oldPod, newPod)...)
 
 	if oldGroupName := utilpod.GetPodGroupName(&oldPod.pod); oldGroupName != "" {
@@ -245,12 +245,30 @@ func (w *PodWebhook) ValidateDelete(context.Context, *corev1.Pod) (admission.War
 	return nil, nil
 }
 
-func validateCommon(pod *Pod) field.ErrorList {
+func validateCommon(ctx context.Context, pod *Pod) field.ErrorList {
 	allErrs := validateManagedLabel(pod)
-	allErrs = append(allErrs, validatePodGroupMetadata(pod)...)
+	allErrs = append(allErrs, validateStandardPodGroupNameConflict(pod)...)
+	allErrs = append(allErrs, validatePodGroupMetadata(ctx, pod)...)
 	allErrs = append(allErrs, validateTopologyRequest(pod)...)
 	allErrs = append(allErrs, validatePrebuiltWorkloadName(pod)...)
 	return allErrs
+}
+
+// validateStandardPodGroupNameConflict rejects a Pod that sets both the
+// standard spec.schedulingGroup.podGroupName field and Kueue's own legacy
+// pod-group-name label/annotation to different values: Kueue and
+// kube-scheduler would then disagree about which group the Pod belongs to.
+func validateStandardPodGroupNameConflict(pod *Pod) field.ErrorList {
+	if !features.Enabled(features.BringYourOwnPodGroup) {
+		return nil
+	}
+	standardName := utilpod.StandardPodGroupName(&pod.pod)
+	legacyName := utilpod.LegacyPodGroupName(&pod.pod)
+	if standardName == "" || legacyName == "" || standardName == legacyName {
+		return nil
+	}
+	return field.ErrorList{field.Invalid(getGroupNamePath(&pod.pod), legacyName,
+		fmt.Sprintf("conflicts with spec.schedulingGroup.podGroupName=%q: a pod can't belong to two different groups", standardName))}
 }
 
 func validateManagedLabel(pod *Pod) field.ErrorList {
@@ -274,8 +292,21 @@ func warningForPodManagedLabel(p *Pod) string {
 	return ""
 }
 
-func validatePodGroupMetadata(p *Pod) field.ErrorList {
+func validatePodGroupMetadata(ctx context.Context, p *Pod) field.ErrorList {
 	var allErrs field.ErrorList
+
+	if groupName := utilpod.GetPodGroupName(&p.pod); groupName != "" {
+		allErrs = append(allErrs, validatePodGroupName(p.Object())...)
+	}
+
+	// When the group name came from the standard
+	// spec.schedulingGroup.podGroupName field, the group's expected size is
+	// read from the referenced standalone PodGroup object at reconcile time
+	// (see groupTotalCount), not from Kueue's own
+	// GroupTotalCountAnnotation: don't require that annotation in this case.
+	if utilpod.HasStandardPodGroupName(&p.pod) {
+		return allErrs
+	}
 
 	gtc, gtcExists := p.pod.GetAnnotations()[podconstants.GroupTotalCountAnnotation]
 
@@ -290,14 +321,12 @@ func validatePodGroupMetadata(p *Pod) field.ErrorList {
 			return append(allErrs, field.Required(getGroupNamePath(&p.pod), errorDetail))
 		}
 	} else {
-		allErrs = append(allErrs, validatePodGroupName(p.Object())...)
-
 		if !gtcExists {
 			return append(allErrs, field.Required(groupTotalCountAnnotationPath, errorDetail))
 		}
 	}
 
-	if _, err := p.groupTotalCount(); gtcExists && err != nil {
+	if _, err := p.groupTotalCount(ctx); gtcExists && err != nil {
 		return append(allErrs, field.Invalid(groupTotalCountAnnotationPath, gtc, err.Error()))
 	}
 
