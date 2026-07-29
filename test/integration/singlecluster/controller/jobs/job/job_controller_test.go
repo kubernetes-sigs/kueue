@@ -3598,6 +3598,9 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 			waitForPodsReadyTimeout = metav1.Duration{Duration: 5 * time.Minute}
 			waitForPodsReadyRecoveryTimeout = nil
 			waitForPodsReadyUnscheduledTimeout = &metav1.Duration{Duration: util.TinyTimeout}
+			ginkgo.DeferCleanup(func() {
+				waitForPodsReadyUnscheduledTimeout = nil
+			})
 		})
 
 		ginkgo.It("should evict workload due to unscheduledTimeout", func() {
