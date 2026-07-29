@@ -73,10 +73,7 @@ type ElasticReplicaSync[PtrT objAsPtr[T], T any] struct {
 	// reference. Used to detect a replica change and its direction.
 	WorkerReplicas func(PtrT) map[kueue.PodSetReference]int32
 	// Runtime carries the reverse direction: worker-side autoscaler resizes are
-	// reflected onto the manager copy, leaving the manager spec untouched. Wired by
-	// any type that runs the Ray Autoscaler on the worker; Fetch reads whichever
-	// object holds the live worker replicas there — the remote copy itself
-	// (RayCluster) or the child RayCluster KubeRay creates (RayJob).
+	// reflected onto the manager copy, leaving the manager spec untouched.
 	Runtime *RuntimeReplicaSync[PtrT]
 	// WorkloadNameExtraPart mirrors ElasticWorkloadNameProvider for the type; it
 	// is used to compute the workload name of the object's current slice.
@@ -93,11 +90,6 @@ type RuntimeReplicaSync[PtrT any] struct {
 	// Fetch reads the runtime worker state via the remote client and returns the
 	// effective per-worker-group pod counts plus a revision string identifying
 	// the observed runtime state (used to derive a new workload-slice name).
-	// found=false means there is no live worker state to reflect and the sync is
-	// skipped: either the runtime objects do not exist yet, or the remote copy is
-	// suspended (its replica counts were restored by the worker's Kueue while
-	// stopping the job, not set by the autoscaler, so they must not be written
-	// back to the manager).
 	Fetch func(ctx context.Context, remoteClient client.Client, remoteJob PtrT) (counts map[kueue.PodSetReference]int32, revision string, found bool, err error)
 	// Apply records the fetched runtime worker state onto the manager copy
 	// (typically as annotations consumed by the job's PodSets derivation and
