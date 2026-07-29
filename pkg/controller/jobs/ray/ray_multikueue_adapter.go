@@ -66,17 +66,11 @@ type adapter[PtrT objAsPtr[T], T any] struct {
 // type may wire the forward hooks, Runtime, or both. RayService wires neither
 // and keeps the create-once behavior.
 type ElasticReplicaSync[PtrT objAsPtr[T], T any] struct {
-	// SyncReplicas copies the worker replica counts from src into dst — the
-	// forward, manager-driven push onto the remote copy — returning whether dst
-	// changed. Wired by job types whose worker replicas live on the Kueue-managed
-	// object's own spec (RayCluster). PodSets are derived directly from the CR for
-	// such types.
+	// SyncReplicas copies the worker replica counts from src into dst, returning
+	// whether dst changed.
 	SyncReplicas func(dst, src PtrT) bool
-	// WorkerReplicas returns the effective per-worker-group pod counts keyed by
-	// PodSet reference. Used with SyncReplicas to detect a manager-driven replica
-	// change. Changes that keep the effective count equal but reshape its inputs
-	// (e.g. replicas vs. NumOfHosts for RayCluster) are out of scope: the PodSet
-	// count is what Kueue admits, so only the effective count matters.
+	// WorkerReplicas returns the per-worker-group replica counts keyed by PodSet
+	// reference. Used to detect a replica change and its direction.
 	WorkerReplicas func(PtrT) map[kueue.PodSetReference]int32
 	// Runtime carries the reverse direction: worker-side autoscaler resizes are
 	// reflected onto the manager copy as annotations (consumed by the PodSets
