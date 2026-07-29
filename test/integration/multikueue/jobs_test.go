@@ -1816,7 +1816,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			Queue(managerLq.Name).
 			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 			FirstWorkerGroupReplicas(1, 1, 1).
-			ElasticSchedulingGates().
+			SchedulingGate(kueue.ElasticJobSchedulingGate).
 			Obj()
 		util.MustCreate(manager.ctx, manager.client, raycluster)
 
@@ -1875,7 +1875,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 			WithEnableAutoscaling(new(true)).
 			FirstWorkerGroupReplicas(1, 1, 1).
-			ElasticSchedulingGates().
+			SchedulingGate(kueue.ElasticJobSchedulingGate).
 			Obj()
 		util.MustCreate(manager.ctx, manager.client, raycluster)
 
@@ -1948,7 +1948,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 			WithEnableAutoscaling(new(true)).
 			FirstWorkerGroupReplicas(1, 1, 3).
-			ElasticSchedulingGates().
+			SchedulingGate(kueue.ElasticJobSchedulingGate).
 			Obj()
 		util.MustCreate(manager.ctx, manager.client, raycluster)
 
@@ -2038,7 +2038,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 			WithEnableAutoscaling(new(true)).
 			FirstWorkerGroupReplicas(2, 1, 3).
-			ElasticSchedulingGates().
+			SchedulingGate(kueue.ElasticJobSchedulingGate).
 			Obj()
 		util.MustCreate(manager.ctx, manager.client, raycluster)
 

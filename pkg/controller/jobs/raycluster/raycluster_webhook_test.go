@@ -163,7 +163,7 @@ func TestValidateCreate(t *testing.T) {
 				ManagedBy(kueue.MultiKueueControllerName).
 				WithEnableAutoscaling(new(true)).
 				FirstWorkerGroupReplicas(1, 1, 5).
-				ElasticSchedulingGates().
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
 				Obj(),
 			wantErr: nil,
 		},
