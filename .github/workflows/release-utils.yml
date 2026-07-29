@@ -632,6 +632,7 @@ jobs:
       - name: Check Promotion Credential
         id: credential
         env:
+          GH_TOKEN: ${{ secrets.KUEUE_RELEASE_BOT_TOKEN }}
           PROMOTION_TOKEN: ${{ secrets.KUEUE_RELEASE_BOT_TOKEN }}
           PROMOTION_USER: ${{ vars.KUEUE_RELEASE_BOT_USER }}
         run: |
@@ -645,8 +646,15 @@ jobs:
           # placeholder owner exists only to let that dry run proceed — a real
           # push always uses vars.KUEUE_RELEASE_BOT_USER.
           if [ -n "$PROMOTION_TOKEN" ] && [ -n "$PROMOTION_USER" ]; then
-            echo "available=true" >> "$GITHUB_OUTPUT"
+            if gh repo view "${PROMOTION_USER}/k8s.io" --json name >/dev/null 2>&1; then
+              echo "available=true" >> "$GITHUB_OUTPUT"
+              echo "owner=$PROMOTION_USER" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "available=false" >> "$GITHUB_OUTPUT"
             echo "owner=$PROMOTION_USER" >> "$GITHUB_OUTPUT"
+            echo "missing=fork \`${PROMOTION_USER}/k8s.io\` (create it with \`gh repo fork kubernetes/k8s.io\` as that account)" >> "$GITHUB_OUTPUT"
+            echo "Fork ${PROMOTION_USER}/k8s.io not found; continuing as a dry run."
             exit 0
           fi
 
