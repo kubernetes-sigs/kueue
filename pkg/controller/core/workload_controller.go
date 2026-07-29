@@ -252,6 +252,16 @@ func WithDRABackedResources(value *dra.ExtendedResourceCache) Option {
 	}
 }
 
+// WithResourceSliceAPIAvailable indicates whether the ResourceSlice API
+// (resource.k8s.io/v1) is available on the cluster. When false, the
+// KueueDRAIntegrationPartitionableDevices and KueueDRAIntegrationConsumableCapacity
+// code paths are skipped to avoid reconciliation errors on clusters without ResourceSlice API.
+func WithResourceSliceAPIAvailable(value bool) Option {
+	return func(r *WorkloadReconciler) {
+		r.resourceSliceAPIAvailable = value
+	}
+}
+
 // WithResourceFormatter sets the formatter used for resource quantities written by the controller.
 func WithResourceFormatter(value *resources.ResourceFormatter) Option {
 	return func(r *WorkloadReconciler) {
@@ -265,23 +275,24 @@ type WorkloadUpdateWatcher interface {
 
 // WorkloadReconciler reconciles a Workload object
 type WorkloadReconciler struct {
-	logName                string
-	queues                 *qcache.Manager
-	cache                  *schdcache.Cache
-	client                 client.Client
-	watchers               []WorkloadUpdateWatcher
-	waitForPodsReady       *waitForPodsReadyConfig
-	recorder               events.EventRecorder
-	clock                  clock.Clock
-	workloadRetention      *workloadRetentionConfig
-	draReconcileChannel    chan event.TypedGenericEvent[*kueue.Workload]
-	draMapper              *dra.ResourceMapper
-	draBackedResources     *dra.ExtendedResourceCache
-	admissionFSConfig      *config.AdmissionFairSharing
-	roleTracker            *roletracker.RoleTracker
-	preemptionExpectations *expectations.Store
-	customLabels           *metrics.CustomLabels
-	resourceFormatter      *resources.ResourceFormatter
+	logName                   string
+	queues                    *qcache.Manager
+	cache                     *schdcache.Cache
+	client                    client.Client
+	watchers                  []WorkloadUpdateWatcher
+	waitForPodsReady          *waitForPodsReadyConfig
+	recorder                  events.EventRecorder
+	clock                     clock.Clock
+	workloadRetention         *workloadRetentionConfig
+	draReconcileChannel       chan event.TypedGenericEvent[*kueue.Workload]
+	draMapper                 *dra.ResourceMapper
+	draBackedResources        *dra.ExtendedResourceCache
+	resourceSliceAPIAvailable bool
+	admissionFSConfig         *config.AdmissionFairSharing
+	roleTracker               *roletracker.RoleTracker
+	preemptionExpectations    *expectations.Store
+	customLabels              *metrics.CustomLabels
+	resourceFormatter         *resources.ResourceFormatter
 }
 
 var _ reconcile.Reconciler = (*WorkloadReconciler)(nil)
@@ -515,7 +526,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 		draResources = mergeDRAResources(draResources, extendedResources)
 
 		// Process counter-based resources for partitionable devices
-		if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) {
+		if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) && r.resourceSliceAPIAvailable {
 			counterResources, counterFieldErrs := dra.GetCounterResourcesForWorkload(ctx, r.client, sliceCache, r.draMapper, &wl)
 			if len(counterFieldErrs) > 0 {
 				err := counterFieldErrs.ToAggregate()
@@ -540,7 +551,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 		}
 
 		// Process capacity-based resources for consumable capacity devices
-		if features.Enabled(features.KueueDRAIntegrationConsumableCapacity) {
+		if features.Enabled(features.KueueDRAIntegrationConsumableCapacity) && r.resourceSliceAPIAvailable {
 			ccResources, done, result, ccErr := r.handleDRAConsumableCapacity(ctx, &wl, sliceCache, draResources)
 			if done {
 				return result, ccErr
