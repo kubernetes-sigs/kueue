@@ -17,60 +17,25 @@ limitations under the License.
 package util
 
 import (
-	"testing"
+	"github.com/onsi/ginkgo/v2"
+	"github.com/onsi/gomega"
 )
 
-func TestLabelsFromSelector(t *testing.T) {
-	t.Parallel()
-
-	cases := map[string]struct {
-		selector string
-		want     map[string]string
-		wantErr  bool
-	}{
-		"single key": {
-			selector: "app=foo",
-			want:     map[string]string{"app": "foo"},
-		},
-		"multiple keys": {
-			selector: "a=1,b=2",
-			want:     map[string]string{"a": "1", "b": "2"},
-		},
-		"duplicate same value": {
-			selector: "app=foo,app=foo",
-			want:     map[string]string{"app": "foo"},
-		},
-		"empty selector": {
-			selector: "",
-			wantErr:  true,
-		},
-		"conflicting duplicate key": {
-			selector: "role=a,role=b",
-			wantErr:  true,
-		},
-	}
-
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			got, err := LabelsFromSelector(tc.selector)
-			if tc.wantErr {
-				if err == nil {
-					t.Fatal("expected error, got nil")
-				}
+var _ = ginkgo.Describe("LabelsFromSelector", func() {
+	ginkgo.DescribeTable("parses label selectors",
+		func(selector string, want map[string]string, wantErr bool) {
+			got, err := LabelsFromSelector(selector)
+			if wantErr {
+				gomega.Expect(err).To(gomega.HaveOccurred())
 				return
 			}
-			if err != nil {
-				t.Fatalf("LabelsFromSelector() error = %v", err)
-			}
-			if len(got) != len(tc.want) {
-				t.Fatalf("LabelsFromSelector() = %v, want %v", got, tc.want)
-			}
-			for k, wantVal := range tc.want {
-				if got[k] != wantVal {
-					t.Fatalf("LabelsFromSelector()[%q] = %q, want %q", k, got[k], wantVal)
-				}
-			}
-		})
-	}
-}
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(got).To(gomega.Equal(want))
+		},
+		ginkgo.Entry("single key", "app=foo", map[string]string{"app": "foo"}, false),
+		ginkgo.Entry("multiple keys", "a=1,b=2", map[string]string{"a": "1", "b": "2"}, false),
+		ginkgo.Entry("duplicate same value", "app=foo,app=foo", map[string]string{"app": "foo"}, false),
+		ginkgo.Entry("empty selector", "", nil, true),
+		ginkgo.Entry("conflicting duplicate key", "role=a,role=b", nil, true),
+	)
+})

@@ -190,7 +190,7 @@ func waitForPodsReadyEnabledForSparkApplication(ctx context.Context, k8sClient c
 	minCount := 1 + int(ptr.Deref(createdSparkApplication.Spec.Executor.Instances, 0))
 	selector := fmt.Sprintf("%s=%s", sparkcommon.LabelSparkAppName, createdSparkApplication.Name)
 	gomega.ExpectWithOffset(1, util.CreateScheduledPodsForSelector(ctx, k8sClient, sparkApp.Namespace, selector, minCount)).Should(gomega.Succeed())
-	gomega.ExpectWithOffset(1, util.TriggerReconcile(ctx, k8sClient, createdSparkApplication)).Should(gomega.Succeed())
+	util.TriggerReconcileEventuallyWithOffset(ctx, k8sClient, lookupKey, createdSparkApplication, 1)
 	gomega.ExpectWithOffset(1, k8sClient.Status().Update(ctx, createdSparkApplication)).Should(gomega.Succeed())
 
 	if podsReadyTestSpec.BeforeAppState != nil {

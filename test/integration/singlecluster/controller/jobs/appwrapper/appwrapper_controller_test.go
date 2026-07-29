@@ -657,8 +657,7 @@ var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", g
 
 			ginkgo.By("Initialize AppWrapper component status and create scheduled pods")
 			gomega.Expect(util.EnsureAppWrapperComponentStatusAndScheduledPods(ctx, k8sClient, createdAppWrapper)).Should(gomega.Succeed())
-			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdAppWrapper)).Should(gomega.Succeed())
-			gomega.Expect(util.TriggerReconcile(ctx, k8sClient, createdAppWrapper)).Should(gomega.Succeed())
+			util.TriggerReconcileEventually(ctx, k8sClient, lookupKey, createdAppWrapper)
 			gomega.Expect(k8sClient.Status().Update(ctx, createdAppWrapper)).Should(gomega.Succeed())
 
 			if podsReadyTestSpec.beforeAppWrapperStatus != nil {

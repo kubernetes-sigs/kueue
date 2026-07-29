@@ -23,6 +23,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/onsi/gomega"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	awutils "github.com/project-codeflare/appwrapper/pkg/utils"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
@@ -129,6 +130,22 @@ func TriggerReconcile(ctx context.Context, c client.Client, obj client.Object) e
 // TriggerJobReconcile forces the job controller to reconcile by updating a test annotation.
 func TriggerJobReconcile(ctx context.Context, c client.Client, job *batchv1.Job) error {
 	return TriggerReconcile(ctx, c, job)
+}
+
+// TriggerReconcileEventually retries TriggerReconcile until it succeeds or times out.
+func TriggerReconcileEventually(ctx context.Context, c client.Client, key client.ObjectKey, obj client.Object) {
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(c.Get(ctx, key, obj)).Should(gomega.Succeed())
+		g.Expect(TriggerReconcile(ctx, c, obj)).Should(gomega.Succeed())
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+// TriggerReconcileEventuallyWithOffset is like TriggerReconcileEventually with a caller stack offset.
+func TriggerReconcileEventuallyWithOffset(ctx context.Context, c client.Client, key client.ObjectKey, obj client.Object, offset int) {
+	gomega.EventuallyWithOffset(offset, func(g gomega.Gomega) {
+		g.Expect(c.Get(ctx, key, obj)).Should(gomega.Succeed())
+		g.Expect(TriggerReconcile(ctx, c, obj)).Should(gomega.Succeed())
+	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
 // TotalPodCountFromWorkload sums pod counts across all pod sets in a workload.
