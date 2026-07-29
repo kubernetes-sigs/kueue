@@ -309,7 +309,7 @@ func (c *Cache) AddOrUpdateResourceFlavor(log logr.Logger, rf *kueue.ResourceFla
 	defer c.Unlock()
 	c.resourceFlavors[kueue.ResourceFlavorReference(rf.Name)] = rf
 	if handleTASFlavor(rf) {
-		c.tasCache.AddFlavor(rf)
+		c.tasCache.AddOrUpdateFlavor(rf)
 	}
 	return c.updateClusterQueues(log)
 }

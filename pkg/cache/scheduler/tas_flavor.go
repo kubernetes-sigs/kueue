@@ -113,6 +113,12 @@ func (t *tasCache) NewTASFlavorCache(topologyInfo topologyInformation,
 	}
 }
 
+func (c *TASFlavorCache) updateTolerations(tolerations []corev1.Toleration) {
+	c.Lock()
+	defer c.Unlock()
+	c.flavor.Tolerations = tolerations
+}
+
 func (c *TASFlavorCache) NodeLabels() map[string]string {
 	return c.flavor.NodeLabels
 }
