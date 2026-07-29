@@ -66,7 +66,7 @@ func elasticReplicaSync() *ray.ElasticReplicaSync[*rayv1.RayCluster, rayv1.RayCl
 }
 
 // fetchOwnWorkerState reads the effective per-worker-group pod counts from the
-// remote RayCluster — the worker's copy is where the in-tree autoscaler resizes
+// remote RayCluster — the worker's copy is where the Ray Autoscaler resizes
 // worker groups — plus a revision derived from the remote's UID and generation.
 // The UID keeps the revision, and with it the workload-slice name, unique when
 // the remote is recreated and its generation restarts.

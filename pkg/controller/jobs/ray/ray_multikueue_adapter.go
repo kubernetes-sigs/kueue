@@ -74,14 +74,14 @@ type ElasticReplicaSync[PtrT objAsPtr[T], T any] struct {
 	WorkerReplicas func(PtrT) map[kueue.PodSetReference]int32
 	// Runtime carries the reverse direction: worker-side autoscaler resizes are
 	// reflected onto the manager copy, leaving the manager spec untouched. Wired by
-	// any type that runs the in-tree autoscaler on the worker; Fetch reads whichever
+	// any type that runs the Ray Autoscaler on the worker; Fetch reads whichever
 	// object holds the live worker replicas there — the remote copy itself
 	// (RayCluster) or the child RayCluster KubeRay creates (RayJob).
 	Runtime *RuntimeReplicaSync[PtrT]
 	// WorkloadNameExtraPart mirrors ElasticWorkloadNameProvider for the type; it
 	// is used to compute the workload name of the object's current slice.
 	WorkloadNameExtraPart func(PtrT) string
-	// AutoscalingEnabled reports whether the job runs the in-tree autoscaler on the
+	// AutoscalingEnabled reports whether the job runs the Ray Autoscaler on the
 	// worker cluster, making the worker the source of truth for worker replica
 	// counts. Optional; when nil the reverse (worker-to-manager) sync is disabled.
 	AutoscalingEnabled func(PtrT) bool
@@ -268,7 +268,7 @@ func (a *adapter[PtrT, T]) needElasticSync(ctx context.Context, workloadName str
 }
 
 // workerOwnsReplicas reports whether the worker cluster owns the job's worker
-// replica counts: an elastic job that runs the in-tree autoscaler there. In
+// replica counts: an elastic job that runs the Ray Autoscaler there. In
 // this mode the forward direction never pushes replicas; the manager's only
 // forward-direction duty is repointing the remote's prebuilt-workload marker.
 func (a *adapter[PtrT, T]) workerOwnsReplicas(localJob PtrT) bool {
