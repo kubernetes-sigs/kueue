@@ -19,8 +19,9 @@ import re
 import os
 from datetime import datetime
 
-MARKER = "<!-- release-log-comment -->"
-LOG_HEADER = "# Release log"
+LOG_MARKER_START = "<!-- release-log-start -->"
+LOG_MARKER_END = "<!-- release-log-end -->"
+LOG_HEADER = "## Release log"
 HISTORY_SECTION_MARKER = "<!-- history-section-start -->"
 
 def main():
@@ -40,7 +41,7 @@ def main():
     timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
     action_link = f"{server_url}/{repository}/actions/runs/{run_id}"
 
-    comment_body = os.environ.get("COMMENT_BODY", "").strip()
+    issue_body = os.environ.get("ISSUE_BODY", "").strip()
 
     if alias:
         title = alias
@@ -49,55 +50,75 @@ def main():
     
     new_entry = (
         f"<!-- entry-start title=\"{title}\" -->\n"
-        f"## {title}"
+        f"### {title}"
     )
     if command:
         new_entry += f"\nCommand: /{command}"
     new_entry += f"\nTriggered by: @{actor}\nTimestamp: {timestamp}\nAction link: {action_link}\n\n{message}\n<!-- entry-end -->"
 
-    if not comment_body or MARKER not in comment_body:
+    if LOG_MARKER_START not in issue_body:
         if not cleanup:
-            body = f"{MARKER}\n{LOG_HEADER}\n\n{new_entry}"
-            print(body)
+            log_part = f"{LOG_HEADER}\n\n{new_entry}"
         else:
-            print(f"{MARKER}\n{LOG_HEADER}")
+            log_part = f"{LOG_HEADER}"
+        updated_body = f"{issue_body}\n\n{LOG_MARKER_START}\n{log_part}\n{LOG_MARKER_END}"
+        print(updated_body)
         return
 
+    start_idx = issue_body.find(LOG_MARKER_START)
+    end_idx = issue_body.find(LOG_MARKER_END)
+    
+    if start_idx == -1 or end_idx == -1:
+        print("Error: release-log-start or release-log-end marker is missing or corrupted in the issue body.", file=sys.stderr)
+        sys.exit(1)
+
+    prefix = issue_body[:start_idx + len(LOG_MARKER_START)].strip()
+    suffix = issue_body[end_idx:].strip()
+    log_part = issue_body[start_idx + len(LOG_MARKER_START):end_idx].strip()
+
     # Split Details and History using the history section marker
-    history_match = re.search(re.escape(HISTORY_SECTION_MARKER), comment_body)
+    history_match = re.search(re.escape(HISTORY_SECTION_MARKER), log_part)
     
     if history_match:
-        details = comment_body[:history_match.start()].strip()
-        history = comment_body[history_match.end():].strip()
+        details = log_part[:history_match.start()].strip()
+        history = log_part[history_match.end():].strip()
         # Strip any leading ## History header to avoid duplicating it on reconstruction
-        history = re.sub(r'^## History\s*', '', history, flags=re.IGNORECASE | re.MULTILINE).strip()
+        history = re.sub(r'^###? History\s*', '', history, flags=re.IGNORECASE | re.MULTILINE).strip()
     else:
-        details = comment_body.strip()
+        details = log_part.strip()
         history = ""
 
-    # Find if an entry for command exists in the Details section
-    entry_pattern = r'(<!-- entry-start title="' + re.escape(title) + r'" -->.*?<!-- entry-end -->)'
-    entry_match = re.search(entry_pattern, details, re.DOTALL)
+    # Find all existing entries in the Details section
+    entries = re.findall(r'(<!-- entry-start title=".*?" -->.*?<!-- entry-end -->)', details, re.DOTALL)
+
+    entry_index = -1
+    for idx, entry in enumerate(entries):
+        if f'title="{title}"' in entry:
+            entry_index = idx
+            break
 
     old_entry = ""
-    if entry_match:
-        old_entry = entry_match.group(1).strip()
-        # Remove old entry from log_part
-        details = details[:entry_match.start()].rstrip() + "\n\n" + details[entry_match.end():].lstrip()
-        details = details.strip()
+    if entry_index != -1:
+        old_entry = entries[entry_index].strip()
+        if cleanup:
+            entries.pop(entry_index)
+        else:
+            entries[entry_index] = new_entry
+    elif not cleanup:
+        entries.append(new_entry)
 
-    # Append new entry to Details section if not cleanup
-    if not cleanup:
-        if not re.search(r'^' + re.escape(LOG_HEADER) + r'\b', details, re.MULTILINE | re.IGNORECASE):
-            details = f"{LOG_HEADER}\n\n{details}".strip()
-        details = f"{details}\n\n{new_entry}".strip()
+    # Reconstruct details section with horizontal rule separators
+    if entries:
+        details = f"{LOG_HEADER}\n\n" + "\n\n---\n\n".join(entries)
+    else:
+        details = LOG_HEADER
 
     # Handle History
     if old_entry:
         # Strip markers, header, and command from old_entry to avoid redundancy in history
         old_entry_clean = re.sub(r'<!-- entry-start title=".*?" -->\s*', '', old_entry)
         old_entry_clean = re.sub(r'\s*<!-- entry-end -->', '', old_entry_clean)
-        old_entry_clean = re.sub(r'^## ' + re.escape(title) + r'\b\s*', '', old_entry_clean, flags=re.MULTILINE)
+        old_entry_clean = re.sub(r'^###? ' + re.escape(title) + r'\b\s*', '', old_entry_clean, flags=re.MULTILINE)
         old_entry_clean = re.sub(r'^Command:.*?\n\s*', '', old_entry_clean, flags=re.MULTILINE).strip()
 
         details_pattern = (
@@ -107,12 +128,12 @@ def main():
         )
         details_match = re.search(details_pattern, history, re.DOTALL | re.IGNORECASE)
         if details_match:
-            prefix = details_match.group(1)
-            content = details_match.group(2).strip()
-            suffix = details_match.group(3)
+            prefix_hist = details_match.group(1)
+            content_hist = details_match.group(2).strip()
+            suffix_hist = details_match.group(3)
             # Use horizontal rules to separate multiple archived runs of the same command
-            new_content = f"{old_entry_clean}\n\n---\n\n{content}" if content else old_entry_clean
-            history = history[:details_match.start()] + f"{prefix}\n{new_content}\n{suffix}" + history[details_match.end():]
+            new_content_hist = f"{old_entry_clean}\n\n---\n\n{content_hist}" if content_hist else old_entry_clean
+            history = history[:details_match.start()] + f"{prefix_hist}\n{new_content_hist}\n{suffix_hist}" + history[details_match.end():]
         else:
             new_details_block = (
                 f"<!-- history-start title=\"{title}\" -->\n"
@@ -127,14 +148,16 @@ def main():
             else:
                 history = new_details_block
 
-    # Reconstruct final comment
-    final_body = details
+    # Reconstruct final log part
+    updated_log_part = details
     if history:
-        final_body += f"\n\n{HISTORY_SECTION_MARKER}\n\n## History\n\n{history}"
+        updated_log_part += f"\n\n{HISTORY_SECTION_MARKER}\n\n### History\n\n{history}"
 
-    if not final_body.startswith(MARKER):
-        final_body = f"{MARKER}\n{final_body}"
+    if not updated_log_part.startswith(LOG_HEADER):
+        updated_log_part = f"{LOG_HEADER}\n\n{updated_log_part}"
 
+    # Reconstruct full issue body
+    final_body = f"{prefix}\n{updated_log_part}\n{suffix}"
     print(final_body)
 
 if __name__ == "__main__":

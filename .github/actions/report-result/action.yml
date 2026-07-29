@@ -1,5 +1,5 @@
 name: 'Report result'
-description: 'Logs command execution details to a dedicated release issue comment'
+description: 'Logs command execution details to a dedicated section in the release issue body'
 inputs:
   command:
     description: 'The triggering command, e.g. sync-release-notes'
@@ -51,30 +51,21 @@ runs:
           exit 1
         fi
 
-        # Find the dedicated comment containing the marker
-        COMMENT_JSON=$(gh api repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}/comments --paginate --jq 'if type == "array" then .[] else . end | select(.body | contains("<!-- release-log-comment -->")) | {id: .id, body: .body}' | head -n 1)
+        # Fetch the issue body
+        ISSUE_BODY=$(gh issue view "$ISSUE_NUMBER" --repo "${GITHUB_REPOSITORY}" --json body --jq '.body')
 
-        if [ -n "$COMMENT_JSON" ]; then
-          COMMENT_ID=$(echo "$COMMENT_JSON" | jq -r '.id')
-          COMMENT_BODY=$(echo "$COMMENT_JSON" | jq -r '.body')
-        else
-          COMMENT_ID=""
-          COMMENT_BODY=""
-        fi
-
-        export COMMENT_BODY
+        export ISSUE_BODY
         
-        # Run python script to build the new comment body
+        # Run python script to build the new issue body
         SCRIPT_PATH="${{ github.workspace }}/hack/releasing/log_to_issue.py"
         if [ ! -f "$SCRIPT_PATH" ]; then
           SCRIPT_PATH="${{ github.workspace }}/.automation/hack/releasing/log_to_issue.py"
         fi
-        python3 "$SCRIPT_PATH" > new_comment.md
+        python3 "$SCRIPT_PATH" > new_body.md
 
-        if [ -n "$COMMENT_ID" ]; then
-          # Update existing comment
-          gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}" -F body=@new_comment.md
-        else
-          # Create new comment
-          gh issue comment "$ISSUE_NUMBER" --body-file new_comment.md
+        # Update the issue body
+        gh issue edit "$ISSUE_NUMBER" --repo "${GITHUB_REPOSITORY}" --body-file new_body.md
+
+        if [ "$INPUT_CLEANUP" = "false" ] && [ -n "$INPUT_MESSAGE" ]; then
+          gh issue comment "$ISSUE_NUMBER" --body "$INPUT_MESSAGE"
         fi
