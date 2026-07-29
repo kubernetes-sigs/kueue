@@ -159,7 +159,7 @@ manifests: controller-gen generate-code ## Generate WebhookConfiguration, Cluste
 	$(CONTROLLER_GEN) \
 		rbac:roleName=manager-role output:rbac:artifacts:config=config/components/rbac\
 		webhook output:webhook:artifacts:config=config/components/webhook\
-		paths="./pkg/controller/...;./pkg/webhooks/...;./pkg/util/cert/...;./pkg/visibility/..."
+		paths="./pkg/controller/...;./pkg/webhooks/...;./pkg/util/cert/...;./pkg/visibility/...;./pkg/config/..."
 
 .PHONY: compile-crd-manifests
 compile-crd-manifests: manifests kustomize
