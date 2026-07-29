@@ -60,16 +60,24 @@ type adapter[PtrT objAsPtr[T], T any] struct {
 // ElasticReplicaSync carries the type-specific hooks that let the MultiKueue
 // adapter reconcile the worker replica counts of an elastic workload (the
 // ElasticJobsViaWorkloadSlices feature) between the manager and the worker
-// cluster. Spec and Runtime carry the two directions independently: a type may
-// wire Spec (forward, manager-driven scaling), Runtime (reverse, worker-side
-// autoscaler reflection), or both. RayService wires neither and keeps the
-// create-once behavior.
+// cluster. The forward direction (SyncReplicas/WorkerReplicas) pushes
+// manager-driven replica edits onto the worker copy; the reverse direction
+// (Runtime) reflects worker-side autoscaler resizes back onto the manager. A
+// type may wire the forward hooks, Runtime, or both. RayService wires neither
+// and keeps the create-once behavior.
 type ElasticReplicaSync[PtrT objAsPtr[T], T any] struct {
-	// Spec carries the forward, manager-driven push: it is wired by job types
-	// whose worker replicas live on the Kueue-managed object's own spec, so a
-	// user-driven replica edit on the manager is propagated to the worker copy
-	// (RayCluster). PodSets are derived directly from the CR for such types.
-	Spec *SpecReplicaSync[PtrT]
+	// SyncReplicas copies the worker replica counts from src into dst — the
+	// forward, manager-driven push onto the remote copy — returning whether dst
+	// changed. Wired by job types whose worker replicas live on the Kueue-managed
+	// object's own spec (RayCluster). PodSets are derived directly from the CR for
+	// such types.
+	SyncReplicas func(dst, src PtrT) bool
+	// WorkerReplicas returns the effective per-worker-group pod counts keyed by
+	// PodSet reference. Used with SyncReplicas to detect a manager-driven replica
+	// change. Changes that keep the effective count equal but reshape its inputs
+	// (e.g. replicas vs. NumOfHosts for RayCluster) are out of scope: the PodSet
+	// count is what Kueue admits, so only the effective count matters.
+	WorkerReplicas func(PtrT) map[kueue.PodSetReference]int32
 	// Runtime carries the reverse direction: worker-side autoscaler resizes are
 	// reflected onto the manager copy as annotations (consumed by the PodSets
 	// derivation and workload-slice naming), leaving the manager spec untouched.
@@ -88,25 +96,6 @@ type ElasticReplicaSync[PtrT objAsPtr[T], T any] struct {
 	// letting the manager's workload-slicing machinery re-reserve quota.
 	// Optional; when nil the reverse (worker-to-manager) sync is disabled.
 	AutoscalingEnabled func(PtrT) bool
-}
-
-// SpecReplicaSync pushes manager-driven worker replica changes onto the worker's
-// copy of a job whose replicas live on its own spec (the forward direction).
-// The reverse direction (autoscaler-driven resizes) is handled uniformly by
-// RuntimeReplicaSync.
-//
-// Change detection compares the effective per-group pod count (Counts) of
-// worker groups that exist on both copies. Changes that keep the count equal
-// but reshape its inputs (e.g. replicas vs. NumOfHosts for RayCluster), and
-// groups present on only one side, are out of scope: the PodSet count is what
-// Kueue admits, so only the effective count matters.
-type SpecReplicaSync[PtrT any] struct {
-	// Push copies the worker replica counts from src into dst — the
-	// manager-driven push onto the remote copy — returning whether dst changed.
-	Push func(dst, src PtrT) bool
-	// Counts returns the effective per-worker-group pod counts keyed by PodSet
-	// reference. Used to detect a manager-driven replica change.
-	Counts func(PtrT) map[kueue.PodSetReference]int32
 }
 
 // RuntimeReplicaSync reflects the worker replica counts of a job's runtime
@@ -134,8 +123,8 @@ type Option[PtrT objAsPtr[T], T any] func(*adapter[PtrT, T])
 // for job types that support it (see ElasticReplicaSync). An incomplete wiring
 // panics here so the mistake fails at startup, not at reconcile time.
 func WithElasticReplicaSync[PtrT objAsPtr[T], T any](e *ElasticReplicaSync[PtrT, T]) Option[PtrT, T] {
-	if e.Spec != nil && (e.Spec.Push == nil || e.Spec.Counts == nil) {
-		panic("ElasticReplicaSync: Spec requires Push and Counts")
+	if (e.SyncReplicas == nil) != (e.WorkerReplicas == nil) {
+		panic("ElasticReplicaSync: SyncReplicas and WorkerReplicas must be wired together")
 	}
 	// The reverse (autoscaler-driven) direction is handled uniformly by Runtime,
 	// so any autoscaling type must wire it.
@@ -271,12 +260,12 @@ func (a *adapter[PtrT, T]) needElasticSync(ctx context.Context, workloadName str
 	}
 	// Without spec-based replicas there is nothing the manager could push
 	// (RayJob keeps its create-once behavior when not autoscaling).
-	if a.elastic.Spec == nil {
+	if a.elastic.SyncReplicas == nil {
 		return false
 	}
 
-	oldCounts := a.elastic.Spec.Counts(remoteJob)
-	newCounts := a.elastic.Spec.Counts(localJob)
+	oldCounts := a.elastic.WorkerReplicas(remoteJob)
+	newCounts := a.elastic.WorkerReplicas(localJob)
 
 	// Skip stale local Workload updates caused by a scale-up event. During
 	// scale-up the GenericJobReconciler creates a new, larger Workload slice that
@@ -354,7 +343,7 @@ func (a *adapter[PtrT, T]) reflectRuntimeState(ctx context.Context, localClient,
 // needElasticSync returns true.
 func (a *adapter[PtrT, T]) syncElastic(ctx context.Context, remoteClient client.Client, workloadName string, localJob, remoteJob PtrT) error {
 	if err := clientutil.Patch(ctx, remoteClient, remoteJob, func() (bool, error) {
-		changed := a.elastic.Spec.Push(remoteJob, localJob)
+		changed := a.elastic.SyncReplicas(remoteJob, localJob)
 		if jobframework.PrebuiltWorkloadNameFor(remoteJob) != workloadName {
 			jobframework.SetPrebuiltWorkloadName(remoteJob, workloadName)
 			changed = true

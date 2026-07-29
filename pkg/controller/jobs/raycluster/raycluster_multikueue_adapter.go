@@ -52,11 +52,9 @@ func copyJobSpec(dst, src *rayv1.RayCluster) {
 // onto the manager as annotations (leaving the manager spec untouched).
 func elasticReplicaSync() *ray.ElasticReplicaSync[*rayv1.RayCluster, rayv1.RayCluster] {
 	return &ray.ElasticReplicaSync[*rayv1.RayCluster, rayv1.RayCluster]{
-		Spec: &ray.SpecReplicaSync[*rayv1.RayCluster]{
-			Push: syncWorkerReplicas,
-			Counts: func(rc *rayv1.RayCluster) map[kueue.PodSetReference]int32 {
-				return WorkerGroupPodCounts(&rc.Spec)
-			},
+		SyncReplicas: syncWorkerReplicas,
+		WorkerReplicas: func(rc *rayv1.RayCluster) map[kueue.PodSetReference]int32 {
+			return WorkerGroupPodCounts(&rc.Spec)
 		},
 		Runtime: &ray.RuntimeReplicaSync[*rayv1.RayCluster]{
 			Fetch: fetchOwnWorkerState,
