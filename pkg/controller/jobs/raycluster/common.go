@@ -434,7 +434,7 @@ func applyRuntimeCountsAnnotation(log logr.Logger, podSets []kueue.PodSet, objec
 	if annotation == "" {
 		return podSets
 	}
-	counts, err := parsePodSetReplicaSizes(annotation)
+	counts, err := ParsePodSetReplicaSizes(annotation)
 	if err != nil {
 		log.V(2).Info("Ignoring malformed runtime replica-sizes annotation",
 			"rayObject", object.GetName(), "error", err.Error())
@@ -451,9 +451,9 @@ func applyRuntimeCountsAnnotation(log logr.Logger, podSets []kueue.PodSet, objec
 	return podSets
 }
 
-// parsePodSetReplicaSizes parses the PodsetReplicaSizesAnnotation value into a map.
+// ParsePodSetReplicaSizes parses the PodsetReplicaSizesAnnotation value into a map.
 // Returns an empty map if the annotation is absent or empty.
-func parsePodSetReplicaSizes(annotation string) (map[kueue.PodSetReference]int32, error) {
+func ParsePodSetReplicaSizes(annotation string) (map[kueue.PodSetReference]int32, error) {
 	counts := make(map[kueue.PodSetReference]int32)
 	if annotation == "" {
 		return counts, nil
