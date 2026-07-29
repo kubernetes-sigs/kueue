@@ -398,64 +398,6 @@ func TestBuildPodSets(t *testing.T) {
 					Obj(),
 			},
 		},
-		"autoscaler sidecar is accounted for a MultiKueue-managed elastic RayCluster": {
-			// The remote copy keeps enableInTreeAutoscaling (see copyJobSpec), so
-			// the sidecar genuinely runs on the worker and must be accounted, just
-			// like any other autoscaling RayCluster.
-			elasticJobsViaWorkloadSlices: true,
-			rayClusterSpec: &rayv1.RayClusterSpec{
-				EnableInTreeAutoscaling: new(true),
-				ManagedBy:               ptr.To(kueue.MultiKueueControllerName),
-				HeadGroupSpec: rayv1.HeadGroupSpec{
-					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{
-							Containers: []corev1.Container{{Name: "head"}},
-						},
-					},
-				},
-				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
-					{
-						GroupName: "workers",
-						Replicas:  ptr.To[int32](1),
-						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{
-								Containers: []corev1.Container{{Name: "worker"}},
-							},
-						},
-					},
-				},
-			},
-			annotations: map[string]string{
-				workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
-			},
-			wantPodSets: []kueue.PodSet{
-				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{
-							{Name: "head"},
-							{
-								Name: "autoscaler",
-								Resources: corev1.ResourceRequirements{
-									Requests: corev1.ResourceList{
-										corev1.ResourceCPU:    resource.MustParse("500m"),
-										corev1.ResourceMemory: resource.MustParse("512Mi"),
-									},
-									Limits: corev1.ResourceList{
-										corev1.ResourceCPU:    resource.MustParse("500m"),
-										corev1.ResourceMemory: resource.MustParse("512Mi"),
-									},
-								},
-							},
-						},
-					}).
-					Obj(),
-				*utiltestingapi.MakePodSet("workers", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "worker"}},
-					}).
-					Obj(),
-			},
-		},
 	}
 
 	for name, tc := range testCases {

@@ -108,9 +108,6 @@ func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec, annotations map[string]s
 	// When in-tree autoscaling is enabled, KubeRay injects an autoscaler sidecar
 	// container into the head Pod. It is added at Pod-build time and is not part
 	// of HeadGroupSpec.Template, so account for it here to keep quota accurate.
-	// This also holds for a MultiKueue-dispatched elastic RayCluster: the flag
-	// is copied to the remote copy verbatim, so the sidecar genuinely runs on
-	// the worker cluster and the worker derives the same head PodSet.
 	if ptr.Deref(rayClusterSpec.EnableInTreeAutoscaling, false) {
 		headPodSet.Template.Spec.Containers = append(
 			headPodSet.Template.Spec.Containers,
