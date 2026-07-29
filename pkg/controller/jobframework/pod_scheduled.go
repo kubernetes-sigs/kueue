@@ -18,6 +18,7 @@ package jobframework
 
 import (
 	"context"
+	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -51,19 +52,32 @@ func AllListedPodsScheduled(pods []corev1.Pod, minCount int) bool {
 	return active >= minCount
 }
 
+// PodsScheduledByLabels lists pods in namespace matching matchLabels and checks scheduling.
+// When matchLabels is empty, returns (false, nil) because scheduling cannot be verified yet.
+func PodsScheduledByLabels(ctx context.Context, c client.Client, namespace string, matchLabels map[string]string, minCount int) (bool, error) {
+	if len(matchLabels) == 0 {
+		return false, nil
+	}
+	var podList corev1.PodList
+	if err := c.List(ctx, &podList, client.InNamespace(namespace), client.MatchingLabels(matchLabels)); err != nil {
+		return false, err
+	}
+	return AllListedPodsScheduled(podList.Items, minCount), nil
+}
+
 // PodsScheduledBySelector lists pods in namespace matching selector and checks scheduling.
-// When selector is empty, returns false because scheduling cannot be verified yet.
-func PodsScheduledBySelector(ctx context.Context, c client.Client, namespace, selector string, minCount int) bool {
+// When selector is empty, returns (false, nil) because scheduling cannot be verified yet.
+func PodsScheduledBySelector(ctx context.Context, c client.Client, namespace, selector string, minCount int) (bool, error) {
 	if selector == "" {
-		return false
+		return false, nil
 	}
 	labelSelector, err := labels.Parse(selector)
 	if err != nil {
-		return false
+		return false, fmt.Errorf("parsing pod label selector %q: %w", selector, err)
 	}
 	var podList corev1.PodList
 	if err := c.List(ctx, &podList, client.InNamespace(namespace), client.MatchingLabelsSelector{Selector: labelSelector}); err != nil {
-		return false
+		return false, err
 	}
-	return AllListedPodsScheduled(podList.Items, minCount)
+	return AllListedPodsScheduled(podList.Items, minCount), nil
 }

@@ -18,11 +18,18 @@ package jobframework
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	testingclock "k8s.io/utils/clock/testing"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
 func TestHasPodScheduledTrue(t *testing.T) {
@@ -93,8 +100,8 @@ func TestAllListedPodsScheduled(t *testing.T) {
 				terminating.DeletionTimestamp = &now
 				return []corev1.Pod{terminating, pod(true)}
 			}(),
-			minCount: 1,
-			want:     true,
+			minCount: 2,
+			want:     false,
 		},
 	}
 	for name, tc := range cases {
@@ -122,13 +129,25 @@ func TestPodsScheduledBySelector(t *testing.T) {
 	}
 	cl := fake.NewClientBuilder().WithObjects(&pod).Build()
 
-	if got := PodsScheduledBySelector(ctx, cl, "ns", "", 1); got {
+	got, err := PodsScheduledBySelector(ctx, cl, "ns", "", 1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got {
 		t.Fatalf("empty selector should return false, got true")
 	}
-	if got := PodsScheduledBySelector(ctx, cl, "ns", "job=j1", 1); !got {
+	got, err = PodsScheduledBySelector(ctx, cl, "ns", "job=j1", 1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !got {
 		t.Fatalf("expected scheduled pod, got false")
 	}
-	if got := PodsScheduledBySelector(ctx, cl, "ns", "job=missing", 1); got {
+	got, err = PodsScheduledBySelector(ctx, cl, "ns", "job=missing", 1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got {
 		t.Fatalf("expected missing selector to return false, got true")
 	}
 }
@@ -147,7 +166,98 @@ func TestPodsScheduledBySelectorUnscheduledPod(t *testing.T) {
 		},
 	}
 	cl := fake.NewClientBuilder().WithObjects(&pod).Build()
-	if got := PodsScheduledBySelector(ctx, cl, "ns", "job=j1", 1); got {
+	got, err := PodsScheduledBySelector(ctx, cl, "ns", "job=j1", 1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got {
 		t.Fatalf("expected unscheduled pod to return false, got true")
+	}
+}
+
+func TestPodsScheduledBySelectorInvalidSelector(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	cl := fake.NewClientBuilder().Build()
+	_, err := PodsScheduledBySelector(ctx, cl, "ns", "not=a=valid", 1)
+	if err == nil {
+		t.Fatal("expected error for invalid selector")
+	}
+}
+
+type podsScheduledErrorJob struct {
+	podsReadyTestJob
+	scheduledErr error
+}
+
+func (j *podsScheduledErrorJob) PodsScheduled(context.Context, client.Client) (bool, error) {
+	return false, j.scheduledErr
+}
+
+func TestGeneratePodsReadyConditionPodsScheduledError(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	clock := testingclock.NewFakeClock(now)
+	ctx := context.Background()
+	cl := fake.NewClientBuilder().Build()
+
+	wl := &kueue.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns"},
+		Status: kueue.WorkloadStatus{
+			Admission: &kueue.Admission{},
+			Conditions: []metav1.Condition{
+				{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue},
+			},
+		},
+	}
+
+	job := &podsScheduledErrorJob{
+		podsReadyTestJob: podsReadyTestJob{
+			obj: &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "job", Namespace: "ns"}},
+		},
+		scheduledErr: errors.New("list failed"),
+	}
+
+	cond := generatePodsReadyCondition(ctx, cl, job, wl, clock)
+	if cond.Reason != kueue.WorkloadWaitForStart {
+		t.Fatalf("reason = %q, want %q", cond.Reason, kueue.WorkloadWaitForStart)
+	}
+}
+
+func TestGeneratePodsReadyConditionPodsScheduledErrorPreservesCondition(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	clock := testingclock.NewFakeClock(now)
+	ctx := context.Background()
+	cl := fake.NewClientBuilder().Build()
+
+	existing := metav1.Condition{
+		Type:               kueue.WorkloadPodsReady,
+		Status:             metav1.ConditionFalse,
+		Reason:             kueue.WorkloadWaitForStart,
+		Message:            "waiting",
+		LastTransitionTime: metav1.NewTime(now.Add(-time.Minute)),
+	}
+	wl := &kueue.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns"},
+		Status: kueue.WorkloadStatus{
+			Admission: &kueue.Admission{},
+			Conditions: []metav1.Condition{
+				{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue},
+				existing,
+			},
+		},
+	}
+
+	job := &podsScheduledErrorJob{
+		podsReadyTestJob: podsReadyTestJob{
+			obj: &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "job", Namespace: "ns"}},
+		},
+		scheduledErr: errors.New("list failed"),
+	}
+
+	cond := generatePodsReadyCondition(ctx, cl, job, wl, clock)
+	if cond != existing {
+		t.Fatalf("condition = %+v, want %+v", cond, existing)
 	}
 }

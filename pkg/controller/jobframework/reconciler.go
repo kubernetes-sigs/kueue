@@ -1736,7 +1736,18 @@ func generatePodsReadyCondition(ctx context.Context, c client.Client, job Generi
 			clock)
 	}
 
-	if !job.PodsScheduled(ctx, c) {
+	scheduled, err := job.PodsScheduled(ctx, c)
+	if err != nil {
+		log.Error(err, "Failed to inspect pod scheduling status")
+		if podsReadyCond != nil {
+			return *podsReadyCond
+		}
+		return workload.CreatePodsReadyCondition(metav1.ConditionFalse,
+			kueue.WorkloadWaitForStart,
+			notReadyMsg,
+			clock)
+	}
+	if !scheduled {
 		return workload.CreatePodsReadyCondition(metav1.ConditionFalse,
 			kueue.WorkloadWaitForScheduling,
 			notScheduledMsg,

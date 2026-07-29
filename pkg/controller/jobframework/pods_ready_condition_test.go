@@ -55,8 +55,8 @@ func (j *podsReadyTestJob) IsActive() bool { return true }
 func (j *podsReadyTestJob) PodsReady(context.Context, client.Client) bool {
 	return j.podsReady
 }
-func (j *podsReadyTestJob) PodsScheduled(context.Context, client.Client) bool {
-	return j.podsScheduled
+func (j *podsReadyTestJob) PodsScheduled(context.Context, client.Client) (bool, error) {
+	return j.podsScheduled, nil
 }
 func (j *podsReadyTestJob) GVK() schema.GroupVersionKind {
 	return batchv1.SchemeGroupVersion.WithKind("Job")
