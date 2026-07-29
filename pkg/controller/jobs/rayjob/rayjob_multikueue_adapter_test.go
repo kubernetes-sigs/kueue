@@ -240,10 +240,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 
-			adapter := ray.NewMKAdapter(
-				copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy,
-				ray.WithElasticReplicaSync(elasticRuntimeSync()),
-			)
+			adapter := ray.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy)
 
 			gotErr := tc.operation(ctx, adapter, managerClient, workerClient)
 
