@@ -214,6 +214,7 @@ func (a *adapter[PtrT, T]) SyncJob(
 
 	remoteJob = PtrT(new(T))
 	a.copySpec(remoteJob, localJob)
+
 	// Add prebuilt workload name and multikueue origin
 	jobframework.SetMultiKueueMeta(remoteJob, workloadName, origin)
 
