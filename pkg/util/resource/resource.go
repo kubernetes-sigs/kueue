@@ -17,8 +17,10 @@ limitations under the License.
 package resource
 
 import (
+	"strconv"
 	"strings"
 
+	"gopkg.in/inf.v0"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 )
@@ -88,14 +90,26 @@ func QuantityToFloat(q *resource.Quantity) float64 {
 	return float64(q.MilliValue()) / 1000
 }
 
+// Decimal multiplication grows the scale on every call, and callers re-multiply
+// the same value indefinitely, so results are rounded back to a fixed scale.
+const mulByFloatScale = 9
+
 // MulByFloat multiplies every element in q by f.
-// Leverages k8s.io/apimachinery/pkg/api/resource package to provide precision to 3 decimal places
-// It expects f value to be in range [0,1], otherwise an overflow can happen.
+// Uses arbitrary-precision decimals so that results below one milli-unit are not
+// truncated to zero and large quantities cannot overflow int64.
 func MulByFloat(q corev1.ResourceList, f float64) corev1.ResourceList {
-	ret := q.DeepCopy()
-	for k, v := range ret {
-		scaledV := float64(v.MilliValue()) * f
-		ret[k] = *resource.NewMilliQuantity(int64(scaledV), resource.DecimalSI)
+	if q == nil {
+		return nil
+	}
+	ret := make(corev1.ResourceList, len(q))
+	factor := new(inf.Dec)
+	if _, ok := factor.SetString(strconv.FormatFloat(f, 'f', -1, 64)); !ok {
+		return q.DeepCopy()
+	}
+	for k, v := range q {
+		scaled := new(inf.Dec).Mul(v.AsDec(), factor)
+		scaled.Round(scaled, mulByFloatScale, inf.RoundHalfUp)
+		ret[k] = *resource.NewDecimalQuantity(*scaled, resource.DecimalSI)
 	}
 	return ret
 }
