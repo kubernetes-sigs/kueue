@@ -111,6 +111,22 @@ else:
 `, rayActorNamespace, actorName)
 }
 
+// managerSliceCounts returns the total and not-finished ("live") workload slices
+// in namespace ns on the manager. An elastic scale-up mints a new slice and
+// finishes the old one with WorkloadSliceReplaced (Kueue keeps the finished slice
+// rather than deleting it), so after the first resize the total is two while
+// exactly one slice stays live.
+func managerSliceCounts(g gomega.Gomega, ns string) (total, live int) {
+	wls := &kueue.WorkloadList{}
+	g.Expect(k8sManagerClient.List(ctx, wls, client.InNamespace(ns))).To(gomega.Succeed())
+	for i := range wls.Items {
+		if !apimeta.IsStatusConditionTrue(wls.Items[i].Status.Conditions, kueue.WorkloadFinished) {
+			live++
+		}
+	}
+	return len(wls.Items), live
+}
+
 // reservedMilliCPU sums the CPU a ClusterQueue currently reserves across all
 // flavors, in milliCPU.
 func reservedMilliCPU(cq *kueue.ClusterQueue, res corev1.ResourceName) int64 {
@@ -901,6 +917,9 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						managerCQ := &kueue.ClusterQueue{}
 						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(managerCq), managerCQ)).To(gomega.Succeed())
 						g.Expect(managerCQ.Status.AdmittedWorkloads).To(gomega.Equal(int32(1)))
+						totalSlices, liveSlices := managerSliceCounts(g, managerNs.Name)
+						g.Expect(liveSlices).To(gomega.Equal(1))
+						g.Expect(totalSlices).To(gomega.Equal(2))
 						reservedCPUScaledUp = reservedMilliCPU(managerCQ, corev1.ResourceCPU)
 						g.Expect(reservedCPUScaledUp).To(gomega.BeNumerically(">", 0))
 					}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
@@ -924,6 +943,9 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						managerCQ := &kueue.ClusterQueue{}
 						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(managerCq), managerCQ)).To(gomega.Succeed())
 						g.Expect(managerCQ.Status.AdmittedWorkloads).To(gomega.Equal(int32(1)))
+						totalSlices, liveSlices := managerSliceCounts(g, managerNs.Name)
+						g.Expect(liveSlices).To(gomega.Equal(1))
+						g.Expect(totalSlices).To(gomega.Equal(2))
 						g.Expect(reservedMilliCPU(managerCQ, corev1.ResourceCPU)).To(gomega.Equal(reservedCPUScaledUp - 250))
 					}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 				})
@@ -1114,6 +1136,9 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						managerCQ := &kueue.ClusterQueue{}
 						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(managerCq), managerCQ)).To(gomega.Succeed())
 						g.Expect(managerCQ.Status.AdmittedWorkloads).To(gomega.Equal(int32(1)))
+						totalSlices, liveSlices := managerSliceCounts(g, managerNs.Name)
+						g.Expect(liveSlices).To(gomega.Equal(1))
+						g.Expect(totalSlices).To(gomega.Equal(2))
 						reservedCPUScaledUp = reservedMilliCPU(managerCQ, corev1.ResourceCPU)
 						g.Expect(reservedCPUScaledUp).To(gomega.BeNumerically(">", 0))
 					}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
@@ -1147,6 +1172,9 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						managerCQ := &kueue.ClusterQueue{}
 						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(managerCq), managerCQ)).To(gomega.Succeed())
 						g.Expect(managerCQ.Status.AdmittedWorkloads).To(gomega.Equal(int32(1)))
+						totalSlices, liveSlices := managerSliceCounts(g, managerNs.Name)
+						g.Expect(liveSlices).To(gomega.Equal(1))
+						g.Expect(totalSlices).To(gomega.Equal(2))
 						g.Expect(reservedMilliCPU(managerCQ, corev1.ResourceCPU)).To(gomega.Equal(reservedCPUScaledUp - 250))
 					}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 				})
