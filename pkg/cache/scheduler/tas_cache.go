@@ -84,9 +84,7 @@ func (t *tasCache) AddOrUpdateFlavor(flavor *kueue.ResourceFlavor) {
 		flavorInfo.Tolerations = tolerations
 		t.flavors[name] = flavorInfo
 		if flavorCache, ok := t.flavorCache[name]; ok {
-			flavorCache.Lock()
-			defer flavorCache.Unlock()
-			flavorCache.flavor.Tolerations = tolerations
+			flavorCache.updateTolerations(tolerations)
 		}
 		return
 	}
