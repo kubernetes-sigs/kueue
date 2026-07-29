@@ -1059,7 +1059,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			ginkgo.By("verifying CQ admitted active workloads metric includes custom_team_cq=ml-team and custom_wl_kind values")
 			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 2, "ml-team", "kind1", "anno1")
 			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 1, "ml-team", "kind2", "anno2")
-			
+
 			ginkgo.By("verifying LQ admitted workloads metrics includes custom_wl_kind, custom_wl_anno, and lq_label values")
 			util.ExpectLQAdmittedActiveWorkloadsGaugeMetric(lq, 2, "lq-val", "kind1", "anno1")
 			util.ExpectLQAdmittedActiveWorkloadsGaugeMetric(lq, 1, "lq-val", "kind2", "anno2")

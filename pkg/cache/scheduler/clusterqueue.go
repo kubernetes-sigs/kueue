@@ -548,7 +548,7 @@ func (c *clusterQueue) resyncAdmittedActiveWorkloads() {
 	for wlRef, wl := range c.Workloads {
 		if workload.IsActive(wl.Obj) && workload.IsAdmitted(wl.Obj) {
 			metrics.ReportAdmittedActiveWorkloads(c.Name, 1, c.getLabelValuesFor(wlRef), c.roleTracker)
-			
+
 			qKey := queue.KeyFromWorkload(wl.Obj)
 			if lq, ok := c.localQueues[qKey]; ok && lq.shouldExposeMetrics(c.lqMetrics) {
 				lqRef := metrics.LocalQueueReference{Name: wl.Obj.Spec.QueueName, Namespace: wl.Obj.Namespace}
