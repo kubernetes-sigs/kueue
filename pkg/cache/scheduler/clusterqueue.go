@@ -381,6 +381,7 @@ func (c *clusterQueue) UpdateWithFlavors(log logr.Logger, flavors map[kueue.Reso
 }
 
 func (c *clusterQueue) updateFlavorMetadata(flavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) {
+	oldTASFlavors := c.tasFlavors
 	c.missingFlavors = nil
 	c.tasFlavors = nil
 	for i := range c.ResourceGroups {
@@ -396,6 +397,15 @@ func (c *clusterQueue) updateFlavorMetadata(flavors map[kueue.ResourceFlavorRefe
 			} else {
 				c.missingFlavors = append(c.missingFlavors, fName)
 			}
+		}
+	}
+	// A TAS flavor which was not tracked before may come with a freshly created,
+	// empty TAS flavor cache (e.g., the ResourceFlavor was deleted and re-created),
+	// so force a resync to account the usage of admitted workloads again.
+	for fName := range c.tasFlavors {
+		if _, tracked := oldTASFlavors[fName]; !tracked {
+			c.isTASSynced = false
+			break
 		}
 	}
 }
