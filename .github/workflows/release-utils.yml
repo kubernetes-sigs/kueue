@@ -633,16 +633,38 @@ jobs:
         id: credential
         env:
           PROMOTION_TOKEN: ${{ secrets.KUEUE_RELEASE_BOT_TOKEN }}
+          PROMOTION_USER: ${{ vars.KUEUE_RELEASE_BOT_USER }}
         run: |
-          # When the credential is missing the job still runs everything up to
-          # the push, so a rehearsal validates the checkout, the remote wiring
-          # and the manifest insertion instead of exiting before reaching them.
-          if [ -z "$PROMOTION_TOKEN" ]; then
-            echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "Promotion credential is not configured; continuing as a dry run."
-          else
+          # The owner is resolved once here and reused for both the fork remote
+          # and the PR head, so the branch is never pushed to one account and the
+          # pull request opened against another.
+          #
+          # When either half is missing the job still runs everything up to the
+          # push, so a rehearsal validates the checkout, the remote wiring and the
+          # manifest insertion instead of exiting before reaching them. The
+          # placeholder owner exists only to let that dry run proceed — a real
+          # push always uses vars.KUEUE_RELEASE_BOT_USER.
+          if [ -n "$PROMOTION_TOKEN" ] && [ -n "$PROMOTION_USER" ]; then
             echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "owner=$PROMOTION_USER" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+
+          MISSING=""
+          if [ -z "$PROMOTION_TOKEN" ]; then
+            MISSING="secret \`KUEUE_RELEASE_BOT_TOKEN\`"
+          fi
+          if [ -z "$PROMOTION_USER" ]; then
+            if [ -n "$MISSING" ]; then
+              MISSING="$MISSING and "
+            fi
+            MISSING="${MISSING}variable \`KUEUE_RELEASE_BOT_USER\`"
+          fi
+
+          echo "available=false" >> "$GITHUB_OUTPUT"
+          echo "owner=${PROMOTION_USER:-kueue-release-bot}" >> "$GITHUB_OUTPUT"
+          echo "missing=$MISSING" >> "$GITHUB_OUTPUT"
+          echo "Promotion credential incomplete ($MISSING); continuing as a dry run."
 
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -671,7 +693,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.KUEUE_RELEASE_BOT_TOKEN || secrets.GITHUB_TOKEN }}
           CREDENTIAL_AVAILABLE: ${{ steps.credential.outputs.available }}
-          FORK_OWNER: ${{ vars.KUEUE_RELEASE_BOT_USER }}
+          FORK_OWNER: ${{ steps.credential.outputs.owner }}
         run: |
           git config --global user.name "kueue-release-bot"
           git config --global user.email "kueue-release-bot@kubernetes.io"
@@ -691,7 +713,7 @@ jobs:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           RELEASE_ISSUE_NUMBER: ${{ github.event.issue.number }}
           VERSION: ${{ needs.authorize.outputs.version }}
-          GITHUB_USER: ${{ vars.KUEUE_RELEASE_BOT_USER || 'kueue-release-bot' }}
+          GITHUB_USER: ${{ steps.credential.outputs.owner }}
           KUBERNETES_K8S_IO_PATH: ${{ github.workspace }}/k8s.io
           KUBERNETES_K8S_IO_UPSTREAM_REMOTE: origin
           KUBERNETES_K8S_IO_FORK_REMOTE: fork
@@ -710,7 +732,9 @@ jobs:
 
           PR_URL=$(sed -n 's/^+++ Promotion pull request: //p' /tmp/promote-pull.log | tail -n 1)
           echo "pr_url=${PR_URL}" >> "$GITHUB_OUTPUT"
-          if grep -q '^+++ Pull request already open' /tmp/promote-pull.log; then
+          if [ -z "$PR_URL" ]; then
+            echo "action=none" >> "$GITHUB_OUTPUT"
+          elif grep -q '^+++ Pull request already open' /tmp/promote-pull.log; then
             echo "action=updated" >> "$GITHUB_OUTPUT"
           else
             echo "action=created" >> "$GITHUB_OUTPUT"
@@ -719,15 +743,22 @@ jobs:
           exit 0
 
       - name: Report Result
+        if: always()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           VERSION: ${{ needs.authorize.outputs.version }}
           CREDENTIAL_AVAILABLE: ${{ steps.credential.outputs.available }}
+          CREDENTIAL_MISSING: ${{ steps.credential.outputs.missing }}
           SCRIPT_EXIT_CODE: ${{ steps.promote.outputs.exit_code }}
           PR_URL: ${{ steps.promote.outputs.pr_url }}
           PR_ACTION: ${{ steps.promote.outputs.action }}
         run: |
+          if [ ! -f /tmp/promote-pull.log ]; then
+            gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to submit the promotion pull request for \`$VERSION\`: the job failed before the promotion script ran. Check the workflow logs."
+            exit 1
+          fi
+
           # The DRY_RUN bookkeeping lines are informational but already carry the
           # !!! prefix used for error details, so they must not leak into the
           # failure comment.
@@ -737,11 +768,11 @@ jobs:
             | grep -v '^!!! No branches specified for cleanup' || true)
 
           if [ "$CREDENTIAL_AVAILABLE" != "true" ]; then
-            gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to submit the promotion pull request for \`$VERSION\`: the credential required to push to the kubernetes/k8s.io fork is not configured. Everything up to the push was validated; nothing was pushed and no pull request was created."
+            gh issue comment "$ISSUE_NUMBER" --body "❌ Failed to submit the promotion pull request for \`$VERSION\`: the credential required to push to the kubernetes/k8s.io fork is not configured (missing ${CREDENTIAL_MISSING:-configuration}). Everything up to the push was validated; nothing was pushed and no pull request was created."
             exit 1
           fi
 
-          if [ "$SCRIPT_EXIT_CODE" != "0" ]; then
+          if [ "$SCRIPT_EXIT_CODE" != "0" ] || [ "$PR_ACTION" = "none" ] || [ -z "$PR_URL" ]; then
             if [ -z "$ERR_MSG" ]; then
               ERR_MSG="Check workflow logs for details."
             fi
@@ -751,7 +782,12 @@ jobs:
           \`\`\`text
           ${ERR_MSG}
           \`\`\`"
-            exit "$SCRIPT_EXIT_CODE"
+            # The script can exit 0 having produced no PR; the job must not.
+            EXIT_CODE="${SCRIPT_EXIT_CODE:-1}"
+            if [ "$EXIT_CODE" = "0" ]; then
+              EXIT_CODE=1
+            fi
+            exit "$EXIT_CODE"
           fi
 
           gh issue comment "$ISSUE_NUMBER" --body "✅ Promotion pull request for \`$VERSION\` has been ${PR_ACTION}.

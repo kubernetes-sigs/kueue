@@ -151,7 +151,8 @@ RELEASE_ISSUE_NAME="Release ${RELEASE_VERSION}"
 
 RELEASE_ISSUE_NUMBER="${RELEASE_ISSUE_NUMBER:-}"
 if [ -z "$RELEASE_ISSUE_NUMBER" ]; then
-  RELEASE_ISSUE_NUMBER=$(gh issue list --repo="${KUBERNETES_SIGS_KUEUE_MAIN_REPO}" --search "in:title ${RELEASE_ISSUE_NAME}" | awk '{print $1}' || true)
+  RELEASE_ISSUE_NUMBER=$(gh issue list --repo="${KUBERNETES_SIGS_KUEUE_MAIN_REPO}" \
+    --search "in:title ${RELEASE_ISSUE_NAME}" --limit 1 --json number --jq '.[0].number // empty' || true)
 fi
 if [ -z "$RELEASE_ISSUE_NUMBER" ]; then
   echo "!!! No release issue found for version ${RELEASE_VERSION}. Please create 'Release ${RELEASE_VERSION}' issue first."
@@ -364,7 +365,7 @@ function get_image_full_name() {
 # $1 - full image name
 function get_image_digest() {
   local full_image_name="$1"
-  crane digest "${full_image_name}" 2>/dev/null || true
+  crane digest "${full_image_name}"
 }
 
 function verify_digests_inserted() {
@@ -375,7 +376,7 @@ function verify_digests_inserted() {
   for entry in "$@"; do
     name="${entry%% *}"
     digest="${entry#* }"
-    if ! grep -q "${digest}" "${images_file}"; then
+    if ! grep -qF "${digest}" "${images_file}"; then
       missing+=("${name}@${digest}")
     fi
   done
@@ -408,9 +409,9 @@ function prepare_local_branch() {
     fi
 
     full_image_name=$(get_image_full_name "$name" "$version")
-    digest=$(get_image_digest "$full_image_name")
-    if [ -z "$digest" ]; then
-      echo "!!! Image \"${full_image_name}\" is not found. Run /wait-for-images and try again."
+    if ! digest=$(get_image_digest "$full_image_name"); then
+      echo "!!! Failed to resolve the digest for \"${full_image_name}\" (see the crane error above)."
+      echo "!!! If the image is not published yet, run /wait-for-images and try again."
       exit 1
     fi
     insert_image "$IMAGES_FILE" "$version" "$digest" "$name"
