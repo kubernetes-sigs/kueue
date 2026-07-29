@@ -8,7 +8,7 @@ set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo ".")"
-CALC_SCRIPT="${PROJECT_ROOT}/hack/testing/calculate_thresholds.py"
+CALC_SCRIPT="${PROJECT_ROOT}/hack/testing/calculate_performance_thresholds.py"
 
 # Colors
 RED='\033[0;31m'

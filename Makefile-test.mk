@@ -840,5 +840,5 @@ verify-ci-build-times: ## Verify that CI build times are below threshold.
 	python3 ./hack/tools/prow-runtimes/prow_runtimes.py --kueue-presubmits --limit 5 --only-success --only-merge-pool --threshold-stat=second_longest --threshold 14m
 
 .PHONY: update-performance-thresholds
-update-performance-thresholds: ## Update performance test thresholds based on artifacts
+update-performance-thresholds: ## Update performance test thresholds
 	@./hack/testing/performance-thresholds.sh $(ARGS)
