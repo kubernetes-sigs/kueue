@@ -86,7 +86,14 @@ func LabelsFromSelector(selector string) (map[string]string, error) {
 		if len(vals) != 1 {
 			return nil, fmt.Errorf("unsupported selector values %v", vals)
 		}
-		m[r.Key()] = vals[0]
+		val := vals[0]
+		if existing, ok := m[r.Key()]; ok {
+			if existing != val {
+				return nil, fmt.Errorf("conflicting selector values for label %q", r.Key())
+			}
+			continue
+		}
+		m[r.Key()] = val
 	}
 	return m, nil
 }
