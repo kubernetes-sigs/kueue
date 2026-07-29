@@ -436,8 +436,6 @@ func applyRuntimeCountsAnnotation(log logr.Logger, podSets []kueue.PodSet, objec
 	}
 	counts, err := ParsePodSetReplicaSizes(annotation)
 	if err != nil {
-		// The annotation is user-editable metadata; falling back to the
-		// spec-derived counts keeps the job reconcilable instead of wedging it.
 		log.V(2).Info("Ignoring malformed runtime replica-sizes annotation",
 			"rayObject", object.GetName(), "error", err.Error())
 		return podSets
