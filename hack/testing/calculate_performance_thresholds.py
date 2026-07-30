@@ -370,7 +370,7 @@ Examples:
     # Validate artifacts directory
     if not args.artifacts_dir.exists():
         print(f"❌ Error: Artifacts directory not found: {args.artifacts_dir}")
-        sys.exit(1)
+        sys.exit(2)
     
     # Determine output path
     if args.output is None:
