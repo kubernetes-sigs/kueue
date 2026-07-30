@@ -300,6 +300,34 @@ func (c *Cache) ActiveClusterQueues() sets.Set[kueue.ClusterQueueReference] {
 	return cqs
 }
 
+// ClusterQueuesForResources returns the names of ClusterQueues whose
+// ResourceGroups cover any of the given resource names.
+func (c *Cache) ClusterQueuesForResources(resourceNames sets.Set[corev1.ResourceName]) sets.Set[kueue.ClusterQueueReference] {
+	if resourceNames.Len() == 0 {
+		return nil
+	}
+	c.RLock()
+	defer c.RUnlock()
+	result := sets.New[kueue.ClusterQueueReference]()
+	for _, cq := range c.hm.ClusterQueues() {
+		if coversAnyResource(cq.ResourceGroups, resourceNames) {
+			result.Insert(cq.Name)
+		}
+	}
+	return result
+}
+
+func coversAnyResource(rgs []ResourceGroup, resourceNames sets.Set[corev1.ResourceName]) bool {
+	for _, rg := range rgs {
+		for name := range resourceNames {
+			if rg.CoveredResources.Has(name) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (c *Cache) TASCache() *tasCache {
 	return &c.tasCache
 }

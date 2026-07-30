@@ -123,7 +123,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 	}
 
 	if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) || features.Enabled(features.KueueDRAIntegrationConsumableCapacity) {
-		rsRec := NewResourceSliceReconciler(qManager, cfg, opts.RoleTracker)
+		rsRec := NewResourceSliceReconciler(qManager, cc, cfg, opts.RoleTracker)
 		if err := rsRec.SetupWithManager(mgr, cfg); err != nil {
 			return "ResourceSlice", err
 		}
