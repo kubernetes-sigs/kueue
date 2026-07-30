@@ -173,3 +173,44 @@
   stage: GA
   from: "0.17"
   to: "0.18"
+- feature: HierarchicalCohorts
+  default: true
+  stage: Beta
+  from: "0.11"
+  to: "0.16"
+- feature: HierarchicalCohorts
+  default: true
+  stage: GA
+  from: "0.17"
+  to: "0.19"
+- feature: ObjectRetentionPolicies
+  default: false
+  stage: Alpha
+  from: "0.12"
+  to: "0.12"
+- feature: ObjectRetentionPolicies
+  default: true
+  stage: Beta
+  from: "0.13"
+  to: "0.16"
+- feature: ObjectRetentionPolicies
+  default: true
+  stage: GA
+  from: "0.17"
+  to: "0.19"
+- feature: MultiKueueAllowInsecureKubeconfigs
+  default: false
+  stage: Alpha
+  from: "0.15"
+  to: "0.16"
+- feature: MultiKueueAllowInsecureKubeconfigs
+  default: false
+  stage: Deprecated
+  from: "0.17"
+  to: "0.19"
+- name: PropagateBatchJobLabelsToWorkload
+  versionedSpecs:
+  - default: true
+    lockToDefault: true
+    preRelease: GA
+    version: "0.17"
