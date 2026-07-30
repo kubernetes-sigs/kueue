@@ -514,6 +514,14 @@ const (
 	//
 	// Rejects Workloads with negative container or pod-level resource requests/limits.
 	WorkloadValidateResourcesAreNonNegative featuregate.Feature = "WorkloadValidateResourcesAreNonNegative"
+
+	// owner: @kannon92
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/13150-bring-your-own-podgroup
+	//
+	// Enables deriving PodSet shape and gang size from standard Workload-Aware
+	// Scheduling APIs (scheduling.k8s.io PodGroup/Workload) instead of Kueue's own
+	// pod-group annotations/labels or per-integration spec parsing.
+	BringYourOwnPodGroup featuregate.Feature = "BringYourOwnPodGroup"
 )
 
 func init() {
@@ -789,6 +797,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	WorkloadValidateResourcesAreNonNegative: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+	BringYourOwnPodGroup: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 

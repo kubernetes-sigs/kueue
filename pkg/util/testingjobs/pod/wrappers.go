@@ -178,6 +178,13 @@ func (p *PodWrapper) GroupTotalCount(gtc string) *PodWrapper {
 	return p.Annotation(podconstants.GroupTotalCountAnnotation, gtc)
 }
 
+// SchedulingGroupPodGroupName sets the standard
+// spec.schedulingGroup.podGroupName field of the Pod.
+func (p *PodWrapper) SchedulingGroupPodGroupName(name string) *PodWrapper {
+	p.Spec.SchedulingGroup = &corev1.PodSchedulingGroup{PodGroupName: &name}
+	return p
+}
+
 // GroupIndex updates the pod.GroupIndexLabel of the Pod
 func (p *PodWrapper) GroupIndex(index string) *PodWrapper {
 	return p.Label(kueue.PodGroupPodIndexLabel, index)

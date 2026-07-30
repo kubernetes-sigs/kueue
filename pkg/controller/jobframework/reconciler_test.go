@@ -34,6 +34,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
@@ -43,6 +45,7 @@ import (
 	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -1221,5 +1224,59 @@ func TestReconcileGenericJob_EvictionClearsQuotaReservation(t *testing.T) {
 				t.Errorf("Unexpected QuotaReserved condition status/reason: got %s/%s, want False/%s", cond.Status, cond.Reason, wantReason)
 			}
 		})
+	}
+}
+
+func TestWASWorkloadOwnerMapFunc(t *testing.T) {
+	ownerGVK := batchv1.SchemeGroupVersion.WithKind("Job")
+
+	newWorkload := func(namespace, apiGroup, kind, name string) *unstructured.Unstructured {
+		obj := &unstructured.Unstructured{Object: map[string]any{
+			"metadata": map[string]any{"namespace": namespace, "name": "wl"},
+			"spec": map[string]any{
+				"controllerRef": map[string]any{"apiGroup": apiGroup, "kind": kind, "name": name},
+			},
+		}}
+		obj.SetGroupVersionKind(schema.GroupVersionKind{Group: "scheduling.k8s.io", Version: "v1alpha2", Kind: "Workload"})
+		return obj
+	}
+
+	cases := map[string]struct {
+		obj  *unstructured.Unstructured
+		want []reconcile.Request
+	}{
+		"matching controllerRef": {
+			obj:  newWorkload("ns", "batch", "Job", "my-job"),
+			want: []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "my-job"}}},
+		},
+		"different kind": {
+			obj:  newWorkload("ns", "batch", "CronJob", "my-job"),
+			want: nil,
+		},
+		"different apiGroup": {
+			obj:  newWorkload("ns", "jobset.x-k8s.io", "Job", "my-job"),
+			want: nil,
+		},
+		"no controllerRef name": {
+			obj:  newWorkload("ns", "batch", "Job", ""),
+			want: nil,
+		},
+	}
+	mapFunc := WASWorkloadOwnerMapFunc(ownerGVK)
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := mapFunc(t.Context(), tc.obj)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("WASWorkloadOwnerMapFunc() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestWASWorkloadOwnerMapFunc_NonUnstructured(t *testing.T) {
+	mapFunc := WASWorkloadOwnerMapFunc(batchv1.SchemeGroupVersion.WithKind("Job"))
+	got := mapFunc(t.Context(), &batchv1.Job{})
+	if got != nil {
+		t.Errorf("WASWorkloadOwnerMapFunc() = %v, want nil for a non-unstructured object", got)
 	}
 }

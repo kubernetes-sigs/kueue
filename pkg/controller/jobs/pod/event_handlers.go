@@ -35,6 +35,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 )
@@ -115,6 +116,41 @@ func (h *podEventHandler) queueReconcileForPod(ctx context.Context, object clien
 	log.V(5).Info("Queueing reconcile for pod")
 
 	q.Add(reconcileRequestForPod(p))
+}
+
+// podGroupEventHandler queues a reconcile for the pod group referencing the
+// standalone PodGroup object that changed, when BringYourOwnPodGroup is
+// enabled. It doesn't need to look up which Pods actually reference the
+// PodGroup: the PodGroup's own name is the group name Pods reference via
+// spec.schedulingGroup.podGroupName, and the pod-group reconcile key format
+// ("group/<namespace>", "<name>") only depends on that name and namespace,
+// not on which Pods currently exist. This lets Pods that arrived before their
+// referenced PodGroup was created be requeued once it appears.
+type podGroupEventHandler struct{}
+
+func (h *podGroupEventHandler) Create(_ context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	h.queueReconcileForPodGroup(e.Object, q)
+}
+
+func (h *podGroupEventHandler) Update(_ context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	h.queueReconcileForPodGroup(e.ObjectNew, q)
+}
+
+func (h *podGroupEventHandler) Delete(_ context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	h.queueReconcileForPodGroup(e.Object, q)
+}
+
+func (h *podGroupEventHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *podGroupEventHandler) queueReconcileForPodGroup(obj client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	if !features.Enabled(features.BringYourOwnPodGroup) {
+		return
+	}
+	q.Add(reconcile.Request{NamespacedName: types.NamespacedName{
+		Name:      obj.GetName(),
+		Namespace: fmt.Sprintf("group/%s", obj.GetNamespace()),
+	}})
 }
 
 type workloadHandler struct{}

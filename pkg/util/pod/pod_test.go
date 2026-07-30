@@ -26,6 +26,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
 
@@ -321,6 +323,97 @@ func TestGenerateRoleHash(t *testing.T) {
 			}
 			if gotBaseHash := gotHash == baseHash; gotBaseHash != tc.wantBaseHash {
 				t.Errorf("Unexpected role hash comparison with base hash: want equality %t, base hash %q, got hash %q", tc.wantBaseHash, baseHash, gotHash)
+			}
+		})
+	}
+}
+
+func withSchedulingGroup(name string) *corev1.Pod {
+	p := testingpod.MakePod("pod", "ns").Obj()
+	p.Spec.SchedulingGroup = &corev1.PodSchedulingGroup{PodGroupName: new(name)}
+	return p
+}
+
+func TestGetPodGroupName(t *testing.T) {
+	cases := map[string]struct {
+		bringYourOwnPodGroup bool
+		pod                  *corev1.Pod
+		want                 string
+	}{
+		"no group markers at all": {
+			pod:  testingpod.MakePod("pod", "ns").Obj(),
+			want: "",
+		},
+		"legacy label": {
+			pod:  testingpod.MakePod("pod", "ns").Label(podconstants.GroupNameLabel, "legacy-group").Obj(),
+			want: "legacy-group",
+		},
+		"standard field, gate disabled": {
+			bringYourOwnPodGroup: false,
+			pod:                  withSchedulingGroup("standard-group"),
+			want:                 "",
+		},
+		"standard field, gate enabled": {
+			bringYourOwnPodGroup: true,
+			pod:                  withSchedulingGroup("standard-group"),
+			want:                 "standard-group",
+		},
+		"legacy label takes precedence over standard field": {
+			bringYourOwnPodGroup: true,
+			pod: func() *corev1.Pod {
+				p := withSchedulingGroup("standard-group")
+				p.Labels = map[string]string{podconstants.GroupNameLabel: "legacy-group"}
+				return p
+			}(),
+			want: "legacy-group",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.BringYourOwnPodGroup, tc.bringYourOwnPodGroup)
+			if got := GetPodGroupName(tc.pod); got != tc.want {
+				t.Errorf("GetPodGroupName() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestHasStandardPodGroupName(t *testing.T) {
+	cases := map[string]struct {
+		bringYourOwnPodGroup bool
+		pod                  *corev1.Pod
+		want                 bool
+	}{
+		"no group markers at all": {
+			bringYourOwnPodGroup: true,
+			pod:                  testingpod.MakePod("pod", "ns").Obj(),
+			want:                 false,
+		},
+		"standard field, gate disabled": {
+			bringYourOwnPodGroup: false,
+			pod:                  withSchedulingGroup("standard-group"),
+			want:                 false,
+		},
+		"standard field, gate enabled": {
+			bringYourOwnPodGroup: true,
+			pod:                  withSchedulingGroup("standard-group"),
+			want:                 true,
+		},
+		"legacy label set alongside standard field": {
+			bringYourOwnPodGroup: true,
+			pod: func() *corev1.Pod {
+				p := withSchedulingGroup("standard-group")
+				p.Labels = map[string]string{podconstants.GroupNameLabel: "legacy-group"}
+				return p
+			}(),
+			want: false,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.BringYourOwnPodGroup, tc.bringYourOwnPodGroup)
+			if got := HasStandardPodGroupName(tc.pod); got != tc.want {
+				t.Errorf("HasStandardPodGroupName() = %v, want %v", got, tc.want)
 			}
 		})
 	}

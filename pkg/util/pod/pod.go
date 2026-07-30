@@ -191,14 +191,68 @@ func RecordPodSchedulingGateRemovalSeconds(cl clock.Clock, name string, wl *kueu
 
 // GetPodGroupName returns the pod group name for the given pod. It reads the
 // GroupNameLabel, or when the WorkloadIdentifierAnnotations feature gate is
-// enabled it first reads the GroupNameAnnotation and then falls back to the label.
+// enabled it first reads the GroupNameAnnotation and then falls back to the
+// label. When neither is set and the BringYourOwnPodGroup feature gate is
+// enabled, it falls back further to the standard
+// spec.schedulingGroup.podGroupName field. Use HasStandardPodGroupName to tell
+// whether the returned name came from that standard field.
 func GetPodGroupName(p *corev1.Pod) string {
+	if name := kueuePodGroupName(p); name != "" {
+		return name
+	}
+	if features.Enabled(features.BringYourOwnPodGroup) {
+		return standardPodGroupName(p)
+	}
+	return ""
+}
+
+// HasStandardPodGroupName reports whether p's pod group name (per
+// GetPodGroupName) was sourced from the standard
+// spec.schedulingGroup.podGroupName field rather than from Kueue's own
+// GroupNameAnnotation/GroupNameLabel markers. Callers use this to decide
+// whether the group's expected size should be read from the referenced
+// standalone PodGroup object instead of Kueue's own GroupTotalCountAnnotation.
+func HasStandardPodGroupName(p *corev1.Pod) bool {
+	return features.Enabled(features.BringYourOwnPodGroup) && kueuePodGroupName(p) == "" && standardPodGroupName(p) != ""
+}
+
+// kueuePodGroupName returns the pod group name from Kueue's own
+// annotation/label markers only, ignoring the standard
+// spec.schedulingGroup.podGroupName field.
+func kueuePodGroupName(p *corev1.Pod) string {
 	if features.Enabled(features.WorkloadIdentifierAnnotations) {
 		if name := p.Annotations[podconstants.GroupNameAnnotation]; name != "" {
 			return name
 		}
 	}
 	return p.Labels[podconstants.GroupNameLabel]
+}
+
+// standardPodGroupName returns the pod group name from the standard
+// spec.schedulingGroup.podGroupName field, or "" if unset.
+func standardPodGroupName(p *corev1.Pod) string {
+	if p.Spec.SchedulingGroup == nil || p.Spec.SchedulingGroup.PodGroupName == nil {
+		return ""
+	}
+	return *p.Spec.SchedulingGroup.PodGroupName
+}
+
+// LegacyPodGroupName returns the pod group name from Kueue's own
+// GroupNameAnnotation/GroupNameLabel markers only, ignoring the standard
+// spec.schedulingGroup.podGroupName field and the BringYourOwnPodGroup
+// feature gate. Used by the Pod validating webhook to detect an ambiguous
+// group identity when both sources are set to different values.
+func LegacyPodGroupName(p *corev1.Pod) string {
+	return kueuePodGroupName(p)
+}
+
+// StandardPodGroupName returns the pod group name from the standard
+// spec.schedulingGroup.podGroupName field, regardless of whether Kueue's own
+// legacy annotation/label is also set or the BringYourOwnPodGroup feature
+// gate is enabled. Used by the Pod validating webhook to detect an ambiguous
+// group identity when both sources are set to different values.
+func StandardPodGroupName(p *corev1.Pod) string {
+	return standardPodGroupName(p)
 }
 
 func IsPodGroup(p *corev1.Pod) bool {
