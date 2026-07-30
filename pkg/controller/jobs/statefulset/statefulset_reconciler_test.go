@@ -276,6 +276,44 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
+		"should revert StatefulSet replicas for admitted workload on scale out": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				Replicas(5).
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					Queue("lq").
+					OwnerReference(gvk, "sts", "sts-uid").
+					PodSets(*utiltestingapi.MakePodSet("main", 3).Obj()).
+					Admission(utiltestingapi.MakeAdmission("cluster-queue").Obj()).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadAdmitted,
+						Status: metav1.ConditionTrue,
+					}).
+					Obj(),
+			},
+			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				Replicas(3).
+				DeepCopy(),
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					Queue("lq").
+					OwnerReference(gvk, "sts", "sts-uid").
+					PodSets(*utiltestingapi.MakePodSet("main", 3).Obj()).
+					Admission(utiltestingapi.MakeAdmission("cluster-queue").Obj()).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadAdmitted,
+						Status: metav1.ConditionTrue,
+					}).
+					Obj(),
+			},
+		},
 		"shouldn't add StatefulSet to Workload owner references if replicas = 0": {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
