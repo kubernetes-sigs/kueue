@@ -9766,3 +9766,134 @@ func TestScheduleForTASWhenWorkloadModifiedConcurrently(t *testing.T) {
 		}
 	}
 }
+
+// TestSecondPassSkipsWaitForPodsReadyBlock exercises the waitForPodsReady
+// admission block against a second-pass workload. The workload holds a quota
+// reservation and its pods are not ready yet, so the block is active because
+// of the workload under test itself; the second pass must complete the
+// delayed topology assignment instead of stripping its own reservation.
+func TestSecondPassSkipsWaitForPodsReadyBlock(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+
+	ns := utiltesting.MakeNamespaceWrapper(metav1.NamespaceDefault).Obj()
+	topology := utiltestingapi.MakeDefaultOneLevelTopology("tas-single-level")
+	rf := utiltestingapi.MakeResourceFlavor("tas-default").
+		NodeLabel("tas-node", "true").
+		TopologyName(topology.Name).
+		Obj()
+	provCheck := utiltestingapi.MakeAdmissionCheck("prov-check").
+		ControllerName(kueue.ProvisioningRequestControllerName).
+		Condition(metav1.Condition{
+			Type:   kueue.AdmissionCheckActive,
+			Status: metav1.ConditionTrue,
+		}).
+		Obj()
+	cq := utiltestingapi.MakeClusterQueue("tas-main").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").
+			Resource(corev1.ResourceCPU, "50").Obj()).
+		AdmissionChecks(kueue.AdmissionCheckReference(provCheck.Name)).
+		Obj()
+	lq := utiltestingapi.MakeLocalQueue("tas-main", ns.Name).ClusterQueue(cq.Name).Obj()
+	node := testingnode.MakeNode("x1").
+		Label("tas-node", "true").
+		Label(corev1.LabelHostname, "x1").
+		StatusAllocatable(corev1.ResourceList{
+			corev1.ResourceCPU:  resource.MustParse("1"),
+			corev1.ResourcePods: resource.MustParse("10"),
+		}).
+		Ready().
+		Obj()
+	wl := utiltestingapi.MakeWorkload("wl", ns.Name).
+		Queue("tas-main").
+		PodSets(*utiltestingapi.MakePodSet("one", 1).
+			RequiredTopologyRequest(corev1.LabelHostname).
+			Request(corev1.ResourceCPU, "1").
+			Obj()).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("tas-main").
+				PodSets(utiltestingapi.MakePodSetAssignment("one").
+					Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+					DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
+					Obj()).
+				Obj(),
+			now,
+		).
+		AdmissionCheck(kueue.AdmissionCheckState{
+			Name:  "prov-check",
+			State: kueue.CheckStateReady,
+		}).
+		Obj()
+
+	ctx, log := utiltesting.ContextWithLog(t)
+	// The block does not leave a lasting trace: it unsets the reservation and,
+	// once the wait ends, the admission patch re-establishes it. Count the
+	// status patches to catch that hidden round trip.
+	var statusPatches int
+	clientBuilder := utiltesting.NewClientBuilder().
+		WithObjects(ns.DeepCopy(), topology.DeepCopy(), rf.DeepCopy(), cq.DeepCopy(), lq.DeepCopy(), wl.DeepCopy()).
+		WithStatusSubresource(&kueue.Workload{}).
+		WithInterceptorFuncs(interceptor.Funcs{
+			SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+				if _, ok := obj.(*kueue.Workload); ok && subResourceName == "status" {
+					statusPatches++
+				}
+				return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
+			},
+		})
+	_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
+	cl := clientBuilder.Build()
+	recorder := &utiltesting.EventRecorder{}
+	fakeClock := testingclock.NewFakeClock(now)
+	cqCache := schdcache.New(cl, schdcache.WithPodsReadyTracking(true))
+	qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithClock(fakeClock))
+	cqCache.TASCache().SyncNode(node)
+	cqCache.AddOrUpdateAdmissionCheck(log, provCheck.DeepCopy())
+	cqCache.AddOrUpdateResourceFlavor(log, rf.DeepCopy())
+	cqCache.AddOrUpdateTopology(log, topology.DeepCopy())
+	if err := cqCache.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
+		t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
+	}
+	if err := qManager.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
+		t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
+	}
+	if err := qManager.AddLocalQueue(ctx, lq.DeepCopy()); err != nil {
+		t.Fatalf("Inserting queue %s/%s in manager: %v", lq.Namespace, lq.Name, err)
+	}
+	// Contributes the reserved usage and, with pods-ready tracking on, places
+	// the workload in its ClusterQueue's WorkloadsNotReady set.
+	cqCache.AddOrUpdateWorkload(log, wl.DeepCopy())
+	if !qManager.QueueSecondPassIfNeeded(ctx, wl, 0) {
+		t.Fatal("expected the workload to be queued for a second pass")
+	}
+	fakeClock.Step(time.Second)
+
+	scheduler := New(qManager, cqCache, cl, recorder, WithClock(t, fakeClock), WithPreemptionExpectations(preemptexpectations.New()))
+	wg := sync.WaitGroup{}
+	scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
+		func() { wg.Add(1) },
+		func() { wg.Done() },
+	))
+
+	ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
+	defer cancel()
+	go cqCache.CleanUpOnContext(ctx)
+	go qManager.CleanUpOnContext(ctx)
+
+	scheduler.schedule(ctx)
+	wg.Wait()
+
+	var got kueue.Workload
+	if err := cl.Get(ctx, client.ObjectKeyFromObject(wl), &got); err != nil {
+		t.Fatalf("Getting workload: %v", err)
+	}
+	if !workload.HasQuotaReservation(&got) {
+		t.Fatal("the admission block stripped the second-pass workload's own quota reservation")
+	}
+	psa := got.Status.Admission.PodSetAssignments[0]
+	if psa.TopologyAssignment == nil || psa.DelayedTopologyRequest == nil || *psa.DelayedTopologyRequest != kueue.DelayedTopologyRequestStateReady {
+		t.Fatalf("expected the second pass to complete the delayed topology assignment, got assignment %v, delayed state %v", psa.TopologyAssignment, psa.DelayedTopologyRequest)
+	}
+	if statusPatches != 1 {
+		t.Errorf("got %d workload status patches, want 1: an extra patch means the admission block stripped and re-established the workload's own reservation", statusPatches)
+	}
+}
