@@ -544,7 +544,6 @@ func (c *clusterQueue) reportActiveWorkloads() {
 	metrics.ReportReservingActiveWorkloads(c.Name, len(c.Workloads), clVals, c.roleTracker)
 }
 
-
 func (c *clusterQueue) reportAdmittedActiveWorkloads(wlRef workload.Reference, wl *kueue.Workload, incr int) {
 	metrics.ReportAdmittedActiveWorkloads(c.Name, incr, c.getLabelValuesFor(wlRef), c.roleTracker)
 
