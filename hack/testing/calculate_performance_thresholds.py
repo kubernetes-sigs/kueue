@@ -55,19 +55,24 @@ def load_summary_files(artifacts_dir):
 def calculate_thresholds(cluster_queue_data, workload_class_data):
     """Calculate thresholds"""
     thresholds = {
+        'cmd': {
+            'maxWallMs': 500000
+        },
         'clusterQueueClassesMinUsage': {},
         'wlClassesMaxAvgTimeToAdmissionMs': {}
     }
     
-    # Calculate cluster queue thresholds (mean - 7%)
+    # Calculate cluster queue thresholds (use mean)
+    print("\n📊 CLUSTER QUEUE UTILIZATION")
     for cq_name, values in cluster_queue_data.items():
         if values:
             m = mean(values)
-            threshold = m * (1 - 0.07)  # -7%
+            threshold = m  # Use mean directly
             thresholds['clusterQueueClassesMinUsage'][cq_name] = round(threshold, 1)
             print(f"  {cq_name}: mean={m:.1f}% → threshold={threshold:.1f}%")
     
     # Calculate workload class thresholds (mean + 20%)
+    print("\n📊 WORKLOAD ADMISSION TIME")
     for wl_class, values in workload_class_data.items():
         if values:
             m = mean(values)
@@ -84,11 +89,16 @@ def generate_yaml(thresholds):
     yaml_content = """# Performance Test - Expected Performance Ranges
 #
 # Thresholds are automatically calculated based on historical test results
-# using statistical analysis (mean ± margin).
+# using statistical analysis (mean + margin).
 #
 
+# Command execution limits
+# Threshold: 500000ms (default)
+cmd:
+  maxWallMs: 500000
+
 # Cluster Queue utilization targets (minimum)
-# Threshold: mean - 7%, rounded to 0.1%
+# Threshold: mean, rounded to 0.1%
 clusterQueueClassesMinUsage:
 """
     
@@ -102,7 +112,7 @@ wlClassesMaxAvgTimeToAdmissionMs:
 """
     
     for wl_class, threshold in sorted(thresholds['wlClassesMaxAvgTimeToAdmissionMs'].items()):
-        yaml_content += f"  {wl_class}: {threshold:>10}\n"
+        yaml_content += f"  {wl_class}: {threshold}\n"
     
     return yaml_content
 
@@ -125,10 +135,7 @@ def main():
     print(f"✓ Loaded {len(list(cluster_queue_data.keys()) + list(workload_class_data.keys()))} metrics")
     
     # Calculate thresholds
-    print("\n📊 CLUSTER QUEUE UTILIZATION")
     thresholds = calculate_thresholds(cluster_queue_data, workload_class_data)
-    
-    print("\n📊 WORKLOAD ADMISSION TIME")
     
     # Generate YAML
     yaml_content = generate_yaml(thresholds)

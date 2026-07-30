@@ -1,17 +1,22 @@
 # Performance Test - Expected Performance Ranges
 #
 # Thresholds are automatically calculated based on historical test results
-# using statistical analysis (mean ± margin).
+# using statistical analysis (mean + margin).
 #
 
+# Command execution limits
+# Threshold: 500000ms (default)
+cmd:
+  maxWallMs: 500000
+
 # Cluster Queue utilization targets (minimum)
-# Threshold: mean - 7%, rounded to 0.1%
+# Threshold: mean, rounded to 0.1%
 clusterQueueClassesMinUsage:
-  cq: 61.4
+  cq: 59.4
 
 # Workload admission time limits
 # Threshold: mean + 20% rounded up to nearest 1000ms
 wlClassesMaxAvgTimeToAdmissionMs:
-  large:      22000
-  medium:     103000
-  small:     286000
+  large: 22000
+  medium: 103000
+  small: 286000
