@@ -78,7 +78,7 @@ IMAGE_BUILD_RETRY = $(PROJECT_DIR)/hack/testing/retry.sh \
 	--delay 2 \
 	--exponential \
 	--stream \
-	--continue-if "grep -qiE '(context deadline exceeded|unexpected status from HEAD request to .*: 401 Unauthorized)' {output}" \
+	--continue-if "grep -qiE '(context deadline exceeded|unexpected status from HEAD request to .*: 401 Unauthorized|connection reset by peer)' {output}" \
 	-- env
 	
 # Setting SHELL to bash allows bash commands to be executed by recipes.
