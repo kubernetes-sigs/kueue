@@ -171,6 +171,39 @@ func TestCalculateDecayedConsumedAccumulatesSubMilli(t *testing.T) {
 	}
 }
 
+// Decayed usage must approach current usage on the half-life curve, and must never
+// exceed it: accumulated rounding that drifted upwards would inflate a LocalQueue's
+// share indefinitely.
+func TestCalculateDecayedConsumedConvergesToUsage(t *testing.T) {
+	const samplesPerHalfLife = 2016 // 168h / 5m
+
+	usage := corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}
+	consumed := corev1.ResourceList{}
+
+	// 1 - 0.5^n of the way to usage after n half-lives.
+	wantAfterHalfLife := map[int]string{1: "1", 2: "1500m", 3: "1750m"}
+
+	for halfLives := 1; halfLives <= 3; halfLives++ {
+		for range samplesPerHalfLife {
+			consumed = CalculateDecayedConsumed(consumed, usage, samplingElapsed, longHalfLifeTime)
+		}
+
+		got := consumed[corev1.ResourceCPU]
+		want := resource.MustParse(wantAfterHalfLife[halfLives])
+		// Allow a milli-unit of accumulated rounding over thousands of samples.
+		tolerance := resource.MustParse("1m")
+		low, high := want.DeepCopy(), want.DeepCopy()
+		low.Sub(tolerance)
+		high.Add(tolerance)
+		if got.Cmp(low) < 0 || got.Cmp(high) > 0 {
+			t.Errorf("after %d half-lives: expecting ~%s got %s", halfLives, want.String(), got.String())
+		}
+		if total := usage[corev1.ResourceCPU]; got.Cmp(total) > 0 {
+			t.Errorf("after %d half-lives: consumed %s exceeds usage %s", halfLives, got.String(), total.String())
+		}
+	}
+}
+
 func TestCalculateDecayedConsumedKeepsLargeQuantitiesPositive(t *testing.T) {
 	for _, size := range []string{"16Gi", "1Ti", "64Ti"} {
 		t.Run(size, func(t *testing.T) {
