@@ -1141,7 +1141,7 @@ func (a *FlavorAssigner) checkFlavorForPodSets(
 		if features.Enabled(features.TopologyAwareScheduling) {
 			ps := &a.wl.Obj.Spec.PodSets[psID]
 			if message := checkPodSetAndFlavorMatchForTAS(a.cq, ps, flavor, rg); message != nil {
-				log.V(3).Info(*message)
+				log.V(3).Info("Flavor does not match TAS requirements", "reason", *message)
 				status.appendf("%s", *message)
 				return status
 			}

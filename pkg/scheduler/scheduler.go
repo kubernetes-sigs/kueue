@@ -436,7 +436,7 @@ func (s *Scheduler) processEntry(
 		}
 		if (features.Enabled(features.ConcurrentAdmission) || features.Enabled(features.MultiKueueOrchestratedPreemption)) && workload.HasClosedPreemptionGate(e.Obj) {
 			gatedMsg := "Workload requires preemption, but it's gated"
-			log.V(3).Info(gatedMsg)
+			log.V(3).Info("Workload requires preemption, but it is gated", "workload", klog.KObj(e.Obj))
 			e.quotaReservedReason = kueue.WorkloadAdmissionGated
 			e.markPreemptionGated(gatedMsg)
 			return
@@ -1106,7 +1106,7 @@ func (s *Scheduler) recordQuotaReservationMetrics(log logr.Logger, newWorkload, 
 		return
 	}
 
-	quotaReservedEventMessage := fmt.Sprintf("Quota reserved in ClusterQueue %v, wait time since queued was %.0fs", admission.ClusterQueue, waitTime.Seconds())
+	quotaReservedEventMessage := fmt.Sprintf("Quota reserved in ClusterQueue %s, wait time since queued was %.0fs", admission.ClusterQueue, waitTime.Seconds())
 	if consideredFlavors != "" {
 		quotaReservedEventMessage += fmt.Sprintf("; Flavors considered: %s", consideredFlavors)
 	}
@@ -1127,7 +1127,7 @@ func (s *Scheduler) recordWorkloadAdmissionEvents(log logr.Logger, newWorkload, 
 		return
 	}
 
-	s.recorder.Eventf(newWorkload, nil, corev1.EventTypeNormal, "Admitted", "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was 0s", admission.ClusterQueue)
+	s.recorder.Eventf(newWorkload, nil, corev1.EventTypeNormal, "Admitted", "Admitted", "Admitted by ClusterQueue %s, wait time since reservation was 0s", admission.ClusterQueue)
 
 	priorityClassName := workloadpatching.PriorityClassName(newWorkload)
 	cqCustomLabels := s.customLabels.CQGet(admission.ClusterQueue)
