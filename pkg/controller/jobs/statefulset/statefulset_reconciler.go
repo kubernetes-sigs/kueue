@@ -253,10 +253,11 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 	var shouldUpdateReclaimablePods bool
 	var reclaimablePods []kueue.ReclaimablePod
 	if replicas > 0 && len(wl.Spec.PodSets) == 1 && wl.Spec.PodSets[0].Count != replicas {
-		if !workload.IsAdmitted(wl) {
+		switch {
+		case !workload.IsAdmitted(wl):
 			wl.Spec.PodSets[0].Count = replicas
 			shouldUpdate = true
-		} else if replicas < wl.Spec.PodSets[0].Count {
+		case replicas < wl.Spec.PodSets[0].Count:
 			shouldUpdateReclaimablePods = true
 			reclaimablePods = []kueue.ReclaimablePod{
 				{
@@ -264,6 +265,17 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 					Count: wl.Spec.PodSets[0].Count - replicas,
 				},
 			}
+		case replicas > wl.Spec.PodSets[0].Count:
+			// TOCTOU mitigation: If the workload was admitted concurrently with a scale-out,
+			// the webhook may have allowed it because the Workload was pending at the time of check.
+			// Revert the StatefulSet replicas to match the admitted workload's quota.
+			count := wl.Spec.PodSets[0].Count
+			sts.Spec.Replicas = &count
+			if err := r.client.Update(ctx, sts); err != nil {
+				return err
+			}
+			// We updated the sts, which will trigger another reconcile.
+			return nil
 		}
 	}
 
