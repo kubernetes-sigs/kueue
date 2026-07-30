@@ -25,6 +25,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	metav1validation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
@@ -161,6 +162,28 @@ func TestValidateWorkload(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(firstPodSetSpecPath.Child("initContainers").Index(0).Child("resources", "requests").Key(string(corev1.ResourceCPU)), nil, ""),
 			}.ToAggregate(),
+		},
+		"should reject invalid podSet template labels and annotations": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					kueue.PodSet{
+						Name: "bad-labels",
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Labels: map[string]string{
+									"invalid/label/key/too/long/invalid": "val1",
+									"valid":                               "invalid value with spaces, test-wec1, test-wec2",
+								},
+							},
+						},
+					},
+				).
+				Obj(),
+			wantErr: metav1validation.ValidateLabels(map[string]string{
+				"invalid/label/key/too/long/invalid": "val1",
+				"valid":                               "invalid value with spaces, test-wec1, test-wec2",
+			}, podSetsPath.Index(0).Child("template", "metadata", "labels")).ToAggregate(),
 		},
 		"should reject negative container resource limit": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
