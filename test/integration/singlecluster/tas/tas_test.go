@@ -424,6 +424,120 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 		})
 	})
 
+	ginkgo.When("Updating TAS ResourceFlavor nodeTaints", func() {
+		var (
+			node         *corev1.Node
+			topology     *kueue.Topology
+			tasFlavor    *kueue.ResourceFlavor
+			clusterQueue *kueue.ClusterQueue
+			localQueue   *kueue.LocalQueue
+		)
+
+		taint := corev1.Taint{
+			Key:    "example.com/dedicated",
+			Value:  "tas",
+			Effect: corev1.TaintEffectNoSchedule,
+		}
+
+		ginkgo.BeforeEach(func() {
+			node = testingnode.MakeNode("x1").
+				Label("node-group", "tas").
+				Label(corev1.LabelHostname, "x1").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:  resource.MustParse("2"),
+					corev1.ResourcePods: resource.MustParse("10"),
+				}).
+				Ready().
+				Obj()
+			util.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{*node})
+
+			topology = utiltestingapi.MakeDefaultOneLevelTopology("default")
+			util.MustCreate(ctx, k8sClient, topology)
+
+			tasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
+				NodeLabel("node-group", "tas").
+				TopologyName(topology.Name).
+				Taint(taint).
+				Obj()
+			util.MustCreate(ctx, k8sClient, tasFlavor)
+
+			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(tasFlavor.Name).
+					Resource(corev1.ResourceCPU, "3").
+					Obj()).
+				Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+
+			localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).
+				ClusterQueue(clusterQueue.Name).
+				Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, node, true)
+		})
+
+		makeWorkload := func(name, cpu string) *kueue.Workload {
+			return utiltestingapi.MakeWorkload(name, ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				PodSets(*utiltestingapi.MakePodSet("worker", 1).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Request(corev1.ResourceCPU, cpu).
+					Obj()).
+				Obj()
+		}
+		removeNodeTaints := func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedFlavor kueue.ResourceFlavor
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), &updatedFlavor)).To(gomega.Succeed())
+				updatedFlavor.Spec.NodeTaints = nil
+				g.Expect(k8sClient.Update(ctx, &updatedFlavor)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}
+
+		ginkgo.It("should requeue pending workloads when nodeTaints are removed", func() {
+			wl1 := makeWorkload("wl1", "1")
+			ginkgo.By("creating a workload that cannot tolerate the flavor nodeTaints", func() {
+				util.MustCreate(ctx, k8sClient, wl1)
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl1)
+			})
+
+			ginkgo.By("removing the flavor nodeTaints", removeNodeTaints)
+
+			ginkgo.By("verifying a differently-shaped workload created after the update is admitted", func() {
+				wl2 := makeWorkload("wl2", "500m")
+				util.MustCreate(ctx, k8sClient, wl2)
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl2)
+			})
+
+			ginkgo.By("verifying the pending workload is retried and admitted", func() {
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+			})
+		})
+
+		ginkgo.It("should schedule workloads created after nodeTaints are removed", func() {
+			wl1 := makeWorkload("wl1", "1")
+			ginkgo.By("creating a workload that cannot tolerate the flavor nodeTaints", func() {
+				util.MustCreate(ctx, k8sClient, wl1)
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl1)
+			})
+
+			ginkgo.By("removing the flavor nodeTaints", removeNodeTaints)
+
+			ginkgo.By("verifying an identically-shaped workload created after the update is admitted", func() {
+				wl2 := makeWorkload("wl2", "1")
+				util.MustCreate(ctx, k8sClient, wl2)
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl2)
+			})
+		})
+	})
+
 	ginkgo.When("non-TAS pod exists", func() {
 		var (
 			nodes        []corev1.Node
