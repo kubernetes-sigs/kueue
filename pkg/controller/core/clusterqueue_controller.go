@@ -198,8 +198,15 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				if err := r.client.Update(ctx, &cqObj); err != nil {
 					return ctrl.Result{}, client.IgnoreNotFound(err)
 				}
+				// The finalizer is gone and the object will be garbage-collected, so
+				// there is no point refreshing its status (the ClusterQueue is also
+				// being removed from the cache).
+				return ctrl.Result{}, nil
 			}
-			return ctrl.Result{}, nil
+			// The finalizer is still held because workloads are reserving quota, i.e.
+			// the ClusterQueue is terminating but not yet empty. Fall through to refresh
+			// the status counters and set the Active=Terminating condition instead of
+			// returning early and leaving stale status behind.
 		}
 	}
 
