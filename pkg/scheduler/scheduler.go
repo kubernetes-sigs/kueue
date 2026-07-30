@@ -473,7 +473,12 @@ func (s *Scheduler) processEntry(
 		return
 	}
 
-	s.waitForPodsReadyIfBlocked(ctx, log, e)
+	// A second pass holds its quota reservation already, and a delayed-TAS workload is
+	// itself in WorkloadsNotReady, so the block would trip because of the very workload
+	// it is evaluating and unset that workload's own reservation.
+	if !workload.NeedsSecondPass(e.Obj) {
+		s.waitForPodsReadyIfBlocked(ctx, log, e)
+	}
 
 	// Copy ClusterName from old slice before admission (needed for MultiKueue).
 	if features.Enabled(features.ElasticJobsViaWorkloadSlices) && oldWorkloadSlice != nil {
