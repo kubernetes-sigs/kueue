@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -189,12 +190,19 @@ func PrebuiltWorkloadNameFor(obj client.Object) string {
 		if name := obj.GetAnnotations()[controllerconstants.PrebuiltWorkloadAnnotation]; name != "" {
 			return name
 		}
+		return obj.GetLabels()[controllerconstants.PrebuiltWorkloadLabel]
 	}
-	return obj.GetLabels()[controllerconstants.PrebuiltWorkloadLabel]
+	if name := obj.GetLabels()[controllerconstants.PrebuiltWorkloadLabel]; name != "" {
+		return name
+	}
+	if name := obj.GetAnnotations()[controllerconstants.PrebuiltWorkloadAnnotation]; len(name) > validation.LabelValueMaxLength {
+		return name
+	}
+	return ""
 }
 
 func SetPrebuiltWorkloadName(obj client.Object, workloadName string) {
-	if features.Enabled(features.WorkloadIdentifierAnnotations) {
+	if features.Enabled(features.WorkloadIdentifierAnnotations) || len(workloadName) > validation.LabelValueMaxLength {
 		annotations := obj.GetAnnotations()
 		if annotations == nil {
 			annotations = make(map[string]string, 1)
