@@ -154,7 +154,7 @@ func ValidateAnnotationAsCRDName(obj client.Object, crdNameAnnotation string) fi
 
 func ValidatePrebuiltWorkloadName(obj client.Object) field.ErrorList {
 	prebuiltAnnotation := obj.GetAnnotations()[constants.PrebuiltWorkloadAnnotation]
-	if features.Enabled(features.WorkloadIdentifierAnnotations) && prebuiltAnnotation != "" {
+	if (features.Enabled(features.WorkloadIdentifierAnnotations) || len(prebuiltAnnotation) > validation.LabelValueMaxLength) && prebuiltAnnotation != "" {
 		return ValidateAnnotationAsCRDName(obj, constants.PrebuiltWorkloadAnnotation)
 	}
 	return ValidateLabelAsCRDName(obj, constants.PrebuiltWorkloadLabel)
@@ -291,7 +291,7 @@ func IsWorkloadPriorityClassNameEmpty(obj client.Object) bool {
 
 func GetPrebuiltWorkloadPath(obj client.Object) *field.Path {
 	prebuiltWorkloadAnnotation := obj.GetAnnotations()[constants.PrebuiltWorkloadAnnotation]
-	if features.Enabled(features.WorkloadIdentifierAnnotations) && prebuiltWorkloadAnnotation != "" {
+	if (features.Enabled(features.WorkloadIdentifierAnnotations) || len(prebuiltWorkloadAnnotation) > validation.LabelValueMaxLength) && prebuiltWorkloadAnnotation != "" {
 		return prebuiltWorkloadAnnotationPath
 	}
 	return prebuiltWorkloadLabelPath
