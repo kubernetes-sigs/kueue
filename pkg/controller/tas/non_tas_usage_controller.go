@@ -31,7 +31,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
@@ -80,20 +79,7 @@ func (r *NonTasUsageReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 }
 
 func belongsToNonTASCache(pod *corev1.Pod) bool {
-	if pod == nil {
-		return false
-	}
-	if utiltas.IsTAS(pod) {
-		return false
-	}
-	if len(pod.Spec.NodeName) == 0 {
-		// Skip unscheduled pods as they don't use any capacity.
-		return false
-	}
-	if utilpod.IsTerminated(pod) {
-		return false
-	}
-	return true
+	return utiltas.BelongsToNonTASCache(pod)
 }
 
 func (r *NonTasUsageReconciler) Create(e event.TypedCreateEvent[*corev1.Pod]) bool {

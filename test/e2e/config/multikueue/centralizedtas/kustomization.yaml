@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Centralized-TAS spike overlay (non-production). Deploys the default Kueue and
+# injects the KUEUE_CENTRALIZED_TAS_SPIKE=true env var on the manager container.
+# TopologyAwareScheduling and MultiKueue are Beta/default-on, so no feature-gate
+# config is needed. Harmless on worker clusters (they run no manager role).
+resources:
+- ../../default
+
+patches:
+- path: manager_spike_patch.yaml
+
+configMapGenerator:
+- behavior: merge
+  files:
+  - controller_manager_config.yaml
+  name: kueue-manager-config
+  namespace: kueue-system

@@ -455,14 +455,14 @@ func TestCQReconcile(t *testing.T) {
 
 			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
 			recorder := &utiltesting.EventRecorder{}
-			cRec := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, nil, nil, recorder)
+			cRec := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, nil, nil, recorder, nil)
 			cRec.rootContext = ctx
 			for worker, wState := range tc.workers {
 				workerClient := NewNeverCachingClient(utiltesting.NewClientBuilder().
 					WithObjects(asObjs(wState.cqs)...).
 					WithObjects(asObjs(wState.lqs)...).
 					Build())
-				rc := newRemoteClient(c, nil, nil, nil, defaultOrigin, worker, adapters)
+				rc := newRemoteClient(c, nil, nil, nil, defaultOrigin, worker, adapters, nil)
 				rc.client = workerClient
 				// newRemoteClient starts disconnected; mark the active workers connected.
 				if !wState.inactive {
