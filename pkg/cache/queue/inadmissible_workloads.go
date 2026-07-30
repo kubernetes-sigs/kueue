@@ -94,11 +94,6 @@ func (iw inadmissibleWorkloads) hasKey(key workload.Reference) bool {
 	return ok
 }
 
-// replaceAll replaces all inadmissible workloads with the provided map.
-func (iw *inadmissibleWorkloads) replaceAll(newMap inadmissibleWorkloads) {
-	*iw = newMap
-}
-
 // requeueWorkloadsCQ moves all workloads in this ClusterQueue
 // from inadmissibleWorkloads to heap.
 // It expects to be passed a ClusterQueue without any Cohort.
@@ -176,20 +171,18 @@ func queueInadmissibleWorkloads(ctx context.Context, c *ClusterQueue, client cli
 		return 0
 	}
 	log.V(2).Info("Resetting the head of the ClusterQueue", "clusterQueue", c.name)
-	newInadmissibleWorkloads := make(inadmissibleWorkloads)
 	moved := 0
 	for key, wInfo := range c.inadmissibleWorkloads {
 		ns := corev1.Namespace{}
 		err := client.Get(ctx, types.NamespacedName{Name: wInfo.Obj.Namespace}, &ns)
 		if err != nil || !c.namespaceSelector.Matches(labels.Set(ns.Labels)) || !c.backoffWaitingTimeExpired(wInfo) {
-			newInadmissibleWorkloads.insert(key, wInfo)
-		} else if c.heap.PushIfNotPresent(wInfo) {
+			continue
+		}
+		if c.moveInadmissibleToHeap(key, wInfo) {
 			moved++
 		}
 	}
-
-	c.inadmissibleWorkloads.replaceAll(newInadmissibleWorkloads)
-	log.V(5).Info("Moved workloads from inadmissibleWorkloads back to heap", "clusterQueue", c.name, "workloadsMoved", moved, "workloadsNotMoved", len(c.inadmissibleWorkloads))
+	log.V(5).Info("Moved workloads from inadmissibleWorkloads back to heap", "clusterQueue", c.name, "workloadsMoved", moved, "workloadsNotMoved", c.inadmissibleWorkloads.len())
 	return moved
 }
 
