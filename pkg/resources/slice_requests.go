@@ -400,9 +400,12 @@ func (sr *SliceRequests) FloorToZero() {
 	}
 }
 
-func (r SliceRequests) Iter() iter.Seq2[corev1.ResourceName, int64] {
+func (r *SliceRequests) Iter() iter.Seq2[corev1.ResourceName, int64] {
 	return func(yield func(corev1.ResourceName, int64) bool) {
-		for _, req := range r {
+		if r == nil {
+			return
+		}
+		for _, req := range *r {
 			if !yield(req.name, req.value) {
 				return
 			}
