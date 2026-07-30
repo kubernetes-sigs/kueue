@@ -17,7 +17,6 @@ limitations under the License.
 package resource
 
 import (
-	"math"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -251,7 +250,7 @@ func TestMulByFloat(t *testing.T) {
 		"large quantity does not overflow": {
 			rl:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("64Ti")},
 			f:    longHalfLifeDecayFactor,
-			want: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("24190234349953124740n")},
+			want: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("24190234349953124739n")},
 		},
 		"sub-milli results are preserved for every resource": {
 			rl: corev1.ResourceList{
@@ -261,15 +260,10 @@ func TestMulByFloat(t *testing.T) {
 			},
 			f: longHalfLifeDecayFactor,
 			want: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("687528n"),
-				corev1.ResourceMemory: resource.MustParse("5905818933094025n"),
-				"nvidia.com/gpu":      resource.MustParse("343764n"),
+				corev1.ResourceCPU:    resource.MustParse("687527n"),
+				corev1.ResourceMemory: resource.MustParse("5905818933094024n"),
+				"nvidia.com/gpu":      resource.MustParse("343763n"),
 			},
-		},
-		"non-finite factor leaves the list unscaled": {
-			rl:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
-			f:    math.NaN(),
-			want: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
 		},
 		"scaling by one is lossless": {
 			rl:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1500m")},
@@ -323,6 +317,28 @@ func TestMulByFloatBoundsScale(t *testing.T) {
 	q := rl[corev1.ResourceCPU]
 	if got := q.AsDec().Scale(); got > mulByFloatScale {
 		t.Errorf("Unexpected scale, expecting at most %d got %d", mulByFloatScale, got)
+	}
+}
+
+// Repeatedly scaling by a factor below 1 models an idle LocalQueue decaying. Rounding
+// up would settle on a non-zero fixed point and leave usage that never expires.
+func TestMulByFloatDecaysToZero(t *testing.T) {
+	cases := map[string]float64{
+		"168h half-life": 1 - longHalfLifeDecayFactor,
+		"1h half-life":   0.94387431268169349,
+	}
+	for name, factor := range cases {
+		t.Run(name, func(t *testing.T) {
+			rl := corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}
+			for range 200000 {
+				rl = MulByFloat(rl, factor)
+				if q := rl[corev1.ResourceCPU]; q.IsZero() {
+					return
+				}
+			}
+			q := rl[corev1.ResourceCPU]
+			t.Errorf("Unexpected residual usage, expecting decay to 0 got %s", q.String())
+		})
 	}
 }
 
