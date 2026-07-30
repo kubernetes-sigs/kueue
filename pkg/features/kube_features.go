@@ -722,10 +722,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	RemoveFinalizersWithStrictPatch: {
 		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
 	},
-	SchedulerLongRequeueInterval: {
-	},
-	SchedulerTimestampPreemptionBuffer: {
-	},
 	TASReplaceNodeOnNodeTaints: {
 		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
 	},
@@ -739,6 +735,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	SchedulingEquivalenceHashing: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Beta},
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
+	},
+	SchedulerLongRequeueInterval: {
+	},
+	SchedulerTimestampPreemptionBuffer: {
 	},
 	CustomMetricLabels: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
