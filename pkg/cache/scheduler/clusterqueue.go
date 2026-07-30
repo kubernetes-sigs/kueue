@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/api"
 	utilmath "sigs.k8s.io/kueue/pkg/util/math"
 	"sigs.k8s.io/kueue/pkg/util/queue"
+	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -55,7 +56,7 @@ var (
 // holds admitted workloads.
 type clusterQueue struct {
 	Name              kueue.ClusterQueueReference
-	ResourceGroups    []ResourceGroup
+	ResourceGroups    []resourcegroups.ResourceGroup
 	Workloads         map[workload.Reference]*workload.Info
 	WorkloadsNotReady sets.Set[workload.Reference]
 	NamespaceSelector labels.Selector
@@ -216,10 +217,10 @@ func (c *clusterQueue) ConcurrentAdmissionEnabled() bool {
 	return c.ConcurrentAdmissionPolicy != nil
 }
 
-func createdResourceGroups(kueueRgs []kueue.ResourceGroup) []ResourceGroup {
-	rgs := make([]ResourceGroup, len(kueueRgs))
+func createdResourceGroups(kueueRgs []kueue.ResourceGroup) []resourcegroups.ResourceGroup {
+	rgs := make([]resourcegroups.ResourceGroup, len(kueueRgs))
 	for i, kueueRg := range kueueRgs {
-		rgs[i] = ResourceGroup{
+		rgs[i] = resourcegroups.ResourceGroup{
 			CoveredResources: sets.New(kueueRg.CoveredResources...),
 			Flavors:          make([]kueue.ResourceFlavorReference, 0, len(kueueRg.Flavors)),
 		}
@@ -439,7 +440,7 @@ func (c *clusterQueue) updateWithAdmissionChecks(log logr.Logger, checks map[kue
 				// - cannot use multiple MultiKueue AdmissionChecks on the same ClusterQueue
 				// - cannot use specify MultiKueue AdmissionCheck per flavor
 				multiKueueAdmissionChecks.Insert(acName)
-				if !flavors.Equal(AllFlavors(c.ResourceGroups)) {
+				if !flavors.Equal(resourcegroups.AllFlavors(c.ResourceGroups)) {
 					perFlavorMultiKueueChecks = append(perFlavorMultiKueueChecks, acName)
 				}
 			}

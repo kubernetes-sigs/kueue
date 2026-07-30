@@ -31,6 +31,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -238,7 +239,7 @@ func TestSnapshot(t *testing.T) {
 							"a": {
 								Name:                          "a",
 								AllocatableResourceGeneration: 2,
-								ResourceGroups: []ResourceGroup{
+								ResourceGroups: []resourcegroups.ResourceGroup{
 									{
 										CoveredResources: sets.New(corev1.ResourceCPU),
 										Flavors:          []kueue.ResourceFlavorReference{"demand", "spot"},
@@ -278,7 +279,7 @@ func TestSnapshot(t *testing.T) {
 							"b": {
 								Name:                          "b",
 								AllocatableResourceGeneration: 1,
-								ResourceGroups: []ResourceGroup{
+								ResourceGroups: []resourcegroups.ResourceGroup{
 									{
 										CoveredResources: sets.New(corev1.ResourceCPU),
 										Flavors:          []kueue.ResourceFlavorReference{"spot"},
@@ -340,7 +341,7 @@ func TestSnapshot(t *testing.T) {
 							"c": {
 								Name:                          "c",
 								AllocatableResourceGeneration: 1,
-								ResourceGroups: []ResourceGroup{
+								ResourceGroups: []resourcegroups.ResourceGroup{
 									{
 										CoveredResources: sets.New(corev1.ResourceCPU),
 										Flavors:          []kueue.ResourceFlavorReference{"default"},
@@ -498,7 +499,7 @@ func TestSnapshot(t *testing.T) {
 							"a": {
 								Name:                          "a",
 								AllocatableResourceGeneration: 2,
-								ResourceGroups: []ResourceGroup{
+								ResourceGroups: []resourcegroups.ResourceGroup{
 									{
 										CoveredResources: sets.New(corev1.ResourceCPU),
 										Flavors:          []kueue.ResourceFlavorReference{"arm", "x86"},
@@ -559,7 +560,7 @@ func TestSnapshot(t *testing.T) {
 							"b": {
 								Name:                          "b",
 								AllocatableResourceGeneration: 1,
-								ResourceGroups: []ResourceGroup{
+								ResourceGroups: []resourcegroups.ResourceGroup{
 									{
 										CoveredResources: sets.New(corev1.ResourceCPU),
 										Flavors:          []kueue.ResourceFlavorReference{"arm", "x86"},
@@ -640,7 +641,7 @@ func TestSnapshot(t *testing.T) {
 						"cq": {
 							Name:                          "cq",
 							AllocatableResourceGeneration: 2,
-							ResourceGroups: []ResourceGroup{
+							ResourceGroups: []resourcegroups.ResourceGroup{
 								{
 									CoveredResources: sets.New(corev1.ResourceCPU),
 									Flavors:          []kueue.ResourceFlavorReference{"arm", "x86"},
@@ -720,7 +721,7 @@ func TestSnapshot(t *testing.T) {
 						"cq-nocycle": {
 							Name:                          "cq-nocycle",
 							AllocatableResourceGeneration: 2,
-							ResourceGroups: []ResourceGroup{
+							ResourceGroups: []resourcegroups.ResourceGroup{
 								{
 									CoveredResources: sets.New(corev1.ResourceCPU),
 									Flavors:          []kueue.ResourceFlavorReference{"arm"},
@@ -817,7 +818,7 @@ func TestSnapshot(t *testing.T) {
 						"tas-cq": {
 							Name:                          "tas-cq",
 							AllocatableResourceGeneration: 2,
-							ResourceGroups: []ResourceGroup{
+							ResourceGroups: []resourcegroups.ResourceGroup{
 								{
 									CoveredResources: sets.New(corev1.ResourceCPU),
 									Flavors:          []kueue.ResourceFlavorReference{"tas-flavor"},
