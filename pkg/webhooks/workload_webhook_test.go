@@ -24,6 +24,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	metav1validation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -167,23 +168,29 @@ func TestValidateWorkload(t *testing.T) {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(
 					kueue.PodSet{
-						Name: "bad-labels",
+						Name:  "bad-metadata",
 						Count: 1,
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Labels: map[string]string{
-									"invalid/label/key/too/long/invalid": "val1",
-									"valid":                               "invalid value with spaces, test-wec1, test-wec2",
+									"valid": "invalid value with spaces, test-wec1",
+								},
+								Annotations: map[string]string{
+									"invalid/annotation/key/too/long/invalid": "val",
 								},
 							},
 						},
 					},
 				).
 				Obj(),
-			wantErr: metav1validation.ValidateLabels(map[string]string{
-				"invalid/label/key/too/long/invalid": "val1",
-				"valid":                               "invalid value with spaces, test-wec1, test-wec2",
-			}, podSetsPath.Index(0).Child("template", "metadata", "labels")).ToAggregate(),
+			wantErr: append(
+				metav1validation.ValidateLabels(map[string]string{
+					"valid": "invalid value with spaces, test-wec1",
+				}, podSetsPath.Index(0).Child("template", "metadata", "labels")),
+				apivalidation.ValidateAnnotations(map[string]string{
+					"invalid/annotation/key/too/long/invalid": "val",
+				}, podSetsPath.Index(0).Child("template", "metadata", "annotations"))...,
+			).ToAggregate(),
 		},
 		"should reject negative container resource limit": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -664,6 +671,8 @@ func TestValidateWorkload(t *testing.T) {
 
 func TestValidateWorkloadUpdate(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
+	specPath := field.NewPath("spec")
+	podSetsPath := specPath.Child("podSets")
 	testCases := map[string]struct {
 		featureGates map[featuregate.Feature]bool
 
@@ -702,6 +711,37 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				).
 				Obj(),
 			wantErr: nil,
+		},
+		"should reject invalid podSet template labels and annotations on update": {
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("driver", 1).Obj()).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					kueue.PodSet{
+						Name:  "driver",
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Labels: map[string]string{
+									"valid": "invalid value with spaces, test-wec1",
+								},
+								Annotations: map[string]string{
+									"invalid/annotation/key/too/long/invalid": "val",
+								},
+							},
+						},
+					},
+				).
+				Obj(),
+			wantErr: append(
+				metav1validation.ValidateLabels(map[string]string{
+					"valid": "invalid value with spaces, test-wec1",
+				}, podSetsPath.Index(0).Child("template", "metadata", "labels")),
+				apivalidation.ValidateAnnotations(map[string]string{
+					"invalid/annotation/key/too/long/invalid": "val",
+				}, podSetsPath.Index(0).Child("template", "metadata", "annotations"))...,
+			).ToAggregate(),
 		},
 		"reclaimable pod count cannot change down": {
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
