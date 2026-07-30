@@ -67,7 +67,7 @@ def calculate_thresholds(cluster_queue_data, workload_class_data):
     for cq_name, values in cluster_queue_data.items():
         if values:
             m = mean(values)
-            threshold = m  # Use mean directly
+            threshold = m * 0.90  # -10% (more conservative)
             thresholds['clusterQueueClassesMinUsage'][cq_name] = round(threshold, 1)
             print(f"  {cq_name}: mean={m:.1f}% → threshold={threshold:.1f}%")
     
