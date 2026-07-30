@@ -244,6 +244,23 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 	}
 
 	var admissionGatedByUpdated bool
+	var shouldUpdateReclaimablePods bool
+	var reclaimablePods []kueue.ReclaimablePod
+	if replicas > 0 && len(wl.Spec.PodSets) == 1 && wl.Spec.PodSets[0].Count != replicas {
+		if !workload.IsAdmitted(wl) {
+			wl.Spec.PodSets[0].Count = replicas
+			shouldUpdate = true
+		} else if replicas < wl.Spec.PodSets[0].Count {
+			shouldUpdateReclaimablePods = true
+			reclaimablePods = []kueue.ReclaimablePod{
+				{
+					Name:  wl.Spec.PodSets[0].Name,
+					Count: wl.Spec.PodSets[0].Count - replicas,
+				},
+			}
+		}
+	}
+
 	if features.Enabled(features.AdmissionGatedBy) {
 		admissionGatedByUpdated = jobframework.PropagateAdmissionGatedByAnnotation(sts, wl)
 		shouldUpdate = admissionGatedByUpdated || shouldUpdate
@@ -256,6 +273,12 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 	}
 	if admissionGatedByUpdated {
 		jobframework.RecordAdmissionGatedByUpdateEvent(r.record, sts)
+	}
+
+	if shouldUpdateReclaimablePods {
+		if err := workload.UpdateReclaimablePods(ctx, r.client, wl, reclaimablePods); err != nil {
+			return err
+		}
 	}
 
 	if shouldReleaseReservation {
