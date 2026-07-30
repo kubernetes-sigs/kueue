@@ -378,23 +378,6 @@ func BuildPodSetAnnotationsPathByNameMap(rayClusterSpec *rayv1.RayClusterSpec, h
 	return podSetAnnotationsPathByName
 }
 
-// ParsePodSetReplicaSizes parses the PodsetReplicaSizesAnnotation value into a map.
-// Returns an empty map if the annotation is absent or empty.
-func ParsePodSetReplicaSizes(annotation string) (map[kueue.PodSetReference]int32, error) {
-	counts := make(map[kueue.PodSetReference]int32)
-	if annotation == "" {
-		return counts, nil
-	}
-	var podSets []jobframework.PodSetReplicaSize
-	if err := json.Unmarshal([]byte(annotation), &podSets); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal %s annotation: %w", RayClusterPodsetReplicaSizesAnnotation, err)
-	}
-	for _, ps := range podSets {
-		counts[ps.Name] = ps.Count
-	}
-	return counts, nil
-}
-
 func GetWorkloadNameExtraPart(objectMeta metav1.Object) string {
 	extra := strconv.FormatInt(objectMeta.GetGeneration(), 10)
 	rayClusterGeneration := objectMeta.GetAnnotations()[RayClusterGenerationAnnotation]
@@ -415,6 +398,23 @@ func ComparePodSetCounts(podSets []kueue.PodSet, referenceCounts map[kueue.PodSe
 		}
 	}
 	return false
+}
+
+// ParsePodSetReplicaSizes parses the PodsetReplicaSizesAnnotation value into a map.
+// Returns an empty map if the annotation is absent or empty.
+func ParsePodSetReplicaSizes(annotation string) (map[kueue.PodSetReference]int32, error) {
+	counts := make(map[kueue.PodSetReference]int32)
+	if annotation == "" {
+		return counts, nil
+	}
+	var podSets []jobframework.PodSetReplicaSize
+	if err := json.Unmarshal([]byte(annotation), &podSets); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal %s annotation: %w", RayClusterPodsetReplicaSizesAnnotation, err)
+	}
+	for _, ps := range podSets {
+		counts[ps.Name] = ps.Count
+	}
+	return counts, nil
 }
 
 func GetWorkloadslicingRayClusterCustomAnnotations(ctx context.Context, c client.Client, jobObject client.Object, rayClusterName string) (map[string]string, error) {
