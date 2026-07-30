@@ -242,6 +242,8 @@ rules:
   - get
   - list
   - watch
+  - update
+  - patch
 - apiGroups:
   - ray.io
   resources:
