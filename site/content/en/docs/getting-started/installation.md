@@ -36,7 +36,7 @@ aliases:
 
 Make sure the following conditions are met:
 
-- A Kubernetes cluster with version 1.29 or newer is running. Learn how to [install the Kubernetes tools](https://kubernetes.io/docs/tasks/tools/).
+- A Kubernetes cluster is running; Version 1.34 or newer version is recommended as only such versions are officially supported and tested. Learn how to [install the Kubernetes tools](https://kubernetes.io/docs/tasks/tools/).
 - The kubectl command-line tool has communication with your cluster.
 
 Kueue publishes [metrics](/docs/reference/metrics) to monitor its operators.
