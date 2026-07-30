@@ -544,16 +544,21 @@ func (c *clusterQueue) reportActiveWorkloads() {
 	metrics.ReportReservingActiveWorkloads(c.Name, len(c.Workloads), clVals, c.roleTracker)
 }
 
+
+func (c *clusterQueue) reportAdmittedActiveWorkloads(wlRef workload.Reference, wl *kueue.Workload, incr int) {
+	metrics.ReportAdmittedActiveWorkloads(c.Name, incr, c.getLabelValuesFor(wlRef), c.roleTracker)
+
+	qKey := queue.KeyFromWorkload(wl)
+	if lq, ok := c.localQueues[qKey]; ok && lq.shouldExposeMetrics(c.lqMetrics) {
+		lqRef := metrics.LocalQueueReference{Name: wl.Spec.QueueName, Namespace: wl.Namespace}
+		metrics.ReportLocalQueueAdmittedActiveWorkloads(lqRef, incr, c.getLQLabelValuesFor(wlRef, string(qKey)), c.roleTracker)
+	}
+}
+
 func (c *clusterQueue) resyncAdmittedActiveWorkloads() {
 	for wlRef, wl := range c.Workloads {
 		if workload.IsActive(wl.Obj) && workload.IsAdmitted(wl.Obj) {
-			metrics.ReportAdmittedActiveWorkloads(c.Name, 1, c.getLabelValuesFor(wlRef), c.roleTracker)
-
-			qKey := queue.KeyFromWorkload(wl.Obj)
-			if lq, ok := c.localQueues[qKey]; ok && lq.shouldExposeMetrics(c.lqMetrics) {
-				lqRef := metrics.LocalQueueReference{Name: wl.Obj.Spec.QueueName, Namespace: wl.Obj.Namespace}
-				metrics.ReportLocalQueueAdmittedActiveWorkloads(lqRef, 1, c.getLQLabelValuesFor(wlRef, string(qKey)), c.roleTracker)
-			}
+			c.reportAdmittedActiveWorkloads(wlRef, wl.Obj, 1)
 		}
 	}
 }
@@ -619,13 +624,7 @@ func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, o
 		c.admittedWorkloadsCount += incr
 
 		wlRef := workload.Key(wi.Obj)
-		metrics.ReportAdmittedActiveWorkloads(c.Name, incr, c.getLabelValuesFor(wlRef), c.roleTracker)
-
-		qKey := queue.KeyFromWorkload(wi.Obj)
-		if lq, ok := c.localQueues[qKey]; ok && lq.shouldExposeMetrics(c.lqMetrics) {
-			lqRef := metrics.LocalQueueReference{Name: wi.Obj.Spec.QueueName, Namespace: wi.Obj.Namespace}
-			metrics.ReportLocalQueueAdmittedActiveWorkloads(lqRef, incr, c.getLQLabelValuesFor(wlRef, string(qKey)), c.roleTracker)
-		}
+		c.reportAdmittedActiveWorkloads(wlRef, wi.Obj, incr)
 	}
 	qKey := queue.KeyFromWorkload(wi.Obj)
 	if lq, ok := c.localQueues[qKey]; ok {
