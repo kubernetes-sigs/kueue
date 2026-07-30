@@ -44,6 +44,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/queue"
 	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
+	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
@@ -310,22 +311,11 @@ func (c *Cache) ClusterQueuesForResources(resourceNames sets.Set[corev1.Resource
 	defer c.RUnlock()
 	result := sets.New[kueue.ClusterQueueReference]()
 	for _, cq := range c.hm.ClusterQueues() {
-		if coversAnyResource(cq.ResourceGroups, resourceNames) {
+		if resourcegroups.CoversAnyResource(cq.ResourceGroups, resourceNames) {
 			result.Insert(cq.Name)
 		}
 	}
 	return result
-}
-
-func coversAnyResource(rgs []ResourceGroup, resourceNames sets.Set[corev1.ResourceName]) bool {
-	for _, rg := range rgs {
-		for name := range resourceNames {
-			if rg.CoveredResources.Has(name) {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func (c *Cache) TASCache() *tasCache {
@@ -1073,7 +1063,7 @@ func handleTASFlavor(rf *kueue.ResourceFlavor) bool {
 	return features.Enabled(features.TopologyAwareScheduling) && rf.Spec.TopologyName != nil
 }
 
-func (c *Cache) filterLocalQueueUsage(orig resources.FlavorResourceQuantities, resourceGroups []ResourceGroup) []kueue.LocalQueueFlavorUsage {
+func (c *Cache) filterLocalQueueUsage(orig resources.FlavorResourceQuantities, resourceGroups []resourcegroups.ResourceGroup) []kueue.LocalQueueFlavorUsage {
 	qFlvUsages := make([]kueue.LocalQueueFlavorUsage, 0, len(orig))
 	for _, rg := range resourceGroups {
 		for _, fName := range rg.Flavors {

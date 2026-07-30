@@ -44,6 +44,7 @@ import (
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/orderedgroups"
 	"sigs.k8s.io/kueue/pkg/util/podset"
+	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
@@ -1120,7 +1121,7 @@ func (a *FlavorAssigner) checkFlavorForPodSets(
 	flavorName kueue.ResourceFlavorReference,
 	psIDs []int,
 	podSets []*kueue.PodSet,
-	rg *schdcache.ResourceGroup,
+	rg *resourcegroups.ResourceGroup,
 ) *Status {
 	status := NewStatus()
 

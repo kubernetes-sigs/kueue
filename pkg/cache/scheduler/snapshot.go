@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
+	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -294,7 +295,7 @@ func (c *Cache) snapshotClusterQueue(
 	log := log.FromContext(ctx)
 	cc := &ClusterQueueSnapshot{
 		Name:                          cq.Name,
-		ResourceGroups:                make([]ResourceGroup, len(cq.ResourceGroups)),
+		ResourceGroups:                make([]resourcegroups.ResourceGroup, len(cq.ResourceGroups)),
 		FlavorFungibility:             cq.FlavorFungibility,
 		FairWeight:                    cq.FairWeight,
 		AllocatableResourceGeneration: cq.AllocatableResourceGeneration,

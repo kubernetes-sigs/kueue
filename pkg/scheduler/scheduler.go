@@ -55,6 +55,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
+	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	"sigs.k8s.io/kueue/pkg/util/wait"
@@ -1186,14 +1187,6 @@ const (
 	subtract
 )
 
-func allCoveredResources(resourceGroups []schdcache.ResourceGroup) sets.Set[corev1.ResourceName] {
-	covered := sets.New[corev1.ResourceName]()
-	for _, rg := range resourceGroups {
-		covered = covered.Union(rg.CoveredResources)
-	}
-	return covered
-}
-
 // filterByNames returns a new ResourceList containing only resources whose names
 // are in the allowed set.
 func filterByNames(requests corev1.ResourceList, allowed sets.Set[corev1.ResourceName]) corev1.ResourceList {
@@ -1211,7 +1204,7 @@ func (s *Scheduler) updateEntryPenalty(log logr.Logger, e *entry, op usageOp) {
 	lqObjRef := klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName))
 	totalRequests := e.SumTotalRequests(s.resourceFormatter)
 	if flavorassigner.IgnoreUndeclaredResources(s.quotaCheckStrategy) {
-		totalRequests = filterByNames(totalRequests, allCoveredResources(e.clusterQueueSnapshot.ResourceGroups))
+		totalRequests = filterByNames(totalRequests, resourcegroups.AllCoveredResources(e.clusterQueueSnapshot.ResourceGroups))
 	}
 	penalty := afs.CalculateEntryPenalty(totalRequests, s.admissionFairSharing)
 
