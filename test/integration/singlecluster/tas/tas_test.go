@@ -535,6 +535,10 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				util.MustCreate(ctx, k8sClient, wl2)
 				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl2)
 			})
+
+			ginkgo.By("verifying the pending workload is also retried and admitted", func() {
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+			})
 		})
 	})
 
