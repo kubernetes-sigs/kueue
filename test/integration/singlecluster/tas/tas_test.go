@@ -3621,7 +3621,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 							*utiltestingapi.MakePodSet("leader", 1).
 								PodSetGroup("group").
 								PreferredTopologyRequest(utiltesting.DefaultRackTopologyLevel).
-								SliceRequiredTopologyRequest(corev1.LabelHostname).
+								// Leader slice settings are not required for grouped leader-worker placement.
+								// Workers drive slice topology, while leader is handled as a reserved slot.
 								Request("nvidia.com/gpu", "1").
 								Obj(),
 							*utiltestingapi.MakePodSet("worker", 30).
