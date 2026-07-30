@@ -596,7 +596,7 @@ func (c *clusterQueue) reportWeightedShare(cohort kueue.CohortReference) {
 // and the number of admitted workloads for local queues.
 func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, op usageOp) {
 	admitted := workload.IsAdmitted(wi.Obj)
-	frUsage := wi.FlavorResourceUsage()
+	frUsage := wi.ResourceUsage().Assigned
 	for fr, q := range frUsage {
 		if op == add {
 			addUsage(c, fr, q)
@@ -684,7 +684,7 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 	qImpl.resetFlavorsAndResources(c.resourceNode.Usage, c.AdmittedUsage)
 	for _, wl := range c.Workloads {
 		if workloadBelongsToLocalQueue(wl.Obj, q) {
-			frq := wl.FlavorResourceUsage()
+			frq := wl.ResourceUsage().Assigned
 			updateFlavorUsage(frq, qImpl.totalReserved, add)
 			qImpl.reservingWorkloads++
 			if workload.IsAdmitted(wl.Obj) {

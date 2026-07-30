@@ -610,7 +610,7 @@ type entry struct {
 }
 
 func (e *entry) assignmentUsage(log logr.Logger) workload.Usage {
-	return netUsage(log, e, e.assignment.Usage.Quota)
+	return netUsage(log, e, e.assignment.Usage.Quota.Assigned)
 }
 
 func (e *entry) readResourceToFlavorMapping() workload.PodSetResourcesToFlavors {
@@ -718,17 +718,17 @@ func netUsage(log logr.Logger, e *entry, netQuota resources.FlavorResourceQuanti
 		result.TAS = e.assignment.ComputeTASNetUsage(log, e.clusterQueueSnapshot, &e.Info, e.Obj.Status.Admission)
 	}
 	if !workload.HasQuotaReservation(e.Obj) {
-		result.Quota = netQuota
+		result.Quota.Assigned = netQuota
 	}
 	return result
 }
 
 func quotaResourcesToReserve(e *entry, cq *schdcache.ClusterQueueSnapshot) resources.FlavorResourceQuantities {
 	if e.assignment.RepresentativeMode() != flavorassigner.Preempt {
-		return e.assignment.Usage.Quota
+		return e.assignment.Usage.Quota.Assigned
 	}
 	reservedUsage := make(resources.FlavorResourceQuantities)
-	for fr, usage := range e.assignment.Usage.Quota {
+	for fr, usage := range e.assignment.Usage.Quota.Assigned {
 		cqQuota := cq.QuotaFor(fr)
 		if e.assignment.Borrowing > 0 {
 			if cqQuota.BorrowingLimit == nil {

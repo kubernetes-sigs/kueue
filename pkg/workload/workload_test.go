@@ -1272,13 +1272,16 @@ func TestAssignmentClusterQueueState(t *testing.T) {
 	}
 }
 
-func TestFlavorResourceUsage(t *testing.T) {
+func TestResourceUsage(t *testing.T) {
 	cases := map[string]struct {
 		info *Info
-		want resources.FlavorResourceQuantities
+		want ResourceUsage
 	}{
 		"nil": {
-			want: resources.FlavorResourceQuantities{},
+			want: ResourceUsage{
+				Assigned:   resources.FlavorResourceQuantities{},
+				Unassigned: resources.MapRequests{},
+			},
 		},
 		"one podset, no flavors": {
 			info: &Info{
@@ -1289,9 +1292,12 @@ func TestFlavorResourceUsage(t *testing.T) {
 					}),
 				}},
 			},
-			want: resources.FlavorResourceQuantities{
-				{Flavor: "", Resource: "cpu"}:             resources.NewAmount(1_000),
-				{Flavor: "", Resource: "example.com/gpu"}: resources.NewAmount(3),
+			want: ResourceUsage{
+				Assigned: resources.FlavorResourceQuantities{},
+				Unassigned: resources.MapRequests{
+					"cpu":             1_000,
+					"example.com/gpu": 3,
+				},
 			},
 		},
 		"one podset, multiple flavors": {
@@ -1307,9 +1313,12 @@ func TestFlavorResourceUsage(t *testing.T) {
 					},
 				}},
 			},
-			want: resources.FlavorResourceQuantities{
-				{Flavor: "default", Resource: "cpu"}:         resources.NewAmount(1_000),
-				{Flavor: "gpu", Resource: "example.com/gpu"}: resources.NewAmount(3),
+			want: ResourceUsage{
+				Assigned: resources.FlavorResourceQuantities{
+					{Flavor: "default", Resource: "cpu"}:         resources.NewAmount(1_000),
+					{Flavor: "gpu", Resource: "example.com/gpu"}: resources.NewAmount(3),
+				},
+				Unassigned: resources.MapRequests{},
 			},
 		},
 		"multiple podsets, multiple flavors": {
@@ -1345,17 +1354,20 @@ func TestFlavorResourceUsage(t *testing.T) {
 					},
 				},
 			},
-			want: resources.FlavorResourceQuantities{
-				{Flavor: "default", Resource: "cpu"}:             resources.NewAmount(3_000),
-				{Flavor: "default", Resource: "memory"}:          resources.NewAmount(2 * utiltesting.Gi),
-				{Flavor: "model_a", Resource: "example.com/gpu"}: resources.NewAmount(3),
-				{Flavor: "model_b", Resource: "example.com/gpu"}: resources.NewAmount(1),
+			want: ResourceUsage{
+				Assigned: resources.FlavorResourceQuantities{
+					{Flavor: "default", Resource: "cpu"}:             resources.NewAmount(3_000),
+					{Flavor: "default", Resource: "memory"}:          resources.NewAmount(2 * utiltesting.Gi),
+					{Flavor: "model_a", Resource: "example.com/gpu"}: resources.NewAmount(3),
+					{Flavor: "model_b", Resource: "example.com/gpu"}: resources.NewAmount(1),
+				},
+				Unassigned: resources.MapRequests{},
 			},
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got := tc.info.FlavorResourceUsage()
+			got := tc.info.ResourceUsage()
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("info.ResourceUsage() returned (-want,+got):\n%s", diff)
 			}

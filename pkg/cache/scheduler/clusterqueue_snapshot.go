@@ -105,14 +105,14 @@ func (c *ClusterQueueSnapshot) SimulateUsageRemoval(usage workload.Usage) func()
 }
 
 func (c *ClusterQueueSnapshot) AddUsage(usage workload.Usage) {
-	for fr, q := range usage.Quota {
+	for fr, q := range usage.Quota.Assigned {
 		addUsage(c, fr, q)
 	}
 	c.updateTASUsage(usage.TAS, add)
 }
 
 func (c *ClusterQueueSnapshot) RemoveUsage(usage workload.Usage) {
-	for fr, q := range usage.Quota {
+	for fr, q := range usage.Quota.Assigned {
 		removeUsage(c, fr, q)
 	}
 	c.updateTASUsage(usage.TAS, subtract)
@@ -132,7 +132,7 @@ func (c *ClusterQueueSnapshot) updateTASUsage(usage workload.TASUsage, op usageO
 }
 
 func (c *ClusterQueueSnapshot) Fits(usage workload.Usage) FitsCheck {
-	for fr, q := range usage.Quota {
+	for fr, q := range usage.Quota.Assigned {
 		if c.Available(fr).Cmp(q) < 0 {
 			return FitsCheckNoQuota
 		}
