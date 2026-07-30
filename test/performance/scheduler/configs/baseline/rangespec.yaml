@@ -12,7 +12,7 @@ cmd:
 # Cluster Queue utilization targets (minimum)
 # Threshold: mean, rounded to 0.1%
 clusterQueueClassesMinUsage:
-  cq: 59.4
+  cq: 52.8
 
 # Workload admission time limits
 # Threshold: mean + 20% rounded up to nearest 1000ms
