@@ -28,6 +28,25 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 )
 
+type ReconcilerWithFollowerObserver interface {
+	reconcile.Reconciler
+	Observe(ctx context.Context, req reconcile.Request) (reconcile.Result, error)
+}
+
+type leaderAwareReconcilerObserver struct {
+	elected  <-chan struct{}
+	delegate ReconcilerWithFollowerObserver
+}
+
+func (r *leaderAwareReconcilerObserver) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+	select {
+	case <-r.elected:
+		return r.delegate.Reconcile(ctx, req)
+	default:
+		return r.delegate.Observe(ctx, req)
+	}
+}
+
 // WithLeadingManager returns a decorating reconcile.Reconciler that discards reconciliation requests
 // for the controllers that are started with the controller.Options.NeedLeaderElection
 // option set to false in non-leading replicas.
@@ -54,6 +73,13 @@ func WithLeadingManager(mgr ctrl.Manager, reconciler reconcile.Reconciler, obj c
 		delegate:        reconciler,
 		object:          obj,
 		requeueDuration: cfg.LeaderElection.LeaseDuration.Duration,
+	}
+}
+
+func WithLeadingManagerObserver(mgr ctrl.Manager, reconciler ReconcilerWithFollowerObserver) reconcile.Reconciler {
+	return &leaderAwareReconcilerObserver{
+		elected:  mgr.Elected(),
+		delegate: reconciler,
 	}
 }
 

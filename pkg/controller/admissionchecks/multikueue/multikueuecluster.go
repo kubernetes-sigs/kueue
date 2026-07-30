@@ -64,6 +64,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -787,7 +788,7 @@ func (c *clustersReconciler) controllerFor(acName string) (*remoteClient, bool) 
 	return rc, f
 }
 
-func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+func (c *clustersReconciler) doReconcile(ctx context.Context, req reconcile.Request, isLeader bool) (reconcile.Result, error) {
 	cluster := &kueue.MultiKueueCluster{}
 
 	err := c.localClient.Get(ctx, req.NamespacedName, cluster)
@@ -799,14 +800,15 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 	log.V(2).Info("Reconcile MultiKueueCluster")
 
 	// Warn about deprecated Path usage when the validation feature gate is off.
-	if cluster.Spec.ClusterSource.KubeConfig != nil &&
-		cluster.Spec.ClusterSource.KubeConfig.LocationType == kueue.PathLocationType &&
-		!features.Enabled(features.MultiKueueKubeConfigPathValidation) {
-		c.recorder.Eventf(cluster, nil, corev1.EventTypeWarning, "DeprecatedPathUsage", "DeprecatedPathUsage",
-			"Using locationType=Path without MultiKueueKubeConfigPathValidation feature gate is deprecated and will be removed in a future release. "+
-				"Enable the MultiKueueKubeConfigPathValidation feature gate and place kubeconfig files under /etc/multikueue/kubeconfigs/.")
+	if isLeader {
+		if cluster.Spec.ClusterSource.KubeConfig != nil &&
+			cluster.Spec.ClusterSource.KubeConfig.LocationType == kueue.PathLocationType &&
+			!features.Enabled(features.MultiKueueKubeConfigPathValidation) {
+			c.recorder.Eventf(cluster, nil, corev1.EventTypeWarning, "DeprecatedPathUsage", "DeprecatedPathUsage",
+				"Using locationType=Path without MultiKueueKubeConfigPathValidation feature gate is deprecated and will be removed in a future release. "+
+					"Enable the MultiKueueKubeConfigPathValidation feature gate and place kubeconfig files under /etc/multikueue/kubeconfigs/.")
+		}
 	}
-
 	if err != nil || !cluster.DeletionTimestamp.IsZero() {
 		c.stopAndRemoveCluster(req.Name)
 		return reconcile.Result{}, nil //nolint:nilerr // nil is intentional, as either the cluster is deleted, or not found
@@ -816,8 +818,10 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 	if err != nil {
 		log.Error(err, "loading client config failed")
 		c.disconnectCluster(req.Name)
-		if updateErr := c.updateStatus(ctx, cluster, false, reason, fmt.Sprintf("load client config failed: %v", err)); updateErr != nil {
-			return reconcile.Result{}, fmt.Errorf("failed to update MultiKueueCluster status: %w after failing to load client config: %w", updateErr, err)
+		if isLeader {
+			if updateErr := c.updateStatus(ctx, cluster, false, reason, fmt.Sprintf("load client config failed: %v", err)); updateErr != nil {
+				return reconcile.Result{}, fmt.Errorf("failed to update MultiKueueCluster status: %w after failing to load client config: %w", updateErr, err)
+			}
 		}
 		// Skip triggering another reconciliation without config present,
 		// it will be triggered again when the ClusterProfile or the Secret gets created
@@ -830,16 +834,29 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 	if retryAfter, err := c.setRemoteClientConfig(ctx, cluster.Name, clientConfig, c.origin); err != nil {
 		log.Error(err, "setting client config", "retryAfter", retryAfter)
 		c.disconnectCluster(req.Name)
-		if err := c.updateStatus(ctx, cluster, false, "ClientConnectionFailed", err.Error()); err != nil {
-			return reconcile.Result{}, err
-		} else {
-			return reconcile.Result{RequeueAfter: ptr.Deref(retryAfter, 0)}, nil
+		if isLeader {
+			if err := c.updateStatus(ctx, cluster, false, "ClientConnectionFailed", err.Error()); err != nil {
+				return reconcile.Result{}, err
+			}
 		}
+		return reconcile.Result{RequeueAfter: ptr.Deref(retryAfter, 0)}, nil
 	} else if retryAfter != nil {
 		return reconcile.Result{RequeueAfter: ptr.Deref(retryAfter, 0)}, nil
 	}
 
-	return reconcile.Result{}, client.IgnoreNotFound(c.updateStatus(ctx, cluster, true, "Active", "Connected"))
+	if isLeader {
+		return reconcile.Result{}, client.IgnoreNotFound(c.updateStatus(ctx, cluster, true, "Active", "Connected"))
+	}
+
+	return reconcile.Result{}, nil
+}
+
+func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+	return c.doReconcile(ctx, req, true)
+}
+
+func (c *clustersReconciler) Observe(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+	return c.doReconcile(ctx, req, false)
 }
 
 func (c *clustersReconciler) loadClientConfig(ctx context.Context, cluster *kueue.MultiKueueCluster) (*clientConfig, string, error) {
@@ -1182,7 +1199,8 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 		WatchesRawSource(source.Channel(c.fsWatcher.reconcile, fsWatcherHndl)).
 		WithEventFilter(c).
 		WithOptions(controller.Options{
-			LogConstructor: roletracker.NewLogConstructor(c.roleTracker, "multikueue-cluster"),
+			NeedLeaderElection: new(false),
+			LogConstructor:     roletracker.NewLogConstructor(c.roleTracker, "multikueue-cluster"),
 		})
 	if features.Enabled(features.MultiKueueClusterProfile) {
 		systemNamespacePredicate := predicate.NewPredicateFuncs(func(obj client.Object) bool {
@@ -1193,7 +1211,7 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 			Watches(&inventoryv1alpha1.ClusterProfile{}, &clusterProfileHandler{client: c.localClient}, builder.WithPredicates(systemNamespacePredicate))
 	}
 
-	return controllerBuilder.Complete(c)
+	return controllerBuilder.Complete(core.WithLeadingManagerObserver(mgr, c))
 }
 
 func (c *clustersReconciler) Generic(e event.GenericEvent) bool {

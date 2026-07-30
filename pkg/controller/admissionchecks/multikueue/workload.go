@@ -47,6 +47,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -182,7 +183,7 @@ func (g *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error
 	return nil
 }
 
-func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+func (w *wlReconciler) doReconcile(ctx context.Context, req reconcile.Request, isLeader bool) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile Workload")
 
@@ -232,7 +233,10 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		} else {
 			rejectionMessage = "No multikueue adapter found"
 		}
-		return reconcile.Result{}, w.updateACS(ctx, wl, mkAc, kueue.CheckStateRejected, rejectionMessage)
+		if isLeader {
+			return reconcile.Result{}, w.updateACS(ctx, wl, mkAc, kueue.CheckStateRejected, rejectionMessage)
+		}
+		return reconcile.Result{}, nil
 	}
 
 	// If the workload is deleted there is a chance that it's owner is also deleted. In that case
@@ -244,7 +248,10 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		}
 
 		if !managed {
-			return reconcile.Result{}, w.updateACS(ctx, wl, mkAc, kueue.CheckStateRejected, fmt.Sprintf("The owner is not managed by Kueue: %s", unmanagedReason))
+			if isLeader {
+				return reconcile.Result{}, w.updateACS(ctx, wl, mkAc, kueue.CheckStateRejected, fmt.Sprintf("The owner is not managed by Kueue: %s", unmanagedReason))
+			}
+			return reconcile.Result{}, nil
 		}
 	}
 
@@ -254,10 +261,12 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	}
 
 	if isDeleted {
-		for cluster := range grp.remotes {
-			err := grp.RemoveRemoteObjects(ctx, cluster)
-			if err != nil {
-				return reconcile.Result{}, err
+		if isLeader {
+			for cluster := range grp.remotes {
+				err := grp.RemoveRemoteObjects(ctx, cluster)
+				if err != nil {
+					return reconcile.Result{}, err
+				}
 			}
 		}
 		// Remote workloads on unavailable clusters will be cleaned up by
@@ -266,7 +275,19 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		return reconcile.Result{}, nil
 	}
 
+	if !isLeader {
+		return reconcile.Result{}, nil
+	}
+
 	return w.reconcileGroup(ctx, grp)
+}
+
+func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+	return w.doReconcile(ctx, req, true)
+}
+
+func (w *wlReconciler) Observe(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+	return w.doReconcile(ctx, req, false)
 }
 
 func (w *wlReconciler) updateACS(ctx context.Context, wl *kueue.Workload, acs *kueue.AdmissionCheckState, status kueue.CheckState, message string) error {
@@ -1079,9 +1100,10 @@ func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 		Watches(&kueue.MultiKueueConfig{}, &configHandler{client: w.client, eventsBatchPeriod: w.eventsBatchPeriod}).
 		WithEventFilter(w).
 		WithOptions(controller.Options{
-			LogConstructor: roletracker.NewLogConstructor(w.roleTracker, "multikueue-workload"),
+			NeedLeaderElection: new(false),
+			LogConstructor:     roletracker.NewLogConstructor(w.roleTracker, "multikueue-workload"),
 		}).
-		Complete(w)
+		Complete(core.WithLeadingManagerObserver(mgr, w))
 }
 
 func findPodSetAssignment(assignments []kueue.PodSetAssignment, name kueue.PodSetReference) *kueue.PodSetAssignment {
