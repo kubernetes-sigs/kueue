@@ -197,14 +197,14 @@ type JobWithManagedBy interface {
 // by generic jobs when custom annotations need to be updated in the API server
 // after changes occur.
 //
-// For example, RayJob may have the "kueue.x-k8s.io/podset-replica-sizes"
-// annotation, which reflects the current replica sizes of the underlying
-// RayCluster. The job reconciler calls GetCustomAnnotations to update
-// such annotations in the API server.
+// For example, RayJob may have the "kueue.x-k8s.io/raycluster-generation"
+// annotation, which reflects the generation of the underlying RayCluster.
+// The job reconciler calls GetCustomAnnotations to update such annotations
+// in the API server.
 type JobWithCustomAnnotations interface {
 	// GetCustomAnnotations returns additional annotations
 	// that should be added to the job.
-	GetCustomAnnotations(ctx context.Context, c client.Client, podSets []kueue.PodSet) (map[string]string, error)
+	GetCustomAnnotations(ctx context.Context, c client.Client) (map[string]string, error)
 }
 
 // ElasticWorkloadNameProvider is an optional interface that provides additional
