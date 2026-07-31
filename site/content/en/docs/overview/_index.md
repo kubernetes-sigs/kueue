@@ -60,3 +60,5 @@ A core design principle for Kueue is to avoid duplicating mature functionality i
 To learn more about Kueue concepts, see the [concepts](/docs/concepts) section.
 
 To learn about different Kueue personas and what you can do with Kueue, see the [tasks](/docs/tasks) section.
+
+[Intentional broken link for CI validation](/docs/intentional-broken-link/)
