@@ -376,7 +376,7 @@ func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []
 			"name":            ps.Name,
 			"spec":            utilpod.SpecShape(&ps.Template.Spec),
 			"count":           effectiveCount,
-			"requests":        resources.ToMapRequests(effectiveRequests),
+			"requests":        resources.ToMap(effectiveRequests),
 			"minCount":        ps.MinCount,
 			"topologyRequest": ps.TopologyRequest,
 		})
@@ -410,27 +410,35 @@ func (i *Info) CanBePartiallyAdmitted() bool {
 // quota and TAS usage.
 func (i *Info) Usage() Usage {
 	return Usage{
-		Quota: i.FlavorResourceUsage(),
+		Quota: i.ResourceUsage(),
 		TAS:   i.TASUsage(),
 	}
 }
 
-// FlavorResourceUsage returns the total resource usage for the workload,
-// per flavor (if assigned, otherwise flavor shows as empty string), per resource.
-func (i *Info) FlavorResourceUsage() resources.FlavorResourceQuantities {
-	total := make(resources.FlavorResourceQuantities)
+// ResourceUsage returns the total resource usage for the workload,
+// separating assigned flavors and unassigned requests.
+func (i *Info) ResourceUsage() ResourceUsage {
+	ru := ResourceUsage{
+		Assigned:   make(resources.FlavorResourceQuantities),
+		Unassigned: make(resources.MapRequests),
+	}
 	if i == nil {
-		return total
+		return ru
 	}
 	for _, psReqs := range i.TotalRequests {
 		if psReqs.Requests != nil {
 			psReqs.Requests.ForEach(func(res corev1.ResourceName, q int64) {
 				flv := psReqs.Flavors[res]
-				total[resources.FlavorResource{Flavor: flv, Resource: res}] = total[resources.FlavorResource{Flavor: flv, Resource: res}].AddInt64(q)
+				if flv == "" {
+					ru.Unassigned[res] += q
+				} else {
+					fr := resources.FlavorResource{Flavor: flv, Resource: res}
+					ru.Assigned[fr] = ru.Assigned[fr].AddInt64(q)
+				}
 			})
 		}
 	}
-	return total
+	return ru
 }
 
 func dropExcludedResources(input corev1.ResourceList, excludedPrefixes []string) corev1.ResourceList {

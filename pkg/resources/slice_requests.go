@@ -19,6 +19,7 @@ package resources
 import (
 	"cmp"
 	"hash/fnv"
+	"iter"
 	"math"
 	"slices"
 	"strings"
@@ -104,8 +105,8 @@ func ResourceListToSliceRequests(rl corev1.ResourceList) SliceRequests {
 	return sr
 }
 
-// ToMapRequests converts a SliceRequests back to a MapRequests map.
-func (sr *SliceRequests) ToMapRequests() MapRequests {
+// ToMap converts a SliceRequests back to a MapRequests map.
+func (sr *SliceRequests) ToMap() map[corev1.ResourceName]int64 {
 	if sr.IsEmpty() {
 		return nil
 	}
@@ -396,5 +397,18 @@ func (sr *SliceRequests) FloorToZero() {
 	}
 	for i := range *sr {
 		(*sr)[i].value = max((*sr)[i].value, 0)
+	}
+}
+
+func (r *SliceRequests) Iter() iter.Seq2[corev1.ResourceName, int64] {
+	return func(yield func(corev1.ResourceName, int64) bool) {
+		if r == nil {
+			return
+		}
+		for _, req := range *r {
+			if !yield(req.name, req.value) {
+				return
+			}
+		}
 	}
 }

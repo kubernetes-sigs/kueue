@@ -79,6 +79,7 @@ import (
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	"sigs.k8s.io/kueue/pkg/util/cert"
+	utildra "sigs.k8s.io/kueue/pkg/util/dra"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utillogging "sigs.k8s.io/kueue/pkg/util/logging"
@@ -373,7 +374,9 @@ func main() {
 	}
 	queues := qcache.NewManager(mgr.GetClient(), cCache, requeuer, queueOptions...)
 
-	if err := setupIndexes(ctx, mgr, &cfg); err != nil {
+	resourceSliceAPIAvailable := utildra.CheckResourceSliceAPIAvailable(mgr)
+
+	if err := setupIndexes(ctx, mgr, &cfg, resourceSliceAPIAvailable); err != nil {
 		setupLog.Error(err, "Unable to setup indexes")
 		os.Exit(1)
 	}
@@ -406,12 +409,13 @@ func main() {
 	}
 
 	controllerOpts := core.SetupControllersOpts{
-		RoleTracker:            roleTracker,
-		PreemptionExpectations: preemptionExpectations,
-		CustomLabels:           customLabels,
-		DRAMapper:              draMapper,
-		DRABackedResources:     draBackedResources,
-		ResourceFormatter:      resourceFormatter,
+		RoleTracker:               roleTracker,
+		PreemptionExpectations:    preemptionExpectations,
+		CustomLabels:              customLabels,
+		DRAMapper:                 draMapper,
+		DRABackedResources:        draBackedResources,
+		ResourceFormatter:         resourceFormatter,
+		ResourceSliceAPIAvailable: resourceSliceAPIAvailable,
 	}
 	if err := setupControllers(ctx, mgr, cCache, queues, &cfg, serverVersionFetcher, controllerOpts); err != nil {
 		setupLog.Error(err, "Unable to setup controllers")
@@ -447,7 +451,7 @@ func main() {
 	}
 }
 
-func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configuration) error {
+func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configuration, resourceSliceAPIAvailable bool) error {
 	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 	if err != nil {
 		return err
@@ -475,7 +479,7 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 		}
 	}
 
-	if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) || features.Enabled(features.KueueDRAIntegrationConsumableCapacity) {
+	if resourceSliceAPIAvailable {
 		if err := core.SetupResourceSliceIndexer(ctx, mgr.GetFieldIndexer()); err != nil {
 			return fmt.Errorf("could not setup ResourceSlice indexer: %w", err)
 		}

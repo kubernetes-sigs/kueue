@@ -96,7 +96,7 @@ func determineCapacityForPodSet(
 		}
 
 		for reqIdx, req := range spec.Devices.Requests {
-			if req.Exactly == nil {
+			if req.Exactly == nil || isAdminAccessRequest(req.Exactly) {
 				continue
 			}
 			deviceClass := corev1.ResourceName(req.Exactly.DeviceClassName)

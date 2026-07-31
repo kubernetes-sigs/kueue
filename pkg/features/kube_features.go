@@ -514,6 +514,11 @@ const (
 	//
 	// Rejects Workloads with negative container or pod-level resource requests/limits.
 	WorkloadValidateResourcesAreNonNegative featuregate.Feature = "WorkloadValidateResourcesAreNonNegative"
+
+	// owner: mszadkow
+	//
+	// Rejects Workloads with non-positive TAS slice sizes in PodSet topology requests.
+	TASValidateWorkloadSliceSize featuregate.Feature = "TASValidateWorkloadSliceSize"
 )
 
 func init() {
@@ -644,7 +649,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	// PropagateBatchJobLabelsToWorkload is enabled from 0.13.10 and 0.14.5.
 	PropagateBatchJobLabelsToWorkload: {
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
-		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.19
 	},
 	MultiKueueClusterProfile: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
@@ -790,6 +794,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	WorkloadValidateResourcesAreNonNegative: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	TASValidateWorkloadSliceSize: {
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.21
 	},
 }
 

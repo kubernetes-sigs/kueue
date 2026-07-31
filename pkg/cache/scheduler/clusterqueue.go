@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/api"
 	utilmath "sigs.k8s.io/kueue/pkg/util/math"
 	"sigs.k8s.io/kueue/pkg/util/queue"
+	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -55,7 +56,7 @@ var (
 // holds admitted workloads.
 type clusterQueue struct {
 	Name              kueue.ClusterQueueReference
-	ResourceGroups    []ResourceGroup
+	ResourceGroups    []resourcegroups.ResourceGroup
 	Workloads         map[workload.Reference]*workload.Info
 	WorkloadsNotReady sets.Set[workload.Reference]
 	NamespaceSelector labels.Selector
@@ -216,10 +217,10 @@ func (c *clusterQueue) ConcurrentAdmissionEnabled() bool {
 	return c.ConcurrentAdmissionPolicy != nil
 }
 
-func createdResourceGroups(kueueRgs []kueue.ResourceGroup) []ResourceGroup {
-	rgs := make([]ResourceGroup, len(kueueRgs))
+func createdResourceGroups(kueueRgs []kueue.ResourceGroup) []resourcegroups.ResourceGroup {
+	rgs := make([]resourcegroups.ResourceGroup, len(kueueRgs))
 	for i, kueueRg := range kueueRgs {
-		rgs[i] = ResourceGroup{
+		rgs[i] = resourcegroups.ResourceGroup{
 			CoveredResources: sets.New(kueueRg.CoveredResources...),
 			Flavors:          make([]kueue.ResourceFlavorReference, 0, len(kueueRg.Flavors)),
 		}
@@ -439,7 +440,7 @@ func (c *clusterQueue) updateWithAdmissionChecks(log logr.Logger, checks map[kue
 				// - cannot use multiple MultiKueue AdmissionChecks on the same ClusterQueue
 				// - cannot use specify MultiKueue AdmissionCheck per flavor
 				multiKueueAdmissionChecks.Insert(acName)
-				if !flavors.Equal(AllFlavors(c.ResourceGroups)) {
+				if !flavors.Equal(resourcegroups.AllFlavors(c.ResourceGroups)) {
 					perFlavorMultiKueueChecks = append(perFlavorMultiKueueChecks, acName)
 				}
 			}
@@ -561,21 +562,21 @@ func (c *clusterQueue) reportResourceMetrics(fairSharingEnabled bool) {
 	clVals := c.GetCustomLabelValues()
 	for fr, quota := range c.resourceNode.Quotas {
 		fName, rName := string(fr.Flavor), string(fr.Resource)
-		nominal := resourceFloat(c.resourceFormatter, fr.Resource, quota.Nominal.Int64())
+		nominal := quota.Nominal.AsApproximateFloat64(fr.Resource)
 		var borrowing, lending float64
 		if quota.BorrowingLimit == nil {
 			borrowing = math.Inf(1)
 		} else {
-			borrowing = resourceFloat(c.resourceFormatter, fr.Resource, quota.BorrowingLimit.Int64())
+			borrowing = quota.BorrowingLimit.AsApproximateFloat64(fr.Resource)
 		}
 		if quota.LendingLimit == nil {
 			lending = math.Inf(1)
 		} else {
-			lending = resourceFloat(c.resourceFormatter, fr.Resource, quota.LendingLimit.Int64())
+			lending = quota.LendingLimit.AsApproximateFloat64(fr.Resource)
 		}
 		metrics.ReportClusterQueueQuotas(cohort, cqName, fName, rName, nominal, borrowing, lending, clVals, c.roleTracker)
-		metrics.ReportClusterQueueResourceReservations(cohort, cqName, fName, rName, resourceFloat(c.resourceFormatter, fr.Resource, c.resourceNode.Usage[fr].Int64()), clVals, c.roleTracker)
-		metrics.ReportClusterQueueResourceUsage(cohort, cqName, fName, rName, resourceFloat(c.resourceFormatter, fr.Resource, c.AdmittedUsage[fr].Int64()), clVals, c.roleTracker)
+		metrics.ReportClusterQueueResourceReservations(cohort, cqName, fName, rName, c.resourceNode.Usage[fr].AsApproximateFloat64(fr.Resource), clVals, c.roleTracker)
+		metrics.ReportClusterQueueResourceUsage(cohort, cqName, fName, rName, c.AdmittedUsage[fr].AsApproximateFloat64(fr.Resource), clVals, c.roleTracker)
 	}
 	if fairSharingEnabled {
 		c.reportWeightedShare(cohort)
@@ -595,7 +596,7 @@ func (c *clusterQueue) reportWeightedShare(cohort kueue.CohortReference) {
 // and the number of admitted workloads for local queues.
 func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, op usageOp) {
 	admitted := workload.IsAdmitted(wi.Obj)
-	frUsage := wi.FlavorResourceUsage()
+	frUsage := wi.ResourceUsage().Assigned
 	for fr, q := range frUsage {
 		if op == add {
 			addUsage(c, fr, q)
@@ -683,7 +684,7 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 	qImpl.resetFlavorsAndResources(c.resourceNode.Usage, c.AdmittedUsage)
 	for _, wl := range c.Workloads {
 		if workloadBelongsToLocalQueue(wl.Obj, q) {
-			frq := wl.FlavorResourceUsage()
+			frq := wl.ResourceUsage().Assigned
 			updateFlavorUsage(frq, qImpl.totalReserved, add)
 			qImpl.reservingWorkloads++
 			if workload.IsAdmitted(wl.Obj) {

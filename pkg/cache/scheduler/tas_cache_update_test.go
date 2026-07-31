@@ -44,7 +44,7 @@ func TestTASCacheUpdateFlavorTolerationsPreservesUsage(t *testing.T) {
 	topologyRequests := []workload.TopologyDomainRequests{{
 		Values: []string{"x1"},
 		Count:  1,
-		SinglePodRequests: resources.NewRequestsFromMap(resources.MapRequests{
+		SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 			corev1.ResourceCPU: 1,
 		}),
 	}}
@@ -66,7 +66,7 @@ func TestTASCacheUpdateFlavorTolerationsPreservesUsage(t *testing.T) {
 	}
 
 	wantUsage := map[utiltas.TopologyDomainID]resources.Requests{
-		"x1": resources.NewRequestsFromMap(resources.MapRequests{
+		"x1": resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 			corev1.ResourceCPU:  1,
 			corev1.ResourcePods: 1,
 		}),

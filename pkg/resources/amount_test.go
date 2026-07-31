@@ -105,6 +105,43 @@ func TestAmountFromQuantity(t *testing.T) {
 	}
 }
 
+func TestAmountAsApproximateFloat64(t *testing.T) {
+	cases := map[string]struct {
+		resource corev1.ResourceName
+		amount   Amount
+		want     float64
+	}{
+		"bounded memory": {
+			resource: corev1.ResourceMemory,
+			amount:   NewAmount(1e18),
+			want:     1e18,
+		},
+		"bounded CPU": {
+			resource: corev1.ResourceCPU,
+			amount:   NewAmount(5_500),
+			want:     5.5,
+		},
+		"unlimited memory": {
+			resource: corev1.ResourceMemory,
+			amount:   Unlimited,
+			want:     math.Inf(1),
+		},
+		"unlimited CPU": {
+			resource: corev1.ResourceCPU,
+			amount:   Unlimited,
+			want:     math.Inf(1),
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := tc.amount.AsApproximateFloat64(tc.resource); got != tc.want {
+				t.Errorf("AsApproximateFloat64(%s) = %g, want %g", tc.resource, got, tc.want)
+			}
+		})
+	}
+}
+
 // TestAmountArithmetic pins the unlimited-propagation and saturation rules
 // that prevent cohort math from overflowing. Quota arithmetic must funnel
 // through Amount rather than raw int64 so these invariants hold globally.

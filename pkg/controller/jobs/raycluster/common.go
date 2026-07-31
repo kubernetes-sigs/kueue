@@ -523,16 +523,7 @@ func serializeWorkerGroupCounts(counts map[kueue.PodSetReference]int32) (string,
 	return string(out), nil
 }
 
-// SerializePodSetCounts converts PodSets into a JSON byte slice of podSetReplicaSize entries.
-func SerializePodSetCounts(podSets []kueue.PodSet) ([]byte, error) {
-	sizes := make([]jobframework.PodSetReplicaSize, len(podSets))
-	for i, ps := range podSets {
-		sizes[i] = jobframework.PodSetReplicaSize{Name: ps.Name, Count: ps.Count}
-	}
-	return json.Marshal(sizes)
-}
-
-func GetWorkloadslicingRayClusterCustomAnnotations(ctx context.Context, c client.Client, jobObject client.Object, podSets []kueue.PodSet, rayClusterName string) (map[string]string, error) {
+func GetWorkloadslicingRayClusterCustomAnnotations(ctx context.Context, c client.Client, jobObject client.Object, rayClusterName string) (map[string]string, error) {
 	if workloadslicing.Enabled(jobObject) {
 		log := ctrl.LoggerFrom(ctx)
 
@@ -563,17 +554,9 @@ func GetWorkloadslicingRayClusterCustomAnnotations(ctx context.Context, c client
 			}
 		}
 
-		podSetsJSON, err := SerializePodSetCounts(podSets)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal updated podsets: %w", err)
-		}
-		annotations := map[string]string{
-			RayClusterPodsetReplicaSizesAnnotation: string(podSetsJSON),
-		}
 		if includeRayClusterGeneration {
-			annotations[RayClusterGenerationAnnotation] = rayClusterGeneration
+			return map[string]string{RayClusterGenerationAnnotation: rayClusterGeneration}, nil
 		}
-		return annotations, nil
 	}
 	return nil, nil
 }

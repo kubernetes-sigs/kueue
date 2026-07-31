@@ -1082,15 +1082,13 @@ func TestGetCustomAnnotations(t *testing.T) {
 				WithWorkerGroups(workerGroup("group1", 5)).
 				Obj(),
 			wantCustomAnnotation: map[string]string{
-				raycluster.RayClusterGenerationAnnotation:         "0",
-				raycluster.RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"group1","count":5}]`,
+				raycluster.RayClusterGenerationAnnotation: "0",
 			},
 			wantGroupCount: 5,
 		},
 		"skip patch when annotation already matches": {
 			rayJob: testingrayutil.MakeJob("rayjob", "ns").
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-				Annotation(raycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"head","count":1},{"name":"group1","count":5}]`).
 				WithHeadGroupSpec(headSpec).
 				WithWorkerGroups(workerGroup("group1", 1)).
 				WithEnableAutoscaling(new(true)).
@@ -1099,15 +1097,13 @@ func TestGetCustomAnnotations(t *testing.T) {
 				WithWorkerGroups(workerGroup("group1", 5)).
 				Obj(),
 			wantCustomAnnotation: map[string]string{
-				raycluster.RayClusterGenerationAnnotation:         "0",
-				raycluster.RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"group1","count":5}]`,
+				raycluster.RayClusterGenerationAnnotation: "0",
 			},
 			wantGroupCount: 5,
 		},
 		"annotation updated after scale-down": {
 			rayJob: testingrayutil.MakeJob("rayjob", "ns").
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-				Annotation(raycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"head","count":1},{"name":"group1","count":6}]`).
 				WithHeadGroupSpec(headSpec).
 				WithWorkerGroups(workerGroup("group1", 4)).
 				WithEnableAutoscaling(new(true)).
@@ -1116,15 +1112,13 @@ func TestGetCustomAnnotations(t *testing.T) {
 				WithWorkerGroups(workerGroup("group1", 4)).
 				Obj(),
 			wantCustomAnnotation: map[string]string{
-				raycluster.RayClusterGenerationAnnotation:         "0",
-				raycluster.RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"group1","count":4}]`,
+				raycluster.RayClusterGenerationAnnotation: "0",
 			},
 			wantGroupCount: 4,
 		},
 		"annotation updated when podset count differs from annotation length": {
 			rayJob: testingrayutil.MakeJob("rayjob", "ns").
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-				Annotation(raycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"group1","count":5}]`).
 				WithHeadGroupSpec(headSpec).
 				WithWorkerGroups(workerGroup("group1", 1)).
 				WithEnableAutoscaling(new(true)).
@@ -1133,8 +1127,7 @@ func TestGetCustomAnnotations(t *testing.T) {
 				WithWorkerGroups(workerGroup("group1", 5)).
 				Obj(),
 			wantCustomAnnotation: map[string]string{
-				raycluster.RayClusterGenerationAnnotation:         "0",
-				raycluster.RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"group1","count":5}]`,
+				raycluster.RayClusterGenerationAnnotation: "0",
 			},
 			wantGroupCount: 5,
 		},
@@ -1167,7 +1160,7 @@ func TestGetCustomAnnotations(t *testing.T) {
 			}
 
 			// Verify GetCustomAnnotations returns the expected annotations
-			gotAnnotations, err := job.GetCustomAnnotations(ctx, fakeClient, podSets)
+			gotAnnotations, err := job.GetCustomAnnotations(ctx, fakeClient)
 			if err != nil {
 				t.Fatalf("unexpected error from GetCustomAnnotations: %v", err)
 			}

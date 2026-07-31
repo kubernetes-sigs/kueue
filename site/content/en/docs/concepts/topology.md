@@ -80,8 +80,9 @@ When a ResourceFlavor references a Topology:
 
 - **At least one nodeLabel is required**: The ResourceFlavor must have at least
   one entry in `.spec.nodeLabels`.
-- **Spec becomes immutable**: Once a ResourceFlavor has a `topologyName` set,
-  the entire `.spec` field cannot be modified.
+- **Restricted mutability**: Once a ResourceFlavor has a `topologyName` set,
+  the `.spec.nodeLabels` and `.spec.topologyName` fields cannot be modified.
+  The `.spec.nodeTaints` and `.spec.tolerations` fields can still be updated.
 
 ## What's next?
 

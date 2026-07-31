@@ -65,7 +65,7 @@ func (n *nonTasUsageCache) update(pod *corev1.Pod, log logr.Logger) {
 	}
 
 	log.V(5).Info("Adding non-TAS pod to the cache")
-	requests := resources.NewMapRequestsFromPodSpec(&pod.Spec)
+	requests := resources.NewRequestsFromPodSpec(&pod.Spec)
 	n.podUsage[key] = podUsageValue{
 		node:  pod.Spec.NodeName,
 		usage: requests,
