@@ -537,14 +537,14 @@ func TestLazyRequests(t *testing.T) {
 				t.Errorf("expected cachedCreated=%t, got cached=%v", tc.wantCachedCreated, lazy.cached)
 			}
 
-			gotResult := ToMapRequests(lazy.Get())
+			gotResult := MapRequests(ToMap(lazy.Get()))
 			wantResult := tc.wantResult
 			if diff := cmp.Diff(wantResult, gotResult); diff != "" {
 				t.Errorf("unexpected Get() result, diff (-want +got):\n%s", diff)
 			}
 
 			if base != nil {
-				if diff := cmp.Diff(ToMapRequests(originalBase), ToMapRequests(base)); diff != "" {
+				if diff := cmp.Diff(MapRequests(ToMap(originalBase)), MapRequests(ToMap(base))); diff != "" {
 					t.Errorf("base map was mutated! diff (-want +got):\n%s", diff)
 				}
 			}
@@ -598,7 +598,7 @@ func TestFloorToZero(t *testing.T) {
 				r = &SliceRequests{}
 			}
 			r.FloorToZero()
-			got := ToMapRequests(r)
+			got := MapRequests(ToMap(r))
 			want := tc.want
 			if len(want) == 0 {
 				want = nil
@@ -770,7 +770,7 @@ func TestMapRequestsClone(t *testing.T) {
 	})
 }
 
-func TestToMapRequests(t *testing.T) {
+func TestToMap(t *testing.T) {
 	cases := map[string]struct {
 		req  Requests
 		want MapRequests
@@ -806,9 +806,9 @@ func TestToMapRequests(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got := ToMapRequests(tc.req)
+			got := MapRequests(ToMap(tc.req))
 			if diff := cmp.Diff(tc.want, got); diff != "" {
-				t.Errorf("ToMapRequests mismatch (-want +got):\n%s", diff)
+				t.Errorf("ToMap mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

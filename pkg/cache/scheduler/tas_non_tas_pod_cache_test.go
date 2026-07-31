@@ -94,7 +94,7 @@ func TestNonTasUsageCacheIncrementalUpdates(t *testing.T) {
 				makePod("pod2", "ns", "node-a", "2"),
 			},
 			wantNodeUsage: map[string]resources.Requests{
-				"node-a": resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourceCPU: 3000, corev1.ResourcePods: 2}),
+				"node-a": resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 3000, corev1.ResourcePods: 2}),
 			},
 		},
 		"pod moves between nodes cleans up source node": {
@@ -103,7 +103,7 @@ func TestNonTasUsageCacheIncrementalUpdates(t *testing.T) {
 				pods[0].Spec.NodeName = "node-b"
 			},
 			wantNodeUsage: map[string]resources.Requests{
-				"node-b": resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourceCPU: 4000, corev1.ResourcePods: 1}),
+				"node-b": resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 4000, corev1.ResourcePods: 1}),
 			},
 		},
 		"pod resize on same node updates usage to new requests": {
@@ -112,7 +112,7 @@ func TestNonTasUsageCacheIncrementalUpdates(t *testing.T) {
 				pods[0].Spec.Containers[0].Resources.Requests[corev1.ResourceCPU] = resource.MustParse("4")
 			},
 			wantNodeUsage: map[string]resources.Requests{
-				"node-a": resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourceCPU: 4000, corev1.ResourcePods: 1}),
+				"node-a": resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 4000, corev1.ResourcePods: 1}),
 			},
 		},
 		"resize one of two pods on same node updates only that pod's contribution": {
@@ -124,7 +124,7 @@ func TestNonTasUsageCacheIncrementalUpdates(t *testing.T) {
 				pods[0].Spec.Containers[0].Resources.Requests[corev1.ResourceCPU] = resource.MustParse("3")
 			},
 			wantNodeUsage: map[string]resources.Requests{
-				"node-a": resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourceCPU: 5000, corev1.ResourcePods: 2}),
+				"node-a": resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 5000, corev1.ResourcePods: 2}),
 			},
 		},
 		"terminated pod removes usage": {
@@ -143,7 +143,7 @@ func TestNonTasUsageCacheIncrementalUpdates(t *testing.T) {
 			},
 			podsDelete: []client.ObjectKey{{Namespace: "ns", Name: "pod1"}},
 			wantNodeUsage: map[string]resources.Requests{
-				"node-a": resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourceCPU: 1000, corev1.ResourcePods: 1}),
+				"node-a": resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000, corev1.ResourcePods: 1}),
 			},
 		},
 		"removing last pod cleans up node entry": {

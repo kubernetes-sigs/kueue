@@ -48,16 +48,16 @@ func CreateEmpty() Requests {
 	return MapRequests{}
 }
 
-// NewRequestsFromMap creates a Requests instance from a MapRequests map based on feature gates.
-func NewRequestsFromMap(m MapRequests) Requests {
+// NewRequestsFromMap creates a Requests instance from a map based on feature gates.
+func NewRequestsFromMap(m map[corev1.ResourceName]int64) Requests {
 	if len(m) == 0 {
-		return nil
+		return CreateEmpty()
 	}
 	if features.Enabled(features.VectorizedResourceRequests) {
-		sr := toSliceRequests(m)
+		sr := toSliceRequests(MapRequests(m))
 		return &sr
 	}
-	return m
+	return MapRequests(m)
 }
 
 // NewRequestsFromResourceList creates a Requests instance from a corev1.ResourceList based on feature gates.
@@ -78,8 +78,25 @@ func NewRequestsFromPodSpec(podSpec *corev1.PodSpec) Requests {
 	return NewRequestsFromResourceList(rl)
 }
 
-// ToMapRequests converts any Requests instance into a MapRequests map.
-func ToMapRequests(r Requests) MapRequests {
+// NewRequestsFromResourceListRetainZero creates a Requests instance from a corev1.ResourceList,
+// ensuring that explicitly zero-valued resources are retained.
+func NewRequestsFromResourceListRetainZero(rl corev1.ResourceList) Requests {
+	// For now, returning MapRequests ensures zeroes are retained regardless of feature gates.
+	return NewMapRequests(rl)
+}
+
+// NewRequestsFromPodSpecRetainZero creates a Requests instance from a PodSpec,
+// ensuring that explicitly zero-valued resources are retained.
+func NewRequestsFromPodSpecRetainZero(podSpec *corev1.PodSpec) Requests {
+	if podSpec == nil {
+		return CreateEmpty()
+	}
+	rl := resourcehelpers.PodRequests(&corev1.Pod{Spec: *podSpec}, resourcehelpers.PodResourcesOptions{})
+	return NewRequestsFromResourceListRetainZero(rl)
+}
+
+// ToMap converts any Requests instance into a MapRequests map.
+func ToMap(r Requests) map[corev1.ResourceName]int64 {
 	if isEmpty(r) {
 		return nil
 	}

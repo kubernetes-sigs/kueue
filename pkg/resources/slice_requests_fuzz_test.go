@@ -109,12 +109,12 @@ func checkRequestsEquivalence(t *testing.T, opName string, mapRes Requests, slic
 		if m, ok := mapRes.(MapRequests); ok {
 			mapM = normalizeMap(m)
 		} else if s, ok := mapRes.(*SliceRequests); ok {
-			mapM = normalizeMap(s.ToMapRequests())
+			mapM = normalizeMap(MapRequests(s.ToMap()))
 		}
 	}
 	if sliceRes != nil {
 		if s, ok := sliceRes.(*SliceRequests); ok {
-			sliceM = normalizeMap(s.ToMapRequests())
+			sliceM = normalizeMap(MapRequests(s.ToMap()))
 		} else if m, ok := sliceRes.(MapRequests); ok {
 			sliceM = normalizeMap(m)
 		}
