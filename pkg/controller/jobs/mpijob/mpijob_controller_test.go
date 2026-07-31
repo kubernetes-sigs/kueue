@@ -325,6 +325,19 @@ func TestPodSets(t *testing.T) {
 			},
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
+		"nil launcher replica spec is skipped": {
+			job: func() *MPIJob {
+				job := (*MPIJob)(jobTemplate.Clone().Obj())
+				job.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher] = nil
+				return job
+			}(),
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeWorker)), 3).
+					PodSpec(jobTemplate.Clone().Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].Template.Spec).
+					Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
