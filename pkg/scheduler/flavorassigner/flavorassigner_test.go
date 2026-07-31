@@ -3328,7 +3328,7 @@ func TestAssignFlavors(t *testing.T) {
 				TotalRequests: []workload.PodSetResources{
 					{
 						Name: "main",
-						Requests: resources.NewRequestsFromMap(resources.MapRequests{
+						Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 							corev1.ResourceCPU:    2000,
 							corev1.ResourceMemory: 10 * utiltesting.Mi,
 						}),
@@ -3394,7 +3394,7 @@ func TestAssignFlavors(t *testing.T) {
 				TotalRequests: []workload.PodSetResources{
 					{
 						Name: "main",
-						Requests: resources.NewRequestsFromMap(resources.MapRequests{
+						Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 							corev1.ResourceCPU:    2000,
 							corev1.ResourceMemory: 10 * utiltesting.Mi,
 						}),

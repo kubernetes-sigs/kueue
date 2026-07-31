@@ -209,7 +209,7 @@ func GetResourceRequestsForResourceClaimTemplates(
 				return nil, allErrs
 			}
 
-			for dc, qty := range resources.ToMapRequests(deviceCounts) {
+			for dc, qty := range deviceCounts.Iter() {
 				logical, found := mapper.Lookup(dc)
 				if !found {
 					allErrs = append(allErrs, field.NotFound(
