@@ -24,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
@@ -40,6 +41,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -444,6 +446,7 @@ func TestSnapshotFallsBackToBaseOrderingOnLocalQueueLookupError(t *testing.T) {
 		ctx,
 		cl,
 		utiltestingapi.MakeClusterQueue("cq").AdmissionMode(kueue.UsageBasedAdmissionFairSharing).Obj(),
+		nil,
 		defaultOrdering,
 		&config.AdmissionFairSharing{ResourceWeights: map[corev1.ResourceName]float64{resourceGPU: 1}},
 		nil,
@@ -557,6 +560,7 @@ func TestSnapshotUsesDefaultWeightForMissingLocalQueue(t *testing.T) {
 			WithObjects(utiltestingapi.MakeLocalQueue("existing", defaultNamespace).Obj()).
 			Build(),
 		utiltestingapi.MakeClusterQueue("cq").AdmissionMode(kueue.UsageBasedAdmissionFairSharing).Obj(),
+		nil,
 		defaultOrdering,
 		&config.AdmissionFairSharing{ResourceWeights: map[corev1.ResourceName]float64{resourceGPU: 1}},
 		nil,
@@ -1937,6 +1941,240 @@ func TestGetNoFitReason(t *testing.T) {
 			}
 			if ok && reason != tc.wantReason {
 				t.Errorf("GetNoFitReason() reason = %q, want %q", reason, tc.wantReason)
+			}
+		})
+	}
+}
+
+type operations func(context.Context, logr.Logger, *ClusterQueue)
+
+func TestClusterQueuePendingTrackers(t *testing.T) {
+	cqLabel := config.ControllerMetricsCustomLabel{
+		Name:           "cq-team",
+		SourceLabelKey: "team",
+		SourceKind:     ptr.To(config.SourceKindClusterQueue),
+	}
+	wlLabel1 := config.ControllerMetricsCustomLabel{
+		Name:           "workload-project",
+		SourceLabelKey: "project",
+		SourceKind:     ptr.To(config.SourceKindWorkload),
+		TrackedValues:  []string{"project-a", "project-b"},
+	}
+	wlLabel2 := config.ControllerMetricsCustomLabel{
+		Name:           "workload-type",
+		SourceLabelKey: "type",
+		SourceKind:     ptr.To(config.SourceKindWorkload),
+		TrackedValues:  []string{"type-a", "type-b"},
+	}
+
+	customLabels := metrics.NewCustomLabels([]config.ControllerMetricsCustomLabel{cqLabel, wlLabel1, wlLabel2})
+	wlOnlyCustomLabels := metrics.NewCustomLabels([]config.ControllerMetricsCustomLabel{wlLabel1, wlLabel2})
+
+	labelVals1 := wlOnlyCustomLabels.MakeValsSet(config.SourceKindWorkload, map[string]string{"project": "project-a", "type": "type-a"}, nil)
+	labelVals2 := wlOnlyCustomLabels.MakeValsSet(config.SourceKindWorkload, map[string]string{"project": "project-b", "type": "type-b"}, nil)
+	wlValsUntracked := wlOnlyCustomLabels.MakeValsSet(config.SourceKindWorkload, map[string]string{"project": config.UntrackedCustomLabelValue, "type": config.UntrackedCustomLabelValue}, nil)
+
+	makeWorkload := func(name string, labels map[string]string) *workload.Info {
+		wl := utiltestingapi.MakeWorkload(name, defaultNamespace).
+			Labels(labels).
+			Obj()
+		return workload.NewInfo(wl)
+	}
+
+	cases := map[string]struct {
+		cl               *metrics.CustomLabels
+		ops              operations
+		wantPending      metrics.LabelValsTracker
+		wantInadmissible metrics.LabelValsTracker
+	}{
+		"no custom labels defined": {
+			cl: metrics.NewCustomLabels(nil),
+			ops: func(ctx context.Context, log logr.Logger, cq *ClusterQueue) {
+				wl1 := makeWorkload("wl1", map[string]string{"project": "project-a"})
+				wl2 := makeWorkload("wl2", map[string]string{"project": "project-b"})
+				cq.pushOrUpdatePending(wl1)
+				cq.pushOrUpdatePending(wl2)
+				cq.Pop()
+				cq.RequeueIfNotPresent(ctx, wl2, RequeueReasonNoFit, QuotaReservedReason(""))
+			},
+			wantPending: func() metrics.LabelValsTracker {
+				t := metrics.NewLabelValsTracker()
+				t.Add(metrics.Empty(), 1)
+				return *t
+			}(),
+			wantInadmissible: func() metrics.LabelValsTracker {
+				t := metrics.NewLabelValsTracker()
+				t.Add(metrics.Empty(), 1)
+				return *t
+			}(),
+		},
+		"only ClusterQueue custom label defined": {
+			cl: metrics.NewCustomLabels([]config.ControllerMetricsCustomLabel{cqLabel}),
+			ops: func(ctx context.Context, log logr.Logger, cq *ClusterQueue) {
+				wl1 := makeWorkload("wl1", map[string]string{"project": "project-a"})
+				wl2 := makeWorkload("wl2", map[string]string{"project": "project-b"})
+				cq.pushOrUpdatePending(wl1)
+				cq.pushOrUpdatePending(wl2)
+				cq.Pop()
+				cq.RequeueIfNotPresent(ctx, wl2, RequeueReasonNoFit, QuotaReservedReason(""))
+			},
+			wantPending: func() metrics.LabelValsTracker {
+				t := metrics.NewLabelValsTracker()
+				t.Add(metrics.Empty(), 1)
+				return *t
+			}(),
+			wantInadmissible: func() metrics.LabelValsTracker {
+				t := metrics.NewLabelValsTracker()
+				t.Add(metrics.Empty(), 1)
+				return *t
+			}(),
+		},
+		"Workload custom label defined: Push and Pop operations": {
+			cl: wlOnlyCustomLabels,
+			ops: func(ctx context.Context, log logr.Logger, cq *ClusterQueue) {
+				wl1 := makeWorkload("wl1", map[string]string{"project": "project-a"})
+				wl2 := makeWorkload("wl2", map[string]string{"project": "project-a"})
+				wl3 := makeWorkload("wl3", map[string]string{"project": "project-b"})
+				cq.pushOrUpdatePending(wl1)
+				cq.pushOrUpdatePending(wl2)
+				cq.pushOrUpdatePending(wl3)
+				cq.Pop()
+			},
+			wantPending: func() metrics.LabelValsTracker {
+				t := metrics.NewLabelValsTracker()
+				t.Add(labelVals1, 2)
+				t.Add(labelVals2, 1)
+				return *t
+			}(),
+			wantInadmissible: *metrics.NewLabelValsTracker(),
+		},
+		"Workload custom label defined: ClearInflight and Delete": {
+			cl: wlOnlyCustomLabels,
+			ops: func(ctx context.Context, log logr.Logger, cq *ClusterQueue) {
+				wl1 := makeWorkload("wl1", map[string]string{"project": "project-a"})
+				wl2 := makeWorkload("wl2", map[string]string{"project": "project-b"})
+				cq.pushOrUpdatePending(wl1)
+				cq.pushOrUpdatePending(wl2)
+				popped := cq.Pop()
+				cq.Delete(log, workload.Key(popped.Obj))
+				cq.Delete(log, workload.Key(wl2.Obj))
+			},
+			wantPending:      *metrics.NewLabelValsTracker(),
+			wantInadmissible: *metrics.NewLabelValsTracker(),
+		},
+		"Workload custom label defined: Requeue to inadmissible and QueueInadmissibleWorkloads": {
+			cl: wlOnlyCustomLabels,
+			ops: func(ctx context.Context, log logr.Logger, cq *ClusterQueue) {
+				wl1 := makeWorkload("wl1", map[string]string{"project": "project-a"})
+				wl2 := makeWorkload("wl2", map[string]string{"project": "project-b"})
+				cq.pushOrUpdatePending(wl1)
+				cq.pushOrUpdatePending(wl2)
+				cq.Pop()
+				cq.RequeueIfNotPresent(ctx, wl1, RequeueReasonNoFit, QuotaReservedReason(""))
+				cq.RequeueIfNotPresent(ctx, wl2, RequeueReasonNoFit, QuotaReservedReason(""))
+				queueInadmissibleWorkloads(ctx, cq, utiltesting.NewFakeClient(
+					wl1.Obj, wl2.Obj, utiltesting.MakeNamespace(defaultNamespace),
+				))
+			},
+			wantPending: func() metrics.LabelValsTracker {
+				t := metrics.NewLabelValsTracker()
+				t.Add(labelVals1, 1)
+				t.Add(labelVals2, 1)
+				return *t
+			}(),
+			wantInadmissible: *metrics.NewLabelValsTracker(),
+		},
+		"Workload custom label defined: Update workload in queue with modified label": {
+			cl: wlOnlyCustomLabels,
+			ops: func(ctx context.Context, log logr.Logger, cq *ClusterQueue) {
+				wl1 := makeWorkload("wl1", map[string]string{"project": "project-a"})
+				cq.pushOrUpdatePending(wl1)
+				wl1Updated := makeWorkload("wl1", map[string]string{"project": "project-b"})
+				cq.pushOrUpdatePending(wl1Updated)
+			},
+			wantPending: func() metrics.LabelValsTracker {
+				t := metrics.NewLabelValsTracker()
+				t.Add(labelVals2, 1)
+				return *t
+			}(),
+			wantInadmissible: *metrics.NewLabelValsTracker(),
+		},
+		"Workload custom label defined: Delete workload from inadmissible": {
+			cl: wlOnlyCustomLabels,
+			ops: func(ctx context.Context, log logr.Logger, cq *ClusterQueue) {
+				wl1 := makeWorkload("wl1", map[string]string{"project": "project-a"})
+				wl2 := makeWorkload("wl2", map[string]string{"project": "project-a"})
+				cq.pushOrUpdatePending(wl1)
+				cq.pushOrUpdatePending(wl2)
+				cq.Pop()
+				cq.RequeueIfNotPresent(ctx, wl1, RequeueReasonNoFit, QuotaReservedReason(""))
+				cq.RequeueIfNotPresent(ctx, wl2, RequeueReasonNoFit, QuotaReservedReason(""))
+				cq.Delete(log, workload.Key(wl1.Obj))
+			},
+			wantPending: *metrics.NewLabelValsTracker(),
+			wantInadmissible: func() metrics.LabelValsTracker {
+				t := metrics.NewLabelValsTracker()
+				t.Add(labelVals1, 1)
+				return *t
+			}(),
+		},
+		"Both ClusterQueue and Workload custom labels defined": {
+			cl: customLabels,
+			ops: func(ctx context.Context, log logr.Logger, cq *ClusterQueue) {
+				wl1 := makeWorkload("wl1", map[string]string{"project": "project-a"})
+				wl2 := makeWorkload("wl2", map[string]string{"project": "project-b"})
+				cq.pushOrUpdatePending(wl1)
+				cq.pushOrUpdatePending(wl2)
+				cq.Pop()
+				cq.RequeueIfNotPresent(ctx, wl2, RequeueReasonNoFit, QuotaReservedReason(""))
+			},
+			wantPending: func() metrics.LabelValsTracker {
+				t := metrics.NewLabelValsTracker()
+				t.Add(labelVals1, 1)
+				return *t
+			}(),
+			wantInadmissible: func() metrics.LabelValsTracker {
+				t := metrics.NewLabelValsTracker()
+				t.Add(labelVals2, 1)
+				return *t
+			}(),
+		},
+		"Workload custom label using undefined label values": {
+			cl: wlOnlyCustomLabels,
+			ops: func(ctx context.Context, log logr.Logger, cq *ClusterQueue) {
+				wl1 := makeWorkload("wl1", map[string]string{"project": "project-a", "type": "type-a"})
+				wl2 := makeWorkload("wl2", map[string]string{"project": config.UntrackedCustomLabelValue, "type": config.UntrackedCustomLabelValue})
+				cq.pushOrUpdatePending(wl1)
+				cq.pushOrUpdatePending(wl2)
+			},
+			wantPending: func() metrics.LabelValsTracker {
+				t := metrics.NewLabelValsTracker()
+				t.Add(labelVals1, 1)
+				t.Add(wlValsUntracked, 1)
+				return *t
+			}(),
+			wantInadmissible: *metrics.NewLabelValsTracker(),
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
+			ctx, log := utiltesting.ContextWithLog(t)
+			cq := newClusterQueueImpl(ctx, nil, tc.cl, defaultOrdering, testingclock.NewFakeClock(time.Now()))
+			cq.queueingStrategy = kueue.BestEffortFIFO
+
+			if tc.ops != nil {
+				tc.ops(ctx, log, cq)
+			}
+
+			gotPending, gotInadmissible := cq.Pending()
+			cmpAllowUnexported := cmp.AllowUnexported(metrics.LabelValsTracker{})
+			if diff := cmp.Diff(tc.wantPending, *gotPending, cmpAllowUnexported); diff != "" {
+				t.Errorf("Unexpected pending tracker (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantInadmissible, *gotInadmissible, cmpAllowUnexported); diff != "" {
+				t.Errorf("Unexpected inadmissible tracker (-want +got):\n%s", diff)
 			}
 		})
 	}
