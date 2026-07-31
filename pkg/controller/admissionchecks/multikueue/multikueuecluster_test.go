@@ -694,6 +694,12 @@ func TestUpdateConfig(t *testing.T) {
 			}
 			reconciler.builderOverride = fakeClientBuilder(ctx)
 
+			t.Cleanup(func() {
+				for _, rc := range reconciler.remoteClients {
+					rc.StopWatchers()
+				}
+			})
+
 			features.SetFeatureGateDuringTest(t, features.MultiKueueKubeConfigPathValidation, tc.multiKueueSafePathFeatureGate)
 
 			if tc.overrideKubeConfigPrefix {
