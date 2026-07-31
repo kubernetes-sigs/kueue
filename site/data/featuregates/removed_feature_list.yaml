@@ -208,9 +208,8 @@
   stage: Deprecated
   from: "0.17"
   to: "0.19"
-- name: PropagateBatchJobLabelsToWorkload
-  versionedSpecs:
-  - default: true
-    lockToDefault: true
-    preRelease: GA
-    version: "0.17"
+- feature: PropagateBatchJobLabelsToWorkload
+  default: true
+  stage: GA
+  from: "0.17"
+  to: "0.19"
