@@ -31,7 +31,10 @@
     - [PartialAdmission](#partialadmission)
   - [In-place Workload Resize (`ElasticJobsViaWorkloadResize`)](#in-place-workload-resize-elasticjobsviaworkloadresize)
     - [Consumer: Spark on Kubernetes](#consumer-spark-on-kubernetes)
+      - [Workload discovery, authorization, and conflict handling](#workload-discovery-authorization-and-conflict-handling)
   - [Long-term Direction: Slices vs. In-place Resize](#long-term-direction-slices-vs-in-place-resize)
+    - [Side-by-side comparison](#side-by-side-comparison)
+    - [Pros and cons](#pros-and-cons)
 - [Phases for MVP (alpha)](#phases-for-mvp-alpha)
   - [Phase 1 - batchv1/Job WorkloadSlices Support in Single-Cluster Configuration.](#phase-1---batchv1job-workloadslices-support-in-single-cluster-configuration)
     - [Scale Down](#scale-down-1)
@@ -390,16 +393,48 @@ Spark on Kubernetes is the motivating consumer of this capability. The WorkloadS
 
 In-place resize maps onto Spark cleanly: one SparkApplication maps to one Workload (with `driver` and `executor` PodSets); the driver patches the executor PodSet `count` from its dynamic-allocation target and reads the admitted count, capping executor pods at `min(target, admitted)`; and on scale-down the driver floors the patched count at the executors still occupying resources while idle ones await `executorIdleTimeout`.
 
+##### Workload discovery, authorization, and conflict handling
+
+Because the resizing entity is the in-job Spark driver rather than spark-operator, the KEP defines how the driver finds, is authorized for, and safely updates its Workload:
+
+- **Discovery.** The Kueue SparkApplication integration creates and admits the Workload before the driver starts, and labels it `kueue.x-k8s.io/job-uid=<SparkApplication UID>`. The driver resolves that UID from its own pod's controlling owner reference (under Spark Operator the driver pod's controller owner is the SparkApplication), then locates the single Workload via a label-scoped list+watch on that `job-uid`.
+- **Authorization (RBAC).** The driver runs under the Spark integration's ServiceAccount, which is granted `get`/`list`/`watch`/`patch` on `workloads.kueue.x-k8s.io` scoped to the application namespace. It has no permission to create or delete Workloads or to write Workload `status`.
+- **Ownership / single-writer per field.** The two sides write disjoint fields, so there is no write-write contention on the same field: Kueue is the sole writer of `status.admission` (the admitted count) and of the Workload lifecycle (create/finish/delete); the driver only writes `spec.podSets[executor].count`.
+- **Conflict handling.** Spec and status are distinct fields, so a driver `count` patch and a concurrent Kueue `status.admission` update do not clobber each other. If the driver's cached Workload is stale, the merge patch still only changes `count`; the driver refreshes its cache from the patch response and the watch stream, then reconciles again. Kueue re-evaluates admission on the observed `count`, so a transiently stale write self-corrects on the next cycle.
+
 ### Long-term Direction: Slices vs. In-place Resize
 
-Kueue intentionally supports two elastic mechanisms during Alpha so we can validate each against the frameworks it fits best, without committing prematurely to a single model:
+Kueue intentionally supports two elastic mechanisms during Alpha so we can validate each against the frameworks it fits best, without committing prematurely to a single model.
 
-| | WorkloadSlices | In-place Resize |
+#### Side-by-side comparison
+
+| Dimension | WorkloadSlices | In-place Resize |
 |---|---|---|
-| Workloads per job | one per scale-up (aggregated/GC'd) | exactly one |
-| Pod gating | scheduling gates on new pods | job framework caps at `min(target, admitted)` |
+| Workloads per job | One per scale-up (old slice aggregated/finished after the new one is admitted) | Exactly one, for the whole job lifetime |
+| How scaling is expressed | A new slice Workload representing the higher count | A patch to `spec.podSets[].count` on the existing Workload |
+| Who creates/gates pods | The Kueue-integrated job controller | The job's own runtime (e.g. the Spark driver) |
+| Pod admission control | Scheduling gates on new pods, removed on slice admission | Runtime reads `status.admission` and creates at most `admitted` pods |
 
-The two share most of their implementation, so running them in parallel is low-cost. Before Beta/GA we will decide on convergence, with options being: (a) keep both, scoped to the framework families above; (b) unify behind a single elastic-job API surface with slices/resize as internal strategies.
+#### Pros and cons
+
+**WorkloadSlices**
+
+- Pros:
+  - Transparent to the job runtime: Kueue drives per-replica admission via scheduling gates, so frameworks whose controller already owns the pods (batch/Job, RayCluster) need no Kueue awareness inside the running job.
+- Cons:
+  - Produces a new Workload object per scale-up; for jobs that scale frequently (e.g. Spark dynamic allocation), pressure on etcd/apiserver is significant.
+  - The job side is not aware of how much quota has been admitted, so it keeps creating pods up to its own target; the pods beyond the admitted amount will be pending/gated.
+  - If a job framework does want to watch the Workload, it is harder to do so: the Workload is not stable — each scale-up creates a new slice Workload (with a different name) that replaces the old one, so there is no single long-lived Workload to track.
+
+**WorkloadResize**
+
+- Pros:
+  - Exposes the Workload itself as the scaling surface (in-place `spec.podSets[].count` mutation), which is flexible in two directions: a runtime that wants to drive its own Workload — such as the Spark driver — can do so directly and easily; and jobs that do not want to be Workload-aware are still supported.
+  - Exactly one stable Workload per job: the API-server/etcd footprint stays low even under frequent scaling, and because the Workload is long-lived with a stable name, a job framework that wants to watch workload can track it easily.
+- Cons:
+  - Making a runtime operate its Workload directly (read admission, patch the count) requires custom integration work; that customization has a cost.
+
+The two mechanisms share most of their implementation, so running them in parallel is low-cost. Before Beta/GA we will decide on convergence, with options being: (a) keep both, scoped to the framework families above; (b) unify behind a single elastic-job API surface with slices/resize as internal strategies.
 
 ## Phases for MVP (alpha)
 
