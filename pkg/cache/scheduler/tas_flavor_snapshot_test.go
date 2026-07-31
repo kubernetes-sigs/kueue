@@ -36,42 +36,84 @@ import (
 )
 
 func TestFreeCapacityPerDomain(t *testing.T) {
-	snapshot := &TASFlavorSnapshot{
-		leaves: leafDomainByID{
-			"domain2": &leafDomain{
-				freeCapacity: resources.NewRequestsFromMap(resources.MapRequests{
-					corev1.ResourceCPU:    1000,
-					corev1.ResourceMemory: 2 * 1024 * 1024 * 1024, // 2 GiB
-				}),
-				tasUsage: resources.NewRequestsFromMap(resources.MapRequests{
-					corev1.ResourceMemory: 1 * 1024 * 1024 * 1024, // 1 GiB
-					corev1.ResourceCPU:    500,
-				}),
+	cases := map[string]struct {
+		// leaves is a function, so that the requests are built with the
+		// VectorizedResourceRequests feature gate already set.
+		leaves   func() leafDomainByID
+		expected string
+	}{
+		"domains with free capacity and TAS usage": {
+			leaves: func() leafDomainByID {
+				return leafDomainByID{
+					"domain2": &leafDomain{
+						freeCapacity: resources.NewRequestsFromMap(resources.MapRequests{
+							corev1.ResourceCPU:    1000,
+							corev1.ResourceMemory: 2 * 1024 * 1024 * 1024, // 2 GiB
+						}),
+						tasUsage: resources.NewRequestsFromMap(resources.MapRequests{
+							corev1.ResourceMemory: 1 * 1024 * 1024 * 1024, // 1 GiB
+							corev1.ResourceCPU:    500,
+						}),
+					},
+					"domain1": &leafDomain{
+						freeCapacity: resources.NewRequestsFromMap(resources.MapRequests{
+							corev1.ResourceMemory: 4 * 1024 * 1024 * 1024, // 4 GiB
+							corev1.ResourceCPU:    2000,
+							"nvidia.com/gpu":      1,
+						}),
+						tasUsage: resources.NewRequestsFromMap(resources.MapRequests{
+							corev1.ResourceCPU:    500,
+							"nvidia.com/gpu":      1,
+							corev1.ResourceMemory: 2 * 1024 * 1024 * 1024, // 1 GiB
+						}),
+					},
+				}
 			},
-			"domain1": &leafDomain{
-				freeCapacity: resources.NewRequestsFromMap(resources.MapRequests{
-					corev1.ResourceMemory: 4 * 1024 * 1024 * 1024, // 4 GiB
-					corev1.ResourceCPU:    2000,
-					"nvidia.com/gpu":      1,
-				}),
-				tasUsage: resources.NewRequestsFromMap(resources.MapRequests{
-					corev1.ResourceCPU:    500,
-					"nvidia.com/gpu":      1,
-					corev1.ResourceMemory: 2 * 1024 * 1024 * 1024, // 1 GiB
-				}),
+			expected: `{"domain1":{"freeCapacity":{"cpu":"2","memory":"4Gi","nvidia.com/gpu":"1"},"tasUsage":{"cpu":"500m","memory":"2Gi","nvidia.com/gpu":"1"}},"domain2":{"freeCapacity":{"cpu":"1","memory":"2Gi"},"tasUsage":{"cpu":"500m","memory":"1Gi"}}}`,
+		},
+		"domain with free capacity, but without TAS usage": {
+			leaves: func() leafDomainByID {
+				return leafDomainByID{
+					"domain1": &leafDomain{
+						freeCapacity: resources.NewRequestsFromMap(resources.MapRequests{
+							corev1.ResourceCPU: 1000,
+						}),
+						// tasUsage is left nil, as there is no TAS workload
+						// admitted in the domain.
+					},
+				}
 			},
+			expected: `{"domain1":{"freeCapacity":{"cpu":"1"},"tasUsage":{}}}`,
+		},
+		"domain without free capacity and without TAS usage": {
+			leaves: func() leafDomainByID {
+				return leafDomainByID{"domain1": &leafDomain{}}
+			},
+			expected: `{"domain1":{"freeCapacity":{},"tasUsage":{}}}`,
+		},
+		"snapshot without domains": {
+			leaves:   func() leafDomainByID { return leafDomainByID{} },
+			expected: `{}`,
 		},
 	}
 
-	expected := `{"domain1":{"freeCapacity":{"cpu":"2","memory":"4Gi","nvidia.com/gpu":"1"},"tasUsage":{"cpu":"500m","memory":"2Gi","nvidia.com/gpu":"1"}},"domain2":{"freeCapacity":{"cpu":"1","memory":"2Gi"},"tasUsage":{"cpu":"500m","memory":"1Gi"}}}`
-	var wantErr error
+	for name, tc := range cases {
+		for _, enableVectorizedRequests := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s, VectorizedResourceRequests=%t", name, enableVectorizedRequests), func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.VectorizedResourceRequests, enableVectorizedRequests)
 
-	got, gotErr := snapshot.SerializeFreeCapacityPerDomain()
-	if diff := cmp.Diff(wantErr, gotErr, cmpopts.EquateErrors()); len(diff) != 0 {
-		t.Errorf("Unexpected error (-want,+got):\n%s", diff)
-	}
-	if diff := cmp.Diff(expected, got); diff != "" {
-		t.Errorf("SerializeFreeCapacityPerDomain() mismatch (-expected +got):\n%s", diff)
+				snapshot := &TASFlavorSnapshot{leaves: tc.leaves()}
+				var wantErr error
+
+				got, gotErr := snapshot.SerializeFreeCapacityPerDomain()
+				if diff := cmp.Diff(wantErr, gotErr, cmpopts.EquateErrors()); len(diff) != 0 {
+					t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+				}
+				if diff := cmp.Diff(tc.expected, got); diff != "" {
+					t.Errorf("SerializeFreeCapacityPerDomain() mismatch (-expected +got):\n%s", diff)
+				}
+			})
+		}
 	}
 }
 
