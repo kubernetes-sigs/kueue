@@ -83,8 +83,9 @@ var (
 	visibilityServerBindPortPath          = field.NewPath("visibilityServer", "bindPort")
 	customLabelsPath                      = field.NewPath("metrics", "customLabels")
 	resourceQuotaCheckStrategyPath        = field.NewPath("resources", "quotaCheckStrategy")
-	maxCustomLabelsPerSourceKind          = map[configapi.SourceKind]int{
-		configapi.SourceKindWorkload:     2,
+	// Values in this map should never exceed metrics.MaxCustomLabelsForSourceKind.
+	maxCustomLabelsPerSourceKind = map[configapi.SourceKind]int{
+		configapi.SourceKindWorkload:     min(2, metrics.MaxCustomLabelsForSourceKind),
 		configapi.SourceKindLocalQueue:   metrics.MaxCustomLabelsForSourceKind,
 		configapi.SourceKindClusterQueue: metrics.MaxCustomLabelsForSourceKind,
 		configapi.SourceKindCohort:       metrics.MaxCustomLabelsForSourceKind,
@@ -833,9 +834,6 @@ func validateCustomLabels(c *configapi.Configuration) field.ErrorList {
 
 	for _, kind := range slices.Sorted(maps.Keys(countPerSourceKind)) {
 		labelLimit, kindSupported := maxCustomLabelsPerSourceKind[kind]
-		if labelLimit > metrics.MaxCustomLabelsForSourceKind {
-			panic(fmt.Sprintf("BUG: custom label limit for source kind %s is misconfigured", kind))
-		}
 		if !kindSupported {
 			allErrs = append(allErrs, field.Invalid(
 				customLabelsPath,
