@@ -871,7 +871,11 @@ as high as possible.</li>
 with the incoming workload is strictly less than the share of the preemptee CQ.
 This strategy doesn't depend on the share usage of the workload being preempted.
 As a result, the strategy chooses to preempt workloads with the lowest priority and
-newest start time first.</li>
+newest start time first.
+Only the following lists are supported:
+[&quot;LessThanOrEqualToFinalShare&quot;], [&quot;LessThanInitialShare&quot;],
+and [&quot;LessThanOrEqualToFinalShare&quot;, &quot;LessThanInitialShare&quot;].
+Any other combination or ordering fails configuration validation.</li>
 </ul>
 </td>
 </tr>
