@@ -119,6 +119,7 @@ rules:
   - get
   - list
   - watch
+  - update
 - apiGroups:
   - kueue.x-k8s.io
   resources:
