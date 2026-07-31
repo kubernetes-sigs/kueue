@@ -124,6 +124,7 @@ type remoteClient struct {
 	watchEndedCh chan<- event.GenericEvent
 	cqUpdateCh   chan<- event.TypedGenericEvent[kueue.ClusterQueueReference]
 	watchCancel  func()
+	watchers     sync.WaitGroup
 	config       *clientConfig
 	origin       string
 	adapters     map[string]jobframework.MultiKueueAdapter
@@ -418,9 +419,23 @@ func (rc *remoteClient) establishWatcher(ctx context.Context, kind string, w job
 	}
 
 	return func() {
+		rc.watchers.Add(1)
 		go func() {
+			defer rc.watchers.Done()
 			log.V(2).Info("Starting watch")
-			for r := range newWatcher.ResultChan() {
+			resultCh := newWatcher.ResultChan()
+		watching:
+			for {
+				var r watch.Event
+				select {
+				case <-ctx.Done():
+					break watching
+				case ev, ok := <-resultCh:
+					if !ok {
+						break watching
+					}
+					r = ev
+				}
 				switch r.Type {
 				case watch.Bookmark:
 					// Bookmark events are periodic signals from the API server to
@@ -564,19 +579,26 @@ func (rc *remoteClient) setClient(c SelectivelyCachingClient) {
 	rc.client = c
 }
 
+// StopWatchers cancels the watch context and blocks until every watcher goroutine returned.
 func (rc *remoteClient) StopWatchers() {
 	rc.mu.Lock()
-	defer rc.mu.Unlock()
 	if rc.watchCancel != nil {
 		rc.watchCancel()
 		rc.watchCancel = nil
 	}
+	rc.mu.Unlock()
+
+	// Not under rc.mu: watcher goroutines take it themselves via getClient.
+	rc.watchers.Wait()
 }
 
 func (rc *remoteClient) queueWorkloadEvent(ctx context.Context, wlKey types.NamespacedName) {
 	localWl := &kueue.Workload{}
 	if err := rc.localClient.Get(ctx, wlKey, localWl); err == nil {
-		rc.wlUpdateCh <- event.GenericEvent{Object: localWl}
+		select {
+		case rc.wlUpdateCh <- event.GenericEvent{Object: localWl}:
+		case <-ctx.Done():
+		}
 	} else if !apierrors.IsNotFound(err) {
 		ctrl.LoggerFrom(ctx).Error(err, "reading local workload")
 	}
@@ -585,7 +607,10 @@ func (rc *remoteClient) queueWorkloadEvent(ctx context.Context, wlKey types.Name
 func (rc *remoteClient) queueWatchEndedEvent(ctx context.Context) {
 	cluster := &kueue.MultiKueueCluster{}
 	if err := rc.localClient.Get(ctx, types.NamespacedName{Name: rc.clusterName}, cluster); err == nil {
-		rc.watchEndedCh <- event.GenericEvent{Object: cluster}
+		select {
+		case rc.watchEndedCh <- event.GenericEvent{Object: cluster}:
+		case <-ctx.Done():
+		}
 	} else {
 		ctrl.LoggerFrom(ctx).Error(err, "sending watch ended event")
 	}
