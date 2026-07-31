@@ -678,6 +678,11 @@ MINIMALKUEUE_RUNNER := $(BIN_DIR)/minimalkueue
 minimalkueue:
 	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(MINIMALKUEUE_RUNNER) test/performance/scheduler/minimalkueue/main.go
 
+MULTIKUEUE_PERFORMANCE_RUNNER := $(BIN_DIR)/performance-multikueue
+.PHONY: performance-multikueue-runner
+performance-multikueue-runner:
+	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(MULTIKUEUE_PERFORMANCE_RUNNER) ./test/performance/multikueue
+
 ifdef SCALABILITY_CPU_PROFILE
 SCALABILITY_EXTRA_ARGS += --withCPUProfile=true
 endif
@@ -731,6 +736,39 @@ run-performance-scheduler-in-cluster: envtest performance-scheduler-runner
 		--o "$(ARTIFACTS)/$@" \
 		--generatorConfig=$(SCALABILITY_GENERATOR_CONFIG) \
 		--qps=1000 --burst=2000 --timeout=15m $(SCALABILITY_SCRAPE_ARGS)
+
+##@ MultiKueue Performance Testing
+
+MULTIKUEUE_PERFORMANCE_CONFIG ?= $(PROJECT_DIR)/test/performance/multikueue/configs/baseline.yaml
+MULTIKUEUE_PERFORMANCE_RANGE ?= $(PROJECT_DIR)/test/performance/multikueue/configs/baseline/rangespec.yaml
+
+# The runner lives under ./test/, which 'make test' excludes, so its unit tests need their own
+# target to run anywhere.
+.PHONY: test-performance-multikueue-runner
+test-performance-multikueue-runner: gotestsum
+	mkdir -p $(ARTIFACTS)
+	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit-performance-multikueue-runner.xml -- \
+		$(GOFLAGS) $(GO_TEST_FLAGS) ./test/performance/multikueue/...
+
+.PHONY: run-performance-multikueue
+run-performance-multikueue: envtest performance-multikueue-runner
+	mkdir -p "$(ARTIFACTS)/$@"
+	KUBEBUILDER_ASSETS="$(KUBEBUILDER_ASSETS)" \
+	$(MULTIKUEUE_PERFORMANCE_RUNNER) \
+		--o "$(ARTIFACTS)/$@" \
+		--crds=$(PROJECT_DIR)/config/components/crd/bases \
+		--config=$(MULTIKUEUE_PERFORMANCE_CONFIG) $(MULTIKUEUE_PERFORMANCE_ARGS)
+
+.PHONY: test-performance-multikueue-once
+test-performance-multikueue-once: test-performance-multikueue-runner run-performance-multikueue
+	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit-performance-multikueue.xml -- \
+		$(GOFLAGS) $(GO_TEST_FLAGS) ./test/performance/multikueue/checker \
+		--summary=$(ARTIFACTS)/run-performance-multikueue/summary.yaml \
+		--range=$(MULTIKUEUE_PERFORMANCE_RANGE)
+
+.PHONY: test-performance-multikueue
+test-performance-multikueue:
+	ARTIFACTS="$(ARTIFACTS)/$@" ./hack/testing/performance-test.sh $(PERFORMANCE_RETRY_COUNT) test-performance-multikueue-once
 
 ##@ Scheduler Performance Testing with TAS
 
