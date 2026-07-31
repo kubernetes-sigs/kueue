@@ -1402,7 +1402,13 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("verifying that the metric counts are updated according to the new workload label")
-			util.ExpectPendingWorkloadsMetric(cq, 0, 0, "ml-team", "kind1")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.PendingWorkloads, map[string]string{
+					"cluster_queue":  cq.Name,
+					"custom_team_cq": "ml-team",
+					"custom_wl_kind": "kind1",
+				})).To(gomega.BeEmpty())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			util.ExpectPendingWorkloadsMetric(cq, 1, 0, "ml-team", "kind2")
 		})
 
@@ -1440,7 +1446,13 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			util.ExpectPendingWorkloadsMetric(cq, 1, 0, "data-team", "kind1")
 
 			ginkgo.By("verifying that the old ClusterQueue label series are cleaned up")
-			util.ExpectPendingWorkloadsMetric(cq, 0, 0, "ml-team", "kind1")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.PendingWorkloads, map[string]string{
+					"cluster_queue":  cq.Name,
+					"custom_team_cq": "ml-team",
+					"custom_wl_kind": "kind1",
+				})).To(gomega.BeEmpty())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("should clean up entry when all contributing workloads are gone", func() {
