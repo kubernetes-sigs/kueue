@@ -906,7 +906,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						createdRayJob := &rayv1.RayJob{}
 						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(rayjob), createdRayJob)).To(gomega.Succeed())
 						g.Expect(createdRayJob.Annotations).To(gomega.HaveKeyWithValue(
-							workloadraycluster.MultiKueueRuntimePodSetReplicaSizesAnnotation, `[{"name":"workers-group-0","count":2}]`))
+							workloadraycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"workers-group-0","count":2}]`))
 
 						managerCQ := &kueue.ClusterQueue{}
 						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(managerCq), managerCQ)).To(gomega.Succeed())
@@ -931,7 +931,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						createdRayJob := &rayv1.RayJob{}
 						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(rayjob), createdRayJob)).To(gomega.Succeed())
 						g.Expect(createdRayJob.Annotations).To(gomega.HaveKeyWithValue(
-							workloadraycluster.MultiKueueRuntimePodSetReplicaSizesAnnotation, `[{"name":"workers-group-0","count":0}]`))
+							workloadraycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"workers-group-0","count":0}]`))
 
 						managerCQ := &kueue.ClusterQueue{}
 						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(managerCq), managerCQ)).To(gomega.Succeed())
@@ -957,7 +957,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						createdRayJob := &rayv1.RayJob{}
 						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(rayjob), createdRayJob)).To(gomega.Succeed())
 						g.Expect(createdRayJob.Annotations).To(gomega.HaveKeyWithValue(
-							workloadraycluster.MultiKueueRuntimePodSetReplicaSizesAnnotation, `[{"name":"workers-group-0","count":1}]`))
+							workloadraycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"workers-group-0","count":1}]`))
 
 						managerCQ := &kueue.ClusterQueue{}
 						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(managerCq), managerCQ)).To(gomega.Succeed())
@@ -1165,7 +1165,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						// count is reflected as a runtime annotation that feeds the manager's
 						// admitted PodSet counts.
 						g.Expect(createdRayCluster.Annotations).To(gomega.HaveKeyWithValue(
-							workloadraycluster.MultiKueueRuntimePodSetReplicaSizesAnnotation, `[{"name":"workers-group-0","count":2}]`))
+							workloadraycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"workers-group-0","count":2}]`))
 						g.Expect(createdRayCluster.Status.DesiredWorkerReplicas).To(gomega.Equal(int32(2)))
 
 						managerCQ := &kueue.ClusterQueue{}
@@ -1204,7 +1204,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						createdRayCluster := &rayv1.RayCluster{}
 						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(raycluster), createdRayCluster)).To(gomega.Succeed())
 						g.Expect(createdRayCluster.Annotations).To(gomega.HaveKeyWithValue(
-							workloadraycluster.MultiKueueRuntimePodSetReplicaSizesAnnotation, `[{"name":"workers-group-0","count":0}]`))
+							workloadraycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"workers-group-0","count":0}]`))
 						g.Expect(createdRayCluster.Status.DesiredWorkerReplicas).To(gomega.Equal(int32(0)))
 
 						managerCQ := &kueue.ClusterQueue{}
@@ -1244,7 +1244,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						createdRayCluster := &rayv1.RayCluster{}
 						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(raycluster), createdRayCluster)).To(gomega.Succeed())
 						g.Expect(createdRayCluster.Annotations).To(gomega.HaveKeyWithValue(
-							workloadraycluster.MultiKueueRuntimePodSetReplicaSizesAnnotation, `[{"name":"workers-group-0","count":1}]`))
+							workloadraycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"workers-group-0","count":1}]`))
 						g.Expect(createdRayCluster.Status.DesiredWorkerReplicas).To(gomega.Equal(int32(1)))
 
 						managerCQ := &kueue.ClusterQueue{}

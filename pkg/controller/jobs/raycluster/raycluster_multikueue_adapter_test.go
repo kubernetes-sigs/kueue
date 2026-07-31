@@ -381,7 +381,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*elasticBuilder.Clone().
 					WithEnableAutoscaling(new(true)).
 					FirstWorkerGroupReplicas(1, 1, 5).
-					SetAnnotation(MultiKueueRuntimePodSetReplicaSizesAnnotation, `[{"name":"workers-group-0","count":3}]`).
+					SetAnnotation(RayClusterPodsetReplicaSizesAnnotation, `[{"name":"workers-group-0","count":3}]`).
 					SetAnnotation(RayClusterGenerationAnnotation, "-0").
 					Obj(),
 			},

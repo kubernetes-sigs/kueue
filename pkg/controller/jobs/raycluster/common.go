@@ -57,14 +57,6 @@ const (
 	// PodSet replica sizes to differ from the original spec. The value is the generation of
 	// the RayCluster.
 	RayClusterGenerationAnnotation = "kueue.x-k8s.io/raycluster-generation"
-	// MultiKueueRuntimePodSetReplicaSizesAnnotation is set by the MultiKueue
-	// workload controller on the manager copy of a Ray job whose worker
-	// replicas live on a runtime child RayCluster in the worker cluster
-	// (RayJob). It carries the effective per-worker-group pod counts read from
-	// the child, as a JSON array compatible with []PodSetReplicaSize. The
-	// manager derives its PodSet counts from it, since the child object never
-	// exists on the manager cluster.
-	MultiKueueRuntimePodSetReplicaSizesAnnotation = "kueue.x-k8s.io/multikueue-runtime-podset-replica-sizes"
 )
 
 // effectiveWorkerCount returns the effective worker pod count for a worker
@@ -426,11 +418,11 @@ func isManagedByMultiKueue(object client.Object) bool {
 }
 
 // applyRuntimeCountsAnnotation overrides worker-group PodSet counts from the
-// MultiKueueRuntimePodSetReplicaSizesAnnotation, when present. It is the
+// RayClusterPodsetReplicaSizesAnnotation, when present. It is the
 // manager-side fallback of UpdatePodSets for jobs whose runtime child
 // RayCluster lives only on the worker cluster.
 func applyRuntimeCountsAnnotation(log logr.Logger, podSets []kueue.PodSet, object client.Object) []kueue.PodSet {
-	annotation := object.GetAnnotations()[MultiKueueRuntimePodSetReplicaSizesAnnotation]
+	annotation := object.GetAnnotations()[RayClusterPodsetReplicaSizesAnnotation]
 	if annotation == "" {
 		return podSets
 	}
@@ -482,7 +474,7 @@ func WorkerGroupPodCounts(spec *rayv1.RayClusterSpec) map[kueue.PodSetReference]
 
 // SetRuntimeWorkerStateAnnotations records the worker-side runtime replica
 // counts and a revision on the manager object as annotations:
-// MultiKueueRuntimePodSetReplicaSizesAnnotation feeds the manager's PodSet
+// RayClusterPodsetReplicaSizesAnnotation feeds the manager's PodSet
 // derivation and RayClusterGenerationAnnotation feeds the elastic workload-slice
 // name. Equality is decided on the counts alone, so count-neutral revision bumps
 // do not mint replacement slices. Returns whether any annotation changed.
@@ -494,13 +486,13 @@ func SetRuntimeWorkerStateAnnotations(obj client.Object, counts map[kueue.PodSet
 		return false
 	}
 	annotations := obj.GetAnnotations()
-	if annotations[MultiKueueRuntimePodSetReplicaSizesAnnotation] == serialized {
+	if annotations[RayClusterPodsetReplicaSizesAnnotation] == serialized {
 		return false
 	}
 	if annotations == nil {
 		annotations = make(map[string]string, 2)
 	}
-	annotations[MultiKueueRuntimePodSetReplicaSizesAnnotation] = serialized
+	annotations[RayClusterPodsetReplicaSizesAnnotation] = serialized
 	annotations[RayClusterGenerationAnnotation] = revision
 	obj.SetAnnotations(annotations)
 	return true

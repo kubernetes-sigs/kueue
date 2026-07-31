@@ -474,7 +474,7 @@ func TestUpdatePodSets(t *testing.T) {
 			object: testingrayjobutil.MakeJob("rayjob-owner", "ns").
 				ManagedBy(kueue.MultiKueueControllerName).
 				Annotation("kueue.x-k8s.io/elastic-job", "true").
-				Annotation(MultiKueueRuntimePodSetReplicaSizesAnnotation, `[{"name":"workers","count":5}]`).
+				Annotation(RayClusterPodsetReplicaSizesAnnotation, `[{"name":"workers","count":5}]`).
 				Obj(),
 			enableInTreeAutoscaling: new(true),
 			rayClusterName:          "nonexistent-child",
