@@ -20,7 +20,7 @@
       - [Naming](#naming)
     - [Scheduling and Preemption](#scheduling-and-preemption)
       - [Preemption Disambiguation.](#preemption-disambiguation)
-      - [Example: Two-Step Scale Up under Quota Constraints](#example-two-step-scale-up-under-quota-constraints)
+      - [Example: Two-Step Scale Up under Quota Constraints (with Partial Admission)](#example-two-step-scale-up-under-quota-constraints-with-partial-admission)
       - [Resource Flavors](#resource-flavors)
     - [Garbage Collection of Preempted Workload Slices](#garbage-collection-of-preempted-workload-slices)
   - [Pod Scheduling Gates](#pod-scheduling-gates)
@@ -266,11 +266,14 @@ Consider a scenario where:
     * `spec.podSets.count` = 7 (originally requested 10, but updated to 7 during partial admission)
     * `spec.podSets.minCount` = 6 (the the current running count 5 + 1)
     * `status.admission.count` = 7
+  * `wl-C` (Pending, since there is no capacity for 10 pods)
+    * `spec.podSets.count` = 10 (representing the job count)
+    * `spec.podSets.minCount` = 8 (the the current running count 7 + 1)
 * **Controller Actions**:
   1. **Job Controller**: Detects the parallelism increase and creates 5 new Pods (total 10 pods: 5 running, 5 gated). The new pods are created with the `kueue.x-k8s.io/elastic-job` scheduling gate.
   2. **Kueue Job Framework / Workload Controller**: Observes the scale-up and creates a new Workload slice `wl-B` with `spec.podSets.count = 10` and `spec.podSets.minCount = 6` (inheriting/adjusting the minimum count based on the currently running/admitted count of 5 + 1 from `wl-A`). It is annotated as a replacement for `wl-A` via `kueue.x-k8s.io/workload-slice-replacement-for`.
-  3. **Kueue Scheduler**: Evaluates `wl-B`. Since it replaces `wl-A`, it calculates the incremental quota demand: `10 (new request) - 5 (already admitted in wl-A) = 5`. The available quota is only 2. Since Workload could not be fully admitted rueue scheduler evaluates whetehr it can partially admit the workload with any count between 6 and 10. Given the available quota of 2, the scheduler admits `wl-B` with a count of `5 + 2 = 7` (`status.admission.count = 7`), reserving 2 more units of quota (total 7).
-  4. **Kueue Job Framework / WorkloadSlice Controller**: Detects that `wl-B` is partially admitted with 7. It updates `wl-B`'s `.spec.podSets[0].count` to 7 to match the admitted count (while `job.spec.parallelism` remains 10) and updates the `podSet.minCount` to 2 to match the min value of the job. It also marks `wl-A` as `Finished` (aggregated).
+  3. **Kueue Scheduler**: Evaluates `wl-B`. Since it replaces `wl-A`, it calculates the demand: `10 (new request) - 5 (already admitted in wl-A) = 5`. The available quota is only 2. Since Workload could not be fully admitted rueue scheduler evaluates whetehr it can partially admit the workload with any count between 6 and 10. Given the available quota of 2, the scheduler admits `wl-B` with a count of `5 + 2 = 7` (`status.admission.count = 7`), reserving 2 more units of quota (total 7).
+  4. **Kueue Job Framework / WorkloadSlice Controller**: Detects that `wl-B` is partially admitted with 7. It updates `wl-B`'s `.spec.podSets[0].count` to 7 to match the admitted count (while `job.spec.parallelism` remains 10) and updates the `podSet.minCount` to 2 to match the min value of the job. It also marks `wl-A` as `Finished` (aggregated). Also the controller creates another WorkloadSlice `wl-C` that represent the current state of the job with `.spec.podSets[0].count` = 10 and `spec.podSets.minCount` = 8. This workload is added to the queue to evaluate when the capacity will be available and currently it stay `Pending`.
   5. **ElasticJobUngater Controller**: Detects that `wl-B` is admitted with count 7. It removes the scheduling gate from 2 of the new pods (bringing running pods to 7). The other 3 new pods remain gated.
 * **Quota usage**: 7/7 (0 available).
 
@@ -278,13 +281,13 @@ Consider a scenario where:
 * **Job spec.parallelism**: 12
 * **Workloads**:
   * `wl-B` (Admitted)
-  * `wl-C` (Rejected):
+  * `wl-C` (Updated, keep pending):
     * `spec.podSets.count` = 12
     * `spec.podSets.minCount` = 8 (7 + 1)
 * **Controller Actions**:
-  1. **Job Controller**: Detects the parallelism increase and creates 2 more Pods (total 12 pods: 7 running, 5 gated). The new pods are created with the `kueue.x-k8s.io/elastic-job` scheduling gate.
-  2. **Kueue Job Framework / Workload Controller**: Detects the update. Since the Job's parallelism is updated to 12, Kueue creates a new Workload slice `wl-C` with `spec.podSets.count = 12` and `spec.podSets.minCount = 8`.
-  3. **Kueue Scheduler**: Evaluates `wl-C`. The incremental quota demand is `12 - 7 = 5`. The available quota is 0. Since the `minCount = 8`, the delta 1 > 0, so the scheduler puts `wl-C` in the queue.
+  1. **Job Controller**: Detects the parallelism increase 2 more Pods (total 12 pods: 7 running, 5 gated). The new pods are created with the `kueue.x-k8s.io/elastic-job` scheduling gate.
+  2. **Kueue Job Framework / Workload Controller**: Detects the update. Since the Job's parallelism is updated to 12, Kueue updates the pending workload `wl-C` with `spec.podSets.count = 12`.
+  3. **Kueue Scheduler**: Evaluates `wl-C`. The demand is `12 - 7 = 5`. The available quota is 0, so the scheduler puts `wl-C` in the queue.
 
 ###### Step 3: Quota increases to 12
 If the available quota in the ClusterQueue increases to 12 (or more) in the future:
