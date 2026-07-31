@@ -201,24 +201,27 @@ type ClusterQueue struct {
 	pendingResourcesTotal map[corev1.ResourceName]int64
 }
 
-func (c *ClusterQueue) addInadmissible(key workload.Reference, wInfo *workload.Info) {
-	c.inadmissibleWorkloads.insert(key, wInfo)
+func (c *ClusterQueue) updateInadmissible(key workload.Reference, wInfo *workload.Info) {
 	if c.breakDownByWorkloadLabels() {
+		if oldInfo := c.inadmissibleWorkloads.get(key); oldInfo != nil {
+			c.inadmissibleWorkloadsTracker.Decr(c.customLabels.MakeValsSet(configapi.SourceKindWorkload, oldInfo.Obj.Labels, oldInfo.Obj.Annotations))
+		}
 		c.inadmissibleWorkloadsTracker.Incr(c.customLabels.MakeValsSet(configapi.SourceKindWorkload, wInfo.Obj.Labels, wInfo.Obj.Annotations))
 	}
+	c.inadmissibleWorkloads.insert(key, wInfo)
 }
 
 func (c *ClusterQueue) removeInadmissible(key workload.Reference, wInfo *workload.Info) {
 	c.inadmissibleWorkloads.delete(key)
 	if c.breakDownByWorkloadLabels() {
-		c.inadmissibleWorkloadsTracker.Add(c.customLabels.MakeValsSet(configapi.SourceKindWorkload, wInfo.Obj.Labels, wInfo.Obj.Annotations), -1)
+		c.inadmissibleWorkloadsTracker.Decr(c.customLabels.MakeValsSet(configapi.SourceKindWorkload, wInfo.Obj.Labels, wInfo.Obj.Annotations))
 	}
 }
 
 func (c *ClusterQueue) replaceInadmissible(newInadmissibleWorkloads inadmissibleWorkloads) {
 	if c.breakDownByWorkloadLabels() {
 		for _, wInfo := range c.inadmissibleWorkloads {
-			c.inadmissibleWorkloadsTracker.Add(c.customLabels.MakeValsSet(configapi.SourceKindWorkload, wInfo.Obj.Labels, wInfo.Obj.Annotations), -1)
+			c.inadmissibleWorkloadsTracker.Decr(c.customLabels.MakeValsSet(configapi.SourceKindWorkload, wInfo.Obj.Labels, wInfo.Obj.Annotations))
 		}
 		for _, wInfo := range newInadmissibleWorkloads {
 			c.inadmissibleWorkloadsTracker.Incr(c.customLabels.MakeValsSet(configapi.SourceKindWorkload, wInfo.Obj.Labels, wInfo.Obj.Annotations))
@@ -239,7 +242,7 @@ func (c *ClusterQueue) pushOrUpdatePending(wInfo *workload.Info) {
 	if c.breakDownByWorkloadLabels() {
 		key := workloadKey(wInfo)
 		if oldInfo := c.heap.GetByKey(key); oldInfo != nil {
-			c.pendingWorkloadsTracker.Add(c.customLabels.MakeValsSet(configapi.SourceKindWorkload, oldInfo.Obj.Labels, oldInfo.Obj.Annotations), -1)
+			c.pendingWorkloadsTracker.Decr(c.customLabels.MakeValsSet(configapi.SourceKindWorkload, oldInfo.Obj.Labels, oldInfo.Obj.Annotations))
 		}
 		c.pendingWorkloadsTracker.Incr(c.customLabels.MakeValsSet(configapi.SourceKindWorkload, wInfo.Obj.Labels, wInfo.Obj.Annotations))
 	}
@@ -252,7 +255,7 @@ func (c *ClusterQueue) deletePending(key workload.Reference, wInfo *workload.Inf
 			wInfo = c.heap.GetByKey(key)
 		}
 		if wInfo != nil {
-			c.pendingWorkloadsTracker.Add(c.customLabels.MakeValsSet(configapi.SourceKindWorkload, wInfo.Obj.Labels, wInfo.Obj.Annotations), -1)
+			c.pendingWorkloadsTracker.Decr(c.customLabels.MakeValsSet(configapi.SourceKindWorkload, wInfo.Obj.Labels, wInfo.Obj.Annotations))
 		}
 	}
 	c.heap.Delete(key)
@@ -261,7 +264,7 @@ func (c *ClusterQueue) deletePending(key workload.Reference, wInfo *workload.Inf
 func (c *ClusterQueue) popPending() *workload.Info {
 	wInfo := c.heap.Pop()
 	if wInfo != nil && c.breakDownByWorkloadLabels() {
-		c.pendingWorkloadsTracker.Add(c.customLabels.MakeValsSet(configapi.SourceKindWorkload, wInfo.Obj.Labels, wInfo.Obj.Annotations), -1)
+		c.pendingWorkloadsTracker.Decr(c.customLabels.MakeValsSet(configapi.SourceKindWorkload, wInfo.Obj.Labels, wInfo.Obj.Annotations))
 	}
 	return wInfo
 }
@@ -479,7 +482,7 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 				apimeta.FindStatusCondition(wInfo.Obj.Status.Conditions, kueue.WorkloadRequeued)) &&
 			workload.HasClosedPreemptionGate(oldInfo.Obj) == workload.HasClosedPreemptionGate(wInfo.Obj) &&
 			!draRequestsChanged(oldInfo, wInfo) {
-			c.addInadmissible(key, wInfo)
+			c.updateInadmissible(key, wInfo)
 			return
 		}
 		// Workload is leaving inadmissible; account for its resources before moving.
@@ -575,7 +578,7 @@ func (c *ClusterQueue) subtractPendingResources(wInfo *workload.Info) {
 }
 
 func (c *ClusterQueue) insertInadmissible(key workload.Reference, wInfo *workload.Info) {
-	c.addInadmissible(key, wInfo)
+	c.updateInadmissible(key, wInfo)
 	c.addPendingResources(wInfo)
 }
 
@@ -689,7 +692,7 @@ func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info
 		return false
 	}
 
-	c.addInadmissible(key, wInfo)
+	c.updateInadmissible(key, wInfo)
 	if !wasTracked {
 		c.addPendingResources(wInfo)
 	}
@@ -729,7 +732,7 @@ func (c *ClusterQueue) handleInadmissibleHash(hash workload.EquivalenceHash, rea
 		if wInfo.SchedulingHash == hash {
 			key := workloadKey(wInfo)
 			c.deletePending(key, wInfo)
-			c.addInadmissible(key, wInfo)
+			c.updateInadmissible(key, wInfo)
 			moved++
 		}
 	}
@@ -790,7 +793,7 @@ func (c *ClusterQueue) pendingActive() *metrics.LabelValsTracker {
 // to change to potentially become admissible.
 func (c *ClusterQueue) pendingInadmissible() *metrics.LabelValsTracker {
 	if c.breakDownByWorkloadLabels() {
-		return c.inadmissibleWorkloadsTracker
+		return metrics.Copy(c.inadmissibleWorkloadsTracker)
 	}
 	result := metrics.NewLabelValsTracker()
 	emptyVals := metrics.Empty()

@@ -356,9 +356,16 @@ func (c *LabelValsTracker) Incr(ls labelValsSet) {
 	c.Add(ls, 1)
 }
 
+func (c *LabelValsTracker) Decr(ls labelValsSet) {
+	c.Add(ls, -1)
+}
+
 func (c *LabelValsTracker) Add(ls labelValsSet, incr int) {
 	c.counts[ls] += incr
 	c.total += incr
+	if c.counts[ls] <= 0 {
+		delete(c.counts, ls)
+	}
 }
 
 func (c *LabelValsTracker) Get(ls labelValsSet) int {
