@@ -10,7 +10,7 @@ cmd:
   maxWallMs: 500000
 
 # Cluster Queue utilization targets (minimum)
-# Threshold: mean, rounded to 0.1%
+# Threshold: mean - 20%, rounded to 0.1%
 clusterQueueClassesMinUsage:
   cq: 52.8
 

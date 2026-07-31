@@ -26,24 +26,31 @@ def load_summary_files(artifacts_dir):
         try:
             with open(summary_file, 'r') as f:
                 data = yaml.safe_load(f)
-                
+            
+            print(f"\n  📄 Processing {summary_file.name}")
+            
             # Extract cluster queue metrics
             if 'clusterQueueClasses' in data:
                 for cq_name, cq_data in data['clusterQueueClasses'].items():
                     if 'cpuAverageUsage' in cq_data and 'nominalQuota' in cq_data:
-                        if cq_data['nominalQuota'] > 0:
-                            usage = (cq_data['cpuAverageUsage'] * 100) / cq_data['nominalQuota']
+                        cpu_avg = cq_data['cpuAverageUsage']
+                        quota = cq_data['nominalQuota']
+                        if quota > 0:
+                            usage = (cpu_avg * 100) / quota
                             if cq_name not in cluster_queue_data:
                                 cluster_queue_data[cq_name] = []
                             cluster_queue_data[cq_name].append(usage)
+                            print(f"      cq: cpuAverageUsage={cpu_avg}, nominalQuota={quota}, usage={usage:.2f}%")
             
             # Extract workload class metrics
             if 'workloadClasses' in data:
                 for wl_class, wl_data in data['workloadClasses'].items():
                     if 'averageTimeToAdmissionMs' in wl_data:
+                        time_ms = float(wl_data['averageTimeToAdmissionMs'])
                         if wl_class not in workload_class_data:
                             workload_class_data[wl_class] = []
-                        workload_class_data[wl_class].append(float(wl_data['averageTimeToAdmissionMs']))
+                        workload_class_data[wl_class].append(time_ms)
+                        print(f"      {wl_class}: {time_ms}ms")
             
             print(f"  ✓ Loaded {summary_file}")
         except Exception as e:
@@ -62,12 +69,12 @@ def calculate_thresholds(cluster_queue_data, workload_class_data):
         'wlClassesMaxAvgTimeToAdmissionMs': {}
     }
     
-    # Calculate cluster queue thresholds (use mean)
+    # Calculate cluster queue thresholds (mean - 20%)
     print("\n📊 CLUSTER QUEUE UTILIZATION")
     for cq_name, values in cluster_queue_data.items():
         if values:
             m = mean(values)
-            threshold = m * 0.80  # -10% (more conservative)
+            threshold = m * 0.80  # -20% (more conservative)
             thresholds['clusterQueueClassesMinUsage'][cq_name] = round(threshold, 1)
             print(f"  {cq_name}: mean={m:.1f}% → threshold={threshold:.1f}%")
     
@@ -98,7 +105,7 @@ cmd:
   maxWallMs: 500000
 
 # Cluster Queue utilization targets (minimum)
-# Threshold: mean, rounded to 0.1%
+# Threshold: mean - 20%, rounded to 0.1%
 clusterQueueClassesMinUsage:
 """
     
@@ -132,7 +139,8 @@ def main():
         print("❌ No metrics found")
         return 1
     
-    print(f"✓ Loaded {len(list(cluster_queue_data.keys()) + list(workload_class_data.keys()))} metrics")
+    total_metrics = len(list(cluster_queue_data.keys()) + list(workload_class_data.keys()))
+    print(f"\n✓ Loaded {total_metrics} metric types")
     
     # Calculate thresholds
     thresholds = calculate_thresholds(cluster_queue_data, workload_class_data)
