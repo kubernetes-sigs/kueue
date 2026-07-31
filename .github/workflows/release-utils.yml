@@ -21,6 +21,7 @@ jobs:
        contains(github.event.comment.body, '/wait-for-images') ||
        contains(github.event.comment.body, '/wait-for-prod-images') ||
        contains(github.event.comment.body, '/prepare-pull') ||
+       contains(github.event.comment.body, '/milestone-pull') ||
        contains(github.event.comment.body, '/publish-release'))
     outputs:
       command: ${{ steps.parse.outputs.command }}
@@ -97,6 +98,8 @@ jobs:
               exit 1
             fi
             echo "target=$TARGET" >> "$GITHUB_OUTPUT"
+          elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/milestone-pull[[:space:]]*$'; then
+            COMMAND="milestone-pull"
           elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/publish-release[[:space:]]*$'; then
             COMMAND="publish-release"
           else
@@ -615,6 +618,112 @@ jobs:
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.prep_pull.outputs.message || '❌ Failed to prepare pull requests.' }}
+
+  milestone-pull:
+    name: Milestone Pull
+    runs-on: ubuntu-latest
+    needs: authorize
+    timeout-minutes: 30
+    if: ${{ needs.authorize.outputs.command == 'milestone-pull' }}
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Checkout kubernetes/test-infra
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: kubernetes/test-infra
+          ref: master
+          fetch-depth: 1
+          path: kubernetes/test-infra
+          persist-credentials: false
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "kueue-release-bot"
+          git config --global user.email "kueue-release-bot@kubernetes.io"
+
+      - name: Create Milestone
+        id: milestone
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.authorize.outputs.version }}
+          SKIP_PR: "1"
+          KUBERNETES_SIGS_KUEUE_UPSTREAM_REMOTE: origin
+        run: |
+          set +e
+          ./hack/releasing/milestone_pull.sh "$VERSION"
+          SCRIPT_EXIT_CODE=$?
+          set -e
+
+          if [ $SCRIPT_EXIT_CODE -ne 0 ]; then
+            echo "message=❌ Failed to create the milestone for version \`$VERSION\`." >> "$GITHUB_OUTPUT"
+            exit $SCRIPT_EXIT_CODE
+          fi
+
+          NEXT_MINOR=$(echo "$VERSION" | awk -F. '{printf "%s.%d", $1, $2 + 1}')
+          echo "next_minor=$NEXT_MINOR" >> "$GITHUB_OUTPUT"
+
+      - name: Check Bot Credential
+        id: credential
+        env:
+          BOT_TOKEN: ${{ secrets.KUEUE_RELEASE_BOT_TOKEN }}
+        run: |
+          if [ -n "$BOT_TOKEN" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Submit Milestone Applier PR
+        id: mapping_pr
+        if: ${{ steps.credential.outputs.available == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.KUEUE_RELEASE_BOT_TOKEN }}
+          VERSION: ${{ needs.authorize.outputs.version }}
+          GITHUB_USER: ${{ vars.KUEUE_RELEASE_BOT_USER || 'kueue-release-bot' }}
+          SKIP_MILESTONE: "1"
+          KUBERNETES_SIGS_KUEUE_UPSTREAM_REMOTE: origin
+          KUBERNETES_TEST_INFRA_PATH: ${{ github.workspace }}/kubernetes/test-infra
+          KUBERNETES_TEST_INFRA_UPSTREAM_REMOTE: origin
+          KUBERNETES_TEST_INFRA_FORK_REMOTE: fork
+        run: |
+          gh auth setup-git
+          git -C "$KUBERNETES_TEST_INFRA_PATH" remote add fork \
+            "https://github.com/${GITHUB_USER}/test-infra.git"
+
+          set +e
+          ./hack/releasing/milestone_pull.sh "$VERSION"
+          SCRIPT_EXIT_CODE=$?
+          set -e
+
+          if [ $SCRIPT_EXIT_CODE -ne 0 ]; then
+            echo "message=❌ Milestone \`${{ steps.milestone.outputs.next_minor }}\` is present, but the milestone_applier PR failed." >> "$GITHUB_OUTPUT"
+            exit $SCRIPT_EXIT_CODE
+          fi
+
+      - name: Report Success
+        if: ${{ success() }}
+        uses: ./.github/actions/report-result
+        with:
+          command: ${{ needs.authorize.outputs.command }}
+          message: >-
+            ${{ steps.credential.outputs.available == 'true'
+              && format('✅ Milestone `{0}` is present and the milestone_applier PR was submitted to kubernetes/test-infra.', steps.milestone.outputs.next_minor)
+              || format('✅ Milestone `{0}` is present. ⚠️ The milestone_applier PR was not opened: repository secret `KUEUE_RELEASE_BOT_TOKEN` is not configured. Run `SKIP_MILESTONE=1 GITHUB_USER=<your-user> ./hack/releasing/milestone_pull.sh {1}` locally to open it, or ask a maintainer to provision the secret.', steps.milestone.outputs.next_minor, needs.authorize.outputs.version) }}
+
+      - name: Report Failure
+        if: ${{ failure() }}
+        uses: ./.github/actions/report-result
+        with:
+          command: ${{ needs.authorize.outputs.command }}
+          message: ${{ steps.mapping_pr.outputs.message || steps.milestone.outputs.message || '❌ Failed to run the milestone step.' }}
 
   publish-release:
     name: Publish Release
