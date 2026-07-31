@@ -250,34 +250,14 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 		shouldUpdate = true
 	}
 
-	var shouldUpdateReclaimablePods bool
-	var reclaimablePods []kueue.ReclaimablePod
-	if replicas > 0 && len(wl.Spec.PodSets) == 1 && wl.Spec.PodSets[0].Count != replicas {
-		switch {
-		case !workload.IsAdmitted(wl):
-			wl.Spec.PodSets[0].Count = replicas
-			shouldUpdate = true
-		case replicas < wl.Spec.PodSets[0].Count:
-			shouldUpdateReclaimablePods = true
-			reclaimablePods = []kueue.ReclaimablePod{
-				{
-					Name:  wl.Spec.PodSets[0].Name,
-					Count: wl.Spec.PodSets[0].Count - replicas,
-				},
-			}
-		case replicas > wl.Spec.PodSets[0].Count:
-			// TOCTOU mitigation: If the workload was admitted concurrently with a scale-out,
-			// the webhook may have allowed it because the Workload was pending at the time of check.
-			// Revert the StatefulSet replicas to match the admitted workload's quota.
-			count := wl.Spec.PodSets[0].Count
-			sts.Spec.Replicas = &count
-			if err := r.client.Update(ctx, sts); err != nil {
-				return err
-			}
-			// We updated the sts, which will trigger another reconcile.
-			return nil
-		}
+	wlUpdated, reclaimablePods, stopReconcile, err := r.syncReplicas(ctx, sts, wl, replicas)
+	if err != nil {
+		return err
 	}
+	if stopReconcile {
+		return nil
+	}
+	shouldUpdate = shouldUpdate || wlUpdated
 
 	if features.Enabled(features.AdmissionGatedBy) {
 		gateUpdated := jobframework.PropagateAdmissionGatedByAnnotation(sts, wl)
@@ -290,7 +270,7 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 		}
 	}
 
-	if shouldUpdateReclaimablePods {
+	if len(reclaimablePods) > 0 {
 		if err := workload.UpdateReclaimablePods(ctx, r.client, wl, reclaimablePods); err != nil {
 			return err
 		}
@@ -521,4 +501,51 @@ func (h *podHandler) handle(obj client.Object, q workqueue.TypedRateLimitingInte
 			},
 		}, podBatchPeriod)
 	}
+}
+
+// syncReplicas synchronizes the StatefulSet's replicas with its corresponding Workload's PodSet count.
+// It handles updating the Workload if not admitted, recording ReclaimablePods for scale-down,
+// and mitigating TOCTOU (Time-Of-Check to Time-Of-Use) race conditions for scale-up.
+// If it mitigates a scale-up by updating the StatefulSet, it returns stopReconcile=true.
+func (r *Reconciler) syncReplicas(
+	ctx context.Context,
+	sts *appsv1.StatefulSet,
+	wl *kueue.Workload,
+	replicas int32,
+) (shouldUpdateWl bool, reclaimablePods []kueue.ReclaimablePod, stopReconcile bool, err error) {
+	if replicas == 0 || len(wl.Spec.PodSets) != 1 || wl.Spec.PodSets[0].Count == replicas {
+		return false, nil, false, nil
+	}
+
+	switch {
+	case !workload.IsAdmitted(wl):
+		// If the workload is not admitted, we can freely update its PodSet count to match the StatefulSet.
+		wl.Spec.PodSets[0].Count = replicas
+		return true, nil, false, nil
+
+	case replicas < wl.Spec.PodSets[0].Count:
+		// When scaling down an admitted workload, we record the freed pods as ReclaimablePods
+		// so Kueue can reclaim the quota before the workload finishes.
+		reclaimablePods = []kueue.ReclaimablePod{
+			{
+				Name:  wl.Spec.PodSets[0].Name,
+				Count: wl.Spec.PodSets[0].Count - replicas,
+			},
+		}
+		return false, reclaimablePods, false, nil
+
+	case replicas > wl.Spec.PodSets[0].Count:
+		// TOCTOU mitigation: A scale-up might have been allowed by the admission webhook if the workload
+		// was still in a pending state at the time of the check, but then admitted concurrently.
+		// To prevent the StatefulSet from exceeding its admitted quota, we revert its replicas to the Workload's count.
+		count := wl.Spec.PodSets[0].Count
+		sts.Spec.Replicas = &count
+		if err := r.client.Update(ctx, sts); err != nil {
+			return false, nil, false, err
+		}
+		// The StatefulSet was updated, which will trigger a new reconciliation.
+		return false, nil, true, nil
+	}
+
+	return false, nil, false, nil
 }
