@@ -687,6 +687,15 @@ func TestUpdateConfig(t *testing.T) {
 			}
 			reconciler.builderOverride = fakeClientBuilder(ctx)
 
+			// Reconcile starts watcher goroutines that log through this test's logger.
+			// Nothing else joins them, so without this they outlive the test and race
+			// with tRunner's teardown.
+			t.Cleanup(func() {
+				for _, rc := range reconciler.remoteClients {
+					rc.StopWatchers()
+				}
+			})
+
 			if tc.skipInsecureKubeconfig {
 				features.SetFeatureGateDuringTest(t, features.MultiKueueAllowInsecureKubeconfigs, true)
 			}
