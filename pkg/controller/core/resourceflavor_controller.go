@@ -20,6 +20,7 @@ import (
 	"context"
 
 	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/workqueue"
@@ -173,7 +174,16 @@ func (r *ResourceFlavorReconciler) Update(e event.TypedUpdateEvent[*kueue.Resour
 		return true
 	}
 
-	if cqNames := r.cache.AddOrUpdateResourceFlavor(log, e.ObjectNew.DeepCopy()); len(cqNames) > 0 {
+	cqNames := r.cache.AddOrUpdateResourceFlavor(log, e.ObjectNew.DeepCopy())
+	// AddOrUpdateResourceFlavor only reports ClusterQueues that transitioned
+	// from pending to active. Editing nodeTaints keeps the ClusterQueues active
+	// but changes which workloads the flavor can admit, so the workloads left
+	// inadmissible by a since-removed taint would otherwise never be retried.
+	// Retry the inadmissible workloads in the ClusterQueues that use this flavor.
+	if !equality.Semantic.DeepEqual(e.ObjectOld.Spec.NodeTaints, e.ObjectNew.Spec.NodeTaints) {
+		cqNames.Insert(r.cache.ClusterQueuesUsingFlavor(kueue.ResourceFlavorReference(e.ObjectNew.Name))...)
+	}
+	if len(cqNames) > 0 {
 		qcache.NotifyRetryInadmissible(r.qManager, cqNames)
 	}
 	return false
