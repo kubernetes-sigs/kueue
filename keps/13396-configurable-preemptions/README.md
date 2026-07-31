@@ -191,6 +191,10 @@ failure to run a workload in time (dictated by SLA) can lead to significant fina
 Other buisness might need workloads that are not preemptible at all.
 
 
+### Other related issues:
+* maxPriorityThreshold for withinClusterQueue preemptions [#12001](https://github.com/kubernetes-sigs/kueue/issues/12001)
+* maxPriorityThreshold for reclaimWithinCohort [#12046](https://github.com/kubernetes-sigs/kueue/issues/12046)
+
 <!--
 This section is for explicitly listing the motivation, goals, and non-goals of
 this KEP.  Describe why the change is important and the benefits to users. The
@@ -237,7 +241,7 @@ The new **PreemptionStrategy** object will be referencable in the **ClusterQueue
 	// must be null. Settings in PreemptionStrategy overwrite any preemption
   // defaults that may be in the system. Indicated strategy defines which workloads
   // will be considered for preemption if workload from this cluster queue cannot be
-  // scheduled due to resource constraints.
+  // scheduled due to resource or topology constraints.
 	PreemptionStrategyName string
 
 ```
@@ -278,12 +282,12 @@ User can define a strategy with InsufficientTopology trigger that will allow pre
 * Only allow preemption of workloads that require smaller topologies (e.g. via appropriate labels selector)
 * Only allow preemption of workloads that should be preemptible according to FairSharing rules.
 
-Priority strategy can look like:
+Example strategy based on priority can look like:
 ```
 spec:
   rules:
     - trigger: "InsufficientTopology"
-      minTriggerDurationSeconds: 30
+      minTriggerRequiredDurationSeconds: 30
 
       
 ```
@@ -334,7 +338,7 @@ The documation will also clearly indicate that creation of large number of compl
 
 ### Proposed API PreemptionStrategy
 
-```
+```go
 type PreemptionStrategy struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -352,7 +356,7 @@ type PreemptionStrategySpec {
 type PreemptionRuleTrigger string
 const (
 	InsufficientQuota PreemptionRuleTrigger = "InsufficientQuota"
-	QuotaBorrowed PreemptionRuleTrigger = "QuotaBorrowed"
+	QuotaReclaimRequired PreemptionRuleTrigger = "QuotaReclaimRequired"
 	InsufficientTopology PreemptionRuleTrigger = "InsufficientTopology"
 }
 
@@ -360,23 +364,32 @@ const (
 type PreemptionRule struct {
 	Name string
 
-	// Preemptor label selector.
-	MatchingWorkloads metav1.LabelSelector
+	// Label Selector indicating which workloads can trigger preemptions
+	// using this rule.
+	MatchingPreemptorWorkloads metav1.LabelSelector
 
 	Trigger PreemptionRuleTrigger
-	// How long the trigger should be active. The first observation 
-// time is put into workload conditions.
-	TriggerDurationSeconds int
+	// How long the trigger has to occur to start preempting workloads specified by candidates. 0 indicates that preemptions can be started immediately.
+	minTriggerRequiredDurationSeconds int
 
-	// Candidates selection rules.
+	// Selection rules for workloads that are candidates for preemption.
+	// Candidates resulting from multiple selectors are summed into one set. No selectors result in empty candidate set, thereby disalowing any preemptions with this rule.
 	Candidates  []PreemptionCandidateSelector
 }
+```
 
+The first observation timestamp that sepecific trigger occurred is put into workload conditions.  The conditions are cleared upon succesful addmition of the workload or if they are no longer true.
+This will result in the following new condition types:
+`InsufficientQuota`, `InsufficientTopology`, `QuotaReclaimRequired`.
+
+
+
+```go
 type PreemptionRelationConstraint string
 
 const (
 	SameLocalQueue PreemptionRelationConstraint = "SameLocalQueue"
-SameClusterQueue PreemptionRelationConstraint = "SameClusterQueue"
+	SameClusterQueue PreemptionRelationConstraint = "SameClusterQueue"
 	SameCohort PreemptionRelationConstraint = "SameCohort"
 	SameCohortTree PreemptionRelationConstraint = "SameCohortTree"
 	AnyClusterQueue PreemptionRelationConstraint = "AnyClusterQueue"
@@ -384,18 +397,31 @@ SameClusterQueue PreemptionRelationConstraint = "SameClusterQueue"
 
 type QuotaConstraint string
 
+type PreemptionRelationConstraint string
+
 const (
-BorrowingCapacityFromPreemptor QuotaConstraint = "BorrowingCapacityFromPreemptor"
-DRSLessThanOrEqualToFinalShare QuotaConstraint = "DRSLessThanOrEqualToFinalShare"
+	SameLocalQueue PreemptionRelationConstraint = "SameLocalQueue"
+SameClusterQueue PreemptionRelationConstraint = "SameClusterQueue"
+	SameCohort PreemptionRelationConstraint = "SameCohort"
+SameCohortTree PreemptionRelationConstraint = "SameCohortTree" 	AnyClusterQueue PreemptionRelationConstraint = "AnyClusterQueue" 
+)
+
+type QuotaConstraint string
+
+const (
+	BorrowingCapacityFromPreemptor QuotaConstraint = "BorrowingCapacityFromPreemptor"
+	DRSLessThanOrEqualToFinalShare QuotaConstraint = "DRSLessThanOrEqualToFinalShare"
 	DRSLessThanInitialShare QuotaConstraint = "DRSLessThanInitialShare"
+	DRSAllStrategies QuotaConstraint = "DRSAllStrategies"
 )
 
 type PreemptionCandidateSelector struct{
-	// Accepts None if not set
-	RelationRequirement []PreemptionRelationConstraint
+	// Required. 
+	RelationRequirement PreemptionRelationConstraint
 
-	// Accepts all if not set.
-	Quota []QuotaConstraint
+	// Accepts all if not set. 
+	// Cannot be set if RelationRequirement is SameLocalQueue or SamleClustrQueue.
+	Quota QuotaConstraint
 
 	// Accepts all if not set.
 	ClusterQueueSelector metav1.LabelSelector
@@ -409,12 +435,13 @@ type PreemptionCandidateSelector struct{
 	// Accepts all if not set. Items are AND-ed.
 	PriorityExpression []PrioirtyExpression
 	
-// Accepts all if not set.
+	// Accepts all if not set. Items are AND-ed.
 	ExecutionTimeSelector []TimeSelector
 
-// Accepts all if not set. 
-TimeFromCreationSelector *TimeSelector 	
+	// Accepts all if not set. Items are AND-ed.
+	TimeFromCreationSelector []TimeSelector 	
 }
+
 
 type RelativePrioirtyConstraint string
 
@@ -429,31 +456,44 @@ type PriorityExpression struct {
 	// Matches all workload priority classes if not set.
 	PreemptingWorkloadPrioritySelector metav1.LabelSelector
 
-      // Matches all workload priority classes if not set. 
-      CandidateWorkloadPrioritySelector metav1.LabelSelector
+	// Matches all workload priority classes if not set. 
+	CandidateWorkloadPrioritySelector metav1.LabelSelector
 
 	// The comparison is made against the preempting workload. 
-      // Lower means that the candidate 
-      // has lower priority than the preemptor and so on. No check is made 
-// if the field is nil. 
-RelativePrioirty *RelativeConstraint
+	// Lower means that the candidate 
+	// has lower priority than the preemptor and so on. 
+	// No check is made if the field is nil. 
+	RelativePrioirty *RelativeConstraint
 }
 
 type TimeSelector struct {
 	Operator RelativeConstraint
 
 	// If value is not provided, the comparison is 
-// made against the preempting workload
-ValueInSeconds *int64 
+	// made against the preempting workload
+	ValueInSeconds *int64 
 }
 
 type OrderingField string
 const (
-	Prioirty OrderingField = "Prioirty"
+	Priority OrderingField = "Priority"
+	AdmissionTimestamp OrderingField = "AdmissionTimestamp"
 	CreationTimestamp OrderingField = "CreationTimestamp"
 	ClusterQueueDRS OrderingField = "ClusterQueueDRS"
 	IsOtherCQ OrderingField = "IsOtherCQ"
+	IsDRSLessThanInitialShare OrderingField = "IsDRSLessThanInitialShare"
+	IsDRSLessThanOrEqualToFinalShare OrderingField = "IsDRSLessThanOrEqualToFinalShare"
 )
+```
+As defined by [current ordering](https://github.com/kubernetes-sigs/kueue/blob/24f6f99135979076a8d56ca7fc407990b98c66af/pkg/scheduler/preemption/common/ordering.go#L34-L41)
+The order is right now based on:
+0. Workloads already marked for preemption first.
+1. Workloads from other ClusterQueues in the cohort before the ones in the same ClusterQueue as the preemptor.
+2. (AdmissionFairSharing only) Workloads with lower LocalQueue's usage first
+3. Workloads with lower priority first.
+4. Workloads admitted more recently first.
+
+```go
 
 type Ordering struct {
 	Order []OrderingField
@@ -461,22 +501,10 @@ type Ordering struct {
 ```
 
 
-The preemption rule set can be referenced inside ClusterQueueSpec in the following way:
-
-
-	// preemption defines the preemption policies. Must be null if PreemptionRuleSetName is specified.
-	// +kubebuilder:default={}
-	// +optional
-	Preemption *ClusterQueuePreemption `json:"preemption,omitempty"`
-
-	// Reference to the PreemptionStrategy to be used. If specifid, Preemption
-	// must be null. Settings in PreemptionRuleSet overwrite any preemption 
-// defaults that may be there.
-	PreemptionStrategyName string 
    
-### Proposed API PreemptionLimit
+### Proposed API for PreemptionLimit
 
-```
+```go
 type PreemptionLimit struct {
 	metav1.TypeMeta 
 	metav1.ObjectMeta 
@@ -522,14 +550,13 @@ Conditions []metav1.Condition
 }
 ```
 
-PreemptionLimit limits the number of preemptions that happen for the specified set of rules. The PreemptionCode evaluates proposed preemptions against defined limit objects, allowing them to proceed only if adequate preemption quota remains. If preemption is affected by multiple limits, quota must exist in all of them.
+PreemptionLimit limits the number of preemptions that happen for the specified set of rules. The PreemptionCode evaluates proposed preemptions against defined limit objects, allowing them to proceed only if adequate preemption quota remains. If preemption is in scope of multiple limits, quota must exist in all of them.
 To track this, a list of preemption rule names responsible for selecting each candidate must be maintained.
 
 To manage this data, Kueue stores a comprehensive preemption map in memory, which is isolated per PreemptionLimit. This map tracks all preemption event timestamps under a specific cq/workload key, capturing events that occurred within the designated LimitWindowSeconds. Moreover, it tracks only events that are in scope of the specific limit, if preemption does not match the defined strategy or rules selector it will be not tracked in particular instance of the preemption map.
 This list is dynamically trimmed upon each retrieval to filter out expired timestamps.
 
 Furthermore, the status of the PreemptionLimit is refreshed periodically—approximately every minute—to write the aggregated totals into the count map.
-
 
 
 ### Test Plan
