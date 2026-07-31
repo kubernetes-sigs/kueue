@@ -164,7 +164,8 @@ func TestValidateWorkload(t *testing.T) {
 				field.Invalid(firstPodSetSpecPath.Child("initContainers").Index(0).Child("resources", "requests").Key(string(corev1.ResourceCPU)), nil, ""),
 			}.ToAggregate(),
 		},
-		"should reject invalid podSet template labels and annotations": {
+		"should accept invalid podSet template metadata when WorkloadValidationForPodSetMetadata is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidationForPodSetMetadata: false},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(
 					kueue.PodSet{
@@ -183,14 +184,49 @@ func TestValidateWorkload(t *testing.T) {
 					},
 				).
 				Obj(),
-			wantErr: append(
-				metav1validation.ValidateLabels(map[string]string{
-					"valid": "invalid value with spaces, test-wec1",
-				}, podSetsPath.Index(0).Child("template", "metadata", "labels")),
-				apivalidation.ValidateAnnotations(map[string]string{
-					"invalid/annotation/key/too/long/invalid": "val",
-				}, podSetsPath.Index(0).Child("template", "metadata", "annotations"))...,
-			).ToAggregate(),
+			wantErr: nil,
+		},
+		"should reject invalid podSet template label value": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidationForPodSetMetadata: true},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					kueue.PodSet{
+						Name:  "bad-metadata",
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Labels: map[string]string{
+									"valid": "invalid value with spaces",
+								},
+							},
+						},
+					},
+				).
+				Obj(),
+			wantErr: metav1validation.ValidateLabels(map[string]string{
+				"valid": "invalid value with spaces",
+			}, podSetsPath.Index(0).Child("template", "metadata", "labels")).ToAggregate(),
+		},
+		"should reject invalid podSet template annotation key": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidationForPodSetMetadata: true},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					kueue.PodSet{
+						Name:  "bad-metadata",
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									"invalid/annotation/key/too/long/invalid": "val",
+								},
+							},
+						},
+					},
+				).
+				Obj(),
+			wantErr: apivalidation.ValidateAnnotations(map[string]string{
+				"invalid/annotation/key/too/long/invalid": "val",
+			}, podSetsPath.Index(0).Child("template", "metadata", "annotations")).ToAggregate(),
 		},
 		"should reject negative container resource limit": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -712,7 +748,8 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
-		"should reject invalid podSet template labels and annotations on update": {
+		"should accept invalid podSet template metadata on update when WorkloadValidationForPodSetMetadata is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidationForPodSetMetadata: false},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("driver", 1).Obj()).
 				Obj(),
@@ -734,14 +771,31 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 					},
 				).
 				Obj(),
-			wantErr: append(
-				metav1validation.ValidateLabels(map[string]string{
-					"valid": "invalid value with spaces, test-wec1",
-				}, podSetsPath.Index(0).Child("template", "metadata", "labels")),
-				apivalidation.ValidateAnnotations(map[string]string{
-					"invalid/annotation/key/too/long/invalid": "val",
-				}, podSetsPath.Index(0).Child("template", "metadata", "annotations"))...,
-			).ToAggregate(),
+			wantErr: nil,
+		},
+		"should reject invalid podSet template label value on update": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidationForPodSetMetadata: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("driver", 1).Obj()).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					kueue.PodSet{
+						Name:  "driver",
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Labels: map[string]string{
+									"valid": "invalid value with spaces",
+								},
+							},
+						},
+					},
+				).
+				Obj(),
+			wantErr: metav1validation.ValidateLabels(map[string]string{
+				"valid": "invalid value with spaces",
+			}, podSetsPath.Index(0).Child("template", "metadata", "labels")).ToAggregate(),
 		},
 		"reclaimable pod count cannot change down": {
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
