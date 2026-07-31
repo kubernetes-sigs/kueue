@@ -183,12 +183,12 @@ func queueInadmissibleWorkloads(ctx context.Context, c *ClusterQueue, client cli
 		err := client.Get(ctx, types.NamespacedName{Name: wInfo.Obj.Namespace}, &ns)
 		if err != nil || !c.namespaceSelector.Matches(labels.Set(ns.Labels)) || !c.backoffWaitingTimeExpired(wInfo) {
 			newInadmissibleWorkloads.insert(key, wInfo)
-		} else if c.heap.PushIfNotPresent(wInfo) {
+		} else if c.pushPendingIfNotPresent(wInfo) {
 			moved++
 		}
 	}
 
-	c.inadmissibleWorkloads.replaceAll(newInadmissibleWorkloads)
+	c.replaceInadmissible(newInadmissibleWorkloads)
 	log.V(5).Info("Moved workloads from inadmissibleWorkloads back to heap", "clusterQueue", c.name, "workloadsMoved", moved, "workloadsNotMoved", len(c.inadmissibleWorkloads))
 	return moved
 }

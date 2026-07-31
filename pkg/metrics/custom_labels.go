@@ -325,6 +325,10 @@ func MergedTracker(a, b *LabelValsTracker) *LabelValsTracker {
 	return NewLabelValsTracker().merge(a).merge(b)
 }
 
+func Copy(t *LabelValsTracker) *LabelValsTracker {
+	return NewLabelValsTracker().merge(t)
+}
+
 type pair struct {
 	First  int
 	Second int
