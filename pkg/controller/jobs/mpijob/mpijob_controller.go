@@ -89,7 +89,7 @@ func (j *MPIJob) IsSuspended() bool {
 	return j.Spec.RunPolicy.Suspend != nil && *j.Spec.RunPolicy.Suspend
 }
 
-func (j *MPIJob) IsActive() bool {
+func (j *MPIJob) IsActive(_ context.Context) bool {
 	for _, replicaStatus := range j.Status.ReplicaStatuses {
 		if replicaStatus.Active != 0 {
 			return true

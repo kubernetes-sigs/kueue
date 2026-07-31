@@ -106,7 +106,7 @@ func (j *AppWrapper) IsSuspended() bool {
 	return j.Spec.Suspend
 }
 
-func (j *AppWrapper) IsActive() bool {
+func (j *AppWrapper) IsActive(_ context.Context) bool {
 	return meta.IsStatusConditionTrue(j.Status.Conditions, string(awv1beta2.QuotaReserved))
 }
 

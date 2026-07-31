@@ -93,6 +93,14 @@ and passing the readiness probe) within the specified time. If the timeout
 is exceeded, then the workload is evicted.</p>
 </td>
 </tr>
+<tr><td><code>scheduling</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-Scheduling"><code>Scheduling</code></a>
+</td>
+<td>
+   <p>Scheduling provides configuration options for controlling the quota release
+strategy used across all job integrations.</p>
+</td>
+</tr>
 <tr><td><code>clientConnection</code> <B>[Required]</B><br/>
 <a href="#config-kueue-x-k8s-io-v1beta1-ClientConnection"><code>ClientConnection</code></a>
 </td>
@@ -1029,6 +1037,25 @@ Defaults to 5.</p>
 </tbody>
 </table>
 
+## `QuotaReleaseStrategy`     {#config-kueue-x-k8s-io-v1beta1-QuotaReleaseStrategy}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [Scheduling](#config-kueue-x-k8s-io-v1beta1-Scheduling)
+
+
+<p>QuotaReleaseStrategy defines when Kueue releases quota for a terminating workload.</p>
+<p>Valid values are:</p>
+<ul>
+<li>&quot;OnTermination&quot; (default): releases quota as soon as all pods have a deletionTimestamp set.</li>
+<li>&quot;OnTerminalBestEffort&quot;: holds quota until all underlying pods have fully reached a terminal phase (Succeeded or Failed).</li>
+</ul>
+
+
+
+
 ## `RequeuingStrategy`     {#config-kueue-x-k8s-io-v1beta1-RequeuingStrategy}
     
 
@@ -1203,6 +1230,34 @@ This is intended to be a map with Input as the key (enforced by validation code)
 <td>
    <p>DeviceClassMappings defines mappings from device classes to logical resources
 for Dynamic Resource Allocation support.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `Scheduling`     {#config-kueue-x-k8s-io-v1beta1-Scheduling}
+    
+
+**Appears in:**
+
+- [Configuration](#config-kueue-x-k8s-io-v1beta1-Configuration)
+
+
+<p>Scheduling defines configuration for the quota release strategy,
+which controls when Kueue releases quota for terminating workloads.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>quotaReleaseStrategy</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-QuotaReleaseStrategy"><code>QuotaReleaseStrategy</code></a>
+</td>
+<td>
+   <p>QuotaReleaseStrategy controls when Kueue releases a workload's quota
+reservation after the workload begins terminating. Defaults to OnTermination.</p>
 </td>
 </tr>
 </tbody>
