@@ -1,0 +1,40 @@
+# Initial guardrails for the dedicated MultiKueue performance periodic.
+#
+# Recalibrate these values from at least five runs on the dedicated CI worker
+# before enabling TestGrid alerting. The committed numbers come from five runs on
+# a 32-core developer machine, which spanned 1.289-1.335 workloads/s with
+# admission P95 between 88.0s and 91.2s.
+workloadCount: 120
+workerClusters: 3
+creationWorkers: 20
+cpuRequest: 1m
+dispatcher: kueue.x-k8s.io/multikueue-dispatcher-all-at-once
+workloadConcurrency: 10
+gcInterval: 1m0s
+workerLostTimeout: 15m0s
+eventsBatchPeriod: 1s
+localClientQPS: 300
+localClientBurst: 500
+# Recorded, not configured: MultiKueue leaves its worker-cluster clients at
+# client-go's defaults, and controller-runtime applies those per REST client.
+remoteClientQPS: 5
+remoteClientBurst: 10
+# The remote limiter releases 5 tokens per second per REST client whatever the
+# host does, which is what makes this floor portable and what it detects: at
+# ~1.31/s each Workload spends about 3.8 tokens on the busiest remote kind, so
+# one added remote request per Workload would drop throughput to about 1.04/s.
+# The floor sits between the two, about 15% below the slowest run observed. It is
+# deliberately tight, because a generous floor would detect nothing.
+minThroughputPerSecond: 1.10
+# Under saturation this tracks queue position rather than service time
+# (0.95 * 120 / throughput, so ~104s at the floor above). Kept looser than that
+# so throughput stays the binding guard.
+maxAdmissionP95Ms: 120_000
+# Observed 73-112ms. Manager-side scheduling, the one guard here that is
+# independent of dispatch throughput.
+maxQuotaReservationP95Ms: 1_000
+# A lost watch can inflate latency and timing values and lower measured
+# throughput. One is tolerated only while the bounded latency and throughput
+# remain in range; timing values are observational. None occurred across the
+# calibration runs.
+maxWatchGaps: 1
