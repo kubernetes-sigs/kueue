@@ -113,6 +113,12 @@ func (t *tasCache) NewTASFlavorCache(topologyInfo topologyInformation,
 	}
 }
 
+func (c *TASFlavorCache) updateTolerations(tolerations []corev1.Toleration) {
+	c.Lock()
+	defer c.Unlock()
+	c.flavor.Tolerations = tolerations
+}
+
 func (c *TASFlavorCache) NodeLabels() map[string]string {
 	return c.flavor.NodeLabels
 }
@@ -195,14 +201,22 @@ func (c *TASFlavorCache) updateUsage(topologyRequests []workload.TopologyDomainR
 		domainID := utiltas.DomainID(tr.Values)
 		_, found := c.usage[domainID]
 		if !found {
-			c.usage[domainID] = resources.MapRequests{}
+			c.usage[domainID] = resources.CreateEmpty()
 		}
 		if op == subtract {
 			c.usage[domainID].Sub(tr.TotalRequests())
-			c.usage[domainID].Sub(resources.MapRequests{corev1.ResourcePods: int64(tr.Count)})
+			c.usage[domainID].Sub(
+				resources.NewRequestsFromMap(
+					map[corev1.ResourceName]int64{corev1.ResourcePods: int64(tr.Count)},
+				),
+			)
 		} else {
 			c.usage[domainID].Add(tr.TotalRequests())
-			c.usage[domainID].Add(resources.MapRequests{corev1.ResourcePods: int64(tr.Count)})
+			c.usage[domainID].Add(
+				resources.NewRequestsFromMap(
+					map[corev1.ResourceName]int64{corev1.ResourcePods: int64(tr.Count)},
+				),
+			)
 		}
 	}
 }

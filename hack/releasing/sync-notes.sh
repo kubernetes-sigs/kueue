@@ -268,12 +268,23 @@ RELEASE_ISSUE_BODY=$(echo "${RELEASE_ISSUE}" | jq -r '.body')
 NEW_RELEASE_ISSUE_BODY=$(awk -v previous_version="$PREVIOUS_VERSION" -v changelog_file="$FINAL_CHANGELOG_FILE" '
   BEGIN {
     in_block=0
+    in_changelog_section=0
     while ((getline line < changelog_file) > 0) {
       changelog_lines = changelog_lines line "\n"
     }
     close(changelog_file)
   }
-  /^```markdown$/ {
+  /^[[:space:]]*<!-- release-changelog-start -->[[:space:]]*$/ {
+    in_changelog_section=1
+    print $0
+    next
+  }
+  /^[[:space:]]*<!-- release-changelog-end -->[[:space:]]*$/ {
+    in_changelog_section=0
+    print $0
+    next
+  }
+  /^```markdown$/ && in_changelog_section {
     print $0
     printf "Changes since `%s`:\n\n", previous_version
     print changelog_lines

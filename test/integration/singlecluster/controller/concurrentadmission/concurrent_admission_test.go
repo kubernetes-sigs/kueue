@@ -570,7 +570,7 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 			// exactly 1 CPU, so a single low-priority workload fully occupies it and
 			// any higher-priority variant must preempt to be admitted.
 			cq = utiltestingapi.MakeClusterQueue("cq-preemption-gate").
-				ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).
+				ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionRetainFirstAdmission).
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas(flavorReservation.Name).Resource(corev1.ResourceCPU, "1").Obj(),
 					*utiltestingapi.MakeFlavorQuotas(flavorSpot.Name).Resource(corev1.ResourceCPU, "1").Obj(),

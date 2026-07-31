@@ -3,6 +3,7 @@ name: New Release
 about: Propose a new release
 title: Release v0.x.0
 assignees: mimowo, tenzen-y
+labels: area/release
 
 ---
 
@@ -66,6 +67,8 @@ Please do not remove items from the checklist
 
 ## Changelog
 
+<!-- release-changelog-start -->
 ```markdown
 Describe changes since the last release here.
 ```
+<!-- release-changelog-end -->

@@ -384,18 +384,18 @@ func (m *MockJobWithCustomAnnotations) EXPECT() *MockJobWithCustomAnnotationsMoc
 }
 
 // GetCustomAnnotations mocks base method.
-func (m *MockJobWithCustomAnnotations) GetCustomAnnotations(ctx context.Context, c client.Client, podSets []v1beta2.PodSet) (map[string]string, error) {
+func (m *MockJobWithCustomAnnotations) GetCustomAnnotations(ctx context.Context, c client.Client) (map[string]string, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetCustomAnnotations", ctx, c, podSets)
+	ret := m.ctrl.Call(m, "GetCustomAnnotations", ctx, c)
 	ret0, _ := ret[0].(map[string]string)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetCustomAnnotations indicates an expected call of GetCustomAnnotations.
-func (mr *MockJobWithCustomAnnotationsMockRecorder) GetCustomAnnotations(ctx, c, podSets any) *gomock.Call {
+func (mr *MockJobWithCustomAnnotationsMockRecorder) GetCustomAnnotations(ctx, c any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCustomAnnotations", reflect.TypeOf((*MockJobWithCustomAnnotations)(nil).GetCustomAnnotations), ctx, c, podSets)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCustomAnnotations", reflect.TypeOf((*MockJobWithCustomAnnotations)(nil).GetCustomAnnotations), ctx, c)
 }
 
 // MockMultiKueueAdapter is a mock of MultiKueueAdapter interface.

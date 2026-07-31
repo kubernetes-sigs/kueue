@@ -46,14 +46,19 @@ func ApplyDefaultForSuspend(ctx context.Context, job GenericJob, k8sClient clien
 	return nil
 }
 
-func ApplyDefaultLocalQueue(jobObj client.Object, defaultQueueExist func(string) bool) {
+func ApplyDefaultLocalQueue(ctx context.Context, k8sClient client.Client, jobObj client.Object, defaultQueueExist func(string) bool, managedJobsNamespaceSelector labels.Selector) error {
 	if !defaultQueueExist(jobObj.GetNamespace()) {
-		return
+		return nil
 	}
 	if QueueNameForObject(jobObj) == "" {
 		// Do not default the queue-name for a job whose owner is already managed by Kueue
 		if IsOwnerManagedByKueueForObject(jobObj) {
-			return
+			return nil
+		}
+		if managed, err := namespaceMatchesSelector(ctx, k8sClient, jobObj.GetNamespace(), managedJobsNamespaceSelector); err != nil {
+			return err
+		} else if !managed {
+			return nil
 		}
 		labels := jobObj.GetLabels()
 		if labels == nil {
@@ -62,6 +67,7 @@ func ApplyDefaultLocalQueue(jobObj client.Object, defaultQueueExist func(string)
 		labels[constants.QueueLabel] = string(constants.DefaultLocalQueueName)
 		jobObj.SetLabels(labels)
 	}
+	return nil
 }
 
 func ApplyDefaultWorkloadPriorityClass(ctx context.Context, c client.Client, jobObj client.Object) {

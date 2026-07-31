@@ -374,6 +374,11 @@ func TestValidateJobOnUpdate(t *testing.T) {
 			newJob:       utiltestingjob.MakeJob("test-job", "ns1").PrebuiltWorkloadAnnotation("workload-name-new").Suspend(true).Obj(),
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
 		},
+		"prebuilt workload annotation valid for long names > 63 chars when WorkloadIdentifierAnnotations disabled": {
+			oldJob:       utiltestingjob.MakeJob("test-job", "ns1").PrebuiltWorkloadAnnotation("workload-name-that-is-very-long-and-exceeds-the-63-character-label-limit-value").Suspend(true).Obj(),
+			newJob:       utiltestingjob.MakeJob("test-job", "ns1").PrebuiltWorkloadAnnotation("workload-name-that-is-very-long-and-exceeds-the-63-character-label-limit-value").Suspend(true).Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+		},
 		"prebuilt workload annotation update not suspended, WorkloadIdentifierAnnotations enabled": {
 			oldJob:       utiltestingjob.MakeJob("test-job", "ns1").PrebuiltWorkloadAnnotation("workload-name").Suspend(false).Obj(),
 			newJob:       utiltestingjob.MakeJob("test-job", "ns1").PrebuiltWorkloadAnnotation("workload-name-new").Suspend(false).Obj(),

@@ -75,20 +75,27 @@ func (t *tasCache) Clone() map[kueue.ResourceFlavorReference]*TASFlavorCache {
 	return maps.Clone(t.flavorCache)
 }
 
-func (t *tasCache) AddFlavor(flavor *kueue.ResourceFlavor) {
+func (t *tasCache) AddOrUpdateFlavor(flavor *kueue.ResourceFlavor) {
 	t.Lock()
 	defer t.Unlock()
 	name := kueue.ResourceFlavorReference(flavor.Name)
-	if _, ok := t.flavors[name]; !ok {
-		flavorInfo := flavorInformation{
-			TopologyName: *flavor.Spec.TopologyName,
-			NodeLabels:   maps.Clone(flavor.Spec.NodeLabels),
-			Tolerations:  slices.Clone(flavor.Spec.Tolerations),
-		}
+	tolerations := slices.Clone(flavor.Spec.Tolerations)
+	if flavorInfo, ok := t.flavors[name]; ok {
+		flavorInfo.Tolerations = tolerations
 		t.flavors[name] = flavorInfo
-		if tInfo, ok := t.topologies[flavorInfo.TopologyName]; ok {
-			t.flavorCache[name] = t.NewTASFlavorCache(tInfo, flavorInfo)
+		if flavorCache, ok := t.flavorCache[name]; ok {
+			flavorCache.updateTolerations(tolerations)
 		}
+		return
+	}
+	flavorInfo := flavorInformation{
+		TopologyName: *flavor.Spec.TopologyName,
+		NodeLabels:   maps.Clone(flavor.Spec.NodeLabels),
+		Tolerations:  tolerations,
+	}
+	t.flavors[name] = flavorInfo
+	if tInfo, ok := t.topologies[flavorInfo.TopologyName]; ok {
+		t.flavorCache[name] = t.NewTASFlavorCache(tInfo, flavorInfo)
 	}
 }
 

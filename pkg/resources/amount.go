@@ -97,6 +97,18 @@ func (a Amount) Int64() int64 {
 	return a.value
 }
 
+// AsApproximateFloat64 returns the amount in the resource's standard unit,
+// converting milliCPU to CPU and mapping Unlimited to +Inf.
+func (a Amount) AsApproximateFloat64(name corev1.ResourceName) float64 {
+	if a.isUnlimited() {
+		return math.Inf(1)
+	}
+	if name == corev1.ResourceCPU {
+		return float64(a.value) / 1000
+	}
+	return float64(a.value)
+}
+
 // Add returns a + b, propagating Unlimited and saturating bounded overflow at
 // math.MaxInt64.
 func (a Amount) Add(b Amount) Amount {

@@ -43,7 +43,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/queue"
-	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
+	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
@@ -300,6 +300,23 @@ func (c *Cache) ActiveClusterQueues() sets.Set[kueue.ClusterQueueReference] {
 	return cqs
 }
 
+// ClusterQueuesForResources returns the names of ClusterQueues whose
+// ResourceGroups cover any of the given resource names.
+func (c *Cache) ClusterQueuesForResources(resourceNames sets.Set[corev1.ResourceName]) sets.Set[kueue.ClusterQueueReference] {
+	if resourceNames.Len() == 0 {
+		return nil
+	}
+	c.RLock()
+	defer c.RUnlock()
+	result := sets.New[kueue.ClusterQueueReference]()
+	for _, cq := range c.hm.ClusterQueues() {
+		if resourcegroups.CoversAnyResource(cq.ResourceGroups, resourceNames) {
+			result.Insert(cq.Name)
+		}
+	}
+	return result
+}
+
 func (c *Cache) TASCache() *tasCache {
 	return &c.tasCache
 }
@@ -309,7 +326,7 @@ func (c *Cache) AddOrUpdateResourceFlavor(log logr.Logger, rf *kueue.ResourceFla
 	defer c.Unlock()
 	c.resourceFlavors[kueue.ResourceFlavorReference(rf.Name)] = rf
 	if handleTASFlavor(rf) {
-		c.tasCache.AddFlavor(rf)
+		c.tasCache.AddOrUpdateFlavor(rf)
 	}
 	return c.updateClusterQueues(log)
 }
@@ -1045,7 +1062,7 @@ func handleTASFlavor(rf *kueue.ResourceFlavor) bool {
 	return features.Enabled(features.TopologyAwareScheduling) && rf.Spec.TopologyName != nil
 }
 
-func (c *Cache) filterLocalQueueUsage(orig resources.FlavorResourceQuantities, resourceGroups []ResourceGroup) []kueue.LocalQueueFlavorUsage {
+func (c *Cache) filterLocalQueueUsage(orig resources.FlavorResourceQuantities, resourceGroups []resourcegroups.ResourceGroup) []kueue.LocalQueueFlavorUsage {
 	qFlvUsages := make([]kueue.LocalQueueFlavorUsage, 0, len(orig))
 	for _, rg := range resourceGroups {
 		for _, fName := range rg.Flavors {
@@ -1152,11 +1169,6 @@ func (c *Cache) ResyncGaugeMetrics(log logr.Logger) {
 	for _, cohortName := range cohortNames {
 		c.ResyncCohortGaugeMetrics(log, cohortName)
 	}
-}
-
-func resourceFloat(formatter *resources.ResourceFormatter, name corev1.ResourceName, v int64) float64 {
-	q := formatter.ResourceQuantity(name, v)
-	return utilresource.QuantityToFloat(&q)
 }
 
 // Key is the key used to index the queue.

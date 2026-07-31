@@ -65,7 +65,7 @@ func (n *nonTasUsageCache) update(pod *corev1.Pod, log logr.Logger) {
 	}
 
 	log.V(5).Info("Adding non-TAS pod to the cache")
-	requests := resources.NewMapRequestsFromPodSpec(&pod.Spec)
+	requests := resources.NewRequestsFromPodSpec(&pod.Spec)
 	n.podUsage[key] = podUsageValue{
 		node:  pod.Spec.NodeName,
 		usage: requests,
@@ -97,7 +97,7 @@ func (n *nonTasUsageCache) forEachNodeUsage(fn func(node string, usage resources
 // Must be called under write lock.
 func (n *nonTasUsageCache) addNodeUsage(node string, usage resources.Requests) {
 	if _, found := n.nodeUsage[node]; !found {
-		n.nodeUsage[node] = resources.MapRequests{}
+		n.nodeUsage[node] = resources.CreateEmpty()
 	}
 	n.nodeUsage[node].Add(usage)
 	n.nodeUsage[node].Add(resources.OnePodRequest)

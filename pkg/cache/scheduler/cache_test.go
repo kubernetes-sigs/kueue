@@ -476,7 +476,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 							TotalRequests: []workload.PodSetResources{
 								{
 									Name:     kueue.DefaultPodSetName,
-									Requests: resources.MapRequests{corev1.ResourceCPU: 5000},
+									Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 5000}),
 									Count:    1,
 									Flavors:  map[corev1.ResourceName]kueue.ResourceFlavorReference{corev1.ResourceCPU: "default"},
 								},
@@ -920,7 +920,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 							TotalRequests: []workload.PodSetResources{
 								{
 									Name:     kueue.DefaultPodSetName,
-									Requests: resources.MapRequests{corev1.ResourceCPU: 1000},
+									Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000}),
 									Count:    1,
 									Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 										corev1.ResourceCPU: "f1",
@@ -933,7 +933,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 							TotalRequests: []workload.PodSetResources{
 								{
 									Name:     kueue.DefaultPodSetName,
-									Requests: resources.MapRequests{corev1.ResourceCPU: 1000},
+									Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000}),
 									Count:    1,
 									Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 										corev1.ResourceCPU: "f1",
@@ -1068,6 +1068,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				cmpopts.IgnoreFields(clusterQueue{}, "ResourceGroups"),
 				cmpopts.IgnoreFields(workload.Info{}, "Obj", "LastAssignment", "SchedulingHash"),
 				cmpopts.IgnoreUnexported(clusterQueue{}, hierarchy.ClusterQueue[*cohort]{}),
+				cmp.Comparer(resources.Equal),
 				cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Unexpected clusterQueues (-want,+got):\n%s", diff)
 			}
@@ -2707,6 +2708,83 @@ func TestClusterQueuesUsingFlavor(t *testing.T) {
 				return a < b
 			})); len(diff) != 0 {
 				t.Errorf("Unexpected flavor is in use by clusterQueues (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestClusterQueuesForResources(t *testing.T) {
+	defaultRf := utiltestingapi.MakeResourceFlavor("default").Obj()
+	gpuCq := utiltestingapi.MakeClusterQueue("gpu-cq").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("default").Resource("gpu.nvidia.com/mig-1g.10gb", "10").Obj()).
+		Obj()
+	cpuCq := utiltestingapi.MakeClusterQueue("cpu-cq").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "100").Obj()).
+		Obj()
+	multiCq := utiltestingapi.MakeClusterQueue("multi-cq").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "50").Resource("gpu.nvidia.com/mig-1g.10gb", "5").Obj()).
+		Obj()
+	emptyCq := utiltestingapi.MakeClusterQueue("empty-cq").Obj()
+
+	tests := []struct {
+		name          string
+		clusterQueues []*kueue.ClusterQueue
+		resourceNames []corev1.ResourceName
+		wantCQNames   []kueue.ClusterQueueReference
+	}{
+		{
+			name:          "matches CQ covering the resource",
+			clusterQueues: []*kueue.ClusterQueue{gpuCq, cpuCq},
+			resourceNames: []corev1.ResourceName{"gpu.nvidia.com/mig-1g.10gb"},
+			wantCQNames:   []kueue.ClusterQueueReference{"gpu-cq"},
+		},
+		{
+			name:          "no match returns empty",
+			clusterQueues: []*kueue.ClusterQueue{cpuCq},
+			resourceNames: []corev1.ResourceName{"gpu.nvidia.com/mig-1g.10gb"},
+		},
+		{
+			name:          "matches multiple CQs covering the resource",
+			clusterQueues: []*kueue.ClusterQueue{gpuCq, cpuCq, multiCq},
+			resourceNames: []corev1.ResourceName{"gpu.nvidia.com/mig-1g.10gb"},
+			wantCQNames:   []kueue.ClusterQueueReference{"gpu-cq", "multi-cq"},
+		},
+		{
+			name:          "matches on any of the requested resources",
+			clusterQueues: []*kueue.ClusterQueue{gpuCq, cpuCq},
+			resourceNames: []corev1.ResourceName{"gpu.nvidia.com/mig-1g.10gb", "cpu"},
+			wantCQNames:   []kueue.ClusterQueueReference{"gpu-cq", "cpu-cq"},
+		},
+		{
+			name:          "empty resource names returns empty",
+			clusterQueues: []*kueue.ClusterQueue{gpuCq},
+			resourceNames: []corev1.ResourceName{},
+		},
+		{
+			name:          "CQ with no resource groups is not matched",
+			clusterQueues: []*kueue.ClusterQueue{emptyCq},
+			resourceNames: []corev1.ResourceName{"cpu"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			cache := New(utiltesting.NewFakeClient())
+			cache.AddOrUpdateResourceFlavor(log, defaultRf)
+
+			for _, cq := range tc.clusterQueues {
+				if err := cache.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatalf("failed to add clusterQueue %s: %v", cq.Name, err)
+				}
+			}
+
+			got := cache.ClusterQueuesForResources(sets.New(tc.resourceNames...))
+			wantCQs := sets.New(tc.wantCQNames...)
+			if diff := cmp.Diff(wantCQs, got, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("ClusterQueuesForResources mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

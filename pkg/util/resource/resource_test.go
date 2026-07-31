@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 )
@@ -223,15 +224,27 @@ func TestQuantityToFloat(t *testing.T) {
 		},
 		"float negative exponent": {
 			q:          resource.MustParse("5.5m"),
-			wantResult: 0.006, // 1/1000 is the maximum precision, the value will be rounded
+			wantResult: 0.0055,
+		},
+		"1 exabyte": {
+			q:          resource.MustParse("1E"),
+			wantResult: 1e18,
+		},
+		"1 exbi": {
+			q:          resource.MustParse("1Ei"),
+			wantResult: float64(1) * 1024 * 1024 * 1024 * 1024 * 1024 * 1024,
+		},
+		"large binary SI": {
+			q:          resource.MustParse("8Pi"),
+			wantResult: float64(8) * 1024 * 1024 * 1024 * 1024 * 1024,
 		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			got := QuantityToFloat(&tc.q)
-			if got != tc.wantResult {
-				t.Errorf("Unexpected result, expecting %f got %f", tc.wantResult, got)
+			if diff := cmp.Diff(tc.wantResult, got, cmpopts.EquateApprox(1e-9, 0)); diff != "" {
+				t.Errorf("Unexpected result (-want,+got):\n%s", diff)
 			}
 		})
 	}

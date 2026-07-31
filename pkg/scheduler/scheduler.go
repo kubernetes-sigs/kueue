@@ -55,6 +55,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
+	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	"sigs.k8s.io/kueue/pkg/util/wait"
@@ -435,7 +436,7 @@ func (s *Scheduler) processEntry(
 		}
 		if (features.Enabled(features.ConcurrentAdmission) || features.Enabled(features.MultiKueueOrchestratedPreemption)) && workload.HasClosedPreemptionGate(e.Obj) {
 			gatedMsg := "Workload requires preemption, but it's gated"
-			log.V(3).Info(gatedMsg)
+			log.V(3).Info("Workload requires preemption, but it is gated", "workload", klog.KObj(e.Obj))
 			e.quotaReservedReason = kueue.WorkloadAdmissionGated
 			e.markPreemptionGated(gatedMsg)
 			return
@@ -555,7 +556,8 @@ func (s *Scheduler) waitForPodsReadyIfBlocked(ctx context.Context, log logr.Logg
 	if err := workloadpatching.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
 		reason := workload.UnadmittedWorkloadReasonWithFallback(
 			kueue.WorkloadQuotaReservedReasonWaitingForPodsReady,
-			kueue.WorkloadWaiting, //nolint:staticcheck // SA1019: fallback
+			//nolint:staticcheck // SA1019: intentional deprecated fallback
+			kueue.WorkloadWaiting,
 		)
 		return workload.UnsetQuotaReservationWithCondition(wl, reason, "waiting for all admitted workloads to be in PodsReady condition", s.clock.Now()), nil
 	}, workloadpatching.WithLooseOnApply(), workloadpatching.WithRetryOnConflict()); err != nil {
@@ -608,7 +610,7 @@ type entry struct {
 }
 
 func (e *entry) assignmentUsage(log logr.Logger) workload.Usage {
-	return netUsage(log, e, e.assignment.Usage.Quota)
+	return netUsage(log, e, e.assignment.Usage.Quota.Assigned)
 }
 
 func (e *entry) readResourceToFlavorMapping() workload.PodSetResourcesToFlavors {
@@ -716,17 +718,17 @@ func netUsage(log logr.Logger, e *entry, netQuota resources.FlavorResourceQuanti
 		result.TAS = e.assignment.ComputeTASNetUsage(log, e.clusterQueueSnapshot, &e.Info, e.Obj.Status.Admission)
 	}
 	if !workload.HasQuotaReservation(e.Obj) {
-		result.Quota = netQuota
+		result.Quota.Assigned = netQuota
 	}
 	return result
 }
 
 func quotaResourcesToReserve(e *entry, cq *schdcache.ClusterQueueSnapshot) resources.FlavorResourceQuantities {
 	if e.assignment.RepresentativeMode() != flavorassigner.Preempt {
-		return e.assignment.Usage.Quota
+		return e.assignment.Usage.Quota.Assigned
 	}
 	reservedUsage := make(resources.FlavorResourceQuantities)
-	for fr, usage := range e.assignment.Usage.Quota {
+	for fr, usage := range e.assignment.Usage.Quota.Assigned {
 		cqQuota := cq.QuotaFor(fr)
 		if e.assignment.Borrowing > 0 {
 			if cqQuota.BorrowingLimit == nil {
@@ -983,10 +985,14 @@ func makeIterator(ctx context.Context, entries []entry, workloadOrdering workloa
 }
 
 // classicalIterator returns entries ordered on:
-// 1. request under nominal quota before borrowing.
-// 2. Fair Sharing: lower DominantResourceShare first.
-// 3. higher priority first.
+// 1. entries with quota already reserved first, as such workloads may
+// be considered for a second pass.
+// 2. request under nominal quota before borrowing.
+// 3. higher priority first, when PrioritySortingWithinCohort is enabled.
 // 4. FIFO on eviction or creation timestamp.
+//
+// Ordering on DominantResourceShare when Fair Sharing is enabled is
+// implemented separately by fairSharingIterator.
 type classicalIterator struct {
 	entries []entry
 }
@@ -1100,7 +1106,7 @@ func (s *Scheduler) recordQuotaReservationMetrics(log logr.Logger, newWorkload, 
 		return
 	}
 
-	quotaReservedEventMessage := fmt.Sprintf("Quota reserved in ClusterQueue %v, wait time since queued was %.0fs", admission.ClusterQueue, waitTime.Seconds())
+	quotaReservedEventMessage := fmt.Sprintf("Quota reserved in ClusterQueue %s, wait time since queued was %.0fs", admission.ClusterQueue, waitTime.Seconds())
 	if consideredFlavors != "" {
 		quotaReservedEventMessage += fmt.Sprintf("; Flavors considered: %s", consideredFlavors)
 	}
@@ -1121,7 +1127,7 @@ func (s *Scheduler) recordWorkloadAdmissionEvents(log logr.Logger, newWorkload, 
 		return
 	}
 
-	s.recorder.Eventf(newWorkload, nil, corev1.EventTypeNormal, "Admitted", "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was 0s", admission.ClusterQueue)
+	s.recorder.Eventf(newWorkload, nil, corev1.EventTypeNormal, "Admitted", "Admitted", "Admitted by ClusterQueue %s, wait time since reservation was 0s", admission.ClusterQueue)
 
 	priorityClassName := workloadpatching.PriorityClassName(newWorkload)
 	cqCustomLabels := s.customLabels.CQGet(admission.ClusterQueue)
@@ -1181,14 +1187,6 @@ const (
 	subtract
 )
 
-func allCoveredResources(resourceGroups []schdcache.ResourceGroup) sets.Set[corev1.ResourceName] {
-	covered := sets.New[corev1.ResourceName]()
-	for _, rg := range resourceGroups {
-		covered = covered.Union(rg.CoveredResources)
-	}
-	return covered
-}
-
 // filterByNames returns a new ResourceList containing only resources whose names
 // are in the allowed set.
 func filterByNames(requests corev1.ResourceList, allowed sets.Set[corev1.ResourceName]) corev1.ResourceList {
@@ -1206,7 +1204,7 @@ func (s *Scheduler) updateEntryPenalty(log logr.Logger, e *entry, op usageOp) {
 	lqObjRef := klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName))
 	totalRequests := e.SumTotalRequests(s.resourceFormatter)
 	if flavorassigner.IgnoreUndeclaredResources(s.quotaCheckStrategy) {
-		totalRequests = filterByNames(totalRequests, allCoveredResources(e.clusterQueueSnapshot.ResourceGroups))
+		totalRequests = filterByNames(totalRequests, resourcegroups.AllCoveredResources(e.clusterQueueSnapshot.ResourceGroups))
 	}
 	penalty := afs.CalculateEntryPenalty(totalRequests, s.admissionFairSharing)
 

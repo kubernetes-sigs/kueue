@@ -1,0 +1,56 @@
+name: Publish Release
+description: Publishes a GitHub draft release.
+
+inputs:
+  version:
+    description: Release version, formatted as vX.Y.Z (X - major, Y - minor, Z - patch; e.g. v0.10.0)
+    required: true
+  repo:
+    description: Target repository in owner/name format
+    required: true
+
+outputs:
+  message:
+    description: Detail message about the outcome
+    value: ${{ steps.publish.outputs.message }}
+
+runs:
+  using: composite
+  steps:
+    - name: Publish Release
+      id: publish
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        VERSION: ${{ inputs.version }}
+        ISSUE_NUMBER: ${{ github.event.issue.number }}
+        TARGET_REPO: ${{ inputs.repo }}
+      run: |
+        RELEASE_STATE=$(gh release view "$VERSION" --repo "$TARGET_REPO" --json isDraft \
+            --jq 'if .isDraft then "draft" else "published" end' 2>/dev/null || echo "")
+        
+        if [ "$RELEASE_STATE" = "published" ]; then
+          BODY="❌️ Release \`$VERSION\` is already published."
+          echo "message=$BODY" >> "$GITHUB_OUTPUT"
+          exit 1
+        elif [ -z "$RELEASE_STATE" ]; then
+          BODY="❌ Release \`$VERSION\` not found. Please create a draft release first using \`/create-draft-release\`."
+          echo "message=$BODY" >> "$GITHUB_OUTPUT"
+          exit 1
+        fi
+
+        # Publish the draft release.
+        set +e
+        gh release edit "$VERSION" \
+          --repo "$TARGET_REPO" \
+          --draft=false
+        EDIT_EXIT=$?
+        set -e
+
+        if [ $EDIT_EXIT -ne 0 ]; then
+          echo "message=❌ Failed to publish release \`$VERSION\`." >> "$GITHUB_OUTPUT"
+          exit 1
+        fi
+
+        RELEASE_URL="https://github.com/${TARGET_REPO}/releases/tag/${VERSION}"
+        echo "message=✅ Release \`$VERSION\` has been successfully published. Link: ${RELEASE_URL}" >> "$GITHUB_OUTPUT"

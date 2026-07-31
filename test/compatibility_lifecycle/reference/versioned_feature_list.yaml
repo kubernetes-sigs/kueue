@@ -109,16 +109,6 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.5"
-- name: HierarchicalCohorts
-  versionedSpecs:
-  - default: true
-    lockToDefault: false
-    preRelease: Beta
-    version: "0.11"
-  - default: true
-    lockToDefault: true
-    preRelease: GA
-    version: "0.17"
 - name: KueueDRAIntegration
   versionedSpecs:
   - default: true
@@ -213,20 +203,6 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.15"
-- name: MultiKueueAllowInsecureKubeconfigs
-  versionedSpecs:
-  - default: false
-    lockToDefault: false
-    preRelease: Alpha
-    version: "0.15"
-  - default: false
-    lockToDefault: false
-    preRelease: Deprecated
-    version: "0.17"
-  - default: false
-    lockToDefault: true
-    preRelease: Deprecated
-    version: "0.19"
 - name: MultiKueueClusterProfile
   versionedSpecs:
   - default: false
@@ -283,20 +259,6 @@
     lockToDefault: true
     preRelease: GA
     version: "0.18"
-- name: ObjectRetentionPolicies
-  versionedSpecs:
-  - default: false
-    lockToDefault: false
-    preRelease: Alpha
-    version: "0.12"
-  - default: true
-    lockToDefault: false
-    preRelease: Beta
-    version: "0.13"
-  - default: true
-    lockToDefault: true
-    preRelease: GA
-    version: "0.17"
 - name: PartialAdmission
   versionedSpecs:
   - default: false
@@ -325,10 +287,6 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.15"
-  - default: true
-    lockToDefault: true
-    preRelease: GA
-    version: "0.17"
 - name: QuotaCheckStrategy
   versionedSpecs:
   - default: false
@@ -521,6 +479,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.18"
+- name: TASValidateWorkloadSliceSize
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: TLSOptions
   versionedSpecs:
   - default: true
