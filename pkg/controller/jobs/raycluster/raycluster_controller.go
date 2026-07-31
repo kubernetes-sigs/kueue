@@ -149,6 +149,16 @@ func (j *RayCluster) PodsReady(ctx context.Context, _ client.Client) bool {
 	return j.Status.State == rayv1.Ready
 }
 
+// GetWorkloadNameExtraPart folds the worker-reflected RayCluster generation
+// (RayClusterGenerationAnnotation) into the elastic workload-slice name. A
+// worker-side autoscale reflects the new size onto the manager as an annotation,
+// which never bumps the manager RayCluster's metadata.generation; without this the
+// slice name would key on that generation alone, so a second scale-up would recompute
+// an already-existing slice name and fail to mint its replacement.
+func (j *RayCluster) GetWorkloadNameExtraPart() string {
+	return GetWorkloadNameExtraPart(j.Object())
+}
+
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 	return jobframework.SetupWorkloadOwnerIndex(ctx, indexer, gvk)
 }
