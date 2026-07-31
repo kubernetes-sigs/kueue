@@ -738,11 +738,6 @@ jobs:
           SCRIPT_EXIT_CODE=${PIPESTATUS[1]}
           set -e
 
-          if [ "$CREDENTIAL_AVAILABLE" != "true" ]; then
-            echo "message=❌ Failed to submit the promotion pull request for \`$VERSION\`: ${CREDENTIAL_MISSING:-the promotion credential} is not configured. Everything up to the push was validated; nothing was pushed." >> "$GITHUB_OUTPUT"
-            exit 1
-          fi
-
           # The DRY_RUN bookkeeping lines are informational but already carry the
           # !!! prefix used for error details, so they must not be reported as
           # the failure reason.
@@ -755,6 +750,11 @@ jobs:
           if [ $SCRIPT_EXIT_CODE -ne 0 ]; then
             echo "message=❌ Failed to submit the promotion pull request for \`$VERSION\`: ${ERR_LINE:-check workflow logs for details}." >> "$GITHUB_OUTPUT"
             exit $SCRIPT_EXIT_CODE
+          fi
+
+          if [ "$CREDENTIAL_AVAILABLE" != "true" ]; then
+            echo "message=❌ Failed to submit the promotion pull request for \`$VERSION\`: ${CREDENTIAL_MISSING:-the promotion credential} is not configured. Everything up to the push was validated; nothing was pushed." >> "$GITHUB_OUTPUT"
+            exit 1
           fi
 
           # The script can exit 0 without producing a PR; the job must not.
