@@ -208,7 +208,7 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldSTSObj, newSTSObj *app
 			wlExists := wl != nil
 
 			if newReplicas != 0 && oldReplicas != 0 {
-				if wlExists && workload.IsAdmitted(wl) && newReplicas > oldReplicas {
+				if wlExists && workload.HasQuotaReservation(wl) && newReplicas > oldReplicas {
 					allErrs = append(allErrs, field.Forbidden(replicasPath, "scale-out is not supported for admitted workloads"))
 				}
 			}
