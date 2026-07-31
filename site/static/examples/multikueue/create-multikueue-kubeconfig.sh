@@ -120,6 +120,7 @@ rules:
   - list
   - watch
   - update
+  - patch
 - apiGroups:
   - kueue.x-k8s.io
   resources:
