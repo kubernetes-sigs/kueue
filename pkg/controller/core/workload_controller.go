@@ -1451,13 +1451,13 @@ func (r *WorkloadReconciler) Generic(e event.TypedGenericEvent[*kueue.Workload])
 
 func (r *WorkloadReconciler) updateAfsConsumedUsage(log logr.Logger, wl *kueue.Workload) {
 	if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsParent(wl) {
-		// A parent copies its reservation from an admitted variant and shares that
-		// variant's LocalQueue, so it never pushed a penalty of its own; settling
-		// here would fold the variant's penalty in a second time.
+		// A parent copies its reservation from an admitted variant rather than being
+		// scheduled, so it never pushed a penalty of its own. Settling for it would
+		// consolidate its LocalQueue's pending penalties on a transition that reserved
+		// no quota, ahead of the variant that actually did.
 		return
 	}
 	lqKey := qutil.KeyFromWorkload(wl)
-	penalty := afs.CalculateEntryPenalty(workload.NewInfo(wl).SumTotalRequests(r.resourceFormatter), r.admissionFSConfig)
 	now := r.clock.Now()
 
 	cacheLq, err := r.cache.GetCacheLocalQueue(wl.Status.Admission.ClusterQueue, lqKey)
@@ -1466,14 +1466,14 @@ func (r *WorkloadReconciler) updateAfsConsumedUsage(log logr.Logger, wl *kueue.W
 		return
 	}
 	// Read live usage before taking the entry lock: the scheduler snapshot reads
-	// AfsConsumedResources while holding the scheduler-cache lock, so the Update
+	// AfsUsageLedger while holding the scheduler-cache lock, so the Update
 	// closure must not call back into the cache.
 	// Reserved-gated to match the QuotaReserved anchor: an admitted-gated read would
 	// omit a check-gated workload whose penalty settles here, so the EMA would decay
 	// its cost away while it still holds quota.
 	newUsage := cacheLq.GetReservedUsage()
 
-	updated := r.queues.AfsConsumedResources.Update(lqKey, func(old queueafs.ConsumedResourcesEntry, found bool) queueafs.ConsumedResourcesEntry {
+	updated := r.queues.AfsUsageLedger.Update(lqKey, func(old queueafs.UsageLedgerEntry, found bool) queueafs.UsageLedgerEntry {
 		lastUpdate := old.LastUpdate
 		if !found {
 			lastUpdate = now
@@ -1487,16 +1487,18 @@ func (r *WorkloadReconciler) updateAfsConsumedUsage(log logr.Logger, wl *kueue.W
 			storedLastUpdate = lastUpdate
 		}
 		newConsumed := afs.CalculateDecayedConsumed(old.Resources, newUsage, elapsed, r.admissionFSConfig.UsageHalfLifeTime.Seconds())
-		return queueafs.ConsumedResourcesEntry{
-			Resources:       resource.MergeResourceListKeepSum(newConsumed, penalty),
+		// Consolidate whatever is pending and clear it in the same write, so no
+		// reader can observe a penalty in both halves of the entry. Folding the
+		// bucket rather than a per-Workload figure also means the settled amount
+		// cannot disagree with the pushed one and leave a residue behind.
+		return queueafs.UsageLedgerEntry{
+			Resources:       resource.MergeResourceListKeepSum(newConsumed, old.PendingPenalty),
 			LastUpdate:      storedLastUpdate,
 			StatusAccounted: old.StatusAccounted,
 		}
 	})
-	r.queues.AfsEntryPenalties.Sub(lqKey, penalty)
-	log.V(3).Info("Entry penalty subtracted from localQueue", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)), "penalty", penalty, "remaining", r.queues.AfsEntryPenalties.Peek(lqKey))
 
-	log.V(2).Info("Updated AFS consumed usage", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)), "consumed", updated.Resources)
+	log.V(2).Info("Consolidated AFS entry penalties into consumed usage", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)), "consumed", updated.Resources)
 }
 
 func (r *WorkloadReconciler) notifyWatchers(oldWl, newWl *kueue.Workload) {

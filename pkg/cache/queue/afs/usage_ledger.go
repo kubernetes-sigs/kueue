@@ -25,33 +25,40 @@ import (
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 )
 
-// ConsumedResourcesEntry stores the consumed resources for a LocalQueue with timestamp.
+// UsageLedgerEntry holds everything a LocalQueue's fair-sharing usage is computed from:
+// the decayed history in Resources, and the entry penalties in PendingPenalty that no
+// settlement has consolidated into it yet. The two live in one entry so a single Update
+// moves a penalty from one to the other and a single Get observes a consistent pair,
+// which is what keeps a reader from seeing the same penalty counted in both.
+//
 // StatusAccounted records whether the LocalQueue's persisted fair-sharing status has
 // been folded into this entry: once history is merged, the entry's existence alone no
 // longer tells whether that happened, so it must be tracked explicitly. Every writer
-// must carry the flag forward (use Update), or the history would be merged repeatedly.
-type ConsumedResourcesEntry struct {
+// must carry it, and PendingPenalty, forward (use Update), or history is merged twice
+// or a pending penalty is silently dropped.
+type UsageLedgerEntry struct {
 	Resources       corev1.ResourceList
+	PendingPenalty  corev1.ResourceList
 	LastUpdate      time.Time
 	StatusAccounted bool
 }
 
-// AfsConsumedResources manages the fair sharing consumed resources cache
-type AfsConsumedResources struct {
-	resources *utilmaps.SyncMap[utilqueue.LocalQueueReference, ConsumedResourcesEntry]
+// AfsUsageLedger is the per-LocalQueue fair-sharing accounting cache.
+type AfsUsageLedger struct {
+	resources *utilmaps.SyncMap[utilqueue.LocalQueueReference, UsageLedgerEntry]
 }
 
-// NewAfsConsumedResources creates a new AfsConsumedResources cache
-func NewAfsConsumedResources() *AfsConsumedResources {
-	return &AfsConsumedResources{
-		resources: utilmaps.NewSyncMap[utilqueue.LocalQueueReference, ConsumedResourcesEntry](0),
+// NewAfsUsageLedger creates an empty ledger.
+func NewAfsUsageLedger() *AfsUsageLedger {
+	return &AfsUsageLedger{
+		resources: utilmaps.NewSyncMap[utilqueue.LocalQueueReference, UsageLedgerEntry](0),
 	}
 }
 
 // Set unconditionally replaces the entry for a LocalQueue, resetting
 // StatusAccounted. Controllers should use Update instead.
-func (a *AfsConsumedResources) Set(lqKey utilqueue.LocalQueueReference, resources corev1.ResourceList, lastUpdate time.Time) {
-	a.resources.Add(lqKey, ConsumedResourcesEntry{
+func (a *AfsUsageLedger) Set(lqKey utilqueue.LocalQueueReference, resources corev1.ResourceList, lastUpdate time.Time) {
+	a.resources.Add(lqKey, UsageLedgerEntry{
 		Resources:  resources,
 		LastUpdate: lastUpdate,
 	})
@@ -63,16 +70,18 @@ func (a *AfsConsumedResources) Set(lqKey utilqueue.LocalQueueReference, resource
 // it must not call back into the scheduler cache (lock ordering).
 // All controller writers should go through Update so concurrent read-modify-writes
 // cannot overwrite each other and StatusAccounted is preserved by construction.
-func (a *AfsConsumedResources) Update(lqKey utilqueue.LocalQueueReference, fn func(entry ConsumedResourcesEntry, found bool) ConsumedResourcesEntry) ConsumedResourcesEntry {
+func (a *AfsUsageLedger) Update(lqKey utilqueue.LocalQueueReference, fn func(entry UsageLedgerEntry, found bool) UsageLedgerEntry) UsageLedgerEntry {
 	return a.resources.Update(lqKey, fn)
 }
 
-// Get retrieves the consumed resources for a LocalQueue
-func (a *AfsConsumedResources) Get(lqKey utilqueue.LocalQueueReference) (ConsumedResourcesEntry, bool) {
+// Get retrieves a LocalQueue's whole ledger entry, both the consumed history and
+// any penalty still pending, as one consistent pair.
+func (a *AfsUsageLedger) Get(lqKey utilqueue.LocalQueueReference) (UsageLedgerEntry, bool) {
 	return a.resources.Get(lqKey)
 }
 
-// Delete removes the consumed resources entry for a LocalQueue
-func (a *AfsConsumedResources) Delete(lqKey utilqueue.LocalQueueReference) {
+// Delete drops a LocalQueue's entry, discarding its consumed history and any
+// pending penalty together.
+func (a *AfsUsageLedger) Delete(lqKey utilqueue.LocalQueueReference) {
 	a.resources.Delete(lqKey)
 }

@@ -384,7 +384,7 @@ func TestUpdateConcurrent(t *testing.T) {
 
 // TestUpdateOrDeleteConcurrentWithPush verifies that UpdateOrDelete eliminates
 // the TOCTOU between checking canClearPenalty and calling Delete in the
-// original AfsEntryPenalties.Sub implementation
+// original entry-penalty Sub implementation
 // (https://github.com/kubernetes-sigs/kueue/issues/12546).
 func TestUpdateOrDeleteConcurrentWithPush(t *testing.T) {
 	const key = "default/lq1"
