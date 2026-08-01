@@ -14,8 +14,9 @@
 - [Design Details](#design-details)
   - [Background: manager-driven forward sync](#background-manager-driven-forward-sync)
   - [Reverse elastic sync](#reverse-elastic-sync)
-    - [RayCluster: spec reflection](#raycluster-spec-reflection)
-    - [RayJob: runtime reflection](#rayjob-runtime-reflection)
+    - [RayCluster](#raycluster)
+    - [RayJob](#rayjob)
+    - [Workload-slice naming under annotation reflection](#workload-slice-naming-under-annotation-reflection)
   - [Worker-side resize tolerance](#worker-side-resize-tolerance)
   - [ElasticJobUngater: resolving a deleted slice-chain root](#elasticjobungater-resolving-a-deleted-slice-chain-root)
   - [Retaining enableInTreeAutoscaling on the remote copy](#retaining-enableintreeautoscaling-on-the-remote-copy)
@@ -82,8 +83,9 @@ remains the quota authority.
   bypass it.
 - Make the resize handover non-disruptive to the running job: no false
   `OutOfSync` finish, no stranded pods, no quota under-reservation.
-- Bound what the worker autoscaler is allowed to request to the manager-declared
-  `[minReplicas, maxReplicas]` range.
+- Keep the reflected worker count bounded to the RayCluster's own
+  `[minReplicas, maxReplicas]`, which the Ray autoscaler already enforces on the
+  worker cluster.
 
 ### Non-Goals
 
@@ -100,17 +102,20 @@ remains the quota authority.
 ## Proposal
 
 Add a **reverse elastic sync** to the shared Ray adapter that detects an
-autoscaler-driven resize of the remote (worker) copy and reflects it onto the
-manager object, where the existing workload-slicing machinery re-reserves quota.
-Two type-specific mechanisms are used, chosen by where the worker replica counts
-actually live, and grouped as mutually-exclusive hook structs validated at wiring
-time:
+autoscaler-driven resize on the worker cluster and reflects it onto the manager
+object **as annotations, leaving the manager spec untouched**, where the existing
+workload-slicing machinery re-reserves quota. A single `Runtime{Fetch, Apply}`
+hook drives it for both types; only *where the live worker replicas are read*
+differs:
 
-- **RayCluster** — replicas live on the CR spec, so the worker resize is written
-  back onto the manager RayCluster spec.
-- **RayJob** — replicas live on the child RayCluster that KubeRay creates on the
-  worker, so the child's per-group counts are reflected onto the manager RayJob
-  as annotations that feed the manager's PodSets derivation.
+- **RayCluster** — the replicas live on the remote RayCluster copy itself.
+- **RayJob** — the replicas live on the child RayCluster that KubeRay creates on
+  the worker (the child never exists on the manager), so its per-group counts are
+  read from there.
+
+In both cases `Apply` records the counts (and a revision) on the manager copy as
+the `raycluster-podset-replica-sizes` and `raycluster-generation` annotations,
+which feed the manager's PodSets derivation and the workload-slice name.
 
 Two supporting changes make the handover safe: a worker-scoped resize tolerance
 in the jobframework, and an ungater fix for deleted slice-chain roots.
@@ -136,10 +141,11 @@ ClusterQueue quota (through slice replacement) rather than blocked or reverted.
 
 - The feature applies only to elastic (`ElasticJobsViaWorkloadSlices`) Ray objects
   dispatched through MultiKueue with `enableInTreeAutoscaling` set.
-- Only `Replicas` moves in the worker→manager direction. Structural changes
+- Only per-worker-group replica counts move in the worker→manager direction, and
+  only as annotations — the manager spec is never rewritten. Structural changes
   (adding/removing worker groups, resource shapes) remain manager-owned.
-- Counts outside the manager-declared `[minReplicas, maxReplicas]` cannot
-  legitimately come from the autoscaler and are ignored.
+- The reflected count is whatever the worker autoscaler settled on, which the
+  RayCluster's own `[minReplicas, maxReplicas]` already bounds on the worker side.
 
 ### Risks and Mitigations
 
@@ -148,8 +154,9 @@ ClusterQueue quota (through slice replacement) rather than blocked or reverted.
   repointing the remote's prebuilt-workload marker at the current slice
   (idempotent). Replicas flow one way — worker→manager — while autoscaling is on.
 - **A tenant forges replica counts via the runtime annotation.** The reflected
-  value is validated (parseable, within `[min,max]`); a malformed annotation
-  falls back to the spec counts. An authz-level guard is a documented follow-up.
+  value is parsed and a malformed annotation is ignored (the manager falls back to
+  the spec counts). An authz-level guard against a tenant hand-setting the
+  annotation is a documented follow-up.
 - **The handover finishes the workload `OutOfSync` and tears the job down.** A
   worker-scoped resize tolerance absorbs the transient job/slice count mismatch
   during handover (see below).
@@ -170,30 +177,54 @@ opposite direction and, for autoscaling objects, retains
 
 ### Reverse elastic sync
 
-The shared Ray adapter gains reverse-sync hooks, grouped as two mutually
-exclusive structs and validated when the adapter is wired:
+The shared Ray adapter gains a single reverse-sync hook, `Runtime{Fetch, Apply}`,
+guarded by an `AutoscalingEnabled` predicate that turns the reverse direction on
+only when the object runs the worker autoscaler. Wiring is validated when the
+adapter is built: if `AutoscalingEnabled` is set, `Runtime` (with both `Fetch` and
+`Apply`) is required. Both RayCluster and RayJob use the same hook — the reflection
+is **annotation-based for both**, leaving the manager spec untouched. Each
+reconcile of an autoscaling object:
 
-- `Spec{Push, Reflect, Counts}` — used when worker replicas live on the CR.
-- `Runtime{Fetch, Apply}` — used when worker replicas live on a child object.
+1. `Fetch(remoteClient, remoteJob)` reads the effective per-worker-group pod counts
+   from the worker cluster, plus a `UID-generation` **revision** of the object that
+   holds those counts. A suspended remote is skipped (its counts were restored by
+   the worker's Kueue while stopping the job, not set by the autoscaler).
+2. `Apply(localJob, counts, revision)` records them on the **manager** copy as two
+   annotations — `raycluster-podset-replica-sizes` (the counts) and
+   `raycluster-generation` (the revision) — leaving the manager spec untouched.
+   Equality is decided on the counts alone, so a count-neutral revision bump does
+   not re-annotate or mint a replacement slice.
 
-#### RayCluster: spec reflection
+The manager's PodSets derivation reads `raycluster-podset-replica-sizes` (gated on
+`spec.managedBy`), so its admitted PodSet counts follow the worker autoscaler, and
+the workload-slicing machinery re-reserves quota — slice replacement on scale-up,
+in-place slice update on scale-down.
 
-For an elastic RayCluster, the worker replicas live directly on the remote CR.
-When the worker autoscaler resizes the remote copy, the adapter's `Reflect` hook
-writes the new `Replicas` back onto the manager RayCluster spec. The manager's
-workload-slicing machinery observes the spec change and re-reserves quota (slice
-replacement on scale-up; in-place slice update on scale-down). Only `Replicas`
-is reflected, and only within the manager-declared `[minReplicas, maxReplicas]`.
+The only per-type difference is **where `Fetch` reads the live worker replicas**:
 
-#### RayJob: runtime reflection
+#### RayCluster
 
-For an elastic RayJob, the worker replicas live on the child RayCluster that
-KubeRay creates on the worker cluster, not on the RayJob spec. The adapter
-reflects the child's per-group counts, plus a `childUID-generation` revision, onto
-the manager RayJob as annotations. Those annotations feed the manager's PodSets
-derivation (gated on `spec.managedBy`) and workload-slice naming. Count-neutral
-child updates (same per-group counts) do not mint a replacement slice; the
-revision distinguishes a genuine resize from an unrelated child update.
+The worker replicas live on the remote RayCluster copy itself, so `Fetch` reads
+that copy directly; the revision is the remote RayCluster's `UID-generation`.
+
+#### RayJob
+
+The worker replicas live on the **child RayCluster** that KubeRay creates on the
+worker cluster (the child never exists on the manager), so `Fetch` reads the child
+by `status.rayClusterName`; the revision is the child's `UID-generation`.
+
+#### Workload-slice naming under annotation reflection
+
+Because the reverse sync reflects onto the manager as **annotations**, it never
+bumps the manager object's `metadata.generation`. The elastic workload-slice name
+must still change on each reflected scale-up so the manager mints a fresh
+replacement slice — a same-named slice would fail to create ("already exists") and
+leave the scaled worker pods gated. Both the RayJob and RayCluster jobs therefore
+fold the `raycluster-generation` revision into the slice name
+(`GetWorkloadNameExtraPart`): the name keys on the manager `generation` **and** the
+reflected worker `UID-generation`, which advances on every worker-side resize. The
+UID component keeps the name unique across a remote recreation, whose generation
+restarts from 1.
 
 ### Worker-side resize tolerance
 
@@ -236,11 +267,14 @@ None beyond the coverage described below.
 
 #### Unit tests
 
-- Reverse-sync hooks for RayCluster (spec reflection) and RayJob (runtime
-  reflection), including the `[min,max]` clamp, the `childUID-generation`
-  revision, count-neutral updates that must not mint a slice, and the
-  malformed-annotation fallback to spec counts.
-- Hook-pairing validation (`Spec`/`Runtime` mutually exclusive) at wiring time.
+- Reverse-sync `Runtime{Fetch, Apply}` for RayCluster (reads its own remote copy)
+  and RayJob (reads the child RayCluster), including the `UID-generation` revision,
+  count-neutral updates that must not re-annotate or mint a slice, the
+  suspended-remote skip, and the malformed-annotation fallback to spec counts.
+- Workload-slice naming folds in the reflected revision
+  (`GetWorkloadNameExtraPart`): a fresh reflected count yields a new slice name.
+- Adapter-wiring validation: `Runtime` (with `Fetch` and `Apply`) required when
+  `AutoscalingEnabled` is set.
 - Jobframework worker-side resize tolerance, gated on the origin label.
 - ElasticJobUngater chain resolution when the root is deleted (fail-without,
   pass-with).
@@ -253,13 +287,18 @@ None beyond the coverage described below.
 
 #### e2e tests
 
-- Real-autoscaler e2e on two kind clusters (KubeRay operator on the worker,
-  scaling driven via `ray.autoscaler.sdk.request_resources`): RayCluster 1→3→1
-  and RayJob child 1→3→1 reflected onto the manager; scale-up replaces the slice
-  (admitted by the real scheduler, prebuilt marker repointed), scale-down updates
-  the slice in place; post-handover pods reach `Running`; ClusterQueue
-  reservation exact including the autoscaler sidecar; MultiKueue GC clean after
-  deletion.
+- Real-autoscaler e2e (extended MultiKueue suite: manager + worker clusters,
+  KubeRay operator on the workers), scaling driven by detached Ray actors that each
+  require a per-worker resource so the actual Ray autoscaler resizes the group. A
+  standalone RayCluster and a RayJob's child are each driven **up (2) → down (0) →
+  up (1)**, and every resize is reflected onto the manager. Assertions cover the
+  manager runtime annotation, the worker `DesiredWorkerReplicas` and Running
+  worker-pod count, the ClusterQueue admitted count, and — on **both** the manager
+  and the worker cluster — exactly one live, admitted workload slice reserving the
+  reflected count. The slice lifecycle is checked by slice **name** (in-place on
+  scale-down, fresh replacement on scale-up), which keeps the assertions robust to
+  the autoscaler transiently overshooting the requested count. Worker RayCluster
+  not torn down mid-handover; MultiKueue GC clean after deletion.
 
 ### Graduation Criteria
 
@@ -282,7 +321,14 @@ Beta (tentative):
 - Prototype and verification in
   [#13435](https://github.com/kubernetes-sigs/kueue/pull/13435) (reverse elastic
   sync, worker-side resize tolerance, ungater chain-root fix; verified with unit,
-  integration, and real-autoscaler e2e).
+  integration, and real-autoscaler e2e — including on real GPU clusters).
+- 2026-08-01: reverse sync unified onto a single annotation-based
+  `Runtime{Fetch, Apply}` for both RayCluster and RayJob — RayCluster no longer
+  writes back to the manager spec; the reflected size reuses the existing
+  `raycluster-podset-replica-sizes` annotation; the elastic workload-slice name
+  folds in the reflected revision so annotation-only reflection still mints fresh
+  slices; e2e specs hardened to up/down/up with name-based, overshoot-tolerant
+  slice assertions.
 
 ## Drawbacks
 
