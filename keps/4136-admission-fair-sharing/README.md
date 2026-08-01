@@ -7,6 +7,7 @@
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
   - [Entry penalty](#entry-penalty)
+  - [Accounting anchor](#accounting-anchor)
   - [User Stories (Optional)](#user-stories-optional)
     - [Story 1](#story-1)
     - [Story 2](#story-2)
@@ -206,12 +207,34 @@ usageSamplingInterval: 5mins
 Here, all Jobs submitted by Tenant B  within the next 5min get scheduled.
 Even if Tenant B submitted a job that consumed 1000 CPUs, consecutive jobs would still be prioritized because of the delay in updating the status.
 
-Hence, since v0.13 Kueue adds an entry penalty to FairSharingStatus every time it admits a Workload. The penalty should be calculated with the formula: `penalty = A * requested_resource`, where `A` is as above:
+Hence, since v0.13 Kueue charges an entry penalty when the scheduler assumes a Workload into the cache, which is the point at which it commits to reserving quota. The penalty is held in memory and is rolled back if the admission patch fails; it reaches FairSharingStatus only once it is consolidated, as described in [Accounting anchor](#accounting-anchor). A Workload that already holds a reservation is not charged again on a second scheduling pass. The penalty should be calculated with the formula: `penalty = A * requested_resource`, where `A` is as above:
 
 `A = 1 - 0.5 ^ (sampling/half_life_decay)`. 
 
-This an equivalent of a job's usage that has been admitted `samplingInterval` ago. The value of penalty is an arbitrary decision for now.
+This is the equivalent of the usage of a job that was admitted `samplingInterval` ago. The value of penalty is an arbitrary decision for now.
 After we collect customers' feedback, we'll consider introducing an API that allows to configure it.
+
+### Accounting anchor
+
+The usage tracked above is quota-based, so it is accounted from the point a Workload holds quota rather than from the point it starts running. `QuotaReserved` is the accounting start, which gives the following semantics for each transition:
+
+| Transition | Effect on AFS accounting |
+|---|---|
+| `Pending -> QuotaReserved` | Consolidate the LocalQueue's pending entry penalties into its consumed usage and clear them, when the ClusterQueue admits on usage. A Workload deactivated or finished in the same status update does not trigger it, and the penalties simply stay pending until the LocalQueue's next consolidation. |
+| `Pending -> Admitted` | The same. A ClusterQueue without AdmissionChecks reaches both conditions in one status update. |
+| `QuotaReserved -> Admitted` | Nothing, the cost having been accounted when quota was reserved. |
+| `QuotaReserved -> Pending` | Nothing, matching `Admitted -> Pending`. A consolidated cost stays in the decaying usage; a penalty still pending counts toward the LocalQueue's usage undecayed until a consolidation folds it in. |
+| `QuotaReserved -> deleted / deactivated` | Nothing, matching `Admitted -> deleted / deactivated`. |
+
+Two consequences are worth stating explicitly, because they are observable.
+
+First, `current_usage` in the decay formula is the LocalQueue's quota-reserving usage, which includes Workloads still waiting on their AdmissionChecks. The sampled usage and the consolidation must be anchored at the same stage. Were the usage admitted-gated while penalties are consolidated at quota reservation, a check-gated Workload's cost would decay out of the average while it still holds quota, and a tenant able to lengthen its own checks, with a slow ProvisioningRequest for instance, could keep its usage understated. Over-counting a tenant's own usage is self-correcting; under-counting is not, so the two must not be allowed to drift apart.
+
+Second, a Workload that reserves quota and is evicted before being admitted still leaves its consolidated cost behind. This is deliberate: it is what stops a submit-and-evict churn loop from being free. The guarantee is scoped to the LocalQueue's lifetime: deleting the LocalQueue discards its consumed usage and its pending penalties together.
+
+An entry penalty and the consumed usage it will be folded into are two halves of one LocalQueue record, updated together. A reader that fetches the record once, as the admission-ordering path does, therefore never sees the same penalty counted in both halves, nor misses it in both.
+
+Consolidation folds the LocalQueue's whole pending bucket rather than a per-Workload figure, so it cannot disagree with what was pushed and leave a residue behind. The bucket is not attributed per Workload, though, which bounds what can be said about any single one: a rollback arriving after its penalty was already consolidated is floored at zero rather than refunded, and may instead consume another Workload's pending penalty. Both errors are bounded by one entry penalty, land on the same LocalQueue, and decay within a half-life. A Workload also pays the penalty for its full request even when only part of it is admitted, since the penalty is priced at `A * requested_resource` when the Workload is assumed.
 
 ### User Stories (Optional)
 #### Story 1
