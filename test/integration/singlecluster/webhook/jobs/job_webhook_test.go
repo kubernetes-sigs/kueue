@@ -238,6 +238,8 @@ var _ = ginkgo.Describe("Job Webhook with manageJobsWithoutQueueName disabled", 
 	})
 
 	ginkgo.It("Should not set the default WorkloadPriorityClass label when the feature gate is disabled", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadPriorityClassDefaulting, false)
+
 		defaultWPC := utiltestingapi.MakeWorkloadPriorityClass(constants.DefaultWorkloadPriorityClassName).PriorityValue(100).Obj()
 		util.MustCreate(ctx, k8sClient, defaultWPC)
 		ginkgo.DeferCleanup(func() {
