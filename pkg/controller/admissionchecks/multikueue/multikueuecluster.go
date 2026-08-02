@@ -305,7 +305,9 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 		}
 	}
 
-	watchCtx, rc.watchCancel = context.WithCancel(watchCtx)
+	var watchCancel context.CancelFunc
+	watchCtx, watchCancel = context.WithCancel(watchCtx)
+	rc.setWatchCancel(watchCancel)
 
 	builder := newClientWithWatch
 	if rc.builderOverride != nil {
@@ -420,43 +422,39 @@ func (rc *remoteClient) establishWatcher(ctx context.Context, kind string, w job
 	}
 
 	return func() {
-		rc.watchers.Add(1)
-		go func() {
-			defer rc.watchers.Done()
+		rc.runWatcher(func() {
 			log.V(2).Info("Starting watch")
 			resultCh := newWatcher.ResultChan()
 		watching:
 			for {
-				var r watch.Event
 				select {
 				case <-ctx.Done():
 					break watching
-				case ev, ok := <-resultCh:
+				case r, ok := <-resultCh:
 					if !ok {
 						break watching
 					}
-					r = ev
-				}
-				switch r.Type {
-				case watch.Bookmark:
-					// Bookmark events are periodic signals from the API server to
-					// keep the connection alive. They carry no meaningful payload
-					// and can be safely ignored.
-					log.V(5).Info("Watch bookmark received")
-				case watch.Error:
-					switch s := r.Object.(type) {
-					case *metav1.Status:
-						log.V(3).Info("Watch error", "status", s.Status, "message", s.Message, "reason", s.Reason)
+					switch r.Type {
+					case watch.Bookmark:
+						// Bookmark events are periodic signals from the API server to
+						// keep the connection alive. They carry no meaningful payload
+						// and can be safely ignored.
+						log.V(5).Info("Watch bookmark received")
+					case watch.Error:
+						switch s := r.Object.(type) {
+						case *metav1.Status:
+							log.V(3).Info("Watch error", "status", s.Status, "message", s.Message, "reason", s.Reason)
+						default:
+							log.V(3).Info("Watch error with unexpected type", "type", fmt.Sprintf("%T", s))
+						}
 					default:
-						log.V(3).Info("Watch error with unexpected type", "type", fmt.Sprintf("%T", s))
-					}
-				default:
-					wlKeys, err := w.WorkloadKeysFor(r.Object)
-					if err != nil {
-						log.Error(err, "Cannot get workload keys", "jobKind", r.Object.GetObjectKind().GroupVersionKind())
-					} else {
-						for _, wlKey := range wlKeys {
-							rc.queueWorkloadEvent(ctx, wlKey)
+						wlKeys, err := w.WorkloadKeysFor(r.Object)
+						if err != nil {
+							log.Error(err, "Cannot get workload keys", "jobKind", r.Object.GetObjectKind().GroupVersionKind())
+						} else {
+							for _, wlKey := range wlKeys {
+								rc.queueWorkloadEvent(ctx, wlKey)
+							}
 						}
 					}
 				}
@@ -470,7 +468,7 @@ func (rc *remoteClient) establishWatcher(ctx context.Context, kind string, w job
 					rc.queueWatchEndedEvent(ctx)
 				}
 			}
-		}()
+		})
 	}, nil
 }
 
@@ -549,7 +547,10 @@ func (rc *remoteClient) queueEventsForLQ(ctx context.Context, remoteLQ *kueue.Lo
 		return
 	}
 
-	rc.cqUpdateCh <- event.TypedGenericEvent[kueue.ClusterQueueReference]{Object: localLQ.Spec.ClusterQueue}
+	select {
+	case rc.cqUpdateCh <- event.TypedGenericEvent[kueue.ClusterQueueReference]{Object: localLQ.Spec.ClusterQueue}:
+	case <-ctx.Done():
+	}
 }
 
 func (rc *remoteClient) getFailedConnAttempts() uint {
@@ -578,6 +579,26 @@ func (rc *remoteClient) setClient(c SelectivelyCachingClient) {
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
 	rc.client = c
+}
+
+// setWatchCancel stores the cancel func of the watch context the next watchers will observe.
+// A non-nil value is what marks the client as accepting new watchers, see runWatcher.
+func (rc *remoteClient) setWatchCancel(cancel context.CancelFunc) {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+	rc.watchCancel = cancel
+}
+
+// runWatcher starts fn as a tracked watcher goroutine, unless the watchers were already
+// stopped. Registering under rc.mu makes it mutually exclusive with StopWatchers, so a
+// watcher can never begin after StopWatchers has decided what to wait for.
+func (rc *remoteClient) runWatcher(fn func()) {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+	if rc.watchCancel == nil {
+		return
+	}
+	rc.watchers.Go(fn)
 }
 
 // StopWatchers cancels the watch context and blocks until every watcher goroutine returned.
