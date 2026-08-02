@@ -75,6 +75,9 @@ type scheduleTestCase struct {
 	featureGates map[featuregate.Feature]bool
 
 	enableFairSharing bool
+	// refillBudget overrides the scheduler's refill budget when set; zero is
+	// a valid override (refill enabled but inert).
+	refillBudget *int
 
 	workloads      []kueue.Workload
 	objects        []client.Object
@@ -243,8 +246,13 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 					if tc.enableFairSharing {
 						fairSharing = &config.FairSharing{}
 					}
-					scheduler := New(qManager, cqCache, cl, recorder,
-						WithFairSharing(fairSharing), WithClock(t, cfg.fakeClock), WithPreemptionExpectations(preemptexpectations.New()))
+					schedulerOpts := []Option{
+						WithFairSharing(fairSharing), WithClock(t, cfg.fakeClock), WithPreemptionExpectations(preemptexpectations.New()),
+					}
+					if tc.refillBudget != nil {
+						schedulerOpts = append(schedulerOpts, WithRefillBudget(*tc.refillBudget))
+					}
+					scheduler := New(qManager, cqCache, cl, recorder, schedulerOpts...)
 					wg := sync.WaitGroup{}
 					scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
 						func() { wg.Add(1) },

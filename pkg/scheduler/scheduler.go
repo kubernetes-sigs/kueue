@@ -91,6 +91,7 @@ type Scheduler struct {
 	roleTracker             *roletracker.RoleTracker
 	customLabels            *metrics.CustomLabels
 	resourceFormatter       *resources.ResourceFormatter
+	refillBudget            int
 
 	// schedulingCycle identifies the number of scheduling
 	// attempts since the last restart.
@@ -107,6 +108,7 @@ type options struct {
 	preemptionExpectations      *expectations.Store
 	customLabels                *metrics.CustomLabels
 	resourceFormatter           *resources.ResourceFormatter
+	refillBudget                int
 }
 
 // Option configures the reconciler.
@@ -115,6 +117,7 @@ type Option func(*options)
 var defaultOptions = options{
 	podsReadyRequeuingTimestamp: config.EvictionTimestamp,
 	clock:                       realClock,
+	refillBudget:                defaultRefillBudget,
 }
 
 // WithPodsReadyRequeuingTimestamp sets the timestamp that is used for ordering
@@ -179,6 +182,15 @@ func WithResourceFormatter(formatter *resources.ResourceFormatter) Option {
 	}
 }
 
+// WithRefillBudget sets the maximum number of extra workloads a scheduling
+// cycle may pop after the initial ClusterQueue heads when the
+// FairSharingRefill feature gate is enabled.
+func WithRefillBudget(budget int) Option {
+	return func(o *options) {
+		o.refillBudget = budget
+	}
+}
+
 func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recorder events.EventRecorder, opts ...Option) *Scheduler {
 	options := defaultOptions
 	for _, opt := range opts {
@@ -215,6 +227,7 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 		roleTracker:             options.roleTracker,
 		customLabels:            options.customLabels,
 		resourceFormatter:       options.resourceFormatter,
+		refillBudget:            options.refillBudget,
 	}
 	return s
 }
@@ -356,8 +369,11 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	phaseStartTime = s.clock.Now()
 	preemptedWorkloads := make(preemption.PreemptedWorkloads)
 	skippedPreemptions := make(map[kueue.ClusterQueueReference]int)
+	refill := s.newRefillPass(iterator, snapshot)
 	for iterator.hasNext() {
-		s.processEntry(ctx, iterator.pop(), snapshot, preemptedWorkloads, skippedPreemptions)
+		e := iterator.pop()
+		s.processEntry(ctx, e, snapshot, preemptedWorkloads, skippedPreemptions)
+		refill.afterEntryProcessed(ctx, e)
 	}
 
 	// 6. Requeue the heads that were not scheduled.
@@ -372,9 +388,23 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			result = metrics.AdmissionResultSuccess
 		}
 	}
+	// Workloads popped mid-cycle by refill are not part of the initial entries,
+	// but must reach the same terminal paths.
+	for _, e := range refill.nominatedEntries() {
+		logAdmissionAttemptIfVerbose(log, e)
+		if e.status != assumed && e.status != evicted {
+			s.requeueAndUpdate(ctx, *e)
+		} else {
+			result = metrics.AdmissionResultSuccess
+		}
+	}
 	for _, e := range inadmissibleEntries {
 		logAdmissionAttemptIfVerbose(log, &e)
 		s.requeueAndUpdate(ctx, e)
+	}
+	for _, e := range refill.inadmissible() {
+		logAdmissionAttemptIfVerbose(log, e)
+		s.requeueAndUpdate(ctx, *e)
 	}
 
 	log.V(2).Info("Workload processing done", "duration", s.clock.Since(phaseStartTime))
@@ -677,49 +707,77 @@ func (e *entry) readResourceToFlavorMapping() workload.PodSetResourcesToFlavors 
 	return flavors
 }
 
+// nominationOutcome describes the result of nominating a single workload.
+type nominationOutcome int
+
+const (
+	// nominationOK means the entry received an assignment and competes for
+	// admission in this cycle.
+	nominationOK nominationOutcome = iota
+	// nominationInadmissible means the workload cannot be nominated in this
+	// cycle and must be requeued with the entry's inadmissibleMsg.
+	nominationInadmissible
+	// nominationDropped means the workload is already accounted in the cache
+	// and must leave the cycle without being requeued.
+	nominationDropped
+)
+
 // nominate returns the workloads with their requirements (resource flavors, borrowing) if
 // they were admitted by the clusterQueues in the snapshot. The second return value
 // is the list of inadmissibleEntries.
 func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, snap *schdcache.Snapshot) ([]entry, []entry) {
-	log := ctrl.LoggerFrom(ctx)
 	entries := make([]entry, 0, len(workloads))
 	var inadmissibleEntries []entry
 	for _, w := range workloads {
-		log := log.WithValues("workload", klog.KObj(w.Obj), "clusterQueue", klog.KRef("", string(w.ClusterQueue)))
-		e := entry{Info: w}
-		e.clusterQueueSnapshot = snap.ClusterQueue(w.ClusterQueue)
-		if !workload.NeedsSecondPass(w.Obj) && s.cache.IsAdded(w) {
-			log.Info("Workload skipped from admission because it's already accounted in cache, and it does not need second pass", "workload", klog.KObj(w.Obj))
-			continue
-		} else if workload.HasRetryChecks(w.Obj) || workload.HasRejectedChecks(w.Obj) {
-			e.inadmissibleMsg = "The workload has failed admission checks"
-			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonPendingEvaluation
-		} else if snap.InactiveClusterQueueSets.Has(w.ClusterQueue) {
-			e.inadmissibleMsg = fmt.Sprintf("ClusterQueue %s is inactive", w.ClusterQueue)
-			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonSuspended
-		} else if e.clusterQueueSnapshot == nil {
-			e.inadmissibleMsg = fmt.Sprintf("ClusterQueue %s not found", w.ClusterQueue)
-			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
-		} else if err := workload.ValidateAdmissibility(ctx, s.client, &w, e.clusterQueueSnapshot.NamespaceSelector); err != nil {
-			e.inadmissibleMsg = err.Error()
-			if errors.Is(err, workload.ErrInternal) {
-				log.Error(err, "Failed to validate workload admissibility")
-				e.skipStatusUpdate = true
-			} else {
-				e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
-				if errors.Is(err, workload.ErrNamespaceMismatch) {
-					e.requeueReason = qcache.RequeueReasonNamespaceMismatch
-				}
-			}
-		} else {
-			assignment, targets := s.getAssignments(ctx, &e.Info, snap)
-			e.recordAssignment(assignment, targets)
+		e, outcome := s.nominateWorkload(ctx, w, snap)
+		switch outcome {
+		case nominationOK:
 			entries = append(entries, e)
-			continue
+		case nominationInadmissible:
+			inadmissibleEntries = append(inadmissibleEntries, e)
 		}
-		inadmissibleEntries = append(inadmissibleEntries, e)
 	}
 	return entries, inadmissibleEntries
+}
+
+// nominateWorkload computes the requirements (resource flavors, borrowing,
+// preemption targets) for admitting a single workload against the snapshot.
+func (s *Scheduler) nominateWorkload(ctx context.Context, w workload.Info, snap *schdcache.Snapshot) (entry, nominationOutcome) {
+	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(w.Obj), "clusterQueue", klog.KRef("", string(w.ClusterQueue)))
+	e := entry{Info: w}
+	e.clusterQueueSnapshot = snap.ClusterQueue(w.ClusterQueue)
+	if !workload.NeedsSecondPass(w.Obj) && s.cache.IsAdded(w) {
+		log.Info("Workload skipped from admission because it's already accounted in cache, and it does not need second pass", "workload", klog.KObj(w.Obj))
+		// This is the only exit where the popped workload is neither requeued
+		// nor deleted, so drop the inflight bookkeeping explicitly.
+		s.queues.ForgetInflight(w.ClusterQueue, workload.Key(w.Obj))
+		return e, nominationDropped
+	} else if workload.HasRetryChecks(w.Obj) || workload.HasRejectedChecks(w.Obj) {
+		e.inadmissibleMsg = "The workload has failed admission checks"
+		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonPendingEvaluation
+	} else if snap.InactiveClusterQueueSets.Has(w.ClusterQueue) {
+		e.inadmissibleMsg = fmt.Sprintf("ClusterQueue %s is inactive", w.ClusterQueue)
+		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonSuspended
+	} else if e.clusterQueueSnapshot == nil {
+		e.inadmissibleMsg = fmt.Sprintf("ClusterQueue %s not found", w.ClusterQueue)
+		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
+	} else if err := workload.ValidateAdmissibility(ctx, s.client, &w, e.clusterQueueSnapshot.NamespaceSelector); err != nil {
+		e.inadmissibleMsg = err.Error()
+		if errors.Is(err, workload.ErrInternal) {
+			log.Error(err, "Failed to validate workload admissibility")
+			e.skipStatusUpdate = true
+		} else {
+			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
+			if errors.Is(err, workload.ErrNamespaceMismatch) {
+				e.requeueReason = qcache.RequeueReasonNamespaceMismatch
+			}
+		}
+	} else {
+		assignment, targets := s.getAssignments(ctx, &e.Info, snap)
+		e.recordAssignment(assignment, targets)
+		return e, nominationOK
+	}
+	return e, nominationInadmissible
 }
 
 func (s *Scheduler) updateAssignmentIfNeeded(

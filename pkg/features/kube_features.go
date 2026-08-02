@@ -70,6 +70,15 @@ const (
 	// every level of the cohort hierarchy.
 	FairSharingPrioritizeNonBorrowing featuregate.Feature = "FairSharingPrioritizeNonBorrowing"
 
+	// owner: @apullo777
+	// kep: https://github.com/kubernetes-sigs/kueue/issues/9345
+	//
+	// In fair sharing, when a workload is admitted, pop the next workload
+	// from the same ClusterQueue so it joins the running scheduling cycle
+	// instead of waiting for the next one. The number of extra workloads
+	// per cycle is bounded by a budget.
+	FairSharingRefill featuregate.Feature = "FairSharingRefill"
+
 	// owner: @trasc
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/693-multikueue
 	//
@@ -603,6 +612,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	FairSharingPrioritizeNonBorrowing: {
 		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
+	},
+	FairSharingRefill: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	MultiKueue: {
 		{Version: version.MustParse("0.6"), Default: false, PreRelease: featuregate.Alpha},
