@@ -98,8 +98,7 @@ Until then the manager keeps using the mapping it loaded at startup. A Workload
 whose claim references a `DeviceClass` that mapping does not contain is not
 admitted, rather than admitted without quota accounting: Kueue unsets its quota
 reservation and marks the Workload inadmissible, with `DeviceClass <name> is not
-mapped in DRA configuration`. It becomes admissible once the controller restarts
-with the mapping in place.
+mapped in DRA configuration`.
 {{% /alert %}}
 
 ### 2. Add the DRA resource to your ClusterQueue
