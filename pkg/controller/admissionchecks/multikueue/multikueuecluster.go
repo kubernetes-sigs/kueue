@@ -1065,6 +1065,17 @@ func (c *clustersReconciler) getKubeConfigFromPath(rawPath string) ([]byte, erro
 }
 
 func (c *clustersReconciler) updateStatus(ctx context.Context, cluster *kueue.MultiKueueCluster, active bool, reason, message string) error {
+	// While disconnected, surface the reconnect backoff progress (failed attempts and
+	// the next retry time) in the message so operators can observe it via kubectl.
+	if !active {
+		if rc, found := c.controllerFor(cluster.Name); found {
+			if attempts := rc.getFailedConnAttempts(); attempts > 0 {
+				message = fmt.Sprintf("%s; connection attempts: %d, next connection attempt: %s",
+					message, attempts, rc.getRetryConnNextAttempt().UTC().Format(time.RFC3339))
+			}
+		}
+	}
+
 	newCondition := metav1.Condition{
 		Type:               kueue.MultiKueueClusterActive,
 		Status:             metav1.ConditionFalse,
