@@ -1616,13 +1616,41 @@ func (s *TASFlavorSnapshot) updateCountsToMinimumGeneric(domains []*domain, coun
 		remainingPrimary -= domState.state
 		result = append(result, dom)
 	}
+	// The error below is not gated by the verbosity level, so log a summary of
+	// the snapshot instead of the leaf domains themselves. There is one leaf per
+	// node when the lowest topology level is the hostname, so dumping them here
+	// grows the log line with the size of the cluster.
+	var lastDomainID utiltas.TopologyDomainID
+	if len(domains) > 0 {
+		lastDomainID = domains[len(domains)-1].id
+	}
 	s.log.Error(errCodeAssumptionsViolated, "unexpected remainingCount",
 		"remainingCount", remainingPrimary,
 		"remainingLeaderCount", remainingLeaderCount,
 		"count", count,
+		"leaderCount", leaderCount,
 		"sliceSize", sliceSize,
-		"leaves", s.leaves)
+		"unconstrained", unconstrained,
+		"slices", slices,
+		"topologyName", s.topologyName,
+		"domainCount", len(domains),
+		"lastDomainID", lastDomainID,
+		"leafCount", len(s.leaves))
+	s.logLeafDomainsIfVerbose()
 	return nil
+}
+
+// logLeafDomainsIfVerbose logs the identifiers of the snapshot's leaf domains.
+// The line grows with the number of nodes in the topology, so it is emitted at
+// the same verbosity the scheduler dumps the whole snapshot at.
+func (s *TASFlavorSnapshot) logLeafDomainsIfVerbose() {
+	logV := s.log.V(6)
+	if !logV.Enabled() {
+		return
+	}
+	logV.Info("TAS flavor snapshot leaf domains",
+		"topologyName", s.topologyName,
+		"leafDomains", slices.Sorted(maps.Keys(s.leaves)))
 }
 
 // buildTopologyAssignmentForLevels build TopologyAssignment for levels starting from levelIdx
