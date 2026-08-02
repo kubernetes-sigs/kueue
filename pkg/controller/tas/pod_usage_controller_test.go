@@ -76,8 +76,8 @@ func TestBelongsToNonTASCache(t *testing.T) {
 	}
 }
 
-func TestNonTasUsageReconcilerCreate(t *testing.T) {
-	reconciler := &NonTasUsageReconciler{}
+func TestPodUsageReconcilerCreate(t *testing.T) {
+	reconciler := &PodUsageReconciler{}
 
 	tests := []struct {
 		name string
@@ -100,7 +100,7 @@ func TestNonTasUsageReconcilerCreate(t *testing.T) {
 				NodeName("node-a").
 				Annotation(kueue.PodSetRequiredTopologyAnnotation, "rack").
 				Obj(),
-			want: false,
+			want: true,
 		},
 		{
 			name: "terminated scheduled non-TAS pod",
@@ -118,14 +118,9 @@ func TestNonTasUsageReconcilerCreate(t *testing.T) {
 	}
 }
 
-func TestNonTasUsageReconcilerDelete(t *testing.T) {
-	reconciler := &NonTasUsageReconciler{}
+func TestPodUsageReconcilerDelete(t *testing.T) {
+	reconciler := &PodUsageReconciler{}
 
-	// Delete should return true for any scheduled non-TAS pod regardless of phase,
-	// so that we always attempt to remove it from the cache. The informer may deliver
-	// the Delete event with the pod already Succeeded if it missed the Running→Succeeded
-	// Update; without reconciling in that case, the pod's usage would never be subtracted.
-	// DeletePodByKey is idempotent, so double-removal is safe.
 	tests := []struct {
 		name string
 		pod  *corev1.Pod
@@ -147,7 +142,7 @@ func TestNonTasUsageReconcilerDelete(t *testing.T) {
 				NodeName("node-a").
 				Annotation(kueue.PodSetRequiredTopologyAnnotation, "rack").
 				Obj(),
-			want: false,
+			want: true,
 		},
 		{
 			name: "terminated scheduled non-TAS pod",
@@ -165,7 +160,7 @@ func TestNonTasUsageReconcilerDelete(t *testing.T) {
 	}
 }
 
-func TestShouldReconcilePodUpdate(t *testing.T) {
+func TestPodUsageReconcilerUpdatePredicate(t *testing.T) {
 	tests := []struct {
 		name   string
 		oldPod *corev1.Pod
@@ -244,18 +239,22 @@ func TestShouldReconcilePodUpdate(t *testing.T) {
 		},
 	}
 
+	reconciler := &PodUsageReconciler{}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := shouldReconcilePodUpdate(tc.oldPod, tc.newPod)
+			got := reconciler.Update(event.TypedUpdateEvent[*corev1.Pod]{
+				ObjectOld: tc.oldPod,
+				ObjectNew: tc.newPod,
+			})
 			if got != tc.want {
-				t.Errorf("shouldReconcilePodUpdate() = %v, want %v", got, tc.want)
+				t.Errorf("Update() = %v, want %v", got, tc.want)
 			}
 		})
 	}
 }
 
-func TestNonTasUsageReconcilerUpdate(t *testing.T) {
-	reconciler := &NonTasUsageReconciler{}
+func TestPodUsageReconcilerUpdate(t *testing.T) {
+	reconciler := &PodUsageReconciler{}
 	oldPod := testingpod.MakePod("pod", "ns").NodeName("node-a").StatusPhase(corev1.PodRunning).Obj()
 	newPod := testingpod.MakePod("pod", "ns").NodeName("node-a").StatusPhase(corev1.PodSucceeded).Obj()
 

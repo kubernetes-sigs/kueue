@@ -21,6 +21,7 @@ import (
 	"iter"
 
 	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // NodeFeasibilityChecker determines which topology leaves can satisfy pod requirements.
@@ -28,9 +29,14 @@ type NodeFeasibilityChecker interface {
 	FindFeasibleNodes(ctx context.Context, candidates iter.Seq[Candidate], requirements *PodRequirements, stats *NodeExclusionStats) ([]MatchedCandidate, error)
 }
 
-// SchedulingSimulator acts as a factory for the feasibility checker.
+// SchedulingSimulator acts as a factory for the feasibility checker and
+// maintains any per-pod state that its plugins require (e.g. hostPort tracking).
 type SchedulingSimulator interface {
 	NewFeasibilityChecker(ctx context.Context, nodes []*corev1.Node) (NodeFeasibilityChecker, error)
+	// TrackPod notifies the simulator that a pod is running on a node.
+	TrackPod(pod *corev1.Pod)
+	// UntrackPod notifies the simulator that a pod has been removed.
+	UntrackPod(key client.ObjectKey)
 }
 
 func AsCandidates[C Candidate](seq iter.Seq[C]) iter.Seq[Candidate] {

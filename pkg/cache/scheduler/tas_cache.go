@@ -134,14 +134,24 @@ func (t *tasCache) DeleteTopology(name kueue.TopologyReference) {
 	}
 }
 
-// Update may add a pod to the cache, or
-// delete a terminated pod.
-func (t *tasCache) Update(pod *corev1.Pod, log logr.Logger) {
+// UpdateNonTASUsage updates the non-TAS resource usage cache for the pod.
+func (t *tasCache) UpdateNonTASUsage(pod *corev1.Pod, log logr.Logger) {
 	t.nonTasUsageCache.update(pod, log)
 }
 
-func (t *tasCache) DeletePodByKey(key client.ObjectKey, log logr.Logger) {
+// DeleteNonTASUsageByKey removes the pod from the non-TAS resource usage cache.
+func (t *tasCache) DeleteNonTASUsageByKey(key client.ObjectKey, log logr.Logger) {
 	t.nonTasUsageCache.delete(key, log)
+}
+
+// TrackPod notifies the scheduling simulator that a pod is running on a node.
+func (t *tasCache) TrackPod(pod *corev1.Pod) {
+	t.schedulingSimulator.TrackPod(pod)
+}
+
+// UntrackPod notifies the scheduling simulator that a pod has been removed.
+func (t *tasCache) UntrackPod(key client.ObjectKey) {
+	t.schedulingSimulator.UntrackPod(key)
 }
 
 func (t *tasCache) SyncNode(node *corev1.Node) {
