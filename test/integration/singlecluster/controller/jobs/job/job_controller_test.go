@@ -2473,6 +2473,102 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 		})
 	})
 
+	ginkgo.It("Should reclaim quota for permanently failed indexes", framework.SlowSpec, func() {
+		// Regression for kueue#13482: permanently failed indexes cannot run
+		// again, so retaining their quota over-reserves the ClusterQueue.
+		testJob := testingjob.MakeJob("failed-indexes", ns.Name).
+			Queue(kueue.LocalQueueName(prodLocalQ.Name)).
+			Request(corev1.ResourceCPU, "100m").
+			Indexed(true).
+			Parallelism(3).
+			Completions(3).
+			BackoffLimitPerIndex(1).
+			Obj()
+		testJob.Spec.MaxFailedIndexes = ptr.To[int32](3)
+
+		ginkgo.By("creating and admitting the job")
+		util.MustCreate(ctx, k8sClient, testJob)
+		gomega.Eventually(func(g gomega.Gomega) {
+			workloads := &kueue.WorkloadList{}
+			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testJob.Namespace))).Should(gomega.Succeed())
+			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
+			g.Expect(workload.IsAdmitted(&workloads.Items[0])).Should(gomega.BeTrue())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("waiting for the admitted job to reserve its full quota")
+		gomega.Eventually(func(g gomega.Gomega) {
+			cq := &kueue.ClusterQueue{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodClusterQ), cq)).Should(gomega.Succeed())
+			g.Expect(cq.Status.FlavorsUsage).Should(gomega.ContainElement(kueue.FlavorUsage{
+				Name: kueue.ResourceFlavorReference(onDemandFlavor.Name),
+				Resources: []kueue.ResourceUsage{{
+					Name:     corev1.ResourceCPU,
+					Total:    resource.MustParse("300m"),
+					Borrowed: resource.MustParse("0"),
+				}},
+			}))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("recording a failed attempt that can still be retried")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJob), testJob)).Should(gomega.Succeed())
+			testJob.Status.Active = 2
+			testJob.Status.Failed = 1
+			g.Expect(k8sClient.Status().Update(ctx, testJob)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("retaining quota for the retryable index")
+		gomega.Consistently(func(g gomega.Gomega) {
+			workloads := &kueue.WorkloadList{}
+			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testJob.Namespace))).Should(gomega.Succeed())
+			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
+			g.Expect(workloads.Items[0].Status.ReclaimablePods).Should(gomega.BeEmpty())
+
+			cq := &kueue.ClusterQueue{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodClusterQ), cq)).Should(gomega.Succeed())
+			g.Expect(cq.Status.FlavorsUsage).Should(gomega.ContainElement(kueue.FlavorUsage{
+				Name: kueue.ResourceFlavorReference(onDemandFlavor.Name),
+				Resources: []kueue.ResourceUsage{{
+					Name:     corev1.ResourceCPU,
+					Total:    resource.MustParse("300m"),
+					Borrowed: resource.MustParse("0"),
+				}},
+			}))
+		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+
+		ginkgo.By("marking one index completed and one permanently failed")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJob), testJob)).Should(gomega.Succeed())
+			testJob.Status.Active = 1
+			testJob.Status.Succeeded = 1
+			testJob.Status.Failed = 2
+			testJob.Status.CompletedIndexes = "0"
+			testJob.Status.FailedIndexes = new("1")
+			g.Expect(k8sClient.Status().Update(ctx, testJob)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("reclaiming both terminal indexes and retaining quota for the active index")
+		gomega.Eventually(func(g gomega.Gomega) {
+			workloads := &kueue.WorkloadList{}
+			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testJob.Namespace))).Should(gomega.Succeed())
+			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
+			g.Expect(workloads.Items[0].Status.ReclaimablePods).Should(gomega.BeComparableTo([]kueue.ReclaimablePod{
+				{Name: kueue.DefaultPodSetName, Count: 2},
+			}))
+
+			cq := &kueue.ClusterQueue{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodClusterQ), cq)).Should(gomega.Succeed())
+			g.Expect(cq.Status.FlavorsUsage).Should(gomega.ContainElement(kueue.FlavorUsage{
+				Name: kueue.ResourceFlavorReference(onDemandFlavor.Name),
+				Resources: []kueue.ResourceUsage{{
+					Name:     corev1.ResourceCPU,
+					Total:    resource.MustParse("100m"),
+					Borrowed: resource.MustParse("0"),
+				}},
+			}))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	})
+
 	ginkgo.It("Should readmit preempted Job with priorityClass in alternative flavor", func() {
 		highPriorityClass := utiltesting.MakePriorityClass("high").PriorityValue(100).Obj()
 		util.MustCreate(ctx, k8sClient, highPriorityClass)
@@ -4573,9 +4669,9 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 	ginkgo.It("Should derive reclaimable pods from completedIndexes while status.Succeeded is stale after scale-down", framework.SlowSpec, func() {
 		// kueue#13117: shrinking completions makes status.Succeeded briefly
 		// over-count the removed high indexes until the Job controller recounts
-		// it. Deriving the reclaimable count from completedIndexes capped at the
-		// current completions gives the correct value immediately, avoiding a
-		// quota leak for the surviving running pods.
+		// it. Deriving the reclaimable count from completedIndexes and failedIndexes,
+		// capped at the current completions, gives the correct value immediately,
+		// avoiding a quota leak for the surviving running pods.
 		testJob := testingjob.MakeJob("scale-down-stale-succeeded", ns.Name).
 			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 			SetAnnotation(workloadjob.JobCompletionsEqualParallelismAnnotation, "true").
