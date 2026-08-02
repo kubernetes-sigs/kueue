@@ -992,7 +992,7 @@ func TestPendingResourcesAfterLocalQueueResync(t *testing.T) {
 
 			inHeap := cq.workloads.active.GetByKey(key) != nil
 			inInadmissible := cq.workloads.inadmissible.hasKey(key)
-			inInflight := cq.workloads.inflight != nil && workloadKey(cq.workloads.inflight) == key
+			_, inInflight := cq.workloads.inflight[key]
 			if inHeap != tc.wantInHeap {
 				t.Errorf("in heap = %v, want %v", inHeap, tc.wantInHeap)
 			}
@@ -2328,8 +2328,10 @@ func TestClusterQueuePendingTrackers(t *testing.T) {
 				cq.Pop()
 			},
 			wantPending: map[[6]string]int{
-				labelVals1: 0,
-				labelVals2: 2, // 1 on heap + 1 inflight
+				// Both popped workloads stay inflight: inflight is a map, so a
+				// second Pop no longer evicts the first one from the count.
+				labelVals1: 1, // wl1, inflight
+				labelVals2: 2, // wl3 on heap + wl2 inflight
 			},
 			wantInadmissible: map[[6]string]int{},
 		},
@@ -2455,5 +2457,47 @@ func TestClusterQueuePendingTrackers(t *testing.T) {
 				t.Errorf("Unexpected inadmissible tracker (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// TestPopMidCycleDoesNotConsumeRequeueSignal verifies that a mid-cycle pop
+// (fair sharing refill) does not advance the evaluation epoch: an
+// inadmissible-requeue event that lands after the cycle's head was popped
+// must still send both the head and the mid-cycle popped workload back to
+// the active heap when they are requeued non-immediately.
+func TestPopMidCycleDoesNotConsumeRequeueSignal(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	now := time.Now()
+	cq := newClusterQueueImpl(ctx, nil, nil, defaultOrdering, testingclock.NewFakeClock(now))
+	head := workload.NewInfo(log, utiltestingapi.MakeWorkload("head", defaultNamespace).Creation(now).Obj())
+	next := workload.NewInfo(log, utiltestingapi.MakeWorkload("next", defaultNamespace).Creation(now.Add(time.Second)).Obj())
+	cq.PushOrUpdate(head)
+	cq.PushOrUpdate(next)
+
+	// Cycle start: the head is popped.
+	if got := cq.Pop(); got == nil || got.Obj.Name != "head" {
+		t.Fatalf("Pop() = %v, want head", got)
+	}
+	// A cluster event lands mid-cycle (e.g. capacity was freed). With an
+	// empty inadmissible set this only stamps queueInadmissibleCycle.
+	queueInadmissibleWorkloads(ctx, cq, nil)
+	// Refill pops the next workload mid-cycle; both popped workloads were
+	// evaluated against the snapshot taken before the event.
+	if got := cq.PopMidCycle(); got == nil || got.Obj.Name != "next" {
+		t.Fatalf("PopMidCycle() = %v, want next", got)
+	}
+
+	// Both requeue non-immediately (e.g. NoFit). Because the event arrived
+	// after they were popped, they must return to the active heap instead of
+	// being parked as inadmissible.
+	for _, wl := range []*workload.Info{head, next} {
+		if !cq.RequeueIfNotPresent(ctx, wl, RequeueReasonNoFit, "") {
+			t.Fatalf("RequeueIfNotPresent(%s) returned false", wl.Obj.Name)
+		}
+	}
+	active, _ := cq.Dump()
+	if len(active) != 2 {
+		inadmissible, _ := cq.DumpInadmissible()
+		t.Errorf("expected both workloads back on the active heap, got active %v, inadmissible %v", active, inadmissible)
 	}
 }
