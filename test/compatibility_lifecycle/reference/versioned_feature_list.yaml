@@ -99,9 +99,9 @@
     version: "0.20"
 - name: FairSharingRefill
   versionedSpecs:
-  - default: false
+  - default: true
     lockToDefault: false
-    preRelease: Alpha
+    preRelease: Beta
     version: "0.20"
 - name: FastQuotaReleaseInPodIntegration
   versionedSpecs:
