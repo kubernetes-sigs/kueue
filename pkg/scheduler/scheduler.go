@@ -91,6 +91,7 @@ type Scheduler struct {
 	roleTracker             *roletracker.RoleTracker
 	customLabels            *metrics.CustomLabels
 	resourceFormatter       *resources.ResourceFormatter
+	refillBudget            int
 
 	// schedulingCycle identifies the number of scheduling
 	// attempts since the last restart.
@@ -107,6 +108,7 @@ type options struct {
 	preemptionExpectations      *expectations.Store
 	customLabels                *metrics.CustomLabels
 	resourceFormatter           *resources.ResourceFormatter
+	refillBudget                int
 }
 
 // Option configures the reconciler.
@@ -115,6 +117,7 @@ type Option func(*options)
 var defaultOptions = options{
 	podsReadyRequeuingTimestamp: config.EvictionTimestamp,
 	clock:                       realClock,
+	refillBudget:                defaultRefillBudget,
 }
 
 // WithPodsReadyRequeuingTimestamp sets the timestamp that is used for ordering
@@ -179,6 +182,13 @@ func WithResourceFormatter(formatter *resources.ResourceFormatter) Option {
 	}
 }
 
+// WithRefillBudget sets the per-cycle cap on the workloads refill may pop.
+func WithRefillBudget(budget int) Option {
+	return func(o *options) {
+		o.refillBudget = budget
+	}
+}
+
 func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recorder events.EventRecorder, opts ...Option) *Scheduler {
 	options := defaultOptions
 	for _, opt := range opts {
@@ -215,6 +225,7 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 		roleTracker:             options.roleTracker,
 		customLabels:            options.customLabels,
 		resourceFormatter:       options.resourceFormatter,
+		refillBudget:            options.refillBudget,
 	}
 	return s
 }
@@ -356,8 +367,11 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	phaseStartTime = s.clock.Now()
 	preemptedWorkloads := make(preemption.PreemptedWorkloads)
 	skippedPreemptions := make(map[kueue.ClusterQueueReference]int)
+	refill := s.newRefillPass(iterator, snapshot)
 	for iterator.hasNext() {
-		s.processEntry(ctx, iterator.pop(), snapshot, preemptedWorkloads, skippedPreemptions)
+		e := iterator.pop()
+		s.processEntry(ctx, e, snapshot, preemptedWorkloads, skippedPreemptions)
+		refill.afterEntryProcessed(ctx, e)
 	}
 
 	// 6. Requeue the heads that were not scheduled.
@@ -367,8 +381,16 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			result = metrics.AdmissionResultSuccess
 		}
 	}
+	for _, e := range refill.nominatedEntries() {
+		if s.finishEntry(ctx, log, e) {
+			result = metrics.AdmissionResultSuccess
+		}
+	}
 	for i := range inadmissibleEntries {
 		s.finishEntry(ctx, log, &inadmissibleEntries[i])
+	}
+	for _, e := range refill.inadmissible() {
+		s.finishEntry(ctx, log, e)
 	}
 
 	log.V(2).Info("Workload processing done", "duration", s.clock.Since(phaseStartTime))
@@ -697,11 +719,7 @@ func (s *Scheduler) nominate(ctx context.Context, heads []qcache.Head, snap *sch
 	var inadmissibleEntries []entry
 	for _, h := range heads {
 		log := log.WithValues("workload", klog.KObj(h.Obj), "clusterQueue", klog.KRef("", string(h.ClusterQueue)))
-		if !workload.NeedsSecondPass(h.Obj) && s.cache.IsAdded(h.Info) {
-			log.Info("Workload skipped from admission because it's already accounted in cache, and it does not need second pass", "workload", klog.KObj(h.Obj))
-			// The only exit where the popped workload is neither requeued nor
-			// deleted, so nothing else would release its inflight claim.
-			s.queues.ForgetInflight(h.ClusterQueue, workload.Key(h.Obj))
+		if s.dropIfAlreadyAccounted(log, h) {
 			continue
 		}
 		if e, nominated := s.nominateWorkload(ctx, log, h, snap); nominated {
@@ -711,6 +729,19 @@ func (s *Scheduler) nominate(ctx context.Context, heads []qcache.Head, snap *sch
 		}
 	}
 	return entries, inadmissibleEntries
+}
+
+// dropIfAlreadyAccounted reports whether a popped workload leaves the cycle
+// because the cache already accounts for it. It is the only exit where a popped
+// workload is neither requeued nor deleted, so nothing else would release its
+// inflight claim.
+func (s *Scheduler) dropIfAlreadyAccounted(log logr.Logger, h qcache.Head) bool {
+	if workload.NeedsSecondPass(h.Obj) || !s.cache.IsAdded(h.Info) {
+		return false
+	}
+	log.Info("Workload skipped from admission because it's already accounted in cache, and it does not need second pass", "workload", klog.KObj(h.Obj))
+	s.queues.ForgetInflight(h.ClusterQueue, workload.Key(h.Obj))
+	return true
 }
 
 // nominateWorkload computes the requirements (resource flavors, borrowing,
