@@ -94,8 +94,10 @@ mapping takes effect:
 kubectl rollout restart deployment/kueue-controller-manager -n kueue-system
 ```
 
-Until then the manager keeps using the mapping it loaded at startup, so device
-requests referencing a newly mapped `DeviceClass` are not counted against quota.
+Until then the manager keeps using the mapping it loaded at startup. A Workload
+whose claim references a `DeviceClass` that mapping does not contain is rejected
+rather than admitted uncounted: Kueue unsets its quota reservation and marks it
+inadmissible, with `DeviceClass <name> is not mapped in DRA configuration`.
 {{% /alert %}}
 
 ### 2. Add the DRA resource to your ClusterQueue
