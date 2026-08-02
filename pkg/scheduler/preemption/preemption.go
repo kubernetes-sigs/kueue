@@ -380,9 +380,9 @@ func parseStrategies(fs *config.FairSharing) []fairsharing.Strategy {
 // fsEvaluationLogEntry is the result of evaluating the first
 // FairSharing strategy against a single candidate workload.
 type fsEvaluationLogEntry struct {
-	TargetWorkload string  `json:"targetWorkload"`
-	TargetNewShare float64 `json:"targetNewShare"`
-	StrategyPassed bool    `json:"strategyPassed"`
+	TargetWorkload string `json:"targetWorkload"`
+	TargetNewShare string `json:"targetNewShare"`
+	StrategyPassed bool   `json:"strategyPassed"`
 }
 
 // fsStrategyLog accumulates the first FairSharing strategy's
@@ -423,7 +423,7 @@ func (l *fsStrategyLog) record(candWl *workload.Info, targetNewShare fairsharing
 	}
 	l.entries = append(l.entries, fsEvaluationLogEntry{
 		TargetWorkload: string(workload.Key(candWl.Obj)),
-		TargetNewShare: schdcache.DRS(targetNewShare).PreciseWeightedShare(),
+		TargetNewShare: schdcache.DRS(targetNewShare).PreciseWeightedShareSerialized(),
 		StrategyPassed: passed,
 	})
 }
@@ -436,9 +436,9 @@ func (l *fsStrategyLog) flush() {
 		return
 	}
 	l.logV.Info("Evaluating FairSharing strategy",
-		"preemptorNewShare", schdcache.DRS(l.preemptorNewShare).PreciseWeightedShare(),
+		"preemptorNewShare", schdcache.DRS(l.preemptorNewShare).PreciseWeightedShareSerialized(),
 		"targetClusterQueue", klog.KRef("", string(l.targetCq)),
-		"targetOldShare", schdcache.DRS(l.targetOldShare).PreciseWeightedShare(),
+		"targetOldShare", schdcache.DRS(l.targetOldShare).PreciseWeightedShareSerialized(),
 		"strategyEvaluations", l.entries)
 	l.entries = nil
 }
@@ -529,10 +529,10 @@ func runSecondFsStrategy(retryCandidates []*workload.Info, preemptionCtx *preemp
 		candWl := candCQ.PopWorkload()
 		if logV := preemptionCtx.log.V(4); logV.Enabled() {
 			logV.Info("Evaluating FairSharing strategy",
-				"preemptorNewShare", schdcache.DRS(preemptorNewShare).PreciseWeightedShare(),
+				"preemptorNewShare", schdcache.DRS(preemptorNewShare).PreciseWeightedShareSerialized(),
 				"targetClusterQueue", klog.KRef("", string(candCQ.GetTargetCq().Name)),
 				"targetWorkload", klog.KObj(candWl.Obj),
-				"targetOldShare", schdcache.DRS(targetOldShare).PreciseWeightedShare(),
+				"targetOldShare", schdcache.DRS(targetOldShare).PreciseWeightedShareSerialized(),
 				"strategyPassed", passed)
 		}
 		// Due to API validation, we can only reach here if the second strategy is LessThanInitialShare,

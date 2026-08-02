@@ -242,6 +242,20 @@ func decodeLogEntry(t *testing.T, entry observer.LoggedEntry) map[string]any {
 	return decoded
 }
 
+// assertJSONString asserts that a decoded log field is a JSON string. The DRS
+// fields must be strings for every value, so that their type in a log index
+// does not depend on whether the value happened to be finite.
+func assertJSONString(t *testing.T, fields map[string]any, key string) {
+	t.Helper()
+	value, ok := fields[key]
+	if !ok {
+		t.Fatalf("log entry is missing the %s field: %v", key, fields)
+	}
+	if _, ok := value.(string); !ok {
+		t.Errorf("expected %s to be serialized as a JSON string, got %T (%v)", key, value, value)
+	}
+}
+
 // TestRunFirstFsStrategyLogsOncePerCandidateClusterQueue asserts that the
 // first FairSharing strategy emits one log entry per candidate ClusterQueue,
 // carrying an array of per-candidate evaluations, rather than one entry per
@@ -383,19 +397,110 @@ func TestFsStrategyLogDisabled(t *testing.T) {
 	})
 }
 
-// TestRunSecondFsStrategyLog asserts that runSecondFsStrategy emits under the
-// shared strategy message.
-func TestRunSecondFsStrategyLog(t *testing.T) {
-	log, observed := newObservedLogger(4)
-	fixture := newFsLogFixture(t, log, []fsLogClusterQueue{{name: "b", candidates: 3}})
+// TestRunFirstFsStrategyLogSerializesDRS asserts that every
+// DominantResourceShare logged by runFirstFsStrategy is serialized as a JSON
+// string, whether it is finite or +Inf.
+//
+// A DRS is +Inf when the FairSharing weight is 0. zapcore writes a raw +Inf
+// float64 as the JSON string "+Inf" but writes finite float64s as JSON
+// numbers, so logging DRS as a raw float makes the field's type depend on the
+// value. Inside the strategyEvaluations array it is worse: json.Marshal
+// rejects +Inf outright, and zapcore drops the whole array in favour of an
+// error field. PreciseWeightedShareSerialized fixes both. This applies the fix
+// from #13154 to preemption.go.
+func TestRunFirstFsStrategyLogSerializesDRS(t *testing.T) {
+	zeroWeight := resource.MustParse("0")
+	cases := map[string]struct {
+		fairWeight         *resource.Quantity
+		wantTargetOldShare string
+		wantTargetNewShare string
+	}{
+		// Guards against the type instability: with the default weight every
+		// DRS here is finite, and a raw float64 would be a JSON number.
+		"finite DRS": {
+			fairWeight:         nil,
+			wantTargetOldShare: "1000",
+			wantTargetNewShare: "500",
+		},
+		"infinite DRS": {
+			fairWeight:         &zeroWeight,
+			wantTargetOldShare: "+Inf",
+			wantTargetNewShare: "+Inf",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			log, observed := newObservedLogger(4)
+			// 3 candidates so the target still borrows after one is removed,
+			// which keeps targetNewShare non-zero.
+			fixture := newFsLogFixture(t, log, []fsLogClusterQueue{
+				{name: "b", candidates: 3, fairWeight: tc.fairWeight},
+			})
 
-	runSecondFsStrategy(fixture.candidates, fixture.preemptionCtx, nil)
+			runFirstFsStrategy(fixture.preemptionCtx, fixture.candidates, alwaysFails)
 
-	if got := len(observed.FilterMessage(strategyLogMessage).All()); got == 0 {
-		t.Fatalf("expected at least 1 log entry from runSecondFsStrategy, got 0")
+			entries := observed.FilterMessage(strategyLogMessage).All()
+			if len(entries) != 1 {
+				t.Fatalf("expected exactly 1 log entry, got %d", len(entries))
+			}
+			decoded := decodeLogEntry(t, entries[0])
+
+			for _, key := range drsLogFields {
+				assertJSONString(t, decoded, key)
+			}
+			if got := decoded["targetOldShare"]; got != tc.wantTargetOldShare {
+				t.Errorf("expected targetOldShare to be %q, got %v", tc.wantTargetOldShare, got)
+			}
+
+			evaluations := strategyEvaluations(t, decoded)
+			if len(evaluations) != 3 {
+				t.Fatalf("expected 3 evaluations, got %d", len(evaluations))
+			}
+			for _, evaluation := range evaluations {
+				assertJSONString(t, evaluation, "targetNewShare")
+				if got := evaluation["targetNewShare"]; got != tc.wantTargetNewShare {
+					t.Errorf("expected targetNewShare to be %q, got %v", tc.wantTargetNewShare, got)
+				}
+			}
+		})
 	}
 }
 
+// TestRunSecondFsStrategyLog asserts that runSecondFsStrategy serializes its
+// DominantResourceShare values as JSON strings, for both finite and +Inf DRS.
+func TestRunSecondFsStrategyLog(t *testing.T) {
+	zeroWeight := resource.MustParse("0")
+	cases := map[string]struct {
+		fairWeight         *resource.Quantity
+		wantTargetOldShare string
+	}{
+		"finite DRS":   {fairWeight: nil, wantTargetOldShare: "1000"},
+		"infinite DRS": {fairWeight: &zeroWeight, wantTargetOldShare: "+Inf"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			log, observed := newObservedLogger(4)
+			fixture := newFsLogFixture(t, log, []fsLogClusterQueue{
+				{name: "b", candidates: 3, fairWeight: tc.fairWeight},
+			})
+
+			runSecondFsStrategy(fixture.candidates, fixture.preemptionCtx, nil)
+
+			entries := observed.FilterMessage(strategyLogMessage).All()
+			if len(entries) == 0 {
+				t.Fatalf("expected at least 1 log entry from runSecondFsStrategy, got 0")
+			}
+
+			decoded := decodeLogEntry(t, entries[0])
+			for _, key := range drsLogFields {
+				assertJSONString(t, decoded, key)
+			}
+			if got := decoded["targetOldShare"]; got != tc.wantTargetOldShare {
+				t.Errorf("expected targetOldShare to be %q, got %v", tc.wantTargetOldShare, got)
+			}
+		})
+	}
+}
 
 // firstCandidateClusterQueue returns the first TargetClusterQueue that the
 // target ordering yields for the fixture's candidates.
