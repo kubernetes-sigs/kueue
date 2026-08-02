@@ -3217,3 +3217,152 @@ func TestLQPendingWorkloads_InadmissibleAndDelete(t *testing.T) {
 		t.Errorf("after delete silver: gold/inadmissible = %v, want 1", got)
 	}
 }
+
+// TestForgetInflight verifies that a popped workload whose inflight entry is
+// explicitly forgotten becomes visible to PushOrUpdate again. Without the
+// cleanup, the stale inflight entry would make PushOrUpdate ignore every
+// future update for the workload (the entry is no longer overwritten by a
+// later Pop since inflight became a map).
+func TestForgetInflight(t *testing.T) {
+	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+	lq := utiltestingapi.MakeLocalQueue("foo", "earth").ClusterQueue("cq").Obj()
+	wl := utiltestingapi.MakeWorkload("a", "earth").Queue("foo").Obj()
+	kClient := utiltesting.NewFakeClient(wl, lq, cq)
+	manager := NewManagerForUnitTests(kClient, nil)
+	ctx, _ := utiltesting.ContextWithLog(t)
+	if err := manager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("Failed adding queue: %v", err)
+	}
+	if err := manager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Failed adding clusterQueue: %v", err)
+	}
+
+	popped := manager.PopFrom(ctx, "cq")
+	if popped == nil || workload.Key(popped.Obj) != "earth/a" {
+		t.Fatalf("PopFrom returned %v, want earth/a", popped)
+	}
+
+	cqImpl := manager.getClusterQueue("cq")
+	// PopFrom is a mid-cycle pop and must not start a new evaluation epoch.
+	if cqImpl.popCycle != 0 {
+		t.Errorf("PopFrom advanced popCycle to %d, want 0", cqImpl.popCycle)
+	}
+	cqImpl.PushOrUpdate(workload.NewInfo(wl))
+	if cqImpl.workloads.active.GetByKey("earth/a") != nil {
+		t.Fatal("PushOrUpdate added the workload back while it is inflight")
+	}
+
+	// Unknown ClusterQueue must be a no-op.
+	manager.ForgetInflight("nonexistent-cq", "earth/a")
+
+	manager.ForgetInflight("cq", "earth/a")
+	cqImpl.PushOrUpdate(workload.NewInfo(wl))
+	if cqImpl.workloads.active.GetByKey("earth/a") == nil {
+		t.Fatal("PushOrUpdate did not add the workload back after ForgetInflight")
+	}
+}
+
+// TestRequeueWorkloadWhileInflight covers RequeueWorkload's non-requeue exits
+// for popped (inflight) workloads: the queue-side bookkeeping must be dropped
+// so PushOrUpdate does not ignore future updates for the workload, while
+// records owned by the workload controller are kept when the object still
+// exists.
+func TestRequeueWorkloadWhileInflight(t *testing.T) {
+	setup := func(t *testing.T) (context.Context, client.Client, *Manager, *Head) {
+		t.Helper()
+		wl := utiltestingapi.MakeWorkload("a", "earth").Queue("foo").Obj()
+		cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+		lq := utiltestingapi.MakeLocalQueue("foo", "earth").ClusterQueue("cq").Obj()
+		cq2 := utiltestingapi.MakeClusterQueue("cq2").Obj()
+		lq2 := utiltestingapi.MakeLocalQueue("bar", "earth").ClusterQueue("cq2").Obj()
+		cl := utiltesting.NewFakeClient(wl, lq, cq, lq2, cq2)
+		manager := NewManagerForUnitTests(cl, nil)
+		ctx, _ := utiltesting.ContextWithLog(t)
+		for _, q := range []*kueue.LocalQueue{lq, lq2} {
+			if err := manager.AddLocalQueue(ctx, q); err != nil {
+				t.Fatalf("Failed adding queue: %v", err)
+			}
+		}
+		for _, c := range []*kueue.ClusterQueue{cq, cq2} {
+			if err := manager.AddClusterQueue(ctx, c); err != nil {
+				t.Fatalf("Failed adding clusterQueue: %v", err)
+			}
+		}
+		popped := manager.PopFrom(ctx, "cq")
+		if popped == nil || workload.Key(popped.Obj) != "earth/a" {
+			t.Fatalf("PopFrom returned %v, want earth/a", popped)
+		}
+		return ctx, cl, manager, popped
+	}
+
+	t.Run("deleted while inflight", func(t *testing.T) {
+		ctx, cl, manager, popped := setup(t)
+		if err := cl.Delete(ctx, popped.Obj); err != nil {
+			t.Fatalf("Failed deleting workload: %v", err)
+		}
+		if manager.RequeueWorkload(ctx, &popped.Info, RequeueReasonGeneric, "") {
+			t.Error("RequeueWorkload requeued a deleted workload")
+		}
+		if got := len(manager.getClusterQueue("cq").workloads.inflight); got != 0 {
+			t.Errorf("inflight entries left after requeue of deleted workload: %d", got)
+		}
+		if _, ok := manager.workloadAssignedQueues["earth/a"]; ok {
+			t.Error("queue assignment kept for a deleted workload")
+		}
+	})
+
+	t.Run("finished while inflight", func(t *testing.T) {
+		ctx, cl, manager, popped := setup(t)
+		var w kueue.Workload
+		if err := cl.Get(ctx, client.ObjectKeyFromObject(popped.Obj), &w); err != nil {
+			t.Fatalf("Failed getting workload: %v", err)
+		}
+		w.Status.Conditions = append(w.Status.Conditions, metav1.Condition{
+			Type:               kueue.WorkloadFinished,
+			Status:             metav1.ConditionTrue,
+			Reason:             "JobFinished",
+			Message:            "by test",
+			LastTransitionTime: metav1.NewTime(time.Now()),
+		})
+		if err := cl.Status().Update(ctx, &w); err != nil {
+			t.Fatalf("Failed updating workload status: %v", err)
+		}
+		if manager.RequeueWorkload(ctx, &popped.Info, RequeueReasonGeneric, "") {
+			t.Error("RequeueWorkload requeued a finished workload")
+		}
+		if got := len(manager.getClusterQueue("cq").workloads.inflight); got != 0 {
+			t.Errorf("inflight entries left after requeue of finished workload: %d", got)
+		}
+		// The object still exists: the workload controller owns the queue
+		// assignment record and forgets it only on deletion.
+		if _, ok := manager.workloadAssignedQueues["earth/a"]; !ok {
+			t.Error("queue assignment dropped for a workload that still exists")
+		}
+	})
+
+	t.Run("queue moved while inflight", func(t *testing.T) {
+		ctx, cl, manager, popped := setup(t)
+		var w kueue.Workload
+		if err := cl.Get(ctx, client.ObjectKeyFromObject(popped.Obj), &w); err != nil {
+			t.Fatalf("Failed getting workload: %v", err)
+		}
+		w.Spec.QueueName = "bar"
+		if err := cl.Update(ctx, &w); err != nil {
+			t.Fatalf("Failed updating workload: %v", err)
+		}
+		if !manager.RequeueWorkload(ctx, &popped.Info, RequeueReasonGeneric, "") {
+			t.Error("RequeueWorkload did not requeue the workload into its new queue")
+		}
+		if got := len(manager.getClusterQueue("cq").workloads.inflight); got != 0 {
+			t.Errorf("inflight entries left in the old ClusterQueue: %d", got)
+		}
+		// A generic requeue is non-immediate, so the workload lands in the new
+		// ClusterQueue's inadmissible set until a cluster event revives it.
+		if !manager.getClusterQueue("cq2").workloads.inadmissible.hasKey("earth/a") {
+			t.Error("workload not present in the new ClusterQueue")
+		}
+		if got := manager.workloadAssignedQueues["earth/a"]; got != "earth/bar" {
+			t.Errorf("queue assignment = %q, want %q", got, "earth/bar")
+		}
+	})
+}
