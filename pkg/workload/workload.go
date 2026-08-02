@@ -1577,14 +1577,12 @@ func UnadmittedWorkloadReasonWithFallback(granularReason, fallback string) strin
 }
 
 // IsResizeElastic returns true if the ElasticJobsViaWorkloadResize feature gate is enabled
-// and the given Workload is marked as elastic. In this mode the runtime component scales the
-// Workload in place by mutating spec.podSets[].count, and Kueue admits the delta on the same
-// Workload.
-func IsResizeElastic(wl *kueue.Workload) bool {
-	if wl == nil {
+// and the given object is marked as elastic.
+func IsResizeElastic(obj metav1.Object) bool {
+	if obj == nil {
 		return false
 	}
-	return features.Enabled(features.ElasticJobsViaWorkloadResize) && wl.GetAnnotations()[constants.ElasticJobAnnotation] == "true"
+	return features.Enabled(features.ElasticJobsViaWorkloadResize) && obj.GetAnnotations()[constants.ElasticJobAnnotation] == "true"
 }
 
 // IsResizeScaleUp returns true for an admitted resize-elastic Workload whose desired spec count

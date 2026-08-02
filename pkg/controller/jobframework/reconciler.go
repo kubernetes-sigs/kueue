@@ -1262,11 +1262,6 @@ func expectedRunningPodSets(ctx context.Context, c client.Client, wl *kueue.Work
 	return runningPodSets
 }
 
-func resizeElasticEnabled(obj metav1.Object) bool {
-	return features.Enabled(features.ElasticJobsViaWorkloadResize) &&
-		obj.GetAnnotations()[workloadslicing.EnabledAnnotationKey] == workloadslicing.EnabledAnnotationValue
-}
-
 // EquivalentToWorkload checks if the job corresponds to the workload
 func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, wl *kueue.Workload) (bool, error) {
 	owner := metav1.GetControllerOf(wl)
@@ -1295,7 +1290,7 @@ func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 	}
 	// For resize-elastic jobs the driver owns the PodSet counts in place; ignore count-only
 	// divergence so the reconciler does not delete/recreate (or Finish) the resized Workload.
-	if resizeElasticEnabled(job.Object()) {
+	if workload.IsResizeElastic(job.Object()) {
 		opts = append(opts, equality.WithIgnoreCounts())
 	}
 
@@ -1562,7 +1557,7 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 
 	wl.Spec.PodSets = clearMinCountsIfFeatureDisabled(wl.Spec.PodSets)
 
-	if resizeElasticEnabled(job.Object()) {
+	if workload.IsResizeElastic(job.Object()) {
 		metav1.SetMetaDataAnnotation(&wl.ObjectMeta, workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue)
 	}
 

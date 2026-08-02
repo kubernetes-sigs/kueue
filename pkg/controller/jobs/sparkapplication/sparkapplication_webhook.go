@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -112,9 +113,7 @@ func (w *SparkApplicationWebhook) ValidateCreate(ctx context.Context, obj *spark
 // (ElasticJobsViaWorkloadSlices or ElasticJobsViaWorkloadResize). Both reuse the same
 // `elastic-job` annotation and are mutually exclusive at startup.
 func isAnElasticJob(sparkApp *sparkv1beta2.SparkApplication) bool {
-	return workloadslicing.Enabled(sparkApp) ||
-		(features.Enabled(features.ElasticJobsViaWorkloadResize) &&
-			sparkApp.GetAnnotations()[workloadslicing.EnabledAnnotationKey] == workloadslicing.EnabledAnnotationValue)
+	return workloadslicing.Enabled(sparkApp) || workload.IsResizeElastic(sparkApp)
 }
 
 func (w *SparkApplicationWebhook) validateCreate(ctx context.Context, job *sparkv1beta2.SparkApplication) (field.ErrorList, error) {
