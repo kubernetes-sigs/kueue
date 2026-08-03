@@ -1182,8 +1182,10 @@ func LQRefFromWorkload(wl *kueue.Workload) LocalQueueReference {
 	}
 }
 
-func ClearPendingWorkloads(cqName kueue.ClusterQueueReference) {
-	PendingWorkloads.DeletePartialMatch(prometheus.Labels{"cluster_queue": string(cqName)})
+func ClearPendingWorkloads(cqName kueue.ClusterQueueReference, pendingStatus string, customLabelVals []string, tracker *roletracker.RoleTracker) {
+	role := roletracker.GetRole(tracker)
+	labels := append([]string{string(cqName), pendingStatus, role}, customLabelVals...)
+	PendingWorkloads.DeleteLabelValues(labels...)
 }
 
 func ClearClusterQueueMetrics(cq kueue.ClusterQueueReference) {

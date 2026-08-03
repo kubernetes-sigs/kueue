@@ -19,7 +19,6 @@ package queue
 import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/queue"
 	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
@@ -45,6 +44,8 @@ func reportPendingWorkloads(m *Manager, cqRef kueue.ClusterQueueReference) {
 	}
 }
 
+type pendingCounts struct{ Active, Inadmissible int }
+
 func reportCQPendingWorkloads(m *Manager, cq *ClusterQueue) {
 	active, inadmissible := cq.Pending()
 	if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(cq.name) {
@@ -53,17 +54,24 @@ func reportCQPendingWorkloads(m *Manager, cq *ClusterQueue) {
 	}
 	cqCustomLabels := m.customLabels.CQGet(cq.name)
 
-	if features.Enabled(features.CustomMetricLabels) && m.customLabels.KindConfigured(configapi.SourceKindWorkload) {
-		// Clear the metric to remove series with stale workload label value combinations
-		metrics.ClearPendingWorkloads(cq.name)
+	if m.customLabels.KindConfigured(configapi.SourceKindWorkload) {
+		// Clear zero count label sets.
+		for _, labelSet := range active.PopZeroCounts() {
+			metrics.ClearPendingWorkloads(cq.name, metrics.PendingStatusActive, labelSet.OrderedList(), m.roleTracker)
+		}
+		for _, labelSet := range inadmissible.PopZeroCounts() {
+			metrics.ClearPendingWorkloads(cq.name, metrics.PendingStatusInadmissible, labelSet.OrderedList(), m.roleTracker)
+		}
 
 		// Report data for every recorded unique workload label values combination.
-		for wlLabelVals, counts := range metrics.ParallelIter(active, inadmissible) {
+		for wlLabelVals, counts := range metrics.ParallelIter(active, inadmissible, func(a, i int) pendingCounts {
+			return pendingCounts{Active: a, Inadmissible: i}
+		}) {
 			customLabels := m.customLabels.CombineLabelValues(map[configapi.SourceKind][]string{
 				configapi.SourceKindClusterQueue: cqCustomLabels,
 				configapi.SourceKindWorkload:     wlLabelVals.OrderedList(),
 			})
-			metrics.ReportPendingWorkloads(cq.name, counts.First, counts.Second, customLabels, m.roleTracker)
+			metrics.ReportPendingWorkloads(cq.name, counts.Active, counts.Inadmissible, customLabels, m.roleTracker)
 		}
 	} else {
 		metrics.ReportPendingWorkloads(cq.name, active.Total(), inadmissible.Total(), cqCustomLabels, m.roleTracker)

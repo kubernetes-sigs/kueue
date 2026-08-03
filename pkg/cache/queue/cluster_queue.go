@@ -808,7 +808,7 @@ func (c *ClusterQueue) pendingInadmissible() *metrics.LabelValsTracker {
 }
 
 func (c *ClusterQueue) breakDownByWorkloadLabels() bool {
-	return features.Enabled(features.CustomMetricLabels) && c.customLabels != nil && c.customLabels.KindConfigured(configapi.SourceKindWorkload)
+	return c.customLabels.KindConfigured(configapi.SourceKindWorkload)
 }
 
 // PendingInLocalQueue returns the number of active and inadmissible pending workloads in LocalQueue.

@@ -329,27 +329,31 @@ func Copy(t *LabelValsTracker) *LabelValsTracker {
 	return NewLabelValsTracker().merge(t)
 }
 
-type pair struct {
-	First  int
-	Second int
-}
-
 // ParallelIter returns an iterator over both provided trackers.
 // It iterates over a union of keys from both trackers.
-// For each key it yields a pair of values from both trackers,
-// each corresponding to one tracker, ordered as passed in params.
-// If a key is missing in one of the trackers, the iterator yields 0 for the corresponding value.
-func ParallelIter(first, second *LabelValsTracker) iter.Seq2[labelValsSet, pair] {
+// For each key it yields a result build via the porvided collect function.
+func ParallelIter[S any](first, second *LabelValsTracker, collect func(first int, second int) S) iter.Seq2[labelValsSet, S] {
 	allValSets := sets.New[labelValsSet]()
 	allValSets = allValSets.Union(sets.KeySet(first.counts))
 	allValSets = allValSets.Union(sets.KeySet(second.counts))
-	return func(yield func(labelValsSet, pair) bool) {
+	return func(yield func(labelValsSet, S) bool) {
 		for ls := range allValSets {
-			if !yield(ls, pair{First: first.Get(ls), Second: second.Get(ls)}) {
+			if !yield(ls, collect(first.Get(ls), second.Get(ls))) {
 				return
 			}
 		}
 	}
+}
+
+func (c *LabelValsTracker) PopZeroCounts() []labelValsSet {
+	lvs := []labelValsSet{}
+	for lv, count := range c.counts {
+		if count == 0 {
+			delete(c.counts, lv)
+			lvs = append(lvs, lv)
+		}
+	}
+	return lvs
 }
 
 func (c *LabelValsTracker) Incr(ls labelValsSet) {
@@ -362,10 +366,9 @@ func (c *LabelValsTracker) Decr(ls labelValsSet) {
 
 func (c *LabelValsTracker) Add(ls labelValsSet, incr int) {
 	c.counts[ls] += incr
+	c.counts[ls] = max(0, c.counts[ls])
 	c.total += incr
-	if c.counts[ls] <= 0 {
-		delete(c.counts, ls)
-	}
+	c.total = max(0, c.total)
 }
 
 func (c *LabelValsTracker) Get(ls labelValsSet) int {

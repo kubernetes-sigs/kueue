@@ -437,6 +437,11 @@ func TestCustomLabelsDisabled(t *testing.T) {
 	nilCl.CohortDelete(kueue.CohortReference("cohort"))
 }
 
+type pair struct {
+	First  int
+	Second int
+}
+
 func TestLabelValueSetCounter(t *testing.T) {
 	k1 := labelValsSet{
 		vals: [MaxCustomLabelsForSourceKind]string{"v1", "v2"},
@@ -516,7 +521,9 @@ func TestLabelValueSetCounter(t *testing.T) {
 	}
 
 	// 5. Test ParallelIter
-	iterResult := maps.Collect(ParallelIter(a, b))
+	iterResult := maps.Collect(ParallelIter(a, b, func(f, s int) pair {
+		return pair{First: f, Second: s}
+	}))
 	wantIterResult := map[labelValsSet]pair{
 		k1: {1, 0},
 		k2: {0, 1},
