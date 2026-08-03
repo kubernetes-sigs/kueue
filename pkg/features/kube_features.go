@@ -234,12 +234,6 @@ const (
 	// Enables reclaimable pods counting towards quota.
 	ReclaimablePods featuregate.Feature = "ReclaimablePods"
 
-	// owner: @yaroslva-serdiuk
-	//
-	// issue: https://github.com/kubernetes-sigs/kueue/issues/7597
-	// Do not remove job-name label from Workload PodTemplate object.
-	PropagateBatchJobLabelsToWorkload featuregate.Feature = "PropagateBatchJobLabelsToWorkload"
-
 	// owner: @hdp617
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/693-multikueue
 	//
@@ -513,6 +507,13 @@ const (
 	//
 	// Rejects Workloads with non-positive TAS slice sizes in PodSet topology requests.
 	TASValidateWorkloadSliceSize featuregate.Feature = "TASValidateWorkloadSliceSize"
+
+	// owner: @Dasmat13
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/12775
+	//
+	// WorkloadValidationForPodSetMetadata enables validation of labels and annotations
+	// in PodSet template metadata during Workload creation and update.
+	WorkloadValidationForPodSetMetadata featuregate.Feature = "WorkloadValidationForPodSetMetadata"
 )
 
 func init() {
@@ -638,10 +639,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	ReclaimablePods: {
-		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
-	},
-	// PropagateBatchJobLabelsToWorkload is enabled from 0.13.10 and 0.14.5.
-	PropagateBatchJobLabelsToWorkload: {
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
 	},
 	MultiKueueClusterProfile: {
@@ -788,6 +785,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	TASValidateWorkloadSliceSize: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.21
+	},
+
+	WorkloadValidationForPodSetMetadata: {
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 

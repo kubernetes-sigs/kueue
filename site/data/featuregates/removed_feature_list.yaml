@@ -208,19 +208,13 @@
   stage: Deprecated
   from: "0.17"
   to: "0.19"
-- name: PropagateBatchJobLabelsToWorkload
-  versionedSpecs:
-  - default: true
-    lockToDefault: true
-    preRelease: GA
-    version: "0.17"
-- feature: MultiKueueWaitForWorkloadAdmitted
+- feature: PropagateBatchJobLabelsToWorkload
   default: true
   stage: Beta
-  from: "0.16"
-  to: "0.17"
-- feature: MultiKueueWaitForWorkloadAdmitted
+  from: "0.15"
+  to: "0.16"
+- feature: PropagateBatchJobLabelsToWorkload
   default: true
   stage: GA
-  from: "0.18"
+  from: "0.17"
   to: "0.20"
