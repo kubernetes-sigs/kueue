@@ -281,12 +281,6 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.6"
-- name: PropagateBatchJobLabelsToWorkload
-  versionedSpecs:
-  - default: false
-    lockToDefault: false
-    preRelease: Deprecated
-    version: "0.19"
 - name: QuotaCheckStrategy
   versionedSpecs:
   - default: false
