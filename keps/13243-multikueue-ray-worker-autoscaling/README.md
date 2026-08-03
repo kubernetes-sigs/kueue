@@ -326,9 +326,8 @@ Beta (tentative):
 
 - Adds a second sync direction to the Ray adapter, increasing the surface area of
   MultiKueue's elastic handling and the number of interleavings to reason about.
-- Retaining `enableInTreeAutoscaling` on the remote copy makes the worker a
-  source of truth for replica counts, which must be carefully bounded to the
-  manager-declared range to keep the manager as the quota authority.
+- Retaining `enableInTreeAutoscaling` on the remote copy makes the worker, rather
+  than the manager, the source of truth for the worker replica count.
 
 ## Alternatives
 
