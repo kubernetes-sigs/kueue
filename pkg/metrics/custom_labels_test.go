@@ -449,104 +449,156 @@ func TestLabelValsTracker(t *testing.T) {
 		vals: [MaxCustomLabelsForSourceKind]string{"v5"},
 		size: 1,
 	}
+	cases := map[string]struct {
+		op             func(*LabelValsTracker)
+		expectedCounts map[labelValsSet]int
+		expectedTotal  int
+	}{
+		"empty tracker": {
+			op:             func(t *LabelValsTracker) {},
+			expectedCounts: map[labelValsSet]int{},
+			expectedTotal:  0,
+		},
+		"increment": {
+			op: func(t *LabelValsTracker) {
+				for i := 0; i < 5; i++ {
+					t.Incr(k1)
+				}
+				t.Incr(k2)
+			},
+			expectedCounts: map[labelValsSet]int{
+				k1: 5,
+				k2: 1,
+			},
+			expectedTotal: 6,
+		},
+		"decrement": {
+			op: func(t *LabelValsTracker) {
+				t.Add(k1, 10)
+				for i := 0; i < 5; i++ {
+					t.Decr(k1)
+				}
+			},
+			expectedCounts: map[labelValsSet]int{
+				k1: 5,
+			},
+		},
+		"decrement to 0": {
+			op: func(t *LabelValsTracker) {
+				t.Add(k1, 2)
+				for i := 0; i < 5; i++ {
+					t.Decr(k1)
+				}
+			},
+			expectedCounts: map[labelValsSet]int{
+				k1: 0,
+			},
+			expectedTotal: 0,
+		},
+		"trying to decrement 0 does not affect total": {
+			op: func(t *LabelValsTracker) {
+				t.Add(k1, 2)
+				t.Add(k2, 5)
+				for i := 0; i < 5; i++ {
+					t.Decr(k1)
+				}
+			},
+			expectedCounts: map[labelValsSet]int{
+				k1: 0,
+				k2: 5,
+			},
+			expectedTotal: 5,
+		},
+		"add new": {
+			op: func(t *LabelValsTracker) {
+				t.Add(k1, 2)
+				t.Add(k2, 5)
+			},
+			expectedCounts: map[labelValsSet]int{
+				k1: 2,
+				k2: 5,
+			},
+			expectedTotal: 7,
+		},
+		"add to existing": {
+			op: func(t *LabelValsTracker) {
+				t.Add(k1, 2)
+				t.Add(k1, 5)
+			},
+			expectedCounts: map[labelValsSet]int{
+				k1: 7,
+			},
+			expectedTotal: 7,
+		},
+		"add negative": {
+			op: func(t *LabelValsTracker) {
+				t.Add(k1, 5)
+				t.Add(k1, -2)
+			},
+			expectedCounts: map[labelValsSet]int{
+				k1: 3,
+			},
+			expectedTotal: 3,
+		},
+		"add negative beyond 0": {
+			op: func(t *LabelValsTracker) {
+				t.Add(k1, 5)
+				t.Add(k1, -10)
+			},
+			expectedCounts: map[labelValsSet]int{
+				k1: 0,
+			},
+			expectedTotal: 0,
+		},
+		"add negative beyond 0 does not affect total": {
+			op: func(t *LabelValsTracker) {
+				t.Add(k1, 5)
+				t.Add(k2, 7)
+				t.Add(k2, -10)
+			},
+			expectedCounts: map[labelValsSet]int{
+				k1: 5,
+				k2: 0,
+			},
+			expectedTotal: 5,
+		},
+		"merge": {
+			op: func(t *LabelValsTracker) {
+				t.Add(k1, 2)
+				t.Add(k2, 7)
+				other := NewLabelValsTracker()
+				other.Add(k2, 5)
+				other.Add(k3, 10)
+				*t = *MergedTracker(t, other)
+			},
+			expectedCounts: map[labelValsSet]int{
+				k1: 2,
+				k2: 12,
+				k3: 10,
+			},
+			expectedTotal: 24,
+		},
+		"merge nil": {
+			op: func(t *LabelValsTracker) {
+				t.Add(k1, 2)
+				t.Add(k2, 7)
+				*t = *MergedTracker(t, nil)
+			},
+			expectedCounts: map[labelValsSet]int{
+				k1: 2,
+				k2: 7,
+			},
+			expectedTotal: 14,
+		},
+	}
 
-	// 1. Test NewLabelValsTracker and Empty
-	c1 := NewLabelValsTracker()
-	if c1.Total() != 0 {
-		t.Errorf("expected empty counter total to be 0, got %d", c1.Total())
-	}
-	if got := c1.get(k1); got != 0 {
-		t.Errorf("expected empty counter Get to return 0, got %d", got)
-	}
-
-	// 2. Test count manipulation operations
-	c1.Incr(k1)
-	c1.Incr(k1)
-	c1.Incr(k1)
-	if c1.get(k1) != 3 {
-		t.Errorf("expected triple increment to result in 3, got %d", c1.get(k1))
-	}
-	if c1.Total() != 3 {
-		t.Errorf("expected total to be 3, got %d", c1.Total())
-	}
-
-	c1.Decr(k1)
-	c1.Decr(k1)
-	if c1.get(k1) != 1 {
-		t.Errorf("expected value to go form 3 to 1, got %d", c1.get(k2))
-	}
-
-	c1.Decr(k1)
-	c1.Decr(k1)
-	if c1.get(k1) != 0 {
-		t.Errorf("expected value not to decrement to 0 and persist, got %d", c1.get(k2))
-	}
-
-	c1.Add(k1, 1)
-	c1.Add(k2, 5)
-	if c1.get(k2) != 5 {
-		t.Errorf("expected 5 to be added, got %d", c1.get(k2))
-	}
-	if c1.Total() != 6 {
-		t.Errorf("expected total to be 6, got %d", c1.Total())
-	}
-
-	c1.Add(k2, 3)
-	if c1.get(k2) != 8 {
-		t.Errorf("expected 3 to be added reuslting in 8, got %d", c1.get(k2))
-	}
-	c1.Add(k2, -4)
-	if c1.get(k2) != 4 {
-		t.Errorf("expected 4 to be subtracted reuslting in 4, got %d", c1.get(k2))
-	}
-	if c1.Total() != 5 {
-		t.Errorf("expected total to be 5, got %d", c1.Total())
-	}
-
-	c1.Add(k2, -5)
-	if c1.get(k2) != 0 {
-		t.Errorf("expected subtracting over count to go to 0, got %d", c1.get(k2))
-	}
-	if c1.Total() != 1 {
-		t.Errorf("expected total to be 1, got %d", c1.Total())
-	}
-
-	// 3. Test merge
-	c2 := NewLabelValsTracker()
-	c2.Add(k1, 1)
-	c2.Add(k2, 2)
-	c2.Add(k3, 3)
-
-	c1.merge(c2)
-	if c1.Total() != 7 {
-		t.Errorf("expected total after merge to be 7, got %d", c1.Total())
-	}
-	if got := c1.get(k1); got != 2 {
-		t.Errorf("expected Get(k1) to be 2, got %d", got)
-	}
-	if got := c1.get(k2); got != 2 {
-		t.Errorf("expected Get(k2) to be 2, got %d", got)
-	}
-	if got := c1.get(k3); got != 3 {
-		t.Errorf("expected Get(k3) to be 3, got %d", got)
-	}
-
-	// Test merge nil
-	c1.merge(nil)
-	if c1.Total() != 7 {
-		t.Errorf("expected total after merge(nil) to remain 7, got %d", c1.Total())
-	}
-
-	// 4. Test MergedTracker
-	a := NewLabelValsTracker()
-	a.Incr(k1)
-	b := NewLabelValsTracker()
-	b.Incr(k2)
-	combined := MergedTracker(a, b)
-	if combined.Total() != 2 {
-		t.Errorf("expected combined total to be 2, got %d", combined.Total())
-	}
-	if combined.get(k1) != 1 || combined.get(k2) != 1 {
-		t.Errorf("expected combined to have k1 and k2, got k1=%d, k2=%d", combined.get(k1), combined.get(k2))
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			lvt := NewLabelValsTracker()
+			tc.op(lvt)
+			if diff := cmp.Diff(tc.expectedCounts, lvt.counts); diff != "" {
+				t.Errorf("unexpected counts: %s", diff)
+			}
+		})
 	}
 }
