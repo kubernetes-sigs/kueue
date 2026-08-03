@@ -78,7 +78,8 @@ remains the quota authority.
 
 - Let the Ray Autoscaler resize a MultiKueue-dispatched elastic
   `RayCluster` or `RayJob` on the worker cluster, and reflect that resize back
-  onto the manager object.
+  onto the manager object — and extend the same mechanism to `RayService` once its
+  zero-downtime / incremental upgrade support is complete.
 - Keep the manager as the single quota authority: worker-originated resizes flow
   through the manager's workload-slicing admission (quota re-reservation), never
   bypass it.
