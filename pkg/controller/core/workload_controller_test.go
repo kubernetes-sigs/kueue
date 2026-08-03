@@ -39,6 +39,7 @@ import (
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -2119,6 +2120,18 @@ func TestReconcileSyncAdmissionChecks(t *testing.T) {
 func setupClusterQueue(ctx context.Context, t *testing.T, cl client.Client, qManager *qcache.Manager, cqCache *schdcache.Cache, cq *kueue.ClusterQueue, shouldDelete bool) {
 	t.Helper()
 	testCq := cq.DeepCopy()
+	if apimeta.IsStatusConditionTrue(testCq.Status.Conditions, kueue.ClusterQueueActive) && len(testCq.Spec.ResourceGroups) == 0 {
+		const flavorName = "default"
+		testCq.Spec.ResourceGroups = []kueue.ResourceGroup{{
+			Flavors: []kueue.FlavorQuotas{{
+				Name: flavorName,
+				Resources: []kueue.ResourceQuota{{
+					Name: corev1.ResourceCPU,
+				}},
+			}},
+		}}
+		cqCache.AddOrUpdateResourceFlavor(ctrl.LoggerFrom(ctx), utiltestingapi.MakeResourceFlavor(flavorName).Obj())
+	}
 	// DeletionTimestamp cannot be directly set during creation. We simulate it by deleting the object with a finalizer.
 	if shouldDelete && len(testCq.Finalizers) == 0 {
 		testCq.Finalizers = []string{"testing-finalizer"}

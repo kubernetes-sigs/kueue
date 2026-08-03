@@ -279,7 +279,7 @@ type ResourceGroup struct {
 	// +listMapKey=name
 	// +kubebuilder:validation:MinItems=0
 	// +kubebuilder:validation:MaxItems=64
-	Flavors []FlavorQuotas `json:"flavors,omitempty"`
+	Flavors []FlavorQuotas `json:"flavors"`
 }
 
 type FlavorQuotas struct {

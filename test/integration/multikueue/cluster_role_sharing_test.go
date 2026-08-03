@@ -135,14 +135,14 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 			util.CreateLocalQueuesAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, managerMkLq)
 
 			worker1MkCq = utiltestingapi.MakeClusterQueue("q1").Obj()
-			util.CreateClusterQueuesAndWaitForActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1MkCq)
+			util.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, worker1MkCq)
 			worker1MkLq = utiltestingapi.MakeLocalQueue(worker1MkCq.Name, worker1Ns.Name).ClusterQueue(worker1MkCq.Name).Obj()
-			util.CreateLocalQueuesAndWaitForActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1MkLq)
+			util.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, worker1MkLq)
 
 			worker2MkCq = utiltestingapi.MakeClusterQueue("q1").Obj()
-			util.CreateClusterQueuesAndWaitForActive(worker2TestCluster.ctx, worker2TestCluster.client, worker2MkCq)
+			util.MustCreate(worker2TestCluster.ctx, worker2TestCluster.client, worker2MkCq)
 			worker2MkLq = utiltestingapi.MakeLocalQueue(worker2MkCq.Name, worker2Ns.Name).ClusterQueue(worker2MkCq.Name).Obj()
-			util.CreateLocalQueuesAndWaitForActive(worker2TestCluster.ctx, worker2TestCluster.client, worker2MkLq)
+			util.MustCreate(worker2TestCluster.ctx, worker2TestCluster.client, worker2MkLq)
 		})
 
 		// Regular Kueue setup
@@ -167,15 +167,18 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 				util.ExpectAdmissionChecksToBeActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1AC)
 			})
 
-			managerCq = utiltestingapi.MakeClusterQueue("q2").Obj()
+			managerCq = utiltestingapi.MakeClusterQueue("q2").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(managerMkFlavor.Name).
+					Resource(corev1.ResourceCPU, "0").Obj()).
+				Obj()
 			util.CreateClusterQueuesAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, managerCq)
 			managerLq = utiltestingapi.MakeLocalQueue(managerCq.Name, managerNs.Name).ClusterQueue(managerCq.Name).Obj()
 			util.CreateLocalQueuesAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, managerLq)
 
 			worker1Cq = utiltestingapi.MakeClusterQueue("q2").Obj()
-			util.CreateClusterQueuesAndWaitForActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1Cq)
+			util.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, worker1Cq)
 			worker1Lq = utiltestingapi.MakeLocalQueue(worker1Cq.Name, worker1Ns.Name).ClusterQueue(worker1Cq.Name).Obj()
-			util.CreateLocalQueuesAndWaitForActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1Lq)
+			util.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, worker1Lq)
 		})
 	})
 
