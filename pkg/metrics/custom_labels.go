@@ -366,10 +366,6 @@ func (c *LabelValsTracker) Iter() iter.Seq2[labelValsSet, int] {
 	}
 }
 
-func (c *LabelValsTracker) get(ls labelValsSet) int {
-	return c.counts[ls]
-}
-
 func (c *LabelValsTracker) Total() int {
 	return c.total
 }
