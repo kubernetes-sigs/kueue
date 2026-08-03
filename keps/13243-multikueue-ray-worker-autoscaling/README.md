@@ -153,10 +153,9 @@ temporarily.
 
 The shared Ray adapter gains a single reverse-sync hook, `Runtime{Fetch, Apply}`,
 guarded by an `AutoscalingEnabled` predicate that turns the reverse direction on
-only when the object runs the worker autoscaler. Wiring is validated when the
-adapter is built: if `AutoscalingEnabled` is set, `Runtime` (with both `Fetch` and
-`Apply`) is required. Both RayCluster and RayJob use the same hook — the reflection
-is **annotation-based for both**, leaving the manager spec untouched.
+only when the object runs the worker autoscaler. Both RayCluster and RayJob use
+the same hook — the reflection is **annotation-based for both**, leaving the
+manager spec untouched.
 
 ```go
 type RuntimeReplicaSync[PtrT any] struct {
