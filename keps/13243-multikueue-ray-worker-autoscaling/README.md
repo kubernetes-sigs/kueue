@@ -70,7 +70,7 @@ remains the quota authority.
 
 ### Goals
 
-- Let the Ray in-tree autoscaler resize a MultiKueue-dispatched elastic
+- Let the Ray Autoscaler resize a MultiKueue-dispatched elastic
   `RayCluster` or `RayJob` on the worker cluster, and reflect that resize back
   onto the manager object.
 - Keep the manager as the single quota authority: worker-originated resizes flow
@@ -343,7 +343,7 @@ Beta (tentative):
 ## Alternatives
 
 - **Manager-driven only (status quo).** Simple and already shipped, but blocks
-  every use case that needs the worker's in-tree autoscaler.
+  every use case that needs the worker's Ray Autoscaler.
 - **Reject `enableInTreeAutoscaling` for MultiKueue elastic Ray objects.**
   [#13244](https://github.com/kubernetes-sigs/kueue/pull/13244) takes this stance
   as an interim guard until this support exists; it prevents silent misbehavior
