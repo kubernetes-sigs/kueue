@@ -270,11 +270,12 @@ func GetWorkloadNameExtraPart(obj metav1.Object) string {
 
 ### Worker-side resize tolerance
 
-During a resize handover, the job's observed count on the worker can transiently
-differ from the admitted slice's count. Without tolerance, that mismatch finishes
-the workload `OutOfSync` and tears the job down. This KEP adds a resize tolerance
-in the jobframework, scoped to MultiKueue-dispatched copies via the origin label,
-so a transient mismatch during handover is not treated as divergence:
+During a resize handover, the job's observed count **on the worker cluster** can
+transiently differ from its admitted slice's count. Without tolerance, the **worker
+cluster's** Kueue would finish that workload `OutOfSync` and tear the job down.
+This KEP adds a resize tolerance in the jobframework that applies **on the worker
+cluster** — scoped to the MultiKueue-dispatched copy via the origin label — so a
+transient mismatch during handover is not treated as divergence:
 
 - On scale-up, extra pods stay behind scheduling gates and are never admitted
   past quota.
