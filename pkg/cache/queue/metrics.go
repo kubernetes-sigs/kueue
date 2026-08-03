@@ -44,8 +44,6 @@ func reportPendingWorkloads(m *Manager, cqRef kueue.ClusterQueueReference) {
 	}
 }
 
-type pendingCounts struct{ Active, Inadmissible int }
-
 func reportCQPendingWorkloads(m *Manager, cq *ClusterQueue) {
 	active, inadmissible := cq.PendingBreakdown()
 	if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(cq.name) {
