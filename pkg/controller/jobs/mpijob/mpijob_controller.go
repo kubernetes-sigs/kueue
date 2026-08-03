@@ -230,10 +230,10 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 
 func orderedReplicaTypes(jobSpec *kfmpi.MPIJobSpec) []kfmpi.MPIReplicaType {
 	var result []kfmpi.MPIReplicaType
-	if _, ok := jobSpec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher]; ok {
+	if spec, ok := jobSpec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher]; ok && spec != nil {
 		result = append(result, kfmpi.MPIReplicaTypeLauncher)
 	}
-	if _, ok := jobSpec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker]; ok {
+	if spec, ok := jobSpec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker]; ok && spec != nil {
 		result = append(result, kfmpi.MPIReplicaTypeWorker)
 	}
 	return result
