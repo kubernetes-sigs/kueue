@@ -41,7 +41,7 @@ const (
 	// VeryLongTimeout is meant for waiting for Kueue startup including
 	// cert propagation and component readiness.
 	VeryLongTimeout         = 5 * time.Minute
-	ConsistentDuration      = 1 * time.Second
+	ConsistentDuration      = 300 * time.Millisecond
 	ShortConsistentDuration = 100 * time.Millisecond
 	ShortInterval           = 10 * time.Millisecond
 	Interval                = time.Millisecond * 250
