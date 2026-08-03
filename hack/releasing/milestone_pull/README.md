@@ -47,14 +47,11 @@ change to the script or the workflow.
 
 ## Usage
 
-From the release issue:
+### Manually, via the script
 
-```
-/milestone-pull
-```
-
-Locally — requires a `kubernetes/test-infra` clone with an `upstream` remote and your fork,
-plus an authenticated `gh`:
+This is the path the release checklist points at, and it does both halves today. Requires a
+`kubernetes/test-infra` clone with an `upstream` remote and your fork, plus an authenticated
+`gh`:
 
 ```bash
 GITHUB_USER=<your-gh-user> ./hack/releasing/milestone_pull.sh v0.20.0
@@ -74,6 +71,18 @@ git -C ../../kubernetes/test-infra diff --stat HEAD~1
 ```
 
 Expect `config/prow/plugins.yaml | 3 ++-`. Anything else is a bug, not a surprise to accept.
+
+### Automatically, via the ChatOps command
+
+Commenting on the release issue runs the same script:
+
+```
+/milestone-pull
+```
+
+The milestone half works today. The pull request half stays disabled until
+`KUEUE_RELEASE_BOT_TOKEN` is configured, so the checklist still points at the script above; once
+the secret lands, this command covers both and the checklist can switch to it.
 
 ## Environment
 
