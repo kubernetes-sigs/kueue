@@ -196,8 +196,11 @@ Each reconcile of an autoscaling object:
 
 1. `Fetch(remoteClient, remoteJob)` reads the effective per-worker-group pod counts
    from the worker cluster, plus a `UID-generation` **revision** of the object that
-   holds those counts. A suspended remote is skipped (its counts were restored by
-   the worker's Kueue while stopping the job, not set by the autoscaler).
+   holds those counts. The revision's role is to give each reflected scale-up a
+   distinct workload-slice name (details under [Workload-slice
+   naming](#workload-slice-naming-under-annotation-reflection)). A suspended remote
+   is skipped (its counts were restored by the worker's Kueue while stopping the
+   job, not set by the autoscaler).
 2. `Apply(localJob, counts, revision)` records them on the **manager** copy as two
    annotations — `raycluster-podset-replica-sizes` (the counts) and
    `raycluster-generation` (the revision) — leaving the manager spec untouched.
