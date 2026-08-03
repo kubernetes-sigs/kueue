@@ -4376,7 +4376,7 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 		workload   workload.Info
 		wantErr    error
 	}{
-		"required topology is accepted with ElasticJobsViaWorkloadSlices": {
+		"required topology is rejected even with ElasticJobsViaWorkloadSlicesWithTAS enabled": {
 			cq: schdcache.ClusterQueueSnapshot{
 				TASFlavors: map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot{"tas": tasFlavor},
 			},
@@ -4389,7 +4389,6 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 					Count:  2,
 					Status: *NewStatus(),
 				}},
-				representativeMode: new(Fit),
 				replaceWorkloadSlice: workload.NewInfo(&kueue.Workload{
 					Status: kueue.WorkloadStatus{
 						Admission: &kueue.Admission{
@@ -4416,7 +4415,7 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 					},
 				},
 			}),
-			wantErr: nil,
+			wantErr: ErrElasticRequiredTopologyNotSupported,
 		},
 		"preferred topology is accepted with ElasticJobsViaWorkloadSlices": {
 			cq: schdcache.ClusterQueueSnapshot{

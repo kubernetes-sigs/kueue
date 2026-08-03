@@ -242,16 +242,18 @@ func (w *JobWebhook) validateTopologyRequest(ctx context.Context, job *Job) (fie
 		return validationErrs, nil
 	}
 
-	// Reject elastic jobs with required/preferred topology if TAS integration is disabled.
-	if features.Enabled(features.ElasticJobsViaWorkloadSlices) && workloadslicing.Enabled(job.Object()) &&
-		!features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) {
+	if features.Enabled(features.ElasticJobsViaWorkloadSlices) && workloadslicing.Enabled(job.Object()) {
+		// Required topology is never supported with elastic jobs.
 		if _, hasRequired := job.Spec.Template.Annotations[kueue.PodSetRequiredTopologyAnnotation]; hasRequired {
 			return field.ErrorList{field.Forbidden(replicaMetaPath.Child("annotations", kueue.PodSetRequiredTopologyAnnotation),
 				"required topology is not supported with elastic jobs")}, nil
 		}
-		if _, hasPreferred := job.Spec.Template.Annotations[kueue.PodSetPreferredTopologyAnnotation]; hasPreferred {
-			return field.ErrorList{field.Forbidden(replicaMetaPath.Child("annotations", kueue.PodSetPreferredTopologyAnnotation),
-				"preferred topology is not supported with elastic jobs")}, nil
+		// Preferred topology is supported only if TAS integration is enabled.
+		if !features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) {
+			if _, hasPreferred := job.Spec.Template.Annotations[kueue.PodSetPreferredTopologyAnnotation]; hasPreferred {
+				return field.ErrorList{field.Forbidden(replicaMetaPath.Child("annotations", kueue.PodSetPreferredTopologyAnnotation),
+					"preferred topology is not supported with elastic jobs")}, nil
+			}
 		}
 	}
 
