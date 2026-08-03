@@ -206,7 +206,16 @@ The manager's PodSets derivation reads `raycluster-podset-replica-sizes` (gated 
 the workload-slicing machinery re-reserves quota — slice replacement on scale-up,
 in-place slice update on scale-down.
 
-The only per-type difference is **where `Fetch` reads the live worker replicas**:
+The only per-type difference is **where `Fetch` reads the live worker replicas**,
+which splits the job types into two kinds:
+
+1. The worker replica counts can be read **directly from the object's own CR** —
+   the object itself carries them (e.g. a standalone `RayCluster`).
+2. The counts are **not** on the object's CR and must be read from a **child
+   resource** the framework creates on the worker (e.g. `RayJob`, whose child
+   `RayCluster` is created by KubeRay).
+
+The two `Fetch` implementations map onto these:
 
 #### RayCluster
 
