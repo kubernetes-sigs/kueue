@@ -461,7 +461,7 @@ func TestLabelValsTracker(t *testing.T) {
 		},
 		"increment": {
 			op: func(t *LabelValsTracker) {
-				for i := 0; i < 5; i++ {
+				for range 5 {
 					t.Incr(k1)
 				}
 				t.Incr(k2)
@@ -475,7 +475,7 @@ func TestLabelValsTracker(t *testing.T) {
 		"decrement": {
 			op: func(t *LabelValsTracker) {
 				t.Add(k1, 10)
-				for i := 0; i < 5; i++ {
+				for range 5 {
 					t.Decr(k1)
 				}
 			},
@@ -486,7 +486,7 @@ func TestLabelValsTracker(t *testing.T) {
 		"decrement to 0": {
 			op: func(t *LabelValsTracker) {
 				t.Add(k1, 2)
-				for i := 0; i < 5; i++ {
+				for range 5 {
 					t.Decr(k1)
 				}
 			},
@@ -499,7 +499,7 @@ func TestLabelValsTracker(t *testing.T) {
 			op: func(t *LabelValsTracker) {
 				t.Add(k1, 2)
 				t.Add(k2, 5)
-				for i := 0; i < 5; i++ {
+				for range 5 {
 					t.Decr(k1)
 				}
 			},
