@@ -147,10 +147,6 @@ temporarily.
 - **The handover finishes the workload `OutOfSync` and tears the job down.** A
   worker-scoped resize tolerance absorbs the transient job/slice count mismatch
   during handover (see below).
-- **Pods stranded behind scheduling gates after slice replacement.** Fixed by the
-  merged prerequisite [#13489](https://github.com/kubernetes-sigs/kueue/pull/13489):
-  a replaced slice is finished as `WorkloadSliceReplaced`, so MultiKueue's elastic
-  guard no longer deletes the slice (and its chain root) mid-handover.
 
 ## Design Details
 
