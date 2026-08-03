@@ -3301,7 +3301,10 @@ func TestClusterQueueReadiness(t *testing.T) {
 			wantActive:       true,
 		},
 		"stopped": {
-			clusterQueues:    []*kueue.ClusterQueue{utiltestingapi.MakeClusterQueue("queue1").StopPolicy(kueue.HoldAndDrain).Obj()},
+			clusterQueues: []*kueue.ClusterQueue{utiltestingapi.MakeClusterQueue("queue1").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Resource(corev1.ResourceCPU, "1").Obj()).
+				StopPolicy(kueue.HoldAndDrain).Obj()},
+			resourceFlavors:  []*kueue.ResourceFlavor{baseFlavor},
 			clusterQueueName: "queue1",
 			wantStatus:       metav1.ConditionFalse,
 			wantReason:       "Stopped",

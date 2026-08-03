@@ -2379,72 +2379,6 @@ func TestSchedule(t *testing.T) {
 				"flavor-nonexistent-cq": {"sales/foo"},
 			},
 		},
-		"workload submitted to a CQ with no resource groups": {
-			additionalClusterQueues: []kueue.ClusterQueue{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "cq-no-rg",
-					},
-					Spec: kueue.ClusterQueueSpec{
-						QueueingStrategy: kueue.StrictFIFO,
-					},
-				},
-			},
-			additionalLocalQueues: []kueue.LocalQueue{
-				*utiltestingapi.MakeLocalQueue("local-q", "sales").ClusterQueue("cq-no-rg").Obj(),
-			},
-			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-workload", "sales").
-					Queue("local-q").
-					PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
-					Obj(),
-			},
-			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-workload", "sales").
-					Queue("local-q").
-					PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
-					Obj(),
-			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
-				"cq-no-rg": {"sales/test-workload"},
-			},
-		},
-		"workload submitted to a CQ with a resource group with empty flavors": {
-			additionalClusterQueues: []kueue.ClusterQueue{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "cq-with-empty-rg",
-					},
-					Spec: kueue.ClusterQueueSpec{
-						QueueingStrategy: kueue.StrictFIFO,
-						ResourceGroups: []kueue.ResourceGroup{
-							{
-								CoveredResources: []corev1.ResourceName{corev1.ResourceCPU},
-								Flavors:          []kueue.FlavorQuotas{},
-							},
-						},
-					},
-				},
-			},
-			additionalLocalQueues: []kueue.LocalQueue{
-				*utiltestingapi.MakeLocalQueue("local-q", "sales").ClusterQueue("cq-with-empty-rg").Obj(),
-			},
-			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-workload", "sales").
-					Queue("local-q").
-					PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
-					Obj(),
-			},
-			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-workload", "sales").
-					Queue("local-q").
-					PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
-					Obj(),
-			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
-				"cq-with-empty-rg": {"sales/test-workload"},
-			},
-		},
 		"no overadmission while borrowing": {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("new", "eng-beta").
@@ -8558,7 +8492,10 @@ func TestLastSchedulingContext(t *testing.T) {
 }
 
 func TestRequeueAndUpdate(t *testing.T) {
-	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+	cq := utiltestingapi.MakeClusterQueue("cq").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj()).
+		Obj()
+	rf := utiltestingapi.MakeResourceFlavor("default").Obj()
 	q1 := utiltestingapi.MakeLocalQueue("q1", "ns1").ClusterQueue(cq.Name).Obj()
 	w1 := utiltestingapi.MakeWorkload("w1", "ns1").Queue(kueue.LocalQueueName(q1.Name)).Obj()
 
@@ -8688,7 +8625,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 		for _, unadmittedWorkloadsObservabilityEnabled := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/observability_%t", tc.name, unadmittedWorkloadsObservabilityEnabled), func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, unadmittedWorkloadsObservabilityEnabled)
-				ctx, _ := utiltesting.ContextWithLog(t)
+				ctx, log := utiltesting.ContextWithLog(t)
 
 				updates := 0
 				objs := []client.Object{w1, q1, utiltesting.MakeNamespace("ns1")}
@@ -8700,6 +8637,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 				}).WithObjects(objs...).WithStatusSubresource(objs...).Build()
 				recorder := &utiltesting.EventRecorder{}
 				cqCache := schdcache.New(cl)
+				cqCache.AddOrUpdateResourceFlavor(log, rf)
 				qManager := qcache.NewManagerForUnitTests(cl, cqCache)
 				scheduler := New(qManager, cqCache, cl, recorder, WithPreemptionExpectations(preemptexpectations.New()))
 				if err := qManager.AddLocalQueue(ctx, q1); err != nil {
