@@ -90,9 +90,6 @@ remains the quota authority.
   Kueue's existing workload slicing.
 - Extending reverse elastic sync to non-Ray integrations in this KEP (the adapter
   hooks are designed to generalize, but only Ray is implemented here).
-- A webhook-level authz guard preventing tenants from hand-setting the
-  runtime replica-size annotation on their own RayJob (tracked as a follow-up;
-  value validation is present).
 - Manager-driven and worker-driven resizing of the *same* object at the same
   time; a given elastic object is resized by one side.
 
@@ -153,10 +150,6 @@ ClusterQueue quota (through slice replacement) rather than blocked or reverted.
   mode the forward sync never pushes replicas; its only remaining duty is
   repointing the remote's prebuilt-workload marker at the current slice
   (idempotent). Replicas flow one way — worker→manager — while autoscaling is on.
-- **A tenant forges replica counts via the runtime annotation.** The reflected
-  value is parsed and a malformed annotation is ignored (the manager falls back to
-  the spec counts). An authz-level guard against a tenant hand-setting the
-  annotation is a documented follow-up.
 - **The handover finishes the workload `OutOfSync` and tears the job down.** A
   worker-scoped resize tolerance absorbs the transient job/slice count mismatch
   during handover (see below).
@@ -311,8 +304,8 @@ Alpha:
 
 Beta (tentative):
 
-- Address the documented follow-ups: authz guard for the runtime replica-size
-  annotation, and an optional time bound on the resize tolerance.
+- Address the documented follow-up: an optional time bound on the resize
+  tolerance.
 - Metrics/observability for reverse-sync resizes.
 - Broader soak/e2e coverage in CI (fullray periodic jobs).
 
