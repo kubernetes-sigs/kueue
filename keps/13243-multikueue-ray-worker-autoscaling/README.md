@@ -19,8 +19,6 @@
   - [Worker-side resize tolerance](#worker-side-resize-tolerance)
   - [Test Plan](#test-plan)
     - [Prerequisite testing updates](#prerequisite-testing-updates)
-    - [Unit tests](#unit-tests)
-    - [Integration tests](#integration-tests)
     - [e2e tests](#e2e-tests)
   - [Graduation Criteria](#graduation-criteria)
 - [Implementation History](#implementation-history)
@@ -288,24 +286,6 @@ necessary to implement this enhancement.
 #### Prerequisite testing updates
 
 None beyond the coverage described below.
-
-#### Unit tests
-
-- Reverse-sync `Runtime{Fetch, Apply}` for RayCluster (reads its own remote copy)
-  and RayJob (reads the child RayCluster), including the `UID-generation` revision,
-  count-neutral updates that must not re-annotate or mint a slice, the
-  suspended-remote skip, and the malformed-annotation fallback to spec counts.
-- Workload-slice naming folds in the reflected revision
-  (`GetWorkloadNameExtraPart`): a fresh reflected count yields a new slice name.
-- Adapter-wiring validation: `Runtime` (with `Fetch` and `Apply`) required when
-  `AutoscalingEnabled` is set.
-- Jobframework worker-side resize tolerance, gated on the origin label.
-
-#### Integration tests
-
-- MultiKueue elastic RayCluster/RayJob resize handover: worker-originated resize
-  reflected onto the manager; slice replacement on scale-up; in-place update on
-  scale-down; no `OutOfSync` churn; quota reservation exact.
 
 #### e2e tests
 
