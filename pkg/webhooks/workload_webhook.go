@@ -186,6 +186,10 @@ func validatePodSet(ps *kueue.PodSet, path *field.Path) field.ErrorList {
 		allErrs = append(allErrs, validateResourceList(ps.Template.Spec.Resources.Limits, resPath.Child("limits"))...)
 	}
 
+	if features.Enabled(features.TASValidateWorkloadSliceSize) {
+		allErrs = append(allErrs, validateTASSliceSize(ps.TopologyRequest, path.Child("topologyRequest"))...)
+	}
+
 	return allErrs
 }
 
@@ -480,5 +484,38 @@ func validateClusterNameUpdate(newObj, oldObj *kueue.Workload, statusPath *field
 		}
 	}
 
+	return allErrs
+}
+
+// validateTASSliceSize enforces basic topology-slice invariants:
+// - legacy fields must appear together (required-topology <-> slice-size)
+// - slice sizes must be strictly positive (legacy and multi-layer constraints)
+// Kept in the Workload webhook as defense-in-depth for direct Workload writes,
+// including cases where CRDs or producer-side validators are older or bypassed.
+func validateTASSliceSize(tr *kueue.PodSetTopologyRequest, path *field.Path) field.ErrorList {
+	if tr == nil {
+		return nil
+	}
+
+	var allErrs field.ErrorList
+	if tr.PodSetSliceRequiredTopology != nil {
+		switch {
+		case tr.PodSetSliceSize == nil:
+			allErrs = append(allErrs, field.Required(path.Child("podSetSliceSize"), "must be set when podSetSliceRequiredTopology is specified"))
+		case *tr.PodSetSliceSize <= 0:
+			allErrs = append(allErrs, field.Invalid(path.Child("podSetSliceSize"), *tr.PodSetSliceSize, "must be greater than 0"))
+		}
+	}
+
+	if tr.PodSetSliceRequiredTopology == nil && tr.PodSetSliceSize != nil {
+		allErrs = append(allErrs, field.Forbidden(path.Child("podSetSliceSize"), "may not be set when podSetSliceRequiredTopology is not specified"))
+	}
+
+	for i := range tr.PodsetSliceRequiredTopologyConstraints {
+		if tr.PodsetSliceRequiredTopologyConstraints[i].Size <= 0 {
+			allErrs = append(allErrs,
+				field.Invalid(path.Child("podsetSliceRequiredTopologyConstraints").Index(i).Child("size"), tr.PodsetSliceRequiredTopologyConstraints[i].Size, "must be greater than 0"))
+		}
+	}
 	return allErrs
 }
