@@ -340,7 +340,3 @@ major outstanding bugs.
   as an interim guard until this support exists; it prevents silent misbehavior
   but does not deliver worker-side autoscaling. Once this KEP lands, that
   rejection is lifted.
-- **Run the autoscaler on the manager against the remote cluster's metrics.**
-  Requires the manager to reach worker-cluster application metrics and duplicates
-  the autoscaler's placement logic across the MultiKueue boundary; rejected as
-  more complex and less faithful to how Ray autoscaling works.
