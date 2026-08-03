@@ -125,16 +125,11 @@ per-stage demand:
 - Offline / batch inference runs as a `RayCluster` or `RayJob`; its worker groups
   scale with the batch in flight.
 
-The team wants Kueue/MultiKueue to place these workloads on a worker cluster with
-spare quota and keep the manager's quota books accurate as the autoscaler resizes
-each worker group — without the manager fighting the autoscaler.
-
 #### Story 2: Colocated training and evaluation
 
 A team colocates a training job and periodic evaluation actors in the same
 RayCluster. Evaluation bursts cause the autoscaler to grow the cluster
-temporarily. They want those autoscaler-driven resizes admitted against their
-ClusterQueue quota (through slice replacement) rather than blocked or reverted.
+temporarily.
 
 ### Notes/Constraints/Caveats
 
