@@ -43,10 +43,7 @@ is no path for those worker-side resizes to travel back to the manager.
 This KEP proposes the missing **worker→manager** direction — a *reverse elastic
 sync* in the shared Ray adapter — so an autoscaler-driven resize on the worker
 cluster is reflected onto the manager object, and the manager re-reserves quota
-through its existing workload-slicing machinery. It also covers the two
-supporting changes required to make the handover non-disruptive: a worker-side
-resize tolerance in the jobframework, and a fix to the elastic-job ungater so it
-does not strand pods when MultiKueue deletes the root of a slice chain.
+through its existing workload-slicing machinery.
 
 ## Motivation
 
