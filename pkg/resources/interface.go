@@ -17,6 +17,8 @@ limitations under the License.
 package resources
 
 import (
+	"iter"
+
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -34,6 +36,7 @@ type Requests interface {
 	GetValue(name corev1.ResourceName) int64
 	Set(name corev1.ResourceName, val int64)
 	ForEach(fn func(name corev1.ResourceName, val int64))
+	Iter() iter.Seq2[corev1.ResourceName, int64]
 	Len() int
 	IsEmpty() bool
 	// FloorToZero replaces negative resource values with zero.
