@@ -30,6 +30,7 @@ Changes since `v0.14.7`:
 - JobFramework: Fixed a bug that allowed a deactivated workload to be activated. (#8445, @chengjoey)
 - Kubeflow TrainJob v2: fix the bug to prevent duplicate pod template overrides when starting the Job is retried. (#8488, @j-skiba)
 - LeaderWorkerSet: Fixed a bug that prevented deleting the workload when the LeaderWorkerSet was scaled down. (#8672, @mbobrovskyi)
+- MultiKueue now waits for WorkloadAdmitted (instead of QuotaReserved) before deleting workloads from non-selected worker clusters. To revert to the previous behavior, disable the `MultiKueueWaitForWorkloadAdmitted` feature gate. (#8601, @IrvingMg)
 - MultiKueue: fix the eviction when initiated by the manager cluster (due to eg. Preemption or WairForPodsReady timeout). (#8403, @mbobrovskyi)
 - ProvisioningRequest: Fixed a bug that prevented events from being updated when the AdmissionCheck state changed. (#8405, @mbobrovskyi)
 - TAS: Fix a bug that MPIJob with runLauncherAsWorker Pod indexes are not correctly evaluated during rank-based ordering assignments. (#8662, @tenzen-y)

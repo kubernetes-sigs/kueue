@@ -203,6 +203,7 @@ Changes since `v0.15.2`:
   could get stuck when deactivating and re-activating in a short interval. (#8573, @mbobrovskyi)
 - JobFramework: Fixed a bug that allowed a deactivated workload to be activated. (#8438, @chengjoey)
 - LeaderWorkerSet: Fixed a bug that prevented deleting the workload when the LeaderWorkerSet was scaled down. (#8673, @mbobrovskyi)
+- MultiKueue now waits for WorkloadAdmitted (instead of QuotaReserved) before deleting workloads from non-selected worker clusters. To revert to the previous behavior, disable the `MultiKueueWaitForWorkloadAdmitted` feature gate. (#8600, @IrvingMg)
 - MultiKueue: Fix a bug that the priority change by mutating the `kueue.x-k8s.io/priority-class` label on the management cluster is not propagated to the worker clusters. (#8574, @mbobrovskyi)
 - MultiKueue: fix the eviction when initiated by the manager cluster (due to eg. Preemption or WairForPodsReady timeout). (#8402, @mbobrovskyi)
 - ProvisioningRequest: Fixed a bug that prevented events from being updated when the AdmissionCheck state changed. (#8404, @mbobrovskyi)
