@@ -2173,6 +2173,8 @@ func TestClusterQueuePendingTrackers(t *testing.T) {
 			}
 
 			gotPending, gotInadmissible := cq.PendingBreakdown()
+			gotPending.PopZeroCounts()
+			gotInadmissible.PopZeroCounts()
 			cmpAllowUnexported := cmp.AllowUnexported(metrics.LabelValsTracker{})
 			if diff := cmp.Diff(tc.wantPending, *gotPending, cmpAllowUnexported); diff != "" {
 				t.Errorf("Unexpected pending tracker (-want +got):\n%s", diff)

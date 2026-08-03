@@ -17,7 +17,6 @@ limitations under the License.
 package metrics
 
 import (
-	"maps"
 	"slices"
 	"testing"
 
@@ -518,17 +517,5 @@ func TestLabelValueSetCounter(t *testing.T) {
 	}
 	if combined.get(k1) != 1 || combined.get(k2) != 1 {
 		t.Errorf("expected combined to have k1 and k2, got k1=%d, k2=%d", combined.get(k1), combined.get(k2))
-	}
-
-	// 5. Test ParallelIter
-	iterResult := maps.Collect(ParallelIter(a, b, func(f, s int) pair {
-		return pair{First: f, Second: s}
-	}))
-	wantIterResult := map[labelValsSet]pair{
-		k1: {1, 0},
-		k2: {0, 1},
-	}
-	if diff := cmp.Diff(wantIterResult, iterResult); diff != "" {
-		t.Errorf("ParallelIter mismatch (-want +got):\n%s", diff)
 	}
 }

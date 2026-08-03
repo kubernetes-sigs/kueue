@@ -1124,12 +1124,10 @@ func ReportLocalQueueAdmittedUntilReadyWaitTime(lq LocalQueueReference, priority
 	LocalQueueAdmittedUntilReadyWaitTime.WithLabelValues(labels...).Observe(waitTime.Seconds())
 }
 
-func ReportPendingWorkloads(cqName kueue.ClusterQueueReference, active, inadmissible int, customLabelValues []string, tracker *roletracker.RoleTracker) {
+func ReportPendingWorkloads(cqName kueue.ClusterQueueReference, pendingStatus string, count int, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	role := roletracker.GetRole(tracker)
-	activeLabels := append([]string{string(cqName), PendingStatusActive, role}, customLabelValues...)
-	inadmissibleLabels := append([]string{string(cqName), PendingStatusInadmissible, role}, customLabelValues...)
-	PendingWorkloads.WithLabelValues(activeLabels...).Set(float64(active))
-	PendingWorkloads.WithLabelValues(inadmissibleLabels...).Set(float64(inadmissible))
+	labels := append([]string{string(cqName), pendingStatus, role}, customLabelValues...)
+	PendingWorkloads.WithLabelValues(labels...).Set(float64(count))
 }
 
 // ReportWorkloadEvictionLatency records latency from eviction (WorkloadEvicted True) until the workload returns to Pending (quota released).

@@ -62,19 +62,12 @@ func reportCQPendingWorkloads(m *Manager, cq *ClusterQueue) {
 		for _, labelSet := range inadmissible.PopZeroCounts() {
 			metrics.ClearPendingWorkloads(cq.name, metrics.PendingStatusInadmissible, labelSet.OrderedList(), m.roleTracker)
 		}
-
-		// Report data for every recorded unique workload label values combination.
-		for wlLabelVals, counts := range metrics.ParallelIter(active, inadmissible, func(a, i int) pendingCounts {
-			return pendingCounts{Active: a, Inadmissible: i}
-		}) {
-			customLabels := m.customLabels.CombineLabelValues(map[configapi.SourceKind][]string{
-				configapi.SourceKindClusterQueue: cqCustomLabels,
-				configapi.SourceKindWorkload:     wlLabelVals.OrderedList(),
-			})
-			metrics.ReportPendingWorkloads(cq.name, counts.Active, counts.Inadmissible, customLabels, m.roleTracker)
-		}
+		// Populate metrics for non-zero counts.
+		reportPendingWorkloadsLoop(m, cq.name, active, metrics.PendingStatusActive)
+		reportPendingWorkloadsLoop(m, cq.name, inadmissible, metrics.PendingStatusInadmissible)
 	} else {
-		metrics.ReportPendingWorkloads(cq.name, active.Total(), inadmissible.Total(), cqCustomLabels, m.roleTracker)
+		metrics.ReportPendingWorkloads(cq.name, metrics.PendingStatusActive, active.Total(), cqCustomLabels, m.roleTracker)
+		metrics.ReportPendingWorkloads(cq.name, metrics.PendingStatusInadmissible, inadmissible.Total(), cqCustomLabels, m.roleTracker)
 	}
 
 	if m.resourceMetricsEnabled {
@@ -85,6 +78,17 @@ func reportCQPendingWorkloads(m *Manager, cq *ClusterQueue) {
 			q := m.resourceFormatter.ResourceQuantity(resourceName, v)
 			metrics.ReportClusterQueueResourcePending(string(cq.name), string(resourceName), utilresource.QuantityToFloat(&q), cqCustomLabels, m.roleTracker)
 		}
+	}
+}
+
+func reportPendingWorkloadsLoop(m *Manager, cq kueue.ClusterQueueReference, tracker *metrics.LabelValsTracker, pendingStatus string) {
+	cqCustomLabels := m.customLabels.CQGet(cq)
+	for wlLabelVals, count := range tracker.Iter() {
+		customLabels := m.customLabels.CombineLabelValues(map[configapi.SourceKind][]string{
+			configapi.SourceKindClusterQueue: cqCustomLabels,
+			configapi.SourceKindWorkload:     wlLabelVals.OrderedList(),
+		})
+		metrics.ReportPendingWorkloads(cq, pendingStatus, count, customLabels, m.roleTracker)
 	}
 }
 
