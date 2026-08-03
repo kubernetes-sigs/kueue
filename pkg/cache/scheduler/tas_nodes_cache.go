@@ -121,6 +121,16 @@ func copyAndStripNode(node *corev1.Node) *corev1.Node {
 	}
 }
 
+func (t *nodesCache) getAllNodes() []*corev1.Node {
+	t.lock.RLock()
+	defer t.lock.RUnlock()
+	nodes := make([]*corev1.Node, 0, len(t.nodes))
+	for _, node := range t.nodes {
+		nodes = append(nodes, node)
+	}
+	return nodes
+}
+
 // strippedNodesEqual reports whether two stripped nodes carry semantically
 // identical scheduling-relevant information. It is used to avoid bumping the
 // nodesCache generation for Node updates that do not affect TAS scheduling,

@@ -3,9 +3,12 @@
 package was
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"iter"
+	"maps"
+	"slices"
 	"sync"
 
 	corev1 "k8s.io/api/core/v1"
@@ -32,21 +35,11 @@ import (
 
 type snapshotFactory func(ctx context.Context, pods []*corev1.Pod, nodes []*corev1.Node) (*schedLibSnapshot.ClusterSnapshot, error)
 
-// podTracker maintains per-node pod state for scheduler plugins that need
+// podTracker maintains pod state for scheduler plugins that need
 // existing pod information.
 type podTracker struct {
-	mu sync.RWMutex
-	// podsByNode maps node names to the set of tracked pods on that node.
-	podsByNode map[string]map[types.UID]*corev1.Pod
-	// podIndex maps each tracked pod to its current node so that TrackPod can
-	// remove the old entry when a pod migrates between nodes.
-	podIndex map[types.NamespacedName]podNodeInfo
-}
-
-// podNodeInfo records which node a tracked pod is placed on.
-type podNodeInfo struct {
-	nodeName string
-	podUID   types.UID
+	mu   sync.RWMutex
+	pods map[types.NamespacedName]*corev1.Pod
 }
 
 type wasSimulator struct {
@@ -116,8 +109,7 @@ func newWASSimulator(ctx context.Context, client kubernetes.Interface) (simulato
 	return &wasSimulator{
 		newSnapshot: snapshotFn,
 		pods: podTracker{
-			podsByNode: make(map[string]map[types.UID]*corev1.Pod),
-			podIndex:   make(map[types.NamespacedName]podNodeInfo),
+			pods: make(map[types.NamespacedName]*corev1.Pod),
 		},
 	}, nil
 }
@@ -137,13 +129,17 @@ func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (simulator.Sc
 	return newWASSimulator(ctx, fake.NewSimpleClientset())
 }
 
-func (s *wasSimulator) NewFeasibilityChecker(ctx context.Context, nodes []*corev1.Node) (simulator.NodeFeasibilityChecker, error) {
-	pods := s.pods.podsForNodes(nodes)
+type wasSimulatorSnapshot struct {
+	wasSnapshot *schedLibSnapshot.ClusterSnapshot
+}
+
+func (s *wasSimulator) Snapshot(ctx context.Context, nodes []*corev1.Node) (simulator.SimulatorSnapshot, error) {
+	pods := s.pods.allPods()
 	clusterSnap, err := s.newSnapshot(ctx, pods, nodes)
 	if err != nil {
 		return nil, err
 	}
-	return &wasChecker{snap: clusterSnap}, nil
+	return &wasSimulatorSnapshot{wasSnapshot: clusterSnap}, nil
 }
 
 func (s *wasSimulator) TrackPod(pod *corev1.Pod) {
@@ -154,57 +150,29 @@ func (s *wasSimulator) UntrackPod(key types.NamespacedName) {
 	s.pods.untrack(key)
 }
 
-func (t *podTracker) podsForNodes(nodes []*corev1.Node) []*corev1.Pod {
+func (t *podTracker) allPods() []*corev1.Pod {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	var pods []*corev1.Pod
-	for _, node := range nodes {
-		for _, pod := range t.podsByNode[node.Name] {
-			pods = append(pods, pod)
-		}
-	}
-	return pods
+	// Sorting just for test determinism.
+	return slices.SortedFunc(maps.Values(t.pods), func(a, b *corev1.Pod) int {
+		return cmp.Compare(a.UID, b.UID)
+	})
 }
 
 func (t *podTracker) track(pod *corev1.Pod) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-
 	key := client.ObjectKeyFromObject(pod)
-	if old, found := t.podIndex[key]; found {
-		delete(t.podsByNode[old.nodeName], old.podUID)
-		if len(t.podsByNode[old.nodeName]) == 0 {
-			delete(t.podsByNode, old.nodeName)
-		}
-	}
-	node := pod.Spec.NodeName
-	if t.podsByNode[node] == nil {
-		t.podsByNode[node] = make(map[types.UID]*corev1.Pod)
-	}
-	t.podsByNode[node][pod.UID] = pod
-	t.podIndex[key] = podNodeInfo{nodeName: node, podUID: pod.UID}
+	t.pods[key] = pod
 }
 
 func (t *podTracker) untrack(key types.NamespacedName) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-
-	old, found := t.podIndex[key]
-	if !found {
-		return
-	}
-	delete(t.podsByNode[old.nodeName], old.podUID)
-	if len(t.podsByNode[old.nodeName]) == 0 {
-		delete(t.podsByNode, old.nodeName)
-	}
-	delete(t.podIndex, key)
+	delete(t.pods, key)
 }
 
-type wasChecker struct {
-	snap *schedLibSnapshot.ClusterSnapshot
-}
-
-func (c *wasChecker) FindFeasibleNodes(
+func (s *wasSimulatorSnapshot) FindFeasibleNodes(
 	ctx context.Context,
 	candidates iter.Seq[simulator.Candidate],
 	requirements *simulator.PodRequirements,
@@ -230,11 +198,11 @@ func (c *wasChecker) FindFeasibleNodes(
 		ObjectMeta: requirements.PodTemplate.ObjectMeta,
 		Spec:       requirements.PodTemplate.Spec,
 	}
-	placement, err := c.snap.MakePlacement(candidateNodeNames)
+	placement, err := s.wasSnapshot.MakePlacement(candidateNodeNames)
 	if err != nil {
 		return nil, err
 	}
-	feasibleNodeNames, _, err := c.snap.CanSchedulePod(ctx, dummyPod, placement)
+	feasibleNodeNames, _, err := s.wasSnapshot.CanSchedulePod(ctx, dummyPod, placement)
 	if err != nil {
 		return nil, err
 	}

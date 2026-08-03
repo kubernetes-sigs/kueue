@@ -173,13 +173,13 @@ func TestNodePortsFeasibility(t *testing.T) {
 			for _, pod := range tc.pods {
 				sim.TrackPod(pod)
 			}
-			checker, err := sim.NewFeasibilityChecker(ctx, nodes)
+			snapshot, err := sim.Snapshot(ctx, nodes)
 			if err != nil {
-				t.Fatalf("NewFeasibilityCheckerWithPods failed: %v", err)
+				t.Fatalf("CreateSnapshot failed: %v", err)
 			}
 
 			stats := &simulator.NodeExclusionStats{}
-			results, err := checker.FindFeasibleNodes(ctx, candidates, &simulator.PodRequirements{
+			results, err := snapshot.FindFeasibleNodes(ctx, candidates, &simulator.PodRequirements{
 				PodTemplate: &tc.candidatePod,
 			}, stats)
 			if err != nil {
