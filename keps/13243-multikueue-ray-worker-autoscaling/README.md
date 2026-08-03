@@ -63,6 +63,16 @@ autoscaler cannot fight the manager, as documented in
 > worker cluster); the adapter clears `enableInTreeAutoscaling` on the remote copy
 > of an elastic RayCluster.
 
+In this model a resize can only be initiated on the manager:
+
+- Step 1: a user (or an external controller) edits the manager RayCluster's
+  replicas.
+- Step 2: MultiKueue forward-syncs the new count to the worker copy.
+- Step 3: the worker's KubeRay adjusts the worker pods to match.
+
+The Ray Autoscaler on the worker — which is what actually observes task/actor
+demand — is disabled and never gets to drive it.
+
 That is correct for manager-driven resizing, but it blocks every use case that
 relies on the worker's own autoscaler. To unblock them, the resize decision must
 be allowed to *originate on the worker* and flow back to the manager, which
