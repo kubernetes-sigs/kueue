@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
+	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -82,6 +83,8 @@ func managerSetup(setup func(ctrl.Manager, ...jobframework.Option) error, opts .
 		opts = append(opts, jobframework.WithIntegrationManager(integrationManager), jobframework.WithCache(cCache), jobframework.WithQueues(queues))
 
 		err := setup(mgr, opts...)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		_, err = webhooks.Setup(mgr, nil)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		integrationManager.EnableIntegration(job.FrameworkName)
 	}
