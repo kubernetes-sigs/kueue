@@ -539,8 +539,10 @@ func (c *clusterQueue) deleteWorkload(log logr.Logger, wlKey workload.Reference)
 
 func (c *clusterQueue) reportActiveWorkloads() {
 	clVals := c.GetCustomLabelValues()
-	for ancestor := range c.Parent().PathSelfToRoot() {
-		metrics.ReportCohortSubtreeAdmittedActiveWorkloads(ancestor.Name, ancestor.admittedWorkloadsCount, clVals, c.roleTracker)
+	if c.HasParent() && !hierarchy.HasCycle(c.Parent()) {
+		for ancestor := range c.Parent().PathSelfToRoot() {
+			metrics.ReportCohortSubtreeAdmittedActiveWorkloads(ancestor.Name, ancestor.admittedWorkloadsCount, clVals, c.roleTracker)
+		}
 	}
 	metrics.ReportReservingActiveWorkloads(c.Name, len(c.Workloads), clVals, c.roleTracker)
 }

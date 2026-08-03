@@ -538,6 +538,24 @@ func expectGaugeValue(t *testing.T, collector prometheus.Collector, labels map[s
 	}
 }
 
+func TestAddOrUpdateCohortRejectsCycleAndRestoresParent(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	manager := NewManagerForUnitTests(utiltesting.NewFakeClient(), nil)
+	for _, cohort := range []*kueue.Cohort{
+		utiltestingapi.MakeCohort("top").Obj(),
+		utiltestingapi.MakeCohort("parent").Parent("top").Obj(),
+		utiltestingapi.MakeCohort("child").Parent("parent").Obj(),
+	} {
+		manager.AddOrUpdateCohort(ctx, cohort)
+	}
+
+	manager.AddOrUpdateCohort(ctx, utiltestingapi.MakeCohort("parent").Parent("child").Obj())
+	parent := manager.hm.Cohort("parent")
+	if got := parent.Parent().GetName(); got != "top" {
+		t.Errorf("Parent after rejected update = %q, want %q", got, "top")
+	}
+}
+
 func TestRequeueWorkloadsCohortCycle(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	cohorts := []*kueue.Cohort{
@@ -555,6 +573,7 @@ func TestRequeueWorkloadsCohortCycle(t *testing.T) {
 	for _, cohort := range cohorts {
 		manager.AddOrUpdateCohort(ctx, cohort)
 	}
+	manager.hm.UpdateCohortEdge("cohort-c", "cohort-a")
 	if err := manager.AddClusterQueue(ctx, cq); err != nil {
 		t.Fatalf("Failed adding clusterQueue %s: %v", cq.Name, err)
 	}
@@ -593,6 +612,7 @@ func TestQueueInadmissibleWorkloads(t *testing.T) {
 		wantActive                map[kueue.ClusterQueueReference][]workload.Reference
 		wantMoveWorkloadsLogCount int
 		wantMovedCount            int
+		forceCycle                bool
 	}{
 		"deduplication with shared root": {
 			// Tree structure:
@@ -688,6 +708,7 @@ func TestQueueInadmissibleWorkloads(t *testing.T) {
 				"cq1": {"default/a"},
 			},
 			wantActive: nil,
+			forceCycle: true,
 		},
 	}
 
@@ -706,6 +727,9 @@ func TestQueueInadmissibleWorkloads(t *testing.T) {
 
 			for _, cohort := range tc.cohorts {
 				manager.AddOrUpdateCohort(ctx, cohort)
+			}
+			if tc.forceCycle {
+				manager.hm.UpdateCohortEdge("cohort-c", "cohort-a")
 			}
 			for _, cq := range tc.clusterQueues {
 				if err := manager.AddClusterQueue(ctx, cq); err != nil {

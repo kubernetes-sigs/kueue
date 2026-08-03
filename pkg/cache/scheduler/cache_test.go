@@ -3359,6 +3359,9 @@ func TestCohortCycles(t *testing.T) {
 		if err := cache.AddOrUpdateCohort(cohort); err == nil {
 			t.Fatal("Expected failure when cycle")
 		}
+		if hierarchy.HasCycle(cache.hm.Cohort("cohort")) {
+			t.Fatal("Rejected update must not leave a cycle in the cache")
+		}
 	})
 	t.Run("simple cycle", func(t *testing.T) {
 		cache := New(utiltesting.NewFakeClient())
@@ -3373,6 +3376,32 @@ func TestCohortCycles(t *testing.T) {
 		}
 		if err := cache.AddOrUpdateCohort(cohortC); err == nil {
 			t.Fatal("Expected failure when cycle")
+		}
+		if hierarchy.HasCycle(cache.hm.Cohort("cohort-a")) {
+			t.Fatal("Rejected update must not leave a cycle in the cache")
+		}
+	})
+	t.Run("cycle update restores the previous parent", func(t *testing.T) {
+		cache := New(utiltesting.NewFakeClient())
+		for _, cohort := range []*kueue.Cohort{
+			utiltestingapi.MakeCohort("top").Obj(),
+			utiltestingapi.MakeCohort("parent").Parent("top").Obj(),
+			utiltestingapi.MakeCohort("child").Parent("parent").Obj(),
+		} {
+			if err := cache.AddOrUpdateCohort(cohort); err != nil {
+				t.Fatalf("Adding cohort %q: %v", cohort.Name, err)
+			}
+		}
+
+		if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("parent").Parent("child").Obj()); err == nil {
+			t.Fatal("Expected failure when cycle")
+		}
+		parent := cache.hm.Cohort("parent")
+		if got := parent.Parent().Name; got != "top" {
+			t.Errorf("Parent after rejected update = %q, want %q", got, "top")
+		}
+		if hierarchy.HasCycle(parent) {
+			t.Fatal("Rejected update must not leave a cycle in the cache")
 		}
 	})
 	t.Run("clusterqueue add and update return error when cohort has cycle", func(t *testing.T) {
@@ -3390,6 +3419,7 @@ func TestCohortCycles(t *testing.T) {
 		if err := cache.AddOrUpdateCohort(cohortC); err == nil {
 			t.Fatal("Expected failure when cycle")
 		}
+		cache.hm.UpdateCohortEdge("cohort-c", "cohort-a")
 
 		// Error when creating CQ with parent Cohort-A
 		cq := utiltestingapi.MakeClusterQueue("cq").Cohort("cohort-a").Obj()
@@ -3416,10 +3446,11 @@ func TestCohortCycles(t *testing.T) {
 	t.Run("clusterqueue leaving cohort with cycle successfully updates new cohort", func(t *testing.T) {
 		cache := New(utiltesting.NewFakeClient())
 		ctx, log := utiltesting.ContextWithLog(t)
-		cycleCohort := utiltestingapi.MakeCohort("cycle").Parent("cycle").Obj()
-		if err := cache.AddOrUpdateCohort(cycleCohort); err == nil {
-			t.Fatal("Expected failure")
+		cycleCohort := utiltestingapi.MakeCohort("cycle").Obj()
+		if err := cache.AddOrUpdateCohort(cycleCohort); err != nil {
+			t.Fatalf("Adding cohort: %v", err)
 		}
+		cache.hm.UpdateCohortEdge("cycle", "cycle")
 
 		cohort := utiltestingapi.MakeCohort("cohort").
 			ResourceGroup(
@@ -3463,10 +3494,11 @@ func TestCohortCycles(t *testing.T) {
 	t.Run("clusterqueue joining cohort with cycle successfully updates old cohort", func(t *testing.T) {
 		cache := New(utiltesting.NewFakeClient())
 		ctx, log := utiltesting.ContextWithLog(t)
-		cycleCohort := utiltestingapi.MakeCohort("cycle").Parent("cycle").Obj()
-		if err := cache.AddOrUpdateCohort(cycleCohort); err == nil {
-			t.Fatal("Expected failure")
+		cycleCohort := utiltestingapi.MakeCohort("cycle").Obj()
+		if err := cache.AddOrUpdateCohort(cycleCohort); err != nil {
+			t.Fatalf("Adding cohort: %v", err)
 		}
+		cache.hm.UpdateCohortEdge("cycle", "cycle")
 		cohort := utiltestingapi.MakeCohort("cohort").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "10").Obj()).Obj()
 		if err := cache.AddOrUpdateCohort(cohort); err != nil {
@@ -3584,10 +3616,11 @@ func TestCohortCycles(t *testing.T) {
 
 	t.Run("cohort leaving cohort with cycle successfully updates new cohort", func(t *testing.T) {
 		cache := New(utiltesting.NewFakeClient())
-		cycleRoot := utiltestingapi.MakeCohort("cycle-root").Parent("cycle-root").Obj()
-		if err := cache.AddOrUpdateCohort(cycleRoot); err == nil {
-			t.Fatal("Expected failure")
+		cycleRoot := utiltestingapi.MakeCohort("cycle-root").Obj()
+		if err := cache.AddOrUpdateCohort(cycleRoot); err != nil {
+			t.Fatalf("Adding cohort: %v", err)
 		}
+		cache.hm.UpdateCohortEdge("cycle-root", "cycle-root")
 		root := utiltestingapi.MakeCohort("root").Obj()
 		if err := cache.AddOrUpdateCohort(root); err != nil {
 			t.Fatal("Expected success")
@@ -3617,12 +3650,13 @@ func TestCohortCycles(t *testing.T) {
 		}
 	})
 
-	t.Run("cohort joining cohort with cycle successfully updates old cohort", func(t *testing.T) {
+	t.Run("cohort joining cohort with cycle rejects move and retains old cohort quota", func(t *testing.T) {
 		cache := New(utiltesting.NewFakeClient())
-		cycleRoot := utiltestingapi.MakeCohort("cycle-root").Parent("cycle-root").Obj()
-		if err := cache.AddOrUpdateCohort(cycleRoot); err == nil {
-			t.Fatal("Expected failure")
+		cycleRoot := utiltestingapi.MakeCohort("cycle-root").Obj()
+		if err := cache.AddOrUpdateCohort(cycleRoot); err != nil {
+			t.Fatalf("Adding cohort: %v", err)
 		}
+		cache.hm.UpdateCohortEdge("cycle-root", "cycle-root")
 		root := utiltestingapi.MakeCohort("root").Obj()
 		if err := cache.AddOrUpdateCohort(root); err != nil {
 			t.Fatal("Expected success")
@@ -3655,12 +3689,14 @@ func TestCohortCycles(t *testing.T) {
 			t.Fatal("Expected failure")
 		}
 
-		// after move
+		// after rejected move
 		{
 			wantRoot := resourceNode{
-				Quotas:       map[resources.FlavorResource]ResourceQuota{},
-				SubtreeQuota: resources.FlavorResourceQuantities{},
-				Usage:        resources.FlavorResourceQuantities{},
+				Quotas: map[resources.FlavorResource]ResourceQuota{},
+				SubtreeQuota: resources.FlavorResourceQuantities{
+					{Flavor: "arm", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
+				},
+				Usage: resources.FlavorResourceQuantities{},
 			}
 			if diff := cmp.Diff(wantRoot, cache.hm.Cohort("root").getResourceNode()); diff != "" {
 				t.Errorf("Unexpected resource (-want,+got):\n%s", diff)
@@ -3668,21 +3704,65 @@ func TestCohortCycles(t *testing.T) {
 		}
 	})
 
-	t.Run("ResyncGaugeMetrics does not infinitely recurse with cyclic cohorts", func(t *testing.T) {
-		// AddOrUpdateCohort returns an error when a cycle is formed, but the cycle edge
-		// is already stored in the hierarchy manager before the error is returned.
-		// ResyncGaugeMetrics must not call getRootUnsafe() on cohorts that are part of
-		// a cycle, as that would cause infinite recursion and a stack overflow panic.
-		_, log := utiltesting.ContextWithLog(t)
+	t.Run("cohort joining cohort with cycle retains implicit old cohort quota on rejection", func(t *testing.T) {
+		cache := New(utiltesting.NewFakeClient())
+		cq := utiltestingapi.MakeClusterQueue("cq").
+			Cohort("implicit-parent").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "10").Obj(),
+			).Obj()
+		if err := cache.AddClusterQueue(context.Background(), cq); err != nil {
+			t.Fatalf("Adding cluster queue: %v", err)
+		}
+
+		child := utiltestingapi.MakeCohort("child").Parent("implicit-parent").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "5").Obj(),
+			).Obj()
+		if err := cache.AddOrUpdateCohort(child); err != nil {
+			t.Fatalf("Adding child cohort: %v", err)
+		}
+
+		wantImplicitParentBefore := resourceNode{
+			Quotas: map[resources.FlavorResource]ResourceQuota{},
+			SubtreeQuota: resources.FlavorResourceQuantities{
+				{Flavor: "arm", Resource: corev1.ResourceCPU}: resources.NewAmount(15_000),
+			},
+			Usage: resources.FlavorResourceQuantities{},
+		}
+		if diff := cmp.Diff(wantImplicitParentBefore, cache.hm.Cohort("implicit-parent").getResourceNode()); diff != "" {
+			t.Fatalf("Unexpected implicit-parent resources before update (-want,+got):\n%s", diff)
+		}
+
+		child.Spec.ParentName = "child"
+		if err := cache.AddOrUpdateCohort(child); err == nil {
+			t.Fatal("Expected failure due to cycle")
+		}
+
+		if diff := cmp.Diff(wantImplicitParentBefore, cache.hm.Cohort("implicit-parent").getResourceNode()); diff != "" {
+			t.Errorf("Unexpected implicit-parent resources after rejected update (-want,+got):\n%s", diff)
+		}
+	})
+
+	t.Run("rejected cycle updates leave metrics resync responsive", func(t *testing.T) {
+		ctx, log := utiltesting.ContextWithLog(t)
 		cache := New(utiltesting.NewFakeClient())
 		cohortA := utiltestingapi.MakeCohort("cohort-a").Parent("cohort-b").Obj()
 		if err := cache.AddOrUpdateCohort(cohortA); err != nil {
 			t.Fatal("Expected success as no cycle yet")
 		}
-		// cohort-b -> cohort-a creates the cycle; AddOrUpdateCohort returns an error
-		// but cohort-b's parent edge pointing to cohort-a is already persisted.
-		_ = cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("cohort-b").Parent("cohort-a").Obj())
-		// Must not panic with a goroutine stack overflow.
+		if err := cache.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").Cohort("cohort-a").Obj()); err != nil {
+			t.Fatalf("Adding cluster queue: %v", err)
+		}
+		if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("cohort-b").Parent("cohort-a").Obj()); err == nil {
+			t.Fatal("Expected failure when cycle")
+		}
+		if hierarchy.HasCycle(cache.hm.Cohort("cohort-a")) {
+			t.Fatal("Rejected update must not leave a cycle in the cache")
+		}
+
+		// Simulate a corrupted hierarchy to keep the reporting guard covered.
+		cache.hm.UpdateCohortEdge("cohort-b", "cohort-a")
 		cache.ResyncGaugeMetrics(log)
 	})
 }
@@ -3851,7 +3931,7 @@ func TestClusterQueueAncestors(t *testing.T) {
 		},
 		"with cycle": {
 			cohorts: []*kueue.Cohort{
-				utiltestingapi.MakeCohort("root").Parent("second-right").Obj(),
+				utiltestingapi.MakeCohort("root").Obj(),
 				utiltestingapi.MakeCohort("first-left").Parent("root").Obj(),
 				utiltestingapi.MakeCohort("first-right").Parent("root").Obj(),
 				utiltestingapi.MakeCohort("second-left").Parent("first-left").Obj(),
@@ -3867,6 +3947,9 @@ func TestClusterQueueAncestors(t *testing.T) {
 			cache := New(client)
 			for _, cohort := range tc.cohorts {
 				_ = cache.AddOrUpdateCohort(cohort)
+			}
+			if tc.wantErr != nil {
+				cache.hm.UpdateCohortEdge("root", "second-right")
 			}
 
 			gotAncestors, gotErr := cache.ClusterQueueAncestors(tc.cq)
@@ -3985,7 +4068,7 @@ func TestWorkloadAncestors(t *testing.T) {
 		},
 		"with cycle": {
 			cohorts: []*kueue.Cohort{
-				utiltestingapi.MakeCohort("root").Parent("second-right").Obj(),
+				utiltestingapi.MakeCohort("root").Obj(),
 				utiltestingapi.MakeCohort("first-left").Parent("root").Obj(),
 				utiltestingapi.MakeCohort("first-right").Parent("root").Obj(),
 				utiltestingapi.MakeCohort("second-left").Parent("first-left").Obj(),
@@ -4012,6 +4095,9 @@ func TestWorkloadAncestors(t *testing.T) {
 			}
 			for _, cq := range tc.cqs {
 				_ = cache.AddClusterQueue(ctx, cq)
+			}
+			if tc.wantErr != nil {
+				cache.hm.UpdateCohortEdge("root", "second-right")
 			}
 
 			gotAncestors, gotErr := cache.workloadAncestors(tc.wl)
@@ -4069,7 +4155,7 @@ func TestAncestors(t *testing.T) {
 		},
 		"with cycle": {
 			cohorts: []*kueue.Cohort{
-				utiltestingapi.MakeCohort("root").Parent("second-right").Obj(),
+				utiltestingapi.MakeCohort("root").Obj(),
 				utiltestingapi.MakeCohort("first-left").Parent("root").Obj(),
 				utiltestingapi.MakeCohort("first-right").Parent("root").Obj(),
 				utiltestingapi.MakeCohort("second-left").Parent("first-left").Obj(),
@@ -4085,6 +4171,9 @@ func TestAncestors(t *testing.T) {
 			cache := New(client)
 			for _, cohort := range tc.cohorts {
 				_ = cache.AddOrUpdateCohort(cohort)
+			}
+			if tc.wantErr != nil {
+				cache.hm.UpdateCohortEdge("root", "second-right")
 			}
 
 			gotAncestors, gotErr := cache.ancestors(tc.cohortName)

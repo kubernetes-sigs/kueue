@@ -150,11 +150,10 @@ func TestCohortReconcileCycleReturnsError(t *testing.T) {
 	}
 }
 
-func TestCohortReconcileCycleCacheSnapshotBehavior(t *testing.T) {
-	// This test verifies the cache Snapshot state during and after a cohort cycle.
-	// When AddOrUpdateCohort errors (cycle detected), the reconciler returns early
-	// without calling qManager.AddOrUpdateCohort. The observable effect is that
-	// cyclic cohorts are excluded from cache.Snapshot until the cycle is resolved.
+func TestCohortReconcileCycleDoesNotCorruptCache(t *testing.T) {
+	// This test verifies that a rejected cycle update leaves the cache in its
+	// prior valid state. The reconciler returns an error and does not update the
+	// queue manager for the rejected update.
 	cohortA := utiltestingapi.MakeCohort("cohort-a").Parent("cohort-b").Obj()
 	cohortB := utiltestingapi.MakeCohort("cohort-b").Parent("cohort-a").Obj()
 	cl := utiltesting.NewClientBuilder().
@@ -171,22 +170,23 @@ func TestCohortReconcileCycleCacheSnapshotBehavior(t *testing.T) {
 		t.Fatalf("unexpected error reconciling cohort-a: %v", err)
 	}
 
-	// Reconcile cohort-b: B -> A closes the cycle. Cache returns error, reconciler propagates it.
-	// qManager.AddOrUpdateCohort is NOT called (early return on error).
+	// Reconcile cohort-b: B -> A closes the cycle. Cache returns an error and
+	// the reconciler propagates it without updating the queue manager.
 	if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(cohortB)}); err == nil {
 		t.Fatal("expected error when adding cycle")
 	}
 
-	// During cycle: Snapshot excludes both cohorts.
+	// The rejected update must not corrupt the previously valid A -> B cache
+	// hierarchy, so both cohorts remain available in the snapshot.
 	snapshot, err := cache.Snapshot(ctx)
 	if err != nil {
-		t.Fatalf("unexpected error building snapshot during cycle: %v", err)
+		t.Fatalf("unexpected error building snapshot after rejected cycle: %v", err)
 	}
-	if snap := snapshot.Cohort("cohort-a"); snap != nil {
-		t.Error("cohort-a should be excluded from Snapshot while in a cycle")
+	if snap := snapshot.Cohort("cohort-a"); snap == nil {
+		t.Error("cohort-a should remain in Snapshot after a rejected cycle")
 	}
-	if snap := snapshot.Cohort("cohort-b"); snap != nil {
-		t.Error("cohort-b should be excluded from Snapshot while in a cycle")
+	if snap := snapshot.Cohort("cohort-b"); snap == nil {
+		t.Error("cohort-b should remain in Snapshot after a rejected cycle")
 	}
 
 	// Resolve the cycle: point cohort-b at an unrelated cohort-c.
@@ -202,7 +202,7 @@ func TestCohortReconcileCycleCacheSnapshotBehavior(t *testing.T) {
 		t.Fatalf("unexpected error reconciling cohort-b after cycle resolution: %v", err)
 	}
 
-	// After resolution: A -> B -> C, no cycle. Both cohorts appear in Snapshot.
+	// After resolution: A -> B -> C, no cycle. Both cohorts remain in Snapshot.
 	snapshot, err = cache.Snapshot(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error building snapshot after cycle resolution: %v", err)

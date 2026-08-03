@@ -302,17 +302,17 @@ func (m *Manager) deleteFinishedWorkloadWithoutLock(wlKey workload.Reference) {
 	reportCQFinishedWorkloads(cq, m.roleTracker, m.customLabels)
 }
 
-func (m *Manager) AddOrUpdateCohort(ctx context.Context, cohort *kueue.Cohort) {
+func (m *Manager) AddOrUpdateCohort(ctx context.Context, apiCohort *kueue.Cohort) {
 	m.Lock()
 	defer m.Unlock()
-	cohortName := kueue.CohortReference(cohort.Name)
+	cohortName := kueue.CohortReference(apiCohort.Name)
 
 	m.hm.AddCohort(cohortName)
-	m.hm.UpdateCohortEdge(cohortName, cohort.Spec.ParentName)
-	c := m.hm.Cohort(cohortName)
-	if !hierarchy.HasCycle(c) {
-		m.requeuer.notifyCohort(c.getRootUnsafe().GetName())
+	if !m.hm.UpdateCohortEdgeIfNoCycle(cohortName, apiCohort.Spec.ParentName, func(c *cohort) bool { return hierarchy.HasCycle(c) }) {
+		return
 	}
+	c := m.hm.Cohort(cohortName)
+	m.requeuer.notifyCohort(c.getRootUnsafe().GetName())
 }
 
 func (m *Manager) DeleteCohort(cohortName kueue.CohortReference) {

@@ -57,6 +57,7 @@ func TestSnapshot(t *testing.T) {
 		rfs          []*kueue.ResourceFlavor
 		topologies   []*kueue.Topology
 		wls          []*kueue.Workload
+		mutateCache  func(*Cache)
 		wantSnapshot Snapshot
 	}{
 		"empty": {},
@@ -708,6 +709,10 @@ func TestSnapshot(t *testing.T) {
 						*utiltestingapi.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "0").Obj(),
 					).Obj(),
 			},
+			mutateCache: func(cache *Cache) {
+				cache.hm.UpdateCohortEdge("autocycle", "autocycle")
+				cache.hm.UpdateCohortEdge("cycle-b", "cycle-a")
+			},
 			wantSnapshot: Snapshot{
 				Manager: hierarchy.NewManagerForTest(
 					map[kueue.CohortReference]*CohortSnapshot{
@@ -868,6 +873,9 @@ func TestSnapshot(t *testing.T) {
 			}
 			for _, cohort := range tc.cohorts {
 				_ = cache.AddOrUpdateCohort(cohort)
+			}
+			if tc.mutateCache != nil {
+				tc.mutateCache(cache)
 			}
 			for _, rf := range tc.rfs {
 				cache.AddOrUpdateResourceFlavor(log, rf)
