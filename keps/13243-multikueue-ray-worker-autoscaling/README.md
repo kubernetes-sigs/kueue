@@ -18,7 +18,7 @@
     - [RayJob](#rayjob)
     - [Workload-slice naming under annotation reflection](#workload-slice-naming-under-annotation-reflection)
   - [Worker-side resize tolerance](#worker-side-resize-tolerance)
-  - [ElasticJobUngater: resolving a deleted slice-chain root](#elasticjobungater-resolving-a-deleted-slice-chain-root)
+  - [Handover safety under frequent slice replacement](#handover-safety-under-frequent-slice-replacement)
   - [Retaining enableInTreeAutoscaling on the remote copy](#retaining-enableintreeautoscaling-on-the-remote-copy)
   - [Test Plan](#test-plan)
     - [Prerequisite testing updates](#prerequisite-testing-updates)
@@ -112,8 +112,11 @@ In both cases `Apply` records the counts (and a revision) on the manager copy as
 the `raycluster-podset-replica-sizes` and `raycluster-generation` annotations,
 which feed the manager's PodSets derivation and the workload-slice name.
 
-Two supporting changes make the handover safe: a worker-scoped resize tolerance
-in the jobframework, and an ungater fix for deleted slice-chain roots.
+The handover is made safe by a worker-scoped resize tolerance in the jobframework
+(this KEP), together with the already-merged
+[#13489](https://github.com/kubernetes-sigs/kueue/pull/13489), which finishes a
+replaced slice as `WorkloadSliceReplaced` so MultiKueue does not delete a slice
+mid-handover and strand its pods.
 
 ### User Stories
 
@@ -155,9 +158,10 @@ ClusterQueue quota (through slice replacement) rather than blocked or reverted.
 - **The handover finishes the workload `OutOfSync` and tears the job down.** A
   worker-scoped resize tolerance absorbs the transient job/slice count mismatch
   during handover (see below).
-- **Pods stranded behind scheduling gates after slice replacement.** The ungater
-  fix resolves the slice chain through any surviving member when its root has been
-  deleted by MultiKueue.
+- **Pods stranded behind scheduling gates after slice replacement.** Fixed by the
+  merged prerequisite [#13489](https://github.com/kubernetes-sigs/kueue/pull/13489):
+  a replaced slice is finished as `WorkloadSliceReplaced`, so MultiKueue's elastic
+  guard no longer deletes the slice (and its chain root) mid-handover.
 
 ## Design Details
 
@@ -233,15 +237,16 @@ so a transient mismatch during handover is not treated as divergence:
   past quota.
 - On scale-down, the workload briefly over-reserves and is never under-reserved.
 
-### ElasticJobUngater: resolving a deleted slice-chain root
+### Handover safety under frequent slice replacement
 
-The worker-side `ElasticJobUngater` resolves a slice chain by loading its root
-workload. On a MultiKueue worker, the manager deletes the remote copy of a
-replaced slice, so the chain's root can be gone while newer slices and gated pods
-that name the chain key still exist. The ungater previously dead-ended there,
-leaving pods `SchedulingGated` forever. It now falls back to resolving the chain
-through any surviving member (a workload whose `workloadslicing.SliceName`
-matches the chain key).
+Worker-driven resizing replaces workload slices frequently. When a slice is
+replaced, the manager's MultiKueue reconciler recognizes the old slice only when
+it is finished as `WorkloadSliceReplaced`; a slice mistakenly finished as
+`OutOfSync` slips past that guard and its remote objects are deleted mid-handover,
+which can strand the scaled pods behind scheduling gates. This feature therefore
+depends on the merged
+[#13489](https://github.com/kubernetes-sigs/kueue/pull/13489), which finishes a
+replaced slice as `WorkloadSliceReplaced` and closes that race.
 
 ### Retaining enableInTreeAutoscaling on the remote copy
 
@@ -271,8 +276,6 @@ None beyond the coverage described below.
 - Adapter-wiring validation: `Runtime` (with `Fetch` and `Apply`) required when
   `AutoscalingEnabled` is set.
 - Jobframework worker-side resize tolerance, gated on the origin label.
-- ElasticJobUngater chain resolution when the root is deleted (fail-without,
-  pass-with).
 
 #### Integration tests
 
@@ -315,8 +318,8 @@ Beta (tentative):
 - 2026-07-26: KEP drafted.
 - Prototype and verification in
   [#13435](https://github.com/kubernetes-sigs/kueue/pull/13435) (reverse elastic
-  sync, worker-side resize tolerance, ungater chain-root fix; verified with unit,
-  integration, and real-autoscaler e2e — including on real GPU clusters).
+  sync, worker-side resize tolerance; verified with unit, integration, and
+  real-autoscaler e2e — including on real GPU clusters).
 - 2026-08-01: reverse sync unified onto a single annotation-based
   `Runtime{Fetch, Apply}` for both RayCluster and RayJob — RayCluster no longer
   writes back to the manager spec; the reflected size reuses the existing
@@ -324,6 +327,10 @@ Beta (tentative):
   folds in the reflected revision so annotation-only reflection still mints fresh
   slices; e2e specs hardened to up/down/up with name-based, overshoot-tolerant
   slice assertions.
+- The initially-prototyped ElasticJobUngater chain-root workaround was dropped in
+  favor of the merged root-cause fix
+  [#13489](https://github.com/kubernetes-sigs/kueue/pull/13489) (finish a replaced
+  slice as `WorkloadSliceReplaced`).
 
 ## Drawbacks
 
