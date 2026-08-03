@@ -12,7 +12,6 @@
   - [Notes/Constraints/Caveats](#notesconstraintscaveats)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
-  - [Background: manager-driven forward sync](#background-manager-driven-forward-sync)
   - [Reverse elastic sync](#reverse-elastic-sync)
     - [RayCluster](#raycluster)
     - [RayJob](#rayjob)
@@ -149,16 +148,6 @@ temporarily.
   during handover (see below).
 
 ## Design Details
-
-### Background: manager-driven forward sync
-
-[#12885](https://github.com/kubernetes-sigs/kueue/pull/12885) established the
-manager→worker direction for elastic RayClusters: a resize on the manager is
-propagated to the remote copy. To keep scaling strictly manager-driven, in-tree
-autoscaling on a MultiKueue-managed elastic RayCluster is currently rejected at
-admission ([#13244](https://github.com/kubernetes-sigs/kueue/pull/13244)). This
-KEP adds the opposite direction and, for autoscaling objects, retains
-`enableInTreeAutoscaling` on the remote copy, lifting that rejection.
 
 ### Reverse elastic sync
 
