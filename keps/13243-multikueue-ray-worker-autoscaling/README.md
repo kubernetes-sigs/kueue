@@ -53,30 +53,25 @@ application (pending tasks, actors, placement groups). Many real workloads depen
 on it — mixed online/offline inference, and training colocated with evaluation in
 a single long-lived RayCluster.
 
-MultiKueue today forces such workloads into a *manager-driven* model: the
-forward sync clears `enableInTreeAutoscaling` on the remote copy so the worker's
-autoscaler cannot fight the manager, as documented in
+MultiKueue today supports only a *manager-driven* resize model for such
+workloads, built on the forward sync from
 [#12885](https://github.com/kubernetes-sigs/kueue/pull/12885):
-
-> Because scaling is manager-driven, the remote copy must not run the in-tree Ray
-> autoscaler (which would otherwise fight the manager by editing replicas on the
-> worker cluster); the adapter clears `enableInTreeAutoscaling` on the remote copy
-> of an elastic RayCluster.
-
-In this model a resize can only be initiated on the manager:
 
 - Step 1: a user (or an external controller) edits the manager RayCluster's
   replicas.
 - Step 2: MultiKueue forward-syncs the new count to the worker copy.
 - Step 3: the worker's KubeRay adjusts the worker pods to match.
 
-The Ray Autoscaler on the worker — which is what actually observes task/actor
-demand — is disabled and never gets to drive it.
+The worker's own Ray Autoscaler — the component that actually observes task/actor
+demand — cannot be used at all: MultiKueue **rejects** `enableInTreeAutoscaling`
+for a MultiKueue-managed elastic RayCluster at admission
+([#13244](https://github.com/kubernetes-sigs/kueue/pull/13244)), because there is
+no path for a worker-side autoscaler resize to reach the manager.
 
-That is correct for manager-driven resizing, but it blocks every use case that
-relies on the worker's own autoscaler. To unblock them, the resize decision must
-be allowed to *originate on the worker* and flow back to the manager, which
-remains the quota authority.
+That is a reasonable stopgap, but it blocks every use case that relies on the
+worker's own autoscaler. To unblock them, the resize decision must be allowed to
+*originate on the worker* and flow back to the manager, which remains the quota
+authority.
 
 ### Goals
 
@@ -179,10 +174,11 @@ ClusterQueue quota (through slice replacement) rather than blocked or reverted.
 
 [#12885](https://github.com/kubernetes-sigs/kueue/pull/12885) established the
 manager→worker direction for elastic RayClusters: a resize on the manager is
-propagated to the remote copy, and the remote copy runs with
-`enableInTreeAutoscaling` cleared so it cannot self-resize. This KEP adds the
-opposite direction and, for autoscaling objects, retains
-`enableInTreeAutoscaling` on the remote copy.
+propagated to the remote copy. To keep scaling strictly manager-driven, in-tree
+autoscaling on a MultiKueue-managed elastic RayCluster is currently rejected at
+admission ([#13244](https://github.com/kubernetes-sigs/kueue/pull/13244)). This
+KEP adds the opposite direction and, for autoscaling objects, retains
+`enableInTreeAutoscaling` on the remote copy, lifting that rejection.
 
 ### Reverse elastic sync
 
