@@ -59,16 +59,20 @@ type PodWebhook struct {
 	managedJobsNamespaceSelector labels.Selector
 	namespaceSelector            *metav1.LabelSelector
 	podSelector                  *metav1.LabelSelector
+	nativePodGroupsEnabled       bool
 }
 
 // SetupWebhook configures the webhook for pods.
 func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.ProcessOptions(opts...)
+	enabled, reason := nativePodGroupsAvailability(mgr.GetRESTMapper())
+	ctrl.Log.V(3).Info("Pod webhook: native PodGroups availability", "enabled", enabled, "reason", reason)
 	wh := &PodWebhook{
 		client:                       mgr.GetClient(),
 		queues:                       options.Queues,
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
+		nativePodGroupsEnabled:       enabled,
 	}
 	obj := &corev1.Pod{}
 	if options.NoopWebhook {
@@ -187,6 +191,12 @@ func (w *PodWebhook) Default(ctx context.Context, obj *corev1.Pod) error {
 		if err := pod.addRoleHash(); err != nil {
 			return err
 		}
+
+		// Default schedulingGroup.podGroupName for WAS PodGroup integration.
+		if shouldDefaultNativePodGroup(w.nativePodGroupsEnabled, &pod.pod) {
+			setNativePodGroupName(&pod.pod, utilpod.GetPodGroupName(&pod.pod))
+		}
+
 		// copy back changes to the object
 		pod.pod.DeepCopyInto(obj)
 	}

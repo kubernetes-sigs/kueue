@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package was
+package baseline
 
 import (
 	"context"
@@ -36,7 +36,7 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	util.RunE2ESuite(t, "End To End WAS Suite")
+	util.RunE2ESuite(t, "End To End WAS Baseline Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {

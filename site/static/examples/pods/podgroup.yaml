@@ -1,0 +1,37 @@
+apiVersion: v1
+items:
+- apiVersion: scheduling.k8s.io/v1alpha3
+  kind: PodGroup
+  metadata:
+    creationTimestamp: "2026-07-01T17:21:21Z"
+    finalizers:
+    - scheduling.k8s.io/podgroup-protection
+    labels:
+      kueue.x-k8s.io/managed: "true"
+    name: was-sample
+    namespace: default
+    ownerReferences:
+    - apiVersion: kueue.x-k8s.io/v1beta2
+      kind: Workload
+      name: was-sample
+      uid: 393bd4f2-c66f-4336-b3c5-5e90cc56efbc
+    resourceVersion: "6711"
+    uid: 44673c02-7e91-49f9-af52-90ef6d3dc497
+  spec:
+    disruptionMode:
+      single: {}
+    podGroupTemplateRef: null
+    priority: 0
+    schedulingPolicy:
+      gang:
+        minCount: 3
+  status:
+    conditions:
+    - lastTransitionTime: "2026-07-01T17:21:21Z"
+      message: ""
+      reason: Scheduled
+      status: "True"
+      type: PodGroupInitiallyScheduled
+kind: List
+metadata:
+  resourceVersion: ""

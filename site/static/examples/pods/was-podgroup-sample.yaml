@@ -1,0 +1,81 @@
+# A pod group of 3 pods that opts in to WAS PodGroup creation.
+# Kueue will:
+# 1. Gate the pods via scheduling gate until the workload is admitted
+# 2. Default schedulingGroup.podGroupName on each pod
+# 3. Create a native scheduling.k8s.io PodGroup with minCount=3
+# 4. The kube-scheduler uses the PodGroup for gang scheduling
+#
+# Prerequisites:
+# - Kueue deployed with featureGates.WASPodGroups=true
+# - A ClusterQueue and LocalQueue named "was-queue" (see was-podgroup-setup.yaml)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: was-sample-0
+  labels:
+    kueue.x-k8s.io/queue-name: was-queue
+    kueue.x-k8s.io/pod-group-name: was-sample
+  annotations:
+    kueue.x-k8s.io/pod-group-total-count: "3"
+    kueue.x-k8s.io/was-podgroup: "true"
+spec:
+  restartPolicy: Never
+  containers:
+  - name: worker
+    image: registry.k8s.io/e2e-test-images/agnhost:2.52
+    args: ["entrypoint-tester"]
+    resources:
+      requests:
+        cpu: "200m"
+        memory: "128Mi"
+      limits:
+        cpu: "200m"
+        memory: "128Mi"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: was-sample-1
+  labels:
+    kueue.x-k8s.io/queue-name: was-queue
+    kueue.x-k8s.io/pod-group-name: was-sample
+  annotations:
+    kueue.x-k8s.io/pod-group-total-count: "3"
+    kueue.x-k8s.io/was-podgroup: "true"
+spec:
+  restartPolicy: Never
+  containers:
+  - name: worker
+    image: registry.k8s.io/e2e-test-images/agnhost:2.52
+    args: ["entrypoint-tester"]
+    resources:
+      requests:
+        cpu: "200m"
+        memory: "128Mi"
+      limits:
+        cpu: "200m"
+        memory: "128Mi"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: was-sample-2
+  labels:
+    kueue.x-k8s.io/queue-name: was-queue
+    kueue.x-k8s.io/pod-group-name: was-sample
+  annotations:
+    kueue.x-k8s.io/pod-group-total-count: "3"
+    kueue.x-k8s.io/was-podgroup: "true"
+spec:
+  restartPolicy: Never
+  containers:
+  - name: worker
+    image: registry.k8s.io/e2e-test-images/agnhost:2.52
+    args: ["entrypoint-tester"]
+    resources:
+      requests:
+        cpu: "200m"
+        memory: "128Mi"
+      limits:
+        cpu: "200m"
+        memory: "128Mi"
