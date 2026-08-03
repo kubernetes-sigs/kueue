@@ -62,11 +62,16 @@ func (q *secondPassQueue) takeAllReady() []workload.Info {
 	return result
 }
 
-func (q *secondPassQueue) prequeue(obj *kueue.Workload) {
+func (q *secondPassQueue) prequeueIfAbsent(obj *kueue.Workload) bool {
 	q.Lock()
 	defer q.Unlock()
 
-	q.prequeued.Insert(workload.Key(obj))
+	key := workload.Key(obj)
+	if q.prequeued.Has(key) {
+		return false
+	}
+	q.prequeued.Insert(key)
+	return true
 }
 
 func (q *secondPassQueue) queue(w *workload.Info) bool {
