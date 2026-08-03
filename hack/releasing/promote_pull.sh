@@ -209,8 +209,10 @@ function make_pr() {
   rel="$(basename "$1")"
 
   local existing
-  existing=$(gh pr list --repo="${KUBERNETES_K8S_IO_MAIN_REPO}" --head "${GITHUB_USER}:$2" \
-    --state open --json url --jq '.[0].url' 2>/dev/null || true)
+  existing=$(gh pr list --repo="${KUBERNETES_K8S_IO_MAIN_REPO}" --head "$2" --state open \
+    --json url,headRepositoryOwner 2>/dev/null \
+    | jq -r --arg owner "${GITHUB_USER}" \
+      '[.[] | select(.headRepositoryOwner.login == $owner)][0].url // empty' || true)
   if [[ -n "${existing}" ]]; then
     echo
     echo "+++ Pull request already open for ${GITHUB_USER}:$2; the push updated it."
