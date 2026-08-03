@@ -47,11 +47,20 @@ through its existing workload-slicing machinery.
 
 ## Motivation
 
-The [Ray Autoscaler](https://docs.ray.io/en/latest/cluster/kubernetes/user-guides/configuring-autoscaling.html) is the natural way to run elastic Ray workloads: it
-grows and shrinks worker groups in response to the actual resource demands of the
-application (pending tasks, actors, placement groups). Many real workloads depend
-on it — mixed online/offline inference, and training colocated with evaluation in
-a single long-lived RayCluster.
+The [Ray Autoscaler](https://docs.ray.io/en/latest/cluster/kubernetes/user-guides/configuring-autoscaling.html) is the natural way to run elastic Ray
+workloads — it grows and shrinks worker groups in response to the actual resource
+demands of the application:
+
+- Step 1: the user runs a Ray application (submitting tasks, actors, or placement
+  groups) on the RayCluster.
+- Step 2: the Ray Autoscaler observes that demand and decides to scale, editing
+  the RayCluster CR — raising a worker group's `replicas` to add workers, or
+  listing specific pods in `scaleStrategy.workersToDelete` to remove them.
+- Step 3: KubeRay reconciles the updated CR and creates or deletes the worker
+  pods.
+
+Many real workloads depend on it — mixed online/offline inference, and training
+colocated with evaluation in a single long-lived RayCluster.
 
 MultiKueue today supports only a *manager-driven* resize model for such
 workloads, built on the forward sync from
