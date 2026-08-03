@@ -214,3 +214,8 @@
     lockToDefault: true
     preRelease: GA
     version: "0.17"
+- feature: MultiKueueRedoAdmissionOnEvictionInWorker
+  default: true
+  stage: GA
+  from: "0.18"
+  to: "0.20"
