@@ -17,7 +17,7 @@ limitations under the License.
 package queue
 
 import (
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/queue"
@@ -52,7 +52,7 @@ func reportCQPendingWorkloads(m *Manager, cq *ClusterQueue) {
 	}
 	cqCustomLabels := m.customLabels.CQGet(cq.name)
 
-	if m.customLabels.KindConfigured(configapi.SourceKindWorkload) {
+	if m.customLabels.KindConfigured(config.SourceKindWorkload) {
 		// Clear zero count label sets.
 		for _, labelSet := range active.PopZeroCounts() {
 			metrics.ClearPendingWorkloads(cq.name, metrics.PendingStatusActive, labelSet.OrderedList(), m.roleTracker)
@@ -82,9 +82,9 @@ func reportCQPendingWorkloads(m *Manager, cq *ClusterQueue) {
 func reportPendingWorkloadsLoop(m *Manager, cq kueue.ClusterQueueReference, tracker *metrics.LabelValsTracker, pendingStatus string) {
 	cqCustomLabels := m.customLabels.CQGet(cq)
 	for wlLabelVals, count := range tracker.Iter() {
-		customLabels := m.customLabels.CombineLabelValues(map[configapi.SourceKind][]string{
-			configapi.SourceKindClusterQueue: cqCustomLabels,
-			configapi.SourceKindWorkload:     wlLabelVals.OrderedList(),
+		customLabels := m.customLabels.CombineLabelValues(map[config.SourceKind][]string{
+			config.SourceKindClusterQueue: cqCustomLabels,
+			config.SourceKindWorkload:     wlLabelVals.OrderedList(),
 		})
 		metrics.ReportPendingWorkloads(cq, pendingStatus, count, customLabels, m.roleTracker)
 	}

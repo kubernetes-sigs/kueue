@@ -198,42 +198,6 @@ func (cl *CustomLabels) labelStoreIter(srcs []configapi.SourceKind) iter.Seq2[*S
 	}
 }
 
-func (cl *CustomLabels) CQStore(key kueue.ClusterQueueReference, labels, annotations map[string]string) bool {
-	return cl.Store(configapi.SourceKindClusterQueue, string(key), labels, annotations)
-}
-
-func (cl *CustomLabels) CQGet(key kueue.ClusterQueueReference) []string {
-	return cl.Get(configapi.SourceKindClusterQueue, string(key))
-}
-
-func (cl *CustomLabels) CQDelete(key kueue.ClusterQueueReference) {
-	cl.Delete(configapi.SourceKindClusterQueue, string(key))
-}
-
-func (cl *CustomLabels) LQStore(key utilqueue.LocalQueueReference, labels, annotations map[string]string) bool {
-	return cl.Store(configapi.SourceKindLocalQueue, string(key), labels, annotations)
-}
-
-func (cl *CustomLabels) LQGet(key utilqueue.LocalQueueReference) []string {
-	return cl.Get(configapi.SourceKindLocalQueue, string(key))
-}
-
-func (cl *CustomLabels) LQDelete(key utilqueue.LocalQueueReference) {
-	cl.Delete(configapi.SourceKindLocalQueue, string(key))
-}
-
-func (cl *CustomLabels) CohortStore(key kueue.CohortReference, labels, annotations map[string]string) bool {
-	return cl.Store(configapi.SourceKindCohort, string(key), labels, annotations)
-}
-
-func (cl *CustomLabels) CohortGet(key kueue.CohortReference) []string {
-	return cl.Get(configapi.SourceKindCohort, string(key))
-}
-
-func (cl *CustomLabels) CohortDelete(key kueue.CohortReference) {
-	cl.Delete(configapi.SourceKindCohort, string(key))
-}
-
 func newSourceKindLabelStore(sourceKind configapi.SourceKind, labelSpecs []configapi.ControllerMetricsCustomLabel) *SourceKindLabelStore {
 	names, specs := parseLabels(sourceKind, labelSpecs)
 	return &SourceKindLabelStore{
@@ -300,6 +264,42 @@ func (s *SourceKindLabelStore) delete(key ...string) {
 	for _, k := range key {
 		s.values.Delete(k)
 	}
+}
+
+func (cl *CustomLabels) CQStore(key kueue.ClusterQueueReference, labels, annotations map[string]string) bool {
+	return cl.Store(configapi.SourceKindClusterQueue, string(key), labels, annotations)
+}
+
+func (cl *CustomLabels) CQGet(key kueue.ClusterQueueReference) []string {
+	return cl.Get(configapi.SourceKindClusterQueue, string(key))
+}
+
+func (cl *CustomLabels) CQDelete(key kueue.ClusterQueueReference) {
+	cl.Delete(configapi.SourceKindClusterQueue, string(key))
+}
+
+func (cl *CustomLabels) LQStore(key utilqueue.LocalQueueReference, labels, annotations map[string]string) bool {
+	return cl.Store(configapi.SourceKindLocalQueue, string(key), labels, annotations)
+}
+
+func (cl *CustomLabels) LQGet(key utilqueue.LocalQueueReference) []string {
+	return cl.Get(configapi.SourceKindLocalQueue, string(key))
+}
+
+func (cl *CustomLabels) LQDelete(key utilqueue.LocalQueueReference) {
+	cl.Delete(configapi.SourceKindLocalQueue, string(key))
+}
+
+func (cl *CustomLabels) CohortStore(key kueue.CohortReference, labels, annotations map[string]string) bool {
+	return cl.Store(configapi.SourceKindCohort, string(key), labels, annotations)
+}
+
+func (cl *CustomLabels) CohortGet(key kueue.CohortReference) []string {
+	return cl.Get(configapi.SourceKindCohort, string(key))
+}
+
+func (cl *CustomLabels) CohortDelete(key kueue.CohortReference) {
+	cl.Delete(configapi.SourceKindCohort, string(key))
 }
 
 type LabelValsTracker struct {
