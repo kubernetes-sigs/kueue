@@ -17,7 +17,6 @@
     - [RayJob](#rayjob)
     - [Workload-slice naming under annotation reflection](#workload-slice-naming-under-annotation-reflection)
   - [Worker-side resize tolerance](#worker-side-resize-tolerance)
-  - [Handover safety under frequent slice replacement](#handover-safety-under-frequent-slice-replacement)
   - [Retaining enableInTreeAutoscaling on the remote copy](#retaining-enableintreeautoscaling-on-the-remote-copy)
   - [Test Plan](#test-plan)
     - [Prerequisite testing updates](#prerequisite-testing-updates)
@@ -280,17 +279,6 @@ transient mismatch during handover is not treated as divergence:
 - On scale-up, extra pods stay behind scheduling gates and are never admitted
   past quota.
 - On scale-down, the workload briefly over-reserves and is never under-reserved.
-
-### Handover safety under frequent slice replacement
-
-Worker-driven resizing replaces workload slices frequently. When a slice is
-replaced, the manager's MultiKueue reconciler recognizes the old slice only when
-it is finished as `WorkloadSliceReplaced`; a slice mistakenly finished as
-`OutOfSync` slips past that guard and its remote objects are deleted mid-handover,
-which can strand the scaled pods behind scheduling gates. This feature therefore
-depends on the merged
-[#13489](https://github.com/kubernetes-sigs/kueue/pull/13489), which finishes a
-replaced slice as `WorkloadSliceReplaced` and closes that race.
 
 ### Retaining enableInTreeAutoscaling on the remote copy
 
