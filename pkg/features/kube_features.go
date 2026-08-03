@@ -519,6 +519,11 @@ const (
 	// to False during a workload's first reconciliation.
 	// This feature gate requires UnadmittedWorkloadsObservability to be enabled to take effect.
 	UnadmittedWorkloadsExplicitStatus featuregate.Feature = "UnadmittedWorkloadsExplicitStatus"
+
+	// owner: mszadkow
+	//
+	// Rejects Workloads with non-positive TAS slice sizes in PodSet topology requests.
+	TASValidateWorkloadSliceSize featuregate.Feature = "TASValidateWorkloadSliceSize"
 )
 
 func init() {
@@ -803,6 +808,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	UnadmittedWorkloadsExplicitStatus: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	TASValidateWorkloadSliceSize: {
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.21
 	},
 }
 
