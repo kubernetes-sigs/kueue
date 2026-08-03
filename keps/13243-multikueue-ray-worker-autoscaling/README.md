@@ -156,8 +156,21 @@ guarded by an `AutoscalingEnabled` predicate that turns the reverse direction on
 only when the object runs the worker autoscaler. Wiring is validated when the
 adapter is built: if `AutoscalingEnabled` is set, `Runtime` (with both `Fetch` and
 `Apply`) is required. Both RayCluster and RayJob use the same hook — the reflection
-is **annotation-based for both**, leaving the manager spec untouched. Each
-reconcile of an autoscaling object:
+is **annotation-based for both**, leaving the manager spec untouched.
+
+```go
+type RuntimeReplicaSync[PtrT any] struct {
+	// Fetch reads the effective per-worker-group pod counts from the worker
+	// cluster, plus a revision identifying the observed runtime state.
+	Fetch func(ctx context.Context, remoteClient client.Client, remoteJob PtrT) (
+		counts map[kueue.PodSetReference]int32, revision string, found bool, err error)
+	// Apply records them onto the manager copy (as annotations), returning
+	// whether anything changed.
+	Apply func(localJob client.Object, counts map[kueue.PodSetReference]int32, revision string) bool
+}
+```
+
+Each reconcile of an autoscaling object:
 
 1. `Fetch(remoteClient, remoteJob)` reads the effective per-worker-group pod counts
    from the worker cluster, plus a `UID-generation` **revision** of the object that
@@ -181,11 +194,22 @@ The only per-type difference is **where `Fetch` reads the live worker replicas**
 The worker replicas live on the remote RayCluster copy itself, so `Fetch` reads
 that copy directly; the revision is the remote RayCluster's `UID-generation`.
 
+```go
+// RayCluster: Fetch reads the remote RayCluster copy itself.
+revision := fmt.Sprintf("%s-%d", remoteCluster.UID, remoteCluster.Generation)
+```
+
 #### RayJob
 
 The worker replicas live on the **child RayCluster** that KubeRay creates on the
 worker cluster (the child never exists on the manager), so `Fetch` reads the child
 by `status.rayClusterName`; the revision is the child's `UID-generation`.
+
+```go
+// RayJob: Fetch reads the child RayCluster (status.rayClusterName) on the worker.
+child := getRemoteChild(remoteJob.Status.RayClusterName)
+revision := fmt.Sprintf("%s-%d", child.UID, child.Generation)
+```
 
 #### Workload-slice naming under annotation reflection
 
@@ -199,6 +223,18 @@ fold the `raycluster-generation` revision into the slice name
 reflected worker `UID-generation`, which advances on every worker-side resize. The
 UID component keeps the name unique across a remote recreation, whose generation
 restarts from 1.
+
+```go
+func GetWorkloadNameExtraPart(obj metav1.Object) string {
+	extra := strconv.FormatInt(obj.GetGeneration(), 10) // manager generation (frozen under annotation reflection)
+	if rev := obj.GetAnnotations()[RayClusterGenerationAnnotation]; rev != "" {
+		extra += "_" + rev // reflected worker UID-generation, advances on every resize
+	}
+	return extra
+}
+
+// slice name = <kind>-<name>-sha1(Kind "\n" Group "\n" name "\n" UID "\n" extra)[:5]
+```
 
 ### Worker-side resize tolerance
 
