@@ -646,6 +646,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	ReclaimablePods: {
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
 	},
+	PropagateBatchJobLabelsToWorkload: {
+	  {Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Deprecated},
+  },
 	MultiKueueClusterProfile: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
 	},

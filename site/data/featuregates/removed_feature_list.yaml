@@ -210,6 +210,11 @@
   to: "0.19"
 - feature: PropagateBatchJobLabelsToWorkload
   default: true
+  stage: Beta
+  from: "0.15"
+  to: "0.20"
+- feature: PropagateBatchJobLabelsToWorkload
+  default: true
   stage: GA
   from: "0.17"
-  to: "0.19"
+  to: "0.20"
