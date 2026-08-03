@@ -1470,3 +1470,44 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 		})
 	}
 }
+
+func TestDefault(t *testing.T) {
+	testCases := map[string]struct {
+		workload                  *kueue.Workload
+		wantNominatedClusterNames []string
+	}{
+		"clears nominatedClusterNames when workload is evicted": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				EvictedAt(time.Now()).
+				NominatedClusterNames("worker1", "worker2").
+				Obj(),
+			wantNominatedClusterNames: nil,
+		},
+		"clears nominatedClusterNames when workload is admitted": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), time.Now()).
+				NominatedClusterNames("worker1", "worker2").
+				Obj(),
+			wantNominatedClusterNames: nil,
+		},
+		"preserves nominatedClusterNames when workload is neither admitted nor evicted": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				NominatedClusterNames("worker1", "worker2").
+				Obj(),
+			wantNominatedClusterNames: []string{"worker1", "worker2"},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			wl := tc.workload.DeepCopy()
+			wh := &WorkloadWebhook{}
+			if err := wh.Default(t.Context(), wl); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if diff := cmp.Diff(tc.wantNominatedClusterNames, wl.Status.NominatedClusterNames); diff != "" {
+				t.Errorf("unexpected nominatedClusterNames (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
