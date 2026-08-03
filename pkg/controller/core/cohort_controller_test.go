@@ -108,7 +108,7 @@ func TestCohortReconcileCohortNotFoundIdempotentDelete(t *testing.T) {
 	}
 }
 
-func TestCohortReconcileCycleReturnsError(t *testing.T) {
+func TestCohortReconcileCycleReturnsSuccess(t *testing.T) {
 	cohortA := utiltestingapi.MakeCohort("cohort-a").Parent("cohort-b").Obj()
 	cohortB := utiltestingapi.MakeCohort("cohort-b").Parent("cohort-a").Obj()
 	cl := utiltesting.NewClientBuilder().
@@ -128,12 +128,12 @@ func TestCohortReconcileCycleReturnsError(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// cycle added, returns an error
+	// Cycles are persisted in the scheduler cache and handled without retrying.
 	if _, err := reconciler.Reconcile(
 		ctx,
 		reconcile.Request{NamespacedName: client.ObjectKeyFromObject(cohortB)},
-	); err == nil {
-		t.Fatal("expected error when adding cycle")
+	); err != nil {
+		t.Fatalf("unexpected error when adding cycle: %v", err)
 	}
 
 	// remove cycle, no error
@@ -173,10 +173,10 @@ func TestCohortReconcileCycleCacheSnapshotBehavior(t *testing.T) {
 		t.Fatalf("unexpected error reconciling cohort-a: %v", err)
 	}
 
-	// Reconcile cohort-b: B -> A closes the cycle. Cache returns error, reconciler propagates it.
-	// qManager.AddOrUpdateCohort is NOT called (early return on error).
-	if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(cohortB)}); err == nil {
-		t.Fatal("expected error when adding cycle")
+	// Reconcile cohort-b: B -> A closes the cycle. The reconciler handles the
+	// scheduler-cache cycle error without retrying or updating the queue manager.
+	if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(cohortB)}); err != nil {
+		t.Fatalf("unexpected error when adding cycle: %v", err)
 	}
 
 	// During cycle: Snapshot excludes both cohorts.
