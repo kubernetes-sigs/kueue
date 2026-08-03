@@ -113,13 +113,21 @@ which feed the manager's PodSets derivation and the workload-slice name.
 
 ### User Stories
 
-#### Story 1: Online/offline inference
+#### Story 1: Multi-modal inference
 
-A team runs a long-lived RayCluster serving online inference, with the in-tree
-autoscaler adding worker replicas as offline batch inference demand spikes and
-removing them when it subsides. They want Kueue/MultiKueue to place this cluster
-on a worker cluster with spare quota and keep the manager's quota books accurate
-as the autoscaler resizes it — without the manager fighting the autoscaler.
+A multi-modal inference pipeline processes data through stages with very different
+resource needs — for example, CPU workers for image decoding and GPU workers for
+captioning. Ray's autoscaler sizes each worker group independently to match
+per-stage demand:
+
+- Online inference is served by a long-lived `RayService`; its worker groups scale
+  up as request load rises and back down when it subsides.
+- Offline / batch inference runs as a `RayCluster` or `RayJob`; its worker groups
+  scale with the batch in flight.
+
+The team wants Kueue/MultiKueue to place these workloads on a worker cluster with
+spare quota and keep the manager's quota books accurate as the autoscaler resizes
+each worker group — without the manager fighting the autoscaler.
 
 #### Story 2: Colocated training and evaluation
 
