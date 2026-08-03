@@ -149,19 +149,21 @@ func determineStatusUpdate(ctx context.Context, log logr.Logger, localJob, remot
 	//    we manually patch a "JobSuspended=True" condition to unblock further spec updates.
 	// Once we're on a K8s version unaffected by #3, the "if" block below can be removed.
 
-	if !isJobStatusConditionTrue(localJob.Status.Conditions, batchv1.JobSuspended) {
-		newLocalStatus := localJob.Status.DeepCopy()
-		newLocalStatus.Conditions = setJobStatusCondition(newLocalStatus.Conditions,
-			batchv1.JobCondition{
-				Type:               batchv1.JobSuspended,
-				Status:             corev1.ConditionTrue,
-				Reason:             "MultiKueueAdapter",
-				Message:            "Set by MultiKueue adapter",
-				LastTransitionTime: metav1.Now(),
-				LastProbeTime:      metav1.Now(),
-			})
-		log.V(2).Info("Updating the suspended local Job to comply with Kubernetes validation rules", "oldStatus", localJob.Status, "newStatus", newLocalStatus)
-		return newLocalStatus, true
+	if !features.Enabled(features.MultiKueueJobSuspendedWorkaroundDisabled) {
+		if !isJobStatusConditionTrue(localJob.Status.Conditions, batchv1.JobSuspended) {
+			newLocalStatus := localJob.Status.DeepCopy()
+			newLocalStatus.Conditions = setJobStatusCondition(newLocalStatus.Conditions,
+				batchv1.JobCondition{
+					Type:               batchv1.JobSuspended,
+					Status:             corev1.ConditionTrue,
+					Reason:             "MultiKueueAdapter",
+					Message:            "Set by MultiKueue adapter",
+					LastTransitionTime: metav1.Now(),
+					LastProbeTime:      metav1.Now(),
+				})
+			log.V(2).Info("Updating the suspended local Job to comply with Kubernetes validation rules", "oldStatus", localJob.Status, "newStatus", newLocalStatus)
+			return newLocalStatus, true
+		}
 	}
 
 	return &localJob.Status, true
