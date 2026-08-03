@@ -504,7 +504,16 @@ func (r *Reconciler) syncReplicas(
 	wl *kueue.Workload,
 	replicas int32,
 ) (shouldUpdateWl bool, stopReconcile bool, err error) {
-	if replicas == 0 || len(wl.Spec.PodSets) != 1 || wl.Spec.PodSets[0].Count == replicas {
+	if replicas == 0 || len(wl.Spec.PodSets) != 1 {
+		return false, false, nil
+	}
+
+	if wl.Spec.PodSets[0].Count == replicas {
+		if len(wl.Status.ReclaimablePods) > 0 {
+			if err := workload.UpdateReclaimablePods(ctx, r.client, wl, nil); err != nil {
+				return false, false, err
+			}
+		}
 		return false, false, nil
 	}
 
