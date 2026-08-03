@@ -35,18 +35,26 @@ import (
 var _ = ginkgo.Describe("Kueuectl", ginkgo.Label("area:singlecluster", "feature:kueuectl"), func() {
 	var (
 		ns *corev1.Namespace
+		rf *kueue.ResourceFlavor
 		cq *kueue.ClusterQueue
 	)
 
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
 
-		cq = utiltestingapi.MakeClusterQueue("e2e-cq-" + ns.Name).Obj()
+		rf = utiltestingapi.MakeResourceFlavor("e2e-rf-" + ns.Name).Obj()
+		util.MustCreate(ctx, k8sClient, rf)
+
+		cq = utiltestingapi.MakeClusterQueue("e2e-cq-" + ns.Name).
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).
+				Resource(corev1.ResourceCPU, "1").Obj()).
+			Obj()
 		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
 		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 

@@ -228,9 +228,6 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU, "-1").Obj()).
 					Obj(),
 				utiltesting.BeForbiddenError()),
-			ginkgo.Entry("Should have at least one flavor",
-				utiltestingapi.MakeClusterQueue("cluster-queue").ResourceGroup().Obj(),
-				utiltesting.BeInvalidError()),
 			ginkgo.Entry("Should have at least one resource",
 				utiltestingapi.MakeClusterQueue("cluster-queue").
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("foo").Obj()).

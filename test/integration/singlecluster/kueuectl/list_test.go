@@ -175,15 +175,25 @@ very-long-local-queue-name   cq1                            0                   
 
 	ginkgo.When("List ClusterQueue", func() {
 		var (
+			rf  *kueue.ResourceFlavor
 			cq1 *kueue.ClusterQueue
 			cq2 *kueue.ClusterQueue
 		)
 
 		ginkgo.JustBeforeEach(func() {
-			cq1 = utiltestingapi.MakeClusterQueue("cq1").Obj()
+			rf = utiltestingapi.MakeResourceFlavor("default").Obj()
+			util.MustCreate(ctx, k8sClient, rf)
+
+			cq1 = utiltestingapi.MakeClusterQueue("cq1").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).
+					Resource(corev1.ResourceCPU, "0").Obj()).
+				Obj()
 			util.MustCreate(ctx, k8sClient, cq1)
 
-			cq2 = utiltestingapi.MakeClusterQueue("very-long-cluster-queue-name").Obj()
+			cq2 = utiltestingapi.MakeClusterQueue("very-long-cluster-queue-name").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).
+					Resource(corev1.ResourceCPU, "0").Obj()).
+				Obj()
 			util.MustCreate(ctx, k8sClient, cq2)
 
 			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq1, cq2)
@@ -192,6 +202,7 @@ very-long-local-queue-name   cq1                            0                   
 		ginkgo.JustAfterEach(func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq1, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq2, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
 		})
 
 		// Simple client set that are using on unit tests not allow to filter by field selector.
