@@ -2087,10 +2087,11 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 	baseWorkloadNotNeedingSecondPass := baseWorkloadBuilder.Clone()
 
 	cases := map[string]struct {
-		workloads      []*kueue.Workload
-		updateWorkload *kueue.Workload
-		passTime       time.Duration
-		wantReady      sets.Set[workload.Reference]
+		workloads        []*kueue.Workload
+		updateWorkload   *kueue.Workload
+		wantUpdateQueued *bool
+		passTime         time.Duration
+		wantReady        sets.Set[workload.Reference]
 	}{
 		"single queued workload checked immediately": {
 			workloads: []*kueue.Workload{
@@ -2112,8 +2113,9 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 			updateWorkload: baseWorkloadNeedingSecondPass.Clone().
 				EvictedAt(now).
 				Obj(),
-			passTime:  time.Second,
-			wantReady: nil,
+			wantUpdateQueued: new(false),
+			passTime:         time.Second,
+			wantReady:        nil,
 		},
 		"two queued workloads, one evicted before second pass": {
 			workloads: []*kueue.Workload{
@@ -2124,8 +2126,18 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 				Name("first").
 				EvictedAt(now).
 				Obj(),
-			passTime:  time.Second,
-			wantReady: sets.New(workload.NewReference("default", "second")),
+			wantUpdateQueued: new(false),
+			passTime:         time.Second,
+			wantReady:        sets.New(workload.NewReference("default", "second")),
+		},
+		"one workload gets queued twice, don't queue if already in present in queue": {
+			workloads: []*kueue.Workload{
+				baseWorkloadNeedingSecondPass.Clone().Obj(),
+			},
+			updateWorkload:   baseWorkloadNeedingSecondPass.Clone().Obj(),
+			wantUpdateQueued: new(false),
+			passTime:         time.Second,
+			wantReady:        sets.New(workload.Key(baseWorkloadNeedingSecondPass.Obj())),
 		},
 	}
 
@@ -2145,7 +2157,10 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 			}
 
 			if tc.updateWorkload != nil {
-				manager.QueueSecondPassIfNeeded(ctx, tc.updateWorkload, 1)
+				got := manager.QueueSecondPassIfNeeded(ctx, tc.updateWorkload, 1)
+				if tc.wantUpdateQueued != nil && got != *tc.wantUpdateQueued {
+					t.Errorf("Unexpected return from QueueSecondPassIfNeeded for updateWorkload: want %v, got %v", *tc.wantUpdateQueued, got)
+				}
 			}
 
 			fakeClock.Step(tc.passTime)
