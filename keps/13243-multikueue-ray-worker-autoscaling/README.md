@@ -56,12 +56,6 @@ workloads, built on the forward sync from
 - Step 2: MultiKueue forward-syncs the new count to the worker copy.
 - Step 3: the worker's KubeRay adjusts the worker pods to match.
 
-The worker's own Ray Autoscaler — the component that actually observes task/actor
-demand — cannot be used at all: MultiKueue **rejects** `enableInTreeAutoscaling`
-for a MultiKueue-managed elastic RayCluster at admission
-([#13244](https://github.com/kubernetes-sigs/kueue/pull/13244)), because there is
-no path for a worker-side autoscaler resize to reach the manager.
-
 But the [Ray Autoscaler](https://docs.ray.io/en/latest/cluster/kubernetes/user-guides/configuring-autoscaling.html)
 is the natural way to run these workloads — it grows and shrinks worker groups in
 response to the actual resource demands of the application:
@@ -75,10 +69,10 @@ response to the actual resource demands of the application:
   pods.
 
 Many real workloads depend on it — mixed online/offline inference, and training
-colocated with evaluation in a single long-lived RayCluster. Blocking it is a
-reasonable stopgap, but it shuts out every such use case. To unblock them, the
-resize decision must be allowed to *originate on the worker* and flow back to the
-manager, which remains the quota authority.
+colocated with evaluation in a single long-lived RayCluster. The manager-driven-only
+model shuts out every such use case. To unblock them, the resize decision must be
+allowed to *originate on the worker* and flow back to the manager, which remains
+the quota authority.
 
 ### Goals
 
