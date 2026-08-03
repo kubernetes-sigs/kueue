@@ -1,5 +1,6 @@
 # KEP-13345: Support centralized scheduling and quota management in MultiKueue
 
+<!-- toc -->
 - [Summary](#summary)
 - [Motivation](#motivation)
   - [Goals](#goals)
@@ -9,6 +10,7 @@
     - [Story 1: Global Fair Sharing](#story-1-global-fair-sharing)
     - [Story 2: Cross-Cluster Preemption](#story-2-cross-cluster-preemption)
   - [Risks and Mitigations](#risks-and-mitigations)
+- [Drawbacks](#drawbacks)
 - [Design Details](#design-details)
   - [Remote Inventory Sync](#remote-inventory-sync)
   - [Manager-Authoritative Placement](#manager-authoritative-placement)
@@ -16,6 +18,7 @@
   - [Test Plan](#test-plan)
   - [Graduation Criteria](#graduation-criteria)
 - [Alternatives](#alternatives)
+<!-- /toc -->
 
 ## Summary
 
