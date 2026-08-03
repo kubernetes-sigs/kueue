@@ -975,6 +975,9 @@ func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload
 	log := ctrl.LoggerFrom(ctx)
 	wlKey := workload.Key(w)
 	if workload.NeedsSecondPass(w) {
+		if m.secondPassQueue.prequeued.Has(wlKey) {
+			return false
+		}
 		iteration++
 		delay := m.secondPassQueue.nextDelay(iteration)
 		log.V(3).Info("Workload pre-queued for second pass (with backoff)", "workload", wlKey, "delay", delay)
