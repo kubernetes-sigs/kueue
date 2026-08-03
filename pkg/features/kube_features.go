@@ -234,12 +234,6 @@ const (
 	// Enables reclaimable pods counting towards quota.
 	ReclaimablePods featuregate.Feature = "ReclaimablePods"
 
-	// owner: @yaroslva-serdiuk
-	//
-	// issue: https://github.com/kubernetes-sigs/kueue/issues/7597
-	// Do not remove job-name label from Workload PodTemplate object.
-	PropagateBatchJobLabelsToWorkload featuregate.Feature = "PropagateBatchJobLabelsToWorkload"
-
 	// owner: @hdp617
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/693-multikueue
 	//
@@ -651,10 +645,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	ReclaimablePods: {
-		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
-	},
-	// PropagateBatchJobLabelsToWorkload is enabled from 0.13.10 and 0.14.5.
-	PropagateBatchJobLabelsToWorkload: {
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
 	},
 	MultiKueueClusterProfile: {
