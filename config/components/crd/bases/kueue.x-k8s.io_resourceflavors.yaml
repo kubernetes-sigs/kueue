@@ -189,9 +189,6 @@ spec:
             x-kubernetes-validations:
             - message: at least one nodeLabel is required when topology is set
               rule: '!has(self.topologyName) || self.nodeLabels.size() >= 1'
-            - message: nodeLabels are immutable when topologyName is set
-              rule: '!has(oldSelf.topologyName) || (has(self.nodeLabels) == has(oldSelf.nodeLabels)
-                && (!has(self.nodeLabels) || self.nodeLabels == oldSelf.nodeLabels))'
             - message: topologyName is immutable when topologyName is set
               rule: '!has(oldSelf.topologyName) || (has(self.topologyName) && self.topologyName
                 == oldSelf.topologyName)'
@@ -367,9 +364,6 @@ spec:
             x-kubernetes-validations:
             - message: at least one nodeLabel is required when topology is set
               rule: '!has(self.topologyName) || self.nodeLabels.size() >= 1'
-            - message: nodeLabels are immutable when topologyName is set
-              rule: '!has(oldSelf.topologyName) || (has(self.nodeLabels) == has(oldSelf.nodeLabels)
-                && (!has(self.nodeLabels) || self.nodeLabels == oldSelf.nodeLabels))'
             - message: topologyName is immutable when topologyName is set
               rule: '!has(oldSelf.topologyName) || (has(self.topologyName) && self.topologyName
                 == oldSelf.topologyName)'

@@ -80,17 +80,20 @@ func (t *tasCache) AddOrUpdateFlavor(flavor *kueue.ResourceFlavor) {
 	defer t.Unlock()
 	name := kueue.ResourceFlavorReference(flavor.Name)
 	tolerations := slices.Clone(flavor.Spec.Tolerations)
+	nodeLabels := maps.Clone(flavor.Spec.NodeLabels)
 	if flavorInfo, ok := t.flavors[name]; ok {
 		flavorInfo.Tolerations = tolerations
+		flavorInfo.NodeLabels = nodeLabels
 		t.flavors[name] = flavorInfo
 		if flavorCache, ok := t.flavorCache[name]; ok {
 			flavorCache.updateTolerations(tolerations)
+			flavorCache.updateNodeLabels(nodeLabels)
 		}
 		return
 	}
 	flavorInfo := flavorInformation{
 		TopologyName: *flavor.Spec.TopologyName,
-		NodeLabels:   maps.Clone(flavor.Spec.NodeLabels),
+		NodeLabels:   nodeLabels,
 		Tolerations:  tolerations,
 	}
 	t.flavors[name] = flavorInfo
